@@ -70,7 +70,6 @@ from src.tournaments.reports import (
     ReportCardError,
     render_html,
 )
-from src.tournaments.reports.render_csv import csv_safe
 from src.tournaments.reports.ui import (
     derive_export_filenames,
     ensure_report_card,
@@ -89,15 +88,20 @@ from src.tournaments.roster_resolver import (
     make_provider_id_lookup,
     make_team_details_lookup,
     resolve_manual_reference,
-    resolve_roster,
     search_gotsport_teams,
-    summarize,
 )
 from src.tournaments.run_orchestrator import (
     ProgressEvent,
     execute_run,
     override_in_cohort,
     preflight,
+)
+from src.tournaments.seeding_assessment import (
+    age_number,
+    carry_decisions,
+    effective_roster,
+    package_roster,
+    source_fingerprint,
 )
 from src.tournaments.seeding_enqueue import (
     enqueue_resolved_teams,
@@ -187,12 +191,12 @@ logger = logging.getLogger(__name__)
 # renders its title and caption again halfway down, below the Intake section.
 if __name__ == "__main__":
     st.set_page_config(
-        page_title="MatchBalance · Backtest Intake",
+        page_title="MatchBalance",
         page_icon="⚽",
         layout="wide",
         initial_sidebar_state="collapsed",
     )
-    st.title("⚽ MatchBalance · Backtest Intake")
+    st.title("⚽ MatchBalance")
     st.caption(f"Version {VERSION} | Powered by {PROJECT_NAME}")
 
 
@@ -3484,7 +3488,7 @@ def _render_cohort_containers(
 
 
 # ---------------------------------------------------------------------------
-# Seeding intake — paste an accepted-teams list for an unplayed tournament
+# MatchBalance Seeding intake
 # ---------------------------------------------------------------------------
 
 _VIEWS: tuple[str, ...] = ("Backtest", "Seeding")
@@ -3639,7 +3643,10 @@ def _seeding_provider_id_lookup(supabase_client: Any) -> ProviderIdLookup:
     queries ``teams`` filtered to ``is_deprecated=False``, so a merged-away row
     is already excluded before any resolution would run.
     """
-    return make_provider_id_lookup(supabase_client, _seeding_merge_resolver(supabase_client))
+    resolver = _seeding_merge_resolver(supabase_client)
+    if not _merge_map_loaded(resolver):
+        raise RuntimeError("Team identity data is temporarily unavailable; retry matching.")
+    return make_provider_id_lookup(supabase_client, resolver)
 
 
 def _run_seeding_resolve(text: str, supabase_client: Any) -> bool:
@@ -3649,34 +3656,21 @@ def _run_seeding_resolve(text: str, supabase_client: Any) -> bool:
         st.warning("No team rows found. Each block of teams needs a heading above it, such as 'Male U14'.")
         return False
 
-    session = requests.Session()
-    progress = st.progress(0.0, text=f"Looking up 0 of {len(parsed.rows)} teams...")
-
-    def on_progress(done: int, total: int) -> None:
-        progress.progress(done / total, text=f"Looking up {done} of {total} teams...")
-
-    try:
-        resolved = resolve_roster(
-            parsed.rows,
-            gotsport_search=lambda name, age_group, gender: search_gotsport_teams(
-                name, age_group, gender, session=session
-            ),
-            lookup_provider_id=_seeding_provider_id_lookup(supabase_client),
-            lookup_exact_name=make_exact_name_lookup(supabase_client),
-            lookup_team_details=(make_team_details_lookup(supabase_client) if supabase_client is not None else None),
-            delay_seconds=_SEEDING_LOOKUP_DELAY_SECONDS,
-            on_progress=on_progress,
-        )
-    except requests.RequestException as exc:
-        st.error(f"GotSport lookup failed: {exc}")
+    if st.session_state.get("_seeding_result") and not _autosave_seeding_run():
+        st.error("Name and save the current run before replacing its roster.")
         return False
-    finally:
-        progress.empty()
-        session.close()
-
+    resolved = tuple(ResolvedTeam(row.source_index, "unresolved") for row in parsed.rows)
+    _reset_seeding_review_widgets()
+    st.session_state["_seeding_assessment"] = {
+        "coverage": "complete" if st.session_state.get("_seeding_paste_complete") else "unknown",
+        "source_kind": "Paste team list", "source_url": "", "completed": [],
+        "fingerprint": source_fingerprint(parsed.rows),
+    }
+    st.session_state["_seeding_cohort_decisions"] = {}
     st.session_state._seeding_overrides = {}
-    st.session_state._seeding_resolution_failed = False
     _park_seeding_result((parsed, resolved), event_id=None)
+    _autosave_seeding_run()
+    _run_seeding_name_lookup(parsed, resolved, supabase_client)
     return True
 
 
@@ -3712,6 +3706,10 @@ def _run_event_roster_scrape(
     event_id = event_id_from(url)
     if not event_id:
         st.error("That does not look like a GotSport event URL or id: " + _as_plain_text(url))
+        return
+
+    if keys == _SEEDING_KEYS and st.session_state.get(keys.result) and not _autosave_seeding_run():
+        st.error("Name and save the current run before importing a replacement roster.")
         return
 
     parked = 0
@@ -3841,6 +3839,30 @@ def _park_event_roster(
     )
     parsed, resolved = to_seeding_rows(roster, master_ids, resolve_warnings)
 
+    carried_overrides, carried_decisions = {}, {}
+    if keys == _SEEDING_KEYS:
+        _reset_seeding_review_widgets()
+        previous = st.session_state.get(keys.result)
+        if previous and str(st.session_state.get(keys.result_event_id)) == str(roster.event_id):
+            carried_overrides, carried_decisions = carry_decisions(
+                previous[0].rows, parsed.rows, st.session_state.get(keys.overrides, {}),
+                st.session_state.get("_seeding_cohort_decisions", {}),
+            )
+        resolved = tuple(
+            ResolvedTeam(item.source_index, "unresolved")
+            if item.source_index not in carried_overrides and
+            carried_decisions.get(item.source_index, {}).get("team_name_raw", row.team_name_raw) != row.team_name_raw
+            else item
+            for row, item in zip(parsed.rows, resolved)
+        )
+        st.session_state["_seeding_assessment"] = {
+            "coverage": "complete" if roster.is_complete else "partial",
+            "source_kind": "GotSport event", "source_url": url, "event_id": roster.event_id,
+            "completed": [item.source_index for item in resolved if item.team_id_master],
+            "fingerprint": source_fingerprint(parsed.rows),
+        }
+        st.session_state["_seeding_cohort_decisions"] = carried_decisions
+
     if keys == _BACKTEST_KEYS:
         from src.tournaments.backtest_intake_state import BacktestSnapshot
 
@@ -3879,7 +3901,7 @@ def _park_event_roster(
     }
     # Not `keys.loaded_slug`: that is what stops the resume selector from
     # reloading the saved run it still has selected over this fresh scrape.
-    st.session_state[keys.overrides] = {}
+    st.session_state[keys.overrides] = carried_overrides
     st.session_state[keys.sheet_html] = None
 
     if not roster.teams:
@@ -4146,6 +4168,61 @@ def _recovered_division(payload: Any) -> ScrapedDivision:
     return division_from_dict(payload)
 
 
+def _enrich_seeding_names(resolved: Sequence[ResolvedTeam], client: Any) -> tuple[ResolvedTeam, ...]:
+    """Batch missing display names without changing authoritative ID matches."""
+    ids = list(dict.fromkeys(item.team_id_master for item in resolved if item.team_id_master and not item.matched_name))
+    names = {}
+    for offset in range(0, len(ids), 100):
+        rows = client.table("teams").select("team_id_master,team_name").in_(
+            "team_id_master", ids[offset:offset + 100]
+        ).execute().data or []
+        names.update({row["team_id_master"]: row.get("team_name") for row in rows})
+    return tuple(replace(item, matched_name=names.get(item.team_id_master) or item.matched_name) for item in resolved)
+
+
+def _resolve_seeding_incrementally(parsed, resolved, client):
+    """Publish each successful lookup before starting the next network request."""
+    metadata = dict(st.session_state.get("_seeding_assessment") or {})
+    metadata.setdefault("event_id", st.session_state.get("_seeding_result_event_id"))
+    completed = set(metadata.get("completed", []))
+    overrides = st.session_state.get("_seeding_overrides", {})
+    effective = effective_roster(parsed, st.session_state.get("_seeding_cohort_decisions", {}))
+    eligible = {row.source_index for row in effective.rows if not row.intake_issue and
+                (age_number(row) is None or age_number(row) >= 10)}
+    indices = [index for index in needs_name_lookup(effective, resolved)
+               if index not in completed and index not in overrides and index in eligible]
+    st.session_state["_seeding_resolution_failed"] = True
+    session = requests.Session()
+    current = tuple(resolved)
+    try:
+        with st.spinner(f"Matching {len(indices)} remaining teams..."):
+            lookup = _seeding_provider_id_lookup(client) if indices else None
+            for index in indices:
+                current = resolve_unlinked(
+                    effective, current, indices=[index],
+                    gotsport_search=lambda name, age, gender: search_gotsport_teams(name, age, gender, session=session),
+                    lookup_provider_id=lookup, lookup_exact_name=make_exact_name_lookup(client),
+                    lookup_team_details=make_team_details_lookup(client) if client is not None else None,
+                    delay_seconds=_SEEDING_LOOKUP_DELAY_SECONDS,
+                )
+                # Publish result before marking the request finished. An interrupted
+                # write can cause a harmless retry, never claim missing work finished.
+                _park_seeding_result((parsed, current), event_id=metadata.get("event_id"))
+                completed.add(index)
+                metadata["completed"] = sorted(completed)
+                st.session_state["_seeding_assessment"] = dict(metadata)
+                _autosave_seeding_run(archive_previous=False)
+            current = _enrich_seeding_names(current, client)
+            _park_seeding_result((parsed, current), event_id=metadata.get("event_id"))
+        st.session_state["_seeding_resolution_failed"] = False
+    except Exception as exc:
+        logger.warning("Seeding lookup stopped: %s", redact_secret(exc, SUPABASE_SERVICE_ROLE_KEY or ""))
+        st.info("Matching paused because a lookup failed. Your roster and completed matches are kept. Retry below.")
+    finally:
+        session.close()
+    _autosave_seeding_run()
+
+
 def _run_seeding_name_lookup(
     parsed: ParsedRoster,
     resolved: Sequence[ResolvedTeam],
@@ -4160,6 +4237,9 @@ def _run_seeding_name_lookup(
     ``ValueError`` and ``KeyError`` covers, and anything escaping here would
     discard a roster that has already been paid for.
     """
+    if keys == _SEEDING_KEYS:
+        _resolve_seeding_incrementally(parsed, resolved, supabase_client)
+        return
     snapshot = st.session_state.get(keys.snapshot) if keys == _BACKTEST_KEYS else None
     if keys == _BACKTEST_KEYS:
         if snapshot is None:
@@ -4271,7 +4351,7 @@ def _seeding_result_frame(
     duplicates = duplicate_identity_rows(parsed.rows, resolved, overrides)
     records = []
     for row in parsed.rows:
-        item = by_index[row.source_index]
+        item = by_index.get(row.source_index, ResolvedTeam(row.source_index, "unresolved"))
         status_key, matched_name, team_id_master = _seeding_row_outcome(row, item, overrides)
         duplicate_indices = duplicates.get(row.source_index, ())
         review_notes = [item.review_reason] if item.review_reason else []
@@ -4290,14 +4370,22 @@ def _seeding_result_frame(
                 "Team": row.team_name_raw,
                 "Requested flight": row.requested_flight,
                 "Listed division": row.listed_division,
-                "Status": _SEEDING_STATUS_LABEL[status_key],
-                "Matched to": matched_name,
+                "Status": (
+                    "Awaiting lookup" if status_key == "unresolved"
+                    and "completed" in st.session_state.get("_seeding_assessment", {})
+                    and row.source_index not in st.session_state["_seeding_assessment"]["completed"]
+                    else _SEEDING_STATUS_LABEL[status_key]
+                ),
+                "PitchRank team name": matched_name,
                 "Review": " ".join(review_notes),
                 "team_id_master": team_id_master,
                 "Candidates": "; ".join(_seeding_candidate_label(candidate) for candidate in item.candidates),
             }
         )
-    return pd.DataFrame(records)
+    return pd.DataFrame(records, columns=[
+        "#", "Cohort", "Club", "Team", "Requested flight", "Listed division", "Status",
+        "PitchRank team name", "Review", "team_id_master", "Candidates",
+    ])
 
 
 def _render_seeding_override(
@@ -4337,12 +4425,15 @@ def _render_seeding_override(
         if not pasted:
             return
 
-        outcome = resolve_manual_reference(
-            pasted,
-            row,
-            lookup_provider_id=_seeding_provider_id_lookup(supabase_client),
-            lookup_team_details=make_team_details_lookup(supabase_client),
-        )
+        try:
+            outcome = resolve_manual_reference(
+                pasted, row,
+                lookup_provider_id=_seeding_provider_id_lookup(supabase_client),
+                lookup_team_details=make_team_details_lookup(supabase_client),
+            )
+        except Exception:
+            st.error("Team lookup is temporarily unavailable. Your existing matches are kept; try again.")
+            return
         if outcome.status == "unrecognized":
             st.error(
                 "Not a link or id I can read. Paste a rankings.gotsport.com link, its number, "
@@ -4384,7 +4475,7 @@ def _seeding_run_name() -> str:
     return str(st.session_state.get("seeding_event_name") or "").strip()
 
 
-def _autosave_seeding_run() -> bool:
+def _autosave_seeding_run(*, archive_previous: bool = True) -> bool:
     """Persist the run, reporting whether it actually landed.
 
     Silent when unnamed: a run has to be called something before it can have a
@@ -4397,8 +4488,14 @@ def _autosave_seeding_run() -> bool:
     if not name or not result:
         return False
     parsed, resolved = result
+    metadata = st.session_state.get("_seeding_assessment", {})
+    if not _seeding_context_matches(parsed, metadata):
+        st.warning("The import was interrupted. Reopen the saved run or captured event before saving.")
+        return False
+    decisions = st.session_state.get("_seeding_cohort_decisions", {})
+    effective = package_roster(effective_roster(parsed, decisions))
     pack = st.session_state.get("_seeding_pack")
-    if not pack_matches(pack, parsed.rows, resolved, st.session_state._seeding_overrides):
+    if not pack_matches(pack, effective.rows, resolved, st.session_state._seeding_overrides):
         pack = None
     try:
         save_seeding_run_file(
@@ -4409,29 +4506,46 @@ def _autosave_seeding_run() -> bool:
                 overrides=dict(st.session_state._seeding_overrides),
                 warnings=parsed.warnings,
                 pack=pack,
-                source_url=str(st.session_state.get("seeding_event_url") or "").strip(),
-            )
+                source_url=str(st.session_state.get("_seeding_assessment", {}).get("source_url") or ""),
+                assessment=dict(st.session_state.get("_seeding_assessment") or {}),
+                cohort_decisions=dict(decisions),
+            ),
+            archive_previous=archive_previous,
         )
     except (OSError, ValueError, TypeError) as exc:
+        st.session_state["_seeding_save_error"] = True
         st.warning(f"Could not save this run: {exc}")
         return False
+    st.session_state["_seeding_save_error"] = False
     return True
 
 
-def _load_seeding_run(slug: str) -> None:
+def _load_seeding_run(slug: str, client: Any = None) -> bool:
     try:
         run = load_seeding_run_file(slug)
     except (OSError, ValueError, TypeError) as exc:
         st.error(f"Could not open that run: {exc}")
-        return
-    _park_seeding_result(
-        (ParsedRoster(rows=run.rows, warnings=run.warnings), run.resolved), event_id=None
-    )
+        return False
+    if client is not None:
+        try:
+            run = replace(run, resolved=_enrich_seeding_names(run.resolved, client))
+        except Exception:
+            st.info("Saved matches loaded. PitchRank names can be retried below.")
+    metadata = dict(run.assessment) or {
+        "coverage": "unknown", "source_url": run.source_url,
+        "event_id": event_id_from(run.source_url),
+        "source_kind": "GotSport event" if run.source_url else "Paste team list",
+    }
+    metadata["fingerprint"] = source_fingerprint(run.rows)
+    st.session_state["_seeding_assessment"] = metadata
     st.session_state._seeding_overrides = dict(run.overrides)
-    st.session_state._seeding_pack = run.pack
-    st.session_state._seeding_resolution_failed = False
+    st.session_state["_seeding_cohort_decisions"] = dict(run.cohort_decisions)
+    completed = run.assessment.get("completed")
+    st.session_state._seeding_resolution_failed = completed is not None and any(
+        item.status == "unresolved" and item.source_index not in completed for item in run.resolved
+    )
+    st.session_state.pop("_seeding_event_probe", None)
     st.session_state._seeding_sheet_html = None
-    st.session_state._seeding_loaded_slug = slug
     st.session_state._seeding_pending_name = run.name
     # New saves retain the exact URL. Older runs used the generated GotSport
     # name, so recover that common form to keep the one-click scrape path open.
@@ -4441,6 +4555,32 @@ def _load_seeding_run(slug: str) -> None:
         if match:
             source_url = f"https://system.gotsport.com/org_event/events/{match.group(1)}"
     st.session_state._seeding_pending_event_url = source_url
+    _park_seeding_result(
+        (ParsedRoster(rows=run.rows, warnings=run.warnings), run.resolved),
+        event_id=run.assessment.get("event_id") or event_id_from(run.source_url),
+    )
+    st.session_state._seeding_pack = run.pack
+    st.session_state._seeding_loaded_slug = slug
+    st.session_state["_seeding_save_error"] = False
+    _reset_seeding_review_widgets()
+    return True
+
+
+def _seeding_context_matches(parsed: ParsedRoster, metadata: Mapping[str, Any]) -> bool:
+    if metadata.get("fingerprint") and metadata["fingerprint"] != source_fingerprint(parsed.rows):
+        return False
+    event_id = metadata.get("event_id")
+    return event_id is None or str(event_id) == str(st.session_state.get("_seeding_result_event_id"))
+
+
+def _reset_seeding_review_widgets() -> None:
+    for key in list(st.session_state):
+        if key.startswith(("_seed_name_", "_seed_age_", "_seed_gender_", "_seed_exclude_", "_seed_bulk_",
+                           "_seeding_seed_fix_", "_seeding_seed_use_")):
+            st.session_state.pop(key, None)
+    st.session_state.pop("_seed_verify_coverage", None)
+    for key in ("_seeding_pack_scope", "_seeding_pack_cohorts", "_seeding_review_update"):
+        st.session_state.pop(key, None)
 
 
 def _apply_pending_seeding_widgets() -> None:
@@ -4457,14 +4597,17 @@ def _apply_pending_seeding_widgets() -> None:
         return
     if pending_name is not None:
         st.session_state["seeding_event_name"] = pending_name
-    if pending_url:
+    if pending_url is not None:
         st.session_state["seeding_event_url"] = pending_url
+    st.session_state["_seeding_source"] = st.session_state.get("_seeding_assessment", {}).get(
+        "source_kind", "GotSport event"
+    )
     st.session_state["seeding_roster_text"] = ""
     for key in ("_seeding_pack_scope", "_seeding_pack_cohorts", "_seeding_margin_limit", "_seeding_risk_limit"):
         st.session_state.pop(key, None)
 
 
-def _render_seeding_run_controls() -> None:
+def _render_seeding_run_controls(client: Any = None) -> None:
     _apply_pending_seeding_widgets()
     left, right = st.columns([2, 2])
     with left:
@@ -4489,8 +4632,8 @@ def _render_seeding_run_controls() -> None:
             key="seeding_resume_choice",
         )
         if chosen and chosen != st.session_state.get("_seeding_loaded_slug"):
-            _load_seeding_run(chosen)
-            st.rerun()
+            if _load_seeding_run(chosen, client):
+                st.rerun()
 
 
 def _long_date(day: date) -> str:
@@ -4519,54 +4662,32 @@ def _render_seeding_sheet(parsed: ParsedRoster, resolved: Sequence[ResolvedTeam]
 
 
 def _render_seeding_enqueue(parsed: ParsedRoster, resolved: Sequence[ResolvedTeam], supabase_client: Any) -> None:
-    """Queue every resolved team for a fresh scrape before any seeding is proposed."""
-    if supabase_client is None:
-        st.warning(
-            "The database connection is unavailable, so the refresh queue is disabled. "
-            "Check SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY, then restart the app."
-        )
-        return
-    overrides = st.session_state._seeding_overrides
-    provider_id = fetch_gotsport_provider_id(supabase_client)
-    lookup_provider_team_id = make_provider_team_id_lookup(supabase_client, provider_id)
-    rehearsal = enqueue_resolved_teams(
-        parsed.rows,
-        resolved,
-        overrides,
-        enqueue=lambda _payload: None,
-        lookup_provider_team_id=lookup_provider_team_id,
-        dry_run=True,
-    )
-    if not rehearsal.would_queue:
-        return
-
-    st.markdown("#### Refresh the data first")
-    st.caption(
-        f"Queues {rehearsal.would_queue} teams for a scrape at the same priority a user-clicked "
-        "refresh uses. After scraping and the next rankings run finish, rebuild matchup tiers "
-        "to use the updated data. Queueing alone does not update this sheet."
-    )
-    if rehearsal.skipped:
-        st.caption(
-            f"{rehearsal.skipped} team(s) cannot be queued and will be left out: either unresolved, "
-            "or with no GotSport id on record for the scraper to follow."
-        )
-
-    if st.button(f"Add {rehearsal.would_queue} teams to the scrape queue", key="_seeding_enqueue"):
-        with st.spinner("Queueing..."):
+    """Run refresh checks only on an operator click, never while rendering."""
+    with st.expander("Refresh team data (optional)"):
+        st.caption("After queued scrapes and the next rankings run finish, rebuild the sheets to use updated data.")
+        check = st.button("Check teams available to refresh", key="_seeding_check_refresh")
+        queue = st.button("Queue matched teams for refresh", key="_seeding_enqueue", disabled=supabase_client is None)
+        if not (check or queue):
+            return
+        try:
+            provider_id = fetch_gotsport_provider_id(supabase_client)
+            if not provider_id:
+                st.error("GotSport is unavailable in the database. Try again later.")
+                return
             outcome = enqueue_resolved_teams(
-                parsed.rows,
-                resolved,
-                overrides,
-                enqueue=make_enqueue_caller(supabase_client, provider_id),
-                lookup_provider_team_id=lookup_provider_team_id,
+                parsed.rows, resolved, st.session_state._seeding_overrides,
+                enqueue=make_enqueue_caller(supabase_client, provider_id) if queue else lambda _payload: None,
+                lookup_provider_team_id=make_provider_team_id_lookup(supabase_client, provider_id),
+                dry_run=not queue,
             )
-        if outcome.queued:
-            st.success(f"Queued {outcome.queued} teams.")
-        if outcome.failed:
-            st.error(f"{outcome.failed} could not be queued.")
-            for failure in outcome.failures[:5]:
-                st.caption(_as_plain_text(failure))
+            if queue:
+                st.success(f"Queued {outcome.queued} teams.")
+                if outcome.failed:
+                    st.error(f"{outcome.failed} requests failed. You can retry the refresh.")
+            else:
+                st.info(f"{outcome.would_queue} teams available to refresh; {outcome.skipped} cannot be queued.")
+        except Exception:
+            st.error("Refresh is temporarily unavailable. Your roster, quote and saved sheets are still available.")
 
 
 def _seeding_event_probe_for(url: str, *, keys: _WalkKeys = _SEEDING_KEYS) -> dict[str, Any] | None:
@@ -4766,6 +4887,9 @@ def _render_recovered_walk(
         disabled=in_progress,
     )
     if reload_clicked and not in_progress:
+        if keys == _SEEDING_KEYS and st.session_state.get(keys.result) and not _autosave_seeding_run():
+            st.error("Name and save the current run before opening a replacement capture.")
+            return
         _park_event_roster(url, roster, limit_groups, supabase_client, keys=keys)
         if keys == _BACKTEST_KEYS:
             snapshot = st.session_state[keys.snapshot]
@@ -4793,8 +4917,14 @@ def _park_seeding_result(pair: Any, *, event_id: str | None, keys: _WalkKeys = _
     st.session_state[keys.result] = pair
     st.session_state[keys.result_event_id] = event_id if pair else None
     if keys == _SEEDING_KEYS:
-        st.session_state.pop("_seeding_pack", None)
-        st.session_state.pop("_seeding_pack_unsaved", None)
+        effective = (
+            package_roster(effective_roster(pair[0], st.session_state.get("_seeding_cohort_decisions", {})))
+            if pair else None
+        )
+        if not pair or not pack_matches(st.session_state.get("_seeding_pack"), effective.rows, pair[1],
+                                        st.session_state.get("_seeding_overrides", {})):
+            st.session_state.pop("_seeding_pack", None)
+            st.session_state.pop("_seeding_pack_unsaved", None)
         invalidate_seeding_exports(st.session_state)
 
 
@@ -4839,7 +4969,7 @@ def _render_seeding_event_scrape(supabase_client: Any, *, keys: _WalkKeys = _SEE
     small sample is available when the operator wants a cost estimate first.
     """
     if keys is _SEEDING_KEYS:
-        st.markdown("#### Option 2 · Import from a GotSport event")
+        st.markdown("#### Import from a GotSport event")
         st.caption(
             "For a whole tournament, enter its GotSport event URL and click Scrape the whole U10+ event. "
             "The optional estimate reads two U10+ divisions first so you can preview likely cost. "
@@ -4857,7 +4987,9 @@ def _render_seeding_event_scrape(supabase_client: Any, *, keys: _WalkKeys = _SEE
         disabled=in_progress,
     )
     if keys is _SEEDING_KEYS:
-        _clear_result_from_other_event(url, keys=keys)
+        parked_url = st.session_state.get("_seeding_assessment", {}).get("source_url")
+        if st.session_state.get(keys.result) and parked_url and event_id_from(url) != event_id_from(parked_url):
+            st.caption("The assessment below still belongs to the previous import until the new import finishes.")
     probe = _seeding_event_probe_for(url, keys=keys) or {}
     priced = bool(probe.get("divisions_walked"))
     complete = bool(probe.get("complete"))
@@ -4955,59 +5087,12 @@ def _render_seeding_warnings(parsed: ParsedRoster) -> None:
         st.warning(_as_plain_text(warning))
 
 
-def _render_seeding_progress_metrics(
-    parsed: ParsedRoster,
-    resolved: Sequence[ResolvedTeam],
-    overrides: Mapping[int, dict[str, Any]],
-) -> tuple[dict[int, ResolvedTeam], list[Any]]:
-    """Show progress metrics, ready cohorts, and return who still needs a decision.
+def _render_seeding_progress_metrics(parsed, resolved, overrides):
+    from src.tournaments.seeding_review_ui import render_assessment
 
-    Single source for what counts as outstanding: ``_WalkKeys``'s own docstring
-    warns that two copies of the same protection drift, and a second copy of
-    this comprehension is exactly the shape that would silently disagree with
-    ``_SEEDING_NEEDS_DECISION`` about which teams get an override box.
-    """
+    assessment = render_assessment(parsed, resolved, overrides)
     by_index = {item.source_index: item for item in resolved}
-    duplicate_rows = duplicate_identity_rows(parsed.rows, resolved, overrides)
-    outstanding = [
-        row
-        for row in parsed.rows
-        if (
-            by_index[row.source_index].status in _SEEDING_NEEDS_DECISION
-            and row.source_index not in overrides
-        )
-        or row.source_index in duplicate_rows
-    ]
-
-    columns = st.columns(4)
-    columns[0].metric("Total Teams", len(parsed.rows))
-    columns[1].metric("Matched", len(parsed.rows) - len(outstanding))
-    columns[2].metric("You fixed", len(overrides))
-    columns[3].metric("Still open", len(outstanding))
-
-    open_rows = {row.source_index for row in outstanding}
-    cohort_rows: dict[tuple[str, str], list[int]] = {}
-    for row in parsed.rows:
-        if row.section_age_group and row.section_gender:
-            cohort_rows.setdefault(
-                (row.section_age_group, row.section_gender), []
-            ).append(row.source_index)
-    ready = [
-        (age, gender, len(source_indices))
-        for (age, gender), source_indices in cohort_rows.items()
-        if open_rows.isdisjoint(source_indices)
-    ]
-    if ready:
-        labels = " · ".join(
-            f"{_display_gender(gender)} {age.upper()} "
-            f"({team_count} {'team' if team_count == 1 else 'teams'})"
-            for age, gender, team_count in ready
-        )
-        st.success(f"Ready cohorts ({len(ready)}): {labels}")
-    else:
-        st.info("Ready cohorts: none yet. A cohort is ready when every team in it is matched.")
-
-    return by_index, outstanding
+    return by_index, [row for row in parsed.rows if row.source_index in assessment.attention]
 
 
 def _render_seeding_save() -> None:
@@ -5018,6 +5103,8 @@ def _render_seeding_save() -> None:
     printed beside that warning is what would send an operator away from a
     session whose manual fixes are about to be lost.
     """
+    if st.session_state.get("_seeding_save_error"):
+        st.warning("Your latest changes could not be saved. Retry Save this run before closing the page.")
     if not _seeding_run_name():
         st.info("Give this run a name above, then click Save this run before leaving the page.")
         return
@@ -5026,94 +5113,94 @@ def _render_seeding_save() -> None:
 
 
 def _render_seeding_tab(supabase_client: Any) -> None:
-    """Paste-a-roster intake for a tournament that has not been played yet.
+    from src.tournaments.seeding_review_ui import render_review
 
-    An unplayed event has no schedule to scrape, so the director's list is the
-    only input. Resolution is two lookups, not a fuzzy score — see
-    ``src.tournaments.roster_resolver``.
-    """
+    update = st.session_state.get("_seeding_review_update")
+    if update:
+        # Keep the whole edit pending until every legacy field is installed. A
+        # Streamlit interruption retries installation before rendering anything.
+        st.session_state["_seeding_assessment"] = update["metadata"]
+        st.session_state["_seeding_cohort_decisions"] = update["decisions"]
+        st.session_state["_seeding_overrides"] = update["overrides"]
+        _park_seeding_result((update["raw"], update["resolved"]), event_id=update["metadata"].get("event_id"))
+        st.session_state["_seeding_resolution_failed"] = True
+        _autosave_seeding_run()
+        st.session_state.pop("_seeding_review_update", None)
     st.markdown("### Seeding intake")
-    st.info(
-        "Start with one source: enter a GotSport event URL for a whole-tournament list, "
-        "or paste an accepted-teams list you already have. After the teams load, review "
-        "any open matches, save the run, and build matchup tiers."
-    )
-    _render_seeding_run_controls()
-    st.markdown("#### Option 1 · Paste an accepted-teams list")
-    st.caption(
-        "Age and gender come from the section headings, so keep lines like 'Male U14' in. "
-        "A fourth Requested flight column is optional; existing three-column lists still work."
-    )
-    st.text_area(
-        "Accepted teams",
-        key="seeding_roster_text",
-        height=220,
-        placeholder=_SEEDING_PLACEHOLDER,
-    )
-    if st.button(
-        "Resolve teams",
-        type="primary",
-        disabled=not st.session_state.get("seeding_roster_text"),
-    ):
-        if _run_seeding_resolve(st.session_state.seeding_roster_text, supabase_client):
-            _autosave_seeding_run()
-
-    _render_seeding_event_scrape(supabase_client)
+    _render_seeding_run_controls(supabase_client)
+    with st.expander("Import or refresh teams", expanded=not st.session_state.get("_seeding_result")):
+        source = st.radio(
+            "Roster source", ["GotSport event", "Paste team list"], horizontal=True, key="_seeding_source"
+        )
+        if source == "GotSport event":
+            _render_seeding_event_scrape(supabase_client)
+        else:
+            st.caption("Paste a tab-separated Club, Team, State list with headings such as Boys U14. "
+                       "Questionable lines stay available for correction.")
+            text = st.text_area(
+                "Accepted teams", key="seeding_roster_text", height=220, placeholder=_SEEDING_PLACEHOLDER
+            )
+            if st.session_state.get("_seeding_paste_draft") != text:
+                st.session_state["_seeding_paste_complete"] = False
+                st.session_state["_seeding_paste_draft"] = text
+            preview = parse_roster(text)
+            if text:
+                st.caption(f"Preview: {len(preview.rows)} entries retained.")
+                st.dataframe(pd.DataFrame([{"Team": row.team_name_raw, "Age": row.section_age_group,
+                                           "Gender": row.section_gender, "Check": row.intake_issue}
+                                          for row in preview.rows]), hide_index=True, width="stretch")
+            st.checkbox("This is the complete accepted-team list for all U10+ cohorts", key="_seeding_paste_complete")
+            if st.button("Import and match teams", type="primary", disabled=not preview.rows):
+                _run_seeding_resolve(text, supabase_client)
+                st.rerun()
 
     result = st.session_state.get("_seeding_result")
     if not result:
         return
-
-    parsed, resolved = result
+    raw, resolved = result
+    metadata = st.session_state.get("_seeding_assessment", {})
+    if not _seeding_context_matches(raw, metadata):
+        st.error("This import was interrupted. Reopen its saved run or captured event above to continue.")
+        return
+    parsed = effective_roster(raw, st.session_state.get("_seeding_cohort_decisions", {}))
     overrides = st.session_state._seeding_overrides
-    by_index, outstanding = _render_seeding_progress_metrics(parsed, resolved, overrides)
-
-    counts = summarize(resolved)
-    st.caption(
-        f"{counts['gotsport_id']} matched by GotSport id, {counts['exact_name']} by exact name."
-    )
-
-    _render_seeding_warnings(parsed)
-
-    duplicate_rows = duplicate_identity_rows(parsed.rows, resolved, overrides)
-    if duplicate_rows:
-        duplicate_groups = len(set(duplicate_rows.values()))
-        st.warning(
-            f"{len(duplicate_rows)} registration rows share a PitchRank team within the same cohort "
-            f"across {duplicate_groups} match{'es' if duplicate_groups != 1 else ''}. "
-            "Review every flagged row before seeding."
-        )
-
-    frame = _seeding_result_frame(parsed, resolved, overrides)
-    st.dataframe(frame, width="stretch", hide_index=True)
-
-    if outstanding:
-        st.markdown(f"#### {len(outstanding)} still need a decision")
-        st.caption(
-            "Look the team up on rankings.gotsport.com and paste the link, or paste a team_id_master "
-            "if you already have it."
-        )
-        for row in outstanding:
-            _render_seeding_override(row, by_index[row.source_index], supabase_client)
-
-        # Defang at the export boundary only: Team, Matched to and Candidates carry
-        # provider-authored text, and CSV quoting does not stop a spreadsheet
-        # executing a cell that opens with = + - or @. The on-screen frame keeps the
-        # original strings, so nothing that matches or displays a name sees the guard.
-        review = frame[frame["Status"].isin([_SEEDING_STATUS_LABEL[key] for key in _SEEDING_NEEDS_DECISION])]
-        st.download_button(
-            f"Download these {len(outstanding)} as CSV",
-            data=review.apply(lambda column: column.map(csv_safe)).to_csv(index=False).encode("utf-8"),
-            file_name="seeding_intake_review.csv",
-            mime="text/csv",
-        )
-    else:
-        st.success("Every team on the list is resolved.")
-
+    metadata = st.session_state.get("_seeding_assessment", {})
+    source_label = metadata.get("source_url") or metadata.get("source_kind") or "Saved roster"
+    st.caption("Assessment source: " + _as_plain_text(source_label) +
+               " · Coverage: " + metadata.get("coverage", "unknown"))
+    _render_seeding_progress_metrics(parsed, resolved, overrides)
+    duplicates = duplicate_identity_rows(parsed.rows, resolved, overrides)
+    if duplicates:
+        st.warning(f"{len(duplicates)} registration rows share a PitchRank team in the same cohort. "
+                   "Review each flagged match.")
     _render_seeding_save()
-
-    _render_seeding_enqueue(parsed, resolved, supabase_client)
-    _render_seeding_sheet(parsed, resolved, supabase_client)
+    if metadata.get("coverage", "unknown") == "unknown":
+        if st.checkbox("I verified this roster includes every accepted U10+ team", key="_seed_verify_coverage"):
+            if st.button("Confirm complete roster"):
+                st.session_state["_seeding_assessment"] = {**metadata, "coverage": "complete"}
+                _autosave_seeding_run()
+                st.rerun()
+    if st.session_state.get("_seeding_resolution_failed"):
+        if st.button("Retry unfinished matching", key="_seed_retry_remaining"):
+            _run_seeding_name_lookup(raw, resolved, supabase_client)
+            st.rerun()
+    if any(item.team_id_master and not item.matched_name for item in resolved):
+        if st.button("Load PitchRank team names", key="_seed_load_names"):
+            try:
+                enriched = _enrich_seeding_names(resolved, supabase_client)
+                _park_seeding_result((raw, enriched), event_id=metadata.get("event_id"))
+                _autosave_seeding_run()
+                st.rerun()
+            except Exception:
+                st.error("Team names are temporarily unavailable. ID matches are kept; try again.")
+    with st.expander("Import details"):
+        _render_seeding_warnings(raw)
+    frame = _seeding_result_frame(parsed, resolved, overrides)
+    render_review(raw, resolved, overrides, frame,
+                  lambda row, item: _render_seeding_override(row, item, supabase_client), _autosave_seeding_run)
+    eligible = package_roster(parsed)
+    _render_seeding_sheet(eligible, resolved, supabase_client)
+    _render_seeding_enqueue(eligible, resolved, supabase_client)
 
 
 def _render_backtest_tab(supabase_client: Any) -> None:

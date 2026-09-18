@@ -1,0 +1,8 @@
+[
+  { "teams": "Up to 75", "maxTeams": 75, "price": "$199" },
+  { "teams": "76–150", "maxTeams": 150, "price": "$399" },
+  { "teams": "151–300", "maxTeams": 300, "price": "$699" },
+  { "teams": "301–450", "maxTeams": 450, "price": "$1,199" },
+  { "teams": "451–600", "maxTeams": 600, "price": "$1,499" },
+  { "teams": "601+", "maxTeams": null, "price": "Custom quote" }
+]

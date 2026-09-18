@@ -93,7 +93,15 @@ def roster_fingerprint(
     rows: Sequence[RosterRow], resolved: Sequence[ResolvedTeam], overrides: Mapping[int, dict[str, Any]],
 ) -> str:
     """An identity/cohort edit invalidates every derived prediction and export."""
-    payload = {"rows": [asdict(row) for row in rows], "team_ids": team_ids_by_row(rows, resolved, overrides)}
+    records = []
+    for row in rows:
+        record = asdict(row)
+        # Empty provenance fields were absent from legacy saved packs.
+        for key in ("registration_id", "provider_team_id", "intake_issue"):
+            if not record[key]:
+                record.pop(key)
+        records.append(record)
+    payload = {"rows": records, "team_ids": team_ids_by_row(rows, resolved, overrides)}
     return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 

@@ -369,7 +369,8 @@ def test_same_named_roster_from_another_capture_cannot_replace_matching_outcomes
     previous = replace(previous, roster=replace(previous.roster, teams=tuple(
         replace(team, registration_id="old-" + team.registration_id) for team in previous.roster.teams
     )))
-    assert current.parsed.rows == previous.parsed.rows
+    assert [row.team_name_raw for row in current.parsed.rows] == [row.team_name_raw for row in previous.parsed.rows]
+    assert current.parsed.rows[0].registration_id != previous.parsed.rows[0].registration_id
 
     with pytest.raises(ValueError, match="capture|generation"):
         current.with_resolution(previous.parsed, previous.resolved, generation=previous.generation)

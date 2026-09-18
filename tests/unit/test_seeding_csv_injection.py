@@ -5,7 +5,7 @@ registered under whatever name its club typed, and `Candidates` is filled from a
 GotSport search. CSV quoting does not help: Excel, Sheets and Numbers decide a
 cell is a formula from its first character, inside quotes or not.
 
-These drive `_render_seeding_tab` rather than the helper, because the guard is a
+These drive the review download control rather than only the escape helper, because the guard is a
 wiring decision. `csv_safe` has its own tests; what is untested without this is
 whether the export actually calls it, and the on-screen frame deliberately does
 not, so asserting on the frame would prove nothing.
@@ -13,10 +13,11 @@ not, so asserting on the frame would prove nothing.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pandas as pd
 import pytest
 
-import tournament_intake
 from src.tournaments.roster_paste import ParsedRoster, RosterRow
 from src.tournaments.roster_resolver import ResolvedTeam
 from tests.unit.test_seeding_event_intake import _FakeSt, _install
@@ -39,32 +40,22 @@ def _row() -> RosterRow:
 
 
 def _render(monkeypatch, frame: pd.DataFrame) -> bytes:
-    """Render the tab with one unresolved row and return the CSV the operator gets."""
+    """Drive the filtered review download at its actual Streamlit boundary."""
+    from src.tournaments import seeding_review_ui
     parsed = ParsedRoster(rows=(_row(),), warnings=())
     resolved = (ResolvedTeam(source_index=0, status="unresolved"),)
-
     fake_st = _install(monkeypatch, _FakeSt())
-    fake_st.session_state._seeding_result = (parsed, resolved)
-    fake_st.session_state._seeding_overrides = {}
-
-    for name in (
-        "_render_seeding_run_controls",
-        "_render_seeding_event_scrape",
-        "_render_seeding_warnings",
-        "_render_seeding_save",
-        "_render_seeding_enqueue",
-        "_render_seeding_sheet",
-        "_render_seeding_override",
-    ):
-        monkeypatch.setattr(tournament_intake, name, lambda *a, **kw: None)
-    monkeypatch.setattr(tournament_intake, "_seeding_result_frame", lambda *a, **kw: frame)
-
-    tournament_intake._render_seeding_tab(None)
-
-    assert fake_st.download_payloads, "the review CSV was never offered"
-    payload = fake_st.download_payloads[-1]
-    assert isinstance(payload, (bytes, bytearray)), type(payload)
-    return bytes(payload)
+    frame = frame.copy()
+    if "#" not in frame:
+        frame["#"] = range(1, len(frame) + 1)
+    if "Cohort" not in frame:
+        frame["Cohort"] = "Boys U13"
+    if len(frame) == 1:
+        parsed = ParsedRoster((replace(_row(), source_index=int(frame.iloc[0]["#"]) - 1),), ())
+        resolved = (ResolvedTeam(parsed.rows[0].source_index, "unresolved"),)
+    seeding_review_ui.render_review(parsed, resolved, {}, frame, lambda *_args: None, lambda: True)
+    assert fake_st.download_payloads
+    return bytes(fake_st.download_payloads[-1])
 
 
 @pytest.mark.parametrize(

@@ -163,18 +163,19 @@ def test_source_index_is_sequential_across_cohorts():
 # -------- warnings --------------------------------------------------------
 
 
-def test_row_before_any_heading_is_warned_not_parsed():
+def test_row_before_any_heading_is_kept_for_cohort_review():
     parsed = parse_roster("A Club\tA Team\tTX\nMale U14\nB Club\tB Team\tTX")
 
-    assert [r.team_name_raw for r in parsed.rows] == ["B Team"]
-    assert any("heading" in w for w in parsed.warnings)
+    assert [r.team_name_raw for r in parsed.rows] == ["A Team", "B Team"]
+    assert parsed.rows[0].section_age_group == ""
 
 
-def test_single_column_line_is_warned_not_parsed():
+def test_single_column_line_is_kept_for_input_review():
     parsed = parse_roster("Male U14\nA Club\tA Team\tTX\nstray text with no tabs")
 
-    assert len(parsed.rows) == 1
-    assert any("stray text" in w for w in parsed.warnings)
+    assert len(parsed.rows) == 2
+    assert parsed.rows[1].team_name_raw == "stray text with no tabs"
+    assert parsed.rows[1].intake_issue
 
 
 def test_blank_lines_produce_neither_rows_nor_warnings():

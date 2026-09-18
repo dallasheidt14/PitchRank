@@ -1,8 +1,8 @@
 """Parser for a pasted tournament accepted-teams list.
 
 Turns the tab-separated block a director sends — or that an operator copies
-off a GotSport "Teams Accepted" page — into ordered rows carrying the cohort
-from their section heading.
+off a GotSport "Teams Accepted" page — into ordered rows. Unambiguous headings
+supply cohorts; other entries remain available for review.
 
 Two rules the shape of the source forces:
 
@@ -43,7 +43,7 @@ _COUNTER_LINE = re.compile(r"^teams accepted\b|\(\s*[0-9]+\s+of\s+[0-9]+\s*\)", 
 
 @dataclass(frozen=True)
 class RosterRow:
-    """One accepted team, with its cohort resolved from the enclosing heading."""
+    """One roster entry; blank cohort fields and intake issues require review."""
 
     source_index: int
     club_raw: str
@@ -58,6 +58,9 @@ class RosterRow:
     """Optional flight requested in a pasted roster's fourth column."""
     listed_division: str = ""
     """Neutral event-published division label; it does not imply a request."""
+    registration_id: str = ""
+    provider_team_id: str = ""
+    intake_issue: str = ""
 
     @property
     def registered_name(self) -> str:
@@ -76,10 +79,13 @@ class ParsedRoster:
 
 def _parse_heading(line: str) -> tuple[str, str] | None:
     gender_match = _HEADING_GENDER.search(line)
-    age_match = _HEADING_AGE.search(line)
-    if not gender_match or not age_match:
+    ages = _HEADING_AGE.findall(line)
+    if not gender_match or not ages:
         return None
-    return normalize_age_group(age_match.group(1)), _GENDER_WORDS[gender_match.group(1).lower()]
+    # A mixed section is preserved for an explicit operator decision.
+    single = len(set(ages)) == 1 and not re.search(r"[/–-]\s*(?:u\s*)?[0-9]", line, re.I)
+    age = normalize_age_group(ages[0]) if single else ""
+    return age, _GENDER_WORDS[gender_match.group(1).lower()]
 
 
 def split_roster_markers(team_name: str) -> tuple[str, bool, bool]:
@@ -99,16 +105,16 @@ def _is_column_header(cells: list[str]) -> bool:
 
 
 def parse_roster(text: str) -> ParsedRoster:
-    """Parse a pasted accepted-teams block into cohort-tagged rows.
+    """Parse a pasted accepted-teams block, preserving uncertain entries.
 
-    Rows the parser cannot place — a team line before any heading, or a line
-    with no second column — are collected into ``warnings`` and dropped, so a
-    ragged paste still yields everything it can.
+    Questionable lines remain reviewable entries. They cannot silently shrink a
+    quote, and no cohort is inferred from a team name.
     """
     rows: list[RosterRow] = []
     warnings: list[str] = []
     age_group = ""
     gender = ""
+    division = ""
 
     for line in text.splitlines():
         if not line.strip():
@@ -118,16 +124,17 @@ def parse_roster(text: str) -> ParsedRoster:
             heading = _parse_heading(line)
             if heading:
                 age_group, gender = heading
-            elif not _COUNTER_LINE.search(line.strip()):
-                warnings.append(f"Ignored line with no team column: {line.strip()}")
-            continue
+                division = line.strip() if not age_group else ""
+                continue
+            if _COUNTER_LINE.search(line.strip()):
+                continue
+            cells = ["", line.strip()]
+            issue = "Confirm this line is a team, or exclude it."
+        else:
+            cells = line.split("\t")
+            issue = "" if len(cells) >= 2 and cells[1].strip() else "Team name is missing."
 
-        cells = line.split("\t")
         if _is_column_header(cells):
-            continue
-
-        if not age_group:
-            warnings.append(f"Ignored team listed before any cohort heading: {line.strip()}")
             continue
 
         club_raw = cells[0].strip()
@@ -147,6 +154,8 @@ def parse_roster(text: str) -> ParsedRoster:
                 has_star_marker=has_star,
                 has_c_marker=has_c,
                 requested_flight=requested_flight,
+                listed_division=division,
+                intake_issue=issue,
             )
         )
 

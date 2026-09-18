@@ -189,6 +189,9 @@ class _FakeColumn:
     def __exit__(self, *_exc: Any) -> bool:
         return False
 
+    def selectbox(self, label, options, **kwargs):
+        return self._owner.selectbox(label, options, **kwargs)
+
     def metric(self, label: str, value: Any, **_kw: Any) -> None:
         if self._owner is not None:
             self._owner.metrics.append((str(label), value))
@@ -286,6 +289,18 @@ class _FakeSt:
         self.download_payloads.append(kw.get("data"))
         return False
 
+    def expander(self, *_args, **_kw):
+        return _FakeColumn(self)
+
+    def checkbox(self, *_args, **_kw):
+        return False
+
+    def radio(self, _label, options, **_kw):
+        return options[0]
+
+    def selectbox(self, _label, options, **_kw):
+        return options[0] if options else None
+
     def button_by_key(self, key: str) -> dict[str, Any]:
         for call in self.buttons:
             if call.get("key") == key:
@@ -369,7 +384,8 @@ def app(monkeypatch):
     monkeypatch.setenv("ZENROWS_API_KEY", "test-key")
     monkeypatch.setattr(tournament_intake, "_acquire_scrape_lock", _no_lock)
     monkeypatch.setattr(tournament_intake, "make_zenrows_fetcher", lambda *_a, **_kw: (lambda url: ""))
-    monkeypatch.setattr(tournament_intake, "_autosave_seeding_run", _autosave_must_not_run)
+    monkeypatch.setattr(tournament_intake, "_autosave_seeding_run", lambda **_kwargs: True)
+    monkeypatch.setattr(tournament_intake, "_enrich_seeding_names", lambda resolved, _client: tuple(resolved))
     monkeypatch.setattr(tournament_intake, "resolve_master_ids", lambda teams, **_kw: ({}, []))
     monkeypatch.setattr(tournament_intake, "search_gotsport_teams", lambda *_a, **_kw: [])
     monkeypatch.setattr(tournament_intake, "_seeding_provider_id_lookup", lambda _client: (lambda _pid: None))
@@ -382,7 +398,9 @@ def _autosave_must_not_run() -> None:
 
 
 def _install(monkeypatch, fake_st: _FakeSt) -> _FakeSt:
+    from src.tournaments import seeding_review_ui
     monkeypatch.setattr(tournament_intake, "st", fake_st)
+    monkeypatch.setattr(seeding_review_ui, "st", fake_st)
     return fake_st
 
 
@@ -633,16 +651,18 @@ def test_the_scrape_clears_the_cached_sheet_but_not_the_open_run_marker(app):
     )
 
 
-def test_the_scrape_does_not_save_the_run(app):
-    """``_autosave_seeding_run`` is stubbed to raise, so any call fails here."""
+def test_the_scrape_checkpoints_completed_matching(app):
+    """Matching saves progress so a later connection failure can be retried."""
+    saved = []
+    app.setattr(tournament_intake, "_autosave_seeding_run", lambda: saved.append(True) or True)
     app.setattr(tournament_intake, "scrape_event_roster", _RecordingScrape())
     _install(app, _FakeSt())
 
     _scrape(limit_groups=None)
+    assert saved
 
 
 # -------- the render boundary and its spend controls ----------------------
-
 
 def _render(monkeypatch, *, url: str, probe: dict[str, Any] | None, buttons: dict[str, bool] | None = None):
     runs: list[dict[str, Any]] = []
@@ -741,7 +761,7 @@ def test_a_probe_of_a_different_event_does_not_unlock_this_one(app):
     assert fake_st.button_by_key("_seeding_event_full_run")["disabled"] is False
 
 
-def test_changing_the_url_clears_the_other_events_rows_and_exports_but_not_its_recovery(app):
+def test_drafting_a_new_url_preserves_the_bound_roster_and_its_recovery(app):
     old_roster = _roster(_team(0), event_id="55368")
     tournament_intake._write_event_roster_recovery(old_roster, limit_groups=2)
     parsed, resolved = to_seeding_rows(old_roster, {})
@@ -757,14 +777,10 @@ def test_changing_the_url_clears_the_other_events_rows_and_exports_but_not_its_r
 
     _render_controls()
 
-    assert fake_st.session_state.get("_seeding_result") is None
-    assert fake_st.session_state.get("_seeding_result_event_id") is None
-    assert fake_st.session_state._seeding_overrides == {}
-    assert fake_st.session_state._seeding_resolution_failed is False
-    assert fake_st.session_state._seeding_sheet_html is None
-    assert "_seeding_pack" not in fake_st.session_state
-    assert "_seeding_pdf" not in fake_st.session_state
-    assert "_seeding_pdf_hash" not in fake_st.session_state
+    assert fake_st.session_state.get("_seeding_result") == (parsed, resolved)
+    assert fake_st.session_state.get("_seeding_result_event_id") == "55368"
+    assert fake_st.session_state._seeding_overrides == {0: {"team_id_master": "old-team"}}
+    assert fake_st.session_state._seeding_pdf == b"old pdf"
     assert not any("Walked" in caption for caption in fake_st.captions), (
         "the old probe must not be described beneath the new URL"
     )
@@ -1169,7 +1185,7 @@ def test_the_free_name_pass_is_throttled(app):
 
     _scrape(limit_groups=None)
 
-    assert passed == [tournament_intake._SEEDING_LOOKUP_DELAY_SECONDS]
+    assert passed == [0.4, 0.4]
     assert passed[0] > 0
 
 
@@ -1255,18 +1271,15 @@ def test_every_seeding_id_lookup_resolves_merges(monkeypatch):
 
 def test_no_seeding_lookup_bypasses_the_merge_resolving_helper():
     """Derived from the source, so another call site cannot be added unguarded."""
-    source = Path(tournament_intake.__file__).read_text(encoding="utf-8")
-    bare = [
-        line.strip()
-        for line in source.splitlines()
-        if "make_provider_id_lookup(" in line
-        and "_seeding_provider_id_lookup" not in line
-        and "_seeding_merge_resolver(" not in line
-        and "def " not in line
-        and "import" not in line
-    ]
-
-    assert bare == [], f"these call the raw lookup instead of the merge-resolving helper: {bare}"
+    tree = ast.parse(Path(tournament_intake.__file__).read_text(encoding="utf-8"))
+    callers = {
+        function.name
+        for function in tree.body if isinstance(function, ast.FunctionDef)
+        for node in ast.walk(function)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        and node.func.id == "make_provider_id_lookup"
+    }
+    assert callers == {"_seeding_provider_id_lookup"}
 
 
 # -------- the merge resolver, and what it must never serve -----------------
@@ -1572,11 +1585,10 @@ def test_duplicate_rows_are_offered_override_controls_until_their_ids_are_unique
 
     _by_index, outstanding = tournament_intake._render_seeding_progress_metrics(parsed, resolved, {})
     assert [row.source_index for row in outstanding] == [0, 1]
-    assert ("Total Teams", 2) in fake_st.metrics
-    assert ("Still open", 2) in fake_st.metrics
-    assert fake_st.infos == [
-        "Ready cohorts: none yet. A cohort is ready when every team in it is matched."
-    ]
+    assert ("Total U10+ teams", "2") in fake_st.metrics
+    assert ("Manual matches needed", 2) in fake_st.metrics
+    assert any("No cohort is ready yet" in message for message in fake_st.captions)
+    fake_st.session_state["_seeding_assessment"] = {"coverage": "complete"}
 
     _by_index, outstanding = tournament_intake._render_seeding_progress_metrics(
         parsed,
@@ -1584,7 +1596,7 @@ def test_duplicate_rows_are_offered_override_controls_until_their_ids_are_unique
         {1: {"team_id_master": "master-b", "team_name": "Corrected team"}},
     )
     assert outstanding == []
-    assert fake_st.successes == ["Ready cohorts (1): Boys U14 (2 teams)"]
+    assert fake_st.successes[-1] == "Ready cohorts: Boys U14"
 
 
 def test_only_fully_matched_cohorts_are_shown_as_ready(monkeypatch):
@@ -1602,6 +1614,7 @@ def test_only_fully_matched_cohorts_are_shown_as_ready(monkeypatch):
         ResolvedTeam(source_index=3, status="unresolved"),
     )
     fake_st = _install(monkeypatch, _FakeSt())
+    fake_st.session_state["_seeding_assessment"] = {"coverage": "complete"}
 
     _by_index, outstanding = tournament_intake._render_seeding_progress_metrics(
         parsed,
@@ -1610,9 +1623,7 @@ def test_only_fully_matched_cohorts_are_shown_as_ready(monkeypatch):
     )
 
     assert [row.source_index for row in outstanding] == [3]
-    assert fake_st.successes == [
-        "Ready cohorts (2): Boys U10 (2 teams) · Girls U10 (1 team)"
-    ]
+    assert fake_st.successes[-1] == "Ready cohorts: Girls U10 · Boys U10"
     assert "Boys U11" not in fake_st.successes[0]
 
 
@@ -1656,7 +1667,7 @@ def test_the_seeding_tab_warns_before_a_duplicate_match_reaches_the_sheet(monkey
     tournament_intake._render_seeding_tab(None)
 
     assert any("2 registration rows share a PitchRank team" in warning for warning in fake_st.warnings)
-    assert fake_st.dataframes == 1
+    assert fake_st.dataframes == 2
 
 
 def test_seeding_enqueue_explains_missing_database_instead_of_crashing(app):
@@ -1669,9 +1680,8 @@ def test_seeding_enqueue_explains_missing_database_instead_of_crashing(app):
 
     tournament_intake._render_seeding_enqueue(parsed, resolved, None)
 
-    assert len(fake_st.warnings) == 1
-    assert "database connection is unavailable" in fake_st.warnings[0]
-    assert fake_st.buttons == []
+    assert not fake_st.errors
+    assert fake_st.button_by_key("_seeding_enqueue")["disabled"] is True
 
 
 # -------- the tab actually wires its parts together -----------------------
@@ -1718,7 +1728,7 @@ def test_the_seeding_tab_renders_the_event_intake_and_the_warnings(monkeypatch):
     monkeypatch.setattr(
         tournament_intake,
         "_seeding_result_frame",
-        lambda *a, **kw: pd.DataFrame({"Status": ["Not found"], "Team": ["Team 0"]}),
+        lambda *a, **kw: pd.DataFrame({"#": [1], "Cohort": ["Boys U13"], "Status": ["Not found"], "Team": ["Team 0"]}),
     )
 
     tournament_intake._render_seeding_tab(None)
@@ -2708,9 +2718,7 @@ def test_a_reloaded_saved_run_does_not_claim_to_be_this_events_walk(app):
 def test_the_paste_path_parks_a_roster_belonging_to_no_event(app):
     """Otherwise a pasted list suppresses the reload of the event in the box."""
     fake_st = _install(app, _FakeSt())
-    app.setattr(tournament_intake, "resolve_roster", lambda rows, **_kw: tuple(
-        ResolvedTeam(source_index=row.source_index, status="unresolved") for row in rows
-    ))
+    app.setattr(tournament_intake, "_resolve_seeding_incrementally", lambda *_args: None)
 
     roster_text = "\n".join(
         [
@@ -2739,7 +2747,7 @@ def test_failed_replacement_paste_preserves_saved_decisions_and_exports(app, tex
     def fail(*_args, **_kwargs):
         raise tournament_intake.requests.RequestException("temporary provider outage")
 
-    app.setattr(tournament_intake, "resolve_roster", fail)
+    app.setattr(tournament_intake, "_autosave_seeding_run", lambda: False)
     assert tournament_intake._run_seeding_resolve(text, None) is False
 
     assert fake_st.session_state._seeding_result == prior
@@ -2768,12 +2776,8 @@ def test_failed_resolve_button_does_not_save_the_previous_roster_under_a_new_nam
     ):
         app.setattr(tournament_intake, name, lambda *_args, **_kwargs: None)
     app.setattr(tournament_intake, "_render_seeding_progress_metrics", lambda *_args: ({}, []))
-    app.setattr(
-        tournament_intake,
-        "summarize",
-        lambda _resolved: {"gotsport_id": 0, "exact_name": 0},
-    )
-    app.setattr(tournament_intake, "_seeding_result_frame", lambda *_args: object())
+    import pandas as pd
+    app.setattr(tournament_intake, "_seeding_result_frame", lambda *_args: pd.DataFrame(columns=["#", "Cohort"]))
 
     tournament_intake._render_seeding_tab(None)
 

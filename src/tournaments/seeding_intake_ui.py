@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import csv
 import hashlib
+import io
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
@@ -11,8 +13,10 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 from config.settings import SUPABASE_SERVICE_ROLE_KEY, SUPABASE_URL
+from src.tournaments.reports.render_csv import csv_safe
 from src.tournaments.roster_paste import ParsedRoster, RosterRow
 from src.tournaments.roster_resolver import ResolvedTeam
+from src.tournaments.seeding_assessment import assess_roster, could_belong
 from src.tournaments.seeding_pack import (
     analyze_pack,
     available_cohorts,
@@ -31,6 +35,28 @@ from src.tournaments.seeding_sheet import build_cohort_sheets, make_ratings_look
 from src.tournaments.seeding_tiers import TierPolicy
 
 _PACK_KEY = "_seeding_pack"
+
+
+def team_csv(rows, resolved, overrides, *, draft: bool = False) -> bytes:
+    """Editable roster export preserves every selected registration, matched or not."""
+    outcomes = {item.source_index: item for item in resolved}
+    identities = team_ids_by_row(rows, resolved, overrides)
+    stream = io.StringIO(newline="")
+    writer = csv.writer(stream)
+    writer.writerow(["Cohort", "Submitted team name", "PitchRank team name", "Match method",
+                     "PitchRank ID", "Listed division", "Requested flight", "Notes", "Delivery status"])
+    for row in rows:
+        item = outcomes.get(row.source_index)
+        override = overrides.get(row.source_index, {})
+        writer.writerow([csv_safe(value) for value in [
+            cohort_label(cohort_key(row.section_age_group, row.section_gender)), row.registered_name,
+            override.get("team_name") or (item.matched_name if item else "") or "",
+            "Manual" if override else (item.status if item else "unresolved"),
+            identities.get(str(row.source_index)) or "", row.listed_division, row.requested_flight,
+            row.intake_issue or (item.review_reason if item and not override else "") or "",
+            "Draft — roster review needed" if draft else "",
+        ]])
+    return stream.getvalue().encode("utf-8-sig")
 
 
 def invalidate_seeding_exports(state: Any = None) -> None:
@@ -249,6 +275,24 @@ def render_seeding_pack(
                "Unmatched teams stay in the pack.")
     if not selected:
         return
+    metadata = st.session_state.get("_seeding_assessment")
+    draft = False
+    if metadata is not None:
+        assessment = assess_roster(parsed, resolved, overrides, coverage=metadata.get("coverage", "unknown"),
+                                   completed=metadata.get("completed"))
+        selected_indices = {row.source_index for row in selected_rows}
+        uncertain = [row for row in parsed.rows if row.source_index in assessment.cohort_review]
+        draft = metadata.get("coverage") != "complete" or bool(assessment.attention & selected_indices) or any(
+            could_belong(row, *key.split("|", 1)) for row in uncertain for key in selected
+        )
+        if draft:
+            st.info("Delivery status: draft. Confirm coverage, resolve matches and assign cohorts before sending.")
+        else:
+            st.caption("Delivery status: roster assessed. Review tiers and placement notes before sending.")
+    st.download_button(
+        "Download all selected teams as CSV", team_csv(selected_rows, resolved, overrides, draft=draft),
+        file_name=f"{slugify(event_name)}-teams.csv", mime="text/csv", key="_seeding_all_teams_csv",
+    )
     if pack:
         st.caption("Rebuilding reads fresh data and replaces this pack's manual tier decisions and placement notes.")
 
@@ -295,7 +339,8 @@ def render_seeding_pack(
         selected_rows, resolved, overrides, snapshot_ratings(pack, identities), tier_analyses=analyses,
     )
     document = render_sheet_html(
-        event_name, sheets, generated_on=pack["generated_at"][:10], ranking_run=pack.get("ratings_as_of") or "unknown",
+        f"{event_name} · DRAFT — roster review needed" if draft else event_name,
+        sheets, generated_on=pack["generated_at"][:10], ranking_run=pack.get("ratings_as_of") or "unknown",
         policy=TierPolicy(**pack["policy"]),
         operator_notes={tuple(key.split("|", 1)): value for key, value in pack.get("operator_notes", {}).items()},
     )
