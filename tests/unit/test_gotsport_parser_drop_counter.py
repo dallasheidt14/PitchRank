@@ -1,4 +1,5 @@
-"""Unit tests for the drop counter in ``_parse_games_from_schedule_page``.
+"""Unit tests for ``_parse_games_from_schedule_page``: the drop counter, and the
+division-derived metadata the parser puts on each emitted game.
 
 Verifies plan Step 3 contract: rows where home or away team can't be resolved
 to a real API team ID are dropped (never shipped with reg_id as
@@ -118,6 +119,12 @@ def test_parser_drops_rows_with_unresolved_teams_and_increments_counter():
     for game in games:
         assert game.team_id in {"100001", "100002"}, f"Unexpected team_id leaked: {game.team_id}"
         assert game.opponent_id in {"100001", "100002"}, f"Unexpected opponent_id leaked: {game.opponent_id}"
+
+    # The Division cells read "U14B". Asserting the emitted gender is what
+    # holds the parser wired to _parse_division_gender: with the assignment
+    # dropped, every row ships gender=None and the counts above stay green.
+    assert {game.meta["gender"] for game in games} == {"Boys"}
+    assert {game.meta["age_group"] for game in games} == {"U14"}
 
 
 def test_parser_drop_counter_optional():
