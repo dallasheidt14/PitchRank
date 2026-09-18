@@ -46,6 +46,23 @@ def test_failed_matching_is_pending_and_attention_does_not_double_count():
     assert assessment.provisional
 
 
+def test_marked_not_found_is_reviewed_once_and_does_not_block_ready_cohort():
+    parsed = parse_roster("Boys U10\nC\tA\nC\tB")
+    resolved = (ResolvedTeam(0, "unresolved"), ResolvedTeam(1, "unresolved"))
+    overrides = {0: {"not_found": True}}
+    assessment = assess_roster(parsed, resolved, overrides, coverage="complete", completed=[0, 1])
+    assert assessment.not_found == {0}
+    assert assessment.manual == {1}
+    assert assessment.attention == {1}
+    assert assessment.cohorts[0]["Open"] == 1
+
+    complete = assess_roster(parsed, resolved, {0: {"not_found": True}, 1: {"not_found": True}},
+                             coverage="complete", completed=[0, 1])
+    assert complete.not_found == {0, 1}
+    assert not complete.attention
+    assert complete.cohorts[0]["Status"] == "Ready"
+
+
 def test_mixed_division_does_not_inherit_database_age_or_block_unrelated_cohort():
     parsed = parse_roster("Girls U9/U10 Mexico\nC\tMixed\nGirls U11\nC\tOlder\nBoys U10\nC\tBoys")
     resolved = tuple(ResolvedTeam(row.source_index, "gotsport_id", team_id_master=str(row.source_index)) for row in parsed.rows)
@@ -111,6 +128,11 @@ def test_csv_keeps_all_selected_teams_and_defangs_formulas():
     assert len(rows) == 2 and rows[1]["Submitted team name"] == "Unmatched"
     assert rows[0]["PitchRank team name"] == "DB name"
     assert rows[0]["Submitted team name"].startswith("'=HYPERLINK")
+
+    marked = team_csv(parsed.rows, (), {1: {"not_found": True}})
+    marked_rows = list(csv.DictReader(io.StringIO(marked.decode("utf-8-sig"))))
+    assert marked_rows[1]["Match method"] == "Not found in PitchRank"
+    assert "no PitchRank match" in marked_rows[1]["Notes"]
 
 
 def test_source_binding_includes_cohort_club_and_registration_identity():

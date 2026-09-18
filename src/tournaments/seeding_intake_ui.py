@@ -49,12 +49,18 @@ def team_csv(rows, resolved, overrides, *, draft: bool = False) -> bytes:
     for row in rows:
         item = outcomes.get(row.source_index)
         override = overrides.get(row.source_index, {})
+        if override.get("not_found"):
+            match_method = "Not found in PitchRank"
+            notes = "Accepted roster team has no PitchRank match."
+        else:
+            match_method = "Manual" if override else (item.status if item else "unresolved")
+            notes = row.intake_issue or (item.review_reason if item and not override else "") or ""
         writer.writerow([csv_safe(value) for value in [
             cohort_label(cohort_key(row.section_age_group, row.section_gender)), row.registered_name,
             override.get("team_name") or (item.matched_name if item else "") or "",
-            "Manual" if override else (item.status if item else "unresolved"),
+            match_method,
             identities.get(str(row.source_index)) or "", row.listed_division, row.requested_flight,
-            row.intake_issue or (item.review_reason if item and not override else "") or "",
+            notes,
             "Draft — roster review needed" if draft else "",
         ]])
     return stream.getvalue().encode("utf-8-sig")

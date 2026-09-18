@@ -66,6 +66,18 @@ def test_cohort_correction_changes_quote_and_can_exclude_younger(operator):
     assert len(app.session_state["_seeding_result"][0].rows) == 3
 
 
+def test_mark_not_found_removes_team_from_matching_queue(operator):
+    app = operator
+    click(app, "Mark team not found in PitchRank")
+
+    assert app.session_state["_seeding_overrides"][1] == {"not_found": True}
+    assert 1 in app.session_state["_seeding_assessment"]["completed"]
+    assert next(metric.value for metric in app.metric if metric.label == "Manual matches needed") == "1"
+    assert any("Marked not found in PitchRank: 1" in caption.value for caption in app.caption)
+    next(widget for widget in app.selectbox if widget.label == "Show").set_value("Not found in PitchRank").run()
+    assert any(button.label == "Reopen matching" for button in app.button)
+
+
 @pytest.mark.parametrize("pending_rows, expected_summary", [
     ([], "29 need matching · 5 more need cohort/input fixes · 34 teams total to review."),
     ([215, 216, 217], "26 need matching · 5 more need cohort/input fixes · 3 awaiting lookup · 34 teams total to review."),
