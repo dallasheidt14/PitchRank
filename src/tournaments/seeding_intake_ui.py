@@ -22,6 +22,7 @@ from src.tournaments.seeding_pack import (
     available_cohorts,
     cohort_key,
     cohort_label,
+    has_snapshot_identity_conflict,
     make_pack,
     pack_matches,
     prediction_request,
@@ -275,24 +276,6 @@ def render_seeding_pack(
                "Unmatched teams stay in the pack.")
     if not selected:
         return
-    metadata = st.session_state.get("_seeding_assessment")
-    draft = False
-    if metadata is not None:
-        assessment = assess_roster(parsed, resolved, overrides, coverage=metadata.get("coverage", "unknown"),
-                                   completed=metadata.get("completed"))
-        selected_indices = {row.source_index for row in selected_rows}
-        uncertain = [row for row in parsed.rows if row.source_index in assessment.cohort_review]
-        draft = metadata.get("coverage") != "complete" or bool(assessment.attention & selected_indices) or any(
-            could_belong(row, *key.split("|", 1)) for row in uncertain for key in selected
-        )
-        if draft:
-            st.info("Delivery status: draft. Confirm coverage, resolve matches and assign cohorts before sending.")
-        else:
-            st.caption("Delivery status: roster assessed. Review tiers and placement notes before sending.")
-    st.download_button(
-        "Download all selected teams as CSV", team_csv(selected_rows, resolved, overrides, draft=draft),
-        file_name=f"{slugify(event_name)}-teams.csv", mime="text/csv", key="_seeding_all_teams_csv",
-    )
     if pack:
         st.caption("Rebuilding reads fresh data and replaces this pack's manual tier decisions and placement notes.")
 
@@ -316,7 +299,24 @@ def render_seeding_pack(
             message = str(exc).replace(str(SUPABASE_SERVICE_ROLE_KEY or "__no_secret__"), "[redacted]")
             st.error(f"Could not build matchup tiers: {message}")
 
-    if not pack_matches(pack, parsed.rows, resolved, overrides, selected):
+    current_pack = pack_matches(pack, parsed.rows, resolved, overrides, selected)
+    metadata = st.session_state.get("_seeding_assessment") or {}
+    assessment = assess_roster(parsed, resolved, overrides, coverage=metadata.get("coverage", "unknown"),
+                               completed=metadata.get("completed"))
+    selected_indices = {row.source_index for row in selected_rows}
+    uncertain = [row for row in parsed.rows if row.source_index in assessment.cohort_review]
+    draft = metadata.get("coverage") != "complete" or bool(assessment.attention & selected_indices) or any(
+        could_belong(row, *key.split("|", 1)) for row in uncertain for key in selected
+    ) or (current_pack and has_snapshot_identity_conflict(pack, selected))
+    if draft:
+        st.info("Delivery status: draft. Confirm coverage, resolve matches and assign cohorts before sending.")
+    else:
+        st.caption("Delivery status: roster assessed. Review tiers and placement notes before sending.")
+    st.download_button(
+        "Download all selected teams as CSV", team_csv(selected_rows, resolved, overrides, draft=draft),
+        file_name=f"{slugify(event_name)}-teams.csv", mime="text/csv", key="_seeding_all_teams_csv",
+    )
+    if not current_pack:
         invalidate_seeding_exports()
         if pack:
             st.info("The selected cohorts or team matches changed. Build matchup tiers to update this pack.")

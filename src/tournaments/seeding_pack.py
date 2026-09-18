@@ -27,6 +27,24 @@ _LEGACY_UNAVAILABLE_REASONS = {
         "Confirm the club and team match. Then use recent results or club input before seeding."
     ),
 }
+_DUPLICATE_IDENTITY_REASONS = frozenset({
+    "Two roster entries resolve to the same team; verify the matches.",
+    "Two roster entries appear to be the same team. Confirm both team matches before seeding.",
+})
+
+
+def has_snapshot_identity_conflict(pack: dict[str, Any], selected: Sequence[str]) -> bool:
+    """Compare can discover merges that were not known when the roster was matched."""
+    unavailable = pack.get("unavailable")
+    if not isinstance(unavailable, dict):
+        return True  # Keep malformed snapshots draft until normal validation reports them.
+    for key in selected:
+        reasons = unavailable.get(key)
+        if not isinstance(reasons, dict):
+            return True
+        if any(not isinstance(reason, str) or reason in _DUPLICATE_IDENTITY_REASONS for reason in reasons.values()):
+            return True
+    return False
 
 
 def _valid_cohort(age_group: str, gender: str) -> bool:

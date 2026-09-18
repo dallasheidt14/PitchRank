@@ -7,7 +7,8 @@ from streamlit.testing.v1 import AppTest
 import tournament_intake as intake
 from src.tournaments.roster_paste import parse_roster
 from src.tournaments.roster_resolver import ResolvedTeam
-from tests.unit.test_seeding_event_intake import _FakeSt, _install
+from src.tournaments.seeding_run_store import SeedingRun, SeedingRunEntry, load_run, save_run
+from tests.unit.test_seeding_event_intake import _FakeSessionState, _FakeSt, _Rerun, _install, _roster, _team
 
 APP = '''
 import streamlit as st
@@ -49,6 +50,7 @@ def test_summary_and_single_review_are_usable_during_database_outage(operator):
     }
     assert sum(widget.label == "GotSport link, GotSport id, or team_id_master" for widget in app.text_input) == 1
     assert any(button.label == "Save this run" for button in app.button)
+    assert any(button.label == "Load PitchRank team names" for button in app.button)
     assert any(button.label == "Download all selected teams as CSV" for button in app.get("download_button"))
     assert not app.error
 
@@ -141,7 +143,8 @@ def test_name_enrichment_batches_100_and_preserves_authoritative_id():
         def execute(self):
             batches.append(self.ids)
             return type("Response", (), {"data": [{"team_id_master": value, "team_name": "Name " + value} for value in self.ids]})()
-    resolved = tuple(ResolvedTeam(index, "gotsport_id", team_id_master=str(index)) for index in range(205))
+    resolved = tuple(ResolvedTeam(index, "gotsport_id", team_id_master=str(index), matched_name="Provider name")
+                     for index in range(205))
     enriched = intake._enrich_seeding_names(resolved, Client())
     assert list(map(len, batches)) == [100, 100, 5]
     assert enriched[11] == replace(resolved[11], matched_name="Name 11")
@@ -164,3 +167,106 @@ def test_renaming_while_excluding_cannot_restore_old_identity(operator):
     assert app.session_state["_seeding_cohort_decisions"][0]["team_name_raw"] == "Different Team"
     assert app.session_state["_seeding_result"][1][0].team_id_master is None
     assert 0 not in app.session_state["_seeding_overrides"]
+
+
+@pytest.mark.parametrize("source", ["refresh", "load"])
+@pytest.mark.parametrize("stop_key", ["_seeding_assessment", "_seeding_overrides", "_seeding_result",
+                                     "_seeding_result_event_id", "_seeding_resolution_failed", "_seeding_event_probe"])
+def test_interrupted_source_transition_reinstalls_one_complete_generation(monkeypatch, source, stop_key):
+    class InterruptState(_FakeSessionState):
+        def __setitem__(self, key, value):
+            if self.__dict__.get("stop_key") == key:
+                self.__dict__["stop_key"] = None
+                raise _Rerun()
+            super().__setitem__(key, value)
+        def pop(self, key, default=None):
+            if self.__dict__.get("stop_key") == key:
+                self.__dict__["stop_key"] = None
+                raise _Rerun()
+            return super().pop(key, default)
+
+    fake = _install(monkeypatch, _FakeSt())
+    fake.session_state = InterruptState()
+    roster = _roster(_team(0, provider_team_id="123"), divisions_walked=40)
+    parsed, old = intake.to_seeding_rows(roster, {"123": "old-id"})
+    fake.session_state.update(_seeding_result=(parsed, old), _seeding_result_event_id=roster.event_id,
+                             _seeding_overrides={}, _seeding_assessment={"coverage": "partial"},
+                             _seed_name_0="Old form value")
+    monkeypatch.setattr(intake, "_write_event_roster_recovery", lambda *_args: None)
+    monkeypatch.setattr(intake, "resolve_master_ids", lambda *_args, **_kwargs: ({"123": "new-id"}, ()))
+    new = (replace(old[0], team_id_master="new-id"),)
+    monkeypatch.setattr(intake, "load_seeding_run_file", lambda _slug: SeedingRun(
+        "New Run", parsed.rows, new, assessment={"coverage": "complete", "event_id": roster.event_id}))
+    fake.session_state.__dict__["stop_key"] = stop_key
+    with pytest.raises(_Rerun):
+        if source == "load":
+            intake._load_seeding_run("new-run")
+        else:
+            intake._park_event_roster("https://system.gotsport.com/org_event/events/52975", roster, None, None)
+    assert fake.session_state.get("_seeding_transition")
+    assert not intake._autosave_seeding_run(), "partial state must never be saved"
+    intake._apply_seeding_transition()
+    assert fake.session_state["_seeding_result"][1][0].team_id_master == "new-id"
+    assert fake.session_state["_seeding_assessment"]["coverage"] == "complete"
+    assert "_seed_name_0" not in fake.session_state
+    assert "_seeding_transition" not in fake.session_state
+    if source == "load":
+        assert fake.session_state["_seeding_loaded_slug"] == "new-run"
+    else:
+        assert fake.session_state["_seeding_event_probe"]["complete"]
+
+
+def test_saved_run_switch_preserves_corrections_when_save_fails(monkeypatch):
+    fake = _install(monkeypatch, _FakeSt())
+    parsed = parse_roster("Boys U10\nC\tA")
+    pair = (parsed, (ResolvedTeam(0, "unresolved"),))
+    fake.session_state.update(_seeding_result=pair, _seeding_loaded_slug="old",
+                             _seeding_overrides={0: {"team_id_master": "unsaved"}}, _seeding_save_error=True)
+    monkeypatch.setattr(intake, "list_seeding_runs", lambda: [SeedingRunEntry("new", "New", "", 1)])
+    monkeypatch.setattr(intake, "_autosave_seeding_run", lambda **_kwargs: False)
+    monkeypatch.setattr(intake, "_load_seeding_run", lambda *_args: pytest.fail("unsaved work was replaced"))
+    intake._render_seeding_run_controls()
+    assert fake.session_state["_seeding_result"] == pair
+    assert fake.session_state["_seeding_overrides"][0]["team_id_master"] == "unsaved"
+    assert fake.session_state["_seeding_save_error"]
+    assert fake.errors
+
+
+@pytest.mark.parametrize("stop_key", ["seeding_event_name", "seeding_event_url"])
+def test_loaded_widget_handoff_survives_interruption(monkeypatch, stop_key):
+    class InterruptState(_FakeSessionState):
+        def __setitem__(self, key, value):
+            if self.__dict__.get("stop_key") == key:
+                self.__dict__["stop_key"] = None
+                raise _Rerun()
+            super().__setitem__(key, value)
+    fake = _install(monkeypatch, _FakeSt())
+    fake.session_state = InterruptState()
+    fake.session_state.update(seeding_event_name="Old", seeding_event_url="old-url",
+                             _seeding_pending_name="New", _seeding_pending_event_url="new-url")
+    fake.session_state.__dict__["stop_key"] = stop_key
+    with pytest.raises(_Rerun):
+        intake._apply_pending_seeding_widgets()
+    assert not intake._autosave_seeding_run()
+    intake._apply_pending_seeding_widgets()
+    assert fake.session_state["seeding_event_name"] == "New"
+    assert fake.session_state["seeding_event_url"] == "new-url"
+    assert "_seeding_pending_name" not in fake.session_state
+
+
+def test_matching_checkpoints_preserve_previous_source_snapshot(monkeypatch, tmp_path):
+    fake = _install(monkeypatch, _FakeSt())
+    old = parse_roster("Boys U10\nC\tPrevious source")
+    save_run(SeedingRun("Cup", old.rows, (ResolvedTeam(0, "unresolved"),)), base_dir=tmp_path)
+    fresh = parse_roster("Boys U10\nC\tRefreshed source")
+    outcomes = (ResolvedTeam(0, "unresolved", provider_team_id="123"),)
+    fake.session_state.update(_seeding_result=(fresh, outcomes), _seeding_overrides={},
+                             seeding_event_name="Cup", _seeding_assessment={"coverage": "complete"})
+    monkeypatch.setattr(intake, "save_seeding_run_file", lambda run, **kwargs: save_run(run, base_dir=tmp_path, **kwargs))
+    monkeypatch.setattr(intake, "_seeding_provider_id_lookup", lambda _client: lambda _provider: "matched")
+    monkeypatch.setattr(intake, "_enrich_seeding_names", lambda resolved, _client: resolved)
+    intake._resolve_seeding_incrementally(fresh, outcomes, None)
+    assert load_run("cup", base_dir=tmp_path).resolved[0].team_id_master == "matched"
+    history = list((tmp_path / "cup/history").glob("*.json"))
+    assert any("Previous source" in path.read_text() for path in history)
+    assert len(history) == 2

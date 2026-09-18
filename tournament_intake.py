@@ -3660,15 +3660,16 @@ def _run_seeding_resolve(text: str, supabase_client: Any) -> bool:
         st.error("Name and save the current run before replacing its roster.")
         return False
     resolved = tuple(ResolvedTeam(row.source_index, "unresolved") for row in parsed.rows)
-    _reset_seeding_review_widgets()
-    st.session_state["_seeding_assessment"] = {
+    metadata = {
         "coverage": "complete" if st.session_state.get("_seeding_paste_complete") else "unknown",
         "source_kind": "Paste team list", "source_url": "", "completed": [],
         "fingerprint": source_fingerprint(parsed.rows),
     }
-    st.session_state["_seeding_cohort_decisions"] = {}
-    st.session_state._seeding_overrides = {}
-    _park_seeding_result((parsed, resolved), event_id=None)
+    st.session_state["_seeding_transition"] = {
+        "raw": parsed, "resolved": resolved, "metadata": metadata, "event_id": None,
+        "decisions": {}, "overrides": {}, "resolution_failed": True,
+    }
+    _apply_seeding_transition()
     _autosave_seeding_run()
     _run_seeding_name_lookup(parsed, resolved, supabase_client)
     return True
@@ -3841,7 +3842,6 @@ def _park_event_roster(
 
     carried_overrides, carried_decisions = {}, {}
     if keys == _SEEDING_KEYS:
-        _reset_seeding_review_widgets()
         previous = st.session_state.get(keys.result)
         if previous and str(st.session_state.get(keys.result_event_id)) == str(roster.event_id):
             carried_overrides, carried_decisions = carry_decisions(
@@ -3855,13 +3855,16 @@ def _park_event_roster(
             else item
             for row, item in zip(parsed.rows, resolved)
         )
-        st.session_state["_seeding_assessment"] = {
+        metadata = {
             "coverage": "complete" if roster.is_complete else "partial",
             "source_kind": "GotSport event", "source_url": url, "event_id": roster.event_id,
             "completed": [item.source_index for item in resolved if item.team_id_master],
             "fingerprint": source_fingerprint(parsed.rows),
         }
-        st.session_state["_seeding_cohort_decisions"] = carried_decisions
+        transition = {
+            "raw": parsed, "resolved": resolved, "metadata": metadata, "event_id": roster.event_id,
+            "decisions": carried_decisions, "overrides": carried_overrides, "resolution_failed": bool(parsed.rows),
+        }
 
     if keys == _BACKTEST_KEYS:
         from src.tournaments.backtest_intake_state import BacktestSnapshot
@@ -3873,7 +3876,7 @@ def _park_event_roster(
             roster, resolved, limit_groups=limit_groups
         )
 
-    st.session_state[keys.probe] = {
+    probe = {
         "url": url,
         "limit_groups": limit_groups,
         "divisions_found": roster.divisions_found,
@@ -3890,15 +3893,22 @@ def _park_event_roster(
     # Parked alongside the counters, before the roster: both describe the same
     # walk, so a stop landing between them must not leave one view's structure
     # sitting against another walk's teams.
-    st.session_state[keys.structure] = roster.divisions
     # Fingerprinted, not just mapped: a stop between this write and the parked
     # result leaves the two describing different walks, and every walk numbers
     # its teams 0..n-1, so only the rows themselves can tell one from another.
-    st.session_state[keys.registrations] = {
+    registrations = {
         "event_id": roster.event_id,
         "fingerprint": rows_fingerprint(parsed.rows),
         "by_index": {team.source_index: team.registration_id for team in roster.teams},
     }
+    if keys == _SEEDING_KEYS:
+        transition.update(probe=probe, structure=roster.divisions, registrations=registrations)
+        st.session_state["_seeding_transition"] = transition
+        _apply_seeding_transition()
+        return len(parsed.rows)
+    st.session_state[keys.probe] = probe
+    st.session_state[keys.structure] = roster.divisions
+    st.session_state[keys.registrations] = registrations
     # Not `keys.loaded_slug`: that is what stops the resume selector from
     # reloading the saved run it still has selected over this fresh scrape.
     st.session_state[keys.overrides] = carried_overrides
@@ -4169,8 +4179,8 @@ def _recovered_division(payload: Any) -> ScrapedDivision:
 
 
 def _enrich_seeding_names(resolved: Sequence[ResolvedTeam], client: Any) -> tuple[ResolvedTeam, ...]:
-    """Batch missing display names without changing authoritative ID matches."""
-    ids = list(dict.fromkeys(item.team_id_master for item in resolved if item.team_id_master and not item.matched_name))
+    """Read database display names without changing authoritative ID matches."""
+    ids = list(dict.fromkeys(item.team_id_master for item in resolved if item.team_id_master))
     names = {}
     for offset in range(0, len(ids), 100):
         rows = client.table("teams").select("team_id_master,team_name").in_(
@@ -4192,6 +4202,10 @@ def _resolve_seeding_incrementally(parsed, resolved, client):
     indices = [index for index in needs_name_lookup(effective, resolved)
                if index not in completed and index not in overrides and index in eligible]
     st.session_state["_seeding_resolution_failed"] = True
+    # Archive the prior source before progress checkpoints replace the latest file.
+    if _seeding_run_name() and not _autosave_seeding_run():
+        st.info("Matching paused until this run can be saved. Retry saving, then retry matching.")
+        return
     session = requests.Session()
     current = tuple(resolved)
     try:
@@ -4483,6 +4497,10 @@ def _autosave_seeding_run(*, archive_previous: bool = True) -> bool:
     failed write both answer False, so a caller that announces success does not
     announce it over the warning this just raised.
     """
+    if (st.session_state.get("_seeding_transition") or
+        st.session_state.get("_seeding_pending_name") is not None or
+        st.session_state.get("_seeding_pending_event_url") is not None):
+        return False
     name = _seeding_run_name()
     result = st.session_state.get("_seeding_result")
     if not name or not result:
@@ -4537,16 +4555,10 @@ def _load_seeding_run(slug: str, client: Any = None) -> bool:
         "source_kind": "GotSport event" if run.source_url else "Paste team list",
     }
     metadata["fingerprint"] = source_fingerprint(run.rows)
-    st.session_state["_seeding_assessment"] = metadata
-    st.session_state._seeding_overrides = dict(run.overrides)
-    st.session_state["_seeding_cohort_decisions"] = dict(run.cohort_decisions)
     completed = run.assessment.get("completed")
-    st.session_state._seeding_resolution_failed = completed is not None and any(
+    resolution_failed = completed is not None and any(
         item.status == "unresolved" and item.source_index not in completed for item in run.resolved
     )
-    st.session_state.pop("_seeding_event_probe", None)
-    st.session_state._seeding_sheet_html = None
-    st.session_state._seeding_pending_name = run.name
     # New saves retain the exact URL. Older runs used the generated GotSport
     # name, so recover that common form to keep the one-click scrape path open.
     source_url = str(run.source_url or "").strip()
@@ -4554,16 +4566,44 @@ def _load_seeding_run(slug: str, client: Any = None) -> bool:
         match = re.search(r"\bGotSport\s+Event\s+(\d+)\b", run.name, flags=re.IGNORECASE)
         if match:
             source_url = f"https://system.gotsport.com/org_event/events/{match.group(1)}"
-    st.session_state._seeding_pending_event_url = source_url
-    _park_seeding_result(
-        (ParsedRoster(rows=run.rows, warnings=run.warnings), run.resolved),
-        event_id=run.assessment.get("event_id") or event_id_from(run.source_url),
-    )
-    st.session_state._seeding_pack = run.pack
-    st.session_state._seeding_loaded_slug = slug
-    st.session_state["_seeding_save_error"] = False
-    _reset_seeding_review_widgets()
+    st.session_state["_seeding_transition"] = {
+        "raw": ParsedRoster(rows=run.rows, warnings=run.warnings), "resolved": run.resolved,
+        "metadata": metadata, "event_id": run.assessment.get("event_id") or event_id_from(run.source_url),
+        "decisions": dict(run.cohort_decisions), "overrides": dict(run.overrides),
+        "resolution_failed": resolution_failed, "pack": run.pack,
+        "name": run.name, "source_url": source_url, "loaded_slug": slug,
+    }
+    _apply_seeding_transition()
     return True
+
+
+def _apply_seeding_transition() -> None:
+    """Finish a source replacement before exposing any part of it to the operator."""
+    update = st.session_state.get("_seeding_transition")
+    if not update:
+        return
+    # A queued Streamlit rerun can interrupt any assignment. Keep the complete
+    # transition available so the next render reinstalls every field together.
+    _reset_seeding_review_widgets()
+    st.session_state["_seeding_assessment"] = update["metadata"]
+    st.session_state["_seeding_cohort_decisions"] = update["decisions"]
+    st.session_state["_seeding_overrides"] = update["overrides"]
+    pair = (update["raw"], update["resolved"]) if update["raw"].rows else None
+    _park_seeding_result(pair, event_id=update["event_id"])
+    st.session_state["_seeding_resolution_failed"] = update["resolution_failed"]
+    if "probe" in update:
+        st.session_state["_seeding_event_probe"] = update["probe"]
+        st.session_state[_SEEDING_KEYS.structure] = update["structure"]
+        st.session_state[_SEEDING_KEYS.registrations] = update["registrations"]
+    if "loaded_slug" in update:
+        st.session_state.pop("_seeding_event_probe", None)
+        st.session_state["_seeding_pack"] = update["pack"]
+        st.session_state.pop("_seeding_pack_unsaved", None)
+        st.session_state["_seeding_pending_name"] = update["name"]
+        st.session_state["_seeding_pending_event_url"] = update["source_url"]
+        st.session_state["_seeding_save_error"] = False
+        st.session_state["_seeding_loaded_slug"] = update["loaded_slug"]
+    st.session_state.pop("_seeding_transition", None)
 
 
 def _seeding_context_matches(parsed: ParsedRoster, metadata: Mapping[str, Any]) -> bool:
@@ -4591,8 +4631,8 @@ def _apply_pending_seeding_widgets() -> None:
     sits beside the name box. Handing the value over on the following run keeps
     that legal however the two controls are later ordered on the page.
     """
-    pending_name = st.session_state.pop("_seeding_pending_name", None)
-    pending_url = st.session_state.pop("_seeding_pending_event_url", None)
+    pending_name = st.session_state.get("_seeding_pending_name")
+    pending_url = st.session_state.get("_seeding_pending_event_url")
     if pending_name is None and pending_url is None:
         return
     if pending_name is not None:
@@ -4605,6 +4645,8 @@ def _apply_pending_seeding_widgets() -> None:
     st.session_state["seeding_roster_text"] = ""
     for key in ("_seeding_pack_scope", "_seeding_pack_cohorts", "_seeding_margin_limit", "_seeding_risk_limit"):
         st.session_state.pop(key, None)
+    st.session_state.pop("_seeding_pending_name", None)
+    st.session_state.pop("_seeding_pending_event_url", None)
 
 
 def _render_seeding_run_controls(client: Any = None) -> None:
@@ -4632,6 +4674,9 @@ def _render_seeding_run_controls(client: Any = None) -> None:
             key="seeding_resume_choice",
         )
         if chosen and chosen != st.session_state.get("_seeding_loaded_slug"):
+            if st.session_state.get("_seeding_result") and not _autosave_seeding_run():
+                st.error("Save the current run successfully before opening another saved run.")
+                return
             if _load_seeding_run(chosen, client):
                 st.rerun()
 
@@ -5115,6 +5160,7 @@ def _render_seeding_save() -> None:
 def _render_seeding_tab(supabase_client: Any) -> None:
     from src.tournaments.seeding_review_ui import render_review
 
+    _apply_seeding_transition()
     update = st.session_state.get("_seeding_review_update")
     if update:
         # Keep the whole edit pending until every legacy field is installed. A
@@ -5184,7 +5230,7 @@ def _render_seeding_tab(supabase_client: Any) -> None:
         if st.button("Retry unfinished matching", key="_seed_retry_remaining"):
             _run_seeding_name_lookup(raw, resolved, supabase_client)
             st.rerun()
-    if any(item.team_id_master and not item.matched_name for item in resolved):
+    if any(item.team_id_master for item in resolved):
         if st.button("Load PitchRank team names", key="_seed_load_names"):
             try:
                 enriched = _enrich_seeding_names(resolved, supabase_client)

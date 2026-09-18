@@ -991,7 +991,8 @@ def _completed_event_metadata(pages: list[str], divisions: list, fully_visited: 
     }
 
 
-def _published_u_ages(label: str) -> set[int]:
+def published_u_ages(label: str, *, expand_ranges: bool = False) -> set[int]:
+    """Read explicit U-ages; optionally include every age within hyphenated ranges."""
     ages = set()
     # Tournament labels commonly prefix the format with ``5 Team`` or
     # ``7 Teams``. That number describes field size, not a second U-age.
@@ -999,12 +1000,19 @@ def _published_u_ages(label: str) -> set[int]:
     for match in _AGE_RUN.finditer(published):
         if match.group("tail_u") or "u" in match.group("body").lower():
             ages = ages | {int(number) for number in _RUN_NUMBER.findall(match.group("body"))}
+            if expand_ranges:
+                body = match.group("body")
+                numbers = list(_RUN_NUMBER.finditer(body))
+                for left, right in zip(numbers, numbers[1:]):
+                    if "-" in body[left.end():right.start()]:
+                        lower, upper = int(left.group()), int(right.group())
+                        ages = ages | set(range(min(lower, upper), max(lower, upper) + 1))
     return {age for age in ages if 0 < age < 100}
 
 
 def _published_u_age(label: str) -> str:
     """Literal published U-age, including combined and out-of-board cohorts."""
-    ages = _published_u_ages(label)
+    ages = published_u_ages(label)
     ordered = sorted(age for age in ages if 0 < age < 100)
     return "/".join(f"u{age}" for age in ordered) if ordered and len(ordered) == len(ages) else ""
 
@@ -1014,7 +1022,7 @@ def _published_cohort_conflict(label: str) -> bool:
     parts = re.split(r"\s+-\s+", _ascii_dashes(label), maxsplit=1)
     if len(parts) != 2:
         return False
-    header, division = (_published_u_ages(part) for part in parts)
+    header, division = (published_u_ages(part) for part in parts)
     return bool(header and division and header.isdisjoint(division))
 
 

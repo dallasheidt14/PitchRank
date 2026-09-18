@@ -10,6 +10,7 @@ from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from src.tournaments.gotsport_event_roster import published_u_ages
 from src.tournaments.roster_paste import ParsedRoster, RosterRow
 from src.tournaments.roster_resolver import ResolvedTeam
 from src.tournaments.seeding_pack import duplicate_identity_rows
@@ -45,12 +46,9 @@ def could_belong(row: RosterRow, age: str, gender: str) -> bool:
         return False
     if row.section_age_group:
         return row.section_age_group == age
-    # An explicit U9/U10 label can affect U10 readiness without holding up U15.
-    mixed = re.search(r"\bu\s*([0-9]{1,2})\s*([/–-])\s*u?\s*([0-9]{1,2})\b", row.listed_division, re.I)
-    if mixed:
-        ages = {int(mixed[1]), int(mixed[3])}
-        if mixed[2] in "–-":
-            ages = set(range(min(ages), max(ages) + 1))
+    # Constrain uncertainty to every published age, including inclusive ranges.
+    ages = published_u_ages(row.listed_division, expand_ranges=True)
+    if ages:
         return age in {"u19" if value == 18 else f"u{value}" for value in ages}
     return True
 
@@ -83,7 +81,8 @@ def corrected_identities(before, after, resolved, overrides):
             name_changed = previous.team_name_raw != current.team_name_raw
             cohort_changed = (previous.section_age_group, previous.section_gender) != (
                 current.section_age_group, current.section_gender)
-            if name_changed or (cohort_changed and item.status == "exact_name" and item.source_index not in manual):
+            if name_changed or (cohort_changed and item.status in ("exact_name", "review")
+                                and item.source_index not in manual):
                 item = ResolvedTeam(item.source_index, "unresolved")
                 manual.pop(item.source_index, None)
                 reset.add(item.source_index)
@@ -148,6 +147,8 @@ def assess_roster(
     provisional = coverage != "complete" or bool(cohort_review)
     low, high = event_price(total), event_price(maximum)
     price = low if low == high else f"{low} to {high}"
+    if coverage != "complete":
+        price = (f"{low} minimum" if low.startswith("$") else low) if total else "Pending full roster"
     return Assessment(total, maximum, len(matched), frozenset(manual), frozenset(pending),
                       frozenset(cohort_review), frozenset(manual | pending | cohort_review), tuple(cohorts),
                       provisional, price, len(parsed.rows) - len(active))

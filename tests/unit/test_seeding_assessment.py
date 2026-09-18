@@ -8,6 +8,7 @@ from src.tournaments.roster_paste import ParsedRoster, parse_roster
 from src.tournaments.roster_resolver import ResolvedTeam
 from src.tournaments.seeding_assessment import (
     assess_roster, carry_decisions, corrected_identities, effective_roster, event_price, source_fingerprint,
+    could_belong,
 )
 from src.tournaments.seeding_intake_ui import team_csv
 from src.tournaments.seeding_run_store import SeedingRun, load_run, save_run
@@ -157,3 +158,37 @@ def test_progress_checkpoints_update_latest_without_archiving_each_team(tmp_path
     assert not (tmp_path / "checkpoint-cup/history").exists()
     save_run(replace(run, rows=run.rows[:1]), base_dir=tmp_path)
     assert len(list((tmp_path / "checkpoint-cup/history").glob("*.json"))) == 1
+
+
+@pytest.mark.parametrize("label,inside,outside", [
+    ("Girls U10/U11/U12", "u12", "u13"), ("Girls U10/11/12", "u12", "u13"),
+    ("U9/U10G Mexico", "u10", "u11"), ("GU9/U10", "u10", "u11"),
+    ("Girls U10–U14", "u12", "u15"), ("Girls U10-12-14", "u13", "u15"),
+])
+def test_readiness_uses_every_published_age_and_gender_suffix(label, inside, outside):
+    row = replace(parse_roster("Girls U10\nC\tMixed").rows[0], section_age_group="", listed_division=label)
+    assert could_belong(row, inside, "Female")
+    assert not could_belong(row, outside, "Female")
+    parsed = ParsedRoster((row, replace(row, source_index=1, section_age_group=inside, listed_division="")), ())
+    result = assess_roster(parsed, [ResolvedTeam(i, "gotsport_id", team_id_master=str(i)) for i in range(2)],
+                           {}, coverage="complete")
+    assert result.cohorts[0]["Status"] == "Check coverage"
+
+
+def test_incomplete_roster_price_is_explicitly_a_minimum():
+    parsed = parse_roster("Boys U10\n" + "\n".join(f"C\tTeam {i}" for i in range(75)))
+    for coverage in ("unknown", "partial"):
+        assert assess_roster(parsed, (), {}, coverage=coverage).price == "$199 minimum"
+    assert assess_roster(parsed, (), {}, coverage="complete").price == "$199"
+    large = ParsedRoster(tuple(replace(parsed.rows[0], source_index=i) for i in range(601)), ())
+    assert assess_roster(large, (), {}, coverage="partial").price == "Custom quote"
+    assert assess_roster(ParsedRoster((), ()), (), {}, coverage="unknown").price == "Pending full roster"
+
+
+def test_changing_review_cohort_discards_old_candidates_for_a_new_lookup():
+    before = parse_roster("Boys U10\nC\tSquad")
+    after = effective_roster(before, {0: {"section_age_group": "u11"}})
+    resolved = [ResolvedTeam(0, "review", candidates=({"team_id_master": "old-cohort"},))]
+    fixed, manual, reset = corrected_identities(before, after, resolved, {})
+    assert fixed == (ResolvedTeam(0, "unresolved"),)
+    assert not manual and reset == {0}
