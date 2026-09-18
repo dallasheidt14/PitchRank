@@ -23,19 +23,34 @@ def render_assessment(parsed, resolved, overrides):
     total = str(assessment.total)
     if assessment.possible_total != assessment.total:
         total += f"–{assessment.possible_total}"
-    columns[0].metric("Total U10+ teams", total)
+    columns[0].metric("Total U10+ teams", total, help=(
+        "All imported U10+ teams count toward the quote, whether matched or not. "
+        "A range means some entries still need their age or input clarified."
+    ))
     if assessment.possible_total != assessment.total:
         st.caption(f"{assessment.total} confirmed U10+ teams; up to {assessment.possible_total} after input review.")
-    columns[1].metric("Matched", assessment.matched)
-    columns[2].metric("Manual matches needed", len(assessment.manual))
+    columns[1].metric("Matched", assessment.matched, help=(
+        "Teams linked to a PitchRank team. Some may still need their tournament age or cohort clarified."
+    ))
+    columns[2].metric("Manual matches needed", len(assessment.manual), help=(
+        "Teams whose PitchRank match needs your review. Includes teams that also have cohort or input questions. "
+        "Unfinished automatic lookups are counted separately."
+    ))
+    cohort_only = len(assessment.cohort_review - assessment.manual - assessment.pending)
     left, right = st.columns(2)
-    left.metric("Cohort / input fixes needed", len(assessment.cohort_review))
+    left.metric("Additional cohort / input fixes", cohort_only, help=(
+        f"{len(assessment.cohort_review)} teams have cohort or input questions in total. "
+        "This number counts only additional, already-matched teams. The others are already counted "
+        "under Manual matches needed or Awaiting lookup."
+    ))
     right.metric("Suggested event price", assessment.price)
-    st.caption(f"You fixed: {sum(row.source_index in overrides for row in parsed.rows)} · "
-               f"Still need attention: {len(assessment.attention)} · "
-               f"Awaiting lookup: {len(assessment.pending)} · Younger teams excluded: {assessment.excluded}")
-    if assessment.manual & assessment.cohort_review:
-        st.caption("Review categories overlap; each team is counted once in Still need attention.")
+    summary = [f"{len(assessment.manual)} need matching", f"{cohort_only} more need cohort/input fixes"]
+    if assessment.pending:
+        summary.append(f"{len(assessment.pending)} awaiting lookup")
+    summary.append(f"{len(assessment.attention)} teams total to review")
+    st.caption(" · ".join(summary) + ".")
+    st.caption(f"Manual matches applied: {sum(row.source_index in overrides for row in parsed.rows)} · "
+               f"Younger teams excluded: {assessment.excluded}")
     if assessment.provisional:
         st.info("Provisional quote: confirm the full U10+ roster and resolve cohort or input questions. "
                 "The count covers imported entries; an incomplete import may contain more teams.")
@@ -80,7 +95,10 @@ def render_review(raw, resolved, overrides, frame, render_override, save):
     if not filtered.empty:
         st.download_button("Download filtered review as CSV",
                            data=filtered.apply(lambda column: column.map(csv_safe)).to_csv(index=False).encode("utf-8"),
-                           file_name="seeding-review.csv", mime="text/csv")
+                           file_name="seeding-review.csv", mime="text/csv", help=(
+                               "Downloads only the rows shown by your current review and cohort filters. "
+                               "An internal work list you can open in Excel, not the director's finished workbook."
+                           ))
     choices = [int(number) - 1 for number in filtered["#"]]
     rows = {row.source_index: row for row in parsed.rows}
     if choices:
