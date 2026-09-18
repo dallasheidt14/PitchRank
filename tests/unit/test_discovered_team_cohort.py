@@ -70,6 +70,35 @@ def test_a_cohort_off_the_boards_is_not_replaced_by_the_opponents():
     assert profile.age_group == "u8"
 
 
+def test_a_gender_prefixed_u_age_is_not_replaced_by_the_opponents():
+    """``BU9`` states this team's cohort as plainly as ``U9 Boys`` does. While the
+    parser could not read it the name rung was skipped entirely, and the opponent's
+    cohort was written instead -- which is how U7-U9 squads reached the U11 board."""
+    profile = build_unknown_profile(
+        {"unknown_team_name": "New Canaan FC BU9 Black", "top_known_team_age_group": "u11"},
+        None,
+    )
+    assert profile.age_group == "u9"
+
+
+def test_a_gender_suffixed_u_age_is_not_replaced_by_the_opponents():
+    profile = build_unknown_profile(
+        {"unknown_team_name": "GCKA U8B Red", "top_known_team_age_group": "u11"},
+        None,
+    )
+    assert profile.age_group == "u8"
+
+
+def test_a_gender_attached_u_age_outranks_a_birth_year_in_the_same_name():
+    """The stated age group wins over a birth year, which needs a convention to
+    resolve and spans two cohorts either way."""
+    profile = build_unknown_profile(
+        {"unknown_team_name": "Oakville Soccer Club - BU14C 2011", "top_known_team_age_group": "u11"},
+        None,
+    )
+    assert profile.age_group == "u14"
+
+
 def test_u18_in_a_name_reaches_the_stored_spelling():
     """extract_age_group preserves U18 by design; the fold happens on the way out."""
     profile = build_unknown_profile({"unknown_team_name": "Surf SC U18 Boys"}, None)

@@ -795,8 +795,8 @@ def v53e_to_rankings_full_format(
         teams_metadata_df["team_id_master"] = teams_metadata_df["team_id_master"].astype(str)
 
         # Determine which metadata columns to merge (skip if already present in rankings_df)
-        # NOTE: Never merge age_group from metadata - always derive from actual 'age' field
-        # to ensure rankings match the age group of games played, not team registration
+        # NOTE: Never merge age_group from metadata - always derive it from the 'age'
+        # column, so the cohort written back is the one the engine actually ranked in.
         merge_cols = ["team_id_master"]
         if "state_code" not in rankings_df.columns and "state_code" in teams_metadata_df.columns:
             merge_cols.append("state_code")
@@ -809,8 +809,13 @@ def v53e_to_rankings_full_format(
             if "team_id_master" in rankings_df.columns and "team_id" in rankings_df.columns:
                 rankings_df = rankings_df.drop(columns=["team_id_master"])
 
-    # ALWAYS derive age_group from the actual 'age' field used in ranking calculation
-    # This ensures teams are ranked in the age group they actually played in, not their registration
+    # ALWAYS derive age_group from the 'age' column the ranking calculation used, so the
+    # two cannot drift apart within a run.
+    #
+    # 'age' traces back to teams.age_group through age_group_to_age, and a game's age is
+    # mapped from its team's, so nothing here reads a cohort out of play data: correcting
+    # teams.age_group is what moves a published board. The trip is identity for the
+    # cohorts that have one, but not a pure one -- age_group_to_age folds u18 into 19.
     if "age" in rankings_df.columns:
         rankings_df["age_group"] = rankings_df["age"].apply(
             lambda x: f"u{int(float(x))}" if pd.notna(x) and str(x).strip() else None
