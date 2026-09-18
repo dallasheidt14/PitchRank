@@ -89,14 +89,14 @@ def test_a_gender_suffixed_u_age_is_not_replaced_by_the_opponents():
     assert profile.age_group == "u8"
 
 
-def test_a_birth_year_in_the_name_still_outranks_a_gender_attached_u_age():
-    """The U-age rung sits below the birth-year ones, so a name carrying both is
-    read from the year -- a U-age is season-relative and goes stale every Aug 1."""
+def test_a_gender_attached_u_age_outranks_a_birth_year_in_the_same_name():
+    """The stated age group wins over a birth year, which needs a convention to
+    resolve and spans two cohorts either way."""
     profile = build_unknown_profile(
         {"unknown_team_name": "Oakville Soccer Club - BU14C 2011", "top_known_team_age_group": "u11"},
         None,
     )
-    assert profile.age_group == "u16"
+    assert profile.age_group == "u14"
 
 
 def test_u18_in_a_name_reaches_the_stored_spelling():

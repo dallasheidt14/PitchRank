@@ -140,13 +140,16 @@ class TestExtractAgeGroupGenderAttachedUAge:
     cohort of the team this one played -- so an eight-year-old squad was stored on
     whichever board its opponent sat on.
 
-    Every case below kills a mutation no other case here kills: dropping ``[bg]?``,
-    narrowing it to ``[b]``, re-anchoring the right-hand side on ``\\b``, and moving
-    the rung above the birth-year priorities. The pattern's other two guards -- the
-    leading lookbehind and the two-digit cap -- are deliberately left unpinned,
-    because at this position Priority 3 answers first for every name that would
-    exercise them, so any fixture for them would pass whatever the pattern said.
-    They are defensive against the rung being moved, and the last test pins that.
+    Every case below kills a mutation no other case here kills: dropping ``[bg]?`` on
+    either branch, narrowing it to ``[b]``, re-anchoring either right-hand side on
+    ``\\b``, unbounding the digits, and dropping the U-first rung below the birth-year
+    priorities.
+
+    The leading lookbehind is deliberately not pinned. Every name that would exercise
+    it carries a four-digit year, so the two-digit cap declines the match first and a
+    fixture would pass whichever way the lookbehind went. Measured against GotSport's
+    registered cohort it is worth -14/+1 either way, and it is kept for symmetry with
+    the digit-first branch rather than for a behaviour a test could hold it to.
     """
 
     def test_gender_letter_before_the_u_age(self):
@@ -179,12 +182,18 @@ class TestExtractAgeGroupGenderAttachedUAge:
         # No trailing "u", so this stays with Priority 2: B14 is the 2014 birth year.
         assert extract_age_group("Dynamos B14 Red", {}, season_year=2026) == "u13"
 
-    def test_a_birth_year_outranks_a_stale_gender_attached_u_age(self):
-        # The rung sits below the birth-year priorities, and this is what that buys:
-        # a U-age goes stale every Aug 1 while a birth year does not, so a name
-        # holding both must be read from the year. Moving the rung up beside
-        # Priority 1 takes 41 previously-correct queue rows wrong, this one among them.
-        assert extract_age_group("Oakville Soccer Club - BU14C 2011", {}, season_year=2026) == "u16"
+    def test_a_gender_prefixed_birth_year_is_still_a_birth_year(self):
+        # The digits are capped at two so this is not a U-age. Unbounded it yields the
+        # cohort "u2015", which the persistence normalizer refuses -- and discovery
+        # reads that refusal as "the name said nothing" and stamps the opponent's
+        # cohort, the very fallback this rung exists to close.
+        assert extract_age_group("LAFC BU2015 - GOLD", {}, season_year=2026) == "u12"
+
+    def test_a_gender_attached_u_age_outranks_a_birth_year_in_the_same_name(self):
+        # The stated age group wins: a birth year needs a convention to resolve and
+        # spans two cohorts either way. Dropping this rung below the birth-year
+        # priorities reads the 2011 instead and answers u16.
+        assert extract_age_group("Oakville Soccer Club - BU14C 2011", {}, season_year=2026) == "u14"
 
 
 class _FakeQuery:
