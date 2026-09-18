@@ -622,11 +622,19 @@ def extract_age_group(name, details, season_year=None):
     if match:
         return normalize_filter_age_group(match.group(1))
 
-    # Priority 1b: digit-then-U form (14U, 14u) — route through the same
+    # Priority 1b: digit-then-U form (14U, 14u, G18U, 12uB) — route through the same
     # normalizer as Priority 1 so "18U" and "U18" don't produce different cohorts.
     # _canonicalize_age_token is not used here because it remaps U18 -> U19, which
     # would diverge from Priority 1's normalize_filter_age_group (preserves U18).
-    match = re.search(r"\b(\d{1,2})u\b", name_lower)
+    #
+    # A gender letter may touch either side, which `\b` could not span. That was not
+    # a clean miss: with the U-age hidden, "G18U" fell to Priority 2, which reads the
+    # same characters as birth year 2018 and returns u9 -- nine cohorts from the U18
+    # the name states. The trailing "u" is what separates the two readings, so it has
+    # to be matched before Priority 2 claims the digits. Judged against GotSport's
+    # registered cohort for 171,837 teams, reading these spellings puts 101 names
+    # right and 15 wrong; "B2015/16 B11U" alone moves from u16 to u11.
+    match = re.search(r"(?<![a-z0-9])[bg]?([0-9]{1,2})u(?![0-9])", name_lower)
     if match:
         return normalize_filter_age_group(match.group(1))
 

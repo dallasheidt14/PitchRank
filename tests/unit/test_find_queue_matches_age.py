@@ -160,6 +160,25 @@ class TestExtractAgeGroupGenderAttachedUAge:
         # 3,568 girls-prefixed names fall back to the opponent's cohort again.
         assert extract_age_group("Spokane Shadow - GU11 Pre GA", {}, season_year=2026) == "u11"
 
+    def test_a_gender_letter_before_the_digit_then_u_form(self):
+        # Not a clean miss before: with the U-age hidden, Priority 2 read "g18" as
+        # birth year 2018 and returned u9, nine cohorts from the U18 stated here.
+        # u18 rather than u19 because this branch preserves U18 by design, as the
+        # comment on Priority 1b records; the fold happens at persistence.
+        assert extract_age_group("Mankato United Soccer Club G18U", {}, season_year=2026) == "u18"
+
+    def test_a_gender_letter_after_the_digit_then_u_form(self):
+        assert extract_age_group("14UB - Inter Ohana CF Blanco", {}, season_year=2026) == "u14"
+
+    def test_the_digit_then_u_form_outranks_a_birth_year_band(self):
+        # The trailing "u" is the whole difference between a cohort and a birth year,
+        # so it has to be read before the band is.
+        assert extract_age_group("Kernow Storm FC Spot B2015/16 B11U Leonard", {}, season_year=2026) == "u11"
+
+    def test_a_gender_prefixed_two_digit_year_is_still_a_birth_year(self):
+        # No trailing "u", so this stays with Priority 2: B14 is the 2014 birth year.
+        assert extract_age_group("Dynamos B14 Red", {}, season_year=2026) == "u13"
+
     def test_a_birth_year_outranks_a_stale_gender_attached_u_age(self):
         # The rung sits below the birth-year priorities, and this is what that buys:
         # a U-age goes stale every Aug 1 while a birth year does not, so a name
