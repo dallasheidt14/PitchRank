@@ -37,7 +37,7 @@ interface MatchPredictionBuildResult {
   shadowContext: MatchPredictionShadowContext;
 }
 
-export const MATCH_PREDICTION_VERSION = 'heuristic_v4_calibrated_draw_selective';
+export const MATCH_PREDICTION_VERSION = 'heuristic_v5_cohort_consistent_zero_safe';
 
 type TeamRow = {
   team_id_master: string;
@@ -152,10 +152,11 @@ async function fetchRankingsFullRow(supabase: SupabaseClient, teamId: string): P
   return result.data as RankingsFullRow | null;
 }
 
-function normalizeGenderCode(rawGender: string | null | undefined): 'M' | 'F' | 'B' | 'G' {
-  if (rawGender === 'Male' || rawGender === 'M' || rawGender === 'B' || rawGender === 'Boys') return 'M';
-  if (rawGender === 'Female' || rawGender === 'F' || rawGender === 'G' || rawGender === 'Girls') return 'F';
-  return 'M';
+function normalizeGenderCode(rawGender: string | null | undefined): 'M' | 'F' | null {
+  const value = rawGender?.trim().toLowerCase();
+  if (['male', 'm', 'b', 'boy', 'boys'].includes(value ?? '')) return 'M';
+  if (['female', 'f', 'g', 'girl', 'girls'].includes(value ?? '')) return 'F';
+  return null;
 }
 
 async function resolveCanonicalTeamId(supabase: SupabaseClient, teamId: string): Promise<string> {
@@ -199,7 +200,12 @@ export async function resolvePredictionTeamIds(
   };
 }
 
-export type PredictionTeam = TeamWithRanking & { ratings_as_of: string | null; status: string | null };
+export type PredictionTeam = TeamWithRanking & {
+  ratings_as_of: string | null;
+  status: string | null;
+  ratings_age: number | null;
+  ratings_gender: 'M' | 'F' | null;
+};
 
 export async function fetchPredictionTeam(
   supabase: SupabaseClient,
@@ -263,11 +269,45 @@ export async function fetchPredictionTeam(
     throw new AppError('Team not found', 'team_not_found', 404);
   }
 
-  const age =
+  const ratingsAge =
     normalizeAgeGroup(rankingData?.age) ??
     normalizeAgeGroup(stateRankingData?.age) ??
-    normalizeAgeGroup(rankingsFullData?.age_group) ??
-    normalizeAgeGroup(teamData.age_group);
+    normalizeAgeGroup(rankingsFullData?.age_group);
+  const age = normalizeAgeGroup(teamData.age_group);
+  const gender = normalizeGenderCode(teamData.gender);
+  const ratingsGender =
+    normalizeGenderCode(rankingData?.gender) ??
+    normalizeGenderCode(stateRankingData?.gender) ??
+    normalizeGenderCode(rankingsFullData?.gender);
+  if (age == null || gender == null) {
+    throw new AppError(
+      'The PitchRank team record is missing a valid age or gender. Correct the team record before predicting.',
+      'prediction_metadata_conflict',
+      422
+    );
+  }
+  // Ratings may predate a profile correction. Do not mix cohorts in one prediction.
+  const conflicts: string[] = [];
+  for (const [recordedAge, recordedGender] of [
+    [normalizeAgeGroup(rankingData?.age), normalizeGenderCode(rankingData?.gender)],
+    [normalizeAgeGroup(stateRankingData?.age), normalizeGenderCode(stateRankingData?.gender)],
+    [normalizeAgeGroup(rankingsFullData?.age_group), normalizeGenderCode(rankingsFullData?.gender)],
+  ] as const) {
+    if (recordedAge != null && recordedAge !== age) {
+      conflicts.push(`team record U${age}, calculated ratings U${recordedAge}`);
+    }
+    if (recordedGender != null && recordedGender !== gender) {
+      const label = (value: string) => (value === 'M' ? 'Boys' : 'Girls');
+      conflicts.push(`team record ${label(gender)}, calculated ratings ${label(recordedGender)}`);
+    }
+  }
+  if (conflicts.length) {
+    throw new AppError(
+      `PitchRank data needs updating: ${[...new Set(conflicts)].join('; ')}. Recalculate rankings before predicting.`,
+      'prediction_metadata_conflict',
+      422
+    );
+  }
 
   const wins = rankingData?.wins ?? stateRankingData?.wins ?? rankingsFullData?.wins ?? 0;
   const losses = rankingData?.losses ?? stateRankingData?.losses ?? rankingsFullData?.losses ?? 0;
@@ -286,6 +326,8 @@ export async function fetchPredictionTeam(
 
   const team: PredictionTeam = {
     ratings_as_of: rankingsFullData?.last_calculated ?? null,
+    ratings_age: ratingsAge,
+    ratings_gender: ratingsGender,
     status: rankingsFullData?.status ?? null,
     team_id_master: teamData.team_id_master,
     team_name: teamData.team_name,
@@ -295,9 +337,7 @@ export async function fetchPredictionTeam(
     has_modular11_alias: (modular11AliasResult.data?.length ?? 0) > 0,
     state: teamData.state ?? teamData.state_code,
     age,
-    gender: normalizeGenderCode(
-      rankingData?.gender ?? stateRankingData?.gender ?? rankingsFullData?.gender ?? teamData.gender
-    ),
+    gender,
     rank_in_cohort_final:
       rankingData?.rank_in_cohort_final ??
       stateRankingData?.rank_in_cohort_final ??

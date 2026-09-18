@@ -135,6 +135,11 @@ export async function buildSeedingPredictions(
             unavailableByCanonical.set(teamId, 'Confirm the club, team name, and age group before seeding.');
           } else if (error instanceof AppError && error.code === 'prediction_unavailable') {
             unavailableByCanonical.set(teamId, 'No usable current PitchRank rating is available.');
+          } else if (error instanceof AppError && error.code === 'prediction_metadata_conflict') {
+            unavailableByCanonical.set(
+              teamId,
+              `${error.message} Then rebuild matchup tiers. Your team match is saved.`
+            );
           } else {
             throw error;
           }

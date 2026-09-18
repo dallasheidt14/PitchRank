@@ -30,7 +30,7 @@ from src.tournaments.seeding_pack import (
     team_ids_by_row,
 )
 from src.tournaments.seeding_pdf import SeedingPdfError, render_seeding_pdf
-from src.tournaments.seeding_predictions import load_seeding_predictions
+from src.tournaments.seeding_predictions import load_seeding_predictions, seeding_predictor_sha256
 from src.tournaments.seeding_run_store import slugify
 from src.tournaments.seeding_sheet import build_cohort_sheets, make_ratings_lookup, render_sheet_html
 from src.tournaments.seeding_tiers import TierPolicy
@@ -326,6 +326,12 @@ def render_seeding_pack(
         invalidate_seeding_exports()
         if pack:
             st.info("The selected cohorts or team matches changed. Build matchup tiers to update this pack.")
+        return
+    if pack.get("predictor_sha256") != seeding_predictor_sha256():
+        invalidate_seeding_exports()
+        st.info("The predictor has been updated since this pack was built. After rankings finish, "
+                "click Build matchup tiers to refresh predictions. Your team matches and tournament "
+                "age assignments are saved.")
         return
     try:
         analyses = analyze_pack(pack, parsed.rows, resolved, overrides)

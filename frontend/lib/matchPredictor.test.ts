@@ -86,6 +86,25 @@ describe('poissonBlowout4PlusProbability', () => {
 });
 
 describe('predictMatch', () => {
+  it.each(['power_score_final', 'offense_norm', 'defense_norm', 'sos_norm'] as const)(
+    'preserves zero %s on either side instead of replacing it with average strength',
+    (field) => {
+      const opponent = makeTeam({ team_id_master: 'opponent' });
+      for (const reverse of [false, true]) {
+        const predict = (value: number | null) => {
+          const team = makeTeam({ team_id_master: 'tested', [field]: value });
+          return reverse ? predictMatch(opponent, team, []) : predictMatch(team, opponent, []);
+        };
+        const zero = predict(0);
+        const nearZero = predict(0.000001);
+        const average = predict(0.5);
+        expect(zero.expectedMargin).toBeCloseTo(nearZero.expectedMargin, 4);
+        expect(zero.expectedMargin).not.toBeCloseTo(average.expectedMargin, 3);
+        expect(predict(null)).toEqual(average);
+      }
+    }
+  );
+
   it('favors the stronger team in a clear mismatch', () => {
     const teamA = makeTeam({
       team_id_master: 'team-a',

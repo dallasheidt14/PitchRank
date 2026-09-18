@@ -139,6 +139,71 @@ function fixtures(): Record<string, Row[]> {
 }
 
 describe('Seeding canonical Compare bridge', () => {
+  it.each(['rankings_full', 'rankings_view', 'state_rankings_view'])(
+    'identifies age disagreement in %s and recovers after rankings are updated',
+    async (table) => {
+      const data = fixtures();
+      if (table === 'rankings_full') data[table][0].age_group = 'u15';
+      else data[table] = [{ team_id_master: A, age: 15, gender: 'M' }];
+      const db = database(data);
+      await expect(buildMatchPrediction(db.client, A, B)).rejects.toMatchObject({
+        code: 'prediction_metadata_conflict',
+        statusCode: 422,
+        message: expect.stringContaining('team record U14, calculated ratings U15'),
+      });
+      const result = await buildSeedingPredictions(db.client, { 'u14|Male': { a: A, b: B } });
+      expect(result.cohorts['u14|Male'].unavailable.a).toContain('Recalculate rankings');
+      expect(result.cohorts['u14|Male'].unavailable.a).toContain('Your team match is saved');
+      expect(result.cohorts['u14|Male'].teams.a).toBeUndefined();
+      expect(result.cohorts['u14|Male'].predictions).toEqual([]);
+      if (table === 'rankings_full') data[table][0].age_group = 'u14';
+      else data[table][0].age = 14;
+      const updated = await buildSeedingPredictions(db.client, { 'u15|Male': { a: A, b: B } });
+      expect(updated.cohorts['u15|Male'].unavailable).toEqual({});
+      expect(updated.cohorts['u15|Male'].teams.a).toMatchObject({ age: 14, ratings_age: 14 });
+      const compare = await buildMatchPrediction(db.client, A, B);
+      expect(updated.cohorts['u15|Male'].predictions[0].expected_margin).toBe(compare.prediction.expectedMargin);
+    }
+  );
+
+  it.each(['rankings_full', 'rankings_view', 'state_rankings_view'])(
+    'distinguishes a database gender disagreement in %s from a tournament assignment',
+    async (table) => {
+      const data = fixtures();
+      if (table === 'rankings_full') data[table][0].gender = 'Female';
+      else data[table] = [{ team_id_master: A, age: 14, gender: 'F' }];
+      const db = database(data);
+      await expect(fetchPredictionTeam(db.client, A)).rejects.toMatchObject({
+        code: 'prediction_metadata_conflict',
+        message: expect.stringContaining('team record Boys, calculated ratings Girls'),
+      });
+    }
+  );
+
+  it.each([{ gender: 'Unknown' }, { gender: null }, { age_group: 'u0' }, { age_group: null }])(
+    'does not silently substitute ranking metadata for an invalid team record: %j',
+    async (change) => {
+      const data = fixtures();
+      Object.assign(data.teams[0], change);
+      await expect(fetchPredictionTeam(database(data).client, A)).rejects.toMatchObject({
+        code: 'prediction_metadata_conflict',
+        message: expect.stringContaining('missing a valid age or gender'),
+      });
+    }
+  );
+
+  it('normalizes gender aliases and the shared U18/U19 board without reporting a conflict', async () => {
+    const data = fixtures();
+    Object.assign(data.teams[0], { age_group: 'u18', gender: ' boys ' });
+    Object.assign(data.rankings_full[0], { age_group: 'u19', gender: 'M' });
+    expect(await fetchPredictionTeam(database(data).client, A)).toMatchObject({
+      age: 19,
+      ratings_age: 19,
+      gender: 'M',
+      ratings_gender: 'M',
+    });
+  });
+
   it('matches real Compare and direct predictMatch with exact pair games, then mirrors the result', async () => {
     const db = database(fixtures());
     const result = await buildSeedingPredictions(db.client, { 'u14:Male': { '6': OLD_A, '7': B, '8': C } });

@@ -50,9 +50,10 @@ def operator(monkeypatch):
         pairs = {key: ({("0", "1"): prediction, ("1", "0"): reverse} if len(members) == 2 else {})
                  for key, members in cohorts.items()}
         return SeedingPredictionBatch(pairs, teams, {key: {} for key in cohorts},
-                                      "2026-09-15T10:00:00+00:00", "2026-09-14", "a" * 64)
+                                      "2026-09-15T10:00:00+00:00", "2026-09-14", ui.seeding_predictor_sha256())
 
     monkeypatch.setattr(ui, "load_seeding_predictions", load)
+    monkeypatch.setattr(ui, "seeding_predictor_sha256", lambda: "a" * 64)
     monkeypatch.setattr(ui, "make_ratings_lookup", lambda _client: lambda _ids: {})
     monkeypatch.setattr(ui, "render_seeding_pdf", lambda _html: b"%PDF-1.7\nreviewed fixture\n%%EOF")
     return AppTest.from_string(APP, default_timeout=15).run(), calls
@@ -61,6 +62,33 @@ def operator(monkeypatch):
 def click(app, label):
     next(button for button in app.button if button.label == label).click().run()
     assert not app.exception
+
+
+def test_predictor_update_requires_rebuild_and_keeps_saved_team_choices(operator, monkeypatch):
+    app, calls = operator
+    app.session_state["_seeding_overrides"] = {
+        0: {"team_id_master": "00000000-0000-0000-0000-000000000001", "team_name": "Manual match"}
+    }
+    click(app, "Build matchup tiers")
+    click(app, "Generate PDF pack")
+    pack = deepcopy(app.session_state["_seeding_pack"])
+    overrides = deepcopy(app.session_state["_seeding_overrides"])
+    monkeypatch.setattr(ui, "seeding_predictor_sha256", lambda: "b" * 64)
+    app.run()
+    assert not app.exception
+    assert any("predictor has been updated" in item.value for item in app.info)
+    assert "_seeding_pdf" not in app.session_state
+    assert app.session_state["_seeding_sheet_html"] is None
+    assert all(button.label != "Generate PDF pack" for button in app.button)
+    assert app.session_state["_seeding_pack"] == pack
+    assert app.session_state["_seeding_overrides"] == overrides
+    assert len(calls) == 1
+    click(app, "Build matchup tiers")
+    assert len(calls) == 2
+    assert app.session_state["_seeding_pack"]["predictor_sha256"] == "b" * 64
+    assert app.session_state["_seeding_overrides"] == overrides
+    assert not any("predictor has been updated" in item.value for item in app.info)
+    assert any(button.label == "Generate PDF pack" for button in app.button)
 
 
 def test_build_contains_all_cohorts_and_identity_edit_hides_old_export(operator):
