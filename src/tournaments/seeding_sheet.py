@@ -33,7 +33,7 @@ from src.tournaments.roster_paste import RosterRow
 from src.tournaments.roster_resolver import ResolvedTeam
 
 if TYPE_CHECKING:
-    from src.tournaments.seeding_tiers import TierAnalysis, TierPolicy
+    from src.tournaments.seeding_tiers import CheatSheetAnalysis, TierPolicy
 
 __all__ = [
     "BRAND",
@@ -81,7 +81,7 @@ class CohortSheet:
     gender: str
     rated: tuple[SheetTeam, ...]
     unrated: tuple[SheetTeam, ...]
-    tier_analysis: TierAnalysis | None = None
+    tier_analysis: CheatSheetAnalysis | None = None
 
     @property
     def total_teams(self) -> int:
@@ -134,7 +134,7 @@ def build_cohort_sheets(
     overrides: Mapping[int, dict[str, Any]],
     ratings: Mapping[str, dict[str, Any]],
     *,
-    tier_analyses: Mapping[tuple[str, str], TierAnalysis] | None = None,
+    tier_analyses: Mapping[tuple[str, str], CheatSheetAnalysis] | None = None,
 ) -> tuple[CohortSheet, ...]:
     """Group a resolved roster into one sheet per cohort, strongest first.
 
@@ -189,14 +189,25 @@ def build_cohort_sheets(
 
     sheets = []
     for cohort in sorted(grouped, key=lambda key: (-_age_sort_key(key[0]), key[1])):
-        rated = sorted(grouped[cohort], key=lambda team: team.power_score or 0.0, reverse=True)
+        analysis = (tier_analyses or {}).get(cohort)
+        by_seed = {entrant_id: position for position, entrant_id in enumerate(analysis.ordered_ids, 1)} if analysis else {}
+        rated = sorted(
+            grouped[cohort],
+            key=lambda team: (
+                0 if team.review_reason else 1,
+                by_seed.get(team.entrant_id, 10**9),
+                -(team.power_score if team.power_score is not None else -1.0),
+                team.team_name.casefold(),
+                team.entrant_id,
+            ),
+        )
         sheets.append(
             CohortSheet(
                 age_group=cohort[0],
                 gender=cohort[1],
                 rated=tuple(rated),
                 unrated=tuple(sorted(unrated[cohort], key=lambda team: team.team_name.lower())),
-                tier_analysis=(tier_analyses or {}).get(cohort),
+                tier_analysis=analysis,
             )
         )
     return tuple(sheets)
@@ -440,7 +451,7 @@ def _tier_tables(sheet: CohortSheet) -> tuple[str, str]:
     return "\n".join(parts), summary
 
 
-def _director_guidance(analysis: TierAnalysis) -> list[str]:
+def _director_guidance(analysis: Any) -> list[str]:
     """Turn model diagnostics into concise actions for the customer PDF."""
     guidance = []
     for index, boundary in enumerate(analysis.boundaries, 1):
@@ -496,55 +507,95 @@ def _director_guidance(analysis: TierAnalysis) -> list[str]:
     return guidance
 
 
+def _cheat_sheet_tables(sheet: CohortSheet) -> tuple[str, str]:
+    analysis = sheet.tier_analysis
+    cohort = f"{_display_gender(sheet.gender)} {sheet.age_group.upper()}"
+    all_teams = (*sheet.rated, *sheet.unrated)
+    by_id = {team.entrant_id: team for team in all_teams}
+    if len(by_id) != len(all_teams) or "" in by_id:
+        raise ValueError("Cheat sheet requires a unique entrant ID for every roster row.")
+    if analysis is not None:
+        ordered_ids = list(analysis.ordered_ids)
+        if len(ordered_ids) != len(set(ordered_ids)) or set(ordered_ids) & set(analysis.review):
+            raise ValueError("Cheat sheet analysis contains duplicate or overlapping entrant IDs.")
+        if set(analysis.review) - set(by_id):
+            raise ValueError("Cheat sheet analysis contains a team outside this cohort.")
+        legacy_ids = [entrant_id for tier in getattr(analysis, "tiers", ()) for entrant_id in tier.entrant_ids]
+        if len(legacy_ids) != len(set(legacy_ids)) or set(legacy_ids) & set(analysis.review):
+            raise ValueError("Cheat sheet legacy reference contains duplicate or overlapping entrant IDs.")
+    if analysis is None:
+        seeded = list(sheet.rated)
+        unseeded = list(sheet.unrated)
+        markers = {}
+        statuses = {}
+    else:
+        seeded = [by_id[entrant_id] for entrant_id in analysis.ordered_ids if entrant_id in by_id]
+        seeded_ids = set(analysis.ordered_ids)
+        unseeded = [team for team in all_teams if team.entrant_id not in seeded_ids]
+        if hasattr(analysis, "marker_for_seed"):
+            markers = {entrant_id: analysis.marker_for_seed(seed) for seed, entrant_id in enumerate(analysis.ordered_ids, 1)}
+            statuses = getattr(analysis, "placement_status", {})
+        else:
+            markers = {}
+            statuses = {entrant_id: "Seeded" for entrant_id in analysis.ordered_ids}
+            statuses.update({entrant_id: "Data review required" for entrant_id in analysis.review})
+    notes = {}
+    for seed, team in enumerate(seeded, 1):
+        marker = markers.get(team.entrant_id, "")
+        notes[team.entrant_id] = marker
+    tables = _table_html(
+        "Suggested seed order", seeded, numbered=True, cohort_label=cohort,
+        subtitle="Teams remain in published PowerScore order. Strength markers show competitive differences and close ranges.",
+        placement_notes=notes,
+    )
+    if unseeded:
+        review_notes = {
+            team.entrant_id: statuses.get(team.entrant_id) or team.review_reason or "Placement has not been assessed."
+            for team in unseeded
+        }
+        tables += _table_html(
+            "Unseeded teams", unseeded, numbered=False, review=True, cohort_label=cohort,
+            subtitle="These accepted teams are preserved, but PitchRank cannot place them in the seed order.",
+            placement_notes=review_notes,
+        )
+    summary = f"{len(seeded)} seeded in published order · {len(unseeded)} held for placement review."
+    return tables, summary
+
+
 def _sheet_html(
     event_name: str, sheet: CohortSheet, *, generated_on: str, ranking_run: str,
     policy: TierPolicy | None = None, operator_note: str = "",
 ) -> str:
     cohort = f"{_display_gender(sheet.gender)} {sheet.age_group.upper()}"
     analysis = sheet.tier_analysis
-    if analysis is not None:
-        tables, summary = _tier_tables(sheet)
-    else:
-        tables = _table_html("Ranked Teams", sheet.rated, numbered=True, cohort_label=cohort)
-        if sheet.unrated:
-            tables += _table_html("Unranked Teams", sheet.unrated, numbered=False, review=True,
-                                  subtitle="PitchRank publishes no rank for these teams. Seed them by judgement.",
-                                  cohort_label=cohort)
-        summary = "Teams ordered by published PowerScore. Unranked teams need placement review."
-    guidance = []
-    if analysis is not None:
-        guidance.extend(_director_guidance(analysis))
+    tables, summary = _cheat_sheet_tables(sheet)
+    guidance = list(getattr(analysis, "notes", ()) if analysis is not None else ())
     if operator_note.strip():
         guidance.append(operator_note.strip())
     notes = ""
     if guidance:
         items = "".join(f"<li>{html.escape(value)}</li>" for value in dict.fromkeys(guidance))
-        notes = f'<aside class="guidance"><h2>Before you finalize</h2><ul>{items}</ul></aside>'
+        notes = f'<aside class="guidance"><h2>Director notes</h2><ul>{items}</ul></aside>'
     explanation = (
-        "PitchRank score already adjusts for age, so a younger team playing up can be compared here. "
-        "State rank is that team's rank within its own PitchRank age and gender group."
+        "Strength breaks describe competitive differences; they do not assign divisions or pools. "
+        "Use the continuous seed order and close ranges to support the director's chosen arrangement. "
+        "PitchRank score already adjusts for age, so a younger team playing up can be compared here."
     )
-    guide = ""
-    if analysis is not None:
-        if any(tier.entrant_ids for tier in analysis.tiers):
-            guide_body = """<div class="guide-grid">
-   <div class="guide-step"><strong>1. Build flights from the same tier</strong>
-    <span>Teams in a tier are the closest projected matchups.</span></div>
-   <div class="guide-step"><strong>2. Seed from top to bottom</strong>
-    <span>Tier 1 is strongest; each following tier is the next level.</span></div>
-   <div class="guide-step"><strong>3. Use a Boundary option when sizes do not fit</strong>
-    <span>Only the team beside the tier line should move. Move one team at a time.</span></div>
-  </div>
-  <p class="guide-foot"><strong>Use the tier first.</strong>
-   PitchRank score already adjusts for age, so a younger team playing up can be compared here. State rank is within
-   that team's own PitchRank age and gender group.</p>"""
-        else:
-            guide_body = """<p class="manual-guide">Review each team’s note before seeding. Use recent results,
-   prior division, or club input to place every team in the closest competitive group.</p>"""
-        guide = f"""<section class="seed-guide">
+    diagnostics = ""
+    if analysis is not None and getattr(analysis, "diagnostics", ()):
+        diagnostics = (
+            '<details class="diagnostics"><summary>Analysis details</summary><ul>'
+            + "".join(f"<li>{html.escape(value)}</li>" for value in getattr(analysis, "diagnostics", ()))
+            + "</ul></details>"
+        )
+    guide = f"""<section class="seed-guide">
   <div class="recommendation">{html.escape(summary)}</div>
-  <h2>How to seed this group</h2>
-  {guide_body}
+  <p class="method">{html.escape(explanation)}</p>
+  <div class="guide-grid">
+   <div class="guide-step"><strong>Seed order</strong><span>Start with the published order, then use tournament judgement for final placement.</span></div>
+   <div class="guide-step"><strong>Strength breaks</strong><span>A marker identifies a meaningful difference between neighboring seeds.</span></div>
+   <div class="guide-step"><strong>Close ranges</strong><span>Close teams can be distributed across pools when the chosen format needs balance.</span></div>
+  </div>
  </section>"""
     return f"""<section class="sheet">
  <header class="masthead">
@@ -562,9 +613,10 @@ def _sheet_html(
   <div class="fact freshness"><span class="label">Ratings as of</span>
    <span class="value">{html.escape(ranking_run)}</span></div>
  </div>
- {guide or f'<p class="summary">{html.escape(summary)}</p><p class="method">{html.escape(explanation)}</p>'}
+ {guide}
  {tables}
  {notes}
+ {diagnostics}
  <footer class="foot"><span>{html.escape(cohort)} | {sheet.total_teams} teams</span>
   <span>MatchBalance by PitchRank</span></footer>
 </section>"""
@@ -669,6 +721,9 @@ def render_sheet_html(
  .guidance h2 {{ font-size: 11px; color: {BRAND["forest"]}; margin: 0 0 2mm; }}
  .guidance ul {{ margin: 0; padding-left: 4mm; font-size: 10px; line-height: 1.5; }}
  .guidance li {{ margin-bottom: 1.5mm; }}
+ .diagnostics {{ margin: 4mm 0; font-size: 9px; color: {BRAND["muted"]}; }}
+ .diagnostics summary {{ cursor: pointer; color: {BRAND["forest"]}; font-weight: 700; }}
+ .diagnostics ul {{ margin: 2mm 0 0; padding-left: 5mm; line-height: 1.45; }}
  .method {{ font-size: 9px; line-height: 1.5; color: {BRAND["muted"]}; margin: 0 0 4mm; }}
  .foot {{ display: flex; justify-content: space-between; gap: 5mm; border-top: 1px solid {BRAND["rule"]};
  margin-top: 4mm; padding-top: 3mm; font-size: 9px; color: {BRAND["muted"]}; }}

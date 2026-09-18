@@ -11,7 +11,7 @@ from __future__ import annotations
 import math
 from collections import Counter
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from itertools import combinations
 
 from src.tournaments.compare_predictor_bridge import ComparePrediction
@@ -54,6 +54,58 @@ class TierAnalysis:
     boundaries: tuple[str, ...]
     ordered_ids: tuple[str, ...]
     warnings: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class StrengthBreak:
+    """A supported competitive difference between adjacent published seeds."""
+
+    after_seed: int
+    score_gap: float
+    average_expected_margin: float
+    supported_windows: tuple[int, ...]
+    standout: bool = False
+
+
+@dataclass(frozen=True)
+class CloseRange:
+    """A short consecutive seed range whose members remain close."""
+
+    start_seed: int
+    end_seed: int
+    entrant_ids: tuple[str, ...]
+    max_expected_margin: float
+    max_blowout_probability: float
+
+
+@dataclass(frozen=True)
+class CheatSheetAnalysis:
+    """Format-neutral competitive reference for a cohort.
+
+    ``tiers``, ``borderline``, and ``boundaries`` are retained only so older
+    saved packs and operator diagnostics can be read during the migration. The
+    public sheet uses ``ordered_ids``, ``breaks``, and ``close_ranges`` instead.
+    """
+
+    ordered_ids: tuple[str, ...]
+    review: Mapping[str, str]
+    placement_status: Mapping[str, str]
+    breaks: tuple[StrengthBreak, ...]
+    close_ranges: tuple[CloseRange, ...]
+    notes: tuple[str, ...]
+    diagnostics: tuple[str, ...]
+    tiers: tuple[TierGroup, ...] = ()
+    borderline: Mapping[str, tuple[int, ...]] = field(default_factory=dict)
+    boundaries: tuple[str, ...] = ()
+    warnings: tuple[str, ...] = ()
+
+    def marker_for_seed(self, seed: int) -> str:
+        for item in self.breaks:
+            if item.after_seed == seed:
+                return "Strength break"
+        if any(item.start_seed <= seed <= item.end_seed for item in self.close_ranges):
+            return "Close range"
+        return ""
 
 
 @dataclass(frozen=True)
@@ -311,4 +363,171 @@ def build_tiers(
         boundaries=tuple(boundaries),
         ordered_ids=tuple(key for group in groups for key in group),
         warnings=tuple(warnings),
+    )
+
+
+def _placement_status(reason: str) -> str:
+    lowered = reason.casefold()
+    if "not found in pitchrank" in lowered:
+        return "Not found in PitchRank"
+    if "no current" in lowered or "inactive" in lowered or "unavailable" in lowered:
+        return "No current rating"
+    return "Data review required"
+
+
+def _window_for_boundary(ordered: Sequence[str], boundary: int, size: int) -> tuple[tuple[str, ...], tuple[str, ...]] | None:
+    """Return a deterministic neighboring window split at ``boundary``.
+
+    ``boundary`` is the number of seeds above the line. A window is available
+    only when it contains at least one seed on both sides.
+    """
+    count = len(ordered)
+    if count < size or not 0 < boundary < count:
+        return None
+    start = max(0, min(boundary - size // 2, count - size))
+    if not start < boundary < start + size:
+        return None
+    return tuple(ordered[start:boundary]), tuple(ordered[boundary:start + size])
+
+
+def _separation_stats(
+    upper: Sequence[str], lower: Sequence[str], pairs: Mapping[tuple[str, str], _Pair], policy: TierPolicy,
+) -> tuple[bool, float, int, int]:
+    margins = [_margin(pairs, first, second) for first in upper for second in lower]
+    risky = sum(_risk(pairs[_pair_key(first, second)], policy) > 1 for first in upper for second in lower)
+    favored = sum(value > 1e-8 for value in margins)
+    average = math.fsum(margins) / len(margins) if margins else 0.0
+    supported = bool(margins) and (
+        favored / len(margins) >= 0.75
+        and risky / len(margins) >= 0.5
+        and average >= policy.max_expected_margin / 2
+    )
+    return supported, average, favored, risky
+
+
+def build_cheat_sheet_analysis(
+    entrants: Sequence[TierEntrant],
+    predictions: Mapping[tuple[str, str], ComparePrediction],
+    policy: TierPolicy = TierPolicy(),
+    *,
+    legacy: TierAnalysis | None = None,
+) -> CheatSheetAnalysis:
+    """Build a format-neutral reference without assigning divisions or pools."""
+    by_id: dict[str, TierEntrant] = {}
+    for entrant in entrants:
+        if not entrant.entrant_id or entrant.entrant_id.strip() != entrant.entrant_id:
+            raise ValueError("Every entrant needs a non-empty ID without surrounding whitespace")
+        if entrant.entrant_id in by_id:
+            raise ValueError(f"Duplicate entrant ID: {entrant.entrant_id}")
+        if entrant.power_score is not None and not math.isfinite(entrant.power_score):
+            raise ValueError(f"Non-finite PowerScore for {entrant.entrant_id}")
+        by_id[entrant.entrant_id] = entrant
+    review = {key: str(value.review_reason) for key, value in sorted(by_id.items()) if value.review_reason}
+    ordered = tuple(sorted((key for key in by_id if key not in review), key=lambda key: _display_key(by_id[key])))
+    pairs = _read_pairs(ordered, predictions)
+    statuses = {key: "Seeded" for key in ordered}
+    statuses.update({key: _placement_status(reason) for key, reason in review.items()})
+
+    candidates: list[StrengthBreak] = []
+    for boundary in range(1, len(ordered)):
+        window_results: list[tuple[int, bool, float, int, int]] = []
+        for size in (3, 4, 5):
+            window = _window_for_boundary(ordered, boundary, size)
+            if window is None:
+                continue
+            supported, average, favored, risky = _separation_stats(*window, pairs, policy)
+            window_results.append((size, supported, average, favored, risky))
+        if not window_results or not all(item[1] for item in window_results):
+            continue
+        averages = [item[2] for item in window_results]
+        score_gap = (
+            (by_id[ordered[boundary - 1]].power_score or 0.0)
+            - (by_id[ordered[boundary]].power_score or 0.0)
+        )
+        candidates.append(StrengthBreak(
+            after_seed=boundary,
+            score_gap=score_gap,
+            average_expected_margin=math.fsum(averages) / len(averages),
+            supported_windows=tuple(item[0] for item in window_results),
+            standout=boundary <= 2 or len(ordered) - boundary <= 2,
+        ))
+
+    # Keep the strongest line when several nearby windows describe the same
+    # gap. A standout at either end becomes a note rather than a divider.
+    selected: list[StrengthBreak] = []
+    for candidate in sorted(
+        candidates,
+        key=lambda item: (-item.score_gap, -item.average_expected_margin, item.after_seed),
+    ):
+        if any(abs(candidate.after_seed - item.after_seed) <= 2 for item in selected):
+            continue
+        selected.append(candidate)
+    selected.sort(key=lambda item: item.after_seed)
+    breaks = tuple(item for item in selected if not item.standout)
+
+    close_candidates: list[CloseRange] = []
+    for length in range(2, min(5, len(ordered)) + 1):
+        for start in range(0, len(ordered) - length + 1):
+            members = tuple(ordered[start:start + length])
+            member_pairs = [pairs[_pair_key(first, second)] for first, second in combinations(members, 2)]
+            if not member_pairs or any(_risk(pair, policy) > 1 for pair in member_pairs):
+                continue
+            if any(
+                abs(_margin(pairs, members[index], members[index + 1])) > policy.max_expected_margin / 2
+                for index in range(length - 1)
+            ):
+                continue
+            close_candidates.append(CloseRange(
+                start_seed=start + 1,
+                end_seed=start + length,
+                entrant_ids=members,
+                max_expected_margin=max(abs(pair.margin) for pair in member_pairs),
+                max_blowout_probability=max(pair.blowout for pair in member_pairs),
+            ))
+    close_ranges: list[CloseRange] = []
+    for item in sorted(close_candidates, key=lambda value: (-(value.end_seed - value.start_seed), value.start_seed)):
+        if any(item.start_seed >= existing.start_seed and item.end_seed <= existing.end_seed for existing in close_ranges):
+            continue
+        close_ranges.append(item)
+    close_ranges.sort(key=lambda item: item.start_seed)
+
+    notes: list[str] = []
+    for item in sorted(selected, key=lambda value: (-value.score_gap, -value.average_expected_margin, value.after_seed)):
+        if item.standout:
+            seed = item.after_seed if item.after_seed <= 2 else item.after_seed + 1
+            notes.append(f"Seed {seed} stands apart competitively; keep placement flexible for the director's format.")
+        else:
+            notes.append(
+                f"Seeds {item.after_seed} and {item.after_seed + 1} have a supported strength break; "
+                "the line describes competitive difference, not a division or pool assignment."
+            )
+    for item in close_ranges:
+        if len(notes) >= 3:
+            break
+        notes.append(
+            f"Seeds {item.start_seed}–{item.end_seed} form a close range; these teams can be balanced across pools."
+        )
+    notes = notes[:3]
+
+    diagnostics: list[str] = []
+    low_confidence = sum(pair.low_confidence for pair in pairs.values())
+    if low_confidence:
+        diagnostics.append(f"{low_confidence}/{len(pairs)} matchups have low outcome confidence.")
+    reversals = sum(_margin(pairs, first, second) < -1e-8 for first, second in combinations(ordered, 2))
+    if reversals:
+        diagnostics.append(f"{reversals} matchup prediction(s) favor a lower published seed.")
+    diagnostics.append("Strength breaks require the three-, four-, and five-team neighboring windows that exist for this cohort to agree.")
+
+    return CheatSheetAnalysis(
+        ordered_ids=ordered,
+        review=review,
+        placement_status=statuses,
+        breaks=breaks,
+        close_ranges=tuple(close_ranges),
+        notes=tuple(notes),
+        diagnostics=tuple(diagnostics),
+        tiers=legacy.tiers if legacy else (),
+        borderline=legacy.borderline if legacy else {},
+        boundaries=legacy.boundaries if legacy else (),
+        warnings=legacy.warnings if legacy else (),
     )

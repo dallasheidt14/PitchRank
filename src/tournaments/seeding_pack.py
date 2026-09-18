@@ -15,9 +15,16 @@ from src.tournaments.compare_predictor_bridge import ComparePrediction
 from src.tournaments.roster_paste import RosterRow
 from src.tournaments.roster_resolver import ResolvedTeam
 from src.tournaments.seeding_predictions import _parse_batch
-from src.tournaments.seeding_tiers import TierAnalysis, TierEntrant, TierPolicy, build_tiers
+from src.tournaments.seeding_tiers import (
+    CheatSheetAnalysis,
+    TierEntrant,
+    TierPolicy,
+    build_cheat_sheet_analysis,
+    build_tiers,
+)
 
-PACK_SCHEMA_VERSION = 2
+PACK_SCHEMA_VERSION = 3
+ANALYSIS_SCHEMA_VERSION = 1
 _AGE_GROUP = re.compile(r"^u[1-9][0-9]?$")
 _LEGACY_UNAVAILABLE_REASONS = {
     "Two roster entries resolve to the same team; verify the matches.": (
@@ -157,6 +164,7 @@ def make_pack(
     requested_ids = {team_id for entrants in request.values() for team_id in entrants.values()}
     pack = {
         "schema_version": PACK_SCHEMA_VERSION,
+        "analysis_schema_version": ANALYSIS_SCHEMA_VERSION,
         "roster_fingerprint": roster_fingerprint(rows, resolved, overrides),
         "selected_cohorts": list(dict.fromkeys(selected)),
         "generated_at": batch.generated_at,
@@ -171,6 +179,7 @@ def make_pack(
         },
         "policy": asdict(TierPolicy()),
         "manual_groups": {},
+        "legacy_manual_groups": {},
         "operator_notes": {},
     }
     _snapshot_predictions(pack, request)
@@ -184,6 +193,8 @@ def pack_matches(
     overrides: Mapping[int, dict[str, Any]], selected: Sequence[str] | None = None,
 ) -> bool:
     if not isinstance(pack, dict) or pack.get("schema_version") != PACK_SCHEMA_VERSION:
+        return False
+    if pack.get("analysis_schema_version") != ANALYSIS_SCHEMA_VERSION:
         return False
     saved_selection = pack.get("selected_cohorts")
     if (
@@ -229,7 +240,7 @@ def _snapshot_predictions(
             },
         }, request, str(pack.get("predictor_sha256") or ""))
     except (TypeError, KeyError, AttributeError) as exc:
-        raise ValueError("Seeding snapshot has malformed forecast data; rebuild the matchup tiers.") from exc
+        raise ValueError("Seeding snapshot has malformed forecast data; rebuild the seeding sheets.") from exc
     for teams in result.teams.values():
         counts = Counter(team["team_id_master"] for team in teams.values())
         if any(count > 1 for count in counts.values()):
@@ -278,9 +289,12 @@ def _review_reason(row: RosterRow, team: dict[str, Any], unavailable: str | None
 def analyze_pack(
     pack: dict[str, Any], rows: Sequence[RosterRow], resolved: Sequence[ResolvedTeam],
     overrides: Mapping[int, dict[str, Any]],
-) -> dict[tuple[str, str], TierAnalysis]:
+) -> dict[tuple[str, str], CheatSheetAnalysis]:
     if not pack_matches(pack, rows, resolved, overrides):
-        raise ValueError("The roster or team matches changed. Rebuild matchup tiers before exporting.")
+        raise ValueError(
+            "The roster or team matches changed. Rebuild seeding sheets; Rebuild matchup tiers are replaced "
+            "as part of that action before exporting."
+        )
     try:
         policy = TierPolicy(**pack["policy"])
     except (TypeError, KeyError) as exc:
@@ -301,7 +315,11 @@ def analyze_pack(
             identity = identities[entrant_id]
             supplemental = pack["ratings"].get(str(identity), {}) if identity else {}
             evidence = {**supplemental, **team}
-            review_reason = _review_reason(row, evidence, unavailable.get(entrant_id), identity)
+            override = overrides.get(row.source_index) or {}
+            if override.get("not_found"):
+                review_reason = "Not found in PitchRank; no current score is assigned."
+            else:
+                review_reason = _review_reason(row, evidence, unavailable.get(entrant_id), identity)
             if row.source_index in duplicate_rows:
                 review_reason = (
                     "Multiple roster entries resolve to the same PitchRank team. "
@@ -313,8 +331,26 @@ def analyze_pack(
                 power_score=_published_score(evidence),
                 review_reason=review_reason,
             ))
-        analyses[tuple(key.split("|", 1))] = build_tiers(
-            entrants, snapshot_predictions[key], policy=policy, manual_groups=pack.get("manual_groups", {}).get(key),
+        # Legacy manual tiers remain in the pack for reference, but they no
+        # longer drive the customer-facing cheat sheet or imply a format.
+        legacy_groups = pack.get("legacy_manual_groups", {}).get(key)
+        legacy_reference = bool(legacy_groups)
+        if not legacy_groups:
+            # Packs written before the migration stored manual tiers here.
+            legacy_groups = pack.get("manual_groups", {}).get(key)
+        if legacy_groups:
+            try:
+                legacy = build_tiers(entrants, snapshot_predictions[key], policy=policy, manual_groups=legacy_groups)
+            except ValueError:
+                if not legacy_reference:
+                    raise
+                # A prior operator layout can be stale after a roster change;
+                # retain it in the pack, but never block the new sheet build.
+                legacy = build_tiers(entrants, snapshot_predictions[key], policy=policy)
+        else:
+            legacy = build_tiers(entrants, snapshot_predictions[key], policy=policy)
+        analyses[tuple(key.split("|", 1))] = build_cheat_sheet_analysis(
+            entrants, snapshot_predictions[key], policy=policy, legacy=legacy,
         )
     return analyses
 

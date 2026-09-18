@@ -4,6 +4,7 @@
 
 # Core
 pandas==2.3.3
+openpyxl==3.1.5
 numpy==2.2.6
 supabase==2.18.1
 python-dotenv==1.1.1
