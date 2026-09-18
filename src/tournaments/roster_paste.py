@@ -23,6 +23,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from src.tournaments.gotsport_event_roster import published_u_ages
 from src.tournaments.seeding_optimizer import normalize_age_group
 
 __all__ = ["ParsedRoster", "RosterRow", "parse_roster", "split_roster_markers"]
@@ -37,7 +38,6 @@ _GENDER_WORDS = {
 }
 
 _HEADING_GENDER = re.compile(r"\b(male|female|boys?|girls?)\b", re.IGNORECASE)
-_HEADING_AGE = re.compile(r"\bu\s*([0-9]{1,2})\b", re.IGNORECASE)
 _COUNTER_LINE = re.compile(r"^teams accepted\b|\(\s*[0-9]+\s+of\s+[0-9]+\s*\)", re.IGNORECASE)
 
 
@@ -79,12 +79,11 @@ class ParsedRoster:
 
 def _parse_heading(line: str) -> tuple[str, str] | None:
     gender_match = _HEADING_GENDER.search(line)
-    ages = _HEADING_AGE.findall(line)
+    ages = published_u_ages(line)
     if not gender_match or not ages:
         return None
     # A mixed section is preserved for an explicit operator decision.
-    single = len(set(ages)) == 1 and not re.search(r"[/–-]\s*(?:u\s*)?[0-9]", line, re.I)
-    age = normalize_age_group(ages[0]) if single else ""
+    age = normalize_age_group(str(next(iter(ages)))) if len(ages) == 1 else ""
     return age, _GENDER_WORDS[gender_match.group(1).lower()]
 
 

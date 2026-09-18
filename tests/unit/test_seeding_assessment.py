@@ -9,6 +9,7 @@ from src.tournaments.roster_resolver import ResolvedTeam
 from src.tournaments.seeding_assessment import (
     assess_roster, carry_decisions, corrected_identities, effective_roster, event_price, source_fingerprint,
     could_belong,
+    package_roster,
 )
 from src.tournaments.seeding_intake_ui import team_csv
 from src.tournaments.seeding_run_store import SeedingRun, load_run, save_run
@@ -140,12 +141,28 @@ def test_cohort_edit_invalidates_only_cohort_based_identity():
 
 
 @pytest.mark.parametrize("label", ["Girls U9-U10 Mexico", "Girls U9–U10 Mexico", "Girls U9/U10 Mexico",
-                                  "Girls U9-10 Mexico", "Girls U9–10 Mexico", "Girls U9/10 Mexico"])
+                                  "Girls U9-10 Mexico", "Girls U9–10 Mexico", "Girls U9/10 Mexico",
+                                  "Girls U9—10", "Girls U9‑10", "Girls U9−10", "Girls U9‒10",
+                                  "Girls U 9—10", "Girls U 9 / U 10"])
 def test_mixed_age_delimiters_do_not_block_unrelated_ready_cohort(label):
     parsed = parse_roster(label + "\nC\tMixed\nGirls U11\nC\tOlder")
     resolved = [ResolvedTeam(index, "gotsport_id", team_id_master=str(index)) for index in range(2)]
     result = assess_roster(parsed, resolved, {}, coverage="complete")
+    assert parsed.rows[0].section_age_group == ""
+    assert parsed.rows[0].listed_division == label
+    assert len(package_roster(parsed).rows) == 2
+    assert could_belong(parsed.rows[0], "u10", "Female")
+    assert not could_belong(parsed.rows[0], "u11", "Female")
     assert result.cohorts[0]["Status"] == "Ready"
+
+
+@pytest.mark.parametrize("heading", ["Girls U 10", "Girls u  10", "Girls U\u00a010"])
+def test_spaced_age_heading_does_not_inherit_younger_cohort(heading):
+    parsed = parse_roster("Girls U9\nC\tYounger\n" + heading + "\nC\tOlder")
+
+    assert len(parsed.rows) == 2
+    assert parsed.rows[1].section_age_group == "u10"
+    assert [row.team_name_raw for row in package_roster(parsed).rows] == ["Older"]
 
 
 def test_progress_checkpoints_update_latest_without_archiving_each_team(tmp_path):

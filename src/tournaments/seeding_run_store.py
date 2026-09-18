@@ -158,12 +158,15 @@ def save_run(run: SeedingRun, *, base_dir: Path | str | None = None, archive_pre
 
     path = target / RUN_FILENAME
     if archive_previous and path.exists():
-        # Keep each prior snapshot recoverable, including withdrawn registrations.
-        previous = json.loads(path.read_text(encoding="utf-8"))
+        # Preserve the exact bytes so a damaged snapshot cannot prevent recovery.
+        previous = path.read_bytes()
         history = target / "history"
         history.mkdir(exist_ok=True)
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
-        write_json(history / f"{stamp}.json", previous, indent=1)
+        with (history / f"{stamp}.json").open("xb") as archive:
+            archive.write(previous)
+            archive.flush()
+            os.fsync(archive.fileno())
     write_json(path, payload, indent=1)
     return path
 

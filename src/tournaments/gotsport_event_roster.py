@@ -997,6 +997,7 @@ def published_u_ages(label: str, *, expand_ranges: bool = False) -> set[int]:
     # Tournament labels commonly prefix the format with ``5 Team`` or
     # ``7 Teams``. That number describes field size, not a second U-age.
     published = _TEAM_COUNT.sub("", _ascii_dashes(label))
+    published = re.sub(r"\bu\s+(?=[0-9])", "U", published, flags=re.I)
     for match in _AGE_RUN.finditer(published):
         if match.group("tail_u") or "u" in match.group("body").lower():
             ages = ages | {int(number) for number in _RUN_NUMBER.findall(match.group("body"))}

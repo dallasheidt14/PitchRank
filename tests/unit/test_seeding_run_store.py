@@ -319,3 +319,31 @@ def test_failed_pack_serialization_preserves_the_previous_saved_run_bytes(tmp_pa
     assert path.read_bytes() == original
     assert load_run("stx-cup-2026", base_dir=tmp_path).pack == {"operator_notes": {"u14|Male": "Reviewed"}}
     assert not path.with_name(path.name + ".tmp").exists()
+
+
+@pytest.mark.parametrize("damaged", [b'{"rows": [', b'\xff\xfe\x00', b''])
+def test_save_recovers_from_damaged_previous_file_and_preserves_its_bytes(tmp_path, damaged):
+    path = save_run(_run(), base_dir=tmp_path)
+    path.write_bytes(damaged)
+
+    updated = replace(_run(), pack={"operator_notes": {"u14|Male": "Reviewed"}})
+    save_run(updated, base_dir=tmp_path)
+
+    recovered = load_run("stx-cup-2026", base_dir=tmp_path)
+    assert recovered.rows == updated.rows
+    assert recovered.overrides == updated.overrides
+    assert recovered.pack == updated.pack
+    archives = list((path.parent / "history").glob("*.json"))
+    assert len(archives) == 1
+    assert archives[0].read_bytes() == damaged
+
+
+def test_archive_failure_preserves_previous_save(tmp_path):
+    path = save_run(_run(), base_dir=tmp_path)
+    original = path.read_bytes()
+    (path.parent / "history").write_text("Cannot create an archive directory here", encoding="utf-8")
+
+    with pytest.raises(OSError):
+        save_run(replace(_run(), rows=()), base_dir=tmp_path)
+
+    assert path.read_bytes() == original
