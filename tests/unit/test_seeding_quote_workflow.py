@@ -46,7 +46,7 @@ def test_summary_and_single_review_are_usable_during_database_outage(operator):
     app = operator
     assert {metric.label: metric.value for metric in app.metric} == {
         "Total U10+ teams": "2–3", "Matched": "1", "Manual matches needed": "2",
-        "Cohort / input fixes needed": "1", "Suggested event price": "$199",
+        "Additional cohort / input fixes": "0", "Suggested event price": "$199",
     }
     assert sum(widget.label == "GotSport link, GotSport id, or team_id_master" for widget in app.text_input) == 1
     assert any(button.label == "Save this run" for button in app.button)
@@ -61,9 +61,43 @@ def test_cohort_correction_changes_quote_and_can_exclude_younger(operator):
     next(widget for widget in app.selectbox if widget.label == "Tournament age group").set_value("u9")
     click(app, "Apply correction")
     assert next(metric.value for metric in app.metric if metric.label == "Total U10+ teams") == "2"
-    assert next(metric.value for metric in app.metric if metric.label == "Cohort / input fixes needed") == "0"
+    assert next(metric.value for metric in app.metric if metric.label == "Additional cohort / input fixes") == "0"
     assert any("Quote ready" in message.value for message in app.success)
     assert len(app.session_state["_seeding_result"][0].rows) == 3
+
+
+@pytest.mark.parametrize("pending_rows, expected_summary", [
+    ([], "29 need matching · 5 more need cohort/input fixes · 34 teams total to review."),
+    ([215, 216, 217], "26 need matching · 5 more need cohort/input fixes · 3 awaiting lookup · 34 teams total to review."),
+])
+def test_review_summary_counts_each_team_once(pending_rows, expected_summary):
+    app = AppTest.from_string('''
+import streamlit as st
+from src.tournaments.roster_paste import parse_roster
+from src.tournaments.roster_resolver import ResolvedTeam
+from src.tournaments.seeding_review_ui import render_assessment
+text = "Boys U10\\n" + "\\n".join(f"Club\\tTeam {i}" for i in range(215))
+text += "\\nGirls U9/U10\\n" + "\\n".join(f"Club\\tTeam {i}" for i in range(215, 227))
+parsed = parse_roster(text)
+resolved = tuple(
+    ResolvedTeam(i, "gotsport_id", team_id_master=f"team-{i}")
+    if i < 193 or i >= 222 else ResolvedTeam(i, "unresolved")
+    for i in range(227)
+)
+st.session_state["_seeding_assessment"] = {
+    "coverage": "complete", "completed": [i for i in range(227) if i not in st.session_state.pending_rows],
+}
+render_assessment(parsed, resolved, {i: {"team_id_master": f"team-{i}"} for i in range(5)})
+''', default_timeout=15)
+    app.session_state["pending_rows"] = pending_rows
+    app.run()
+
+    assert not app.exception
+    assert expected_summary in [caption.value for caption in app.caption]
+    metrics = {metric.label: metric.value for metric in app.metric}
+    assert metrics["Matched"] == "198"
+    assert metrics["Additional cohort / input fixes"] == "5"
+    assert "Manual matches applied: 5 · Younger teams excluded: 0" in [caption.value for caption in app.caption]
 
 
 def test_manual_lookup_transport_error_does_not_hide_quote_or_export(operator, monkeypatch):

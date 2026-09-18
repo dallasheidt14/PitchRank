@@ -4709,9 +4709,14 @@ def _render_seeding_sheet(parsed: ParsedRoster, resolved: Sequence[ResolvedTeam]
 def _render_seeding_enqueue(parsed: ParsedRoster, resolved: Sequence[ResolvedTeam], supabase_client: Any) -> None:
     """Run refresh checks only on an operator click, never while rendering."""
     with st.expander("Refresh team data (optional)"):
-        st.caption("After queued scrapes and the next rankings run finish, rebuild the sheets to use updated data.")
-        check = st.button("Check teams available to refresh", key="_seeding_check_refresh")
-        queue = st.button("Queue matched teams for refresh", key="_seeding_enqueue", disabled=supabase_client is None)
+        st.caption("You can skip this when quoting. Refresh queues matched teams for a scrape of their latest "
+                   "game results. After the scrapes and a subsequent rankings run finish, rebuild the sheets "
+                   "to use updated ratings.")
+        check = st.button("Check teams available to refresh", key="_seeding_check_refresh", help=(
+            "Checks which matched teams can be refreshed through GotSport. Does not queue or run scrapes."
+        ))
+        queue = st.button("Queue matched teams for refresh", key="_seeding_enqueue", disabled=supabase_client is None,
+                          help="Submits scrape requests for eligible matched teams. Ratings do not update immediately.")
         if not (check or queue):
             return
         try:
@@ -5221,8 +5226,15 @@ def _render_seeding_tab(supabase_client: Any) -> None:
                    "Review each flagged match.")
     _render_seeding_save()
     if metadata.get("coverage", "unknown") == "unknown":
-        if st.checkbox("I verified this roster includes every accepted U10+ team", key="_seed_verify_coverage"):
-            if st.button("Confirm complete roster"):
+        if st.checkbox("I verified this roster includes every accepted U10+ team", key="_seed_verify_coverage", help=(
+            "Check this after comparing the imported list with the full accepted-team roster. Then click "
+            "Confirm complete roster to mark coverage complete. This does not automatically verify completeness "
+            "or resolve unmatched teams and cohort questions."
+        )):
+            if st.button("Confirm complete roster", help=(
+                "Changes coverage to complete based on your confirmation that no accepted U10+ teams are missing. "
+                "Outstanding matches and cohort questions still need review."
+            )):
                 st.session_state["_seeding_assessment"] = {**metadata, "coverage": "complete"}
                 _autosave_seeding_run()
                 st.rerun()
@@ -5231,7 +5243,10 @@ def _render_seeding_tab(supabase_client: Any) -> None:
             _run_seeding_name_lookup(raw, resolved, supabase_client)
             st.rerun()
     if any(item.team_id_master for item in resolved):
-        if st.button("Load PitchRank team names", key="_seed_load_names"):
+        if st.button("Load PitchRank team names", key="_seed_load_names", help=(
+            "Loads the database names for teams already matched by ID, so you can compare them with registered "
+            "names. Updates the displayed names without changing which teams are matched."
+        )):
             try:
                 enriched = _enrich_seeding_names(resolved, supabase_client)
                 _park_seeding_result((raw, enriched), event_id=metadata.get("event_id"))
@@ -5240,6 +5255,8 @@ def _render_seeding_tab(supabase_client: Any) -> None:
             except Exception:
                 st.error("Team names are temporarily unavailable. ID matches are kept; try again.")
     with st.expander("Import details"):
+        st.caption("Any issues found while reading your roster appear here. Check these details if teams "
+                   "or divisions seem to be missing.")
         _render_seeding_warnings(raw)
     frame = _seeding_result_frame(parsed, resolved, overrides)
     render_review(raw, resolved, overrides, frame,
