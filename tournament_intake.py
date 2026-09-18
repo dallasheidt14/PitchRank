@@ -4937,8 +4937,21 @@ def _render_seeding_event_scrape(supabase_client: Any, *, keys: _WalkKeys = _SEE
 
 
 def _render_seeding_warnings(parsed: ParsedRoster) -> None:
-    """Show what the intake could not do, without letting it author the page."""
+    """Show actionable intake problems and omit routine whole-event notes."""
     for warning in parsed.warnings:
+        if (
+            re.fullmatch(
+                r"[0-9]+ team\(s\) kept with no age group; "
+                r"their division label named no single board\.",
+                warning,
+            )
+            or (
+                warning.startswith("Skipped ")
+                and " division(s) outside the ages you rank, and did not fetch their team pages:" in warning
+            )
+            or re.fullmatch(r"Division .+ names no single board; teams kept, cohort unset", warning)
+        ):
+            continue
         st.warning(_as_plain_text(warning))
 
 
@@ -4967,7 +4980,7 @@ def _render_seeding_progress_metrics(
     ]
 
     columns = st.columns(4)
-    columns[0].metric("Teams", len(parsed.rows))
+    columns[0].metric("Total Teams", len(parsed.rows))
     columns[1].metric("Matched", len(parsed.rows) - len(outstanding))
     columns[2].metric("You fixed", len(overrides))
     columns[3].metric("Still open", len(outstanding))

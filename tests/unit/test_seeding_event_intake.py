@@ -1212,6 +1212,26 @@ def test_an_ordinary_division_label_is_left_readable(monkeypatch):
     assert fake_st.warnings == [plain]
 
 
+def test_routine_whole_event_notes_are_hidden_from_the_seeding_summary(monkeypatch):
+    from src.tournaments.roster_paste import ParsedRoster
+
+    fake_st = _install(monkeypatch, _FakeSt())
+    actionable = "Database lookup timed out"
+    parsed = ParsedRoster(
+        rows=(),
+        warnings=(
+            "12 team(s) kept with no age group; their division label named no single board.",
+            "Skipped 9 division(s) outside the ages you rank, and did not fetch their team pages: U7B, U8B",
+            "Division U9/U10G Mexico names no single board; teams kept, cohort unset",
+            actionable,
+        ),
+    )
+
+    tournament_intake._render_seeding_warnings(parsed)
+
+    assert fake_st.warnings == [actionable]
+
+
 def test_every_seeding_id_lookup_resolves_merges(monkeypatch):
     """An approved alias can name a team that was later merged away.
 
@@ -1552,6 +1572,7 @@ def test_duplicate_rows_are_offered_override_controls_until_their_ids_are_unique
 
     _by_index, outstanding = tournament_intake._render_seeding_progress_metrics(parsed, resolved, {})
     assert [row.source_index for row in outstanding] == [0, 1]
+    assert ("Total Teams", 2) in fake_st.metrics
     assert ("Still open", 2) in fake_st.metrics
 
     _by_index, outstanding = tournament_intake._render_seeding_progress_metrics(
