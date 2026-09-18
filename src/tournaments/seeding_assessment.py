@@ -97,6 +97,7 @@ class Assessment:
     matched: int
     manual: frozenset[int]
     pending: frozenset[int]
+    not_found: frozenset[int]
     cohort_review: frozenset[int]
     attention: frozenset[int]
     cohorts: tuple[dict[str, Any], ...]
@@ -111,22 +112,30 @@ def assess_roster(
 ) -> Assessment:
     by_index = {item.source_index: item for item in resolved}
     active = [row for row in parsed.rows if age_number(row) is None or age_number(row) >= 10]
+    active_indices = {row.source_index for row in active}
     confirmed = [row for row in active if age_number(row) is not None and not row.intake_issue]
     duplicate_rows = duplicate_identity_rows(active, resolved, overrides)
+    not_found = {
+        index for index, override in overrides.items()
+        if index in active_indices and (override or {}).get("not_found")
+    }
     manual, pending, cohort_review, matched = set(), set(), set(), set()
     for row in active:
         index = row.source_index
         item = by_index.get(index)
-        override_id = (overrides.get(index) or {}).get("team_id_master")
-        identity = override_id or (
-            item.team_id_master if item and item.status in ("gotsport_id", "exact_name") else None
-        )
-        if identity and index not in duplicate_rows:
-            matched.add(index)
-        elif index in duplicate_rows or (completed is None or index in completed):
-            manual.add(index)
+        if index in not_found:
+            pass
         else:
-            pending.add(index)
+            override_id = (overrides.get(index) or {}).get("team_id_master")
+            identity = override_id or (
+                item.team_id_master if item and item.status in ("gotsport_id", "exact_name") else None
+            )
+            if identity and index not in duplicate_rows:
+                matched.add(index)
+            elif index in duplicate_rows or (completed is None or index in completed):
+                manual.add(index)
+            else:
+                pending.add(index)
         if age_number(row) is None or row.section_gender not in ("Male", "Female") or row.intake_issue:
             cohort_review.add(index)
     groups: dict[tuple[str, str], list[int]] = {}
@@ -135,12 +144,13 @@ def assess_roster(
             groups.setdefault((row.section_age_group, row.section_gender), []).append(row.source_index)
     cohorts = []
     for (age, gender), indices in sorted(groups.items(), key=lambda pair: (int(pair[0][0][1:]), pair[0][1])):
-        open_count = len(set(indices) - matched)
+        open_count = len(set(indices) - matched - not_found)
+        matched_count = len(set(indices) & matched)
         uncertain_members = any(row.source_index in cohort_review and could_belong(row, age, gender) for row in active)
         ready = coverage == "complete" and not uncertain_members and not open_count
         cohorts.append({
             "Cohort": f"{'Boys' if gender == 'Male' else 'Girls'} {age.upper()}",
-            "key": f"{age}|{gender}", "Teams": len(indices), "Matched": len(indices) - open_count,
+            "key": f"{age}|{gender}", "Teams": len(indices), "Matched": matched_count,
             "Open": open_count, "Status": "Ready" if ready else "Review matches" if open_count else "Check coverage",
         })
     total, maximum = len(confirmed), len(active)
@@ -150,7 +160,8 @@ def assess_roster(
     if coverage != "complete":
         price = (f"{low} minimum" if low.startswith("$") else low) if total else "Pending full roster"
     return Assessment(total, maximum, len(matched), frozenset(manual), frozenset(pending),
-                      frozenset(cohort_review), frozenset(manual | pending | cohort_review), tuple(cohorts),
+                      frozenset(not_found), frozenset(cohort_review),
+                      frozenset(manual | pending | cohort_review), tuple(cohorts),
                       provisional, price, len(parsed.rows) - len(active))
 
 

@@ -1160,15 +1160,15 @@ export function predictMatch(teamA: TeamWithRanking, teamB: TeamWithRanking, all
   const evidenceReliabilityA = computeEvidenceReliability(teamA);
   const evidenceReliabilityB = computeEvidenceReliability(teamB);
   const powerDiff =
-    shrinkToNeutral(teamA.power_score_final || 0.5, evidenceReliabilityA) -
-    shrinkToNeutral(teamB.power_score_final || 0.5, evidenceReliabilityB);
+    shrinkToNeutral(teamA.power_score_final ?? 0.5, evidenceReliabilityA) -
+    shrinkToNeutral(teamB.power_score_final ?? 0.5, evidenceReliabilityB);
   const glickoStrength = calculateGlickoStrength(teamA, teamB);
-  const offenseA = teamA.offense_norm || 0.5;
-  const defenseA = teamA.defense_norm || 0.5;
-  const offenseB = teamB.offense_norm || 0.5;
-  const defenseB = teamB.defense_norm || 0.5;
+  const offenseA = teamA.offense_norm ?? 0.5;
+  const defenseA = teamA.defense_norm ?? 0.5;
+  const offenseB = teamB.offense_norm ?? 0.5;
+  const defenseB = teamB.defense_norm ?? 0.5;
   const { weights, mismatchScore } = getAdaptiveWeights(powerDiff, offenseA, offenseB, defenseA, defenseB);
-  const sosDiff = (teamA.sos_norm || 0.5) - (teamB.sos_norm || 0.5);
+  const sosDiff = (teamA.sos_norm ?? 0.5) - (teamB.sos_norm ?? 0.5);
   const recentA = buildRecentProfile(teamA.team_id_master, allGames);
   const recentB = buildRecentProfile(teamB.team_id_master, allGames);
   const formA = recentA.goalDiff;

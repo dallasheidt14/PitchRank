@@ -1207,7 +1207,10 @@ export const api = {
       body: JSON.stringify({ teamAId, teamBId }),
     });
 
-    const payload = (await response.json().catch(() => null)) as { error?: string } | MatchPredictionResponse | null;
+    const payload = (await response.json().catch(() => null)) as
+      | { error?: string; code?: string }
+      | MatchPredictionResponse
+      | null;
 
     if (!response.ok) {
       const message =
@@ -1215,11 +1218,12 @@ export const api = {
           ? payload.error
           : 'Failed to generate match prediction';
 
-      if (response.status === 422) {
+      const code = payload && 'code' in payload ? payload.code : undefined;
+      if (response.status === 422 && code !== 'prediction_metadata_conflict') {
         return null;
       }
 
-      throw new AppError(message, 'match_prediction_failed', response.status);
+      throw new AppError(message, code ?? 'match_prediction_failed', response.status);
     }
 
     return payload as MatchPredictionResponse;

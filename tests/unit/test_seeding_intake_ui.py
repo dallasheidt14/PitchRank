@@ -50,17 +50,46 @@ def operator(monkeypatch):
         pairs = {key: ({("0", "1"): prediction, ("1", "0"): reverse} if len(members) == 2 else {})
                  for key, members in cohorts.items()}
         return SeedingPredictionBatch(pairs, teams, {key: {} for key in cohorts},
-                                      "2026-09-15T10:00:00+00:00", "2026-09-14", "a" * 64)
+                                      "2026-09-15T10:00:00+00:00", "2026-09-14", ui.seeding_predictor_sha256())
 
     monkeypatch.setattr(ui, "load_seeding_predictions", load)
+    monkeypatch.setattr(ui, "seeding_predictor_sha256", lambda: "a" * 64)
     monkeypatch.setattr(ui, "make_ratings_lookup", lambda _client: lambda _ids: {})
     monkeypatch.setattr(ui, "render_seeding_pdf", lambda _html: b"%PDF-1.7\nreviewed fixture\n%%EOF")
     return AppTest.from_string(APP, default_timeout=15).run(), calls
 
 
 def click(app, label):
+    label = "Build seeding sheets" if label == "Build matchup tiers" else label
     next(button for button in app.button if button.label == label).click().run()
     assert not app.exception
+
+
+def test_predictor_update_requires_rebuild_and_keeps_saved_team_choices(operator, monkeypatch):
+    app, calls = operator
+    app.session_state["_seeding_overrides"] = {
+        0: {"team_id_master": "00000000-0000-0000-0000-000000000001", "team_name": "Manual match"}
+    }
+    click(app, "Build matchup tiers")
+    click(app, "Generate PDF pack")
+    pack = deepcopy(app.session_state["_seeding_pack"])
+    overrides = deepcopy(app.session_state["_seeding_overrides"])
+    monkeypatch.setattr(ui, "seeding_predictor_sha256", lambda: "b" * 64)
+    app.run()
+    assert not app.exception
+    assert any("predictor has been updated" in item.value for item in app.info)
+    assert "_seeding_pdf" not in app.session_state
+    assert app.session_state["_seeding_sheet_html"] is None
+    assert all(button.label != "Generate PDF pack" for button in app.button)
+    assert app.session_state["_seeding_pack"] == pack
+    assert app.session_state["_seeding_overrides"] == overrides
+    assert len(calls) == 1
+    click(app, "Build matchup tiers")
+    assert len(calls) == 2
+    assert app.session_state["_seeding_pack"]["predictor_sha256"] == "b" * 64
+    assert app.session_state["_seeding_overrides"] == overrides
+    assert not any("predictor has been updated" in item.value for item in app.info)
+    assert any(button.label == "Generate PDF pack" for button in app.button)
 
 
 def test_build_contains_all_cohorts_and_identity_edit_hides_old_export(operator):
@@ -71,7 +100,7 @@ def test_build_contains_all_cohorts_and_identity_edit_hides_old_export(operator)
     assert set(calls[0]) == {"u14|Male", "u15|Female"}
     document = app.session_state["_seeding_sheet_html"]
     assert "Alpha FC" in document and "Beta FC" in document and "New Girls" in document
-    assert "Confirm the club, team name, and age group before seeding." in document
+    assert "Data review required" in document
     click(app, "Generate PDF pack")
     assert app.session_state["_seeding_pdf"].startswith(b"%PDF-")
     app.session_state["_seeding_overrides"] = {0: {"team_id_master": "00000000-0000-0000-0000-000000000009"}}
@@ -111,22 +140,14 @@ def test_review_uses_generic_play_up_for_same_age_or_older_match_and_keeps_c_suf
     assert columns["Roster context"] == "Plays up"
 
 
-def test_policy_and_operator_notes_save_and_invalidate_pdf(operator):
+def test_analysis_details_are_read_only_and_director_notes_save(operator):
     app, _calls = operator
     click(app, "Build matchup tiers")
     click(app, "Generate PDF pack")
-    next(widget for widget in app.number_input if "goal margin" in widget.label).set_value(0.5)
-    click(app, "Apply grouping preferences")
-    assert app.session_state["_seeding_pack"]["policy"]["max_expected_margin"] == .5
-    assert app.session_state["saved_count"] == 2
-    assert "_seeding_pdf" not in app.session_state
     app.text_area[0].set_value("Keep Alpha and Beta in separate flights.")
-    click(app, "Save tier decisions")
+    click(app, "Save director notes")
     assert "Keep Alpha and Beta in separate flights." in app.session_state["_seeding_sheet_html"]
-    assert app.session_state["saved_count"] == 3
-    app.text_area[1].set_value("Director should confirm the Girls placement.")
-    click(app, "Save placement notes")
-    assert "Director should confirm the Girls placement." in app.session_state["_seeding_sheet_html"]
+    assert not any("goal margin" in widget.label for widget in app.number_input)
 
 
 def test_selecting_cohorts_requires_new_pack_and_failed_refresh_preserves_snapshot(operator, monkeypatch):
@@ -198,7 +219,7 @@ def test_failed_save_banner_survives_rerun_and_successful_retry_clears_it(operat
     click(app, "Generate PDF pack")
     app.session_state["test_save_succeeds"] = False
     app.text_area[0].set_value("Latest reviewed notes must survive retry.")
-    click(app, "Save tier decisions")
+    click(app, "Save director notes")
     assert app.session_state["_seeding_pack_unsaved"] is True
     assert any("only in memory: saving failed" in warning.value for warning in app.warning)
     assert "_seeding_pdf" not in app.session_state
@@ -226,34 +247,12 @@ def _merge_editor_tiers(app):
 def test_manual_unsafe_merge_warning_and_notes_reach_the_sheet_and_restore_clears_editor(operator):
     app, _calls = operator
     click(app, "Build matchup tiers")
-    next(widget for widget in app.number_input if "goal margin" in widget.label).set_value(0.5)
-    click(app, "Apply grouping preferences")
-    assert app.dataframe[0].value["Tier"].tolist() == [1, 2]
-
-    _merge_editor_tiers(app)
     app.text_area[0].set_value("Director requested one flight; review Alpha versus Beta.")
-    click(app, "Save tier decisions")
-    assert app.session_state["_seeding_pack"]["manual_groups"]["u14|Male"] == [["0", "1"]]
-    assert app.dataframe[0].value["Tier"].tolist() == [1, 1]
-    assert any("exceeds the matchup limits" in warning.value for warning in app.warning)
-    assert "Tier 1 includes a potentially uneven matchup. Review that group before finalizing." in (
-        app.session_state["_seeding_sheet_html"]
-    )
-    assert "exceeds the matchup limits" not in app.session_state["_seeding_sheet_html"]
-    assert "Director requested one flight; review Alpha versus Beta." in app.session_state["_seeding_sheet_html"]
-
-    click(app, "Generate PDF pack")
-    click(app, "Restore suggested tiers")
-    assert "u14|Male" not in app.session_state["_seeding_pack"]["manual_groups"]
-    assert app.dataframe[0].value["Tier"].tolist() == [1, 2]
-    assert "_seeding_pdf" not in app.session_state
+    click(app, "Save director notes")
     assert not any("exceeds the matchup limits" in warning.value for warning in app.warning)
-    assert "exceeds the matchup limits" not in app.session_state["_seeding_sheet_html"]
-    assert "includes a potentially uneven matchup" not in app.session_state["_seeding_sheet_html"]
+    assert "Tier 1" not in app.session_state["_seeding_sheet_html"]
     assert "Director requested one flight; review Alpha versus Beta." in app.session_state["_seeding_sheet_html"]
-    # Saving without touching the restored editor must not reapply its old merge.
-    click(app, "Save tier decisions")
-    assert app.session_state["_seeding_pack"]["manual_groups"]["u14|Male"] == [["0"], ["1"]]
+    assert "_seeding_pdf" not in app.session_state
 
 
 def test_save_keeps_package_when_source_also_contains_younger_teams(operator, monkeypatch):

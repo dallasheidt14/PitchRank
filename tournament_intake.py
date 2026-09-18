@@ -3572,6 +3572,7 @@ _SEEDING_STATUS_LABEL = {
     "exact_name": "Exact name",
     "review": "Pick one",
     "unresolved": "Not found",
+    "not_found": "Not found in PitchRank",
     "override": "You picked",
 }
 
@@ -3858,7 +3859,10 @@ def _park_event_roster(
         metadata = {
             "coverage": "complete" if roster.is_complete else "partial",
             "source_kind": "GotSport event", "source_url": url, "event_id": roster.event_id,
-            "completed": [item.source_index for item in resolved if item.team_id_master],
+            "completed": sorted(
+                {item.source_index for item in resolved if item.team_id_master}
+                | {index for index, override in carried_overrides.items() if override.get("not_found")}
+            ),
             "fingerprint": source_fingerprint(parsed.rows),
         }
         transition = {
@@ -4350,6 +4354,8 @@ def _seeding_candidate_label(candidate: dict[str, Any]) -> str:
 def _seeding_row_outcome(row: Any, item: ResolvedTeam, overrides: Mapping[int, dict[str, Any]]) -> tuple[str, str, str]:
     """Return ``(status_key, matched_name, team_id_master)`` with any override applied."""
     override = overrides.get(row.source_index)
+    if override and override.get("not_found"):
+        return "not_found", "", ""
     if override:
         return "override", str(override.get("team_name") or ""), str(override.get("team_id_master") or "")
     return item.status, item.matched_name or "", item.team_id_master or ""
@@ -4431,11 +4437,53 @@ def _render_seeding_override(
         if item.review_reason:
             st.caption(_as_plain_text(item.review_reason))
 
+        current_override = st.session_state.get(keys.overrides, {}).get(row.source_index) or {}
+        if keys is _SEEDING_KEYS and current_override.get("not_found"):
+            st.info("Marked not found in PitchRank. It remains in the roster as an unranked team.")
+            if st.button("Reopen matching", key=f"{keys.prefix}_seed_reopen_{row.source_index}"):
+                overrides = dict(st.session_state.get(keys.overrides, {}))
+                overrides.pop(row.source_index, None)
+                st.session_state[keys.overrides] = overrides
+                metadata = dict(st.session_state.get("_seeding_assessment", {}))
+                metadata["completed"] = [
+                    index for index in metadata.get("completed", []) if index != row.source_index
+                ]
+                st.session_state["_seeding_assessment"] = metadata
+                st.session_state["_seeding_resolution_failed"] = True
+                st.session_state.pop("_seeding_pack", None)
+                invalidate_seeding_exports(st.session_state)
+                _autosave_seeding_run()
+                st.rerun()
+            return
+
         pasted = st.text_input(
             "GotSport link, GotSport id, or team_id_master",
             key=f"{keys.prefix}_seed_fix_{row.source_index}",
             placeholder="https://rankings.gotsport.com/teams/534748",
         )
+        if keys is _SEEDING_KEYS and st.button(
+            "Mark team not found in PitchRank", key=f"{keys.prefix}_seed_not_found_{row.source_index}",
+            help=("Record that this accepted tournament team is not in PitchRank. It stays in the roster "
+                  "and final sheets as unranked."),
+        ):
+            overrides = dict(st.session_state.get(keys.overrides, {}))
+            overrides[row.source_index] = {"not_found": True}
+            st.session_state[keys.overrides] = overrides
+            metadata = dict(st.session_state.get("_seeding_assessment", {}))
+            metadata["completed"] = sorted(set(metadata.get("completed", [])) | {row.source_index})
+            st.session_state["_seeding_assessment"] = metadata
+            result = st.session_state.get("_seeding_result")
+            unresolved = {
+                item.source_index for item in result[1]
+                if item.status == "unresolved"
+            } if result else set()
+            st.session_state["_seeding_resolution_failed"] = bool(
+                unresolved - set(metadata["completed"])
+            )
+            st.session_state.pop("_seeding_pack", None)
+            invalidate_seeding_exports(st.session_state)
+            _autosave_seeding_run()
+            st.rerun()
         if not pasted:
             return
 
@@ -4555,7 +4603,12 @@ def _load_seeding_run(slug: str, client: Any = None) -> bool:
         "source_kind": "GotSport event" if run.source_url else "Paste team list",
     }
     metadata["fingerprint"] = source_fingerprint(run.rows)
-    completed = run.assessment.get("completed")
+    not_found = {
+        index for index, override in run.overrides.items()
+        if (override or {}).get("not_found")
+    }
+    completed = set(run.assessment.get("completed") or ()) | not_found
+    metadata["completed"] = sorted(completed)
     resolution_failed = completed is not None and any(
         item.status == "unresolved" and item.source_index not in completed for item in run.resolved
     )
