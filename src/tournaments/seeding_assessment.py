@@ -145,11 +145,12 @@ def assess_roster(
     cohorts = []
     for (age, gender), indices in sorted(groups.items(), key=lambda pair: (int(pair[0][0][1:]), pair[0][1])):
         open_count = len(set(indices) - matched - not_found)
+        matched_count = len(set(indices) & matched)
         uncertain_members = any(row.source_index in cohort_review and could_belong(row, age, gender) for row in active)
         ready = coverage == "complete" and not uncertain_members and not open_count
         cohorts.append({
             "Cohort": f"{'Boys' if gender == 'Male' else 'Girls'} {age.upper()}",
-            "key": f"{age}|{gender}", "Teams": len(indices), "Matched": len(indices) - open_count,
+            "key": f"{age}|{gender}", "Teams": len(indices), "Matched": matched_count,
             "Open": open_count, "Status": "Ready" if ready else "Review matches" if open_count else "Check coverage",
         })
     total, maximum = len(confirmed), len(active)

@@ -158,7 +158,10 @@ def _render_cohort_review(
     second.metric("Seeded", seeded)
     third.metric("Unrated / not found", unrated)
     fourth.metric("Data review", data_review)
-    st.caption("Continuous seed order is shown below. Strength markers are reference points; they do not assign divisions or pools.")
+    st.caption(
+        "Continuous seed order is shown below. Strength markers are reference points; "
+        "they do not assign divisions or pools."
+    )
     rows = []
     for seed, entrant_id in enumerate(analysis.ordered_ids, 1):
         rows.append({
@@ -181,7 +184,7 @@ def _render_cohort_review(
             str(pack["generated_at"]) + str(pack.get("operator_notes", {}).get(key))
         ).encode()).hexdigest()[:12]
         with st.form(f"_seeding_cheat_sheet_form_{key}_{generation}"):
-            edited = st.data_editor(
+            st.data_editor(
                 pd.DataFrame(rows), hide_index=True, use_container_width=True,
                 disabled=list(pd.DataFrame(rows).columns),
                 key=f"_seeding_cheat_sheet_editor_{key}_{generation}",
@@ -207,7 +210,10 @@ def render_seeding_pack(
     event_name: str, save: Callable[[], bool],
 ) -> None:
     st.markdown("#### Competitive seeding sheets")
-    st.caption("Compare every matchup in each selected cohort, review the seed order, then download the director sheets.")
+    st.caption(
+        "Compare every matchup in each selected cohort, review the seed order, "
+        "then download the director sheets."
+    )
     if not event_name:
         st.info("Name the event above before preparing its sheets.")
         return
@@ -327,7 +333,10 @@ def render_seeding_pack(
         f"{event_name} · DRAFT — roster review needed" if draft else event_name,
         sheets, generated_on=pack["generated_at"][:10], ranking_run=pack.get("ratings_as_of") or "unknown",
     )
-    validate_seeding_workbook(workbook, [f"{sheet.age_group.upper()} {'Boys' if sheet.gender == 'Male' else 'Girls'}"[:31] for sheet in sheets])
+    validate_seeding_workbook(
+        workbook,
+        [f"{sheet.age_group.upper()} {'Boys' if sheet.gender == 'Male' else 'Girls'}"[:31] for sheet in sheets],
+    )
     workbook_hash = hashlib.sha256(workbook).hexdigest()
     if st.session_state.get("_seeding_xlsx_hash") != workbook_hash:
         st.session_state["_seeding_xlsx"] = workbook

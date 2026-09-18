@@ -12,7 +12,6 @@ from openpyxl.worksheet.table import Table, TableStyleInfo
 
 from src.tournaments.seeding_sheet import CohortSheet, SheetTeam
 
-
 FOREST = "0B5345"
 FOREST_DEEP = "083E33"
 YELLOW = "F4D03F"
@@ -59,8 +58,10 @@ def _teams_for_sheet(sheet: CohortSheet) -> list[tuple[int | None, SheetTeam, st
         team = all_teams.get(entrant_id)
         if team is not None:
             rows.append((seed, team, markers.get(entrant_id, ""), statuses.get(entrant_id, "Seeded")))
-    for team in sorted((team for key, team in all_teams.items() if key not in set(ordered_ids)), key=lambda value: value.team_name.casefold()):
-        rows.append((None, team, "", statuses.get(team.entrant_id) or team.review_reason or "Placement status needs review."))
+    unseeded = (team for key, team in all_teams.items() if key not in set(ordered_ids))
+    for team in sorted(unseeded, key=lambda value: value.team_name.casefold()):
+        status = statuses.get(team.entrant_id) or team.review_reason or "Placement status needs review."
+        rows.append((None, team, "", status))
     return rows
 
 
@@ -89,7 +90,9 @@ def build_seeding_workbook(
         sheet["A1"].alignment = Alignment(vertical="center")
         sheet.row_dimensions[1].height = 28
         sheet.merge_cells("A2:K2")
-        sheet["A2"] = f"{cohort.age_group.upper()} {'Boys' if cohort.gender == 'Male' else 'Girls'} · {len(cohort.rated) + len(cohort.unrated)} accepted teams"
+        cohort_label = "Boys" if cohort.gender == "Male" else "Girls"
+        team_count = len(cohort.rated) + len(cohort.unrated)
+        sheet["A2"] = f"{cohort.age_group.upper()} {cohort_label} · {team_count} accepted teams"
         sheet["A2"].font = Font(bold=True, color=FOREST_DEEP)
         sheet.merge_cells("A3:K3")
         sheet["A3"] = "Strength breaks describe competitive differences; they do not assign divisions or pools."
@@ -111,7 +114,11 @@ def build_seeding_workbook(
             values = [
                 seed, _safe_text(team.team_name), _safe_text(team.club_name),
                 (team.power_score * 100 if team.power_score is not None else None),
-                (f"{team.state} #{team.state_rank}" if team.state_rank is not None and team.state else (team.state_rank if team.state_rank is not None else "")),
+                (
+                    f"{team.state} #{team.state_rank}"
+                    if team.state_rank is not None and team.state
+                    else team.state_rank if team.state_rank is not None else ""
+                ),
                 _safe_text(marker), _safe_text(status), "", "", "", "",
             ]
             for column, value in enumerate(values, 1):
@@ -132,7 +139,13 @@ def build_seeding_workbook(
         end_row = max(6, 6 + len(_teams_for_sheet(cohort)))
         if end_row >= 7:
             table = Table(displayName=f"Cohort{len(used_titles)}", ref=f"A6:K{end_row}")
-            table.tableStyleInfo = TableStyleInfo(name="TableStyleMedium4", showFirstColumn=False, showLastColumn=False, showRowStripes=False, showColumnStripes=False)
+            table.tableStyleInfo = TableStyleInfo(
+                name="TableStyleMedium4",
+                showFirstColumn=False,
+                showLastColumn=False,
+                showRowStripes=False,
+                showColumnStripes=False,
+            )
             sheet.add_table(table)
             sheet.auto_filter.ref = f"A6:K{end_row}"
         widths = [14, 32, 24, 15, 15, 20, 24, 18, 12, 14, 32]

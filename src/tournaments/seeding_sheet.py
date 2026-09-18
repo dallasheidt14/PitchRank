@@ -190,7 +190,10 @@ def build_cohort_sheets(
     sheets = []
     for cohort in sorted(grouped, key=lambda key: (-_age_sort_key(key[0]), key[1])):
         analysis = (tier_analyses or {}).get(cohort)
-        by_seed = {entrant_id: position for position, entrant_id in enumerate(analysis.ordered_ids, 1)} if analysis else {}
+        by_seed = (
+            {entrant_id: position for position, entrant_id in enumerate(analysis.ordered_ids, 1)}
+            if analysis else {}
+        )
         rated = sorted(
             grouped[cohort],
             key=lambda team: (
@@ -533,7 +536,10 @@ def _cheat_sheet_tables(sheet: CohortSheet) -> tuple[str, str]:
         seeded_ids = set(analysis.ordered_ids)
         unseeded = [team for team in all_teams if team.entrant_id not in seeded_ids]
         if hasattr(analysis, "marker_for_seed"):
-            markers = {entrant_id: analysis.marker_for_seed(seed) for seed, entrant_id in enumerate(analysis.ordered_ids, 1)}
+            markers = {
+                entrant_id: analysis.marker_for_seed(seed)
+                for seed, entrant_id in enumerate(analysis.ordered_ids, 1)
+            }
             statuses = getattr(analysis, "placement_status", {})
         else:
             markers = {}
@@ -545,7 +551,10 @@ def _cheat_sheet_tables(sheet: CohortSheet) -> tuple[str, str]:
         notes[team.entrant_id] = marker
     tables = _table_html(
         "Suggested seed order", seeded, numbered=True, cohort_label=cohort,
-        subtitle="Teams remain in published PowerScore order. Strength markers show competitive differences and close ranges.",
+        subtitle=(
+            "Teams remain in published PowerScore order. Strength markers show competitive "
+            "differences and close ranges."
+        ),
         placement_notes=notes,
     )
     if unseeded:
@@ -579,7 +588,8 @@ def _sheet_html(
     explanation = (
         "Strength breaks describe competitive differences; they do not assign divisions or pools. "
         "Use the continuous seed order and close ranges to support the director's chosen arrangement. "
-        "PitchRank score already adjusts for age, so a younger team playing up can be compared here."
+        "PitchRank score already adjusts for age, so a younger team playing up can be compared here. "
+        "State rank is that team's rank within its own PitchRank age and gender group."
     )
     diagnostics = ""
     if analysis is not None and getattr(analysis, "diagnostics", ()):
@@ -592,9 +602,12 @@ def _sheet_html(
   <div class="recommendation">{html.escape(summary)}</div>
   <p class="method">{html.escape(explanation)}</p>
   <div class="guide-grid">
-   <div class="guide-step"><strong>Seed order</strong><span>Start with the published order, then use tournament judgement for final placement.</span></div>
-   <div class="guide-step"><strong>Strength breaks</strong><span>A marker identifies a meaningful difference between neighboring seeds.</span></div>
-   <div class="guide-step"><strong>Close ranges</strong><span>Close teams can be distributed across pools when the chosen format needs balance.</span></div>
+   <div class="guide-step"><strong>Seed order</strong>
+    <span>Start with the published order, then use tournament judgement for final placement.</span></div>
+   <div class="guide-step"><strong>Strength breaks</strong>
+    <span>A marker identifies a meaningful difference between neighboring seeds.</span></div>
+   <div class="guide-step"><strong>Close ranges</strong>
+    <span>Close teams can be distributed across pools when the chosen format needs balance.</span></div>
   </div>
  </section>"""
     return f"""<section class="sheet">

@@ -119,7 +119,7 @@ def test_manual_lookup_transport_error_does_not_hide_quote_or_export(operator, m
     assert not app.exception
     assert any("temporarily unavailable" in error.value for error in app.error)
     assert any(metric.label == "Suggested event price" for metric in app.metric)
-    assert any(button.label == "Build matchup tiers" for button in app.button)
+    assert any(button.label == "Build seeding sheets" for button in app.button)
 
 
 def test_incremental_lookup_keeps_success_and_retries_only_unfinished(monkeypatch):

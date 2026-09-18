@@ -375,7 +375,9 @@ def _placement_status(reason: str) -> str:
     return "Data review required"
 
 
-def _window_for_boundary(ordered: Sequence[str], boundary: int, size: int) -> tuple[tuple[str, ...], tuple[str, ...]] | None:
+def _window_for_boundary(
+    ordered: Sequence[str], boundary: int, size: int,
+) -> tuple[tuple[str, ...], tuple[str, ...]] | None:
     """Return a deterministic neighboring window split at ``boundary``.
 
     ``boundary`` is the number of seeds above the line. A window is available
@@ -486,13 +488,19 @@ def build_cheat_sheet_analysis(
             ))
     close_ranges: list[CloseRange] = []
     for item in sorted(close_candidates, key=lambda value: (-(value.end_seed - value.start_seed), value.start_seed)):
-        if any(item.start_seed >= existing.start_seed and item.end_seed <= existing.end_seed for existing in close_ranges):
+        if any(
+            item.start_seed >= existing.start_seed and item.end_seed <= existing.end_seed
+            for existing in close_ranges
+        ):
             continue
         close_ranges.append(item)
     close_ranges.sort(key=lambda item: item.start_seed)
 
     notes: list[str] = []
-    for item in sorted(selected, key=lambda value: (-value.score_gap, -value.average_expected_margin, value.after_seed)):
+    for item in sorted(
+        selected,
+        key=lambda value: (-value.score_gap, -value.average_expected_margin, value.after_seed),
+    ):
         if item.standout:
             seed = item.after_seed if item.after_seed <= 2 else item.after_seed + 1
             notes.append(f"Seed {seed} stands apart competitively; keep placement flexible for the director's format.")
@@ -516,7 +524,10 @@ def build_cheat_sheet_analysis(
     reversals = sum(_margin(pairs, first, second) < -1e-8 for first, second in combinations(ordered, 2))
     if reversals:
         diagnostics.append(f"{reversals} matchup prediction(s) favor a lower published seed.")
-    diagnostics.append("Strength breaks require the three-, four-, and five-team neighboring windows that exist for this cohort to agree.")
+    diagnostics.append(
+        "Strength breaks require the three-, four-, and five-team neighboring windows "
+        "that exist for this cohort to agree."
+    )
 
     return CheatSheetAnalysis(
         ordered_ids=ordered,

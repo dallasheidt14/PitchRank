@@ -54,12 +54,14 @@ def test_marked_not_found_is_reviewed_once_and_does_not_block_ready_cohort():
     assert assessment.not_found == {0}
     assert assessment.manual == {1}
     assert assessment.attention == {1}
+    assert assessment.cohorts[0]["Matched"] == 0
     assert assessment.cohorts[0]["Open"] == 1
 
     complete = assess_roster(parsed, resolved, {0: {"not_found": True}, 1: {"not_found": True}},
                              coverage="complete", completed=[0, 1])
     assert complete.not_found == {0, 1}
     assert not complete.attention
+    assert complete.cohorts[0]["Matched"] == 0
     assert complete.cohorts[0]["Status"] == "Ready"
 
 
