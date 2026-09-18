@@ -636,13 +636,19 @@ def extract_age_group(name, details, season_year=None):
     # 211 names right and 286 wrong relative to being below them, because a name
     # carrying both often carries a U-age from an earlier season.
     #
-    # Two bounds, each load-bearing: the digits are capped at two so "BU2015" is read
-    # as a birth year rather than the cohort "u2015", which no board holds and which
-    # the persistence normalizer refuses -- and that refusal is read as "the name said
-    # nothing", which is the fallback this rung exists to close. The lookbehind stops a
-    # club abbreviation supplying the U, so "FCU2017" is a 2017 birth year. The hyphen
-    # form ("U-11") stays unmatched, for the reason Priority 3 records.
-    match = re.search(r"(?<![a-z0-9])[bg]?u([0-9]{1,2})(?![0-9])", name_lower)
+    # No gender class and no leading boundary, which is why this reads as plainly as it
+    # does: with nothing anchoring the left side, "BU9" already matches at its own U, so
+    # naming the letter would be a no-op -- verified across 181,166 distinct team names.
+    # Requiring a boundary instead costs 14 names ("CU11 | Tropical Paradise",
+    # "EXCEL25FallU11B1Javnik") to save 1, against GotSport's registered cohort for
+    # 171,837 teams; the digit-first rung below keeps its boundary because that one earns 5.
+    #
+    # The two-digit cap is the load-bearing part: it keeps "BU2015" a birth year rather
+    # than the cohort "u2015", which no board holds and which the persistence normalizer
+    # refuses -- and that refusal is read as "the name said nothing", the fallback this
+    # rung exists to close. It covers "FCU2017" the same way. The hyphen form ("U-11")
+    # stays unmatched, for the reason Priority 3 records.
+    match = re.search(r"u([0-9]{1,2})(?![0-9])", name_lower)
     if match:
         return normalize_filter_age_group(match.group(1))
 

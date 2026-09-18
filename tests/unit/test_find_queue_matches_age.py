@@ -145,11 +145,15 @@ class TestExtractAgeGroupGenderAttachedUAge:
     ``\\b``, unbounding the digits, and dropping the U-first rung below the birth-year
     priorities.
 
-    The leading lookbehind is deliberately not pinned. Every name that would exercise
-    it carries a four-digit year, so the two-digit cap declines the match first and a
-    fixture would pass whichever way the lookbehind went. Measured against GotSport's
-    registered cohort it is worth -14/+1 either way, and it is kept for symmetry with
-    the digit-first branch rather than for a behaviour a test could hold it to.
+    The two rungs are deliberately not symmetric: only the digit-first one carries a
+    leading boundary and a gender class, because the U-first rung needs neither -- with
+    nothing anchoring its left side, "BU9" matches at its own U. Both of the
+    digit-first rung's bounds are pinned below.
+
+    The digit-first rung's trailing guard is not, and cannot be from here: the U-first
+    rung answers first for every "NuM" shape that would exercise it, so a fixture would
+    pass whichever way that guard went. It is checked by mutating both rungs together,
+    not by a case in this class.
     """
 
     def test_gender_letter_before_the_u_age(self):
@@ -181,6 +185,18 @@ class TestExtractAgeGroupGenderAttachedUAge:
     def test_a_gender_prefixed_two_digit_year_is_still_a_birth_year(self):
         # No trailing "u", so this stays with Priority 2: B14 is the 2014 birth year.
         assert extract_age_group("Dynamos B14 Red", {}, season_year=2026) == "u13"
+
+    def test_a_digit_run_inside_a_word_is_not_a_digit_then_u_age(self):
+        # Only the digit-first rung's leading boundary declines this; its two-digit cap
+        # does not, since "4" is one digit. Without the boundary the club's "SB4U"
+        # reads as u4.
+        assert extract_age_group("SB4U Milan RB 2014 EDP", {}, season_year=2026) == "u13"
+
+    def test_a_four_digit_year_running_into_a_u_is_not_a_digit_then_u_age(self):
+        # The digit-first cap declines "2014U" so Priority 3 reads the birth year.
+        # Unbounded it answers the cohort "u2014", which no board holds.
+        assert extract_age_group("2014USC Storm G", {}, season_year=2026) == "u13"
+
 
     def test_a_gender_prefixed_birth_year_is_still_a_birth_year(self):
         # The digits are capped at two so this is not a U-age. Unbounded it yields the
