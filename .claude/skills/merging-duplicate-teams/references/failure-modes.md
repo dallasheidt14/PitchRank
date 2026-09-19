@@ -58,7 +58,9 @@ dates.
 `birth_years_conflict` is the **first** rule that stops a 2008 team absorbing a 2009 team, not
 the only one — `cohort_of` in `decide_team_merges.py` is a second, independent layer that dates
 U-labels from the seasons actually played and can refuse where the guard was silent. Neither is
-a backstop for the other, and one branch bypasses both (see below).
+a backstop for the other, and one branch bypasses both (see below). That dating is itself a
+defect once a row has been renamed, and it resolves a label to one birth year where the cohort
+holds two; evidence-rules.md carries both.
 
 The guard returns `False` — no conflict — whenever **either** side states no years. Measure the
 blind rate on the cohort you are working rather than assuming; on live `u19`:

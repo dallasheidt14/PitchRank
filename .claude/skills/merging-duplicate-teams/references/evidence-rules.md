@@ -98,15 +98,21 @@ already fusing several squads at the alias layer, which a further merge compound
 ## Reading an age label
 
 `U11` names no cohort by itself: the label moves every Aug 1 while a birth year does not. So
-`U11` and `2016` can be the same squad or two different ones, depending entirely on when the
-games were played.
+`U11` and `2016` can be the same squad or two different ones, and which one depends on the
+season the label was written in.
 
-For a season starting in year `Y` (Aug `Y` – Jul `Y+1`), `U-N` means birth year `(Y+1) − N`.
-`U19` also covers `(Y+1) − 18`, since U18 folds into the U19 board.
+A U-age covers **two** birth years. `normalize_team_names._resolve_band` defines
+`U_N = {SEASON+1-N, SEASON-N}`, and CLAUDE.md's label key gives the same pair: `U11` is
+2016/2015, the cohort also written `15/16`, `2015/16` and `2015/2016`. `U19` additionally
+covers 2009 under the U18 fold.
 
-Resolve each side's label through the seasons that side's games actually fall in, then compare
-birth-year sets. This is what separates `CFA OC SC U12 Miguel` / `CFA OC SC 2015 Miguel` —
-two live squads — from `SW U12 - SOCAL` / `SW 2015 - SOCAL`, one squad re-registered.
+`cohort_of` resolves a label to `(SEASON+1) − N` alone, the band's younger year, for each
+season that side's games fall in. Compare the resulting birth-year sets with that in mind: a
+label against a written band overlaps where it should equal, and the pair reaches review rather
+than a merge. Where both names were written in the season their games fall in, the comparison
+still separates `CFA OC SC U12 Miguel` / `CFA OC SC 2015 Miguel` — two live squads — from
+`SW U12 - SOCAL` / `SW 2015 - SOCAL`, one squad re-registered. The paragraphs below are where
+that condition fails.
 
 Read labels with `team_name_utils._UAGE_TOKEN`. It matches the gender-affixed forms
 (`GU11`, `U11G`, `BU12`, `U12B`) that make up most real labels, the spelled-out and spaced
@@ -121,6 +127,42 @@ year by a later pass, which is how `GSA U13/14B Grey` used to state 2014.
 depending on which way the club wrote it. 38 live rows use it, and GotSport emits it
 (`src/scrapers/gotsport_tier_parser.py` calls it "Form 5. Reverse-token"). Resolve such a pair
 by hand rather than trusting a `birth years disagree` refusal.
+
+**The label is dated from the games; the name is not.** A row's name is rewritten whenever the
+provider renames the squad, so through the autumn a live row can carry this season's label over
+a schedule that is still last season's, and `cohort_of` dates the label from those games.
+`Warriors BU11 Attack`, renamed by GotSport on 2026-09-12 with no game since April, resolved to
+`{2014, 2015}` — its label read against each of the 2024 and 2025 seasons — against
+`Warriors B15/16 Attack`'s stated `{2015, 2016}`. That pair was refused for sharing a game date,
+so the years never decided it, but the same reading decides pairs that share none. The
+`correcting-team-age-groups` skill states it from its side: a U-label in our own name is only as
+current as the season that wrote it.
+
+**The one-side-only band rule reads written bands only.** `_BAND` matches a U-led band
+(`U13/14` through its `13/14`) and misses the four-digit pair and the spaced forms —
+`2015/2016`, `2015-2016`, `2015 / 2016` — all confirmed by running it. So `2015/2016` against
+`15/16`, one cohort in two spellings, reaches `a two-year band on one side only` instead of a
+merge. A disjoint pair is still refused first: the birth-year REFUSE branch runs ahead of this
+one in `decide`.
+
+**Reading every label with the current season's key was measured, and is not the fix.** Judged
+old against new over 8,144 pairs — same club, gender, state and stored age group, squad words
+matching once club, age, band and gender words are stripped, at least one side carrying a
+U-label or a four-digit band (2026-09-19): 1,039 merges lost and 319 gained, and a gain here is
+a merge the current rules refuse. Among the gains are one club's reuse of a U-age name across
+seasons for different children: `Citrus FC Storm U11` of 2024-25 against the 2025-26 row of the
+same name, `Strikers U10 Boys 25/26` against `26/27`. That switch changes two things at once —
+which season dates the label, and whether it resolves to one year or two — so neither figure is
+attributable to either change alone. Separate them before reading the counts as a verdict.
+
+So date a label by the season its **name** was written. Two writers set it, and they differ: a
+provider rename carries the club's current label, which may sit over an older schedule, while
+`normalize_team_names.py` rewrites a band into a U-label derived from the row's own band, which
+is current at the time it is written and covers a large population (21,420 live rows carry a
+U-label and no four-digit year). `team_name_original` holds the pre-rewrite name where the row
+has one. Where the season cannot be established, resolve the pair by hand: `decide` has no
+review path for it — it refuses on the disagreement — and its module docstring still describes
+the old reading.
 
 ## What a merge requires
 

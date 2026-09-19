@@ -297,6 +297,17 @@ Scope it with `--age-group`/`--gender`, or judge a supplied list with `--candida
 Read [references/evidence-rules.md](references/evidence-rules.md) before changing any threshold
 or arguing with a verdict. Every setting looser than the current one destroyed real teams.
 
+**Measure a rule change against the pairs it can actually move, and judge both directions.**
+Build that set by hand — same club, gender, state and stored age group, squad words matching
+once club, age, band and gender words are stripped, and at least one side carrying the construct
+the change reads — and write it to a file, which `--candidates` takes. Judge it twice over one
+`gather_evidence` result: `git show origin/main:scripts/decide_team_merges.py` to a temp file
+and import it under a name of its own, so both copies live in `sys.modules` at once. Then read
+every merge the change adds *and* a sample of the merges it removes, against adjudicated pairs —
+a removal is as likely to be the regression as an addition. Generating this set with the shipped
+scan is what to avoid: one `--all-cohorts` sweep ran 50 minutes of CPU without finishing, where
+the hand-built set took about a minute.
+
 **Do not run Doorway B pairs through this script.** Three of its preconditions are artifacts that
 refuse the double-import duplicate by construction: `club_name` compared as a raw string so NULL
 mismatches everything, `state_code` compared as a raw string, and any shared calendar date
@@ -309,7 +320,7 @@ through this script does not have. Judge a Doorway B pair on its own terms:
   fingerprints, opponents resolved through `team_merge_map`?
 - Have they **ever played each other**? One head-to-head ends it.
 - Does either row hold a fixture that **conflicts** with the other's — same date, a genuinely
-  different opponent, different score? That argues two squads, and needs step 3 of Step 4's test
+  different opponent, different score? That argues two squads, and needs steps 3 and 4 of Step 4's test
   applied to the opponent before you believe it.
 - Do the stored cohort and gender agree, and does neither name contradict its own gender column?
 - Which row holds the live schedule and the populated columns? That one survives (Step 6).
@@ -332,9 +343,9 @@ artifacts that look identical to real evidence in the output, and each has a spe
 |---|---|---|
 | `states differ` | one side's state came from an event, not the club | do the two rows share a club and a schedule? state is not evidence |
 | `clubs differ` | one side is NULL, coerced to `''` | is either `club_name` NULL? then nothing was compared |
-| `both played a game on the same day` | the shared dates are the *same fixtures* | run the three-step test below — two steps are not enough |
+| `both played a game on the same day` | the shared dates are the *same fixtures*, or belong to a row merged in earlier | run the four-step test below — two steps are not enough |
 
-That last row is the one that matters most, and it takes three steps, not two. The rule's stated
+That last row is the one that matters most, and it takes four steps, not two. The rule's stated
 intent is that a squad cannot be in two places — but the code performs none of the opponent
 verification evidence-rules.md describes.
 
@@ -343,6 +354,14 @@ verification evidence-rules.md describes.
 2. **Different opponent rows?** Do not stop here. Look the opponents up by name.
 3. **Are those differing opponents themselves a duplicate pair?** If they are, step 2 proved
    nothing — you are looking at one fixture recorded against two copies of one opponent.
+4. **Whose game is the conflicting one?** Games are read through `team_merge_map`, so a row
+   carries every game of every row merged into it, and the conflict can belong to neither row in
+   front of you. `Warriors BU11 Attack` against `Warriors B15/16 Attack` shares one date, and it
+   arrived with `Little Warriors 2016 Attack Blue`, which `pitchrank-bot`'s weekly scan merged
+   into the survivor on 2026-04-23 — back when that scan was merging distinct teams by name.
+   A conflict sourced that way is a question about that earlier merge, not about this pair:
+   settle it under **Splitting a fused row** below, by reverting the merge that brought the game
+   in, rather than promoting the pair to Step 5 on top of it.
 
 Step 3 is not hypothetical. `Weston FC 2012 DPL` against `Weston FC U15G DPL` shares six dates
 with *different* opponents on every one — and those opponents are
@@ -351,9 +370,17 @@ with *different* opponents on every one — and those opponents are
 row has the words `hold duplicate` in its own name.
 
 Stopping at step 2 permanently refuses the cross-provider duplicate, which is exactly the class
-this skill calls dominant. Only genuinely distinct opponents on a shared date are a real refusal.
+this skill calls dominant. A shared date is a real refusal only when the opponents are genuinely
+distinct clubs *and* both games belong to the rows in front of you.
 
-A pair that clears all three is a Step 5 candidate that the rules refused. Promote it by hand and
+Read each row's registered name in `teams.team_name_original` as well, since a renamed row can
+carry another squad's identity: the row now called `Warriors BU11 Attack` was registered
+`Warriors Sports Academy - Little Warriors B16 Bravo Blue`, and Bravo and Attack are two squads
+that played the same weekends. Query the column directly — `decisions.json`'s
+`merge_name_original` / `keep_name_original` fall back to `team_name` when it is NULL, which it
+is on 97,862 live rows, because it is stashed only on a row's first rewrite.
+
+A pair that clears all four is a Step 5 candidate that the rules refused. Promote it by hand and
 say so in Step 8.
 
 ## Step 5: Adversarially review the approved set
