@@ -1,0 +1,414 @@
+{
+ "kept_as_stored": {
+  "decided": "2026-09-18/19, reviewed one by one",
+  "teams": [
+   {
+    "team_id": "0d366f14-4840-40ed-9884-457911c1e239",
+    "name": "Columbus United 09/10 Boys"
+   },
+   {
+    "team_id": "cb2f5c36-b44f-4df7-9f8c-7fa670b1447c",
+    "name": "Fife Milton Edgewood SC - FMESC Blue B19/18"
+   },
+   {
+    "team_id": "94399a67-5314-4140-bb90-6d3e5677079c",
+    "name": "AYSO ALLIANCE 15/16B Orange"
+   },
+   {
+    "team_id": "4b1ce6a7-c755-4c7d-991e-380670f9e057",
+    "name": "Coastal Premier STXCL EC G16/17"
+   },
+   {
+    "team_id": "6b464d25-713f-4729-b621-47c715c67e84",
+    "name": "Coastal Premier STXCL EC B17/18 Academy"
+   },
+   {
+    "team_id": "80d56d30-1522-489b-aea4-98b27f062cad",
+    "name": "Cascade Premier Soccer Club - B16/17"
+   },
+   {
+    "team_id": "fd45feb0-b7d6-4030-a592-a985aea497b6",
+    "name": "Sparta Tacoma - G15/16 Red"
+   },
+   {
+    "team_id": "f7c322a7-5727-4844-8c18-0859c52b55cc",
+    "name": "Sparta Tacoma - G11/12 White"
+   },
+   {
+    "team_id": "af3860b9-90ca-4dfd-bedf-d79a0ae393e3",
+    "name": "Sparta Tacoma - G17/18 Red"
+   },
+   {
+    "team_id": "c745bdb1-133a-40ff-a527-e0c549e9e8b6",
+    "name": "Oxnard United SC - Boys 18/19"
+   },
+   {
+    "team_id": "4ee0e560-127f-46c3-9aa9-f6a0cb9009f8",
+    "name": "NTH NASA ECNL B2010/11"
+   },
+   {
+    "team_id": "1e2dbeba-a2cb-4980-b8b6-4c9cd65d5365",
+    "name": "ECFC B09/10 White (BU19W)"
+   },
+   {
+    "team_id": "ae767640-1ba4-431d-82e8-85f02a157d02",
+    "name": "West Valley 2010/2011 Royals Butler"
+   }
+  ]
+ },
+ "left_held": {
+  "decided": "2026-09-19, national review: \"Leave them\"",
+  "teams": [
+   {
+    "team_id": "e82bc041-3b99-4706-b33b-b9c134387a0e",
+    "name": "08/09B McKennie (Broward)",
+    "stored": "u17"
+   },
+   {
+    "team_id": "4cfda44b-3f11-4fbb-9eab-d20b168653c7",
+    "name": "17/18G HailStorm",
+    "stored": "u11"
+   },
+   {
+    "team_id": "f386d15a-52bb-428a-9f8c-6397bde40dfb",
+    "name": "18/19G Chelsea Blue",
+    "stored": "u10"
+   },
+   {
+    "team_id": "e9ef7960-5783-424b-827b-d207d4492431",
+    "name": "2009/2010G Infinity",
+    "stored": "u19"
+   },
+   {
+    "team_id": "0408f2e2-9500-4a39-83e1-608fea6a6f37",
+    "name": "2010/2011 Red",
+    "stored": "u17"
+   },
+   {
+    "team_id": "d2ffbbf9-d293-4cac-a67b-80e4614f7e19",
+    "name": "2011/12G Bearcats Blue",
+    "stored": "u16"
+   },
+   {
+    "team_id": "d99babc3-d5d4-4335-845c-f924e4139cc2",
+    "name": "2013/2014 U14 PSA FC SOFLO CITY",
+    "stored": "u15"
+   },
+   {
+    "team_id": "07458d7e-4db9-4fc1-ba0b-4452bf719a10",
+    "name": "AL Rush FP ASA Girls 09-10 Elite",
+    "stored": "u19"
+   },
+   {
+    "team_id": "c417f476-ce11-4a50-a8b2-31109e5fc56a",
+    "name": "Arlington SA 2009/10G White (U17)",
+    "stored": "u19"
+   },
+   {
+    "team_id": "e14ff4e0-01df-43ac-8247-2292d58d84e0",
+    "name": "Auburn Soccer Club 2009-2010 Girls",
+    "stored": "u19"
+   },
+   {
+    "team_id": "ff29ae4e-3ecf-4eed-94c2-f90241d3b9f3",
+    "name": "Augusta United VCSL B 2013-2014 Black",
+    "stored": "u16"
+   },
+   {
+    "team_id": "634a31dd-ca85-4866-ac6b-b91f6f671bda",
+    "name": "BC Fire SC 9/10G Blue",
+    "stored": "u19"
+   },
+   {
+    "team_id": "f126ec83-9b60-4ce6-9122-e0eabcd8bc1d",
+    "name": "BH CHRISTINA CRUZ G2013 HYSA",
+    "stored": "u15"
+   },
+   {
+    "team_id": "d52251e5-0699-4d9d-9f30-2f92395d6bbf",
+    "name": "BRA N1 G2009/2010 (FL)",
+    "stored": "u19"
+   },
+   {
+    "team_id": "a9f27274-5aba-4afe-895b-c3c213d3ccc3",
+    "name": "Beach FC G2010/11 Morgan PL",
+    "stored": "u11"
+   },
+   {
+    "team_id": "bb7859cd-c73b-47c4-957b-826069a7411e",
+    "name": "Chivas LV Academy 2018/2019",
+    "stored": "u11"
+   },
+   {
+    "team_id": "b7af36e6-354a-4112-90d3-ee3d59f3c2b9",
+    "name": "Chivas Lex U14 (2013-2014) Boys",
+    "stored": "u15"
+   },
+   {
+    "team_id": "286d9c72-e960-4d1f-941b-2959104a934a",
+    "name": "Coppell FC N1 G2008/09 Sansom (TX)",
+    "stored": "u17"
+   },
+   {
+    "team_id": "2323cb39-dfcc-42b2-9ac2-05de8f01db37",
+    "name": "Cubs 14/15B",
+    "stored": "u13"
+   },
+   {
+    "team_id": "fb2c19f2-2220-44c2-b69a-8a83e5d86c69",
+    "name": "ECNL B2011/12",
+    "stored": "u17"
+   },
+   {
+    "team_id": "d421b8a4-a9c0-476e-bb3a-ebbb1dac05d8",
+    "name": "ECNL RL B2009/10 Black",
+    "stored": "u19"
+   },
+   {
+    "team_id": "1ba26d67-1c42-4894-b123-5f4a8dc98af2",
+    "name": "EHSS Real 13-14",
+    "stored": "u14"
+   },
+   {
+    "team_id": "e936cc8f-c7cd-48bf-a925-b22e5ff653c2",
+    "name": "ERSA 15/16G",
+    "stored": "u13"
+   },
+   {
+    "team_id": "3ed43ba0-ef76-425c-a09b-157e83920462",
+    "name": "ESJFC 09/10G Academy",
+    "stored": "u19"
+   },
+   {
+    "team_id": "7e4dd176-76c9-4612-8b68-f53c0c3b576e",
+    "name": "Eternal 11 Boys 2015/2016",
+    "stored": "u12"
+   },
+   {
+    "team_id": "a6f84c89-14ce-4b99-b379-fda7e8da35c1",
+    "name": "F.C. B17/18",
+    "stored": "u11"
+   },
+   {
+    "team_id": "e8d3f3e2-d2e2-4a2f-8834-261fcaeee7a7",
+    "name": "Fc Fresno Academy G2010/09",
+    "stored": "u19"
+   },
+   {
+    "team_id": "8b25ba23-eb48-4737-9627-3af31ffe4cf2",
+    "name": "GA 09/10",
+    "stored": "u19"
+   },
+   {
+    "team_id": "8d177575-1342-404f-b654-494a5a6e91b7",
+    "name": "GA 09/10",
+    "stored": "u19"
+   },
+   {
+    "team_id": "a1bf244c-9b73-4f83-a7d0-65291d40d6e2",
+    "name": "GA 09/10",
+    "stored": "u19"
+   },
+   {
+    "team_id": "bc3eca9a-3d5e-4507-8bfb-c9306862ad62",
+    "name": "GA 09/10",
+    "stored": "u19"
+   },
+   {
+    "team_id": "c6842efd-5d16-49f2-b064-215a4d0618d3",
+    "name": "Georgia Storm 09/10G Premier",
+    "stored": "u19"
+   },
+   {
+    "team_id": "079a3d93-c280-4c6e-9865-96121bb14020",
+    "name": "Howell United Surf 2011G",
+    "stored": "u17"
+   },
+   {
+    "team_id": "93c048f2-acec-497f-8fa2-e219c3784dff",
+    "name": "Imperial SC ECNL RL B2009/10",
+    "stored": "u19"
+   },
+   {
+    "team_id": "dcbdf078-7d61-4831-b69b-8fed44537037",
+    "name": "Imperial SC STXCL EC G2008/09 Red",
+    "stored": "u17"
+   },
+   {
+    "team_id": "10d54738-e3a7-46f9-bbc7-a8d31b8623eb",
+    "name": "LFA 18/19B Red Star Kaiser (2037)",
+    "stored": "u10"
+   },
+   {
+    "team_id": "298c276f-c33f-4d58-a38b-cc1096cea8a4",
+    "name": "LV Predators 2017",
+    "stored": "u11"
+   },
+   {
+    "team_id": "1813a9f9-b29b-4280-ae1d-715270eb8ba9",
+    "name": "MRSC 16/17G Blue",
+    "stored": "u12"
+   },
+   {
+    "team_id": "514c336d-0b34-420f-b95f-038c36020030",
+    "name": "MidState 10/11 Girls (U17)",
+    "stored": "u19"
+   },
+   {
+    "team_id": "b59e37b6-45fa-4c44-8f59-a9ffdddbaa4d",
+    "name": "N1 B18/19 (CA)",
+    "stored": "u19"
+   },
+   {
+    "team_id": "8f32592c-3b51-4818-8b1b-487a343eb8c2",
+    "name": "N1 B2009/2010 Thunderbolts (CA)",
+    "stored": "u19"
+   },
+   {
+    "team_id": "b47fb4fb-100a-463c-9617-6268e80c492f",
+    "name": "N1 G2009/10 Green(MI)",
+    "stored": "u19"
+   },
+   {
+    "team_id": "caffe034-4db2-4e05-9192-d2965eda285a",
+    "name": "N1 G2009/2010 Genesee MI",
+    "stored": "u19"
+   },
+   {
+    "team_id": "e7cbbce8-2a55-431d-b63f-e3c7e2108fd8",
+    "name": "N1 G2009/2010 Mustangs (CA)",
+    "stored": "u19"
+   },
+   {
+    "team_id": "a1da811e-9b71-4066-813f-faab748517e5",
+    "name": "Nido Dallas White G2008/09",
+    "stored": "u17"
+   },
+   {
+    "team_id": "fdbc3266-de85-4e87-b42c-85634e004359",
+    "name": "Ohio Youth Academy 2011/12",
+    "stored": "u16"
+   },
+   {
+    "team_id": "a7b6336a-f114-4bd3-bfdc-6dbcec8ef77c",
+    "name": "PSL Hurricanes FC 2016/17 Girls",
+    "stored": "u12"
+   },
+   {
+    "team_id": "b7476b40-41c4-43ab-abca-c4be4759fac8",
+    "name": "Pitman Leopards 18/19",
+    "stored": "u17"
+   },
+   {
+    "team_id": "2567d27e-917e-4d79-8f7a-f53e2a43f2bd",
+    "name": "RISE SC ECNL RL STXCL G2008/09",
+    "stored": "u17"
+   },
+   {
+    "team_id": "b82d5043-cc31-4718-990d-cb45472ba21d",
+    "name": "RISE SC ECNL RL STXCL G2009/10",
+    "stored": "u19"
+   },
+   {
+    "team_id": "974cb1ca-b9f7-44bc-aaf8-fb0a05d62894",
+    "name": "Rayos FC 08G Contreras",
+    "stored": "u17"
+   },
+   {
+    "team_id": "a81e8c27-a292-40ef-a488-96d0de554666",
+    "name": "SLSG MO G 2011 Nike",
+    "stored": "u10"
+   },
+   {
+    "team_id": "9dd2d4a2-435f-4859-8728-f65d1854a682",
+    "name": "SOCA Elite ECNL RL B2009/10",
+    "stored": "u19"
+   },
+   {
+    "team_id": "a1139e6b-c872-4dda-802a-2ee7870eeada",
+    "name": "SOCA Elite ECNL RL G2009/10",
+    "stored": "u19"
+   },
+   {
+    "team_id": "d5ce4513-0987-4b00-9a2b-b30b387430ea",
+    "name": "SPSA N1 B2009/10 Elite (FL)",
+    "stored": "u19"
+   },
+   {
+    "team_id": "7c32f182-0063-4bc8-81f5-44889f9d27fe",
+    "name": "SVU N1 U19G 09/10 Green (CA)",
+    "stored": "u19"
+   },
+   {
+    "team_id": "b7e879a4-fe3c-455c-8cdb-b516d6706317",
+    "name": "Sting ECNL B2009/10",
+    "stored": "u19"
+   },
+   {
+    "team_id": "34afa068-21fc-469c-bc31-b0d205f014e5",
+    "name": "Strikers Miami FC - Strikers Miami FC 2015/16 NPL",
+    "stored": "u12"
+   },
+   {
+    "team_id": "8478d9a0-ceee-415b-9bdc-db6019c40f4b",
+    "name": "Surge 09/10B Elite Black",
+    "stored": "u19"
+   },
+   {
+    "team_id": "60e8c02a-5247-48af-ac6b-93408a7107a5",
+    "name": "TCSC 2017/2018",
+    "stored": "u11"
+   },
+   {
+    "team_id": "745b69be-00d4-4cdb-b5b5-39bc2b86d7fb",
+    "name": "TCSC 2017/2018 Girls",
+    "stored": "u11"
+   },
+   {
+    "team_id": "cb208f12-2929-4f7e-b556-eeff5021ccce",
+    "name": "TTi FC Bluebonnets 2014/2015",
+    "stored": "u13"
+   },
+   {
+    "team_id": "d027e1be-1774-403a-b0e3-919cc40cbbe5",
+    "name": "Tejas FC N1 G 2008/09 Gelly TX",
+    "stored": "u17"
+   },
+   {
+    "team_id": "6124b062-cc64-4433-9427-83987a3f1f95",
+    "name": "U17G 2009/10 Black",
+    "stored": "u15"
+   },
+   {
+    "team_id": "607fdc6f-8004-4386-bacf-99b1466ab58b",
+    "name": "United - 2015/2016 Boys",
+    "stored": "u12"
+   },
+   {
+    "team_id": "4bb50c11-5fc1-49c1-b728-a26ff4d8a36c",
+    "name": "Va Reign FC 2015-2016 Girls White TASL",
+    "stored": "u13"
+   },
+   {
+    "team_id": "32fbb930-1afc-4da8-972e-a135cb61e2a1",
+    "name": "WSA SOUTH 10/11G (Moles)",
+    "stored": "u17"
+   },
+   {
+    "team_id": "7adee873-eb76-4e92-ba91-817407010ae8",
+    "name": "WSU 2016/2017 Black",
+    "stored": "u11"
+   },
+   {
+    "team_id": "3c19d23a-7bdc-4341-a54f-fb6fc5f14493",
+    "name": "WSU 2016/2017 Green",
+    "stored": "u11"
+   },
+   {
+    "team_id": "944965b6-65bc-4cd7-840f-eed2e70e9bf8",
+    "name": "Williamston U15",
+    "stored": "u16"
+   }
+  ]
+ }
+}
