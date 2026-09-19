@@ -64,10 +64,23 @@ def normalize_filter_age_group(age_group):
 
 
 def build_age_group_filter_clause(age_group):
-    """Build a Supabase OR clause for exact age-group matches."""
+    """Build a Supabase OR clause for exact age-group matches.
+
+    U18 is asked for as U19, because that is where the rows are: PitchRank folds the
+    U18 band into the U19 board, so ``teams`` holds no u18 row at all and a filter
+    naming u18 returns an empty candidate pool -- the caller then finds no match for a
+    team that plainly exists. 466 live names resolve to u18, and reading the attached
+    spellings ("U18B", "GU18") added 109 of them.
+
+    U20 is deliberately not folded the same way, though the stored-cohort normalizer
+    folds both: 1,595 teams really are stored as u20, so folding it here would hide
+    them.
+    """
     normalized = normalize_filter_age_group(age_group)
     if not normalized:
         return None
+    if normalized == "u18":
+        normalized = "u19"
     values = (normalized, normalized.upper())
     return ",".join(f"age_group.eq.{value}" for value in values)
 
@@ -622,15 +635,63 @@ def extract_age_group(name, details, season_year=None):
     if match:
         return normalize_filter_age_group(match.group(1))
 
-    # Priority 1b: digit-then-U form (14U, 14u) — route through the same
-    # normalizer as Priority 1 so "18U" and "U18" don't produce different cohorts.
-    # _canonicalize_age_token is not used here because it remaps U18 -> U19, which
-    # would diverge from Priority 1's normalize_filter_age_group (preserves U18).
-    match = re.search(r"\b(\d{1,2})u\b", name_lower)
+    # Priority 1a: U-age with a gender letter attached (BU9, U8B, GU09). Priority 1's
+    # `\b` cannot sit between two letters, so these went unparsed entirely and every
+    # caller fell back to something weaker than the name it was handed -- discovery to
+    # the cohort of the team this one played, which is how U7-U9 squads reached the
+    # U11 board.
+    #
+    # It sits with the other U-age rungs, above the birth years, because a registered
+    # age group is what a cohort is stated in now; a birth year needs a convention to
+    # resolve and spans two cohorts either way. The owner made that call on 2026-09-18.
+    # Record what it costs, since the ordering is one block to move: judged against
+    # GotSport's registered cohort for 171,837 teams, being above the birth years puts
+    # 211 names right and 286 wrong relative to being below them, because a name
+    # carrying both often carries a U-age from an earlier season.
+    #
+    # No gender class and no leading boundary, which is why this reads as plainly as it
+    # does: with nothing anchoring the left side, "BU9" already matches at its own U, so
+    # naming the letter would be a no-op -- verified across 181,166 distinct team names.
+    # Requiring a boundary instead costs 14 names ("CU11 | Tropical Paradise",
+    # "EXCEL25FallU11B1Javnik") to save 1, against GotSport's registered cohort for
+    # 171,837 teams; the digit-first rung below keeps its boundary because that one earns 5.
+    #
+    # The two-digit cap is the load-bearing part: it keeps "BU2015" a birth year rather
+    # than the cohort "u2015", which no board holds and which the persistence normalizer
+    # refuses -- and that refusal is read as "the name said nothing", the fallback this
+    # rung exists to close. It covers "FCU2017" the same way. The hyphen form ("U-11")
+    # stays unmatched, for the reason Priority 3 records.
+    match = re.search(r"u([0-9]{1,2})(?![0-9])", name_lower)
     if match:
         return normalize_filter_age_group(match.group(1))
 
-    # Priority 2: Birth year with gender prefix (G13, B2014, 2013G, etc)
+    # Priority 1b: digit-then-U form (14U, 14u, G18U, 12uB) — route through the same
+    # normalizer as Priority 1 so "18U" and "U18" don't produce different cohorts.
+    # _canonicalize_age_token is not used here because it remaps U18 -> U19, which
+    # would diverge from Priority 1's normalize_filter_age_group (preserves U18).
+    #
+    # A gender letter may touch either side, which `\b` could not span. Without this
+    # rung "G18U" would fall to Priority 2b, which reads the same characters as birth
+    # year 2018 and returns u9 -- nine cohorts from the U18 the name states. The
+    # trailing "u" is what separates the two readings, so it has to be matched before
+    # Priority 2b claims the digits. Judged against GotSport's registered cohort for
+    # 171,837 teams before Priority 2a existed, reading these spellings put 101 names
+    # right and 15 wrong.
+    match = re.search(r"(?<![a-z0-9])[bg]?([0-9]{1,2})u(?![0-9])", name_lower)
+    if match:
+        return normalize_filter_age_group(match.group(1))
+
+    # Priority 2a: a two-year band ("2013/14", "B13/14", "2013-2014") is named by its
+    # YOUNGER year. It has to be read before the single-year rungs below, which take
+    # the first year they meet, so a band written older year first lands one cohort
+    # too old; and a band that names no boarded cohort (the aged-out 2007/06) stops
+    # here instead of reaching them.
+    band_year = team_utils.extract_band_birth_year(name, season_year)
+    if band_year:
+        label = team_utils.calculate_age_group_from_band(band_year, season_year)
+        return normalize_filter_age_group(label) or UNMATCHABLE_AGE_GROUP
+
+    # Priority 2b: Birth year with gender prefix (G13, B2014, 2013G, etc)
     # G13/B13 = 2013 birth year, G2014/B2014 = 2014 birth year
     match = re.search(r"[bg](\d{2})(?!\d)", name_lower)  # G13, B14 (2-digit)
     if match:

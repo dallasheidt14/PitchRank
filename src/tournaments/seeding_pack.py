@@ -86,6 +86,7 @@ def team_ids_by_row(
     outcomes = {item.source_index: item for item in resolved}
     return {
         str(row.source_index): (
+            None if (overrides.get(row.source_index) or {}).get("not_found") else
             (overrides.get(row.source_index) or {}).get("team_id_master")
             or getattr(outcomes.get(row.source_index), "team_id_master", None)
         )

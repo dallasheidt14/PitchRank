@@ -246,10 +246,20 @@ A cohort's birth window runs Aug 1 - Jul 31 and so spans two calendar years,
 which is why TGS writes divisions like `U12G (AUG 1, 2014 - JULY 31, 2015)`.
 A band is named by its **younger** year: that division is U12 because
 `2026 - 2015 + 1 = 12`. Reading it from the leading year, 2014, gives U13 and is
-wrong. `normalize_team_names._resolve_band` and `scrape_tgs_event.extract_age_group`
-both take the younger year. The one parser that still takes the older year,
-`scripts/fix_team_age_groups.extract_birth_year`, is gated off in both of its
-callers by `AGE_DERIVATION_ENABLED` and says so in its own docstring.
+wrong. `normalize_team_names._resolve_band` takes the younger year for every
+spelling below, and so does `src/utils/team_utils.extract_band_birth_year`, which the
+queue matcher and the TGS and PlayMetrics parsers share. Convert a band's year with
+`calculate_age_group_from_band`, not `calculate_age_group_from_birth_year`, whose
+age-20 fold files the aged-out 2007/06 band as U19. The one age-group parser that takes
+the older year, `scripts/fix_team_age_groups.extract_birth_year`, is gated off in both
+of its callers by `AGE_DERIVATION_ENABLED` and says so in its own docstring.
+
+**The label key.** Team names write the same band many ways, and every spelling names
+the same table row: `2013/2014`, `2013/14`, `13/14`, `14/13`, `2013-2014` and
+`B13/14` are all **U13**, and `2014/2015`, `2014/15` and `14/15` are all **U12**. Year
+order, two- or four-digit years, slash or hyphen, and an attached B/G change nothing.
+A U-label written this season is the same cohort again: `BU11`, `U11`, `15/16` and
+`2015/2016` are all **U11**. Look the pair up in the table.
 
 PitchRank deliberately files U18 into U19 rather than running a separate U18
 board, so 2009 resolves to `u19`. There are no `u18` teams and roughly 28K `u19`.
@@ -302,6 +312,10 @@ Two cautions the same measurements produced. A team that plays a year *up* all s
 is correctly labelled and simply strong — Pre-ECNL and ECNL RL squads do it routinely,
 and a naive fixture test reads that as an error. And a name that disagrees while the
 fixtures back the stored value is usually just stale, which described 1,071 teams.
+Neither caution applies to a two-year band in the team's own name (`2010/11`): a band names
+birth years, so it cannot go stale, and the owner decided on 2026-09-18 that the schedule does
+not overrule it — "it doesn't matter that they play up we need to get their actual age group
+correct." A band-named team that plays a year up is filed by its band.
 
 That asymmetry is what makes a provider cohort safely usable as a **veto** while it
 stays unusable as a **value**: withholding a write on a disagreement costs a skipped
@@ -347,6 +361,7 @@ import, so a process running across Aug 1 keeps last season's map until restart.
 | Affinity WA | `affinity_wa` | HTML scraping | Washington RCL + state leagues |
 | Affinity OR | `affinity_or` | HTML scraping | Oregon (OYSA) leagues, keeps unplayed fixtures |
 | Soccer Events Group | `soccereventsgroup` | JSON API + bracket HTML | Tournament brackets only (pool play is unpublished); operator-run per event via `scripts/import_soccereventsgroup_event.py` |
+| Athletes2Events | `athletes2events` | HTML scraping | White-label tournament sites, one subdomain per host club; no driver script yet — the `scraper-patterns` skill records the pages and parsing rules |
 
 #### TGS U-age divisions are only resolvable from 2026-08-01
 
@@ -592,7 +607,7 @@ two-line edit in `.github/workflows/claude-code-review.yml`.
 | `wa-scraper.yml` | Mon 6:00 + 7:00 AM UTC | Affinity WA tournament scrape + import |
 | `or-scraper.yml` | Mon 6:30 + 7:30 AM UTC | Affinity OR (OYSA) league scrape + import — keeps unplayed fixtures |
 | `playmetrics-scrape-import.yml` | Mon 6:30 AM UTC | PlayMetrics league scrape + import (deliberately ungated by `AGE_ROLLOVER_FREEZE`) |
-| `update-missing-club-and-state.yml` | Mon 10:00 AM UTC | Backfill missing `club_name` only — **every `state_code` step is `if: false`** (see below) |
+| `update-missing-club-and-state.yml` | Mon 10:00 AM UTC | Backfill missing `club_name` and standardize existing spellings — **every `state_code` step is `if: false`** (see below) |
 | `fill-team-states-weekly.yml` | Wed 9:37 AM UTC | Fill missing `state_code` from ranked evidence — fills only, never corrections |
 | `contradiction-report-weekly.yml` | Thu 8:17 AM UTC | Count the teams whose state contradicts a provider-confirmed club-mate. Reports only: `--probe-limit 0` spends nothing and no `--execute`, so it writes nothing |
 | `weekly-prospective-settle-evaluate.yml` | Mon 4:00 PM UTC | Settle and score last week's prospective match predictions |

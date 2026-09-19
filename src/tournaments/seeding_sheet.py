@@ -99,6 +99,8 @@ def _age_sort_key(age_group: str) -> int:
 
 def _team_id_for(row: RosterRow, item: ResolvedTeam | None, overrides: Mapping[int, dict[str, Any]]) -> str | None:
     override = overrides.get(row.source_index)
+    if override and override.get("not_found"):
+        return None
     if override and override.get("team_id_master"):
         return str(override["team_id_master"])
     return (item.team_id_master if item else None) or None
@@ -487,22 +489,15 @@ def _director_guidance(analysis: Any) -> list[str]:
         else:
             guidance.append(str(boundary))
     for warning in analysis.warnings:
-        if "there is no within-tier matchup to assess" in warning:
-            tier = warning.split(" has one team", 1)[0]
-            guidance.append(
-                f"{tier} has one team. Place it with the closest available group after considering "
-                "recent results or club input."
-            )
-        elif "low outcome confidence" in warning:
+        if (
+            "there is no within-tier matchup to assess" in warning
+            or "low outcome confidence" in warning
+            or "strength-order exception" in warning
+        ):
             # This diagnostic helps the operator inspect the model, but it does
             # not give a director a different placement action from the tiers.
             continue
-        elif "strength-order exception" in warning:
-            # Keep minor prediction/ranking reversals in the operator review.
-            # The customer action is already expressed by the tier line and
-            # any boundary option beside it.
-            continue
-        elif "exceeds the matchup limits" in warning:
+        if "exceeds the matchup limits" in warning:
             tier = warning.split(" exceeds", 1)[0]
             guidance.append(f"{tier} includes a potentially uneven matchup. Review that group before finalizing.")
         else:
@@ -591,13 +586,6 @@ def _sheet_html(
         "PitchRank score already adjusts for age, so a younger team playing up can be compared here. "
         "State rank is that team's rank within its own PitchRank age and gender group."
     )
-    diagnostics = ""
-    if analysis is not None and getattr(analysis, "diagnostics", ()):
-        diagnostics = (
-            '<details class="diagnostics"><summary>Analysis details</summary><ul>'
-            + "".join(f"<li>{html.escape(value)}</li>" for value in getattr(analysis, "diagnostics", ()))
-            + "</ul></details>"
-        )
     guide = f"""<section class="seed-guide">
   <div class="recommendation">{html.escape(summary)}</div>
   <p class="method">{html.escape(explanation)}</p>
@@ -629,7 +617,6 @@ def _sheet_html(
  {guide}
  {tables}
  {notes}
- {diagnostics}
  <footer class="foot"><span>{html.escape(cohort)} | {sheet.total_teams} teams</span>
   <span>MatchBalance by PitchRank</span></footer>
 </section>"""

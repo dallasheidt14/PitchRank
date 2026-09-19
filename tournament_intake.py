@@ -113,7 +113,7 @@ from src.tournaments.seeding_optimizer import (
     normalize_age_group,
     normalize_gender_label,
 )
-from src.tournaments.seeding_pack import duplicate_identity_rows, pack_matches
+from src.tournaments.seeding_pack import duplicate_identity_rows, pack_matches, team_ids_by_row
 from src.tournaments.seeding_run_store import (
     SeedingRun,
 )
@@ -4740,16 +4740,8 @@ def _long_date(day: date) -> str:
 
 
 def _seeding_team_ids(parsed: ParsedRoster, resolved: Sequence[ResolvedTeam]) -> list[str]:
-    by_index = {item.source_index: item for item in resolved}
-    overrides = st.session_state._seeding_overrides
-    ids: list[str] = []
-    for row in parsed.rows:
-        override = overrides.get(row.source_index)
-        resolved_id = getattr(by_index.get(row.source_index), "team_id_master", None)
-        team_id = (override or {}).get("team_id_master") or resolved_id
-        if team_id:
-            ids.append(str(team_id))
-    return ids
+    identities = team_ids_by_row(parsed.rows, resolved, st.session_state._seeding_overrides)
+    return [str(team_id) for team_id in identities.values() if team_id]
 
 
 def _render_seeding_sheet(parsed: ParsedRoster, resolved: Sequence[ResolvedTeam], supabase_client: Any) -> None:

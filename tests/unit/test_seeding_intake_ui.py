@@ -60,7 +60,6 @@ def operator(monkeypatch):
 
 
 def click(app, label):
-    label = "Build seeding sheets" if label == "Build matchup tiers" else label
     next(button for button in app.button if button.label == label).click().run()
     assert not app.exception
 
@@ -70,7 +69,7 @@ def test_predictor_update_requires_rebuild_and_keeps_saved_team_choices(operator
     app.session_state["_seeding_overrides"] = {
         0: {"team_id_master": "00000000-0000-0000-0000-000000000001", "team_name": "Manual match"}
     }
-    click(app, "Build matchup tiers")
+    click(app, "Build seeding sheets")
     click(app, "Generate PDF pack")
     pack = deepcopy(app.session_state["_seeding_pack"])
     overrides = deepcopy(app.session_state["_seeding_overrides"])
@@ -84,7 +83,7 @@ def test_predictor_update_requires_rebuild_and_keeps_saved_team_choices(operator
     assert app.session_state["_seeding_pack"] == pack
     assert app.session_state["_seeding_overrides"] == overrides
     assert len(calls) == 1
-    click(app, "Build matchup tiers")
+    click(app, "Build seeding sheets")
     assert len(calls) == 2
     assert app.session_state["_seeding_pack"]["predictor_sha256"] == "b" * 64
     assert app.session_state["_seeding_overrides"] == overrides
@@ -95,7 +94,7 @@ def test_predictor_update_requires_rebuild_and_keeps_saved_team_choices(operator
 def test_build_contains_all_cohorts_and_identity_edit_hides_old_export(operator):
     app, calls = operator
     assert not app.exception
-    click(app, "Build matchup tiers")
+    click(app, "Build seeding sheets")
     assert not app.error, [error.value for error in app.error]
     assert set(calls[0]) == {"u14|Male", "u15|Female"}
     document = app.session_state["_seeding_sheet_html"]
@@ -113,7 +112,7 @@ def test_build_contains_all_cohorts_and_identity_edit_hides_old_export(operator)
 
 def test_review_and_sheet_keep_registered_name_primary_with_match_and_play_up_context(operator):
     app, _calls = operator
-    click(app, "Build matchup tiers")
+    click(app, "Build seeding sheets")
 
     editor = app.dataframe[0].value
     beta = editor.loc[editor["Team"] == "Beta Entry"].iloc[0]
@@ -142,7 +141,7 @@ def test_review_uses_generic_play_up_for_same_age_or_older_match_and_keeps_c_suf
 
 def test_analysis_details_are_read_only_and_director_notes_save(operator):
     app, _calls = operator
-    click(app, "Build matchup tiers")
+    click(app, "Build seeding sheets")
     click(app, "Generate PDF pack")
     app.text_area[0].set_value("Keep Alpha and Beta in separate flights.")
     click(app, "Save director notes")
@@ -152,25 +151,77 @@ def test_analysis_details_are_read_only_and_director_notes_save(operator):
 
 def test_selecting_cohorts_requires_new_pack_and_failed_refresh_preserves_snapshot(operator, monkeypatch):
     app, calls = operator
-    click(app, "Build matchup tiers")
+    click(app, "Build seeding sheets")
     click(app, "Generate PDF pack")
     app.radio[0].set_value("Choose cohorts").run()
     app.multiselect[0].set_value(["u14|Male"]).run()
     assert "_seeding_pdf" not in app.session_state
-    click(app, "Build matchup tiers")
+    click(app, "Build seeding sheets")
     assert set(calls[-1]) == {"u14|Male"}
     assert "New Girls" not in app.session_state["_seeding_sheet_html"]
     previous = app.session_state["_seeding_pack"]
     monkeypatch.setattr(ui, "load_seeding_predictions", lambda *_args, **_kwargs: (_ for _ in ()).throw(
         RuntimeError("Database temporarily unavailable")))
-    click(app, "Build matchup tiers")
+    click(app, "Build seeding sheets")
     assert app.session_state["_seeding_pack"] == previous
     assert "Database temporarily unavailable" in app.error[0].value
 
 
+def test_narrowing_cohorts_preserves_only_selected_notes_and_policy(operator):
+    app, calls = operator
+    click(app, "Build seeding sheets")
+    app.text_area[0].set_value("Boys placement notes")
+    next(button for button in app.button if button.label == "Save director notes").click().run()
+    app.text_area[1].set_value("Girls placement notes")
+    [button for button in app.button if button.label == "Save director notes"][1].click().run()
+    original = deepcopy(app.session_state["_seeding_pack"])
+    assert original["operator_notes"] == {"u14|Male": "Boys placement notes", "u15|Female": "Girls placement notes"}
+    app.radio[0].set_value("Choose cohorts").run()
+    app.multiselect[0].set_value(["u14|Male"]).run()
+    click(app, "Build seeding sheets")
+    assert not app.error
+    rebuilt = app.session_state["_seeding_pack"]
+    assert rebuilt["operator_notes"] == {"u14|Male": "Boys placement notes"}
+    assert rebuilt["policy"] == original["policy"]
+    assert len(calls) == 2
+    assert "Boys placement notes" in app.session_state["_seeding_sheet_html"]
+    assert "Girls placement notes" not in app.session_state["_seeding_sheet_html"]
+
+
+def test_unknown_gender_and_girls_cohort_build_together(operator):
+    from io import BytesIO
+    from openpyxl import load_workbook
+
+    app_code = APP.replace("resolved =", '''from dataclasses import replace
+from src.tournaments.roster_paste import ParsedRoster
+parsed = ParsedRoster((*parsed.rows, replace(parsed.rows[-1], source_index=3,
+    section_gender="", team_name_raw="Unassigned team")), ())
+resolved =''')
+    app = AppTest.from_string(app_code, default_timeout=15).run()
+    click(app, "Build seeding sheets")
+    assert not app.error
+    workbook = load_workbook(BytesIO(app.session_state["_seeding_xlsx"]))
+    assert set(workbook.sheetnames) == {"U14 Boys", "U15 Girls", "U15 Unspecified gender"}
+    assert any(button.label == "Generate PDF pack" for button in app.button)
+    assert any("identity or cohort review" in item.value for item in app.warning)
+
+
+def test_analysis_diagnostics_remain_collapsed_and_never_yellow(operator):
+    app, _calls = operator
+    click(app, "Build seeding sheets")
+    details = next(item for item in app.expander if item.label == "Analysis details")
+    assert not details.proto.expanded
+    assert any("Strength breaks require" in item.value for item in details.caption)
+    assert all(not any(text in item.value for text in (
+        "has one team", "strength-order exception", "low outcome confidence",
+    )) for item in app.warning)
+    assert "Analysis details" not in app.session_state["_seeding_sheet_html"]
+    assert "Strength breaks require" not in app.session_state["_seeding_sheet_html"]
+
+
 def test_restored_snapshot_renders_without_loading_new_predictions(operator, monkeypatch):
     app, calls = operator
-    click(app, "Build matchup tiers")
+    click(app, "Build seeding sheets")
     snapshot = app.session_state["_seeding_pack"]
     monkeypatch.setattr(ui, "load_seeding_predictions", lambda *_args, **_kwargs: pytest.fail("unexpected reload"))
     reopened = AppTest.from_string(APP, default_timeout=15)
@@ -190,7 +241,7 @@ def test_malformed_saved_pack_type_can_be_rebuilt_without_losing_the_build_contr
     assert not app.exception
     assert any("saved pack is unreadable" in warning.value for warning in app.warning)
     assert "_seeding_pdf" not in app.session_state
-    click(app, "Build matchup tiers")
+    click(app, "Build seeding sheets")
     assert not app.error
     assert len(calls) == 1
     assert "Alpha FC" in app.session_state["_seeding_sheet_html"]
@@ -199,7 +250,7 @@ def test_malformed_saved_pack_type_can_be_rebuilt_without_losing_the_build_contr
 @pytest.mark.parametrize("missing_field", ["policy", "generated_at"])
 def test_saved_pack_missing_required_field_explains_rebuild_and_keeps_build_control(operator, missing_field):
     app, calls = operator
-    click(app, "Build matchup tiers")
+    click(app, "Build seeding sheets")
     malformed = deepcopy(app.session_state["_seeding_pack"])
     del malformed[missing_field]
     app.session_state["_seeding_pack"] = malformed
@@ -207,7 +258,7 @@ def test_saved_pack_missing_required_field_explains_rebuild_and_keeps_build_cont
     assert not app.exception
     assert any("pack needs rebuilding" in error.value for error in app.error)
     assert app.session_state["_seeding_sheet_html"] is None
-    click(app, "Build matchup tiers")
+    click(app, "Build seeding sheets")
     assert not app.error
     assert len(calls) == 2
     assert "Alpha FC" in app.session_state["_seeding_sheet_html"]
@@ -215,7 +266,7 @@ def test_saved_pack_missing_required_field_explains_rebuild_and_keeps_build_cont
 
 def test_failed_save_banner_survives_rerun_and_successful_retry_clears_it(operator):
     app, calls = operator
-    click(app, "Build matchup tiers")
+    click(app, "Build seeding sheets")
     click(app, "Generate PDF pack")
     app.session_state["test_save_succeeds"] = False
     app.text_area[0].set_value("Latest reviewed notes must survive retry.")
@@ -246,7 +297,7 @@ def _merge_editor_tiers(app):
 
 def test_manual_unsafe_merge_warning_and_notes_reach_the_sheet_and_restore_clears_editor(operator):
     app, _calls = operator
-    click(app, "Build matchup tiers")
+    click(app, "Build seeding sheets")
     app.text_area[0].set_value("Director requested one flight; review Alpha versus Beta.")
     click(app, "Save director notes")
     assert not any("exceeds the matchup limits" in warning.value for warning in app.warning)
@@ -262,7 +313,7 @@ def test_save_keeps_package_when_source_also_contains_younger_teams(operator, mo
     from tests.unit.test_seeding_event_intake import _FakeSt, _install
 
     app, _calls = operator
-    click(app, "Build matchup tiers")
+    click(app, "Build seeding sheets")
     pack = app.session_state["_seeding_pack"]
     raw = parse_roster("Male U14\nClub\tTeam\tState\nAlpha\tAlpha FC\tTX\nBeta\tBeta Entry*\tTX\n"
                        "Female U15\nClub\tTeam\tState\nNew\tNew Girls\tTX")
@@ -328,7 +379,7 @@ render_seeding_pack(parsed, resolved, None, event_name="Draft Cup", save=lambda:
 def test_live_legacy_session_without_assessment_exports_draft(operator):
     app, _calls = operator
     assert any("Delivery status: draft" in message.value for message in app.info)
-    click(app, "Build matchup tiers")
+    click(app, "Build seeding sheets")
     assert "DRAFT" in app.session_state["_seeding_sheet_html"]
 
 
@@ -349,7 +400,7 @@ def test_compare_discovered_merge_conflicts_mark_csv_and_pdf_as_draft(operator, 
         exported.append(data)
         return data
     monkeypatch.setattr(ui, "team_csv", capture_csv)
-    click(app, "Build matchup tiers")
+    click(app, "Build seeding sheets")
     assert not app.error
     assert any("Delivery status: draft" in message.value for message in app.info)
     assert b"Draft" in exported[-1]
@@ -359,7 +410,7 @@ def test_compare_discovered_merge_conflicts_mark_csv_and_pdf_as_draft(operator, 
 @pytest.mark.parametrize("unavailable", [None, [], {"u14|Male": None}, {"u14|Male": {"0": {}}}])
 def test_malformed_snapshot_shows_rebuild_message_instead_of_crashing(operator, unavailable):
     app, _calls = operator
-    click(app, "Build matchup tiers")
+    click(app, "Build seeding sheets")
     pack = dict(app.session_state["_seeding_pack"])
     pack["unavailable"] = unavailable
     app.session_state["_seeding_pack"] = pack

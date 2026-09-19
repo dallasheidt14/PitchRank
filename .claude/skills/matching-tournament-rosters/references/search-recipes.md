@@ -84,7 +84,8 @@ Expand the cohort token into every spelling before searching, and widen `age_gro
 ranking:
 
 ```sql
--- roster says "B2013/14" -> birth years 2013 and 2014 -> cohorts u14 and u13
+-- roster says "B2013/14" -> cohort u13 (CLAUDE.md label key); stored rows are sometimes
+-- filed one older, so match the u14 spellings too
 SELECT team_id_master, team_name, age_group, gender, state_code, club_name
 FROM teams
 WHERE team_name ~* '\y(2013|2014|13|14|B2013|B2014|B13|B14|BU13|BU14|U13|U14|2013/14|13/14)\y';

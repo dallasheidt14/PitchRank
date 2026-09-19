@@ -10,6 +10,7 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
+from src.tournaments.seeding_pack import cohort_key, cohort_label
 from src.tournaments.seeding_sheet import CohortSheet, SheetTeam
 
 FOREST = "0B5345"
@@ -20,9 +21,21 @@ RULE = "D8E0DD"
 BAND = "F4F7F6"
 
 
-def _sheet_title(sheet: CohortSheet) -> str:
-    label = f"{sheet.age_group.upper()} {'Boys' if sheet.gender == 'Male' else 'Girls'}"
-    return label[:31]
+def workbook_sheet_titles(sheets: Sequence[CohortSheet]) -> list[str]:
+    """Share unique cohort labels between workbook generation and validation."""
+    titles = []
+    used: set[str] = set()
+    for sheet in sheets:
+        base = cohort_label(cohort_key(sheet.age_group, sheet.gender))[:31]
+        title = base
+        suffix = 2
+        while title.casefold() in used:
+            ending = f" {suffix}"
+            title = f"{base[:31 - len(ending)]}{ending}"
+            suffix += 1
+        titles.append(title)
+        used.add(title.casefold())
+    return titles
 
 
 def _safe_text(value: str | None) -> str:
@@ -71,28 +84,19 @@ def build_seeding_workbook(
     """Create one filterable, editable worksheet per selected cohort."""
     workbook = Workbook()
     workbook.remove(workbook.active)
-    used_titles: set[str] = set()
-    for cohort in sheets:
-        title = _sheet_title(cohort)
-        base = title
-        suffix = 2
-        while title in used_titles:
-            title = f"{base[:28]} {suffix}"
-            suffix += 1
-        used_titles.add(title)
+    for sheet_number, (cohort, title) in enumerate(zip(sheets, workbook_sheet_titles(sheets)), 1):
         sheet = workbook.create_sheet(title)
         sheet.sheet_view.showGridLines = False
         sheet.freeze_panes = "A7"
         sheet.merge_cells("A1:K1")
-        sheet["A1"] = _safe_text(event_name)
+        _set_text(sheet["A1"], _safe_text(event_name))
         sheet["A1"].font = Font(name="Arial", size=18, bold=True, color="FFFFFF")
         sheet["A1"].fill = PatternFill("solid", fgColor=FOREST)
         sheet["A1"].alignment = Alignment(vertical="center")
         sheet.row_dimensions[1].height = 28
         sheet.merge_cells("A2:K2")
-        cohort_label = "Boys" if cohort.gender == "Male" else "Girls"
         team_count = len(cohort.rated) + len(cohort.unrated)
-        sheet["A2"] = f"{cohort.age_group.upper()} {cohort_label} · {team_count} accepted teams"
+        sheet["A2"] = f"{cohort_label(cohort_key(cohort.age_group, cohort.gender))} · {team_count} accepted teams"
         sheet["A2"].font = Font(bold=True, color=FOREST_DEEP)
         sheet.merge_cells("A3:K3")
         sheet["A3"] = "Strength breaks describe competitive differences; they do not assign divisions or pools."
@@ -138,7 +142,7 @@ def build_seeding_workbook(
                     sheet.cell(row_index, column).fill = PatternFill("solid", fgColor=BAND)
         end_row = max(6, 6 + len(_teams_for_sheet(cohort)))
         if end_row >= 7:
-            table = Table(displayName=f"Cohort{len(used_titles)}", ref=f"A6:K{end_row}")
+            table = Table(displayName=f"Cohort{sheet_number}", ref=f"A6:K{end_row}")
             table.tableStyleInfo = TableStyleInfo(
                 name="TableStyleMedium4",
                 showFirstColumn=False,

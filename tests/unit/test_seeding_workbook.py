@@ -2,11 +2,12 @@ from io import BytesIO
 from itertools import combinations
 
 from openpyxl import load_workbook
+import pytest
 
 from src.tournaments.compare_predictor_bridge import ComparePrediction
 from src.tournaments.seeding_sheet import CohortSheet, SheetTeam
 from src.tournaments.seeding_tiers import TierEntrant, build_cheat_sheet_analysis
-from src.tournaments.seeding_workbook import build_seeding_workbook, validate_seeding_workbook
+from src.tournaments.seeding_workbook import build_seeding_workbook, validate_seeding_workbook, workbook_sheet_titles
 
 
 def _prediction(margin: float, blowout: float = 0.1) -> ComparePrediction:
@@ -43,3 +44,24 @@ def test_workbook_has_editable_director_columns_and_literal_names():
     assert [sheet.cell(6, column).value for column in range(8, 12)] == [
         "Final division", "Pool", "Final seed", "Director notes"
     ]
+
+
+@pytest.mark.parametrize("event_name", ["=1+1", "+Event", "-Event", "@Event"])
+def test_event_title_is_literal_text_after_reopening(event_name):
+    cohort = CohortSheet("u10", "Male", (SheetTeam("Team", "Club", .8, entrant_id="0"),), ())
+    payload = build_seeding_workbook(event_name, [cohort], generated_on="2026-09-19", ranking_run="2026-09-19")
+    workbook = load_workbook(BytesIO(payload), data_only=False)
+    assert workbook.active["A1"].value == event_name
+    assert workbook.active["A1"].data_type == "s"
+    assert load_workbook(BytesIO(payload), data_only=True).active["A1"].value == event_name
+
+
+def test_unassigned_gender_cohort_stays_distinct_from_girls():
+    sheets = [CohortSheet("u10", gender, (), (SheetTeam(name, "Club", entrant_id=str(index)),))
+              for index, (gender, name) in enumerate((("Female", "Girls team"), ("", "Review team")))]
+    payload = build_seeding_workbook("Draft Cup", sheets, generated_on="2026-09-19", ranking_run="unknown")
+    validate_seeding_workbook(payload, workbook_sheet_titles(sheets))
+    workbook = load_workbook(BytesIO(payload))
+    assert workbook.sheetnames == ["U10 Girls", "U10 Unspecified gender"]
+    assert workbook.worksheets[1]["A2"].value == "U10 Unspecified gender · 1 accepted teams"
+    assert workbook.worksheets[1]["B7"].value == "Review team"

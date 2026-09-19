@@ -33,7 +33,7 @@ from src.tournaments.seeding_pdf import SeedingPdfError, render_seeding_pdf
 from src.tournaments.seeding_predictions import load_seeding_predictions, seeding_predictor_sha256
 from src.tournaments.seeding_run_store import slugify
 from src.tournaments.seeding_sheet import build_cohort_sheets, make_ratings_lookup, render_sheet_html
-from src.tournaments.seeding_workbook import build_seeding_workbook, validate_seeding_workbook
+from src.tournaments.seeding_workbook import build_seeding_workbook, validate_seeding_workbook, workbook_sheet_titles
 
 _PACK_KEY = "_seeding_pack"
 
@@ -57,7 +57,7 @@ def team_csv(rows, resolved, overrides, *, draft: bool = False) -> bytes:
             notes = row.intake_issue or (item.review_reason if item and not override else "") or ""
         writer.writerow([csv_safe(value) for value in [
             cohort_label(cohort_key(row.section_age_group, row.section_gender)), row.registered_name,
-            override.get("team_name") or (item.matched_name if item else "") or "",
+            "" if override.get("not_found") else override.get("team_name") or (item.matched_name if item else "") or "",
             match_method,
             identities.get(str(row.source_index)) or "", row.listed_division, row.requested_flight,
             notes,
@@ -250,7 +250,9 @@ def render_seeding_pack(
                     # Rebuilds refresh predictions but preserve operator choices
                     # that are independent of the predictor snapshot.
                     candidate["policy"] = dict(pack.get("policy", candidate["policy"]))
-                    candidate["operator_notes"] = dict(pack.get("operator_notes", {}))
+                    candidate["operator_notes"] = {
+                        key: note for key, note in pack.get("operator_notes", {}).items() if key in selected
+                    }
                     candidate["legacy_manual_groups"] = dict(
                         pack.get("legacy_manual_groups", pack.get("manual_groups", {}))
                     )
@@ -335,7 +337,7 @@ def render_seeding_pack(
     )
     validate_seeding_workbook(
         workbook,
-        [f"{sheet.age_group.upper()} {'Boys' if sheet.gender == 'Male' else 'Girls'}"[:31] for sheet in sheets],
+        workbook_sheet_titles(sheets),
     )
     workbook_hash = hashlib.sha256(workbook).hexdigest()
     if st.session_state.get("_seeding_xlsx_hash") != workbook_hash:

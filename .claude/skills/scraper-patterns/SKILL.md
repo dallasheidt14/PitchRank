@@ -491,6 +491,95 @@ User-Agent, no proxy. `scripts/import_soccereventsgroup_event.py` is the driver.
 - A drawn game (0-0, 1-1) marks neither side; take the result from the scores, not the classes.
   Import a 0-0 as a draw rather than skipping it.
 
+## Athletes2Events Pages
+
+Athletes2Events is a white-label tournament platform: each host club runs its events on its own
+subdomain (`crossfire.`, `somsports.` for Surf Cup Sports, and some fifty more in certificate
+logs, among them `arizonasurf.`, `utahsurf.`, `vegascup.`, `washingtonrush.`). The provider code
+`athletes2events` covers them all; the older `somsports` row predates it and holds no data. Pages
+are server-rendered HTML with a declared UTF-8 charset and answer `requests` sent with a browser
+User-Agent, no proxy and no bot challenge. There is no driver script yet: event 130 (Crossfire's
+2026 ZF Labor Day Challenge) was scraped and parsed by hand on 2026-09-18.
+
+### Pages and ids
+
+Every page is `https://<host>.athletes2events.com/events/<event_id>/...`:
+
+- `groups` — every division and flight. A division carries gender, U-age and its birth-date
+  cutoff ("Boys-U19 (Born on or after: Aug 01, 2007)"); each flight (Gold, Silver, Silver 2) links
+  to `schedules?flight-id=<n>`.
+- `schedules?flight-id=<n>` — `table.schedule-table` holds standings (position, logo, team link,
+  MP W D L GF GA GD POINTS, goals capped at 6). Each day is one `table.matches-table`: a colspan
+  header row with the date ("Sat Sep 05, 2026"), then nine columns — Game #, Division/Flight, Group
+  (A, A/B, Semi-Finals A, Final), Time, Home, Result, Away, Field, Location. Every team cell links
+  to `schedules?team-id=<n>`.
+- `schedules?team-id=<n>` — the team page, the only source of a team's state and coach. Its header
+  reads `<Boys|Girls>-U<n> <team name> (<ST>) - Matches Team ID# <n> Coach: <name> Manager: <name>`
+  (sometimes `Managers:`).
+- `details` (dates, entry deadline, fee per age group), `fields`, `scoring-rules`, `event-rules`
+  and `event-coaches`. The last lists attending college coaches with their emails; do not store it.
+
+Event ids and team ids are one platform-wide sequence, so a team id is unique without its
+subdomain. An event requested on the wrong subdomain redirects to that host's home page, which
+lists the host's current events. Team ids mostly carry over between events but not always — of
+17 teams that played both Crossfire events 124 and 130, 11 kept their id — so name-match an
+unfamiliar id before creating a team.
+
+- Results read `7 - 0`; a shootout reads `1 - 1 (3 - 4)`, recorded at its regulation score as a
+  draw. A bracket slot the site never filled keeps a placeholder name (`Team-2`) with a score and
+  no team link; hold that game.
+- There is no club field. A team's logo is its club's — every team of a club shares one image
+  file — but the image carries no text, `alt="Logo"` and a timestamp file name, so it names
+  nothing.
+- Logo `src` values are presigned S3 URLs carrying the host's AWS access key id. The bucket also
+  serves them unsigned. Strip every `img` `src` from a captured page before committing it as a
+  fixture: the repo is public.
+
+### Reading an Athletes2Events team
+
+The team page header is `<Gender>-U<division age> <Club> <Team> (<ST>)`, with nothing separating
+club from team.
+
+- **The age group comes from the team's own name, never the division** — the division is only
+  where it played. Read the name through the label key in CLAUDE.md's Age Groups section. A
+  division is still an upper bound: a team plays up, never down, so it is the division's age or
+  younger (27 of 220 teams in event 130 played up).
+- Owner's fallbacks (2026-09-18): no age in the name, or an odd span such as `G2018-2016` — use the
+  division's age; two U-ages (`U12/13`, `U11/U12`) — leave the team out; a `B12`-style tag whose
+  birth-year reading is older than its division — read it as Boys U12. A single birth year (`B16`)
+  fits two ages; take the one the division allows.
+- Skip U8 and U9: no board.
+- The club is the words before the first age token, league tag or comma. `XF` or a bare
+  `Crossfire` is **Crossfire Premier**; `Crossfire Select` is the separate club **Crossfire Select
+  Soccer Club** — both are PitchRank's stored names. A nickname before the age token stays
+  attached to the club (`NK Dire Wolves BU11`), so compare against PitchRank's clubs rather than
+  trusting the split.
+- A comma usually precedes the coach's surname, not the team name (`NSC EBU12, Oviedo`).
+- The state is the `(ST)` in the team page header.
+
+### Matching Athletes2Events teams
+
+The gates in Provider Matcher Name Parsing below apply. This platform glues squad marks together:
+
+- `RCL1`, `RCL 1` and `RCL-1` are one squad label — RCL is a team-name distinction here, not a
+  league — and `ECNL2` is ECNL squad 2. Count a label only when both names carry one.
+- A squad letter glued to the age or year is a squad mark: `B-U10B`, `GU10A`, `B15C`.
+- Coach surnames and nicknames tell squads apart (`Delgado` against `Reyes`, `Attack` against
+  `Bravo`), but no gate reads them yet, so such squads tie and go to review.
+- A PitchRank row named by one birth year (`XF 2016 RCL 2`, `XF B13 ECNL`) is usually last
+  season's record of the squad. Two event squads landing on one such row (`ECNL 1` and `ECNL 2`
+  on `XF B13 ECNL`) is a conflict, not a link.
+
+### Importing Athletes2Events games
+
+- `import_games_enhanced.py` has no athletes2events matcher and falls back to the base
+  `GameHistoryMatcher`, which `EnhancedETLPipeline` constructs without `dry_run` — so its
+  `--dry-run` can still write aliases and review rows. Write the team aliases first so every
+  game's teams resolve by id, and import only games whose two teams are both settled.
+- The importer validates both teams against one age group per game, so a game between teams of
+  different stored ages — a team playing up — inserts half-matched (see Repairing a half-matched
+  game below). Hold those back.
+
 ## Provider Matcher Name Parsing
 
 Rules for a provider matcher that gates fuzzy candidates on the team name

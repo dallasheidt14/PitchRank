@@ -967,16 +967,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: 1,028 game rows across 552 live teams carry `home_team_master_id = away_team_master_id`, verified by direct SQL 2026-09-12 (894 GotSport, 124 TGS, 5 PlayMetrics, 3 Modular11, 2 Affinity WA; dates 2024-03-29 to 2027-03-13). Nothing filters them before Glicko, so a team is rated against itself. They also mark rows that are two squads fused into one record — `XF 2016 RCL 1` (`ab31993f`) holds 42 games against 17-20 for each sibling squad and plays every flight opponent twice. Root cause unknown: could be a matcher resolving two provider ids to one master, or a provider feed listing both sides identically.
 - **Noted**: 2026-09-12
 
-### The canonical club map merges distinct clubs, and `are_same_club` never looks past it
-
-- **ID**: IMP-211
-- **Status**: open
-- **Type**: investigate
-- **Category**: reliability
-- **Where**: `are_same_club` and `similarity_score` in `src/utils/club_normalizer.py`; the canonical map they read via `normalize_to_club`
-- **Why**: `are_same_club` returns on canonical id alone when both names resolve, so raw similarity is never consulted — and the map over-collapses. Measured 2026-09-11 over the 106 distinct `state_code = 'OR'` club names: `portland_timbers` swallows eight separate clubs (Portland Timbers, Eastside Timbers, Eugene Timbers FC, Rogue Valley Timbers, FC Portland Academy, ADF Portland and two more), `surf` merges Cascade Surf with Oregon Surf, and `vancouver_whitecaps` merges Vancouver West SC with Vancouver Lightning. `are_same_club('FC Portland', 'Rogue Valley Timbers')` is therefore `True` at threshold 0.9 while the two names score 0.21. The fallback is no safer: `similarity_score` is `token_set_ratio`, which scores containment, so `('FC Portland', 'Portland City United SC')` is a perfect 1.0. Both defects were caught matching distinct Oregon squads at confidence 1.0 in an `affinity_or` dry run. `affinity_or` works around them locally in `_is_same_club`; `affinity_wa` and every other caller still take the shared path, and WA has been importing against it on a weekly cron.
-- **Noted**: 2026-09-11
-
 ### A dry run reports `Teams created: 0` no matter how many teams it would create
 
 - **ID**: IMP-212
@@ -1237,8 +1227,8 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Status**: open
 - **Type**: direct
 - **Category**: reliability
-- **Where**: `scripts/normalize_team_names.py` `_resolve_band` (its two-digit alternation)
-- **Why**: Verified against `main` 2026-09-16: `_resolve_band("BRAUSA '11/'12 Blue")` returns `None` while `_resolve_band("BRAUSA 11/12 Blue")` returns `U15`, and a single leading apostrophe (`"Club '11/12 Blue"`) is enough to lose it. A band is the one season-independent cohort fact in a name, so a name that carries one reads as carrying no cohort and no year at all. That silence is what let a wrong cohort write through on 2026-09-15: `BRAUSA '11/'12 Blue` was moved u16 -> u12 on GotSport's `U12 Girls (2014/15)` record, which is a different squad; it was caught by hand and reverted. Accepting `'` before either year in the existing pattern is the whole fix.
+- **Where**: `scripts/normalize_team_names.py` `_resolve_band` (its two-digit alternation); `src/utils/team_utils.py` `_BAND_RUN_RE`
+- **Why**: Verified against `main` 2026-09-16: `_resolve_band("BRAUSA '11/'12 Blue")` returns `None` while `_resolve_band("BRAUSA 11/12 Blue")` returns `U15`, and a single leading apostrophe (`"Club '11/12 Blue"`) is enough to lose it. A band is the one season-independent cohort fact in a name, so a name that carries one reads as carrying no cohort and no year at all. That silence is what let a wrong cohort write through on 2026-09-15: `BRAUSA '11/'12 Blue` was moved u16 -> u12 on GotSport's `U12 Girls (2014/15)` record, which is a different squad; it was caught by hand and reverted. `extract_band_birth_year` refuses both apostrophe forms the same way, so the queue matcher, TGS and PlayMetrics lose the band too. Accepting `'` before either year in both patterns is the whole fix.
 - **Noted**: 2026-09-16
 
 ### Merge the duplicate teams a cohort correction cannot move
@@ -1425,3 +1415,67 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `scripts/exclude_english_teams.py` (`apply_snapshot`); `team_ranking_exclusions`
 - **Why**: `--execute` only inserts what is missing, so a row survives evidence that arrives after it was written: a later GotSport probe confirming the team as US, or a fresh snapshot that no longer reaches it, changes nothing, and the team stays unranked with nobody told. Merge expansion compounds it in the other direction -- an exclusion transfers to whatever team absorbs a listed one, so a wrong merge can suppress a US survivor's whole record without a new row being written. Wanted: a report of listed teams whose current evidence disagrees with the reason they were listed, covering both shapes, and a recorded basis for rows admitted by the game graph alone rather than by a provider answer. Deleting a row already restores the team at the next run, so this is about noticing, not about mechanism. Raised by a design review of PR #1168 on 2026-09-17.
 - **Noted**: 2026-09-17
+
+### Let the team-name normalizer read bands through extract_band_birth_year
+
+- **ID**: IMP-258
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `scripts/normalize_team_names.py` `_resolve_band` / `_BAND_RE`; `src/utils/team_utils.py` `extract_band_birth_year`
+- **Why**: The normalizer's band reader disagrees with the shared one. Verified 2026-09-18: `_resolve_band` reads a spaced three-year list by its first pair (`"CSC 2014 / 2015 / 2016 Boys"` -> `"CSC U12 / 2016 Boys"`), which the shared helper declines; reads nothing from a band touching a hyphen or word (`"FC Academy-2013/2014 Boys"`, `"Eternal 2012/2013Black"`, `"Club 2013/2014-Red"`), which the shared helper reads; and files the aged-out 2007/06 band as U19 through `calculate_age_group_from_birth_year`'s age-20 fold (`"Team 2007/2006"` -> `"Team U19"`), where the shared path assigns no cohort. The normalizer rewrites stored team names weekly, so converging changes stored names: take a dry-run rename diff before shipping.
+- **Noted**: 2026-09-18
+
+### Club-name override entries that name a U-age go stale every Aug 1
+
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `CLUB_CANONICAL_OVERRIDES` in `scripts/full_club_analysis.py`
+- **Why**: 15 `exact` entries match a club name carrying a U-age that moves each season: eight "SOZO FC ... - GU14/BU12" rows in WA plus "Sporting Kansas City U16", "Michgan jaguars u17", "columbus crew u16", "Real Colorado u17", "Chicago Fire FC U16", "Real Salt Lake U16" and "la galaxy u16". Once the provider relabels the squad, the new label matches no entry and keeps its U-age as a club spelling, while the old entry matches nothing. Birth-year squad codes ("Sound FC B14A", "PacNW G12E") do not age the same way. Wanted: match the club part, or drop entries that have not matched a live club in a season.
+- **Noted**: 2026-09-18
+
+### Three copies of the club-suffix normalization
+
+- **Status**: open
+- **Type**: plan
+- **Category**: refactor
+- **Where**: `normalize_for_grouping` in `scripts/full_club_analysis.py`; `normalize_club_for_comparison` in `src/utils/team_name_utils.py`; `normalize_club_name` in `scripts/match_state_from_club.py`
+- **Why**: Each folds "Soccer Club"/"S.C."/"Football Club" suffixes its own way, so the weekly cleanup, team-name utilities and the retired state lookup can disagree about whether two spellings are one club. `_light_form` in `src/utils/club_normalizer.py` does the same folding to codes and could be the one implementation.
+- **Noted**: 2026-09-18
+
+### Team matchers score differently wherever rapidfuzz is installed
+
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `HAVE_RAPIDFUZZ` branches in `GameHistoryMatcher._calculate_similarity` and `_calculate_match_score` (`src/models/game_matcher.py`), which the SincSports and TGS matchers inherit; their own `HAVE_RAPIDFUZZ` flags are set and never read
+- **Why**: rapidfuzz is in neither `requirements.txt` nor `requirements.lock`, so CI and every workflow take the difflib path, while a local run with rapidfuzz installed scores fuzzy team matches with a different library. Thresholds measured locally are therefore measured against something production does not run. `src/utils/club_normalizer.py` and `src/models/squad_name_gates.py` are difflib-only for this reason.
+- **Noted**: 2026-09-18
+
+### Damaged club spellings from weekly cleanups before 2026-09-14 are not repaired
+
+- **Status**: open
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `caps_winner` and `merge_case_variants` in `scripts/full_club_analysis.py`; `parse_cleanup_log` in `scripts/repair_swapped_club_names.py`
+- **Why**: The weekly cleanup's re-case, before it learned a vocabulary, lowered articles and inner capitals as well as abbreviations ("SoCal" -> "Socal", "McLean" -> "Mclean"). `repair_swapped_club_names.py` undoes only the runs whose logs it is given (the 2026-09-14 run), and `caps_winner` adopts a group's majority mixed-case spelling, so a majority damaged by an earlier run is copied onto the correct minority: the 2026-09-18 dry run moves CA "ALBION SC Los Angeles" to "Albion SC los Angeles". Finding them needs the older run logs (GitHub keeps about 90 days) or a pass comparing each spelling with the learned vocabulary.
+- **Noted**: 2026-09-18
+
+### The weekly club cleanup rewrites a tracked SQL file even on a dry run
+
+- **Status**: open
+- **Type**: direct
+- **Category**: dx
+- **Where**: `main` and `SQL_OUTPUT_PATH` in `scripts/full_club_analysis.py`
+- **Why**: Every run, `--dry-run` included, overwrites the tracked `scripts/club_name_fixes_male_all_states.sql`, so a local preview leaves a modified tracked file that is easy to commit by accident; the file is regenerated each Monday anyway. Write it only under `--execute`, or to `logs/` beside the other outputs.
+- **Noted**: 2026-09-18
+
+### An unregistered club's club_id still merges clubs that are_same_club keeps apart
+
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `normalize_to_club` (unmatched branch) and `group_by_club` in `src/utils/club_normalizer.py`
+- **Why**: For a name that resolves to no registered club, `club_id` comes from the suffix-stripped `normalize_club_name`, so "Tyler FC" and "Tyler SA" (or "Charlotte SC" and "Charlotte Soccer Academy") share a `club_id` and `group_by_club` puts them in one group, while `are_same_club` keeps them apart. No live matcher is affected: `_calculate_match_score` in the base, SincSports and TGS matchers compares `club_id` only when both names are registered. `group_by_club` has no production caller, but the matching-tournament-rosters skill reference points agents at it.
+- **Noted**: 2026-09-18
