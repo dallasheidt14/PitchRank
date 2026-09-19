@@ -731,6 +731,12 @@ def render_sheet_html(
  body {{ background: white; }}
  .sheet {{ max-width: none; margin: 0; padding: 0; break-after: page; }}
  .sheet:last-child {{ break-after: auto; }}
+ .masthead {{ padding: 3mm 4mm; margin-bottom: 3mm; }}
+ .event {{ font-size: 25px; margin-bottom: 3mm; }}
+ .facts {{ padding: 2mm 0; }}
+ .guide-grid {{ display: none; }}
+ .seed-guide .method {{ margin-bottom: 0; }}
+ .guidance {{ break-inside: avoid; }}
  .foot {{ display: none; }}
  table.grid thead {{ display: table-header-group; }}
  table.grid tr {{ break-inside: avoid; page-break-inside: avoid; }}
