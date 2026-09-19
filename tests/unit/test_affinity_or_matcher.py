@@ -3,10 +3,9 @@
 Each gate here exists because a dry run against the live Oregon league caught
 the shared matching utilities merging two distinct squads at confidence 1.0:
 
-- ``are_same_club`` returns on canonical id alone, and the canonical map folds
-  every Oregon "Timbers" affiliate into ``portland_timbers``.
-- ``similarity_score`` is ``token_set_ratio``, which reads containment, so
-  "FC Portland" scores a perfect 1.0 against "Portland City United SC".
+- Distinct Oregon clubs share words such as "Timbers" and "Surf", and
+  "portland" sits inside "Portland City United SC"; a same-club check that
+  returned on a shared canonical id, or read containment, would merge them.
 - ``extract_team_variant`` only knows colours, returning None for both
   "Academy" and "Premier" — and the variant gate reads None == None as
   agreement.
@@ -28,6 +27,8 @@ from src.models.affinity_or_matcher import (
     _normalize_for_affinity_or,
     _tiers_conflict,
 )
+from src.models.squad_name_gates import token_sort_ratio
+from src.utils.club_normalizer import normalize_club_name
 
 THRESHOLD = 0.9
 
@@ -50,19 +51,32 @@ class TestIsSameClub:
     @pytest.mark.parametrize(
         "provider_club, candidate_club",
         [
-            # All four collapse to canonical 'portland_timbers'
+            # Four distinct Oregon clubs sharing the word "Timbers", and FC Portland
             ("FC Portland", "Rogue Valley Timbers"),
             ("Portland Timbers", "Rogue Valley Timbers"),
             ("Eastside Timbers", "Rogue Valley Timbers"),
             ("Eastside Timbers", "Eugene Timbers Futbol Club (ETFC)"),
             ("FC Portland", "Portland Timbers"),
-            # token_set_ratio scores this pair 1.0 by containment
+            # "portland" sits inside "portland city united"
             ("FC Portland", "Portland City United SC"),
-            # Both collapse to canonical 'surf'
+            # Two different Surf clubs
             ("Cascade Surf", "Oregon Surf"),
         ],
     )
     def test_distinct_clubs_are_refused(self, provider_club, candidate_club):
+        assert _is_same_club(provider_club, candidate_club, THRESHOLD) is False
+
+    @pytest.mark.parametrize(
+        "provider_club, candidate_club",
+        [
+            ("Tyler FC", "Tyler SA"),
+            ("FC Arkansas", "Arkansas Soccer Club"),
+        ],
+    )
+    def test_names_equal_once_suffixes_are_stripped_are_refused(self, provider_club, candidate_club):
+        """Stripped of suffixes the names are identical; ``are_same_club`` keeps the club code and
+        treats a place-only name as shared, so it refuses both."""
+        assert token_sort_ratio(normalize_club_name(provider_club), normalize_club_name(candidate_club)) == 1.0
         assert _is_same_club(provider_club, candidate_club, THRESHOLD) is False
 
 

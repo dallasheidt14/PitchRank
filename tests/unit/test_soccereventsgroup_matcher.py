@@ -347,8 +347,7 @@ class TestFuzzyLinking:
 
         assert (result["method"], result["team_id"]) == ("fuzzy_auto", "m1")
 
-    def test_two_clubs_sharing_a_canonical_id_are_not_one_club(self):
-        """The canonical map folds every "Timbers" affiliate into one id; unchecked, this pair scores into review."""
+    def test_two_clubs_sharing_a_word_are_not_one_club(self):
         db = _DB([_candidate("m-rvt", "Rogue Valley Timbers U15 N1", "Rogue Valley Timbers")])
 
         result = _register(_matcher(db), name="Eastside Timbers U15 N1")

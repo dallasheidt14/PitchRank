@@ -251,7 +251,14 @@ for i in range(0, len(records), BATCH_SIZE):
 
 # Filter not null
 .not_.is_('resolved_at', 'null')
+
+# Case-insensitive exact match: escape \ % _ and * so the value cannot widen the pattern
+.ilike('club_name', re.sub(r'([\\%_*])', r'\\\1', value))
 ```
+
+PostgREST turns every `*` in a like/ilike pattern into `%`, escaped or not, so an escaped `*`
+reaches Postgres as `\%` and matches a literal percent sign. An exact-match ilike therefore never
+finds a value containing a literal `*`; compare such a value with `.eq()` (case-sensitive).
 
 ## Rate Limits
 

@@ -13,13 +13,8 @@ from src.utils.club_normalizer import are_same_club, normalize_club_name
 def token_sort_ratio(a: str, b: str) -> float:
     """Order-insensitive similarity on two names, 0.0-1.0, stdlib only.
 
-    Deliberately not ``rapidfuzz``. It is in neither requirements file, so
-    ``club_normalizer`` carries a difflib fallback and CI and the scheduled
-    workflows all run on it — and that fallback defines no ``token_sort_ratio``
-    at all. Importing rapidfuzz made every threshold measured against it
-    measured against a library production does not have, and would have raised
-    ``AttributeError`` into a caller's broad ``except``, matching nothing and
-    autocreating every team.
+    Deliberately not ``rapidfuzz``: it is in neither requirements file, so CI and
+    every workflow run without it.
     """
     sorted_a = " ".join(sorted(a.split()))
     sorted_b = " ".join(sorted(b.split()))
@@ -27,33 +22,26 @@ def token_sort_ratio(a: str, b: str) -> float:
 
 
 def is_same_club(provider_club: str, candidate_club: str, threshold: float) -> bool:
-    """Same club by canonical id AND by order-insensitive name similarity.
+    """Same club by ``are_same_club`` AND by order-insensitive name similarity.
 
-    Two shared shortcuts each merge distinct Oregon clubs on their own, so
-    this requires both to agree:
+    Each half accepts a pair the other refuses, so this requires both to agree:
 
     - ``are_same_club`` returns on canonical id alone when both names resolve,
-      and the canonical map folds every Oregon "Timbers" affiliate into
-      ``portland_timbers``. Eastside, Eugene, Rogue Valley and Portland
-      Timbers are four clubs, and Cascade Surf and Oregon Surf two more.
-    - ``similarity_score`` is ``token_set_ratio``, which scores containment:
-      "portland" sits inside "portland city united", so FC Portland and
-      Portland City United SC score a perfect 1.0.
+      so two registered aliases pass however differently they read ("PDA" and
+      "Players Development Academy"); :func:`token_sort_ratio` asks that the two
+      names also look alike.
+    - :func:`token_sort_ratio` reads suffix-stripped names, so "Tyler FC" and
+      "Tyler SA", or "FC Arkansas" and "Arkansas Soccer Club", score a perfect
+      1.0. ``are_same_club`` keeps the club code and treats a name that is only
+      a place as shared, so it refuses both.
 
-    :func:`token_sort_ratio` is the one that reads both names whole.
     Measured 2026-09-12 over the 106 distinct OR club names, genuinely-
-    different pairs top out at 0.67 while same-club pairs reach 0.74-1.00,
-    so the configured threshold clears every different-club pair. It also declines two true
-    same-club pairs that differ by a trailing "and Thorns"; that costs a
-    duplicate row, which ``merging-duplicate-teams`` reverses, where the other
-    direction fuses two squads into one and does not reverse.
-
-    The ``are_same_club`` half is redundant on every Oregon pair measured, and
-    a mutation run confirms no test pins it: ``token_set_ratio`` never
-    scores below a token-sort score, so a name pair clearing the sort check
-    clears it too. It is kept because the one case that *can* separate two
-    near-identical names is a hand-curated canonical id, which lives there and
-    nowhere else.
+    different pairs top out at 0.67 on :func:`token_sort_ratio` while same-club
+    pairs reach 0.74-1.00, so the configured threshold clears every
+    different-club pair. It also declines two true same-club pairs that differ
+    by a trailing "and Thorns"; that costs a duplicate row, which
+    ``merging-duplicate-teams`` reverses, where the other direction fuses two
+    squads into one and does not reverse.
     """
     if not are_same_club(provider_club, candidate_club, threshold=threshold):
         return False
