@@ -10,7 +10,8 @@ the same in reverse. Decide from evidence; never copy one source.
 
 The birth-year chart is in CLAUDE.md, which is always loaded — read the cohort there rather than
 re-deriving it. Two facts from it carry most of the weight: a band is named by its **younger**
-year (`2014/2015` is U12), and the boards rank `u10`–`u17` and `u19` only.
+year whichever way it is spelled (the CLAUDE.md label key shows the common spellings), and the
+boards rank `u10`–`u17` and `u19` only.
 
 ```
 Task Progress:

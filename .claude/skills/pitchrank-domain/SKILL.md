@@ -19,10 +19,11 @@ You are working on PitchRank, a youth soccer ranking platform. This skill teache
 ### Birth Year to Age
 
 > Canonical: CLAUDE.md "### Age Groups (2026-27 Season)". The birth-year table, the
-> `14B` / `U14B` / `G2016` shorthands and the U18-into-U19 rule all live there, and
-> `tests/unit/test_agent_doc_references.py` pins that table to
-> `calculate_age_group_from_birth_year`. CLAUDE.md is always loaded, so it is in context
-> whenever this skill is.
+> two-year label key (every spelling of a band names one table row), the `14B` / `U14B` /
+> `G2016` shorthands and the U18-into-U19 rule all live there, and
+> `tests/unit/test_agent_doc_references.py` pins the table to
+> `calculate_age_group_from_birth_year` and the label key to the name parsers. CLAUDE.md is
+> always loaded, so it is in context whenever this skill is.
 
 Do not re-add a copy here. The last one drifted — still reading "26,442 `u19`" after
 CLAUDE.md's count was corrected — and it made every Aug 1 rollover a two-file edit. This
