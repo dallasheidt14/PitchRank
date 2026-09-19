@@ -65,6 +65,8 @@ OWNER_LEFT = {
 SEASON_START = f"{CHART_SEASON}-08-01"
 SIDES = (("home_team_master_id", "away_team_master_id"), ("away_team_master_id", "home_team_master_id"))
 TOKEN_SPLIT = re.compile(r"[\s\-_/|(),.\[\]']+")
+# "U-14" is one U-label; join it before the split turns it into "U" and a bare "14".
+HYPHEN_ULABEL = re.compile(r"(?i)(?<![a-z0-9])([bg]?u)-([0-9]{1,2})(?![0-9])")
 # "B10-12", "06/07/08": a multi-year squad, which a single-year reading gets wrong.
 YEAR_RANGE = re.compile(r"(?<![0-9])(?:20)?[0-2][0-9]\s*[-/]\s*(?:20)?[0-2][0-9](?![0-9])")
 GROUPS = {
@@ -143,7 +145,7 @@ class Reader:
     def labels(self, name: str | None) -> tuple[set[str], set[int]]:
         """U-labels (as cohorts) and single birth years the name states."""
         ulabels, years = set(), set()
-        for tok in TOKEN_SPLIT.split(name or ""):
+        for tok in TOKEN_SPLIT.split(HYPHEN_ULABEL.sub(r"\1\2", name or "")):
             if not tok or (tok.isdigit() and len(tok) <= 2):
                 continue  # a bare number is a squad number, not an age
             age = self._token(tok)
@@ -184,6 +186,20 @@ def fetch_all(sb, table: str, select: str, **eq) -> list[dict]:
         last = page[-1]["team_id_master"]
 
 
+def with_merge_survivors(sb, ids: set[str]) -> set[str]:
+    """ids plus every canonical row they were merged into, following merge chains."""
+    out, frontier = set(ids), list(ids)
+    while frontier:
+        found = []
+        for i in range(0, len(frontier), 100):
+            rows = (sb.table("team_merge_map").select("canonical_team_id")
+                    .in_("deprecated_team_id", frontier[i:i + 100]).execute().data)
+            found += [r["canonical_team_id"] for r in rows if r["canonical_team_id"] not in out]
+        out.update(found)
+        frontier = found
+    return out
+
+
 def retry(call):
     for attempt in range(4):
         try:
@@ -213,6 +229,8 @@ def review(args) -> None:
     log(t0, "live teams", len(teams))
     prov = {p["id"]: p["code"] for p in sb.table("providers").select("id,code").execute().data}
     excluded = {r["team_id_master"] for r in fetch_all(sb, "team_ranking_exclusions", "team_id_master")}
+    # A listed team merged away later is the surviving row now; skip the survivor too.
+    excluded, owner_left = with_merge_survivors(sb, excluded), with_merge_survivors(sb, OWNER_LEFT)
     by_id = {t["team_id_master"]: t for t in teams}
     index = defaultdict(list)
     for t in teams:
@@ -229,16 +247,21 @@ def review(args) -> None:
                     )
         except (OSError, csv.Error, KeyError):
             continue  # a log still being written by a live reconcile chunk
-    prior = {}
+    fixes = defaultdict(list)
     for path in sorted(glob.glob(str(exports / "fix_band_cohorts_apply_*.csv")), key=os.path.getmtime):
         try:
             for r in csv.DictReader(open(path, encoding="utf-8-sig")):
                 if r.get("result") in ("updated", "already_applied") and r.get("team_id_master") in by_id:
-                    prior[r["team_id_master"]] = (Path(path).name, r["old_age_group"], r["new_age_group"])
+                    fixes[r["team_id_master"]].append((Path(path).name, r["old_age_group"], r["new_age_group"]))
         except (OSError, csv.Error, KeyError):
             continue
-    # a revert writes no log, so an earlier fix counts only while the team still holds its value
-    prior = {k: v for k, v in prior.items() if by_id[k]["age_group"] == v[2]}
+    # A revert writes no log, so a fix counts only while the team still holds its value: the newest
+    # such fix, which after a reverted later fix is the earlier one it restored.
+    prior = {}
+    for tid, logged in fixes.items():
+        standing = [f for f in logged if f[2] == by_id[tid]["age_group"]]
+        if standing:
+            prior[tid] = standing[-1]
     log(t0, f"gotsport records {len(gotsport)}, standing earlier fixes {len(prior)}")
     if not gotsport or not prior:
         print(f"  warning: no reconcile or apply logs under {exports}; GotSport evidence and earlier fixes are missing")
@@ -257,7 +280,7 @@ def review(args) -> None:
         if tid in excluded:
             scope["out_ranking_exclusion"] += 1
             continue
-        if tid in OWNER_LEFT:
+        if tid in owner_left:
             scope["out_owner_decision"] += 1
             continue
         scope["in_scope"] += 1

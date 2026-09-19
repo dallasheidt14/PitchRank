@@ -58,8 +58,9 @@ Quote these; do not extend them.
   [scripts/owner_decisions.json](scripts/owner_decisions.json), which the review skips.
 
 When the owner declines a team or a held group, add it to that file with the date and the answer
-before the next review. Put a declined group back in front of the owner only with the new evidence
-named.
+before the next review. The birth-year group (group 4) is the exception: asked whether future
+audits should keep raising it, the owner chose "Ask again at every audit", so it stays out of the
+file and goes back in front of the owner each time.
 
 ## Hold rather than write
 
