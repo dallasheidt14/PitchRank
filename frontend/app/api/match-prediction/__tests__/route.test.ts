@@ -170,6 +170,16 @@ describe('POST /api/match-prediction', () => {
     expect(response.status).toBe(422);
     await expect(response.json()).resolves.toEqual({
       error: 'Prediction unavailable. Match predictions rely on current ranking data for both teams.',
+      code: 'prediction_unavailable',
     });
+  });
+
+  it('preserves the metadata conflict code and recovery instructions for Compare', async () => {
+    const message =
+      'PitchRank data needs updating: team record U11, calculated ratings U12. Recalculate rankings before predicting.';
+    mockBuildMatchPrediction.mockRejectedValue(new AppError(message, 'prediction_metadata_conflict', 422));
+    const response = await POST(makeRequest({ teamAId: TEAM_A_ID, teamBId: TEAM_B_ID }));
+    expect(response.status).toBe(422);
+    await expect(response.json()).resolves.toEqual({ error: message, code: 'prediction_metadata_conflict' });
   });
 });

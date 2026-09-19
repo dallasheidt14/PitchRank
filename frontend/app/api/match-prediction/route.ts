@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(result.response);
   } catch (error) {
     if (error instanceof AppError && error.statusCode) {
-      return NextResponse.json({ error: error.message }, { status: error.statusCode });
+      return NextResponse.json({ error: error.message, code: error.code }, { status: error.statusCode });
     }
 
     console.error('[api/match-prediction] Failed to build prediction:', error);

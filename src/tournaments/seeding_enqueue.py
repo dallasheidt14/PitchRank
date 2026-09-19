@@ -59,6 +59,8 @@ class EnqueueOutcome:
 
 def _team_id_for(row: RosterRow, item: ResolvedTeam, overrides: Mapping[int, dict[str, Any]]) -> str | None:
     override = overrides.get(row.source_index)
+    if override and override.get("not_found"):
+        return None
     if override and override.get("team_id_master"):
         return str(override["team_id_master"])
     return item.team_id_master or None

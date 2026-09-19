@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { filteringClientMock } from '@/test/supabase-mock';
 import { makeGame } from '@/test/fixtures';
 
@@ -14,6 +14,48 @@ vi.mock('@supabase/supabase-js', () => ({
 }));
 
 const { api } = await import('./api');
+
+describe('getMatchPrediction', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('shows cohort conflicts instead of hiding them as a missing rating', async () => {
+    const message =
+      'PitchRank data needs updating: team record U11, calculated ratings U12. Recalculate rankings before predicting.';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            error: message,
+            code: 'prediction_metadata_conflict',
+          }),
+          { status: 422 }
+        )
+      )
+    );
+    await expect(api.getMatchPrediction(TEAM_ID, OPPONENT_ID)).rejects.toMatchObject({
+      message,
+      code: 'prediction_metadata_conflict',
+      statusCode: 422,
+    });
+  });
+
+  it.each(['prediction_unavailable', undefined])('keeps the missing-rating state for %s', async (code) => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            error: 'No usable current rating',
+            code,
+          }),
+          { status: 422 }
+        )
+      )
+    );
+    await expect(api.getMatchPrediction(TEAM_ID, OPPONENT_ID)).resolves.toBeNull();
+  });
+});
 
 const homeGame = (game_date: string, home_score: number | null, away_score: number | null) =>
   makeGame({ game_date, home_score, away_score, home_team_master_id: TEAM_ID, away_team_master_id: OPPONENT_ID });

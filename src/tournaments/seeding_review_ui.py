@@ -49,8 +49,15 @@ def render_assessment(parsed, resolved, overrides):
         summary.append(f"{len(assessment.pending)} awaiting lookup")
     summary.append(f"{len(assessment.attention)} teams total to review")
     st.caption(" · ".join(summary) + ".")
-    st.caption(f"Manual matches applied: {sum(row.source_index in overrides for row in parsed.rows)} · "
-               f"Younger teams excluded: {assessment.excluded}")
+    applied = sum(
+        row.source_index in overrides and not (overrides.get(row.source_index) or {}).get("not_found")
+        for row in parsed.rows
+    )
+    progress = [f"Manual matches applied: {applied}"]
+    if assessment.not_found:
+        progress.append(f"Marked not found in PitchRank: {len(assessment.not_found)}")
+    progress.append(f"Younger teams excluded: {assessment.excluded}")
+    st.caption(" · ".join(progress))
     if assessment.provisional:
         st.info("Provisional quote: confirm the full U10+ roster and resolve cohort or input questions. "
                 "The count covers imported entries; an incomplete import may contain more teams.")
@@ -82,11 +89,13 @@ def render_review(raw, resolved, overrides, frame, render_override, save):
     st.markdown("#### Review teams")
     left, right = st.columns(2)
     issue = left.selectbox(
-        "Show", ["Needs attention", "Manual matches", "Cohort / input questions", "Awaiting lookup", "All teams"]
+        "Show", ["Needs attention", "Manual matches", "Cohort / input questions", "Awaiting lookup",
+                 "Not found in PitchRank", "All teams"]
     )
     cohort = right.selectbox("Filter cohort", ["All cohorts", *dict.fromkeys(frame["Cohort"].tolist())])
     sets = {"Needs attention": assessment.attention, "Manual matches": assessment.manual,
-            "Cohort / input questions": assessment.cohort_review, "Awaiting lookup": assessment.pending}
+            "Cohort / input questions": assessment.cohort_review, "Awaiting lookup": assessment.pending,
+            "Not found in PitchRank": assessment.not_found}
     indices = sets.get(issue, {row.source_index for row in parsed.rows})
     filtered = frame[frame["#"].isin([index + 1 for index in indices])]
     if cohort != "All cohorts":

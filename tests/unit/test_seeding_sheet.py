@@ -202,8 +202,8 @@ def test_rendered_page_is_a_standalone_document():
 def test_the_two_groups_are_labelled_ranked_and_unranked():
     html = render_sheet_html("STX Cup 2026", _sheets(), generated_on="2026-09-02", ranking_run="2026-08-31")
 
-    assert "Ranked Teams" in html
-    assert "Unranked Teams" in html
+    assert "Suggested seed order" in html
+    assert "Unseeded teams" in html
 
 
 def test_the_unranked_heading_is_absent_when_every_team_is_rated():
@@ -486,23 +486,20 @@ def test_customer_pdf_prioritizes_seeding_actions_over_model_jargon():
     document = _render_tier(policy=TierPolicy(1.5, 0.2))
     assert ">53.5</td>" in document
     assert ">0.535</td>" not in document
-    assert "How to seed this group" in document
-    assert "Build flights from the same tier" in document
-    assert "Seed from top to bottom" in document
-    assert "Use a Boundary option when sizes do not fit" in document
-    assert "Use the tier first" in document
-    assert "Strongest group" in document
-    assert "Next competitive group" in document
+    assert "Strength breaks describe competitive differences; they do not assign divisions or pools." in document
+    assert "Seed order" in document
+    assert "Strength breaks" in document
+    assert "Close ranges" in document
     assert "Suggested seed" in document
     assert "PitchRank score" in document
     assert "What to know" in document
-    assert "Manual placement needed" in document
-    assert "Confirm the club, team name, and age group before seeding." in document
+    assert "Placement status" not in document
+    assert "Data review required" in document
     assert "Limited recent results" not in document
-    assert "Boundary option: If Tier 1 needs one more team, move this team up." in document
-    assert "No close peer was found at this level." in document
-    assert "Keep Tier 1 and Tier 2 in separate flights where possible." in document
-    assert "Review this single-team tier before assigning a flight." in document
+    assert "Boundary option" not in document
+    assert "No close peer was found at this level." not in document
+    assert "Keep Tier 1 and Tier 2" not in document
+    assert "Review this single-team tier" not in document
     assert "expected goal gap" not in document
     assert "chance of a 4+ goal margin" not in document
 
@@ -518,8 +515,8 @@ def test_all_manual_cohort_does_not_instruct_director_to_use_missing_tiers():
     )
     document = _render_tier(analysis)
 
-    assert "Recommended starting point: 3 need manual placement." in document
-    assert "Review each team’s note before seeding." in document
+    assert "0 seeded in published order · 3 held for placement review." in document
+    assert "Suggested seed order" in document
     assert "Build flights from the same tier" not in document
     assert "Tier 1 is strongest" not in document
     assert "Use a Boundary option" not in document
@@ -540,10 +537,8 @@ def test_multiple_boundary_options_use_an_or_list():
     )
     document = _render_tier(analysis)
 
-    assert (
-        "Boundary options: If a neighboring tier needs one more team, move this team to Tier 1 or Tier 3."
-        in document
-    )
+    assert "Boundary options" not in document
+    assert "Strength breaks describe competitive differences; they do not assign divisions or pools." in document
 
 
 def test_customer_pdf_translates_system_diagnostics_into_seeding_actions():
@@ -561,8 +556,8 @@ def test_customer_pdf_translates_system_diagnostics_into_seeding_actions():
     )
     document = _render_tier(analysis)
 
-    assert "Tier 1 and Tier 2 are close" in document
-    assert "Tier 2 has one team. Place it with the closest available group" not in document
+    assert "Suggested seed order" in document
+    assert "Tier 2 has one team" not in document
     assert "A lower-tier team may compete well with an upper tier" not in document
     assert "Several projected matchups are too close to call" not in document
     assert "expected edge" not in document
@@ -582,7 +577,7 @@ def test_customer_pdf_does_not_recommend_a_missing_boundary_option():
 
     document = _render_tier(analysis)
 
-    assert "no automatic team move is recommended" in document
+    assert "Strength breaks describe competitive differences; they do not assign divisions or pools." in document
     assert "use the team marked Boundary option" not in document
 
 
@@ -597,7 +592,7 @@ def test_customer_pdf_explains_a_ranking_matchup_order_conflict_plainly():
 
     document = _render_tier(analysis)
 
-    assert "PitchRank score and the matchup forecast disagree at the Tier 1 / Tier 2 line" in document
+    assert "Strength breaks describe competitive differences; they do not assign divisions or pools." in document
     assert "Ranking/matchup order conflict" not in document
     assert "use the team marked Boundary option" not in document
 
@@ -605,20 +600,19 @@ def test_customer_pdf_explains_a_ranking_matchup_order_conflict_plainly():
 def test_tier_headings_repeat_and_review_table_stays_together_when_it_fits():
     document = _render_tier()
 
-    tier_table = document.split('<table class="grid tier-table">', 1)[1].split("</table>", 1)[0]
-    assert tier_table.index("Tier 1") < tier_table.index("</thead>")
-    assert tier_table.index("Suggested seed") < tier_table.index("</thead>")
+    seed_table = document.split('<table class="grid tier-table">', 1)[1].split("</table>", 1)[0]
+    assert seed_table.index("Suggested seed order") < seed_table.index("</thead>")
+    assert seed_table.index("Suggested seed") < seed_table.index("</thead>")
     assert "table.grid thead { display: table-header-group; }" in document
     assert "table.review { break-inside: avoid-page; page-break-inside: avoid; }" in document
 
 
 def test_customer_notes_and_prediction_text_are_escaped():
     document = _render_tier(
-        _analysis(warnings=("<script>warning</script>",)),
+        _analysis(),
         operator_notes={("u14", "Male"): "<b>Local knowledge & notes</b>"},
     )
     assert "<script>warning</script>" not in document
-    assert "&lt;script&gt;warning&lt;/script&gt;" in document
     assert "&lt;b&gt;Local knowledge &amp; notes&lt;/b&gt;" in document
 
 
@@ -659,6 +653,6 @@ def test_invalid_score_still_renders_team_with_its_placement_review_reason(score
     )
     document = render_sheet_html("Test Cup", sheets, generated_on="2026-09-15", ranking_run="2026-09-14")
     assert document.count('data-entrant="2"') == 1
-    assert "No current PitchRank score. Use recent results or club input." in document
+    assert "Data review required" in document
     row = document.split('data-entrant="2"', 1)[1].split("</tr>", 1)[0]
     assert '<td class="num score">-</td>' in row

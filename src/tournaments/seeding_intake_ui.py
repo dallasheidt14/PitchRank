@@ -1,4 +1,4 @@
-"""Operator controls for matchup tiers and full-event or selected-cohort PDFs."""
+"""Operator controls for format-neutral MatchBalance cheat sheets."""
 
 from __future__ import annotations
 
@@ -30,10 +30,10 @@ from src.tournaments.seeding_pack import (
     team_ids_by_row,
 )
 from src.tournaments.seeding_pdf import SeedingPdfError, render_seeding_pdf
-from src.tournaments.seeding_predictions import load_seeding_predictions
+from src.tournaments.seeding_predictions import load_seeding_predictions, seeding_predictor_sha256
 from src.tournaments.seeding_run_store import slugify
 from src.tournaments.seeding_sheet import build_cohort_sheets, make_ratings_lookup, render_sheet_html
-from src.tournaments.seeding_tiers import TierPolicy
+from src.tournaments.seeding_workbook import build_seeding_workbook, validate_seeding_workbook, workbook_sheet_titles
 
 _PACK_KEY = "_seeding_pack"
 
@@ -49,12 +49,18 @@ def team_csv(rows, resolved, overrides, *, draft: bool = False) -> bytes:
     for row in rows:
         item = outcomes.get(row.source_index)
         override = overrides.get(row.source_index, {})
+        if override.get("not_found"):
+            match_method = "Not found in PitchRank"
+            notes = "Accepted roster team has no PitchRank match."
+        else:
+            match_method = "Manual" if override else (item.status if item else "unresolved")
+            notes = row.intake_issue or (item.review_reason if item and not override else "") or ""
         writer.writerow([csv_safe(value) for value in [
             cohort_label(cohort_key(row.section_age_group, row.section_gender)), row.registered_name,
-            override.get("team_name") or (item.matched_name if item else "") or "",
-            "Manual" if override else (item.status if item else "unresolved"),
+            "" if override.get("not_found") else override.get("team_name") or (item.matched_name if item else "") or "",
+            match_method,
             identities.get(str(row.source_index)) or "", row.listed_division, row.requested_flight,
-            row.intake_issue or (item.review_reason if item and not override else "") or "",
+            notes,
             "Draft — roster review needed" if draft else "",
         ]])
     return stream.getvalue().encode("utf-8-sig")
@@ -64,16 +70,13 @@ def invalidate_seeding_exports(state: Any = None) -> None:
     state = st.session_state if state is None else state
     state.pop("_seeding_pdf", None)
     state.pop("_seeding_pdf_hash", None)
+    state.pop("_seeding_xlsx", None)
+    state.pop("_seeding_xlsx_hash", None)
     state["_seeding_sheet_html"] = None
 
 
 def _persist_decisions(save: Callable[[], bool]) -> None:
     st.session_state["_seeding_pack_unsaved"] = not save()
-
-
-def _actionable_analysis_warnings(warnings: Sequence[str]) -> tuple[str, ...]:
-    """Keep only placement warnings that require an operator decision visible."""
-    return tuple(warning for warning in warnings if "exceeds the matchup limits" in warning)
 
 
 def _selected_cohorts(parsed: ParsedRoster, saved: dict[str, Any] | None) -> list[str]:
@@ -93,32 +96,6 @@ def _selected_cohorts(parsed: ParsedRoster, saved: dict[str, Any] | None) -> lis
         default=[key for key in (saved_selection or choices) if key in choices],
         format_func=cohort_label, key="_seeding_pack_cohorts",
     )
-
-
-def _policy_controls(pack: dict[str, Any], save: Callable[[], bool]) -> None:
-    policy = pack["policy"]
-    version = hashlib.sha256((str(pack["generated_at"]) + str(policy)).encode()).hexdigest()[:12]
-    with st.expander("Grouping preferences"):
-        st.caption(
-            "Every pairing within a suggested tier must meet both limits. "
-            "These are placement preferences, not a guarantee of the match result."
-        )
-        left, right = st.columns(2)
-        margin = left.number_input(
-            "Maximum predicted goal margin", min_value=0.5, max_value=5.0, step=0.25,
-            value=float(policy["max_expected_margin"]), key=f"_seeding_margin_limit_{version}",
-        )
-        risk = right.number_input(
-            "Maximum chance of a 4+ goal margin (%)", min_value=5, max_value=80, step=5,
-            value=round(float(policy["max_blowout_probability"]) * 100), key=f"_seeding_risk_limit_{version}",
-        )
-        if st.button("Apply grouping preferences", key="_seeding_apply_policy"):
-            pack["policy"] = {"max_expected_margin": margin, "max_blowout_probability": risk / 100}
-            pack["manual_groups"] = {}
-            st.session_state[_PACK_KEY] = pack
-            invalidate_seeding_exports()
-            _persist_decisions(save)
-            st.rerun()
 
 
 def _identity_columns(
@@ -167,100 +144,65 @@ def _render_cohort_review(
 ) -> None:
     teams = pack["teams"].get(key, {})
     st.markdown(f"##### {cohort_label(key)}")
-    counts = " + ".join(str(len(tier.entrant_ids)) for tier in analysis.tiers)
-    st.caption(f"{len(analysis.tiers)} tier(s): {counts or 'no rated group'} · "
-               f"{len(analysis.review)} need placement review")
-    actionable_warnings = _actionable_analysis_warnings(analysis.warnings)
-    for warning in actionable_warnings:
-        st.warning(str(warning))
-    diagnostic_warnings = [warning for warning in analysis.warnings if warning not in actionable_warnings]
-    if analysis.boundaries or diagnostic_warnings:
-        with st.expander("Analysis details", expanded=False):
-            st.caption("Strength analysis describes competitive differences; it does not assign divisions or pools.")
-            for boundary in analysis.boundaries:
-                st.caption(str(boundary))
-            for warning in diagnostic_warnings:
-                st.caption(str(warning))
+    statuses = analysis.placement_status
+    seeded = len(analysis.ordered_ids)
+    age_group, gender = key.split("|", 1)
+    accepted = sum(
+        row.section_age_group == age_group and row.section_gender == gender
+        for row in roster_rows.values()
+    )
+    unrated = sum(status in {"Not found in PitchRank", "No current rating"} for status in statuses.values())
+    data_review = sum(status == "Data review required" for status in statuses.values())
+    first, second, third, fourth = st.columns(4)
+    first.metric("Accepted", accepted)
+    second.metric("Seeded", seeded)
+    third.metric("Unrated / not found", unrated)
+    fourth.metric("Data review", data_review)
+    st.caption(
+        "Continuous seed order is shown below. Strength markers are reference points; "
+        "they do not assign divisions or pools."
+    )
     rows = []
-    for tier in analysis.tiers:
-        for entrant_id in tier.entrant_ids:
-            adjacent = analysis.borderline.get(entrant_id, ())
-            if not adjacent:
-                placement_note = ""
-            elif len(adjacent) > 1:
-                placement_note = "Boundary option: move to Tier " + " or Tier ".join(map(str, adjacent))
-            else:
-                target = adjacent[0]
-                direction = "up" if target < tier.number else "down"
-                placement_note = f"Boundary option: move {direction} to Tier {target} if needed"
-            rows.append({
-                "Entrant": entrant_id,
-                **_identity_columns(entrant_id, teams, roster_rows),
-                "Tier": tier.number,
-                "Placement note": placement_note,
-            })
+    for seed, entrant_id in enumerate(analysis.ordered_ids, 1):
+        rows.append({
+            "Seed": seed,
+            "Entrant": entrant_id,
+            **_identity_columns(entrant_id, teams, roster_rows),
+            "Strength marker": analysis.marker_for_seed(seed),
+            "Placement status": statuses.get(entrant_id, "Seeded"),
+        })
+    for entrant_id, reason in analysis.review.items():
+        rows.append({
+            "Seed": "",
+            "Entrant": entrant_id,
+            **_identity_columns(entrant_id, teams, roster_rows),
+            "Strength marker": "",
+            "Placement status": statuses.get(entrant_id, reason),
+        })
     if rows:
         generation = hashlib.sha256((
-            str(pack["generated_at"]) + str(pack["policy"]) + str(pack.get("manual_groups", {}).get(key))
+            str(pack["generated_at"]) + str(pack.get("operator_notes", {}).get(key))
         ).encode()).hexdigest()[:12]
-        with st.form(f"_seeding_tier_form_{key}_{generation}"):
-            edited = st.data_editor(
+        with st.form(f"_seeding_cheat_sheet_form_{key}_{generation}"):
+            st.data_editor(
                 pd.DataFrame(rows), hide_index=True, use_container_width=True,
-                disabled=["Entrant", "Team", "PitchRank match", "Roster context", "Placement note"],
-                column_config={
-                    "Entrant": None,
-                    "Tier": st.column_config.NumberColumn(
-                        "Tier", min_value=1, max_value=len(rows), step=1, required=True,
-                    ),
-                },
-                key=f"_seeding_tier_editor_{key}_{generation}",
+                disabled=list(pd.DataFrame(rows).columns),
+                key=f"_seeding_cheat_sheet_editor_{key}_{generation}",
             )
             notes = st.text_area(
-                "Your placement notes (included on the PDF)",
+                "Director notes (included on the PDF)",
                 value=pack.get("operator_notes", {}).get(key, ""), max_chars=1800,
-                key=f"_seeding_tier_notes_{key}_{generation}",
+                key=f"_seeding_cheat_sheet_notes_{key}_{generation}",
             )
-            applied = st.form_submit_button("Save tier decisions")
+            applied = st.form_submit_button("Save director notes")
         if applied:
-            groups: dict[int, list[str]] = {}
-            try:
-                for record in edited.to_dict("records"):
-                    number = float(record["Tier"])
-                    if not number.is_integer() or not 1 <= number <= len(rows):
-                        raise ValueError("Use whole tier numbers starting at 1.")
-                    groups.setdefault(int(number), []).append(str(record["Entrant"]))
-            except (ValueError, TypeError):
-                st.error("Use whole tier numbers starting at 1 for every team.")
-            else:
-                pack.setdefault("manual_groups", {})[key] = [groups[number] for number in sorted(groups)]
-                pack.setdefault("operator_notes", {})[key] = notes.strip()
-                st.session_state[_PACK_KEY] = pack
-                invalidate_seeding_exports()
-                _persist_decisions(save)
-                st.rerun()
-        if key in pack.get("manual_groups", {}) and st.button(
-            "Restore suggested tiers", key=f"_seeding_reset_tiers_{key}",
-        ):
-            pack["manual_groups"].pop(key)
+            pack.setdefault("operator_notes", {})[key] = notes.strip()
             st.session_state[_PACK_KEY] = pack
             invalidate_seeding_exports()
             _persist_decisions(save)
             st.rerun()
-    if analysis.review:
-        st.info("Teams needing placement review remain on the sheet and are not assigned to the weakest tier.")
-        st.dataframe(pd.DataFrame([
-            {**_identity_columns(entrant, teams, roster_rows), "Reason": reason}
-            for entrant, reason in analysis.review.items()
-        ]), hide_index=True, use_container_width=True)
-    if not rows:
-        with st.form(f"_seeding_review_notes_{key}_{pack['generated_at']}"):
-            notes = st.text_area("Your placement notes (included on the PDF)",
-                                 value=pack.get("operator_notes", {}).get(key, ""), max_chars=1800)
-            if st.form_submit_button("Save placement notes"):
-                pack.setdefault("operator_notes", {})[key] = notes.strip()
-                invalidate_seeding_exports()
-                _persist_decisions(save)
-                st.rerun()
+    if data_review:
+        st.warning(f"{data_review} team(s) need identity or cohort review before delivery.")
 
 
 def render_seeding_pack(
@@ -268,14 +210,17 @@ def render_seeding_pack(
     event_name: str, save: Callable[[], bool],
 ) -> None:
     st.markdown("#### Competitive seeding sheets")
-    st.caption("Compare every matchup in each selected cohort, review the tiers, then download your PDF pack.")
+    st.caption(
+        "Compare every matchup in each selected cohort, review the seed order, "
+        "then download the director sheets."
+    )
     if not event_name:
         st.info("Name the event above before preparing its sheets.")
         return
     overrides = st.session_state._seeding_overrides
     pack = st.session_state.get(_PACK_KEY)
     if pack is not None and not isinstance(pack, dict):
-        st.warning("This saved pack is unreadable. Build matchup tiers to replace it.")
+        st.warning("This saved pack is unreadable. Build seeding sheets to replace it.")
         pack = None
     if st.session_state.get("_seeding_pack_unsaved"):
         st.warning("Your latest pack decisions are only in memory: saving failed. Retry before closing this run.")
@@ -289,9 +234,9 @@ def render_seeding_pack(
     if not selected:
         return
     if pack:
-        st.caption("Rebuilding reads fresh data and replaces this pack's manual tier decisions and placement notes.")
+        st.caption("Rebuilding reads fresh data while preserving director notes and roster decisions.")
 
-    if st.button("Build matchup tiers", type="primary", key="_seeding_build_tiers"):
+    if st.button("Build seeding sheets", type="primary", key="_seeding_build_tiers"):
         try:
             with st.spinner("Reading current team data and comparing every matchup..."):
                 request = prediction_request(parsed.rows, resolved, overrides, selected)
@@ -301,6 +246,16 @@ def render_seeding_pack(
                 ids = [team_id for teams in request.values() for team_id in teams.values()]
                 ratings = make_ratings_lookup(supabase_client)(ids)
                 candidate = make_pack(parsed.rows, resolved, overrides, selected, batch, ratings)
+                if isinstance(pack, dict):
+                    # Rebuilds refresh predictions but preserve operator choices
+                    # that are independent of the predictor snapshot.
+                    candidate["policy"] = dict(pack.get("policy", candidate["policy"]))
+                    candidate["operator_notes"] = {
+                        key: note for key, note in pack.get("operator_notes", {}).items() if key in selected
+                    }
+                    candidate["legacy_manual_groups"] = dict(
+                        pack.get("legacy_manual_groups", pack.get("manual_groups", {}))
+                    )
                 analyze_pack(candidate, parsed.rows, resolved, overrides)
                 st.session_state[_PACK_KEY] = candidate
                 pack = candidate
@@ -309,9 +264,16 @@ def render_seeding_pack(
         except Exception as exc:
             # No new snapshot or export is published until all input checks pass.
             message = str(exc).replace(str(SUPABASE_SERVICE_ROLE_KEY or "__no_secret__"), "[redacted]")
-            st.error(f"Could not build matchup tiers: {message}")
+            st.error(f"Could not build seeding sheets: {message}")
 
     current_pack = pack_matches(pack, parsed.rows, resolved, overrides, selected)
+    analyses = {}
+    analysis_error = None
+    if current_pack:
+        try:
+            analyses = analyze_pack(pack, parsed.rows, resolved, overrides)
+        except (ValueError, TypeError, KeyError) as exc:
+            analysis_error = exc
     metadata = st.session_state.get("_seeding_assessment") or {}
     assessment = assess_roster(parsed, resolved, overrides, coverage=metadata.get("coverage", "unknown"),
                                completed=metadata.get("completed"))
@@ -319,11 +281,14 @@ def render_seeding_pack(
     uncertain = [row for row in parsed.rows if row.source_index in assessment.cohort_review]
     draft = metadata.get("coverage") != "complete" or bool(assessment.attention & selected_indices) or any(
         could_belong(row, *key.split("|", 1)) for row in uncertain for key in selected
-    ) or (current_pack and has_snapshot_identity_conflict(pack, selected))
+    ) or (current_pack and has_snapshot_identity_conflict(pack, selected)) or analysis_error is not None or any(
+        status == "Data review required"
+        for analysis in analyses.values() for status in analysis.placement_status.values()
+    )
     if draft:
         st.info("Delivery status: draft. Confirm coverage, resolve matches and assign cohorts before sending.")
     else:
-        st.caption("Delivery status: roster assessed. Review tiers and placement notes before sending.")
+        st.caption("Delivery status: roster assessed. Review seed order and director notes before sending.")
     st.download_button(
         "Download all selected teams as CSV", team_csv(selected_rows, resolved, overrides, draft=draft),
         file_name=f"{slugify(event_name)}-teams.csv", mime="text/csv", key="_seeding_all_teams_csv",
@@ -331,18 +296,33 @@ def render_seeding_pack(
     if not current_pack:
         invalidate_seeding_exports()
         if pack:
-            st.info("The selected cohorts or team matches changed. Build matchup tiers to update this pack.")
+            st.info("The selected cohorts or team matches changed. Build seeding sheets to update this pack.")
         return
-    try:
-        analyses = analyze_pack(pack, parsed.rows, resolved, overrides)
-    except (ValueError, TypeError, KeyError) as exc:
+    if pack.get("predictor_sha256") != seeding_predictor_sha256():
         invalidate_seeding_exports()
-        st.error(f"This pack needs rebuilding: {exc}")
+        st.info("The predictor has been updated since this pack was built. After rankings finish, "
+                "click Build seeding sheets to refresh predictions. Your team matches and tournament "
+                "age assignments are saved.")
+        return
+    if analysis_error is not None:
+        invalidate_seeding_exports()
+        st.error(f"This pack needs rebuilding: {analysis_error}")
         return
     st.caption(f"Saved prediction snapshot: {pack['generated_at']} · "
                f"Ratings as of {pack.get('ratings_as_of') or 'unknown'}")
-    _policy_controls(pack, save)
-    with st.expander("Review and adjust tiers", expanded=True):
+    with st.expander("Analysis details", expanded=False):
+        st.caption(
+            f"Strength breaks use the saved limits of {pack['policy']['max_expected_margin']:.2f} expected goals "
+            f"and {pack['policy']['max_blowout_probability']:.0%} four-goal risk. "
+            "The analysis does not assign divisions, pools, schedules, or advancement."
+        )
+        for key in selected:
+            detail = analyses[tuple(key.split("|", 1))]
+            if detail.diagnostics:
+                st.markdown(f"**{cohort_label(key)}**")
+                for diagnostic in detail.diagnostics:
+                    st.caption(diagnostic)
+    with st.expander("Review seed order and director notes", expanded=True):
         roster_rows = {str(row.source_index): row for row in parsed.rows}
         for key in selected:
             _render_cohort_review(key, analyses[tuple(key.split("|", 1))], pack, save, roster_rows)
@@ -353,13 +333,25 @@ def render_seeding_pack(
     document = render_sheet_html(
         f"{event_name} · DRAFT — roster review needed" if draft else event_name,
         sheets, generated_on=pack["generated_at"][:10], ranking_run=pack.get("ratings_as_of") or "unknown",
-        policy=TierPolicy(**pack["policy"]),
         operator_notes={tuple(key.split("|", 1)): value for key, value in pack.get("operator_notes", {}).items()},
     )
     document_hash = hashlib.sha256(document.encode("utf-8")).hexdigest()
     if st.session_state.get("_seeding_pdf_hash") != document_hash:
         st.session_state.pop("_seeding_pdf", None)
     st.session_state._seeding_sheet_html = document
+    workbook = build_seeding_workbook(
+        f"{event_name} · DRAFT — roster review needed" if draft else event_name,
+        sheets, generated_on=pack["generated_at"][:10], ranking_run=pack.get("ratings_as_of") or "unknown",
+        operator_notes={tuple(key.split("|", 1)): value for key, value in pack.get("operator_notes", {}).items()},
+    )
+    validate_seeding_workbook(
+        workbook,
+        workbook_sheet_titles(sheets),
+    )
+    workbook_hash = hashlib.sha256(workbook).hexdigest()
+    if st.session_state.get("_seeding_xlsx_hash") != workbook_hash:
+        st.session_state["_seeding_xlsx"] = workbook
+        st.session_state["_seeding_xlsx_hash"] = workbook_hash
     if st.button("Generate PDF pack", key="_seeding_generate_pdf"):
         try:
             with st.spinner("Laying out the printable sheets..."):
@@ -373,6 +365,10 @@ def render_seeding_pack(
         st.download_button(
             "Download PDF pack", pdf, file_name=f"{slugify(event_name)}-matchbalance.pdf", mime="application/pdf",
         )
+    st.download_button(
+        "Download Excel workbook", workbook, file_name=f"{slugify(event_name)}-matchbalance.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="_seeding_workbook_download",
+    )
     st.download_button(
         "Download printable HTML", document.encode("utf-8"),
         file_name=f"{slugify(event_name)}-matchbalance.html", mime="text/html", key="_seeding_sheet_download",

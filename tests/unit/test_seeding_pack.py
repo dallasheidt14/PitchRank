@@ -13,6 +13,7 @@ from src.tournaments.seeding_pack import (
     analyze_pack,
     available_cohorts,
     cohort_label,
+    duplicate_identity_rows,
     make_pack,
     pack_matches,
     prediction_request,
@@ -90,6 +91,34 @@ def test_cohorts_have_separate_age_gender_labels_and_numeric_order():
 def test_a_la_carte_request_keeps_row_identity_and_uses_manual_matches():
     result = prediction_request(ROWS, RESOLVED, {1: {"team_id_master": IDS[4]}}, ["u12|Male"])
     assert result == {"u12|Male": {"0": IDS[0], "1": IDS[4]}}
+
+
+def test_not_found_overrides_rejected_match_in_predictions_duplicates_and_exports():
+    import csv
+    from io import StringIO
+    from src.tournaments.seeding_intake_ui import team_csv
+
+    resolved = (replace(RESOLVED[0], matched_name="Rejected match"),
+                replace(RESOLVED[1], team_id_master=IDS[0]))
+    rows = ROWS[:2]
+    overrides = {0: {"not_found": True, "team_id_master": IDS[0], "team_name": "Rejected manual name"}}
+    assert team_ids_by_row(rows, resolved, overrides) == {"0": None, "1": IDS[0]}
+    assert prediction_request(rows, resolved, overrides, ["u12|Male"]) == {"u12|Male": {"1": IDS[0]}}
+    assert duplicate_identity_rows(rows, resolved, overrides) == {}
+    pack = _pack(rows=rows, resolved=resolved, overrides=overrides)
+    analyses = analyze_pack(pack, rows, resolved, overrides)
+    assert analyses[("u12", "Male")].placement_status == {"1": "Seeded", "0": "Not found in PitchRank"}
+    ratings = snapshot_ratings(pack, team_ids_by_row(rows, resolved, overrides))
+    sheet = build_cohort_sheets(rows, resolved, overrides, ratings, tier_analyses=analyses)[0]
+    rejected = sheet.unrated[0]
+    assert rejected.team_id_master is None
+    assert rejected.pitchrank_team_name is None
+    assert rejected.power_score is None
+    assert rejected.state_rank is None
+    exported = list(csv.DictReader(StringIO(team_csv(rows, resolved, overrides).decode("utf-8-sig"))))
+    assert exported[0]["Match method"] == "Not found in PitchRank"
+    assert exported[0]["PitchRank ID"] == ""
+    assert exported[0]["PitchRank team name"] == ""
 
 
 def test_duplicate_identity_uses_one_compare_representative_and_reviews_every_registration():

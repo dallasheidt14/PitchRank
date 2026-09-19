@@ -57,6 +57,20 @@ def test_only_resolved_teams_are_queued():
     assert result.skipped == 1
 
 
+def test_not_found_does_not_refresh_a_rejected_automatic_match():
+    rpc = _RecordingRpc()
+    lookups = []
+    def lookup(identity):
+        lookups.append(identity)
+        return _lookup(identity)
+    result = enqueue_resolved_teams(
+        _rows(), _resolved(), {0: {"not_found": True}}, enqueue=rpc, lookup_provider_team_id=lookup,
+    )
+    assert [call["p_team_id_master"] for call in rpc.calls] == ["master-3"]
+    assert lookups == ["master-3"]
+    assert result.skipped == 2
+
+
 def test_an_override_makes_its_row_queueable():
     rpc = _RecordingRpc()
     overrides = {1: {"team_id_master": "master-2", "team_name": "Tyler FC 2015"}}

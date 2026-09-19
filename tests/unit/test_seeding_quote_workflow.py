@@ -66,6 +66,18 @@ def test_cohort_correction_changes_quote_and_can_exclude_younger(operator):
     assert len(app.session_state["_seeding_result"][0].rows) == 3
 
 
+def test_mark_not_found_removes_team_from_matching_queue(operator):
+    app = operator
+    click(app, "Mark team not found in PitchRank")
+
+    assert app.session_state["_seeding_overrides"][1] == {"not_found": True}
+    assert 1 in app.session_state["_seeding_assessment"]["completed"]
+    assert next(metric.value for metric in app.metric if metric.label == "Manual matches needed") == "1"
+    assert any("Marked not found in PitchRank: 1" in caption.value for caption in app.caption)
+    next(widget for widget in app.selectbox if widget.label == "Show").set_value("Not found in PitchRank").run()
+    assert any(button.label == "Reopen matching" for button in app.button)
+
+
 @pytest.mark.parametrize("pending_rows, expected_summary", [
     ([], "29 need matching · 5 more need cohort/input fixes · 34 teams total to review."),
     ([215, 216, 217], "26 need matching · 5 more need cohort/input fixes · 3 awaiting lookup · 34 teams total to review."),
@@ -107,7 +119,7 @@ def test_manual_lookup_transport_error_does_not_hide_quote_or_export(operator, m
     assert not app.exception
     assert any("temporarily unavailable" in error.value for error in app.error)
     assert any(metric.label == "Suggested event price" for metric in app.metric)
-    assert any(button.label == "Build matchup tiers" for button in app.button)
+    assert any(button.label == "Build seeding sheets" for button in app.button)
 
 
 def test_incremental_lookup_keeps_success_and_retries_only_unfinished(monkeypatch):
