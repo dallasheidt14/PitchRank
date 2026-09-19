@@ -10,7 +10,8 @@ the same in reverse. Decide from evidence; never copy one source.
 
 The birth-year chart is in CLAUDE.md, which is always loaded — read the cohort there rather than
 re-deriving it. Two facts from it carry most of the weight: a band is named by its **younger**
-year (`2014/2015` is U12), and the boards rank `u10`–`u17` and `u19` only.
+year whichever way it is spelled (the CLAUDE.md label key shows the common spellings), and the
+boards rank `u10`–`u17` and `u19` only.
 
 ```
 Task Progress:
@@ -59,8 +60,13 @@ Each rule below is enforced automatically, by a flag, or not at all. Know which.
   `club_name` and a matching `state_code` bucket as well, so a pair flagged here may not be
   proposable there.
 - **This season's opponents back the current label** — *automatic*: held as
-  `held_fixtures_disagree`. Usually a team playing a year up, which is correctly labelled and
-  simply strong. Withholding costs a skipped fix; writing costs a wrong board.
+  `held_fixtures_disagree`, but held for a look, not kept. It is usually a team playing a year
+  up, and the owner decided on 2026-09-18: "it doesn't matter that they play up we need to get
+  their actual age group correct." Sample a few against their schedules, then file the rows
+  whose OWN name carries the band (`evidence_tier` `A_own_name_band`) by that band; a band found
+  only in GotSport's name is provider evidence, a veto and not a value, so those stay held. The
+  tool has no flag that applies these, so copy the rows into a plan with `action` set to
+  `would_update` and apply that plan the usual way.
 
 A correction landing on `u9` or younger is still a correction — the team leaves the boards
 because those cohorts are not ranked, and the rollover migration walks it back up to `u10` in

@@ -22,6 +22,8 @@ from pathlib import Path
 
 import pytest
 
+from scripts.normalize_team_names import _resolve_band
+from scripts.team_name_normalizer import parse_age_gender
 from src.utils.team_utils import calculate_age_group_from_birth_year
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -274,22 +276,30 @@ def test_documented_ci_commands_match_the_workflow() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Check 3: the age-group table equals what the code returns
+# Check 3: the age-group table and label key equal what the code returns
 # --------------------------------------------------------------------------- #
 
 AGE_ROW = re.compile(r"^\|\s*(\d{4})\s*/\s*(\d{4})\s*\|\s*U\d+\s*\|\s*\*{0,2}(u\d+)\*{0,2}")
 
 
-def _age_table_rows() -> list[tuple[int, str, str]]:
-    rows, in_section = [], False
+def _age_section_lines() -> list[tuple[int, str]]:
+    lines, in_section = [], False
     for lineno, line in enumerate(CLAUDE_MD.read_text(encoding="utf-8").splitlines(), 1):
         if line.startswith("### Age Groups"):
             in_section = True
             continue
         if in_section and line.startswith("###"):
             break
+        if in_section:
+            lines.append((lineno, line))
+    return lines
+
+
+def _age_table_rows() -> list[tuple[int, str, str]]:
+    rows = []
+    for lineno, line in _age_section_lines():
         match = AGE_ROW.match(line.strip())
-        if in_section and match:
+        if match:
             # A band is named by its YOUNGER (Jul 31) year, which the table lists FIRST:
             # `2018 / 2017 | U9 | u9` is U9 because 2026 - 2018 + 1 = 9.
             rows.append((lineno, match.group(1), match.group(3)))
@@ -316,6 +326,33 @@ def test_age_table_shorthand_examples_hold() -> None:
     """`14B` = 2014 = U13 and `G2016` = 2016 = U11, the examples under the table."""
     assert calculate_age_group_from_birth_year(2014).lower() == "u13"
     assert calculate_age_group_from_birth_year(2016).lower() == "u11"
+
+
+LABEL_KEY_CLAUSE = re.compile(r"((?:`[^`]+`(?:,\s*|\s+and\s+))+`[^`]+`)\s+are all\s+\*\*(U\d+)\*\*")
+
+
+def _label_key_examples() -> list[tuple[str, str]]:
+    """(spelling, stated age group) for each "`a`, `b` and `c` are all **U13**" clause."""
+    text = " ".join(line.strip() for _, line in _age_section_lines())
+    return [
+        (spelling, stated)
+        for spellings, stated in LABEL_KEY_CLAUSE.findall(text)
+        for spelling in re.findall(r"`([^`]+)`", spellings)
+    ]
+
+
+def test_age_label_key_matches_the_parser() -> None:
+    examples = _label_key_examples()
+    assert len(examples) == 13, f"label-key parser found {len(examples)} spellings, expected 13"
+    problems = []
+    for spelling, stated in examples:
+        actual = _resolve_band(spelling)[1] or parse_age_gender(spelling)[0]
+        if actual != stated:
+            problems.append(
+                f"CLAUDE.md label key: {spelling!r} resolves to {actual!r}, doc says {stated!r}. "
+                f"If the season just rolled over (Aug 1), update the key with the table."
+            )
+    assert not problems, "\n".join(problems)
 
 
 # --------------------------------------------------------------------------- #

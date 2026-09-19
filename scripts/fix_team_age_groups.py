@@ -116,7 +116,7 @@ def extract_birth_year(
     The code is left as-is rather than corrected because this script is gated off
     (see the module docstring) and changing what a disabled path computes would
     only make the next reader trust it. scripts/normalize_team_names._resolve_band
-    and scripts/scrape_tgs_event.extract_age_group are the live implementations,
+    and src/utils/team_utils.extract_band_birth_year are the live implementations,
     and both read the younger year.
 
     Source preference:

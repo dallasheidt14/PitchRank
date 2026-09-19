@@ -670,18 +670,28 @@ def extract_age_group(name, details, season_year=None):
     # _canonicalize_age_token is not used here because it remaps U18 -> U19, which
     # would diverge from Priority 1's normalize_filter_age_group (preserves U18).
     #
-    # A gender letter may touch either side, which `\b` could not span. That was not
-    # a clean miss: with the U-age hidden, "G18U" fell to Priority 2, which reads the
-    # same characters as birth year 2018 and returns u9 -- nine cohorts from the U18
-    # the name states. The trailing "u" is what separates the two readings, so it has
-    # to be matched before Priority 2 claims the digits. Judged against GotSport's
-    # registered cohort for 171,837 teams, reading these spellings puts 101 names
-    # right and 15 wrong; "B2015/16 B11U" alone moves from u16 to u11.
+    # A gender letter may touch either side, which `\b` could not span. Without this
+    # rung "G18U" would fall to Priority 2b, which reads the same characters as birth
+    # year 2018 and returns u9 -- nine cohorts from the U18 the name states. The
+    # trailing "u" is what separates the two readings, so it has to be matched before
+    # Priority 2b claims the digits. Judged against GotSport's registered cohort for
+    # 171,837 teams before Priority 2a existed, reading these spellings put 101 names
+    # right and 15 wrong.
     match = re.search(r"(?<![a-z0-9])[bg]?([0-9]{1,2})u(?![0-9])", name_lower)
     if match:
         return normalize_filter_age_group(match.group(1))
 
-    # Priority 2: Birth year with gender prefix (G13, B2014, 2013G, etc)
+    # Priority 2a: a two-year band ("2013/14", "B13/14", "2013-2014") is named by its
+    # YOUNGER year. It has to be read before the single-year rungs below, which take
+    # the first year they meet, so a band written older year first lands one cohort
+    # too old; and a band that names no boarded cohort (the aged-out 2007/06) stops
+    # here instead of reaching them.
+    band_year = team_utils.extract_band_birth_year(name, season_year)
+    if band_year:
+        label = team_utils.calculate_age_group_from_band(band_year, season_year)
+        return normalize_filter_age_group(label) or UNMATCHABLE_AGE_GROUP
+
+    # Priority 2b: Birth year with gender prefix (G13, B2014, 2013G, etc)
     # G13/B13 = 2013 birth year, G2014/B2014 = 2014 birth year
     match = re.search(r"[bg](\d{2})(?!\d)", name_lower)  # G13, B14 (2-digit)
     if match:
