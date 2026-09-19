@@ -1,6 +1,6 @@
 """Utility functions and helpers"""
 
-# Club normalizer (no external dependencies beyond standard library + optional rapidfuzz)
+# Club normalizer (standard library only)
 from .club_normalizer import (
     ClubNormResult,
     are_same_club,

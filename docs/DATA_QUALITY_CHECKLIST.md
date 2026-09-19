@@ -15,7 +15,7 @@ GROUP BY club_name
 HAVING COUNT(*) > 5
 ORDER BY team_count DESC;
 ```
-**Rule:** Use majority casing, prefer proper case.
+**Rule:** Keep the majority spelling; re-case an ALL-CAPS name from how each word is written in other club names, and never lower an abbreviation (`JSC`, `FC`, `SoCal`). `scripts/full_club_analysis.py` does this weekly.
 
 ### 2. Team Name Normalization
 Common fixes:

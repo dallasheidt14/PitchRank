@@ -26,14 +26,6 @@ from src.utils.enhanced_validators import EnhancedDataValidator, parse_game_date
 from src.utils.provider_ids import clean_provider_id, is_blank_provider_id  # noqa: E402
 from supabase import Client, create_client  # noqa: E402
 
-# Import club normalizer for pre-match normalization
-try:
-    from src.utils.club_normalizer import normalize_to_club as _normalize_to_club
-
-    _HAVE_CLUB_NORMALIZER = True
-except ImportError:
-    _HAVE_CLUB_NORMALIZER = False
-
 logger = logging.getLogger(__name__)
 
 
@@ -527,22 +519,6 @@ class EnhancedETLPipeline:
                         elif gender_normalized.lower() == "girls":
                             game["gender"] = "Female"
                         # Keep other values as-is (Male, Female, Coed, etc.)
-
-                    # Pre-match club normalization: pass canonical club name
-                    # to the matcher so it sees consistent club names.
-                    if _HAVE_CLUB_NORMALIZER:
-                        for club_field in (
-                            "club_name",
-                            "team_club_name",
-                            "home_club_name",
-                            "away_club_name",
-                            "opponent_club_name",
-                        ):
-                            raw_club = game.get(club_field)
-                            if raw_club and raw_club.strip():
-                                result = _normalize_to_club(raw_club.strip())
-                                if result.matched_canonical:
-                                    game[club_field] = result.club_norm
 
                     # Log game details before matching (including mls_division for Modular11)
                     if self._should_log_modular11_game_details():

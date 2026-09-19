@@ -85,8 +85,8 @@ Location: `.github/workflows/`
 Locate where a multi-hour run spends its wall clock before proposing fixes.
 
 1. Download the full log: `gh run view <run-id> --repo dallasheidt14/PitchRank --log > run.log`.
-   Lines are `job<TAB>step<TAB>2026-01-01T00:00:00.0000000Z message`; long steps often
-   appear as `UNKNOWN STEP`.
+   Lines are `job<TAB>step<TAB>2026-01-01T00:00:00.0000000Z message`, but the step column
+   can read `UNKNOWN STEP` on every line, so select lines by content, never by step name.
 2. Parse each line's timestamp, then build three views:
    - **Silent gaps** — deltas between consecutive lines, sorted descending. The top
      entries are the silent single operations (a batched DB write, a row-wise pandas apply).
