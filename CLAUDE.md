@@ -312,6 +312,10 @@ Two cautions the same measurements produced. A team that plays a year *up* all s
 is correctly labelled and simply strong — Pre-ECNL and ECNL RL squads do it routinely,
 and a naive fixture test reads that as an error. And a name that disagrees while the
 fixtures back the stored value is usually just stale, which described 1,071 teams.
+Neither caution applies to a two-year band in the team's own name (`2010/11`): a band names
+birth years, so it cannot go stale, and the owner decided on 2026-09-18 that the schedule does
+not overrule it — "it doesn't matter that they play up we need to get their actual age group
+correct." A band-named team that plays a year up is filed by its band.
 
 That asymmetry is what makes a provider cohort safely usable as a **veto** while it
 stays unusable as a **value**: withholding a write on a disagreement costs a skipped

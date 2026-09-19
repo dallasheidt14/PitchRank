@@ -60,8 +60,13 @@ Each rule below is enforced automatically, by a flag, or not at all. Know which.
   `club_name` and a matching `state_code` bucket as well, so a pair flagged here may not be
   proposable there.
 - **This season's opponents back the current label** — *automatic*: held as
-  `held_fixtures_disagree`. Usually a team playing a year up, which is correctly labelled and
-  simply strong. Withholding costs a skipped fix; writing costs a wrong board.
+  `held_fixtures_disagree`, but held for a look, not kept. It is usually a team playing a year
+  up, and the owner decided on 2026-09-18: "it doesn't matter that they play up we need to get
+  their actual age group correct." Sample a few against their schedules, then file the rows
+  whose OWN name carries the band (`evidence_tier` `A_own_name_band`) by that band; a band found
+  only in GotSport's name is provider evidence, a veto and not a value, so those stay held. The
+  tool has no flag that applies these, so copy the rows into a plan with `action` set to
+  `would_update` and apply that plan the usual way.
 
 A correction landing on `u9` or younger is still a correction — the team leaves the boards
 because those cohorts are not ranked, and the rollover migration walks it back up to `u10` in
