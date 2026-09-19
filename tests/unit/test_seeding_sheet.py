@@ -562,7 +562,7 @@ def test_customer_pdf_translates_system_diagnostics_into_seeding_actions():
     document = _render_tier(analysis)
 
     assert "Tier 1 and Tier 2 are close" in document
-    assert "Tier 2 has one team. Place it with the closest available group" in document
+    assert "Tier 2 has one team. Place it with the closest available group" not in document
     assert "A lower-tier team may compete well with an upper tier" not in document
     assert "Several projected matchups are too close to call" not in document
     assert "expected edge" not in document
