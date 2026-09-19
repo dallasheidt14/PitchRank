@@ -267,6 +267,13 @@ def render_seeding_pack(
             st.error(f"Could not build seeding sheets: {message}")
 
     current_pack = pack_matches(pack, parsed.rows, resolved, overrides, selected)
+    analyses = {}
+    analysis_error = None
+    if current_pack:
+        try:
+            analyses = analyze_pack(pack, parsed.rows, resolved, overrides)
+        except (ValueError, TypeError, KeyError) as exc:
+            analysis_error = exc
     metadata = st.session_state.get("_seeding_assessment") or {}
     assessment = assess_roster(parsed, resolved, overrides, coverage=metadata.get("coverage", "unknown"),
                                completed=metadata.get("completed"))
@@ -274,7 +281,10 @@ def render_seeding_pack(
     uncertain = [row for row in parsed.rows if row.source_index in assessment.cohort_review]
     draft = metadata.get("coverage") != "complete" or bool(assessment.attention & selected_indices) or any(
         could_belong(row, *key.split("|", 1)) for row in uncertain for key in selected
-    ) or (current_pack and has_snapshot_identity_conflict(pack, selected))
+    ) or (current_pack and has_snapshot_identity_conflict(pack, selected)) or analysis_error is not None or any(
+        status == "Data review required"
+        for analysis in analyses.values() for status in analysis.placement_status.values()
+    )
     if draft:
         st.info("Delivery status: draft. Confirm coverage, resolve matches and assign cohorts before sending.")
     else:
@@ -294,11 +304,9 @@ def render_seeding_pack(
                 "click Build seeding sheets to refresh predictions. Your team matches and tournament "
                 "age assignments are saved.")
         return
-    try:
-        analyses = analyze_pack(pack, parsed.rows, resolved, overrides)
-    except (ValueError, TypeError, KeyError) as exc:
+    if analysis_error is not None:
         invalidate_seeding_exports()
-        st.error(f"This pack needs rebuilding: {exc}")
+        st.error(f"This pack needs rebuilding: {analysis_error}")
         return
     st.caption(f"Saved prediction snapshot: {pack['generated_at']} · "
                f"Ratings as of {pack.get('ratings_as_of') or 'unknown'}")

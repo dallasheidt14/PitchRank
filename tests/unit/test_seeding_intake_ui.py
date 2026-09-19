@@ -389,13 +389,17 @@ def test_live_legacy_session_without_assessment_exports_draft(operator):
     assert "DRAFT" in app.session_state["_seeding_sheet_html"]
 
 
-def test_compare_discovered_merge_conflicts_mark_csv_and_pdf_as_draft(operator, monkeypatch):
+@pytest.mark.parametrize("reason", [
+    "Two roster entries appear to be the same team. Confirm both team matches before seeding.",
+    "The matched team's gender differs from the tournament cohort. Confirm the team match.",
+    "The matched team's current age is older than the tournament cohort. Confirm the team match.",
+])
+def test_compare_discovered_conflicts_mark_all_exports_as_draft(operator, monkeypatch, reason):
     app, _calls = operator
     app.session_state["_seeding_assessment"] = {"coverage": "complete", "completed": [0, 1, 2]}
     next(widget for widget in app.radio if widget.label == "Sheet pack").set_value("Choose cohorts").run()
     app.multiselect[0].set_value(["u14|Male"]).run()
     assert any("roster assessed" in message.value for message in app.caption)
-    reason = "Two roster entries appear to be the same team. Confirm both team matches before seeding."
     batch = SeedingPredictionBatch({"u14|Male": {}}, {"u14|Male": {}},
         {"u14|Male": {"0": reason, "1": reason}}, "2026-09-15T10:00:00+00:00", None, "a" * 64)
     monkeypatch.setattr(ui, "load_seeding_predictions", lambda *_args, **_kwargs: batch)
@@ -411,6 +415,9 @@ def test_compare_discovered_merge_conflicts_mark_csv_and_pdf_as_draft(operator, 
     assert any("Delivery status: draft" in message.value for message in app.info)
     assert b"Draft" in exported[-1]
     assert "DRAFT" in app.session_state["_seeding_sheet_html"]
+    from io import BytesIO
+    from openpyxl import load_workbook
+    assert "DRAFT" in load_workbook(BytesIO(app.session_state["_seeding_xlsx"])).active["A1"].value
 
 
 @pytest.mark.parametrize("unavailable", [None, [], {"u14|Male": None}, {"u14|Male": {"0": {}}}])
