@@ -259,8 +259,7 @@ the same table row: `2013/2014`, `2013/14`, `13/14`, `14/13`, `2013-2014` and
 `B13/14` are all **U13**, and `2014/2015`, `2014/15` and `14/15` are all **U12**. Year
 order, two- or four-digit years, slash or hyphen, and an attached B/G change nothing.
 A U-label written this season is the same cohort again: `BU11`, `U11`, `15/16` and
-`2015/2016` are all **U11**. Look the pair up in the table. Which bracket a two-year
-squad registers in does not change what its label means.
+`2015/2016` are all **U11**. Look the pair up in the table.
 
 PitchRank deliberately files U18 into U19 rather than running a separate U18
 board, so 2009 resolves to `u19`. There are no `u18` teams and roughly 28K `u19`.
