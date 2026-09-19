@@ -457,10 +457,12 @@ def build_cheat_sheet_analysis(
     # Keep the strongest line when several nearby windows describe the same
     # gap. A standout at either end becomes a note rather than a divider.
     selected: list[StrengthBreak] = []
-    for candidate in sorted(
-        candidates,
-        key=lambda item: (-item.score_gap, -item.average_expected_margin, item.after_seed),
-    ):
+    def break_priority(item: StrengthBreak) -> tuple[float, float, int]:
+        # Arithmetic noise in equal decimal score gaps must not outrank
+        # the matchup evidence. Keep original precision in stored evidence.
+        return (-round(item.score_gap, 12), -round(item.average_expected_margin, 12), item.after_seed)
+
+    for candidate in sorted(candidates, key=break_priority):
         if any(abs(candidate.after_seed - item.after_seed) <= 2 for item in selected):
             continue
         selected.append(candidate)
@@ -497,10 +499,7 @@ def build_cheat_sheet_analysis(
     close_ranges.sort(key=lambda item: item.start_seed)
 
     notes: list[str] = []
-    for item in sorted(
-        selected,
-        key=lambda value: (-value.score_gap, -value.average_expected_margin, value.after_seed),
-    ):
+    for item in sorted(selected, key=break_priority):
         if item.standout:
             seed = item.after_seed if item.after_seed <= 2 else item.after_seed + 1
             notes.append(f"Seed {seed} stands apart competitively; keep placement flexible for the director's format.")

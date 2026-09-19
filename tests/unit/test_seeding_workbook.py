@@ -14,15 +14,16 @@ def _prediction(margin: float, blowout: float = 0.1) -> ComparePrediction:
     return ComparePrediction("team_a", 0.6, 0.3, 0.1, {"teamA": 3, "teamB": 1}, margin, abs(margin), blowout)
 
 
-def test_cheat_sheet_requires_all_available_windows_for_a_break():
+@pytest.mark.parametrize("offset", [0.0, 1e-15, -1e-15])
+def test_cheat_sheet_requires_all_available_windows_for_a_break(offset):
     ids = ["a", "b", "c", "d", "e", "f", "g", "h"]
-    entrants = [TierEntrant(value, value, 1 - index * 0.05) for index, value in enumerate(ids)]
+    entrants = [TierEntrant(value, value, 1 - index * 0.05 + offset) for index, value in enumerate(ids)]
     predictions = {
         (first, second): _prediction(3 if ids.index(first) < 4 <= ids.index(second) else 0.1, 0.6)
         for first, second in combinations(ids, 2)
     }
     analysis = build_cheat_sheet_analysis(entrants, predictions)
-    assert [item.after_seed for item in analysis.breaks] == [3]
+    assert [item.after_seed for item in analysis.breaks] == [4]
     assert analysis.breaks[0].supported_windows == (3, 4, 5)
     assert all("division" not in note.lower() or "not" in note.lower() for note in analysis.notes)
 
@@ -93,3 +94,30 @@ def test_cohort_notes_match_pdf_and_stay_outside_sortable_team_rows():
     assert sheet.auto_filter.ref == "A6:K9"
     assert "Seeded: 3" in sheet["A5"].value
     assert all(sheet.cell(row, 11).value is None for row in range(7, 10))
+
+
+def test_mixed_placement_statuses_keep_identical_pdf_and_excel_order():
+    import re
+    from src.tournaments.seeding_sheet import render_sheet_html
+
+    analysis = build_cheat_sheet_analysis([
+        TierEntrant("seeded", "Seeded team", .9),
+        TierEntrant("review", "Zebra review", .8, "Confirm the team identity."),
+        TierEntrant("notfound", "Alpha not found", None, "Not found in PitchRank."),
+        TierEntrant("unrated", "Beta unrated", None, "No current rating."),
+    ], {})
+    cohort = CohortSheet("u10", "Male", (
+        SheetTeam("Seeded team", "Club", .9, entrant_id="seeded"),
+        SheetTeam("Zebra review", "Club", .8, entrant_id="review"),
+    ), (
+        SheetTeam("Alpha not found", "Club", entrant_id="notfound"),
+        SheetTeam("Beta unrated", "Club", entrant_id="unrated"),
+    ), analysis)
+    document = render_sheet_html("Event", [cohort], generated_on="2026-09-19", ranking_run="unknown")
+    html_order = re.findall(r'data-entrant="([^"]+)"', document)
+    by_id = {team.entrant_id: team.team_name for team in (*cohort.rated, *cohort.unrated)}
+    payload = build_seeding_workbook("Event", [cohort], generated_on="2026-09-19", ranking_run="unknown")
+    sheet = load_workbook(BytesIO(payload)).active
+    assert html_order == ["seeded", "review", "notfound", "unrated"]
+    assert [sheet.cell(row, 2).value for row in range(7, 11)] == [by_id[key] for key in html_order]
+    assert [sheet.cell(row, 1).value for row in range(7, 11)] == [1, None, None, None]

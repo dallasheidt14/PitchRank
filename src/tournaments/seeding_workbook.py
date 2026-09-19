@@ -72,7 +72,9 @@ def _teams_for_sheet(sheet: CohortSheet) -> list[tuple[int | None, SheetTeam, st
         if team is not None:
             rows.append((seed, team, markers.get(entrant_id, ""), statuses.get(entrant_id, "Seeded")))
     unseeded = (team for key, team in all_teams.items() if key not in set(ordered_ids))
-    for team in sorted(unseeded, key=lambda value: value.team_name.casefold()):
+    # CohortSheet defines the shared PDF/Excel ordering, including rated
+    # entrants held for review followed by entrants without a current rating.
+    for team in unseeded:
         status = statuses.get(team.entrant_id) or team.review_reason or "Placement status needs review."
         rows.append((None, team, "", status))
     return rows
