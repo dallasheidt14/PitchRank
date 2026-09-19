@@ -16,74 +16,9 @@ import re
 import string
 from dataclasses import dataclass
 from difflib import SequenceMatcher
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, FrozenSet, List, Optional, Tuple
 
-# Try to import rapidfuzz, fall back to difflib-based implementation
-try:
-    from rapidfuzz import fuzz, process
-
-    HAVE_RAPIDFUZZ = True
-except ImportError:
-    HAVE_RAPIDFUZZ = False
-
-    # Fallback implementation using difflib
-    class _FuzzFallback:
-        @staticmethod
-        def ratio(s1: str, s2: str) -> float:
-            """Simple ratio using SequenceMatcher"""
-            return SequenceMatcher(None, s1.lower(), s2.lower()).ratio() * 100
-
-        @staticmethod
-        def partial_ratio(s1: str, s2: str) -> float:
-            """Partial ratio - check if shorter string is in longer"""
-            s1, s2 = s1.lower(), s2.lower()
-            if len(s1) > len(s2):
-                s1, s2 = s2, s1
-            # Slide shorter string along longer and find best match
-            best = 0
-            len_s1 = len(s1)
-            for i in range(len(s2) - len_s1 + 1):
-                score = SequenceMatcher(None, s1, s2[i : i + len_s1]).ratio()
-                best = max(best, score)
-            return best * 100
-
-        @staticmethod
-        def token_set_ratio(s1: str, s2: str) -> float:
-            """Token set ratio - compare sets of tokens"""
-            tokens1 = set(s1.lower().split())
-            tokens2 = set(s2.lower().split())
-            intersection = tokens1 & tokens2
-            union = tokens1 | tokens2
-            if not union:
-                return 0.0
-            # Jaccard-like similarity with some adjustment
-            " ".join(sorted(intersection))
-            sorted_s1 = " ".join(sorted(tokens1))
-            sorted_s2 = " ".join(sorted(tokens2))
-            return max(SequenceMatcher(None, sorted_s1, sorted_s2).ratio(), len(intersection) / len(union)) * 100
-
-    class _ProcessFallback:
-        @staticmethod
-        def extractOne(query: str, choices: List[str], scorer=None, score_cutoff: float = 0):
-            """Find best match from choices"""
-            if not choices:
-                return None
-            scorer = scorer or _FuzzFallback.ratio
-            best_match = None
-            best_score = 0
-            best_idx = 0
-            for idx, choice in enumerate(choices):
-                score = scorer(query, choice)
-                if score > best_score:
-                    best_score = score
-                    best_match = choice
-                    best_idx = idx
-            if best_score >= score_cutoff:
-                return (best_match, best_score, best_idx)
-            return None
-
-    fuzz = _FuzzFallback()
-    process = _ProcessFallback()
+from src.utils.us_states import STATE_CODE_TO_NAME
 
 
 @dataclass
@@ -98,8 +33,8 @@ class ClubNormResult:
 
     @property
     def needs_review(self) -> bool:
-        """True if this match should be manually reviewed (not 100% confident)"""
-        return not self.matched_canonical or self.confidence < 1.0
+        """True if this match should be manually reviewed (not a registered club)"""
+        return not self.matched_canonical
 
 
 # =============================================================================
@@ -214,6 +149,51 @@ AGE_GROUP_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+# Club suffix phrases shortened to their codes in a name's light form, applied in order
+# so the longer phrase wins ("youth soccer club" before "soccer club").
+SUFFIX_PHRASE_CODES = [
+    (re.compile(r"\byouth soccer club\b", re.ASCII), "ysc"),
+    (re.compile(r"\byouth soccer\b", re.ASCII), "ys"),
+    (re.compile(r"\bsoccer club\b", re.ASCII), "sc"),
+    (re.compile(r"\bfutbol club\b", re.ASCII), "fc"),
+    (re.compile(r"\bfootball club\b", re.ASCII), "fc"),
+    (re.compile(r"\bsoccer academy\b", re.ASCII), "sa"),
+    (re.compile(r"\bfutbol academy\b", re.ASCII), "fa"),
+    (re.compile(r"\bfootball academy\b", re.ASCII), "fa"),
+    (re.compile(r"\bsoccer association\b", re.ASCII), "sa"),
+    (re.compile(r"\bsoccer assn\b", re.ASCII), "sa"),
+    (re.compile(r"\bathletic club\b", re.ASCII), "ac"),
+]
+
+# Club codes by the kind of organisation they name. Equal cores that both carry codes but
+# share no family are different clubs ("Tyler FC", "Tyler SA"); in that test alone
+# similarity_score counts a youth code as a club code.
+CODE_FAMILIES = {
+    "sc": "club",
+    "fc": "club",
+    "cf": "club",
+    "afc": "club",
+    "ysc": "club",
+    "cd": "club",
+    "sa": "academy",
+    "fa": "academy",
+    "ac": "athletic",
+    "ys": "youth",
+}
+CLUB_CODES = frozenset(CODE_FAMILIES)
+NEUTRAL_WORDS = frozenset({"soccer", "academy", "club", "futbol", "football"})
+
+# A core made only of these words names a place, which many unrelated clubs share.
+PLACE_WORDS = frozenset(
+    {word for state in STATE_CODE_TO_NAME.values() for word in state.lower().split()}
+    | {word for city in CITY_ABBREVIATIONS.values() for word in city.split()}
+    | set(
+        "los angeles san diego jose francisco new york england jersey st saint louis salt lake bay area "
+        "north south east west central southern northern so cal socal city tampa fort worth vegas las "
+        "silicon valley county".split()
+    )
+)
+
 
 # =============================================================================
 # CANONICAL CLUB REGISTRY
@@ -221,7 +201,8 @@ AGE_GROUP_PATTERN = re.compile(
 
 # Known canonical clubs with their variations (including common abbreviations)
 # Format: 'canonical_name': ['variation1', 'variation2', ...]
-# IMPORTANT: Include common abbreviations like PRFC, LAFC, ATLUTD, etc.
+# Include a club's abbreviations (PRFC, LAFC, ATLUTD) unless another club could share them;
+# SHARED_CLUB_NAMES drops those keys.
 CANONICAL_CLUBS: Dict[str, List[str]] = {
     # MLS Clubs
     "PHOENIX RISING": [
@@ -238,44 +219,33 @@ CANONICAL_CLUBS: Dict[str, List[str]] = {
     "LA GALAXY": [
         "la galaxy",
         "los angeles galaxy",
-        "galaxy",
-        "lag",
         "lagalaxy",
         "la galaxy fc",
-        "galaxy fc",
-        "galaxy sc",
     ],
-    "FC DALLAS": ["fc dallas", "dallas fc", "fcd", "dallas", "fcdallas", "dallas sc", "dal fc"],
+    "FC DALLAS": ["fc dallas", "fcdallas", "dal fc"],
     "SPORTING KC": [
         "sporting kc",
         "sporting kansas city",
         "skc",
-        "kansas city",
-        "sporting",
         "kc sporting",
         "sportingkc",
     ],
-    "REAL SALT LAKE": ["real salt lake", "rsl", "salt lake", "real sl", "rsl fc", "salt lake fc", "slc fc"],
+    "REAL SALT LAKE": ["real salt lake", "rsl", "salt lake", "real sl", "rsl fc"],
     "SEATTLE SOUNDERS": [
         "seattle sounders",
-        "sounders fc",
         "sounders",
         "seattle sounders fc",
         "ssfc",
         "sea sounders",
-        "seattle fc",
     ],
-    "PORTLAND TIMBERS": ["portland timbers", "timbers", "timbers fc", "ptfc", "portland fc", "pdx timbers"],
-    "COLORADO RAPIDS": ["colorado rapids", "rapids", "rapids fc", "col rapids", "colorado fc", "corap"],
-    "AUSTIN FC": ["austin fc", "austin", "afc austin", "atxfc", "atx fc", "austin football club", "austinfc"],
+    "PORTLAND TIMBERS": ["portland timbers", "timbers", "ptfc", "pdx timbers"],
+    "COLORADO RAPIDS": ["colorado rapids", "col rapids", "corap"],
+    "AUSTIN FC": ["austin fc", "afc austin", "atxfc", "atx fc", "austin football club", "austinfc"],
     "HOUSTON DYNAMO": [
         "houston dynamo",
-        "dynamo",
         "houston dynamo fc",
         "hdfc",
         "hou dynamo",
-        "dynamo fc",
-        "houston fc",
     ],
     "MINNESOTA UNITED": [
         "minnesota united",
@@ -296,10 +266,10 @@ CANONICAL_CLUBS: Dict[str, List[str]] = {
         "atlanta united fc",
         "atlunitedfc",
     ],
-    "INTER MIAMI": ["inter miami", "inter miami cf", "miami", "imcf", "miami fc", "inter miami fc", "mia inter"],
-    "ORLANDO CITY": ["orlando city", "orlando city sc", "ocsc", "orlando", "orl city", "orlando sc", "orlandocity"],
-    "NASHVILLE SC": ["nashville sc", "nashville", "nsc", "nashvillesc", "nash sc", "nashville fc"],
-    "CHARLOTTE FC": ["charlotte fc", "charlotte", "cltfc", "cfc", "charlotte football club", "charlottefc", "clt fc"],
+    "INTER MIAMI": ["inter miami", "inter miami cf", "imcf", "inter miami fc", "mia inter"],
+    "ORLANDO CITY": ["orlando city", "orlando city sc", "ocsc", "orl city", "orlandocity"],
+    "NASHVILLE SC": ["nashville sc", "nashvillesc", "nash sc"],
+    "CHARLOTTE FC": ["charlotte fc", "cltfc", "charlotte football club", "charlottefc", "clt fc"],
     "DC UNITED": [
         "dc united",
         "d.c. united",
@@ -323,34 +293,28 @@ CANONICAL_CLUBS: Dict[str, List[str]] = {
     "NYCFC": ["nycfc", "new york city fc", "nyc fc", "new york city", "ny city fc", "newyorkcityfc", "nyfc"],
     "NEW ENGLAND REVOLUTION": [
         "new england revolution",
-        "revolution",
         "revs",
         "ne revolution",
         "nerevs",
         "new england revs",
-        "ner",
         "ne revs",
     ],
     "PHILADELPHIA UNION": [
         "philadelphia union",
         "philly union",
-        "union",
         "phl union",
         "phila union",
         "phi union",
         "philaunion",
         "doop",
     ],
-    "CHICAGO FIRE": ["chicago fire", "fire fc", "chicago fire fc", "cf97", "cffc", "chi fire", "chifire"],
-    "COLUMBUS CREW": ["columbus crew", "crew", "crew sc", "the crew", "colcrew", "cbus crew", "columbus sc"],
-    "CINCINNATI FC": ["fc cincinnati", "cincinnati fc", "fcc", "cincy", "cincinatti fc", "cinci fc", "fccincy"],
-    "TORONTO FC": ["toronto fc", "tfc", "toronto", "tor fc", "torontofc", "toronto football club"],
+    "CHICAGO FIRE": ["chicago fire", "chicago fire fc", "cf97", "cffc", "chi fire", "chifire"],
+    "COLUMBUS CREW": ["columbus crew", "the crew", "colcrew", "cbus crew"],
+    "CINCINNATI FC": ["fc cincinnati", "cincinnati fc", "cincy", "cincinatti fc", "cinci fc", "fccincy"],
+    "TORONTO FC": ["toronto fc", "tor fc", "torontofc", "toronto football club"],
     "CF MONTREAL": [
         "cf montreal",
-        "montreal",
-        "cfm",
         "montreal impact",
-        "impact",
         "cfmontreal",
         "mtl fc",
         "montreal fc",
@@ -358,7 +322,6 @@ CANONICAL_CLUBS: Dict[str, List[str]] = {
     "VANCOUVER WHITECAPS": [
         "vancouver whitecaps",
         "whitecaps",
-        "whitecaps fc",
         "vwfc",
         "van whitecaps",
         "vancouver fc",
@@ -366,10 +329,7 @@ CANONICAL_CLUBS: Dict[str, List[str]] = {
     ],
     "SAN JOSE EARTHQUAKES": [
         "san jose earthquakes",
-        "earthquakes",
-        "quakes",
         "sj earthquakes",
-        "sjeq",
         "san jose fc",
         "sjquakes",
     ],
@@ -385,53 +345,53 @@ CANONICAL_CLUBS: Dict[str, List[str]] = {
         "stlouiscity",
     ],
     # Major Youth Clubs / Academies
-    "ALBION SC": ["albion sc", "albion", "albion soccer club"],
+    "ALBION SC": ["albion sc", "albion soccer club"],
     "SOLAR SC": ["solar sc", "solar soccer club", "solar", "dallas solar"],
-    "SURF": ["surf", "surf sc", "surf soccer club", "sd surf", "san diego surf"],
-    "BARCELONA": ["barcelona", "barca", "barcelona usa", "barca academy", "barca residency"],
+    "SURF": ["surf sc", "surf soccer club", "sd surf", "san diego surf"],
+    "BARCELONA": ["barcelona usa", "barca academy"],
     "IMG ACADEMY": ["img academy", "img", "img soccer"],
-    "REAL SO CAL": ["real so cal", "real socal", "rsc", "real southern california"],
-    "CROSSFIRE": ["crossfire", "crossfire premier", "crossfire united"],
-    "CONCORDE FIRE": ["concorde fire", "concorde", "cfire"],
-    "FC UNITED": ["fc united", "fcu"],
-    "BALTIMORE ARMOUR": ["baltimore armour", "armour", "balt armour"],
+    "REAL SO CAL": ["real so cal", "real socal", "real southern california"],
+    "CROSSFIRE": ["crossfire premier", "crossfire united"],
+    "CONCORDE FIRE": ["concorde fire", "cfire"],
+    "FC UNITED": ["fc united"],
+    "BALTIMORE ARMOUR": ["baltimore armour", "balt armour"],
     "PA CLASSICS": ["pa classics", "pennsylvania classics", "pa classic"],
-    "MICHIGAN JAGUARS": ["michigan jaguars", "jaguars", "mi jaguars"],
-    "SOCKERS FC": ["sockers fc", "sockers", "chicago sockers"],
+    "MICHIGAN JAGUARS": ["michigan jaguars", "mi jaguars"],
+    "SOCKERS FC": ["sockers fc", "chicago sockers"],
     "LONESTAR": ["lonestar", "lonestar sc", "lone star", "lonestar soccer"],
     "TOPHAT": ["tophat", "tophat sc", "top hat", "atlanta tophat"],
     "BEADLING SC": ["beadling sc", "beadling", "beadling soccer club"],
-    "LAMORINDA": ["lamorinda", "lamorinda sc", "lamorinda soccer club", "lamorinda united"],
+    "LAMORINDA": ["lamorinda sc", "lamorinda soccer club", "lamorinda united"],
     "SACRAMENTO UNITED": ["sacramento united", "sac united", "sacramento utd"],
-    "SC WAVE": ["sc wave", "wave sc", "wave"],
-    "NEFC": ["nefc", "new england fc", "new england football club"],
+    "SC WAVE": ["sc wave"],
+    "NEFC": ["nefc", "new england football club"],
     "GFI ACADEMY": ["gfi academy", "global football innovation academy", "gfi", "gfia"],
     "KINGS HAMMER": ["kings hammer", "kings hammer fc", "kings hammer academy"],
     "HOUSTON RANGERS": ["houston rangers", "rangers houston", "h rangers"],
     "INTER ATLANTA": ["inter atlanta", "inter atlanta fc", "inter atl"],
     "IRONBOUND SC": ["ironbound sc", "ironbound", "ironbound soccer club"],
-    "BAVARIAN UNITED": ["bavarian united", "bavarian united sc", "bavarian"],
-    "CLUB OHIO": ["club ohio", "ohio soccer", "ohio"],
+    "BAVARIAN UNITED": ["bavarian united", "bavarian united sc", "bavarian", "bavarian sc"],
+    "CLUB OHIO": ["club ohio", "ohio soccer"],
     "CITY SC": ["city sc", "city soccer club"],
-    "VENTURA COUNTY FUSION": ["ventura county fusion", "vc fusion", "fusion", "ventura fusion"],
+    "VENTURA COUNTY FUSION": ["ventura county fusion", "vc fusion", "ventura fusion"],
     "BALLISTIC UNITED": ["ballistic united", "ballistic", "ballistic sc"],
     "ACHILLES FC": ["achilles fc", "achilles", "achilles football club"],
     "ATHLETUM FC": ["athletum fc", "athletum", "athletum fc academy"],
     "ONE FC": ["one fc", "one football club", "1fc"],
-    "HOOSIER PREMIER": ["hoosier premier", "hoosier", "hoosier fc"],
+    "HOOSIER PREMIER": ["hoosier premier"],
     "NORTHERN VIRGINIA ALLIANCE": ["northern virginia alliance", "nova alliance", "nva", "nova"],
-    "OAKWOOD SC": ["oakwood sc", "oakwood", "oakwood soccer club"],
+    "OAKWOOD SC": ["oakwood sc", "oakwood soccer club"],
     "IDEASPORT SA": ["ideasport sa", "ideasport", "idea sport"],
     "GINGA FC": ["ginga fc", "ginga", "ginga football club"],
     "FC BAY AREA": ["fc bay area", "bay area fc", "bay area surf", "fc bay area surf"],
-    "ALEXANDRIA SA": ["alexandria sa", "alexandria", "alexandria soccer"],
+    "ALEXANDRIA SA": ["alexandria sa", "alexandria soccer"],
     # =========================================================================
     # CLUBS FROM MERGE HISTORY (acronym → full name mappings)
     # =========================================================================
     "LOS ANGELES SC": ["los angeles sc", "lasc", "la sc", "los angeles soccer club"],
-    "JACKSONVILLE FC": ["jacksonville fc", "jfc", "jax fc", "jacksonville"],
+    "JACKSONVILLE FC": ["jacksonville fc", "jax fc"],
     "FL PREMIER FC": ["fl premier fc", "fpfc", "florida premier fc", "florida premier"],
-    "WOODSIDE SOCCER CLUB": ["woodside soccer club", "wsc", "woodside sc", "woodside"],
+    "WOODSIDE SOCCER CLUB": ["woodside soccer club", "woodside sc"],
     "SILICON VALLEY SA": [
         "silicon valley soccer academy",
         "svsa",
@@ -442,46 +402,32 @@ CANONICAL_CLUBS: Dict[str, List[str]] = {
     "THE TOWN FC": ["the town fc", "ttfc", "town fc", "the town fc academy"],
     "TOTAL FUTBOL ACADEMY": ["total futbol academy", "tfa", "tfa-pro", "tfapro", "total futbol"],
     "WESTERN IOWA SURF": ["western iowa surf", "wi surf", "iowa surf"],
-    "RSL ARIZONA": ["rsl arizona", "rsl az", "rsl arizona mesa", "real salt lake arizona"],
-    "CEDAR STARS ACADEMY": [
-        "cedar stars academy",
-        "csa",
-        "cedar stars",
-        "cedar stars academy bergen",
-        "cedar stars academy monmouth",
-        "cedar stars academy newark",
-    ],
-    "ST LOUIS SCOTT GALLAGHER": [
-        "st louis scott gallagher",
-        "slsg",
-        "scott gallagher",
-        "st louis scott gallagher illinois",
-        "slsg illinois",
-    ],
-    "LOU FUSZ ATHLETIC": ["lou fusz athletic", "lou fusz", "lfa", "lou fusz athletic 2"],
-    "PDA": ["players development academy", "pda", "pda hibernian"],
+    "RSL ARIZONA": ["rsl arizona", "rsl az", "real salt lake arizona"],
+    "CEDAR STARS ACADEMY": ["cedar stars academy", "cedar stars"],
+    "ST LOUIS SCOTT GALLAGHER": ["st louis scott gallagher", "slsg", "scott gallagher"],
+    "LOU FUSZ ATHLETIC": ["lou fusz athletic", "lou fusz", "lou fusz athletic 2"],
+    "PDA": ["players development academy", "pda"],
     "FC DELCO": ["fc delco", "delco", "delco fc"],
-    "BETHESDA SC": ["bethesda sc", "bethesda", "bethesda soccer club"],
-    "MCLEAN YOUTH SOCCER": ["mclean youth soccer", "mys", "mclean"],
+    "BETHESDA SC": ["bethesda sc", "bethesda soccer club"],
+    "MCLEAN YOUTH SOCCER": ["mclean youth soccer"],
     "CHARLOTTE INDEPENDENCE": [
         "charlotte independence",
         "charlotte independence soccer club",
         "clt independence",
-        "independence",
     ],
     "CHICAGO FC UNITED": ["chicago fc united", "cfcu", "chicago fcu"],
-    "SPORTING BLUE VALLEY": ["sporting blue valley", "sbv", "blue valley"],
-    "SPORTING OKLAHOMA": ["sporting oklahoma", "sporting ok", "sok"],
-    "MICHIGAN WOLVES": ["michigan wolves", "mi wolves", "wolves fc"],
+    "SPORTING BLUE VALLEY": ["sporting blue valley", "blue valley"],
+    "SPORTING OKLAHOMA": ["sporting oklahoma", "sporting ok"],
+    "MICHIGAN WOLVES": ["michigan wolves", "mi wolves"],
     "VARDAR SOCCER CLUB": ["vardar soccer club", "vardar", "vardar sc"],
     "DE ANZA FORCE": ["de anza force", "deanza force", "de anza"],
-    "STRIKERS FC": ["strikers fc", "strikers", "irvine strikers"],
-    "WESTON FC": ["weston fc", "weston", "weston football club"],
-    "TAMPA BAY UNITED": ["tampa bay united", "tbu", "tb united", "tampa united"],
+    "STRIKERS FC": ["strikers fc", "irvine strikers"],
+    "WESTON FC": ["weston fc", "weston football club"],
+    "TAMPA BAY UNITED": ["tampa bay united", "tb united", "tampa united"],
     "FC GOLDEN STATE": ["fc golden state", "fcgs", "golden state fc", "fc golden state force"],
-    "SEACOAST UNITED": ["seacoast united", "seacoast", "seacoast utd"],
-    "COPPERMINE SC": ["coppermine sc", "coppermine", "coppermine soccer club"],
-    "TSF ACADEMY": ["tsf academy", "tsf", "the soccer factory"],
+    "SEACOAST UNITED": ["seacoast united", "seacoast utd"],
+    "COPPERMINE SC": ["coppermine sc", "coppermine soccer club"],
+    "TSF ACADEMY": ["tsf academy", "the soccer factory"],
     "INDY ELEVEN": ["indy eleven", "indianapolis eleven", "indy 11"],
     "FORWARD MADISON FC": ["forward madison fc", "forward madison", "fmfc"],
     "SACRAMENTO REPUBLIC": ["sacramento republic fc", "sacramento republic", "sac republic", "srfc"],
@@ -492,14 +438,27 @@ CANONICAL_CLUBS: Dict[str, List[str]] = {
         "barcelona residency",
         "barca academy usa",
     ],
-    "DALLAS HORNETS": ["dallas hornets", "hornets", "dallas hornets east", "dallas hornets north"],
+    "DALLAS HORNETS": ["dallas hornets"],
 }
 
-# Build reverse lookup: variation -> canonical
-_VARIATION_TO_CANONICAL: Dict[str, str] = {}
-for canonical, variations in CANONICAL_CLUBS.items():
-    for var in variations:
-        _VARIATION_TO_CANONICAL[var.lower()] = canonical
+# Names other clubs share: places, generic soccer words, short acronyms and multi-word
+# forms that name a different club. Nothing whose light form is one of these becomes a
+# lookup key, so SURF, BARCELONA, CROSSFIRE and LAMORINDA do not claim their bare word,
+# and an alias cannot rebuild a removed key through CITY_ABBREVIATIONS ("dal fc" is
+# "dallas fc").
+SHARED_CLUB_NAMES = frozenset(
+    "austin charlotte dallas miami orlando nashville toronto montreal jacksonville alexandria ohio weston "
+    "woodside bethesda oakwood mclean seacoast coppermine lamorinda hoosier albion fusion surf wave union "
+    "impact independence revolution crew rapids galaxy dynamo hornets strikers sporting sockers jaguars "
+    "armour quakes earthquakes barca barcelona concorde crossfire csa cfc nsc rsc wsc fcc fcu jfc lfa mys "
+    "sbv sok tbu tfc tsf fcd lag ner sjeq cfm".split()
+    + [
+        "columbus sc", "houston fc", "wolves fc", "fire fc", "dallas fc", "dallas sc", "miami fc", "orlando sc",
+        "nashville fc", "colorado fc", "portland fc", "salt lake fc", "slc fc", "seattle fc", "new england fc",
+        "galaxy sc", "galaxy fc", "dynamo fc", "rapids fc", "wave sc", "crew sc", "hoosier fc", "timbers fc",
+        "sounders fc", "whitecaps fc", "kansas city",
+    ]
+)
 
 
 # =============================================================================
@@ -640,11 +599,11 @@ def normalize_club_name(
     # Step 5: Expand city abbreviations
     result = _expand_city_abbreviations(result)
 
-    # Step 6: Strip suffixes (disabled by default)
+    # Step 6: Strip suffixes
     if strip_suffixes:
         result = _strip_suffixes(result)
 
-    # Step 7: Strip prefixes (disabled by default)
+    # Step 7: Strip prefixes
     if strip_prefixes:
         result = _strip_prefixes(result)
 
@@ -654,64 +613,59 @@ def normalize_club_name(
     return result
 
 
-def lookup_canonical(normalized_name: str) -> Optional[str]:
+def _light_form(name: str) -> str:
+    """A club name normalized with its club suffix kept, suffix phrases shortened to codes.
+
+    "Charlotte Soccer Academy" -> "charlotte sa" and "Charlotte FC" -> "charlotte fc",
+    two clubs that ``normalize_club_name`` reduces to one "charlotte".
+    """
+    result = normalize_club_name(name, strip_suffixes=False, strip_prefixes=False)
+    for pattern, code in SUFFIX_PHRASE_CODES:
+        result = pattern.sub(code, result)
+    return " ".join(result.split())
+
+
+_SHARED_KEYS = frozenset(_light_form(shared) for shared in SHARED_CLUB_NAMES)
+
+# Reverse lookup: light form -> canonical. Never keyed on the suffix-stripped form,
+# which collides clubs that differ only by their suffix. A key two clubs would claim
+# is a registry error; a test forbids it.
+_VARIATION_TO_CANONICAL: Dict[str, str] = {}
+for canonical, variations in CANONICAL_CLUBS.items():
+    for var in [canonical.lower(), *variations]:
+        key = _light_form(var)
+        if key not in _SHARED_KEYS:
+            _VARIATION_TO_CANONICAL.setdefault(key, canonical)
+
+
+def lookup_canonical(name: str) -> Optional[str]:
     """
     Look up the canonical club name from the registry.
 
-    Returns the canonical name if found, None otherwise.
+    Matches the name's light form exactly.
     """
-    return _VARIATION_TO_CANONICAL.get(normalized_name.lower())
+    return _VARIATION_TO_CANONICAL.get(_light_form(name))
 
 
-def fuzzy_match_canonical(normalized_name: str, threshold: float = 0.85) -> Optional[Tuple[str, float]]:
-    """
-    Fuzzy match against canonical club registry.
-
-    Returns (canonical_name, score) if a match is found above threshold,
-    None otherwise.
-    """
-    if not normalized_name:
-        return None
-
-    # Get all variations for fuzzy matching
-    all_variations = list(_VARIATION_TO_CANONICAL.keys())
-
-    if not all_variations:
-        return None
-
-    # Find best match using token_set_ratio (handles word reordering)
-    result = process.extractOne(
-        normalized_name.lower(), all_variations, scorer=fuzz.token_set_ratio, score_cutoff=threshold * 100
-    )
-
-    if result:
-        matched_variation, score, _ = result
-        canonical = _VARIATION_TO_CANONICAL[matched_variation]
-        return (canonical, score / 100.0)
-
-    return None
-
-
-def normalize_to_club(name: str, fuzzy_threshold: float = 0.85) -> ClubNormResult:
+def normalize_to_club(name: str) -> ClubNormResult:
     """
     Main entry point: Normalize a club name and return full result.
 
-    This function:
-    1. Normalizes the input name
-    2. Looks up exact match in canonical registry
-    3. If no exact match, tries fuzzy matching
-    4. Returns a ClubNormResult with club_id, club_norm, confidence
+    Only an exact match of the name's light form is canonical. Character similarity
+    against the registry's short names pairs unrelated clubs (NC Fusion with VENTURA
+    COUNTY FUSION, NCFC with NYCFC), and a name that only begins with a registered one
+    may be a branch fielding its own squads ("Albion SC San Diego"). A misspelling is
+    left to ``similarity_score``.
 
     Args:
         name: Raw club name string
-        fuzzy_threshold: Minimum similarity score for fuzzy matching (0.0-1.0)
 
     Returns:
         ClubNormResult with:
         - club_id: Stable identifier (slug form)
         - club_norm: Canonical display name (UPPERCASE)
         - original: Original input string
-        - confidence: Match confidence (1.0 for exact, lower for fuzzy)
+        - confidence: Match confidence (1.0 for a registered club)
         - matched_canonical: Whether matched to a known club
     """
     if not name or not name.strip():
@@ -719,14 +673,12 @@ def normalize_to_club(name: str, fuzzy_threshold: float = 0.85) -> ClubNormResul
 
     original = name
 
-    # Step 1: Normalize the name
     normalized = normalize_club_name(name)
 
     if not normalized:
         return ClubNormResult(club_id="", club_norm="", original=original, confidence=0.0, matched_canonical=False)
 
-    # Step 2: Try exact lookup
-    canonical = lookup_canonical(normalized)
+    canonical = lookup_canonical(name)
     if canonical:
         return ClubNormResult(
             club_id=_generate_club_id(canonical),
@@ -736,20 +688,6 @@ def normalize_to_club(name: str, fuzzy_threshold: float = 0.85) -> ClubNormResul
             matched_canonical=True,
         )
 
-    # Step 3: Try fuzzy matching
-    fuzzy_result = fuzzy_match_canonical(normalized, fuzzy_threshold)
-    if fuzzy_result:
-        canonical, score = fuzzy_result
-        return ClubNormResult(
-            club_id=_generate_club_id(canonical),
-            club_norm=canonical,
-            original=original,
-            confidence=score,
-            matched_canonical=True,
-        )
-
-    # Step 4: No match - use normalized form
-    # Convert to uppercase for display
     club_norm = normalized.upper()
     club_id = _generate_club_id(normalized)
 
@@ -767,21 +705,20 @@ def normalize_to_club(name: str, fuzzy_threshold: float = 0.85) -> ClubNormResul
 # =============================================================================
 
 
-def normalize_club_names_batch(names: List[str], fuzzy_threshold: float = 0.85) -> List[ClubNormResult]:
+def normalize_club_names_batch(names: List[str]) -> List[ClubNormResult]:
     """
     Normalize a batch of club names.
 
     Args:
         names: List of raw club name strings
-        fuzzy_threshold: Minimum similarity for fuzzy matching
 
     Returns:
         List of ClubNormResult objects in the same order as input
     """
-    return [normalize_to_club(name, fuzzy_threshold) for name in names]
+    return [normalize_to_club(name) for name in names]
 
 
-def group_by_club(names: List[str], fuzzy_threshold: float = 0.85) -> Dict[str, List[str]]:
+def group_by_club(names: List[str]) -> Dict[str, List[str]]:
     """
     Group raw club names by their normalized club_id.
 
@@ -789,14 +726,13 @@ def group_by_club(names: List[str], fuzzy_threshold: float = 0.85) -> Dict[str, 
 
     Args:
         names: List of raw club name strings
-        fuzzy_threshold: Minimum similarity for fuzzy matching
 
     Returns:
         Dict mapping club_id -> list of original names
     """
     groups: Dict[str, List[str]] = {}
     for name in names:
-        result = normalize_to_club(name, fuzzy_threshold)
+        result = normalize_to_club(name)
         if result.club_id:
             if result.club_id not in groups:
                 groups[result.club_id] = []
@@ -804,22 +740,19 @@ def group_by_club(names: List[str], fuzzy_threshold: float = 0.85) -> Dict[str, 
     return groups
 
 
-def get_matches_needing_review(names: List[str], fuzzy_threshold: float = 0.85) -> List[ClubNormResult]:
+def get_matches_needing_review(names: List[str]) -> List[ClubNormResult]:
     """
-    Get all matches that need manual review (not 100% confident).
+    Get all matches that need manual review.
 
-    A match needs review if:
-    - It didn't match a known canonical club, OR
-    - The confidence score is less than 1.0 (fuzzy match)
+    A match needs review if it didn't match a known canonical club.
 
     Args:
         names: List of raw club name strings
-        fuzzy_threshold: Minimum similarity for fuzzy matching
 
     Returns:
         List of ClubNormResult objects that need review
     """
-    results = normalize_club_names_batch(names, fuzzy_threshold)
+    results = normalize_club_names_batch(names)
     return [r for r in results if r.needs_review]
 
 
@@ -828,23 +761,91 @@ def get_matches_needing_review(names: List[str], fuzzy_threshold: float = 0.85) 
 # =============================================================================
 
 
+def _core_and_codes(name: str) -> Tuple[str, FrozenSet[str]]:
+    """The words that tell a club apart, and the club codes peeled off to reach them.
+
+    Code and neutral words are peeled from either end of the light form while more than
+    one word is left: "Charlotte Soccer Academy" -> ("charlotte", {"sa"}), "FC Dallas" ->
+    ("dallas", {"fc"}), "Club Ohio Soccer" -> ("ohio", set()).
+    """
+    words = _light_form(name).split()
+    codes = set()
+    peeled = True
+    while peeled:
+        peeled = False
+        for end in (0, -1):
+            if len(words) > 1 and (words[end] in CLUB_CODES or words[end] in NEUTRAL_WORDS):
+                word = words.pop(end)
+                if word in CLUB_CODES:
+                    codes.add(word)
+                peeled = True
+    return " ".join(words), frozenset(codes)
+
+
+def _signature(name: str) -> str:
+    """The light form without neutral words, each code replaced by its family, order kept.
+
+    "FC Arkansas" -> "club arkansas", "Arkansas Soccer Club" -> "arkansas club".
+    """
+    return " ".join(CODE_FAMILIES.get(word, word) for word in _light_form(name).split() if word not in NEUTRAL_WORDS)
+
+
+def _families(codes: FrozenSet[str]) -> FrozenSet[str]:
+    """The families of a name's club codes, a youth code counting as a club."""
+    return frozenset("club" if CODE_FAMILIES[code] == "youth" else CODE_FAMILIES[code] for code in codes)
+
+
+# difflib only: rapidfuzz is in neither requirements file, so CI and every workflow
+# run without it.
+def _word_set_similarity(s1: str, s2: str) -> float:
+    """Word-set similarity of two names, 0.0-1.0.
+
+    The higher of the sorted words' character similarity and the share of words the
+    two have in common.
+    """
+    tokens1 = set(s1.lower().split())
+    tokens2 = set(s2.lower().split())
+    union = tokens1 | tokens2
+    if not union:
+        return 0.0
+    sorted_s1 = " ".join(sorted(tokens1))
+    sorted_s2 = " ".join(sorted(tokens2))
+    return max(SequenceMatcher(None, sorted_s1, sorted_s2).ratio(), len(tokens1 & tokens2) / len(union))
+
+
 def similarity_score(name1: str, name2: str) -> float:
     """
     Calculate similarity score between two club names.
 
-    Returns a score from 0.0 to 1.0.
-    """
-    norm1 = normalize_club_name(name1)
-    norm2 = normalize_club_name(name2)
+    Returns a score from 0.0 to 1.0. Compares the names' cores (``_core_and_codes``);
+    the first rule that applies decides:
 
-    if not norm1 or not norm2:
+    1. A core made only of place words is shared by many clubs, so it scores 1.0 only
+       when the two signatures are equal ("FC Arkansas" is not "Arkansas Soccer Club").
+    2. Two different one-word cores, either of five letters or fewer, score 0.0: short
+       names sit close in characters without being one club ("NCFC", "NYCFC").
+    3. Equal cores score 1.0, unless both carry codes and no family is shared, youth
+       counting as club ("Tyler FC" is not "Tyler SA").
+    4. Otherwise the word-set similarity of the two cores.
+    """
+    core1, codes1 = _core_and_codes(name1)
+    core2, codes2 = _core_and_codes(name2)
+
+    if not core1 or not core2:
         return 0.0
 
-    if norm1 == norm2:
-        return 1.0
+    if set(core1.split()) <= PLACE_WORDS or set(core2.split()) <= PLACE_WORDS:
+        return 1.0 if _signature(name1) == _signature(name2) else 0.0
 
-    # Use token_set_ratio for best results with reordered words
-    return fuzz.token_set_ratio(norm1, norm2) / 100.0
+    if " " not in core1 and " " not in core2 and min(len(core1), len(core2)) <= 5 and core1 != core2:
+        return 0.0
+
+    if core1 == core2:
+        families1 = _families(codes1)
+        families2 = _families(codes2)
+        return 0.0 if families1 and families2 and not families1 & families2 else 1.0
+
+    return _word_set_similarity(core1, core2)
 
 
 def are_same_club(name1: str, name2: str, threshold: float = 0.85) -> bool:

@@ -1,16 +1,28 @@
 #!/usr/bin/env python3
 """
 Full club name analysis - finds BOTH caps issues AND naming variations.
-Generates SQL for all states (Male only), excluding CA and AZ.
+Scans every state for both genders, gives teams with no state the canonical overrides
+alone, and writes every fix as SQL.
+
+A second pass, for SincSports and PlayMetrics teams only, lists club names carrying
+age or gender text, strips a trailing tag naming the team's own state, and re-cases
+ALL-CAPS names from how each word is written across the database. It writes per team
+under --execute (not when --dry-run is also given) and reports to
+logs/club_name_provider_changes.csv and logs/club_name_review.csv.
 """
 
+import csv
 import os
 import re
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
+from typing import Dict, NamedTuple
 
 from dotenv import load_dotenv
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from src.utils.us_states import STATE_CODE_TO_NAME
 
 # Load environment
 env_local = Path(".env.local")
@@ -21,10 +33,13 @@ else:
 
 from supabase import create_client  # noqa: E402
 
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_KEY")
+SKIP_STATES = set()  # States left out of the scan
 
-SKIP_STATES = set()  # Scan all states (CA/AZ were previously skipped)
+SQL_OUTPUT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "club_name_fixes_male_all_states.sql")
+PROVIDER_CHANGES_PATH = Path("logs") / "club_name_provider_changes.csv"
+REVIEW_PATH = Path("logs") / "club_name_review.csv"
+
+PROVIDER_RULE_CODES = ("sincsports", "playmetrics")
 
 # Hard-coded canonical overrides: (state_code, match_type, pattern, canonical_name)
 # match_type: "exact" (case-insensitive), "prefix" (starts with), "regex"
@@ -198,8 +213,8 @@ CLUB_CANONICAL_OVERRIDES = [
     ("NY", "exact", "Syracuse Development Academy (SDA)", "SDA Syracuse Development Academy"),
     ("NY", "exact", "Tru Tekkers Soccer Club", "Tru Tekkers"),
     # Wisconsin
-    ("WI", "exact", "FC WISCONSIN BOYS", "FC WISCONSIN"),
-    ("WI", "exact", "FC WISCONSIN GIRLS", "FC WISCONSIN"),
+    ("WI", "exact", "FC WISCONSIN BOYS", "FC Wisconsin"),
+    ("WI", "exact", "FC WISCONSIN GIRLS", "FC Wisconsin"),
     ("WI", "exact", "Jefferson County Soccer Association", "Jefferson United SC"),
     ("WI", "exact", "WI United", "Wisconsin United FC"),
     # Missouri
@@ -251,7 +266,7 @@ CLUB_CANONICAL_OVERRIDES = [
     ("UT", "exact", "la roca sf", "La Roca FC"),
     ("UT", "exact", "Liverpool FC", "Liverpool FC International Academy"),
     ("UT", "exact", "peak fc", "Peak SC"),
-    ("UT", "exact", "rampage fc", "rampage sc"),
+    ("UT", "exact", "rampage fc", "Rampage SC"),
     ("UT", "exact", "Saratoga Youth Soccer", "Saratoga Springs FC"),
     ("UT", "exact", "St George FC", "St George FC (Ut)"),
     ("UT", "exact", "Swat sc", "SWAT Soccer"),
@@ -446,17 +461,17 @@ CLUB_CANONICAL_OVERRIDES = [
     ("CA", "exact", "Mustang SC", "Mustang Soccer"),
     ("CA", "exact", "FC Golden State Force", "FC Golden State"),
     ("CA", "exact", "Alameda sc", "Alameda Soccer Club"),
-    ("CA", "exact", "apple valley sc storm", "apple valley sc"),
-    ("CA", "exact", "Atletico Southern California", "atletico so cal"),
-    ("CA", "exact", "bakersfield alliance s c", "bakersfield alliance"),
+    ("CA", "exact", "apple valley sc storm", "Apple Valley SC"),
+    ("CA", "exact", "Atletico Southern California", "Atletico So Cal"),
+    ("CA", "exact", "bakersfield alliance s c", "Bakersfield Alliance"),
     ("CA", "exact", "Burlingame sc", "Burlingame Soccer Club"),
     ("CA", "regex", r"black\s+lion(?:['’\?])?\s*s?\s*usa\s*fc\s*$", "Black Lions FC USA"),
     ("CA", "regex", r"Beach FC\s+\(CA\)\s*$", "Beach Futbol Club"),
     ("CA", "exact", "AC Brea soccer", "AC Brea"),
-    ("CA", "exact", "cal stars prep academy", "cal stars"),
+    ("CA", "exact", "cal stars prep academy", "Cal Stars"),
     ("CA", "exact", "celtic sc", "Celtic Soccer Club (S-CA)"),
     ("CA", "exact", "FURY FC (S-CA)", "Fury FC"),
-    ("CA", "exact", "capital city soccer club", "capitol city fc"),
+    ("CA", "exact", "capital city soccer club", "Capitol City FC"),
     ("CA", "exact", "central california aztecs", "Central Cal Aztecs"),
     ("CA", "exact", "Central cost surf soccer club", "Central Coast Surf"),
     ("CA", "exact", "cfa", "California Football Academy"),
@@ -638,24 +653,187 @@ ACRONYMS = {
 }
 
 
-def proper_case(name):
-    """Convert to proper title case, preserving acronyms."""
-    words = name.split()
-    result = []
-    for i, word in enumerate(words):
-        upper = word.upper()
-        # Check for acronyms
-        if upper in ACRONYMS:
-            result.append(upper)
-        # Lowercase articles/prepositions (except first word)
-        elif word.lower() in ("del", "de", "la", "el", "los", "y", "the", "of", "and", "at", "in") and i > 0:
-            result.append(word.lower())
-        # F.C. -> FC
-        elif re.match(r"^[A-Za-z]\.[A-Za-z]\.?$", word):
-            result.append(word.upper().replace(".", ""))
+US_STATE_CODES = frozenset(STATE_CODE_TO_NAME)
+
+# A state code that is also a word ("La", "De", "In") keeps the vocabulary's protection;
+# SC is South Carolina's code too, but in a club name it abbreviates Soccer Club.
+_CLUB_ACRONYMS = frozenset(ACRONYMS) - (US_STATE_CODES - {"SC"})
+
+_OVERRIDE_OUTPUTS = frozenset(canonical for _, _, _, canonical in CLUB_CANONICAL_OVERRIDES)
+_OVERRIDE_OUTPUTS_LOWER = frozenset(canonical.lower() for canonical in _OVERRIDE_OUTPUTS)
+
+_WORD = re.compile(r"[^\W\d_]+(?:['’][^\W\d_]+)*")
+_APOSTROPHE = re.compile(r"(['’])")
+_VOWELS = frozenset("AEIOUY")
+_ACRONYM_ENDINGS = ("SC", "FC", "SA", "AC", "FA")
+
+_AGE_OR_GENDER = re.compile(
+    r"(?<![A-Za-z0-9])(?:[BG]?U-?[0-9]{1,2}[BG]?|[BG]?20[0-9]{2}(?:-[0-9]{2})?|Boys|Girls|Boy|Girl)(?![A-Za-z0-9])",
+    re.ASCII | re.IGNORECASE,
+)
+_TRAILING_TAG = re.compile(r"^(.*\S)\s*\(([^()]+)\)\s*$", re.ASCII)
+_TWO_LETTERS = re.compile(r"[A-Za-z]{2}", re.ASCII)
+_COMMENT_BREAKS = re.compile(r"[\s\x00-\x1f\x7f]+")
+
+_FORMULA_PREFIXES = frozenset({"=", "+", "-", "@", "\t", "\r", "\n"})
+_PROVIDER_TEXT_COLUMNS = frozenset({"team_name", "club", "before", "after"})
+
+
+class Vocabulary(NamedTuple):
+    """How each lower-cased word is written in club names that hold a lowercase letter.
+
+    `spellings` holds the words seen often enough to trust; `mixed_names` counts, for
+    every word, the distinct names that write it with a lowercase letter.
+    """
+
+    spellings: Dict[str, str]
+    mixed_names: Dict[str, int]
+
+
+def _stems(name):
+    """Yield (start, stem_end, word_end, stem, in_brackets, non_ascii) per word.
+
+    A trailing 's or ’s is not part of the stem, and `in_brackets` tracks parentheses only.
+    """
+    depth, pos = 0, 0
+    for m in _WORD.finditer(name):
+        gap = name[pos : m.start()]
+        depth = max(0, depth + gap.count("(") - gap.count(")"))
+        word = m.group(0)
+        stem = word[:-2] if len(word) > 2 and word[-2] in "'’" and word[-1] in "sS" else word
+        non_ascii = any(c.isalpha() and not c.isascii() for c in stem)
+        yield m.start(), m.start() + len(stem), m.end(), stem, depth > 0, non_ascii
+        pos = m.end()
+
+
+def looks_all_caps(name):
+    """A name holding a non-ASCII letter never looks all-caps, so it is never re-cased."""
+    letters = [c for c in name if c.isalpha()]
+    return len(letters) >= 4 and all(c.isascii() for c in letters) and not any(c.islower() for c in name)
+
+
+def looks_like_acronym(stem):
+    letters = _APOSTROPHE.sub("", stem).upper()
+    if len(letters) <= 4 or not set(letters) & _VOWELS:
+        return True
+    run = longest = 0
+    for ch in letters:
+        run = 0 if ch in _VOWELS else run + 1
+        longest = max(longest, run)
+    if longest >= 4:
+        return True
+    return len(letters) <= 6 and letters.endswith(_ACRONYM_ENDINGS)
+
+
+def learn_vocabulary(club_names):
+    """Learn each word's spelling from every club name that holds a lowercase letter.
+
+    A word is kept once it appears in 3 distinct names, or 20 when it has four letters or
+    fewer, because short words are where acronyms and ordinary words collide. It is
+    spelled all-caps when at least a third of its occurrences are, else its most common
+    spelling. A word holding a non-ASCII letter is never learned.
+    """
+    spellings = defaultdict(Counter)
+    names_with = defaultdict(set)
+    mixed_names = defaultdict(set)
+    for raw in club_names:
+        name = (raw or "").strip()
+        if not any(c.islower() for c in name):
+            continue
+        for _, _, _, stem, _, non_ascii in _stems(name):
+            if non_ascii:
+                continue
+            key = stem.lower()
+            spellings[key][stem] += 1
+            names_with[key].add(name)
+            if any(c.islower() for c in stem):
+                mixed_names[key].add(name)
+
+    learned = {}
+    for key, counts in spellings.items():
+        letters = len(_APOSTROPHE.sub("", key))
+        if len(names_with[key]) < (20 if letters <= 4 else 3):
+            continue
+        caps = sum(n for spelling, n in counts.items() if spelling.isupper())
+        if caps * 3 >= sum(counts.values()):
+            learned[key] = key.upper()
         else:
-            result.append(word.capitalize())
-    return " ".join(result)
+            learned[key] = min(counts.items(), key=lambda kv: (-kv[1], kv[0]))[0]
+    return Vocabulary(learned, {key: len(names) for key, names in mixed_names.items()})
+
+
+def proper_case(name, vocabulary):
+    """Re-case an ALL-CAPS name without lowering an abbreviation; any other name is returned as is."""
+    if not looks_all_caps(name) or name in _OVERRIDE_OUTPUTS:
+        return name
+    out, pos = [], 0
+    for start, stem_end, word_end, stem, in_brackets, non_ascii in _stems(name):
+        out.append(name[pos:start])
+        if in_brackets or non_ascii or stem in ACRONYMS:
+            cased = stem
+        elif stem.lower() in vocabulary.spellings:
+            cased = vocabulary.spellings[stem.lower()]
+        elif looks_like_acronym(stem):
+            cased = stem
+        else:
+            cased = "".join(part[:1].upper() + part[1:].lower() for part in _APOSTROPHE.split(stem))
+        out.append(cased)
+        if word_end > stem_end:
+            out.append(name[stem_end] + ("s" if any(c.islower() for c in cased) else "S"))
+        pos = word_end
+    out.append(name[pos:])
+    return "".join(out)
+
+
+def is_partial_recase(name, vocabulary):
+    """True when a word of 3+ letters left in capitals and absent from the vocabulary's spellings is
+    written with a lowercase letter in 3+ names (bracketed, non-ASCII and ACRONYMS words aside)."""
+    for _, _, _, stem, in_brackets, non_ascii in _stems(name):
+        if in_brackets or non_ascii or stem in ACRONYMS or stem.lower() in vocabulary.spellings or not stem.isupper():
+            continue
+        if len(_APOSTROPHE.sub("", stem)) >= 3 and vocabulary.mixed_names.get(stem.lower(), 0) >= 3:
+            return True
+    return False
+
+
+def merge_case_variants(variants, club_counts, every_variant, vocabulary):
+    """Start from the most common of `variants`. A club code ("SC") or a bracketed word,
+    being a tag or an abbreviation, takes the capitals any of `every_variant` gives it, an
+    ALL-CAPS variant included; another short word the capitals another of `variants` gives
+    it, unless the vocabulary writes it in lowercase ("Rush"). A word holding a non-ASCII
+    letter is kept as the most common variant writes it."""
+    base = min(variants, key=lambda v: (-club_counts[v], v))
+    out, pos = [], 0
+    for start, stem_end, _, stem, in_brackets, non_ascii in _stems(base):
+        out.append(base[pos:start])
+        upper = stem.upper()
+        learned = vocabulary.spellings.get(stem.lower(), "")
+        code = upper in _CLUB_ACRONYMS
+        short = len(_APOSTROPHE.sub("", stem)) <= 4 and not any(c.islower() for c in learned)
+        peers = [v for v in (every_variant if in_brackets or code else variants) if len(v) == len(base)]
+        if not non_ascii and (short or in_brackets or code) and any(p[start:stem_end] == upper for p in peers):
+            out.append(upper)
+        else:
+            out.append(stem)
+        pos = stem_end
+    out.append(base[pos:])
+    return "".join(out)
+
+
+def caps_winner(variants, club_counts, state_code, vocabulary):
+    """Pick the spelling a group of case variants should share, or None to leave the group alone."""
+    lowered = variants[0].lower()
+    for state, _, _, canonical in CLUB_CANONICAL_OVERRIDES:
+        if state == state_code and canonical.lower() == lowered:
+            return canonical
+    mixed = [v for v in variants if any(c.islower() for c in v)]
+    if mixed:
+        return merge_case_variants(mixed, club_counts, variants, vocabulary)
+    base = min(variants, key=lambda v: (-club_counts[v], v))
+    winner = proper_case(base, vocabulary)
+    if is_partial_recase(winner, vocabulary):
+        return None
+    return winner
 
 
 def normalize_for_grouping(name):
@@ -688,6 +866,9 @@ def normalize_for_grouping(name):
     return n.strip()
 
 
+TEAM_COLUMNS = "team_id_master, team_name, club_name, gender, state_code, provider_id"
+
+
 def fetch_all_teams(client, state_code):
     """Fetch all active teams for a state (both genders) using pagination."""
     all_teams = []
@@ -697,9 +878,10 @@ def fetch_all_teams(client, state_code):
     while True:
         result = (
             client.table("teams")
-            .select("team_id_master, team_name, club_name, gender")
+            .select(TEAM_COLUMNS)
             .eq("state_code", state_code)
             .eq("is_deprecated", False)
+            .order("team_id_master")
             .range(offset, offset + page_size - 1)
             .execute()
         )
@@ -735,13 +917,9 @@ def fetch_no_state_teams(client):
     for is_null in (True, False):
         offset = 0
         while True:
-            q = (
-                client.table("teams")
-                .select("team_id_master, team_name, club_name, gender")
-                .eq("is_deprecated", False)
-            )
+            q = client.table("teams").select(TEAM_COLUMNS).eq("is_deprecated", False)
             q = q.is_("state_code", "null") if is_null else q.eq("state_code", "")
-            result = q.range(offset, offset + page_size - 1).execute()
+            result = q.order("team_id_master").range(offset, offset + page_size - 1).execute()
             if not result.data:
                 break
             all_teams.extend(result.data)
@@ -751,15 +929,18 @@ def fetch_no_state_teams(client):
     return all_teams
 
 
-def analyze_no_state_teams(client):
-    """Apply CANONICAL overrides to teams with NULL state_code.
+def fetch_provider_codes(client):
+    result = client.table("providers").select("id, code").execute()
+    return {p["id"]: p["code"] for p in result.data or []}
 
-    Only applies overrides whose (match_type, pattern) is unique across all
-    states — e.g. "FC Stars" appears in IL canonical AND could match a Texas
-    team named "FC Stars", so we skip it. This is the safe subset that lets
-    Step 2 (match_state_from_club) hit canonical keys for no-state teams.
+
+def analyze_no_state_teams(teams):
+    """Apply CANONICAL overrides to teams with a NULL or empty state_code.
+
+    Only applies an override whose (match_type, pattern) gives one canonical name in
+    every state that lists it — "peak fc" is Peak SC in UT and Pikes Peak FC in CO, so
+    it is skipped.
     """
-    teams = fetch_no_state_teams(client)
     if not teams:
         return []
 
@@ -803,11 +984,10 @@ def analyze_no_state_teams(client):
     return fixes
 
 
-def analyze_state(client, state_code):
-    """Analyze club names in a state, return fixes needed."""
-    teams = fetch_all_teams(client, state_code)
+def analyze_state(teams, state_code, vocabulary):
+    """Analyze club names in a state; returns (fixes, team count, teams listed for review)."""
     if not teams:
-        return [], 0
+        return [], 0, []
 
     # Count club names
     club_counts = defaultdict(int)
@@ -817,6 +997,7 @@ def analyze_state(client, state_code):
             club_counts[club] += 1
 
     fixes = []
+    listed = []
     processed = set()
 
     # 0. Apply hard-coded canonical overrides (state-specific)
@@ -846,11 +1027,11 @@ def analyze_state(client, state_code):
 
     for lower, variants in by_lower.items():
         if len(variants) > 1:
-            # Pick majority, or proper case if tied
-            sorted_v = sorted(variants, key=lambda x: -club_counts[x])
-            winner = sorted_v[0]
-            # Apply proper case
-            winner = proper_case(winner)
+            winner = caps_winner(variants, club_counts, state_code, vocabulary)
+            if winner is None:
+                listed.extend((team, "partial_recase") for team in teams if team.get("club_name") in variants)
+                processed.update(variants)
+                continue
 
             for variant in variants:
                 if variant != winner:
@@ -890,7 +1071,7 @@ def analyze_state(client, state_code):
                     }
                 )
 
-    return fixes, len(teams)
+    return fixes, len(teams), listed
 
 
 def generate_sql(all_fixes):
@@ -918,16 +1099,19 @@ def generate_sql(all_fixes):
         for fix in sorted(state_fixes, key=lambda x: (-x["count"], x["from"])):
             from_esc = fix["from"].replace("'", "''")
             to_esc = fix["to"].replace("'", "''")
-            lines.append(f'-- [{fix["type"]}] "{fix["from"]}" → "{fix["to"]}" ({fix["count"]} teams)')
+            from_note = _COMMENT_BREAKS.sub(" ", fix["from"])
+            to_note = _COMMENT_BREAKS.sub(" ", fix["to"])
+            lines.append(f'-- [{fix["type"]}] "{from_note}" → "{to_note}" ({fix["count"]} teams)')
             if state == "__NO_STATE__":
                 lines.append(
                     f"UPDATE teams SET club_name = '{to_esc}' WHERE club_name = '{from_esc}' "
-                    "AND (state_code IS NULL OR state_code = '');"
+                    "AND (state_code IS NULL OR state_code = '') AND is_deprecated = false;"
                 )
             else:
+                state_esc = state.replace("'", "''")
                 lines.append(
                     f"UPDATE teams SET club_name = '{to_esc}' "
-                    f"WHERE club_name = '{from_esc}' AND state_code = '{state}';"
+                    f"WHERE club_name = '{from_esc}' AND state_code = '{state_esc}' AND is_deprecated = false;"
                 )
             lines.append("")
         lines.append("")
@@ -960,6 +1144,7 @@ def execute_fixes(client, all_fixes, dry_run=True):
                 client.table("teams")
                 .update({"club_name": fix["to"]})
                 .eq("club_name", fix["from"])
+                .eq("is_deprecated", False)
             )
             if fix["state"] is None:
                 # No-state-code teams: apply globally for this exact club_name
@@ -981,6 +1166,138 @@ def execute_fixes(client, all_fixes, dry_run=True):
     return applied, failed
 
 
+def overlay_fixes(teams, fixes):
+    """Copies of `teams` holding the club each has once `fixes` land in order, as execute_fixes applies them."""
+    overlaid = [dict(team) for team in teams]
+    by_state = defaultdict(list)
+    for team in overlaid:
+        by_state[team.get("state_code") or None].append(team)
+    for fix in fixes:
+        for team in by_state[fix["state"]]:
+            if team.get("club_name") == fix["from"]:
+                team["club_name"] = fix["to"]
+    return overlaid
+
+
+def has_age_or_gender_text(club):
+    return bool(_AGE_OR_GENDER.search(club))
+
+
+def trailing_tag(club):
+    """Split "Name (TAG)" into ("Name", "TAG"), or None when no bracketed tag ends the name."""
+    m = _TRAILING_TAG.match(club)
+    return (m.group(1), m.group(2)) if m else None
+
+
+def apply_provider_rules(teams, provider_codes, vocabulary):
+    """Decide the SincSports/PlayMetrics-only changes over overlaid teams; returns (changes, listed)."""
+    changes, listed = [], []
+    for team in teams:
+        provider = provider_codes.get(team.get("provider_id"))
+        club = team.get("club_name")
+        if provider not in PROVIDER_RULE_CODES or not club or club.lower() in _OVERRIDE_OUTPUTS_LOWER:
+            continue
+        if has_age_or_gender_text(club):
+            listed.append((team, "age_gender"))
+            continue
+
+        result, rules = club, []
+        tag = trailing_tag(club)
+        if tag:
+            head, code = tag
+            state = (team.get("state_code") or "").upper()
+            if not _TWO_LETTERS.fullmatch(code) or code.upper() not in US_STATE_CODES:
+                listed.append((team, "tag_other"))
+            elif code.upper() != state:
+                listed.append((team, "tag_mismatch"))
+            elif any(s == state and _matches_override(head, mt, pat) for s, mt, pat, _ in CLUB_CANONICAL_OVERRIDES):
+                listed.append((team, "tag_override"))
+            else:
+                result = head
+                rules.append("tag")
+
+        if looks_all_caps(result):
+            recased = proper_case(result, vocabulary)
+            if is_partial_recase(recased, vocabulary):
+                listed.append((team, "partial_recase"))
+            elif recased != result:
+                result = recased
+                rules.append("caps")
+
+        if result != club:
+            changes.append(
+                {
+                    "team_id_master": team["team_id_master"],
+                    "team_name": team.get("team_name"),
+                    "provider": provider,
+                    "state": team.get("state_code"),
+                    "before": club,
+                    "after": result,
+                    "rule": "+".join(rules),
+                }
+            )
+    return changes, listed
+
+
+def write_provider_changes(client, changes):
+    """Write each change only where the team is live and still holds the club the pass read."""
+    written = unmatched = failed = 0
+    for change in changes:
+        try:
+            result = (
+                client.table("teams")
+                .update({"club_name": change["after"]})
+                .eq("team_id_master", change["team_id_master"])
+                .eq("is_deprecated", False)
+                .eq("club_name", change["before"])
+                .execute()
+            )
+        except Exception as e:
+            failed += 1
+            print(f'  ❌ {change["team_id_master"]}: "{change["before"]}" → error: {e}')
+            continue
+        if result.data:
+            written += 1
+        else:
+            unmatched += 1
+    print(f"Provider rule writes: {written} written, {unmatched} no longer matched, {failed} failed")
+    return written, unmatched, failed
+
+
+def csv_safe(value):
+    """`value` with a leading quote when a spreadsheet would read it as a formula."""
+    if isinstance(value, str) and value[:1] in _FORMULA_PREFIXES:
+        return "'" + value
+    return value
+
+
+def _write_csv(path, fieldnames, rows):
+    """Write `rows`, defanging the provider text a spreadsheet would read as a formula."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(
+            {column: csv_safe(value) if column in _PROVIDER_TEXT_COLUMNS else value for column, value in row.items()}
+            for row in rows
+        )
+
+
+def get_supabase(require_service_role=False):
+    supabase_url = os.getenv("SUPABASE_URL")
+    service_role = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_SERVICE_KEY")
+    supabase_key = service_role or os.getenv("SUPABASE_KEY")
+    if not supabase_url or not supabase_key:
+        print("ERROR: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_KEY) must be set")
+        sys.exit(1)
+    if require_service_role and not service_role:
+        # anon holds the UPDATE grant but no UPDATE policy, so RLS filters every write to
+        # zero rows and PostgREST answers 200 with an empty body.
+        print("ERROR: --execute needs SUPABASE_SERVICE_ROLE_KEY or SUPABASE_SERVICE_KEY; the anon key writes nothing")
+        sys.exit(1)
+    return create_client(supabase_url, supabase_key)
+
+
 def main():
     import argparse
 
@@ -988,12 +1305,9 @@ def main():
     parser.add_argument("--execute", action="store_true", help="Apply fixes via Supabase (default: generate SQL only)")
     parser.add_argument("--dry-run", action="store_true", help="Show what would be fixed without applying")
     args = parser.parse_args()
+    execute = args.execute and not args.dry_run
 
-    if not SUPABASE_URL or not SUPABASE_KEY:
-        print("ERROR: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_KEY) must be set")
-        sys.exit(1)
-
-    client = create_client(SUPABASE_URL, SUPABASE_KEY)
+    client = get_supabase(require_service_role=execute)
 
     # Get all states (paginate to ensure we capture every state_code)
     print("Fetching states...")
@@ -1005,6 +1319,7 @@ def main():
             client.table("teams")
             .select("state_code")
             .eq("is_deprecated", False)
+            .order("team_id_master")
             .range(offset, offset + page_size - 1)
             .execute()
         )
@@ -1021,13 +1336,21 @@ def main():
     skip_note = f" (skipping {', '.join(sorted(SKIP_STATES))})" if SKIP_STATES else ""
     print(f"Processing {len(states)} states{skip_note}\n")
 
+    print("Fetching teams...")
+    teams_by_state = {state: fetch_all_teams(client, state) for state in states}
+    no_state_teams = fetch_no_state_teams(client)
+    every_team = no_state_teams + [team for state in states for team in teams_by_state[state]]
+    vocabulary = learn_vocabulary(team.get("club_name") for team in every_team)
+    provider_codes = fetch_provider_codes(client)
+
     all_fixes = []
+    listed = []
     summary = {}
 
-    # No-state pass: apply collision-safe canonical overrides to teams without
-    # a state_code so Step 2 (match_state_from_club) can hit canonical keys.
+    # No-state pass: apply collision-safe canonical overrides to teams with a NULL or
+    # empty state_code.
     print("Analyzing teams with no state_code...", end=" ")
-    no_state_fixes = analyze_no_state_teams(client)
+    no_state_fixes = analyze_no_state_teams(no_state_teams)
     if no_state_fixes:
         affected = sum(f["count"] for f in no_state_fixes)
         all_fixes.extend(no_state_fixes)
@@ -1044,8 +1367,9 @@ def main():
 
     for state in states:
         print(f"Analyzing {state}...", end=" ")
-        fixes, total = analyze_state(client, state)
+        fixes, total, state_listed = analyze_state(teams_by_state[state], state, vocabulary)
         all_fixes.extend(fixes)
+        listed.extend(state_listed)
 
         if fixes:
             affected = sum(f["count"] for f in fixes)
@@ -1064,9 +1388,9 @@ def main():
             print("clean")
 
     # Generate SQL (always, for audit trail)
-    output_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "club_name_fixes_male_all_states.sql")
+    output_path = SQL_OUTPUT_PATH
     sql = generate_sql(all_fixes)
-    with open(output_path, "w") as f:
+    with open(output_path, "w", encoding="utf-8") as f:
         f.write(sql)
 
     print(f"\n{'=' * 60}")
@@ -1096,10 +1420,50 @@ def main():
     print(f"\nSQL written to: {output_path}")
 
     # Execute if requested
-    if args.execute:
-        execute_fixes(client, all_fixes, dry_run=False)
+    fix_failures = provider_failures = 0
+    if execute:
+        _, fix_failures = execute_fixes(client, all_fixes, dry_run=False)
     elif args.dry_run:
         execute_fixes(client, all_fixes, dry_run=True)
+
+    # Provider pass: each write's predicate is the club the fixes above leave behind.
+    overlaid = overlay_fixes(every_team, all_fixes)
+    changes, provider_listed = apply_provider_rules(overlaid, provider_codes, vocabulary)
+    listed.extend(provider_listed)
+
+    changes.sort(key=lambda c: (c["provider"], c["state"] or "", c["before"], c["team_id_master"]))
+    review = sorted(
+        (
+            {
+                "team_id_master": team.get("team_id_master"),
+                "team_name": team.get("team_name"),
+                "provider": provider_codes.get(team.get("provider_id")),
+                "state": team.get("state_code"),
+                "club": team.get("club_name"),
+                "reason": reason,
+            }
+            for team, reason in listed
+        ),
+        key=lambda r: (r["reason"], r["provider"] or "", r["state"] or "", r["club"] or "", r["team_id_master"]),
+    )
+    _write_csv(
+        PROVIDER_CHANGES_PATH,
+        ["team_id_master", "team_name", "provider", "state", "before", "after", "rule"],
+        changes,
+    )
+    _write_csv(REVIEW_PATH, ["team_id_master", "team_name", "provider", "state", "club", "reason"], review)
+
+    tagged = sum(1 for c in changes if "tag" in c["rule"].split("+"))
+    recased = sum(1 for c in changes if "caps" in c["rule"].split("+"))
+    print(f"\nPROVIDER RULES: {len(changes)} changes ({tagged} tag + {recased} caps); {len(review)} listed for review")
+    print(f"Provider rule lists: {PROVIDER_CHANGES_PATH} and {REVIEW_PATH}")
+
+    if execute:
+        _, _, provider_failures = write_provider_changes(client, changes)
+
+    if fix_failures or provider_failures:
+        print(f"ERROR: {fix_failures} club name fixes and {provider_failures} provider rule writes failed")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
