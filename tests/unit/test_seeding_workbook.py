@@ -39,7 +39,7 @@ def test_workbook_has_editable_director_columns_and_literal_names():
     sheet = workbook["U10 Boys"]
     assert sheet["B7"].value == "=Formula-like name"
     assert sheet["B7"].data_type == "s"
-    assert sheet.freeze_panes == "A7"
+    assert sheet.freeze_panes == "D7"
     assert sheet.auto_filter.ref == "A6:K7"
     assert [sheet.cell(6, column).value for column in range(8, 12)] == [
         "Final division", "Pool", "Final seed", "Director notes"
@@ -65,3 +65,31 @@ def test_unassigned_gender_cohort_stays_distinct_from_girls():
     assert workbook.sheetnames == ["U10 Girls", "U10 Unspecified gender"]
     assert workbook.worksheets[1]["A2"].value == "U10 Unspecified gender · 1 accepted teams"
     assert workbook.worksheets[1]["B7"].value == "Review team"
+
+
+def test_cohort_notes_match_pdf_and_stay_outside_sortable_team_rows():
+    from src.tournaments.seeding_sheet import render_sheet_html
+
+    entrants = [TierEntrant(str(index), f"Team {index}", .8) for index in range(3)]
+    analysis = build_cheat_sheet_analysis(
+        entrants, {(a.entrant_id, b.entrant_id): _prediction(.1) for a, b in combinations(entrants, 2)},
+    )
+    cohort = CohortSheet("u10", "Female", tuple(
+        SheetTeam(item.team_name, "Club", .8, entrant_id=item.entrant_id) for item in entrants
+    ), (), analysis)
+    notes = {("u10", "Female"): "=Director note\nKeep these words intact."}
+    payload = build_seeding_workbook("Event", [cohort], generated_on="2026-09-19",
+                                     ranking_run="2026-09-19", operator_notes=notes)
+    validate_seeding_workbook(payload, ["U10 Girls"])
+    sheet = load_workbook(BytesIO(payload)).active
+    document = render_sheet_html("Event", [cohort], generated_on="2026-09-19",
+                                 ranking_run="2026-09-19", operator_notes=notes)
+    for note in (*analysis.notes, notes[("u10", "Female")]):
+        cell = next(cell for row in sheet for cell in row if cell.value == note)
+        assert cell.data_type == "s"
+        assert note in document
+        assert cell.row > 9
+        assert str(sheet.max_row) in str(sheet.print_area)
+    assert sheet.auto_filter.ref == "A6:K9"
+    assert "Seeded: 3" in sheet["A5"].value
+    assert all(sheet.cell(row, 11).value is None for row in range(7, 10))

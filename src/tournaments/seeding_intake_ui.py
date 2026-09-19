@@ -334,6 +334,7 @@ def render_seeding_pack(
     workbook = build_seeding_workbook(
         f"{event_name} · DRAFT — roster review needed" if draft else event_name,
         sheets, generated_on=pack["generated_at"][:10], ranking_run=pack.get("ratings_as_of") or "unknown",
+        operator_notes={tuple(key.split("|", 1)): value for key, value in pack.get("operator_notes", {}).items()},
     )
     validate_seeding_workbook(
         workbook,

@@ -182,6 +182,12 @@ def test_narrowing_cohorts_preserves_only_selected_notes_and_policy(operator):
     assert not app.error
     rebuilt = app.session_state["_seeding_pack"]
     assert rebuilt["operator_notes"] == {"u14|Male": "Boys placement notes"}
+    from io import BytesIO
+    from openpyxl import load_workbook
+    workbook = load_workbook(BytesIO(app.session_state["_seeding_xlsx"]))
+    values = [cell.value for row in workbook.active for cell in row]
+    assert "Boys placement notes" in values
+    assert "Girls placement notes" not in values
     assert rebuilt["policy"] == original["policy"]
     assert len(calls) == 2
     assert "Boys placement notes" in app.session_state["_seeding_sheet_html"]

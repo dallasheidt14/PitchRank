@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from io import BytesIO
-from typing import Sequence
+from typing import Mapping, Sequence
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -80,6 +80,7 @@ def _teams_for_sheet(sheet: CohortSheet) -> list[tuple[int | None, SheetTeam, st
 
 def build_seeding_workbook(
     event_name: str, sheets: Sequence[CohortSheet], *, generated_on: str, ranking_run: str,
+    operator_notes: Mapping[tuple[str, str], str] | None = None,
 ) -> bytes:
     """Create one filterable, editable worksheet per selected cohort."""
     workbook = Workbook()
@@ -87,7 +88,7 @@ def build_seeding_workbook(
     for sheet_number, (cohort, title) in enumerate(zip(sheets, workbook_sheet_titles(sheets)), 1):
         sheet = workbook.create_sheet(title)
         sheet.sheet_view.showGridLines = False
-        sheet.freeze_panes = "A7"
+        sheet.freeze_panes = "D7"
         sheet.merge_cells("A1:K1")
         _set_text(sheet["A1"], _safe_text(event_name))
         sheet["A1"].font = Font(name="Arial", size=18, bold=True, color="FFFFFF")
@@ -104,6 +105,13 @@ def build_seeding_workbook(
         sheet.merge_cells("A4:K4")
         sheet["A4"] = f"Ratings as of {ranking_run} · Generated {generated_on}"
         sheet["A4"].font = Font(color=MUTED, size=9)
+        team_rows = _teams_for_sheet(cohort)
+        sheet.merge_cells("A5:K5")
+        sheet["A5"] = " · ".join(
+            f"{label}: {sum(status == label for _, _, _, status in team_rows)}"
+            for label in ("Seeded", "Not found in PitchRank", "No current rating", "Data review required")
+        )
+        sheet["A5"].font = Font(color=MUTED, size=9)
         headers = [
             "Suggested seed", "Team name", "Club", "PitchRank score", "State rank", "Strength marker",
             "Placement status", "Final division", "Pool", "Final seed", "Director notes",
@@ -114,7 +122,7 @@ def build_seeding_workbook(
             cell.fill = PatternFill("solid", fgColor=FOREST_DEEP)
             cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
             cell.border = Border(bottom=Side(style="thin", color=YELLOW))
-        for row_index, (seed, team, marker, status) in enumerate(_teams_for_sheet(cohort), 7):
+        for row_index, (seed, team, marker, status) in enumerate(team_rows, 7):
             values = [
                 seed, _safe_text(team.team_name), _safe_text(team.club_name),
                 (team.power_score * 100 if team.power_score is not None else None),
@@ -140,7 +148,7 @@ def build_seeding_workbook(
             if row_index % 2 == 0:
                 for column in range(1, 8):
                     sheet.cell(row_index, column).fill = PatternFill("solid", fgColor=BAND)
-        end_row = max(6, 6 + len(_teams_for_sheet(cohort)))
+        end_row = max(6, 6 + len(team_rows))
         if end_row >= 7:
             table = Table(displayName=f"Cohort{sheet_number}", ref=f"A6:K{end_row}")
             table.tableStyleInfo = TableStyleInfo(
@@ -152,6 +160,22 @@ def build_seeding_workbook(
             )
             sheet.add_table(table)
             sheet.auto_filter.ref = f"A6:K{end_row}"
+        notes = list(getattr(cohort.tier_analysis, "notes", ()))
+        operator_note = (operator_notes or {}).get((cohort.age_group, cohort.gender), "").strip()
+        if operator_note:
+            notes.append(operator_note)
+        if notes:
+            end_row += 2
+            sheet.cell(end_row, 1, "Director notes").font = Font(bold=True, color=FOREST_DEEP)
+            for note in dict.fromkeys(notes):
+                end_row += 1
+                sheet.merge_cells(start_row=end_row, start_column=1, end_row=end_row, end_column=11)
+                cell = sheet.cell(end_row, 1)
+                _set_text(cell, _safe_text(note))
+                cell.alignment = Alignment(vertical="top", wrap_text=True)
+                sheet.row_dimensions[end_row].height = 15 * sum(
+                    max(1, (len(line) + 139) // 140) for line in note.splitlines()
+                )
         widths = [14, 32, 24, 15, 15, 20, 24, 18, 12, 14, 32]
         for column, width in enumerate(widths, 1):
             sheet.column_dimensions[get_column_letter(column)].width = width
@@ -177,5 +201,6 @@ def validate_seeding_workbook(payload: bytes, expected_sheets: Sequence[str]) ->
     if list(workbook.sheetnames) != list(expected_sheets):
         raise ValueError("Generated workbook sheets do not match the selected cohorts.")
     for sheet in workbook.worksheets:
-        if sheet.freeze_panes != "A7" or sheet.auto_filter.ref != f"A6:K{sheet.max_row}":
+        tables = list(sheet.tables.values())
+        if sheet.freeze_panes != "D7" or (tables and sheet.auto_filter.ref != tables[0].ref):
             raise ValueError(f"Workbook layout is incomplete for {sheet.title}.")
