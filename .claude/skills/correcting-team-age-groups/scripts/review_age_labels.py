@@ -309,14 +309,15 @@ def review(args) -> None:
             # A birth year in the name that the U-label's group cannot hold dates the label to an
             # earlier season: "2008 17U" and "08 (17U)" are both 2008 teams, U19 now, whatever
             # "17U" said. The Carolinas leagues write that year two digits, so read both spellings.
+            # Every year has to fit: in "2012 2015 U12" the 2015 fits while the 2012 rules it out.
             named = {int(y) if len(y) == 4 else 2000 + int(y) for y in NAME_YEAR.findall(name)}
-            year_fits = set().union(*(YEAR_FITS[y] for y in named if y in YEAR_FITS)) or set()
+            dated = any(key not in YEAR_FITS[y] for y in named if y in YEAR_FITS)
             rows.append({
                 "team_id": tid, "state": state, "provider": provider, "name": name, "club": t["club_name"] or "",
                 "gender": t["gender"], "stored": stored, "kind": kind, "key_age": key,
                 "gotsport_name": gs_name, "gotsport_age": gs_age,
                 "prior_fix": json.dumps(prior[tid]) if tid in prior else "",
-                "label_predates_year": kind == "ulabel" and bool(year_fits) and key not in year_fits,
+                "label_predates_year": kind == "ulabel" and dated,
             })
     log(t0, "scope", dict(scope), "| names disagreeing with stored:", len(rows), dict(Counter(r["kind"] for r in rows)))
 
