@@ -67,6 +67,10 @@ SIDES = (("home_team_master_id", "away_team_master_id"), ("away_team_master_id",
 TOKEN_SPLIT = re.compile(r"[\s\-_/|(),.\[\]']+")
 # "U-14" is one U-label; join it before the split turns it into "U" and a bare "14".
 HYPHEN_ULABEL = re.compile(r"(?i)(?<![a-z0-9])([bg]?u)-([0-9]{1,2})(?![0-9])")
+# A birth year standing alone in a name, in any spelling the leagues use: "2013", "13", "'13".
+# Read only to date a U-label, never to pick a group, so a squad number read as a year costs a
+# held row rather than a wrong one.
+NAME_YEAR = re.compile(r"(?<![0-9A-Za-z])'?((?:20)?[0-2][0-9])(?![0-9A-Za-z])")
 # "B10-12", "06/07/08": a multi-year squad, which a single-year reading gets wrong.
 YEAR_RANGE = re.compile(r"(?<![0-9])(?:20)?[0-2][0-9]\s*[-/]\s*(?:20)?[0-2][0-9](?![0-9])")
 GROUPS = {
@@ -75,6 +79,7 @@ GROUPS = {
     "band_off_2plus": "2",
     "band_aged_out": "2",
     "ulabel_confirmed": "3",
+    "ulabel_plays_up": "5",
     "year_outside": "4",
 }
 PLAN_FIELDS = [
@@ -301,11 +306,18 @@ def review(args) -> None:
                 kind, key = "year", "/".join(sorted(allowed, key=num))
         if kind:
             gs_name, gs_age = gotsport.get(tid, ("", ""))
+            # A birth year in the name that the U-label's group cannot hold dates the label to an
+            # earlier season: "2008 17U" and "08 (17U)" are both 2008 teams, U19 now, whatever
+            # "17U" said. The Carolinas leagues write that year two digits, so read both spellings.
+            # Every year has to fit: in "2012 2015 U12" the 2015 fits while the 2012 rules it out.
+            named = {int(y) if len(y) == 4 else 2000 + int(y) for y in NAME_YEAR.findall(name)}
+            dated = any(key not in YEAR_FITS[y] for y in named if y in YEAR_FITS)
             rows.append({
                 "team_id": tid, "state": state, "provider": provider, "name": name, "club": t["club_name"] or "",
                 "gender": t["gender"], "stored": stored, "kind": kind, "key_age": key,
                 "gotsport_name": gs_name, "gotsport_age": gs_age,
                 "prior_fix": json.dumps(prior[tid]) if tid in prior else "",
+                "label_predates_year": kind == "ulabel" and dated,
             })
     log(t0, "scope", dict(scope), "| names disagreeing with stored:", len(rows), dict(Counter(r["kind"] for r in rows)))
 
@@ -392,10 +404,22 @@ def review(args) -> None:
                 cat = "band_off_2plus"
             r["proposed"] = key
         elif kind == "ulabel":
+            # Opponents one group older than the label, with GotSport registering the label's group,
+            # is a team playing up, not an old name: the owner files it by its label. The league's
+            # own division, or a birth year in the name, can still show the label is out of date.
+            plays_up = (
+                backs_stored
+                and stored in ORDER and key in ORDER and ORDER.index(stored) == ORDER.index(key) + 1
+                and r["gotsport_age"] == key
+                and div_c[tid][stored] == 0  # any division read for the stored group, split or not
+                and not r["label_predates_year"]
+            )
             if names_third:
                 cat = "ulabel_evidence_names_third_group"
             elif backs_key and not backs_stored:
                 cat, r["proposed"] = "ulabel_confirmed", key
+            elif plays_up:
+                cat, r["proposed"] = "ulabel_plays_up", key
             elif backs_stored and not backs_key:
                 cat = "ulabel_stale_name"
             elif backs_key and backs_stored:
@@ -447,6 +471,7 @@ def review(args) -> None:
 
     out = Path(args.out or exports / f"age_label_review_{datetime.now():%Y%m%d_%H%M%S}.csv")
     fields = ["group", "cat", "team_id", "state", "provider", "name", "club", "gender", "stored", "proposed", "kind",
+              "label_predates_year",
               "key_age", "gotsport_name", "gotsport_age", "games_this_season", "div_says", "band_opps_say",
               "year_witness", "div_ages", "opp_bands", "ranked", "collision", "prior_fix"]
     with out.open("w", newline="", encoding="utf-8") as f:
@@ -456,7 +481,7 @@ def review(args) -> None:
 
     print(f"\nReview written: {out}\n")
     print("| Group | Teams | Ranked | To U9 or younger |\n|---|---|---|---|")
-    for g in "1234":
+    for g in "12345":
         grp = [r for r in rows if r["group"] == g]
         n_ranked = sum(bool(r["ranked"]) for r in grp)
         n_off_board = sum((num(r["proposed"]) or 99) <= 9 for r in grp)
@@ -468,12 +493,15 @@ def write_plan(args) -> None:
     wanted = {g.strip() for g in args.groups.split(",")}
     rows = [r for r in csv.DictReader(open(args.review, encoding="utf-8")) if r["group"] in wanted]
     tier = {"band": "A_own_name_band", "ulabel": "U_own_name_ulabel_opponent_confirmed", "year": "Y_single_year"}
+    # A play-up row's opponents point the other way; the tier must not claim they confirmed it.
+    tier_by_cat = {"ulabel_plays_up": "U_own_name_ulabel_plays_up"}
     plan = [{
         "state_code": r["state"], "team_id_master": r["team_id"], "team_name": r["name"], "club_name": r["club"],
         "gender": r["gender"], "gotsport_team_name": r["gotsport_name"],
         "band": r["key_age"] if r["kind"] == "band" else "",
         "old_age_group": r["stored"], "new_age_group": r["proposed"], "action": "would_update", "collision_with": "",
-        "evidence_tier": tier[r["kind"]], "fixture_verdict": f"review_group_{r['group']}_{r['cat']}",
+        "evidence_tier": tier_by_cat.get(r["cat"], tier[r["kind"]]),
+        "fixture_verdict": f"review_group_{r['group']}_{r['cat']}",
         "opp_games_proposed": "", "opp_games_current": "",
     } for r in rows]
     default = Path(args.review).with_name(f"fix_band_cohorts_plan_review_{datetime.now():%Y%m%d_%H%M%S}.csv")

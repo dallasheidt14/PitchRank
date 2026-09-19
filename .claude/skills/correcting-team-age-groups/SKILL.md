@@ -29,8 +29,8 @@ season-proof supplies the cohort actually written.
 | Division label on this season's games (`'14 (U12B)`) | Decides — the league's own statement for this season. Present mainly on league imports. |
 | Opponents' own names carrying a band, this season | Decides. Independent of every column, including ones this tool wrote. |
 | Opponents' own names carrying one birth year, this season | Separates two adjacent candidates: a year fits exactly two groups (2014 is U13 or U12), so it votes against a group it cannot be in. Season-proof but usually too thin to decide. |
-| A U-label in **our own** name (`U13`, `13U`) | Only as current as the season that wrote it, and often that was last season. Moves a team only when a season-proof signal above confirms it. |
-| GotSport's cohort saying **younger** than stored | Usually right where a band can check it (~99%). Not independent of a U-label: when GotSport's own name carries the same label, its cohort repeats it. |
+| A U-label in **our own** name (`U13`, `13U`) | Only as current as the season that wrote it, and often that was last season. Moves a team when a season-proof signal above confirms it, or on the play-up path below. |
+| GotSport's cohort saying **younger** than stored | Usually right where a band can check it (~99%). It cannot show a U-label is current: when GotSport's own name carries the same label, its cohort repeats it. On the play-up path it rules out the label being *ours alone*; the birth-year and division checks are what test the label's age. |
 | GotSport's cohort for a band-named team | GotSport files a band by its **older** year, so it agreeing with a stored value one group too old proves nothing. |
 | GotSport's cohort saying **older** than stored | Usually wrong — about two in three. Leave these alone. |
 | A single birth year in a name (`2014`) | Fits two groups. Moves a team only when the stored group is outside both. |
@@ -54,6 +54,8 @@ Quote these; do not extend them.
   actual age group correct."
 - 2026-09-19, the national review's answers, as recorded: Group 1 "Move all 4,395"; Group 2 "Move
   all 801"; Groups 3–4 "Only the 866 U-labels"; the 70 held teams "Leave them".
+- 2026-09-19, on a U-label team whose opponents are a group older: "Yea just because it's a u12
+  team and playing up that doesn't matter it's still a u12 team".
 - Every team the owner left as stored — the ones reviewed one by one and the 70 — is listed in
   [scripts/owner_decisions.json](scripts/owner_decisions.json), which the review skips.
 
@@ -86,7 +88,9 @@ Each rule below is enforced automatically, by a flag, or not at all. Know which.
   way.
 - **Opponents sit two or more groups from the name** — *automatic in the audit*:
   `held_opponents_far_from_name`. Mostly 09/10 teams in U19 leagues, two-year play-ups, and
-  numbers that are not birth years (`Columbus United 09/10 Boys` plays U11). Owner's call.
+  numbers that are not birth years (`Columbus United 09/10 Boys` plays U11). Owner's call. This
+  distance counts by group number, so a `U17` name stored `u19` lands here rather than on the
+  play-up path, U19 leagues being a group of their own.
 
 A correction landing on `u9` or younger is still a correction — the team leaves the boards
 because those cohorts are not ranked, and the rollover migration walks it back up to `u10` in
@@ -127,6 +131,7 @@ per group.
 | 2 | Band in our own name, stored younger, two or more groups off, or aged out |
 | 3 | U-label in our own name confirmed by a season-proof signal |
 | 4 | Single birth year that rules the stored group out; value from a season-proof signal, else GotSport's cohort when it is one of the year's two |
+| 5 | U-label in our own name, team playing one group up (`ulabel_plays_up`): opponents exactly one group older, GotSport registering the label's own group, no division read for the stored group, and no birth year in the name that the label's group cannot hold |
 
 The chart in the script is a literal table for one season, and the script refuses to run once
 the season has rolled; replace `CHART` and `CHART_SEASON` from CLAUDE.md's table.
@@ -142,7 +147,8 @@ have misled a blind run.
 
 One `AskUserQuestion` question per group, each naming real teams as examples with stored and
 proposed groups, the count, how many are ranked, and how many land on U9 or younger. Include the
-held-far rows as their own question.
+held-far rows as their own question. Keep group 5 its own question: its opponents point away from
+the move, so an answer covering it has to be given knowing that.
 
 ### Step 4: Write the plan, dry-run it, read the holds
 
