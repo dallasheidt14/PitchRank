@@ -508,6 +508,15 @@ def test_a_bracketed_word_takes_the_capitals_an_all_caps_variant_gives_it():
     }
 
 
+def test_ccv_stars_keeps_its_abbreviation_against_a_lowered_majority():
+    teams = [_team(f"t{i}", club, "AZ") for i, club in enumerate(["Ccv Stars"] * 3 + ["CCV STARS"])]
+    fixes, _, _ = analyze_state(teams, "AZ", VOCAB)
+    assert sorted((f["from"], f["to"], f["type"]) for f in fixes) == [
+        ("CCV STARS", "CCV Stars", "CANONICAL"),
+        ("Ccv Stars", "CCV Stars", "CANONICAL"),
+    ]
+
+
 def test_an_override_output_spelled_the_way_the_club_is_wins_its_group():
     fixes, _ = _caps_fixes("WI", *["FC Wisconsin"] * 3, "FC WISCONSIN")
     assert fixes == {("FC WISCONSIN", "FC Wisconsin")}

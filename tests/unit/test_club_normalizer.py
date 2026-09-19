@@ -189,6 +189,22 @@ class TestNormalizeToClub:
             ("Cedar Stars Academy", "CEDAR STARS ACADEMY"),
             ("Bavarian SC", "BAVARIAN UNITED"),
             ("Bavarian Soccer Club", "BAVARIAN UNITED"),
+            # Full spellings the owner confirmed as the registered club (2026-09-19)
+            ("Colorado Rapids Youth Soccer Club", "COLORADO RAPIDS"),
+            ("Kings Hammer Soccer Club", "KINGS HAMMER"),
+            ("Indy Eleven Academy", "INDY ELEVEN"),
+            ("Concorde Fire Soccer Club", "CONCORDE FIRE"),
+            ("Dallas Hornets Youth", "DALLAS HORNETS"),
+            ("Sacramento United Soccer Club", "SACRAMENTO UNITED"),
+            ("Seacoast United SC", "SEACOAST UNITED"),
+            ("Philadelphia Union Youth", "PHILADELPHIA UNION"),
+            ("Club Ohio Soccer", "CLUB OHIO"),
+            ("VENTURA COUNTY FUSION YOUTH SA", "VENTURA COUNTY FUSION"),
+            ("Ventura County Fusion YS", "VENTURA COUNTY FUSION"),
+            ("Vardar Soccer", "VARDAR SOCCER CLUB"),
+            ("FC Vardar", "VARDAR SOCCER CLUB"),
+            ("Ballistic United SC", "BALLISTIC UNITED"),
+            ("BALLISTIC UNITED SC (BUSC)", "BALLISTIC UNITED"),
         ],
     )
     def test_registered_name_is_an_exact_match(self, name, expected):
@@ -250,6 +266,11 @@ class TestNormalizeToClub:
             "Impact Futbol Club",
             # A name that only ends with a registered one
             "NY Hota Bavarian Soccer Club",
+            # Clubs the owner keeps apart from the similarly named registered club
+            "San Diego Surf",
+            "SD Surf",
+            "San Diego Surf Soccer Club",
+            "Orlando City Youth Soccer",
         ],
     )
     def test_shared_or_unregistered_name_is_not_canonical(self, name):

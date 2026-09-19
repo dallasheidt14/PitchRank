@@ -443,6 +443,7 @@ CLUB_CANONICAL_OVERRIDES = [
     # Arizona
     ("AZ", "exact", "ARIZONA ARSENAL", "Arizona Arsenal Soccer Club"),
     ("AZ", "exact", "brazas", "Brazas Futebol Club"),
+    ("AZ", "exact", "CCV Stars", "CCV Stars"),
     ("AZ", "exact", "fbsl tuzos", "FBSL"),
     ("AZ", "exact", "fc tucson youth sc", "FC Tucson Youth Soccer"),
     ("AZ", "exact", "Next Level Soccer AZ", "Next Level Soccer (AZ)"),
@@ -1034,7 +1035,7 @@ def analyze_state(teams, state_code, vocabulary):
                 continue
 
             for variant in variants:
-                if variant != winner:
+                if variant != winner and variant not in processed:
                     fixes.append(
                         {
                             "from": variant,
