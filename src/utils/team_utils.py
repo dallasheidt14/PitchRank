@@ -78,7 +78,7 @@ def extract_birth_year_from_name(team_name: str) -> Optional[int]:
 # keeps "U14/15 - 2011/2012" and "1-2016/2017" readable.
 _BAND_YEAR = r"[BbGgMmFf]?(?:20[0-9]{2}|[0-9]{2})[BbGgMmFf]?"
 _BAND_RUN_RE = re.compile(
-    r"(?<![0-9'Uu])(?<![Uu]-)(?<!\b[Uu]nder )"
+    r"(?<![0-9'Uu])(?<![Uu]-)(?<!\b[Uu][Nn][Dd][Ee][Rr] )"
     r"(?:[BbGgMmFf]?20[0-9]{2}"
     r"|(?<![0-9][/–-])(?<![0-9][/–-]\s)(?<![0-9]\s[/–-])(?<![0-9]\s[/–-]\s)[BbGgMmFf]?[0-9]{2})"
     rf"[BbGgMmFf]?(?:\s*[/\-–]\s*{_BAND_YEAR})++"

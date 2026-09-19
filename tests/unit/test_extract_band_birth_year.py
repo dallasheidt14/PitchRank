@@ -91,6 +91,7 @@ def test_a_gender_letter_on_both_years_is_still_a_band():
         "13/14U",
         "U-13/14",
         "Erie FC Under 14/15 Girls",
+        "ERIE FC UNDER 14/15 GIRLS",
         "GU18/19",
         "",
     ],
