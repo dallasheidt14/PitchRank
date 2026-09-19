@@ -246,10 +246,24 @@ A cohort's birth window runs Aug 1 - Jul 31 and so spans two calendar years,
 which is why TGS writes divisions like `U12G (AUG 1, 2014 - JULY 31, 2015)`.
 A band is named by its **younger** year: that division is U12 because
 `2026 - 2015 + 1 = 12`. Reading it from the leading year, 2014, gives U13 and is
-wrong. `normalize_team_names._resolve_band` and `scrape_tgs_event.extract_age_group`
-both take the younger year. The one parser that still takes the older year,
-`scripts/fix_team_age_groups.extract_birth_year`, is gated off in both of its
-callers by `AGE_DERIVATION_ENABLED` and says so in its own docstring.
+wrong. `normalize_team_names._resolve_band` takes the younger year for every
+spelling below. Three live parsers do not. `scripts/find_queue_matches.extract_age_group`
+reads the first year of a band as a lone birth year (`2013/2014` and `B13/14` come out
+U14), and it runs in the weekly unknown-opponent matching and the tournament event
+matcher. `scrape_tgs_event.extract_age_group` and
+`scrape_playmetrics_league.derive_team_age_group` get slash-separated four-digit pairs
+right but read a mixed pair like `2013/14` one age group too old. A fourth parser,
+`scripts/fix_team_age_groups.extract_birth_year`, also takes the older year but is
+gated off in both of its callers by `AGE_DERIVATION_ENABLED` and says so in its own
+docstring.
+
+**The label key.** Team names write the same band many ways, and every spelling names
+the same table row: `2013/2014`, `2013/14`, `13/14`, `14/13`, `2013-2014` and
+`B13/14` are all **U13**, and `2014/2015`, `2014/15` and `14/15` are all **U12**. Year
+order, two- or four-digit years, slash or hyphen, and an attached B/G change nothing.
+A U-label written this season is the same cohort again: `BU11`, `U11`, `15/16` and
+`2015/2016` are all **U11**. Look the pair up in the table. Which bracket a two-year
+squad registers in does not change what its label means.
 
 PitchRank deliberately files U18 into U19 rather than running a separate U18
 board, so 2009 resolves to `u19`. There are no `u18` teams and roughly 28K `u19`.

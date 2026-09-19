@@ -61,9 +61,10 @@ essentially every row created since the rollover, but where it is set it agrees 
 almost perfectly — on the order of fourteen disagreements across sixteen thousand rows. Use it when
 present; do not expect it.
 
-When age must be narrowed at all, accept the cohort either side of the believed one. For a two-year
-band token, both cohorts are legitimate — the split runs roughly three to one toward the younger
-year, so filtering to the younger alone discards about a fifth of true candidates.
+When age must be narrowed at all, accept the cohort either side of the believed one. A two-year
+band token names the younger year's cohort (the CLAUDE.md label key), but its true matches split
+roughly three to one toward that cohort, the rest filed one older, so filtering to the younger
+alone discards about a fifth of them.
 
 ## state_code and state
 
