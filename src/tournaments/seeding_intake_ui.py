@@ -71,6 +71,11 @@ def _persist_decisions(save: Callable[[], bool]) -> None:
     st.session_state["_seeding_pack_unsaved"] = not save()
 
 
+def _actionable_analysis_warnings(warnings: Sequence[str]) -> tuple[str, ...]:
+    """Keep only placement warnings that require an operator decision visible."""
+    return tuple(warning for warning in warnings if "exceeds the matchup limits" in warning)
+
+
 def _selected_cohorts(parsed: ParsedRoster, saved: dict[str, Any] | None) -> list[str]:
     choices = available_cohorts(parsed.rows)
     saved_selection = (saved or {}).get("selected_cohorts")
@@ -165,10 +170,17 @@ def _render_cohort_review(
     counts = " + ".join(str(len(tier.entrant_ids)) for tier in analysis.tiers)
     st.caption(f"{len(analysis.tiers)} tier(s): {counts or 'no rated group'} · "
                f"{len(analysis.review)} need placement review")
-    for warning in analysis.warnings:
+    actionable_warnings = _actionable_analysis_warnings(analysis.warnings)
+    for warning in actionable_warnings:
         st.warning(str(warning))
-    for boundary in analysis.boundaries:
-        st.caption(str(boundary))
+    diagnostic_warnings = [warning for warning in analysis.warnings if warning not in actionable_warnings]
+    if analysis.boundaries or diagnostic_warnings:
+        with st.expander("Analysis details", expanded=False):
+            st.caption("Strength analysis describes competitive differences; it does not assign divisions or pools.")
+            for boundary in analysis.boundaries:
+                st.caption(str(boundary))
+            for warning in diagnostic_warnings:
+                st.caption(str(warning))
     rows = []
     for tier in analysis.tiers:
         for entrant_id in tier.entrant_ids:

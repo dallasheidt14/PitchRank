@@ -63,6 +63,17 @@ def click(app, label):
     assert not app.exception
 
 
+def test_analysis_details_do_not_surface_non_actionable_diagnostics_as_warnings():
+    warnings = (
+        "Tier 2 has one team; there is no within-tier matchup to assess.",
+        "Tiers 3 and 5 have a strength-order exception: at least one lower-tier team is favored.",
+        "10/36 matchups have low outcome confidence. This can reflect closely matched teams.",
+        "Tier 1 exceeds the matchup limits: review the group.",
+    )
+
+    assert ui._actionable_analysis_warnings(warnings) == (warnings[-1],)
+
+
 def test_build_contains_all_cohorts_and_identity_edit_hides_old_export(operator):
     app, calls = operator
     assert not app.exception

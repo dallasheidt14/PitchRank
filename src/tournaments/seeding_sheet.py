@@ -473,22 +473,15 @@ def _director_guidance(analysis: TierAnalysis) -> list[str]:
         else:
             guidance.append(str(boundary))
     for warning in analysis.warnings:
-        if "there is no within-tier matchup to assess" in warning:
-            tier = warning.split(" has one team", 1)[0]
-            guidance.append(
-                f"{tier} has one team. Place it with the closest available group after considering "
-                "recent results or club input."
-            )
-        elif "low outcome confidence" in warning:
+        if (
+            "there is no within-tier matchup to assess" in warning
+            or "low outcome confidence" in warning
+            or "strength-order exception" in warning
+        ):
             # This diagnostic helps the operator inspect the model, but it does
             # not give a director a different placement action from the tiers.
             continue
-        elif "strength-order exception" in warning:
-            # Keep minor prediction/ranking reversals in the operator review.
-            # The customer action is already expressed by the tier line and
-            # any boundary option beside it.
-            continue
-        elif "exceeds the matchup limits" in warning:
+        if "exceeds the matchup limits" in warning:
             tier = warning.split(" exceeds", 1)[0]
             guidance.append(f"{tier} includes a potentially uneven matchup. Review that group before finalizing.")
         else:
