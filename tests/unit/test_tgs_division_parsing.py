@@ -132,13 +132,41 @@ def test_a_season_stamp_is_not_a_birth_year():
 
     The single-year branch counts every four-digit number in the string, so the
     2026 in "B2015 (2026-27)" made a one-cohort label look like two and the
-    flight was rejected before it was ever fetched. The band branch was never
-    affected: it reads an adjacent pair.
+    flight was rejected before it was ever fetched. The stamp is also a
+    consecutive pair, so it is stripped before the band reader too: an old one
+    ("2019-20") is old enough to read as a U7 band.
     """
     assert extract_age_group("B2015 (2026-27)") == "u12"
     assert extract_age_group("B2015 (2026-2027)") == "u12"
     assert extract_age_group("2015 Boys (2026-27)") == "u12"
     assert extract_age_group("B2016/2015 (2026-27)") == "u11"
+    assert extract_age_group("B2015 (2019-20)") == "u12"
+
+
+def test_a_parenthesized_slash_band_is_a_band_not_a_season_stamp():
+    assert extract_age_group("Boys (2013/2014)") == "u13"
+
+
+def test_a_band_is_read_from_its_younger_year_however_it_is_spelled():
+    """A mixed band must not reach the single-year branch, which sees only its
+    four-digit year ("2013" in "G2013/14") and lands one group too old; a
+    two-digit band ("B14/15") finds no year there at all."""
+    assert extract_age_group("G2013/14") == "u13"
+    assert extract_age_group("B2014/15") == "u12"
+    assert extract_age_group("B14/15") == "u12"
+    assert extract_age_group("2013-2014") == "u13"
+    assert extract_age_group("B2013/2014-White") == "u13"
+    assert extract_age_group("B2010-2011/U15-16") == "u16"
+
+
+def test_a_list_of_years_in_one_cohort_names_it():
+    """In G2009/2008/2007, 2009 is U18, which files into U19 with the other two."""
+    assert extract_age_group("G2009/2008/2007") == "u19"
+    assert extract_age_group("G2010/2009/2008") is None
+
+
+def test_a_spaced_u_age_range_is_not_a_band():
+    assert extract_age_group("U13 / 14 / 15") is None
 
 
 def test_two_real_cohorts_in_one_label_are_still_rejected():
