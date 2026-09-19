@@ -12,6 +12,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+import pytest
+
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -142,6 +144,48 @@ class TestExtractAgeGroupSeasonBoundary:
         assert extract_age_group("Dynamos SC 2016 SC", {}) == "u11"
 
 
+class TestExtractAgeGroupTwoYearBand:
+    """A band is named by its younger year: 2013/14 is u13 in 2026-27, never u14."""
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "Dynamos 2013/2014 SC",
+            "Dynamos 2013/14 SC",
+            "Dynamos 13/14 SC",
+            "Dynamos 14/13 SC",
+            "Dynamos 2013-2014 SC",
+            "Dynamos B13/14 SC",
+            "Dynamos G2013/14 SC",
+        ],
+    )
+    def test_every_spelling_reads_the_younger_year(self, name):
+        assert extract_age_group(name, {}, season_year=2026) == "u13"
+
+    def test_a_band_crosses_the_cutover_like_a_birth_year(self):
+        assert extract_age_group("Dynamos 2013/14 SC", {}, season_year=2025) == "u12"
+
+    def test_a_longer_run_of_years_falls_back_to_the_first_year(self):
+        assert extract_age_group("Dynamos 2014 / 2015 / 2016 SC", {}, season_year=2026) == "u13"
+
+    def test_a_stated_u_age_still_outranks_a_band(self):
+        assert extract_age_group("Stingers U17 07/08", {}, season_year=2026) == "u17"
+
+    def test_a_gender_attached_u_age_still_outranks_a_band(self):
+        assert extract_age_group("Stingers BU17 07/08", {}, season_year=2026) == "u17"
+
+    def test_a_season_written_into_the_name_does_not_stop_the_search(self):
+        # "22/23" is a season, too young for a band, so B08 still decides.
+        assert extract_age_group("Orange County B08 FC 22/23", {}, season_year=2026) == "u19"
+
+    @pytest.mark.parametrize("name", ["FC Example 2006/2007 Boys", "FC Example B06/07", "FC Example 2007/2006"])
+    def test_an_aged_out_band_is_unmatchable_rather_than_folded_into_u19(self, name):
+        # A lone 2007 folds into U19, but the band 2007/06 is the group above it, and a
+        # band that names no cohort must not fall through to the single-year rungs:
+        # "2007/2006" is the spelling where they would read 2007 first.
+        assert extract_age_group(name, {}, season_year=2026) == UNMATCHABLE_AGE_GROUP
+
+
 class TestExtractAgeGroupGenderAttachedUAge:
     """A gender letter touching the U-age must not hide the cohort.
 
@@ -179,8 +223,8 @@ class TestExtractAgeGroupGenderAttachedUAge:
         assert extract_age_group("Spokane Shadow - GU11 Pre GA", {}, season_year=2026) == "u11"
 
     def test_a_gender_letter_before_the_digit_then_u_form(self):
-        # Not a clean miss before: with the U-age hidden, Priority 2 read "g18" as
-        # birth year 2018 and returned u9, nine cohorts from the U18 stated here.
+        # With the U-age hidden, Priority 2b would read "g18" as birth year 2018 and
+        # return u9, nine cohorts from the U18 stated here.
         # u18 rather than u19 because this branch preserves U18 by design, as the
         # comment on Priority 1b records; the fold happens at persistence.
         assert extract_age_group("Mankato United Soccer Club G18U", {}, season_year=2026) == "u18"
@@ -191,10 +235,12 @@ class TestExtractAgeGroupGenderAttachedUAge:
     def test_the_digit_then_u_form_outranks_a_birth_year_band(self):
         # The trailing "u" is the whole difference between a cohort and a birth year,
         # so it has to be read before the band is.
-        assert extract_age_group("Kernow Storm FC Spot B2015/16 B11U Leonard", {}, season_year=2026) == "u11"
+        # The band must disagree with the U-age, or the fixture passes either way:
+        # B2014/15 names u12, B11U names u11.
+        assert extract_age_group("Kernow Storm FC Spot B2014/15 B11U Leonard", {}, season_year=2026) == "u11"
 
     def test_a_gender_prefixed_two_digit_year_is_still_a_birth_year(self):
-        # No trailing "u", so this stays with Priority 2: B14 is the 2014 birth year.
+        # No trailing "u", so this stays with Priority 2b: B14 is the 2014 birth year.
         assert extract_age_group("Dynamos B14 Red", {}, season_year=2026) == "u13"
 
     def test_a_digit_run_inside_a_word_is_not_a_digit_then_u_age(self):

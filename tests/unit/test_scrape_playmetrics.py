@@ -73,6 +73,15 @@ class TestDeriveTeamAgeGroup:
             # A two-year band is named by its younger year
             ("Neenah SC 2014/2015 Boys 11U Red Premier", "u10", "u11"),
             ("FC Chicago 2014-2015 Elite", "u10", "u11"),
+            # ...however it is spelled, never by the first year written
+            ("Club 2014/15 Red", "u10", "u11"),
+            ("Club 14/15 Red", "u10", "u11"),
+            ("Club G2014/15 Red", "u10", "u11"),
+            ("FC Academy-2013/2014 Boys", "u10", "u12"),
+            ("Eternal 2012/2013Black", "u10", "u13"),
+            # An aged-out band does not fall back to one of its own years: a lone
+            # 2006 would fold into u19, but the band 2006/05 is past it
+            ("Club 2006/2005 Red", "u10", "u10"),
             # A longer list and a non-consecutive pair name no single cohort, so
             # each falls through to the single-year lookup (its first year)
             ("CSC 2014/2015/2016 Boys", "u10", "u12"),

@@ -247,15 +247,12 @@ which is why TGS writes divisions like `U12G (AUG 1, 2014 - JULY 31, 2015)`.
 A band is named by its **younger** year: that division is U12 because
 `2026 - 2015 + 1 = 12`. Reading it from the leading year, 2014, gives U13 and is
 wrong. `normalize_team_names._resolve_band` takes the younger year for every
-spelling below. Three live parsers do not. `scripts/find_queue_matches.extract_age_group`
-reads the first year of a band as a lone birth year (`2013/2014` and `B13/14` come out
-U14), and it runs in the weekly unknown-opponent matching and the tournament event
-matcher. `scrape_tgs_event.extract_age_group` and
-`scrape_playmetrics_league.derive_team_age_group` get slash-separated four-digit pairs
-right but read a mixed pair like `2013/14` one age group too old. A fourth parser,
-`scripts/fix_team_age_groups.extract_birth_year`, also takes the older year but is
-gated off in both of its callers by `AGE_DERIVATION_ENABLED` and says so in its own
-docstring.
+spelling below, and so does `src/utils/team_utils.extract_band_birth_year`, which the
+queue matcher and the TGS and PlayMetrics parsers share. Convert a band's year with
+`calculate_age_group_from_band`, not `calculate_age_group_from_birth_year`, whose
+age-20 fold files the aged-out 2007/06 band as U19. The one age-group parser that takes
+the older year, `scripts/fix_team_age_groups.extract_birth_year`, is gated off in both
+of its callers by `AGE_DERIVATION_ENABLED` and says so in its own docstring.
 
 **The label key.** Team names write the same band many ways, and every spelling names
 the same table row: `2013/2014`, `2013/14`, `13/14`, `14/13`, `2013-2014` and

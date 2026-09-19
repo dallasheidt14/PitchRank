@@ -49,7 +49,7 @@ def extract_birth_year_from_name(team_name: str) -> Optional[int]:
         >>> extract_birth_year_from_name("ILLINOIS MAGIC FC 2014")
         2014
         >>> extract_birth_year_from_name("FC Chicago 2013-2014 Elite")
-        2013  # Returns first match
+        2013  # the first year; read a two-year band with extract_band_birth_year
         >>> extract_birth_year_from_name("Chicago Fire Academy")
         None
     """
@@ -64,6 +64,70 @@ def extract_birth_year_from_name(team_name: str) -> Optional[int]:
         # Covers U7 to U20 for the current season
         if (CURRENT_YEAR - 20) <= year <= (CURRENT_YEAR - 6):
             return year
+    return None
+
+
+# A two-year band as team names write it: "2013/2014", "2013/14", "13/14", "B13/14",
+# "Academy-2013/2014", "2012/2013Black", "2013 - 2014". The run of joined years is
+# matched whole and possessively, so a longer list ("B2014/B2015/B2016U") is judged
+# as the list it is, never cut back to the band its first two years resemble.
+# The edges refuse only what would extend the run or make it a U-age range: a digit,
+# an apostrophe (the '11/'12 form is not read here), or a U ("U13/14", "13/14U",
+# "U-13/14", "Under 14/15"). A two-digit year may not start just after "digit,
+# separator", so "U13 / 14 / 15" cannot restart at 14; a four-digit one may, which
+# keeps "U14/15 - 2011/2012" and "1-2016/2017" readable.
+_BAND_YEAR = r"[BbGgMmFf]?(?:20[0-9]{2}|[0-9]{2})[BbGgMmFf]?"
+_BAND_RUN_RE = re.compile(
+    r"(?<![0-9'Uu])(?<![Uu]-)(?<!\b[Uu]nder )"
+    r"(?:[BbGgMmFf]?20[0-9]{2}"
+    r"|(?<![0-9][/–-])(?<![0-9][/–-]\s)(?<![0-9]\s[/–-])(?<![0-9]\s[/–-]\s)[BbGgMmFf]?[0-9]{2})"
+    rf"[BbGgMmFf]?(?:\s*[/\-–]\s*{_BAND_YEAR})++"
+    r"(?![0-9'Uu])"
+)
+# Restarts inside a crafted run can each rescan it to the end, so the scan is capped
+# well above the length of any real team or division name.
+_BAND_SCAN_LIMIT = 200
+
+
+def extract_band_birth_year(team_name: str, current_year: Optional[int] = None) -> Optional[int]:
+    """Younger birth year of the first two-year band in a team name, or None.
+
+    A band is named by its younger year, however it is spelled: "2013/2014",
+    "2013/14", "14/13" and "B13/14" all return 2014. Only a run of exactly two
+    consecutive years is a band. A pair younger than U7 is a season written into
+    the name ("2025-26", "22/23") and is passed over for a later band.
+
+    The year comes back even when its band has aged out or is too young to board,
+    so a caller that found a band converts it with calculate_age_group_from_band
+    instead of falling back to a single year read from the same name.
+
+    Examples:
+        >>> extract_band_birth_year("FC Chicago 2013/14 Elite")
+        2014
+        >>> extract_band_birth_year("CSC 2014 / 2015 / 2016 Boys")
+        None
+    """
+    if not team_name or len(team_name) > _BAND_SCAN_LIMIT:
+        return None
+    season = CURRENT_YEAR if current_year is None else current_year
+    for run in _BAND_RUN_RE.finditer(team_name):
+        years = [int(y) if len(y) == 4 else 2000 + int(y) for y in re.findall(r"20[0-9]{2}|[0-9]{2}", run.group(0))]
+        if len(years) == 2 and abs(years[0] - years[1]) == 1 and max(years) <= season - 6:
+            return max(years)
+    return None
+
+
+def calculate_age_group_from_band(younger_year: int, current_year: Optional[int] = None) -> Optional[str]:
+    """Age group a two-year band names, from its younger year: 2014 -> "U13" in 2026-27.
+
+    calculate_age_group_from_birth_year without its age-20 fold. A lone 2007 is U19,
+    because U19 (2008/07) is the only band containing it, but the BAND 2007/06 is
+    the group above U19 and has aged out.
+    """
+    season = CURRENT_YEAR if current_year is None else current_year
+    age = season - younger_year + 1
+    if 7 <= age <= 19:
+        return "U19" if age == 18 else f"U{age}"
     return None
 
 

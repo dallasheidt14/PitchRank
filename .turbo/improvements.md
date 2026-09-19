@@ -1237,8 +1237,8 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Status**: open
 - **Type**: direct
 - **Category**: reliability
-- **Where**: `scripts/normalize_team_names.py` `_resolve_band` (its two-digit alternation)
-- **Why**: Verified against `main` 2026-09-16: `_resolve_band("BRAUSA '11/'12 Blue")` returns `None` while `_resolve_band("BRAUSA 11/12 Blue")` returns `U15`, and a single leading apostrophe (`"Club '11/12 Blue"`) is enough to lose it. A band is the one season-independent cohort fact in a name, so a name that carries one reads as carrying no cohort and no year at all. That silence is what let a wrong cohort write through on 2026-09-15: `BRAUSA '11/'12 Blue` was moved u16 -> u12 on GotSport's `U12 Girls (2014/15)` record, which is a different squad; it was caught by hand and reverted. Accepting `'` before either year in the existing pattern is the whole fix.
+- **Where**: `scripts/normalize_team_names.py` `_resolve_band` (its two-digit alternation); `src/utils/team_utils.py` `_BAND_RUN_RE`
+- **Why**: Verified against `main` 2026-09-16: `_resolve_band("BRAUSA '11/'12 Blue")` returns `None` while `_resolve_band("BRAUSA 11/12 Blue")` returns `U15`, and a single leading apostrophe (`"Club '11/12 Blue"`) is enough to lose it. A band is the one season-independent cohort fact in a name, so a name that carries one reads as carrying no cohort and no year at all. That silence is what let a wrong cohort write through on 2026-09-15: `BRAUSA '11/'12 Blue` was moved u16 -> u12 on GotSport's `U12 Girls (2014/15)` record, which is a different squad; it was caught by hand and reverted. `extract_band_birth_year` refuses both apostrophe forms the same way, so the queue matcher, TGS and PlayMetrics lose the band too. Accepting `'` before either year in both patterns is the whole fix.
 - **Noted**: 2026-09-16
 
 ### Merge the duplicate teams a cohort correction cannot move
@@ -1425,3 +1425,13 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `scripts/exclude_english_teams.py` (`apply_snapshot`); `team_ranking_exclusions`
 - **Why**: `--execute` only inserts what is missing, so a row survives evidence that arrives after it was written: a later GotSport probe confirming the team as US, or a fresh snapshot that no longer reaches it, changes nothing, and the team stays unranked with nobody told. Merge expansion compounds it in the other direction -- an exclusion transfers to whatever team absorbs a listed one, so a wrong merge can suppress a US survivor's whole record without a new row being written. Wanted: a report of listed teams whose current evidence disagrees with the reason they were listed, covering both shapes, and a recorded basis for rows admitted by the game graph alone rather than by a provider answer. Deleting a row already restores the team at the next run, so this is about noticing, not about mechanism. Raised by a design review of PR #1168 on 2026-09-17.
 - **Noted**: 2026-09-17
+
+### Let the team-name normalizer read bands through extract_band_birth_year
+
+- **ID**: IMP-258
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `scripts/normalize_team_names.py` `_resolve_band` / `_BAND_RE`; `src/utils/team_utils.py` `extract_band_birth_year`
+- **Why**: The normalizer's band reader disagrees with the shared one. Verified 2026-09-18: `_resolve_band` reads a spaced three-year list by its first pair (`"CSC 2014 / 2015 / 2016 Boys"` -> `"CSC U12 / 2016 Boys"`), which the shared helper declines; reads nothing from a band touching a hyphen or word (`"FC Academy-2013/2014 Boys"`, `"Eternal 2012/2013Black"`, `"Club 2013/2014-Red"`), which the shared helper reads; and files the aged-out 2007/06 band as U19 through `calculate_age_group_from_birth_year`'s age-20 fold (`"Team 2007/2006"` -> `"Team U19"`), where the shared path assigns no cohort. The normalizer rewrites stored team names weekly, so converging changes stored names: take a dry-run rename diff before shipping.
+- **Noted**: 2026-09-18
