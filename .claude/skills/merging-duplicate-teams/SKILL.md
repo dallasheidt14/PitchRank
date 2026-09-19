@@ -376,7 +376,7 @@ distinct clubs *and* both games belong to the rows in front of you.
 Read each row's registered name in `teams.team_name_original` as well, since a renamed row can
 carry another squad's identity: the row now called `Warriors BU11 Attack` was registered
 `Warriors Sports Academy - Little Warriors B16 Bravo Blue`, and Bravo and Attack are two squads
-that played the same weekends. Query the column directly — `decisions.json`'s
+that played the same weekends. Query the column directly: the decisions file's
 `merge_name_original` / `keep_name_original` fall back to `team_name` when it is NULL, which it
 is on 97,862 live rows, because it is stashed only on a row's first rewrite.
 
