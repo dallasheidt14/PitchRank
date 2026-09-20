@@ -14,7 +14,7 @@ PitchRank provides the most accurate youth soccer rankings in the United States,
 *State-specific guides are listed under State Pillars below.*
 
 - [What Is ECNL? The Acronym, Tiers and Pathway Explained](https://www.pitchrank.io/blog/what-is-ecnl): ECNL stands for Elite Clubs National League. Here is what the acronym means, how its three tiers fit together, and how clubs actually move between them.
-- [National 1 League vs ECNL: Which Is Higher, and Where NPL Went](https://www.pitchrank.io/blog/ecnl-vs-npl): The ECNL sits above the National 1 League, and the two are integrated: high-performing National 1 clubs are promoted into the ECNL Regional League. Here is how they compare, and what happened to NPL.
+- [National 1 League vs ECNL: Which Is Higher, and Where NPL Went](https://www.pitchrank.io/blog/ecnl-vs-npl): The ECNL sits above the National 1 League, and the two are integrated: high-performing National 1 clubs are eligible for promotion into the ECNL Regional League. Here is how they compare, and what happened to NPL.
 - [ECNL vs MLS NEXT: How the Two Platforms Differ](https://www.pitchrank.io/blog/ecnl-vs-mls-next): Different operators, different entry routes, different postseasons. A plain-English structural comparison of the two national youth platforms — no verdict, just facts.
 - [Best U11 Soccer Teams: This Week's Rankings](https://www.pitchrank.io/blog/2026-07-07-best-u11-soccer-teams): Best U11 soccer teams this week. Rankings for 86,310 teams updated every Monday.
 - [Best U13 Soccer Teams: This Week's Rankings](https://www.pitchrank.io/blog/2026-06-29-best-u13-soccer-teams): Best U13 soccer teams this week. Rankings for 87,973 teams updated every Monday.
