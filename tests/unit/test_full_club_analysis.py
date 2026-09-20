@@ -41,6 +41,7 @@ from scripts.full_club_analysis import (
     proper_case,
     write_provider_changes,
 )
+from scripts.repair_swapped_club_names import lowered_abbreviation
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = PROJECT_ROOT / ".github" / "workflows" / "update-missing-club-and-state.yml"
@@ -318,6 +319,48 @@ def test_the_double_treats_null_the_way_postgrest_does():
 )
 def test_the_re_case_never_lowers_an_abbreviation(name, expected):
     assert proper_case(name, VOCAB) == expected
+
+
+# Words the re-case would title-case on sight: ordinary enough that neither ACRONYMS nor
+# looks_like_acronym protects them. Built from the fixture vocabulary rather than listed,
+# so a word added there is covered here too.
+RECASE_PRONE_WORDS = sorted(
+    word
+    for word in VOCAB.spellings
+    if len(word) >= 5 and word.upper() not in fca.ACRONYMS and not fca.looks_like_acronym(word.upper())
+)
+
+
+@pytest.mark.parametrize("word", RECASE_PRONE_WORDS)
+def test_the_re_case_makes_no_rename_the_repair_script_calls_damage(word):
+    """The weekly cleanup and the repair script have to agree about capitals.
+
+    The repair script exists because this cleanup once re-cased names that were already
+    right, and it carries its own definition of that damage. Pinning the cleanup against
+    that definition catches a shape nobody enumerated, by whichever of the two scripts
+    defines it.
+
+    The names put the word in capitals inside an otherwise mixed-case name, which is the
+    shape that regressed: an all-caps name is the cleanup's job to re-case, and the
+    classifier excludes it for that reason, so only a mixed-case one can be damage.
+    """
+    for name in (
+        f"{word.upper()} United",
+        f"Homewood Soccer Club ({word.upper()})",
+        f"Flyte {word.upper()}-IE B10 Contreras",
+    ):
+        assert lowered_abbreviation(name, proper_case(name, VOCAB)) is None, name
+
+
+def test_the_recase_prone_corpus_is_not_empty():
+    """A corpus that shrank to nothing would leave the guard above passing forever."""
+    assert RECASE_PRONE_WORDS
+
+
+def test_the_damage_classifier_still_recognises_the_renames_it_was_written_for():
+    """Without this the guard above passes for a classifier that recognises nothing."""
+    assert lowered_abbreviation("JSC Soccer Club", "Jsc Soccer Club") == "word"
+    assert lowered_abbreviation("Homewood Soccer Club (AL)", "Homewood Soccer Club (al)") == "bracket"
 
 
 def test_an_all_caps_override_output_is_not_re_cased(monkeypatch):
