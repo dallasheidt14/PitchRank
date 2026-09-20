@@ -161,6 +161,32 @@ def test_main_review_shows_scores_without_internal_ids_or_close_labels(operator)
     assert "PDF and Excel" in app.text_area[0].label
 
 
+def test_placement_review_stays_internal_and_resets_when_director_notes_change(operator):
+    app, calls = operator
+    click(app, "Build seeding sheets")
+    pack = app.session_state["_seeding_pack"]
+    pack["teams"]["u14|Male"]["0"]["status"] = "Not Enough Ranked Games"
+    app.session_state["_seeding_assessment"] = {"coverage": "complete", "completed": True}
+    # The separate unmatched cohort has a completed not-found decision.
+    app.session_state["_seeding_overrides"] = {2: {"not_found": True}}
+    app.run()
+    assert not app.exception
+    assert "DRAFT" in app.session_state["_seeding_sheet_html"]
+    assert "Limited history" in app.session_state["_seeding_sheet_html"]
+    assert "Placement checks" not in app.session_state["_seeding_sheet_html"]
+    click(app, "Mark placement review complete")
+    assert "DRAFT" not in app.session_state["_seeding_sheet_html"]
+    reviewed = deepcopy(app.session_state["_seeding_pack"])
+    click(app, "Generate PDF pack")
+    app.text_area[0].set_value("Reviewed with the club.")
+    click(app, "Save director notes")
+    assert "_seeding_pdf" not in app.session_state
+    assert "DRAFT" in app.session_state["_seeding_sheet_html"]
+    assert any(button.label == "Mark placement review complete" for button in app.button)
+    assert app.session_state["_seeding_pack"]["placement_reviews"] == reviewed["placement_reviews"]
+    assert len(calls) == 1
+
+
 def test_legacy_analysis_reuses_predictions_and_preserves_notes(operator):
     app, calls = operator
     click(app, "Build seeding sheets")
@@ -173,7 +199,7 @@ def test_legacy_analysis_reuses_predictions_and_preserves_notes(operator):
     app.run()
     assert not app.exception and not app.error
     upgraded = app.session_state["_seeding_pack"]
-    assert upgraded["analysis_schema_version"] == 2
+    assert upgraded["analysis_schema_version"] == 3
     assert upgraded["predictions"] == pack["predictions"]
     assert upgraded["generated_at"] == pack["generated_at"]
     assert upgraded["operator_notes"] == pack["operator_notes"]
@@ -289,12 +315,12 @@ def test_analysis_diagnostics_remain_collapsed_and_never_yellow(operator):
     click(app, "Build seeding sheets")
     details = next(item for item in app.expander if item.label == "Analysis details")
     assert not details.proto.expanded
-    assert any("Strength breaks require" in item.value for item in details.caption)
+    assert any("Score steps require" in item.value for item in details.caption)
     assert all(not any(text in item.value for text in (
         "has one team", "strength-order exception", "low outcome confidence",
     )) for item in app.warning)
     assert "Analysis details" not in app.session_state["_seeding_sheet_html"]
-    assert "Strength breaks require" not in app.session_state["_seeding_sheet_html"]
+    assert "Score steps require" not in app.session_state["_seeding_sheet_html"]
 
 
 def test_restored_snapshot_renders_without_loading_new_predictions(operator, monkeypatch):
@@ -384,7 +410,7 @@ def test_manual_unsafe_merge_warning_and_notes_reach_the_sheet_and_restore_clear
     assert "_seeding_pdf" not in app.session_state
 
 
-@pytest.mark.parametrize("analysis_version", [1, 2])
+@pytest.mark.parametrize("analysis_version", [1, 2, 3])
 def test_save_keeps_package_when_source_also_contains_younger_teams(operator, monkeypatch, analysis_version):
     import tournament_intake as intake
     from src.tournaments.roster_paste import ParsedRoster
@@ -421,7 +447,7 @@ def test_save_keeps_package_when_source_also_contains_younger_teams(operator, mo
     assert "_seeding_pack" not in fake.session_state
 
 
-@pytest.mark.parametrize("analysis_version", [1, 2])
+@pytest.mark.parametrize("analysis_version", [1, 2, 3])
 def test_unsupported_saved_note_remains_editable_after_export_failure(operator, analysis_version):
     app, calls = operator
     click(app, "Build seeding sheets")
@@ -438,7 +464,7 @@ def test_unsupported_saved_note_remains_editable_after_export_failure(operator, 
     click(app, "Save director notes")
     assert not app.error
     assert app.session_state["_seeding_pack"]["operator_notes"]["u14|Male"] == "Corrected note"
-    assert app.session_state["_seeding_pack"]["analysis_schema_version"] == 2
+    assert app.session_state["_seeding_pack"]["analysis_schema_version"] == 3
     assert "Corrected note" in app.session_state["_seeding_sheet_html"]
     assert "_seeding_xlsx" in app.session_state and len(calls) == 1
 

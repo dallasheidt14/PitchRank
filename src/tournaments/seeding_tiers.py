@@ -13,6 +13,7 @@ from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from itertools import combinations
+from statistics import median
 
 from src.tournaments.compare_predictor_bridge import ComparePrediction
 
@@ -23,6 +24,7 @@ class TierEntrant:
     team_name: str
     power_score: float | None = None
     review_reason: str | None = None
+    limited_history: bool = False
 
 
 @dataclass(frozen=True)
@@ -95,6 +97,15 @@ class CloseRange:
 
 
 @dataclass(frozen=True)
+class PlacementCheck:
+    """A material disagreement for the operator, never a director warning."""
+
+    upper_seed: int
+    lower_seed: int
+    lower_expected_advantage: float
+
+
+@dataclass(frozen=True)
 class CheatSheetAnalysis:
     """Format-neutral competitive reference for a cohort.
 
@@ -113,6 +124,8 @@ class CheatSheetAnalysis:
     diagnostics: tuple[str, ...]
     boundary_windows: tuple[BoundaryWindow, ...] = ()
     standouts: tuple[StrengthBreak, ...] = ()
+    limited_history: tuple[str, ...] = ()
+    placement_checks: tuple[PlacementCheck, ...] = ()
     tiers: tuple[TierGroup, ...] = ()
     borderline: Mapping[str, tuple[int, ...]] = field(default_factory=dict)
     boundaries: tuple[str, ...] = ()
@@ -121,7 +134,7 @@ class CheatSheetAnalysis:
     def marker_for_seed(self, seed: int) -> str:
         for item in self.breaks:
             if item.after_seed == seed:
-                return f"Strength gap between seeds {seed} and {seed + 1}."
+                return f"Score step: {item.score_gap * 100:.1f} points between seeds {seed} and {seed + 1}."
         return ""
 
 
@@ -418,8 +431,7 @@ def _separation_stats(
     average = math.fsum(margins) / len(margins) if margins else 0.0
     supported = bool(margins) and (
         favored / len(margins) >= 0.75
-        and risky / len(margins) >= 0.5
-        and average >= policy.max_expected_margin / 2
+        and average > 1e-8
     )
     return supported, average, favored, risky
 
@@ -449,6 +461,14 @@ def build_cheat_sheet_analysis(
 
     candidates: list[StrengthBreak] = []
     boundary_windows: list[BoundaryWindow] = []
+    score_gaps = [
+        (by_id[first].power_score or 0.0) - (by_id[second].power_score or 0.0)
+        for first, second in zip(ordered, ordered[1:])
+    ]
+    # A display heuristic for conspicuous score steps, not a fitted predictor
+    # threshold: at least two points and three times the other steps' median.
+    # Exclude the candidate so a large gap cannot set its own rejection threshold.
+    # Fixed-scale score bars still show gradual differences without forcing lines.
     for boundary in range(1, len(ordered)):
         window_results: list[tuple[int, bool, float, int, int]] = []
         for size in (3, 4, 5):
@@ -466,10 +486,11 @@ def build_cheat_sheet_analysis(
         if not window_results or not all(item[1] for item in window_results):
             continue
         averages = [item[2] for item in window_results]
-        score_gap = (
-            (by_id[ordered[boundary - 1]].power_score or 0.0)
-            - (by_id[ordered[boundary]].power_score or 0.0)
-        )
+        score_gap = score_gaps[boundary - 1]
+        other_gaps = score_gaps[:boundary - 1] + score_gaps[boundary:]
+        minimum_score_step = max(0.02, 3 * median(other_gaps)) if other_gaps else 0.02
+        if score_gap + 1e-12 < minimum_score_step:
+            continue
         candidates.append(StrengthBreak(
             after_seed=boundary,
             score_gap=score_gap,
@@ -529,13 +550,20 @@ def build_cheat_sheet_analysis(
     notes: list[str] = []
     for item in sorted(selected, key=break_priority)[:3]:
         if item.standout:
-            first, last = item.standout_start_seed, item.standout_end_seed
-            label = f"Seed {first}" if first == last else f"Seeds {first}–{last}"
-            verb = "stands" if first == last else "stand"
-            direction = "above" if first == 1 else "below"
-            notes.append(f"{label} {verb} apart competitively {direction} the remaining teams.")
+            notes.append(
+                f"Seed {item.after_seed} is {item.score_gap * 100:.1f} points above seed {item.after_seed + 1}."
+            )
         else:
-            notes.append(f"Strength gap between seeds {item.after_seed} and {item.after_seed + 1}.")
+            notes.append(
+                f"Score step: {item.score_gap * 100:.1f} points between seeds "
+                f"{item.after_seed} and {item.after_seed + 1}."
+            )
+
+    placement_checks = tuple(
+        PlacementCheck(upper + 1, lower + 1, -_margin(pairs, ordered[upper], ordered[lower]))
+        for upper in range(len(ordered)) for lower in range(upper + 1, len(ordered))
+        if _margin(pairs, ordered[upper], ordered[lower]) <= -1.0
+    )
 
     diagnostics: list[str] = []
     low_confidence = sum(pair.low_confidence for pair in pairs.values())
@@ -545,8 +573,11 @@ def build_cheat_sheet_analysis(
     if reversals:
         diagnostics.append(f"{reversals} matchup prediction(s) favor a lower published seed.")
     diagnostics.append(
-        "Strength breaks require the three-, four-, and five-team neighboring windows "
-        "that exist for this cohort to agree."
+        "Score steps require the greater of two points or three times the median "
+        "of the other adjacent gaps. "
+        "All available three-, four-, and five-team windows must favor the upper side "
+        "in at least 75% of pairings, with a positive average advantage. "
+        "These are display heuristics, not calibrated outcome guarantees."
     )
 
     return CheatSheetAnalysis(
@@ -559,6 +590,8 @@ def build_cheat_sheet_analysis(
         diagnostics=tuple(diagnostics),
         boundary_windows=tuple(boundary_windows),
         standouts=tuple(item for item in selected if item.standout),
+        limited_history=tuple(key for key in ordered if by_id[key].limited_history),
+        placement_checks=placement_checks,
         tiers=legacy.tiers if legacy else (),
         borderline=legacy.borderline if legacy else {},
         boundaries=legacy.boundaries if legacy else (),

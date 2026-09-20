@@ -26,7 +26,9 @@ from src.tournaments.seeding_pack import (
     cohort_label,
     has_snapshot_identity_conflict,
     make_pack,
+    needs_placement_review,
     pack_matches,
+    placement_review_fingerprint,
     prediction_request,
     snapshot_ratings,
     team_ids_by_row,
@@ -195,7 +197,7 @@ def _render_cohort_review(
             "PowerScore": row.score,
             "State rank": row.state_rank or "—",
             "Strength marker": row.observation,
-            "Placement status": row.placement_status,
+            "Placement status": row.display_status,
             "PitchRank match": row.team.pitchrank_team_name or "",
             "Roster context": " · ".join(row.roster_context),
         })
@@ -203,19 +205,56 @@ def _render_cohort_review(
         st.data_editor(
             pd.DataFrame(rows), hide_index=True, use_container_width=True,
             disabled=list(pd.DataFrame(rows).columns),
-            column_config={"PowerScore": st.column_config.NumberColumn(format="%.1f")},
+            column_config={"PowerScore": st.column_config.ProgressColumn(format="%.1f", min_value=0, max_value=100)},
             key=f"_seeding_cheat_sheet_editor_{key}",
         )
         _render_director_notes(key, pack, save)
+    _render_placement_checks(key, analysis, pack, roster_rows, save)
     if data_review:
         st.warning(f"{data_review} team(s) need identity or cohort review before delivery.")
 
 
+def _render_placement_checks(key, analysis, pack, roster_rows, save) -> None:
+    if not analysis.limited_history and not analysis.placement_checks:
+        return
+    pending = needs_placement_review(pack, key, analysis)
+    with st.expander("Placement checks — internal", expanded=pending):
+        st.caption(
+            "Review these placements using team identity, recent results or club context. "
+            "Seed order stays in published order. Add any delivery guidance to Director notes above."
+        )
+        seed_by_id = {entrant: seed for seed, entrant in enumerate(analysis.ordered_ids, 1)}
+        for entrant in analysis.limited_history:
+            st.write(f"Seed {seed_by_id[entrant]} · {roster_rows[entrant].registered_name}: limited ranked history.")
+        for check in analysis.placement_checks:
+            upper = roster_rows[analysis.ordered_ids[check.upper_seed - 1]].registered_name
+            lower = roster_rows[analysis.ordered_ids[check.lower_seed - 1]].registered_name
+            st.write(
+                f"Seed {check.lower_seed} · {lower} is favored by {check.lower_expected_advantage:.1f} expected "
+                f"goals against seed {check.upper_seed} · {upper}. Check the placement before delivery."
+            )
+        if pending:
+            st.caption("This pack remains a draft until these placements have been reviewed.")
+            if st.button("Mark placement review complete", key=f"_seeding_placement_review_{key}"):
+                reviews = pack.get("placement_reviews")
+                if not isinstance(reviews, dict):
+                    reviews = {}
+                pack["placement_reviews"] = {**reviews, key: placement_review_fingerprint(pack, key, analysis)}
+                st.session_state[_PACK_KEY] = pack
+                invalidate_seeding_exports()
+                _persist_decisions(save)
+                st.rerun()
+        else:
+            st.caption("Placement review complete for this evidence and these director notes.")
+
+
 def _render_analysis_details(selected: Sequence[str], analyses: Mapping, pack: dict[str, Any]) -> None:
     st.caption(
-        f"Strength breaks use the saved limits of {pack['policy']['max_expected_margin']:.2f} expected goals "
+        "Score steps use published scores plus the direction of nearby Compare predictions. "
+        f"The separate matchup diagnostics use limits of {pack['policy']['max_expected_margin']:.2f} expected goals "
         f"and {pack['policy']['max_blowout_probability']:.0%} four-goal risk. "
         "Passing these limits does not establish equal strength or interchangeable placement."
+        " Placement checks flag lower seeds favored by at least one expected goal; minor reversals stay here."
     )
     for key in selected:
         detail = analyses[tuple(key.split("|", 1))]
@@ -234,7 +273,7 @@ def _render_analysis_details(selected: Sequence[str], analyses: Mapping, pack: d
                 "Upper seeds": ", ".join(str(seed_by_id[value]) for value in item.upper_ids),
                 "Lower seeds": ", ".join(str(seed_by_id[value]) for value in item.lower_ids),
                 "Upper favored": item.favored_fraction, "Over limits": item.over_limit_fraction,
-                "Average advantage": item.average_expected_margin, "Supports break": item.supported,
+                "Average advantage": item.average_expected_margin, "Supports direction": item.supported,
             } for item in detail.boundary_windows]), hide_index=True)
         if detail.close_ranges:
             st.caption("Local ranges within analysis limits. Overlapping ranges do not form a larger group.")
@@ -295,6 +334,10 @@ def render_seeding_pack(
                     candidate["operator_notes"] = {
                         key: note for key, note in pack.get("operator_notes", {}).items() if key in selected
                     }
+                    if isinstance(pack.get("placement_reviews"), dict):
+                        candidate["placement_reviews"] = {
+                            key: value for key, value in pack["placement_reviews"].items() if key in selected
+                        }
                     candidate["legacy_manual_groups"] = dict(
                         pack.get("legacy_manual_groups", pack.get("manual_groups", {}))
                     )
@@ -306,7 +349,7 @@ def render_seeding_pack(
             message = str(exc).replace(str(SUPABASE_SERVICE_ROLE_KEY or "__no_secret__"), "[redacted]")
             st.error(f"Could not build seeding sheets: {message}")
 
-    if isinstance(pack, dict) and pack.get("schema_version") == 3 and pack.get("analysis_schema_version") == 1:
+    if isinstance(pack, dict) and pack.get("schema_version") == 3 and pack.get("analysis_schema_version") in (1, 2):
         try:
             pack = upgrade_pack_analysis(
                 pack, parsed.rows, resolved, overrides, selected, predictor_sha256=seeding_predictor_sha256(),
@@ -330,14 +373,20 @@ def render_seeding_pack(
                                completed=metadata.get("completed"))
     selected_indices = {row.source_index for row in selected_rows}
     uncertain = [row for row in parsed.rows if row.source_index in assessment.cohort_review]
+    pending_reviews = [
+        "|".join(key) for key, analysis in analyses.items()
+        if needs_placement_review(pack, "|".join(key), analysis)
+    ]
     draft = metadata.get("coverage") != "complete" or bool(assessment.attention & selected_indices) or any(
         could_belong(row, *key.split("|", 1)) for row in uncertain for key in selected
     ) or (current_pack and has_snapshot_identity_conflict(pack, selected)) or analysis_error is not None or any(
         status == "Data review required"
         for analysis in analyses.values() for status in analysis.placement_status.values()
-    )
+    ) or bool(pending_reviews)
     if draft:
-        st.info("Delivery status: draft. Confirm coverage, resolve matches and assign cohorts before sending.")
+        st.info("Delivery status: draft. Complete roster and placement checks before sending.")
+        if pending_reviews:
+            st.caption("Placement review pending: " + ", ".join(cohort_label(key) for key in pending_reviews))
     else:
         st.caption("Delivery status: roster assessed. Review seed order and director notes before sending.")
     st.download_button(
@@ -362,7 +411,7 @@ def render_seeding_pack(
     st.caption(f"Saved prediction snapshot: {pack['generated_at']} · "
                f"Ratings as of {pack.get('ratings_as_of') or 'unknown'}")
     identities = team_ids_by_row(parsed.rows, resolved, overrides)
-    title = f"{event_name} · DRAFT — roster review needed" if draft else event_name
+    title = f"{event_name} · DRAFT — review needed" if draft else event_name
     notes = {tuple(key.split("|", 1)): value for key, value in pack.get("operator_notes", {}).items()}
     try:
         sheets = build_cohort_sheets(

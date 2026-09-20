@@ -16,6 +16,8 @@ from src.tournaments.seeding_pack import (
     duplicate_identity_rows,
     make_pack,
     pack_matches,
+    needs_placement_review,
+    placement_review_fingerprint,
     prediction_request,
     roster_fingerprint,
     snapshot_ratings,
@@ -89,16 +91,17 @@ def test_cohorts_have_separate_age_gender_labels_and_numeric_order():
     assert cohort_label("u14|Male") == "U14 Boys"
 
 
-def test_saved_analysis_upgrade_preserves_prediction_and_operator_choices_without_mutation():
+@pytest.mark.parametrize("old_version", [1, 2])
+def test_saved_analysis_upgrade_preserves_prediction_and_operator_choices_without_mutation(old_version):
     old = _pack()
-    old["analysis_schema_version"] = 1
+    old["analysis_schema_version"] = old_version
     old["operator_notes"] = {"u12|Male": "Keep the director's exact note."}
     old["policy"]["max_expected_margin"] = 1.75
     old["legacy_manual_groups"] = {"u12|Male": [["0", "1"]]}
     before = deepcopy(old)
     upgraded = upgrade_pack_analysis(old, ROWS, RESOLVED, {}, ["u12|Male"], predictor_sha256="a" * 64)
     assert old == before
-    assert upgraded["analysis_schema_version"] == 2
+    assert upgraded["analysis_schema_version"] == 3
     assert {k: v for k, v in upgraded.items() if k != "analysis_schema_version"} == {
         k: v for k, v in old.items() if k != "analysis_schema_version"
     }
@@ -401,6 +404,35 @@ def test_valid_powerscore_without_a_published_rank_is_still_seeded():
     )[("u12", "Male")]
     assert "0" in result.ordered_ids
     assert "0" not in result.review
+    assert result.limited_history == ("0",)
+
+
+def test_placement_review_is_bound_to_evidence_order_and_notes_not_rebuild_timestamp():
+    pack = _pack(change_team={"status": "Not Enough Ranked Games"})
+    key = "u12|Male"
+    analysis = analyze_pack(pack, ROWS, RESOLVED, {})[("u12", "Male")]
+    assert needs_placement_review(pack, key, analysis)
+    pack["placement_reviews"] = {key: placement_review_fingerprint(pack, key, analysis)}
+    restored = json.loads(json.dumps(pack))
+    restored["generated_at"] = "2026-09-20T12:00:00Z"
+    assert not needs_placement_review(restored, key, analysis)
+    for change in ("score", "prediction", "notes", "version"):
+        altered = deepcopy(restored)
+        if change == "score":
+            altered["teams"][key]["0"]["power_score_final"] = .3
+        elif change == "prediction":
+            altered["predictions"][key][0]["expected_margin"] = 3.5
+        elif change == "notes":
+            altered["operator_notes"][key] = "Updated guidance"
+        else:
+            altered["placement_reviews"][key] = "old review fingerprint"
+        assert needs_placement_review(altered, key, analysis)
+
+
+def test_clean_cohort_does_not_require_placement_acknowledgment():
+    pack = _pack()
+    analysis = analyze_pack(pack, ROWS, RESOLVED, {})[("u12", "Male")]
+    assert not needs_placement_review(pack, "u12|Male", analysis)
 
 
 def test_inactive_ranking_is_named_clearly():
