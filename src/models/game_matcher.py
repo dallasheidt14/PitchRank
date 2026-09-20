@@ -455,6 +455,13 @@ class MatchResult:
     details: Dict[str, Any]
 
 
+# Tournament providers whose bracket play puts the same two teams on the pitch
+# twice in a day (pool game plus final or consolation). Each gives every match a
+# unique schedule_id; without it in the key, the rematch collapses into the first
+# game and its result is dropped.
+REMATCH_PROVIDERS = frozenset({"playmetrics_tournament", "athletes2events"})
+
+
 # Namespace for dry-run team ids. Fixed so a simulated team keeps one identity
 # across runs; private, so a derived id can never collide with a real uuid4 row.
 DRY_RUN_TEAM_NAMESPACE = uuid.UUID("6f2a1c94-3b7e-5d16-9c48-1e0b7a5d2f83")
@@ -741,13 +748,13 @@ class GameHistoryMatcher:
                 team1_id=home_provider_id,
                 team2_id=away_provider_id,
             )
-            # Bracket play in PlayMetrics tournaments routinely has the same two
-            # teams playing twice on one day (pool + final, or consolation). PM
-            # gives a unique schedule_id per match, so suffixing the game_uid
-            # with it disambiguates rematches that would otherwise collapse
-            # under the symmetric (provider, date, team1, team2) key. Mirrors
-            # Modular11's :age_group:division suffix at enhanced_pipeline.py:811.
-            if provider_code == "playmetrics_tournament" and game_data.get("schedule_id"):
+            # Bracket play in these tournaments routinely has the same two teams
+            # playing twice on one day (pool + final, or consolation). Each gives
+            # a unique schedule_id per match, so suffixing the game_uid with it
+            # disambiguates rematches that would otherwise collapse under the
+            # symmetric (provider, date, team1, team2) key. Mirrors Modular11's
+            # :age_group:division suffix in enhanced_pipeline._validate_and_dedup.
+            if provider_code in REMATCH_PROVIDERS and game_data.get("schedule_id"):
                 game_uid = f"{game_uid}:{game_data['schedule_id']}"
         else:
             game_uid = game_data.get("game_uid")

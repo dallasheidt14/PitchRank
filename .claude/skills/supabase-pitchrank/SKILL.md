@@ -197,6 +197,23 @@ select list pass every test while production raises `KeyError`, or reads `None` 
 The frontend's `filteringClientMock` (`frontend/test/supabase-mock.ts`) applies the filters it
 models but does not project columns either, so do not treat it as covering this.
 
+**A zero-row `.single()` raises; it does not come back empty.** PostgREST answers
+`APIError({"code": "PGRST116", ...})`, and that is the *normal* path for an existence check on a
+row that does not exist yet — which is why a provider matcher wraps its pre-create lookup in a
+try/except (`SoccerEventsGroupGameMatcher._create_new_soccereventsgroup_team`).
+
+Most doubles here model that correctly; **three do not**, and return `None` instead —
+the `_Query.execute` doubles in `tests/unit/test_soccereventsgroup_matcher.py` and
+`tests/unit/test_provider_matcher_dry_run.py`, and `tests/unit/test_alias_writer.py`.
+IMP-239 tracks consolidating them. The second of the three matters most: it is the double the
+dry-run guard uses for *every* autocreating matcher, so it is the widest hole, not the narrowest.
+
+Each is more permissive than production on exactly the path team creation takes, so an implementer
+who drops that try/except crashes on every new team carrying a provider id while the suite stays
+green. When copying a double for a matcher that creates teams, take the raising behaviour — from
+`tests/unit/test_playmetrics_matcher_row_state.py` or `tests/unit/test_athletes2events_matcher.py` — even when the rest of the double comes
+from elsewhere.
+
 ### Pagination (REQUIRED for large tables)
 ```python
 # PostgREST caps a response at max-rows: 200,000 on the hosted project (measured

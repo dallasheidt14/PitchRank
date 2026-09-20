@@ -60,6 +60,7 @@ _SUBCLASS_PATHS = [
     ("src.models.sincsports_matcher", "SincSportsGameMatcher"),
     ("src.models.modular11_matcher", "Modular11GameMatcher"),
     ("src.models.soccereventsgroup_matcher", "SoccerEventsGroupGameMatcher"),
+    ("src.models.athletes2events_matcher", "Athletes2EventsGameMatcher"),
 ]
 
 

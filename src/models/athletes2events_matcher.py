@@ -1,25 +1,28 @@
 """
-Soccer Events Group game matcher (soccereventsgroup.com, on the 3 Step Sports platform).
+Athletes2Events game matcher (athletes2events.com, one subdomain per host club).
 
-SEG registers every tournament team with a numeric team id, a home town and a state,
-so teams are linked once per event by a roster pass rather than discovered game by
-game.  That pass is the only thing that creates teams: the game import resolves SEG
-ids through the aliases it wrote, and a team still waiting in the review queue has
-no alias, so its games are held back upstream rather than matched here.
+Every team on the platform carries a numeric team id and a state, printed on its
+team page, so teams are linked once per event by a roster pass rather than
+discovered game by game.  That pass is the only thing that creates teams: the game
+import resolves Athletes2Events ids through the aliases it wrote, and a team still
+waiting in the review queue has no alias, so its games are held back upstream.
 
-- Candidates are scoped to the state SEG registered the team in, or to no state.
-- Names glue the gender letter onto the age ("U15G", "BU08", "14uG") and put the
-  age first ("U12G FC LAKE COUNTY 14/15 SELECT"); the shared club extractor reads
-  either as part of the club, so names are canonicalised before anything is read
-  from them.
-- Squads of one club are told apart by colour, direction, squad number, squad
-  code (N1, S2) and tier, read from the name with its club removed where the
-  name carries it.
-  ``extract_team_variant`` is not used: its coach-name fallback reads "ECNL-RL"
-  and the "/13" of "G2012/13" as coach names.
+The platform glues its squad marks onto the age, the birth year and the league
+tag, which the shared gates would otherwise read as part of one token:
+
+- ``ECNL2`` is ECNL squad 2, and ``ENCL`` is a misspelling of the same league.
+- ``RCL 1``, ``RCL-1`` and ``RCL1`` are one squad label.  RCL is a team-name
+  distinction here rather than a league, so it is read as a squad code.
+- A squad letter runs into the age (``B-U10B``, ``GU10A``) or the birth year
+  (``B15C``).  A standalone A-F letter is a squad mark too.
+
+``_presplit`` is handed to the shared gates rather than applied once, because the
+provider name, each database candidate name and the club split are canonicalised
+separately and all three must read the marks the same way.
 """
 
 import logging
+import re
 from typing import Dict, Optional, Set, Tuple
 
 from config.settings import MATCHING_CONFIG
@@ -30,10 +33,10 @@ from src.models.tournament_name_gates import (
     canonical_team_name,
     club_from_team_name,
     is_boys,
+    squad_marks,
     squads_conflict,
     without_club,
 )
-from src.models.tournament_name_gates import squad_marks as _shared_squad_marks
 from src.tournaments.alias_writer import REVIEW_QUEUE_CLAMP
 from src.utils.team_name_utils import resolve_distinction
 from src.utils.us_states import STATE_CODE_TO_NAME
@@ -41,25 +44,51 @@ from supabase import Client
 
 logger = logging.getLogger(__name__)
 
+_ENCL = re.compile(r"\bENCL\b", re.IGNORECASE)
+# ECNL and its squad number: "ECNL2", "ECNL-2" -> "ECNL 2".
+_ECNL_SQUAD = re.compile(r"\b(ECNL)[-\s]?(\d)\b", re.IGNORECASE)
+# RCL is a squad label, not a league: "RCL 1", "RCL-1", "RCL1" -> one token "RCL1".
+_RCL_SQUAD = re.compile(r"\bRCL[-\s]?(\d{1,2})\b", re.IGNORECASE)
+# A squad letter glued to the age (B-U10B, GU10A, BU9C) or to the birth year (B15C, G14B).
+_LETTER_ON_AGE = re.compile(r"\b[BG]?-?U-?(\d{1,2})([A-F])\b")
+_LETTER_ON_YEAR = re.compile(r"\b([BG]?(?:20)?\d{2})([A-F])\b")
+# The kit's split: a hyphen is left alone, since _presplit has already collapsed
+# the hyphenated squad labels this platform writes.
+_MARK_TOKENS = re.compile(r"[\s,()]+")
+_SQUAD_LETTER = re.compile(r"[A-F]")
+_RCL_LABEL = re.compile(r"RCL\d{1,2}", re.IGNORECASE)
+
 _REVIEW_SUPPRESSED_METHODS = frozenset({"fuzzy_low_confidence", "no_match"})
 
 
-def squad_marks(name: str, boys: bool = False) -> Dict:
-    """The shared squad marks read with the tournament tier set bound in.
+def _presplit(name: str) -> str:
+    """Split what this platform glues together, before anything is read from the name."""
+    text = _ENCL.sub("ECNL", name or "")
+    text = _ECNL_SQUAD.sub(r"\1 \2", text)
+    text = _RCL_SQUAD.sub(r"RCL\1", text)
+    text = _LETTER_ON_AGE.sub(r"U\1 \2", text)
+    return _LETTER_ON_YEAR.sub(r"\1 \2", text)
 
-    Binding it is not optional: the shared default carries none of
-    ``TOURNAMENT_TIER_TOKENS``, so a bare call would stop telling "GA Aspire"
-    from "GA".
+
+def _squad_marks(name: str, boys: bool = False) -> Dict:
+    """The shared squad marks plus this platform's own squad codes.
+
+    A standalone A-F letter and an ``RCL<n>`` label each name a squad, and neither
+    is a shape :func:`squad_marks` reads.
     """
-    return _shared_squad_marks(name, boys, tier_extra=TOURNAMENT_TIER_TOKENS)
+    marks = squad_marks(name, boys, tier_extra=TOURNAMENT_TIER_TOKENS, pre=_presplit)
+    tokens = _MARK_TOKENS.split(_presplit(name or ""))
+    labels = {f"squad-{token.lower()}" for token in tokens if _SQUAD_LETTER.fullmatch(token)}
+    labels |= {token.lower() for token in tokens if _RCL_LABEL.fullmatch(token)}
+    return {**marks, "squad_codes": marks["squad_codes"] | frozenset(labels)}
 
 
-class SoccerEventsGroupGameMatcher(GameHistoryMatcher):
-    """Gated fuzzy matching scoped to SEG's registered state; creates teams only when registering.
+class Athletes2EventsGameMatcher(GameHistoryMatcher):
+    """Gated fuzzy matching scoped to the team page's state; creates teams only when registering.
 
-    In ``registration_mode`` a team with no candidate is created under its SEG id,
-    while a 0.75-0.90 candidate (or a birth-year conflict) keeps its review row and
-    creates nothing.
+    In ``registration_mode`` a team with no candidate is created under its
+    Athletes2Events id, while a 0.75-0.90 candidate (or a birth-year conflict)
+    keeps its review row and creates nothing.
     """
 
     def __init__(
@@ -76,6 +105,10 @@ class SoccerEventsGroupGameMatcher(GameHistoryMatcher):
         # A later team of the event is never matched onto a team created this run: the
         # dry-run preview that decided what to create could not see it.
         self._created_this_run: Set[str] = set()
+        # The club as the team page wrote it, for the team being matched. ``_match_team``
+        # sets it and restores None afterwards: the base class calls ``_fuzzy_match_team``
+        # with the canonical club only, so the written form has to travel on the instance.
+        self._written_club: Optional[str] = None
 
     def _create_review_queue_entry(
         self,
@@ -103,7 +136,39 @@ class SoccerEventsGroupGameMatcher(GameHistoryMatcher):
         )
 
     def _normalize_team_name(self, name: str) -> str:
-        return super()._normalize_team_name(canonical_team_name(name))
+        return super()._normalize_team_name(canonical_team_name(name, _presplit))
+
+    def _match_by_provider_id(
+        self,
+        provider_id: str,
+        provider_team_id: str,
+        age_group: Optional[str] = None,
+        gender: Optional[str] = None,
+    ) -> Optional[Dict]:
+        """Resolve an alias without re-checking the age, as TGS and SincSports do.
+
+        An Athletes2Events team id names one team across the whole platform, so an
+        approved alias on it is unambiguous and the age adds nothing. Keeping the
+        base check costs real games: a team playing up carries its opponent's age on
+        the importer's row, the older side fails the check, and the game inserts with
+        that side NULL -- which the ranking engine then drops entirely, because it
+        selects only games with both master ids set. Modular11 keeps the check for
+        the opposite reason: its provider id is a club id reused across age groups.
+        """
+        return super()._match_by_provider_id(provider_id, provider_team_id, None, None)
+
+    def _without_club(self, name: str, club: Optional[str]) -> str:
+        """Drop the club from a name, as the team page writes it and as PitchRank stores it.
+
+        Both spellings have to go, and from both sides of the comparison. This host
+        writes "Crossfire Select", which PitchRank stores as "Crossfire Select Soccer
+        Club"; the stored form does not occur in either name, so stripping it alone
+        leaves "Select" behind — and "select" is a tier token. A stored row whose own
+        name omits the word then reads as a different tier and the right candidate is
+        rejected, while stripping only the written form inverts that onto the rows
+        whose names carry it.
+        """
+        return without_club(without_club(name, self._written_club), club)
 
     def _fetch_candidates(self, age_group: str, gender: str, state_code: str) -> list:
         rows: list = []
@@ -138,16 +203,16 @@ class SoccerEventsGroupGameMatcher(GameHistoryMatcher):
         """Club and squad gates, then score.
 
         Returns None without querying when no state is given: only the roster pass
-        supplies one, and a game import resolves SEG ids through aliases alone. A
-        failed query raises rather than reading as "no candidate", which would
-        create a duplicate.
+        supplies one, and a game import resolves Athletes2Events ids through aliases
+        alone. A failed query raises rather than reading as "no candidate", which
+        would create a duplicate.
         """
         if not state_code:
             return None
-        provider_team_name = canonical_team_name(team_name)
-        provider_club_name = club_name or club_from_team_name(team_name)
+        provider_team_name = canonical_team_name(team_name, _presplit)
+        provider_club_name = club_name or club_from_team_name(team_name, _presplit)
         boys = is_boys(gender)
-        provider_marks = squad_marks(without_club(provider_team_name, provider_club_name), boys)
+        provider_marks = _squad_marks(self._without_club(provider_team_name, provider_club_name), boys)
         provider_team = {
             "team_name": provider_team_name,
             "club_name": provider_club_name,
@@ -161,12 +226,12 @@ class SoccerEventsGroupGameMatcher(GameHistoryMatcher):
             if team["team_id_master"] in self._created_this_run:
                 continue
             candidate_name_raw = team.get("team_name") or ""
-            candidate_name = canonical_team_name(candidate_name_raw)
-            name_club = club_from_team_name(candidate_name_raw)
+            candidate_name = canonical_team_name(candidate_name_raw, _presplit)
+            name_club = club_from_team_name(candidate_name_raw, _presplit)
 
-            # A stored club_name is often the long form ("Chicago Fire Youth SC
-            # (CFYSC)") while the row's own team name says "CFYSC", so either may
-            # vouch for the club. A provider club neither agrees with declines: a
+            # A stored club_name is often the long form ("Crossfire Select Soccer
+            # Club") while the row's own team name says "XF", so either may vouch
+            # for the club. A provider club neither agrees with declines: a
             # duplicate is recoverable by merge, a wrong match is not.
             matched_club = None
             club_in_name = None
@@ -180,7 +245,8 @@ class SoccerEventsGroupGameMatcher(GameHistoryMatcher):
                 else:
                     continue
 
-            if squads_conflict(provider_marks, squad_marks(without_club(candidate_name, club_in_name), boys)):
+            candidate_marks = _squad_marks(self._without_club(candidate_name, club_in_name), boys)
+            if squads_conflict(provider_marks, candidate_marks):
                 continue
 
             candidate = {
@@ -223,12 +289,23 @@ class SoccerEventsGroupGameMatcher(GameHistoryMatcher):
         gender: Optional[str],
         club_name: Optional[str] = None,
         state_code: Optional[str] = None,
+        written_club: Optional[str] = None,
     ) -> Dict:
         """Adds ``created`` to every result, ``review`` to one left in the review queue, and
-        ``relinked`` to one whose team row already carried this SEG id and got its alias rewritten."""
-        base_result = super()._match_team(
-            provider_id, provider_team_id, team_name, age_group, gender, club_name, state_code=state_code
-        )
+        ``relinked`` to one whose team row already carried this Athletes2Events id.
+
+        ``written_club`` is the club as the team page spells it, where that differs
+        from the name PitchRank stores; the squad gates need both (see
+        :meth:`_without_club`). ``club_name`` stays the stored form, so it is what a
+        created team is filed under.
+        """
+        self._written_club = written_club
+        try:
+            base_result = super()._match_team(
+                provider_id, provider_team_id, team_name, age_group, gender, club_name, state_code=state_code
+            )
+        finally:
+            self._written_club = None
         if base_result.get("matched"):
             return {**base_result, "created": False}
         if base_result.get("method") == "fuzzy_review":
@@ -236,9 +313,9 @@ class SoccerEventsGroupGameMatcher(GameHistoryMatcher):
         if not (self.registration_mode and state_code and team_name and age_group and gender):
             return {**base_result, "created": False}
 
-        new_team_id, was_created = self._create_new_soccereventsgroup_team(
+        new_team_id, was_created = self._create_new_athletes2events_team(
             team_name=team_name,
-            club_name=club_name or club_from_team_name(team_name),
+            club_name=club_name or club_from_team_name(team_name, _presplit),
             age_group=age_group,
             gender=gender,
             provider_id=provider_id,
@@ -257,7 +334,7 @@ class SoccerEventsGroupGameMatcher(GameHistoryMatcher):
             gender=gender,
             review_status="approved",
         )
-        logger.info(f"[SEG] Created: {team_name} ({age_group}, {gender}, {state_code}) -> {new_team_id}")
+        logger.info(f"[A2E] Created: {team_name} ({age_group}, {gender}, {state_code}) -> {new_team_id}")
         return {
             "matched": True,
             "team_id": new_team_id,
@@ -267,42 +344,7 @@ class SoccerEventsGroupGameMatcher(GameHistoryMatcher):
             "relinked": not was_created,
         }
 
-    def queue_for_review(
-        self,
-        provider_id: str,
-        provider_team_id: str,
-        team_name: str,
-        age_group: str,
-        gender: str,
-        state_code: str,
-        reason: str,
-    ) -> Dict:
-        """Queue a registration for review with its best candidate, linking and creating nothing."""
-        suggestion = self._fuzzy_match_team(team_name, age_group, gender, state_code=state_code)
-        confidence = suggestion["confidence"] if suggestion else self.review_threshold
-        self._create_review_queue_entry(
-            provider_id=provider_id,
-            provider_team_id=provider_team_id,
-            provider_team_name=team_name,
-            suggested_master_team_id=suggestion["team_id"] if suggestion else None,
-            confidence_score=confidence,
-            match_details={
-                "age_group": age_group,
-                "gender": gender,
-                "club_name": None,
-                "match_method": "name_age_review",
-                "reason": reason,
-            },
-        )
-        return {
-            "matched": False,
-            "team_id": None,
-            "method": "name_age_review",
-            "confidence": confidence,
-            "review": True,
-        }
-
-    def _create_new_soccereventsgroup_team(
+    def _create_new_athletes2events_team(
         self,
         team_name: str,
         club_name: Optional[str],
@@ -312,7 +354,7 @@ class SoccerEventsGroupGameMatcher(GameHistoryMatcher):
         provider_team_id: Optional[str] = None,
         state_code: Optional[str] = None,
     ) -> Tuple[str, bool]:
-        """A team already carrying this SEG id is returned with ``was_created`` False, not inserted again."""
+        """A team already carrying this Athletes2Events id is returned with ``was_created`` False."""
         if provider_id and provider_team_id:
             try:
                 existing = (
@@ -326,6 +368,8 @@ class SoccerEventsGroupGameMatcher(GameHistoryMatcher):
                 if existing.data:
                     return existing.data["team_id_master"], False
             except Exception:
+                # PostgREST raises PGRST116 on a zero-row .single(), which is the
+                # normal path for a team this run has never seen.
                 pass
 
         team_id_master = self._new_team_id_master(provider_id, provider_team_id, team_name, age_group, gender)

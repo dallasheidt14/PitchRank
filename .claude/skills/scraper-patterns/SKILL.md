@@ -498,8 +498,9 @@ subdomain (`crossfire.`, `somsports.` for Surf Cup Sports, and some fifty more i
 logs, among them `arizonasurf.`, `utahsurf.`, `vegascup.`, `washingtonrush.`). The provider code
 `athletes2events` covers them all; the older `somsports` row predates it and holds no data. Pages
 are server-rendered HTML with a declared UTF-8 charset and answer `requests` sent with a browser
-User-Agent, no proxy and no bot challenge. There is no driver script yet: event 130 (Crossfire's
-2026 ZF Labor Day Challenge) was scraped and parsed by hand on 2026-09-18.
+User-Agent, no proxy and no bot challenge. `scripts/import_athletes2events_event.py` is the
+driver; it takes `--event-url` and reads the host from it, because one provider row covers every
+subdomain. Event 130 (Crossfire's 2026 ZF Labor Day Challenge) is the event it was built against.
 
 ### Pages and ids
 
@@ -516,8 +517,16 @@ Every page is `https://<host>.athletes2events.com/events/<event_id>/...`:
 - `schedules?team-id=<n>` — the team page, the only source of a team's state and coach. Its header
   reads `<Boys|Girls>-U<n> <team name> (<ST>) - Matches Team ID# <n> Coach: <name> Manager: <name>`
   (sometimes `Managers:`).
-- `details` (dates, entry deadline, fee per age group), `fields`, `scoring-rules`, `event-rules`
-  and `event-coaches`. The last lists attending college coaches with their emails; do not store it.
+- `details` — `Event Dates: From <Mon DD, YYYY> to <Mon DD, YYYY>`, `Entry Deadline: <Mon DD, YYYY>`,
+  and Boys/Girls fee tables that repeat each division's birth cutoff beside its price. Take the
+  event's season from the dates here: they give it outright, so nothing has to infer a season from
+  game dates. Take the per-division cutoffs from `groups` instead, which is fetched anyway for its
+  flight links and lists the divisions that actually *ran* — a fee table lists the divisions
+  *offered* at registration, and the two need not agree (they did at event 130, all 17, but a
+  division in `groups` and absent from the fee table would be silently dropped). The page carries
+  no team or flight links, so the roster still comes from the flight and team pages. The other
+  pages are `fields`, `scoring-rules`, `event-rules` and `event-coaches`. The last lists attending
+  college coaches with their emails; do not store it.
 
 Event ids and team ids are one platform-wide sequence, so a team id is unique without its
 subdomain. An event requested on the wrong subdomain redirects to that host's home page, which
@@ -572,13 +581,16 @@ The gates in Provider Matcher Name Parsing below apply. This platform glues squa
 
 ### Importing Athletes2Events games
 
-- `import_games_enhanced.py` has no athletes2events matcher and falls back to the base
-  `GameHistoryMatcher`, which `EnhancedETLPipeline` constructs without `dry_run` — so its
-  `--dry-run` can still write aliases and review rows. Write the team aliases first so every
-  game's teams resolve by id, and import only games whose two teams are both settled.
+- `EnhancedETLPipeline` selects `Athletes2EventsGameMatcher` and passes `dry_run`, so a
+  `--dry-run` import writes nothing. Before that branch existed the provider fell through to the
+  bare `GameHistoryMatcher`, constructed without `dry_run`, and a dry run still wrote aliases and
+  review rows. Write the team aliases first so every game's teams resolve by id, and import only
+  games whose two teams are both settled.
 - The importer validates both teams against one age group per game, so a game between teams of
   different stored ages — a team playing up — inserts half-matched (see Repairing a half-matched
-  game below). Hold those back.
+  game below). The driver holds those back and writes them to its own `*_cross_age.csv`, since
+  `off_board_links` compares each team only against its own division and never the two to each
+  other.
 
 ## Provider Matcher Name Parsing
 
@@ -614,6 +626,75 @@ To test matching against production without writes, construct the matcher with
 matching. Teams an earlier real run created then appear as existing candidates, so the
 replay's link counts overstate what a first run on a fresh event does.
 
+### Mirroring that matcher for a new provider
+
+Four things a first-draft port gets wrong. Symbols are named rather than line-numbered: the
+shared helpers moved out of the Soccer Events Group matcher on 2026-09-20 and every line
+anchor into that file went stale in the same commit.
+
+- **`_fetch_candidates` is on the subclass, not the base.** It is defined on
+  `SoccerEventsGroupGameMatcher` and called from its `_fuzzy_match_team`;
+  `GameHistoryMatcher` has no equivalent. A new matcher that inherits the base and mirrors only
+  the obvious overrides raises `AttributeError` the first time registration reaches candidate
+  matching.
+- **Never clamp `_calculate_match_score`.** That override adds `club_variant_match_boost` and
+  caps at `min(1.0, ...)`. `REVIEW_QUEUE_CLAMP` is 0.89 while `auto_approve_threshold` is 0.90
+  (`config/settings.py`, enforced in `GameHistoryMatcher._match_team`), so clamping ordinary
+  scores makes `fuzzy_auto` unreachable and turns every auto-link into a review. The clamp
+  belongs in `_create_review_queue_entry` and on the equal-rank tie path inside
+  `_fuzzy_match_team`, nowhere else.
+- **The shared name helpers live in `src/models/tournament_name_gates.py`**, which Soccer
+  Events Group and Athletes2Events both import: `canonical_team_name`, `club_from_team_name`,
+  `without_club`, `tier_tokens`, `is_boys`, `squad_marks` and `squads_conflict`. Two hooks keep
+  the providers apart — `pre`, a callable applied before anything is read from a name, and
+  `tier_extra`, the tiers the shared set omits. **Bind `tier_extra` explicitly.** Its default is
+  empty, and `TOURNAMENT_TIER_TOKENS` (`pre`, `aspire`, `ea`, `ad`, `hd`) is in neither
+  `squad_name_gates.TIER_TOKENS` nor that default, so a bare call stops telling "GA Aspire" from
+  "GA" and "Pre-ECNL" from "ECNL". Each matcher wraps the shared `squad_marks` in a local one
+  that binds it; emptying that binding flips 9 of the 16 parametrized tier cases in
+  `tests/unit/test_soccereventsgroup_matcher.py` (measured).
+  `scripts/import_soccereventsgroup_event.py` imports `canonical_team_name` from the matcher
+  module rather than from the gates module, so that re-export is load-bearing.
+- **A club the host writes under another name must be stripped from both sides.** Where the
+  driver expands a written club to the name PitchRank stores, the stored form does not occur in
+  either team name, so stripping it alone leaves the club's own words to read as squad marks —
+  "Crossfire Select" leaves `select`, a tier token, and every stored row whose name omits the
+  word is then refused. Stripping only the written form inverts the defect onto the rows that
+  carry it. `Athletes2EventsGameMatcher._without_club` strips both, and the driver carries the
+  written spelling on `TeamRow.club_as_written`.
+- **`squad_name_gates.py` is under `src/models/`**, not `src/utils/`.
+
+**Three hand-written test registries must gain the new matcher**, none of them derived, so omitting
+any one passes green while covering nothing: `AUTOCREATING_MATCHERS` in
+`tests/unit/test_provider_matcher_dry_run.py`; the separate `(provider, cls, create)` parametrize
+list on `test_autocreate_writes_nothing_in_dry_run` in that same file, which calls the named create
+helper with `dry_run=True` and asserts `insert` was never called; and `_SUBCLASS_PATHS` in
+`tests/unit/test_birth_year_guard_wiring.py`. A matcher that creates only from a roster pass must
+also join `REGISTRATION_MATCHERS` in the first of those files, or its identity tests run against a
+team it never creates and pass on `None`.
+
+And the matcher needs its own branch in `EnhancedETLPipeline._ensure_initialized`'s provider
+chain (`src/etl/enhanced_pipeline.py`): the `else` fallback constructs a bare `GameHistoryMatcher` **without** `dry_run`, so until
+that branch exists the provider's `--dry-run` import still writes aliases and review rows.
+
+### Carry two seasons, never one
+
+A per-event tournament provider needs both, and they are not interchangeable:
+
+- **Event season** — from the event's own start date (`import_soccereventsgroup_event.py:240-242`).
+  Used *only* to interpret labels: validating a division's birth cutoff against its U-age
+  (`division_birth_year`, `:245-268`) and reading a U-age in a team's name (`name_age_mismatch`,
+  `:283-296`).
+- **Board season** — `_soccer_season_year()` from the wall clock, used by `board_cohort`
+  (`:271-280`) to decide which board a birth year sits on *now*. `main` passes it at `:752`,
+  `build_roster` uses it at `:321`. Its docstring: "Boards move every Aug 1, so a team from an
+  earlier season's event is filed by its age now, not by the label it played under."
+
+Collapsing them files a historical event's teams onto a stale board, and base alias matching then
+rejects the mismatched stored age (`src/models/game_matcher.py:1002-1009`). This is the same point
+*Reading a Provider's Age Labels* makes below — a label does not carry its own season — applied to
+the two places the season is consumed.
+
 ### Resolving provider review items by hand
 
 - Link a team with an approved `team_alias_map` row: `match_method` "manual", or "direct_id"
@@ -636,6 +717,19 @@ game inserts with that side NULL. Other providers differ: the TGS, SincSports an
 matchers override `_match_by_provider_id` without the check.
 
 - Hold such games back before the import (`import_soccereventsgroup_event.off_board_links`).
+  **Read what that check actually covers.** It compares each *linked* team's stored age group and
+  gender against **its own** roster row's division values (`:475-497`), and skips `created`
+  outcomes entirely — which is not a harmless narrowing, because `LINKED_OUTCOMES` (`:140`) *does*
+  include `created`, so it declines to examine exactly the outcome the CSV builder will still emit
+  rows for. It never compares a game's two teams to each other. So it catches a link whose stored
+  board has drifted from its division, and it does **not** catch a correctly assigned U10 team
+  playing a correctly assigned U11 opponent — that pair passes cleanly, and `build_csv_rows` then
+  stamps the **home** team's age (`:648`) and gender (`:649`) onto both importer rows, inserting
+  the away side half-matched on either axis. A provider that must hold cross-age games back needs a
+  second, game-level check comparing both teams' boards before either row is emitted. The only
+  prior art is `src/models/modular11_matcher.py`, and it is a loose fit: it rejects the whole game
+  rather than holding it, and only once `abs(home_age - away_age) >= 2` (`:1875`), so the U10/U11
+  pair above passes that too. A one-year gap is caught nowhere.
 - To repair a stored one, re-point the alias to the team on the right board, then re-run the
   import with a `--days-back` that covers the game's date. The composite duplicate check
   (provider, both provider ids, date, both scores) finds the stored row, and
