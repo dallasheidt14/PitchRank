@@ -377,7 +377,7 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
     {
       question: 'How does Greater Boston compare to Western Massachusetts in rankings?',
       answer:
-        'Greater Boston and MetroWest concentrate most of the state’s ECNL and MLS NEXT teams, anchored by NEFC, FC Stars, Select, and FC Boston Bolts. Central and Western Massachusetts clubs like New England Surf, New England Force, and Western United Pioneers FC compete strongly at ECNL Regional and NPL levels. Use PitchRank’s state filter to compare clubs across regions.',
+        'Greater Boston and MetroWest concentrate most of the state’s ECNL and MLS NEXT teams, anchored by NEFC, FC Stars, Select, and FC Boston Bolts. Central and Western Massachusetts clubs like New England Surf, New England Force, and Western United Pioneers FC compete strongly at ECNL Regional and national-league levels. Use PitchRank’s state filter to compare clubs across regions.',
     },
   ],
 
@@ -522,7 +522,7 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
     {
       question: 'What youth soccer leagues operate in Nevada?',
       answer:
-        'Nevada has an unusually complete ladder for its size, almost all of it in Las Vegas: MLS NEXT through Albion SC Las Vegas, Las Vegas Sports Academy, Downtown Las Vegas SC and Players SC; ECNL and ECNL Regional League through Las Vegas Heat Surf SC; Girls Academy through Las Vegas Sports Academy and Albion; plus the National 1 League, EA and DPL. National-league play in Northern Nevada runs through Reno Apex and Sierra Surf.',
+        'Nevada has an unusually complete ladder for its size, almost all of it in Las Vegas: MLS NEXT through Albion SC Las Vegas, Las Vegas Sports Academy, Downtown Las Vegas SC and Players SC; ECNL and ECNL Regional League through Las Vegas Heat Surf SC; Girls Academy through Las Vegas Sports Academy and Albion; plus EA, DPL and national-league competition. National-league play in Northern Nevada runs through Reno Apex and Sierra Surf.',
     },
     {
       question: 'How do Las Vegas and Reno clubs compare in rankings?',
@@ -855,7 +855,7 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
     {
       question: 'Does PitchRank cover ECNL and MLS NEXT results in Virginia?',
       answer:
-        'Yes. PitchRank covers all major leagues and tournaments including ECNL, MLS NEXT, EDP, ECNL Regional, NPL, and state-level competitions through VYSA. All verified game results count toward rankings regardless of the league.',
+        'Yes. PitchRank covers all major leagues and tournaments including ECNL, MLS NEXT, EDP, ECNL Regional, the National 1 League, and state-level competitions through VYSA. All verified game results count toward rankings regardless of the league.',
     },
     {
       question: 'How do Northern Virginia and Hampton Roads clubs compare?',
