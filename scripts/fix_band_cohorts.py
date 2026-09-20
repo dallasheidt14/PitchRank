@@ -122,19 +122,61 @@ def norm_name(name: Optional[str]) -> str:
     return " ".join((name or "").lower().split())
 
 
+# Provider-written text that reaches a plan or apply CSV. These files exist to be opened
+# in a spreadsheet, which reads a leading =, +, -, @, tab or newline as a formula whatever
+# the quoting, so the value is escaped on the way out and unescaped on the way back in.
+TEXT_FIELDS = ("team_name", "club_name", "gotsport_team_name")
+_FORMULA_PREFIXES = frozenset({"=", "+", "-", "@", "\t", "\r", "\n"})
+
+
+def csv_safe(value: str) -> str:
+    """Prefix a formula-leading value with ``'`` so a spreadsheet renders it as text.
+
+    A value already opening with ``'`` is escaped too; without that the encoding is not
+    injective and the undo below could restore the wrong one of two values.
+    """
+    return "'" + value if value and (value[0] in _FORMULA_PREFIXES or value[0] == "'") else value
+
+
+def csv_unsafe(value: Optional[str]) -> str:
+    """Undo :func:`csv_safe`."""
+    text = value or ""
+    if len(text) >= 2 and text[0] == "'" and (text[1] in _FORMULA_PREFIXES or text[1] == "'"):
+        return text[1:]
+    return text
+
+
 def write_csv(rows: List[Dict], path: Path, fields: List[str]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
+    escaped = [
+        {k: csv_safe(v) if k in TEXT_FIELDS and isinstance(v, str) else v for k, v in row.items()}
+        for row in rows
+    ]
     with tmp.open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
         writer.writeheader()
-        writer.writerows(rows)
+        writer.writerows(escaped)
     tmp.replace(path)
 
 
 def read_csv(path: Path) -> List[Dict]:
     with path.open(encoding="utf-8-sig", newline="") as f:
         return list(csv.DictReader(f))
+
+
+def read_our_csv(path: Path) -> List[Dict]:
+    """A plan or apply log this tool wrote, with the escaping of :func:`csv_safe` undone.
+
+    The reconcile logs another script writes are read with :func:`read_csv` instead: they
+    were never escaped, so unescaping them would strip a leading quote that belongs.
+    """
+    rows = read_csv(path)
+    for row in rows:
+        for field in TEXT_FIELDS:
+            if field in row:
+                row[field] = csv_unsafe(row[field])
+    return rows
 
 
 # --------------------------------------------------------------------------- plan
@@ -217,19 +259,46 @@ def evidence_tier(our_name: Optional[str], target: str) -> str:
     return "C_bare_year_fits" if years <= {younger, younger - 1} else "D_name_contradicts"
 
 
+def merged_away_ids(sb, ids: List[str]) -> Dict[str, str]:
+    """Each deprecated id that resolves to one of ``ids``, mapped to its survivor.
+
+    Game rows keep the id they were imported under, and ``execute_team_merge`` flattens
+    chains, so one hop reaches every absorbed row.
+    """
+    absorbed: Dict[str, str] = {}
+    for i in range(0, len(ids), IN_BATCH):
+        found = (
+            sb.table("team_merge_map")
+            .select("deprecated_team_id,canonical_team_id")
+            .in_("canonical_team_id", ids[i : i + IN_BATCH])
+            .execute()
+            .data
+            or []
+        )
+        for row in found:
+            absorbed[row["deprecated_team_id"]] = row["canonical_team_id"]
+    return absorbed
+
+
 def attach_fixture_evidence(sb, rows: List[Dict]) -> None:
     """Count this season's games against opponents whose OWN band names each cohort.
 
     Opponent names are independent of both our column and GotSport's label, which is
     why they are the witness (CLAUDE.md: settle a cohort from the fixtures, reading the
-    opponent's name, not its column). Games are resolved from the pre-merge ids they
-    carry, so evidence can only be undercounted -- that makes a team "thin", never moves it.
+    opponent's name, not its column).
+
+    Games absorbed by a merge still carry the deprecated id, so they are gathered under
+    it and counted against the survivor. Reading the survivor's id alone does not merely
+    undercount: the games it drops may be the ones backing the current cohort, and losing
+    those lifts proposed over current until a mixed schedule reads as backing the move.
     """
     by_id = {r["team_id_master"]: r for r in rows}
     ids = list(by_id)
+    absorbed = merged_away_ids(sb, ids)
     games = []
-    for i in range(0, len(ids), 50):
-        batch = ids[i : i + 50]
+    query_ids = ids + list(absorbed)
+    for i in range(0, len(query_ids), 50):
+        batch = query_ids[i : i + 50]
         sides = (
             ("home_team_master_id", "away_team_master_id"),
             ("away_team_master_id", "home_team_master_id"),
@@ -243,7 +312,7 @@ def attach_fixture_evidence(sb, rows: List[Dict]) -> None:
                 .execute()
                 .data
             )
-            games += [(g[col], g[other]) for g in data or [] if g.get(other)]
+            games += [(absorbed.get(g[col], g[col]), g[other]) for g in data or [] if g.get(other)]
 
     opp_ids = list({o for _, o in games})
     names: Dict[str, str] = {}
@@ -451,7 +520,7 @@ def apply_plan(
     wanted = {"would_update"} | ({"would_update_collision"} if include_collisions else set())
     selected = [
         r
-        for r in read_csv(plan_path)
+        for r in read_our_csv(plan_path)
         if r["action"] in wanted
         and r["team_id_master"] not in exclude
         and (not strong_only or is_strong(r))
@@ -512,7 +581,7 @@ def apply_plan(
 
 
 def revert(sb, log_path: Path, execute: bool) -> None:
-    rows = [r for r in read_csv(log_path) if r.get("result") == "updated"]
+    rows = [r for r in read_our_csv(log_path) if r.get("result") == "updated"]
     print(f"=== Revert {log_path.name} ({'EXECUTE' if execute else 'DRY RUN'}) : {len(rows):,} rows ===")
     outcome = Counter()
     for r in rows:
