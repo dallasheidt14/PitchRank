@@ -92,6 +92,10 @@ def _extract_prediction_payload(row: Dict[str, Any], model_name: str) -> Optiona
         "competition": row.get("competition"),
         "division_name": row.get("division_name"),
         "age_group": home_row.get("age_group"),
+        "gender": home_row.get("gender"),
+        "source_event_id": row.get("source_event_id"),
+        "actual_game_id": row.get("actual_game_id"),
+        "predicted_at": row.get(f"{model_name}_predicted_at"),
         "feature_source": model_name,
         "model_version": model_version,
         "actual_score_a": actual_home_score,
@@ -108,18 +112,24 @@ def _extract_prediction_payload(row: Dict[str, Any], model_name: str) -> Optiona
         "predicted_score_b": expected_score.get("teamB"),
         "predicted_margin": prediction.get("expectedMargin"),
         "blowout_3plus_probability": prediction.get("blowoutProbability3Plus"),
+        "blowout_4plus_probability": prediction.get(
+            "blowout4PlusProbability", prediction.get("blowoutProbability4Plus")
+        ),
         "blowout_5plus_probability": prediction.get("blowoutProbability5Plus"),
         "predicted_blowout_3plus": prediction.get("predictedBlowout3Plus"),
+        "predicted_blowout_4plus": prediction.get("predictedBlowout4Plus"),
         "predicted_blowout_5plus": prediction.get("predictedBlowout5Plus"),
     }
 
 
 def _fetch_rows(supabase: Client, limit: Optional[int]) -> List[Dict[str, Any]]:
     select_fields = (
-        "fixture_key, game_date, competition, division_name, fixture_payload, "
-        "heuristic_prediction_status, heuristic_model_version, heuristic_prediction, "
-        "offline_prediction_status, offline_model_version, offline_prediction, "
-        "actual_home_score, actual_away_score, evaluation_status"
+        "id, fixture_key, provider_code, source_event_id, actual_game_id, game_date, "
+        "competition, division_name, fixture_payload, "
+        "home_team_master_id, away_team_master_id, "
+        "heuristic_prediction_status, heuristic_model_version, heuristic_prediction, heuristic_predicted_at, "
+        "offline_prediction_status, offline_model_version, offline_prediction, offline_predicted_at, "
+        "actual_home_score, actual_away_score, actual_outcome, evaluation_status"
     )
     page_size = 1000
     rows: List[Dict[str, Any]] = []
@@ -135,6 +145,7 @@ def _fetch_rows(supabase: Client, limit: Optional[int]) -> List[Dict[str, Any]]:
             .select(select_fields)
             .eq("evaluation_status", "settled")
             .order("game_date", desc=False)
+            .order("id")
             .range(start, start + batch_size - 1)
         )
         try:

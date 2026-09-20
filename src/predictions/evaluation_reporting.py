@@ -8,7 +8,6 @@ from typing import Iterable
 
 import numpy as np
 import pandas as pd
-from sklearn.metrics import log_loss
 
 OUTCOME_ORDER = ["team_a", "draw", "team_b"]
 PROBABILITY_COLUMNS = {
@@ -46,6 +45,16 @@ def _normalize_probabilities(frame: pd.DataFrame) -> pd.DataFrame:
 def _outcome_to_index(outcome: str) -> int:
     normalized = OUTCOME_ALIASES.get(str(outcome), str(outcome))
     return OUTCOME_ORDER.index(normalized)
+
+
+def outcome_log_losses(frame: pd.DataFrame) -> np.ndarray:
+    normalized = _normalize_probabilities(frame)
+    labels = normalized["actual_outcome"].map(_outcome_to_index).to_numpy(dtype=int)
+    probabilities = normalized[list(PROBABILITY_COLUMNS.values())].to_numpy(dtype=float)
+    # Match sklearn's float64 clipping for both summaries and paired intervals.
+    epsilon = np.finfo(probabilities.dtype).eps
+    realized = probabilities[np.arange(len(labels)), labels]
+    return -np.log(np.clip(realized, epsilon, 1 - epsilon))
 
 
 def _brier_score(probabilities: np.ndarray, labels: np.ndarray) -> float:
@@ -121,7 +130,7 @@ def build_standardized_evaluation_frame(frame: pd.DataFrame) -> pd.DataFrame:
         if predicted_label_column in standardized.columns:
             standardized[predicted_label_column] = (
                 pd.to_numeric(standardized[predicted_label_column], errors="coerce")
-                .fillna(0.0)
+                .fillna((standardized["predicted_abs_margin"] >= float(threshold)).astype(int))
                 .astype(int)
                 .clip(0, 1)
                 .astype(bool)
@@ -170,7 +179,7 @@ def compute_evaluation_summary(frame: pd.DataFrame) -> dict[str, object]:
         "actual_draw_rate": actual_draw_rate,
         "predicted_draw_rate": predicted_draw_rate,
         "draw_rate_gap": float(abs(predicted_draw_rate - actual_draw_rate)),
-        "log_loss": float(log_loss(labels, probabilities, labels=[0, 1, 2])),
+        "log_loss": float(outcome_log_losses(frame).mean()),
         "brier_score": _brier_score(probabilities, labels),
         "margin_mae": float(np.mean(np.abs(margin_errors))),
         "margin_rmse": float(np.sqrt(np.mean(margin_errors**2))),
@@ -237,6 +246,7 @@ def compute_evaluation_summary(frame: pd.DataFrame) -> dict[str, object]:
                 errors="coerce",
             ).clip(0.0, 1.0)
             valid_probability_mask = blowout_probability.notna()
+            summary[f"blowout_{threshold}plus_probability_games"] = int(valid_probability_mask.sum())
             if valid_probability_mask.any():
                 actual_binary = actual_blowout_mask.astype(float)
                 summary[f"avg_blowout_{threshold}plus_probability"] = float(
@@ -251,9 +261,13 @@ def compute_evaluation_summary(frame: pd.DataFrame) -> dict[str, object]:
                         ** 2
                     )
                 )
+                summary[f"actual_blowout_{threshold}plus_rate_on_probability_rows"] = float(
+                    actual_binary.loc[valid_probability_mask].mean()
+                )
             else:
                 summary[f"avg_blowout_{threshold}plus_probability"] = None
                 summary[f"blowout_{threshold}plus_brier"] = None
+                summary[f"actual_blowout_{threshold}plus_rate_on_probability_rows"] = None
 
     if "feature_source" in standardized.columns:
         summary["feature_source_counts"] = (
@@ -270,7 +284,11 @@ def build_calibration_table(frame: pd.DataFrame, bucket_edges: Iterable[float] |
     if standardized.empty:
         return pd.DataFrame()
 
-    bucket_edges = list(bucket_edges or [0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 0.90, 1.01])
+    bucket_edges = list(bucket_edges or [0.0, 0.4, 0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 0.90, 1.01])
+    # Draw overrides can choose a different label. Reliability of the maximum
+    # probability must use that probability's own outcome, not the policy label.
+    indices = standardized[list(PROBABILITY_COLUMNS.values())].to_numpy().argmax(axis=1)
+    standardized["top_outcome_correct"] = standardized["actual_outcome"].to_numpy() == np.array(OUTCOME_ORDER)[indices]
     bucket_labels = [
         f"{int(bucket_edges[index] * 100)}-{int(min(bucket_edges[index + 1], 1.0) * 100)}%"
         for index in range(len(bucket_edges) - 1)
@@ -293,12 +311,34 @@ def build_calibration_table(frame: pd.DataFrame, bucket_edges: Iterable[float] |
                 "probability_bucket": str(bucket_name),
                 "games": int(len(bucket_df)),
                 "predicted_probability": float(bucket_df["top_probability"].mean()),
-                "actual_accuracy": float(bucket_df["correct_prediction"].mean()),
-                "calibration_gap": float(bucket_df["top_probability"].mean() - bucket_df["correct_prediction"].mean()),
+                "actual_accuracy": float(bucket_df["top_outcome_correct"].mean()),
+                "calibration_gap": float(bucket_df["top_probability"].mean() - bucket_df["top_outcome_correct"].mean()),
                 "draw_rate": float((bucket_df["actual_outcome"] == "draw").mean()),
             }
         )
 
+    return pd.DataFrame(rows)
+
+
+def build_probability_calibration_table(frame: pd.DataFrame) -> pd.DataFrame:
+    """Reliability for each outcome and 4+ risk, including low probabilities."""
+    if frame.empty:
+        return pd.DataFrame()
+    rows = []
+    targets = [(outcome, column, frame["actual_outcome"].map(OUTCOME_ALIASES).eq(outcome))
+               for outcome, column in PROBABILITY_COLUMNS.items()]
+    targets.append(("blowout_4plus", "blowout_4plus_probability", _numeric_column(frame, "actual_margin").abs().ge(4)))
+    for outcome, column, actual in targets:
+        probability = _numeric_column(frame, column)
+        valid = probability.between(0, 1)
+        if outcome == "blowout_4plus":
+            valid &= _numeric_column(frame, "actual_margin").notna()
+        subset = pd.DataFrame({"probability": probability[valid], "actual": actual[valid].astype(float)})
+        subset["bucket"] = np.minimum((subset["probability"] * 10).astype(int), 9)
+        for bucket, values in subset.groupby("bucket"):
+            rows.append({"outcome": outcome, "probability_bucket": f"{bucket * 10}-{(bucket + 1) * 10}%",
+                         "games": len(values), "predicted_probability": float(values["probability"].mean()),
+                         "observed_rate": float(values["actual"].mean())})
     return pd.DataFrame(rows)
 
 
@@ -329,6 +369,12 @@ def build_group_metrics(frame: pd.DataFrame, group_column: str) -> pd.DataFrame:
                 "competitive_game_precision": summary.get("competitive_game_precision"),
                 "blowout_3plus_recall": summary.get("blowout_3plus_recall"),
                 "blowout_3plus_precision": summary.get("blowout_3plus_precision"),
+                "blowout_4plus_probability_games": summary.get("blowout_4plus_probability_games", 0),
+                "avg_blowout_4plus_probability": summary.get("avg_blowout_4plus_probability"),
+                "actual_blowout_4plus_rate_on_probability_rows": summary.get(
+                    "actual_blowout_4plus_rate_on_probability_rows"
+                ),
+                "blowout_4plus_brier": summary.get("blowout_4plus_brier"),
             }
         )
 
@@ -430,6 +476,7 @@ def write_evaluation_bundle(frame: pd.DataFrame, output_dir: Path, prefix: str =
     standardized = build_standardized_evaluation_frame(frame)
     summary = compute_evaluation_summary(standardized)
     calibration_table = build_calibration_table(standardized)
+    probability_calibration = build_probability_calibration_table(standardized)
     outcome_metrics = build_outcome_metrics(standardized)
     margin_band_metrics = build_margin_band_metrics(standardized)
     age_metrics = build_group_metrics(standardized, "age_group")
@@ -477,11 +524,15 @@ def write_evaluation_bundle(frame: pd.DataFrame, output_dir: Path, prefix: str =
             if summary["blowout_3plus_recall"] is not None
             else "- Blowout 3+ recall: n/a"
         ),
+        f"- Four-goal risk coverage: {summary.get('blowout_4plus_probability_games', 0)}/{summary['games']}",
+        f"- Four-goal risk Brier score: {summary.get('blowout_4plus_brier')}",
     ]
     (output_dir / f"{prefix}_summary.md").write_text("\n".join(markdown_lines) + "\n", encoding="utf-8")
 
     if not calibration_table.empty:
         calibration_table.to_csv(output_dir / f"{prefix}_calibration.csv", index=False)
+    if not probability_calibration.empty:
+        probability_calibration.to_csv(output_dir / f"{prefix}_probability_calibration.csv", index=False)
     if not outcome_metrics.empty:
         outcome_metrics.to_csv(output_dir / f"{prefix}_outcomes.csv", index=False)
     if not margin_band_metrics.empty:
@@ -490,5 +541,9 @@ def write_evaluation_bundle(frame: pd.DataFrame, output_dir: Path, prefix: str =
         age_metrics.to_csv(output_dir / f"{prefix}_by_age.csv", index=False)
     if not feature_source_metrics.empty:
         feature_source_metrics.to_csv(output_dir / f"{prefix}_by_feature_source.csv", index=False)
+    for group in ("gender", "model_version"):
+        metrics = build_group_metrics(standardized, group)
+        if not metrics.empty:
+            metrics.to_csv(output_dir / f"{prefix}_by_{group}.csv", index=False)
 
     return summary
