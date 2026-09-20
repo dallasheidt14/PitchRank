@@ -1142,7 +1142,7 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
     {
       question: 'What are the levels of youth soccer in the US?',
       answer:
-        'From top to bottom: national platforms (ECNL, MLS NEXT, Girls Academy), regional development leagues (ECNL Regional, National 1 League, EDP, DPL), the US Youth Soccer National League and state premier divisions, then local travel and recreational. The US has two parallel sanctioning structures — US Club Soccer and US Youth Soccer — which is why the picture looks confusing.',
+        'From top to bottom: national platforms (ECNL, MLS NEXT, Girls Academy), regional development leagues (ECNL Regional, National 1 League, EDP, DPL), then state premier divisions, local travel and recreational. US Club Soccer and US Youth Soccer ran parallel structures for years, which is why the picture looks confusing; their top team-based competitions merged into the National 1 League for 2026-27.',
     },
     {
       question: 'Is ECNL or MLS NEXT higher level?',
@@ -1177,7 +1177,7 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
     {
       question: 'Can a team move between levels season to season?',
       answer:
-        "Yes. Clubs apply for league bids each year. Teams get promoted, relegated, or move between platforms as rosters and results change. It's normal for a club's U14 ECNL team to drop to ECNL-RL the following year, or for a strong state premier team to earn a National 1 League bid.",
+        "Yes. Clubs apply for league bids each year. Teams get promoted, relegated, or move between platforms as rosters and results change. It's normal for a club's U14 ECNL team to drop to ECNL-RL the following year, or for a strong state premier team to move up to the next platform.",
     },
   ],
 
