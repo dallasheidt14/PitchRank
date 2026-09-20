@@ -1248,16 +1248,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
   ```
 - **Noted**: 2026-09-16
 
-### Bring the age-group correction tools into the repo, with tests
-
-- **ID**: IMP-242
-- **Status**: open
-- **Type**: plan
-- **Category**: testing
-- **Where**: `data/exports/fix_band_cohorts.py` (`apply_plan`, `name_contradiction`, `attach_fixture_evidence`) and `data/exports/weekly_age_recheck.py` (`pending_population`); both gitignored, plus the Windows task "PitchRank Weekly Age-Group Recheck" that runs the second every Tuesday
-- **Why**: These two wrote `teams.age_group` for 12,083 teams on 2026-09-15/16 and carry the plan/apply/revert path any later batch will reuse, but they sit under `data/` so no CI job has ever imported them. Their correctness rests on parsing rules that fail silently when wrong — IMP-240 is exactly that shape, and it reached a live write. A scheduled task now depends on one of them, so a break is invisible until a week of reports goes missing. Moving them to `scripts/` with unit tests over the decision helpers (band forms, contradiction detection, verdict thresholds) puts them behind the same gate as everything else they write to.
-- **Noted**: 2026-09-16
-
 ### Match Stripe's MRR rules in computeMrr: discounts, interval_count, metered items
 
 - **ID**: IMP-243
