@@ -113,7 +113,7 @@ from src.tournaments.seeding_optimizer import (
     normalize_age_group,
     normalize_gender_label,
 )
-from src.tournaments.seeding_pack import duplicate_identity_rows, pack_matches, team_ids_by_row
+from src.tournaments.seeding_pack import duplicate_identity_rows, snapshot_matches_roster, team_ids_by_row
 from src.tournaments.seeding_run_store import (
     SeedingRun,
 )
@@ -4561,7 +4561,7 @@ def _autosave_seeding_run(*, archive_previous: bool = True) -> bool:
     decisions = st.session_state.get("_seeding_cohort_decisions", {})
     effective = package_roster(effective_roster(parsed, decisions))
     pack = st.session_state.get("_seeding_pack")
-    if not pack_matches(pack, effective.rows, resolved, st.session_state._seeding_overrides):
+    if not snapshot_matches_roster(pack, effective.rows, resolved, st.session_state._seeding_overrides):
         pack = None
     try:
         save_seeding_run_file(
@@ -5016,8 +5016,8 @@ def _park_seeding_result(pair: Any, *, event_id: str | None, keys: _WalkKeys = _
             package_roster(effective_roster(pair[0], st.session_state.get("_seeding_cohort_decisions", {})))
             if pair else None
         )
-        if not pair or not pack_matches(st.session_state.get("_seeding_pack"), effective.rows, pair[1],
-                                        st.session_state.get("_seeding_overrides", {})):
+        if not pair or not snapshot_matches_roster(st.session_state.get("_seeding_pack"), effective.rows, pair[1],
+                                                  st.session_state.get("_seeding_overrides", {})):
             st.session_state.pop("_seeding_pack", None)
             st.session_state.pop("_seeding_pack_unsaved", None)
         invalidate_seeding_exports(st.session_state)

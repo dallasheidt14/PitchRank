@@ -24,7 +24,7 @@ from src.tournaments.seeding_tiers import (
 )
 
 PACK_SCHEMA_VERSION = 3
-ANALYSIS_SCHEMA_VERSION = 1
+ANALYSIS_SCHEMA_VERSION = 2
 _AGE_GROUP = re.compile(r"^u[1-9][0-9]?$")
 _LEGACY_UNAVAILABLE_REASONS = {
     "Two roster entries resolve to the same team; verify the matches.": (
@@ -193,9 +193,20 @@ def pack_matches(
     pack: Any, rows: Sequence[RosterRow], resolved: Sequence[ResolvedTeam],
     overrides: Mapping[int, dict[str, Any]], selected: Sequence[str] | None = None,
 ) -> bool:
+    return snapshot_matches_roster(pack, rows, resolved, overrides, selected) and (
+        pack.get("analysis_schema_version") == ANALYSIS_SCHEMA_VERSION
+    )
+
+
+def snapshot_matches_roster(
+    pack: Any, rows: Sequence[RosterRow], resolved: Sequence[ResolvedTeam],
+    overrides: Mapping[int, dict[str, Any]], selected: Sequence[str] | None = None,
+) -> bool:
+    """Keep matching snapshots for recovery even when their analysis needs upgrading.
+
+    This retention check does not authorize analysis or exports.
+    """
     if not isinstance(pack, dict) or pack.get("schema_version") != PACK_SCHEMA_VERSION:
-        return False
-    if pack.get("analysis_schema_version") != ANALYSIS_SCHEMA_VERSION:
         return False
     saved_selection = pack.get("selected_cohorts")
     if (
@@ -328,7 +339,7 @@ def analyze_pack(
                 )
             entrants.append(TierEntrant(
                 entrant_id=entrant_id,
-                team_name=str(evidence.get("team_name") or row.team_name_stripped),
+                team_name=row.registered_name,
                 power_score=_published_score(evidence),
                 review_reason=review_reason,
             ))
@@ -354,6 +365,27 @@ def analyze_pack(
             entrants, snapshot_predictions[key], policy=policy, legacy=legacy,
         )
     return analyses
+
+
+def upgrade_pack_analysis(
+    pack: dict[str, Any], rows: Sequence[RosterRow], resolved: Sequence[ResolvedTeam],
+    overrides: Mapping[int, dict[str, Any]], selected: Sequence[str], *, predictor_sha256: str,
+) -> dict[str, Any]:
+    """Validate and reanalyze a compatible snapshot without reading the database.
+
+    The caller publishes this independent copy only after export validation succeeds.
+    Older prediction/roster contracts still require a fresh build.
+    """
+    if pack.get("schema_version") != PACK_SCHEMA_VERSION or pack.get("analysis_schema_version") != 1:
+        raise ValueError("This saved pack requires a fresh build.")
+    if pack.get("predictor_sha256") != predictor_sha256:
+        raise ValueError("The predictor has changed; build seeding sheets to refresh predictions.")
+    candidate = json.loads(json.dumps(pack, ensure_ascii=False, allow_nan=False))
+    candidate["analysis_schema_version"] = ANALYSIS_SCHEMA_VERSION
+    if not pack_matches(candidate, rows, resolved, overrides, selected):
+        raise ValueError("The roster or cohort selection changed; build seeding sheets.")
+    analyze_pack(candidate, rows, resolved, overrides)
+    return candidate
 
 
 def snapshot_ratings(pack: dict[str, Any], identities: Mapping[str, str | None]) -> dict[str, dict[str, Any]]:

@@ -10,8 +10,9 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
+from src.tournaments.seeding_content import DIRECTOR_LEGEND, build_director_cohort
 from src.tournaments.seeding_pack import cohort_key, cohort_label
-from src.tournaments.seeding_sheet import CohortSheet, SheetTeam
+from src.tournaments.seeding_sheet import CohortSheet
 
 FOREST = "0B5345"
 FOREST_DEEP = "083E33"
@@ -50,36 +51,6 @@ def _set_text(cell, value: str) -> None:
         cell._value = value
 
 
-def _teams_for_sheet(sheet: CohortSheet) -> list[tuple[int | None, SheetTeam, str, str]]:
-    analysis = sheet.tier_analysis
-    all_teams = {team.entrant_id: team for team in (*sheet.rated, *sheet.unrated)}
-    if analysis is None:
-        ordered_ids = [team.entrant_id for team in sheet.rated]
-        statuses = {}
-        markers = {}
-    else:
-        ordered_ids = list(analysis.ordered_ids)
-        if hasattr(analysis, "marker_for_seed"):
-            statuses = getattr(analysis, "placement_status", {})
-            markers = {entrant_id: analysis.marker_for_seed(seed) for seed, entrant_id in enumerate(ordered_ids, 1)}
-        else:
-            statuses = {entrant_id: "Seeded" for entrant_id in ordered_ids}
-            statuses.update({entrant_id: "Data review required" for entrant_id in analysis.review})
-            markers = {}
-    rows: list[tuple[int | None, SheetTeam, str, str]] = []
-    for seed, entrant_id in enumerate(ordered_ids, 1):
-        team = all_teams.get(entrant_id)
-        if team is not None:
-            rows.append((seed, team, markers.get(entrant_id, ""), statuses.get(entrant_id, "Seeded")))
-    unseeded = (team for key, team in all_teams.items() if key not in set(ordered_ids))
-    # CohortSheet defines the shared PDF/Excel ordering, including rated
-    # entrants held for review followed by entrants without a current rating.
-    for team in unseeded:
-        status = statuses.get(team.entrant_id) or team.review_reason or "Placement status needs review."
-        rows.append((None, team, "", status))
-    return rows
-
-
 def build_seeding_workbook(
     event_name: str, sheets: Sequence[CohortSheet], *, generated_on: str, ranking_run: str,
     operator_notes: Mapping[tuple[str, str], str] | None = None,
@@ -102,15 +73,20 @@ def build_seeding_workbook(
         sheet["A2"] = f"{cohort_label(cohort_key(cohort.age_group, cohort.gender))} · {team_count} accepted teams"
         sheet["A2"].font = Font(bold=True, color=FOREST_DEEP)
         sheet.merge_cells("A3:K3")
-        sheet["A3"] = "Strength breaks describe competitive differences; they do not assign divisions or pools."
+        sheet["A3"] = DIRECTOR_LEGEND
         sheet["A3"].font = Font(italic=True, color=MUTED)
+        sheet["A3"].alignment = Alignment(wrap_text=True, vertical="center")
+        sheet.row_dimensions[3].height = 30
         sheet.merge_cells("A4:K4")
         sheet["A4"] = f"Ratings as of {ranking_run} · Generated {generated_on}"
         sheet["A4"].font = Font(color=MUTED, size=9)
-        team_rows = _teams_for_sheet(cohort)
+        content = build_director_cohort(
+            cohort, (operator_notes or {}).get((cohort.age_group, cohort.gender), ""),
+        )
+        team_rows = content.rows
         sheet.merge_cells("A5:K5")
         sheet["A5"] = " · ".join(
-            f"{label}: {sum(status == label for _, _, _, status in team_rows)}"
+            f"{label}: {sum(row.placement_status == label for row in team_rows)}"
             for label in ("Seeded", "Not found in PitchRank", "No current rating", "Data review required")
         )
         sheet["A5"].font = Font(color=MUTED, size=9)
@@ -124,23 +100,20 @@ def build_seeding_workbook(
             cell.fill = PatternFill("solid", fgColor=FOREST_DEEP)
             cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
             cell.border = Border(bottom=Side(style="thin", color=YELLOW))
-        for row_index, (seed, team, marker, status) in enumerate(team_rows, 7):
+        for row_index, row in enumerate(team_rows, 7):
+            team, marker = row.team, row.observation
             values = [
-                seed, _safe_text(team.team_name), _safe_text(team.club_name),
-                (team.power_score * 100 if team.power_score is not None else None),
-                (
-                    f"{team.state} #{team.state_rank}"
-                    if team.state_rank is not None and team.state
-                    else team.state_rank if team.state_rank is not None else ""
-                ),
-                _safe_text(marker), _safe_text(status), "", "", "", "",
+                row.seed, "\n".join(row.name_lines), _safe_text(team.club_name), row.score,
+                row.state_rank, _safe_text(marker), _safe_text(row.placement_status), "", "", "", "",
             ]
             for column, value in enumerate(values, 1):
                 cell = sheet.cell(row_index, column, value)
                 if isinstance(value, str):
                     _set_text(cell, value)
                 cell.alignment = Alignment(vertical="top", wrap_text=column in {2, 3, 6, 7, 8, 9, 11})
-                cell.border = Border(bottom=Side(style="hair", color=RULE))
+                cell.border = Border(bottom=Side(
+                    style="medium" if marker else "hair", color=FOREST if marker else RULE,
+                ))
                 if column in {8, 9, 10, 11}:
                     cell.fill = PatternFill("solid", fgColor="FFF9DB")
                 if column == 4 and value is not None:
@@ -150,6 +123,11 @@ def build_seeding_workbook(
             if row_index % 2 == 0:
                 for column in range(1, 8):
                     sheet.cell(row_index, column).fill = PatternFill("solid", fgColor=BAND)
+            # Excel does not autofit wrapped rows reliably when printing.
+            sheet.row_dimensions[row_index].height = 15 * max(
+                sum(max(1, (len(line) + width - 1) // width) for line in str(value or "").split("\n"))
+                for value, width in ((values[1], 30), (values[2], 22), (values[5], 18), (values[6], 22))
+            )
         end_row = max(6, 6 + len(team_rows))
         if end_row >= 7:
             table = Table(displayName=f"Cohort{sheet_number}", ref=f"A6:K{end_row}")
@@ -162,10 +140,7 @@ def build_seeding_workbook(
             )
             sheet.add_table(table)
             sheet.auto_filter.ref = f"A6:K{end_row}"
-        notes = list(getattr(cohort.tier_analysis, "notes", ()))
-        operator_note = (operator_notes or {}).get((cohort.age_group, cohort.gender), "").strip()
-        if operator_note:
-            notes.append(operator_note)
+        notes = content.notes
         if notes:
             end_row += 2
             sheet.cell(end_row, 1, "Director notes").font = Font(bold=True, color=FOREST_DEEP)

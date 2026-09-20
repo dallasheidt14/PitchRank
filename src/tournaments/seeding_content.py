@@ -1,0 +1,131 @@
+"""One offline content model for the operator, HTML/PDF, and Excel sheets."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from dataclasses import asdict, dataclass
+from typing import TYPE_CHECKING, Mapping, Sequence
+
+if TYPE_CHECKING:
+    from src.tournaments.seeding_sheet import CohortSheet, SheetTeam
+
+CONTENT_VERSION = 2
+DIRECTOR_LEGEND = (
+    "Teams are listed in published PitchRank order. Strength markers identify supported "
+    "competitive gaps; they do not assign divisions or pools."
+)
+
+
+@dataclass(frozen=True)
+class DirectorRow:
+    seed: int | None
+    team: SheetTeam
+    observation: str
+    placement_status: str
+    strength_break_after: bool = False
+
+    @property
+    def score(self) -> float | None:
+        return self.team.power_score * 100 if self.team.power_score is not None else None
+
+    @property
+    def state_rank(self) -> str:
+        team = self.team
+        if team.state_rank is None:
+            return ""
+        return f"{team.state} #{team.state_rank}" if team.state else f"#{team.state_rank}"
+
+    @property
+    def roster_context(self) -> tuple[str, ...]:
+        team = self.team
+        context = []
+        if team.plays_up:
+            context.append(
+                f"Plays up from {team.play_up_from_age_group.upper()}"
+                if team.play_up_from_age_group else "Plays up"
+            )
+        if team.requested_flight:
+            context.append(f"Requested: {team.requested_flight}")
+        if team.listed_division:
+            context.append(f"Listed: {team.listed_division}")
+        return tuple(context)
+
+    @property
+    def name_lines(self) -> tuple[str, ...]:
+        secondary = (f"PitchRank: {self.team.pitchrank_team_name}",) if self.team.pitchrank_team_name else ()
+        return (self.team.team_name, *secondary, *self.roster_context)
+
+
+@dataclass(frozen=True)
+class DirectorCohort:
+    rows: tuple[DirectorRow, ...]
+    notes: tuple[str, ...]
+
+    @property
+    def seeded(self) -> tuple[DirectorRow, ...]:
+        return tuple(row for row in self.rows if row.seed is not None)
+
+    @property
+    def unseeded(self) -> tuple[DirectorRow, ...]:
+        return tuple(row for row in self.rows if row.seed is None)
+
+
+def build_director_cohort(sheet: CohortSheet, operator_note: str = "") -> DirectorCohort:
+    """Preserve every entrant exactly once; never infer equivalence from limits."""
+    analysis = sheet.tier_analysis
+    teams = (*sheet.rated, *sheet.unrated)
+    by_id = {team.entrant_id: team for team in teams}
+    if len(by_id) != len(teams) or (analysis is not None and "" in by_id):
+        raise ValueError("Cheat sheet requires a unique entrant ID for every roster row.")
+    if analysis is None:
+        seeded, unseeded = sheet.rated, sheet.unrated
+        statuses, markers, breaks = {}, {}, set()
+    else:
+        ordered = analysis.ordered_ids
+        ordered_set = set(ordered)
+        if len(ordered) != len(ordered_set) or ordered_set & set(analysis.review):
+            raise ValueError("Cheat sheet analysis contains duplicate or overlapping entrant IDs.")
+        if (ordered_set | set(analysis.review)) - set(by_id):
+            raise ValueError("Cheat sheet analysis contains a team outside this cohort.")
+        legacy_ids = [item for tier in getattr(analysis, "tiers", ()) for item in tier.entrant_ids]
+        if len(legacy_ids) != len(set(legacy_ids)) or set(legacy_ids) & set(analysis.review):
+            raise ValueError("Cheat sheet legacy reference contains duplicate or overlapping entrant IDs.")
+        seeded = tuple(by_id[item] for item in ordered)
+        unseeded = tuple(team for team in teams if team.entrant_id not in ordered_set)
+        statuses = getattr(analysis, "placement_status", {})
+        breaks = {item.after_seed for item in getattr(analysis, "breaks", ())}
+        markers = {
+            seed: f"Strength gap between seeds {seed} and {seed + 1}." for seed in breaks
+        }
+    rows = [DirectorRow(seed, team, markers.get(seed, ""), "Seeded", seed in breaks)
+            for seed, team in enumerate(seeded, 1)]
+    for team in unseeded:
+        status = statuses.get(team.entrant_id) or (
+            "Data review required" if analysis is not None
+            else "No current rating"
+        )
+        rows.append(DirectorRow(None, team, "", status))
+    notes = list(getattr(analysis, "notes", ()))
+    if operator_note.strip():
+        notes.append(operator_note.strip())
+    return DirectorCohort(tuple(rows), tuple(dict.fromkeys(notes)))
+
+
+def export_fingerprint(
+    event_name: str, sheets: Sequence[CohortSheet], *, generated_on: str, ranking_run: str,
+    operator_notes: Mapping[tuple[str, str], str], analysis_version: int, policy: Mapping[str, float],
+) -> str:
+    """Both downloads share one identity, independent of XLSX ZIP timestamps."""
+    payload = {
+        "content_version": CONTENT_VERSION, "analysis_version": analysis_version,
+        "event": event_name, "generated_on": generated_on, "ranking_run": ranking_run,
+        "policy": dict(policy), "legend": DIRECTOR_LEGEND,
+        "cohorts": [{
+            "age": sheet.age_group, "gender": sheet.gender,
+            "content": asdict(build_director_cohort(
+                sheet, operator_notes.get((sheet.age_group, sheet.gender), ""),
+            )),
+        } for sheet in sheets],
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False, allow_nan=False).encode()).hexdigest()

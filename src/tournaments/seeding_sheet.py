@@ -1,11 +1,11 @@
-"""Build printable tournament cheat sheets, with optional matchup-based tiers.
+"""Build printable tournament cheat sheets in published seed order.
 
 Every accepted entrant appears once, including teams needing placement review.
-Cohorts begin on fresh Letter pages; long tier tables repeat their headings.
+Cohorts begin on fresh Letter pages; long tables repeat their headings.
 The same standalone, offline-ready HTML powers the preview and PDF export.
 
-The published ``power_score_final`` is displayed and sorts teams within tiers.
-The matchup analysis determines tier membership and order.
+The published ``power_score_final`` determines seed order. Matchup analysis
+adds supported strength observations without assigning divisions or pools.
 
 A team with a valid current PowerScore can be seeded even when PitchRank has not
 published a numeric rank for it. An Inactive team does not qualify: it keeps only
@@ -31,6 +31,7 @@ from typing import TYPE_CHECKING, Any
 
 from src.tournaments.roster_paste import RosterRow
 from src.tournaments.roster_resolver import ResolvedTeam
+from src.tournaments.seeding_content import DIRECTOR_LEGEND, build_director_cohort
 
 if TYPE_CHECKING:
     from src.tournaments.seeding_tiers import CheatSheetAnalysis, TierPolicy
@@ -332,6 +333,7 @@ def _font_css() -> str:
 def _rows_html(
     teams: Sequence[SheetTeam], *, numbered: bool, start: int = 1,
     placement_notes: Mapping[str, str] | None = None,
+    strength_break_ids: frozenset[str] = frozenset(),
 ) -> str:
     cells = []
     for position, team in enumerate(teams, start=start):
@@ -360,8 +362,9 @@ def _rows_html(
             flight_context += f'<span class="flight">Requested: {html.escape(team.requested_flight)}</span>'
         if team.listed_division:
             flight_context += f'<span class="flight">Listed: {html.escape(team.listed_division)}</span>'
+        row_class = ' class="strength-break"' if team.entrant_id in strength_break_ids else ""
         cells.append(
-            f'<tr data-entrant="{html.escape(team.entrant_id, quote=True)}">'
+            f'<tr data-entrant="{html.escape(team.entrant_id, quote=True)}"{row_class}>'
             f'<td class="pos">{position if numbered else "-"}</td>'
             f'<td class="team">{html.escape(team.team_name)}{play_up}{flag}{pitchrank_name}'
             f'<span class="club">{html.escape(team.club_name)}</span></td>'
@@ -374,9 +377,12 @@ def _rows_html(
 
 def _table_html(title: str, teams: Sequence[SheetTeam], *, numbered: bool, start: int = 1,
                 subtitle: str = "", placement_notes: Mapping[str, str] | None = None,
-                review: bool = False, cohort_label: str = "", purpose: str = "") -> str:
+                review: bool = False, cohort_label: str = "", purpose: str = "",
+                strength_break_ids: frozenset[str] = frozenset()) -> str:
     summary = f'<div class="tier-description">{html.escape(subtitle)}</div>' if subtitle else ""
     purpose_html = f'<span class="tier-purpose">{html.escape(purpose)}</span>' if purpose else ""
+    rows = _rows_html(teams, numbered=numbered, start=start, placement_notes=placement_notes,
+                      strength_break_ids=strength_break_ids)
     return (
         f'<table class="grid{" review" if review else " tier-table"}">'
         '<colgroup><col class="seed-col"><col class="team-col"><col class="score-col">'
@@ -386,7 +392,7 @@ def _table_html(title: str, teams: Sequence[SheetTeam], *, numbered: bool, start
         f'<span class="cohort-tag">{html.escape(cohort_label)}</span>{summary}</th></tr>'
         '<tr class="columns"><th class="pos">Suggested seed</th><th>Team / club</th>'
         '<th class="num">PitchRank score</th><th class="num">State rank</th><th>What to know</th></tr>'
-        f'</thead><tbody>{_rows_html(teams, numbered=numbered, start=start, placement_notes=placement_notes)}'
+        f'</thead><tbody>{rows}'
         '</tbody></table>'
     )
 
@@ -506,63 +512,22 @@ def _director_guidance(analysis: Any) -> list[str]:
 
 
 def _cheat_sheet_tables(sheet: CohortSheet) -> tuple[str, str]:
-    analysis = sheet.tier_analysis
+    content = build_director_cohort(sheet)
     cohort = f"{_display_gender(sheet.gender)} {sheet.age_group.upper()}"
-    all_teams = (*sheet.rated, *sheet.unrated)
-    by_id = {team.entrant_id: team for team in all_teams}
-    if len(by_id) != len(all_teams) or "" in by_id:
-        raise ValueError("Cheat sheet requires a unique entrant ID for every roster row.")
-    if analysis is not None:
-        ordered_ids = list(analysis.ordered_ids)
-        if len(ordered_ids) != len(set(ordered_ids)) or set(ordered_ids) & set(analysis.review):
-            raise ValueError("Cheat sheet analysis contains duplicate or overlapping entrant IDs.")
-        if set(analysis.review) - set(by_id):
-            raise ValueError("Cheat sheet analysis contains a team outside this cohort.")
-        legacy_ids = [entrant_id for tier in getattr(analysis, "tiers", ()) for entrant_id in tier.entrant_ids]
-        if len(legacy_ids) != len(set(legacy_ids)) or set(legacy_ids) & set(analysis.review):
-            raise ValueError("Cheat sheet legacy reference contains duplicate or overlapping entrant IDs.")
-    if analysis is None:
-        seeded = list(sheet.rated)
-        unseeded = list(sheet.unrated)
-        markers = {}
-        statuses = {}
-    else:
-        seeded = [by_id[entrant_id] for entrant_id in analysis.ordered_ids if entrant_id in by_id]
-        seeded_ids = set(analysis.ordered_ids)
-        unseeded = [team for team in all_teams if team.entrant_id not in seeded_ids]
-        if hasattr(analysis, "marker_for_seed"):
-            markers = {
-                entrant_id: analysis.marker_for_seed(seed)
-                for seed, entrant_id in enumerate(analysis.ordered_ids, 1)
-            }
-            statuses = getattr(analysis, "placement_status", {})
-        else:
-            markers = {}
-            statuses = {entrant_id: "Seeded" for entrant_id in analysis.ordered_ids}
-            statuses.update({entrant_id: "Data review required" for entrant_id in analysis.review})
-    notes = {}
-    for seed, team in enumerate(seeded, 1):
-        marker = markers.get(team.entrant_id, "")
-        notes[team.entrant_id] = marker
     tables = _table_html(
-        "Suggested seed order", seeded, numbered=True, cohort_label=cohort,
-        subtitle=(
-            "Teams remain in published PowerScore order. Strength markers show competitive "
-            "differences and close ranges."
-        ),
-        placement_notes=notes,
+        "Suggested seed order", [row.team for row in content.seeded], numbered=True, cohort_label=cohort,
+        subtitle="Teams remain in published PowerScore order.",
+        placement_notes={row.team.entrant_id: row.observation for row in content.seeded},
+        strength_break_ids=frozenset(row.team.entrant_id for row in content.seeded if row.strength_break_after),
     )
-    if unseeded:
-        review_notes = {
-            team.entrant_id: statuses.get(team.entrant_id) or team.review_reason or "Placement has not been assessed."
-            for team in unseeded
-        }
+    if content.unseeded:
         tables += _table_html(
-            "Unseeded teams", unseeded, numbered=False, review=True, cohort_label=cohort,
+            "Unseeded teams", [row.team for row in content.unseeded], numbered=False, review=True,
+            cohort_label=cohort,
             subtitle="These accepted teams are preserved, but PitchRank cannot place them in the seed order.",
-            placement_notes=review_notes,
+            placement_notes={row.team.entrant_id: row.placement_status for row in content.unseeded},
         )
-    summary = f"{len(seeded)} seeded in published order · {len(unseeded)} held for placement review."
+    summary = f"{len(content.seeded)} seeded in published order · {len(content.unseeded)} held for placement review."
     return tables, summary
 
 
@@ -571,19 +536,15 @@ def _sheet_html(
     policy: TierPolicy | None = None, operator_note: str = "",
 ) -> str:
     cohort = f"{_display_gender(sheet.gender)} {sheet.age_group.upper()}"
-    analysis = sheet.tier_analysis
     tables, summary = _cheat_sheet_tables(sheet)
-    guidance = list(getattr(analysis, "notes", ()) if analysis is not None else ())
-    if operator_note.strip():
-        guidance.append(operator_note.strip())
+    guidance = build_director_cohort(sheet, operator_note).notes
     notes = ""
     if guidance:
         items = "".join(f"<li>{html.escape(value)}</li>" for value in dict.fromkeys(guidance))
         notes = f'<aside class="guidance"><h2>Director notes</h2><ul>{items}</ul></aside>'
     explanation = (
-        "Strength breaks describe competitive differences; they do not assign divisions or pools. "
-        "Use the continuous seed order and close ranges to support the director's chosen arrangement. "
-        "PitchRank score already adjusts for age, so a younger team playing up can be compared here. "
+        DIRECTOR_LEGEND + " "
+        + "PitchRank score already adjusts for age, so a younger team playing up can be compared here. "
         "State rank is that team's rank within its own PitchRank age and gender group."
     )
     guide = f"""<section class="seed-guide">
@@ -594,8 +555,6 @@ def _sheet_html(
     <span>Start with the published order, then use tournament judgement for final placement.</span></div>
    <div class="guide-step"><strong>Strength breaks</strong>
     <span>A marker identifies a meaningful difference between neighboring seeds.</span></div>
-   <div class="guide-step"><strong>Close ranges</strong>
-    <span>Close teams can be distributed across pools when the chosen format needs balance.</span></div>
   </div>
  </section>"""
     return f"""<section class="sheet">
@@ -696,14 +655,17 @@ def render_sheet_html(
  background: #F0F5F3; }}
  table.grid td {{ padding: 5px 6px; border-bottom: 1px solid {BRAND["rule"]}; vertical-align: top;
  line-height: 1.35; overflow-wrap: anywhere; }}
- .pos {{ text-align: center; font-weight: 700; color: {BRAND["forest"]}; font-variant-numeric: tabular-nums; }}
+ tr.strength-break td {{ border-bottom: 2px solid {BRAND["forest"]}; }}
+ .pos {{ text-align: center; font-weight: 700; color: {BRAND["forest"]};
+ font-variant-numeric: tabular-nums; }}
+ td.pos {{ white-space: nowrap; }}
  .team {{ font-weight: 700; }}
  .pitchrank-name {{ display: block; font-size: 9px; font-weight: 400; color: {BRAND["forest"]}; margin-top: 2px; }}
  .club {{ display: block; font-size: 9px; font-weight: 400; color: {BRAND["muted"]}; margin-top: 2px; }}
  .num {{ text-align: center; font-variant-numeric: tabular-nums; }}
  .columns th.num, .columns th.pos {{ text-align: center; }}
- .score {{ font-weight: 700; }}
- .flight {{ display: block; margin-top: 2px; font-size: 8px; line-height: 1.25; font-weight: 400;
+ .score {{ white-space: nowrap; font-weight: 700; }}
+ .flight {{ display: block; white-space: normal; margin-top: 2px; font-size: 8px; line-height: 1.25; font-weight: 400;
  color: {BRAND["muted"]}; }}
  .state, .placement {{ font-size: 9.5px; }}
  .placement {{ color: {BRAND["muted"]}; }}
@@ -716,8 +678,8 @@ def render_sheet_html(
  background: #FFF8D9; }}
  .review .tier-title {{ color: {BRAND["forest_deep"]}; }}
  .review .count, .review .cohort-tag, .review .tier-description {{ color: {BRAND["muted"]}; }}
- .guidance {{ border: 1px solid #E7DB9A; border-left: 3px solid {BRAND["yellow"]};
- background: #FFFCED; padding: 3mm 4mm; margin: 4mm 0; }}
+ .guidance {{ border: 1px solid {BRAND["rule"]}; border-left: 3px solid {BRAND["forest"]};
+ background: {BRAND["band"]}; padding: 3mm 4mm; margin: 4mm 0; }}
  .guidance h2 {{ font-size: 11px; color: {BRAND["forest"]}; margin: 0 0 2mm; }}
  .guidance ul {{ margin: 0; padding-left: 4mm; font-size: 10px; line-height: 1.5; }}
  .guidance li {{ margin-bottom: 1.5mm; }}
@@ -727,6 +689,7 @@ def render_sheet_html(
  .method {{ font-size: 9px; line-height: 1.5; color: {BRAND["muted"]}; margin: 0 0 4mm; }}
  .foot {{ display: flex; justify-content: space-between; gap: 5mm; border-top: 1px solid {BRAND["rule"]};
  margin-top: 4mm; padding-top: 3mm; font-size: 9px; color: {BRAND["muted"]}; }}
+ @media screen {{ .sheet {{ min-width: 720px; }} }}
  @media print {{
  body {{ background: white; }}
  .sheet {{ max-width: none; margin: 0; padding: 0; break-after: page; }}
