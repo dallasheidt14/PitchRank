@@ -23,10 +23,11 @@ PitchRank team or creates it under its Athletes2Events id; a 0.75-0.90 match goe
 to the review queue and is not created.  The pass is previewed without writes
 first, and a new link to a PitchRank team that another team of the event also
 links to is reported as a conflict and left unwritten.  The games stage then
-writes the importer's CSV, holding back any game whose team is not linked and any
-game whose two teams sit on different boards -- the importer validates both sides
-of a game against one age group, so a cross-age game would insert half-matched.
-Those are written to their own file so a later pass can repair them.
+writes the importer's CSV, holding back only a game whose team is not linked.  A
+game between two boards is imported: a team playing up is ordinary and each side
+resolves through its own alias, while the ranking engine reads a team's cohort
+from its own row rather than from the game.  Those games are also listed in a
+file of their own, since the age on the importer's row is the home team's.
 
 A team's age comes from its own name, never from its division; the division is an
 upper bound, since a team plays up and never down.  A name that states no age, or
@@ -1081,7 +1082,7 @@ def main() -> int:
     summary.add_row("games in window", str(len(games)))
     summary.add_row("games to import", str(len(records) // 2))
     summary.add_row("games held back", str(len(held)))
-    summary.add_row("cross-age games held", str(len(cross_age)))
+    summary.add_row("cross-age games imported", str(len(cross_age)))
     summary.add_row("problems", str(len(problems)))
     console.print(summary)
     for problem in problems:

@@ -92,6 +92,25 @@ class ImportMetrics:
         }
 
 
+
+def rematch_game_uid(provider_code: str, master_game_uid: str, matched_game: dict) -> str:
+    """Re-append the schedule_id suffix the master-id regeneration would strip.
+
+    Bracket play puts the same two teams on the pitch twice in a day, and these
+    providers give every match its own schedule_id. Without the suffix both games
+    regenerate onto one uid and the unique index drops the second result.
+
+    The suffix is read from the row the matcher matched: ``match_game_history``
+    returns schedule_id only inside ``raw_data``, so reading its result alone
+    yields None and loses the rematch silently.
+    """
+    if not (provider_code and provider_code.lower() in REMATCH_PROVIDERS):
+        return master_game_uid
+    raw_row = matched_game.get("raw_data") or {}
+    suffix = str(matched_game.get("schedule_id") or raw_row.get("schedule_id") or "").strip()
+    return f"{master_game_uid}:{suffix}" if suffix else master_game_uid
+
+
 class EnhancedETLPipeline:
     """Enhanced ETL pipeline with bulk operations, validation, and metrics tracking"""
 
@@ -575,14 +594,7 @@ class EnhancedETLPipeline:
                                 team1_id=home_team_id,
                                 team2_id=away_team_id,
                             )
-                            # Preserve the schedule_id suffix added in
-                            # _validate_games for tournament rematches; without
-                            # this re-append, the master-ID regen strips it and
-                            # collapses both rematches back into one game_uid.
-                            if self.provider_code and self.provider_code.lower() in REMATCH_PROVIDERS:
-                                schedule_id_suffix = (matched_game.get("schedule_id") or "").strip()
-                                if schedule_id_suffix:
-                                    master_game_uid = f"{master_game_uid}:{schedule_id_suffix}"
+                            master_game_uid = rematch_game_uid(self.provider_code, master_game_uid, matched_game)
                             old_uid = matched_game.get("game_uid", "")
                             if master_game_uid != old_uid:
                                 logger.debug(

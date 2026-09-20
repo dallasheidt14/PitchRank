@@ -145,17 +145,23 @@ def main() -> int:
         console.print("\nNothing to apply.")
         return 0
 
+    # Each move is logged and flushed before the next one runs. Writing the log
+    # after the loop loses the record of everything already committed when a later
+    # update raises, and --revert then cannot tell which subset was applied.
     args.log.parent.mkdir(parents=True, exist_ok=True)
     written = []
-    for entry in apply_now:
-        supabase.table("teams").update({"club_name": entry["to_club"]}).eq(
-            "team_id_master", entry["team_id_master"]
-        ).execute()
-        written.append({c: entry.get(c, "") for c in LOG_COLUMNS})
     with args.log.open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=LOG_COLUMNS)
         writer.writeheader()
-        writer.writerows(written)
+        f.flush()
+        for entry in apply_now:
+            supabase.table("teams").update({"club_name": entry["to_club"]}).eq(
+                "team_id_master", entry["team_id_master"]
+            ).execute()
+            row = {c: entry.get(c, "") for c in LOG_COLUMNS}
+            writer.writerow(row)
+            f.flush()
+            written.append(row)
 
     after = current_clubs(supabase, [e["team_id_master"] for e in apply_now])
     wrong = [
