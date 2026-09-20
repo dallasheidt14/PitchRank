@@ -37,7 +37,7 @@ interface MatchPredictionBuildResult {
   shadowContext: MatchPredictionShadowContext;
 }
 
-export const MATCH_PREDICTION_VERSION = 'heuristic_v5_cohort_consistent_zero_safe';
+export const MATCH_PREDICTION_VERSION = 'heuristic_v6_neutral_selection_prior';
 
 type TeamRow = {
   team_id_master: string;

@@ -86,6 +86,38 @@ describe('poissonBlowout4PlusProbability', () => {
 });
 
 describe('predictMatch', () => {
+  it.each([
+    ['unequal teams', { power_score_final: 0.75, glicko_rating: 1640 }, { power_score_final: 0.43 }],
+    ['nearly equal teams', { power_score_final: 0.5001 }, {}],
+    ['symmetric teams', {}, {}],
+    ['draw-heavy sparse teams', { age: 13, games_played: 1, power_score_final: 0.5001 }, { age: 13, games_played: 1 }],
+    [
+      'missing supplemental evidence',
+      { exp_win_rate: null, exp_margin: null, glicko_rating: null },
+      { power_score_final: 0.48, exp_win_rate: null, exp_margin: null, glicko_rating: null },
+    ],
+  ] as [string, Partial<TeamWithRanking>, Partial<TeamWithRanking>][])(
+    '%s keep the same forecast when selections swap',
+    (_label, first, second) => {
+      const teamA = makeTeam({ team_id_master: 'team-a', ...first });
+      const teamB = makeTeam({ team_id_master: 'team-b', ...second });
+      const forward = predictMatch(teamA, teamB, []);
+      const reverse = predictMatch(teamB, teamA, []);
+      expect(forward.winProbabilityA).toBeCloseTo(reverse.winProbabilityB, 12);
+      expect(forward.winProbabilityB).toBeCloseTo(reverse.winProbabilityA, 12);
+      expect(forward.drawProbability).toBeCloseTo(reverse.drawProbability!, 12);
+      expect(forward.expectedMargin).toBeCloseTo(-reverse.expectedMargin, 12);
+      expect(forward.expectedAbsoluteGoalDifference).toBeCloseTo(reverse.expectedAbsoluteGoalDifference!, 12);
+      expect(forward.blowout4PlusProbability).toBeCloseTo(reverse.blowout4PlusProbability!, 12);
+      expect(forward.expectedScore).toEqual({ teamA: reverse.expectedScore.teamB, teamB: reverse.expectedScore.teamA });
+      expect(forward.predictedWinner).toBe(
+        reverse.predictedWinner === 'draw' ? 'draw' : reverse.predictedWinner === 'team_a' ? 'team_b' : 'team_a'
+      );
+      expect(forward.confidence).toBe(reverse.confidence);
+      expect(forward.confidence_score).toBeCloseTo(reverse.confidence_score!, 12);
+    }
+  );
+
   it.each(['power_score_final', 'offense_norm', 'defense_norm', 'sos_norm'] as const)(
     'preserves zero %s on either side instead of replacing it with average strength',
     (field) => {
@@ -241,11 +273,7 @@ describe('predictMatch', () => {
   });
 
   it('predicts draw for symmetric inputs even with non-sparse history', () => {
-    // Non-sparse symmetric inputs: heuristic-draw conditions DO NOT trigger
-    // (sparseMatchup=false because games_played=22), so the symmetric-inputs
-    // short-circuit is the only path that returns 'draw'. Without it, the
-    // asymmetric outcome-calibration prior would tip the predicted winner to
-    // whichever side has the slightly higher prior.
+    // Equal non-sparse inputs should select a draw rather than break the tie by slot.
     const teamA = makeTeam({
       team_id_master: 'team-a',
       team_name: 'Twin A 14B',
