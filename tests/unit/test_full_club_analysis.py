@@ -41,6 +41,7 @@ from scripts.full_club_analysis import (
     proper_case,
     write_provider_changes,
 )
+from scripts.repair_swapped_club_names import lowered_abbreviation
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = PROJECT_ROOT / ".github" / "workflows" / "update-missing-club-and-state.yml"
@@ -318,6 +319,44 @@ def test_the_double_treats_null_the_way_postgrest_does():
 )
 def test_the_re_case_never_lowers_an_abbreviation(name, expected):
     assert proper_case(name, VOCAB) == expected
+
+
+@pytest.mark.parametrize("acronym", sorted(fca._CLUB_ACRONYMS))
+def test_a_lowered_abbreviation_is_restored_from_a_capitalised_variant(acronym):
+    """The path the cleanup actually takes for a mixed-case club name.
+
+    ``caps_winner`` merges case variants whenever any variant carries a lowercase
+    letter, and reaches ``proper_case`` only when every variant is all-caps. So a
+    mixed-case club is decided by ``merge_case_variants``, and that is where a lowered
+    abbreviation would survive: the majority spelling below writes it lowered, and only
+    the minority keeps its capitals.
+
+    The check is the repair script's own definition of damage, so the two move together
+    rather than each holding its own idea of what went wrong.
+    """
+    lowered = f"{acronym.capitalize()} Soccer Club"
+    kept = f"{acronym} Soccer Club"
+
+    winner = fca.caps_winner([lowered, kept], {lowered: 9, kept: 1}, "AL", VOCAB)
+
+    assert acronym in winner, winner
+    assert lowered_abbreviation(kept, winner) is None, winner
+
+
+@pytest.mark.parametrize("acronym", sorted(fca._CLUB_ACRONYMS))
+def test_an_all_caps_group_keeps_its_abbreviation(acronym):
+    """No mixed-case variant, so the winner comes from ``proper_case`` instead."""
+    name = f"{acronym} SOCCER CLUB"
+
+    winner = fca.caps_winner([name], {name: 2}, "AL", VOCAB)
+
+    assert acronym in winner, winner
+
+
+def test_the_damage_classifier_still_recognises_the_renames_it_was_written_for():
+    """Without this the guard above passes for a classifier that recognises nothing."""
+    assert lowered_abbreviation("JSC Soccer Club", "Jsc Soccer Club") == "word"
+    assert lowered_abbreviation("Homewood Soccer Club (AL)", "Homewood Soccer Club (al)") == "bracket"
 
 
 def test_an_all_caps_override_output_is_not_re_cased(monkeypatch):

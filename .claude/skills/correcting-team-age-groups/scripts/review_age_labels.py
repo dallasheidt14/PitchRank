@@ -8,7 +8,7 @@ Two modes:
                whose name disagrees with its stored age group. Nothing is written to the database.
 
   write-plan   Turn chosen groups of a review CSV into a plan for
-               data/exports/fix_band_cohorts.py --apply.
+               scripts/fix_band_cohorts.py --apply.
 
 Usage:
     python .claude/skills/correcting-team-age-groups/scripts/review_age_labels.py review [--state AZ,NC]

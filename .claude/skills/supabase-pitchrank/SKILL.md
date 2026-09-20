@@ -566,9 +566,12 @@ else:
 ```python
 # Supabase doesn't have transactions in Python SDK
 # Use RPC functions for atomic operations. execute_team_merge inserts one
-# team_merge_map row and cascades team_alias_map/teams; games keep the pre-merge
-# id (see team_merge_map above) — still effectively irreversible, so dry-run is
-# the default and writing is opt-in.
+# team_merge_map row, cascades team_alias_map/teams, and snapshots the deprecated
+# row into team_merge_audit. It never writes games — it counts them — so the
+# snapshot plus untouched games is what makes a merge reversible; revert_fuzzy_auto_merges.py
+# restores from it. Games keeping the pre-merge id is the read-side complication
+# above, not a barrier to undo. Dry-run stays the default because a wrong merge
+# still has to be noticed before it can be undone.
 def merge_team(client, deprecated_id: str, canonical_id: str, *, dry_run: bool = True):
     if dry_run:
         print(f"would merge {deprecated_id} -> {canonical_id}")
