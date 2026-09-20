@@ -321,40 +321,36 @@ def test_the_re_case_never_lowers_an_abbreviation(name, expected):
     assert proper_case(name, VOCAB) == expected
 
 
-# Words the re-case would title-case on sight: ordinary enough that neither ACRONYMS nor
-# looks_like_acronym protects them. Built from the fixture vocabulary rather than listed,
-# so a word added there is covered here too.
-RECASE_PRONE_WORDS = sorted(
-    word
-    for word in VOCAB.spellings
-    if len(word) >= 5 and word.upper() not in fca.ACRONYMS and not fca.looks_like_acronym(word.upper())
-)
+@pytest.mark.parametrize("acronym", sorted(fca._CLUB_ACRONYMS))
+def test_a_lowered_abbreviation_is_restored_from_a_capitalised_variant(acronym):
+    """The path the cleanup actually takes for a mixed-case club name.
 
+    ``caps_winner`` merges case variants whenever any variant carries a lowercase
+    letter, and reaches ``proper_case`` only when every variant is all-caps. So a
+    mixed-case club is decided by ``merge_case_variants``, and that is where a lowered
+    abbreviation would survive: the majority spelling below writes it lowered, and only
+    the minority keeps its capitals.
 
-@pytest.mark.parametrize("word", RECASE_PRONE_WORDS)
-def test_the_re_case_makes_no_rename_the_repair_script_calls_damage(word):
-    """The weekly cleanup and the repair script have to agree about capitals.
-
-    The repair script exists because this cleanup once re-cased names that were already
-    right, and it carries its own definition of that damage. Pinning the cleanup against
-    that definition catches a shape nobody enumerated, by whichever of the two scripts
-    defines it.
-
-    The names put the word in capitals inside an otherwise mixed-case name, which is the
-    shape that regressed: an all-caps name is the cleanup's job to re-case, and the
-    classifier excludes it for that reason, so only a mixed-case one can be damage.
+    The check is the repair script's own definition of damage, so the two move together
+    rather than each holding its own idea of what went wrong.
     """
-    for name in (
-        f"{word.upper()} United",
-        f"Homewood Soccer Club ({word.upper()})",
-        f"Flyte {word.upper()}-IE B10 Contreras",
-    ):
-        assert lowered_abbreviation(name, proper_case(name, VOCAB)) is None, name
+    lowered = f"{acronym.capitalize()} Soccer Club"
+    kept = f"{acronym} Soccer Club"
+
+    winner = fca.caps_winner([lowered, kept], {lowered: 9, kept: 1}, "AL", VOCAB)
+
+    assert acronym in winner, winner
+    assert lowered_abbreviation(kept, winner) is None, winner
 
 
-def test_the_recase_prone_corpus_is_not_empty():
-    """A corpus that shrank to nothing would leave the guard above passing forever."""
-    assert RECASE_PRONE_WORDS
+@pytest.mark.parametrize("acronym", sorted(fca._CLUB_ACRONYMS))
+def test_an_all_caps_group_keeps_its_abbreviation(acronym):
+    """No mixed-case variant, so the winner comes from ``proper_case`` instead."""
+    name = f"{acronym} SOCCER CLUB"
+
+    winner = fca.caps_winner([name], {name: 2}, "AL", VOCAB)
+
+    assert acronym in winner, winner
 
 
 def test_the_damage_classifier_still_recognises_the_renames_it_was_written_for():

@@ -309,3 +309,79 @@ def test_a_log_row_the_apply_did_not_write_is_not_reverted(exports, tmp_path):
 
     assert db.writes == []
     assert db.age_group(row["team_id_master"]) == "u14"
+
+
+def test_a_zero_limit_applies_no_rows(exports, tmp_path):
+    """``--limit 0`` asks for none. Read as falsy it asks for all, which is the plan."""
+    rows = [_plan_row(team_id_master=f"1111111{n}-1111-4111-8111-111111111111") for n in range(3)]
+    db = _Db([_team_row(r) for r in rows])
+
+    _apply(db, _write_plan(tmp_path / "plan.csv", rows), limit=0)
+
+    assert db.writes == []
+    assert [t["age_group"] for t in db.teams.values()] == ["u14", "u14", "u14"]
+
+
+def test_a_negative_limit_is_refused(monkeypatch, tmp_path):
+    monkeypatch.setattr(fbc, "load_env", lambda: None)
+    monkeypatch.setattr(fbc, "get_supabase", lambda: object())
+    monkeypatch.setattr(
+        "sys.argv",
+        ["fix_band_cohorts.py", "--apply", str(tmp_path / "plan.csv"), "--limit", "-1", "--execute"],
+    )
+
+    with pytest.raises(SystemExit):
+        fbc.main()
+
+
+def _apply_log(path, rows):
+    fbc.write_csv(rows, path, fbc.PLAN_FIELDS + ["result", "hold_reason"])
+    return path
+
+
+def test_an_unconfirmed_row_still_holding_the_written_value_is_reverted(tmp_path):
+    """A PATCH whose reply was lost leaves an unconfirmed row, and it has to be undoable."""
+    row = {**_plan_row(), "result": fbc.UNCONFIRMED, "hold_reason": ""}
+    db = _Db([_team_row(row, age_group="u13")])
+
+    fbc.revert(db, _apply_log(tmp_path / "log.csv", [row]), execute=True)
+
+    assert db.age_group(row["team_id_master"]) == "u14"
+
+
+def test_an_unconfirmed_row_that_moved_elsewhere_is_left_alone(tmp_path):
+    """The predicate still decides: only a row holding what the run wrote comes back."""
+    row = {**_plan_row(), "result": fbc.UNCONFIRMED, "hold_reason": ""}
+    db = _Db([_team_row(row, age_group="u15")])
+
+    fbc.revert(db, _apply_log(tmp_path / "log.csv", [row]), execute=True)
+
+    assert db.age_group(row["team_id_master"]) == "u15"
+
+
+def test_a_held_row_is_not_revertable(tmp_path):
+    row = {**_plan_row(), "result": "held_name_contradicts", "hold_reason": "name says U11"}
+    db = _Db([_team_row(row, age_group="u13")])
+
+    fbc.revert(db, _apply_log(tmp_path / "log.csv", [row]), execute=True)
+
+    assert db.age_group(row["team_id_master"]) == "u13"
+
+
+def test_an_interrupted_execute_marks_its_rows_unconfirmed(exports, tmp_path):
+    """A row the loop never reached is unknown, not unwritten, once the run dies."""
+    row = _plan_row()
+    db = _Db([_team_row(row)])
+    plan = _write_plan(tmp_path / "plan.csv", [row])
+
+    def _boom(*a, **k):
+        raise KeyboardInterrupt
+
+    original = db.table
+    db.table = _boom
+    with pytest.raises(KeyboardInterrupt):
+        _apply(db, plan)
+    db.table = original
+
+    _, log = _log_rows(exports)
+    assert [r["result"] for r in log] == [fbc.UNCONFIRMED]

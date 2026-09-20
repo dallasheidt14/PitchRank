@@ -40,6 +40,14 @@ class _Query:
         self._gte.append((column, value))
         return self
 
+    def order(self, column):
+        self._order = column
+        return self
+
+    def range(self, start, end):
+        self._range = (start, end)
+        return self
+
     def _keep(self, row):
         return all(row.get(c) in vals for c, vals in self._in) and all(
             str(row.get(c) or "") >= v for c, v in self._gte
@@ -47,6 +55,14 @@ class _Query:
 
     def execute(self):
         rows = [r for r in self._db.rows.get(self._table, []) if self._keep(r)]
+        order = getattr(self, "_order", None)
+        if order:
+            rows.sort(key=lambda r: str(r.get(order) or ""))
+        window = getattr(self, "_range", None)
+        if window:
+            # A page is served only when the caller asked for one, and never wider than
+            # asked: a double that returned every row would hide a missing paging loop.
+            rows = rows[window[0] : window[1] + 1]
         self._db.executed.append((self._table, list(self._in)))
         return _Result([{c: r.get(c) for c in self._columns} for r in rows])
 
@@ -73,8 +89,12 @@ class _EvidenceDb:
         return _Table(self, name)
 
 
+_NEXT_GAME = iter(range(1000, 9999))
+
+
 def _game(home, away):
     return {
+        "id": f"game-{next(_NEXT_GAME)}",
         "home_team_master_id": home,
         "away_team_master_id": away,
         "game_date": "2026-09-01",
@@ -169,6 +189,25 @@ def test_the_merge_map_is_queried_for_the_candidates():
     fbc.attach_fixture_evidence(db, [_row()])
 
     assert ("team_merge_map", [("canonical_team_id", [SURVIVOR])]) in db.executed
+
+
+def test_every_page_of_fixtures_is_read(monkeypatch):
+    """A capped response must not decide a verdict.
+
+    With the page size forced below the fixture count, a run that stopped at the first
+    page would see only the proposed-cohort games and call a mixed schedule backs_move,
+    which is the same failure an unresolved merge produces.
+    """
+    monkeypatch.setattr(fbc, "PAGE", 2)
+    teams, games = _opponents(
+        *[(SURVIVOR, U13_OPPONENT)] * 3,
+        *[(SURVIVOR, U14_OPPONENT)] * 3,
+    )
+
+    row = _run(games, teams, [])
+
+    assert (row["opp_games_proposed"], row["opp_games_current"]) == (3, 3)
+    assert row["fixture_verdict"] == "mixed"
 
 
 @pytest.mark.parametrize(

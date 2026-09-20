@@ -63,6 +63,12 @@ SEASON_START = f"{_soccer_season_year()}-08-01"
 _COHORT = re.compile(r"^u([0-9]{1,2})$")
 _YEAR = re.compile(r"(?<![0-9])(20[0-2][0-9])(?![0-9])")
 
+# An apply row whose outcome the run never confirmed. It is not "not written": the
+# write may have landed and the reply been lost, so the undo has to consider it.
+IN_FLIGHT = "in_flight"
+UNCONFIRMED = "unconfirmed"
+REVERTABLE = frozenset({"updated", UNCONFIRMED, IN_FLIGHT, "planned_not_applied"})
+
 PLAN_FIELDS = [
     "state_code",
     "team_id_master",
@@ -304,15 +310,26 @@ def attach_fixture_evidence(sb, rows: List[Dict]) -> None:
             ("away_team_master_id", "home_team_master_id"),
         )
         for col, other in sides:
-            data = (
-                sb.table("games")
-                .select(f"{col},{other}")
-                .in_(col, batch)
-                .gte("game_date", SEASON_START)
-                .execute()
-                .data
-            )
-            games += [(absorbed.get(g[col], g[col]), g[other]) for g in data or [] if g.get(other)]
+            # Paged and ordered: PostgREST caps a response, and a truncated read drops
+            # fixtures that may be the ones backing the current cohort, which is the same
+            # way an unresolved merge tips a mixed schedule into backs_move.
+            start = 0
+            while True:
+                page = (
+                    sb.table("games")
+                    .select(f"{col},{other}")
+                    .in_(col, batch)
+                    .gte("game_date", SEASON_START)
+                    .order("id")
+                    .range(start, start + PAGE - 1)
+                    .execute()
+                    .data
+                    or []
+                )
+                games += [(absorbed.get(g[col], g[col]), g[other]) for g in page if g.get(other)]
+                if len(page) < PAGE:
+                    break
+                start += PAGE
 
     opp_ids = list({o for _, o in games})
     names: Dict[str, str] = {}
@@ -535,9 +552,11 @@ def apply_plan(
         (held if reason else writable).append(r)
     # Apply in id order: effectively a random spread, so a --limit pilot samples every state.
     writable.sort(key=lambda r: r["team_id_master"])
-    if limit:
+    if limit is not None:
+        # Not `if limit:` -- 0 is a request for no rows, and falling through to the
+        # unsliced list turns an aborted pilot into the whole plan.
         writable = writable[:limit]
-    todo = writable + ([] if limit else sorted(held, key=lambda r: r["team_id_master"]))
+    todo = writable + ([] if limit is not None else sorted(held, key=lambda r: r["team_id_master"]))
 
     log_path = EXPORTS / f"fix_band_cohorts_apply_{datetime.now():%Y%m%d_%H%M%S}.csv"
     fields = PLAN_FIELDS + ["result", "hold_reason"]
@@ -556,6 +575,7 @@ def apply_plan(
         for i, r in enumerate(todo, 1):
             if not execute or r["hold_reason"]:
                 continue
+            r["result"] = IN_FLIGHT
             updated = (
                 sb.table("teams")
                 .update({"age_group": r["new_age_group"]})
@@ -570,6 +590,12 @@ def apply_plan(
                 print(f"  {i:,} / {len(todo):,}")
                 write_csv(todo, log_path, fields)
     finally:
+        # A row whose PATCH may have committed without us seeing the reply, and every row
+        # a kill left behind, is unknown rather than unwritten. revert() replays those
+        # against the live value instead of trusting this file.
+        for r in todo:
+            if r["result"] in (IN_FLIGHT, "planned_not_applied") and execute and not r["hold_reason"]:
+                r["result"] = UNCONFIRMED
         write_csv(todo, log_path, fields)
 
     print("\n=== Result ===")
@@ -581,7 +607,14 @@ def apply_plan(
 
 
 def revert(sb, log_path: Path, execute: bool) -> None:
-    rows = [r for r in read_our_csv(log_path) if r.get("result") == "updated"]
+    """Replay an apply log backwards, restoring only rows still holding what it wrote.
+
+    Unconfirmed rows are replayed too. Their write may have committed with the reply
+    lost, or the run may have been killed before the log caught up, so the live value is
+    the only thing that settles it -- and the predicate below means a row that never
+    moved matches nothing.
+    """
+    rows = [r for r in read_our_csv(log_path) if r.get("result") in REVERTABLE]
     print(f"=== Revert {log_path.name} ({'EXECUTE' if execute else 'DRY RUN'}) : {len(rows):,} rows ===")
     outcome = Counter()
     for r in rows:
@@ -596,7 +629,8 @@ def revert(sb, log_path: Path, execute: bool) -> None:
             .execute()
             .data
         )
-        outcome["reverted" if done else "skipped_changed_since"] += 1
+        key = "reverted" if done else "skipped_changed_since"
+        outcome[f"{key}_unconfirmed" if r.get("result") == UNCONFIRMED else key] += 1
     for k, n in outcome.most_common():
         print(f"  {k:22s} {n:>6,}")
 
@@ -607,7 +641,7 @@ def main() -> None:
     parser.add_argument("--revert", type=Path, help="Undo an apply log")
     parser.add_argument("--execute", action="store_true", help="Write to the database (default is a dry run)")
     parser.add_argument("--dry-run", action="store_true", help="Force a dry run; wins over --execute")
-    parser.add_argument("--limit", type=int, help="Apply only the first N plan rows (pilot)")
+    parser.add_argument("--limit", type=int, help="Apply only the first N plan rows (pilot); 0 applies none")
     parser.add_argument(
         "--include-collisions", action="store_true", help="Also apply rows with a same-named team in the target cohort"
     )
@@ -630,6 +664,8 @@ def main() -> None:
         "--skip-name-contradictions", action="store_true", help="Hold rows whose own name states a different age"
     )
     args = parser.parse_args()
+    if args.limit is not None and args.limit < 0:
+        raise SystemExit("--limit cannot be negative; it would apply all but the last rows")
     execute = args.execute and not args.dry_run
 
     load_env()
