@@ -2,13 +2,24 @@ from __future__ import annotations
 
 import pandas as pd
 import pytest
+from sklearn.metrics import log_loss
 
 from src.predictions.evaluation_reporting import (
     build_calibration_table,
     build_margin_band_metrics,
+    build_probability_calibration_table,
     build_standardized_evaluation_frame,
     compute_evaluation_summary,
 )
+
+
+def test_log_loss_matches_sklearn_at_zero_one_and_extreme_probabilities():
+    probabilities = [[0, 0, 1], [1, 0, 0], [1e-16, 0.4, 0.6-1e-16], [0.2, 0.6, 0.2]]
+    frame = pd.DataFrame(probabilities, columns=["prob_team_a_win", "prob_draw", "prob_team_b_win"])
+    frame["actual_outcome"] = ["team_a", "team_a", "team_a", "draw"]
+    assert compute_evaluation_summary(frame)["log_loss"] == pytest.approx(
+        log_loss([0, 0, 0, 1], probabilities, labels=[0, 1, 2])
+    )
 
 
 def test_compute_evaluation_summary_handles_three_way_probabilities():
@@ -274,3 +285,40 @@ def test_blowout_metrics_use_explicit_probability_labels_when_present():
     blowout_row = margin_bands.loc[margin_bands["band"] == "blowout_3plus"].iloc[0]
     assert blowout_row["predicted_rate"] == 0.5
     assert blowout_row["precision"] == 1.0
+
+
+def test_calibration_uses_the_probability_outcome_instead_of_draw_override():
+    frame = pd.DataFrame([{
+        "actual_outcome": "team_a", "predicted_outcome": "draw",
+        "prob_team_a_win": 0.45, "prob_draw": 0.35, "prob_team_b_win": 0.2,
+        "predicted_margin": 0.1, "actual_margin": 1,
+    }])
+    table = build_calibration_table(frame)
+    assert table["games"].sum() == 1  # Three-way probabilities below 50% are included.
+    assert table.iloc[0]["predicted_probability"] == 0.45
+    assert table.iloc[0]["actual_accuracy"] == 1.0
+    assert compute_evaluation_summary(frame)["winner_accuracy"] == 0.0
+
+
+def test_four_goal_probability_metrics_use_only_rows_with_forecasts():
+    frame = pd.DataFrame([
+        {"actual_outcome": "team_a", "prob_team_a_win": 0.6, "prob_draw": 0.2, "prob_team_b_win": 0.2,
+         "predicted_margin": 4.2, "actual_margin": 4, "blowout_4plus_probability": None,
+         "predicted_blowout_4plus": None},
+        {"actual_outcome": "draw", "prob_team_a_win": 0.2, "prob_draw": 0.6, "prob_team_b_win": 0.2,
+         "predicted_margin": 0, "actual_margin": 0, "blowout_4plus_probability": 0,
+         "predicted_blowout_4plus": None},
+    ])
+    summary = compute_evaluation_summary(frame)
+    assert summary["blowout_4plus_probability_games"] == 1
+    assert summary["actual_blowout_4plus_rate"] == 0.5
+    assert summary["actual_blowout_4plus_rate_on_probability_rows"] == 0
+    assert summary["avg_blowout_4plus_probability"] == 0
+    assert summary["blowout_4plus_brier"] == 0
+    assert summary["predicted_blowout_4plus_rate"] == 0.5
+    calibration = build_probability_calibration_table(frame)
+    risk = calibration[calibration["outcome"] == "blowout_4plus"]
+    assert risk["games"].sum() == 1
+    assert risk.iloc[0]["observed_rate"] == 0
+    frame["blowout_4plus_probability"] = None
+    assert compute_evaluation_summary(frame)["blowout_4plus_brier"] is None
