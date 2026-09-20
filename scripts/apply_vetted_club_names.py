@@ -192,7 +192,7 @@ def main() -> int:
     wrong = [
         e["team_id_master"] for e in apply_now if after.get(e["team_id_master"], {}).get("club_name") != e["to_club"]
     ]
-    console.print(f"\nMoved {len(written) - len(wrong)} of {len(written)}; log: {args.log}")
+    console.print(f"\nMoved {len(written) - len(wrong)} of {len(written)}; log: {log_path}")
     if wrong:
         console.print(f"[red]{len(wrong)} did not take: {wrong}[/red]")
         return 1
