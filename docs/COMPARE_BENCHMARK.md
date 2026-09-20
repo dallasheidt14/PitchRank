@@ -50,8 +50,10 @@ remain unavailable. Compare the observed blowout rate with predicted risk on
 the same rows, not the complete population when coverage differs.
 
 Holdout slices cover cohort, gender, same/cross-age matches, limited history,
-PowerScore gaps, and events. Unknown metadata stays an explicit group. A
-cross-age pairing alone does not identify the tournament's playing-up assignment.
+PowerScore gaps, and events. Age/cohort and gender slices use team A's frozen
+predictor inputs; refreshed roster labels cannot relabel a forecast. Unknown
+metadata stays an explicit group. A cross-age pairing alone does not identify
+the tournament's playing-up assignment.
 
 ## Release decision
 

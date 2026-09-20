@@ -33,8 +33,8 @@ def fixture(index=0, *, game_date="2026-04-11", event="spring", version="frozen_
             "predictedWinner": "team_a", "blowout4PlusProbability": risk,
         }, "teamA": {"team_id_master": "home"}, "teamB": {"team_id_master": "away"}}, "shadowContext": {
             "predictorVersion": version, "resolvedTeamAIds": ["home"], "resolvedTeamBIds": ["away"],
-            "teamAInput": {"age": 14, "games_played": 20, "power_score_final": 0.5},
-            "teamBInput": {"age": 13, "games_played": 4, "power_score_final": 0.2},
+            "teamAInput": {"age": 14, "gender": "male", "games_played": 20, "power_score_final": 0.5},
+            "teamBInput": {"age": 13, "gender": "male", "games_played": 4, "power_score_final": 0.2},
         }},
     }
 
@@ -116,6 +116,20 @@ def test_probability_rounding_is_normalized_once():
     frame, _ = prepare_forecasts([row], "frozen_v1")
     assert frame.iloc[0]["prob_team_a_win"] == pytest.approx(0.6 / 1.0000001)
     assert frame[["prob_team_a_win", "prob_draw", "prob_team_b_win"]].iloc[0].sum() == pytest.approx(1)
+
+
+def test_fixture_refresh_cannot_relabel_frozen_forecast_slices():
+    row = fixture()
+    row["fixture_payload"]["home_row"].update(age_group="u19", gender="Female")
+    frame, _ = prepare_forecasts([row], "frozen_v1")
+    assert frame.iloc[0]["age_group"] == "U14"
+    assert frame.iloc[0]["gender"] == "Male"
+    assert frame.iloc[0]["cohort"] == "u14|Male"
+    row["heuristic_prediction"]["shadowContext"]["teamAInput"].update(age=None, gender=None)
+    frame, _ = prepare_forecasts([row], "frozen_v1")
+    assert frame.iloc[0]["age_group"] is None
+    assert frame.iloc[0]["gender"] == "unknown"
+    assert frame.iloc[0]["cohort"] == "unknown|unknown"
 
 
 @pytest.mark.parametrize("version", [None, "other_predictor"])

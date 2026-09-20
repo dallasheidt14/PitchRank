@@ -67,22 +67,23 @@ def _gender(value: Any) -> str:
             "f": "Female", "female": "Female", "g": "Female", "girls": "Female"}.get(str(value).lower(), "unknown")
 
 
-def _metadata(row: dict, payload: dict) -> dict:
+def _metadata(payload: dict) -> dict:
     context = _safe_json(payload.get("shadowContext"))
     teams = [_safe_json(context.get(key)) for key in ("teamAInput", "teamBInput")]
     ages = [team.get("age") for team in teams]
     games = [team.get("games_played") for team in teams]
     scores = [team.get("power_score_final") for team in teams]
-    fixture = _safe_json(row.get("fixture_payload"))
-    home = _safe_json(fixture.get("home_row"))
-    gender = _gender(home.get("gender"))
+    gender = _gender(teams[0].get("gender"))
+    age = ages[0]
+    age_group = f"U{int(age)}" if _finite(age) and age > 0 and int(age) == age else None
     gap = abs(scores[0] - scores[1]) if all(_finite(score) for score in scores) else None
     history = "unknown" if not all(_finite(count) and count >= 0 for count in games) else (
         "under_12_games" if min(games) < 12 else "12_plus_games"
     )
     return {
         "gender": gender,
-        "cohort": f"{str(home.get('age_group') or 'unknown').lower()}|{gender}",
+        "age_group": age_group,
+        "cohort": f"{(age_group or 'unknown').lower()}|{gender}",
         "history_band": history,
         "age_pair": "unknown" if not all(_finite(age) and age > 0 for age in ages) else (
             "same_age" if ages[0] == ages[1] else "cross_age"
@@ -172,7 +173,7 @@ def prepare_forecasts(rows: list[dict], model_version: str) -> tuple[pd.DataFram
         if row.get("actual_outcome") not in (None, extracted["actual_outcome"]):
             rejected["conflicting_actual_outcome"] += 1
             continue
-        extracted.update(_metadata(row, payload))
+        extracted.update(_metadata(payload))
         extracted["event_group"] = f"{row.get('provider_code') or 'unknown'}:{row['source_event_id']}"
         extracted["predicted_at"] = predicted_at.astimezone(timezone.utc).isoformat()
         eligible.append(extracted)
