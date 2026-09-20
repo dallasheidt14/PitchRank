@@ -1142,7 +1142,7 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
     {
       question: 'What are the levels of youth soccer in the US?',
       answer:
-        'From top to bottom: national platforms (ECNL, MLS NEXT, Girls Academy), regional development leagues (ECNL Regional, NPL, EDP, DPL), the US Youth Soccer National League and state premier divisions, then local travel and recreational. The US has two parallel sanctioning structures — US Club Soccer and US Youth Soccer — which is why the picture looks confusing.',
+        'From top to bottom: national platforms (ECNL, MLS NEXT, Girls Academy), regional development leagues (ECNL Regional, National 1 League, EDP, DPL), then state premier divisions, local travel and recreational. US Club Soccer and US Youth Soccer ran parallel structures for years, which is why the picture looks confusing; their top team-based competitions merged into the National 1 League for 2026-27.',
     },
     {
       question: 'Is ECNL or MLS NEXT higher level?',
@@ -1157,7 +1157,7 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
     {
       question: 'What is NPL in soccer?',
       answer:
-        "NPL stands for National Premier Leagues — US Club Soccer's competitive league below ECNL. It's strong, well-attended at showcases, and a common alternative for clubs without an ECNL bid in a given age group.",
+        "NPL stood for National Premier Leagues — US Club Soccer's competitive tier below ECNL, well-attended at showcases and a common home for clubs without an ECNL bid. It no longer runs: 2026 was its final season, and the National 1 League replaces it as a joint US Club Soccer and US Youth Soccer competition. Entry criteria have not been published yet.",
     },
     {
       question: 'Is travel soccer the same as club soccer?',
@@ -1172,12 +1172,12 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
     {
       question: 'Does playing higher-level soccer help with college recruiting?',
       answer:
-        'Visibility helps, especially at the top tiers (ECNL, MLS NEXT, GA) where college coaches attend showcases. But individual highlight video, academic eligibility, and direct contact with coaches matter more than the team’s league. A strong NPL player who emails coaches will out-recruit a national-platform player who does nothing.',
+        'Visibility helps, especially at the top tiers (ECNL, MLS NEXT, GA) where college coaches attend showcases. But individual highlight video, academic eligibility, and direct contact with coaches matter more than the team’s league. A strong National 1 League player who emails coaches will out-recruit a national-platform player who does nothing.',
     },
     {
       question: 'Can a team move between levels season to season?',
       answer:
-        "Yes. Clubs apply for league bids each year. Teams get promoted, relegated, or move between platforms as rosters and results change. It's normal for a club's U14 ECNL team to drop to ECNL-RL the following year, or for a strong state premier team to earn an NPL bid.",
+        "Yes. Clubs apply for league bids each year. Teams get promoted, relegated, or move between platforms as rosters and results change. It's normal for a club's U14 ECNL team to drop to ECNL-RL the following year, or for a strong state premier team to move up to the next platform.",
     },
   ],
 
