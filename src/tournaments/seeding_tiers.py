@@ -65,11 +65,27 @@ class StrengthBreak:
     average_expected_margin: float
     supported_windows: tuple[int, ...]
     standout: bool = False
+    standout_start_seed: int | None = None
+    standout_end_seed: int | None = None
+
+
+@dataclass(frozen=True)
+class BoundaryWindow:
+    """Internal evidence for one tested boundary, including rejected windows."""
+
+    after_seed: int
+    size: int
+    upper_ids: tuple[str, ...]
+    lower_ids: tuple[str, ...]
+    favored_fraction: float
+    over_limit_fraction: float
+    average_expected_margin: float
+    supported: bool
 
 
 @dataclass(frozen=True)
 class CloseRange:
-    """A short consecutive seed range whose members remain close."""
+    """Internal range passing matchup limits, not a claim of equal strength."""
 
     start_seed: int
     end_seed: int
@@ -84,7 +100,8 @@ class CheatSheetAnalysis:
 
     ``tiers``, ``borderline``, and ``boundaries`` are retained only so older
     saved packs and operator diagnostics can be read during the migration. The
-    public sheet uses ``ordered_ids``, ``breaks``, and ``close_ranges`` instead.
+    public sheet uses ``ordered_ids`` and supported strength observations.
+    ``close_ranges`` and ``boundary_windows`` are internal evidence only.
     """
 
     ordered_ids: tuple[str, ...]
@@ -94,6 +111,8 @@ class CheatSheetAnalysis:
     close_ranges: tuple[CloseRange, ...]
     notes: tuple[str, ...]
     diagnostics: tuple[str, ...]
+    boundary_windows: tuple[BoundaryWindow, ...] = ()
+    standouts: tuple[StrengthBreak, ...] = ()
     tiers: tuple[TierGroup, ...] = ()
     borderline: Mapping[str, tuple[int, ...]] = field(default_factory=dict)
     boundaries: tuple[str, ...] = ()
@@ -102,9 +121,7 @@ class CheatSheetAnalysis:
     def marker_for_seed(self, seed: int) -> str:
         for item in self.breaks:
             if item.after_seed == seed:
-                return "Strength break"
-        if any(item.start_seed <= seed <= item.end_seed for item in self.close_ranges):
-            return "Close range"
+                return f"Strength gap between seeds {seed} and {seed + 1}."
         return ""
 
 
@@ -431,6 +448,7 @@ def build_cheat_sheet_analysis(
     statuses.update({key: _placement_status(reason) for key, reason in review.items()})
 
     candidates: list[StrengthBreak] = []
+    boundary_windows: list[BoundaryWindow] = []
     for boundary in range(1, len(ordered)):
         window_results: list[tuple[int, bool, float, int, int]] = []
         for size in (3, 4, 5):
@@ -439,6 +457,12 @@ def build_cheat_sheet_analysis(
                 continue
             supported, average, favored, risky = _separation_stats(*window, pairs, policy)
             window_results.append((size, supported, average, favored, risky))
+            pair_count = len(window[0]) * len(window[1])
+            boundary_windows.append(BoundaryWindow(
+                after_seed=boundary, size=size, upper_ids=window[0], lower_ids=window[1],
+                favored_fraction=favored / pair_count, over_limit_fraction=risky / pair_count,
+                average_expected_margin=average, supported=supported,
+            ))
         if not window_results or not all(item[1] for item in window_results):
             continue
         averages = [item[2] for item in window_results]
@@ -452,6 +476,10 @@ def build_cheat_sheet_analysis(
             average_expected_margin=math.fsum(averages) / len(averages),
             supported_windows=tuple(item[0] for item in window_results),
             standout=boundary <= 2 or len(ordered) - boundary <= 2,
+            standout_start_seed=(1 if boundary <= 2 else boundary + 1)
+            if boundary <= 2 or len(ordered) - boundary <= 2 else None,
+            standout_end_seed=(boundary if boundary <= 2 else len(ordered))
+            if boundary <= 2 or len(ordered) - boundary <= 2 else None,
         ))
 
     # Keep the strongest line when several nearby windows describe the same
@@ -466,7 +494,7 @@ def build_cheat_sheet_analysis(
         if any(abs(candidate.after_seed - item.after_seed) <= 2 for item in selected):
             continue
         selected.append(candidate)
-    selected.sort(key=lambda item: item.after_seed)
+    selected = sorted(sorted(selected, key=break_priority)[:3], key=lambda item: item.after_seed)
     breaks = tuple(item for item in selected if not item.standout)
 
     close_candidates: list[CloseRange] = []
@@ -499,22 +527,15 @@ def build_cheat_sheet_analysis(
     close_ranges.sort(key=lambda item: item.start_seed)
 
     notes: list[str] = []
-    for item in sorted(selected, key=break_priority):
+    for item in sorted(selected, key=break_priority)[:3]:
         if item.standout:
-            seed = item.after_seed if item.after_seed <= 2 else item.after_seed + 1
-            notes.append(f"Seed {seed} stands apart competitively; keep placement flexible for the director's format.")
+            first, last = item.standout_start_seed, item.standout_end_seed
+            label = f"Seed {first}" if first == last else f"Seeds {first}–{last}"
+            verb = "stands" if first == last else "stand"
+            direction = "above" if first == 1 else "below"
+            notes.append(f"{label} {verb} apart competitively {direction} the remaining teams.")
         else:
-            notes.append(
-                f"Seeds {item.after_seed} and {item.after_seed + 1} have a supported strength break; "
-                "the line describes competitive difference, not a division or pool assignment."
-            )
-    for item in close_ranges:
-        if len(notes) >= 3:
-            break
-        notes.append(
-            f"Seeds {item.start_seed}–{item.end_seed} form a close range; these teams can be balanced across pools."
-        )
-    notes = notes[:3]
+            notes.append(f"Strength gap between seeds {item.after_seed} and {item.after_seed + 1}.")
 
     diagnostics: list[str] = []
     low_confidence = sum(pair.low_confidence for pair in pairs.values())
@@ -536,6 +557,8 @@ def build_cheat_sheet_analysis(
         close_ranges=tuple(close_ranges),
         notes=tuple(notes),
         diagnostics=tuple(diagnostics),
+        boundary_windows=tuple(boundary_windows),
+        standouts=tuple(item for item in selected if item.standout),
         tiers=legacy.tiers if legacy else (),
         borderline=legacy.borderline if legacy else {},
         boundaries=legacy.boundaries if legacy else (),

@@ -149,6 +149,78 @@ def test_analysis_details_are_read_only_and_director_notes_save(operator):
     assert not any("goal margin" in widget.label for widget in app.number_input)
 
 
+def test_main_review_shows_scores_without_internal_ids_or_close_labels(operator):
+    app, _calls = operator
+    click(app, "Build seeding sheets")
+    editor = app.dataframe[0].value
+    assert list(editor.columns)[:4] == ["Seed", "Team", "PowerScore", "State rank"]
+    assert editor["PowerScore"].tolist() == pytest.approx([55., 55.])
+    assert "Entrant" not in editor.columns
+    assert editor["Strength marker"].tolist() == ["", ""]
+    assert "Close range" not in app.session_state["_seeding_sheet_html"]
+    assert "PDF and Excel" in app.text_area[0].label
+
+
+def test_legacy_analysis_reuses_predictions_and_preserves_notes(operator):
+    app, calls = operator
+    click(app, "Build seeding sheets")
+    click(app, "Generate PDF pack")
+    pack = deepcopy(app.session_state["_seeding_pack"])
+    pack["analysis_schema_version"] = 1
+    pack["operator_notes"] = {"u14|Male": "Keep this note."}
+    pack["policy"]["max_expected_margin"] = 1.5
+    app.session_state["_seeding_pack"] = pack
+    app.run()
+    assert not app.exception and not app.error
+    upgraded = app.session_state["_seeding_pack"]
+    assert upgraded["analysis_schema_version"] == 2
+    assert upgraded["predictions"] == pack["predictions"]
+    assert upgraded["generated_at"] == pack["generated_at"]
+    assert upgraded["operator_notes"] == pack["operator_notes"]
+    assert upgraded["policy"] == pack["policy"]
+    assert len(calls) == 1
+    assert "_seeding_pdf" not in app.session_state
+    assert "Keep this note." in app.session_state["_seeding_sheet_html"]
+
+
+@pytest.mark.parametrize("action", ["upgrade", "rebuild"])
+def test_export_validation_failure_preserves_previous_saved_pack(operator, monkeypatch, action):
+    app, _calls = operator
+    click(app, "Build seeding sheets")
+    click(app, "Generate PDF pack")
+    saved = deepcopy(app.session_state["_seeding_pack"])
+    if action == "upgrade":
+        saved["analysis_schema_version"] = 1
+        app.session_state["_seeding_pack"] = saved
+    monkeypatch.setattr(ui, "validate_seeding_workbook", lambda *_args: (_ for _ in ()).throw(
+        ValueError("Workbook validation failed")))
+    if action == "rebuild":
+        click(app, "Build seeding sheets")
+    else:
+        app.run()
+    assert not app.exception
+    assert app.session_state["_seeding_pack"] == saved
+    assert "previous saved pack is preserved" in app.error[0].value
+    assert "_seeding_pdf" not in app.session_state and "_seeding_xlsx" not in app.session_state
+    assert app.session_state["_seeding_sheet_html"] is None
+
+
+def test_note_changes_invalidate_both_downloads_under_one_content_identity(operator):
+    app, _calls = operator
+    click(app, "Build seeding sheets")
+    click(app, "Generate PDF pack")
+    before = app.session_state["_seeding_export_fingerprint"]
+    app.text_area[0].set_value("Edited after PDF generation")
+    click(app, "Save director notes")
+    assert "_seeding_pdf" not in app.session_state
+    assert app.session_state["_seeding_export_fingerprint"] != before
+    assert app.session_state["_seeding_xlsx_hash"] == app.session_state["_seeding_export_fingerprint"]
+    from io import BytesIO
+    from openpyxl import load_workbook
+    workbook = load_workbook(BytesIO(app.session_state["_seeding_xlsx"]))
+    assert any(cell.value == "Edited after PDF generation" for row in workbook["U14 Boys"] for cell in row)
+
+
 def test_selecting_cohorts_requires_new_pack_and_failed_refresh_preserves_snapshot(operator, monkeypatch):
     app, calls = operator
     click(app, "Build seeding sheets")
@@ -312,7 +384,8 @@ def test_manual_unsafe_merge_warning_and_notes_reach_the_sheet_and_restore_clear
     assert "_seeding_pdf" not in app.session_state
 
 
-def test_save_keeps_package_when_source_also_contains_younger_teams(operator, monkeypatch):
+@pytest.mark.parametrize("analysis_version", [1, 2])
+def test_save_keeps_package_when_source_also_contains_younger_teams(operator, monkeypatch, analysis_version):
     import tournament_intake as intake
     from src.tournaments.roster_paste import ParsedRoster
     from src.tournaments.roster_resolver import ResolvedTeam
@@ -321,6 +394,7 @@ def test_save_keeps_package_when_source_also_contains_younger_teams(operator, mo
     app, _calls = operator
     click(app, "Build seeding sheets")
     pack = app.session_state["_seeding_pack"]
+    pack["analysis_schema_version"] = analysis_version
     raw = parse_roster("Male U14\nClub\tTeam\tState\nAlpha\tAlpha FC\tTX\nBeta\tBeta Entry*\tTX\n"
                        "Female U15\nClub\tTeam\tState\nNew\tNew Girls\tTX")
     younger = replace(raw.rows[0], source_index=3, section_age_group="u9", team_name_raw="Young")
@@ -340,6 +414,43 @@ def test_save_keeps_package_when_source_also_contains_younger_teams(operator, mo
     enriched = tuple(replace(item, matched_name="Display name") for item in resolved)
     intake._park_seeding_result((raw, enriched), event_id=None)
     assert fake.session_state["_seeding_pack"] == pack
+
+    # A changed identity still discards the incompatible snapshot.
+    changed = (replace(enriched[0], team_id_master="changed"), *enriched[1:])
+    intake._park_seeding_result((raw, changed), event_id=None)
+    assert "_seeding_pack" not in fake.session_state
+
+
+@pytest.mark.parametrize("analysis_version", [1, 2])
+def test_unsupported_saved_note_remains_editable_after_export_failure(operator, analysis_version):
+    app, calls = operator
+    click(app, "Build seeding sheets")
+    pack = app.session_state["_seeding_pack"]
+    pack["analysis_schema_version"] = analysis_version
+    pack["operator_notes"] = {"u14|Male": "Pasted\x0bnote"}
+    app.session_state["_seeding_pack"] = pack
+    app.run()
+    assert not app.exception
+    assert any("Could not prepare" in message.value for message in app.error)
+    assert app.session_state["_seeding_pack"]["analysis_schema_version"] == analysis_version
+    assert "_seeding_xlsx" not in app.session_state
+    app.text_area[0].set_value("Corrected note")
+    click(app, "Save director notes")
+    assert not app.error
+    assert app.session_state["_seeding_pack"]["operator_notes"]["u14|Male"] == "Corrected note"
+    assert app.session_state["_seeding_pack"]["analysis_schema_version"] == 2
+    assert "Corrected note" in app.session_state["_seeding_sheet_html"]
+    assert "_seeding_xlsx" in app.session_state and len(calls) == 1
+
+
+def test_unsupported_new_note_is_rejected_before_persistence(operator):
+    app, _ = operator
+    click(app, "Build seeding sheets")
+    before = deepcopy(app.session_state["_seeding_pack"])
+    app.text_area[0].set_value("Invalid\x0bnote")
+    click(app, "Save director notes")
+    assert any("unsupported control character" in message.value for message in app.error)
+    assert app.session_state["_seeding_pack"] == before
 
 
 def test_legacy_pack_fingerprint_remains_valid_with_empty_new_provenance_fields():

@@ -20,6 +20,7 @@ from src.tournaments.seeding_pack import (
     roster_fingerprint,
     snapshot_ratings,
     team_ids_by_row,
+    upgrade_pack_analysis,
 )
 from src.tournaments.seeding_predictions import SeedingPredictionBatch
 from src.tournaments.seeding_sheet import build_cohort_sheets
@@ -86,6 +87,61 @@ def test_cohorts_have_separate_age_gender_labels_and_numeric_order():
     assert available_cohorts(ROWS) == ("u12|Female", "u12|Male", "u14|Male")
     assert cohort_label("u12|Female") == "U12 Girls"
     assert cohort_label("u14|Male") == "U14 Boys"
+
+
+def test_saved_analysis_upgrade_preserves_prediction_and_operator_choices_without_mutation():
+    old = _pack()
+    old["analysis_schema_version"] = 1
+    old["operator_notes"] = {"u12|Male": "Keep the director's exact note."}
+    old["policy"]["max_expected_margin"] = 1.75
+    old["legacy_manual_groups"] = {"u12|Male": [["0", "1"]]}
+    before = deepcopy(old)
+    upgraded = upgrade_pack_analysis(old, ROWS, RESOLVED, {}, ["u12|Male"], predictor_sha256="a" * 64)
+    assert old == before
+    assert upgraded["analysis_schema_version"] == 2
+    assert {k: v for k, v in upgraded.items() if k != "analysis_schema_version"} == {
+        k: v for k, v in old.items() if k != "analysis_schema_version"
+    }
+    upgraded["operator_notes"]["u12|Male"] = "Changed copy"
+    assert old["operator_notes"]["u12|Male"] == "Keep the director's exact note."
+
+
+@pytest.mark.parametrize("corruption", ["prediction", "team", "policy", "notes", "roster", "version"])
+def test_upgrade_rejects_invalid_snapshot_without_replacing_old_pack(corruption):
+    old = _pack()
+    old["analysis_schema_version"] = 1
+    if corruption == "prediction":
+        old["predictions"]["u12|Male"].pop()
+    elif corruption == "team":
+        old["teams"]["u12|Male"]["0"]["team_id_master"] = "invalid"
+    elif corruption == "policy":
+        old["policy"]["max_expected_margin"] = 0
+    elif corruption == "notes":
+        old["operator_notes"] = {"u15|Female": "Omitted cohort"}
+    elif corruption == "roster":
+        old["roster_fingerprint"] = "stale"
+    else:
+        old["schema_version"] = 2
+    before = deepcopy(old)
+    with pytest.raises(ValueError):
+        upgrade_pack_analysis(old, ROWS, RESOLVED, {}, ["u12|Male"], predictor_sha256="a" * 64)
+    assert old == before
+
+
+def test_upgrade_requires_matching_prediction_version_and_selected_cohorts():
+    old = _pack()
+    old["analysis_schema_version"] = 1
+    with pytest.raises(ValueError, match="predictor has changed"):
+        upgrade_pack_analysis(old, ROWS, RESOLVED, {}, ["u12|Male"], predictor_sha256="b" * 64)
+    with pytest.raises(ValueError, match="selection changed"):
+        upgrade_pack_analysis(old, ROWS, RESOLVED, {}, ["u12|Female"], predictor_sha256="a" * 64)
+
+
+def test_equal_scores_use_registered_names_not_database_names():
+    old = _pack()
+    old["teams"]["u12|Male"]["0"]["team_name"] = "Z database name"
+    old["teams"]["u12|Male"]["1"]["team_name"] = "A database name"
+    assert analyze_pack(old, ROWS, RESOLVED, {})[("u12", "Male")].ordered_ids == ("0", "1")
 
 
 def test_a_la_carte_request_keeps_row_identity_and_uses_manual_matches():
