@@ -28,8 +28,9 @@ import csv
 import json
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 sys.path.append(str(Path(__file__).parent.parent))
 
@@ -81,13 +82,27 @@ def plan(entries: List[Dict], live: Dict[str, Dict]) -> tuple[List[Dict], List[s
             stale.append(f"{entry['team_id_master']}: no such team")
         elif row["is_deprecated"]:
             stale.append(f"{entry['team_id_master']}: deprecated since the list was vetted")
-        elif row["club_name"] != entry["from_club"]:
-            stale.append(f"{entry['team_id_master']}: club is now {row['club_name']!r}, not {entry['from_club']!r}")
         elif row["club_name"] == entry["to_club"]:
             stale.append(f"{entry['team_id_master']}: already {entry['to_club']!r}")
+        elif row["club_name"] != entry["from_club"]:
+            stale.append(f"{entry['team_id_master']}: club is now {row['club_name']!r}, not {entry['from_club']!r}")
         else:
             apply_now.append({**entry, "team_name": row["team_name"]})
     return apply_now, stale
+
+
+
+def resolve_log_path(requested: Optional[Path], now: Optional[datetime] = None) -> Path:
+    """The file this run records its moves in, which is never one that already exists.
+
+    The log is the only way back from a batch, so overwriting it destroys the
+    record of moves already committed. The default carries a timestamp so ordinary
+    runs cannot collide; an explicitly named file that exists stops the run.
+    """
+    path = requested or Path("data/logs") / f"club_name_changes_{now or datetime.now():%Y%m%d_%H%M%S}.csv"
+    if path.exists():
+        raise FileExistsError(path)
+    return path
 
 
 def parse_args() -> argparse.Namespace:
@@ -96,7 +111,11 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--revert", type=Path, help="Undo a previous --execute from its CSV log")
     p.add_argument("--execute", action="store_true", help="Write (default is a dry run)")
     p.add_argument("--dry-run", action="store_true", help="Force a dry run; wins over --execute")
-    p.add_argument("--log", type=Path, default=Path("data/logs/club_name_changes.csv"))
+    p.add_argument(
+        "--log",
+        type=Path,
+        help="Where to record the moves (default: a timestamped file under data/logs/)",
+    )
     return p.parse_args()
 
 
@@ -145,12 +164,18 @@ def main() -> int:
         console.print("\nNothing to apply.")
         return 0
 
+    try:
+        log_path = resolve_log_path(args.log)
+    except FileExistsError as existing:
+        console.print(f"[red]{existing} already exists; it records an earlier batch. Name another --log.[/red]")
+        return 1
+
     # Each move is logged and flushed before the next one runs. Writing the log
     # after the loop loses the record of everything already committed when a later
     # update raises, and --revert then cannot tell which subset was applied.
-    args.log.parent.mkdir(parents=True, exist_ok=True)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
     written = []
-    with args.log.open("w", newline="", encoding="utf-8") as f:
+    with log_path.open("x", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=LOG_COLUMNS)
         writer.writeheader()
         f.flush()
