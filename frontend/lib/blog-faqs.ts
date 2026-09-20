@@ -1251,12 +1251,17 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
     {
       question: 'How do teams qualify for the National 1 League?',
       answer:
-        'This has not been published. The July 2026 announcement describes what the league is and who backs it, but does not set out qualification or selection criteria. Ask your club rather than relying on unofficial summaries, which are currently guesswork.',
+        'How individual clubs are selected has not been published. What has been published is what happens after: high-performing National 1 clubs are eligible for promotion to the ECNL Regional League, and district qualifiers reach the ECNL Conference League Playoffs. Ask your club about placement rather than relying on unofficial summaries.',
     },
     {
       question: 'How is the National 1 League different from the US Youth Soccer National League?',
       answer:
         'The USYS National League was one of the two competitions merged into it. Rather than continuing as a separate top-tier platform, its national-level competition was combined with NPL to form a single joint platform run by both organizations.',
+    },
+    {
+      question: 'Is the ECNL higher than the National 1 League?',
+      answer:
+        'Yes. The two are integrated rather than rivals, and National 1 is the level below. High-performing National 1 clubs are eligible for promotion to the ECNL Regional League, and district qualifiers from both competitions meet in the same ECNL Conference League Playoffs.',
     },
     {
       question: 'Does the National 1 League change anything for ECNL clubs?',
