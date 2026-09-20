@@ -116,7 +116,7 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
     {
       question: 'What youth soccer leagues operate in Connecticut?',
       answer:
-        'Connecticut teams compete in ECNL, MLS NEXT, Girls Academy (GA), NPL, ECNL Regional League Northeast, EDP, and National League — plus state competition through CJSA premier divisions and the Connecticut State Cup. Hartford Athletic Youth Academy is the home-state MLS NEXT pathway.',
+        'Connecticut teams compete in ECNL, MLS NEXT, Girls Academy (GA), ECNL Regional League Northeast, EDP, and the National 1 League — plus state competition through CJSA premier divisions and the Connecticut State Cup. Hartford Athletic Youth Academy is the home-state MLS NEXT pathway.',
     },
     {
       question: 'How does Fairfield County compare to the rest of Connecticut in rankings?',
@@ -172,7 +172,7 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
     {
       question: 'What youth soccer leagues operate in Georgia?',
       answer:
-        'Georgia teams compete in ECNL, MLS NEXT (anchored by the Atlanta United Academy pipeline), Girls Academy (GA), NPL, ECNL Regional League, and National League — plus state competition through Georgia Soccer (GSSA) premier divisions and the Georgia State Cup.',
+        'Georgia teams compete in ECNL, MLS NEXT (anchored by the Atlanta United Academy pipeline), Girls Academy (GA), ECNL Regional League, and the National 1 League — plus state competition through Georgia Soccer (GSSA) premier divisions and the Georgia State Cup.',
     },
     {
       question: 'How does the Atlanta metro compare to the rest of Georgia?',
@@ -243,7 +243,7 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
     {
       question: 'What youth soccer leagues operate in Illinois?',
       answer:
-        'Illinois teams compete in ECNL, MLS NEXT (anchored by the Chicago Fire pipeline), Girls Academy (GA), NPL, ECNL Regional League, Midwest Regional League (MRL), and National League — plus state competition through IYSA premier divisions and the IYSA State Cup.',
+        'Illinois teams compete in ECNL, MLS NEXT (anchored by the Chicago Fire pipeline), Girls Academy (GA), ECNL Regional League, Midwest Regional League (MRL), and the National 1 League — plus state competition through IYSA premier divisions and the IYSA State Cup.',
     },
     {
       question: 'How does Chicago Metro compare to downstate and Metro East?',
@@ -286,7 +286,7 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
     {
       question: 'What youth soccer leagues operate in Indiana?',
       answer:
-        "Indiana teams compete in ECNL, MLS NEXT, Girls Academy (GA), NPL, ECNL Regional League, Midwest Regional League (MRL), and National League — plus state competition through Indiana Soccer premier divisions and the Indiana State Cup. The Indy Eleven is the state's professional club and anchors the top of the boys pathway.",
+        "Indiana teams compete in ECNL, MLS NEXT, Girls Academy (GA), ECNL Regional League, Midwest Regional League (MRL), and the National 1 League — plus state competition through Indiana Soccer premier divisions and the Indiana State Cup. The Indy Eleven is the state's professional club and anchors the top of the boys pathway.",
     },
     {
       question: 'How does Indianapolis compare to the rest of Indiana in rankings?',
@@ -329,7 +329,7 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
     {
       question: 'What youth soccer leagues operate in Kentucky?',
       answer:
-        'Kentucky teams compete in ECNL, MLS NEXT, Girls Academy (GA), NPL, ECNL Regional League, National League through the Great Lakes Conference, and USL Academy — plus state competition through the Kentucky Select Soccer League, the Kentucky Premier League, and the Kentucky State Cup. Louisville City FC, Racing Louisville FC, and Lexington SC all run youth pathways attached to professional clubs.',
+        'Kentucky teams compete in ECNL, MLS NEXT, Girls Academy (GA), ECNL Regional League, the National 1 League, and USL Academy — plus state competition through the Kentucky Select Soccer League, the Kentucky Premier League, and the Kentucky State Cup. Louisville City FC, Racing Louisville FC, and Lexington SC all run youth pathways attached to professional clubs.',
     },
     {
       question: 'How does Louisville compare to Lexington in Kentucky rankings?',
@@ -372,12 +372,12 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
     {
       question: 'What youth soccer leagues operate in Massachusetts?',
       answer:
-        'Massachusetts teams compete in ECNL, MLS NEXT, Girls Academy (GA), NPL, ECNL Regional League, EDP New England, and National League — plus state competition through MYSA premier divisions and the Massachusetts State Cup. The New England Revolution Academy is the top boys pathway in the region.',
+        'Massachusetts teams compete in ECNL, MLS NEXT, Girls Academy (GA), ECNL Regional League, EDP New England, and the National 1 League — plus state competition through MYSA premier divisions and the Massachusetts State Cup. The New England Revolution Academy is the top boys pathway in the region.',
     },
     {
       question: 'How does Greater Boston compare to Western Massachusetts in rankings?',
       answer:
-        'Greater Boston and MetroWest concentrate most of the state’s ECNL and MLS NEXT teams, anchored by NEFC, FC Stars, Select, and FC Boston Bolts. Central and Western Massachusetts clubs like New England Surf, New England Force, and Western United Pioneers FC compete strongly at ECNL Regional and NPL levels. Use PitchRank’s state filter to compare clubs across regions.',
+        'Greater Boston and MetroWest concentrate most of the state’s ECNL and MLS NEXT teams, anchored by NEFC, FC Stars, Select, and FC Boston Bolts. Central and Western Massachusetts clubs like New England Surf, New England Force, and Western United Pioneers FC compete strongly at ECNL Regional and national-league levels. Use PitchRank’s state filter to compare clubs across regions.',
     },
   ],
 
@@ -456,7 +456,7 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
     {
       question: 'What youth soccer leagues operate in Minnesota?',
       answer:
-        'Minnesota teams compete in ECNL, MLS NEXT, Girls Academy (GA), NPL, ECNL Regional League Midwest, National League, and the Heartland Conference — plus state competition through MYSA premier divisions and the Minnesota State Cup. Minnesota Thunder Academy is the long-standing pre-academy pathway into Minnesota United FC.',
+        'Minnesota teams compete in ECNL, MLS NEXT, Girls Academy (GA), ECNL Regional League Midwest, the National 1 League, and the Heartland Conference — plus state competition through MYSA premier divisions and the Minnesota State Cup. Minnesota Thunder Academy is the long-standing pre-academy pathway into Minnesota United FC.',
     },
     {
       question: 'How does the Twin Cities metro compare to Greater Minnesota in rankings?',
@@ -484,7 +484,7 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
     {
       question: 'What youth soccer leagues operate in Missouri?',
       answer:
-        'Missouri teams compete in ECNL, MLS NEXT (anchored by the St. Louis CITY SC academy), Girls Academy (GA), NPL, ECNL Regional League, Midwest Regional League (MRL), and National League — plus state competition through MYSA premier divisions and the Missouri State Cup.',
+        'Missouri teams compete in ECNL, MLS NEXT (anchored by the St. Louis CITY SC academy), Girls Academy (GA), ECNL Regional League, Midwest Regional League (MRL), and the National 1 League — plus state competition through MYSA premier divisions and the Missouri State Cup.',
     },
     {
       question: 'How does St. Louis compare to the rest of Missouri in rankings?',
@@ -522,7 +522,7 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
     {
       question: 'What youth soccer leagues operate in Nevada?',
       answer:
-        'Nevada has an unusually complete ladder for its size, almost all of it in Las Vegas: MLS NEXT through Albion SC Las Vegas, Las Vegas Sports Academy, Downtown Las Vegas SC and Players SC; ECNL and ECNL Regional League through Las Vegas Heat Surf SC; Girls Academy through Las Vegas Sports Academy and Albion; plus NPL, EA and DPL. NPL is the main national-league presence in Northern Nevada through Reno Apex and Sierra Surf.',
+        'Nevada has an unusually complete ladder for its size, almost all of it in Las Vegas: MLS NEXT through Albion SC Las Vegas, Las Vegas Sports Academy, Downtown Las Vegas SC and Players SC; ECNL and ECNL Regional League through Las Vegas Heat Surf SC; Girls Academy through Las Vegas Sports Academy and Albion; plus EA, DPL and national-league competition. National-league play in Northern Nevada runs through Reno Apex and Sierra Surf.',
     },
     {
       question: 'How do Las Vegas and Reno clubs compare in rankings?',
@@ -644,7 +644,7 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
     {
       question: 'What youth soccer leagues operate in Ohio?',
       answer:
-        'Ohio teams compete in ECNL, MLS NEXT, Girls Academy (GA), NPL, ECNL Regional League, Midwest Regional League (MRL), and National League — plus state competition through OSA premier divisions and the Ohio State Cup.',
+        'Ohio teams compete in ECNL, MLS NEXT, Girls Academy (GA), ECNL Regional League, Midwest Regional League (MRL), and the National 1 League — plus state competition through OSA premier divisions and the Ohio State Cup.',
     },
     {
       question: 'How does the three-city dynamic work in Ohio soccer?',
@@ -710,7 +710,7 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
     {
       question: 'What youth soccer leagues operate in Oklahoma?',
       answer:
-        'ECNL Regional League is the largest national league in the state with 102 ranked Oklahoma teams, led by West Side Alliance and Oklahoma Energy FC. Oklahoma also has ECNL, MLS NEXT through Sporting Oklahoma and Tulsa Greenwood SC, Girls Academy through Tulsa Soccer Club, plus NPL and DPL competition and state play through the Oklahoma Soccer Association.',
+        'ECNL Regional League is the largest national league in the state with 102 ranked Oklahoma teams, led by West Side Alliance and Oklahoma Energy FC. Oklahoma also has ECNL, MLS NEXT through Sporting Oklahoma and Tulsa Greenwood SC, Girls Academy through Tulsa Soccer Club, plus national-league and DPL competition and state play through the Oklahoma Soccer Association.',
     },
     {
       question: 'How do Oklahoma City and Tulsa clubs compare in rankings?',
@@ -855,7 +855,7 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
     {
       question: 'Does PitchRank cover ECNL and MLS NEXT results in Virginia?',
       answer:
-        'Yes. PitchRank covers all major leagues and tournaments including ECNL, MLS NEXT, EDP, ECNL Regional, NPL, and state-level competitions through VYSA. All verified game results count toward rankings regardless of the league.',
+        'Yes. PitchRank covers all major leagues and tournaments including ECNL, MLS NEXT, EDP, ECNL Regional, the National 1 League, and state-level competitions through VYSA. All verified game results count toward rankings regardless of the league.',
     },
     {
       question: 'How do Northern Virginia and Hampton Roads clubs compare?',
@@ -883,7 +883,7 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
     {
       question: 'What youth soccer leagues operate in Washington?',
       answer:
-        'Washington teams compete in ECNL, MLS NEXT, Girls Academy (GA), NPL, ECNL Regional League Northwest, National League, and the Northwest Conference — plus state competition through WYS premier divisions and the Washington State Cup. The Seattle Sounders Academy is the top boys pathway in the region.',
+        'Washington teams compete in ECNL, MLS NEXT, Girls Academy (GA), ECNL Regional League Northwest, the National 1 League, and the Northwest Conference — plus state competition through WYS premier divisions and the Washington State Cup. The Seattle Sounders Academy is the top boys pathway in the region.',
     },
     {
       question: 'How do Eastside and Eastern Washington clubs compare in rankings?',
