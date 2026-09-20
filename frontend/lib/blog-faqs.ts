@@ -710,7 +710,7 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
     {
       question: 'What youth soccer leagues operate in Oklahoma?',
       answer:
-        'ECNL Regional League is the largest national league in the state with 102 ranked Oklahoma teams, led by West Side Alliance and Oklahoma Energy FC. Oklahoma also has ECNL, MLS NEXT through Sporting Oklahoma and Tulsa Greenwood SC, Girls Academy through Tulsa Soccer Club, plus National 1 League and DPL competition and state play through the Oklahoma Soccer Association.',
+        'ECNL Regional League is the largest national league in the state with 102 ranked Oklahoma teams, led by West Side Alliance and Oklahoma Energy FC. Oklahoma also has ECNL, MLS NEXT through Sporting Oklahoma and Tulsa Greenwood SC, Girls Academy through Tulsa Soccer Club, plus national-league and DPL competition and state play through the Oklahoma Soccer Association.',
     },
     {
       question: 'How do Oklahoma City and Tulsa clubs compare in rankings?',
