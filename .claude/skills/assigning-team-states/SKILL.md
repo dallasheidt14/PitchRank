@@ -17,6 +17,9 @@ a wrong value and nothing recorded where a value came from. Two consequences sha
 here. A correction is a heavier act than a fill, so it needs stronger evidence. And a run's
 own report is not evidence that it did the right thing — verify against the database.
 
+The duplicate scan reads this column too, grouping its candidates by state among other
+fields, so a wrong or missing state hides a duplicate pair from it entirely.
+
 Copy this checklist and check off items as you complete them:
 
 ```
@@ -54,6 +57,28 @@ means
 this skill is now wrong, not that the codebase is broken** — fix the prose, then continue. The
 measurements below the assertions never fail; they warn when a count this document quotes has
 drifted more than 20%.
+
+## Propose-only mode
+
+Take Step 2's dry run and stop there:
+
+```bash
+python scripts/assign_team_states.py --out run.json
+```
+
+It leaves the snapshot at `--out`, holding every decision and the state each team held when
+it was read. It makes **no team-state and no review-queue writes** — but it is not
+write-free: every paid probe lands in the probe ledger, agreements included, because the
+call is paid for whether or not its answer changes anything.
+
+Resume at **Step 4**, which splits the snapshot and applies the safe half. A snapshot
+decided under older rules is refused there by its own stamp, so a stale proposal fails
+closed rather than applying.
+
+Nothing to undo at this stage: the only rows written are the probe observations, and those
+are kept deliberately so a later run reuses the answer rather than re-buying it.
+`--no-tier-a` makes the run genuinely write-free, at the cost of deciding without the
+provider. The batch's own undo, `revert_team_states`, belongs to Step 5.
 
 ## Step 2: Take a snapshot with a dry run
 

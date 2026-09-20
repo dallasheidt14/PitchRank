@@ -59,6 +59,29 @@ you carry into every later judgement. See [references/failure-modes.md](referenc
 
 When you change the skill's claims, update `RECORDED` in that script in the same commit.
 
+## Propose-only mode
+
+Take Steps 2 and 3 and stop there. Preload the environment from root `.env` first, as
+Step 1 says.
+
+```bash
+mkdir -p .turbo/step3
+python scripts/decide_team_merges.py --all-cohorts --out .turbo/step3/decisions.json
+```
+
+Decide-only by construction — the script registers no execute flag and **writes nothing to
+the database**. It writes the decisions file and an `_approved` file beside it, each pair
+carrying its verdict and the reason for it. Create the `--out` directory first; nothing
+else does.
+
+Resume at **Step 4**, and reach Step 6 only through Step 5. The approved list is a
+candidate list, not a safe list.
+
+Nothing is written at this stage, so there is nothing to undo. An applied merge *is*
+reversible — the RPC snapshots the deprecated row and leaves `games` untouched — but pass
+`--merged-by` explicitly when reverting, because the reverter's default actor is not the
+one the applier records and a default-argument revert matches nothing and reports success.
+
 ## Step 2: Generate candidates from both doorways
 
 There are two independent ways to nominate a pair, and the skill's tooling only covers one.
@@ -67,7 +90,11 @@ There are two independent ways to nominate a pair, and the skill's tooling only 
 `decide_team_merges.py`. This is the recall ceiling for everything in Step 3: a pair it cannot
 propose is never judged, never reviewed, and never merged. It proposes a pair only when the two
 rows agree on **all** of stored gender, stored age group, `state_code` bucket, and byte-identical
-lowercased `club_name`, and then score >= the threshold.
+lowercased `club_name`, and then score >= the threshold. The club-name, state and
+age-group cleanups all move fields in that list, so run them before a scan you intend to
+act on — and expect the population to move both ways, since filling a blank state or club
+splits a pair that shared the blank bucket, and a correction into `u9` leaves the range
+this scan covers.
 
 So these are invisible at any threshold: same club with rows stamped in different states; the
 same club spelled two ways; either row named `unknown_<digits>`; either name carrying an `AD`,

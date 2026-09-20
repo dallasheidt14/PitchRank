@@ -15,7 +15,28 @@ boards rank `u10`–`u17` and `u19` only.
 
 To review the age groups of a state or of every team, follow **Auditing against the label key**.
 For GotSport's reconcile population and the Tuesday re-check, follow **Correcting from GotSport's
-reconcile logs**. Both apply through `data/exports/fix_band_cohorts.py`.
+reconcile logs**. Both apply through `scripts/fix_band_cohorts.py`. To produce a plan
+without applying it, follow **Propose-only mode**.
+
+## Propose-only mode
+
+Take the audit path's Step 1 and Step 4 write-plan command, and stop there:
+
+```bash
+python .claude/skills/correcting-team-age-groups/scripts/review_age_labels.py review --state AZ,NC --exports-dir C:/PitchRank/data/exports
+python .claude/skills/correcting-team-age-groups/scripts/review_age_labels.py write-plan <review.csv> --groups 1,2,3
+```
+
+Both are read-only and **write nothing to the database**. They leave a review CSV and a
+plan CSV under the exports directory. The review reads `SUPABASE_SERVICE_ROLE_KEY` from the
+environment directly and raises a bare `KeyError` without it.
+
+Resume at **Step 4's second command**, the applier's dry run: its apply log is the only
+place the held rows and their reasons appear, and Step 5 writes.
+
+Nothing is written at this stage, so there is nothing to undo. Neither this cleanup nor the
+club-name one keeps a database ledger — an apply log CSV in a gitignored directory is the
+whole record, and it lives in the checkout that ran the batch.
 
 ## What each source is worth
 
@@ -77,8 +98,9 @@ Each rule below is enforced automatically, by a flag, or not at all. Know which.
   it as `would_update_collision` on name, gender and cohort alone, so the other row can belong to
   another club; the audit review holds it as `held_duplicate_landing` only when club and state
   match too. Either way it is usually a duplicate pair split by the mislabel, but
-  `merging-duplicate-teams` needs byte-identical `club_name` and a matching `state_code` bucket,
-  so a reconcile pair may not be proposable there.
+  `merging-duplicate-teams` needs byte-identical `club_name`, a matching `state_code` bucket
+  and the same stored age group — this column included — so a reconcile pair may not be
+  proposable there.
 - **This season's opponents back the current label** — *automatic*: held as
   `held_fixtures_disagree`, but held for a look, not kept. It is usually a team playing a year
   up. Sample a few against their schedules, then file by its band each row whose band is in our
@@ -110,9 +132,11 @@ Task Progress:
 
 ### Step 1: Run the review
 
+```bash
+python .claude/skills/correcting-team-age-groups/scripts/review_age_labels.py review --state AZ,NC --exports-dir C:/PitchRank/data/exports
 ```
-python .claude/skills/correcting-team-age-groups/scripts/review_age_labels.py review [--state AZ,NC] --exports-dir C:/PitchRank/data/exports
-```
+
+`--state` takes comma-separated codes and defaults to every US state.
 
 It needs origin/main's band reader, so run it from a checkout synced to origin/main — a worktree
 works, with `--exports-dir` pointed at the main checkout, where the reconcile and apply logs live.
@@ -152,12 +176,15 @@ the move, so an answer covering it has to be given knowing that.
 
 ### Step 4: Write the plan, dry-run it, read the holds
 
-```
+```bash
 python .claude/skills/correcting-team-age-groups/scripts/review_age_labels.py write-plan <review.csv> --groups 1,2,3
-python data/exports/fix_band_cohorts.py --apply <plan> --skip-name-contradictions
+python scripts/fix_band_cohorts.py --apply <plan> --skip-name-contradictions
 ```
 
-Run the second command from `C:\PitchRank`, where `data/exports/fix_band_cohorts.py` lives. Leave off
+Run both from the checkout that holds `data/exports`. `fix_band_cohorts.py` takes no
+`--exports-dir` and reads and writes whichever checkout it sits in, so a worktree run finds
+no reconcile logs and leaves its apply log where removing the worktree destroys it. Leave
+off
 `--strong-only`: it keeps only band rows and would drop the approved U-label and birth-year
 groups. The dry run prints only counts; the held rows and their `hold_reason` are in the apply log
 it names (`fix_band_cohorts_apply_<time>.csv`). Read every `held_name_contradicts` row there. Apply
@@ -190,9 +217,10 @@ files one group old never reaches it; the audit above is how those get fixed.
 
 ### Step 1: Preflight
 
-Run from `C:\PitchRank`. `data/exports/` is gitignored, so `data/exports/fix_band_cohorts.py`
-and `data/exports/weekly_age_recheck.py` exist only in the main checkout and are absent from
-every worktree and every fresh clone. They have no tests (IMP-242).
+Run from the checkout that holds `data/exports`. Both scripts are tracked under `scripts/`,
+so every checkout has them — but their candidates and their plan, apply and revert logs live
+under `data/exports/`, which is gitignored, so a worktree has neither and a log exists only
+in the checkout that wrote it.
 
 Credentials come from root `.env` (`.env.local` overrides it); a missing key surfaces as
 `Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY` before any read.
@@ -204,7 +232,7 @@ running `scripts/reconcile_teams_with_gotsport.py` first.
 
 ### Step 2: Plan, and read real rows
 
-`python data/exports/fix_band_cohorts.py` with no arguments is a dry run: it re-verifies every
+`python scripts/fix_band_cohorts.py` with no arguments is a dry run: it re-verifies every
 candidate against the live table, attaches this season's opponent evidence, checks the target
 cohort for a same-named team, and writes a plan CSV. Nothing is written to the database.
 
@@ -213,8 +241,8 @@ club's whole roster — against the team's own name and its opponents.
 
 ### Step 3: Pilot 50 and verify
 
-```
-python data/exports/fix_band_cohorts.py --apply <plan> --strong-only --skip-name-contradictions --limit 50 --execute
+```bash
+python scripts/fix_band_cohorts.py --apply <plan> --strong-only --skip-name-contradictions --limit 50 --execute
 ```
 
 Then confirm in the database that the 50 hold the new cohort and nothing else on those rows
@@ -244,7 +272,7 @@ repairing afterwards.
 ## Reviewing the weekly re-check
 
 A Windows scheduled task, "PitchRank Weekly Age-Group Recheck", runs
-`data/exports/weekly_age_recheck.py` every Tuesday. It re-derives the pending population from
+`scripts/weekly_age_recheck.py` every Tuesday. It re-derives the pending population from
 the reconcile logs, applies the reconcile rules, and writes `weekly_age_recheck_<date>.md`, a plan
 CSV, and a row in `weekly_age_recheck_history.csv`. Like the reconcile path it cannot see a
 band-named team GotSport files one group old, so newly imported teams of that kind accumulate
@@ -256,8 +284,9 @@ than `pending` — pending grows whenever fresh reconcile rows land, and a growi
 coverage widening, not a fault.
 
 Treat its plan as any other plan: sample, pilot, verify, and apply only with the user's
-approval. `weekly_age_recheck_last_run.log` says `ok` or carries the traceback; a week with no
-report and no log means the machine was off.
+approval. `weekly_age_recheck_last_run.log` says `ok` or carries the traceback. The log is written by
+the script itself, so a week with no report *and* no log means the script never started:
+the machine was off, or the task names a path that checkout does not hold.
 
 ## Reporting a batch
 
