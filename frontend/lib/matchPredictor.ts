@@ -776,9 +776,8 @@ function calibrateProbability(rawProb: number): number {
 // ~16% of games end in draws, so this captures close matchups
 const DRAW_THRESHOLD = 0.03; // |winProb - 0.5| < 3% → predict draw
 
-// Tolerance for treating two teams' raw win probabilities as equal. Symmetric
-// inputs produce equal raw probabilities; this guards against the asymmetric
-// outcome calibration prior tipping the predicted winner deterministically.
+// Tolerance for treating two teams' raw win probabilities as equal and retaining
+// the symmetric-input draw convention.
 const SYMMETRY_EPSILON = 1e-9;
 
 function calibrationAge(age: number | null): number | null {
@@ -880,7 +879,9 @@ function normalizeOutcomePrior(params: OutcomeCalibrationParameters): [number, n
   if (total <= 0) {
     return null;
   }
-  return [prior[0] / total, prior[1] / total, prior[2] / total];
+  // A/B are selection slots, not home/away roles. Their neutral priors must agree.
+  const decisivePrior = (prior[0] + prior[2]) / (2 * total);
+  return [decisivePrior, prior[1] / total, decisivePrior];
 }
 
 function applyOutcomeCalibration(winProbA: number, drawProb: number, winProbB: number): [number, number, number] {
@@ -1333,10 +1334,7 @@ export function predictMatch(teamA: TeamWithRanking, teamB: TeamWithRanking, all
   const rawWinProbA = winProbA;
   const rawDrawProbability = normalizedDrawProbability;
   const rawWinProbB = winProbB;
-  // Symmetric inputs (identical features for both teams) produce equal raw win
-  // probabilities. Skip the asymmetric prior blend in applyOutcomeCalibration so
-  // a tiny prior gap doesn't tip the predicted winner toward whichever side has
-  // the slightly higher prior in the calibration JSON.
+  // Equal-strength inputs retain their uncalibrated draw distribution.
   const rawWinGap = Math.abs(rawWinProbA - rawWinProbB);
   const symmetricRawWinProbs = rawWinGap < SYMMETRY_EPSILON;
   if (!symmetricRawWinProbs) {
