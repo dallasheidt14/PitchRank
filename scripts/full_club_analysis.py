@@ -532,9 +532,27 @@ CLUB_CANONICAL_OVERRIDES = [
     ("SC", "exact", "Impact City FC (Charleston)", "Impact City FC"),
     ("SC", "norm", "Daniel Island Soccer Academy", "Daniel Island Soccer Academy"),
     ("SC", "exact", "Bluffton United FC", "Bluffton United"),
-    # Left apart deliberately: Tormenta FC against Tormenta FC Academy (a USL club
-    # and its academy), the Augusta Arsenal rows, whose (SC) and (ga) tags straddle the
-    # state line, and the BILU and Dorchester pairs, which are ties with no tiebreaker.
+    # A second pass read off the club list. The CESA regex catches rows whose club field
+    # holds a CESA team name; the Augusta Arsenal canonical matches the Georgia side, so the
+    # club reads the same on both sides of the border.
+    ("SC", "exact", "Augusta Arsenal SC (SC)", "Augusta Arsenal SC"),
+    ("SC", "exact", "Augusta Arsenal Soccer Club", "Augusta Arsenal SC"),
+    ("SC", "exact", "BILU International SA (BISA)", "Bilu International Soccer Academy"),
+    ("SC", "exact", "BLYTHEWOOD SOCCER CLUB", "Blythewood Soccer Club"),
+    ("SC", "regex", "^(U[0-9]+B )?CESA[ ]", "Carolina Elite Soccer Academy"),
+    ("SC", "exact", "Easley Soccer Club", "Easley SC"),
+    ("SC", "exact", "SUMTER SOCCER CLUB", "Sumter Soccer Club"),
+    ("SC", "exact", "TECHNICAL SOCCER CLUB", "Technical Soccer Club"),
+    ("SC", "exact", "Tormenta FC Academy", "Tormenta FC"),
+    # Left apart deliberately: Dorchester United against Dorchester United SC, a tie with no
+    # tiebreaker, and the 'Augusta Arsenal SC (ga)' row, which is a Georgia tag on a South
+    # Carolina team and so asks which state it belongs to rather than which name.
+    # Also 21 rows whose club field reads 'BU10 Black', 'BU11 Blue North' and the like. Those
+    # are not Bluffton United: BU is Boys-U-age, and each row's label matches its own
+    # age_group exactly (BU10 -> u10 ... BU18 -> u19). Their SincSports ids and their
+    # opponents -- Coast FA, Mount Pleasant FC, Charleston United, Daniel Island -- put them
+    # in Charleston, two hours from Bluffton. The rows name no club at all, so any club is a
+    # guess.
     # Tennessee
     ("TN", "exact", "FC Alliance", "FC Alliance TN"),
     ("TN", "exact", "All-in fc", "All-In FC TN"),
@@ -799,11 +817,11 @@ CLUB_CANONICAL_OVERRIDES = [
     # Swarm 11G Cartersville" squads, and SSA Coastal fields "SSA Swarm Coastal 17B", so the
     # places read as programmes. The convention that a branch is its own club decided it
     # anyway, as it did for Richmond Strikers South and NC Rush Central. About 156 teams.
+    ("GA", "exact", "Tormenta FC Academy", "Tormenta FC"),
     # Left apart deliberately: Georgia Soccer Association is the state governing body,
-    # not a club -- its teams are 'GA ODP' sides. Also the Augusta Arsenal rows (see the
-    # South Carolina note), Calhoun FC against FC Calhoun, the Atlanta Furious and
-    # Southern States ties, Tormenta, and the two Albion rows, which are one squad each
-    # with the team name written into the club field.
+    # not a club -- its teams are 'GA ODP' sides. Also Calhoun FC against FC Calhoun,
+    # the Southern States tie, the 'Augusta Arsenal Soccer Club (SC)' row, and the two
+    # Albion rows, which are one squad each with the team name written into the club field.
     # Virginia
     ("VA", "exact", "Springfield SYC Soccer", "Springfield SYC"),
     ("VA", "exact", "PWSI Courage", "Prince William Soccer Inc"),
