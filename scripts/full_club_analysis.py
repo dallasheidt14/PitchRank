@@ -787,6 +787,10 @@ CLUB_CANONICAL_OVERRIDES = [
     ("GA", "exact", "Grow Soccer Evolutions - 01", "Grow Soccer Evolution"),
     ("GA", "exact", "MACON SOCCER CLUB", "Macon Soccer Club"),
     ("GA", "exact", "Madison Area Ymca", "Madison Area Youth Soccer Association"),
+    # "Select" is a programme label rather than the club: Savannah United already fields a
+    # "Select 14b Blue" team, and Savannah United Select fields plain "Savannah United" ones.
+    ("GA", "exact", "Richmond Hill Soccer Club", "Richmond Hill SC"),
+    ("GA", "exact", "Savannah United Select", "Savannah United"),
     # Left apart deliberately: Georgia Soccer Association is the state governing body,
     # not a club -- its teams are 'GA ODP' sides. Also the Augusta Arsenal rows (see the
     # South Carolina note), Calhoun FC against FC Calhoun, the Atlanta Furious and
