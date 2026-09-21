@@ -705,6 +705,26 @@ CLUB_CANONICAL_OVERRIDES = [
     ("FL", "exact", "GREATER BOCA YSA / BOCA UNITED", "Greater Boca YSA"),
     ("FL", "exact", "Hunters Creek Soccer Club", "Hunter's Creek SC"),
     ("FL", "exact", "Iconz Experience Elite", "Iconz Experience"),
+    # A second pass read off the club list. "SS" is Orlando City's own abbreviation for
+    # Soccer School, and those rows are branches of it rather than of the undecided
+    # Orlando City group below.
+    ("FL", "exact", "Impact City FC - FL", "Impact City FC"),
+    ("FL", "exact", "IVES Estate Thunder Soccer", "Ives Estate"),
+    ("FL", "exact", "Miami AC", "Miami Athletic Club"),
+    ("FL", "exact", "MILAN OF MIAMI F.C INC", "Milan DE Miami FC"),
+    ("FL", "exact", "One FC Miami", "One FC"),
+    ("FL", "exact", "Orlando City SS Hunters Creek", "Orlando City Soccer School Hunters Creek"),
+    ("FL", "exact", "ORLANDO CITY SS LAKE NONA", "Orlando City Soccer School Lake Nona"),
+    ("FL", "exact", "Orlando Soccer School Lake Nona", "Orlando City Soccer School Lake Nona"),
+    ("FL", "exact", "Orlando City Soccer School Lk Nona", "Orlando City Soccer School Lake Nona"),
+    ("FL", "exact", "PORT SAINT JOHN UNITED", "Port St. John SC"),
+    ("FL", "exact", "Paris Saint Germain (PSG)", "Paris Saint Germain Academy Orlando"),
+    ("FL", "exact", "Pensacola Futbol Club", "Pensacola FC Rush"),
+    ("FL", "exact", "RONALDO ACADEMY TAMPA BAY", "Ronaldo Academy Tampa Bay"),
+    ("FL", "exact", "Ronaldo Academy Tampa - R9", "Ronaldo Academy Tampa Bay"),
+    ("FL", "exact", "Soccer Paradise F.C.", "Soccer Paradise"),
+    ("FL", "exact", "Soccer Paradise SPFC 2010", "Soccer Paradise"),
+    ("FL", "exact", "SOL SPORTS CLUB (SOL SC)", "Sol SC Florida"),
     # Left apart deliberately:
     #   Miami FC Academy is The Miami FC, the USL club -- its teams read "MFC", "USLC",
     #   "USL1" -- not Miami Athletic Club. The rest of that group is undecided.
