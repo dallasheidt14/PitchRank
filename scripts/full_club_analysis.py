@@ -158,6 +158,23 @@ CLUB_CANONICAL_OVERRIDES = [
     ("NC", "exact", "Coastal United Soccer Association", "Coastal United SA"),
     ("NC", "exact", "Davidson County YSA", "Davidson County Youth Soccer League"),
     ("NC", "norm", "Eagles Royal FC", "Eagles RFC"),
+    # Majority is "FRANKLIN WAKE SOCCER CLUB - YAKS", which is all caps with a mascot
+    # appended; that is not a spelling of the club name, so the shorter one is canonical.
+    ("NC", "exact", "FRANKLIN WAKE SOCCER CLUB - YAKS", "Franklin Wake SC"),
+    ("NC", "exact", "Granville Keepers Soccer Club LLC", "Granville Keepers"),
+    ("NC", "exact", "HIGH COUNTRY SOCCER ASSN (HCSA)", "High Country SA"),
+    ("NC", "norm", "Highland Football Club", "Highland FC"),
+    ("NC", "norm", "Impact FC", "Impact FC"),
+    ("NC", "exact", "Lenoir Youth Soccer (LYSA)", "Lenoir Youth Soccer Association"),
+    ("NC", "exact", "Lenoir Youth SA", "Lenoir Youth Soccer Association"),
+    ("NC", "exact", "Mebane Youth Soccer Association (MYSA)", "Mebane Youth SA"),
+    ("NC", "exact", "NC Courage", "NC Courage Academy"),
+    # NC Rush Central is a separate branch and is never folded here.
+    ("NC", "exact", "NC Rush Triad (NCRT)", "North Carolina Rush Triad SC"),
+    ("NC", "exact", "North Carolina Rush Triad Soccer Club Inc", "North Carolina Rush Triad SC"),
+    ("NC", "exact", "NC Rush", "North Carolina Rush Triad SC"),
+    ("NC", "exact", "Delete - North Carolina Rush Triad SC", "North Carolina Rush Triad SC"),
+    ("NC", "norm", "Neuse River Futbol Alliance", "Neuse River Futbol Alliance"),
     ("NC", "exact", "CESA", "Carolina Elite Soccer Academy"),
     ("NC", "regex", r"Charlotte Soccer Academy\s*\(CSA\)\s*$", "Charlotte Soccer Academy"),
     ("NC", "regex", r"Charlotte Independence SC\s*\(CISC\)\s*$", "Charlotte Independence SC"),
