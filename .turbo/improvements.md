@@ -1469,3 +1469,19 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `normalize_to_club` (unmatched branch) and `group_by_club` in `src/utils/club_normalizer.py`
 - **Why**: For a name that resolves to no registered club, `club_id` comes from the suffix-stripped `normalize_club_name`, so "Tyler FC" and "Tyler SA" (or "Charlotte SC" and "Charlotte Soccer Academy") share a `club_id` and `group_by_club` puts them in one group, while `are_same_club` keeps them apart. No live matcher is affected: `_calculate_match_score` in the base, SincSports and TGS matchers compares `club_id` only when both names are registered. `group_by_club` has no production caller, but the matching-tournament-rosters skill reference points agents at it.
 - **Noted**: 2026-09-18
+
+### Decide the future of the pitchrank-alias-normalizer skill
+
+- **Type**: plan
+- **Category**: docs
+- **Where**: `.claude/skills/pitchrank-alias-normalizer/SKILL.md`
+- **Why**: 24 lines, one commit, last touched 2026-01-30 — the only project skill never revised. It predates the club-normalizer rewrite and every data-hygiene skill, and its stated job (raw name to canonical club_id plus extracted birth year, gender, tier and branch) now overlaps `normalizing-club-names` on the club half and `correcting-team-age-groups` on the age half. It describes a CSV-producing workflow with no driver script in the repo, so a session it triggers gets guidance written against a codebase that has moved. Retire it, narrow it to what nothing else covers, or bring it current.
+- **Noted**: 2026-09-20
+
+### Split the merging-duplicate-teams skill body into its references
+
+- **Type**: plan
+- **Category**: docs
+- **Where**: `.claude/skills/merging-duplicate-teams/SKILL.md`, the "What the signals are actually worth" and containment delta-class sections
+- **Why**: 660 lines against the 500-line authoring guideline, and by far the largest of the hygiene skills (the others are 398, 296 and 184). It already carries three `references/` files those two measured tables could move into, which would bring the body under the guideline without losing content. A review also reported the candidate-bucketing rule being stated in more than one place within the package; that duplication was asserted rather than measured here, so confirm it while splitting.
+- **Noted**: 2026-09-20

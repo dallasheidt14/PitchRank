@@ -34,7 +34,7 @@ PitchRank is a **youth soccer ranking platform** that scrapes game data from mul
 - When the user asks for a git operation (commit, push, merge), do it immediately without waiting for a second ask.
 - `.claude/rules/git-workflow.md` adds the mechanics: verifying the branch before every commit, and `git stash pop --index` when a staged/unstaged split matters.
 - Stacking a PR on another open PR costs you one predictable step: `main` takes squash merges, so merging the base rewrites its commits and the stacked branch then reports a conflict against `main` even though the content is identical. Resolve with `git merge origin/main` — a rebase would need the force-push the guard blocks — and expect the conflicts to be exactly the lines both branches edited. Prefer branching from `main` unless the second change genuinely cannot be reviewed without the first.
-- After opening a PR, run `python scripts/pr_wait.py`: it waits out the Codex review window (bounded at 10 minutes past open, since Codex reviews roughly half of PRs and has never posted later than that), prints the findings, then merges. A green gate alone is not grounds to merge — `gh pr checks` reports run status, while Codex's findings live on the review, and #1019 shipped a false statement that way.
+- After opening a PR, run `python scripts/pr_wait.py`: it waits out the Codex review window (bounded at 10 minutes past open, since Codex reviews roughly half of PRs and has never posted later than that), prints the findings, then merges. A green gate alone is not grounds to merge — `gh pr checks` reports run status, while Codex's findings live on the review, and #1019 shipped a false statement that way. Pass `--no-merge` whenever the merge is still the user's call; the bare command merges. The window is measured from the PR's creation, so a re-review requested later needs its own poll — and that poll must filter review objects and inline comments by timestamp, because the *original* review is still there and its body reads like a fresh clean pass. Every review body carries the commit it reviewed; compare that to the head you pushed.
 
 ## Verification & Regeneration
 - After any change to blog content, metadata, or site structure, always regenerate derived files (e.g., llms.txt) before committing.
@@ -118,6 +118,16 @@ PitchRank is a **youth soccer ranking platform** that scrapes game data from mul
   reverted -- written after the double rules above had been read, and missed by a
   seven-reviewer pass. Give the fixture one row per conjunct, each violating
   exactly one, and mutate the guard a line at a time rather than a hunk at a time.
+- **A mutation has to kill *your* test, not just redden the suite.** Reading the exit code
+  answers "did something fail", which a pre-existing test answers just as well — and that
+  is the reading under which a brand-new guard looks verified while asserting nothing. Two
+  guards written on 2026-09-19 passed a mutation run this way: one built its corpus from a
+  set whose every member the code protects by construction, the other drove a function the
+  pipeline never calls for the inputs it supplied, and both times the failures came
+  entirely from tests that already existed. Collect the failing test *names* and assert the
+  new one is among them. Where no mutation kills it alone, the guard is either redundant
+  with what is already there or pointed at the wrong code, and saying which is part of
+  writing it.
 
 ## Scope & Approach Discipline
 - Do NOT make changes beyond what was explicitly requested. If you see opportunities for improvement, mention them but wait for approval.

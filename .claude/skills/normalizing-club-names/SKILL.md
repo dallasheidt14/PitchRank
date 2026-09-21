@@ -176,3 +176,12 @@ casing rules.
 So a naming rule decided here belongs in that script. A rule applied to rows alone is
 re-derived away the following Monday, and the only visible symptom is the same repair
 proposing the same names again.
+
+Two passes there write casing. The caps pass reaches `caps_winner` only for a club spelled
+more than one way within a state, and the merge of those spellings always decides it: two
+spellings sharing a lowercased key must differ in case, so the `proper_case` branch beside
+it never runs. The provider pass, SincSports and PlayMetrics only, calls `proper_case`
+directly and only on an all-caps name.
+
+So put a casing rule in `merge_case_variants`, or in `apply_provider_rules` for the provider
+pass, and test it on a group holding two spellings of one club.
