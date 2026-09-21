@@ -163,7 +163,7 @@ CLUB_CANONICAL_OVERRIDES = [
     ("TX", "exact", "SA Athenians", "AC River"),
     ("TX", "exact", "Santa Fe YSC", "Santa Fe Youth Soccer"),
     ("TX", "exact", "Soccer Central", "AC River"),
-    ("TX", "exact", "Soccer Central/AC River/SA Athenians", "AC River"),
+    ("TX", "norm", "Soccer Central/AC River/SA Athenians", "AC River"),
     ("TX", "exact", "Valencia Academy Houston", "Valencia CF"),
     ("TX", "exact", "BVB international academy", "BVB International Academy Texas"),
     ("TX", "exact", "capital city south", "Capital City SC"),
@@ -362,6 +362,44 @@ CLUB_CANONICAL_OVERRIDES = [
     ("VA", "regex", r"Beach FC\s+\(VA\)\s*$", "Beach FC"),
     ("VA", "exact", "VA Reign FC", "Virginia Reign"),
     ("VA", "exact", "Richmond Utd", "Richmond United"),
+    ("VA", "exact", "Alexandria Soccer Association", "Alexandria SA"),
+    ("VA", "norm", "Prince William Soccer Inc", "Prince William Soccer Inc"),
+    ("VA", "norm", "Braddock Road Youth Club", "Braddock Road Youth Club"),
+    ("VA", "exact", "Stafford Soccer Club", "Stafford Soccer"),
+    ("VA", "exact", "Lee Mount Vernon Sports Club", "LMVSC"),
+    ("VA", "exact", "Virginia Legacy Soccer Club  (VLSC)", "Virginia Legacy SC"),
+    ("VA", "exact", "Northern Virginia SC (NVSC)", "NVSC"),
+    ("VA", "exact", "Northern Virginia Soccer Club", "NVSC"),
+    ("VA", "exact", "Shenandoah Valley United SC", "Shenandoah Valley United Inc"),
+    ("VA", "norm", "Fairfax Police Youth Club", "Fairfax Police Youth Club"),
+    ("VA", "exact", "Skyline Elite SC", "Skyline Elite"),
+    ("VA", "exact", "Richmond Strikers SC", "Richmond Strikers"),
+    ("VA", "exact", "Annandale Boys & Girls", "Annandale Boys & Girls Club"),
+    ("VA", "exact", "Augusta United Soccer Club", "Augusta United"),
+    ("VA", "norm", "Northern Virginia Alliance", "Northern Virginia Alliance"),
+    ("VA", "exact", "Charlottesville Alliance SC", "Charlottesville Alliance Sports Club"),
+    ("VA", "exact", "Richmond Kickers", "Richmond Kickers YSC"),
+    ("VA", "norm", "Piedmont Youth Soccer League", "Piedmont Youth Soccer League"),
+    ("VA", "exact", "Forest Youth Athletic Assn", "Forest Youth Athletic Association"),
+    ("VA", "exact", "Baystars FC", "Baystars"),
+    ("VA", "exact", "The St. James", "The St. James Football Club"),
+    ("VA", "exact", "South County Athletic Assn (SCAA)", "South County Athletic Association"),
+    ("VA", "exact", "Elite Kickers", "Elite Kickers Soccer Club"),
+    ("VA", "exact", "Danville Soccer Club    (DSC)", "Danville SC"),
+    ("VA", "norm", "Clarke County Soccer League", "Clarke County Soccer League"),
+    ("VA", "exact", "703 Warriors YSC", "703 Warriors"),
+    ("VA", "norm", "Chantilly Youth Association", "Chantilly Youth Association"),
+    ("VA", "exact", "Team America Football Club", "Team America"),
+    ("VA", "exact", "Sterling Youth Soccer", "Sterling Soccer Club"),
+    ("VA", "norm", "Churchland Soccer League", "Churchland Soccer League"),
+    ("VA", "exact", "U.S. Futsal", "U.S. Futsal Club"),
+    ("VA", "exact", "HYS", "Herndon Youth Soccer"),
+    # Held pending a decision, since each may be two clubs rather than two spellings of one.
+    # None of the three pairs has ever played the other, which is consistent with one club
+    # but does not establish it.
+    # ("VA", "norm", "Old Dominion Football Club (odfc)", "Old Dominion Soccer Club (ODSC)"),
+    # ("VA", "norm", "Manassas United Academy", "Manassas United"),
+    # ("VA", "norm", "Herndon Football Club", "Herndon Youth Soccer"),
     # New Jersey
     ("NJ", "exact", "Match Fit Surf", "Match Fit Academy"),
     ("NJ", "exact", "Franklin Township Youth Soccer Association", "Franklin Township SC"),
@@ -674,6 +712,8 @@ _AGE_OR_GENDER = re.compile(
 )
 _TRAILING_TAG = re.compile(r"^(.*\S)\s*\(([^()]+)\)\s*$", re.ASCII)
 _TWO_LETTERS = re.compile(r"[A-Za-z]{2}", re.ASCII)
+_ALNUM_RUN = re.compile(r"[a-z0-9]+", re.ASCII)
+_NON_ALNUM = re.compile(r"[^a-z0-9]+", re.ASCII)
 _COMMENT_BREAKS = re.compile(r"[\s\x00-\x1f\x7f]+")
 
 _FORMULA_PREFIXES = frozenset({"=", "+", "-", "@", "\t", "\r", "\n"})
@@ -897,6 +937,31 @@ def fetch_all_teams(client, state_code):
     return all_teams
 
 
+def club_acronym(name: str) -> str:
+    """A club name's acronym: each word's initial, or the whole word where it already is one.
+
+    "Northern Virginia SC" gives "nvsc" rather than "nvs", because SC is an abbreviation
+    standing for itself -- which is how a club writes its own tag.
+    """
+    words = _ALNUM_RUN.findall(name.lower())
+    return "".join(word if word.upper() in _CLUB_ACRONYMS else word[0] for word in words)
+
+
+def normalized_club(club: str) -> str:
+    """Fold a club name to the form a "norm" override compares on.
+
+    Drops a trailing tag that only repeats the name's own acronym, then case, punctuation,
+    spacing and a plural ending. Those are the differences that separate two spellings of
+    one club without naming a different one, so one entry covers a club's whole family
+    instead of one entry per spelling.
+    """
+    tag = trailing_tag(club)
+    if tag and club_acronym(tag[0]) == _NON_ALNUM.sub("", tag[1].lower()):
+        club = tag[0]
+    folded = _NON_ALNUM.sub("", club.lower())
+    return folded[:-1] if folded.endswith("s") else folded
+
+
 def _matches_override(club: str, match_type: str, pattern: str) -> bool:
     """Check if club name matches the override pattern."""
     if not club:
@@ -904,6 +969,8 @@ def _matches_override(club: str, match_type: str, pattern: str) -> bool:
     c = club.strip()
     if match_type == "exact":
         return c.lower() == pattern.lower()
+    if match_type == "norm":
+        return normalized_club(c) == normalized_club(pattern)
     if match_type == "prefix":
         return c.lower().startswith(pattern.lower())
     if match_type == "regex":
