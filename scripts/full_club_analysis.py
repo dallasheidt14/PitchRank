@@ -408,6 +408,14 @@ CLUB_CANONICAL_OVERRIDES = [
     # Crosby Youth Soccer already fields a "Crosby United FC" team of its own.
     ("TX", "exact", "Coppell Youth SA / Coppell FC", "Coppell FC"),
     ("TX", "exact", "Crosby Youth SC / Crosby United FC", "Crosby Youth Soccer"),
+    # Pinned against the caps pass, which had already damaged the majority spelling and
+    # was about to copy it onto the correct minority. "Laughlin" is a proper noun (Del Rio
+    # holds Laughlin AFB) and a past re-case lowered it on 18 of 20 rows; "de" is a Spanish
+    # preposition that the same pass read as a two-letter acronym and raised to "DE" on 9 of
+    # 10. `caps_winner` returns an override's canonical for the group, so naming the right
+    # spelling here both stops the next write and repairs the rows already written.
+    ("TX", "exact", "Del Rio-laughlin Youth Soccer Assn", "Del Rio-Laughlin Youth Soccer Assn"),
+    ("TX", "exact", "Club DE Futbol Houston Rayados", "Club De Futbol Houston Rayados"),
     # Left apart deliberately, each on its team names rather than on its club name:
     #   "TIGRES" is Odessa Tigres in West Texas; Tigres Soccer Academy plays STXCL.
     #   South Texas Youth Soccer Association is the governing body, not South Texas FC.

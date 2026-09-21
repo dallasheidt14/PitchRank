@@ -547,6 +547,30 @@ def test_a_bracketed_word_takes_the_capitals_an_all_caps_variant_gives_it():
     }
 
 
+def test_a_pin_repairs_a_damaged_majority_instead_of_copying_it():
+    """The caps pass adopts the most common mixed-case spelling, so a majority an earlier
+    re-case damaged is copied onto the correct minority. An override naming the right
+    spelling reverses the direction, which is why these two are pinned."""
+    damaged = ["Del Rio-laughlin Youth Soccer Assn"] * 3 + ["Del Rio-Laughlin Youth Soccer Assn"]
+    teams = [_team(f"t{i}", club, "TX") for i, club in enumerate(damaged)]
+    fixes, _, _ = analyze_state(teams, "TX", VOCAB)
+
+    assert sorted((f["from"], f["to"]) for f in fixes) == [
+        ("Del Rio-laughlin Youth Soccer Assn", "Del Rio-Laughlin Youth Soccer Assn"),
+    ]
+
+
+def test_a_spanish_preposition_is_not_raised_to_an_acronym():
+    """"de" is two letters, so `looks_like_acronym` reads it as one and the caps pass
+    raises it. The pin keeps the club's own spelling."""
+    teams = [_team(f"t{i}", club, "TX") for i, club in enumerate(["Club DE Futbol Houston Rayados"] * 3)]
+    fixes, _, _ = analyze_state(teams, "TX", VOCAB)
+
+    assert sorted((f["from"], f["to"]) for f in fixes) == [
+        ("Club DE Futbol Houston Rayados", "Club De Futbol Houston Rayados"),
+    ]
+
+
 def test_ccv_stars_keeps_its_abbreviation_against_a_lowered_majority():
     teams = [_team(f"t{i}", club, "AZ") for i, club in enumerate(["Ccv Stars"] * 3 + ["CCV STARS"])]
     fixes, _, _ = analyze_state(teams, "AZ", VOCAB)
