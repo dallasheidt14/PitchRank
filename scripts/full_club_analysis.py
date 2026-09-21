@@ -149,6 +149,15 @@ CLUB_CANONICAL_OVERRIDES = [
     # Cleveland United. Each folds within itself and never across.
     ("NC", "exact", "Greater Cleveland CNTY (GCCSA)", "Greater Cleveland Co. Soccer Association"),
     ("NC", "exact", "Greater Cleveland Co. SA", "Greater Cleveland Co. Soccer Association"),
+    ("NC", "exact", "Asheville Buncombe Youth SA", "Asheville Buncombe Youth Soccer Association"),
+    # "Barca Academy Carolinas West" is a branch (its team is at Belmont), not a spelling.
+    ("NC", "exact", "Barca Academy Carolinas", "Barça Academy Carolinas"),
+    ("NC", "exact", "Carolina United Soccer Association", "Carolina United SA"),
+    ("NC", "exact", "Chaos United Soccer Club", "Chaos United Soccer Club LLC"),
+    ("NC", "exact", "Coastal United Soccer Assn (CU)", "Coastal United SA"),
+    ("NC", "exact", "Coastal United Soccer Association", "Coastal United SA"),
+    ("NC", "exact", "Davidson County YSA", "Davidson County Youth Soccer League"),
+    ("NC", "norm", "Eagles Royal FC", "Eagles RFC"),
     ("NC", "exact", "CESA", "Carolina Elite Soccer Academy"),
     ("NC", "regex", r"Charlotte Soccer Academy\s*\(CSA\)\s*$", "Charlotte Soccer Academy"),
     ("NC", "regex", r"Charlotte Independence SC\s*\(CISC\)\s*$", "Charlotte Independence SC"),
