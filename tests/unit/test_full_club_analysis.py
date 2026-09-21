@@ -1334,3 +1334,70 @@ def test_the_script_runs_the_way_the_workflow_runs_it():
 def test_the_sql_audit_trail_still_defaults_to_the_tracked_file():
     expected = PROJECT_ROOT / "scripts" / "club_name_fixes_male_all_states.sql"
     assert Path(fca.SQL_OUTPUT_PATH).resolve() == expected.resolve()
+
+
+@pytest.mark.parametrize(
+    "club, expected",
+    [
+        # a trailing tag that only repeats the name's own acronym carries no identity
+        ("Braddock Road Youth Club (BRYC)", "braddockroadyouthclub"),
+        ("Prince William Soccer Inc (pwsi)", "princewilliamsoccerinc"),
+        # the acronym counts an abbreviation as itself, so "SC" contributes both letters
+        ("Northern Virginia SC (NVSC)", "northernvirginiasc"),
+        # a tag that is not the name's acronym names something, so it stays
+        ("Beach FC (VA)", "beachfcva"),
+        ("Fury FC (Powhatan SA)", "furyfcpowhatansa"),
+        # case, punctuation, spacing and a plural ending do not distinguish two clubs
+        ("Virginia Legacy Soccer Club  (VLSC)", "virginialegacysoccerclub"),
+        ("Soccer Central/AC River/SA Athenians", "soccercentralacriversaathenian"),
+        ("SOCCER CENTRAL AC RIVER SA ATHENIAN", "soccercentralacriversaathenian"),
+    ],
+)
+def test_the_norm_form_drops_only_what_cannot_name_a_different_club(club, expected):
+    assert fca.normalized_club(club) == expected
+
+
+@pytest.mark.parametrize(
+    "pattern, club",
+    [
+        ("Braddock Road Youth Club", "Braddock Road Youth Club (BRYC)"),
+        ("Fairfax Police Youth Club", "Fairfax Police Youth Club (FPYC)"),
+        ("Northern Virginia Alliance", "Northern Virginia Alliance (NVA)"),
+        # the straggler an exact rule missed by one letter
+        ("Soccer Central/AC River/SA Athenians", "Soccer Central/AC River/SA Athenian"),
+    ],
+)
+def test_a_norm_override_catches_a_spelling_no_exact_entry_names(pattern, club):
+    assert fca._matches_override(club, "norm", pattern) is True
+    assert fca._matches_override(club, "exact", pattern) is False
+
+
+@pytest.mark.parametrize(
+    "pattern, club",
+    [
+        # a branch is its own club: these two have played each other
+        ("Richmond Strikers", "Richmond Strikers South"),
+        ("Chesapeake SC", "Chesapeake United SC"),
+        # differing organisation types can be two clubs, so norm must not fold them
+        ("Charlotte Soccer Academy", "Charlotte FC"),
+        ("Virginia Legacy SC", "Virginia Legacy Soccer Club  (VLSC)"),
+        ("NVSC", "Northern Virginia SC (NVSC)"),
+    ],
+)
+def test_a_norm_override_refuses_a_name_that_could_be_another_club(pattern, club):
+    assert fca._matches_override(club, "norm", pattern) is False
+
+
+def test_the_other_override_match_types_are_unchanged():
+    assert fca._matches_override("Lonestar SC", "exact", "lonestar sc") is True
+    assert fca._matches_override("Lonestar", "exact", "Lonestar SC") is False
+    assert fca._matches_override("Beach FC (VA)", "prefix", "Beach FC") is True
+    assert fca._matches_override("Beach FC (VA)", "regex", r"Beach FC\s*\(VA\)\s*$") is True
+    assert fca._matches_override("Beach FC", "unknown-type", "Beach FC") is False
+    assert fca._matches_override("", "norm", "Beach FC") is False
+
+
+def test_every_override_declares_a_match_type_the_matcher_implements():
+    implemented = {"exact", "norm", "prefix", "regex"}
+    declared = {mtype for _, mtype, _, _ in fca.CLUB_CANONICAL_OVERRIDES}
+    assert declared <= implemented, sorted(declared - implemented)

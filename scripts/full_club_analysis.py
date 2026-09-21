@@ -134,6 +134,102 @@ CLUB_CANONICAL_OVERRIDES = [
     # Arkansas
     ("AR", "exact", "Ozark United FC Academy AD", "Ozark United FC Academy"),
     # North Carolina
+    ("NC", "norm", "AC Sandhills", "AC Sandhills"),
+    ("NC", "norm", "Asheboro City Futbol Club", "Asheboro City Futbol Club"),
+    ("NC", "norm", "Bogue Banks Futbol Club", "Bogue Banks Futbol Club"),
+    ("NC", "norm", "Burke Soccer Association", "Burke SA"),
+    ("NC", "exact", "Catawba Valley Youth Soccer", "Catawba Valley Youth Soccer Association"),
+    ("NC", "norm", "Catawba Valley YSA", "Catawba Valley Youth Soccer Association"),
+    ("NC", "exact", "Charlotte Independence", "Charlotte Independence SC"),
+    ("NC", "exact", "Davidson County Youth SL", "Davidson County Youth Soccer League"),
+    ("NC", "exact", "Denver United FC (DUFC)", "Denver United Futbol Club"),
+    ("NC", "exact", "Fayetteville Soccer Club", "Fayetteville SC / Villarreal Force Academy"),
+    ("NC", "exact", "Greater Cleveland Athletic Assn.", "Greater Cleveland Athletic Association"),
+    # GCCSA is a different organisation from GCAA: its teams are the Cobras, GCAA's are
+    # Cleveland United. Each folds within itself and never across.
+    ("NC", "exact", "Greater Cleveland CNTY (GCCSA)", "Greater Cleveland Co. Soccer Association"),
+    ("NC", "exact", "Greater Cleveland Co. SA", "Greater Cleveland Co. Soccer Association"),
+    ("NC", "exact", "Asheville Buncombe Youth SA", "Asheville Buncombe Youth Soccer Association"),
+    # "Barca Academy Carolinas West" is a branch (its team is at Belmont), not a spelling.
+    ("NC", "exact", "Barca Academy Carolinas", "Barça Academy Carolinas"),
+    ("NC", "exact", "Carolina United Soccer Association", "Carolina United SA"),
+    ("NC", "exact", "Chaos United Soccer Club LLC", "Chaos United Soccer Club"),
+    ("NC", "exact", "Coastal United Soccer Assn (CU)", "Coastal United SA"),
+    ("NC", "exact", "Coastal United Soccer Association", "Coastal United SA"),
+    ("NC", "exact", "Davidson County YSA", "Davidson County Youth Soccer League"),
+    ("NC", "norm", "Eagles Royal FC", "Eagles RFC"),
+    # Majority is "FRANKLIN WAKE SOCCER CLUB - YAKS", which is all caps with a mascot
+    # appended; that is not a spelling of the club name, so the shorter one is canonical.
+    ("NC", "exact", "FRANKLIN WAKE SOCCER CLUB - YAKS", "Franklin Wake SC"),
+    ("NC", "exact", "Granville Keepers Soccer Club LLC", "Granville Keepers"),
+    ("NC", "exact", "HIGH COUNTRY SOCCER ASSN (HCSA)", "High Country SA"),
+    ("NC", "norm", "Highland Football Club", "Highland FC"),
+    ("NC", "norm", "Impact FC", "Impact FC"),
+    ("NC", "exact", "Lenoir Youth Soccer (LYSA)", "Lenoir Youth Soccer Association"),
+    ("NC", "exact", "Lenoir Youth SA", "Lenoir Youth Soccer Association"),
+    ("NC", "exact", "Mebane Youth Soccer Association (MYSA)", "Mebane Youth SA"),
+    ("NC", "exact", "NC Courage", "NC Courage Academy"),
+    # NC Rush Central is a separate branch and is never folded here.
+    ("NC", "exact", "NC Rush Triad (NCRT)", "North Carolina Rush Triad SC"),
+    ("NC", "exact", "North Carolina Rush Triad Soccer Club Inc", "North Carolina Rush Triad SC"),
+    ("NC", "exact", "NC Rush", "North Carolina Rush Triad SC"),
+    ("NC", "exact", "Delete - North Carolina Rush Triad SC", "North Carolina Rush Triad SC"),
+    ("NC", "norm", "Neuse River Futbol Alliance", "Neuse River Futbol Alliance"),
+    # Majority wins, except where the majority is not a spelling of the club's name:
+    # a legal suffix, all caps, or a mascot appended. Those take the clean form.
+    ("NC", "exact", "NEXT BIG THING SOCCER ACADEMY", "Next Big Thing Soccer Academy"),
+    ("NC", "exact", "Next Big Thing SA", "Next Big Thing Soccer Academy"),
+    ("NC", "exact", "OBX Storm, Inc", "OBX Storm"),
+    ("NC", "exact", "One7 Academy", "One7"),
+    ("NC", "exact", "Onslow Classic Soccer Assn - (OCSA)", "Onslow Classic SA"),
+    ("NC", "exact", "Onslow Classic Soccer Association", "Onslow Classic SA"),
+    ("NC", "exact", "PITT GREENVILLE SOCCER ASSN  (PGSA)", "Pitt Greenville SA"),
+    ("NC", "exact", "Pitt Greenville Soccer Association", "Pitt Greenville SA"),
+    ("NC", "exact", "Pitt-Greenville Soccer Association", "Pitt Greenville SA"),
+    ("NC", "norm", "Pleasure Island Soccer Association", "Pleasure Island Soccer Association"),
+    ("NC", "norm", "Porter Ridge Athletic Association", "Porter Ridge Athletic Association"),
+    ("NC", "exact", "Queen City Mutiny FC", "Queen City Mutiny"),
+    ("NC", "exact", "Rutherford County SA / Foothills FC", "Rutherford County Soccer Association"),
+    ("NC", "exact", "Sanford Area Soccer League (SASL)", "Sanford Area SL"),
+    ("NC", "exact", "Sanford Area Soccer League", "Sanford Area SL"),
+    ("NC", "norm", "Seashore Soccer League", "Seashore Soccer League"),
+    ("NC", "exact", "Seashore SL", "Seashore Soccer League"),
+    ("NC", "exact", "Strikers of Gaston County SA(SGCSA)", "Strikers of Gaston County SA"),
+    ("NC", "exact", "Strikers of Gaston County Soccer Association", "Strikers of Gaston County SA"),
+    ("NC", "exact", "Elite Youth Soccer Club Inc", "Elite Youth Soccer Club"),
+    ("NC", "exact", "Havelock Youth Soccer Assn (HYSA)", "Havelock Youth Soccer Association"),
+    ("NC", "exact", "Havelock Youth SA", "Havelock Youth Soccer Association"),
+    ("NC", "exact", "Indian Trail Athletic Assoc (ITAA)", "Indian Trail Athletic Association"),
+    ("NC", "exact", "Swansboro Soccer Assn. (SSA)", "Swansboro Soccer Association"),
+    ("NC", "exact", "Swansboro SA", "Swansboro Soccer Association"),
+    ("NC", "exact", "TAR River Youth Soccer Assn (TRYSA)", "Tar River Youth SA"),
+    ("NC", "exact", "Transylvania YSA (TYSA)/Ecusta FC", "Transylvania Youth Soccer Association"),
+    ("NC", "exact", "Transylvania Youth SA", "Transylvania Youth Soccer Association"),
+    ("NC", "exact", "Triangle United Soccer Assn", "Triangle United"),
+    ("NC", "exact", "Union Youth Futbol Club - UYFC", "Union Youth FC"),
+    ("NC", "exact", "United Soccer Club (NC)", "United Soccer Club NC"),
+    ("NC", "exact", "United Soccer Club NC Inc", "United Soccer Club NC"),
+    ("NC", "exact", "Wake Futbol Club, Inc", "Wake FC"),
+    ("NC", "norm", "Wayne County United SC", "Wayne County United SC"),
+    ("NC", "exact", "Wesley Chapel Weddington Athletic Association", "Wesley Chapel Weddington Athletic Assoc"),
+    ("NC", "exact", "Wesley Chapel Weddington Athletic Assn.", "Wesley Chapel Weddington Athletic Assoc"),
+    ("NC", "exact", "WCWAA", "Wesley Chapel Weddington Athletic Assoc"),
+    ("NC", "exact", "Western United Soccer Club (WUSC)", "Western United SC"),
+    ("NC", "exact", "Wilmington Hammerheads (WHYFC)", "Wilmington Hammerheads FC"),
+    ("NC", "exact", "Wilmington United", "Wilmington United Futbol Academy"),
+    ("NC", "exact", "Wilson Youth Soccer Assn", "Wilson Youth SA"),
+    ("NC", "exact", "Wilson Youth Soccer Association", "Wilson Youth SA"),
+    ("NC", "exact", "Wings of Wilkes", "Wings of Wilkes SC"),
+    ("NC", "exact", "Yadkin SA", "Yadkin Soccer Association"),
+    ("NC", "exact", "Ycvsc Eagles Soccer Club", "YCVSC Eagles Soccer Club"),
+    ("NC", "exact", "YCVSC Eagles", "YCVSC Eagles Soccer Club"),
+    ("NC", "exact", "SPORTING CHARLOTTE FC", "Sporting Charlotte FC"),
+    # Held: the team names say these are two organisations, not two spellings.
+    # Charlotte FC's teams read "Matthews King", which is also a Charlotte Soccer
+    # Academy pattern, but Charlotte FC is the MLS club's own name.
+    # Waxhaw's teams read "WAA Navy" against "WSC Navy" -- different acronyms.
+    # ("NC", "exact", "Charlotte FC", "Charlotte Soccer Academy"),
+    # ("NC", "exact", "Waxhaw Soccer Club", "Waxhaw Athletic Association"),
     ("NC", "exact", "CESA", "Carolina Elite Soccer Academy"),
     ("NC", "regex", r"Charlotte Soccer Academy\s*\(CSA\)\s*$", "Charlotte Soccer Academy"),
     ("NC", "regex", r"Charlotte Independence SC\s*\(CISC\)\s*$", "Charlotte Independence SC"),
@@ -163,7 +259,7 @@ CLUB_CANONICAL_OVERRIDES = [
     ("TX", "exact", "SA Athenians", "AC River"),
     ("TX", "exact", "Santa Fe YSC", "Santa Fe Youth Soccer"),
     ("TX", "exact", "Soccer Central", "AC River"),
-    ("TX", "exact", "Soccer Central/AC River/SA Athenians", "AC River"),
+    ("TX", "norm", "Soccer Central/AC River/SA Athenians", "AC River"),
     ("TX", "exact", "Valencia Academy Houston", "Valencia CF"),
     ("TX", "exact", "BVB international academy", "BVB International Academy Texas"),
     ("TX", "exact", "capital city south", "Capital City SC"),
@@ -362,6 +458,53 @@ CLUB_CANONICAL_OVERRIDES = [
     ("VA", "regex", r"Beach FC\s+\(VA\)\s*$", "Beach FC"),
     ("VA", "exact", "VA Reign FC", "Virginia Reign"),
     ("VA", "exact", "Richmond Utd", "Richmond United"),
+    ("VA", "exact", "Alexandria Soccer Association", "Alexandria SA"),
+    ("VA", "norm", "Prince William Soccer Inc", "Prince William Soccer Inc"),
+    ("VA", "norm", "Braddock Road Youth Club", "Braddock Road Youth Club"),
+    ("VA", "exact", "Stafford Soccer Club", "Stafford Soccer"),
+    ("VA", "exact", "Lee Mount Vernon Sports Club", "LMVSC"),
+    ("VA", "exact", "Virginia Legacy Soccer Club  (VLSC)", "Virginia Legacy SC"),
+    ("VA", "exact", "Northern Virginia SC (NVSC)", "NVSC"),
+    ("VA", "exact", "Northern Virginia Soccer Club", "NVSC"),
+    ("VA", "exact", "Shenandoah Valley United SC", "Shenandoah Valley United Inc"),
+    ("VA", "norm", "Fairfax Police Youth Club", "Fairfax Police Youth Club"),
+    ("VA", "exact", "Skyline Elite SC", "Skyline Elite"),
+    ("VA", "exact", "Richmond Strikers SC", "Richmond Strikers"),
+    ("VA", "exact", "Annandale Boys & Girls", "Annandale Boys & Girls Club"),
+    ("VA", "exact", "Augusta United Soccer Club", "Augusta United"),
+    ("VA", "norm", "Northern Virginia Alliance", "Northern Virginia Alliance"),
+    ("VA", "exact", "Charlottesville Alliance SC", "Charlottesville Alliance Sports Club"),
+    ("VA", "exact", "Richmond Kickers", "Richmond Kickers YSC"),
+    ("VA", "norm", "Piedmont Youth Soccer League", "Piedmont Youth Soccer League"),
+    ("VA", "exact", "Forest Youth Athletic Assn", "Forest Youth Athletic Association"),
+    ("VA", "exact", "Baystars FC", "Baystars"),
+    ("VA", "exact", "The St. James", "The St. James Football Club"),
+    ("VA", "exact", "South County Athletic Assn (SCAA)", "South County Athletic Association"),
+    ("VA", "exact", "Elite Kickers", "Elite Kickers Soccer Club"),
+    ("VA", "exact", "Danville Soccer Club    (DSC)", "Danville SC"),
+    ("VA", "norm", "Clarke County Soccer League", "Clarke County Soccer League"),
+    ("VA", "exact", "703 Warriors YSC", "703 Warriors"),
+    ("VA", "norm", "Chantilly Youth Association", "Chantilly Youth Association"),
+    ("VA", "exact", "Team America Football Club", "Team America"),
+    ("VA", "exact", "Sterling Youth Soccer", "Sterling Soccer Club"),
+    ("VA", "norm", "Churchland Soccer League", "Churchland Soccer League"),
+    ("VA", "exact", "U.S. Futsal", "U.S. Futsal Club"),
+    ("VA", "exact", "HYS", "Herndon Youth Soccer"),
+    ("VA", "norm", "Chesapeake United SC", "Chesapeake United SC"),
+    ("VA", "norm", "Christiansburg SC", "Christiansburg SC"),
+    ("VA", "norm", "Premier AC", "Premier AC"),
+    ("VA", "exact", "Prince William Courage", "Prince William Soccer Inc"),
+    ("VA", "exact", "McLean Youth Soccer / VA Union FC", "McLean YS"),
+    ("VA", "exact", "Great Falls/reston SC (gfrsc)", "Great Falls Reston Soccer Club"),
+    ("VA", "exact", "Springfield South County YC (SYC)", "Springfield SYC"),
+    ("VA", "exact", "Richmond Kickers Youth Soccer Club", "Richmond Kickers YSC"),
+    ("VA", "exact", "FREDERICKSBURG SC Inc (FSCI)", "Fredericksburg FC"),
+    # Held pending a decision, since each may be two clubs rather than two spellings of one.
+    # None of the three pairs has ever played the other, which is consistent with one club
+    # but does not establish it.
+    # ("VA", "norm", "Old Dominion Football Club (odfc)", "Old Dominion Soccer Club (ODSC)"),
+    # ("VA", "norm", "Manassas United Academy", "Manassas United"),
+    # ("VA", "norm", "Herndon Football Club", "Herndon Youth Soccer"),
     # New Jersey
     ("NJ", "exact", "Match Fit Surf", "Match Fit Academy"),
     ("NJ", "exact", "Franklin Township Youth Soccer Association", "Franklin Township SC"),
@@ -674,6 +817,8 @@ _AGE_OR_GENDER = re.compile(
 )
 _TRAILING_TAG = re.compile(r"^(.*\S)\s*\(([^()]+)\)\s*$", re.ASCII)
 _TWO_LETTERS = re.compile(r"[A-Za-z]{2}", re.ASCII)
+_ALNUM_RUN = re.compile(r"[a-z0-9]+", re.ASCII)
+_NON_ALNUM = re.compile(r"[^a-z0-9]+", re.ASCII)
 _COMMENT_BREAKS = re.compile(r"[\s\x00-\x1f\x7f]+")
 
 _FORMULA_PREFIXES = frozenset({"=", "+", "-", "@", "\t", "\r", "\n"})
@@ -897,6 +1042,31 @@ def fetch_all_teams(client, state_code):
     return all_teams
 
 
+def club_acronym(name: str) -> str:
+    """A club name's acronym: each word's initial, or the whole word where it already is one.
+
+    "Northern Virginia SC" gives "nvsc" rather than "nvs", because SC is an abbreviation
+    standing for itself -- which is how a club writes its own tag.
+    """
+    words = _ALNUM_RUN.findall(name.lower())
+    return "".join(word if word.upper() in _CLUB_ACRONYMS else word[0] for word in words)
+
+
+def normalized_club(club: str) -> str:
+    """Fold a club name to the form a "norm" override compares on.
+
+    Drops a trailing tag that only repeats the name's own acronym, then case, punctuation,
+    spacing and a plural ending. Those are the differences that separate two spellings of
+    one club without naming a different one, so one entry covers a club's whole family
+    instead of one entry per spelling.
+    """
+    tag = trailing_tag(club)
+    if tag and club_acronym(tag[0]) == _NON_ALNUM.sub("", tag[1].lower()):
+        club = tag[0]
+    folded = _NON_ALNUM.sub("", club.lower())
+    return folded[:-1] if folded.endswith("s") else folded
+
+
 def _matches_override(club: str, match_type: str, pattern: str) -> bool:
     """Check if club name matches the override pattern."""
     if not club:
@@ -904,6 +1074,8 @@ def _matches_override(club: str, match_type: str, pattern: str) -> bool:
     c = club.strip()
     if match_type == "exact":
         return c.lower() == pattern.lower()
+    if match_type == "norm":
+        return normalized_club(c) == normalized_club(pattern)
     if match_type == "prefix":
         return c.lower().startswith(pattern.lower())
     if match_type == "regex":
