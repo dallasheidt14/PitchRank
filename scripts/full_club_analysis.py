@@ -791,6 +791,14 @@ CLUB_CANONICAL_OVERRIDES = [
     # "Select 14b Blue" team, and Savannah United Select fields plain "Savannah United" ones.
     ("GA", "exact", "Richmond Hill Soccer Club", "Richmond Hill SC"),
     ("GA", "exact", "Savannah United Select", "Savannah United"),
+    ("GA", "exact", "TASA FC/Thomas Area Soccer Assn", "Thomas Area Soccer Association"),
+    ("GA", "exact", "Tophat Soccer Club", "NASA Tophat"),
+    # Southern Soccer Academy keeps its branch rows apart -- Swarm, Swarm Marietta, Coastal,
+    # Cartersville and Coweta each stay their own club, on the owner's call 2026-09-21. The
+    # team names argue the other way: the parent fields "SSA Swarm ... Paulding" and "SSA
+    # Swarm 11G Cartersville" squads, and SSA Coastal fields "SSA Swarm Coastal 17B", so the
+    # places read as programmes. The convention that a branch is its own club decided it
+    # anyway, as it did for Richmond Strikers South and NC Rush Central. About 156 teams.
     # Left apart deliberately: Georgia Soccer Association is the state governing body,
     # not a club -- its teams are 'GA ODP' sides. Also the Augusta Arsenal rows (see the
     # South Carolina note), Calhoun FC against FC Calhoun, the Atlanta Furious and
