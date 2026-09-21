@@ -134,6 +134,21 @@ CLUB_CANONICAL_OVERRIDES = [
     # Arkansas
     ("AR", "exact", "Ozark United FC Academy AD", "Ozark United FC Academy"),
     # North Carolina
+    ("NC", "norm", "AC Sandhills", "AC Sandhills"),
+    ("NC", "norm", "Asheboro City Futbol Club", "Asheboro City Futbol Club"),
+    ("NC", "norm", "Bogue Banks Futbol Club", "Bogue Banks Futbol Club"),
+    ("NC", "norm", "Burke Soccer Association", "Burke SA"),
+    ("NC", "exact", "Catawba Valley Youth Soccer", "Catawba Valley Youth Soccer Association"),
+    ("NC", "norm", "Catawba Valley YSA", "Catawba Valley Youth Soccer Association"),
+    ("NC", "exact", "Charlotte Independence", "Charlotte Independence SC"),
+    ("NC", "exact", "Davidson County Youth SL", "Davidson County Youth Soccer League"),
+    ("NC", "exact", "Denver United FC (DUFC)", "Denver United Futbol Club"),
+    ("NC", "exact", "Fayetteville Soccer Club", "Fayetteville SC / Villarreal Force Academy"),
+    ("NC", "exact", "Greater Cleveland Athletic Assn.", "Greater Cleveland Athletic Association"),
+    # GCCSA is a different organisation from GCAA: its teams are the Cobras, GCAA's are
+    # Cleveland United. Each folds within itself and never across.
+    ("NC", "exact", "Greater Cleveland CNTY (GCCSA)", "Greater Cleveland Co. Soccer Association"),
+    ("NC", "exact", "Greater Cleveland Co. SA", "Greater Cleveland Co. Soccer Association"),
     ("NC", "exact", "CESA", "Carolina Elite Soccer Academy"),
     ("NC", "regex", r"Charlotte Soccer Academy\s*\(CSA\)\s*$", "Charlotte Soccer Academy"),
     ("NC", "regex", r"Charlotte Independence SC\s*\(CISC\)\s*$", "Charlotte Independence SC"),
