@@ -9,13 +9,18 @@ fault of its own. A club can hand a GotSport team record to a different squad at
 August rollover, and every game the record serves afterwards belongs to a different
 team than the ones before it.
 
+The write goes through ``unlink_game_team`` and ``link_game_team``. A direct UPDATE is
+refused by the ``enforce_game_immutability`` trigger, which admits a team change only
+as a clear or a fill, never as a swap -- so a move is a clear followed by a fill, and
+the game carries a NULL on that side in between. Each game's outcome is recorded
+separately and a rerun finishes any move that stopped in the middle, because a side
+already sitting at NULL only needs its fill.
+
 Scope is a single (team, date window) block, so a record shared by two squads is split
 by running this once per block. A move with no window is a whole-team merge and belongs
 to the merge tooling instead.
 
-Every write is guarded on the team id it replaces, so a game that moved since the read
-is reported rather than overwritten, and every run logs a CSV that --revert replays
-backwards.
+Every run logs a CSV that --revert replays backwards.
 
 Usage:
     python scripts/reassign_games_between_teams.py --from <uuid> --to <uuid> --before 2026-08-01
@@ -111,6 +116,33 @@ def decide(game: Dict, from_team: str, to_team: str) -> Dict[str, str]:
     return {"action": "moved", "side": side, "opponent": opponent or ""}
 
 
+def read_side(supabase, game_id: str, side: str) -> Optional[str]:
+    column = f"{side}_team_master_id"
+    rows = supabase.table("games").select(column).eq("id", game_id).limit(1).execute().data or []
+    return rows[0][column] if rows else None
+
+
+def move_side(supabase, game_id: str, side: str, expected: str, target: str) -> str:
+    is_home = side == "home"
+    current = read_side(supabase, game_id, side)
+
+    if current == target:
+        return "already_moved"
+    if current is not None and current != expected:
+        return "skipped_changed_since_read"
+
+    if current is not None:
+        supabase.rpc(
+            "unlink_game_team",
+            {"p_game_id": game_id, "p_team_id_master": expected, "p_is_home_team": is_home},
+        ).execute()
+    supabase.rpc(
+        "link_game_team",
+        {"p_game_id": game_id, "p_team_id_master": target, "p_is_home_team": is_home},
+    ).execute()
+    return "moved"
+
+
 def write_log(rows: List[Dict], path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="", encoding="utf-8") as f:
@@ -119,27 +151,21 @@ def write_log(rows: List[Dict], path: Path) -> None:
         writer.writerows(rows)
 
 
-def apply_move(supabase, game_id: str, side: str, expected: str, target: str) -> bool:
-    column = f"{side}_team_master_id"
-    result = supabase.table("games").update({column: target}).eq("id", game_id).eq(column, expected).execute()
-    return bool(result.data)
-
-
 def revert(supabase, log_path: Path, execute: bool) -> Dict[str, int]:
     with log_path.open(encoding="utf-8") as f:
         rows = [r for r in csv.DictReader(f) if r.get("action") == "moved"]
 
-    counts = {"reverted": 0, "already_moved_on": 0}
+    counts: Dict[str, int] = {}
     for row in rows:
         print(
             f"  {row['game_date']}  {row['game_id'][:8]}  {row['side']:4s} "
             f"{row['to_team_id'][:8]} -> {row['from_team_id'][:8]}"
         )
-        if not execute:
-            counts["reverted"] += 1
-            continue
-        moved = apply_move(supabase, row["game_id"], row["side"], row["to_team_id"], row["from_team_id"])
-        counts["reverted" if moved else "already_moved_on"] += 1
+        if execute:
+            outcome = move_side(supabase, row["game_id"], row["side"], row["to_team_id"], row["from_team_id"])
+        else:
+            outcome = "would_revert"
+        counts[outcome] = counts.get(outcome, 0) + 1
     return counts
 
 
@@ -163,9 +189,9 @@ def main() -> None:
     if args.revert:
         print(f"=== Revert {args.revert} ({'EXECUTE' if execute else 'DRY-RUN'}) ===")
         counts = revert(supabase, args.revert, execute)
-        print(f"\n{'Reverted' if execute else 'Would revert'}: {counts['reverted']}")
-        if counts["already_moved_on"]:
-            print(f"Left alone (moved on since the run): {counts['already_moved_on']}")
+        print()
+        for outcome in sorted(counts):
+            print(f"{outcome}: {counts[outcome]}")
         return
 
     if not args.from_team or not args.to_team:
@@ -190,11 +216,9 @@ def main() -> None:
 
     games = fetch_games(supabase, args.from_team, args.since, args.before)
     log_rows: List[Dict] = []
-    counts: Dict[str, int] = {}
 
     for game in games:
         verdict = decide(game, args.from_team, args.to_team)
-        counts[verdict["action"]] = counts.get(verdict["action"], 0) + 1
         log_rows.append(
             {
                 "game_id": game["id"],
@@ -207,6 +231,7 @@ def main() -> None:
                 "home_score": "" if game.get("home_score") is None else game["home_score"],
                 "away_score": "" if game.get("away_score") is None else game["away_score"],
                 "action": verdict["action"],
+                "note": "",
             }
         )
 
@@ -226,22 +251,21 @@ def main() -> None:
     # the last. A run that dies mid-loop still leaves every applied row on disk.
     write_log(log_rows, log_path)
 
-    applied = set()
     try:
         for row in planned:
             score = f"{row['home_score']}-{row['away_score']}" if row["home_score"] != "" else "  -  "
             print(f"  {row['game_date']}  {score:>7s}  {row['side']:4s}  {row['competition'][:38]}")
             if not execute:
                 continue
-            if apply_move(supabase, row["game_id"], row["side"], args.from_team, args.to_team):
-                applied.add(row["game_id"])
-            else:
-                row["action"] = "skipped_changed_since_read"
+            try:
+                row["action"] = move_side(supabase, row["game_id"], row["side"], args.from_team, args.to_team)
+            except Exception as exc:
+                # An unlink that lands while its link fails leaves the side NULL. The row
+                # says so, and a rerun finishes it from there rather than starting over.
+                row["action"] = "error"
+                row["note"] = str(exc)[:200]
+                raise
     finally:
-        if execute:
-            for row in planned:
-                if row["game_id"] not in applied and row["action"] == "moved":
-                    row["action"] = "planned_not_applied"
         write_log(log_rows, log_path)
 
     print("\n=== Summary ===")
