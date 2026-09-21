@@ -775,6 +775,18 @@ CLUB_CANONICAL_OVERRIDES = [
     ("GA", "exact", "Rayados Hazlehurst Soccer Academy", "Hazlehurst Rayados Soccer Academy"),
     ("GA", "exact", "SSA Cartersville (Rec)", "SSA Cartersville"),
     ("GA", "norm", "Vaders Elite Nation FC", "Vaders Elite Nation FC"),
+    # A second pass read off the club list. "Georgia Storm Revolution" fields Georgia
+    # Revolution FC teams, so the Storm prefix is an affiliate marker rather than the club.
+    ("GA", "exact", "ALIANZA SOCCER CLUB", "Alianza Soccer Club"),
+    ("GA", "exact", "Alliance Soccer Club", "Alliance SC"),
+    ("GA", "exact", "Atlanta Furious Soccer Club", "Atlanta Furious"),
+    ("GA", "exact", "Augusta Arsenal SC (ga)", "Augusta Arsenal SC"),
+    ("GA", "exact", "Decatur DeKalb YSC   (DDYSC)", "Decatur Dekalb YMCA Soccer Club"),
+    ("GA", "exact", "Georgia Storm Revolution", "Georgia Revolution FC"),
+    ("GA", "exact", "GEORGIA WOLVES SC", "Georgia Wolves SC"),
+    ("GA", "exact", "Grow Soccer Evolutions - 01", "Grow Soccer Evolution"),
+    ("GA", "exact", "MACON SOCCER CLUB", "Macon Soccer Club"),
+    ("GA", "exact", "Madison Area Ymca", "Madison Area Youth Soccer Association"),
     # Left apart deliberately: Georgia Soccer Association is the state governing body,
     # not a club -- its teams are 'GA ODP' sides. Also the Augusta Arsenal rows (see the
     # South Carolina note), Calhoun FC against FC Calhoun, the Atlanta Furious and
