@@ -178,6 +178,15 @@ def main() -> None:
     parser.add_argument("--execute", action="store_true", help="Apply changes (default is a dry run)")
     parser.add_argument("--dry-run", action="store_true", help="Force a dry run; wins over --execute")
     parser.add_argument("--limit", type=int, help="Only move the first N games")
+    parser.add_argument(
+        "--exclude",
+        default="",
+        help=(
+            "Comma-separated game ids to leave alone. Needed when an earlier block already "
+            "moved games into this team inside the same date window, which the window cannot "
+            "tell apart from the ones being moved out"
+        ),
+    )
     parser.add_argument("--revert", type=Path, help="Undo a previous run from its CSV log")
     args = parser.parse_args()
     # Fail safe: asking for both means the caller wants the preview.
@@ -214,11 +223,14 @@ def main() -> None:
     print(f"To:     {target['team_name']}  [{target['age_group']} {target['gender']} {target['state_code']}]")
     print(f"Window: {window}\n")
 
+    excluded = {g.strip() for g in args.exclude.split(",") if g.strip()}
     games = fetch_games(supabase, args.from_team, args.since, args.before)
     log_rows: List[Dict] = []
 
     for game in games:
         verdict = decide(game, args.from_team, args.to_team)
+        if game["id"] in excluded:
+            verdict["action"] = "skipped_excluded"
         log_rows.append(
             {
                 "game_id": game["id"],
