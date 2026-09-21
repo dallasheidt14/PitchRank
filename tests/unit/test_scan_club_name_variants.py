@@ -15,8 +15,13 @@ import pytest
 
 from scripts.full_club_analysis import Vocabulary
 from scripts.scan_club_name_variants import (
+    _ORG_WORDS,
+    ORG_TOKENS,
     _acronym_form,
     _core_key,
+    _singular,
+    fetch_club_names,
+    fetch_states,
     group_clubs,
     scan_keys,
     unresolved_groups,
@@ -124,6 +129,80 @@ def test_acronym_form_is_empty_for_a_multi_word_name():
 
 def test_scan_keys_namespace_core_and_sorted_separately():
     assert scan_keys("Inwood SC") == {"core:inwood", "sorted:inwood|sc"}
+
+
+# --- The singular fold and the organisation set must agree ------------------------------
+
+
+def test_an_ies_plural_still_reads_as_an_organisation_word():
+    """`_singular` turns "academies" into "academie", which the set has to hold too."""
+    assert grouped("Alpha Academy", "Alpha Academies")
+
+
+def test_every_organisation_word_survives_singularising():
+    missing = sorted(word for word in _ORG_WORDS if _singular(word) not in ORG_TOKENS)
+    assert missing == []
+
+
+# --- Paging must not read a capped page as the last one --------------------------------
+
+
+class _CappedTable:
+    """A `teams` table whose range response is capped, as PostgREST's max-rows caps it.
+
+    1,000 is the cap a local `supabase start` commits in supabase/config.toml. The double
+    returns rows only at `execute()`, because that is where the request is actually made.
+    """
+
+    def __init__(self, rows, cap):
+        self._rows, self._cap, self._lo, self._hi = rows, cap, 0, 0
+        self.column = None
+        self.ranges = []
+
+    def select(self, column):
+        self.column = column
+        return self
+
+    def eq(self, *_args):
+        return self
+
+    def order(self, *_args):
+        return self
+
+    def range(self, lo, hi):
+        self._lo, self._hi = lo, hi
+        return self
+
+    def execute(self):
+        self.ranges.append((self._lo, self._hi))
+        window = self._rows[self._lo : self._hi + 1][: self._cap]
+        return type("Result", (), {"data": [{self.column: value} for value in window]})()
+
+
+class _Client:
+    def __init__(self, table):
+        self._table = table
+
+    def table(self, name):
+        assert name == "teams"
+        return self._table
+
+
+def test_a_capped_page_is_not_the_last_page():
+    rows = [f"Club {i}" for i in range(2500)]
+    table = _CappedTable(rows, cap=1000)
+
+    assert fetch_club_names(_Client(table)) == rows
+    assert len(table.ranges) == 4
+
+
+def test_states_page_past_the_cap_too():
+    rows = ["TX"] * 1000 + ["CA"] * 1000 + ["NY"] * 200
+    assert fetch_states(_Client(_CappedTable(rows, cap=1000))) == ["CA", "NY", "TX"]
+
+
+def test_a_blank_state_is_not_a_state():
+    assert fetch_states(_Client(_CappedTable(["TX", None, "", "CA"], cap=1000))) == ["CA", "TX"]
 
 
 # --- Groups already resolved upstream must not be listed -------------------------------

@@ -61,11 +61,16 @@ from scripts.full_club_analysis import (  # noqa: E402
 
 console = Console()
 
+
+def _singular(token: str) -> str:
+    return token[:-1] if len(token) >= 5 and token.endswith("s") else token
+
+
 # Words naming what kind of body a club is, rather than which club it is. A trailing run
 # of these is dropped, so "Inwood SC", "Inwood Soccer Club" and "Inwood Youth Soccer
 # Association" reach one identity. Tier words ("Premier", "Elite", "Select", "United")
 # are deliberately absent -- they distinguish clubs.
-ORG_TOKENS = frozenset(
+_ORG_WORDS = frozenset(
     {
         "ac",
         "academy",
@@ -117,6 +122,11 @@ ORG_TOKENS = frozenset(
     }
 )
 
+# `_core_key` singularises a token before testing membership, so each word's singular form
+# has to be in the set too. Without this, "Academies" folds to "academie", matches nothing,
+# and "Alpha Academies" never meets "Alpha Academy".
+ORG_TOKENS = _ORG_WORDS | {_singular(word) for word in _ORG_WORDS}
+
 _TOKEN = re.compile(r"[a-z0-9]+", re.ASCII)
 _NON_ALNUM = re.compile(r"[^a-z0-9]+", re.ASCII)
 
@@ -130,10 +140,6 @@ def _ascii_fold(name: str) -> str:
 def _tokens(name: str) -> list[str]:
     folded = _ascii_fold(name).replace("&", " and ")
     return _TOKEN.findall(folded)
-
-
-def _singular(token: str) -> str:
-    return token[:-1] if len(token) >= 5 and token.endswith("s") else token
 
 
 def _strip_redundant_tag(club: str) -> str:
@@ -268,47 +274,38 @@ def unresolved_groups(teams, state_code, vocabulary, samples=3):
     return sorted(groups, key=lambda g: (-g["teams"], g["variants"][0]["club"]))
 
 
-def fetch_club_names(client):
-    """Every live team's club name, nationally, for the vocabulary the caps pass reads."""
-    names = []
+def _paged_column(client, column):
+    """Yield every live team's `column`, paging by the rows a page actually returned.
+
+    PostgREST caps a range at its own max-rows: 200,000 against the hosted project, 1,000
+    under a local `supabase start`. Stopping on a page shorter than the one requested would
+    read the first capped response as the last page and truncate silently; advancing by the
+    rows returned and stopping only on an empty page is correct at either cap.
+    """
     offset, page_size = 0, 10000
     while True:
         result = (
             client.table("teams")
-            .select("club_name")
+            .select(column)
             .eq("is_deprecated", False)
             .order("team_id_master")
             .range(offset, offset + page_size - 1)
             .execute()
         )
         if not result.data:
-            break
-        names.extend(row.get("club_name") for row in result.data)
-        if len(result.data) < page_size:
-            break
-        offset += page_size
-    return names
+            return
+        for row in result.data:
+            yield row.get(column)
+        offset += len(result.data)
+
+
+def fetch_club_names(client):
+    """Every live team's club name, nationally, for the vocabulary the caps pass reads."""
+    return list(_paged_column(client, "club_name"))
 
 
 def fetch_states(client):
-    states = set()
-    offset, page_size = 0, 10000
-    while True:
-        result = (
-            client.table("teams")
-            .select("state_code")
-            .eq("is_deprecated", False)
-            .order("team_id_master")
-            .range(offset, offset + page_size - 1)
-            .execute()
-        )
-        if not result.data:
-            break
-        states.update(row["state_code"] for row in result.data if row.get("state_code"))
-        if len(result.data) < page_size:
-            break
-        offset += page_size
-    return sorted(states)
+    return sorted({state for state in _paged_column(client, "state_code") if state})
 
 
 def print_groups(groups, min_teams):
