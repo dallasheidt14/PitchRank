@@ -223,6 +223,13 @@ CLUB_CANONICAL_OVERRIDES = [
     ("NC", "exact", "Yadkin SA", "Yadkin Soccer Association"),
     ("NC", "exact", "Ycvsc Eagles Soccer Club", "YCVSC Eagles Soccer Club"),
     ("NC", "exact", "YCVSC Eagles", "YCVSC Eagles Soccer Club"),
+    ("NC", "exact", "SPORTING CHARLOTTE FC", "Sporting Charlotte FC"),
+    # Held: the team names say these are two organisations, not two spellings.
+    # Charlotte FC's teams read "Matthews King", which is also a Charlotte Soccer
+    # Academy pattern, but Charlotte FC is the MLS club's own name.
+    # Waxhaw's teams read "WAA Navy" against "WSC Navy" -- different acronyms.
+    # ("NC", "exact", "Charlotte FC", "Charlotte Soccer Academy"),
+    # ("NC", "exact", "Waxhaw Soccer Club", "Waxhaw Athletic Association"),
     ("NC", "exact", "CESA", "Carolina Elite Soccer Academy"),
     ("NC", "regex", r"Charlotte Soccer Academy\s*\(CSA\)\s*$", "Charlotte Soccer Academy"),
     ("NC", "regex", r"Charlotte Independence SC\s*\(CISC\)\s*$", "Charlotte Independence SC"),
