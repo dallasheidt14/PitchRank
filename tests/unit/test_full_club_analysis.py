@@ -690,12 +690,12 @@ def test_only_ascii_digits_make_an_age():
 
 
 def test_a_partial_re_case_is_listed_and_not_written():
-    assert _provider_pass(_team("t1", "EL PASO PREMIER LEAGUE", "TX")) == ({}, [("t1", "partial_recase")])
+    assert _provider_pass(_team("t1", "PASO ROBLES UNITED", "TX")) == ({}, [("t1", "partial_recase")])
 
 
 def test_a_stripped_tag_is_still_written_when_the_re_case_is_partial():
-    assert _provider_pass(_team("t1", "EL PASO PREMIER LEAGUE (TX)", "TX")) == (
-        {"t1": ("EL PASO PREMIER LEAGUE", "tag")},
+    assert _provider_pass(_team("t1", "PASO ROBLES UNITED (TX)", "TX")) == (
+        {"t1": ("PASO ROBLES UNITED", "tag")},
         [("t1", "partial_recase")],
     )
 

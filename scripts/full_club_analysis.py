@@ -287,6 +287,28 @@ CLUB_CANONICAL_OVERRIDES = [
     ("TX", "regex", r"Juventus Academy Houston\s*\(JA\)\s*$", "Juventus Academy Houston"),
     ("TX", "exact", "Cavalry FC", "Cavalry Youth Soccer"),
     ("TX", "exact", "Atlético Dallas Youth", "Atletico Dallas Youth"),
+    ("TX", "norm", "El Paso Premier League", "El Paso Premier League"),
+    ("TX", "exact", "DFeeters Kicks Soccer Club (DKSC)", "DKSC"),
+    ("TX", "exact", "Dallas Texans Soccer Club", "Dallas Texans"),
+    ("TX", "exact", "Frisco SA", "Frisco Soccer Association"),
+    ("TX", "exact", "PASO DEL NORTE", "Paso Del Norte SA"),
+    # Held: Tyler FC is its own club, not Tyler SA's spelling. Its teams read "TYLER FC
+    # U10G" against "Tyler SA Vipers", and one of them carries the club name where the
+    # team name should be -- which is a team-name problem, not a club-name one.
+    ("TX", "exact", "Tyler Soccer Association", "Tyler SA"),
+    ("TX", "exact", "San Antonio City", "San Antonio City SC"),
+    ("TX", "exact", "Greater Lewisville Area SA (GLASA)", "GLASA"),
+    ("TX", "exact", "Lubbock Soccer Association", "Lubbock Soccer"),
+    ("TX", "exact", "Arlington Soccer Association", "Arlington SA"),
+    ("TX", "exact", "Mckinney Soccer Assn", "McKinney Soccer"),
+    # "Midland Alliance" teams read "Midland SA Mambas FC" and "Midland SA Toucans".
+    ("TX", "exact", "Midland Alliance", "Midland SA"),
+    ("TX", "exact", "Houston Surf", "Houston Surf Soccer Club"),
+    ("TX", "norm", "Greater Longview SA", "Greater Longview SA"),
+    ("TX", "exact", "SA United", "SA United Soccer Club"),
+    ("TX", "exact", "Dallas Hornets Youth", "Dallas Hornets"),
+    ("TX", "exact", "Alamo Area YSA   (AAYSA)", "Alamo Area Youth Soccer Assn"),
+    ("TX", "exact", "Georgetown Soccer Assn (gsa)", "Georgetown Soccer Association"),
     # Nevada (from full merge history)
     ("NV", "exact", "LV Heat Surf SC", "Las Vegas Heat Surf SC"),
     # New York
