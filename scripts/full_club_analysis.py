@@ -685,6 +685,26 @@ CLUB_CANONICAL_OVERRIDES = [
     ("FL", "exact", "Seminole Shooting Stars", "Seminole Shooting Stars SA"),
     ("FL", "exact", "Orlando lions", "Orlando Lions Academy FC"),
     ("FL", "exact", "Coral Springs SC", "Coral Springs Soccer Academy"),
+    # Read off the club list by eye. No fold reaches a misspelling, a partner brand
+    # joined by a slash, a place or "USA" appended, or an apostrophe that splits the
+    # name into extra tokens.
+    ("FL", "exact", "Azzuri Storm", "Azzurri Storm"),
+    ("FL", "exact", "Azzurri Storm Soccer, Inc.", "Azzurri Storm"),
+    ("FL", "exact", "B1 Soccer Academy", "B1 Soccer Academy USA"),
+    ("FL", "exact", "Boynton Knights FC", "Boynton Beach Knights"),
+    ("FL", "exact", "Brevard Beachside Soccer Club Inc", "Brevard Beachside Impact SC"),
+    ("FL", "exact", "Clay County SC United Soccer Alliance", "Clay County SC"),
+    ("FL", "exact", "COLO COLO Soccer Academy", "Colo Colo Soccer Academy USA"),
+    ("FL", "exact", "Coral Estates SC    (CESC)", "Coral Estates S.C."),
+    ("FL", "exact", "Coral Springs Soccer Academy & Futsal", "Coral Springs Soccer Academy"),
+    ("FL", "exact", "Coral Springs Soccer/Futsal Academy", "Coral Springs Soccer Academy"),
+    ("FL", "exact", "DME Academy", "DME Academy Sarasota"),
+    ("FL", "exact", "FC Prime Miami", "FC Prime"),
+    ("FL", "exact", "FORT LAUDERDALE FC (FLFC)", "Fort Lauderdale Select FC"),
+    ("FL", "exact", "GOLDEN GOAL SPORTS", "GGS Soccer Academy"),
+    ("FL", "exact", "GREATER BOCA YSA / BOCA UNITED", "Greater Boca YSA"),
+    ("FL", "exact", "Hunters Creek Soccer Club", "Hunter's Creek SC"),
+    ("FL", "exact", "Iconz Experience Elite", "Iconz Experience"),
     # Left apart deliberately:
     #   Miami FC Academy is The Miami FC, the USL club -- its teams read "MFC", "USLC",
     #   "USL1" -- not Miami Athletic Club. The rest of that group is undecided.
