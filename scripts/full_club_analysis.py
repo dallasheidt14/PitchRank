@@ -287,6 +287,146 @@ CLUB_CANONICAL_OVERRIDES = [
     ("TX", "regex", r"Juventus Academy Houston\s*\(JA\)\s*$", "Juventus Academy Houston"),
     ("TX", "exact", "Cavalry FC", "Cavalry Youth Soccer"),
     ("TX", "exact", "Atlético Dallas Youth", "Atletico Dallas Youth"),
+    ("TX", "norm", "El Paso Premier League", "El Paso Premier League"),
+    ("TX", "exact", "DFeeters Kicks Soccer Club (DKSC)", "DKSC"),
+    ("TX", "exact", "Dallas Texans Soccer Club", "Dallas Texans"),
+    ("TX", "exact", "Frisco SA", "Frisco Soccer Association"),
+    ("TX", "exact", "PASO DEL NORTE", "Paso Del Norte SA"),
+    # Held: Tyler FC is its own club, not Tyler SA's spelling. Its teams read "TYLER FC
+    # U10G" against "Tyler SA Vipers", and one of them carries the club name where the
+    # team name should be -- which is a team-name problem, not a club-name one.
+    ("TX", "exact", "Tyler Soccer Association", "Tyler SA"),
+    ("TX", "exact", "San Antonio City", "San Antonio City SC"),
+    ("TX", "exact", "Greater Lewisville Area SA (GLASA)", "GLASA"),
+    ("TX", "exact", "Lubbock Soccer Association", "Lubbock Soccer"),
+    ("TX", "exact", "Arlington Soccer Association", "Arlington SA"),
+    ("TX", "exact", "Mckinney Soccer Assn", "McKinney Soccer"),
+    # "Midland Alliance" teams read "Midland SA Mambas FC" and "Midland SA Toucans".
+    ("TX", "exact", "Midland Alliance", "Midland SA"),
+    ("TX", "exact", "Houston Surf", "Houston Surf Soccer Club"),
+    ("TX", "norm", "Greater Longview SA", "Greater Longview SA"),
+    ("TX", "exact", "SA United", "SA United Soccer Club"),
+    ("TX", "exact", "Dallas Hornets Youth", "Dallas Hornets"),
+    ("TX", "exact", "Alamo Area YSA   (AAYSA)", "Alamo Area Youth Soccer Assn"),
+    ("TX", "exact", "Georgetown Soccer Assn (gsa)", "Georgetown Soccer Association"),
+    ("TX", "exact", "Dallas Kicks SC", "DKSC"),
+    ("TX", "exact", "210 Soccer", "210 FC"),
+    # 210 is San Antonio's area code, so this is the club's own name with its city
+    # appended rather than a branch: 17 of its 18 teams read "210 FC ...", on the same
+    # ECNL RL STXCL pattern and under the same coaches. No fold reaches a trailing place
+    # name, and deliberately so -- stripping one would merge real branches.
+    ("TX", "exact", "210 FC San Antonio", "210 FC"),
+    ("TX", "exact", "Fever United FC", "Fever United"),
+    ("TX", "exact", "Bedford-euless Soccer (besa)", "Bedford-Euless Soccer"),
+    # The HUFC rows read "Hurst United SA FC Hurst United 15B", and HUSA's own teams
+    # carry "FC Hurst United" names, so all three spellings are the one club.
+    ("TX", "exact", "FC Hurst United", "Hurst United SA"),
+    ("TX", "exact", "Hurst United FC (HUFC)", "Hurst United SA"),
+    ("TX", "exact", "New Braunfels Youth SA", "New Braunfels YSA"),
+    # Both live spellings carry a redundant (BOYSA) tag, so the canonical drops it.
+    (
+        "TX",
+        "norm",
+        "Brownsville Opportunity Youth Soccer Association",
+        "Brownsville Opportunity Youth Soccer Association",
+    ),
+    ("TX", "exact", "Brownsville Opportunity YSA (BOYSA)", "Brownsville Opportunity Youth Soccer Association"),
+    ("TX", "exact", "KLEIN", "Klein SC"),
+    ("TX", "exact", "Odessa Soccer Association", "Odessa SA"),
+    ("TX", "exact", "Grapevine-Southlake Soccer", "Grapevine Southlake SA"),
+    ("TX", "exact", "Aspire Soccer Club", "Aspire FC"),
+    ("TX", "exact", "Greater Wichita Falls SA", "Greater Wichita Falls Soccer Association"),
+    ("TX", "exact", "Beaumont Youth SC (BYSC)", "Beaumont YSC"),
+    ("TX", "exact", "Leander Youth SA", "Leander YSA"),
+    ("TX", "exact", "Hardin County Youth Soccer  (HCYSC)", "Hardin County YSC"),
+    ("TX", "exact", "Baytown Saints Youth SC  (BSYSC)", "Baytown Saints YSC"),
+    ("TX", "exact", "South BELT Youth SC    (SBYSC)", "South Belt YSC"),
+    ("TX", "exact", "South BELT Youth SA    (SBYSA)", "South Belt YSC"),
+    ("TX", "exact", "Katy Youth SC", "Katy YSC"),
+    ("TX", "norm", "Royse City SA", "Royse City SA"),
+    ("TX", "exact", "Real Greens SA  (RGSA)", "Real Greens Soccer Academy"),
+    ("TX", "exact", "Liberty Hill Youth Soccer Association", "Liberty Hill Youth Soccer"),
+    ("TX", "norm", "Santa Fe Youth Soccer", "Santa Fe Youth Soccer"),
+    # All three read "SAFC ECNL RL" in their team names.
+    ("TX", "exact", "SAFC", "San Antonio FC"),
+    ("TX", "exact", "San Antonio Athletic Football Club", "San Antonio FC"),
+    ("TX", "exact", "San Antonio FC Academy", "San Antonio FC"),
+    ("TX", "exact", "Bee Youth Soccer Organization", "BYSO"),
+    ("TX", "norm", "Brazosport Youth Soccer Assn.", "Brazosport Youth Soccer Assn."),
+    ("TX", "exact", "Brazosport Youth Soccer Association (BYSA)", "Brazosport Youth Soccer Assn."),
+    ("TX", "exact", "East Texas United", "East Texas United SC"),
+    ("TX", "norm", "Juventus Premier FC", "Juventus Premier FC"),
+    ("TX", "exact", "FORT WORTH VAQUEROS", "Fort Worth Vaqueros FC"),
+    ("TX", "exact", "Texas Select FC (LUBBOCK)", "Texas Select Futbol Club"),
+    ("TX", "exact", "Little ELM Soccer", "Little Elm Youth SA"),
+    ("TX", "norm", "Wells Branch SA", "Wells Branch SA"),
+    ("TX", "exact", "Cosmos FC (TX)", "Cosmos FC Academy"),
+    ("TX", "norm", "North Austin Soccer Alliance", "North Austin Soccer Alliance"),
+    ("TX", "exact", "Henderson County Soccer Assn (HCSA)", "Henderson County SA"),
+    ("TX", "exact", "RSA", "Richardson SA"),
+    ("TX", "exact", "Amarillo Soccer Assn (ASA)", "Amarillo SA"),
+    ("TX", "exact", "EL PASO SURF", "El Paso Surf Soccer Club"),
+    ("TX", "exact", "Houston City Soccer Academy", "Houston City SA"),
+    ("TX", "exact", "North Texas Soccer Assn (NTSA)", "North Texas Soccer Association"),
+    ("TX", "exact", "Lockhart Youth SA", "Lockhart YSA"),
+    ("TX", "exact", "San Angelo Elite Soccer Academy", "San Angelo Elite"),
+    ("TX", "exact", "Quest Soccer Club", "Quest YSC"),
+    ("TX", "exact", "WACO UNITED YOUTH SPORTS", "Waco United SC"),
+    ("TX", "exact", "FC Cardinals", "FC Cardinals Academy"),
+    # "MT. Pleasant FC" is left out: its one team reads "MP Elite 2024".
+    ("TX", "exact", "MT. Pleasant Youth Soccer Assn", "Mt. Pleasant Youth Soccer Association"),
+    ("TX", "exact", "Houston Dynamo", "Houston Dynamo FC"),
+    ("TX", "exact", "Houston Dynamo FC Academy", "Houston Dynamo FC"),
+    ("TX", "exact", "Academia de fútbol Dallas", "Academia DE Futbol Dallas"),
+    ("TX", "exact", "Hill Country FC (ASSN OF SPORTS)", "Hill Country Youth Soccer Association"),
+    ("TX", "exact", "Houston Dutch Lions", "Houston Dutch Lions FC"),
+    ("TX", "exact", "Texas Lonestars FC", "Texas Lonestars Soccer Club"),
+    ("TX", "exact", "Castroville United FC", "Castroville United"),
+    ("TX", "norm", "Club America - Tarrant County", "Club America - Tarrant County"),
+    ("TX", "exact", "Bayern Munich FC", "Bayern Munich"),
+    ("TX", "exact", "Irving Elite FC", "Irving Elite Soccer Academy"),
+    ("TX", "exact", "Austin Texans", "Austin Texans Soccer Club"),
+    ("TX", "exact", "Prime TIME Soccer Club (PTSC)", "Prime Time SC"),
+    ("TX", "exact", "UNIVERSAL FC", "Universal Soccer Club"),
+    ("TX", "exact", "Texas Rangers FC", "Texas Rangers"),
+    ("TX", "exact", "SS UNITED", "SS United FC"),
+    ("TX", "exact", "Big Country Soccer Assn (BCSA)", "Big Country SA"),
+    # Both live spellings only tag the state, so the canonical drops the tag.
+    ("TX", "exact", "Strikers FC (TX)", "Strikers FC"),
+    ("TX", "exact", "Strikers FC( Texas)", "Strikers FC"),
+    # Read off the club list by eye. None of these shapes is reachable by any fold: a
+    # place name appended to the club's own name looks exactly like a branch, and a
+    # branch is its own club.
+    ("TX", "exact", "Cedar Stars Rush", "Cedar Stars Rush Houston"),
+    ("TX", "exact", "Centex Storm", "Centex Storm Soccer Club"),
+    # Its teams are all "Rayados", CF Monterrey's own nickname. MTY abbreviates the
+    # club's name away, so the full name is canonical even though it is the minority.
+    ("TX", "exact", "CF MTY", "CF Monterrey"),
+    ("TX", "exact", "Classic Elite STX SA", "Classics Elite SA"),
+    # A partner brand in the name, the shape North Carolina met as "Fayetteville SC /
+    # Villarreal Force Academy". Coppell's coaches field teams under both spellings, and
+    # Crosby Youth Soccer already fields a "Crosby United FC" team of its own.
+    ("TX", "exact", "Coppell Youth SA / Coppell FC", "Coppell FC"),
+    ("TX", "exact", "Crosby Youth SC / Crosby United FC", "Crosby Youth Soccer"),
+    # Pinned against the caps pass, which had already damaged the majority spelling and
+    # was about to copy it onto the correct minority. "Laughlin" is a proper noun (Del Rio
+    # holds Laughlin AFB) and a past re-case lowered it on 18 of 20 rows; "de" is a Spanish
+    # preposition that the same pass read as a two-letter acronym and raised to "DE" on 9 of
+    # 10. `caps_winner` returns an override's canonical for the group, so naming the right
+    # spelling here both stops the next write and repairs the rows already written.
+    ("TX", "exact", "Del Rio-laughlin Youth Soccer Assn", "Del Rio-Laughlin Youth Soccer Assn"),
+    ("TX", "exact", "Club DE Futbol Houston Rayados", "Club De Futbol Houston Rayados"),
+    # Left apart deliberately, each on its team names rather than on its club name:
+    #   "TIGRES" is Odessa Tigres in West Texas; Tigres Soccer Academy plays STXCL.
+    #   South Texas Youth Soccer Association is the governing body, not South Texas FC.
+    #   "FCD" is FC Divas, not FC Dallas.
+    #   "Dragons Soccer Club" fields "Lady Dragons"; Dragon FC Academy names itself.
+    #   Elite FC, "Esa", "ESC" and a Wichita Falls branch are four different acronyms.
+    #   El Paso Soccer League's one team is "EL Paso Sundevils FC".
+    #   Texas Sport Club fields "Tejas FC", and Texas Alliance SC a Fort Worth Vaqueros team.
+    #   "Titans FC" is "Titanes"; "Titans SC" holds a "Hawks SC" team.
+    #   "Scorpions (tx)" holds a team called "Bears".
+    #   Real Academia Futbol and Real Sport FC are different names.
     # Nevada (from full merge history)
     ("NV", "exact", "LV Heat Surf SC", "Las Vegas Heat Surf SC"),
     # New York
