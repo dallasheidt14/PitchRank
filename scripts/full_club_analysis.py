@@ -397,6 +397,8 @@ CLUB_CANONICAL_OVERRIDES = [
     ("VA", "norm", "Chesapeake United SC", "Chesapeake United SC"),
     ("VA", "norm", "Christiansburg SC", "Christiansburg SC"),
     ("VA", "norm", "Premier AC", "Premier AC"),
+    ("VA", "exact", "Prince William Courage", "Prince William Soccer Inc"),
+    ("VA", "exact", "McLean Youth Soccer / VA Union FC", "McLean YS"),
     # Held pending a decision, since each may be two clubs rather than two spellings of one.
     # None of the three pairs has ever played the other, which is consistent with one club
     # but does not establish it.
