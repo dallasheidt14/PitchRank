@@ -81,10 +81,10 @@ def test_close_neighbors_do_not_hide_unsafe_endpoints_in_internal_evidence():
 
 
 @pytest.mark.parametrize("gap,bottom,expected", [
-    (1, False, "Seed 1 stands apart competitively above the remaining teams."),
-    (2, False, "Seeds 1–2 stand apart competitively above the remaining teams."),
-    (1, True, "Seed 8 stands apart competitively below the remaining teams."),
-    (2, True, "Seeds 7–8 stand apart competitively below the remaining teams."),
+    (1, False, "Seed 1 is 31.0 points above seed 2."),
+    (2, False, "Seed 2 is 31.0 points above seed 3."),
+    (1, True, "Seed 7 is 31.0 points above seed 8."),
+    (2, True, "Seed 6 is 31.0 points above seed 7."),
 ])
 def test_standouts_name_the_entire_end_segment(gap, bottom, expected):
     sheet, _, _ = cohort(8, gap=gap, bottom=bottom)
@@ -98,25 +98,24 @@ def test_standouts_name_the_entire_end_segment(gap, bottom, expected):
 
 def test_all_window_sizes_must_agree_and_rejected_evidence_survives():
     _, entrants, pairs = cohort(8, gap=4)
-    pairs[("3", "4")] = prediction(.1)
-    pairs[("3", "5")] = prediction(.1)
+    pairs[("3", "4")] = prediction(-.1)
     analysis = build_cheat_sheet_analysis(entrants, pairs)
     evidence = {w.size: w for w in analysis.boundary_windows if w.after_seed == 4}
     assert set(evidence) == {3, 4, 5}
     assert not evidence[3].supported
     assert evidence[4].supported and evidence[5].supported
     assert evidence[3].upper_ids == ("3",) and evidence[3].lower_ids == ("4", "5")
-    assert evidence[3].over_limit_fraction == 0
+    assert evidence[3].favored_fraction == .5
     assert 4 not in [b.after_seed for b in analysis.breaks]
 
 
 def test_clear_gap_has_one_specific_observation_across_pdf_and_excel():
     sheet, _, _ = cohort(8, gap=4)
     content = build_director_cohort(sheet, "=Keep this literal.")
-    assert content.rows[3].observation == "Strength gap between seeds 4 and 5."
+    assert content.rows[3].observation == "Score step: 31.0 points between seeds 4 and 5."
     assert content.rows[3].strength_break_after
     assert not content.rows[4].strength_break_after
-    assert content.notes == ("Strength gap between seeds 4 and 5.", "=Keep this literal.")
+    assert content.notes == ("Score step: 31.0 points between seeds 4 and 5.", "=Keep this literal.")
     args = dict(generated_on="2026-09-20", ranking_run="2026-09-19",
                 operator_notes={("u14", "Male"): "=Keep this literal."})
     document = render_sheet_html("=Event", [sheet], **args)
@@ -171,3 +170,78 @@ def test_workbook_keeps_secondary_identity_and_roster_context_on_team_row():
     assert all(text in document for text in content.rows[0].name_lines)
     assert tab.row_dimensions[7].height >= 75
     assert tab.auto_filter.ref == "A6:K7"
+
+
+def test_score_step_does_not_require_a_likely_blowout():
+    _, entrants, pairs = cohort(8)
+    entrants = [replace(e, power_score=e.power_score - (.04 if i >= 4 else 0))
+                for i, e in enumerate(entrants)]
+    pairs = {key: prediction(.4, .08) for key in pairs}
+    analysis = build_cheat_sheet_analysis(entrants, pairs)
+    assert [item.after_seed for item in analysis.breaks] == [4]
+    assert analysis.breaks[0].score_gap == pytest.approx(.05)
+    assert all(w.over_limit_fraction == 0 for w in analysis.boundary_windows)
+    assert analysis.ordered_ids == tuple(str(i) for i in range(8))
+
+
+@pytest.mark.parametrize("equal", [True, False])
+def test_predictions_alone_do_not_create_score_steps(equal):
+    _, entrants, pairs = cohort(8)
+    if equal:
+        entrants = [replace(e, power_score=.7) for e in entrants]
+    analysis = build_cheat_sheet_analysis(entrants, {key: prediction(4, .6) for key in pairs})
+    assert not analysis.breaks and not analysis.standouts
+    assert not analysis.notes
+
+
+@pytest.mark.parametrize("scores,expected", [
+    ([.90, .50, .49], "Seed 1 is 40.0 points above seed 2."),
+    ([.90, .89, .20], "Seed 2 is 69.0 points above seed 3."),
+    ([.90, .70, .50], None),
+    ([.70, .70, .70], None),
+    ([.70, .695, .69], None),
+])
+def test_three_team_cohorts_distinguish_standouts_from_gradual_scores(scores, expected):
+    entrants = [TierEntrant(str(i), f"Team {i}", score) for i, score in enumerate(scores)]
+    pairs = {(a.entrant_id, b.entrant_id): prediction(.5) for a, b in combinations(entrants, 2)}
+    analysis = build_cheat_sheet_analysis(entrants, pairs)
+    assert analysis.notes == ((expected,) if expected else ())
+    assert len(analysis.standouts) == bool(expected)
+    assert not analysis.breaks
+
+
+def test_only_material_reversals_need_operator_review_without_reordering():
+    _, entrants, pairs = cohort(5)
+    pairs[("0", "4")] = prediction(-1.25)
+    pairs[("1", "2")] = prediction(-.2)
+    entrants[1] = replace(entrants[1], limited_history=True)
+    analysis = build_cheat_sheet_analysis(entrants, pairs)
+    assert analysis.ordered_ids == ("0", "1", "2", "3", "4")
+    assert analysis.limited_history == ("1",)
+    assert [(c.upper_seed, c.lower_seed, c.lower_expected_advantage) for c in analysis.placement_checks] == [(1, 5, 1.25)]
+    assert not any("favored" in note for note in analysis.notes)
+
+
+def test_limited_history_keeps_seed_and_literal_row_context_with_fixed_score_scale():
+    sheet, _, _ = cohort(8, gap=4)
+    teams = list(sheet.rated)
+    teams[0] = replace(teams[0], status="Not Enough Ranked Games")
+    sheet = replace(sheet, rated=tuple(teams))
+    content = build_director_cohort(sheet)
+    assert content.rows[0].seed == 1
+    assert content.rows[0].display_status == "Seeded · Limited history"
+    args = dict(generated_on="2026-09-20", ranking_run="2026-09-19")
+    document = render_sheet_html("Event", [sheet], **args)
+    tab = load_workbook(BytesIO(build_seeding_workbook("Event", [sheet], **args))).active
+    assert 'style="width:90.00%"' in document
+    assert 'class="flag">Limited history' in document
+    assert tab["D7"].value == 90 and tab["G7"].value == content.rows[0].display_status
+    assert "Seeded: 8" in tab["A5"].value
+    rule = tab.conditional_formatting[next(iter(tab.conditional_formatting))][0]
+    assert [(x.type, x.val) for x in rule.dataBar.cfvo] == [("num", 0), ("num", 100)]
+    assert tab["A7"].border.bottom.style == "hair"
+    # A director sorting the whole table keeps seed, status and marker together.
+    table_rows = sorted([tuple(cell.value for cell in row) for row in tab.iter_rows(min_row=7, max_row=14)],
+                        key=lambda row: row[1], reverse=True)
+    marked = next(row for row in table_rows if row[0] == 4)
+    assert marked[5] == content.rows[3].observation

@@ -24,7 +24,7 @@ from src.tournaments.seeding_tiers import (
 )
 
 PACK_SCHEMA_VERSION = 3
-ANALYSIS_SCHEMA_VERSION = 2
+ANALYSIS_SCHEMA_VERSION = 3
 _AGE_GROUP = re.compile(r"^u[1-9][0-9]?$")
 _LEGACY_UNAVAILABLE_REASONS = {
     "Two roster entries resolve to the same team; verify the matches.": (
@@ -342,6 +342,7 @@ def analyze_pack(
                 team_name=row.registered_name,
                 power_score=_published_score(evidence),
                 review_reason=review_reason,
+                limited_history=evidence.get("status") == "Not Enough Ranked Games",
             ))
         # Legacy manual tiers remain in the pack for reference, but they no
         # longer drive the customer-facing cheat sheet or imply a format.
@@ -376,7 +377,7 @@ def upgrade_pack_analysis(
     The caller publishes this independent copy only after export validation succeeds.
     Older prediction/roster contracts still require a fresh build.
     """
-    if pack.get("schema_version") != PACK_SCHEMA_VERSION or pack.get("analysis_schema_version") != 1:
+    if pack.get("schema_version") != PACK_SCHEMA_VERSION or pack.get("analysis_schema_version") not in (1, 2):
         raise ValueError("This saved pack requires a fresh build.")
     if pack.get("predictor_sha256") != predictor_sha256:
         raise ValueError("The predictor has changed; build seeding sheets to refresh predictions.")
@@ -386,6 +387,24 @@ def upgrade_pack_analysis(
         raise ValueError("The roster or cohort selection changed; build seeding sheets.")
     analyze_pack(candidate, rows, resolved, overrides)
     return candidate
+
+
+def placement_review_fingerprint(pack: dict[str, Any], key: str, analysis: CheatSheetAnalysis) -> str:
+    """Bind an operator's review to the evidence, seed order, and delivery notes."""
+    payload = {
+        "version": ANALYSIS_SCHEMA_VERSION, "roster": pack["roster_fingerprint"],
+        "predictor": pack["predictor_sha256"], "teams": pack["teams"][key],
+        "predictions": pack["predictions"][key], "analysis": asdict(analysis),
+        "notes": pack.get("operator_notes", {}).get(key, ""),
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, allow_nan=False).encode()).hexdigest()
+
+
+def needs_placement_review(pack: dict[str, Any], key: str, analysis: CheatSheetAnalysis) -> bool:
+    if not analysis.limited_history and not analysis.placement_checks:
+        return False
+    reviews = pack.get("placement_reviews", {})
+    return not isinstance(reviews, dict) or reviews.get(key) != placement_review_fingerprint(pack, key, analysis)
 
 
 def snapshot_ratings(pack: dict[str, Any], identities: Mapping[str, str | None]) -> dict[str, dict[str, Any]]:

@@ -10,11 +10,13 @@ from typing import TYPE_CHECKING, Mapping, Sequence
 if TYPE_CHECKING:
     from src.tournaments.seeding_sheet import CohortSheet, SheetTeam
 
-CONTENT_VERSION = 2
+CONTENT_VERSION = 3
 DIRECTOR_LEGEND = (
-    "Teams are listed in published PitchRank order. Strength markers identify supported "
-    "competitive gaps; they do not assign divisions or pools."
+    "Start with the numbered seed order. Higher PowerScores indicate greater published strength; "
+    "bars use the same 0–100 scale. Score steps highlight larger differences supported by nearby "
+    "matchups; they do not assign divisions or pools."
 )
+LIMITED_HISTORY_LEGEND = "Fewer ranked games support this score. Keep it as a starting point for placement."
 
 
 @dataclass(frozen=True)
@@ -28,6 +30,14 @@ class DirectorRow:
     @property
     def score(self) -> float | None:
         return self.team.power_score * 100 if self.team.power_score is not None else None
+
+    @property
+    def evidence_note(self) -> str:
+        return "Limited history" if self.seed is not None and self.team.status == "Not Enough Ranked Games" else ""
+
+    @property
+    def display_status(self) -> str:
+        return " · ".join(value for value in (self.placement_status, self.evidence_note) if value)
 
     @property
     def state_rank(self) -> str:
@@ -95,9 +105,7 @@ def build_director_cohort(sheet: CohortSheet, operator_note: str = "") -> Direct
         unseeded = tuple(team for team in teams if team.entrant_id not in ordered_set)
         statuses = getattr(analysis, "placement_status", {})
         breaks = {item.after_seed for item in getattr(analysis, "breaks", ())}
-        markers = {
-            seed: f"Strength gap between seeds {seed} and {seed + 1}." for seed in breaks
-        }
+        markers = {seed: analysis.marker_for_seed(seed) for seed in breaks}
     rows = [DirectorRow(seed, team, markers.get(seed, ""), "Seeded", seed in breaks)
             for seed, team in enumerate(seeded, 1)]
     for team in unseeded:

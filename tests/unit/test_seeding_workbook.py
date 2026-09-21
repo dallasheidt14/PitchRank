@@ -17,7 +17,8 @@ def _prediction(margin: float, blowout: float = 0.1) -> ComparePrediction:
 @pytest.mark.parametrize("offset", [0.0, 1e-15, -1e-15])
 def test_cheat_sheet_requires_all_available_windows_for_a_break(offset):
     ids = ["a", "b", "c", "d", "e", "f", "g", "h"]
-    entrants = [TierEntrant(value, value, 1 - index * 0.05 + offset) for index, value in enumerate(ids)]
+    entrants = [TierEntrant(value, value, 1 - index * 0.05 - (.2 if index >= 4 else 0) + offset)
+                for index, value in enumerate(ids)]
     predictions = {
         (first, second): _prediction(3 if ids.index(first) < 4 <= ids.index(second) else 0.1, 0.6)
         for first, second in combinations(ids, 2)

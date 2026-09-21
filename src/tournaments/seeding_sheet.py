@@ -31,7 +31,7 @@ from typing import TYPE_CHECKING, Any
 
 from src.tournaments.roster_paste import RosterRow
 from src.tournaments.roster_resolver import ResolvedTeam
-from src.tournaments.seeding_content import DIRECTOR_LEGEND, build_director_cohort
+from src.tournaments.seeding_content import DIRECTOR_LEGEND, LIMITED_HISTORY_LEGEND, build_director_cohort
 
 if TYPE_CHECKING:
     from src.tournaments.seeding_tiers import CheatSheetAnalysis, TierPolicy
@@ -301,7 +301,7 @@ def _score(value: float | None) -> str:
 
 def _status_label(status: str | None) -> str:
     return {
-        "Not Enough Ranked Games": "",
+        "Not Enough Ranked Games": "Limited history",
         "Inactive": "No current ranking",
     }.get(str(status or "").strip(), str(status or "").strip())
 
@@ -337,7 +337,7 @@ def _rows_html(
 ) -> str:
     cells = []
     for position, team in enumerate(teams, start=start):
-        status = _status_label(team.status)
+        status = _status_label(team.status) if numbered else ""
         flag = (
             f'<span class="flag">{html.escape(status)}</span>'
             if status and status != "Active" else ""
@@ -363,12 +363,17 @@ def _rows_html(
         if team.listed_division:
             flight_context += f'<span class="flight">Listed: {html.escape(team.listed_division)}</span>'
         row_class = ' class="strength-break"' if team.entrant_id in strength_break_ids else ""
+        score_bar = (
+            '<span class="score-track" aria-hidden="true">'
+            f'<span style="width:{team.power_score * 100:.2f}%"></span></span>'
+            if numbered and team.power_score is not None else ""
+        )
         cells.append(
             f'<tr data-entrant="{html.escape(team.entrant_id, quote=True)}"{row_class}>'
             f'<td class="pos">{position if numbered else "-"}</td>'
             f'<td class="team">{html.escape(team.team_name)}{play_up}{flag}{pitchrank_name}'
             f'<span class="club">{html.escape(team.club_name)}</span></td>'
-            f'<td class="num score">{_score(team.power_score)}{flight_context}</td>'
+            f'<td class="num score">{_score(team.power_score)}{score_bar}{flight_context}</td>'
             f'<td class="num state">{html.escape(_state_rank(team))}</td>'
             f'<td class="{note_class}">{html.escape(note)}</td></tr>'
         )
@@ -537,7 +542,8 @@ def _sheet_html(
 ) -> str:
     cohort = f"{_display_gender(sheet.gender)} {sheet.age_group.upper()}"
     tables, summary = _cheat_sheet_tables(sheet)
-    guidance = build_director_cohort(sheet, operator_note).notes
+    content = build_director_cohort(sheet, operator_note)
+    guidance = content.notes
     notes = ""
     if guidance:
         items = "".join(f"<li>{html.escape(value)}</li>" for value in dict.fromkeys(guidance))
@@ -547,14 +553,16 @@ def _sheet_html(
         + "PitchRank score already adjusts for age, so a younger team playing up can be compared here. "
         "State rank is that team's rank within its own PitchRank age and gender group."
     )
+    if any(row.evidence_note for row in content.seeded):
+        explanation += " Limited history: " + LIMITED_HISTORY_LEGEND
     guide = f"""<section class="seed-guide">
   <div class="recommendation">{html.escape(summary)}</div>
   <p class="method">{html.escape(explanation)}</p>
   <div class="guide-grid">
    <div class="guide-step"><strong>Seed order</strong>
     <span>Start with the published order, then use tournament judgement for final placement.</span></div>
-   <div class="guide-step"><strong>Strength breaks</strong>
-    <span>A marker identifies a meaningful difference between neighboring seeds.</span></div>
+   <div class="guide-step"><strong>Limited history</strong>
+    <span>{html.escape(LIMITED_HISTORY_LEGEND)}</span></div>
   </div>
  </section>"""
     return f"""<section class="sheet">
@@ -665,6 +673,8 @@ def render_sheet_html(
  .num {{ text-align: center; font-variant-numeric: tabular-nums; }}
  .columns th.num, .columns th.pos {{ text-align: center; }}
  .score {{ white-space: nowrap; font-weight: 700; }}
+ .score-track {{ display: block; height: 4px; background: #D8E0DD; margin-top: 5px; }}
+ .score-track span {{ display: block; height: 100%; background: {BRAND["forest"]}; }}
  .flight {{ display: block; white-space: normal; margin-top: 2px; font-size: 8px; line-height: 1.25; font-weight: 400;
  color: {BRAND["muted"]}; }}
  .state, .placement {{ font-size: 9.5px; }}

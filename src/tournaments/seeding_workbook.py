@@ -6,11 +6,12 @@ from io import BytesIO
 from typing import Mapping, Sequence
 
 from openpyxl import Workbook, load_workbook
+from openpyxl.formatting.rule import DataBarRule
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
-from src.tournaments.seeding_content import DIRECTOR_LEGEND, build_director_cohort
+from src.tournaments.seeding_content import DIRECTOR_LEGEND, LIMITED_HISTORY_LEGEND, build_director_cohort
 from src.tournaments.seeding_pack import cohort_key, cohort_label
 from src.tournaments.seeding_sheet import CohortSheet
 
@@ -84,6 +85,9 @@ def build_seeding_workbook(
             cohort, (operator_notes or {}).get((cohort.age_group, cohort.gender), ""),
         )
         team_rows = content.rows
+        if any(row.evidence_note for row in content.seeded):
+            sheet["A3"] = DIRECTOR_LEGEND + " Limited history: " + LIMITED_HISTORY_LEGEND
+            sheet.row_dimensions[3].height = 42
         sheet.merge_cells("A5:K5")
         sheet["A5"] = " · ".join(
             f"{label}: {sum(row.placement_status == label for row in team_rows)}"
@@ -104,7 +108,7 @@ def build_seeding_workbook(
             team, marker = row.team, row.observation
             values = [
                 row.seed, "\n".join(row.name_lines), _safe_text(team.club_name), row.score,
-                row.state_rank, _safe_text(marker), _safe_text(row.placement_status), "", "", "", "",
+                row.state_rank, _safe_text(marker), _safe_text(row.display_status), "", "", "", "",
             ]
             for column, value in enumerate(values, 1):
                 cell = sheet.cell(row_index, column, value)
@@ -112,7 +116,8 @@ def build_seeding_workbook(
                     _set_text(cell, value)
                 cell.alignment = Alignment(vertical="top", wrap_text=column in {2, 3, 6, 7, 8, 9, 11})
                 cell.border = Border(bottom=Side(
-                    style="medium" if marker else "hair", color=FOREST if marker else RULE,
+                    style="medium" if row.strength_break_after else "hair",
+                    color=FOREST if row.strength_break_after else RULE,
                 ))
                 if column in {8, 9, 10, 11}:
                     cell.fill = PatternFill("solid", fgColor="FFF9DB")
@@ -129,6 +134,11 @@ def build_seeding_workbook(
                 for value, width in ((values[1], 30), (values[2], 22), (values[5], 18), (values[6], 22))
             )
         end_row = max(6, 6 + len(team_rows))
+        if content.seeded:
+            sheet.conditional_formatting.add(f"D7:D{6 + len(content.seeded)}", DataBarRule(
+                start_type="num", start_value=0, end_type="num", end_value=100,
+                color="B8D6CC", showValue=True,
+            ))
         if end_row >= 7:
             table = Table(displayName=f"Cohort{sheet_number}", ref=f"A6:K{end_row}")
             table.tableStyleInfo = TableStyleInfo(

@@ -150,7 +150,8 @@ def test_provisional_score_status_is_not_shown_as_a_customer_warning():
     assert "Not yet ranked" not in document
     assert "Not Enough Ranked Games" not in document
     assert "Unranked Teams" not in document
-    assert ">30.0</td>" in document
+    assert ">30.0<span class=\"score-track\"" in document
+    assert "Limited history" in document
 
 
 def test_an_override_supplies_the_team_id_used_for_the_rating():
@@ -484,11 +485,11 @@ def test_stale_or_duplicate_analysis_cannot_produce_a_misleading_sheet(analysis)
 
 def test_customer_pdf_prioritizes_seeding_actions_over_model_jargon():
     document = _render_tier(policy=TierPolicy(1.5, 0.2))
-    assert ">53.5</td>" in document
+    assert ">53.5<span class=\"score-track\"" in document
     assert ">0.535</td>" not in document
-    assert "Teams are listed in published PitchRank order. Strength markers identify supported competitive gaps; they do not assign divisions or pools." in document
+    assert "they do not assign divisions or pools." in document
     assert "Seed order" in document
-    assert "Strength breaks" in document
+    assert "Score steps" in document
     assert "Close ranges" not in document
     assert "Suggested seed" in document
     assert "PitchRank score" in document
@@ -538,7 +539,7 @@ def test_multiple_boundary_options_use_an_or_list():
     document = _render_tier(analysis)
 
     assert "Boundary options" not in document
-    assert "Teams are listed in published PitchRank order. Strength markers identify supported competitive gaps; they do not assign divisions or pools." in document
+    assert "they do not assign divisions or pools." in document
 
 
 def test_customer_pdf_translates_system_diagnostics_into_seeding_actions():
@@ -577,7 +578,7 @@ def test_customer_pdf_does_not_recommend_a_missing_boundary_option():
 
     document = _render_tier(analysis)
 
-    assert "Teams are listed in published PitchRank order. Strength markers identify supported competitive gaps; they do not assign divisions or pools." in document
+    assert "they do not assign divisions or pools." in document
     assert "use the team marked Boundary option" not in document
 
 
@@ -592,7 +593,7 @@ def test_customer_pdf_explains_a_ranking_matchup_order_conflict_plainly():
 
     document = _render_tier(analysis)
 
-    assert "Teams are listed in published PitchRank order. Strength markers identify supported competitive gaps; they do not assign divisions or pools." in document
+    assert "they do not assign divisions or pools." in document
     assert "Ranking/matchup order conflict" not in document
     assert "use the team marked Boundary option" not in document
 
