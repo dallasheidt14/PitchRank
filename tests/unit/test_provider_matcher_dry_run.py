@@ -20,6 +20,7 @@ sys.path.append(str(Path(__file__).resolve().parents[2]))
 from src.etl import enhanced_pipeline
 from src.models.affinity_or_matcher import AffinityORGameMatcher
 from src.models.affinity_wa_matcher import AffinityWAGameMatcher
+from src.models.athletes2events_matcher import Athletes2EventsGameMatcher
 from src.models.modular11_matcher import Modular11GameMatcher
 from src.models.playmetrics_matcher import PlayMetricsGameMatcher
 from src.models.sincsports_matcher import SincSportsGameMatcher
@@ -34,6 +35,7 @@ AUTOCREATING_MATCHERS = [
     ("playmetrics", PlayMetricsGameMatcher),
     ("modular11", Modular11GameMatcher),
     ("soccereventsgroup", SoccerEventsGroupGameMatcher),
+    ("athletes2events", Athletes2EventsGameMatcher),
 ]
 
 
@@ -73,6 +75,7 @@ def test_pipeline_passes_dry_run_to_every_autocreating_matcher(provider):
         ("sincsports", SincSportsGameMatcher, "_create_new_sincsports_team"),
         ("affinity_wa", AffinityWAGameMatcher, "_create_new_affinity_wa_team"),
         ("soccereventsgroup", SoccerEventsGroupGameMatcher, "_create_new_soccereventsgroup_team"),
+        ("athletes2events", Athletes2EventsGameMatcher, "_create_new_athletes2events_team"),
     ],
 )
 def test_autocreate_writes_nothing_in_dry_run(provider, cls, create):
@@ -126,10 +129,20 @@ class _EmptyDB:
         return _Query(name, self.inserts)
 
 
+# The two per-event tournament providers create a team only from their roster pass,
+# and only for a team carrying a state. Without both, _match_team returns before any
+# creation and every identity assertion below holds vacuously on None.
+REGISTRATION_MATCHERS = frozenset({"soccereventsgroup", "athletes2events"})
+
+
 def _match_thrice(cls, provider, db):
-    matcher = cls(db, provider_id=provider, dry_run=True)
+    registering = provider in REGISTRATION_MATCHERS
+    matcher = cls(db, provider_id=provider, dry_run=True, **({"registration_mode": True} if registering else {}))
+    extra = {"state_code": "WA"} if registering else {}
     return [
-        (matcher._match_team(provider, "999001", "Some Unseen Team", "u14", "Female", "Some Club") or {}).get("team_id")
+        (
+            matcher._match_team(provider, "999001", "Some Unseen Team", "u14", "Female", "Some Club", **extra) or {}
+        ).get("team_id")
         for _ in range(3)
     ]
 

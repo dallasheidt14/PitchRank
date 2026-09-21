@@ -371,7 +371,7 @@ import, so a process running across Aug 1 keeps last season's map until restart.
 | Affinity WA | `affinity_wa` | HTML scraping | Washington RCL + state leagues |
 | Affinity OR | `affinity_or` | HTML scraping | Oregon (OYSA) leagues, keeps unplayed fixtures |
 | Soccer Events Group | `soccereventsgroup` | JSON API + bracket HTML | Tournament brackets only (pool play is unpublished); operator-run per event via `scripts/import_soccereventsgroup_event.py` |
-| Athletes2Events | `athletes2events` | HTML scraping | White-label tournament sites, one subdomain per host club; no driver script yet — the `scraper-patterns` skill records the pages and parsing rules |
+| Athletes2Events | `athletes2events` | HTML scraping | White-label tournament sites, one subdomain per host club; operator-run per event via `scripts/import_athletes2events_event.py`, which takes the event URL and reads the host from it |
 
 #### TGS U-age divisions are only resolvable from 2026-08-01
 
@@ -413,7 +413,7 @@ When planning a new provider, audit what per-team metadata the source exposes (s
 - If state is only on a per-team detail page (not on the index/flight pages), a two-pass scrape (flights → unique team enrichment) is acceptable when the team count is bounded (~hundreds, not tens of thousands).
 - Default to auto-create with full metadata (mirrors SincSports/Affinity-WA/PlayMetrics matchers). Strict review-queue-only is only appropriate when meaningful canonical fields cannot be sourced.
 - The matcher subclass writes the alias in its overridden `_match_team` via `self._create_alias(...)`, NOT in the `_create_new_<provider>_team` helper. See `src/models/sincsports_matcher.py:549-640` for the canonical pattern.
-- `scripts/import_games_enhanced.py` builds each game from a column whitelist, once per loader (`stream_games_csv` and `load_games_csv`). A column your scraper writes reaches the matcher only if both whitelists name it; anything else is dropped silently, and a dry run reports success either way. `state_code` was written by the PlayMetrics scraper and discarded by both loaders for months.
+- `scripts/import_games_enhanced.py` builds each game from a column whitelist, once per loader (`stream_games_csv` at `:83-110` and `load_games_csv` at `:153-180`). A column your scraper writes reaches the matcher only if both whitelists name it; anything else is dropped silently, and a dry run reports success either way. `state_code` was written by the PlayMetrics scraper and discarded by both loaders for months; **both admit it now** (`:96` and `:166`), so check the current lists rather than trusting this paragraph. The columns still dropped by both, which the Soccer Events Group and Affinity-WA drivers nonetheless write, are `scrape_run_id`, `event_id`, `age_year` and `game_time`.
 
 ---
 
@@ -672,14 +672,19 @@ comment elsewhere in the tree may still point at one of them (`scrape_tgs_event.
 
 **Three provider imports still stamp a state on team creation, on a schedule**, which is a
 different thing from a backfill and is not covered by the above: `wa-scraper.yml` runs the
-Affinity WA matcher, which hardcodes `"WA"` (`src/models/affinity_wa_matcher.py:390`),
-`or-scraper.yml` runs the Affinity OR matcher, which hardcodes `"OR"`
-(`src/models/affinity_or_matcher.py:506`, in `_create_new_affinity_or_team`), and
+Affinity WA matcher, which hardcodes `"WA"` (`src/models/affinity_wa_matcher.py:26`, written at
+`:390`), `or-scraper.yml` runs the Affinity OR matcher, and
 `playmetrics-scrape-import.yml` runs the PlayMetrics matcher, which writes the CSV row's
 `state_code` — a per-league constant the scraper derives from the governing body
 (`src/models/playmetrics_matcher.py`, in `_create_new_playmetrics_team`). None sets `state_source`.
 An audit of "what writes state" has to count these; the backlog entry on constant-state
 provenance tracks the fix.
+
+**Affinity OR is no longer a hardcode, and this file used to say it was.** `STATE_CODE = "OR"`
+(`src/models/affinity_or_matcher.py:41`) is now only a fallback: `_create_new_affinity_or_team`
+calls `_state_for_new_team(club_name)` (`:139`) at `:529`, which resolves the state from the club's
+existing rows and falls back to OR only when unanimous evidence is absent. `:506`, which this file
+previously cited as the write, is inside the existing-team lookup. Verified 2026-09-19.
 
 ### `AGE_ROLLOVER_FREEZE` (currently LIFTED)
 

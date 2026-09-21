@@ -21,7 +21,7 @@ from src.etl.bulk_ops import (  # noqa: E402
     bulk_update_last_scraped_at,
     call_rpc_with_fallback,
 )
-from src.models.game_matcher import GameHistoryMatcher  # noqa: E402
+from src.models.game_matcher import REMATCH_PROVIDERS, GameHistoryMatcher  # noqa: E402
 from src.utils.enhanced_validators import EnhancedDataValidator, parse_game_date  # noqa: E402
 from src.utils.provider_ids import clean_provider_id, is_blank_provider_id  # noqa: E402
 from supabase import Client, create_client  # noqa: E402
@@ -90,6 +90,25 @@ class ImportMetrics:
             "scores_backfilled": self.scores_backfilled,
             "scores_backfill_failed": self.scores_backfill_failed,
         }
+
+
+
+def rematch_game_uid(provider_code: str, master_game_uid: str, matched_game: dict) -> str:
+    """Re-append the schedule_id suffix the master-id regeneration would strip.
+
+    Bracket play puts the same two teams on the pitch twice in a day, and these
+    providers give every match its own schedule_id. Without the suffix both games
+    regenerate onto one uid and the unique index drops the second result.
+
+    The suffix is read from the row the matcher matched: ``match_game_history``
+    returns schedule_id only inside ``raw_data``, so reading its result alone
+    yields None and loses the rematch silently.
+    """
+    if not (provider_code and provider_code.lower() in REMATCH_PROVIDERS):
+        return master_game_uid
+    raw_row = matched_game.get("raw_data") or {}
+    suffix = str(matched_game.get("schedule_id") or raw_row.get("schedule_id") or "").strip()
+    return f"{master_game_uid}:{suffix}" if suffix else master_game_uid
 
 
 class EnhancedETLPipeline:
@@ -272,6 +291,17 @@ class EnhancedETLPipeline:
             # No registration_mode: only the roster pass creates SEG teams.
             logger.info("Using SoccerEventsGroupGameMatcher (alias-only; teams come from the roster pass)")
             self.matcher = SoccerEventsGroupGameMatcher(
+                self.supabase,
+                provider_id=self.provider_id,
+                alias_cache=self.alias_cache,
+                dry_run=self.dry_run,
+            )
+        elif self.provider_code.lower() == "athletes2events":
+            from src.models.athletes2events_matcher import Athletes2EventsGameMatcher
+
+            # No registration_mode: only the roster pass creates Athletes2Events teams.
+            logger.info("Using Athletes2EventsGameMatcher (alias-only; teams come from the roster pass)")
+            self.matcher = Athletes2EventsGameMatcher(
                 self.supabase,
                 provider_id=self.provider_id,
                 alias_cache=self.alias_cache,
@@ -564,17 +594,7 @@ class EnhancedETLPipeline:
                                 team1_id=home_team_id,
                                 team2_id=away_team_id,
                             )
-                            # Preserve the schedule_id suffix added in
-                            # _validate_games for tournament rematches; without
-                            # this re-append, the master-ID regen strips it and
-                            # collapses both rematches back into one game_uid.
-                            if (
-                                self.provider_code
-                                and self.provider_code.lower() == "playmetrics_tournament"
-                            ):
-                                schedule_id_suffix = (matched_game.get("schedule_id") or "").strip()
-                                if schedule_id_suffix:
-                                    master_game_uid = f"{master_game_uid}:{schedule_id_suffix}"
+                            master_game_uid = rematch_game_uid(self.provider_code, master_game_uid, matched_game)
                             old_uid = matched_game.get("game_uid", "")
                             if master_game_uid != old_uid:
                                 logger.debug(
@@ -1217,11 +1237,11 @@ class EnhancedETLPipeline:
                     f"{sorted_teams[0]}:{sorted_teams[1]}:"
                     f"{age_group_key}:{division_key}"
                 )
-            elif provider_code and provider_code.lower() == "playmetrics_tournament":
+            elif provider_code and provider_code.lower() in REMATCH_PROVIDERS:
                 # Bracket play has same teams playing twice on one day (pool +
-                # final / consolation). PM gives a unique schedule_id per match;
-                # without it in the key, rematches collapse to one. Mirror of
-                # the Modular11 branch above.
+                # final / consolation). Each provider gives a unique schedule_id
+                # per match; without it in the key, rematches collapse to one.
+                # Mirror of the Modular11 branch above.
                 schedule_id_key = (game.get("schedule_id") or "").strip()
                 if schedule_id_key:
                     game_key = (
@@ -1255,7 +1275,7 @@ class EnhancedETLPipeline:
             # Suffix the persistent game_uid with the same field that
             # disambiguates the dedup key above, so DB-side dedup matches
             # batch-side dedup.
-            if provider_code and provider_code.lower() == "playmetrics_tournament":
+            if provider_code and provider_code.lower() in REMATCH_PROVIDERS:
                 schedule_id_suffix = (game.get("schedule_id") or "").strip()
                 if schedule_id_suffix:
                     game_uid = f"{game_uid}:{schedule_id_suffix}"
