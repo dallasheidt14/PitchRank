@@ -394,6 +394,9 @@ CLUB_CANONICAL_OVERRIDES = [
     ("VA", "norm", "Churchland Soccer League", "Churchland Soccer League"),
     ("VA", "exact", "U.S. Futsal", "U.S. Futsal Club"),
     ("VA", "exact", "HYS", "Herndon Youth Soccer"),
+    ("VA", "norm", "Chesapeake United SC", "Chesapeake United SC"),
+    ("VA", "norm", "Christiansburg SC", "Christiansburg SC"),
+    ("VA", "norm", "Premier AC", "Premier AC"),
     # Held pending a decision, since each may be two clubs rather than two spellings of one.
     # None of the three pairs has ever played the other, which is consistent with one club
     # but does not establish it.
