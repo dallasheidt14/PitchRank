@@ -311,6 +311,11 @@ CLUB_CANONICAL_OVERRIDES = [
     ("TX", "exact", "Georgetown Soccer Assn (gsa)", "Georgetown Soccer Association"),
     ("TX", "exact", "Dallas Kicks SC", "DKSC"),
     ("TX", "exact", "210 Soccer", "210 FC"),
+    # 210 is San Antonio's area code, so this is the club's own name with its city
+    # appended rather than a branch: 17 of its 18 teams read "210 FC ...", on the same
+    # ECNL RL STXCL pattern and under the same coaches. No fold reaches a trailing place
+    # name, and deliberately so -- stripping one would merge real branches.
+    ("TX", "exact", "210 FC San Antonio", "210 FC"),
     ("TX", "exact", "Fever United FC", "Fever United"),
     ("TX", "exact", "Bedford-euless Soccer (besa)", "Bedford-Euless Soccer"),
     # The HUFC rows read "Hurst United SA FC Hurst United 15B", and HUSA's own teams
@@ -389,6 +394,15 @@ CLUB_CANONICAL_OVERRIDES = [
     # Both live spellings only tag the state, so the canonical drops the tag.
     ("TX", "exact", "Strikers FC (TX)", "Strikers FC"),
     ("TX", "exact", "Strikers FC( Texas)", "Strikers FC"),
+    # Read off the club list by eye. None of these shapes is reachable by any fold: a
+    # place name appended to the club's own name looks exactly like a branch, and a
+    # branch is its own club.
+    ("TX", "exact", "Cedar Stars Rush", "Cedar Stars Rush Houston"),
+    ("TX", "exact", "Centex Storm", "Centex Storm Soccer Club"),
+    # Its teams are all "Rayados", CF Monterrey's own nickname. MTY abbreviates the
+    # club's name away, so the full name is canonical even though it is the minority.
+    ("TX", "exact", "CF MTY", "CF Monterrey"),
+    ("TX", "exact", "Classic Elite STX SA", "Classics Elite SA"),
     # Left apart deliberately, each on its team names rather than on its club name:
     #   "TIGRES" is Odessa Tigres in West Texas; Tigres Soccer Academy plays STXCL.
     #   South Texas Youth Soccer Association is the governing body, not South Texas FC.
