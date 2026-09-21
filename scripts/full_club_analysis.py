@@ -399,6 +399,10 @@ CLUB_CANONICAL_OVERRIDES = [
     ("VA", "norm", "Premier AC", "Premier AC"),
     ("VA", "exact", "Prince William Courage", "Prince William Soccer Inc"),
     ("VA", "exact", "McLean Youth Soccer / VA Union FC", "McLean YS"),
+    ("VA", "exact", "Great Falls/reston SC (gfrsc)", "Great Falls Reston Soccer Club"),
+    ("VA", "exact", "Springfield South County YC (SYC)", "Springfield SYC"),
+    ("VA", "exact", "Richmond Kickers Youth Soccer Club", "Richmond Kickers YSC"),
+    ("VA", "exact", "FREDERICKSBURG SC Inc (FSCI)", "Fredericksburg FC"),
     # Held pending a decision, since each may be two clubs rather than two spellings of one.
     # None of the three pairs has ever played the other, which is consistent with one club
     # but does not establish it.
