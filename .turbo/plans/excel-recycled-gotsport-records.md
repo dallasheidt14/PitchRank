@@ -53,6 +53,12 @@ Nothing below should run while that is in flight.
 - A u19 row for the **2009 squad**, no provider alias (GotSport no longer serves it).
 - A u16 row for the **U16 squad**, which takes over alias 496639 in `team_alias_map`.
 
+`teams_provider_id_provider_team_id_key` is UNIQUE on `(provider_id, provider_team_id)` and
+covers deprecated rows, as is the matching index on `team_alias_map`. So 496639 cannot be
+inserted onto the new row while `ddb476c7…` still holds it: release it there first, then set it
+on the new row, then repoint the `team_alias_map` row. Insert-then-fix will fail on the
+constraint.
+
 Neither is a merge candidate against an existing Excel row: `Excel Soccer Academy U16 Black`
 (760162) and `Excel Soccer Academy 2011 Black` (380969) are different squads, and 380969 is a
 boys record GotSport now serves as `Excel Soccer Academy U14 Black`.
@@ -61,12 +67,17 @@ boys record GotSport now serves as `Excel Soccer Academy U14 Black`.
 
 Run `scripts/reassign_games_between_teams.py` once per block, dry run first:
 
-| From | To | Window | Games |
-|---|---|---|---|
-| `ddb476c7…` (496639) | `cc2800e4…` (U17) | `--before 2026-08-01` | 20 |
-| `e48170eb…` (121236) | `cc2800e4…` (U17) | `--before 2026-08-01` | 3 |
-| `cc2800e4…` (496638) | new u19 row | `--before 2026-08-01` | 16 |
-| `ddb476c7…` (496639) | new u16 row | `--since 2026-08-01` | 11 |
+| From | To | Window | Games | State |
+|---|---|---|---|---|
+| `ddb476c7…` (496639) | `cc2800e4…` (U17) | `--before 2026-08-01` | 20 | pending |
+| `e48170eb…` (121236) | `cc2800e4…` (U17) | `--before 2026-08-01` | 3 | **applied 2026-09-21** |
+| `cc2800e4…` (496638) | new u19 row | `--before 2026-08-01` | 16 | blocked on step 2 |
+| `ddb476c7…` (496639) | new u16 row | `--since 2026-08-01` | 11 | blocked on step 2 |
+
+A game's team cannot be changed by an UPDATE: `enforce_game_immutability` admits a team change
+only as a clear or a fill, never a swap. The script therefore moves each side through
+`unlink_game_team` then `link_game_team`, which leaves the side NULL in between — so a run that
+dies mid-block leaves a game half-attached, and rerunning the same block finishes it.
 
 `cc2800e4…` then holds the U17 squad continuously from 2024-11 to now, on the alias GotSport
 still serves it under.
