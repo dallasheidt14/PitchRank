@@ -161,8 +161,17 @@ def test_main_review_shows_scores_without_internal_ids_or_close_labels(operator)
     assert "PDF and Excel" in app.text_area[0].label
 
 
-def test_placement_review_stays_internal_and_resets_when_director_notes_change(operator):
+def test_placement_review_stays_internal_and_resets_when_director_notes_change(operator, monkeypatch):
     app, calls = operator
+    exported = []
+    original_csv = ui.team_csv
+
+    def capture_csv(*args, **kwargs):
+        data = original_csv(*args, **kwargs)
+        exported.append(data.decode("utf-8-sig"))
+        return data
+
+    monkeypatch.setattr(ui, "team_csv", capture_csv)
     click(app, "Build seeding sheets")
     pack = app.session_state["_seeding_pack"]
     pack["teams"]["u14|Male"]["0"]["status"] = "Not Enough Ranked Games"
@@ -174,14 +183,18 @@ def test_placement_review_stays_internal_and_resets_when_director_notes_change(o
     assert "DRAFT" in app.session_state["_seeding_sheet_html"]
     assert "Limited history" in app.session_state["_seeding_sheet_html"]
     assert "Placement checks" not in app.session_state["_seeding_sheet_html"]
+    assert "Draft — review needed" in exported[-1]
+    assert "roster review needed" not in exported[-1]
     click(app, "Mark placement review complete")
     assert "DRAFT" not in app.session_state["_seeding_sheet_html"]
+    assert "Draft" not in exported[-1]
     reviewed = deepcopy(app.session_state["_seeding_pack"])
     click(app, "Generate PDF pack")
     app.text_area[0].set_value("Reviewed with the club.")
     click(app, "Save director notes")
     assert "_seeding_pdf" not in app.session_state
     assert "DRAFT" in app.session_state["_seeding_sheet_html"]
+    assert "Draft — review needed" in exported[-1]
     assert any(button.label == "Mark placement review complete" for button in app.button)
     assert app.session_state["_seeding_pack"]["placement_reviews"] == reviewed["placement_reviews"]
     assert len(calls) == 1

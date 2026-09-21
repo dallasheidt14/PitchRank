@@ -66,7 +66,7 @@ def team_csv(rows, resolved, overrides, *, draft: bool = False) -> bytes:
             match_method,
             identities.get(str(row.source_index)) or "", row.listed_division, row.requested_flight,
             notes,
-            "Draft — roster review needed" if draft else "",
+            "Draft — review needed" if draft else "",
         ]])
     return stream.getvalue().encode("utf-8-sig")
 
