@@ -403,6 +403,11 @@ CLUB_CANONICAL_OVERRIDES = [
     # club's name away, so the full name is canonical even though it is the minority.
     ("TX", "exact", "CF MTY", "CF Monterrey"),
     ("TX", "exact", "Classic Elite STX SA", "Classics Elite SA"),
+    # A partner brand in the name, the shape North Carolina met as "Fayetteville SC /
+    # Villarreal Force Academy". Coppell's coaches field teams under both spellings, and
+    # Crosby Youth Soccer already fields a "Crosby United FC" team of its own.
+    ("TX", "exact", "Coppell Youth SA / Coppell FC", "Coppell FC"),
+    ("TX", "exact", "Crosby Youth SC / Crosby United FC", "Crosby Youth Soccer"),
     # Left apart deliberately, each on its team names rather than on its club name:
     #   "TIGRES" is Odessa Tigres in West Texas; Tigres Soccer Academy plays STXCL.
     #   South Texas Youth Soccer Association is the governing body, not South Texas FC.
