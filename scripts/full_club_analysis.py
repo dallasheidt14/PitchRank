@@ -2584,7 +2584,6 @@ CLUB_CANONICAL_OVERRIDES = [
     ("CA", "norm", "Los Angeles Soccer Club", "Los Angeles Soccer Club"),
     ("CA", "exact", "Legends FC SD (dmcv)", "Legends FC SD"),
     ("CA", "exact", "Legends FC - Santa Clarita Valley", "Legends FC Santa Clarita"),
-    ("CA", "exact", "Legends FC - San Gabriel Valley", "Legends FC (CA)"),
     ("CA", "exact", "Legends SC", "Legends SC Sacramento"),
     ("CA", "norm", "Laguna United FC", "Laguna United FC"),
     ("CA", "exact", "West Coast Futbol Club (WCFC)", "West Coast FC"),
@@ -2815,14 +2814,11 @@ CLUB_CANONICAL_OVERRIDES = [
     ("CA", "exact", "North State Soccer-KAOS / Misfits", "North State Soccer"),
     # "Teen Rec" is a programme label: 14 of its 15 teams read "Clovis Crossfire ...".
     ("CA", "exact", "Teen Rec", "Clovis Crossfire"),
-    ("CA", "exact", "Encinitas Express Soccer Club", "Express Soccer"),
     ("CA", "exact", "Ebbetts Pass Gold FC", "Ebbetts Pass FC"),
     ("CA", "exact", "FCGS Force", "FC Golden State"),
-    ("CA", "exact", "FC Golden State Orange County", "FC Golden State"),
     # Eight of its nine teams read "West Coast FC ECNL ...".
     ("CA", "exact", "Orange County Surf", "West Coast FC"),
     ("CA", "exact", "Progressive Soccer Ozzy - PSO", "Progressive Soccer Ozzy"),
-    ("CA", "exact", "ROSS Valley Breakers FC West Marin", "Ross Valley Breakers FC"),
     ("CA", "exact", "SF Seals SC", "San Francisco Seals"),
     ("CA", "exact", "Tulare Youth Soccer", "Tulare Force"),
     ("CA", "exact", "Whittier Area YS (WAYS)", "Whittier Area Youth Soccer"),
@@ -2844,6 +2840,25 @@ CLUB_CANONICAL_OVERRIDES = [
     # case variant exists, and every one of the 17 teams reads "La Esperanza".
     ("CA", "exact", "Club Deportivo LA Esperanza", "Club Deportivo La Esperanza"),
     ("CA", "exact", "La Esperanza", "Club Deportivo La Esperanza"),
+    # Four folds were applied here on 2026-09-22 and reverted the same day, after a
+    # reviewer caught the first: "FC Golden State Orange County", "Legends FC - San
+    # Gabriel Valley", "ROSS Valley Breakers FC West Marin" and "Encinitas Express
+    # Soccer Club". Each adds a PLACE to a name the canonical does not carry, and
+    # SincSports gives each its own club id -- CA708, CA299, CA615 and CA025, beside
+    # CA278 for the plain "Legends FC" and CA276, CA401 and CA842 for its other
+    # branches. A branch is its own club, so collapsing one makes unrelated teams
+    # share a club name and become duplicate-match candidates, and the next import
+    # loses the provider's branch identity again.
+    # The reasoning that produced them was that most of their teams read the parent's
+    # name -- which is exactly what a branch's teams look like when the provider
+    # prefixes the parent. That is the OPPOSITE of the crosscheck shape, where a
+    # club's teams name a DIFFERENT club. Before folding a place-qualified name,
+    # check the provider's own club list, not only the team names.
+    # "FCGS Force" is the contrast and stays folded, though SincSports lists it too
+    # (CA605): "Force" is a programme label rather than a place, and 50 of the 121
+    # rows already under FC Golden State read it -- "FC Golden State Force U18 AD",
+    # "FC Golden State - FCGS Force MLS Next 2009". Two values whose teams interleave
+    # are one club; a branch's rows never carry the other branch's place.
     # Left apart deliberately, each on its team names rather than on its club name:
     #   Legends FC (SJ) writes "Legends FC SJ" and Legends SC Sacramento "Legends SC
     #     Sacramento"; Legends Futbol Academy and Legends FC SD name themselves too.

@@ -10,14 +10,18 @@ Branch `club-names-ca-ny-pa-nj`, three commits off `origin/main` at `c37640e4a`
 (which carried the previous round in as #1203).
 
 **Every US state now has a deliberate pass.** California, New York, Pennsylvania and
-the New Jersey remainder are done; 2,859 teams moved across 361 new rules.
+the New Jersey remainder are done; 2,924 teams consolidated across 366 new rules, plus
+326 more moved by the two branch splits the owner approved separately.
 
 | state | teams consolidated | rules | groups before | groups left |
 |---|---|---|---|---|
-| California | 1,812 | 241 | 206 | 35 |
-| Pennsylvania | 636 | 62 | 54 | 5 |
+| California | 1,795 | 239 | 206 | 35 |
+| Pennsylvania | 636 | 68 | 54 | 5 |
 | New York | 306 | 43 | 42 | 8 |
-| New Jersey | 105 | 15 | 15 | 5 |
+| New Jersey | 187 | 16 | 15 | 4 |
+
+The California figure is net of 30 teams restored when four folds turned out to collapse
+a provider branch; see below.
 
 Every batch was read back from the database after its write and every state re-scanned.
 Each group that remains is a refusal or an open question commented in place inside
@@ -179,6 +183,38 @@ reading as open.
    treated it as safe and all four stateless `WSA` rows — two of them Westfield's — were
    due to be stamped Westminster. Two canonicals now make the pattern ambiguous, so none
    is touched.
+
+## The mistake this round made, and the rule that stops it
+
+**Four folds collapsed a branch into its parent**, and a reviewer caught the first:
+`FC Golden State Orange County`, `Legends FC - San Gabriel Valley`,
+`ROSS Valley Breakers FC West Marin` and `Encinitas Express Soccer Club`. All four are
+reverted; 30 teams restored from `data/exports/ca_branch_collapse_undo.csv`.
+
+The reasoning that produced them was that most of each club's teams read the *parent's*
+name — `FC Golden State Orange County` fields teams called "FC Golden State B2015 EA".
+That is exactly what a branch's teams look like when the provider prefixes the parent,
+and it is the **opposite** of the crosscheck shape, where a club's teams name a
+*different* club. Reading them as the same shape is what went wrong.
+
+**The evidence that settles it is the provider's own club list.** SincSports gives each
+of the four its own club id — CA708, CA299, CA615, CA025 — beside CA278 for the plain
+`Legends FC` and CA276, CA401 and CA842 for its other branches. Before folding a name
+that adds a place to its canonical, read
+`tests/fixtures/sincsports_clubs/results_ca_u14_boys.html`, not only the team names.
+
+`FCGS Force` is the contrast and stays folded, though the provider lists it too (CA605):
+"Force" is a programme label rather than a place, and 50 of the 121 rows already under
+FC Golden State read it. **Two values whose teams interleave are one club; a branch's
+rows never carry the other branch's place.**
+
+`tests/unit/test_club_overrides_keep_provider_branches.py` pins the four. It is an
+explicit regression guard, not a detector, and says so: a derived version was tried and
+abandoned, because telling a branch from a provider duplicate needs a classifier —
+`Revolution FC (East County)` and `East County Revolution FC` are one club listed twice,
+`SF Seals SC` and `San Francisco Seals` differ by an acronym, and `Orchard Valley SC` is
+what the "OV" in `OV Toros FC` stands for. Every narrowing pulled in a new false
+positive.
 
 ## Next step
 
