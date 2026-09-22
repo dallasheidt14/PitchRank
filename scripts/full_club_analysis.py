@@ -1447,6 +1447,97 @@ CLUB_CANONICAL_OVERRIDES = [
     # "FC Milwaukee Torrent" against "FC Milwaukee Torrent Wales Soccer" is the
     # partner-brand shape. "Georgia Storm Lake Country United FC" sits here too and is
     # already on Georgia's open list.
+    # Oklahoma
+    ("OK", "exact", "West Side Alliance (WSA)", "West Side Alliance SC"),
+    ("OK", "norm", "Oklahoma Energy FC", "Oklahoma Energy FC"),
+    ("OK", "exact", "Broken Arrow SC    (BASC)", "Broken Arrow Soccer Club"),
+    ("OK", "exact", "Edmond Soccer Club (esc)", "Edmond SC"),
+    ("OK", "exact", "Broken Arrow Express SC", "Broken Arrow Express"),
+    ("OK", "exact", "Midwest City Soccer Club  (MWCSC)", "Midwest City SC"),
+    ("OK", "norm", "South Lakes SC", "South Lakes SC"),
+    ("OK", "norm", "Stillwater SC", "Stillwater SC"),
+    ("OK", "exact", "Union Tulsa FC", "Union FC Tulsa"),
+    ("OK", "exact", "Unión Tulsa Blue Fc", "Union FC Tulsa"),
+    ("OK", "exact", "OKC The 405 Futbol Club", "OKC 405 FC"),
+    # Fifteen of Ponca City SA's eighteen teams are named "PC United".
+    ("OK", "exact", "PC United", "Ponca City SA"),
+    ("OK", "exact", "Weatherford Soccer Club Elite", "Weatherford SC"),
+    ("OK", "exact", "North East Oklahoma FC (neofc)", "NE Oklahoma FC"),
+    ("OK", "exact", "Sporting OK", "Sporting Oklahoma"),
+    # Choctaw SA already fields "CNP ROGUE 12G" and "CNP ROGUE 11G", so Rogue is a team
+    # line inside CNP rather than a club. The (CNP) tag stays because Choctaw SA's own
+    # acronym is CSA -- CNP is Choctaw-Nicoma Park, which the tag is not repeating.
+    ("OK", "exact", "Choctaw-Nicoma Park SA  (CNP)", "Choctaw SA (CNP)"),
+    ("OK", "exact", "CNP Rogue", "Choctaw SA (CNP)"),
+    # "FC1" is a stray digit rather than a spelling: all fifteen teams read "APEX FC".
+    ("OK", "exact", "Apex FC1", "Apex FC"),
+    # Left apart deliberately, each on its team names rather than on its club name:
+    #   Southlake Soccer fields "Southlake SIFC" and "Southlake Select"; South Lakes SC
+    #     fields Oklahoma Cosmos. Two clubs whose names only look alike.
+    #   Northwest Optimist SC writes NWO; Northwest Soccer Club fields "OKC Crew".
+    #   Northeast Oklahoma Soccer Association writes NEOSA; NE Oklahoma FC writes NEOFC.
+    #   Union SC is the Union school district's club, not Union FC Tulsa.
+    # Seven open questions, not holds: whether South Lakes SC and Oklahoma Cosmos are one
+    # club, since all 110 South Lakes teams are named "Oklahoma Cosmos ..."; whether APEX
+    # FC is Stillwater SC's competitive brand, since Stillwater fields "APEX FC U14 Boys
+    # Orange"; "Chisholm Trail SA (CTSA)", whose two teams are Loudoun (VA) sides;
+    # "Metro Tulsa SC United (MTSC UNITED)", whose one team is "Nvsc Nvsc 2015b Gold";
+    # Tahlequah Sports League against Tahlequah SC; "Test Club", which holds actual test
+    # data; and "No Club Selection", a bucket naming at least four real clubs.
+    # Colorado
+    ("CO", "exact", "Colorado Rapids Youth SC (CRYSC)", "Colorado Rapids Youth Soccer Club"),
+    (
+        "CO",
+        "exact",
+        "Colorado Rapids Youth Soccer Club U14",
+        "Colorado Rapids Youth Soccer Club",
+    ),
+    # The parent already files hundreds of "Rapids Central ..." and "Rapids South ..."
+    # teams, so these are that club's sites rather than branches with their own identity.
+    ("CO", "exact", "Colorado Rapids Central", "Colorado Rapids Youth Soccer Club"),
+    ("CO", "exact", "Colorado Rapids South", "Colorado Rapids Youth Soccer Club"),
+    ("CO", "exact", "Colorado Rapids Castle Rock", "Colorado Rapids Youth Soccer Club"),
+    ("CO", "exact", "USYS Subscribers", "Colorado Rapids Youth Soccer Club"),
+    ("CO", "exact", "Colorado EDGE (Arvada Soccer Assn)", "Colorado EDGE"),
+    ("CO", "exact", "Skyline Soccer Assn (SSA)", "Skyline"),
+    ("CO", "exact", "Pueblo Rangers", "Pueblo Rangers SC"),
+    # Sixteen rows each way, so the tie goes to the spelling that names the club in full.
+    ("CO", "exact", "Colorado Ignite", "Colorado Ignite SC"),
+    ("CO", "exact", "Crestmoor Cranmer SC", "Crestmoor Cranmer"),
+    ("CO", "exact", "Westy Soccer", "Westy Soccer Club"),
+    ("CO", "exact", "Westminster Soccer", "Westy Soccer Club"),
+    ("CO", "exact", "United Soccer Club", "United Soccer Club CO"),
+    ("CO", "exact", "Telluride Youth SC", "Telluride YSA"),
+    (
+        "CO",
+        "exact",
+        "CISA Colorado International Soccer Academy",
+        "Colorado International SA",
+    ),
+    ("CO", "exact", "Colorado Elevation FC", "CO Elevation FC"),
+    # NOCO is Northern Colorado, and all three of these values hold Windsor Warriors AFC
+    # teams; Colorado Lightning Soccer Academy fields "Colorado Lightning Girls" and is a
+    # different club.
+    ("CO", "exact", "NOCO Lightning Academy", "Northern Colorado Lightning Academy"),
+    ("CO", "exact", "Windsor Warriors AFC", "Northern Colorado Lightning Academy"),
+    ("CO", "exact", "Grand County Intermountain SC", "Grand County SC"),
+    ("CO", "exact", "Roaring Fork United", "Roaring Fork Valley Soccer Club"),
+    ("CO", "exact", "Flatirons FC", "Flatirons Rush"),
+    ("CO", "exact", "Colorado Rush Mountain", "Mountain Rush"),
+    ("CO", "exact", "Colorado Rush North", "North Denver Rush"),
+    # One club, per the owner on 2026-09-22, so the state-tagged spellings fold into the
+    # plain one rather than the other way round as Washington's BVB IA WA does.
+    ("CO", "exact", "BVB International Academy CO", "BVB International Academy"),
+    ("CO", "exact", "BVB International Academy Colorado", "BVB International Academy"),
+    # Peak Football Club is Peak FC, per the owner on 2026-09-22, and "peak fc" already
+    # resolves to Pikes Peak FC in this state two lines above.
+    ("CO", "exact", "Peak Football Club", "Pikes Peak FC"),
+    # Left apart deliberately: Albion SC Colorado, Denver and Boulder County are
+    # branches, and so is each Rush affiliate -- COS, Northern Colorado, North Denver,
+    # Flatirons, LFA, Mountain and Victory all name themselves on their own teams.
+    # Two open questions, not holds: the bare "Rush" row, whose one team is "Rush U13G
+    # Academy White ECNL-RL" and which eleven affiliates could claim; and "Grand Junction
+    # Fire FC", one of whose two teams reads "Grand Junction SC 2012/13 United".
 ]
 
 # Acronyms to keep uppercase
