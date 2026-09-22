@@ -30,6 +30,7 @@ from dotenv import load_dotenv
 from rich.console import Console
 from rich.progress import track
 
+from src.utils.placeholder_clubs import is_placeholder_club  # noqa: E402
 from supabase import create_client
 
 # Set up logging
@@ -62,12 +63,6 @@ STATE_NAME_TO_CODE = {
     "wisconsin": "WI", "wyoming": "WY", "district of columbia": "DC",
 }
 VALID_STATE_CODES = frozenset(STATE_NAME_TO_CODE.values())
-NO_CLUB_VALUES = frozenset({
-    "", "n/a", "na", "none", "null", "no club", "no club listed",
-    "no club selection", "no club assigned", "no club selected",
-    "not selected", "not applicable", "unassigned",
-    "select club", "select a club", "choose club",
-})
 
 
 def _resolve_state_code(state_field: str, state_code_field: str) -> str | None:
@@ -85,7 +80,7 @@ def _resolve_state_code(state_field: str, state_code_field: str) -> str | None:
 
 
 def _is_meaningful_club(club_name: str) -> bool:
-    return bool(club_name) and club_name.strip().lower() not in NO_CLUB_VALUES
+    return not is_placeholder_club(club_name)
 
 
 def backfill_existing_team_facts(

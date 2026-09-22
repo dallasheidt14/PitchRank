@@ -25,6 +25,23 @@ two carry a state, both FL, which is exactly enough for Tier B's two-team floor 
 propose Florida for the other 21. ``match_state_from_club.py`` reached the same
 conclusion independently and has excluded it for longer than this module has existed.
 
+Four more joined on 2026-09-22, on the owner's decision, each found by the state-by-state
+club-name cleanup and each the same shape as "No Club Selection" — a competition, an
+organisation or a programme label pooling teams that belong to many different clubs:
+
+* ``u.s. futsal`` / ``u.s. futsal club`` — 90 teams across seven states, spanning Sole
+  Sisters, Galacticos, NLA Select and Rangers Fut Academy. A competition, not a club.
+* ``tournament team`` / ``tournament team - pa`` — 48 Pennsylvania teams naming 42
+  different clubs: Berks Rebellion, Cutter FC, Hellbender FC, Forza, KOSA.
+* ``ayso`` / ``ayso alliance`` — 18 California teams holding Imperial Valley Soccer
+  Academy, SC Chicks and Huntington Beach Breakers sides. Every *named* AYSO body —
+  ``AYSO United``, ``AYSO S1 Alliance``, ``AYSO Region 214``, ``AYSO Alliance Knoxville``
+  and the eighty others — is a real club or region and is deliberately absent, which the
+  whole-string match below is what makes safe.
+* ``real`` — six California teams named Inland Empire, Sporting, Deportivo Arizona and
+  Greens STXCL. The bare word only; every ``Real <something>`` club is untouched for the
+  same reason.
+
 The empty string is a member so that callers can normalise and test in one step.
 """
 
@@ -41,6 +58,8 @@ PLACEHOLDER_CLUB_NAMES = frozenset(
     {
         "",
         "athlete one",
+        "ayso",
+        "ayso alliance",
         "choose club",
         "n/a",
         "na",
@@ -53,8 +72,13 @@ PLACEHOLDER_CLUB_NAMES = frozenset(
         "not applicable",
         "not selected",
         "null",
+        "real",
         "select a club",
         "select club",
+        "tournament team",
+        "tournament team - pa",
+        "u.s. futsal",
+        "u.s. futsal club",
         "unassigned",
     }
 )

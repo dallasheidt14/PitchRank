@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import DefaultDict, Dict, List, Optional, Set
@@ -29,24 +30,9 @@ from dotenv import load_dotenv
 
 from supabase import create_client
 
-NO_CLUB_VALUES: Set[str] = {
-    "",
-    "n/a",
-    "na",
-    "none",
-    "null",
-    "no club",
-    "no club listed",
-    "no club selection",
-    "no club assigned",
-    "no club selected",
-    "not selected",
-    "not applicable",
-    "unassigned",
-    "select club",
-    "select a club",
-    "choose club",
-}
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from src.utils.placeholder_clubs import is_placeholder_club  # noqa: E402
 
 AGE_PATTERNS = [
     r"\b[BG]?20\d{2}[BG]?\b",
@@ -174,7 +160,7 @@ def _is_valid_club(club: Optional[str]) -> bool:
     if not value or len(value) < 2:
         return False
     lowered = value.lower()
-    if lowered in NO_CLUB_VALUES:
+    if is_placeholder_club(lowered):
         return False
     if lowered.startswith("no ") or lowered.startswith("select"):
         return False

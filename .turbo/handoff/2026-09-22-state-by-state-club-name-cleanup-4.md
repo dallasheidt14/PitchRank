@@ -1,0 +1,223 @@
+# Handoff: State-by-state club-name cleanup — every state now has a pass
+
+Supersedes `2026-09-22-state-by-state-club-name-cleanup-3.md`. That file's mechanism,
+conventions and traps all still hold; read it first. This one records the 2026-09-22
+evening round, which finished the four states it left.
+
+## Where this stands
+
+Branch `club-names-ca-ny-pa-nj`, three commits off `origin/main` at `c37640e4a`
+(which carried the previous round in as #1203).
+
+**Every US state now has a deliberate pass.** California, New York, Pennsylvania and
+the New Jersey remainder are done; 2,924 teams consolidated across 366 new rules, plus
+326 more moved by the two branch splits the owner approved separately.
+
+| state | teams consolidated | rules | groups before | groups left |
+|---|---|---|---|---|
+| California | 1,795 | 239 | 206 | 35 |
+| Pennsylvania | 636 | 68 | 54 | 5 |
+| New York | 306 | 43 | 42 | 8 |
+| New Jersey | 187 | 16 | 15 | 4 |
+
+The California figure is net of 30 teams restored when four folds turned out to collapse
+a provider branch; see below.
+
+Every batch was read back from the database after its write and every state re-scanned.
+Each group that remains is a refusal or an open question commented in place inside
+`CLUB_CANONICAL_OVERRIDES`.
+
+Undo logs are `data/exports/{ca,ny,pa,nj}_club_batch*_log.csv` — gitignored, so they
+exist only in this checkout. Replay backwards with
+`python scripts/apply_vetted_club_names.py --revert <log> --execute`.
+
+## The crosscheck is worth building in, and here is what it found
+
+The previous handoff said `crosscheck.py` — *does this club's teams mostly name a
+DIFFERENT existing club?* — earned its keep and was not in the repo. It still is not,
+but it was rebuilt and it found, in states the shipped scan called clean:
+
+- **Pennsylvania**: Nether Providence AA, whose 56 teams all read "Nether United FC";
+  Southern Chester County SA's 23 reading "FC Chesco"; the 18 filed under the literal
+  club value `WAS WCUSC - NOW PENN FUSION`; Cheltenham Sports' 4 reading "Cheltenham
+  Jayvees"; `Philadelphia Soccerland Academy (Northeast Wolves FC)`.
+- **New York**: Empire State Youth Soccer Club's 31 reading Alleycats; `WSSL TT`'s 19
+  reading "West Side Soccer League Tournament"; BWP Albany's 7 reading the parent.
+- **California**: `Teen Rec`'s 15 reading "Clovis Crossfire"; Visalia Youth Soccer
+  Association's 4 reading "Central Valley Premier FC"; `Azzuri FC` beside the club it
+  misspells; `Modesto YSA / Ajax United`; `Palm Desert SC` reading Desert Empire Surf.
+
+**None of these is reachable by any fold**, because the two spellings share no tokens.
+About 350 teams this round came from it. A `pairs.py` (organisation words stripped
+anywhere, rather than only trailing) added `FC Westchester` / `Westchester SC` — which
+turned out to be two clubs — and PA's `FC Pittsburgh` / `Pittsburgh Football Club`,
+also two clubs. Cheap to read, mostly refusals.
+
+**Both are rebuilt in the session scratchpad and are about 40 lines each.** So is a
+`reach.py` that prints, per entry, what it moves in-state and what it reaches among
+stateless teams, which is the check the previous handoff asks for and the only way to
+run it per entry rather than per pattern.
+
+## What this round learned
+
+### A `norm` self-entry can silently reach nothing
+
+`("CA", "norm", "Southwest Soccer Club", "Southwest Soccer Club")` never matched
+`Southwest Soccer Club (SWSC)`: `club_acronym` reads that name as **SSC**, because
+"Southwest" is one word, so the `(SWSC)` tag never looks redundant and
+`normalized_club` keeps it. The entry looked fine in every check — a self-entry always
+"holds" its canonical, so it is never flagged as reaching nothing.
+
+**Verify a `norm` self-entry by what it MOVES, not by whether it matches.** The
+scratchpad check is four lines: for each `norm` entry where pattern == canonical, list
+the live club values it matches that are not the canonical, and report the ones with
+none. Run it before applying, not after — this one was caught by the post-apply
+re-scan, which cost a second batch.
+
+### The build guard for retired canonicals pays for itself on a reconciled state
+
+California arrived with 102 inherited rules. Three of them pointed at canonicals this
+round retires — `JUSA`, and `West Covina SC` twice —
+and `test_no_override_names_a_canonical_that_another_override_moves_on_from` named all
+three on the first run. **Expect this on any state with inherited rules**; the fix is
+to redirect the old entry, not to drop it.
+
+### The stateless check can be non-zero and the rule still be right
+
+Two California spellings reach stateless teams: `CDA Slammers FC` (30) and `Leopardos`
+(2). Unlike Ohio's OSU or Nebraska's Evolution SC, those stateless rows are **the same
+club** — their own team names read "CDA Slammers FC ..." and "Leopardos FC ...".
+
+The rule was still left out and both populations moved by team id, because that is what
+the convention says and because a rule reaching nationally should not be invisible. But
+the check answers "does this pattern reach stateless rows", not "would that be wrong",
+so **read the stateless rows' team names before deciding which remedy applies**: a
+collision needs the rows left alone, a same-club overlap wants them moved too.
+
+### Two new conventions this round settled
+
+- **A club's branch set takes one style, not one style per group.** Strikers FC writes
+  its branches without a dash on 128 of its 168 rows, so all three branches take that
+  form even though the CM/NB group's own majority is dashed. Deciding each group on its
+  own majority would have left one branch spelled differently from its siblings.
+- **A league tag's case is decided by the league, not by the club.** Thirty-odd Long
+  Island clubs carry `(LIJSL)` and seven write it lower case. Where a club had two
+  spellings anyway the canonical took the league's case; the five clubs whose only
+  spelling is lower case are an open question rather than a silent sweep.
+
+## Open, needing the owner
+
+`grep -n "open question" scripts/full_club_analysis.py` lists all 24 blocks, each
+commented beside its own state. The four new states add:
+
+- **California** (eight): whether Total Futbol Academy splits into its twelve existing
+  branch values — the same question PDA asks, and the same shape, 308 parent rows each
+  naming a branch; whether Milpitas YSL is FC Milpitas; City SC against CITY FC;
+  whether Lincoln Youth Soccer Club is Lincoln FC, which the club's own retired tag
+  says; West Sacramento SC against West Sacramento FC; whether the Athletic SC branches
+  are now AYSO United and United SoCal, a rebrand spanning four values and 500-odd
+  teams; whether `U.S. Futsal`, `AYSO`, `Real`, `SAN JOSE` and `California` belong in
+  `src/utils/placeholder_clubs.py`; and the three SoCal Athletic spellings.
+- **New Jersey** (six): whether WSA should read Westfield SA; what Nesa stands for —
+  it is **not** Nutley Elite SA, which the scan pairs it with on the acronym, because
+  two of its teams read "CSA Newark"; whether FC Allstars and Allstars F.C are one club
+  in two word orders; Glen Rock Shooting Stars against Glen Rock United; which Franklin
+  the one `Franklin` row is; and what `Peninsula City SC` is.
+- **New York** (five): the one `Cedar Stars` row, which Staten Island or Hudson Valley
+  could claim; whether Brooklyn Force Soccer Club is Metropolitan Oval Academy
+  Brooklyn; CNY Coliseum against Coliseum; the two Long Island City clubs; and the five
+  lone lower-case `(lijsl)` tags.
+- **Pennsylvania** (three): whether `Tournament Team` (42 teams, each naming a different
+  club) and `Tournament Team - PA` belong in `placeholder_clubs.py`; whether Abington
+  Soccer Club and AC United are one club; and the single PA team under
+  `Union Soccer Club (NJ)`, which is a state question.
+
+**The PDA split is still the owner's call and is now costed.** A proposal script in the
+scratchpad reproduces the previous round's figures exactly — 44 to PDA White (Shore),
+32 to PDA Blue (North), 25 to PDA Hibernian, 3 to PDA South, 47 staying on the parent —
+reading the place or partner word before any colour word, which is what keeps
+`Hibernian Adams White U12` under Hibernian and `PDA South Blue ECNL RL 2009` under
+South. It writes a vetted file and applies nothing.
+
+## Two findings outside this job
+
+- **The caps pass re-cases a provider placeholder.** California has one team under
+  `no club` and the weekly cleanup queues `'no club' -> 'NO Club'`. That is the same
+  shape as the Del Rio-laughlin and Club DE Futbol damage, on a value
+  `is_placeholder_club` already recognises. Cosmetic today, because the lowered form
+  still matches, but `merge_case_variants` should skip a placeholder outright.
+- **`scan_club_name_variants.py` still cannot see a dotted abbreviation.** PA's
+  `West-mont United SA` sat apart from `West-Mont United S.A` for the reason the two
+  previous handoffs both name, and the crosscheck is what found it. The tokenizer fix
+  is still not done.
+
+## Three of the open questions are now answered
+
+The owner decided these on 2026-09-22, after the PR was opened; all three are applied and
+verified, and their blocks in `CLUB_CANONICAL_OVERRIDES` are retired rather than left
+reading as open.
+
+1. **Four values are provider labels, not clubs.** `u.s. futsal`, `u.s. futsal club`,
+   `tournament team`, `tournament team - pa`, `ayso`, `ayso alliance` and `real` joined
+   `PLACEHOLDER_CLUB_NAMES`. The whole-string match is what keeps this narrow — every
+   named body sharing a prefix (`AYSO United`, `Real Colorado`, `AYSO Alliance
+   Knoxville`, and eighty more) is untouched, and a parametrised test pins both halves.
+   Reverting any one value fails only the new test, checked by mutation.
+2. **Both parent/branch splits go ahead.** 104 PDA teams and 222 Total Futbol Academy
+   teams moved onto the branches their own names give. **Neither is a rule**, so nothing
+   maintains them: if either parent starts growing again, a later import is recreating
+   teams under it. Logs: `data/exports/nj_pda_split_log.csv`,
+   `data/exports/ca_tfa_split_log.csv`.
+   - TFA needed its branch spellings consolidated first — `- OC`, `- SGV` and
+     `TFA-Hollywood` were second spellings of branches that already had one, which the
+     shipped scan cannot see because stripping the trailing tag leaves a different core
+     key from the un-tagged form.
+   - The split rule anchors every branch marker to the club's own prefix (`TFA-SELA`,
+     `TFA SELA`), never a floating token, or "NE" reads out of "Navy Elite". 86 teams
+     stay on the parent because their names carry no anchored marker; that is the
+     conservative direction and deliberate.
+3. **New Jersey's WSA is one club, renamed Westfield SA.** Its 80 teams split 49 "Union
+   County FC" to 30 "Westfield SA"; the owner's call is that Union County FC is the
+   competitive programme. This also fixed a latent bug: Maryland's `WSA` → Westminster
+   Soccer Association was the only rule on that pattern, so `analyze_no_state_teams`
+   treated it as safe and all four stateless `WSA` rows — two of them Westfield's — were
+   due to be stamped Westminster. Two canonicals now make the pattern ambiguous, so none
+   is touched.
+
+## The mistake this round made, and the rule that stops it
+
+**Four folds collapsed a branch into its parent**, and a reviewer caught the first:
+`FC Golden State Orange County`, `Legends FC - San Gabriel Valley`,
+`ROSS Valley Breakers FC West Marin` and `Encinitas Express Soccer Club`. All four are
+reverted; 30 teams restored from `data/exports/ca_branch_collapse_undo.csv`.
+
+The reasoning that produced them was that most of each club's teams read the *parent's*
+name — `FC Golden State Orange County` fields teams called "FC Golden State B2015 EA".
+That is exactly what a branch's teams look like when the provider prefixes the parent,
+and it is the **opposite** of the crosscheck shape, where a club's teams name a
+*different* club. Reading them as the same shape is what went wrong.
+
+**The evidence that settles it is the provider's own club list.** SincSports gives each
+of the four its own club id — CA708, CA299, CA615, CA025 — beside CA278 for the plain
+`Legends FC` and CA276, CA401 and CA842 for its other branches. Before folding a name
+that adds a place to its canonical, read
+`tests/fixtures/sincsports_clubs/results_ca_u14_boys.html`, not only the team names.
+
+`FCGS Force` is the contrast and stays folded, though the provider lists it too (CA605):
+"Force" is a programme label rather than a place, and 50 of the 121 rows already under
+FC Golden State read it. **Two values whose teams interleave are one club; a branch's
+rows never carry the other branch's place.**
+
+`tests/unit/test_club_overrides_keep_provider_branches.py` pins the four. It is an
+explicit regression guard, not a detector, and says so: a derived version was tried and
+abandoned, because telling a branch from a provider duplicate needs a classifier —
+`Revolution FC (East County)` and `East County Revolution FC` are one club listed twice,
+`SF Seals SC` and `San Francisco Seals` differ by an acronym, and `Orchard Valley SC` is
+what the "OV" in `OV Toros FC` stands for. Every narrowing pulled in a new false
+positive.
+
+## Next step
+
+The remaining open-question blocks, which nothing in the pipeline will surface again on
+its own. `.turbo/reports/2026-09-22-club-name-open-questions.md` groups them by the kind
+of decision rather than by state, which is how three of them answered at once.

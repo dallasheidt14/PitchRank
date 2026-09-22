@@ -17,20 +17,9 @@ from dotenv import load_dotenv
 
 from supabase import create_client
 
-# Placeholder club names to treat as "no club" (e.g. TGS "No Club Selection")
-NO_CLUB_VALUES = frozenset(
-    {
-        "no club selection",
-        "no club",
-        "n/a",
-        "none",
-        "not selected",
-        "select club",
-        "select a club",
-        "choose club",
-        "athlete one",
-    }
-)
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from src.utils.placeholder_clubs import is_placeholder_club  # noqa: E402
 
 # State code to state name mapping
 STATE_CODE_TO_NAME = {
@@ -259,7 +248,7 @@ def main(dry_run=False, auto_yes=False):
             state_code = team.get("state_code")
             if not (club_name and state_code):
                 continue
-            if (club_name or "").strip().lower() in NO_CLUB_VALUES:
+            if is_placeholder_club(club_name):
                 continue
             exact_club_states[club_name].add(state_code)
             normalized = normalize_club_name(club_name)
@@ -312,7 +301,7 @@ def main(dry_run=False, auto_yes=False):
             continue
 
         # Skip placeholder "no club" values (e.g. TGS "No Club Selection")
-        if (club_name or "").strip().lower() in NO_CLUB_VALUES:
+        if is_placeholder_club(club_name):
             no_club_name.append(team)
             continue
 

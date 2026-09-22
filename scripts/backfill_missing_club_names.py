@@ -21,36 +21,21 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import requests
 from dotenv import load_dotenv
 
 from supabase import create_client
 
-# Values from GotSport that mean "no club" - do not update
-NO_CLUB_VALUES: Set[str] = {
-    "",
-    "n/a",
-    "na",
-    "none",
-    "null",
-    "no club",
-    "no club listed",
-    "no club selection",
-    "no club assigned",
-    "no club selected",
-    "not selected",
-    "not applicable",
-    "unassigned",
-    "select club",
-    "select a club",
-    "choose club",
-}
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from src.utils.placeholder_clubs import is_placeholder_club  # noqa: E402
 
 
 def _is_valid_club(club: Optional[str]) -> bool:
@@ -60,7 +45,7 @@ def _is_valid_club(club: Optional[str]) -> bool:
     s = club.strip()
     if not s or len(s) < 2:
         return False
-    if s.lower() in NO_CLUB_VALUES:
+    if is_placeholder_club(s):
         return False
     # Reject if it looks like a placeholder
     if s.lower().startswith("no ") or s.lower().startswith("select"):

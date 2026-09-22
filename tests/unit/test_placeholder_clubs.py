@@ -17,6 +17,8 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+import pytest
+
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 import scripts.assign_team_states as assign  # noqa: E402
@@ -33,6 +35,44 @@ def test_the_provider_writes_it_in_several_cases():
 def test_a_real_club_is_not_a_placeholder():
     for name in ("Eastside FC", "OSU", "Surf", "Ottawa South United"):
         assert not is_placeholder_club(name), name
+
+
+@pytest.mark.parametrize(
+    "spelling",
+    ["U.S. Futsal", "U.S. Futsal Club", "Tournament Team", "Tournament Team - PA", "AYSO", "AYSO Alliance", "Real"],
+)
+def test_a_competition_or_programme_label_is_not_a_club(spelling):
+    """Added 2026-09-22. Each pools teams from many different clubs, the shape this
+    module exists for: "U.S. Futsal" alone spans Sole Sisters, Galacticos and NLA
+    Select, and "Tournament Team" holds 42 different Pennsylvania clubs."""
+    assert is_placeholder_club(spelling), spelling
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        # Every named AYSO body is a real club or region, and there are eighty-odd of
+        # them. Only the bare word and the bare "Alliance" pool unrelated teams.
+        "AYSO United",
+        "AYSO United Bay Area",
+        "AYSO S1 Alliance",
+        "AYSO Region 214",
+        "AYSO Alliance Knoxville",
+        "AYSO Alliance Indio",
+        "AYSO Extra",
+        # "Real" is a club-name prefix across five states; only the bare word qualifies.
+        "Real Colorado",
+        "Real FC",
+        "Real Salt Lake",
+        "Real Futbol Academy",
+        # A tournament team belonging to a named club is that club's team.
+        "Tournament Team - Forza",
+    ],
+)
+def test_a_named_body_sharing_a_placeholder_prefix_is_still_a_club(name):
+    """The whole-string match is what keeps the four additions above narrow. A prefix
+    or substring test would swallow every one of these."""
+    assert not is_placeholder_club(name), name
 
 
 def test_a_missing_club_is_a_placeholder():
@@ -87,16 +127,14 @@ def test_a_placeholder_contributes_no_place_names():
 # --------------------------------------------------------------------------- #
 
 # Derived, not hand-written: every file naming the literal is found by glob, and a file
-# that stops carrying its own copy must be removed from here or this turns red. These
-# five predate the shared module and each reads it for its own purpose; converging them
-# is a separate change with its own blast radius.
-KNOWN_COPIES = {
-    "scripts/match_state_from_club.py",
-    "scripts/extract_missing_club_names.py",
-    "scripts/backfill_missing_club_names.py",
-    "scripts/backfill_unknown_team_names.py",
-    "scripts/extract_and_import_tgs_teams.py",
-}
+# that stops carrying its own copy must be removed from here or this turns red.
+#
+# It is empty now. The five that predated the shared module were converged on
+# 2026-09-22, after four values were added to the shared set and the copies kept the
+# old one -- which is worse than drift, because a writer that still accepts "AYSO"
+# writes it into a NULL club, every shared-set reader then treats that non-empty value
+# as absent, and the backfills only ever re-select NULL rows, so the team is stuck.
+KNOWN_COPIES: set[str] = set()
 
 SHARED_MODULE = "src/utils/placeholder_clubs.py"
 
@@ -132,9 +170,24 @@ def _files_naming_the_literal():
     return found
 
 
-def test_the_glob_finds_the_copies_it_is_meant_to():
-    """A doc regex that silently matches nothing passes forever while proving nothing."""
-    assert _files_naming_the_literal(), "the search for hand-copied lists found no file at all"
+def test_the_search_for_a_hand_copied_list_actually_fires(tmp_path, monkeypatch):
+    """A detector that silently matches nothing passes forever while proving nothing.
+
+    It used to be proven by the copies themselves, which is no longer possible now that
+    none remain -- and a guard that needs the defect present to prove itself is the
+    wrong shape anyway. Proven against a planted file instead.
+    """
+    planted = tmp_path / "scripts" / "planted_copy.py"
+    planted.parent.mkdir(parents=True)
+    planted.write_text('NO_CLUB_VALUES = {"no club selection", "none"}\n', encoding="utf-8")
+    (tmp_path / "scripts" / "innocent.py").write_text(
+        '"""A docstring naming no club selection is prose, not data."""\nX = 1\n', encoding="utf-8"
+    )
+
+    monkeypatch.setattr(sys.modules[__name__], "PROJECT_ROOT", tmp_path)
+    found = _files_naming_the_literal()
+
+    assert found == {"scripts/planted_copy.py"}, found
 
 
 def test_no_new_hand_copied_list():
