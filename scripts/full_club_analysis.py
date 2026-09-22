@@ -252,7 +252,7 @@ CLUB_CANONICAL_OVERRIDES = [
     ("NC", "exact", "Triad Union FC Inc.", "Triad Union FC"),
     ("NC", "exact", "Triangle United Soccer Association", "Triangle United"),
     ("NC", "exact", "United Soccer Club", "United Soccer Club NC"),
-    ("NC", "exact", "Wesley Chapel Weddington AA", "Wesley Chapel Weddington Athletic Association"),
+    ("NC", "exact", "Wesley Chapel Weddington AA", "Wesley Chapel Weddington Athletic Assoc"),
     # Texas
     ("TX", "exact", "El Paso Locomotive Youth Soccer Club", "El Paso Locomotive FC"),
     ("TX", "exact", "FC Dallas Youth", "FC Dallas"),
