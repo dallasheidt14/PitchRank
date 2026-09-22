@@ -2,14 +2,24 @@
 
 Every US state now has a deliberate pass. What follows is everything the passes refused
 to decide, grouped by the kind of decision rather than by state, because most of these
-answer in bulk — the first group alone settles eleven items in one sentence.
+answer in bulk — the first group alone settled eleven items in one sentence.
 
 Each is commented in place beside its own state in `CLUB_CANONICAL_OVERRIDES`;
-`grep -n "open question" scripts/full_club_analysis.py` lists all 24 blocks.
+`grep -n "open question" scripts/full_club_analysis.py` lists the blocks.
+
+**Sections 1, 2 and the WSA entry in section 4 were decided on 2026-09-22 and are
+applied.** They are kept here with their answers, because the reasoning is what the next
+pass needs; everything else is still open.
 
 ---
 
 ## 1. Rows whose club field names no club — one policy answers eleven
+
+> **Decided: all four are placeholders.** `u.s. futsal`, `u.s. futsal club`,
+> `tournament team`, `tournament team - pa`, `ayso`, `ayso alliance` and `real` are in
+> `PLACEHOLDER_CLUB_NAMES`. Every *named* body sharing a prefix — `AYSO United`,
+> `Real Colorado`, `AYSO Alliance Knoxville` and eighty others — is untouched, which the
+> whole-string match is what makes safe, and a test pins both halves.
 
 These values are provider dropdown entries or programme labels, not clubs. Each pools
 teams from unrelated clubs under one name, which is the shape
@@ -34,6 +44,14 @@ Arizona's and Illinois' `No Club Selection` rows stay untouched.
 ---
 
 ## 2. Splitting a parent into branches it already has — two instances, same shape
+
+> **Decided: split both.** 104 PDA teams and 222 Total Futbol Academy teams moved onto
+> the branches their own names give. Undo logs are `data/exports/nj_pda_split_log.csv`
+> and `data/exports/ca_tfa_split_log.csv`.
+>
+> **This is the part that needs watching.** Neither split is a rule, so nothing in the
+> weekly cleanup holds it in place — a later import that recreates a team under the
+> parent will not be corrected. If the parents start growing again, that is why.
 
 Neither is a name fold. Both are per-team moves with their own undo log, and **nothing
 in the weekly cleanup would maintain either**, so a later import can undo them.
@@ -92,9 +110,15 @@ evidence stops short of the ones already taken.
 
 No decisive team-name evidence either way. Each needs local knowledge.
 
-- **WSA (NJ, 80 teams)** — should it read **Westfield SA**? Every team reads "Westfield
-  SA …" or "Union County FC …", and neither brand is in the club value. This is the
-  Maryland SAC/Baltimore Armour shape: two brands, one partnership.
+- ~~**WSA (NJ, 80 teams)**~~ — **decided: one club, renamed Westfield SA.** Its 80 teams
+  split 49 "Union County FC" (the MLS Next, NAL and EDP sides) to 30 "Westfield SA" (rec
+  sides named after European clubs), and the owner's call on 2026-09-22 is that Union
+  County FC is Westfield SA's competitive programme. One rule, maintained weekly.
+  It also fixed a latent bug: Maryland's `WSA` → Westminster Soccer Association was the
+  only rule on that pattern, so all four stateless `WSA` rows — two of them Westfield's —
+  were due to be stamped Westminster. Two canonicals now make the pattern ambiguous, so
+  none of them is touched; the two Westfield rows moved by id and the two Westminster
+  rows are Maryland's to place.
 - **City SC (CA, 256, Carlsbad)** against **CITY FC (CA, 11)**.
 - **West Sacramento Soccer Club (36)** against **West Sacramento Futbol Club (20)** —
   both field a team called Heat; neither names the other.

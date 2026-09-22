@@ -17,6 +17,8 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+import pytest
+
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 import scripts.assign_team_states as assign  # noqa: E402
@@ -33,6 +35,44 @@ def test_the_provider_writes_it_in_several_cases():
 def test_a_real_club_is_not_a_placeholder():
     for name in ("Eastside FC", "OSU", "Surf", "Ottawa South United"):
         assert not is_placeholder_club(name), name
+
+
+@pytest.mark.parametrize(
+    "spelling",
+    ["U.S. Futsal", "U.S. Futsal Club", "Tournament Team", "Tournament Team - PA", "AYSO", "AYSO Alliance", "Real"],
+)
+def test_a_competition_or_programme_label_is_not_a_club(spelling):
+    """Added 2026-09-22. Each pools teams from many different clubs, the shape this
+    module exists for: "U.S. Futsal" alone spans Sole Sisters, Galacticos and NLA
+    Select, and "Tournament Team" holds 42 different Pennsylvania clubs."""
+    assert is_placeholder_club(spelling), spelling
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        # Every named AYSO body is a real club or region, and there are eighty-odd of
+        # them. Only the bare word and the bare "Alliance" pool unrelated teams.
+        "AYSO United",
+        "AYSO United Bay Area",
+        "AYSO S1 Alliance",
+        "AYSO Region 214",
+        "AYSO Alliance Knoxville",
+        "AYSO Alliance Indio",
+        "AYSO Extra",
+        # "Real" is a club-name prefix across five states; only the bare word qualifies.
+        "Real Colorado",
+        "Real FC",
+        "Real Salt Lake",
+        "Real Futbol Academy",
+        # A tournament team belonging to a named club is that club's team.
+        "Tournament Team - Forza",
+    ],
+)
+def test_a_named_body_sharing_a_placeholder_prefix_is_still_a_club(name):
+    """The whole-string match is what keeps the four additions above narrow. A prefix
+    or substring test would swallow every one of these."""
+    assert not is_placeholder_club(name), name
 
 
 def test_a_missing_club_is_a_placeholder():

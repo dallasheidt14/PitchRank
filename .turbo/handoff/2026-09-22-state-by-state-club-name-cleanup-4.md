@@ -147,7 +147,41 @@ South. It writes a vetted file and applies nothing.
   previous handoffs both name, and the crosscheck is what found it. The tokenizer fix
   is still not done.
 
+## Three of the open questions are now answered
+
+The owner decided these on 2026-09-22, after the PR was opened; all three are applied and
+verified, and their blocks in `CLUB_CANONICAL_OVERRIDES` are retired rather than left
+reading as open.
+
+1. **Four values are provider labels, not clubs.** `u.s. futsal`, `u.s. futsal club`,
+   `tournament team`, `tournament team - pa`, `ayso`, `ayso alliance` and `real` joined
+   `PLACEHOLDER_CLUB_NAMES`. The whole-string match is what keeps this narrow — every
+   named body sharing a prefix (`AYSO United`, `Real Colorado`, `AYSO Alliance
+   Knoxville`, and eighty more) is untouched, and a parametrised test pins both halves.
+   Reverting any one value fails only the new test, checked by mutation.
+2. **Both parent/branch splits go ahead.** 104 PDA teams and 222 Total Futbol Academy
+   teams moved onto the branches their own names give. **Neither is a rule**, so nothing
+   maintains them: if either parent starts growing again, a later import is recreating
+   teams under it. Logs: `data/exports/nj_pda_split_log.csv`,
+   `data/exports/ca_tfa_split_log.csv`.
+   - TFA needed its branch spellings consolidated first — `- OC`, `- SGV` and
+     `TFA-Hollywood` were second spellings of branches that already had one, which the
+     shipped scan cannot see because stripping the trailing tag leaves a different core
+     key from the un-tagged form.
+   - The split rule anchors every branch marker to the club's own prefix (`TFA-SELA`,
+     `TFA SELA`), never a floating token, or "NE" reads out of "Navy Elite". 86 teams
+     stay on the parent because their names carry no anchored marker; that is the
+     conservative direction and deliberate.
+3. **New Jersey's WSA is one club, renamed Westfield SA.** Its 80 teams split 49 "Union
+   County FC" to 30 "Westfield SA"; the owner's call is that Union County FC is the
+   competitive programme. This also fixed a latent bug: Maryland's `WSA` → Westminster
+   Soccer Association was the only rule on that pattern, so `analyze_no_state_teams`
+   treated it as safe and all four stateless `WSA` rows — two of them Westfield's — were
+   due to be stamped Westminster. Two canonicals now make the pattern ambiguous, so none
+   is touched.
+
 ## Next step
 
-Push and open the PR — three commits, not yet pushed. Then the owner's 24 open-question
-blocks, which nothing in the pipeline will surface again on its own.
+The remaining open-question blocks, which nothing in the pipeline will surface again on
+its own. `.turbo/reports/2026-09-22-club-name-open-questions.md` groups them by the kind
+of decision rather than by state, which is how three of them answered at once.

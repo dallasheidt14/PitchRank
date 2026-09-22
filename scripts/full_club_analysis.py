@@ -1589,7 +1589,8 @@ CLUB_CANONICAL_OVERRIDES = [
     ("NJ", "exact", "Voorhees", "Voorhees SA"),
     ("NJ", "exact", "Voorhees Soccer", "Voorhees SA"),
     ("NJ", "norm", "West Deptford SC", "West Deptford SC"),
-    ("NJ", "exact", "WSA/Union County FC (UCFC)", "WSA"),
+    # Redirected when the bare "WSA" spelling folded onto Westfield SA below.
+    ("NJ", "exact", "WSA/Union County FC (UCFC)", "Westfield SA"),
     # Left apart deliberately, each on its team names rather than on its club name:
     #   "Pro Soccer Academy LLC (NJ)" abbreviates to PSA and its two teams are named
     #     "PSA" and "PSA Select 2016", but PSA in this state is Princeton Soccer Academy
@@ -2393,12 +2394,13 @@ CLUB_CANONICAL_OVERRIDES = [
     #   PA Classics Harrisburg writes "PA Classics Hbg" -- a branch, not a spelling.
     #   Ambassadors Football (PAW) fields "Ambassadors FC Pittsburgh"; the substring hit
     #     against FC Pittsburgh is the club's own name, not that club's.
-    # Three open questions, not holds: whether "Tournament Team" (42 teams, each naming a
-    # different club -- Berks Rebellion, Cutter FC, Hellbender FC) and "Tournament Team -
-    # PA" (6) belong in src/utils/placeholder_clubs.py rather than in any rule; whether
-    # Abington Soccer Club and AC United are one club, since one Abington Soccer Club row
-    # reads "AC United 2012b Madness" and the mascots overlap; and the single PA team
-    # under "Union Soccer Club (NJ)", which asks which state it belongs to.
+    # "Tournament Team" (42 teams naming 42 different clubs) and "Tournament Team - PA"
+    # (6) are provider labels rather than clubs and are in src/utils/placeholder_clubs.py
+    # as of 2026-09-22, so neither can ever become a rule.
+    # Two open questions, not holds: whether Abington Soccer Club and AC United are one
+    # club, since one Abington Soccer Club row reads "AC United 2012b Madness" and the
+    # mascots overlap; and the single PA team under "Union Soccer Club (NJ)", which asks
+    # which state it belongs to.
     # More New York
     ("NY", "exact", "SUSA FC Academy", "SUSA FC"),
     ("NY", "exact", "East Meadow SC (EMSC)", "East Meadow Soccer Club"),
@@ -2523,6 +2525,14 @@ CLUB_CANONICAL_OVERRIDES = [
     # Shore side, so each names a branch rather than the parent.
     ("NJ", "exact", "PDA", "PDA Hibernian"),
     ("NJ", "exact", "PDA Shore", "PDA White (Shore)"),
+    # WSA holds two brands and its own team names separate them cleanly: 49 rows read
+    # "Union County FC" -- the MLS Next, NAL and EDP sides -- and 30 read "Westfield
+    # SA", the rec sides named after European clubs. The owner decided on 2026-09-22
+    # that this is one club and that Union County FC is its competitive programme, so
+    # the canonical is the town club's name and neither brand is abbreviated away.
+    # "Union County Futbol Soccer Club" is a different body: it writes UCFSC and
+    # fields Heat, Warriors and Vipers.
+    ("NJ", "exact", "WSA", "Westfield SA"),
     # All 56 rows across the three spellings read "PDA/Vistula ..." with Polish surnames
     # for squad names. The majority spelling carries both brands and the borough, which
     # is what separates this club from PDA's own branches.
@@ -2537,9 +2547,7 @@ CLUB_CANONICAL_OVERRIDES = [
     #   "Winstars Soccer Academy" abbreviates to WSA, but WSA here is Westfield SA.
     #   Valencia Futbol Development and Creative Touch Futbol are a partnership two of
     #     five rows name jointly; neither spelling is evidence the other is wrong.
-    # Six open questions, not holds: whether WSA should read Westfield SA, since all 80
-    # of its teams read "Westfield SA" or "Union County FC" and neither brand is in the
-    # club value; what "Nesa" stands for; whether "FC Allstars" (6) and "Allstars F.C"
+    # Five open questions, not holds: what "Nesa" stands for; whether "FC Allstars" (6) and "Allstars F.C"
     # (4) are one club in two word orders, neither naming the other; whether Glen Rock
     # Shooting Stars and Glen Rock United are one club, since three Shooting Stars rows
     # read "Glen Rock United" while every Glen Rock United row is an "- Elite" side;
@@ -2557,6 +2565,12 @@ CLUB_CANONICAL_OVERRIDES = [
     ("CA", "exact", "Total Futbol Academy - VC", "Total Futbol Academy (TFA-VC)"),
     ("CA", "exact", "Total Futbol Academy  South LA", "Total Futbol Academy - South LA"),
     ("CA", "exact", "Total Futbol Academy - Hollywood", "Total Futbol Academy Hollywood"),
+    # Three branches were spelled two ways each. The club tags twelve of its fifteen
+    # branches as "(TFA-XX)", so that form is canonical where a branch has a choice;
+    # Hollywood has no tagged spelling and takes its majority instead.
+    ("CA", "exact", "Total Futbol Academy - OC", "Total Futbol Academy (TFA-OC)"),
+    ("CA", "exact", "Total Futbol Academy - SGV", "Total Futbol Academy (TFA-SGV)"),
+    ("CA", "exact", "Total Futbol Academy TFA-Hollywood", "Total Futbol Academy Hollywood"),
     # Its 62 teams read "FC B14 White - SC" and the like -- the club name split at its own
     # space, leaving "FC" at the head of every team name.
     ("CA", "exact", "Socal Reds", "Socal Reds FC"),
@@ -2866,12 +2880,7 @@ CLUB_CANONICAL_OVERRIDES = [
     #     the two Central Santa Clara Valley rows each carry no evidence either way.
     #   Athletic SC Arizona and New England Surf hold out-of-state teams, which asks
     #     which state they belong to rather than which name.
-    # Eight open questions, not holds:
-    #   Whether "Total Futbol Academy" should be split into its twelve existing branch
-    #     values, the way New Jersey's PDA asks. 308 rows name a branch in their own
-    #     team names -- TFA-SELA, TFA-AV, TFA-Pro, TFA-Central LA -- and the branch
-    #     values hold 2 to 18 each. It is a per-team move, not a name fold, and nothing
-    #     in the weekly cleanup would maintain it.
+    # Seven open questions, not holds:
     #   Whether "Milpitas YSL" (47) is FC Milpitas (2), which 31 of its teams read.
     #   Whether "City SC" (256, Carlsbad) and "CITY FC" (11) are one club.
     #   Whether Lincoln Youth Soccer Club is Lincoln FC. The "(lincoln Ysc/lysc)" tag
@@ -2883,10 +2892,9 @@ CLUB_CANONICAL_OVERRIDES = [
     #     "Athletic SC - Bay Area" rows read "AYSO United Bay Area", and the Santa
     #     Clarita and South Bay rows read "United Socal". That is a rebrand spanning
     #     four club values and 500-odd teams, so it is the owner's call, not a fold.
-    #   Whether "U.S. Futsal" (61), "AYSO" (16), "Real" (6), "SAN JOSE" (1) and
-    #     "California" (1) are placeholders rather than clubs. Each holds teams from
-    #     unrelated clubs -- "U.S. Futsal" alone spans Sole Sisters, Galacticos and NLA
-    #     Select -- which is the shape src/utils/placeholder_clubs.py exists for.
+    #   Whether the junk rows "SAN JOSE" (1) and "California" (1) name anything.
+    #     "U.S. Futsal", "AYSO" and "Real" were the same question and are answered:
+    #     all three are in src/utils/placeholder_clubs.py as of 2026-09-22.
     #   Whether "SoCal Athletic Soccer Club", "Socal Academy" and "SOCAL" are one club;
     #     SoCal Athletic fields South OC, Burbank and Inland Valley sides.
 ]
