@@ -1538,6 +1538,19 @@ CLUB_CANONICAL_OVERRIDES = [
     # Two open questions, not holds: the bare "Rush" row, whose one team is "Rush U13G
     # Academy White ECNL-RL" and which eleven affiliates could claim; and "Grand Junction
     # Fire FC", one of whose two teams reads "Grand Junction SC 2012/13 United".
+    # New Jersey
+    ("NJ", "exact", "Berkeley Soccer Assn", "Berkeley Soccer Association"),
+    ("NJ", "exact", "Bridgewater Soccer Association", "Bridgewater SA"),
+    ("NJ", "exact", "Cape Express SC", "Cape Express"),
+    ("NJ", "exact", "Chatham United", "Chatham United SA"),
+    ("NJ", "exact", "Chatham United Soccer Assn", "Chatham United SA"),
+    ("NJ", "norm", "Cherry Hill SC", "Cherry Hill SC"),
+    # The partner-brand shape: both teams read "Deptford Premier FC", and the existing
+    # "DEPTFORD SA" entry above already resolves that half of the name the same way.
+    ("NJ", "exact", "Deptford SA / Deptford Premier FC", "Deptford Premier FC"),
+    ("NJ", "exact", "East Brunswick Soccer Club", "East Brunswick"),
+    ("NJ", "exact", "FC Berna", "FC Berna Legacy"),
+    ("NJ", "exact", "Freehold Soccer Club", "Freehold SL"),
 ]
 
 # Acronyms to keep uppercase
