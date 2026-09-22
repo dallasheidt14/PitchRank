@@ -939,7 +939,8 @@ CLUB_CANONICAL_OVERRIDES = [
     ("OH", "exact", "club ohio united", "Club Ohio"),
     ("OH", "exact", "columbus crew u16", "Columbus Crew"),
     ("OH", "exact", "croatia juniors", "Croatia Jrs"),
-    ("OH", "exact", "Cuyahoga valley soccer aca", "Cuyahoga Valley SA"),
+    # Redirected when "Cuyahoga Valley SA" itself folded away; both spellings are CVSA.
+    ("OH", "exact", "Cuyahoga valley soccer aca", "Cuyahoga Valley Soccer Academy"),
     ("OH", "exact", "Blast FC Academy", "Blast FC Soccer Academy"),
     # Colorado
     ("CO", "exact", "ALBION SC CO", "Albion SC Colorado"),
@@ -1655,6 +1656,91 @@ CLUB_CANONICAL_OVERRIDES = [
     # - Sturgis"; "Dearborn SC", every team of which reads "Michigan Juniors FC Dearborn";
     # and the Forza and "Nationals SC Union" rows, whose teams are named only "U15",
     # "U16" and "U18".
+    # Ohio
+    ("OH", "exact", "Club Ohio Soccer", "Club Ohio"),
+    ("OH", "exact", "Mercury Soccer", "Mercury"),
+    ("OH", "exact", "KINGS HAMMER", "Kings Hammer Soccer Club"),
+    ("OH", "exact", "Ohio Premier Soccer Club", "Ohio Premier"),
+    ("OH", "exact", "Ohio Premier Futbol Club (OPFC)", "Ohio Premier"),
+    ("OH", "exact", "Canton Akron United Force (CAU)", "Canton Akron United Force"),
+    # The 54-team spelling is missing the space before its tag, so the canonical is the
+    # same name written properly. California holds its own "Total Futbol Academy", which
+    # is why the Ohio tag stays rather than being dropped.
+    ("OH", "exact", "Total Futbol Academy(OH)", "Total Futbol Academy (OH)"),
+    ("OH", "exact", "Total Futbol Academy", "Total Futbol Academy (OH)"),
+    ("OH", "exact", "Cuyahoga Valley SA", "Cuyahoga Valley Soccer Academy"),
+    ("OH", "exact", "NWC Alliance", "NWC Alliance Soccer Club"),
+    ("OH", "exact", "Ambassadors FC", "Ambassadors FC (oh)"),
+    ("OH", "exact", "Green Soccer Association (GSA)", "Green SA"),
+    ("OH", "exact", "Croatia Jrs SC", "Croatia Jrs"),
+    ("OH", "exact", "Polaris Youth Soccer Club", "Polaris Soccer Club"),
+    ("OH", "exact", "Anthony Wayne United", "Anthony Wayne United SC"),
+    ("OH", "norm", "Central Ohio Elite", "Central Ohio Elite"),
+    # "Pcfc" is the club's acronym with its case mangled rather than a spelling of the
+    # name, so the one-team full form is canonical. Every team reads "PCFC ...".
+    ("OH", "exact", "Pcfc", "Putnam County FC"),
+    # One spelling is the bare acronym and the other misspells "Football", so the
+    # canonical is a corrected form neither row holds.
+    ("OH", "exact", "LUFC", "Lakewood United Football Club"),
+    (
+        "OH",
+        "exact",
+        "Lakewood United Footbal Club (LUFC)",
+        "Lakewood United Football Club",
+    ),
+    ("OH", "exact", "Hudson United SC    (HUSC)", "Hudson United Soccer Club"),
+    ("OH", "exact", "Fairview Park Soccer Assn (FPSA)", "Fairview Park Soccer Association"),
+    ("OH", "exact", "ashland united", "Ashland United Soccer"),
+    # Its two teams are named "United Soccer 2012 Black D5sw" -- the club name split at
+    # its own space, leaving the first word as the club.
+    ("OH", "exact", "Ashland", "Ashland United Soccer"),
+    ("OH", "exact", "BSA Celtic", "BSA Celtics"),
+    # All 21 of its teams read "Oak Hills Premier ...", which is a club value in its own
+    # right, so the two-team spelling is canonical.
+    ("OH", "exact", "Oak Hills Youth Athletics", "Oak Hills Premier"),
+    ("OH", "exact", "Cincinnati Soccer Club (Cincy SC)", "Cincy SC"),
+    ("OH", "exact", "Delaware Select SC - Knights", "Delaware Knights"),
+    (
+        "OH",
+        "exact",
+        "Shaker Youth Soccer Association",
+        "Shaker Youth Soccer Assn - Premier Football Club",
+    ),
+    # Cincinnati United Premier and Cincinnati United Soccer Club are two clubs, per the
+    # owner on 2026-09-22: CUP against CUSC. These three rows are CUP's -- the slash row
+    # fields "Cincinnati United CUP 2013 King N" and "CU North 2012 Elite 1", and CUP's
+    # own teams already read "CUSE 11B Elite" and "CUSM 15B Cagliari".
+    ("OH", "exact", "Cincinnati United SC / CUP", "Cincinnati United Premier Soccer Club"),
+    (
+        "OH",
+        "exact",
+        "Cincinnati United North (CU North)",
+        "Cincinnati United Premier Soccer Club",
+    ),
+    (
+        "OH",
+        "exact",
+        "Cincinnati United Southeast  (CUSE)",
+        "Cincinnati United Premier Soccer Club",
+    ),
+    # "OSU" is deliberately not an entry here. Ohio Strikers United's seventeen teams were
+    # moved by team id instead, because the same club value carries three Ontario teams
+    # and twenty-four stateless ones, one of them named "Ottawa South United - OSU 2016
+    # Force Academy". An override reaches stateless teams in every state, so a rule would
+    # have renamed a Canadian club's squads to an Ohio one.
+    # Left apart deliberately, each on its team names rather than on its club name:
+    #   Cleveland Futbol Club fields "Lady Flames"; Cleveland Football Academy writes CFA.
+    #   Legend SC writes "LEGEND SC B 2015"; Legends FC names itself in full.
+    #   FC United (Ohio) fields "FC United 08G Red", not Ohio United FC's "Unity" teams.
+    #   Ohio Soccer Association writes OSA and is not Ohio Youth Academy.
+    #   Dublin Soccer League writes DSX; Dublin United Soccer Club writes DUSC.
+    #   Shelby Youth Soccer fields "Shelby Storm"; Shelby County's teams all read WOU.
+    #   Bay Area Soccer League, FC Columbus and Dayton Futbol Academy are each their own
+    #     club rather than a spelling of Bay Soccer Club, Columbus United or FC Dayton.
+    # Three open questions: "Northwest Cincy Soccer Coalition", 13 of whose 14 teams read
+    # "Northwest Cincy SC" while Cincy SC sits separately; "Shelby County Youth Soccer",
+    # every team of which reads "Western Ohio United"; and "Ohio Valley Soccer League"
+    # against "Ohio Valley Football Club".
 ]
 
 # Acronyms to keep uppercase
