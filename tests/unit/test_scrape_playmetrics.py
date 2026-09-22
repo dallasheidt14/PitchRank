@@ -215,6 +215,12 @@ class TestGoverningBodyStates:
         assert STATE_CODE_TO_NAME["NC"] == "North Carolina"
         assert STATE_CODE_TO_TIMEZONE["NC"] == "America/New_York"
 
+    def test_colorado_governing_body_is_colorado(self):
+        # https://playmetricssports.com/g/leagues/1017-2454-7a0f55dd/league_view.html
+        # is "Fall 2026 Colorado Cups"; its fields are in Aurora, CO.
+        assert GB_STATE_MAP[1017] == "CO"
+        assert STATE_CODE_TO_TIMEZONE["CO"] == "America/Denver"
+
     @pytest.mark.parametrize("state_code", sorted(set(GB_STATE_MAP.values())))
     def test_every_governing_body_state_has_a_name_and_a_timezone(self, state_code):
         # A state in GB_STATE_MAP with no timezone silently writes the wrong

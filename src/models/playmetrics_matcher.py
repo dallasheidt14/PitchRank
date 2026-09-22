@@ -28,7 +28,13 @@ from typing import Dict, Optional
 from config.settings import MATCHING_CONFIG
 from src.models.game_matcher import GameHistoryMatcher
 from src.utils.club_normalizer import are_same_club
-from src.utils.team_name_utils import extract_distinctions, resolve_distinction
+from src.utils.team_name_utils import (
+    DIRECTION_CANONICAL,
+    _club_acronym,
+    _club_tokens,
+    extract_distinctions,
+    resolve_distinction,
+)
 from src.utils.us_states import STATE_CODE_TO_NAME
 
 logger = logging.getLogger(__name__)
@@ -218,6 +224,34 @@ class PlayMetricsGameMatcher(GameHistoryMatcher):
         s = re.sub(r"\s+", " ", s).strip()
         return s
 
+    @staticmethod
+    def _club_words(*club_names: Optional[str]) -> frozenset:
+        """Words and acronyms that name the club rather than the squad."""
+        words = set()
+        for club in club_names:
+            words |= _club_tokens(club)
+            acronym = _club_acronym(club)
+            if acronym:
+                words.add(acronym)
+        # A name's directions are read canonically ("NE Surf" -> northeast), so the
+        # club's must be too or they never cancel.
+        words |= {DIRECTION_CANONICAL[w] for w in words if w in DIRECTION_CANONICAL}
+        return frozenset(words)
+
+    @staticmethod
+    def _without_club_words(name: str, club_words: frozenset) -> str:
+        """``name`` minus its club words with the rest sorted, or ``name`` itself when nothing else is left.
+
+        League names usually leave the club out ("U12 Boys National") while
+        stored names often lead with it ("Real Colorado National U12B"), and
+        the words that remain come in either order ("U16G United" against
+        "United U16G"). Sorting them lets the order-sensitive difflib scorer
+        see what rapidfuzz's token sort would.
+        """
+        words = re.split(r"[\s\-_./]+", name)
+        kept = [w for w in words if w and w.lower().strip("()[]'*.,") not in club_words]
+        return " ".join(sorted(kept, key=str.lower)) or name
+
     def _fuzzy_match_team(
         self,
         team_name: str,
@@ -266,7 +300,7 @@ class PlayMetricsGameMatcher(GameHistoryMatcher):
             }
 
             best_match = None
-            best_score = 0.0
+            best_rank = (0.0, 0.0)
 
             for team in candidates:
                 candidate_club = team.get("club_name")
@@ -283,23 +317,38 @@ class PlayMetricsGameMatcher(GameHistoryMatcher):
                 if cand_distinctions is None:
                     cand_distinctions = extract_distinctions(team.get("team_name", ""))
                     team["_distinctions"] = cand_distinctions
-                if provider_distinctions["colors"] != cand_distinctions["colors"]:
-                    continue
-                if provider_distinctions["directions"] != cand_distinctions["directions"]:
-                    continue
+                # Tier words are never ignored, even inside a club name ("GA Rush"):
+                # a tier mismatch refuses the match rather than merging across tiers.
                 if provider_distinctions["programs"] != cand_distinctions["programs"]:
                     continue
                 if provider_distinctions["team_number"] != cand_distinctions["team_number"]:
                     continue
-                if provider_distinctions["location_codes"] != cand_distinctions["location_codes"]:
+                club_words = self._club_words(club_name, candidate_club)
+                # The team's own state ("CO Rush") and a club's initials read as a
+                # state ("LA Surf") are expected in a name; any other state marks a
+                # branch ("CSA NH King G" is not "CSA Charlotte King G").
+                own_states = {s.lower() for s in (state_code, team.get("state_code")) if s}
+                if any(
+                    provider_distinctions[key] - ignored != cand_distinctions[key] - ignored
+                    for key, ignored in (
+                        ("colors", club_words),
+                        ("directions", club_words),
+                        ("location_codes", club_words),
+                        ("squad_words", club_words),
+                        ("state_codes", club_words | own_states),
+                    )
+                ):
                     continue
-                if provider_distinctions["squad_words"] != cand_distinctions["squad_words"]:
-                    continue
+                # The coach detector can pick a club word ("NE" of "NE Surf"), which
+                # names the club, not a coach.
+                provider_coach = provider_distinctions.get("coach_name")
                 cand_coach = cand_distinctions.get("coach_name")
                 if (
-                    provider_distinctions.get("coach_name")
+                    provider_coach
                     and cand_coach
-                    and provider_distinctions["coach_name"] != cand_coach
+                    and provider_coach != cand_coach
+                    and provider_coach.lower() not in club_words
+                    and cand_coach.lower() not in club_words
                 ):
                     continue
 
@@ -316,10 +365,18 @@ class PlayMetricsGameMatcher(GameHistoryMatcher):
                     "age_group": team.get("age_group"),
                     "state_code": cand_state,
                 }
-                score = self._calculate_match_score(provider_for_scoring, candidate)
+                raw_score = self._calculate_match_score(provider_for_scoring, candidate)
+                stripped_score = self._calculate_match_score(
+                    {**provider_for_scoring, "team_name": self._without_club_words(scoring_team_name, club_words)},
+                    {**candidate, "team_name": self._without_club_words(cand_name, club_words)},
+                )
+                score = max(raw_score, stripped_score)
+                # Stripping can tie a club's duplicate rows ("Polonia U16 Girls Red"
+                # and "U16 Girls Red"); the name as written breaks the tie.
+                rank = (score, raw_score)
 
-                if score >= self.fuzzy_threshold and score > best_score:
-                    best_score = score
+                if score >= self.fuzzy_threshold and rank > best_rank:
+                    best_rank = rank
                     best_match = {
                         "team_id": team["team_id_master"],
                         "team_name": cand_name,

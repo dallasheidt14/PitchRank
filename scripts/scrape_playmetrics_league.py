@@ -35,6 +35,7 @@ SCRAPE_RUN_ID = None
 # Add entries here as PlayMetrics leagues are onboarded.
 GB_STATE_MAP: Dict[int, str] = {
     1014: "WI",  # Wisconsin Youth Soccer (SECL + state leagues)
+    1017: "CO",  # Colorado Soccer Association (Colorado Cups)
     1207: "NC",  # NC Youth Soccer (Classic League)
 }
 
