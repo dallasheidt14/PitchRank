@@ -45,7 +45,7 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional
 
 import requests
 from dotenv import load_dotenv
@@ -59,6 +59,7 @@ from src.scrapers.gotsport import (  # noqa: E402
     get_waf_breaker,
 )
 from src.tournaments.triage import _is_placeholder_team  # noqa: E402
+from src.utils.placeholder_clubs import is_placeholder_club  # noqa: E402
 from supabase import create_client  # noqa: E402
 
 # Supabase caps a single select at 1000 rows
@@ -67,25 +68,6 @@ PAGE_SIZE = 1000
 # GotSport IDs at or above this come from org_event schedules and 404 on team_details
 DEFAULT_MAX_PROVIDER_ID = 3_000_000
 
-# Values from GotSport that mean "no club" - do not update
-NO_CLUB_VALUES: Set[str] = {
-    "",
-    "n/a",
-    "na",
-    "none",
-    "null",
-    "no club",
-    "no club listed",
-    "no club selection",
-    "no club assigned",
-    "no club selected",
-    "not selected",
-    "not applicable",
-    "unassigned",
-    "select club",
-    "select a club",
-    "choose club",
-}
 
 
 def log(message: str) -> None:
@@ -99,7 +81,7 @@ def _is_valid_club(club: Optional[str]) -> bool:
     s = club.strip()
     if not s or len(s) < 2:
         return False
-    if s.lower() in NO_CLUB_VALUES:
+    if is_placeholder_club(s):
         return False
     if s.lower().startswith("no ") or s.lower().startswith("select"):
         return False

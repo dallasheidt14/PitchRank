@@ -1485,3 +1485,11 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `.claude/skills/merging-duplicate-teams/SKILL.md`, the "What the signals are actually worth" and containment delta-class sections
 - **Why**: 660 lines against the 500-line authoring guideline, and by far the largest of the hygiene skills (the others are 398, 296 and 184). It already carries three `references/` files those two measured tables could move into, which would bring the body under the guideline without losing content. A review also reported the candidate-bucketing rule being stated in more than one place within the package; that duplication was asserted rather than measured here, so confirm it while splitting.
 - **Noted**: 2026-09-20
+
+### The PDA and TFA branch splits are one-time moves that nothing reproduces
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `scripts/full_club_analysis.py:CLUB_CANONICAL_OVERRIDES` and `analyze_state`; the moves are logged in `data/exports/nj_pda_split_log.csv` and `ca_tfa_split_log.csv`
+- **Why**: 326 teams were moved onto branch clubs their own team names identify -- 104 under Players Development Academy, 222 under Total Futbol Academy -- on the owner's decision of 2026-09-22. No override can reproduce it: `analyze_state` and `_matches_override` key on `club_name` alone and never read `team_name` (verified 2026-09-22), so a team re-imported under the parent stays there even when its name says TFA-SELA or PDA Hibernian. The parents will accumulate branch teams again, and unrelated branches sharing one `club_name` enter the same duplicate-matching pool. Raised by the Codex review on PR #1204; the split itself was accepted knowing this, so the fix is a recurring classifier -- in the weekly cleanup or at team creation -- not a revert.
+- **Noted**: 2026-09-22
