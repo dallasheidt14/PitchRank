@@ -28,7 +28,13 @@ from typing import Dict, Optional
 from config.settings import MATCHING_CONFIG
 from src.models.game_matcher import GameHistoryMatcher
 from src.utils.club_normalizer import are_same_club
-from src.utils.team_name_utils import _club_acronym, _club_tokens, extract_distinctions, resolve_distinction
+from src.utils.team_name_utils import (
+    DIRECTION_CANONICAL,
+    _club_acronym,
+    _club_tokens,
+    extract_distinctions,
+    resolve_distinction,
+)
 from src.utils.us_states import STATE_CODE_TO_NAME
 
 logger = logging.getLogger(__name__)
@@ -227,6 +233,9 @@ class PlayMetricsGameMatcher(GameHistoryMatcher):
             acronym = _club_acronym(club)
             if acronym:
                 words.add(acronym)
+        # A name's directions are read canonically ("NE Surf" -> northeast), so the
+        # club's must be too or they never cancel.
+        words |= {DIRECTION_CANONICAL[w] for w in words if w in DIRECTION_CANONICAL}
         return frozenset(words)
 
     @staticmethod
@@ -330,11 +339,16 @@ class PlayMetricsGameMatcher(GameHistoryMatcher):
                     )
                 ):
                     continue
+                # The coach detector can pick a club word ("NE" of "NE Surf"), which
+                # names the club, not a coach.
+                provider_coach = provider_distinctions.get("coach_name")
                 cand_coach = cand_distinctions.get("coach_name")
                 if (
-                    provider_distinctions.get("coach_name")
+                    provider_coach
                     and cand_coach
-                    and provider_distinctions["coach_name"] != cand_coach
+                    and provider_coach != cand_coach
+                    and provider_coach.lower() not in club_words
+                    and cand_coach.lower() not in club_words
                 ):
                     continue
 

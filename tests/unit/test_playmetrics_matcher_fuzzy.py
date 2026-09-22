@@ -152,6 +152,26 @@ def test_a_direction_in_the_club_name_is_not_a_branch():
     )
 
 
+def test_an_abbreviated_direction_in_the_club_name_is_not_a_branch():
+    _assert_refused_for_the_word(
+        "U12 Boys Metro",
+        "NE Surf",
+        "MA",
+        "u12",
+        "Male",
+        refused=("NE Surf South U12 Boys Metro", "NE Surf"),
+        accepted=("NE Surf U12 Boys Metro", "NE Surf"),
+    )
+
+
+def test_an_abbreviated_direction_in_a_league_name_is_not_a_branch():
+    stored = [("U12 Boys Metro", "NE Surf")]
+
+    match = _match("NE Surf U12 Boys Metro", "NE Surf", "MA", "u12", "Male", stored)
+
+    assert match["team_name"] == "U12 Boys Metro"
+
+
 def test_a_color_in_the_club_name_is_not_the_squads_color():
     _assert_refused_for_the_word(
         "U12 Blue",
