@@ -140,6 +140,42 @@ def test_another_state_in_a_stored_name_marks_a_different_branch():
     )
 
 
+def test_a_direction_in_the_club_name_is_not_a_branch():
+    _assert_refused_for_the_word(
+        "U12 Boys Blue",
+        "North Shore United",
+        "IL",
+        "u12",
+        "Male",
+        refused=("North Shore United South U12 Boys Blue", "North Shore United"),
+        accepted=("North Shore United U12 Boys Blue", "North Shore United"),
+    )
+
+
+def test_a_color_in_the_club_name_is_not_the_squads_color():
+    _assert_refused_for_the_word(
+        "U12 Blue",
+        "Red Star",
+        "MI",
+        "u12",
+        "Male",
+        refused=("Red Star U12 Gold", "Red Star"),
+        accepted=("Red Star U12 Blue", "Red Star"),
+    )
+
+
+def test_a_tier_in_the_club_name_still_refuses_a_name_without_it():
+    _assert_refused_for_the_word(
+        "U14 Girls",
+        "GA Rush",
+        "GA",
+        "u14",
+        "Female",
+        refused=("GA Rush U14 Girls", "GA Rush"),
+        accepted=("Rush U14 Girls", "GA Rush"),
+    )
+
+
 def test_the_leagues_own_state_in_a_stored_name_is_not_a_branch():
     stored = [("CO Rush North 13G Academy Blue", "Colorado Rush")]
 

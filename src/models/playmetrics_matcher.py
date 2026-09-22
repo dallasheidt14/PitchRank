@@ -308,10 +308,8 @@ class PlayMetricsGameMatcher(GameHistoryMatcher):
                 if cand_distinctions is None:
                     cand_distinctions = extract_distinctions(team.get("team_name", ""))
                     team["_distinctions"] = cand_distinctions
-                if provider_distinctions["colors"] != cand_distinctions["colors"]:
-                    continue
-                if provider_distinctions["directions"] != cand_distinctions["directions"]:
-                    continue
+                # Tier words are never ignored, even inside a club name ("GA Rush"):
+                # a tier mismatch refuses the match rather than merging across tiers.
                 if provider_distinctions["programs"] != cand_distinctions["programs"]:
                     continue
                 if provider_distinctions["team_number"] != cand_distinctions["team_number"]:
@@ -324,6 +322,8 @@ class PlayMetricsGameMatcher(GameHistoryMatcher):
                 if any(
                     provider_distinctions[key] - ignored != cand_distinctions[key] - ignored
                     for key, ignored in (
+                        ("colors", club_words),
+                        ("directions", club_words),
                         ("location_codes", club_words),
                         ("squad_words", club_words),
                         ("state_codes", club_words | own_states),
