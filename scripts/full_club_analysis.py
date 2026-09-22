@@ -1741,6 +1741,50 @@ CLUB_CANONICAL_OVERRIDES = [
     # "Northwest Cincy SC" while Cincy SC sits separately; "Shelby County Youth Soccer",
     # every team of which reads "Western Ohio United"; and "Ohio Valley Soccer League"
     # against "Ohio Valley Football Club".
+    # More Kansas
+    ("KS", "exact", "Union KC Soccer Club (KS)", "Union KC"),
+    # All caps is not a spelling, and 32 of these 40 teams read "Kansas Rush Wichita",
+    # which is a club value of its own. Kansas Rush itself fields no Wichita teams, so
+    # this is that club's Wichita branch rather than the parent.
+    ("KS", "exact", "WICHITA RUSH", "Kansas Rush Wichita"),
+    # Left apart deliberately: Kansas City FC writes KCFC against KC Athletics, FC
+    # Wichita is not Wichita United FC, and "Kansas Premier Soccer League" and "Kansas
+    # Premier Soccer Elite Academy" are league buckets fielding Pack United, BK Academy,
+    # KC United Arsenal and HAFC teams rather than spellings of one club.
+    # One open question: "SOUTHWEST KANSAS", whose fifteen teams name several different
+    # clubs, against "Southwest Kansas Soccer Association", whose eight all read
+    # "Southwest KS United FC".
+    # Nebraska
+    ("NE", "norm", "Gretna Elite Academy", "Gretna Elite Academy"),
+    ("NE", "exact", "Lincoln Spirit Club (LSC)", "Lincoln Spirit SC"),
+    ("NE", "norm", "Western Nebraska FC", "Western Nebraska FC"),
+    ("NE", "exact", "Hawks FC", "Hawks FC (ne)"),
+    ("NE", "exact", "International SA", "International Soccer Academy"),
+    # Twenty-three of its twenty-four teams read "Lincoln Surf", which is a club value in
+    # its own right, so the eleven-team spelling is canonical.
+    ("NE", "exact", "Dreamers FC", "Lincoln Surf"),
+    ("NE", "exact", "Schuyler Soccer Club", "Schuyler YS"),
+    # "Evolution SC" is deliberately not an entry. Nebraska's twelve teams were moved by
+    # team id instead, because that club value is mostly Illinois' -- 58 teams there
+    # against 12 here, plus four stateless ones that an override would have renamed
+    # "Evolution SC (NE)" sight unseen. Same reason as Ohio's OSU above.
+    # Left apart deliberately: "United Futbol Academy (UFA)" fields "UFA Siouxland"
+    # against United Association Football's UAF, and International Soccer Club writes ISC
+    # rather than the INTER that both International Soccer Academy spellings use.
+    # Three open questions: Hastings FC against Hastings SC, which writes "HSC Eagle
+    # Junior"; "Schuyler Predators", whose one team is named for itself while both
+    # Schuyler clubs field Warriors; and "Wichita Regional Soccer Association", a Kansas
+    # name sitting on Nebraska teams called "UNITED FC GRAND ISLAND 14B".
+    # Nevada
+    ("NV", "exact", "Player SC", "Players SC"),
+    ("NV", "exact", "Great Basin Youth SL (GBYSL)", "Great Basin Youth Soccer League"),
+    ("NV", "exact", "Sierra Surf", "Sierra Surf SC"),
+    ("NV", "exact", "Las Vegas Sports Acad(LVSA / LVPSA)", "Las Vegas Sports Academy"),
+    # Left apart deliberately: Las Vegas Alliance FC shares only the city with Las Vegas
+    # Sports Academy, and Nevada Youth Soccer is the state association -- its teams are
+    # "Northern NV ODP U12 Boys" and "NYSA RFC" -- not a spelling of Nevada Futbol Club.
+    # One open question: "Northern Nevada Youth Soccer League", fielding LEONCITOS and
+    # "Reno Legacy Fc", against Northern Nevada Soccer Club's Reno teams.
 ]
 
 # Acronyms to keep uppercase
