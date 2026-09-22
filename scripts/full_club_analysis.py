@@ -1571,6 +1571,7 @@ CLUB_CANONICAL_OVERRIDES = [
     ("NJ", "exact", "The Football Academy", "The Football Academy NJ"),
     ("NJ", "exact", "Tsf Academy", "TSF Academy - NJ"),
     ("NJ", "exact", "Voorhees", "Voorhees SA"),
+    ("NJ", "exact", "Voorhees Soccer", "Voorhees SA"),
     ("NJ", "norm", "West Deptford SC", "West Deptford SC"),
     ("NJ", "exact", "WSA/Union County FC (UCFC)", "WSA"),
     # Left apart deliberately, each on its team names rather than on its club name:
@@ -1581,6 +1582,23 @@ CLUB_CANONICAL_OVERRIDES = [
     #     acronym, the same shape as Pinelands SA against PSA.
     #   Union Beach Soccer Club writes UB and fields Force, Storm and Hericanes; Union
     #     City Soccer Club writes "UnionCity-B17-Samaniego". Two boroughs, two acronyms.
+    #   Pinelands SA fields "Pinelands SA Cobras"; PSA is Princeton. Harrison Futbol
+    #     Club writes "Harrison FC Cosmos" against Harrison SC's "Harrison Hurricanes".
+    #     Passaic FC fields "Passaic FC Academy"; Passaic Youth Soccer fields mascots.
+    #     North Plainfield Soccer Elite writes NPSE, North Plainfield SC writes NPSC.
+    #     FC Monmouth is not Monmouth United, which writes MUSC. Hamilton SC, Hamilton
+    #     Elite FC and Hamilton United Elite SC are three clubs. "Bridgewater United
+    #     Ajax" is not Bridgewater SA, and North Warren United writes NWU.
+    #     Berkeley Heights Youth SC and Ridgefield Park SA are different towns from
+    #     Berkeley Soccer Association and Ridgefield FC.
+    # Left open on 2026-09-22 rather than folded: Delran Soccer Club, Franklin,
+    # Freehold Soccer League, Mantua Township Soccer Assn, Montclair United SC, the
+    # three PDA/Vistula spellings, Roxbury Travel Soccer Club, Sayreville Soccer Club,
+    # the two Scotch Plains spellings, South Jersey Girls SL (SJGSL) and
+    # Swedesboro-Woolwich SA; plus whether WSA should read Westfield SA, what Nesa,
+    # FC Allstars, Glen Rock, Players SC and Peninsula City SC are, and whether the
+    # 104 branch-named teams under Players Development Academy move to PDA Hibernian,
+    # Blue (North), White (Shore) and South.
 ]
 
 # Acronyms to keep uppercase
