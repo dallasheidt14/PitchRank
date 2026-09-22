@@ -12,9 +12,12 @@ team than the ones before it.
 The write goes through ``unlink_game_team`` and ``link_game_team``. A direct UPDATE is
 refused by the ``enforce_game_immutability`` trigger, which admits a team change only
 as a clear or a fill, never as a swap -- so a move is a clear followed by a fill, and
-the game carries a NULL on that side in between. Each game's outcome is recorded
-separately and a rerun finishes any move that stopped in the middle, because a side
-already sitting at NULL only needs its fill.
+the game carries a NULL on that side in between.
+
+**A half-finished move is recovered with --resume, never by rerunning the block.** Once
+the clear has committed, the game names neither team on that side, so the team-and-window
+query that selects a block can no longer see it. --resume reads the run's own log and
+addresses each game by id, which is the only route back to one.
 
 Scope is a single (team, date window) block, so a record shared by two squads is split
 by running this once per block. A move with no window is a whole-team merge and belongs
@@ -25,6 +28,7 @@ Every run logs a CSV that --revert replays backwards.
 Usage:
     python scripts/reassign_games_between_teams.py --from <uuid> --to <uuid> --before 2026-08-01
     python scripts/reassign_games_between_teams.py --from <uuid> --to <uuid> --since 2026-08-01 --execute
+    python scripts/reassign_games_between_teams.py --resume data/exports/<log>.csv --execute
     python scripts/reassign_games_between_teams.py --revert data/exports/<log>.csv --execute
 """
 
@@ -55,15 +59,27 @@ def load_env() -> None:
         load_dotenv()
 
 
-def get_supabase():
+def get_supabase(require_service_role: bool = False):
+    """Build the client, refusing an anon key for a run that will write.
+
+    Both link RPCs grant EXECUTE to ``postgres`` and ``service_role`` only, so an anon
+    key reads well enough for a preview and then fails on the first write. Refusing it
+    up front keeps a dry run that looked fine from being read as a rehearsal of a run
+    the credentials could never have completed.
+    """
     supabase_url = os.getenv("SUPABASE_URL") or os.getenv("NEXT_PUBLIC_SUPABASE_URL")
-    supabase_key = (
-        os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_KEY")
-    )
+    service_role_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_SERVICE_KEY")
+    supabase_key = service_role_key or os.getenv("SUPABASE_KEY")
     if not supabase_url or not supabase_key:
         raise ValueError(
             "Missing Supabase credentials. "
             "Need SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY/SUPABASE_SERVICE_KEY/SUPABASE_KEY."
+        )
+    if require_service_role and not service_role_key:
+        raise ValueError(
+            "Writing needs SUPABASE_SERVICE_ROLE_KEY or SUPABASE_SERVICE_KEY. "
+            "link_game_team and unlink_game_team are granted to service_role only, "
+            "so SUPABASE_KEY alone previews but cannot apply."
         )
     return create_client(supabase_url, supabase_key)
 
@@ -151,9 +167,34 @@ def write_log(rows: List[Dict], path: Path) -> None:
         writer.writerows(rows)
 
 
-def revert(supabase, log_path: Path, execute: bool) -> Dict[str, int]:
+def read_log(log_path: Path) -> List[Dict]:
+    """The rows a run intended to move, whatever it managed to record about them.
+
+    ``error`` is here because that is what a game half-way through a move is marked,
+    and it is the row most in need of finishing. So is ``moved``: the log lands before
+    the first write, so a run killed outright leaves every row claiming to be moved
+    when some were never touched. Both cases are safe to re-drive, because ``move_side``
+    reads the side before it writes and reports a game already sitting on its target.
+    """
     with log_path.open(encoding="utf-8") as f:
-        rows = [r for r in csv.DictReader(f) if r.get("action") == "moved"]
+        return [r for r in csv.DictReader(f) if r.get("action") in ("moved", "error")]
+
+
+def resume(supabase, log_path: Path, execute: bool) -> Dict[str, int]:
+    counts: Dict[str, int] = {}
+    for row in read_log(log_path):
+        if execute:
+            outcome = move_side(supabase, row["game_id"], row["side"], row["from_team_id"], row["to_team_id"])
+        else:
+            outcome = "would_" + ("finish" if read_side(supabase, row["game_id"], row["side"]) is None else "check")
+        if outcome != "already_moved":
+            print(f"  {row['game_date']}  {row['game_id'][:8]}  {row['side']:4s} -> {outcome}")
+        counts[outcome] = counts.get(outcome, 0) + 1
+    return counts
+
+
+def revert(supabase, log_path: Path, execute: bool) -> Dict[str, int]:
+    rows = read_log(log_path)
 
     counts: Dict[str, int] = {}
     for row in rows:
@@ -187,13 +228,30 @@ def main() -> None:
             "tell apart from the ones being moved out"
         ),
     )
+    parser.add_argument(
+        "--resume",
+        type=Path,
+        help=(
+            "Finish a previous run from its CSV log, addressing each game by id. This is the "
+            "only way back to a game whose unlink committed and whose link did not, because "
+            "that game names neither team on the moved side and no block query can reach it"
+        ),
+    )
     parser.add_argument("--revert", type=Path, help="Undo a previous run from its CSV log")
     args = parser.parse_args()
     # Fail safe: asking for both means the caller wants the preview.
     execute = args.execute and not args.dry_run
 
     load_env()
-    supabase = get_supabase()
+    supabase = get_supabase(require_service_role=execute)
+
+    if args.resume:
+        print(f"=== Resume {args.resume} ({'EXECUTE' if execute else 'DRY-RUN'}) ===")
+        counts = resume(supabase, args.resume, execute)
+        print()
+        for outcome in sorted(counts):
+            print(f"{outcome}: {counts[outcome]}")
+        return
 
     if args.revert:
         print(f"=== Revert {args.revert} ({'EXECUTE' if execute else 'DRY-RUN'}) ===")
@@ -272,8 +330,9 @@ def main() -> None:
             try:
                 row["action"] = move_side(supabase, row["game_id"], row["side"], args.from_team, args.to_team)
             except Exception as exc:
-                # An unlink that lands while its link fails leaves the side NULL. The row
-                # says so, and a rerun finishes it from there rather than starting over.
+                # An unlink that lands while its link fails leaves the side NULL, and the
+                # block query cannot select a game in that state. The log is the only
+                # handle left on it, so mark the row and stop: --resume takes it from here.
                 row["action"] = "error"
                 row["note"] = str(exc)[:200]
                 raise
