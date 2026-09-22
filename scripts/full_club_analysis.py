@@ -585,10 +585,33 @@ CLUB_CANONICAL_OVERRIDES = [
     ("TN", "norm", "Tri-Cities United SC", "Tri-Cities United SC"),
     ("TN", "exact", "Paris Soccer Club", "Paris FC"),
     ("TN", "exact", "Celtic Soccer Club (TN)", "Celtic Soccer Club"),
-    # Left apart deliberately: Music City SC against Music City Football Club, whose
-    # teams all read 'MCFC' but where no row spells the club out; Redoubt SA against
-    # Redoubt Soccer, a tie; and Nashville SC, the MLS club, against NASHVILLE FUTBOL
-    # CLUB, whose teams read 'NFC'.
+    # A second pass read off the club list. The regexes catch rows whose club field holds a
+    # team name carrying the club's own name or acronym.
+    ("TN", "exact", "All-IN Futbol Club", "All-In FC TN"),
+    ("TN", "regex", "^All-In FC TN[ ]", "All-In FC TN"),
+    ("TN", "exact", "Clarksville Soccer Club", "Clarksville SC"),
+    ("TN", "regex", "^Clarksville SC[ (]", "Clarksville SC"),
+    ("TN", "exact", "LAKEWAY SOCCER CLUB", "Lakeway Soccer Club"),
+    ("TN", "exact", "Lakeway Cannons", "Lakeway Soccer Club"),
+    ("TN", "exact", "Midsouth Bartlett Futbol Club", "Midsouth FC"),
+    ("TN", "exact", "Music City Football Club", "Music City SC"),
+    ("TN", "exact", "Music City FC (REYES)", "Music City SC"),
+    ("TN", "exact", "Nashville United Soccer ACD (NUSA)", "Nashville United Soccer Academy"),
+    ("TN", "regex", "^NUSA[ ]", "Nashville United Soccer Academy"),
+    ("TN", "exact", "B12/13 NUSA Navy (U14)", "Nashville United Soccer Academy"),
+    ("TN", "exact", "One Knoxville YC", "One Knoxville Youth Club"),
+    ("TN", "regex", "^One Knox[ ]", "One Knoxville Youth Club"),
+    ("TN", "exact", "Paris United Futbol Club", "Paris FC"),
+    ("TN", "exact", "Rampage Soccer Club", "Rampage SC"),
+    ("TN", "regex", "^Rampage U[0-9]", "Rampage SC"),
+    ("TN", "exact", "Redoubt Soccer", "Redoubt SA"),
+    ("TN", "exact", "U15 Redoubt General Black", "Redoubt SA"),
+    ("TN", "exact", "SOCCER CLUB OF OAK RIDGE", "Soccer Club of Oak Ridge"),
+    ("TN", "regex", "^Stones River (FC )?[0-9U]", "Stones River Futbol Club"),
+    ("TN", "exact", "Tennessee Soccer Club", "Tennessee SC"),
+    ("TN", "regex", "^Tennessee SC[ ]", "Tennessee SC"),
+    # Left apart deliberately: Nashville SC, the MLS club, against NASHVILLE FUTBOL CLUB,
+    # whose teams read "NFC". Music City and Redoubt were held here and are now decided.
     # Minnesota (4x each direction - pick St. Croix as canonical)
     ("MN", "exact", "St Croix Soccer Club", "St. Croix"),
     ("MN", "exact", "Minnesota Thunder Academy", "MN Thunder Academy"),
