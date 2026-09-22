@@ -2036,6 +2036,109 @@ CLUB_CANONICAL_OVERRIDES = [
     # Oregon Futbol Academy. One open question: whether Lincoln FC and Lincoln Youth
     # Soccer are one club -- Lincoln FC fields a team named "LYS 17B Red", but the two
     # acronyms are otherwise kept apart on their own teams.
+    # More Utah
+    ("UT", "exact", "Copper Mountain Soccer", "Copper Mountain"),
+    ("UT", "exact", "Utah Surf SC", "Utah Surf"),
+    ("UT", "exact", "7 Elite Academy (GB)", "7 Elite Academy"),
+    ("UT", "norm", "Northern Utah United Soccer", "Northern Utah United Soccer"),
+    ("UT", "exact", "SSFC", "Saratoga Springs FC"),
+    ("UT", "exact", "Atletico SC", "Atletico"),
+    ("UT", "exact", "Shooter Soccer Club", "Shooters SC"),
+    # "Summit SC" is deliberately not an entry: Utah's two teams under it read
+    # "summit fc MB" and were moved by team id, but New Jersey holds 27 teams under
+    # the same value and two more are stateless.
+    ("UT", "exact", "Ignite", "Ignite FC"),
+    ("UT", "exact", "Strikers SC", "Strikers FC"),
+    ("UT", "exact", "South Cache Soccer League", "South Cache SL"),
+    # WJFC is West Jordan FC's acronym and both spellings write it, so the one-team form
+    # is canonical.
+    ("UT", "exact", "West Jordan YS", "West Jordan FC"),
+    # Left apart: Utah Youth Soccer is the state body, fielding "Utah ODP"; Utah FC and
+    # Utah Athletic Club name themselves on their own teams; Magic United SC writes
+    # "SCSL MAGIC UNITED" against Magic FC's own name.
+    # More Arizona
+    ("AZ", "norm", "Phoenix Rising FC", "Phoenix Rising FC"),
+    ("AZ", "exact", "PHOENIX RISING", "Phoenix Rising FC"),
+    # The bare acronym is not a spelling, so the one-team full form is canonical for all
+    # 177 teams.
+    ("AZ", "exact", "FBSL", "Futbolito Bimbo Soccer League"),
+    ("AZ", "exact", "Futbolito Bimbo SL (FBSL)", "Futbolito Bimbo Soccer League"),
+    ("AZ", "exact", "fc tucson", "FC Tucson Youth Soccer"),
+    ("AZ", "exact", "FC Tucson Youth Soccer Club", "FC Tucson Youth Soccer"),
+    ("AZ", "exact", "Next Level Soccer - AZ", "Next Level Soccer (AZ)"),
+    ("AZ", "norm", "Vail SC", "Vail SC"),
+    ("AZ", "exact", "Canyon Del Oro SC    (CDO)", "Canyon Del Oro Soccer Club"),
+    ("AZ", "exact", "Southern Arizona SC   (SASC)", "Southern Arizona Soccer Club"),
+    ("AZ", "exact", "AZ Arsenal", "Arizona Arsenal Soccer Club"),
+    ("AZ", "exact", "Legends FC Arizona", "Legends FC AZ"),
+    ("AZ", "exact", "AYSO United Arizona", "AYSO United (az)"),
+    ("AZ", "exact", "East Valley FC/NSFC", "East Valley/NSFC"),
+    ("AZ", "exact", "Barca Residency Academy USA", "Barca Residency Academy"),
+    # Left apart: Arizona Soccer Association is the state body, fielding "AZ ODP";
+    # Arizona Soccer Academy writes ASA; Phoenix Premier FC is not Phoenix United Futbol
+    # Club; FC Elite Arizona is not FC Arizona; Tucson Elite SC is not FC Tucson. And
+    # "Legends FC AZ" is deliberately NOT folded into "FC Arizona" -- its teams read
+    # "Legends FC - Arizona - ...", which merely contains that club's name as a substring.
+    # Two open questions: the junk rows "Arizona (000)" and "Utah (000)", and "No Club
+    # Selection", five of whose six teams read "Arizona Soccer Club" but which is a
+    # provider placeholder that must never become a rule.
+    # Minnesota
+    ("MN", "exact", "MTA", "MN Thunder Academy"),
+    ("MN", "exact", "St. Croix Soccer Club", "St. Croix"),
+    ("MN", "exact", "Minneapolis United Soccer Club", "Minneapolis United"),
+    ("MN", "exact", "CC United", "CC United Soccer Club"),
+    # The bare acronym is not a spelling, so the seven-team full form is canonical.
+    ("MN", "exact", "EPSC", "Eden Prairie SC"),
+    ("MN", "norm", "Eden Prairie SC", "Eden Prairie SC"),
+    ("MN", "exact", "North Suburban Soccer Assn (NSSA)", "North Suburban SA"),
+    ("MN", "norm", "Park Valley United FC", "Park Valley United FC"),
+    ("MN", "exact", "Shakopee Soccer Assn (SSA)", "Shakopee SA"),
+    ("MN", "exact", "Central Minnesota Youth Soccer Association", "Central Minnesota Youth SA"),
+    ("MN", "exact", "Cottage Grove United SC  (CGU)", "Cottage Grove United SC"),
+    ("MN", "norm", "North Oaks Soccer Club", "North Oaks Soccer Club"),
+    ("MN", "exact", "Byron Youth Soccer Association", "Byron Futbol Club"),
+    ("MN", "exact", "Owatonna Soccer Assn", "Owatonna SA"),
+    ("MN", "exact", "Arrowhead Youth Soccer Association", "Arrowhead Youth SA"),
+    # All thirteen teams across these two read "St. Paul Blackhawks", which is a club
+    # value of 108 teams in its own right.
+    ("MN", "exact", "Saint Paul Blackhawks", "St. Paul Blackhawks"),
+    ("MN", "exact", "Saint Paul Blackhawks SC", "St. Paul Blackhawks"),
+    ("MN", "exact", "SHATTUCK-ST. MARY'S ACADEMY", "Shattuck-St. Mary's"),
+    ("MN", "exact", "Shattuck-St. Mary’s", "Shattuck-St. Mary's"),
+    ("MN", "exact", "Minnesota United", "Minnesota United FC"),
+    ("MN", "exact", "New Ulm United Soccer Club", "New Ulm United"),
+    ("MN", "exact", "Kmysa", "Kasson-Mantorville YSA"),
+    ("MN", "exact", "Faribault Soccer", "Faribault Soccer Club"),
+    ("MN", "norm", "Minnesota TwinStars Academy", "Minnesota TwinStars Academy"),
+    ("MN", "exact", "Waconia AA / Waconia Soccer Club", "Waconia SC"),
+    # Left apart: Minnesota Youth Soccer Association is the state body; Twin Cities
+    # Soccer Leagues fields "TCSL Reps" and is the league whose name appears in half this
+    # state's team names, not a spelling of Twin Cities Youth Soccer Club; and Lakes Area
+    # Youth Soccer Association fields "Brainerd United" rather than Lakes United FC.
+    # One open question: "Esko Soccer Club", whose one team is "CEC FC U12".
+    # More Missouri
+    ("MO", "exact", "St Louis Scott Gallagher", "St. Louis Scott Gallagher"),
+    ("MO", "norm", "Lou Fusz Athletic", "Lou Fusz Athletic"),
+    ("MO", "exact", "Missouri Rush Soccer Club", "Missouri Rush"),
+    ("MO", "exact", "Southwest MO Rush (SWMO)", "Southwest MO Rush"),
+    ("MO", "exact", "Sporting City Soccer", "Sporting City Soccer Club"),
+    ("MO", "exact", "AFA Fillies Sports", "AFA Fillies"),
+    ("MO", "exact", "United Capital City", "United Capital City Athletic"),
+    # Every team reads "REAL WC St. Louis", so the canonical restores the capitals the
+    # 35-team spelling lost.
+    ("MO", "exact", "Real Wc St. Louis Soccer Club", "Real WC St. Louis Soccer Club"),
+    ("MO", "exact", "Real WC St. Louis", "Real WC St. Louis Soccer Club"),
+    ("MO", "exact", "AJAX ST. LOUIS SC", "Ajax St Louis SC"),
+    ("MO", "exact", "Cottleville United FC (CUFC)", "Cottleville United"),
+    ("MO", "exact", "St Louis Legends SC", "St. Louis Legends SC"),
+    ("MO", "exact", "Hawks FC (st. Louis)", "Hawks FC"),
+    ("MO", "exact", "ST LOUIS CITY", "St. Louis City SC"),
+    # The bare acronym is not a spelling, so the one-team full form is canonical.
+    ("MO", "exact", "SUFC", "Southeast United FC"),
+    ("MO", "exact", "Moberly Area Soccer Association", "Moberly Area SA"),
+    ("MO", "exact", "WGSC Soccer", "Webster Groves SC"),
+    ("MO", "exact", "Webster Groves SC (WGSC)", "Webster Groves SC"),
+    ("MO", "exact", "United St. Louis Academy", "United STL Academy"),
 ]
 
 # Acronyms to keep uppercase
