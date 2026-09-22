@@ -1408,7 +1408,13 @@ CLUB_CANONICAL_OVERRIDES = [
     # All twelve of its teams are named "AFC Union ...", which is the club Racine's
     # association now plays as.
     ("WI", "exact", "Racine Area Soccer Association", "AFC Union"),
-    ("WI", "exact", "No Club Selection", "FC Wisconsin"),
+    # "No Club Selection" is deliberately not an entry, although Wisconsin's four
+    # teams under it do all read "FC WISCONSIN - ..." and were moved by team id.
+    # It is a provider placeholder rather than a club -- 1,594 teams carry it
+    # nationally and 1,349 of those have no state -- so an entry here would have
+    # renamed every stateless one to FC Wisconsin through analyze_no_state_teams,
+    # pooling unrelated teams under a real club. src/utils/placeholder_clubs.py
+    # holds the full set and tests/unit/test_placeholder_clubs.py guards it.
     ("WI", "exact", "East Troy SC", "East Troy SC 43"),
     ("WI", "exact", "Sauk Prairie SC", "Sauk Prairie Strikers"),
     (
