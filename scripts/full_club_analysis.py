@@ -1563,6 +1563,24 @@ CLUB_CANONICAL_OVERRIDES = [
     ("NJ", "exact", "Montville Soccer Association", "Montville SA"),
     ("NJ", "exact", "Neptune SA", "Neptune Soccer Association"),
     ("NJ", "norm", "Northern Valley SC", "Northern Valley Soccer Club"),
+    ("NJ", "norm", "Princeton FC", "Princeton FC"),
+    ("NJ", "norm", "Real Futbol Academy", "Real Futbol Academy"),
+    # Both of these are the same shape: a club's MLS NEXT sides filed under a shorter
+    # spelling of its name, beside the main club. "The Football Academy" holds only
+    # "U18 HD"/"U14 AD" rows, and "Tsf Academy" only "U17 AD"/"U19 HD" ones.
+    ("NJ", "exact", "The Football Academy", "The Football Academy NJ"),
+    ("NJ", "exact", "Tsf Academy", "TSF Academy - NJ"),
+    ("NJ", "exact", "Voorhees", "Voorhees SA"),
+    ("NJ", "norm", "West Deptford SC", "West Deptford SC"),
+    ("NJ", "exact", "WSA/Union County FC (UCFC)", "WSA"),
+    # Left apart deliberately, each on its team names rather than on its club name:
+    #   "Pro Soccer Academy LLC (NJ)" abbreviates to PSA and its two teams are named
+    #     "PSA" and "PSA Select 2016", but PSA in this state is Princeton Soccer Academy
+    #     -- its teams read "PSA Princeton", "PSA Monmouth" and "PSA North", and two
+    #     entries above already resolve Princeton's spellings to it. Two clubs, one
+    #     acronym, the same shape as Pinelands SA against PSA.
+    #   Union Beach Soccer Club writes UB and fields Force, Storm and Hericanes; Union
+    #     City Soccer Club writes "UnionCity-B17-Samaniego". Two boroughs, two acronyms.
 ]
 
 # Acronyms to keep uppercase
