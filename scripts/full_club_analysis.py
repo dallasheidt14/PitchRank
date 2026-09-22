@@ -1462,7 +1462,11 @@ CLUB_CANONICAL_OVERRIDES = [
     ("OK", "exact", "Edmond Soccer Club (esc)", "Edmond SC"),
     ("OK", "exact", "Broken Arrow Express SC", "Broken Arrow Express"),
     ("OK", "exact", "Midwest City Soccer Club  (MWCSC)", "Midwest City SC"),
-    ("OK", "norm", "South Lakes SC", "South Lakes SC"),
+    # One club, per the owner on 2026-09-22. 109 of the 110 teams filed under "South
+    # Lakes SC" are named "Oklahoma Cosmos ...", so that spelling is canonical for all
+    # 157 even though it holds fewer rows. The norm form also carries the "(SLSC)"
+    # tagged spelling. Southlake Soccer stays apart: none of its 16 teams reads Cosmos.
+    ("OK", "norm", "South Lakes SC", "Oklahoma Cosmos"),
     ("OK", "norm", "Stillwater SC", "Stillwater SC"),
     ("OK", "exact", "Union Tulsa FC", "Union FC Tulsa"),
     ("OK", "exact", "Unión Tulsa Blue Fc", "Union FC Tulsa"),
