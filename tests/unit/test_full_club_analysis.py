@@ -374,6 +374,61 @@ def test_every_override_output_is_written_the_way_a_club_is():
             assert all(fca.looks_like_acronym(w) for w in words), (state, output)
 
 
+def _overrides_that_rename(canonical, state, self_):
+    """The other entries in `state` that would themselves rename `canonical`.
+
+    Derived from the list rather than enumerated, so an entry added tomorrow is covered
+    without anyone remembering to list it.
+    """
+    return [
+        (mtype, pattern, output)
+        for st, mtype, pattern, output in fca.CLUB_CANONICAL_OVERRIDES
+        if st == state
+        and (mtype, pattern, output) != self_
+        and fca._matches_override(canonical, mtype, pattern)
+        and output != canonical
+    ]
+
+
+def test_no_override_names_a_canonical_that_another_override_renames_back():
+    """A reciprocal pair swaps two spellings forever and never consolidates them.
+
+    `analyze_state` matches every club name against the data as it was read, not against
+    the names its own earlier fixes produce. So where one entry maps A to B and another
+    maps B to A, a state holding both spellings emits both updates in the same run, the
+    two names trade places, and the next weekly run trades them back. The duplicate the
+    entries exist to remove survives every run.
+    """
+    loops = []
+    for state, mtype, pattern, canonical in fca.CLUB_CANONICAL_OVERRIDES:
+        if canonical == pattern:
+            continue
+        self_ = (mtype, pattern, canonical)
+        for m2, p2, out2 in _overrides_that_rename(canonical, state, self_):
+            if out2 == pattern or fca._matches_override(out2, mtype, pattern):
+                loops.append(f"{state}: {pattern!r}->{canonical!r} vs {p2!r}->{out2!r}")
+    assert not loops, "reciprocal overrides swap their two spellings on every run: " + "; ".join(loops)
+
+
+def test_no_override_names_a_canonical_that_another_override_moves_on_from():
+    """A canonical some other entry renames is a spelling that has been retired.
+
+    Three of these appeared the first time this was checked, each left behind when a
+    spelling folded away and the entries pointing at it were not redirected. They do not
+    loop, but a team reaches its final name only on the second weekly run, and the entry
+    reads as though it resolves something it does not.
+    """
+    chains = []
+    for state, mtype, pattern, canonical in fca.CLUB_CANONICAL_OVERRIDES:
+        if canonical == pattern:
+            continue
+        self_ = (mtype, pattern, canonical)
+        for m2, p2, out2 in _overrides_that_rename(canonical, state, self_):
+            if out2 != pattern and not fca._matches_override(out2, mtype, pattern):
+                chains.append(f"{state}: {pattern!r}->{canonical!r}, but {p2!r}->{out2!r}")
+    assert not chains, "these canonicals are spellings another override retires: " + "; ".join(chains)
+
+
 def test_a_name_needs_four_letters_to_count_as_all_caps():
     vocabulary = Vocabulary(spellings={"fox": "Fox", "foxy": "Foxy"}, mixed_names={})
     assert proper_case("FOX", vocabulary) == "FOX"

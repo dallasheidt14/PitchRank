@@ -51,7 +51,8 @@ CLUB_CANONICAL_OVERRIDES = [
     ("WA", "exact", "PacNW", "Pacific Northwest SC"),
     ("WA", "exact", "Pacific FC Washington", "Pacific FC"),
     ("WA", "exact", "Washington Premier", "Washington Premier FC"),
-    ("WA", "exact", "Wenatchee FC Youth", "Wenatchee FC"),
+    # Redirected when "Wenatchee FC" itself folded into the 87-team "Wenatchee FA".
+    ("WA", "exact", "Wenatchee FC Youth", "Wenatchee FA"),
     ("WA", "regex", r"Eastside FC\s*\(wa\)\s*$", "Eastside FC"),
     ("WA", "regex", r"Atletico\s*\(wa\)\s*$", "Atletico FC"),
     ("WA", "prefix", "NW United", "Northwest United FC"),
@@ -251,7 +252,7 @@ CLUB_CANONICAL_OVERRIDES = [
     ("NC", "exact", "Triad Union FC Inc.", "Triad Union FC"),
     ("NC", "exact", "Triangle United Soccer Association", "Triangle United"),
     ("NC", "exact", "United Soccer Club", "United Soccer Club NC"),
-    ("NC", "exact", "Wesley Chapel Weddington AA", "Wesley Chapel Weddington Athletic Association"),
+    ("NC", "exact", "Wesley Chapel Weddington AA", "Wesley Chapel Weddington Athletic Assoc"),
     # Texas
     ("TX", "exact", "El Paso Locomotive Youth Soccer Club", "El Paso Locomotive FC"),
     ("TX", "exact", "FC Dallas Youth", "FC Dallas"),
@@ -451,7 +452,11 @@ CLUB_CANONICAL_OVERRIDES = [
     # Wisconsin
     ("WI", "exact", "FC WISCONSIN BOYS", "FC Wisconsin"),
     ("WI", "exact", "FC WISCONSIN GIRLS", "FC Wisconsin"),
-    ("WI", "exact", "Jefferson County Soccer Association", "Jefferson United SC"),
+    # Redirected when "Jefferson United SC" itself folded away: all three Jefferson
+    # spellings field "JC United" teams, and "Jefferson County SC" is the majority.
+    ("WI", "exact", "Jefferson County Soccer Association", "Jefferson County SC"),
+    ("WI", "exact", "Jefferson County United SC", "Jefferson County SC"),
+    ("WI", "exact", "Jefferson United SC", "Jefferson County SC"),
     ("WI", "exact", "WI United", "Wisconsin United FC"),
     # Missouri
     ("MO", "exact", "Alliance FC", "Alliance Futbol Club (MO)"),
@@ -935,7 +940,8 @@ CLUB_CANONICAL_OVERRIDES = [
     ("OH", "exact", "club ohio united", "Club Ohio"),
     ("OH", "exact", "columbus crew u16", "Columbus Crew"),
     ("OH", "exact", "croatia juniors", "Croatia Jrs"),
-    ("OH", "exact", "Cuyahoga valley soccer aca", "Cuyahoga Valley SA"),
+    # Redirected when "Cuyahoga Valley SA" itself folded away; both spellings are CVSA.
+    ("OH", "exact", "Cuyahoga valley soccer aca", "Cuyahoga Valley Soccer Academy"),
     ("OH", "exact", "Blast FC Academy", "Blast FC Soccer Academy"),
     # Colorado
     ("CO", "exact", "ALBION SC CO", "Albion SC Colorado"),
@@ -971,18 +977,19 @@ CLUB_CANONICAL_OVERRIDES = [
     # Kentucky
     ("KY", "exact", "Kentucky Rush - Hardin", "Kentucky Rush SC"),
     ("KY", "exact", "Lexington Sporting Club", "Lexington Sporting"),
-    ("KY", "exact", "Louisville City Academy", "LouCity/ Racing Youth Academy"),
-    ("KY", "exact", "Racing Louisville Academy", "LouCity/ Racing Youth Academy"),
-    ("KY", "exact", "Racing Louisville FC", "LouCity/ Racing Youth Academy"),
+    ("KY", "exact", "Louisville City Academy", "LouCity / Racing Youth Academy"),
+    ("KY", "exact", "Racing Louisville Academy", "LouCity / Racing Youth Academy"),
+    ("KY", "exact", "Racing Louisville FC", "LouCity / Racing Youth Academy"),
     ("KY", "exact", "West louisville Soccer", "West Louisville Soccer Club"),
     # Illinois
     ("IL", "exact", "Addison United AUSC Eagles", "Addison United"),
     ("IL", "exact", "BLFC", "Bloomingdale Lightning FC"),
     ("IL", "exact", "Celtic FC", "Celtic FC Chicago"),
     ("IL", "exact", "Chicago Celtic SC", "Celtic FC Chicago"),
-    ("IL", "exact", "Chicago Fire FC U16", "Chicago Fire Youth SC (CFYSC)"),
-    ("IL", "exact", "Chicago Fire Youth SC", "Chicago Fire Youth SC (CFYSC)"),
-    ("IL", "exact", "Chicago Fire FC", "Chicago Fire Youth SC (CFYSC)"),
+    # Redirected when the "(CFYSC)" spelling folded away; pointing these at it left a
+    # reciprocal pair that swapped the two names on every weekly run.
+    ("IL", "exact", "Chicago Fire FC U16", "Chicago Fire Youth SC"),
+    ("IL", "exact", "Chicago Fire FC", "Chicago Fire Youth SC"),
     ("IL", "exact", "Chicago Inter Soccer", "Chicago Inter"),
     ("IL", "exact", "Chicago Soccer Academy", "Chicago Soccer Academy (CSA)"),
     ("IL", "exact", "FC Stars", "FC Stars (il)"),
@@ -992,7 +999,7 @@ CLUB_CANONICAL_OVERRIDES = [
     ("AZ", "exact", "ARIZONA ARSENAL", "Arizona Arsenal Soccer Club"),
     ("AZ", "exact", "brazas", "Brazas Futebol Club"),
     ("AZ", "exact", "CCV Stars", "CCV Stars"),
-    ("AZ", "exact", "fbsl tuzos", "FBSL"),
+    ("AZ", "exact", "fbsl tuzos", "Futbolito Bimbo Soccer League"),
     ("AZ", "exact", "fc tucson youth sc", "FC Tucson Youth Soccer"),
     ("AZ", "exact", "Next Level Soccer AZ", "Next Level Soccer (AZ)"),
     ("AZ", "exact", "Phoenix Premier", "Phoenix Premier FC"),
@@ -1111,6 +1118,1167 @@ CLUB_CANONICAL_OVERRIDES = [
     ("CA", "exact", "LAMORINDA SOCCER CLUB", "Lamorinda SC"),
     # Mississippi
     ("MS", "exact", "MS Futbol Club", "Mississippi Rush"),
+    # Maryland
+    # "DC" is a state code, so club_acronym drops it to "d" and the redundant-tag
+    # fold never sees (DCSC) repeating the name. Named exactly instead.
+    ("MD", "exact", "DC Soccer Club (DCSC)", "DC Soccer Club"),
+    ("MD", "exact", "Lutherville Timonium SC (LTSC)", "Lutherville Timonium Soccer Club"),
+    (
+        "MD",
+        "exact",
+        "Greater Severna Park Athletic Association",
+        "Greater Severna Park Athletic Assoc",
+    ),
+    ("MD", "exact", "Severna Park Soccer", "Greater Severna Park Athletic Assoc"),
+    ("MD", "exact", "Towson United SC", "Towson United"),
+    ("MD", "exact", "Catonsville Youth Soccer League", "Catonsville Soccer"),
+    ("MD", "exact", "Broadneck SC (BAYS)", "Broadneck Soccer Club"),
+    ("MD", "exact", "Baltimore Bays", "Baltimore Bays Soccer Club"),
+    ("MD", "exact", "A3 Soccer Club", "A3 Soccer"),
+    # Future FC already fields five "Future Monarchs" teams of its own, so the four rows
+    # under "Future Soccer Club" are the same club's Monarchs squads, not a second club.
+    ("MD", "exact", "Future Soccer Club", "Future FC"),
+    # CCSC is Central Carroll's own tag -- its teams read "CCSC B2016/17 Lightning
+    # Yellow", and the neighbouring North Carroll Soccer Club writes NCSC.
+    ("MD", "exact", "CCSC", "Central Carroll Soccer Club"),
+    # All 27 rows read "Westminster United ..." in their team names. WSA is an all-caps
+    # acronym rather than a spelling of the name, so the one-team full form is canonical.
+    ("MD", "exact", "WSA", "Westminster Soccer Association"),
+    ("MD", "exact", "Davidsonville Athletic Assn", "Davidsonville Football Club"),
+    ("MD", "exact", "Cecil FC", "Cecil Soccer League"),
+    ("MD", "exact", "CECIL SOCCER", "Cecil Soccer League"),
+    # All four rows read "... Youth Academy ..." in their team names.
+    ("MD", "exact", "Maryland Bobcats FC", "Maryland Bobcats Youth Academy"),
+    ("MD", "exact", "Harundale Youth Soccer", "Harundale Youth Sports League"),
+    # Legal suffix, so the clean form is canonical even at 13 teams against 1.
+    ("MD", "exact", "Mount Washington Soccer Club, Inc.", "Mount Washington SC"),
+    # The acronym in every one of these teams' names is PPA, never TPPA, so the article
+    # is not part of the club's name -- canonical against a 40-to-8 majority.
+    ("MD", "exact", "The Player Progression Academy", "Player Progression Academy"),
+    ("MD", "norm", "Player Progression Academy", "Player Progression Academy"),
+    (
+        "MD",
+        "exact",
+        "Liverpool FCIA Maryland",
+        "Liverpool FC International Academy Maryland",
+    ),
+    ("MD", "exact", "Liverpool FC IA", "Liverpool FC International Academy Maryland"),
+    ("MD", "exact", "Harford Football Club (HFC United)", "Harford FC United"),
+    (
+        "MD",
+        "exact",
+        "Olney Boys/Girls Sports Assn (OBGC)",
+        "Olney Boys and Girls Club Community Sports Association",
+    ),
+    ("MD", "exact", "Achilles FC U16", "Achilles FC"),
+    (
+        "MD",
+        "exact",
+        "Jr. Eagles (FSK)- Tournament Team",
+        "Francis Scott Key Jr Eagles Soccer Club",
+    ),
+    ("MD", "exact", "Independent - Maryland", "MD Independent"),
+    # Soccer Association of Columbia and Baltimore Armour are two brands in one
+    # partnership, and their own team names separate them cleanly: all 109 rows under
+    # "SAC/BA" read "SAC Boys U10 - Pre-MLS NEXT", and all 12 under "Baltimore Armour/SAC"
+    # read "BA 2017" or "2009 GA" or "2010 Aspire" and never SAC. The SAC canonical is a
+    # clean name no row holds, because every live spelling either abbreviates the club
+    # away or carries the partner brand.
+    ("MD", "exact", "SAC/BA", "Soccer Association of Columbia"),
+    ("MD", "exact", "SA of Columbia", "Soccer Association of Columbia"),
+    ("MD", "exact", "Soccer Assn Of Columbia(SAC United)", "Soccer Association of Columbia"),
+    ("MD", "exact", "Baltimore Armour/SAC", "Baltimore Armour"),
+    # Left apart deliberately, each on its team names rather than on its club name:
+    #   Silver Spring FC fields "Sky Blue" and "Sapphire"; Silver Spring Soccer Club
+    #     writes SSSC and fields "Sharks" and "Spirit". Two clubs, two acronyms.
+    #   Ellicott City Soccer Club's teams read "CiTY 2016 Boys Yellow"; FC Ellicott City
+    #     names itself in full on every team.
+    #   BUSA Frederick is a place appended to the club's own name, which is the shape of
+    #     a branch; its teams read "BUSA Frederick Boys 15/16".
+    #   BRAUSA (Brausa United Futebol Club) and BUSA (Brazilian United Soccer Academy)
+    #     are different acronyms on different teams.
+    #   "Bethesda SC - Hagerstown" fields "BSC-H U15 Academy I" -- a branch, not a spelling.
+    #   Towsontowne Soccer is not Towson United, and South Bowie is not Bowie.
+    #   "Maryland Independent M.U.S.C." and "Arundel FC" are open questions, not holds:
+    #     MUSC's three teams read "Maryland United S.C 2011" against Maryland United FC's
+    #     own "Maryland United FC ..." spelling, and Arundel FC's only team is named "U16".
+    # Indiana
+    ("IN", "exact", "Indy Premier", "Indy Premier SC"),
+    # Its three teams read "Premier GA U14" -- the club name was split at its own space,
+    # leaving the first word as the club and the rest as the team.
+    ("IN", "exact", "Indy", "Indy Premier SC"),
+    # Ten rows whose club field holds the team's own label. Aspire and Inspire are Girls
+    # Academy tiers rather than branches, so they belong to the club like the rest.
+    ("IN", "regex", r"^Indy Premier (U\d{1,2}[BG]|Fall HS|Aspire|Inspire)\b", "Indy Premier SC"),
+    ("IN", "exact", "Indy Eleven", "Indy Eleven Academy"),
+    # All 19 rows read "Zionsville Youth Soccer Association - ...", two of them ending
+    # "- Union FC Ind". ZYSA is this club's former name and holds no club value of its own.
+    ("IN", "norm", "Union FC Indy", "Union FC Indy"),
+    ("IN", "exact", "Westside United", "Westside United FC"),
+    ("IN", "exact", "Columbus Express Soccer Club", "Columbus Express"),
+    # Every one of the 100 teams reads USAI. The all-caps acronym is not a spelling of
+    # the club's name, so the full form is canonical even at 26 rows against 73.
+    ("IN", "exact", "USAI", "United Soccer Alliance of Indiana"),
+    ("IN", "exact", "USA of Indiana", "United Soccer Alliance of Indiana"),
+    ("IN", "norm", "Elkhart County United", "Elkhart County United"),
+    ("IN", "norm", "Bloomington Football Club", "Bloomington Football Club"),
+    ("IN", "exact", "Delaware County FC   (DCFC)", "Delaware County Futbol Club"),
+    ("IN", "exact", "Millennium SA", "Millennium Soccer Association"),
+    ("IN", "exact", "Millenium Soccer Association", "Millennium Soccer Association"),
+    ("IN", "norm", "Circle City FC", "Circle City FC"),
+    ("IN", "exact", "Komets FC", "Komets Soccer Club"),
+    ("IN", "exact", "Southern Indiana FC", "Southern Indiana FC Youth Academy"),
+    ("IN", "norm", "Blue River SA", "Blue River SA"),
+    # Both spellings field German-named teams -- "FWSC U15G Koln", "FWSC 2009B
+    # Osnabruck". Fort Wayne United FC is a different club and stays apart.
+    ("IN", "exact", "Fort Wayne SC (FWSC)", "Fort Wayne Sport Club"),
+    ("IN", "exact", "Hoosier Premier U16", "Hoosier Premier"),
+    # Warsaw Travel SC already fields "Warsaw Wave Rapids", "Wave Storm" and "Wave Crush",
+    # so "the Wave" in the club name is its own programme rather than a second club.
+    ("IN", "exact", "Warsaw Travel Soccer - the Wave", "Warsaw Travel SC"),
+    ("IN", "exact", "South Central Soccer Academy", "South Central Soccer Academy Eleven"),
+    # One spelling is the bare acronym and the other repeats it after the full name, so
+    # the canonical is a clean form neither row holds.
+    ("IN", "exact", "SWISA", "Southwest Indiana SA"),
+    ("IN", "exact", "Southwest Indiana SA -  SWISA", "Southwest Indiana SA"),
+    # Left apart deliberately, each on its team names rather than on its club name:
+    #   Indy Eleven North and Indy Eleven Spirit name themselves on every team; both are
+    #     branches, and a branch is its own club.
+    #   FC Midwest Academy Kendallville is a place appended to the club's own name.
+    #   Fort Wayne United FC fields "CFC U15 Boys" and "FWU U19 Boys NAL", never FWSC.
+    #   Southern Indiana United writes SIU; Southern Indiana FC writes its name in full.
+    #   Hoosier Premier's teams are all "U16 HD"/"U18 AD"; Hoosier Futbol Club's read
+    #     "Hoosier FC". Different acronyms, different competitions.
+    #   Michiana Echo Soccer Club is not Michiana Soccer Association.
+    # Three open questions, not holds: "Northern Indiana FC" and "Northern Indiana
+    # Express" both field NIE teams that Elkhart County United also fields; "NIFC
+    # Academy" holds teams of at least three clubs; and "NORTHWOOD SC Pumas" is a team
+    # name in the club field whose own two teams are named "Colorado United 2012b Gold".
+    # Alabama
+    ("AL", "exact", "Alabama Rush Soccer", "Alabama Rush"),
+    ("AL", "norm", "Hoover-Vestavia Soccer", "Hoover-Vestavia Soccer"),
+    ("AL", "exact", "Tuscaloosa United SC (tusc)", "Tuscaloosa United Soccer Club"),
+    ("AL", "norm", "Phoenix FC AL", "Phoenix FC AL"),
+    ("AL", "exact", "Phoenix FC 2014-15B Black", "Phoenix FC AL"),
+    ("AL", "exact", "Phoenix FC Boys HS Showcase", "Phoenix FC AL"),
+    # The state tag stays here, unlike the Texas "Strikers FC" case: AYSO United is a
+    # national franchise whose state is part of which club this is, and Utah already
+    # holds a separate AYSO United of its own.
+    ("AL", "norm", "AYSO United (Alabama)", "AYSO United (Alabama)"),
+    ("AL", "exact", "Madison Blaze", "Madison Blaze Soccer Club"),
+    # Eleven of the twelve "Prattville United SC" rows carry a team named "Prattville
+    # United FC", and the five FC rows read PUFC, so the minority spelling is the club's.
+    ("AL", "exact", "Prattville United SC", "Prattville United FC"),
+    ("AL", "norm", "Gardendale SC", "Gardendale SC"),
+    ("AL", "exact", "Alexander City Youth/Club Soccer", "Alexander City Club Soccer"),
+    ("AL", "exact", "Decatur City FC", "Decatur City Fútbol Club"),
+    # All three of its teams are named "Decatur City FC 09 Boys" and the like, and no
+    # other row in the state names River City.
+    ("AL", "exact", "River City United SC", "Decatur City Fútbol Club"),
+    ("AL", "exact", "Marshall  United Futbol Club", "Marshall United FC"),
+    ("AL", "norm", "Club Independent", "Club Independent"),
+    ("AL", "exact", "Enterprise United", "Enterprise United SC"),
+    # "Asso" is a truncation rather than an abbreviation anyone writes, so the canonical
+    # is the full form even though it is the spelling with the most teams behind it.
+    ("AL", "exact", "Springville Youth Soccer Asso", "Springville Youth Soccer Association"),
+    ("AL", "exact", "Springville Youth Soccer Assn", "Springville Youth Soccer Association"),
+    ("AL", "exact", "Springville Youth Soccer", "Springville Youth Soccer Association"),
+    ("AL", "norm", "Birmingham United SA", "Birmingham United SA"),
+    ("AL", "norm", "Enterprise Select SC", "Enterprise Select SC"),
+    ("AL", "exact", "Enterprise Select", "Enterprise Select SC"),
+    ("AL", "exact", "Huntsville City FC", "Huntsville City FC Academy"),
+    ("AL", "exact", "Rebano Chivas Alabama", "Rebaño Chivas Alabama"),
+    ("AL", "exact", "Moody Soccer Club", "Moody Youth Soccer Club"),
+    ("AL", "norm", "Moody Youth Soccer Club", "Moody Youth Soccer Club"),
+    # Six rows whose club field is the team's own label, character for character. The
+    # pattern stops short of "Alabama FC South", "Alabama FC Huntsville" and the five
+    # rows carrying a North or South marker, which are branch questions still open.
+    ("AL", "regex", r"^Alabama FC (ECNL|N1 Boys|Red [12]$|U12 Pre-ENCL)", "Alabama FC"),
+    # AFCHSV-USC spells out the club; its teams read "AFC HSV 2013 Boys Black". The bare
+    # "AFC ..." rows are left alone because AFC is also Alabama FC's acronym.
+    ("AL", "regex", r"^(AFCHSV[ -]|AFC Huntsville Premier$)", "AFCHSV/United SC"),
+    ("AL", "exact", "Cottontown United 2015", "Cottontown United Soccer Club"),
+    ("AL", "exact", "K Cottontown United 13/14 Boys", "Cottontown United Soccer Club"),
+    ("AL", "exact", "Athletic SC AL 2015/16 Boys Premier", "Athletic SC Alabama"),
+    ("AL", "exact", "Athletic SC AL 2016/17 Boys Academy Elite", "Athletic SC Alabama"),
+    ("AL", "exact", "Athletic SC Alabama N1 Boys 2012/2013 Premier", "Athletic SC Alabama"),
+    # Each spelling holds teams named the other way -- "NOW SWARM FC N1 Boys" sits under
+    # NOW FC and "NOW FC 2012" under NOW Swarm FC -- so they are one club.
+    ("AL", "exact", "NOW Swarm FC", "NOW FC"),
+    ("AL", "exact", "NOW SWARM FC U12 White", "NOW FC"),
+    ("AL", "norm", "North Star Soccer Club", "North Star Soccer Club"),
+    ("AL", "exact", "Total Futbol Club - Alabama", "Total Futbol Club"),
+    (
+        "AL",
+        "exact",
+        "Smiths Station United SA / SUFC",
+        "Smiths Station United Soccer Association",
+    ),
+    ("AL", "exact", "CLUB AMERICA NIDO AGUILA", "Nido Aguila"),
+    # BAH is Barca Academy Hoover, which already fields "Bah U10b Daurat" and
+    # "Bah U12b Grana" under its own name.
+    ("AL", "exact", "Bah U10b Blau", "Barca Academy - Hoover"),
+    ("AL", "exact", "Bah U11b Blau", "Barca Academy - Hoover"),
+    ("AL", "exact", "VERO FC", "Vero FC"),
+    ("AL", "exact", "VERO FC NASC SCCL B2014/15 Premier", "Vero FC"),
+    # Left apart deliberately, each on its team names rather than on its club name:
+    #   Prattville Elite FC writes PEFC, not PUFC.
+    #   Decatur Soccer fields "Decatur Soccer PDP" teams and is not Decatur City FC.
+    #   Opelika Crush SC is not Opelika Soccer Asso.
+    #   Alabama FC South and Fultondale SC ("busa fultondale 2011") are branches.
+    #   Phoenix Football Club's one team reads "Phoenix FC 2013/2014 Boys", but Maryland
+    #     holds a real 17-team club of that name, so an exact rule on the string would
+    #     reach stateless teams elsewhere. Left for a decision.
+    # Five open questions, not holds: what Vero FC is (its 95 teams name NASC, Athletic
+    # SC Alabama and Shoals SC, and Cullman United fields "CUSC Vero FC 2012B Elite");
+    # whether the six North/South/Huntsville "Alabama FC" rows belong to the parent or a
+    # branch; which club the five bare "AFC ..." rows are; and whether Club Independent,
+    # every one of whose teams reads "Hampton Cove SC", should be renamed to it.
+    # New Hampshire
+    ("NH", "exact", "Seacoast United SC", "Seacoast United"),
+    # Thirty-eight of these forty-two teams are named "Seacoast United Bedford ...", and
+    # the club value they name already exists. Massachusetts maps the same spelling to
+    # "Seacoast United Massachusetts", which is that state's Seacoast programme; here the
+    # MA teams sit under "Seacoast United (MA)" instead and are left alone.
+    ("NH", "exact", "Seacoast of Bedford", "Seacoast United Bedford"),
+    ("NH", "exact", "Become Elite Soccer SC", "Become Elite Soccer"),
+    ("NH", "exact", "Nashua Youth SL   (NYSL)", "Nashua Youth Soccer League"),
+    ("NH", "norm", "Windham Soccer Association", "Windham Soccer Association"),
+    (
+        "NH",
+        "exact",
+        "Exeter Youth Soccer Assn",
+        "Exeter Youth Soccer Association - FC Exeter",
+    ),
+    ("NH", "exact", "Oyster River Youth Soccer Assn", "Oyster River United"),
+    # The 36 rows already under "FC Stars" are almost all "FC Stars New Hampshire" teams,
+    # so this state's branch is filed there; Illinois keeps its own "FC Stars (il)".
+    ("NH", "exact", "FC Stars NH", "FC Stars"),
+    # Left apart deliberately, each on its team names rather than on its club name:
+    #   Manchester Lightning is not Lightning SC, whose teams read "Lightning Soccer Club".
+    #   Team Exeter fields "TEAM EXETER BULLDOGS"; Exeter YSA fields "FC Exeter".
+    #   Fieldhouse Sports fields "Ballers FC"; The Fieldhouse at Homestead Mills fields FAC.
+    #   Bedford Athletic Club writes "BAC Bulldogs" and is not Seacoast's Bedford branch.
+    #   "Seacoast United (MA)" is that branch's own name; its teams sitting on New
+    #     Hampshire states is a state question, not a naming one.
+    # More Wisconsin
+    ("WI", "exact", "Milwaukee Kickers SC (MKSC)", "Milwaukee Kickers Soccer Club"),
+    # Its teams are the same mix the parent holds -- "MKSC Union", "AC Toros",
+    # "Milwaukee Kickers 07G DPL" -- so Academy is a tier here, not a branch.
+    ("WI", "exact", "Milwaukee Kickers Academy", "Milwaukee Kickers Soccer Club"),
+    ("WI", "exact", "Milwaukee Kickers - Tosa", "Milwaukee Kickers Soccer Club - Tosa"),
+    (
+        "WI",
+        "exact",
+        "Milwaukee Kickers - Mukwonago",
+        "Milwaukee Kickers Soccer Club - Mukwonago",
+    ),
+    ("WI", "exact", "North Shore United", "North Shore United Soccer Club"),
+    ("WI", "exact", "Germantown Soccer Club - NSU", "North Shore United Soccer Club"),
+    ("WI", "exact", "Madison 56ers Soccer Club", "Madison 56ers"),
+    ("WI", "exact", "Croatian Eagles", "Croatian Eagles SC"),
+    # The acronym on both sides is BUSC, and one of the 59 short-form rows is a team
+    # literally named "SC" -- the club name was split at its last word. So the minority
+    # spelling is the club's own, even at 44 rows against 59.
+    ("WI", "exact", "Bavarian United", "Bavarian United SC"),
+    ("WI", "norm", "Lakeshore United FC", "Lakeshore United FC"),
+    ("WI", "exact", "Lakeshore United 14U Navy Boys", "Lakeshore United FC"),
+    ("WI", "exact", "RUSH Wisconsin Soccer Club", "RUSH Wisconsin"),
+    ("WI", "exact", "Rush WI", "RUSH Wisconsin"),
+    ("WI", "norm", "RUSH Wisconsin West", "RUSH Wisconsin West"),
+    ("WI", "exact", "RUSH WI West", "RUSH Wisconsin West"),
+    ("WI", "exact", "Rush Union WI", "Rush Union Wisconsin"),
+    ("WI", "exact", "Rock Soccer Club", "Rock SC Rush"),
+    ("WI", "norm", "Capital East SC", "Capital East SC"),
+    ("WI", "exact", "Forward Madison FC Youth", "Forward Madison FC"),
+    ("WI", "exact", "Forward Madison", "Forward Madison FC"),
+    ("WI", "exact", "Let Kids Fly (lkf - Hawk Soccer)", "Let Kids Fly"),
+    ("WI", "exact", "Fond Du Lac SA", "Fond du Lac Soccer Association"),
+    ("WI", "exact", "Street Dreams", "Street Dreams Soccer Academy"),
+    ("WI", "norm", "Portage County Youth Soccer", "Portage County Youth Soccer"),
+    ("WI", "exact", "Eau Claire United  (ECU)", "Eau Claire United Soccer Club"),
+    ("WI", "exact", "Oshkosh United", "Oshkosh United Soccer Club"),
+    ("WI", "exact", "Delavan Soccer Club (DYSC)", "Delavan Youth Soccer Club"),
+    ("WI", "exact", "Green Bay Lightning Soccer Club", "Green Bay Lightning"),
+    ("WI", "exact", "Fox Cities United Soccer Club", "Fox Cities United"),
+    ("WI", "exact", "Monona Grove FC", "Monona Grove Soccer Club"),
+    ("WI", "exact", "Monona Grove SC   (MGSC)", "Monona Grove Soccer Club"),
+    ("WI", "exact", "Mount Horeb SC", "Mount Horeb Youth Soccer Club"),
+    ("WI", "norm", "Freedom Futbol Club", "Freedom Futbol Club"),
+    ("WI", "exact", "Elmbrook United-brookfield/elm Grov", "Elmbrook United"),
+    ("WI", "exact", "WI United FC", "Wisconsin United FC"),
+    # All twelve of its teams are named "AFC Union ...", which is the club Racine's
+    # association now plays as.
+    ("WI", "exact", "Racine Area Soccer Association", "AFC Union"),
+    # "No Club Selection" is deliberately not an entry, although Wisconsin's four
+    # teams under it do all read "FC WISCONSIN - ..." and were moved by team id.
+    # It is a provider placeholder rather than a club -- 1,594 teams carry it
+    # nationally and 1,349 of those have no state -- so an entry here would have
+    # renamed every stateless one to FC Wisconsin through analyze_no_state_teams,
+    # pooling unrelated teams under a real club. src/utils/placeholder_clubs.py
+    # holds the full set and tests/unit/test_placeholder_clubs.py guards it.
+    ("WI", "exact", "East Troy SC", "East Troy SC 43"),
+    ("WI", "exact", "Sauk Prairie SC", "Sauk Prairie Strikers"),
+    (
+        "WI",
+        "exact",
+        "New Richmond Soccer Club",
+        "New Richmond Area Youth Soccer Association",
+    ),
+    # "- WYSA Direct Registration" is how the state association's own registration path
+    # writes a club, not part of any club's name. Two of these rejoin a spelling that
+    # already exists; the rest simply lose the suffix.
+    ("WI", "exact", "Hartford Soccer Club - WYSA Direct Registration", "Hartford Soccer Club"),
+    ("WI", "exact", "Freedom Futbol Club - WYSA Direct Registration", "Freedom Futbol Club"),
+    (
+        "WI",
+        "exact",
+        "Cuernavaca Wisconsin United - WYSA Direct Registration",
+        "Cuernavaca Wisconsin United",
+    ),
+    ("WI", "exact", "Tigritos - WYSA Direct Registration", "Tigritos"),
+    ("WI", "exact", "Blue Stars FC - WYSA Direct Registration", "Blue Stars FC"),
+    ("WI", "exact", "FC Al-Quds - WYSA Direct Registration", "FC Al-Quds"),
+    ("WI", "exact", "Jackson Soccer Club - WYSA Direct Registration", "Jackson Soccer Club"),
+    ("WI", "exact", "Richfield Soccer - WYSA Direct Registration", "Richfield Soccer"),
+    ("WI", "exact", "Deportivo Silao - WYSA Direct Registration", "Deportivo Silao"),
+    # Left apart deliberately, each on its team names rather than on its club name:
+    #   Hartford United SC writes HUSC; Hartford Soccer Club writes HSC.
+    #   Portage Youth Soccer Association is a different town from Portage County.
+    #   SC Wave's Titletown, New Berlin and Washington County rows are branches, as are
+    #     RUSH WI Southeast and "Milwaukee Kickers - South", which has no counterpart.
+    #   AC Toros is a Milwaukee Kickers member club that names itself on every team.
+    #   Racine Storm is not Racine Area SA, and MKE United FC is not Milwaukee Kickers.
+    # Six open questions, not holds: "Plymouth" holds five "Reign SC ECNL RL" teams and
+    # no Reign SC value exists; "Hudson SA/Western WI Soccer/FC" splits two ways; SAYSA's
+    # one team is a Loudoun (VA) side; the four Legacy values carry no acronym to read;
+    # "Watertown Youth Soccer Assn" holds one "WYSA U16 Boys (SD)" team; and
+    # "FC Milwaukee Torrent" against "FC Milwaukee Torrent Wales Soccer" is the
+    # partner-brand shape. "Georgia Storm Lake Country United FC" sits here too and is
+    # already on Georgia's open list.
+    # Oklahoma
+    ("OK", "exact", "West Side Alliance (WSA)", "West Side Alliance SC"),
+    ("OK", "norm", "Oklahoma Energy FC", "Oklahoma Energy FC"),
+    ("OK", "exact", "Broken Arrow SC    (BASC)", "Broken Arrow Soccer Club"),
+    ("OK", "exact", "Edmond Soccer Club (esc)", "Edmond SC"),
+    ("OK", "exact", "Broken Arrow Express SC", "Broken Arrow Express"),
+    ("OK", "exact", "Midwest City Soccer Club  (MWCSC)", "Midwest City SC"),
+    # One club, per the owner on 2026-09-22. 109 of the 110 teams filed under "South
+    # Lakes SC" are named "Oklahoma Cosmos ...", so that spelling is canonical for all
+    # 157 even though it holds fewer rows. The norm form also carries the "(SLSC)"
+    # tagged spelling. Southlake Soccer stays apart: none of its 16 teams reads Cosmos.
+    ("OK", "norm", "South Lakes SC", "Oklahoma Cosmos"),
+    ("OK", "norm", "Stillwater SC", "Stillwater SC"),
+    ("OK", "exact", "Union Tulsa FC", "Union FC Tulsa"),
+    ("OK", "exact", "Unión Tulsa Blue Fc", "Union FC Tulsa"),
+    ("OK", "exact", "OKC The 405 Futbol Club", "OKC 405 FC"),
+    # Fifteen of Ponca City SA's eighteen teams are named "PC United".
+    ("OK", "exact", "PC United", "Ponca City SA"),
+    ("OK", "exact", "Weatherford Soccer Club Elite", "Weatherford SC"),
+    ("OK", "exact", "North East Oklahoma FC (neofc)", "NE Oklahoma FC"),
+    ("OK", "exact", "Sporting OK", "Sporting Oklahoma"),
+    # Choctaw SA already fields "CNP ROGUE 12G" and "CNP ROGUE 11G", so Rogue is a team
+    # line inside CNP rather than a club. The (CNP) tag stays because Choctaw SA's own
+    # acronym is CSA -- CNP is Choctaw-Nicoma Park, which the tag is not repeating.
+    ("OK", "exact", "Choctaw-Nicoma Park SA  (CNP)", "Choctaw SA (CNP)"),
+    ("OK", "exact", "CNP Rogue", "Choctaw SA (CNP)"),
+    # "FC1" is a stray digit rather than a spelling: all fifteen teams read "APEX FC".
+    ("OK", "exact", "Apex FC1", "Apex FC"),
+    # Left apart deliberately, each on its team names rather than on its club name:
+    #   Southlake Soccer fields "Southlake SIFC" and "Southlake Select"; South Lakes SC
+    #     fields Oklahoma Cosmos. Two clubs whose names only look alike.
+    #   Northwest Optimist SC writes NWO; Northwest Soccer Club fields "OKC Crew".
+    #   Northeast Oklahoma Soccer Association writes NEOSA; NE Oklahoma FC writes NEOFC.
+    #   Union SC is the Union school district's club, not Union FC Tulsa.
+    # Seven open questions, not holds: whether South Lakes SC and Oklahoma Cosmos are one
+    # club, since all 110 South Lakes teams are named "Oklahoma Cosmos ..."; whether APEX
+    # FC is Stillwater SC's competitive brand, since Stillwater fields "APEX FC U14 Boys
+    # Orange"; "Chisholm Trail SA (CTSA)", whose two teams are Loudoun (VA) sides;
+    # "Metro Tulsa SC United (MTSC UNITED)", whose one team is "Nvsc Nvsc 2015b Gold";
+    # Tahlequah Sports League against Tahlequah SC; "Test Club", which holds actual test
+    # data; and "No Club Selection", a bucket naming at least four real clubs.
+    # Colorado
+    ("CO", "exact", "Colorado Rapids Youth SC (CRYSC)", "Colorado Rapids Youth Soccer Club"),
+    (
+        "CO",
+        "exact",
+        "Colorado Rapids Youth Soccer Club U14",
+        "Colorado Rapids Youth Soccer Club",
+    ),
+    # The parent already files hundreds of "Rapids Central ..." and "Rapids South ..."
+    # teams, so these are that club's sites rather than branches with their own identity.
+    ("CO", "exact", "Colorado Rapids Central", "Colorado Rapids Youth Soccer Club"),
+    ("CO", "exact", "Colorado Rapids South", "Colorado Rapids Youth Soccer Club"),
+    ("CO", "exact", "Colorado Rapids Castle Rock", "Colorado Rapids Youth Soccer Club"),
+    ("CO", "exact", "USYS Subscribers", "Colorado Rapids Youth Soccer Club"),
+    ("CO", "exact", "Colorado EDGE (Arvada Soccer Assn)", "Colorado EDGE"),
+    ("CO", "exact", "Skyline Soccer Assn (SSA)", "Skyline"),
+    ("CO", "exact", "Pueblo Rangers", "Pueblo Rangers SC"),
+    # Sixteen rows each way, so the tie goes to the spelling that names the club in full.
+    ("CO", "exact", "Colorado Ignite", "Colorado Ignite SC"),
+    ("CO", "exact", "Crestmoor Cranmer SC", "Crestmoor Cranmer"),
+    ("CO", "exact", "Westy Soccer", "Westy Soccer Club"),
+    ("CO", "exact", "Westminster Soccer", "Westy Soccer Club"),
+    ("CO", "exact", "United Soccer Club", "United Soccer Club CO"),
+    ("CO", "exact", "Telluride Youth SC", "Telluride YSA"),
+    (
+        "CO",
+        "exact",
+        "CISA Colorado International Soccer Academy",
+        "Colorado International SA",
+    ),
+    ("CO", "exact", "Colorado Elevation FC", "CO Elevation FC"),
+    # NOCO is Northern Colorado, and all three of these values hold Windsor Warriors AFC
+    # teams; Colorado Lightning Soccer Academy fields "Colorado Lightning Girls" and is a
+    # different club.
+    ("CO", "exact", "NOCO Lightning Academy", "Northern Colorado Lightning Academy"),
+    ("CO", "exact", "Windsor Warriors AFC", "Northern Colorado Lightning Academy"),
+    ("CO", "exact", "Grand County Intermountain SC", "Grand County SC"),
+    ("CO", "exact", "Roaring Fork United", "Roaring Fork Valley Soccer Club"),
+    ("CO", "exact", "Flatirons FC", "Flatirons Rush"),
+    ("CO", "exact", "Colorado Rush Mountain", "Mountain Rush"),
+    ("CO", "exact", "Colorado Rush North", "North Denver Rush"),
+    # One club, per the owner on 2026-09-22, so the state-tagged spellings fold into the
+    # plain one rather than the other way round as Washington's BVB IA WA does.
+    ("CO", "exact", "BVB International Academy CO", "BVB International Academy"),
+    ("CO", "exact", "BVB International Academy Colorado", "BVB International Academy"),
+    # Peak Football Club is Peak FC, per the owner on 2026-09-22, and "peak fc" already
+    # resolves to Pikes Peak FC in this state two lines above.
+    ("CO", "exact", "Peak Football Club", "Pikes Peak FC"),
+    # Left apart deliberately: Albion SC Colorado, Denver and Boulder County are
+    # branches, and so is each Rush affiliate -- COS, Northern Colorado, North Denver,
+    # Flatirons, LFA, Mountain and Victory all name themselves on their own teams.
+    # Two open questions, not holds: the bare "Rush" row, whose one team is "Rush U13G
+    # Academy White ECNL-RL" and which eleven affiliates could claim; and "Grand Junction
+    # Fire FC", one of whose two teams reads "Grand Junction SC 2012/13 United".
+    # New Jersey
+    ("NJ", "exact", "Berkeley Soccer Assn", "Berkeley Soccer Association"),
+    ("NJ", "exact", "Bridgewater Soccer Association", "Bridgewater SA"),
+    ("NJ", "exact", "Cape Express SC", "Cape Express"),
+    ("NJ", "exact", "Chatham United", "Chatham United SA"),
+    ("NJ", "exact", "Chatham United Soccer Assn", "Chatham United SA"),
+    ("NJ", "norm", "Cherry Hill SC", "Cherry Hill SC"),
+    # The partner-brand shape: both teams read "Deptford Premier FC", and the existing
+    # "DEPTFORD SA" entry above already resolves that half of the name the same way.
+    ("NJ", "exact", "Deptford SA / Deptford Premier FC", "Deptford Premier FC"),
+    ("NJ", "exact", "East Brunswick Soccer Club", "East Brunswick"),
+    ("NJ", "exact", "FC Berna", "FC Berna Legacy"),
+    ("NJ", "exact", "Freehold Soccer Club", "Freehold SL"),
+    # The owner grouped these two on 2026-09-22 without Hoboken United, so the tagged
+    # spelling folds onto the plain one and Hoboken United stays its own club -- even
+    # though the HCFC rows' teams read "Hoboken United-g12-gandhi".
+    ("NJ", "exact", "Hoboken City Futbol Club    (HCFC)", "Hoboken City FC"),
+    # All 35 teams read "Jackson SC ...". The majority spelling carries a malformed state
+    # tag and the next a legal suffix, so the canonical is the clean form none of them holds.
+    ("NJ", "exact", "Jackson SC(NJ)", "Jackson SC"),
+    ("NJ", "exact", "Jackson Soccer Club", "Jackson SC"),
+    ("NJ", "exact", "Jackson Soccer Club Inc", "Jackson SC"),
+    ("NJ", "exact", "Montville Soccer Association", "Montville SA"),
+    ("NJ", "exact", "Neptune SA", "Neptune Soccer Association"),
+    ("NJ", "norm", "Northern Valley SC", "Northern Valley Soccer Club"),
+    ("NJ", "norm", "Princeton FC", "Princeton FC"),
+    ("NJ", "norm", "Real Futbol Academy", "Real Futbol Academy"),
+    # Both of these are the same shape: a club's MLS NEXT sides filed under a shorter
+    # spelling of its name, beside the main club. "The Football Academy" holds only
+    # "U18 HD"/"U14 AD" rows, and "Tsf Academy" only "U17 AD"/"U19 HD" ones.
+    ("NJ", "exact", "The Football Academy", "The Football Academy NJ"),
+    ("NJ", "exact", "Tsf Academy", "TSF Academy - NJ"),
+    ("NJ", "exact", "Voorhees", "Voorhees SA"),
+    ("NJ", "exact", "Voorhees Soccer", "Voorhees SA"),
+    ("NJ", "norm", "West Deptford SC", "West Deptford SC"),
+    ("NJ", "exact", "WSA/Union County FC (UCFC)", "WSA"),
+    # Left apart deliberately, each on its team names rather than on its club name:
+    #   "Pro Soccer Academy LLC (NJ)" abbreviates to PSA and its two teams are named
+    #     "PSA" and "PSA Select 2016", but PSA in this state is Princeton Soccer Academy
+    #     -- its teams read "PSA Princeton", "PSA Monmouth" and "PSA North", and two
+    #     entries above already resolve Princeton's spellings to it. Two clubs, one
+    #     acronym, the same shape as Pinelands SA against PSA.
+    #   Union Beach Soccer Club writes UB and fields Force, Storm and Hericanes; Union
+    #     City Soccer Club writes "UnionCity-B17-Samaniego". Two boroughs, two acronyms.
+    #   Pinelands SA fields "Pinelands SA Cobras"; PSA is Princeton. Harrison Futbol
+    #     Club writes "Harrison FC Cosmos" against Harrison SC's "Harrison Hurricanes".
+    #     Passaic FC fields "Passaic FC Academy"; Passaic Youth Soccer fields mascots.
+    #     North Plainfield Soccer Elite writes NPSE, North Plainfield SC writes NPSC.
+    #     FC Monmouth is not Monmouth United, which writes MUSC. Hamilton SC, Hamilton
+    #     Elite FC and Hamilton United Elite SC are three clubs. "Bridgewater United
+    #     Ajax" is not Bridgewater SA, and North Warren United writes NWU.
+    #     Berkeley Heights Youth SC and Ridgefield Park SA are different towns from
+    #     Berkeley Soccer Association and Ridgefield FC.
+    # Left open on 2026-09-22 rather than folded: Delran Soccer Club, Franklin,
+    # Freehold Soccer League, Mantua Township Soccer Assn, Montclair United SC, the
+    # three PDA/Vistula spellings, Roxbury Travel Soccer Club, Sayreville Soccer Club,
+    # the two Scotch Plains spellings, South Jersey Girls SL (SJGSL) and
+    # Swedesboro-Woolwich SA; plus whether WSA should read Westfield SA, what Nesa,
+    # FC Allstars, Glen Rock, Players SC and Peninsula City SC are, and whether the
+    # 104 branch-named teams under Players Development Academy move to PDA Hibernian,
+    # Blue (North), White (Shore) and South.
+    # More Arkansas
+    ("AR", "exact", "Arkansas Rising", "Arkansas Rising Soccer Club"),
+    ("AR", "exact", "Sporting Arkansas SC", "Sporting Arkansas"),
+    ("AR", "exact", "LITTLE ROCK RANGERS", "Little Rock Rangers Academy"),
+    ("AR", "exact", "Central Arkansa SC", "Central Arkansas Soccer Club"),
+    ("AR", "exact", "Central Arkansas SC (casc)", "Central Arkansas Soccer Club"),
+    # The bare acronym is not a spelling of the club's name, so the two-team full form
+    # is canonical -- the same call Maryland's WSA and Indiana's USAI took.
+    ("AR", "exact", "AVSA", "Arkansas Valley Soccer Association"),
+    ("AR", "exact", "Arkansas Valley SA (avsa)", "Arkansas Valley Soccer Association"),
+    ("AR", "exact", "Greene County SA (gcsa)", "Greene County Soccer"),
+    ("AR", "exact", "Bentonville Prodigy FC", "Bentonville FC Prodigy"),
+    ("AR", "exact", "Bentonville FC", "Bentonville FC Prodigy"),
+    ("AR", "exact", "Conway Soccer Club", "Conway Soccer"),
+    ("AR", "exact", "Arkansas Legends", "Arkansas Legends SC"),
+    # Its three teams read "AFC Benton 2012B Classic Blue" and the like. Arkansas Soccer
+    # Club writes ASC and stays apart.
+    ("AR", "exact", "Arkansas Football Club", "Arkansas Football Club Benton"),
+    ("AR", "exact", "FC Horizon", "F.C. Horizon"),
+    ("AR", "exact", "Searcy YSA / Searcy Rangers", "Searcy YSA"),
+    # Left apart deliberately: Arkansas Soccer Club fields "ASC Edson" against the
+    # Arkansas Football Club family's "AFC Benton", and NWA Dragons is not NWA Lightning.
+    # Two open questions: "Prodigy Warriors", whose one team is "Prodigy Warriors 2012B";
+    # and "No Club Selection", three of whose four teams read "Academia Tigres Arkansas"
+    # while Tigres Academy already exists.
+    # More Michigan
+    ("MI", "exact", "Michigan Jaguars FC", "Michigan Jaguars"),
+    ("MI", "norm", "Detroit City FC", "Detroit City FC"),
+    # Both spellings field ENVY teams -- "ENVY FC 2013 White" and "ENVY 12B-Orange".
+    ("MI", "exact", "Northville SA", "Northville FC"),
+    ("MI", "exact", "Vardar Soccer Club (MI)", "Vardar Soccer"),
+    ("MI", "exact", "Lakeshore Soccer Club", "Lakeshore Football Club"),
+    ("MI", "exact", "Owosso Soccer Club", "Owosso"),
+    # South Carolina resolves this pair the other way round, because there the club that
+    # holds the teams is Mount Pleasant FC. Each entry is scoped to its own state.
+    ("MI", "exact", "Mount Pleasant FC (MPFC)", "Mount Pleasant Soccer Club"),
+    ("MI", "exact", "Michigan Stars FC", "Michigan Stars Elite SC"),
+    # Nineteen of its twenty-two teams read "Monroe United", so the nine-team spelling is
+    # the club's own name even against a twenty-two-team majority.
+    ("MI", "exact", "Monroe Area S.A.", "Monroe United"),
+    ("MI", "exact", "All Stars Soccer Academy - Tournament Team", "Nationals"),
+    # All 23 teams read "Detroit City FC North ...", a branch that held no club value of
+    # its own while its siblings West and South Oakland both do.
+    ("MI", "exact", "Saginaw Township SA", "Detroit City FC North"),
+    # Left apart deliberately, each on its team names rather than on its club name:
+    #   Oxford SC writes OSC; Oxford United Soccer Club writes OUSC.
+    #   Michigan Futbol Academy (MFA), Michigan Youth Soccer Club (MYSA) and Michigan FC
+    #     are three clubs the loose fold groups only because "Michigan" is shared.
+    #   West Michigan Youth Soccer Association is the association, fielding Athletic SC
+    #     GEO, AYSO United BYR and East FC teams; it is a bucket, not a club.
+    #   Dearborn Heights SC is a different place from Dearborn SC.
+    # Five open questions: Chaos Soccer against Chaos FC, whose team names are coloured
+    # and mascotted respectively; "Sturgis SC", 7 of whose teams read "Midwest United FC
+    # - Sturgis"; "Dearborn SC", every team of which reads "Michigan Juniors FC Dearborn";
+    # and the Forza and "Nationals SC Union" rows, whose teams are named only "U15",
+    # "U16" and "U18".
+    # Ohio
+    ("OH", "exact", "Club Ohio Soccer", "Club Ohio"),
+    ("OH", "exact", "Mercury Soccer", "Mercury"),
+    ("OH", "exact", "KINGS HAMMER", "Kings Hammer Soccer Club"),
+    ("OH", "exact", "Ohio Premier Soccer Club", "Ohio Premier"),
+    ("OH", "exact", "Ohio Premier Futbol Club (OPFC)", "Ohio Premier"),
+    ("OH", "exact", "Canton Akron United Force (CAU)", "Canton Akron United Force"),
+    # The 54-team spelling is missing the space before its tag, so the canonical is the
+    # same name written properly. California holds its own "Total Futbol Academy", which
+    # is why the Ohio tag stays rather than being dropped.
+    ("OH", "exact", "Total Futbol Academy(OH)", "Total Futbol Academy (OH)"),
+    ("OH", "exact", "Total Futbol Academy", "Total Futbol Academy (OH)"),
+    ("OH", "exact", "Cuyahoga Valley SA", "Cuyahoga Valley Soccer Academy"),
+    ("OH", "exact", "NWC Alliance", "NWC Alliance Soccer Club"),
+    ("OH", "exact", "Ambassadors FC", "Ambassadors FC (oh)"),
+    ("OH", "exact", "Green Soccer Association (GSA)", "Green SA"),
+    ("OH", "exact", "Croatia Jrs SC", "Croatia Jrs"),
+    ("OH", "exact", "Polaris Youth Soccer Club", "Polaris Soccer Club"),
+    ("OH", "exact", "Anthony Wayne United", "Anthony Wayne United SC"),
+    ("OH", "norm", "Central Ohio Elite", "Central Ohio Elite"),
+    # "Pcfc" is the club's acronym with its case mangled rather than a spelling of the
+    # name, so the one-team full form is canonical. Every team reads "PCFC ...".
+    ("OH", "exact", "Pcfc", "Putnam County FC"),
+    # One spelling is the bare acronym and the other misspells "Football", so the
+    # canonical is a corrected form neither row holds.
+    ("OH", "exact", "LUFC", "Lakewood United Football Club"),
+    (
+        "OH",
+        "exact",
+        "Lakewood United Footbal Club (LUFC)",
+        "Lakewood United Football Club",
+    ),
+    ("OH", "exact", "Hudson United SC    (HUSC)", "Hudson United Soccer Club"),
+    ("OH", "exact", "Fairview Park Soccer Assn (FPSA)", "Fairview Park Soccer Association"),
+    ("OH", "exact", "ashland united", "Ashland United Soccer"),
+    # Its two teams are named "United Soccer 2012 Black D5sw" -- the club name split at
+    # its own space, leaving the first word as the club.
+    ("OH", "exact", "Ashland", "Ashland United Soccer"),
+    ("OH", "exact", "BSA Celtic", "BSA Celtics"),
+    # All 21 of its teams read "Oak Hills Premier ...", which is a club value in its own
+    # right, so the two-team spelling is canonical.
+    ("OH", "exact", "Oak Hills Youth Athletics", "Oak Hills Premier"),
+    ("OH", "exact", "Cincinnati Soccer Club (Cincy SC)", "Cincy SC"),
+    ("OH", "exact", "Delaware Select SC - Knights", "Delaware Knights"),
+    (
+        "OH",
+        "exact",
+        "Shaker Youth Soccer Association",
+        "Shaker Youth Soccer Assn - Premier Football Club",
+    ),
+    # Cincinnati United Premier and Cincinnati United Soccer Club are two clubs, per the
+    # owner on 2026-09-22: CUP against CUSC. These three rows are CUP's -- the slash row
+    # fields "Cincinnati United CUP 2013 King N" and "CU North 2012 Elite 1", and CUP's
+    # own teams already read "CUSE 11B Elite" and "CUSM 15B Cagliari".
+    ("OH", "exact", "Cincinnati United SC / CUP", "Cincinnati United Premier Soccer Club"),
+    (
+        "OH",
+        "exact",
+        "Cincinnati United North (CU North)",
+        "Cincinnati United Premier Soccer Club",
+    ),
+    (
+        "OH",
+        "exact",
+        "Cincinnati United Southeast  (CUSE)",
+        "Cincinnati United Premier Soccer Club",
+    ),
+    # "OSU" is deliberately not an entry here. Ohio Strikers United's seventeen teams were
+    # moved by team id instead, because the same club value carries three Ontario teams
+    # and twenty-four stateless ones, one of them named "Ottawa South United - OSU 2016
+    # Force Academy". An override reaches stateless teams in every state, so a rule would
+    # have renamed a Canadian club's squads to an Ohio one.
+    # Left apart deliberately, each on its team names rather than on its club name:
+    #   Cleveland Futbol Club fields "Lady Flames"; Cleveland Football Academy writes CFA.
+    #   Legend SC writes "LEGEND SC B 2015"; Legends FC names itself in full.
+    #   FC United (Ohio) fields "FC United 08G Red", not Ohio United FC's "Unity" teams.
+    #   Ohio Soccer Association writes OSA and is not Ohio Youth Academy.
+    #   Dublin Soccer League writes DSX; Dublin United Soccer Club writes DUSC.
+    #   Shelby Youth Soccer fields "Shelby Storm"; Shelby County's teams all read WOU.
+    #   Bay Area Soccer League, FC Columbus and Dayton Futbol Academy are each their own
+    #     club rather than a spelling of Bay Soccer Club, Columbus United or FC Dayton.
+    # Three open questions: "Northwest Cincy Soccer Coalition", 13 of whose 14 teams read
+    # "Northwest Cincy SC" while Cincy SC sits separately; "Shelby County Youth Soccer",
+    # every team of which reads "Western Ohio United"; and "Ohio Valley Soccer League"
+    # against "Ohio Valley Football Club".
+    # More Kansas
+    ("KS", "exact", "Union KC Soccer Club (KS)", "Union KC"),
+    # All caps is not a spelling, and 32 of these 40 teams read "Kansas Rush Wichita",
+    # which is a club value of its own. Kansas Rush itself fields no Wichita teams, so
+    # this is that club's Wichita branch rather than the parent.
+    ("KS", "exact", "WICHITA RUSH", "Kansas Rush Wichita"),
+    # Left apart deliberately: Kansas City FC writes KCFC against KC Athletics, FC
+    # Wichita is not Wichita United FC, and "Kansas Premier Soccer League" and "Kansas
+    # Premier Soccer Elite Academy" are league buckets fielding Pack United, BK Academy,
+    # KC United Arsenal and HAFC teams rather than spellings of one club.
+    # One open question: "SOUTHWEST KANSAS", whose fifteen teams name several different
+    # clubs, against "Southwest Kansas Soccer Association", whose eight all read
+    # "Southwest KS United FC".
+    # Nebraska
+    ("NE", "norm", "Gretna Elite Academy", "Gretna Elite Academy"),
+    ("NE", "exact", "Lincoln Spirit Club (LSC)", "Lincoln Spirit SC"),
+    ("NE", "norm", "Western Nebraska FC", "Western Nebraska FC"),
+    ("NE", "exact", "Hawks FC", "Hawks FC (ne)"),
+    ("NE", "exact", "International SA", "International Soccer Academy"),
+    # Twenty-three of its twenty-four teams read "Lincoln Surf", which is a club value in
+    # its own right, so the eleven-team spelling is canonical.
+    ("NE", "exact", "Dreamers FC", "Lincoln Surf"),
+    ("NE", "exact", "Schuyler Soccer Club", "Schuyler YS"),
+    # "Evolution SC" is deliberately not an entry. Nebraska's twelve teams were moved by
+    # team id instead, because that club value is mostly Illinois' -- 58 teams there
+    # against 12 here, plus four stateless ones that an override would have renamed
+    # "Evolution SC (NE)" sight unseen. Same reason as Ohio's OSU above.
+    # Left apart deliberately: "United Futbol Academy (UFA)" fields "UFA Siouxland"
+    # against United Association Football's UAF, and International Soccer Club writes ISC
+    # rather than the INTER that both International Soccer Academy spellings use.
+    # Three open questions: Hastings FC against Hastings SC, which writes "HSC Eagle
+    # Junior"; "Schuyler Predators", whose one team is named for itself while both
+    # Schuyler clubs field Warriors; and "Wichita Regional Soccer Association", a Kansas
+    # name sitting on Nebraska teams called "UNITED FC GRAND ISLAND 14B".
+    # Nevada
+    ("NV", "exact", "Player SC", "Players SC"),
+    ("NV", "exact", "Great Basin Youth SL (GBYSL)", "Great Basin Youth Soccer League"),
+    ("NV", "exact", "Sierra Surf", "Sierra Surf SC"),
+    ("NV", "exact", "Las Vegas Sports Acad(LVSA / LVPSA)", "Las Vegas Sports Academy"),
+    # Left apart deliberately: Las Vegas Alliance FC shares only the city with Las Vegas
+    # Sports Academy, and Nevada Youth Soccer is the state association -- its teams are
+    # "Northern NV ODP U12 Boys" and "NYSA RFC" -- not a spelling of Nevada Futbol Club.
+    # One open question: "Northern Nevada Youth Soccer League", fielding LEONCITOS and
+    # "Reno Legacy Fc", against Northern Nevada Soccer Club's Reno teams.
+    # District of Columbia
+    ("DC", "exact", "DC United", "D.C. United"),
+    ("DC", "exact", "D.C. United U16", "D.C. United"),
+    # Left apart: DC Soccer Club is not D.C. United; the two share only the city.
+    # North Dakota
+    ("ND", "exact", "Tri-City United Soccer Club (TCU)", "Tri-City United"),
+    # Alaska
+    ("AK", "exact", "Alaska Rush SC", "Alaska Rush"),
+    # Hawaii
+    ("HI", "exact", "Hawaii RUSH soccer club", "Hawaii Rush"),
+    # Left apart: Hawaii Youth Soccer Association is the state body, fielding "Ka'oi" and
+    # "Hawai'i 2009 Boys", not a spelling of Hawaii Soccer Academy. The two one-team
+    # Warriors rows field "St'at'imc Warriors" and "MISO N1 BIG ISLAND WARRIORS".
+    # Delaware
+    ("DE", "exact", "Delaware Football Club (DEFC)", "Delaware Football Club"),
+    # Left apart: Delaware Futbol Academy writes DFA on all 38 teams, never DEFC.
+    # Wyoming
+    ("WY", "exact", "Yellowstone Fire Soccer Assn.", "Yellowstone Fire Soccer Assoc"),
+    # West Virginia
+    ("WV", "exact", "WVFC", "West Virginia Futbol Club"),
+    ("WV", "exact", "West Virginia Soccer Assn (WVSA)", "West Virginia Soccer"),
+    ("WV", "exact", "West Virginia SC", "West Virginia Soccer"),
+    ("WV", "exact", "Mountaineer United SC (MUSC)", "Mountaineer United Soccer Club"),
+    ("WV", "norm", "Square One Sports", "Square One Sports"),
+    ("WV", "exact", "East River Soccer Assn", "East River Soccer Club"),
+    # Three teams each, and both spellings field teams named "FC Wheeling", so the tie
+    # goes to the fuller form.
+    ("WV", "exact", "FC Wheeling United", "FC Wheeling United SC"),
+    # Left apart: West Virginia Futbol Club writes WVFC and West Virginia Soccer writes
+    # "WV Soccer". The scan groups them because the state name is shared; the acronyms
+    # separate them.
+    # South Dakota
+    ("SD", "exact", "Dakota Alliance SC   (DASC)", "Dakota Alliance SC"),
+    # "DASC" is deliberately not an entry, although South Dakota's 106 teams under it are
+    # Dakota Alliance and were moved by team id. Nebraska holds eight teams under the same
+    # value and ten more carry it with no state at all, and an override reaches stateless
+    # teams in every state -- so a rule would have decided those ten sight unseen.
+    ("SD", "exact", "Black Hills Rapids", "Black Hills Rapids SC"),
+    ("SD", "exact", "Brandon Area Soccer Assn (BASA)", "Brandon Area SA"),
+    ("SD", "exact", "Brandon Area Soccer Association", "Brandon Area SA"),
+    ("SD", "exact", "Spearfish Soccer", "Spearfish SA"),
+    ("SD", "exact", "Ignite Soccer Club(SD)", "Ignite Soccer Club (SD)"),
+    ("SD", "exact", "Ignite Soccer Club", "Ignite Soccer Club (SD)"),
+    ("SD", "norm", "Watertown Youth Soccer Assn", "Watertown Youth Soccer Assn"),
+    # "LLC" is a legal suffix rather than a spelling, so the clean form wins the tie.
+    ("SD", "exact", "Ambush LLC", "Ambush Soccer Academy"),
+    # All sixteen of its teams read "Yankton United", which is a club value of its own.
+    ("SD", "exact", "Yankton Youth SA", "Yankton United"),
+    # Left apart: South Dakota Youth Soccer Association is the state body, not a spelling
+    # of South Dakota United Futbol Club. One open question: "Vermillion SC" fields
+    # "Vermillion Predators U12" against "Vermillion Youth SL"'s "Vermillion U10G".
+    # Montana
+    ("MT", "exact", "Flathead Valley United", "Flathead Valley United SC"),
+    ("MT", "exact", "Gallatin Elite SC    (GESC)", "Gallatin Elite Soccer Club"),
+    ("MT", "exact", "Northwest Elite", "Northwest Elite Soccer Club"),
+    ("MT", "exact", "Polson Youth Soccer", "Polson FC"),
+    # Three of its four teams are named "Billings Wolves", which is a club value of its
+    # own; Billings United's own teams read "BU B2014 Pink".
+    ("MT", "exact", "Billings United SC", "Billings Wolves"),
+    # New Hampshire and New York hold their own Queen City Football Club, so the state
+    # tag stays rather than being dropped.
+    ("MT", "exact", "Queen City Football Club", "Queen City Football Club (Mt)"),
+    # Left apart: "Nelson Soccer Association" fields "Kootenay United Football Academy",
+    # a British Columbia side, and non-US clubs are out of scope.
+    # Rhode Island
+    # The MLS NEXT shape: its six teams are all "U16 AD"/"U18 AD".
+    ("RI", "exact", "Rhode Island Surf SC", "Rhode Island Surf"),
+    ("RI", "exact", "Barrington Soccer Club", "Barrington Soccer"),
+    ("RI", "exact", "Narragansett Youth SA (NYSA)", "Narragansett"),
+    ("RI", "exact", "West Warwick SA", "West Warwick Soccer Association"),
+    # RI Strikers FC already fields "Select RI Strikers U12 Boys" under its own name.
+    ("RI", "exact", "Select RI Strikers", "RI Strikers FC"),
+    # Maine
+    ("ME", "norm", "Cumberland Soccer Club", "Cumberland Soccer Club"),
+    ("ME", "exact", "Gorham Youth Soccer Assn   (GYSA)", "Gorham YSA"),
+    # More Mississippi
+    ("MS", "norm", "South Mississippi SC", "South Mississippi SC"),
+    ("MS", "exact", "Southern States Soccer Club", "Southern States Soccer"),
+    ("MS", "exact", "Greenville Youth Soccer Association", "Greenville Youth SA"),
+    ("MS", "norm", "Pearl Youth Soccer League", "Pearl Youth Soccer League"),
+    ("MS", "exact", "Pearl YSL", "Pearl Youth Soccer League"),
+    ("MS", "exact", "DC Thunder FC, Inc.", "DC Thunder FC"),
+    ("MS", "norm", "East Central Soccer Club", "East Central Soccer Club"),
+    ("MS", "exact", "East Central SC", "East Central Soccer Club"),
+    ("MS", "exact", "Cleveland Youth Soccer Assn", "Cleveland Youth Soccer Assoc."),
+    ("MS", "norm", "Southern Alliance SC", "Southern Alliance SC"),
+    ("MS", "exact", "SASC", "Southern Alliance SC"),
+    ("MS", "exact", "Bay Area YS", "Bay Area Youth Soccer"),
+    # Each of these names a club value that already exists, on every one of its teams.
+    ("MS", "exact", "Desoto County SA", "Desoto FC"),
+    ("MS", "exact", "Pyramid Athletic Organization", "PAO DC Panthers"),
+    ("MS", "exact", "DC Panthers", "PAO DC Panthers"),
+    ("MS", "exact", "Greenwood YSO", "Delta Red Bulls"),
+    ("MS", "exact", "Brookhaven Soccer Association", "Ole Brook FC"),
+    # Left apart: Biloxi Soccer Organization fields "BSO Inferno" against Biloxi Soccer
+    # Academy's "MS Coast Wave", and Pearl River Soccer Club writes PRSC, not PFC.
+    # One open question: "Pearl FC", whose two teams are "Madrid FC" and "The MS 6-7".
+    # Vermont needs nothing: its scan is clean, and Vermont Soccer Association is the
+    # state body rather than a spelling of Vermont United Soccer Academy.
+    # New Mexico
+    ("NM", "norm", "New Mexico Soccer Academy", "New Mexico Soccer Academy"),
+    # LAFC is Los Alamos Football Club's acronym and both spellings write it, so the
+    # eleven-team form is canonical against a fifteen-team league name.
+    ("NM", "exact", "Los Alamos Youth Soccer League", "Los Alamos Football Club"),
+    # The MLS NEXT shape: its three teams are all "U14 AD"/"U17 AD"/"U18 AD".
+    ("NM", "exact", "Roswell Soccer Club", "Roswell Youth Soccer Association"),
+    ("NM", "exact", "FC United", "FC United (NM)"),
+    ("NM", "exact", "AYSA", "Artesia Youth Soccer Association"),
+    # Four spellings of one club, all fielding Guadalajara and Chivas teams. The
+    # seventeen-team majority is all caps and the rest abbreviate, so the canonical is
+    # the only spelling that writes the name out.
+    ("NM", "exact", "GUADALAJARA NM", "Guadalajara Soccer Club of New Mexico"),
+    ("NM", "exact", "Guadalajara Soccer Club(NM)", "Guadalajara Soccer Club of New Mexico"),
+    ("NM", "exact", "Guadalajara Soccer Association", "Guadalajara Soccer Club of New Mexico"),
+    ("NM", "exact", "New Mexico United Academy", "New Mexico United"),
+    # "Durango United" is deliberately not an entry. New Mexico's two teams under it
+    # are named "Rio Rapids Durango SC" and were moved by team id, but Colorado holds
+    # fifteen teams under the same value and three more are stateless, which an
+    # override would have decided sight unseen.
+    ("NM", "exact", "Farmington United", "Farmington SC"),
+    ("NM", "exact", "Hobbs Youth Soccer Association", "Hobbs United FC"),
+    ("NM", "exact", "Thunderbirds Hobbs United", "Hobbs United FC"),
+    # Left apart: New Mexico Youth Soccer is the state body, fielding "DC NUTMEG" and
+    # "FSC Blizzard"; Bravos Paseo del Norte Hobbs NM and Alianza FC Hobbs are their own
+    # clubs, sharing only the town with Hobbs United.
+    # Louisiana
+    ("LA", "exact", "Louisiana Fire", "Louisiana Fire SC"),
+    ("LA", "norm", "Baton Rouge SC", "Baton Rouge SC"),
+    ("LA", "norm", "Bayou Soccer Club", "Bayou Soccer Club"),
+    # Twenty-two of its twenty-three teams read "Covington FC", which is a club value of
+    # its own.
+    ("LA", "exact", "Covington Youth Soccer Association", "Covington FC"),
+    ("LA", "exact", "Pards Soccer Club (PSC)", "PARDS Soccer Club"),
+    ("LA", "exact", "Lafourche Soccer", "Lafourche Soccer League"),
+    ("LA", "exact", "South Tangi Youth Soccer Assn", "South Tangi Youth Soccer Association"),
+    ("LA", "norm", "North Louisiana United", "North Louisiana United"),
+    ("LA", "exact", "Red River FC", "Red River Soccer Association"),
+    ("LA", "norm", "Soccer Innovations of America", "Soccer Innovations of America"),
+    ("LA", "exact", "West Ouachita Sports Association", "WOYSA Futbol Club"),
+    # Iowa
+    ("IA", "norm", "Vision Soccer Academy", "Vision Soccer Academy"),
+    ("IA", "exact", "United Futbol Academy (IA)", "United Futbol Academy (UFA)"),
+    ("IA", "exact", "Iowa Rush", "Iowa Rush Soccer Club"),
+    ("IA", "exact", "Bettendorf SA", "Bettendorf Soccer Association"),
+    # One spelling is all caps and the other ends in a stray full stop, so the canonical
+    # is the name neither row writes cleanly.
+    ("IA", "exact", "Quad City Strikers.", "Quad City Strikers"),
+    ("IA", "exact", "QUAD CITY STRIKERS", "Quad City Strikers"),
+    ("IA", "norm", "North Scott Soccer Club", "North Scott Soccer Club"),
+    ("IA", "norm", "Cedar Valley Soccer Club", "Cedar Valley Soccer Club"),
+    ("IA", "exact", "Cedar River SA", "Cedar River Soccer Association"),
+    ("IA", "norm", "Muscatine Soccer Club", "Muscatine Soccer Club"),
+    ("IA", "norm", "Southeast Soccer Academy", "Southeast Soccer Academy"),
+    ("IA", "exact", "Iowa Storm", "Iowa Storm Soccer Club"),
+    ("IA", "exact", "FC America", "FC America (ia)"),
+    ("IA", "exact", "WEST DES MOINES SC  (WDMSC)", "West Des Moines Soccer Club"),
+    # Fourteen of its fifteen teams read "Iowa United FC", which is a club value of its own.
+    ("IA", "exact", "J-Hawk Soccer Club", "Iowa United FC"),
+    ("IA", "exact", "Prairie Soccer Club", "PSC Iowa"),
+    ("IA", "exact", "Rockford Raptors FC", "Fuerza Raptors"),
+    ("IA", "exact", "TNT Soccer", "TNT Soccer Elite"),
+    # Left apart: "FC United Iowa" names itself on every team and is not "Iowa United
+    # FC"; Iowa Soccer Association is the state body, fielding "Iowa ODP" and "Iowa IDP",
+    # not a spelling of Iowa Soccer Club; Des Moines SC writes DMSC against West Des
+    # Moines' WDSC.
+    # More Idaho
+    ("ID", "exact", "Idaho Rush", "Idaho Rush Soccer Club"),
+    ("ID", "exact", "Boise Timbers/Thorns", "Boise Timbers | Thorns FC"),
+    ("ID", "exact", "PVSC United", "PVSC United (GCYSL)"),
+    ("ID", "exact", "Idaho Surf", "Idaho Surf SC"),
+    ("ID", "exact", "Idaho Storm Soccer Club", "Idaho Storm"),
+    ("ID", "exact", "Idaho Storm Soccer", "Idaho Storm"),
+    ("ID", "exact", "Indie Chicas FC", "Indie Chicas"),
+    ("ID", "exact", "Indie Chicas Soccer Club", "Indie Chicas"),
+    ("ID", "exact", "Legacy SC (ID)", "Legacy SC"),
+    # Left apart: Idaho Youth Soccer Association is the state body, fielding "Idaho ODP"
+    # teams, not a spelling of Idaho Juniors FC.
+    # More Kentucky
+    ("KY", "exact", "LouCity/ Racing Youth Academy", "LouCity / Racing Youth Academy"),
+    ("KY", "exact", "Kings Hammer Academy", "Kings Hammer Soccer Club"),
+    ("KY", "exact", "Javanon Soccer Club", "Javanon FC"),
+    ("KY", "exact", "SKY Soccer Club (KY)", "SKY Soccer Club"),
+    ("KY", "exact", "Louisville Soccer Club/Alliance", "Louisville Soccer"),
+    ("KY", "exact", "FERN Creek Optimist FC", "Fern Creek Optimist SC"),
+    ("KY", "exact", "Sawyer YSA", "Sawyer Youth Soccer Association"),
+    # "Inc" is a legal suffix rather than a spelling, so the clean short form wins.
+    ("KY", "exact", "Trident Football Club, Inc.", "Trident FC"),
+    ("KY", "exact", "Murray Calloway County Soccer Assoc.", "Murray Calloway County Soccer Assn"),
+    # Both spellings field "BG Elite FC" teams; the canonical drops the redundant tag and
+    # writes the town out.
+    ("KY", "exact", "Bowling Green Elite FC (BG ELITE)", "Bowling Green Elite FC"),
+    ("KY", "exact", "BG Elite FC", "Bowling Green Elite FC"),
+    # "Futbal" is a misspelling and the other spelling is all caps, so the canonical is
+    # the form the teams themselves write.
+    ("KY", "exact", "Golightly Futbal Chemistry/GFC", "Golightly FC"),
+    ("KY", "exact", "GOLIGHTLY FC", "Golightly FC"),
+    # Left apart: Winchester Youth Soccer League fields "WinCity United" against
+    # Winchester Soccer Club's WSC, and Lexington SC fields "Lex Sporting Club" against
+    # Lexington Youth SA's LYSA.
+    # Connecticut
+    ("CT", "exact", "Connecticut Football Club (CFC)", "Connecticut FC"),
+    ("CT", "exact", "Vale Sports Club", "Vale SC"),
+    ("CT", "exact", "Olé FC", "Ole FC"),
+    ("CT", "norm", "Chelsea Piers SC", "Chelsea Piers SC"),
+    ("CT", "exact", "West Hartford Soccer Club", "West Hartford FC"),
+    ("CT", "exact", "West Hartford Youth Soccer Association", "West Hartford FC"),
+    ("CT", "exact", "Northeast United Premier SC", "Northeast United Premier Soccer"),
+    ("CT", "exact", "Enfield SA", "Enfield SC"),
+    # Left apart: Hartford SC fields "Hartford Hellions" against Hartford Athletic Youth
+    # Academy's "Hartford Athletic" teams.
+    # More Oregon
+    # This state's recurring shape is a bare acronym filed beside the club's full name,
+    # both fielding the same teams. The acronym is not a spelling of the name, so the
+    # full form is canonical each time -- twice against a larger acronym row.
+    ("OR", "exact", "SCA", "Soccer Chance Academy"),
+    ("OR", "exact", "Westside Metros", "Westside Metros FC"),
+    ("OR", "norm", "Oregon Premier FC", "Oregon Premier FC"),
+    ("OR", "exact", "CUSC", "Clackamas United Soccer Club"),
+    ("OR", "exact", "RVT", "Rogue Valley Timbers"),
+    ("OR", "exact", "Saints", "Saints Academy"),
+    ("OR", "exact", "LFC", "Lincoln FC"),
+    ("OR", "norm", "Lincoln Youth Soccer", "Lincoln Youth Soccer"),
+    ("OR", "exact", "Lake Oswego Soccer Club   (LOSC)", "Lake Oswego SC"),
+    ("OR", "exact", "OFA", "Oregon Futbol Academy"),
+    ("OR", "exact", "PFA", "Pelada Football Academy"),
+    # "FCP" is deliberately not an entry: Oregon's eight teams under it are FC
+    # Piamonte and were moved by team id, but California holds four of its own and
+    # two more are stateless.
+    ("OR", "exact", "Basin United", "Basin United SC"),
+    ("OR", "exact", "Basin United Soccer Club (BUSC)", "Basin United SC"),
+    ("OR", "exact", "MSC", "McMinnville SC"),
+    ("OR", "exact", "McMinnville Soccer Club (MSC)", "McMinnville SC"),
+    ("OR", "exact", "NCSC", "North Clackamas SC"),
+    ("OR", "exact", "Southeast Soccer Club", "Southeast Soccer Club (OR)"),
+    ("OR", "exact", "CVFC", "Central Valley Futbol Club"),
+    ("OR", "exact", "Foothills SC", "Foothills Soccer"),
+    ("OR", "exact", "UUSC", "Umpqua United Soccer Club"),
+    ("OR", "exact", "SOSA", "Southern Oregon Soccer Academy"),
+    ("OR", "exact", "Southern Oregon SA  (SOSA)", "Southern Oregon Soccer Academy"),
+    ("OR", "exact", "CVSC", "Chehalem Valley Soccer Club"),
+    ("OR", "exact", "LCYSA", "Lower Columbia Youth SA"),
+    # Left apart: Oregon Youth Soccer Association is the state body, not a spelling of
+    # Oregon Futbol Academy. One open question: whether Lincoln FC and Lincoln Youth
+    # Soccer are one club -- Lincoln FC fields a team named "LYS 17B Red", but the two
+    # acronyms are otherwise kept apart on their own teams.
+    # More Utah
+    ("UT", "exact", "Copper Mountain Soccer", "Copper Mountain"),
+    ("UT", "exact", "Utah Surf SC", "Utah Surf"),
+    ("UT", "exact", "7 Elite Academy (GB)", "7 Elite Academy"),
+    ("UT", "norm", "Northern Utah United Soccer", "Northern Utah United Soccer"),
+    ("UT", "exact", "SSFC", "Saratoga Springs FC"),
+    ("UT", "exact", "Atletico SC", "Atletico"),
+    ("UT", "exact", "Shooter Soccer Club", "Shooters SC"),
+    # "Summit SC" is deliberately not an entry: Utah's two teams under it read
+    # "summit fc MB" and were moved by team id, but New Jersey holds 27 teams under
+    # the same value and two more are stateless.
+    ("UT", "exact", "Ignite", "Ignite FC"),
+    ("UT", "exact", "Strikers SC", "Strikers FC"),
+    ("UT", "exact", "South Cache Soccer League", "South Cache SL"),
+    # WJFC is West Jordan FC's acronym and both spellings write it, so the one-team form
+    # is canonical.
+    ("UT", "exact", "West Jordan YS", "West Jordan FC"),
+    # Left apart: Utah Youth Soccer is the state body, fielding "Utah ODP"; Utah FC and
+    # Utah Athletic Club name themselves on their own teams; Magic United SC writes
+    # "SCSL MAGIC UNITED" against Magic FC's own name.
+    # More Arizona
+    ("AZ", "norm", "Phoenix Rising FC", "Phoenix Rising FC"),
+    ("AZ", "exact", "PHOENIX RISING", "Phoenix Rising FC"),
+    # The bare acronym is not a spelling, so the one-team full form is canonical for all
+    # 177 teams.
+    ("AZ", "exact", "FBSL", "Futbolito Bimbo Soccer League"),
+    ("AZ", "exact", "Futbolito Bimbo SL (FBSL)", "Futbolito Bimbo Soccer League"),
+    ("AZ", "exact", "fc tucson", "FC Tucson Youth Soccer"),
+    ("AZ", "exact", "FC Tucson Youth Soccer Club", "FC Tucson Youth Soccer"),
+    ("AZ", "exact", "Next Level Soccer - AZ", "Next Level Soccer (AZ)"),
+    ("AZ", "norm", "Vail SC", "Vail SC"),
+    ("AZ", "exact", "Canyon Del Oro SC    (CDO)", "Canyon Del Oro Soccer Club"),
+    ("AZ", "exact", "Southern Arizona SC   (SASC)", "Southern Arizona Soccer Club"),
+    ("AZ", "exact", "AZ Arsenal", "Arizona Arsenal Soccer Club"),
+    ("AZ", "exact", "Legends FC Arizona", "Legends FC AZ"),
+    ("AZ", "exact", "AYSO United Arizona", "AYSO United (az)"),
+    ("AZ", "exact", "East Valley FC/NSFC", "East Valley/NSFC"),
+    ("AZ", "exact", "Barca Residency Academy USA", "Barca Residency Academy"),
+    # Left apart: Arizona Soccer Association is the state body, fielding "AZ ODP";
+    # Arizona Soccer Academy writes ASA; Phoenix Premier FC is not Phoenix United Futbol
+    # Club; FC Elite Arizona is not FC Arizona; Tucson Elite SC is not FC Tucson. And
+    # "Legends FC AZ" is deliberately NOT folded into "FC Arizona" -- its teams read
+    # "Legends FC - Arizona - ...", which merely contains that club's name as a substring.
+    # Two open questions: the junk rows "Arizona (000)" and "Utah (000)", and "No Club
+    # Selection", five of whose six teams read "Arizona Soccer Club" but which is a
+    # provider placeholder that must never become a rule.
+    # Minnesota
+    ("MN", "exact", "MTA", "MN Thunder Academy"),
+    ("MN", "exact", "St. Croix Soccer Club", "St. Croix"),
+    ("MN", "exact", "Minneapolis United Soccer Club", "Minneapolis United"),
+    ("MN", "exact", "CC United", "CC United Soccer Club"),
+    # The bare acronym is not a spelling, so the seven-team full form is canonical.
+    ("MN", "exact", "EPSC", "Eden Prairie SC"),
+    ("MN", "norm", "Eden Prairie SC", "Eden Prairie SC"),
+    ("MN", "exact", "North Suburban Soccer Assn (NSSA)", "North Suburban SA"),
+    ("MN", "norm", "Park Valley United FC", "Park Valley United FC"),
+    ("MN", "exact", "Shakopee Soccer Assn (SSA)", "Shakopee SA"),
+    ("MN", "exact", "Central Minnesota Youth Soccer Association", "Central Minnesota Youth SA"),
+    ("MN", "exact", "Cottage Grove United SC  (CGU)", "Cottage Grove United SC"),
+    ("MN", "norm", "North Oaks Soccer Club", "North Oaks Soccer Club"),
+    ("MN", "exact", "Byron Youth Soccer Association", "Byron Futbol Club"),
+    ("MN", "exact", "Owatonna Soccer Assn", "Owatonna SA"),
+    ("MN", "exact", "Arrowhead Youth Soccer Association", "Arrowhead Youth SA"),
+    # All thirteen teams across these two read "St. Paul Blackhawks", which is a club
+    # value of 108 teams in its own right.
+    ("MN", "exact", "Saint Paul Blackhawks", "St. Paul Blackhawks"),
+    ("MN", "exact", "Saint Paul Blackhawks SC", "St. Paul Blackhawks"),
+    ("MN", "exact", "SHATTUCK-ST. MARY'S ACADEMY", "Shattuck-St. Mary's"),
+    ("MN", "exact", "Shattuck-St. Mary’s", "Shattuck-St. Mary's"),
+    ("MN", "exact", "Minnesota United", "Minnesota United FC"),
+    ("MN", "exact", "New Ulm United Soccer Club", "New Ulm United"),
+    ("MN", "exact", "Kmysa", "Kasson-Mantorville YSA"),
+    ("MN", "exact", "Faribault Soccer", "Faribault Soccer Club"),
+    ("MN", "norm", "Minnesota TwinStars Academy", "Minnesota TwinStars Academy"),
+    ("MN", "exact", "Waconia AA / Waconia Soccer Club", "Waconia SC"),
+    # Left apart: Minnesota Youth Soccer Association is the state body; Twin Cities
+    # Soccer Leagues fields "TCSL Reps" and is the league whose name appears in half this
+    # state's team names, not a spelling of Twin Cities Youth Soccer Club; and Lakes Area
+    # Youth Soccer Association fields "Brainerd United" rather than Lakes United FC.
+    # One open question: "Esko Soccer Club", whose one team is "CEC FC U12".
+    # More Missouri
+    ("MO", "exact", "St Louis Scott Gallagher", "St. Louis Scott Gallagher"),
+    ("MO", "norm", "Lou Fusz Athletic", "Lou Fusz Athletic"),
+    ("MO", "exact", "Missouri Rush Soccer Club", "Missouri Rush"),
+    ("MO", "exact", "Southwest MO Rush (SWMO)", "Southwest MO Rush"),
+    ("MO", "exact", "Sporting City Soccer", "Sporting City Soccer Club"),
+    ("MO", "exact", "AFA Fillies Sports", "AFA Fillies"),
+    ("MO", "exact", "United Capital City", "United Capital City Athletic"),
+    # Every team reads "REAL WC St. Louis", so the canonical restores the capitals the
+    # 35-team spelling lost.
+    ("MO", "exact", "Real Wc St. Louis Soccer Club", "Real WC St. Louis Soccer Club"),
+    ("MO", "exact", "Real WC St. Louis", "Real WC St. Louis Soccer Club"),
+    ("MO", "exact", "AJAX ST. LOUIS SC", "Ajax St Louis SC"),
+    ("MO", "exact", "Cottleville United FC (CUFC)", "Cottleville United"),
+    ("MO", "exact", "St Louis Legends SC", "St. Louis Legends SC"),
+    ("MO", "exact", "Hawks FC (st. Louis)", "Hawks FC"),
+    ("MO", "exact", "ST LOUIS CITY", "St. Louis City SC"),
+    # The bare acronym is not a spelling, so the one-team full form is canonical.
+    ("MO", "exact", "SUFC", "Southeast United FC"),
+    ("MO", "exact", "Moberly Area Soccer Association", "Moberly Area SA"),
+    ("MO", "exact", "WGSC Soccer", "Webster Groves SC"),
+    ("MO", "exact", "Webster Groves SC (WGSC)", "Webster Groves SC"),
+    ("MO", "exact", "United St. Louis Academy", "United STL Academy"),
+    # Massachusetts
+    ("MA", "exact", "Scorpions Soccer", "Scorpions SC"),
+    ("MA", "exact", "Western United Pioneers", "Western United Pioneers FC"),
+    ("MA", "norm", "Western United Pioneers FC", "Western United Pioneers FC"),
+    ("MA", "exact", "Needham Soccer Club, Inc.", "Needham Soccer Club"),
+    ("MA", "exact", "Northfields United SC", "Northfields United"),
+    ("MA", "exact", "Sudbury Youth Soccer Academy (SYSA)", "Sudbury Academy"),
+    ("MA", "exact", "Aztec", "Aztec Soccer Club"),
+    ("MA", "exact", "Boston Bolts", "FC Boston Bolts"),
+    # Left apart: Boston Athletic Soccer Club names itself on every team and is not
+    # Boston Football Club; Wellesley Premier Club does the same against Wellesley United
+    # Soccer Club, whose teams are all mascots. One open question: "Bridgewater FC",
+    # whose one team is "Bridgewater 2012 Grassa" against BYSA's own teams.
+    # More Washington
+    ("WA", "exact", "Washington East Surf SC", "Washington East Surf"),
+    ("WA", "exact", "Seattle United FC", "Seattle United"),
+    ("WA", "exact", "Crossfire Premier Soccer", "Crossfire Premier"),
+    ("WA", "exact", "Seattle Celtic FC", "Seattle Celtic"),
+    ("WA", "norm", "Northshore Select Club", "Northshore Select Club"),
+    ("WA", "exact", "Mt Rainier FC     (MRFC)", "Mt. Rainier Futbol Club"),
+    ("WA", "exact", "SU", "Snohomish United"),
+    ("WA", "exact", "Columbia Premier", "Columbia Premier Soccer Club"),
+    ("WA", "exact", "Wenatchee FC", "Wenatchee FA"),
+    ("WA", "norm", "Highline Premier FC", "Highline Premier FC"),
+    ("WA", "exact", "Harbor Soccer Club", "Harbor FC"),
+    ("WA", "exact", "Harbor YSC", "Harbor FC"),
+    ("WA", "exact", "Emerald City Football Club   (ECFC)", "Emerald City FC"),
+    ("WA", "exact", "Basin Sounders SC", "Basin Sounders"),
+    ("WA", "exact", "90+ Project YSO", "90+ Project SC"),
+    ("WA", "exact", "- Spokane Legacy soccer academy", "Spokane Legacy Soccer Academy"),
+    ("WA", "exact", "Spokane legacy", "Spokane Legacy Soccer Academy"),
+    ("WA", "exact", "Fife Milton Edgewood SC", "Fife Milton Edgewood JSC"),
+    ("WA", "exact", "Atletico Futbol Club (WA)", "Atletico FC"),
+    ("WA", "exact", "Atlético", "Atletico FC"),
+    ("WA", "exact", "LWPFC", "Lake Washington Premier Football Club"),
+    ("WA", "exact", "Club America Nido Aguila SA", "Club America Nido Aguila"),
+    ("WA", "exact", "Sequim Junior Soccer FC", "Sequim Junior Soccer Club"),
+    ("WA", "exact", "NWSC", "North Whidbey SC"),
+    ("WA", "exact", "SEATTLE SOUNDERS", "Seattle Sounders FC"),
+    ("WA", "exact", "south tacoma united", "South Tacoma United Soccer Club"),
+    ("WA", "exact", "VANCOUVER WHITECAPS", "Vancouver Whitecaps FC"),
+    # A family of rows whose club field holds the team's own label; Sozo FC's 49 teams
+    # sit under its name already.
+    ("WA", "regex", r"^SOZO FC\s+\S", "Sozo FC"),
+    # Left apart: Washington Youth Soccer is the state body. Three open questions: the
+    # "WSSC ..." and "PacFW-R ..." rows, each of which is a team label in the club field
+    # with no parent club value in this state to fold onto; "Highline SC", whose one team
+    # is "Warriors FC"; and the junk row "Washington (000)".
+    # More Illinois
+    ("IL", "exact", "Rockford Raptors", "Rockford Raptors FC"),
+    ("IL", "exact", "Eclipse Select", "Eclipse Select Soccer Club"),
+    ("IL", "exact", "Chicago Rush", "Chicago Rush Soccer Club"),
+    # Four spellings of one club. 65 of the 88 teams under "FC United Soccer Club" are
+    # named "Chicago FC United", so that is the canonical even as the minority.
+    ("IL", "exact", "FC United Soccer Club", "Chicago FC United"),
+    ("IL", "exact", "FC United", "Chicago FC United"),
+    ("IL", "exact", "FC United (chicago)", "Chicago FC United"),
+    ("IL", "exact", "Galaxy", "Galaxy SC"),
+    ("IL", "exact", "CIU", "Central Illinois United"),
+    ("IL", "exact", "Illinois Youth Soccer Assn (IYSA)", "Illinois Youth Soccer Association"),
+    ("IL", "exact", "Chicago Fire Youth SC (CFYSC)", "Chicago Fire Youth SC"),
+    ("IL", "exact", "CHICAGO FIRE", "Chicago Fire Youth SC"),
+    ("IL", "exact", "Greater Libertyville SA", "Greater Libertyville Soccer Association"),
+    ("IL", "exact", "Chicago Empire", "Chicago Empire FC"),
+    ("IL", "exact", "St. Louis Scott Gallagher (IL)", "St. Louis Scott Gallagher"),
+    ("IL", "norm", "Elmhurst City Surf", "Elmhurst City Surf"),
+    ("IL", "exact", "Wheaton United", "Wheaton United SC"),
+    ("IL", "exact", "Gateway Rush", "Gateway Rush Soccer Club"),
+    ("IL", "exact", "Chicago KICS", "Chicago KICS Football Club"),
+    ("IL", "exact", "Pegasus", "Pegasus FC"),
+    ("IL", "exact", "Lindenhurst Area SC (LASC)", "Lindenhurst Area Soccer Club"),
+    ("IL", "exact", "Lyons Township SC (LTSC)", "Lyons Township SC"),
+    ("IL", "exact", "Lyons Township Soccer (ltsc)", "Lyons Township SC"),
+    ("IL", "exact", "QUAD CITIES RUSH SC", "Quad Cities Rush"),
+    ("IL", "exact", "Chicago Magic", "Chicago Magic Soccer Club"),
+    ("IL", "norm", "Team Elmhurst SC", "Team Elmhurst SC"),
+    ("IL", "exact", "Wilmette Wings", "Wilmette Wings SC"),
+    ("IL", "exact", "DeKalb County United SC (DKCU)", "DeKalb County United Academy"),
+    ("IL", "exact", "DKCU Academy", "DeKalb County United Academy"),
+    ("IL", "exact", "Tri-Cities Soccer Assn (TCSA)", "Tri Cities Soccer Association"),
+    ("IL", "exact", "Legion FC Chicago", "Chicago Legion FC"),
+    ("IL", "exact", "SAA United", "SAA United SC"),
+    ("IL", "exact", "Orland Park Sting", "Orland Park Sting FC"),
+    ("IL", "exact", "Campton United", "Campton United SC"),
+    ("IL", "exact", "Mayas FC", "FC Mayas"),
+    ("IL", "exact", "Chicago Blast Soccer Club", "Chicago Blast"),
+    ("IL", "exact", "Force", "Force Football Club"),
+    ("IL", "exact", "South Suburban Soccer Academy", "South Suburban"),
+    ("IL", "exact", "Carol Stream Panthers", "Carol Stream Panthers SC"),
+    ("IL", "exact", "Inter Athletic Club (INTER FC)", "Inter AC"),
+    ("IL", "exact", "Metro Alliance Irish FC (F:ALTON)", "Metro Alliance Irish FC"),
+    ("IL", "exact", "STRIKERS FOX VALLEY SOCCER CLUB", "Strikers Fox Valley"),
+    ("IL", "exact", "Heart of the City (hotc)", "Heart of The City"),
+    ("IL", "exact", "Windy City Pride SC", "Windy City Pride"),
+    ("IL", "exact", "Deportivo 59", "Deportivo 59 FC"),
+    ("IL", "exact", "Chicago House AC", "Chicago House Athletic Club"),
+    ("IL", "exact", "Jacksonville United", "Jacksonville United Soccer Club"),
+    ("IL", "exact", "Mahomet Seymour SC", "Mahomet-Seymour Soccer Club"),
+    ("IL", "exact", "Pekin Pride Soccer Club", "Pekin Pride Soccer"),
+    ("IL", "exact", "VC Soccer Academy", "VC Academy"),
+    ("IL", "exact", "MVSC", "Mount Vernon SC"),
+    ("IL", "exact", "Mount Vernon SC (MVSC)", "Mount Vernon SC"),
+    ("IL", "exact", "RBFC Soccer Club", "RBFC"),
+    ("IL", "exact", "Inter South", "Inter South Soccer Club"),
+    ("IL", "exact", "Chicago Knights FC", "Chicago Knights SC"),
+    ("IL", "exact", "Woodstock United", "Woodstock United Soccer Club"),
+    ("IL", "exact", "OAK BROOK SOCCER CLUB (OBSC)", "Oak Brook SC"),
+    ("IL", "exact", "Sterling United Soccer Club", "Sterling United"),
+    ("IL", "exact", "VHSC", "Vernon Hills Soccer Club"),
+    ("IL", "exact", "UA (UKRANIAN SOCCER ACADEMY)", "UA (Ukrainian Soccer Academy)"),
+    ("IL", "exact", "Chicago Arsenal FC", "Chicago Arsenal Soccer Club"),
+    ("IL", "exact", "Gallardo Futbol Club", "Gallardo Academy"),
+    ("IL", "exact", "NWS Tigres", "Tigres NWS"),
+    ("IL", "exact", "FC Tryzub Academy", "FC Tryzub"),
+    ("IL", "exact", "LISC", "Little Illini SC"),
+    # Each of these names a club value that already exists, on all or nearly all of its
+    # teams.
+    ("IL", "exact", "LG Celtics", "Lagrange Celtics"),
+    ("IL", "exact", "Lakers FC (glen Ellyn Pk District)", "Glen Ellyn Lakers"),
+    ("IL", "exact", "Ajax FC", "Ajax FC Naperville"),
+    ("IL", "exact", "Gremio FC Chicago", "Gremio Futbol Club Chicago"),
+    ("IL", "exact", "Green & White", "Green White SC"),
+    ("IL", "exact", "AYSO Region 300 United", "AYSO 300 United"),
+    ("IL", "exact", "Kankakee CO Soccer Academy (KCSA)", "Kankakee County Soccer Academy"),
+    ("IL", "exact", "Chicago Power Strikers SC", "Chicago Powerstrikers"),
+    ("IL", "exact", "Illinois Premier", "Arlington Aces"),
+    # Left apart: Chicago Soccer Academy writes CSA and Chicago Futbol Alliance CFA.
+    # Five open questions: the Illinois FC / Illinois Alliance pair, which hold each
+    # other's teams; whether "Greater Libertyville Soccer Association" belongs under
+    # "FC 1974 Libertyville", which 52 of its 80 teams name; whether Wilmette Wings SC is
+    # "Chicago Rush North Shore", which 25 of its 38 name; "Legacy FC" against
+    # "Legacy SC"; and "Harvard FC", "Allegiant FC" and "Young SPORTSMENS SL (YSSL)",
+    # each of which names another club on only some of its teams. "No Club Selection" is
+    # a provider placeholder and must never become a rule, whatever its teams read.
 ]
 
 # Acronyms to keep uppercase
