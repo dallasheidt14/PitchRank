@@ -1051,7 +1051,8 @@ CLUB_CANONICAL_OVERRIDES = [
     ("CA", "exact", "interamerica", "Inter-America Soccer Club"),
     ("CA", "exact", "joga bonito (ca)", "Joga Bonito FC"),
     ("CA", "exact", "joga bonito", "Joga Bonito FC"),
-    ("CA", "exact", "jusa select", "JUSA"),
+    # Redirected when the bare "JUSA" spelling folded into the full form below.
+    ("CA", "exact", "jusa select", "Junior United Soccer Assn"),
     ("CA", "exact", "Juventus academy los angeles", "Juventus Academy LA"),
     ("CA", "exact", "Kickers FC", "Kickers FC (CA)"),
     ("CA", "exact", "LA BULLS", "Los Angeles Bulls Soccer Club"),
@@ -1092,8 +1093,10 @@ CLUB_CANONICAL_OVERRIDES = [
     ("CA", "exact", "Ventura Surf Sc", "Ventura Surf Soccer Club"),
     ("CA", "exact", "vista storm sc", "Vista Storm Soccer Club"),
     ("CA", "exact", "Walnut Creek Surf", "Walnut Creek Surf Soccer Club"),
-    ("CA", "exact", "west covina ys", "West Covina SC"),
-    ("CA", "exact", "west covina youth soccer corporation", "West Covina SC"),
+    # Redirected when "West Covina SC" itself folded onto the FC spelling its own
+    # teams write.
+    ("CA", "exact", "west covina ys", "West Covina FC"),
+    ("CA", "exact", "west covina youth soccer corporation", "West Covina FC"),
     ("CA", "exact", "West Coast Soccer", "West Coast Soccer Tracy"),
     ("CA", "exact", "wsc crush", "Woodside Soccer Club Crush"),
     ("CA", "exact", "zerogravity usa academy", "ZeroGravity Academy"),
@@ -2542,6 +2545,350 @@ CLUB_CANONICAL_OVERRIDES = [
     # read "Glen Rock United" while every Glen Rock United row is an "- Elite" side;
     # which Franklin the one "Franklin" row belongs to, its team being "Elite Fusion
     # 2011"; and what "Peninsula City SC" is, its one team being "UNITED".
+    # More California
+    # The 102 entries above are inherited from older merge history and every one of them
+    # is now a no-op, so this block reconciles the state against the current conventions
+    # rather than replacing them.
+    ("CA", "exact", "San Diego Surf Soccer", "San Diego Surf Soccer Club"),
+    # TFA files each branch under its own tag. "(TFA-IE/HD)" is not a fourteenth branch:
+    # its four teams are the Inland Empire branch's MLS NEXT HD sides.
+    ("CA", "exact", "Total Futbol Academy (TFA-IE/HD)", "Total Futbol Academy (TFA-IE)"),
+    ("CA", "exact", "Total Futbol Academy-VC", "Total Futbol Academy (TFA-VC)"),
+    ("CA", "exact", "Total Futbol Academy - VC", "Total Futbol Academy (TFA-VC)"),
+    ("CA", "exact", "Total Futbol Academy  South LA", "Total Futbol Academy - South LA"),
+    ("CA", "exact", "Total Futbol Academy - Hollywood", "Total Futbol Academy Hollywood"),
+    # Its 62 teams read "FC B14 White - SC" and the like -- the club name split at its own
+    # space, leaving "FC" at the head of every team name.
+    ("CA", "exact", "Socal Reds", "Socal Reds FC"),
+    # No rule folds "CDA Slammers FC": 30 teams with no state hold that spelling,
+    # and a state-scoped entry reaches every one of them, so both populations move
+    # by team id instead. Their own names read "CDA Slammers FC ...", so they are
+    # the same club rather than the cross-state collision the check guards against.
+    ("CA", "norm", "California Football Academy", "California Football Academy"),
+    ("CA", "exact", "Empire Surf SC", "Empire Surf"),
+    ("CA", "exact", "So Cal Blues*", "So Cal Blues"),
+    ("CA", "norm", "Los Angeles Soccer Club", "Los Angeles Soccer Club"),
+    ("CA", "exact", "Legends FC SD (dmcv)", "Legends FC SD"),
+    ("CA", "exact", "Legends FC - Santa Clarita Valley", "Legends FC Santa Clarita"),
+    ("CA", "exact", "Legends FC - San Gabriel Valley", "Legends FC (CA)"),
+    ("CA", "exact", "Legends SC", "Legends SC Sacramento"),
+    ("CA", "norm", "Laguna United FC", "Laguna United FC"),
+    ("CA", "exact", "West Coast Futbol Club (WCFC)", "West Coast FC"),
+    # West Coast Soccer Tracy is a different club from West Coast FC: its teams read
+    # "West Coast Soccer <mascot>", and Terremoto sides appear under all three spellings.
+    ("CA", "exact", "West Coast Soccer Club", "West Coast Soccer Tracy"),
+    ("CA", "exact", "West Coast Soccer Club    (WCSC)", "West Coast Soccer Tracy"),
+    ("CA", "exact", "Mountain View Los Altos SC (MVLA)", "Mountain View Los Altos Soccer Club"),
+    ("CA", "exact", "Mountain View Los Altos", "Mountain View Los Altos Soccer Club"),
+    ("CA", "exact", "San Diego Force", "San Diego Force FC"),
+    ("CA", "exact", "City SC - San Marcos", "City SC San Marcos"),
+    ("CA", "exact", "Roseville Soccer Club", "Roseville Youth Soccer Club"),
+    ("CA", "exact", "MT. Diablo Mustang Soccer", "Mt Diablo Mustang Soccer"),
+    ("CA", "exact", "Ballistic United SC (BUSC)", "Ballistic United"),
+    ("CA", "exact", "Ballistic United SC", "Ballistic United"),
+    ("CA", "exact", "LA City United FC", "LA City United"),
+    ("CA", "exact", "Stanford Strikers", "Stanford Strikers FC"),
+    ("CA", "exact", "Central Coast Surf Soccer Club", "Central Coast Surf"),
+    ("CA", "norm", "Sunnyvale Alliance SC", "Sunnyvale Alliance SC"),
+    ("CA", "exact", "Albany Berkeley Soccer League", "Albany Berkeley Soccer Club"),
+    ("CA", "exact", "Albany Berkeley SC   (ABSC)", "Albany Berkeley Soccer Club"),
+    ("CA", "exact", "Revolution FC (east County)", "East County Revolution FC"),
+    ("CA", "exact", "Valley United Soccer Club Assn", "Valley United SC"),
+    ("CA", "exact", "Valley United Soccer Club (VUSC)", "Valley United SC"),
+    ("CA", "exact", "Sacramento United Soccer Club", "Sacramento United"),
+    ("CA", "exact", "Solano Surf SC", "Solano Surf"),
+    ("CA", "exact", "Central Coast United (ccu)", "Central Coast United SC"),
+    ("CA", "norm", "Central Cal Aztecs", "Central Cal Aztecs"),
+    ("CA", "exact", "East Sacramento SC", "East Sacramento Youth Soccer Club"),
+    ("CA", "norm", "Association Football Club", "Association Football Club"),
+    ("CA", "exact", "Sand & Surf Soccer Club", "Sand and Surf SC"),
+    # Strikers FC writes its branches without a dash on 128 of its 168 rows, so all three
+    # branches take that form rather than each following its own group's majority.
+    ("CA", "exact", "Strikers FC - Orange", "Strikers FC Orange"),
+    ("CA", "exact", "Strikers FC - Orange County", "Strikers FC Orange"),
+    ("CA", "exact", "Strikers FC - North", "Strikers FC North"),
+    ("CA", "exact", "Strikers FC - CM/NB", "Strikers FC CM/NB"),
+    ("CA", "exact", "STRIKERS FC - COSTA MESA", "Strikers FC CM/NB"),
+    ("CA", "exact", "Santa Rosa Empire", "Santa Rosa Empire Soccer Club"),
+    ("CA", "exact", "Inland Surf SC", "Inland Surf"),
+    ("CA", "exact", "Dublin United FC", "Dublin United"),
+    ("CA", "exact", "Dublin United Soccer League", "Dublin United"),
+    ("CA", "norm", "Murrieta Soccer Academy", "Murrieta Soccer Academy"),
+    ("CA", "exact", "California Rush", "California Rush Soccer Club"),
+    ("CA", "exact", "Nomads Soccer Club", "Nomads"),
+    ("CA", "exact", "LA Jolla Impact Soccer Club", "La Jolla Impact"),
+    ("CA", "exact", "California Magic", "California Magic Soccer Club"),
+    ("CA", "exact", "California Magic DO NOT USE", "California Magic Soccer Club"),
+    ("CA", "exact", "Belmont United", "Belmont United Soccer Club"),
+    ("CA", "exact", "San Carlos United SC (scusc)", "San Carlos United Soccer Club"),
+    ("CA", "exact", "San Carlos United", "San Carlos United Soccer Club"),
+    # Both NYSL spellings belong to Natomas United, whose teams read "NYSL ..."; Natomas
+    # FA is a different club and keeps its own rows.
+    ("CA", "exact", "Natomas United YSL", "Natomas United Youth Soccer"),
+    ("CA", "exact", "Natomas Youth Soccer League", "Natomas United Youth Soccer"),
+    ("CA", "exact", "CENTRAL VALLEY SC  SAN JOSE (CVSJ)", "Central Valley San Jose SC"),
+    ("CA", "exact", "Peninsula Youth Soccer Club", "Peninsula Youth Soccer"),
+    ("CA", "norm", "South Valley Chivas Academy", "South Valley Chivas Academy"),
+    ("CA", "exact", "San Clemente Surf SC", "San Clemente Surf Soccer"),
+    ("CA", "exact", "San Clemente Surf", "San Clemente Surf Soccer"),
+    ("CA", "exact", "Santa Clara Youth SL   (SCYSL)", "Santa Clara Youth Soccer League"),
+    ("CA", "exact", "LAMORINDA", "Lamorinda SC"),
+    ("CA", "exact", "Pacifica United SC   (PUSC)", "Pacifica United Soccer Club"),
+    ("CA", "norm", "Apple Valley SC", "Apple Valley SC"),
+    ("CA", "exact", "Milpitas Youth SL   (MYSL)", "Milpitas YSL"),
+    ("CA", "exact", "North Valley Youth SL    (NVYSL)", "North Valley Youth Soccer League"),
+    ("CA", "exact", "North Valley Soccer Club (CA)", "North Valley Youth Soccer League"),
+    ("CA", "exact", "Monterey Surf", "Monterey Surf Soccer Club"),
+    ("CA", "exact", "Newbury Park Elite FC (NP ELITE)", "Newbury Park Elite"),
+    ("CA", "exact", "Sporting SO-CAL Academy", "Sporting So-Cal Soccer Club"),
+    ("CA", "norm", "Capital Valley Futbol Club", "Capital Valley Futbol Club"),
+    ("CA", "exact", "FCA", "Football Club Alliance"),
+    ("CA", "exact", "FCA Soccer Club", "Football Club Alliance"),
+    ("CA", "exact", "Pajaro Valley Youth SC  (PVYSC)", "Pajaro Valley Youth Soccer Club"),
+    ("CA", "exact", "MILL VALLEY SC (MVSC)", "Mill Valley Soccer Club"),
+    ("CA", "exact", "Vacaville United SC (vusc)", "Vacaville United Soccer Club"),
+    ("CA", "exact", "Mendocino County Soccer Academy", "Mendocino County Sports Academy"),
+    ("CA", "exact", "Simi Valley FC", "Simi Valley Soccer Club"),
+    ("CA", "exact", "Ventura County Fusion Youth SA", "Ventura County Fusion"),
+    ("CA", "exact", "Allstars United", "Allstars United SC"),
+    ("CA", "exact", "Merced United", "Merced United FC"),
+    ("CA", "exact", "Hollister Tremors Youth SC", "Hollister Tremors"),
+    ("CA", "exact", "Oakley Youth SC (OYSC)", "Oakley Youth Soccer Club"),
+    ("CA", "exact", "OYSC", "Oakley Youth Soccer Club"),
+    ("CA", "exact", "Sonoma County Premier Soccer", "Sonoma County Premier"),
+    ("CA", "exact", "Celtic Soccer Club", "Celtic Soccer Club (S-CA)"),
+    ("CA", "exact", "San Francisco Vikings", "San Francisco Vikings Soccer Club"),
+    ("CA", "exact", "Silicon Valley Soccer Academy", "Silicon Valley SA"),
+    ("CA", "exact", "Desert Communities SC (DCSC)", "Desert Communities Soccer Club"),
+    ("CA", "exact", "Loomis YSC", "Loomis Youth Soccer Club"),
+    ("CA", "exact", "Moorpark Soccer Club (MSC)", "Moorpark SC"),
+    ("CA", "exact", "Red Star SC", "Red Star Soccer Academy"),
+    ("CA", "exact", "Future FC", "Future FC (CAS)"),
+    ("CA", "exact", "San Pablo United Youth SC (SPUYSC)", "San Pablo United YSC"),
+    ("CA", "exact", "Antelope Valley FC (AVFC)", "Antelope Valley Futbol Club"),
+    # The tag is the club stating its own former name.
+    ("CA", "exact", "Lincoln FC (lincoln Ysc/lysc)", "Lincoln FC"),
+    ("CA", "exact", "SOUTH SAN JOSE YSL  (SSJYSL)", "South San Jose Soccer League"),
+    ("CA", "exact", "South San Jose Academy", "South San Jose Soccer League"),
+    ("CA", "exact", "Santa Cruz City Youth Soccer Club", "Santa Cruz City Soccer Club"),
+    # A bare acronym is not a spelling of the club's name, so the full form is canonical
+    # even as the minority -- the same call Maryland's WSA and Indiana's USAI took.
+    ("CA", "exact", "FYSL", "Fallbrook Youth Soccer League"),
+    ("CA", "exact", "Fallbrook (FYSL)", "Fallbrook Youth Soccer League"),
+    ("CA", "exact", "JUSA", "Junior United Soccer Assn"),
+    ("CA", "exact", "Junior United Soccer Assn (jusa)", "Junior United Soccer Assn"),
+    ("CA", "exact", "LARC", "Los Angeles Racing Club"),
+    ("CA", "exact", "Los Angeles Racing Club (LARC)", "Los Angeles Racing Club"),
+    ("CA", "exact", "TSP FC", "Turlock Sports Park FC"),
+    ("CA", "exact", "TSP FC (TURLOCK SPORTS PARK)", "Turlock Sports Park FC"),
+    ("CA", "exact", "NHB FC", "North Huntington Beach FC"),
+    ("CA", "exact", "North Huntington Beach FC (NHB FC)", "North Huntington Beach FC"),
+    ("CA", "exact", "PSSLU", "Players Seasonal SL United"),
+    ("CA", "exact", "Pysl", "Petaluma Youth Soccer League"),
+    ("CA", "exact", "Manteca FC (MFC)", "Manteca Futbol Club"),
+    ("CA", "exact", "Inland Empire FC (IEFC)", "Inland Empire Futbol Club"),
+    ("CA", "exact", "Spartans FC (yasc)", "Spartans FC"),
+    ("CA", "exact", "Spartans FC CA", "Spartans FC"),
+    ("CA", "norm", "Atwater Kaos Futbol Club", "Atwater Kaos Futbol Club"),
+    (
+        "CA",
+        "exact",
+        "Scotts Valley San Lorenzo Valley Soccer Club",
+        "Scotts Valley San Lorenzo Valley Youth Soccer Club",
+    ),
+    ("CA", "exact", "Scotts Valley/San Lorenzo Valley SC", "Scotts Valley San Lorenzo Valley Youth Soccer Club"),
+    ("CA", "exact", "Dynamo", "Dynamo Soccer Club"),
+    ("CA", "norm", "Laguna Beach Football Club", "Laguna Beach Football Club"),
+    ("CA", "exact", "Tiffiny's Futbol Club", "Tiffiny's Soccer Club"),
+    ("CA", "exact", "Lazers SC (LA VERNE)", "Lazers SC"),
+    ("CA", "exact", "Santa ANA United", "Santa Ana United FC"),
+    ("CA", "exact", "Los Angeles United FA    (LAUFA)", "Los Angeles United Football Club"),
+    ("CA", "exact", "Ravenswood Junior SC", "Ravenswood Juniors Soccer Club"),
+    ("CA", "exact", "West Valley Soccer", "West Valley Soccer Club"),
+    ("CA", "exact", "49ER United", "49er United Soccer Club"),
+    ("CA", "exact", "Black Oaks YSC", "Black Oaks Youth Soccer Club"),
+    ("CA", "exact", "CZ Elite Soccer Club", "CZ Elite (CA-S)"),
+    # The 23-team majority is missing the space before its own redundant tag, so the
+    # canonical is the clean six-team form.
+    ("CA", "norm", "Central Valley Futbol Academy", "Central Valley Futbol Academy"),
+    ("CA", "exact", "Tiburon Peninsula SC   (TPSC)", "Tiburon Peninsula Soccer Club"),
+    ("CA", "exact", "Oxnard Wave Soccer Club", "Oxnard Wave FC"),
+    ("CA", "exact", "Foothill Storm Soccer Club", "Foothill Storm"),
+    ("CA", "exact", "Evolution FC", "Evolution Soccer Club"),
+    ("CA", "exact", "FC Evolution", "Evolution Soccer Club"),
+    ("CA", "exact", "Necaxa USA", "Necaxa USA Futbol Club"),
+    ("CA", "exact", "Platinum IE Futbol Club", "Platinum IE"),
+    ("CA", "exact", "Santa Anita Soccer Club (SASC)", "Santa Anita SC"),
+    ("CA", "exact", "Silicon Valley Eagles Youth SA", "Silicon Valley Eagles"),
+    ("CA", "exact", "Sacramento Republic FC     (SRFC)", "Sacramento Republic FC"),
+    ("CA", "exact", "Sacramento Republic", "Sacramento Republic FC"),
+    ("CA", "exact", "South Bay Surf SC", "South Bay Surf"),
+    # Named exactly rather than by norm: club_acronym reads "Southwest Soccer Club" as
+    # SSC, so the (SWSC) tag never looks redundant and normalized_club keeps it.
+    ("CA", "exact", "Southwest Soccer Club (SWSC)", "Southwest Soccer Club"),
+    ("CA", "exact", "Arete Futbol Academy", "Arete Futbol"),
+    ("CA", "exact", "Stanislaus United SC (SUSC)", "Stanislaus United"),
+    ("CA", "exact", "Bakersfield Alliance SC", "Bakersfield Alliance"),
+    ("CA", "exact", "HALF MOON Bay SC   (HMBSC)", "Half Moon Bay Soccer Club"),
+    ("CA", "exact", "Los Banos Valley Soccer", "Los Banos Valley Soccer Club"),
+    # All 92 rows under the full name read "BOCA OC ...", so the three spellings are one
+    # club and the full name is both the majority and what the club calls itself.
+    ("CA", "exact", "BOCA OC", "Boca Orange County"),
+    ("CA", "exact", "Boca OC (canyon Hills Sa)", "Boca Orange County"),
+    # Seven of the 16 rows read "West Covina FC" or "West Covina F.C."; none reads SC.
+    ("CA", "exact", "West Covina SC", "West Covina FC"),
+    ("CA", "exact", "Titans FC (CA)", "Titans FC"),
+    # Twelve of the 14 rows read "Worldwide Soccer Club", so the two-team spelling is the
+    # club's own name against a 14-team majority.
+    ("CA", "exact", "Worldwide FC", "Worldwide Soccer Club"),
+    ("CA", "exact", "WORLDWIDE Soccer Academy   (WWS)", "Worldwide Soccer Club"),
+    ("CA", "exact", "Athletic SC Bay Area", "Athletic SC - Bay Area"),
+    ("CA", "exact", "County Line Youth Soccer", "County Line Soccer Club"),
+    ("CA", "exact", "Mission Youth SL   (MYSL)", "Mission Youth Soccer League"),
+    ("CA", "exact", "Borussia Del Mar", "Borussia Del Mar Soccer Club"),
+    ("CA", "exact", "California United", "California United FC"),
+    ("CA", "exact", "Inter-America SL   (IASL)", "Inter-America Soccer Club"),
+    ("CA", "exact", "Universal Soccer League / Club", "Universal Soccer League"),
+    ("CA", "exact", "Oxnard Real AC", "Oxnard Real"),
+    ("CA", "exact", "Oxnard Real Athletic Club", "Oxnard Real"),
+    ("CA", "exact", "Contra Costa Youth SL (CCYSL)", "Contra Costa Youth Soccer Club"),
+    ("CA", "exact", "Coyotes FC (INLAND EMPIRE/RIALTO)", "Coyotes FC"),
+    ("CA", "exact", "Rancho FC", "Ranchos FC"),
+    ("CA", "exact", "SANTA CRUZ MID-COUNTY YOUTH SOCCER", "Santa Cruz Mid-County Youth Soccer Club"),
+    ("CA", "exact", "Tracy United Soccer Club", "Tracy United"),
+    ("CA", "exact", "Valley Surf Academy", "Valley Surf Soccer Club"),
+    ("CA", "exact", "Dynamo LA Soccer Club", "Dynamo LA"),
+    ("CA", "exact", "San Joaquin County SA (SJCSA)", "San Joaquin County Soccer Academy"),
+    ("CA", "exact", "Ventura County United", "Ventura County United SC"),
+    ("CA", "exact", "Mexico", "Mexico Futbol Club"),
+    ("CA", "exact", "Phoenix FC (CA)", "Phoenix FC"),
+    ("CA", "exact", "Rialto Fire", "Rialto Fire SC"),
+    ("CA", "norm", "Union Independiente FC", "Union Independiente FC"),
+    ("CA", "exact", "Chivas SA", "Chivas Soccer Academy"),
+    ("CA", "exact", "FC Leon", "Leon FC"),
+    # All eight rows read "Livingston Fuego FC", so the one-team spelling is canonical.
+    ("CA", "exact", "Livingston Fuego", "Livingston Fuego FC"),
+    ("CA", "exact", "Olé Soccer Club", "Ole Soccer Club"),
+    ("CA", "exact", "Club León", "Club Leon"),
+    ("CA", "norm", "Elite Development Academy", "Elite Development Academy"),
+    ("CA", "exact", "CLUB AMÉRICA NIDO ÁGUILA", "Nido Aguila Club America"),
+    ("CA", "exact", "Paramount FC", "PYSO Paramount FC"),
+    ("CA", "exact", "Paramount FC (PARAMOUNT YSO/PYSO)", "PYSO Paramount FC"),
+    ("CA", "exact", "Pumas LA Habra Soccer Club", "Pumas La Habra FC"),
+    # The five-team majority lower-cases the acronym its own teams write as MGFM.
+    ("CA", "exact", "Riverside Mgfm Soccer Organization", "Riverside MGFM Soccer Club"),
+    ("CA", "exact", "MK ACADEMY F.C.KATANA", "MK Academy F.C. Katana"),
+    ("CA", "exact", "MK Academy  F.C.Katana", "MK Academy F.C. Katana"),
+    ("CA", "exact", "Porterville Soccer League", "Porterville Youth Soccer League"),
+    ("CA", "exact", "Xolos Soccer Academy", "Xolos Academy FC"),
+    ("CA", "exact", "Calaveras Youth SL    (CYSL)", "Calaveras Youth Soccer League"),
+    ("CA", "exact", "Juventus Sport Club", "Juventus FC"),
+    ("CA", "exact", "Oxnard PAL SC", "Oxnard PAL"),
+    ("CA", "exact", "AYSO United - Santa Clarita", "AYSO United Santa Clarita"),
+    ("CA", "exact", "California South State Soccer Association", "California State Soccer Association - South"),
+    ("CA", "exact", "FAR West United FC", "Far West United FC"),
+    ("CA", "exact", "Far West United", "Far West United FC"),
+    ("CA", "norm", "Independiente Futbol Academy", "Independiente Futbol Academy"),
+    ("CA", "norm", "North Hollywood FC", "North Hollywood FC"),
+    ("CA", "exact", "Wolves FC   (HHFC)", "Wolves FC"),
+    ("CA", "exact", "Gladiators Football Academy", "Gladiators FC"),
+    # Same treatment as CDA Slammers above: two stateless teams hold "Leopardos".
+    ("CA", "exact", "MAD RIVER YOUTH SL (MRYSL)", "Mad River Youth Soccer League"),
+    ("CA", "exact", "Mamba FC", "Mambas FC"),
+    # Read off the club list by eye and by the crosscheck. None of these shapes is
+    # reachable by any fold, because the two spellings share no tokens at all.
+    ("CA", "exact", "Modesto YSA / Ajax United", "Ajax United"),
+    ("CA", "exact", "North State Soccer-KAOS / Misfits", "North State Soccer"),
+    # "Teen Rec" is a programme label: 14 of its 15 teams read "Clovis Crossfire ...".
+    ("CA", "exact", "Teen Rec", "Clovis Crossfire"),
+    ("CA", "exact", "Encinitas Express Soccer Club", "Express Soccer"),
+    ("CA", "exact", "Ebbetts Pass Gold FC", "Ebbetts Pass FC"),
+    ("CA", "exact", "FCGS Force", "FC Golden State"),
+    ("CA", "exact", "FC Golden State Orange County", "FC Golden State"),
+    # Eight of its nine teams read "West Coast FC ECNL ...".
+    ("CA", "exact", "Orange County Surf", "West Coast FC"),
+    ("CA", "exact", "Progressive Soccer Ozzy - PSO", "Progressive Soccer Ozzy"),
+    ("CA", "exact", "ROSS Valley Breakers FC West Marin", "Ross Valley Breakers FC"),
+    ("CA", "exact", "SF Seals SC", "San Francisco Seals"),
+    ("CA", "exact", "Tulare Youth Soccer", "Tulare Force"),
+    ("CA", "exact", "Whittier Area YS (WAYS)", "Whittier Area Youth Soccer"),
+    # A misspelling is not a spelling of the club's name; all five rows read "Azzurri FC".
+    ("CA", "exact", "Azzuri FC", "Azzurri FC"),
+    ("CA", "exact", "SoCal Seahorses", "SoCal Eagles"),
+    ("CA", "exact", "Visalia Youth Soccer Association", "Central Valley Premier FC"),
+    ("CA", "exact", "Beach United FC", "Long Beach United"),
+    ("CA", "exact", "El Camino Real Futbol League", "El Camino Futbol Club Salinas"),
+    ("CA", "exact", "UIFC Laguna FC", "Laguna FC"),
+    ("CA", "exact", "Rancho Santa Fe (RSF) Attack", "RSF Attack"),
+    ("CA", "exact", "Orchard Valley SC", "OV Toros FC"),
+    ("CA", "exact", "Palm Desert SC", "Desert Empire Surf"),
+    ("CA", "exact", "Valley Center SC", "Valley Center Hurricanes"),
+    ("CA", "exact", "Paris Saint-Germain Academy LA", "Paris Saint-Germain Academy Los Angeles"),
+    ("CA", "exact", "Pacific Regional SL", "Sporting Fontana"),
+    ("CA", "exact", "S1 Alliance", "AYSO S1 Alliance"),
+    # "LA" here is a mis-cased "La", which the caps pass cannot reach because no second
+    # case variant exists, and every one of the 17 teams reads "La Esperanza".
+    ("CA", "exact", "Club Deportivo LA Esperanza", "Club Deportivo La Esperanza"),
+    ("CA", "exact", "La Esperanza", "Club Deportivo La Esperanza"),
+    # Left apart deliberately, each on its team names rather than on its club name:
+    #   Legends FC (SJ) writes "Legends FC SJ" and Legends SC Sacramento "Legends SC
+    #     Sacramento"; Legends Futbol Academy and Legends FC SD name themselves too.
+    #     Five Legends clubs, five acronyms.
+    #   Total Futbol Academy files twelve branches under their own tags and its parent
+    #     holds 308 rows spanning all of them. Folding the branches into the parent, or
+    #     the parent's rows out to them, is the same question PDA asks in New Jersey and
+    #     is not a name fold -- see the open questions below.
+    #   California Athletic SC writes "SCV" on its teams, California Football Academy
+    #     "CFA OC"; California Youth SA fields "Cal ODP" sides and is the state body.
+    #   FC Premier (CA), Premier SC and Premier Touch FC are three clubs; "Premier" is a
+    #     tier word, not a name.
+    #   Los Angeles FC is the MLS club and writes "Los Angeles Football Club"; Los
+    #     Angeles Soccer Club writes LASC.
+    #   Crusaders Soccer Club names coaches on its teams; Crusaders Futbol Club writes
+    #     "Crusaders F.C." on all eight of its own. No row crosses.
+    #   Valley Youth Soccer League fields coach-named rec sides; Valley Futbol Club
+    #     writes "Valley FC |". Oxnard SL fields "Rebano" and Oxnard FC names itself.
+    #   Napa Sport Soccer Club, Napa Youth Soccer League and Napa Soccer Academy are
+    #     three bodies in one town, each naming itself.
+    #   Silicon Valley Alliance is AYSO ("AYSO SVA 2016/17B"); Silicon Valley SA is the
+    #     Soccer Academy. LA Youth fields only U14-U17 AD sides and names no club.
+    #   Central Coast Academy writes CCA; Central Coast FC names colours only.
+    #   "AFC" holds one Almaden Quicksilver team, not an Azzurri one. La Mirada SA fields
+    #     "LMSA All-Stars" against LA Mirada FC's own name.
+    #   Riverside Soccer Club writes "RSC Renegades"; Riverside FC fields Bombers and
+    #     Lobos. Coachella FC fields "Sporting Coachella"; Coachella YSA fields 7SIXTY FC.
+    #   "Santos Laguna SC" holds two Lompoc Chelsea teams and names no Santos side.
+    #   San Diego FC is the MLS club's U14 HD side; San Diego Football Academy fields
+    #     "San Diego Motion FC".
+    #   FC Barcelona's rows are SWAP teams; Barcelona FC's two are Lennox sides.
+    #   GALACTICOS FC (MX) is a Mexican registration, which is out of scope.
+    #   Pro Soccer Academy (Kent), Playmakers FC, "LA United" against "United LA", and
+    #     the two Central Santa Clara Valley rows each carry no evidence either way.
+    #   Athletic SC Arizona and New England Surf hold out-of-state teams, which asks
+    #     which state they belong to rather than which name.
+    # Eight open questions, not holds:
+    #   Whether "Total Futbol Academy" should be split into its twelve existing branch
+    #     values, the way New Jersey's PDA asks. 308 rows name a branch in their own
+    #     team names -- TFA-SELA, TFA-AV, TFA-Pro, TFA-Central LA -- and the branch
+    #     values hold 2 to 18 each. It is a per-team move, not a name fold, and nothing
+    #     in the weekly cleanup would maintain it.
+    #   Whether "Milpitas YSL" (47) is FC Milpitas (2), which 31 of its teams read.
+    #   Whether "City SC" (256, Carlsbad) and "CITY FC" (11) are one club.
+    #   Whether Lincoln Youth Soccer Club is Lincoln FC. The "(lincoln Ysc/lysc)" tag
+    #     folded above says the club itself equates them, but LYSC's eight rows are rec
+    #     sides named Lady Hawks, Defenders and Blue Angels.
+    #   Whether West Sacramento Soccer Club (36) and West Sacramento Futbol Club (20) are
+    #     one club; both field a team called Heat and neither names the other.
+    #   Whether the Athletic SC branches are now AYSO United and United SoCal: all nine
+    #     "Athletic SC - Bay Area" rows read "AYSO United Bay Area", and the Santa
+    #     Clarita and South Bay rows read "United Socal". That is a rebrand spanning
+    #     four club values and 500-odd teams, so it is the owner's call, not a fold.
+    #   Whether "U.S. Futsal" (61), "AYSO" (16), "Real" (6), "SAN JOSE" (1) and
+    #     "California" (1) are placeholders rather than clubs. Each holds teams from
+    #     unrelated clubs -- "U.S. Futsal" alone spans Sole Sisters, Galacticos and NLA
+    #     Select -- which is the shape src/utils/placeholder_clubs.py exists for.
+    #   Whether "SoCal Athletic Soccer Club", "Socal Academy" and "SOCAL" are one club;
+    #     SoCal Athletic fields South OC, Burbank and Inland Valley sides.
 ]
 
 # Acronyms to keep uppercase
