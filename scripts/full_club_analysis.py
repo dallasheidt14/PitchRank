@@ -2491,6 +2491,57 @@ CLUB_CANONICAL_OVERRIDES = [
     # five remaining lone "(lijsl)" tags -- Garden City, Floral Park, Greater Long Beach,
     # Farmingdale SC and Manorville -- should take the upper case the rest of the league
     # writes.
+    # More New Jersey
+    # These twelve were listed to the owner on 2026-09-22 and left undecided. Each is a
+    # spelling rather than a judgement call, so each is applied here with its evidence.
+    ("NJ", "exact", "Freehold Soccer League", "Freehold SL"),
+    ("NJ", "exact", "Montclair United SC", "Montclair United"),
+    # Its four teams read "PSA North", "PSA Monmouth" and "Princeton SA Monmouth", so it
+    # belongs with the two Princeton spellings already resolved to PSA above, not with
+    # Princeton FC, which the scan groups it against on the acronym alone.
+    ("NJ", "exact", "Princeton Soccer Academy", "PSA"),
+    # Both spellings write SWSA. The 34-team majority drops the hyphen between the two
+    # boroughs and abbreviates with a full stop, so the clean one-team form is canonical
+    # -- the same call Pennsylvania's Lampeter-Strasburg and Yardley-Makefield took.
+    ("NJ", "exact", "Swedesboro Woolwich Soccer Assoc.", "Swedesboro-Woolwich SA"),
+    ("NJ", "exact", "Mantua Township Soccer Assn", "Mantua Township SA"),
+    ("NJ", "exact", "Delran Soccer Club", "Delran FC Soccer"),
+    ("NJ", "exact", "Sayreville Soccer Club", "Sayreville Soccer Association"),
+    # Both write SPF. The 16-team majority lower-cases "soccer club", and the caps pass
+    # cannot reach it because no second case variant of that spelling exists.
+    ("NJ", "exact", "Scotch Plains Fanwood soccer club", "Scotch Plains/Fanwood SA"),
+    ("NJ", "exact", "South Jersey Girls SL (SJGSL)", "South Jersey Girls Soccer League"),
+    # Both field "Roxbury <mascot>" teams from the same township.
+    ("NJ", "exact", "Roxbury Travel Soccer Club", "Roxbury Soccer Club"),
+    # Its one team is "Players SC U16 HD" -- a club's MLS NEXT side filed under a shorter
+    # spelling of its name, the shape Indy Eleven, Hoosier Premier and TSF Academy took.
+    ("NJ", "exact", "Players SC", "Players Development Academy"),
+    # The bare "PDA" row's one team is "PDA Hibernian U19", and "PDA Shore"'s is a White
+    # Shore side, so each names a branch rather than the parent.
+    ("NJ", "exact", "PDA", "PDA Hibernian"),
+    ("NJ", "exact", "PDA Shore", "PDA White (Shore)"),
+    # All 56 rows across the three spellings read "PDA/Vistula ..." with Polish surnames
+    # for squad names. The majority spelling carries both brands and the borough, which
+    # is what separates this club from PDA's own branches.
+    ("NJ", "exact", "PDA SC Vistula", "PDA/Vistula Garfield"),
+    ("NJ", "exact", "SC Vistula Garfield", "PDA/Vistula Garfield"),
+    # Left apart deliberately, each on its team names rather than on its club name:
+    #   "Nesa" is not Nutley Elite SA, which the scan pairs it with because "Nutley Elite
+    #     SA" abbreviates to NESA. Two of its 23 teams read "CSA Newark" and "Cedar Stars
+    #     Academy", so whatever NESA stands for it is a Newark side, not a Nutley one.
+    #   Jersey South FC fields "Jersey South FC Galaxy" on every team; South Jersey Youth
+    #     Soccer League is a league and its one team is "South Jersey United".
+    #   "Winstars Soccer Academy" abbreviates to WSA, but WSA here is Westfield SA.
+    #   Valencia Futbol Development and Creative Touch Futbol are a partnership two of
+    #     five rows name jointly; neither spelling is evidence the other is wrong.
+    # Six open questions, not holds: whether WSA should read Westfield SA, since all 80
+    # of its teams read "Westfield SA" or "Union County FC" and neither brand is in the
+    # club value; what "Nesa" stands for; whether "FC Allstars" (6) and "Allstars F.C"
+    # (4) are one club in two word orders, neither naming the other; whether Glen Rock
+    # Shooting Stars and Glen Rock United are one club, since three Shooting Stars rows
+    # read "Glen Rock United" while every Glen Rock United row is an "- Elite" side;
+    # which Franklin the one "Franklin" row belongs to, its team being "Elite Fusion
+    # 2011"; and what "Peninsula City SC" is, its one team being "UNITED".
 ]
 
 # Acronyms to keep uppercase
