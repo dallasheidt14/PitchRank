@@ -2279,6 +2279,218 @@ CLUB_CANONICAL_OVERRIDES = [
     # "Legacy SC"; and "Harvard FC", "Allegiant FC" and "Young SPORTSMENS SL (YSSL)",
     # each of which names another club on only some of its teams. "No Club Selection" is
     # a provider placeholder and must never become a rule, whatever its teams read.
+    # More Pennsylvania
+    ("PA", "exact", "Pittsburgh Riverhounds SC", "Pittsburgh Riverhounds"),
+    ("PA", "exact", "Philadelphia Union Youth", "Philadelphia Union"),
+    # Canonical keeps the hyphen the club's own team names write, and which the "yms"
+    # entry above already names -- the same two-town shape as West-Mont and
+    # Lampeter-Strasburg below.
+    ("PA", "exact", "Yardley Makefield Soccer", "Yardley-Makefield Soccer"),
+    # Three spellings differing only in how "S.A." is punctuated, so one norm entry
+    # folds all of them onto the form the "West-Mont United" entry above already names.
+    ("PA", "norm", "West-Mont United S.A.", "West-Mont United S.A."),
+    ("PA", "exact", "Century United", "Century United Soccer"),
+    ("PA", "exact", "Century Soccer", "Century United Soccer"),
+    ("PA", "norm", "Lower Merion SC", "Lower Merion SC"),
+    ("PA", "exact", "Reading RAGE Surf SC", "Reading Rage Surf"),
+    ("PA", "exact", "Vereinigung Erzgebirge (VE)", "Vereinigung Erzgebirge SC"),
+    # Every one of the twelve rows reads "Horsham Soccer ..." in its team names.
+    ("PA", "exact", "Horsham SA", "Horsham Soccer"),
+    ("PA", "exact", "Buckingham United SC (CBAA)", "Buckingham United Soccer Club (CBAA)"),
+    ("PA", "exact", "DEEP RUN VALLEY SPORTS ASSN", "Deep Run Valley"),
+    ("PA", "exact", "Marple Newtown Soccer Assn (mnsa)", "Marple Newtown Soccer Association"),
+    ("PA", "norm", "Parkwood Youth Organization", "Parkwood Youth Organization"),
+    ("PA", "exact", "Coventry Soccer Association", "Coventry SA"),
+    ("PA", "norm", "King of Prussia SC", "King of Prussia SC"),
+    ("PA", "exact", "Pittsburgh Independence(f:bvbia Pa)", "Pittsburgh Independence FC"),
+    ("PA", "exact", "Towamencin Soccer Club", "Towamencin Youth Assn"),
+    ("PA", "exact", "South Parkland Youth Assn    (SPYA)", "South Parkland Youth"),
+    ("PA", "exact", "Northern Steel Soccer", "Northern Steel"),
+    ("PA", "norm", "Roxborough United SC", "Roxborough United SC"),
+    ("PA", "exact", "Capital Area Soccer Assn (CASA)", "Capital Area SA"),
+    ("PA", "norm", "Greater Chester Valley SA", "Greater Chester Valley SA"),
+    ("PA", "exact", "IRON VALLEY UNITED", "Iron Valley United SC"),
+    ("PA", "exact", "Lehigh Valley United FC", "Lehigh Valley United"),
+    ("PA", "exact", "FC CENTRAL PENN SOCCER CLUB", "FC Central Penn"),
+    # Three DASC spellings. The majority carries a redundant tag, so the canonical is the
+    # clean form it holds underneath rather than either of the written-out spellings.
+    ("PA", "norm", "Dillsburg Area SC", "Dillsburg Area SC"),
+    ("PA", "exact", "Dillsburg Area Soccer Club", "Dillsburg Area SC"),
+    ("PA", "exact", "Dillsburg Area Soccer Club (DASC)", "Dillsburg Area SC"),
+    ("PA", "exact", "Fishtown Athletic Club", "Fishtown AC"),
+    ("PA", "exact", "Southern Lehigh Soccer League", "Southern Lehigh SL"),
+    ("PA", "exact", "St Thomas More SC  (STM)", "St Thomas More SC"),
+    ("PA", "exact", "Western Lehigh United Soccer", "Western Lehigh United SC"),
+    ("PA", "norm", "Jenkintown Youth Activities", "Jenkintown Youth Activities"),
+    ("PA", "norm", "Parkland Area Soccer Club", "Parkland Area Soccer Club"),
+    # The state tag is this club's own disambiguator -- Victory SC and Fusion FC both
+    # exist in other states -- so the canonical keeps it, as Illinois' "FC Stars (il)".
+    ("PA", "exact", "Fusion FC", "Fusion FC (pa)"),
+    ("PA", "exact", "Fusion Soccer Club (PA)", "Fusion FC (pa)"),
+    # Both spellings write "Lampeter-Strasburg" into their team names, so the canonical
+    # takes the hyphen from the teams and the full organisation words from the majority.
+    ("PA", "exact", "Lampeter Strasburg Youth Soccer Club", "Lampeter-Strasburg Youth Soccer Club"),
+    ("PA", "exact", "Lampeter-Strasburg Youth Soccer", "Lampeter-Strasburg Youth Soccer Club"),
+    ("PA", "exact", "MOUNTAIN TOP YOUTH SA (MYSA)", "Mountain Top Youth SA"),
+    ("PA", "exact", "Lititz Youth SC   (LYSC)", "Lititz Youth Soccer Club"),
+    ("PA", "exact", "Mason Dixon Soccer League", "Mason Dixon Soccer Club"),
+    # All eight rows read "Abington Soccer Club ..." in their team names, so the
+    # four-team spelling is the club's own name against an eight-team majority.
+    ("PA", "exact", "Abington Youth Soccer", "Abington Soccer Club"),
+    # All five rows read "AC United ...", and the club value spells that acronym out.
+    ("PA", "exact", "Abington Community (AC) United", "AC United"),
+    ("PA", "norm", "Ballerz Football Club", "Ballerz Football Club"),
+    ("PA", "exact", "Dynamo United SC", "Dynamo United"),
+    # Both spellings write TYSC in their team names, which is the full form's acronym.
+    ("PA", "exact", "Tuscarora SC", "Tuscarora Youth Soccer Club"),
+    ("PA", "norm", "Barrens Travel Soccer Club", "Barrens Travel Soccer Club"),
+    ("PA", "norm", "Chambersburg Youth SA", "Chambersburg Youth SA"),
+    ("PA", "norm", "Pequea Valley Youth SA", "Pequea Valley Youth SA"),
+    ("PA", "exact", "Anderson MONARCHS SC", "Anderson Monarch SC"),
+    ("PA", "exact", "Centre Soccer Association", "Centre SA"),
+    ("PA", "exact", "Conestoga Valley Youth Soccer Club", "Conestoga Valley YSC"),
+    # Its one team is "SC Camp Hill Lions" -- the club name was split at its own space,
+    # leaving the first word as the club and "SC" at the head of the team name.
+    ("PA", "exact", "CAMP Hill", "Camp Hill SC"),
+    # Read off the club list by eye and by the crosscheck below. None of these shapes is
+    # reachable by any fold, because the two spellings share no tokens at all.
+    # All 56 rows read "Nether United FC ...", and seven of the Nether United rows read
+    # "Nether Providence AA ..." back, so the two values hold one club between them.
+    ("PA", "exact", "Nether Providence AA", "Nether United"),
+    # All 26 rows read "PA Classics ...", which is the club's own brand.
+    ("PA", "exact", "Pennsylvania Classics", "PA Classics"),
+    ("PA", "exact", "Sporting PA", "Sporting Athletic Club PA"),
+    # Twenty-two of the 23 read "FC Chesco ...", a club value in its own right. SCCSA is
+    # the association's name; FC Chesco is what it fields.
+    ("PA", "exact", "Southern Chester County SA", "FC Chesco"),
+    ("PA", "exact", "Southern Chester County SA (SCCSA)", "FC Chesco"),
+    # The club value is an administrative note, not a name.
+    ("PA", "exact", "WAS WCUSC - NOW PENN FUSION", "Penn Fusion Soccer Academy"),
+    # Surf is the brand this club adds to its team names -- 44 of the 54 rows already
+    # under the plain spelling read "Philadelphia SC Surf ..." -- so the two values
+    # interleave rather than separating, which is what tells this from a real branch.
+    ("PA", "exact", "Philadelphia SC Surf", "Philadelphia SC"),
+    ("PA", "exact", "Philadelphia Surf", "Philadelphia SC"),
+    ("PA", "exact", "FM Footy / FM Elite", "FMFooty"),
+    ("PA", "exact", "Cheltenham Sports", "Cheltenham Jayvees"),
+    ("PA", "exact", "Philadelphia Soccerland Academy (Northeast Wolves FC)", "Northeast Wolves FC"),
+    ("PA", "exact", "Victory SC - PA", "Victory SC"),
+    ("PA", "exact", "Langhorne Neshaminy UTD SC (LNUSC)", "Langhorne Neshaminy United SC"),
+    ("PA", "exact", "Erie Commodores FC", "Erie Junior Commodores"),
+    # Left apart deliberately, each on its team names rather than on its club name:
+    #   Springfield SC fields Heat, Rangers, Renegades and Charge; Springfield FC fields
+    #     Venom, Raptors and Celtic. Two clubs, two mascot sets, no row crossing.
+    #   Keystone Athletic writes KA and "Hex FC Keystone"; Keystone FC names itself.
+    #   Valley SC writes "Valley Soccer", Valley Athletic Association "Valley AA" and
+    #     Valley Youth SA "VYSA". Three acronyms, three clubs.
+    #   Wilson Junior Soccer Club names itself in full; the one Wilson Youth SC team
+    #     reads "WYSA 2013 Girls", a fourth acronym.
+    #   FC Pittsburgh writes FCP on every team; Pittsburgh Football Club names itself in
+    #     full on every team and fields "Pittsburgh Football Club/Riverhounds SC" sides.
+    #   PA Classics Harrisburg writes "PA Classics Hbg" -- a branch, not a spelling.
+    #   Ambassadors Football (PAW) fields "Ambassadors FC Pittsburgh"; the substring hit
+    #     against FC Pittsburgh is the club's own name, not that club's.
+    # Three open questions, not holds: whether "Tournament Team" (42 teams, each naming a
+    # different club -- Berks Rebellion, Cutter FC, Hellbender FC) and "Tournament Team -
+    # PA" (6) belong in src/utils/placeholder_clubs.py rather than in any rule; whether
+    # Abington Soccer Club and AC United are one club, since one Abington Soccer Club row
+    # reads "AC United 2012b Madness" and the mascots overlap; and the single PA team
+    # under "Union Soccer Club (NJ)", which asks which state it belongs to.
+    # More New York
+    ("NY", "exact", "SUSA FC Academy", "SUSA FC"),
+    ("NY", "exact", "East Meadow SC (EMSC)", "East Meadow Soccer Club"),
+    # The tag names a competition this club enters, not a second club: all eight rows
+    # read "EMSC Fortaleza Futsal ...".
+    ("NY", "exact", "East Meadow SC (U.S. Futsal)", "East Meadow Soccer Club"),
+    ("NY", "exact", "Downtown United SC   (DUSC)", "DUSC"),
+    ("NY", "exact", "Smithtown Kickers Inc. (Interleague)", "Smithtown Kickers SC (LIJSL)"),
+    ("NY", "exact", "NY Rush Soccer Club", "NY Rush"),
+    ("NY", "exact", "HBC Soccer Club", "HBC Soccer Club (LIJSL)"),
+    # Thirty-odd Long Island clubs carry a "(LIJSL)" league tag and seven write it in
+    # lower case. Where a club has two spellings anyway, the canonical takes the case the
+    # rest of the league uses; the lone lower-case tags are left for the owner.
+    ("NY", "exact", "Plainedge (lijsl)", "Plainedge (LIJSL)"),
+    ("NY", "exact", "Plainedge Soccer Club", "Plainedge (LIJSL)"),
+    ("NY", "exact", "Niskayuna", "Niskayuna Soccer Club"),
+    ("NY", "exact", "Asphalt Green SC", "Asphalt Green"),
+    ("NY", "exact", "Cold Spring Harbor Huntington", "Cold Spring Harbor Huntington (LIJSL)"),
+    ("NY", "exact", "Commack Soccer League", "Commack Soccer"),
+    # All three spellings write SWSC. The 25-team majority has a stray space after its
+    # hyphen, so the clean 17-team form is canonical.
+    ("NY", "exact", "Saratoga- Wilton", "Saratoga-Wilton"),
+    ("NY", "exact", "Saratoga Wilton SC   (SWSC)", "Saratoga-Wilton"),
+    ("NY", "exact", "Clarence Soccer Club   (CSC)", "Clarence SC"),
+    ("NY", "exact", "Connetquot United Youth Soccer (Lijsl)", "Connetquot United Soccer Club (LIJSL)"),
+    ("NY", "exact", "Connetquot United SC (LIJSL)", "Connetquot United Soccer Club (LIJSL)"),
+    ("NY", "exact", "New Rochelle FC", "New Rochelle"),
+    ("NY", "exact", "Chili Soccer Assn   (CSA)", "Chili Soccer Association"),
+    ("NY", "exact", "Lindenhurst SC", "Lindenhurst Soccer Club (LIJSL)"),
+    ("NY", "exact", "Clifton Park Soccer Club  (CPSC)", "Clifton Park"),
+    ("NY", "exact", "East Fishkill Soccer Club", "East Fishkill"),
+    ("NY", "exact", "Chappaqua Youth Soccer Club", "Chappaqua"),
+    # Both spellings field the same year-and-colour teams -- "MAA 2018 Boys White"
+    # against "Mineola 2018 Red" -- and Mineola Athletic Association is the body behind
+    # the league registration.
+    ("NY", "exact", "Mineola Athletic Association", "Mineola (LIJSL)"),
+    # Twenty-one of the 26 rows read "Ballston Spa Soccer Club ..." and three more BSSC,
+    # so the one-team full form is canonical against a 26-team majority.
+    ("NY", "exact", "Ballston Spa", "Ballston Spa Soccer Club"),
+    ("NY", "exact", "Ballston Spa SC   (BSSC)", "Ballston Spa Soccer Club"),
+    ("NY", "exact", "Saints Futbol Academy", "Saints FC"),
+    ("NY", "exact", "Carle Place Soccer Club", "Carle Place (LIJSL)"),
+    ("NY", "exact", "Cedar Stars Academy- Hudson Valley", "Cedar Stars Academy Hudson Valley"),
+    ("NY", "exact", "Longwood Soccer", "Longwood Soccer Club"),
+    ("NY", "norm", "Irondequoit SC", "Irondequoit SC"),
+    ("NY", "exact", "Lancaster Depew Soccer Club  (LDSC)", "Lancaster-Depew SC"),
+    ("NY", "exact", "New York City Soccer", "New York City FC"),
+    ("NY", "exact", "Lansdowne Yonkers FC", "Lansdowne Yonkers"),
+    # Its one team is named "Association NoRockland-" -- the club name split at its own
+    # space, leaving the last word at the head of the team name.
+    ("NY", "exact", "North Rockland Soccer", "North Rockland Soccer Association"),
+    ("NY", "exact", "Capital Elite", "Capital Elite FC"),
+    ("NY", "exact", "North Star", "North Stars Soccer Club"),
+    ("NY", "exact", "La Celeste Soccer Academy Inc.", "La Celeste Soccer Club"),
+    # Read off the club list by eye and by the crosscheck. Neither shape is reachable by
+    # any fold.
+    # Twenty of its 31 rows read "Alleycats" or "Albany Alleycats", the rest "970 United"
+    # -- and a "970 United" team already sits under Alleycats, so the two values hold one
+    # club's two programmes between them. Two entries above already name Alleycats.
+    ("NY", "exact", "Empire State Youth Soccer Club", "Alleycats"),
+    # All 19 "WSSL TT" rows read "West Side Soccer League Tournament ...", and the 27
+    # under "West Side" read "Red Bulls ...", its own travel programme. Both spellings
+    # abbreviate the league's name away, so the canonical is a clean form neither holds.
+    # This is the league that fields the teams, unlike LIJSL, which is an umbrella over
+    # the thirty separate clubs tagged with it above.
+    ("NY", "exact", "WSSL TT", "West Side Soccer League"),
+    ("NY", "exact", "West Side", "West Side Soccer League"),
+    # All seven read "BWP Football Academy ...", never Albany -- so this is a spelling,
+    # not the branch its name suggests.
+    ("NY", "exact", "BWP Albany", "BWP Football Academy"),
+    # Left apart deliberately, each on its team names rather than on its club name:
+    #   Long Island Junior Soccer League and Staten Island Youth Soccer League are
+    #     leagues, not clubs -- LIJSL is the umbrella over the thirty tagged clubs above.
+    #   FC Westchester plays MLS NEXT and NAL and writes FCW; Westchester SC plays ECNL
+    #     RL and writes "Westchester Soccer Club". Two clubs.
+    #   Hudson Valley Athletic Club writes HVAC, Hudson Valley Academy HVA, FC Hudson
+    #     Valley FCHV, and Hudson Valley Youth Soccer League is a league. Four bodies.
+    #   "Rush NY- Albany" reads "Albany Rush" on 18 of its 19 teams -- a Rush affiliate
+    #     naming itself, which is how Colorado's eleven affiliates were decided.
+    #   South Shore Soccer Club fields "Lions United FC"; South Shore Futbol Club fields
+    #     Arsenal, Atletico, Galaxy and Milan. No row crosses.
+    #   "FC Stars" here reads "FC Stars Acton" and "FC Stars Lancaster", which are
+    #     Massachusetts sides; that asks which state they belong to, not which name.
+    #     Stars FC names itself on its own teams.
+    #   United Football Club and United Sports FC share no team-name evidence either way.
+    # Five open questions, not holds: the one "Cedar Stars" row, whose team is "CSA Girls
+    # 2012/2013 II" and which either Staten Island or Hudson Valley could claim; whether
+    # "Brooklyn Force Soccer Club" is Metropolitan Oval Academy Brooklyn, which seven of
+    # its ten teams read while three read Brooklyn Force; whether "CNY Coliseum Soccer
+    # Club" is Coliseum, since both field 2009G, 2010G and 2011G sides but each names
+    # itself; whether Long Island City Soccer Club and Long Island CIty Youth Soccer
+    # Academy are one club, 9 rows against 8 with no crossing team name; and whether the
+    # five remaining lone "(lijsl)" tags -- Garden City, Floral Park, Greater Long Beach,
+    # Farmingdale SC and Manorville -- should take the upper case the rest of the league
+    # writes.
 ]
 
 # Acronyms to keep uppercase
