@@ -1599,6 +1599,62 @@ CLUB_CANONICAL_OVERRIDES = [
     # FC Allstars, Glen Rock, Players SC and Peninsula City SC are, and whether the
     # 104 branch-named teams under Players Development Academy move to PDA Hibernian,
     # Blue (North), White (Shore) and South.
+    # More Arkansas
+    ("AR", "exact", "Arkansas Rising", "Arkansas Rising Soccer Club"),
+    ("AR", "exact", "Sporting Arkansas SC", "Sporting Arkansas"),
+    ("AR", "exact", "LITTLE ROCK RANGERS", "Little Rock Rangers Academy"),
+    ("AR", "exact", "Central Arkansa SC", "Central Arkansas Soccer Club"),
+    ("AR", "exact", "Central Arkansas SC (casc)", "Central Arkansas Soccer Club"),
+    # The bare acronym is not a spelling of the club's name, so the two-team full form
+    # is canonical -- the same call Maryland's WSA and Indiana's USAI took.
+    ("AR", "exact", "AVSA", "Arkansas Valley Soccer Association"),
+    ("AR", "exact", "Arkansas Valley SA (avsa)", "Arkansas Valley Soccer Association"),
+    ("AR", "exact", "Greene County SA (gcsa)", "Greene County Soccer"),
+    ("AR", "exact", "Bentonville Prodigy FC", "Bentonville FC Prodigy"),
+    ("AR", "exact", "Bentonville FC", "Bentonville FC Prodigy"),
+    ("AR", "exact", "Conway Soccer Club", "Conway Soccer"),
+    ("AR", "exact", "Arkansas Legends", "Arkansas Legends SC"),
+    # Its three teams read "AFC Benton 2012B Classic Blue" and the like. Arkansas Soccer
+    # Club writes ASC and stays apart.
+    ("AR", "exact", "Arkansas Football Club", "Arkansas Football Club Benton"),
+    ("AR", "exact", "FC Horizon", "F.C. Horizon"),
+    ("AR", "exact", "Searcy YSA / Searcy Rangers", "Searcy YSA"),
+    # Left apart deliberately: Arkansas Soccer Club fields "ASC Edson" against the
+    # Arkansas Football Club family's "AFC Benton", and NWA Dragons is not NWA Lightning.
+    # Two open questions: "Prodigy Warriors", whose one team is "Prodigy Warriors 2012B";
+    # and "No Club Selection", three of whose four teams read "Academia Tigres Arkansas"
+    # while Tigres Academy already exists.
+    # More Michigan
+    ("MI", "exact", "Michigan Jaguars FC", "Michigan Jaguars"),
+    ("MI", "norm", "Detroit City FC", "Detroit City FC"),
+    # Both spellings field ENVY teams -- "ENVY FC 2013 White" and "ENVY 12B-Orange".
+    ("MI", "exact", "Northville SA", "Northville FC"),
+    ("MI", "exact", "Vardar Soccer Club (MI)", "Vardar Soccer"),
+    ("MI", "exact", "Lakeshore Soccer Club", "Lakeshore Football Club"),
+    ("MI", "exact", "Owosso Soccer Club", "Owosso"),
+    # South Carolina resolves this pair the other way round, because there the club that
+    # holds the teams is Mount Pleasant FC. Each entry is scoped to its own state.
+    ("MI", "exact", "Mount Pleasant FC (MPFC)", "Mount Pleasant Soccer Club"),
+    ("MI", "exact", "Michigan Stars FC", "Michigan Stars Elite SC"),
+    # Nineteen of its twenty-two teams read "Monroe United", so the nine-team spelling is
+    # the club's own name even against a twenty-two-team majority.
+    ("MI", "exact", "Monroe Area S.A.", "Monroe United"),
+    ("MI", "exact", "All Stars Soccer Academy - Tournament Team", "Nationals"),
+    # All 23 teams read "Detroit City FC North ...", a branch that held no club value of
+    # its own while its siblings West and South Oakland both do.
+    ("MI", "exact", "Saginaw Township SA", "Detroit City FC North"),
+    # Left apart deliberately, each on its team names rather than on its club name:
+    #   Oxford SC writes OSC; Oxford United Soccer Club writes OUSC.
+    #   Michigan Futbol Academy (MFA), Michigan Youth Soccer Club (MYSA) and Michigan FC
+    #     are three clubs the loose fold groups only because "Michigan" is shared.
+    #   West Michigan Youth Soccer Association is the association, fielding Athletic SC
+    #     GEO, AYSO United BYR and East FC teams; it is a bucket, not a club.
+    #   Dearborn Heights SC is a different place from Dearborn SC.
+    # Five open questions: Chaos Soccer against Chaos FC, whose team names are coloured
+    # and mascotted respectively; "Sturgis SC", 7 of whose teams read "Midwest United FC
+    # - Sturgis"; "Dearborn SC", every team of which reads "Michigan Juniors FC Dearborn";
+    # and the Forza and "Nationals SC Union" rows, whose teams are named only "U15",
+    # "U16" and "U18".
 ]
 
 # Acronyms to keep uppercase
