@@ -64,8 +64,11 @@ Two mechanics the blocks taught, both now in the script:
 
 - A game's team cannot be changed by an UPDATE. `enforce_game_immutability` admits a team change
   only as a clear or a fill, never a swap, so the script moves each side through
-  `unlink_game_team` then `link_game_team`. The side is NULL in between, so a run that dies
-  mid-block leaves a game half-attached and rerunning the same block finishes it.
+  `unlink_game_team` then `link_game_team`. The side is NULL in between, and **a game left in
+  that state cannot be recovered by rerunning the block** — it names neither team on the moved
+  side, so the team-and-window query no longer selects it. `--resume <log>` addresses each game
+  by id and is the only route back. An earlier draft of this file said a rerun finished the job;
+  it does not, and the code comment saying so was wrong in the same way.
 - **Move games out of a destination before moving any in.** The first block put three games onto
   the U17 row inside the same date window the second block was about to sweep, and a date window
   cannot tell them apart. `--exclude` covers the case; ordering avoids it.
