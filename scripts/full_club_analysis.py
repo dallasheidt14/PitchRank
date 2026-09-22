@@ -1551,6 +1551,18 @@ CLUB_CANONICAL_OVERRIDES = [
     ("NJ", "exact", "East Brunswick Soccer Club", "East Brunswick"),
     ("NJ", "exact", "FC Berna", "FC Berna Legacy"),
     ("NJ", "exact", "Freehold Soccer Club", "Freehold SL"),
+    # The owner grouped these two on 2026-09-22 without Hoboken United, so the tagged
+    # spelling folds onto the plain one and Hoboken United stays its own club -- even
+    # though the HCFC rows' teams read "Hoboken United-g12-gandhi".
+    ("NJ", "exact", "Hoboken City Futbol Club    (HCFC)", "Hoboken City FC"),
+    # All 35 teams read "Jackson SC ...". The majority spelling carries a malformed state
+    # tag and the next a legal suffix, so the canonical is the clean form none of them holds.
+    ("NJ", "exact", "Jackson SC(NJ)", "Jackson SC"),
+    ("NJ", "exact", "Jackson Soccer Club", "Jackson SC"),
+    ("NJ", "exact", "Jackson Soccer Club Inc", "Jackson SC"),
+    ("NJ", "exact", "Montville Soccer Association", "Montville SA"),
+    ("NJ", "exact", "Neptune SA", "Neptune Soccer Association"),
+    ("NJ", "norm", "Northern Valley SC", "Northern Valley Soccer Club"),
 ]
 
 # Acronyms to keep uppercase
