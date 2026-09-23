@@ -49,7 +49,7 @@ its own exclusion.
 Measured against the club count on 1,572 teams where both answered, they agree 97.1%, and
 where they differ the registration record is usually visibly right from the team's own name.
 
-**Five things get a team probed**, because one HTTP call per team means asking all 207,991 is
+**Five things get a team probed**, because one HTTP call per team means asking all 232,510 is
 not on the table:
 
 - the sweep, which probes what a tier disputes and what has no state at all;
