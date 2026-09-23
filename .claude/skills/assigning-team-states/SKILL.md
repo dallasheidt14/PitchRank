@@ -134,8 +134,7 @@ itself.
 directions: it falls as the audit runs — an agreeing answer is written as a confirm, so the
 team leaves the population — and it regrows whenever a Tier A write lands somewhere new,
 because every anchor exposes its dissenters, which is the point of Step 2b. Measured at the
-end of 2026-09-11: **267 teams qualify, 217 with a GotSport id**, all of
-them already answered on an earlier run. A club that comes to hold two confirmed states is
+end of 2026-09-22: **308 teams qualify, 173 with a GotSport id**. A club that comes to hold two confirmed states is
 dropped from the anchor index as two clubs sharing a name, so its remaining dissent is never
 audited. `check_state_skill_assumptions.py` warns when this drifts.
 The candidate rule excludes a team that is not askable: a stored Canadian province, which
@@ -183,8 +182,8 @@ python scripts/assign_team_states.py --anchor-clubs --probe-limit 2500 --out anc
 
 The audit only works inside a club that already holds a provider-confirmed team. The
 current population is stated here and guarded by `check_state_skill_assumptions.py`: at the
-end of 2026-09-11, **893 clubs with two or more askable teams have no confirmed member,
-holding 5,859 teams, 2,192 of them with a GotSport id**. That is the population the checker
+end of 2026-09-22, **890 clubs with two or more askable teams have no confirmed member,
+holding 6,580 teams, 2,229 of them with a GotSport id**. That is the population the checker
 measures; the tool prints fewer, the clubs it can pick a team from once the alias lookup and
 the retry cap have had their say. **Expect "fewer" to mean a small fraction of the figure
 above, not a trim, and expect the alias lookup to be the whole reason**: on 2026-09-11 a run
@@ -244,7 +243,7 @@ python scripts/assign_team_states.py --probe-unclubbed --probe-limit 2000 --out 
 ```
 
 is the tail no anchor reaches — a team with no club name, or the only askable team of its
-club: **5,926 teams at the end of 2026-09-11, 5,102 with a GotSport id** — the tool
+club: **7,742 teams at the end of 2026-09-22, 5,212 with a GotSport id** — the tool
 prints the aliased count — asked directly, lowest id first, with the same confirm rule and
 the same exclusions (a stored province, an operator's answer, a team the record already
 vouches for). Teams with no GotSport id are reported under "passed over (teams)" as "no
@@ -363,12 +362,42 @@ Everything the tool would not do on its own authority is in `team_state_review_q
 the tier, the confidence and the reason. The Streamlit dashboard's **State Review Queue**
 section approves or rejects them.
 
-Approving applies the change and mirrors it to the state board in the same transaction.
-Rejecting changes nothing — and is the only thing that stops the same proposal being raised
+In the dashboard, approving applies the change and mirrors it to the state board in the same
+transaction. Rejecting changes nothing — and is the only thing that stops the same proposal being raised
 again next week, so reject deliberately rather than leaving a row pending.
 
-An approval fails if the team has moved since the row was filed. That is correct: the decision
-you are looking at was computed against a state that no longer exists. Re-run the sweep.
+A dashboard approval fails if the team has moved since the row was filed. That is correct: the
+decision you are looking at was computed against a state that no longer exists. Re-run the sweep.
+
+**Settle what the names already answer before reading rows by hand.** The sweep never
+corrects a state from a name alone, so "Colorado Elevation FC" stored as UT and "SLSG IL"
+proposed for MO both reach a person. Run the name pass first:
+
+```bash
+python scripts/review_state_queue_by_name.py            # counts and a sample, no writes
+python scripts/review_state_queue_by_name.py --execute
+```
+
+It rejects a row whose name backs the stored state, approves one whose team or club name
+spells out the proposed state, and writes a third state only when the team name spells it
+out. A learned town word may keep a team where it is but never moves one on its own: Tier E
+proposes from the same words, so reading one back is not a second opinion. On 2026-09-22,
+approving on town words alone moved 18 "SLSG IL" teams to MO and would have sent Pumas Santa
+Fe FC, from New Mexico, to California on "santa". The team's own words outrank its club name,
+since a club's branches are separate clubs. Anything ambiguous is left for a person — state
+words that name a place ("Washington Co", "Delaware Knights" stored in OH, "Oregon SC" stored
+in WI), affiliate markers, a disagreeing GotSport answer, and any move over a provider,
+operator, approved or reverted value — and the dry run counts each reason. Add a town to
+`STATE_NAMED_TOWNS` when the sample shows a new one.
+
+Read the sample as a person would before `--execute`. Every state it writes, approvals
+included, is stamped `tier_c` under the actor `review_state_queue_by_name`: a name is
+evidence, not a person's answer, so the provider's record can still correct it and the sweep
+does not read the write back as an operator's approval. A write whose team moved since the
+row was queued lands nothing and leaves the row pending. `revert_team_states` scoped to that
+actor and the run's window puts the teams back, but not the queue: the rows it approved or
+rejected stay settled, and the sweep will not raise those proposals again until a person
+reopens them.
 
 ## Step 7: Record what ran, and what you could not decide
 

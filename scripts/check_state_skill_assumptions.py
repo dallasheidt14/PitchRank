@@ -51,38 +51,38 @@ DRIFT_TOLERANCE = 0.20
 RECORDED = {
     # Measured for the operator's eye and quoted nowhere: a drift here is news about the
     # database, not a stale sentence.
-    "teams_without_state": 2809,
+    "teams_without_state": 2987,
     # Deliberately 0 rather than the measured count: this is the target, and a recorded 0
     # disables the comparison, so any ranked-and-visible stateless team shows as a bare
-    # figure for the operator to look at. On 2026-09-11 that figure was 1, an English club.
+    # figure for the operator to look at.
     "stateless_and_visible": 0,
-    "ledger_rows": 35002,
-    "queue_pending": 2540,
+    "ledger_rows": 62664,
+    "queue_pending": 797,
     # references/evidence-tiers.md quotes the team count and the curated clubs; its "45
     # clubs are homed" is registry_entries less registry_curated, guarded by subtraction.
-    "live_teams": 207991,
+    "live_teams": 232510,
     "registry_entries": 69,
     "registry_curated": 24,
     # SKILL.md Step 2a is where these are maintained. They fall as the audit runs and regrow
     # after every Tier A write elsewhere -- a sweep or an anchor pass -- which is why they
     # need watching at all: prose that can only get more wrong reads exactly like prose that
     # is right.
-    "audit_candidates": 267,
-    "audit_candidates_with_alias": 217,
+    "audit_candidates": 308,
+    "audit_candidates_with_alias": 173,
     # SKILL.md Step 2b, as the current population an anchor pass draws from. Measured by
     # the selectors the tool runs -- anchorable_clubs and unclubbed_candidates over the same
     # teams list -- so a drift here is a drift in what the next run considers, not in a
     # proxy. It is not a --probe-limit budget: anchorable_clubs runs before the alias
     # lookup, and anchor_candidates then discards every club with no GotSport id on any
-    # member, which on 2026-09-11 took 908 clubs down to 37 selected. The alias lookups cost
+    # member, so far fewer clubs are selected than this population. The alias lookups cost
     # one batched call per hundred ids, which a preflight can afford.
-    "anchorable_clubs": 893,
-    "teams_in_anchorable_clubs": 5859,
-    "teams_in_anchorable_clubs_with_alias": 2192,
-    "unclubbed_population": 5926,
-    "unclubbed_with_alias": 5102,
+    "anchorable_clubs": 890,
+    "teams_in_anchorable_clubs": 6580,
+    "teams_in_anchorable_clubs_with_alias": 2229,
+    "unclubbed_population": 7742,
+    "unclubbed_with_alias": 5212,
 }
-RECORDED_ON = "2026-09-11"
+RECORDED_ON = "2026-09-22"
 
 # The four homes the operator confirmed by hand, blind to the analysis, on 2026-08-28.
 # The only external ground truth this problem has.

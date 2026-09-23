@@ -1494,6 +1494,14 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: 326 teams were moved onto branch clubs their own team names identify -- 104 under Players Development Academy, 222 under Total Futbol Academy -- on the owner's decision of 2026-09-22. No override can reproduce it: `analyze_state` and `_matches_override` key on `club_name` alone and never read `team_name` (verified 2026-09-22), so a team re-imported under the parent stays there even when its name says TFA-SELA or PDA Hibernian. The parents will accumulate branch teams again, and unrelated branches sharing one `club_name` enter the same duplicate-matching pool. Raised by the Codex review on PR #1204; the split itself was accepted knowing this, so the fix is a recurring classifier -- in the weekly cleanup or at team creation -- not a revert.
 - **Noted**: 2026-09-22
 
+### Teach the shared state-name reader that "Washington County" is not Washington
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `scripts/backfill_state_from_team_name.py:state_from_name` (beside `_PLACE_PREFIX` and `FALSE_FRIENDS`); the guard to move is `names_a_place` (with `PLACE_SUFFIXES` and `STATE_NAMED_TOWNS`) in `scripts/review_state_queue_by_name.py`
+- **Why**: `state_from_name` reads "Washington County SC - U14" and "Washington City FC" as WA (verified 2026-09-22), so the weekly sweep's Tier C keeps proposing those moves and only the queue-review script knows to leave them. Moving the suffix check into the shared reader fixes every caller, but it changes what the scheduled sweep proposes, so measure the blast radius first. It was held out of the 2026-09-22 queue-review change because the owner asked to leave the weekly job's decisions alone.
+- **Noted**: 2026-09-22
+
 ### Doorway C pairs only on club equality, so a club spelled two ways stays invisible
 
 - **ID**: IMP-259

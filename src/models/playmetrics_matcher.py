@@ -26,6 +26,7 @@ from datetime import datetime, timezone
 from typing import Dict, Optional
 
 from config.settings import MATCHING_CONFIG
+from scripts.scrape_playmetrics_league import _TEAM_U_AGE_RE, derive_team_age_group
 from src.models.game_matcher import GameHistoryMatcher
 from src.utils.club_normalizer import are_same_club
 from src.utils.team_name_utils import (
@@ -239,6 +240,16 @@ class PlayMetricsGameMatcher(GameHistoryMatcher):
         return frozenset(words)
 
     @staticmethod
+    def _u_age(name: str) -> Optional[int]:
+        """The U-age a name writes ("U18G", "BU12", "11uB"), or None."""
+        m = _TEAM_U_AGE_RE.search(name or "")
+        return int(m.group(1) or m.group(2)) if m else None
+
+    @staticmethod
+    def _u_age_cohort(u_age: int) -> str:
+        return "u19" if u_age in (18, 19) else f"u{u_age}"
+
+    @staticmethod
     def _without_club_words(name: str, club_words: frozenset) -> str:
         """``name`` minus its club words with the rest sorted, or ``name`` itself when nothing else is left.
 
@@ -351,6 +362,18 @@ class PlayMetricsGameMatcher(GameHistoryMatcher):
                     and cand_coach.lower() not in club_words
                 ):
                     continue
+                # "U18G Black" and "U19G Black" share the u19 board but are two
+                # squads. A stored U-age from last season ("BU11" filed under u12)
+                # is a stale name, not a different squad, so it does not refuse.
+                provider_u_age = self._u_age(team_name)
+                cand_u_age = self._u_age(team.get("team_name", ""))
+                if (
+                    provider_u_age
+                    and cand_u_age
+                    and provider_u_age != cand_u_age
+                    and self._u_age_cohort(cand_u_age) == team.get("age_group")
+                ):
+                    continue
 
                 cand_name = team.get("team_name", "")
                 cand_state = team.get("state_code")
@@ -429,9 +452,14 @@ class PlayMetricsGameMatcher(GameHistoryMatcher):
 
         ``state_code`` scopes the fuzzy candidates and the autocreated team; it
         defaults to the row being matched (see ``match_game_history``).
+
+        A row carries one age group, the row team's, and the base class applies
+        it to the opponent too. So each team's age is read from its own name the
+        way the scraper reads it, and the row's age is only the fallback.
         """
         if state_code is None:
             state_code = self._row_state_code
+        age_group = derive_team_age_group(team_name, age_group)
         base_result = super()._match_team(
             provider_id, provider_team_id, team_name, age_group, gender, club_name, state_code=state_code
         )

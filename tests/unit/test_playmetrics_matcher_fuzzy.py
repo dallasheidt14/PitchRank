@@ -218,6 +218,26 @@ def test_a_clubs_initials_that_spell_a_state_are_not_a_branch():
     assert match["team_name"] == "LA Surf U12 Blue"
 
 
+def test_two_u_ages_on_one_board_are_two_squads():
+    _assert_refused_for_the_word(
+        "Storm Fort Collins U18G Black",
+        "Colorado Storm",
+        "CO",
+        "u19",
+        "Female",
+        refused=("Storm Fort Collins U19G Black", "Colorado Storm"),
+        accepted=("Storm Fort Collins U18G Black", "Colorado Storm"),
+    )
+
+
+def test_last_seasons_u_age_on_a_stored_name_still_matches():
+    stored = [("BU11 Academy", "Albion SC Denver")]
+
+    match = _match("BU12 Academy", "Albion SC Denver", "CO", "u12", "Male", stored)
+
+    assert match["team_name"] == "BU11 Academy"
+
+
 def test_the_name_as_written_breaks_a_tie_between_a_clubs_duplicate_rows():
     stored = [("U16 Girls Red", "Polonia Soccer Club"), ("Polonia U16 Girls Red", "Polonia Soccer Club")]
 

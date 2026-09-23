@@ -246,8 +246,11 @@ def map_min_age_to_age_group(min_age: Optional[int]) -> Optional[str]:
     return None
 
 
-# "U11", "u-11", "11U", "11u", and with a gender letter fused on ("U11B", "11uG").
-_TEAM_U_AGE_RE = re.compile(r"\b(?:[Uu]-?(\d{1,2})|(\d{1,2})[Uu])(?!\d)")
+# "U11", "u-11", "11U", "11u", and with a gender letter fused on ("U11B", "11uG",
+# "BU11", "GU11").
+_TEAM_U_AGE_RE = re.compile(r"\b(?:[BbGg]?[Uu]-?(\d{1,2})|(\d{1,2})[Uu])(?!\d)")
+# A birth-date window written out in full, "(8/1/2015 - 7/31/2016)".
+_BIRTH_DATE_RANGE_RE = re.compile(r"[0-9]{1,2}/[0-9]{1,2}/([0-9]{4})\s*-\s*[0-9]{1,2}/[0-9]{1,2}/([0-9]{4})")
 # ASCII-bounded on purpose: ``\d`` also matches non-ASCII digits, which sort
 # above every real date and would pass a shape check.
 _ISO_DATE_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
@@ -257,16 +260,18 @@ def derive_team_age_group(team_name: str, fallback_age_group: Optional[str]) -> 
     """Derive age_group from the team's own name; fall back to the division value.
 
     Priority:
-      1. Birth year: a two-year band (``2014/2015``, ``2014/15``) by its younger
-         year, else a single 4-digit year. A band that names no cohort does not
-         fall back to one of its own years.
+      1. Birth year: a birth-date window (``8/1/2015 - 7/31/2016``) or a two-year
+         band (``2014/2015``, ``2014/15``) by its younger year, else a single
+         4-digit year. A band that names no cohort does not fall back to one of
+         its own years.
       2. ``U11`` / ``11U`` token.
       3. Division-level ``min_age`` mapping (``fallback_age_group``).
 
     A u18 read from the name is filed as u19 to match PitchRank's age cohorts.
     """
     if team_name:
-        band_year = extract_band_birth_year(team_name)
+        date_range = _BIRTH_DATE_RANGE_RE.search(team_name)
+        band_year = max(map(int, date_range.groups())) if date_range else extract_band_birth_year(team_name)
         if band_year:
             ag = calculate_age_group_from_band(band_year)
         else:

@@ -1642,7 +1642,7 @@ def write_probe_log(sb, rows: List[Dict]) -> None:
         ).execute()
 
 
-def apply_decision(sb, decision: Dict, reason: str) -> bool:
+def apply_decision(sb, decision: Dict, reason: str, actor: str = ACTOR) -> bool:
     """Write one state through the ledgered path. False means the row moved since."""
     result = sb.rpc(
         "apply_team_state",
@@ -1652,7 +1652,7 @@ def apply_decision(sb, decision: Dict, reason: str) -> bool:
             "p_state_code": decision["proposed"],
             "p_source": state_source_for(decision["tier"]),
             "p_confidence": decision["confidence"],
-            "p_actor": ACTOR,
+            "p_actor": actor,
             "p_action": (
                 CONFIRM_ACTION
                 if decision.get("action") == CONFIRM_ACTION
