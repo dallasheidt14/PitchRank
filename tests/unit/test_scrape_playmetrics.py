@@ -70,6 +70,8 @@ class TestDeriveTeamAgeGroup:
             ("WIUFC U11G Elite I", "u10", "u11"),
             ("Croatian Eagles 11uB Red 2", "u10", "u11"),
             ("LUFC U16G Navy", "u17", "u16"),
+            ("BU13 Academy", "u12", "u13"),
+            ("GU11 Academy I", "u10", "u11"),
             # A two-year band is named by its younger year
             ("Neenah SC 2014/2015 Boys 11U Red Premier", "u10", "u11"),
             ("FC Chicago 2014-2015 Elite", "u10", "u11"),
@@ -79,6 +81,10 @@ class TestDeriveTeamAgeGroup:
             ("Club G2014/15 Red", "u10", "u11"),
             ("FC Academy-2013/2014 Boys", "u10", "u12"),
             ("Eternal 2012/2013Black", "u10", "u13"),
+            # A birth-date window is a band too, named by its later year
+            ("U11Boys (8/1/2014 - 7/31/2015)", "u12", "u11"),
+            ("U13Girls (8/1/2012 - 7/31/2013)", "u13", "u13"),
+            ("U15/16Girls (8/1/2009 - 7/31/2011)", "u16", "u15"),
             # An aged-out band does not fall back to one of its own years: a lone
             # 2006 would fold into u19, but the band 2006/05 is past it
             ("Club 2006/2005 Red", "u10", "u10"),
