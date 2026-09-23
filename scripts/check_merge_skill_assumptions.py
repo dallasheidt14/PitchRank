@@ -229,14 +229,13 @@ def check_doorway_c_club_matching(r: Result) -> None:
     Fixing either one makes the skill's workaround unnecessary, so these fail loudly
     rather than letting stale guidance stand.
     """
+    from scripts.find_cross_provider_duplicates import normalize as squash
     from src.utils.team_name_utils import normalize_club_for_comparison
 
-    squash = lambda s: re.sub(r"[^a-zA-Z0-9]", "", s).lower()  # noqa: E731 — rule 3's own key
-
     r.check(
-        "the punctuation-squash club key keeps 'X' apart from 'X SC'",
+        "the detector's own club key keeps 'X' apart from 'X SC'",
         squash("Colorado EDGE") != squash("Colorado EDGE SC"),
-        f"squash('Colorado EDGE')={squash('Colorado EDGE')!r} vs {squash('Colorado EDGE SC')!r}",
+        f"normalize('Colorado EDGE')={squash('Colorado EDGE')!r} vs {squash('Colorado EDGE SC')!r}",
     )
     r.check(
         "normalize_club_for_comparison also keeps 'X' apart from 'X SC'",
