@@ -3346,12 +3346,40 @@ def fetch_provider_codes(client):
     return {p["id"]: p["code"] for p in result.data or []}
 
 
+# Patterns established from one state's evidence alone, which the no-state pass must not
+# apply nationally. A pattern listed by a single state reads as unambiguous to
+# analyze_no_state_teams, so a generic spelling like "United SC" would rewrite every
+# stateless team of that name to whichever state happened to claim it first. Each of these
+# was decided from Colorado-only evidence — the variant spelling held only that state's
+# PlayMetrics teams — so none of them carries evidence for a stateless team anywhere else.
+STATE_ONLY_PATTERNS = frozenset(
+    (mtype, pattern.lower())
+    for mtype, pattern in [
+        ("exact", "United SC"),
+        ("exact", "Bear Creek"),
+        ("exact", "Forge A.C."),
+        ("exact", "Broomfield SC"),
+        ("exact", "Westy SC"),
+        ("exact", "Steamboat SC"),
+        ("exact", "Denver Kickers"),
+        ("exact", "Palmer Divide SC"),
+        ("exact", "Chaffee County United"),
+        ("exact", "Thunder Mountain United SC"),
+        ("exact", "Nido Aguila Denver"),
+        ("exact", "Colorado Ice SC"),
+        ("exact", "Colorado Mountain United Soccer Club"),
+        ("exact", "Colorado International Soccer Academy"),
+        ("exact", "Bright Stars of Colorado"),
+    ]
+)
+
+
 def analyze_no_state_teams(teams):
     """Apply CANONICAL overrides to teams with a NULL or empty state_code.
 
     Only applies an override whose (match_type, pattern) gives one canonical name in
     every state that lists it — "peak fc" is Peak SC in UT and Pikes Peak FC in CO, so
-    it is skipped.
+    it is skipped — and never one listed in STATE_ONLY_PATTERNS.
     """
     if not teams:
         return []
@@ -3364,6 +3392,8 @@ def analyze_no_state_teams(teams):
     # Safe overrides: pattern resolves to exactly one canonical name across all states
     safe_overrides = []
     for state, mtype, pattern, canonical in CLUB_CANONICAL_OVERRIDES:
+        if (mtype, pattern.lower()) in STATE_ONLY_PATTERNS:
+            continue
         siblings = pattern_index[(mtype, pattern.lower())]
         canonicals = {c for _, c in siblings}
         if len(canonicals) == 1:

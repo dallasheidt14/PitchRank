@@ -223,11 +223,16 @@ while another files the parent as the club and names the branch inside the team
 (`club_name = "Albion SC Colorado"`, `team_name = "ALBION SC Boulder County GU11 Premier"`).
 Club-to-club fails, team-to-team fails, and rule 3 refuses the pair as two clubs — correctly, by
 its own lights, since these branches *are* separate clubs here. The pair is nonetheless one team.
-Reach it by keying on **`club_name` + `team_name` concatenated and normalised** on both sides,
-which is placement-independent and still refuses a genuine cross-branch pair, because the branch
-token stays in the key. It found 26 pairs in the 2026-09-23 Colorado import that four earlier
-passes missed, of which 22 merged. Run it after the exact-name tiers; on that import it then
-returned nothing further, so it exhausts the identical-name class rather than widening it.
+Reach it with an **asymmetric** comparison: normalised `club_name` + `team_name` on the
+branch-as-club side against normalised `team_name` **alone** on the parent-as-club side. Keying
+club+team on *both* sides does not work and is the easy mistake — the parent club stays in the
+key, so `albionscbouldercountygu11premier` faces
+`albionsccoloradoalbionscbouldercountygu11premier` and nothing matches. Run the comparison both
+ways round, since which provider holds the branch varies. It found 26 pairs in the 2026-09-23
+Colorado import that four earlier passes missed, of which 22 merged.
+
+A symmetric club+team key returning nothing is therefore no evidence that this class is empty;
+it cannot see the class at all. Judge exhaustion from the asymmetric key.
 
 Two cautions, both of which cost a pair in that batch:
 
