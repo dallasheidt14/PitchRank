@@ -94,6 +94,37 @@ def test_a_row_with_a_state_scopes_the_match_and_the_new_team_to_it():
     assert [p["state_code"] for p in _teams(db)] == ["NC", "NC"]
 
 
+def test_each_team_takes_its_age_from_its_own_name_not_the_row():
+    # The row's age group is the row team's; the opponent plays one year up.
+    db = _Db()
+    matcher = PlayMetricsGameMatcher(db.mock, provider_id="playmetrics")
+
+    _run(
+        matcher,
+        _row(
+            team_name="U16 Girls Academy",
+            opponent_name="U15 Girls Academy",
+            age_group="u16",
+            gender="Female",
+            state_code="CO",
+        ),
+    )
+
+    assert {p["team_name"]: p["age_group"] for p in _teams(db)} == {
+        "U16 Girls Academy": "u16",
+        "U15 Girls Academy": "u15",
+    }
+
+
+def test_a_team_whose_name_states_no_age_keeps_the_rows_age():
+    db = _Db()
+    matcher = PlayMetricsGameMatcher(db.mock, provider_id="playmetrics")
+
+    _run(matcher, _row(team_name="Chamoy", opponent_name="Gladiadores", age_group="u14", state_code="CO"))
+
+    assert [p["age_group"] for p in _teams(db)] == ["u14", "u14"]
+
+
 def test_a_new_team_carries_no_full_name_state():
     # A filled `state` reads as provider-reported to assign_team_states; a
     # governing-body constant is per-league evidence, not per-team.
