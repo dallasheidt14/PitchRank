@@ -180,6 +180,17 @@ The pair qualifies when **all** of:
    which alone unifies `Total Futbol Academy(OH)` with `Total Futbol Academy (OH)`, a pair
    Doorway A's byte-identical test rejects — **or** the two clubs are joined by a rebrand bridge
    (below).
+
+   **That normalisation strips punctuation and nothing else, so an org suffix defeats it.**
+   `Colorado EDGE` and `Colorado EDGE SC` squash to different strings, as do `Denver Kickers`
+   and `Denver Kickers Sport Club`. A provider that writes the suffix where another omits it
+   therefore hides every one of that club's duplicates from this doorway — 138 teams across 11
+   clubs in one Colorado import, measured 2026-09-23. `normalize_club_for_comparison` in
+   `src/utils/team_name_utils.py` is stronger, collapsing `X SC` onto `X Soccer Club`, but it
+   too keeps `X` apart from `X SC`. **The repair is a data fix, not a detector change**: add the
+   variant to `CLUB_CANONICAL_OVERRIDES` in `scripts/full_club_analysis.py`, whose weekly run
+   rewrites the rows, and the pairs then appear on the next scan. Fixing only the rows is undone
+   the following Monday — see the normalizing-club-names skill.
 4. Normalised team names **identical**, minimum length 8. Containment is a separate, weaker tier;
    see the warning below.
 5. Zero head-to-head, zero shared game dates, and **opponent Jaccard ≤ 0.20**.
@@ -205,6 +216,33 @@ demotes a pair to review, so **low is the conservative end** and the default is 
 the matchers' number would invert the safety margin: measured over the 45 real third-row club
 pairs in the database on 2026-09-22, `Kings Hammer Aris` against `Kings Hammer Soccer Club`
 scores 0.828 — one club, caught at 0.60 and missed at 0.85.
+
+**The branch can sit in either column, and then neither column matches.** One provider files
+the branch as the club (`club_name = "ALBION SC Boulder County"`, `team_name = "GU11 Premier"`)
+while another files the parent as the club and names the branch inside the team
+(`club_name = "Albion SC Colorado"`, `team_name = "ALBION SC Boulder County GU11 Premier"`).
+Club-to-club fails, team-to-team fails, and rule 3 refuses the pair as two clubs — correctly, by
+its own lights, since these branches *are* separate clubs here. The pair is nonetheless one team.
+Reach it by keying on **`club_name` + `team_name` concatenated and normalised** on both sides,
+which is placement-independent and still refuses a genuine cross-branch pair, because the branch
+token stays in the key. It found 26 pairs in the 2026-09-23 Colorado import that four earlier
+passes missed, of which 22 merged. Run it after the exact-name tiers; on that import it then
+returned nothing further, so it exhausts the identical-name class rather than widening it.
+
+Two cautions, both of which cost a pair in that batch:
+
+- **Sub-site codes are identity, and they are not the compass points.** This club writes `EC` and
+  `WC`; a branch check looking for north/south/east/west and the branch name passes them straight
+  through. One pair matched byte-for-byte on the current names while the keep's
+  `team_name_original` read `WC G13 Premier` against a PlayMetrics row named `EC GU14 Premier` —
+  and the real `WC` PlayMetrics row was live in the same division. Merging would have attached one
+  sub-site's history to the other.
+- **For a re-registering club, `team_name` is the current name and `team_name_original` is the
+  stale one.** That inverts the advice below. Renames here correlate with `last_scraped_at`, and
+  they are not age relabels: `WC G13 Premier` became `EC GU14 Premier`, `G13 Academy II` became
+  `GU14 Academy I`. An age rewrite touches the age token alone, never an ordinal or a site code,
+  so a changed ordinal is the tell that the provider re-registered rather than that the row drifted.
+  Compare current name against current name, and read `team_name_original` for provenance only.
 
 **Club bridges, and the trap inside them.** A club whose name differs across providers can still
 be matched by mining `team_merge_map` for pairs of differing `club_name` values already joined by
