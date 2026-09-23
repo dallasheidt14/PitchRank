@@ -1501,3 +1501,43 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `scripts/backfill_state_from_team_name.py:state_from_name` (beside `_PLACE_PREFIX` and `FALSE_FRIENDS`); the guard to move is `names_a_place` (with `PLACE_SUFFIXES` and `STATE_NAMED_TOWNS`) in `scripts/review_state_queue_by_name.py`
 - **Why**: `state_from_name` reads "Washington County SC - U14" and "Washington City FC" as WA (verified 2026-09-22), so the weekly sweep's Tier C keeps proposing those moves and only the queue-review script knows to leave them. Moving the suffix check into the shared reader fixes every caller, but it changes what the scheduled sweep proposes, so measure the blast radius first. It was held out of the 2026-09-22 queue-review change because the owner asked to leave the weekly job's decisions alone.
 - **Noted**: 2026-09-22
+
+### Doorway C pairs only on club equality, so a club spelled two ways stays invisible
+
+- **ID**: IMP-259
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `scripts/find_cross_provider_duplicates.py` (`build_pairs`), `.claude/skills/merging-duplicate-teams/SKILL.md` Doorway C
+- **Why**: The committed detector pairs two rows only when their `club_name` values are equal once punctuation and case are stripped, which is the rule the 692-pair batch of 2026-09-22 was measured on. A club that two providers spell differently -- `Westy SC` against `Westy Soccer Club` -- therefore never produces a pair at all, and the skill's own rebrand-bridge route past that (mining `team_merge_map` for clubs already joined by a vetted merge, rebrand bridges only, branch bridges reject at 8.5% head-to-head) is still a hand-built query. `are_same_club` is already called in this file for the competing-partner screen, where a false positive only costs a review; using it to *pair* is the opposite risk and needs its own calibration before it ships. What that calibration needs: a labelled set the way the existing table was built -- owner-made merges as positives, same-club same-cohort pairs that played each other as negatives -- scored at several similarity thresholds, and a head-to-head rate per threshold to compare against the 0.43% base rate. The two containment tiers the skill tabulates (club prefix at 4x cleaner than base, `rl` / Roman numeral / bare number / colour as rejects) are unimplemented for the same reason and belong in the same piece of work.
+- **Noted**: 2026-09-22
+
+### Two merge-resolution semantics coexist, and six scripts carry their own copy of one of them
+
+- **ID**: IMP-260
+- **Status**: open
+- **Type**: plan
+- **Category**: refactor
+- **Where**: chain-following copies in `scripts/apply_vetted_team_merges.py`, `decide_team_merges.py`, `enqueue_stranded_merge_fixtures.py`, `exclude_merge_duplicate_games.py`, `find_regid_duplicate_merges.py`, `find_cross_provider_duplicates.py`; single-hop in `src/utils/merge_resolver.py` (`MergeResolver.resolve`) and `scripts/enqueue_helpers.py` (`resolve_merges`)
+- **Why**: Six scripts follow merge chains with `while tid in map and tid not in seen`; `MergeResolver` and `enqueue_helpers.resolve_merges` do a single `dict.get`, the latter documenting the assumption that `execute_team_merge` flattens chains so one hop suffices. Both answer identically today -- `team_merge_map` held 14,121 rows with 0 canonical ids that are themselves deprecated and 0 cycles when measured 2026-09-22 -- so this is latent, not a live defect, which is why it was left alone rather than fixed inside the Doorway C port. **Standardise on the chain-following semantics, not `MergeResolver`'s**: swapping the chain-follower for `MergeResolver` would make A->B->C read B and would break agreement with `apply_vetted_team_merges.py`, which consumes the detectors' output and follows chains itself. CLAUDE.md's "Use `MergeResolver` for any team ID lookup" points at the weaker of the two and wants updating in the same pass. `scripts/enqueue_helpers.py` is the landing pad -- it already holds `_paged`, `_chunks` and `resolve_merges` and is imported packaged by three scripts plus its own test -- and the same extraction covers the third copy of the ordered pager and the twelfth of `get_client`. Note `find_cross_provider_duplicates.page` is the strongest pager of the three (it advances by rows returned, so a server cap below the requested size cannot truncate it silently); extract that one rather than the older short-page variants. Surfaced by the consistency and peer reviews of the Doorway C port; out of scope there because it spans six unrelated scripts.
+- **Noted**: 2026-09-22
+
+### csv_safe is copy-pasted into five scripts
+
+- **ID**: IMP-261
+- **Status**: open
+- **Type**: direct
+- **Category**: refactor
+- **Where**: `scripts/fix_band_cohorts.py:135,138`, `scripts/reconcile_teams_with_gotsport.py:116,156`, `scripts/repair_swapped_club_names.py:140,153`, `scripts/full_club_analysis.py:3030,3646`, imported from the first by `scripts/find_cross_provider_duplicates.py`
+- **Why**: Four scripts declare an identical `_FORMULA_PREFIXES = frozenset({"=", "+", "-", "@", "\t", "\r", "\n"})` and a `csv_safe` beside it; three of the four share a byte-identical implementation line under differently-worded docstrings, and `full_club_analysis.py`'s body differs. This is a security control against spreadsheet formula injection in operator-facing CSVs, so the copies drifting apart is the failure that matters -- a prefix added to one set protects one export. The Doorway C detector imports from `fix_band_cohorts` rather than adding a fifth copy, which makes a 700-line data-fix script an unlikely dependency of a detector. Wants one home in `src/utils/`, with the four declaring copies switched to import it. Small and self-contained; kept out of the Doorway C port only because that change was already touching the CSV-escaping path itself.
+- **Noted**: 2026-09-22
+
+### .pytest_cache is not gitignored, so every test run leaves an untracked directory
+
+- **ID**: IMP-262
+- **Status**: open
+- **Type**: direct
+- **Category**: dx
+- **Where**: `.gitignore` (the `__pycache__/` entry at line 15 has no `.pytest_cache/` counterpart)
+- **Why**: Verified 2026-09-22: `git check-ignore -v __pycache__` resolves to `.gitignore:15`, while `git check-ignore -v .pytest_cache` matches nothing. Any `python -m pytest` run therefore leaves `.pytest_cache/` in `git status --untracked-files=all`, in the main checkout and in every linked worktree. The cost is not the noise itself but that this checkout is shared: an untracked directory you did not create is the signal that another session is mid-work, and a per-run artifact that looks identical erodes it. Two review agents this session passed `-p no:cacheprovider` specifically to avoid creating it, which is a workaround each reader has to rediscover. One line in `.gitignore`.
+- **Noted**: 2026-09-22

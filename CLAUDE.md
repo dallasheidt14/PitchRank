@@ -128,6 +128,19 @@ PitchRank is a **youth soccer ranking platform** that scrapes game data from mul
   new one is among them. Where no mutation kills it alone, the guard is either redundant
   with what is already there or pointed at the wrong code, and saying which is part of
   writing it.
+- **Bind the test at the altitude where the failure lives.** The double rules above are about
+  what a fake *accepts*; this one is about which layer the test drives. A guard whose failure
+  mode is in what gets **fetched** cannot be seen by a test that hands the rows to the pure
+  function, because the fixture supplies exactly the data the broken fetch would not have
+  returned. On 2026-09-22 a candidate row that was live but also carried a `team_merge_map`
+  entry had its whole schedule read as zero, because the id set built for the fetch held raw
+  ids while the evidence was keyed on resolved ones. The unit test written for that case fed
+  the evidence builder directly and passed throughout; a full seven-reviewer round and a
+  39-mutation battery passed too, and the defect surfaced only when a reviewer drove the
+  scan end to end. Where a composition function (`scan`, `main`, anything wiring fetch to
+  decision) has no test calling it, the guards below it are pinned against a fixture rather
+  than against the query, so name the composition in the test and let it do its own fetching
+  through the double.
 
 ## Scope & Approach Discipline
 - Do NOT make changes beyond what was explicitly requested. If you see opportunities for improvement, mention them but wait for approval.
