@@ -184,8 +184,11 @@ The pair qualifies when **all** of:
    **That normalisation strips punctuation and nothing else, so an org suffix defeats it.**
    `Colorado EDGE` and `Colorado EDGE SC` squash to different strings, as do `Denver Kickers`
    and `Denver Kickers Sport Club`. A provider that writes the suffix where another omits it
-   therefore hides every one of that club's duplicates from this doorway — 138 teams across 11
-   clubs in one Colorado import, measured 2026-09-23. `normalize_club_for_comparison` in
+   therefore hides every one of that club's duplicates from this doorway — it did so for 11
+   clubs holding 138 teams in the Colorado import of 2026-09-23, a one-off count of that batch
+   rather than a figure the preflight checker tracks, and one that reads as zero now those
+   clubs are consolidated. The two code gaps behind it *are* checked.
+   `normalize_club_for_comparison` in
    `src/utils/team_name_utils.py` is stronger, collapsing `X SC` onto `X Soccer Club`, but it
    too keeps `X` apart from `X SC`. **The repair is a data fix, not a detector change**: add the
    variant to `CLUB_CANONICAL_OVERRIDES` in `scripts/full_club_analysis.py`, whose weekly run
@@ -228,8 +231,9 @@ branch-as-club side against normalised `team_name` **alone** on the parent-as-cl
 club+team on *both* sides does not work and is the easy mistake — the parent club stays in the
 key, so `albionscbouldercountygu11premier` faces
 `albionsccoloradoalbionscbouldercountygu11premier` and nothing matches. Run the comparison both
-ways round, since which provider holds the branch varies. It found 26 pairs in the 2026-09-23
-Colorado import that four earlier passes missed, of which 22 merged.
+ways round, since which provider holds the branch varies. In the Colorado import of 2026-09-23
+it found 26 pairs four earlier passes had missed, of which 22 merged — a one-off count of that
+batch, not a tracked figure. Both keys' behaviour is asserted by the preflight checker.
 
 A symmetric club+team key returning nothing is therefore no evidence that this class is empty;
 it cannot see the class at all. Judge exhaustion from the asymmetric key.
