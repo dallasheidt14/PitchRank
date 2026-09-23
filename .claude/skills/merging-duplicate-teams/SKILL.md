@@ -152,8 +152,26 @@ opponents are duplicated too so no fixture fingerprint matches. It is neverthele
 largest clean class in the database, and it is the one a customer notices, because both rows are
 published on the rankings boards with half a record each.
 
-Generate it with a query, not a script — there is no committed implementation yet (IMP: see
-backlog). The pair qualifies when **all** of:
+`scripts/find_cross_provider_duplicates.py` implements it, propose-only: it writes a CSV of
+proposals **and refusals** plus a JSON of the proposals alone, and touches nothing. Feed the
+vetted JSON to `apply_vetted_team_merges.py`.
+
+**It implements rules 1, 2, 4, 5 and 7, the first half of rule 3, and the self-play half of
+rule 6 — not the rest.** Read the numbered list below as the doorway's definition, not as the
+script's coverage. Unimplemented, and still a hand-built query: the rebrand-bridge branch of
+rule 3, the containment tiers of rule 4, rule 6's sibling-cohort game-count outlier, and any
+pair not anchored on GotSport (a TGS row duplicated on SincSports). It also skips
+`soccereventsgroup`, `athletes2events` and `playmetrics_tournament`, which are operator-run
+per event. IMP-259 tracks the containment work.
+
+**Do not route its output through `decide_team_merges.py`** — not for the reason that bars
+Doorway B, whose raw-string club compare does not bite here. It has no tiers and computes no
+direction: it takes whatever direction it is handed and adds nothing this doorway needs. Its
+gender screen reads `Boys`/`Girls` as words only, so it clears the Oklahoma Cosmos pair that a
+bare `12B` against `12G` refuses. The detector carries its one screen worth having, the
+fused-registration REVIEW.
+
+The pair qualifies when **all** of:
 
 1. **Different team-level `provider_id`.** This is the dominant signal — see the calibration
    below. Exclude `modular11` rows; they are out of scope by operator decision.
@@ -166,6 +184,27 @@ backlog). The pair qualifies when **all** of:
    see the warning below.
 5. Zero head-to-head, zero shared game dates, and **opponent Jaccard ≤ 0.20**.
 6. Neither row fails the survivor-integrity check in Step 5.
+7. The two **registered** names do not state opposite genders, reading a `12B`/`12G` affix and
+   not only the words `Boys`/`Girls`. Both rows can carry the same wrong stored gender — that
+   is what let the pair into the pool — while `team_name_original` says otherwise on one side.
+
+**Club equality decides who may pair; `are_same_club` decides who competes.** Comparing clubs
+byte-for-byte is the same thing as grouping on the club, and it hides a third row of the club
+filed under the club's other spelling — so a cluster of three reads as a clean pair of two and
+a bulk rule leaves the other duplicate standing. The detector therefore groups on name and
+cohort with the club left out, pairs only on normalised club equality, and counts any further
+row of the group that `are_same_club` matches — the same spelling or a near one — as a
+competing partner, which demotes the pair to review unless its alias already points at the
+survivor. Loosening the pairing rule itself to similarity is a different move, and an
+uncalibrated one — see IMP-259.
+
+**The competing threshold is deliberately lower than the matchers'.** `are_same_club` gates
+matching at 0.85–0.95 in `affinity_wa_matcher`, `playmetrics_matcher` and `roster_resolver`,
+where a `True` fuses two rows and high is therefore the conservative end. Here `True` only
+demotes a pair to review, so **low is the conservative end** and the default is 0.60. Copying
+the matchers' number would invert the safety margin: measured over the 45 real third-row club
+pairs in the database on 2026-09-22, `Kings Hammer Aris` against `Kings Hammer Soccer Club`
+scores 0.828 — one club, caught at 0.60 and missed at 0.85.
 
 **Club bridges, and the trap inside them.** A club whose name differs across providers can still
 be matched by mining `team_merge_map` for pairs of differing `club_name` values already joined by
@@ -371,6 +410,10 @@ artifacts that look identical to real evidence in the output, and each has a spe
 | `states differ` | one side's state came from an event, not the club | do the two rows share a club and a schedule? state is not evidence |
 | `clubs differ` | one side is NULL, coerced to `''` | is either `club_name` NULL? then nothing was compared |
 | `both played a game on the same day` | the shared dates are the *same fixtures*, or belong to a row merged in earlier | run the four-step test below — two steps are not enough |
+
+Doorway C's refusals are in scope here too, and are why its CSV keeps them rather than only
+counting them: its `0_rejected` rows carry the same `both played a game on the same day`
+reason — the bulk of its refusals — and the four-step test below applies to them unchanged.
 
 That last row is the one that matters most, and it takes four steps, not two. The rule's stated
 intent is that a squad cannot be in two places — but the code performs none of the opponent
