@@ -223,6 +223,44 @@ def check_precondition_compares_raw_strings(r: Result) -> None:
     )
 
 
+def check_doorway_c_club_matching(r: Result) -> None:
+    """Both club-key gaps the Doorway C guidance routes around.
+
+    Fixing either one makes the skill's workaround unnecessary, so these fail loudly
+    rather than letting stale guidance stand.
+    """
+    from scripts.find_cross_provider_duplicates import normalize as squash
+    from src.utils.team_name_utils import normalize_club_for_comparison
+
+    r.check(
+        "the detector's own club key keeps 'X' apart from 'X SC'",
+        squash("Colorado EDGE") != squash("Colorado EDGE SC"),
+        f"normalize('Colorado EDGE')={squash('Colorado EDGE')!r} vs {squash('Colorado EDGE SC')!r}",
+    )
+    r.check(
+        "normalize_club_for_comparison also keeps 'X' apart from 'X SC'",
+        normalize_club_for_comparison("Denver Kickers")
+        != normalize_club_for_comparison("Denver Kickers Sport Club"),
+        "'Denver Kickers' -> "
+        f"{normalize_club_for_comparison('Denver Kickers')!r} vs "
+        f"{normalize_club_for_comparison('Denver Kickers Sport Club')!r}",
+    )
+
+    # The branch-in-either-column pair the skill's asymmetric key exists for.
+    pm_club, pm_team = "ALBION SC Boulder County", "GU11 Premier"
+    gs_club, gs_team = "Albion SC Colorado", "ALBION SC Boulder County GU11 Premier"
+    r.check(
+        "a symmetric club+team key cannot match a branch-placement pair",
+        squash(pm_club + pm_team) != squash(gs_club + gs_team),
+        f"{squash(pm_club + pm_team)!r} vs {squash(gs_club + gs_team)!r}",
+    )
+    r.check(
+        "the asymmetric key (club+team vs team alone) does match it",
+        squash(pm_club + pm_team) == squash(gs_team),
+        f"{squash(pm_club + pm_team)!r} == {squash(gs_team)!r}",
+    )
+
+
 def check_scorer_backend(r: Result) -> None:
     """CI installs neither rapidfuzz nor thefuzz, so SequenceMatcher is the real scorer."""
     lock = (ROOT / "requirements.lock").read_text(encoding="utf-8").lower()
@@ -460,6 +498,7 @@ def main() -> int:
     check_protected_division(result)
     check_normalizer_launders_names(result)
     check_precondition_compares_raw_strings(result)
+    check_doorway_c_club_matching(result)
     check_scorer_backend(result)
     check_workflow_flags(result)
     note_self_play_unverifiable(result)

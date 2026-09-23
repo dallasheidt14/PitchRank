@@ -1548,12 +1548,45 @@ CLUB_CANONICAL_OVERRIDES = [
     # Peak Football Club is Peak FC, per the owner on 2026-09-22, and "peak fc" already
     # resolves to Pikes Peak FC in this state two lines above.
     ("CO", "exact", "Peak Football Club", "Pikes Peak FC"),
+    # The PlayMetrics Colorado league writes an org suffix where GotSport's registration
+    # does not, or drops the one GotSport carries, so each of these clubs arrived under a
+    # second spelling holding only that league's teams. The GotSport spelling is canonical
+    # because it is the registration the rest of the club's history already sits under.
+    ("CO", "exact", "Colorado Ice SC", "Colorado Ice"),
+    ("CO", "exact", "Denver Kickers", "Denver Kickers Sport Club"),
+    ("CO", "exact", "Chaffee County United", "Chaffee County United SC"),
+    ("CO", "exact", "Colorado Mountain United Soccer Club", "Colorado Mountain United"),
+    (
+        "CO",
+        "exact",
+        "Bright Stars of Colorado",
+        "Bright Stars of Colorado Soccer Academy",
+    ),
+    ("CO", "exact", "Broomfield SC", "Broomfield Soccer Club"),
+    ("CO", "exact", "United SC", "United Soccer Club CO"),
+    ("CO", "exact", "Westy SC", "Westy Soccer Club"),
+    ("CO", "exact", "Steamboat SC", "Steamboat Springs YSA"),
+    ("CO", "exact", "Palmer Divide SC", "Palmer Divide Soccer Club"),
+    ("CO", "exact", "Forge A.C.", "Forge Athletic Club"),
+    ("CO", "exact", "Nido Aguila Denver", "Nido Aguila Denver-Aurora"),
+    ("CO", "exact", "Thunder Mountain United SC", "Thunder Mountain Soccer Club"),
+    ("CO", "exact", "Bear Creek", "Bear Creek Soccer"),
+    (
+        "CO",
+        "exact",
+        "Colorado International Soccer Academy",
+        "Colorado International SA",
+    ),
     # Left apart deliberately: Albion SC Colorado, Denver and Boulder County are
     # branches, and so is each Rush affiliate -- COS, Northern Colorado, North Denver,
     # Flatirons, LFA, Mountain and Victory all name themselves on their own teams.
     # Two open questions, not holds: the bare "Rush" row, whose one team is "Rush U13G
     # Academy White ECNL-RL" and which eleven affiliates could claim; and "Grand Junction
     # Fire FC", one of whose two teams reads "Grand Junction SC 2012/13 United".
+    # "Windsor Athletic FC" is held rather than folded: its nearest existing spelling,
+    # "Windsor Warriors AFC", holds no live teams and already resolves to Northern
+    # Colorado Lightning Academy, so folding it would assert a club identity no team
+    # name supports.
     # New Jersey
     ("NJ", "exact", "Berkeley Soccer Assn", "Berkeley Soccer Association"),
     ("NJ", "exact", "Bridgewater Soccer Association", "Bridgewater SA"),
@@ -3313,12 +3346,40 @@ def fetch_provider_codes(client):
     return {p["id"]: p["code"] for p in result.data or []}
 
 
+# Patterns established from one state's evidence alone, which the no-state pass must not
+# apply nationally. A pattern listed by a single state reads as unambiguous to
+# analyze_no_state_teams, so a generic spelling like "United SC" would rewrite every
+# stateless team of that name to whichever state happened to claim it first. Each of these
+# was decided from Colorado-only evidence — the variant spelling held only that state's
+# PlayMetrics teams — so none of them carries evidence for a stateless team anywhere else.
+STATE_ONLY_PATTERNS = frozenset(
+    (mtype, pattern.lower())
+    for mtype, pattern in [
+        ("exact", "United SC"),
+        ("exact", "Bear Creek"),
+        ("exact", "Forge A.C."),
+        ("exact", "Broomfield SC"),
+        ("exact", "Westy SC"),
+        ("exact", "Steamboat SC"),
+        ("exact", "Denver Kickers"),
+        ("exact", "Palmer Divide SC"),
+        ("exact", "Chaffee County United"),
+        ("exact", "Thunder Mountain United SC"),
+        ("exact", "Nido Aguila Denver"),
+        ("exact", "Colorado Ice SC"),
+        ("exact", "Colorado Mountain United Soccer Club"),
+        ("exact", "Colorado International Soccer Academy"),
+        ("exact", "Bright Stars of Colorado"),
+    ]
+)
+
+
 def analyze_no_state_teams(teams):
     """Apply CANONICAL overrides to teams with a NULL or empty state_code.
 
     Only applies an override whose (match_type, pattern) gives one canonical name in
     every state that lists it — "peak fc" is Peak SC in UT and Pikes Peak FC in CO, so
-    it is skipped.
+    it is skipped — and never one listed in STATE_ONLY_PATTERNS.
     """
     if not teams:
         return []
@@ -3331,6 +3392,8 @@ def analyze_no_state_teams(teams):
     # Safe overrides: pattern resolves to exactly one canonical name across all states
     safe_overrides = []
     for state, mtype, pattern, canonical in CLUB_CANONICAL_OVERRIDES:
+        if (mtype, pattern.lower()) in STATE_ONLY_PATTERNS:
+            continue
         siblings = pattern_index[(mtype, pattern.lower())]
         canonicals = {c for _, c in siblings}
         if len(canonicals) == 1:
