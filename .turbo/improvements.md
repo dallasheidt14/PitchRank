@@ -1159,6 +1159,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `codex_findings` in `scripts/pr_wait.py`
 - **Why**: It reads only the PR's review objects and inline comments. A clean Codex review arrives as a "Codex Review Summary ... Completed" issue comment plus a +1 reaction, with no review object, so the script prints "Codex did not review this PR" and waits out `CODEX_WINDOW_MINUTES` anyway. Seen on #1151 (2026-09-15): summary comment completed two minutes after open, +1 reaction, script reported no review. Findings still arrive as review objects, so this misreports and delays rather than merging past findings.
 - **Noted**: 2026-09-15
+- **Update (2026-09-23)**: Recurred on #1208 and was relayed to the user as "Codex did not review this PR" while the review had completed 5m42s after open with a 👍 and no findings. Two things this narrows for whoever fixes it: `CODEX_LOGIN` is *not* the cause (it carries the `[bot]` suffix REST returns and matches correctly), and the summary comment is created within ~10s of the PR opening but only reaches `Completed` minutes later, so presence of the comment is not the signal -- parse its status cell. The workaround note has now failed to prevent this twice, which is the argument for fixing the script rather than documenting it again.
 
 ### A game import exits 0 when its inserts fail
 
@@ -1542,16 +1543,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: Verified 2026-09-22: `git check-ignore -v __pycache__` resolves to `.gitignore:15`, while `git check-ignore -v .pytest_cache` matches nothing. Any `python -m pytest` run therefore leaves `.pytest_cache/` in `git status --untracked-files=all`, in the main checkout and in every linked worktree. The cost is not the noise itself but that this checkout is shared: an untracked directory you did not create is the signal that another session is mid-work, and a per-run artifact that looks identical erodes it. Two review agents this session passed `-p no:cacheprovider` specifically to avoid creating it, which is a workaround each reader has to rediscover. One line in `.gitignore`.
 - **Noted**: 2026-09-22
 
-### pr_wait reports a clean Codex review as "did not review"
-
-- **ID**: IMP-263
-- **Status**: open
-- **Type**: direct
-- **Category**: reliability
-- **Where**: `scripts/pr_wait.py` (`codex_findings`, and the "Codex did not review this PR" print beside it)
-- **Why**: `codex_findings` reads `pulls/<n>/reviews` and the inline review comments only. A clean Codex pass produces neither: it edits its summary issue comment to `Code Review | Completed | <sha>` and reacts 👍 on the PR, leaving zero review objects. The script therefore prints "Codex did not review this PR (it reviews about half of them)" for a review that ran and passed, which is the opposite of what a reader needs before merging -- "nobody looked" and "looked, found nothing" are different states. Verified on #1208 (2026-09-23): summary comment completed 5m42s after open, 👍 present, zero reviews, and the script printed the negative. `CODEX_LOGIN` is not the cause; it carries the `[bot]` suffix REST returns and matches. The same false negative is recorded on #1149 (2026-09-14), so the workaround note has now failed to prevent it twice, which is why this is a script fix rather than another note. Read `issues/<n>/comments` for the summary marker `codex-pull-request-review-summary`, parse the status cell, and distinguish reviewed-clean, reviewed-with-findings, Failed, and genuinely absent.
-- **Noted**: 2026-09-23
-
 ### pr_wait polls required checks on a conflicting PR, where none can ever start
 
 - **ID**: IMP-264
@@ -1568,6 +1559,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Status**: open
 - **Type**: direct
 - **Category**: reliability
-- **Where**: `.claude/hooks/git-guard.sh:77-87` (`target` is resolved at `:77-84`, then `branch=$(branch_of "$cwd")` at `:87`)
-- **Why**: The hook computes `target` correctly, honouring a `git -C <dir>` or an earlier `cd <dir>` in the command, and its own comment says every check below "answers about the wrong repository otherwise". Line 87 then reads `branch_of "$cwd"` rather than `branch_of "$target"`; only the `git -C` form re-resolves, at `:88-90`. So `cd <worktree> && git commit` is judged by the branch of the main checkout. Both directions are wrong and the second is a bypass of the rule the hook exists to enforce: a commit from a worktree that *is* on main is allowed whenever the main checkout sits on a feature branch, and a legitimate commit from a feature-branch worktree is refused whenever the main checkout sits on main. The second was hit on 2026-09-23 and worked around with the `git -C` form. Changing `:87` to use `$target` fixes both; `:88-90` then becomes redundant. Hooks here go live for every session the moment the file is saved, so fixture-test the change before committing it.
+- **Where**: `.claude/hooks/git-guard.sh:87` (`target` is resolved at `:77-84`, then `branch=$(branch_of "$cwd")` at `:87`)
+- **Why**: The hook computes `target` correctly at `:77-84`, honouring a `git -C <dir>` or an earlier `cd <dir>`, and its own comment says every check below "answers about the wrong repository otherwise". Line 87 then reads `branch_of "$cwd"` rather than `branch_of "$target"`; only the `git -C` form re-resolves, at `:88-90`. The consequence is a false rejection: `cd <feature-branch worktree> && git commit` is refused whenever the main checkout happens to sit on main, which is routine while worktrees are in use and was hit on 2026-09-23. **It is not a bypass** -- a separate check at `:103-111` resolves the `cd` target independently and denies when *that* checkout is on main, covered by `test_git_guard_blocks_commit_on_main`; an earlier draft of this entry claimed otherwise and was wrong. So the fix is narrow: read `$target` at `:87`, which also makes `:88-90` redundant. Hooks here go live for every session the moment the file is saved, so fixture-test the change before committing it.
 - **Noted**: 2026-09-23
