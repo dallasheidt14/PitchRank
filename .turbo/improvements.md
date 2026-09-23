@@ -1159,6 +1159,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `codex_findings` in `scripts/pr_wait.py`
 - **Why**: It reads only the PR's review objects and inline comments. A clean Codex review arrives as a "Codex Review Summary ... Completed" issue comment plus a +1 reaction, with no review object, so the script prints "Codex did not review this PR" and waits out `CODEX_WINDOW_MINUTES` anyway. Seen on #1151 (2026-09-15): summary comment completed two minutes after open, +1 reaction, script reported no review. Findings still arrive as review objects, so this misreports and delays rather than merging past findings.
 - **Noted**: 2026-09-15
+- **Update (2026-09-23)**: Recurred on #1208 and was relayed to the user as "Codex did not review this PR" while the review had completed 5m42s after open with a 👍 and no findings. Two things this narrows for whoever fixes it: `CODEX_LOGIN` is *not* the cause (it carries the `[bot]` suffix REST returns and matches correctly), and the summary comment is created within ~10s of the PR opening but only reaches `Completed` minutes later, so presence of the comment is not the signal -- parse its status cell. The workaround note has now failed to prevent this twice, which is the argument for fixing the script rather than documenting it again.
 
 ### A game import exits 0 when its inserts fail
 
@@ -1541,3 +1542,23 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `.gitignore` (the `__pycache__/` entry at line 15 has no `.pytest_cache/` counterpart)
 - **Why**: Verified 2026-09-22: `git check-ignore -v __pycache__` resolves to `.gitignore:15`, while `git check-ignore -v .pytest_cache` matches nothing. Any `python -m pytest` run therefore leaves `.pytest_cache/` in `git status --untracked-files=all`, in the main checkout and in every linked worktree. The cost is not the noise itself but that this checkout is shared: an untracked directory you did not create is the signal that another session is mid-work, and a per-run artifact that looks identical erodes it. Two review agents this session passed `-p no:cacheprovider` specifically to avoid creating it, which is a workaround each reader has to rediscover. One line in `.gitignore`.
 - **Noted**: 2026-09-22
+
+### pr_wait polls required checks on a conflicting PR, where none can ever start
+
+- **ID**: IMP-264
+- **Status**: open
+- **Type**: direct
+- **Category**: dx
+- **Where**: `scripts/pr_wait.py` (the poll loop; it reads `statusCheckRollup` but never `mergeable` / `mergeStateStatus`)
+- **Why**: A PR whose branch conflicts with main gets no `ci.yml` run at all, so the seven required checks never appear. The script has no conflict check and waits out its full window reporting "waiting on Frontend Format, Frontend Lint, ..." for jobs GitHub is never going to schedule. Observed on #1208 (2026-09-23): nine minutes of polling before the Codex ceiling ended it, after which `gh pr view --json mergeable` returned `CONFLICTING` / `DIRTY` immediately. One `mergeable` read at the top of the loop turns a silent wait into a named conflict. Report the base rather than prescribing a command: `resolve_pr` already selects `baseRefName` (`:85`) and keys `required_contexts` off it (`:185`), and a stacked PR's base is another feature branch, so "merge origin/main" would be the wrong instruction and could pull in unrelated commits. Merging the base is the resolution rather than rebasing, since the guard blocks the force-push a rebase needs.
+- **Noted**: 2026-09-23
+
+### The commit guard reads the branch of the payload cwd, not the directory git will run in
+
+- **ID**: IMP-265
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `.claude/hooks/git-guard.sh:87` (`target` is resolved at `:77-84`, then `branch=$(branch_of "$cwd")` at `:87`)
+- **Why**: The hook computes `target` correctly at `:77-84`, honouring a `git -C <dir>` or an earlier `cd <dir>`, and its own comment says every check below "answers about the wrong repository otherwise". Line 87 then reads `branch_of "$cwd"` rather than `branch_of "$target"`; only the `git -C` form re-resolves, at `:88-90`. The consequence is a false rejection: `cd <feature-branch worktree> && git commit` is refused whenever the main checkout happens to sit on main, which is routine while worktrees are in use and was hit on 2026-09-23. **It is not a bypass** -- a separate check at `:103-111` resolves the `cd` target independently and denies when *that* checkout is on main, covered by `test_git_guard_blocks_commit_on_main`; an earlier draft of this entry claimed otherwise and was wrong. So the fix is narrow: read `$target` at `:87`, which also makes `:88-90` redundant. Hooks here go live for every session the moment the file is saved, so fixture-test the change before committing it.
+- **Noted**: 2026-09-23
