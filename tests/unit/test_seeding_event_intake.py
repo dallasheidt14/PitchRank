@@ -620,15 +620,42 @@ def test_a_blocked_retry_does_not_replace_a_walk_that_linked_more_teams(app, key
     assert _said_nothing_saved(fake_st)
 
 
-def test_a_blocked_retry_with_as_many_team_ids_keeps_the_earlier_walk(app):
+
+def test_a_blocked_retry_keeps_the_team_ids_an_earlier_retry_read(app):
+    earlier = _roster(*(_team(index, provider_team_id=pid) for index, pid in ((0, "A"), (1, "B"))),
+                      *(_team(index) for index in (2, 3, 4)), teams_unreadable=3)
+    assert tournament_intake._write_recovery(earlier, None, tournament_intake._SEEDING_KEYS)
+    retry = _roster(_team(0), _team(1), *(_team(index, provider_team_id=pid) for index, pid in ((2, "C"), (3, "D"), (4, "E"))),
+                    teams_unreadable=2, warnings=("Not read: Team 0 (4200000); the walk stopped at a bot challenge",))
+
+    fake_st = _blocked(app, retry)
+
+    kept = _recovered()
+    assert [team.provider_team_id for team in kept.teams] == ["A", "B", "C", "D", "E"]
+    assert kept.teams_unreadable == 0
+    assert kept.warnings == ()
+    assert _said_saved(fake_st, 5)
+
+def test_a_blocked_retry_that_adds_nothing_keeps_the_earlier_walk(app):
+    earlier = _roster(_team(0, provider_team_id="521426"), _team(1, provider_team_id="521427"), teams_unreadable=0)
+    assert tournament_intake._write_recovery(earlier, None, tournament_intake._SEEDING_KEYS)
+    retry = _roster(_team(0), _team(1, provider_team_id="521427"), teams_unreadable=1)
+
+    fake_st = _blocked(app, retry)
+
+    assert [team.provider_team_id for team in _recovered().teams] == ["521426", "521427"]
+    assert _said_nothing_saved(fake_st)
+
+
+def test_two_blocked_retries_that_read_different_teams_are_combined(app):
     earlier = _roster(_team(0, provider_team_id="521426"), _team(1), teams_unreadable=1)
     assert tournament_intake._write_recovery(earlier, None, tournament_intake._SEEDING_KEYS)
     retry = _roster(_team(0), _team(1, provider_team_id="521427"), teams_unreadable=1)
 
     fake_st = _blocked(app, retry)
 
-    assert [team.provider_team_id for team in _recovered().teams] == ["521426", None]
-    assert _said_nothing_saved(fake_st)
+    assert [team.provider_team_id for team in _recovered().teams] == ["521426", "521427"]
+    assert _said_saved(fake_st, 2)
 
 
 def test_a_team_listed_in_several_divisions_counts_once(app):

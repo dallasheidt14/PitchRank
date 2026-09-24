@@ -3821,8 +3821,8 @@ def _write_recovery(roster: EventRoster, limit_groups: int | None, keys: _WalkKe
     return _write_event_roster_recovery(roster, limit_groups)
 
 
-def _linked_ids_on_disk(path: Path) -> frozenset[str] | None:
-    """The distinct provider ids a saved walk holds, or None when nothing readable is saved."""
+def _saved_team_ids(path: Path) -> dict[str, str] | None:
+    """Provider ids a saved walk holds, keyed by registration id, or None when nothing readable is saved."""
     try:
         existing = read_json(path)
     except (OSError, ValueError):
@@ -3830,23 +3830,48 @@ def _linked_ids_on_disk(path: Path) -> frozenset[str] | None:
     teams = existing.get("teams") if isinstance(existing, dict) else None
     if not isinstance(teams, list):
         return None
-    return frozenset(
-        str(team["provider_team_id"]) for team in teams if isinstance(team, dict) and team.get("provider_team_id")
+    return {
+        str(team["registration_id"]): str(team["provider_team_id"])
+        for team in teams
+        if isinstance(team, dict) and team.get("registration_id") and team.get("provider_team_id")
+    }
+
+
+def _with_saved_team_ids(partial: EventRoster, saved: dict[str, str]) -> EventRoster:
+    """Fill the teams a blocked walk left unread from the walk already saved."""
+    filled = {
+        team.registration_id for team in partial.teams if not team.provider_team_id and team.registration_id in saved
+    }
+    if not filled:
+        return partial
+    return replace(
+        partial,
+        teams=tuple(
+            replace(team, provider_team_id=saved[team.registration_id]) if team.registration_id in filled else team
+            for team in partial.teams
+        ),
+        teams_unreadable=max(0, partial.teams_unreadable - len(filled)),
+        warnings=tuple(
+            warning for warning in partial.warnings
+            if not any(f"({registration_id})" in warning for registration_id in filled)
+        ),
     )
 
 
 def _keep_blocked_walk(partial: EventRoster | None, limit_groups: int | None, keys: _WalkKeys) -> int | None:
     """Save what a blocked walk read; return its team-id count, or None when nothing was saved.
 
-    A finished walk always writes. A blocked retry after "try again later" usually
-    stops earlier than the walk it follows, so a saved walk holding as many
-    distinct team ids is kept rather than replaced.
+    A finished walk always writes. Blocked retries finish different pages, so the
+    ids a saved walk already holds are merged in by registration id, and the file
+    is replaced only when the merged walk holds more distinct team ids.
     """
     if partial is None or not partial.teams:
         return None
+    saved = _saved_team_ids(_event_recovery_path(partial.event_id, completed_event=keys == _BACKTEST_KEYS))
+    if saved:
+        partial = _with_saved_team_ids(partial, saved)
     linked = {team.provider_team_id for team in partial.teams if team.provider_team_id}
-    saved = _linked_ids_on_disk(_event_recovery_path(partial.event_id, completed_event=keys == _BACKTEST_KEYS))
-    if saved is not None and len(saved) >= len(linked):
+    if saved is not None and len(set(saved.values())) >= len(linked):
         return None
     return len(linked) if _write_recovery(partial, limit_groups, keys) else None
 
