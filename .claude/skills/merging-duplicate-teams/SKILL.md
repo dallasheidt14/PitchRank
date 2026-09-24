@@ -828,8 +828,9 @@ with the update guarded on its current `team_id_master`, and relink only the sco
 carry the moving id. For the relink, import `move_side` from
 `scripts/reassign_games_between_teams.py` and call it once per game side, with the fused row as
 `expected` and the existing row as `target`. It returns `moved`, `already_moved`, or
-`skipped_changed_since_read`. Skip any game whose opponent is already the target row, since
-relinking it would make the team play itself. Write the log before the first write so a side
+`skipped_changed_since_read`. A game whose opponent is already the target row cannot be
+relinked, since the team would play itself; set `is_excluded` on it and log it, or it stays a
+false fixture between the two rows. Write the log before the first write so a side
 left empty can be found again. Unscored fixtures on the moving id are excluded, as below. An id
 that carries no games needs the alias write alone.
 

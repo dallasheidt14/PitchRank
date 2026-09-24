@@ -49,12 +49,13 @@ that pair's own teams. Proposal reviewers give `merge`, `hold` or `reject`; held
 reviewers give `merge`, `separate` or `owner`; same-day reviewers give `refusal_stands`,
 `promote` or `owner`. Held-cluster reviewers add `"redundant": true` to a pair whose two rows
 both merge into a third row, and `"extra": true` to a merge between two rows no input pair
-joins.
+joins, placed after the input-ordered objects.
 
 ## Check every verdict file against its input
 
 Before combining anything, compare each output file with its input line by line on those four
-fields, and count the lines. A reviewer that writes its verdicts from a separate script can
+fields, and count the lines, leaving the `extra` objects out of both. Check each extra on its own:
+both rows are live and in the same club, age group and gender. A reviewer that writes its verdicts from a separate script can
 attach one pair's verdict to its neighbour: in Oklahoma a line meant for the owner was applied
 as a merge because its verdict and reason sat on the next pair's line. The check finds that
 before anything is written.
