@@ -149,7 +149,6 @@ def build_seeding_workbook(
                 showColumnStripes=False,
             )
             sheet.add_table(table)
-            sheet.auto_filter.ref = f"A6:K{end_row}"
         notes = content.notes
         if notes:
             end_row += 2
@@ -189,5 +188,11 @@ def validate_seeding_workbook(payload: bytes, expected_sheets: Sequence[str]) ->
         raise ValueError("Generated workbook sheets do not match the selected cohorts.")
     for sheet in workbook.worksheets:
         tables = list(sheet.tables.values())
-        if sheet.freeze_panes != "D7" or (tables and sheet.auto_filter.ref != tables[0].ref):
+        # Excel reports a sheet-level filter overlapping a table's own filter as a corrupt file,
+        # so filtering belongs to the table, and its filter must cover the whole table.
+        if (
+            sheet.freeze_panes != "D7"
+            or sheet.auto_filter.ref
+            or (tables and (tables[0].autoFilter is None or tables[0].autoFilter.ref != tables[0].ref))
+        ):
             raise ValueError(f"Workbook layout is incomplete for {sheet.title}.")

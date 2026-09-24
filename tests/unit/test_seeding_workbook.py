@@ -2,6 +2,7 @@ from io import BytesIO
 from itertools import combinations
 
 from openpyxl import load_workbook
+from openpyxl.worksheet.filters import AutoFilter
 import pytest
 
 from src.tournaments.compare_predictor_bridge import ComparePrediction
@@ -42,7 +43,8 @@ def test_workbook_has_editable_director_columns_and_literal_names():
     assert sheet["B7"].value == "=Formula-like name"
     assert sheet["B7"].data_type == "s"
     assert sheet.freeze_panes == "D7"
-    assert sheet.auto_filter.ref == "A6:K7"
+    assert sheet.auto_filter.ref is None
+    assert [table.autoFilter.ref for table in sheet.tables.values()] == ["A6:K7"]
     assert [sheet.cell(6, column).value for column in range(8, 12)] == [
         "Final division", "Pool", "Final seed", "Director notes"
     ]
@@ -92,9 +94,37 @@ def test_cohort_notes_match_pdf_and_stay_outside_sortable_team_rows():
         assert note in document
         assert cell.row > 9
         assert str(sheet.max_row) in str(sheet.print_area)
-    assert sheet.auto_filter.ref == "A6:K9"
+    assert sheet.auto_filter.ref is None
+    assert [table.autoFilter.ref for table in sheet.tables.values()] == ["A6:K9"]
     assert "Seeded: 3" in sheet["A5"].value
     assert all(sheet.cell(row, 11).value is None for row in range(7, 10))
+
+
+def _resaved_with_second_sheet_changed(payload, change):
+    workbook = load_workbook(BytesIO(payload))
+    change(workbook.worksheets[1])
+    output = BytesIO()
+    workbook.save(output)
+    return output.getvalue()
+
+
+def _set_table_filter(sheet, ref):
+    for table in sheet.tables.values():
+        table.autoFilter = None if ref is None else AutoFilter(ref=ref)
+
+
+@pytest.mark.parametrize("change", [
+    lambda sheet: setattr(sheet.auto_filter, "ref", "A1:K20"),
+    lambda sheet: _set_table_filter(sheet, None),
+    lambda sheet: _set_table_filter(sheet, "A6:C7"),
+], ids=["sheet-filter-overlapping-the-table", "table-without-its-filter", "table-filter-over-part-of-it"])
+def test_validator_rejects_a_workbook_excel_cannot_open_or_filter_on_any_sheet(change):
+    cohorts = [CohortSheet(age, "Male", (SheetTeam("Team", "Club", .8, entrant_id="0"),), ()) for age in ("u10", "u11")]
+    payload = build_seeding_workbook("Event", cohorts, generated_on="2026-09-18", ranking_run="2026-09-17")
+    validate_seeding_workbook(payload, ["U10 Boys", "U11 Boys"])
+
+    with pytest.raises(ValueError, match="Workbook layout is incomplete for U11 Boys"):
+        validate_seeding_workbook(_resaved_with_second_sheet_changed(payload, change), ["U10 Boys", "U11 Boys"])
 
 
 def test_mixed_placement_statuses_keep_identical_pdf_and_excel_order():
