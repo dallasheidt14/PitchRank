@@ -347,3 +347,127 @@ def test_archive_failure_preserves_previous_save(tmp_path):
         save_run(replace(_run(), rows=()), base_dir=tmp_path)
 
     assert path.read_bytes() == original
+
+
+# -------- a save never replaces a different run ---------------------------
+
+EVENT_111 = "https://system.gotsport.com/org_event/events/111"
+EVENT_222 = "https://system.gotsport.com/org_event/events/222"
+
+
+def _event_run(url: str, coverage: str = "complete", name: str = "STX Cup 2026") -> SeedingRun:
+    return replace(_run(name), source_url=url, assessment={"coverage": coverage})
+
+
+def test_a_name_that_slugifies_onto_another_run_is_refused_naming_it(tmp_path):
+    first = save_run(_run("STX Cup (Boys)"), base_dir=tmp_path)
+    before = first.read_bytes()
+
+    with pytest.raises(seeding_run_store.RunNameTaken) as refused:
+        save_run(_run("STX Cup - Boys"), base_dir=tmp_path)
+
+    assert refused.value.existing == "STX Cup (Boys)"
+    assert first.read_bytes() == before
+    assert not (first.parent / "history").exists()
+
+
+def test_a_damaged_save_can_still_be_replaced_under_any_spelling(tmp_path):
+    target = tmp_path / slugify("STX Cup (Boys)")
+    target.mkdir()
+    (target / seeding_run_store.RUN_FILENAME).write_text("{not json", encoding="utf-8")
+
+    save_run(_run("STX Cup - Boys"), base_dir=tmp_path)
+
+    assert load_run(target.name, base_dir=tmp_path).name == "STX Cup - Boys"
+
+
+def test_another_event_is_refused_under_a_saved_events_name(tmp_path):
+    first = save_run(_event_run(EVENT_111), base_dir=tmp_path)
+    before = first.read_bytes()
+
+    with pytest.raises(seeding_run_store.RunSourceChanged) as refused:
+        save_run(_event_run(EVENT_222), base_dir=tmp_path)
+
+    assert refused.value.existing == "STX Cup 2026"
+    assert first.read_bytes() == before
+
+
+def test_the_event_id_in_the_assessment_counts_as_the_source(tmp_path):
+    save_run(replace(_run(), assessment={"event_id": "111", "coverage": "complete"}), base_dir=tmp_path)
+
+    with pytest.raises(seeding_run_store.RunSourceChanged):
+        save_run(replace(_run(), assessment={"event_id": "222", "coverage": "complete"}), base_dir=tmp_path)
+
+
+def test_rewalking_the_same_event_replaces_it(tmp_path):
+    save_run(_event_run(EVENT_111), base_dir=tmp_path)
+
+    save_run(_event_run(EVENT_111), base_dir=tmp_path)
+
+    assert len(list((tmp_path / "stx-cup-2026" / "history").glob("*.json"))) == 1
+
+
+def test_a_partial_walk_never_replaces_a_complete_one(tmp_path):
+    save_run(_event_run(EVENT_111), base_dir=tmp_path)
+
+    with pytest.raises(seeding_run_store.RunSourceChanged):
+        save_run(_event_run(EVENT_111, coverage="probe"), base_dir=tmp_path)
+
+
+def test_a_complete_walk_replaces_a_partial_one(tmp_path):
+    save_run(_event_run(EVENT_111, coverage="probe"), base_dir=tmp_path)
+
+    save_run(_event_run(EVENT_111), base_dir=tmp_path)
+
+    assert load_run("stx-cup-2026", base_dir=tmp_path).assessment["coverage"] == "complete"
+
+
+def test_a_corrected_paste_replaces_the_pasted_run(tmp_path):
+    save_run(_run(), base_dir=tmp_path)
+    edited = parse_roster(PASTE + "\nTyler FC\tTyler FC 15B White\tTX")
+
+    save_run(replace(_run(), rows=edited.rows), base_dir=tmp_path)
+
+    assert len(load_run("stx-cup-2026", base_dir=tmp_path).rows) == 3
+
+
+def test_an_older_save_named_for_its_event_counts_as_that_event(tmp_path):
+    save_run(_run("GotSport Event 111 · U10 Probe"), base_dir=tmp_path)
+
+    save_run(_event_run(EVENT_111, coverage="probe", name="GotSport Event 111 · U10 Probe"), base_dir=tmp_path)
+    with pytest.raises(seeding_run_store.RunSourceChanged):
+        save_run(_run("GotSport Event 111 · U10 Probe"), base_dir=tmp_path)
+
+
+def test_a_save_with_a_damaged_assessment_still_compares_by_its_url(tmp_path):
+    path = save_run(_event_run(EVENT_111), base_dir=tmp_path)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    path.write_text(json.dumps({**payload, "assessment": ["bad"]}), encoding="utf-8")
+
+    save_run(_event_run(EVENT_111, coverage="probe"), base_dir=tmp_path)
+    with pytest.raises(seeding_run_store.RunSourceChanged):
+        save_run(_event_run(EVENT_222), base_dir=tmp_path)
+
+
+def test_a_partial_walk_is_refused_as_less_complete_not_as_another_roster(tmp_path):
+    save_run(_event_run(EVENT_111), base_dir=tmp_path)
+
+    with pytest.raises(seeding_run_store.RunSourceChanged) as partial:
+        save_run(_event_run(EVENT_111, coverage="partial"), base_dir=tmp_path)
+    with pytest.raises(seeding_run_store.RunSourceChanged) as other:
+        save_run(_event_run(EVENT_222), base_dir=tmp_path)
+
+    assert partial.value.less_complete is True
+    assert other.value.less_complete is False
+
+
+@pytest.mark.parametrize(
+    ("saved_url", "new_url"),
+    [("", EVENT_111), (EVENT_111, "")],
+    ids=["event over paste", "paste over event"],
+)
+def test_a_paste_and_an_event_are_different_runs(tmp_path, saved_url, new_url):
+    save_run(_event_run(saved_url), base_dir=tmp_path)
+
+    with pytest.raises(seeding_run_store.RunSourceChanged):
+        save_run(_event_run(new_url), base_dir=tmp_path)
