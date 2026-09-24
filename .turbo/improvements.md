@@ -670,6 +670,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Noted**: 2026-09-05
 - **Trigger**: The manual step proves annoying in practice. The safe shape is a save that refuses to replace a more complete run of the same event, mirroring the guard `_write_roster` already applies to the CLI's roster file.
 - **Update (2026-09-09)**: Recovering that file is no longer manual in the sense written above — `_render_recovered_walk` offers it back with one press whenever the disk holds more teams than the tab does. The entry stands: this is about *saving* a named run without a press, which is still deliberate, and the reload parks a run rather than naming one.
+- **Update (2026-09-24)**: `save_run` refuses a different source (another event, or a paste against an event) and a partial walk over a complete walk of the same event (`RunSourceChanged`). A roster refused that way detaches from the open run, resets the resume selector in the browser, and waits for a new name. A walk into a named run of the same event saves before matching. Still deferred: an unnamed scrape waits for a name and a press.
 
 ### Give the GotSport event walk one home for its tuned concurrency
 
@@ -1582,3 +1583,23 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `scripts/scrape_event_roster.py:main` (the `except WafChallengeError` branch)
 - **Why**: A blocked walk exits with "Blocked: ..." and drops `exc.partial`, the roster it already paid for, while the Seeding and Backtest tabs now save it through `tournament_intake._keep_blocked_walk`. Saving it here means routing the partial through the CLI's own roster writes, and never replacing a saved file that already holds as many distinct provider team ids, the rule `_keep_blocked_walk` applies. The `_write_roster` docstring already describes a blocked walk writing, which becomes true only once this is done.
 - **Noted**: 2026-09-23
+
+### Keep the Backtest view's "published no teams" warning across its rerun
+
+- **ID**: IMP-269
+- **Status**: open
+- **Type**: direct
+- **Category**: ux
+- **Where**: `tournament_intake.py` `_run_event_roster_scrape` (the `if not parked:` branch)
+- **Why**: A Backtest walk that parks no teams calls `st.warning(message)` and then `st.rerun()`, so the rerun erases the warning and the operator sees an empty result with no reason given. The Seeding arm of the same `if` queues its copy through `_add_seeding_notice`, which survives the rerun. Backtest already has a carry-across-rerun pattern to reuse: `bt_history_notice_{event_key}` in `src/tournaments/backtest_intake_ui.py`, set before the rerun and popped when drawn.
+- **Noted**: 2026-09-24
+
+### The first pick in "Open a saved run" is dropped right after a save adds a run
+
+- **ID**: IMP-270
+- **Status**: open
+- **Type**: investigate
+- **Category**: ux
+- **Where**: `tournament_intake.py` `_render_seeding_run_controls` (the `seeding_resume_choice` selectbox)
+- **Why**: Streamlit 1.50's selectbox folds `options` into its element id (`key_as_main_identity={"options", ...}` in `streamlit/elements/widgets/selectbox.py`). "Save this run" writes a new run after the picker has already drawn, so the next rerun draws the picker with a longer list under a new id, and the browser's first choice, made against the old one, is discarded. A browser smoke run on 2026-09-24 reproduced it: saving "Cup B" and then choosing "Cup A" left the page on Cup B, and a second pick worked. Main draws the picker before the save controls too, so this likely predates the Seeding run-safety change; it has been reproduced only with that change applied. Candidate fixes: rerun after a save that adds a run, or draw the picker after the save controls.
+- **Noted**: 2026-09-24

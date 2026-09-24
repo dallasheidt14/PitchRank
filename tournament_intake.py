@@ -115,7 +115,10 @@ from src.tournaments.seeding_optimizer import (
 )
 from src.tournaments.seeding_pack import duplicate_identity_rows, snapshot_matches_roster, team_ids_by_row
 from src.tournaments.seeding_run_store import (
+    RunNameTaken,
+    RunSourceChanged,
     SeedingRun,
+    legacy_event_id,
 )
 from src.tournaments.seeding_run_store import default_base_dir as default_seeding_base_dir
 from src.tournaments.seeding_run_store import list_runs as list_seeding_runs
@@ -560,6 +563,11 @@ def _default_snapshot(event_start_date: str | None) -> date:
 # ---------------------------------------------------------------------------
 
 
+_SEEDING_KEPT_WIDGETS = (
+    "seeding_event_name", "seeding_event_url", "seeding_roster_text", "_seeding_source", "_seeding_paste_complete",
+)
+
+
 def _init_session_state() -> None:
     """Lazy-initialize page-level session state keys."""
     if "event_key" not in st.session_state:
@@ -577,6 +585,12 @@ def _init_session_state() -> None:
     st.session_state.setdefault("_seeding_result_event_id", None)
     st.session_state.setdefault("_seeding_overrides", {})
     st.session_state.setdefault("_seeding_sheet_html", None)
+    st.session_state.setdefault("_seeding_notices", [])
+    # Streamlit drops a widget's value on any run that does not draw the widget,
+    # such as one showing the other view. Writing it back keeps it for the next.
+    for key in _SEEDING_KEPT_WIDGETS:
+        if key in st.session_state:
+            st.session_state[key] = st.session_state[key]
     # The Backtest view's own paid walk (Task 8) drives the same _WalkKeys-keyed
     # machinery as Seeding, under _BACKTEST_KEYS instead. Seeded by property
     # rather than by hand-typed string so this cannot drift from the names
@@ -3801,7 +3815,11 @@ def _run_event_roster_scrape(
         return
 
     if not parked:
-        st.warning(f"Event {event_id} published no teams in the divisions that were walked.")
+        message = f"Event {event_id} published no teams in the divisions that were walked."
+        if keys == _SEEDING_KEYS:
+            _add_seeding_notice("warning", message)
+        else:
+            st.warning(message)
         st.rerun()
 
     parsed, resolved = st.session_state[keys.result]
@@ -3983,6 +4001,9 @@ def _park_event_roster(
         transition.update(probe=probe, structure=roster.divisions, registrations=registrations)
         st.session_state["_seeding_transition"] = transition
         _apply_seeding_transition()
+        # Saved here, not first in the match pass, so a roster from another source
+        # detaches before that pass checks for a name and pauses on the refusal.
+        _autosave_seeding_run()
         return len(parsed.rows)
     st.session_state[keys.probe] = probe
     st.session_state[keys.structure] = roster.divisions
@@ -4286,7 +4307,7 @@ def _resolve_seeding_incrementally(parsed, resolved, client):
     st.session_state["_seeding_resolution_failed"] = True
     # Archive the prior source before progress checkpoints replace the latest file.
     if _seeding_run_name() and not _autosave_seeding_run():
-        st.info("Matching paused until this run can be saved. Retry saving, then retry matching.")
+        _add_seeding_notice("info", "Matching paused until this run can be saved. Retry saving, then retry matching.")
         return
     session = requests.Session()
     current = tuple(resolved)
@@ -4313,7 +4334,9 @@ def _resolve_seeding_incrementally(parsed, resolved, client):
         st.session_state["_seeding_resolution_failed"] = False
     except Exception as exc:
         logger.warning("Seeding lookup stopped: %s", redact_secret(exc, SUPABASE_SERVICE_ROLE_KEY or ""))
-        st.info("Matching paused because a lookup failed. Your roster and completed matches are kept. Retry below.")
+        _add_seeding_notice(
+            "info", "Matching paused because a lookup failed. Your roster and completed matches are kept. Retry below."
+        )
     finally:
         session.close()
     _autosave_seeding_run()
@@ -4612,7 +4635,25 @@ def _render_seeding_override(
 
 
 def _seeding_run_name() -> str:
+    """The name the run saves under; a roster detached from its saved run has none yet."""
+    if st.session_state.get("_seeding_detach_run"):
+        return ""
     return str(st.session_state.get("seeding_event_name") or "").strip()
+
+
+def _add_seeding_notice(level: str, text: str) -> None:
+    """Queue a message for the tab's notice slot, so a rerun that clears the page cannot lose it."""
+    notices = list(st.session_state.get("_seeding_notices") or [])
+    if (level, text) not in notices:
+        st.session_state["_seeding_notices"] = [*notices, (level, text)]
+
+
+def _render_seeding_notices() -> None:
+    notices = list(st.session_state.get("_seeding_notices") or [])
+    for level, text in notices:
+        getattr(st, level)(text)
+    if notices:
+        st.session_state.pop("_seeding_notices", None)
 
 
 def _autosave_seeding_run(*, archive_previous: bool = True) -> bool:
@@ -4634,7 +4675,9 @@ def _autosave_seeding_run(*, archive_previous: bool = True) -> bool:
     parsed, resolved = result
     metadata = st.session_state.get("_seeding_assessment", {})
     if not _seeding_context_matches(parsed, metadata):
-        st.warning("The import was interrupted. Reopen the saved run or captured event before saving.")
+        _add_seeding_notice(
+            "warning", "The import was interrupted. Reopen the saved run or captured event before saving."
+        )
         return False
     decisions = st.session_state.get("_seeding_cohort_decisions", {})
     effective = package_roster(effective_roster(parsed, decisions))
@@ -4656,9 +4699,25 @@ def _autosave_seeding_run(*, archive_previous: bool = True) -> bool:
             ),
             archive_previous=archive_previous,
         )
+    except RunNameTaken as exc:
+        st.session_state["_seeding_save_error"] = True
+        _add_seeding_notice(
+            "error", f"A saved run called '{exc.existing}' already uses this name. Pick another name to save this run."
+        )
+        return False
+    except RunSourceChanged as exc:
+        # Detach rather than flag a save error: the roster stays open and saves
+        # only under a name of its own.
+        st.session_state["_seeding_detach_run"] = True
+        reason = (
+            f"This walk covers less than the complete saved run '{exc.existing}'"
+            if exc.less_complete else f"This roster is not the saved run '{exc.existing}'"
+        )
+        _add_seeding_notice("warning", f"{reason}, so it was not saved over it. Give it a new name to save it.")
+        return False
     except (OSError, ValueError, TypeError) as exc:
         st.session_state["_seeding_save_error"] = True
-        st.warning(f"Could not save this run: {exc}")
+        _add_seeding_notice("warning", f"Could not save this run: {exc}")
         return False
     st.session_state["_seeding_save_error"] = False
     return True
@@ -4675,10 +4734,18 @@ def _load_seeding_run(slug: str, client: Any = None) -> bool:
             run = replace(run, resolved=_enrich_seeding_names(run.resolved, client))
         except Exception:
             st.info("Saved matches loaded. PitchRank names can be retried below.")
+    # New saves retain the exact URL. Older runs used the generated GotSport
+    # name, so recover that common form to keep the one-click scrape path open
+    # and to save the run again as the event it came from.
+    source_url = str(run.source_url or "").strip()
+    if not source_url and not run.assessment:
+        legacy_id = legacy_event_id(run.name)
+        if legacy_id:
+            source_url = f"https://system.gotsport.com/org_event/events/{legacy_id}"
     metadata = dict(run.assessment) or {
-        "coverage": "unknown", "source_url": run.source_url,
-        "event_id": event_id_from(run.source_url),
-        "source_kind": "GotSport event" if run.source_url else "Paste team list",
+        "coverage": "unknown", "source_url": source_url,
+        "event_id": event_id_from(source_url),
+        "source_kind": "GotSport event" if source_url else "Paste team list",
     }
     metadata["fingerprint"] = source_fingerprint(run.rows)
     not_found = {
@@ -4690,16 +4757,9 @@ def _load_seeding_run(slug: str, client: Any = None) -> bool:
     resolution_failed = completed is not None and any(
         item.status == "unresolved" and item.source_index not in completed for item in run.resolved
     )
-    # New saves retain the exact URL. Older runs used the generated GotSport
-    # name, so recover that common form to keep the one-click scrape path open.
-    source_url = str(run.source_url or "").strip()
-    if not source_url:
-        match = re.search(r"\bGotSport\s+Event\s+(\d+)\b", run.name, flags=re.IGNORECASE)
-        if match:
-            source_url = f"https://system.gotsport.com/org_event/events/{match.group(1)}"
     st.session_state["_seeding_transition"] = {
         "raw": ParsedRoster(rows=run.rows, warnings=run.warnings), "resolved": run.resolved,
-        "metadata": metadata, "event_id": run.assessment.get("event_id") or event_id_from(run.source_url),
+        "metadata": metadata, "event_id": metadata.get("event_id") or event_id_from(source_url),
         "decisions": dict(run.cohort_decisions), "overrides": dict(run.overrides),
         "resolution_failed": resolution_failed, "pack": run.pack,
         "name": run.name, "source_url": source_url, "loaded_slug": slug,
@@ -4762,6 +4822,13 @@ def _apply_pending_seeding_widgets() -> None:
     sits beside the name box. Handing the value over on the following run keeps
     that legal however the two controls are later ordered on the page.
     """
+    if st.session_state.get("_seeding_detach_run"):
+        st.session_state["seeding_event_name"] = ""
+        st.session_state["_seeding_loaded_slug"] = None
+        # Assigned rather than removed: only an assignment reaches the browser,
+        # which otherwise sends its old choice back and reopens that run.
+        st.session_state["seeding_resume_choice"] = None
+        st.session_state.pop("_seeding_detach_run", None)
     pending_name = st.session_state.get("_seeding_pending_name")
     pending_url = st.session_state.get("_seeding_pending_event_url")
     if pending_name is None and pending_url is None:
@@ -5272,8 +5339,8 @@ def _render_seeding_save() -> None:
     """Offer to keep the run, once it has a name to be kept under.
 
     Announces success only on a write that happened: ``_autosave_seeding_run``
-    turns a failed save into a warning and returns False, and a green "Saved"
-    printed beside that warning is what would send an operator away from a
+    queues a notice for a failed save and returns False, and a green "Saved"
+    printed beside that notice is what would send an operator away from a
     session whose manual fixes are about to be lost.
     """
     if st.session_state.get("_seeding_save_error"):
@@ -5286,6 +5353,16 @@ def _render_seeding_save() -> None:
 
 
 def _render_seeding_tab(supabase_client: Any) -> None:
+    st.markdown("### Seeding intake")
+    # Filled once the tab has drawn, so a message raised anywhere below shows
+    # this run; a rerun skips it and the message waits for the next run instead.
+    notices = st.container()
+    _render_seeding_workspace(supabase_client)
+    with notices:
+        _render_seeding_notices()
+
+
+def _render_seeding_workspace(supabase_client: Any) -> None:
     from src.tournaments.seeding_review_ui import render_review
 
     _apply_seeding_transition()
@@ -5300,7 +5377,6 @@ def _render_seeding_tab(supabase_client: Any) -> None:
         st.session_state["_seeding_resolution_failed"] = True
         _autosave_seeding_run()
         st.session_state.pop("_seeding_review_update", None)
-    st.markdown("### Seeding intake")
     _render_seeding_run_controls(supabase_client)
     with st.expander("Import or refresh teams", expanded=not st.session_state.get("_seeding_result")):
         source = st.radio(
@@ -5325,8 +5401,8 @@ def _render_seeding_tab(supabase_client: Any) -> None:
                                           for row in preview.rows]), hide_index=True, width="stretch")
             st.checkbox("This is the complete accepted-team list for all U10+ cohorts", key="_seeding_paste_complete")
             if st.button("Import and match teams", type="primary", disabled=not preview.rows):
-                _run_seeding_resolve(text, supabase_client)
-                st.rerun()
+                if _run_seeding_resolve(text, supabase_client):
+                    st.rerun()
 
     result = st.session_state.get("_seeding_result")
     if not result:

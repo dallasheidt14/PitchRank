@@ -112,6 +112,21 @@ class _FakeSessionState(dict):
         except KeyError:
             return default
 
+    def pop(self, key: str, *default: Any) -> Any:
+        """``MutableMapping.pop``, which ``st.session_state`` inherits: a read, then a delete.
+
+        ``dict.pop`` is C-level and reaches neither override, so without this a
+        pop would slip past both yield points production gives it.
+        """
+        try:
+            value = self[key]
+        except KeyError:
+            if default:
+                return default[0]
+            raise
+        del self[key]
+        return value
+
     def __getattr__(self, name: str) -> Any:
         try:
             return self[name]
@@ -502,7 +517,9 @@ def test_an_event_publishing_no_teams_warns_and_parks_nothing(app):
 
     _scrape(limit_groups=2)
 
-    assert fake_st.warnings
+    fake_st.warnings.clear()
+    tournament_intake._render_seeding_notices()
+    assert any("published no teams" in message for message in fake_st.warnings), "the rerun erased the warning"
     assert fake_st.session_state.get("_seeding_result") is None
     assert fake_st.session_state["_seeding_event_probe"]["divisions_walked"] == 2
 
@@ -1671,7 +1688,9 @@ def test_a_probe_that_found_no_teams_still_reruns(app):
     _scrape(limit_groups=2)
 
     assert fake_st.reruns == 1
-    assert fake_st.warnings
+    fake_st.warnings.clear()
+    tournament_intake._render_seeding_notices()
+    assert any("published no teams" in message for message in fake_st.warnings)
 
 
 # -------- the name pass is pending until it commits -----------------------
