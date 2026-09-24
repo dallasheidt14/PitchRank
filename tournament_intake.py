@@ -4656,10 +4656,18 @@ def _load_seeding_run(slug: str, client: Any = None) -> bool:
             run = replace(run, resolved=_enrich_seeding_names(run.resolved, client))
         except Exception:
             st.info("Saved matches loaded. PitchRank names can be retried below.")
+    # New saves retain the exact URL. Older runs used the generated GotSport
+    # name, so recover that common form to keep the one-click scrape path open
+    # and to save the run again as the event it came from.
+    source_url = str(run.source_url or "").strip()
+    if not source_url and not run.assessment:
+        legacy_id = legacy_event_id(run.name)
+        if legacy_id:
+            source_url = f"https://system.gotsport.com/org_event/events/{legacy_id}"
     metadata = dict(run.assessment) or {
-        "coverage": "unknown", "source_url": run.source_url,
-        "event_id": event_id_from(run.source_url),
-        "source_kind": "GotSport event" if run.source_url else "Paste team list",
+        "coverage": "unknown", "source_url": source_url,
+        "event_id": event_id_from(source_url),
+        "source_kind": "GotSport event" if source_url else "Paste team list",
     }
     metadata["fingerprint"] = source_fingerprint(run.rows)
     not_found = {
@@ -4671,16 +4679,9 @@ def _load_seeding_run(slug: str, client: Any = None) -> bool:
     resolution_failed = completed is not None and any(
         item.status == "unresolved" and item.source_index not in completed for item in run.resolved
     )
-    # New saves retain the exact URL. Older runs used the generated GotSport
-    # name, so recover that common form to keep the one-click scrape path open.
-    source_url = str(run.source_url or "").strip()
-    if not source_url:
-        legacy_id = legacy_event_id(run.name)
-        if legacy_id:
-            source_url = f"https://system.gotsport.com/org_event/events/{legacy_id}"
     st.session_state["_seeding_transition"] = {
         "raw": ParsedRoster(rows=run.rows, warnings=run.warnings), "resolved": run.resolved,
-        "metadata": metadata, "event_id": run.assessment.get("event_id") or event_id_from(run.source_url),
+        "metadata": metadata, "event_id": metadata.get("event_id") or event_id_from(source_url),
         "decisions": dict(run.cohort_decisions), "overrides": dict(run.overrides),
         "resolution_failed": resolution_failed, "pack": run.pack,
         "name": run.name, "source_url": source_url, "loaded_slug": slug,

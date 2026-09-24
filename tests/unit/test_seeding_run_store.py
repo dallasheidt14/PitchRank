@@ -439,6 +439,15 @@ def test_an_older_save_named_for_its_event_counts_as_that_event(tmp_path):
         save_run(_run("GotSport Event 111 · U10 Probe"), base_dir=tmp_path)
 
 
+def test_a_paste_named_like_an_event_is_still_a_paste(tmp_path):
+    pasted = replace(_run("GotSport Event 111 · Pasted"), assessment={"source_kind": "Paste team list"})
+    save_run(pasted, base_dir=tmp_path)
+
+    save_run(replace(pasted, rows=parse_roster(PASTE + "\nTyler FC\tTyler FC 15B White\tTX").rows), base_dir=tmp_path)
+
+    assert len(load_run("gotsport-event-111-pasted", base_dir=tmp_path).rows) == 3
+
+
 def test_a_save_with_a_damaged_assessment_still_compares_by_its_url(tmp_path):
     path = save_run(_event_run(EVENT_111), base_dir=tmp_path)
     payload = json.loads(path.read_text(encoding="utf-8"))

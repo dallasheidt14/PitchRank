@@ -8,6 +8,7 @@ name box. These tests drive the real save path against a store under
 from __future__ import annotations
 
 import contextlib
+import json
 
 import pytest
 
@@ -209,6 +210,41 @@ def test_rewalking_the_saved_event_replaces_it_under_its_name(monkeypatch, store
     assert _saved_teams(store) == ["Team 0", "Team 1"]
     assert not _notice_texts(fake)
     assert fake.session_state["seeding_event_name"] == "Cup A"
+
+
+def test_an_older_event_save_reopens_as_its_event_and_saves_in_place(monkeypatch, store):
+    fake = _install(monkeypatch, _FakeSt())
+    parsed = parse_roster(EVENT_ROWS)
+    path = save_run(SeedingRun("GotSport Event 111 · U10 Probe", parsed.rows, _unresolved(parsed)), base_dir=store)
+    legacy = json.loads(path.read_text(encoding="utf-8"))
+    legacy.pop("assessment", None)
+    legacy.pop("source_url", None)
+    path.write_text(json.dumps(legacy), encoding="utf-8")
+    monkeypatch.setattr(intake, "load_seeding_run_file", lambda slug: load_run(slug, base_dir=store))
+    fake.session_state.update(_seeding_overrides={})
+
+    assert intake._load_seeding_run(path.parent.name)
+    intake._apply_pending_seeding_widgets()
+
+    assert intake._autosave_seeding_run()
+    assert load_run(path.parent.name, base_dir=store).source_url == EVENT_111
+    assert "_seeding_detach_run" not in fake.session_state
+
+
+def test_a_paste_named_like_an_event_reopens_as_a_paste(monkeypatch, store):
+    _install(monkeypatch, _FakeSt())
+    parsed = parse_roster(PASTE_ROWS)
+    assessment = {"coverage": "unknown", "source_kind": "Paste team list", "source_url": ""}
+    path = save_run(
+        SeedingRun("GotSport Event 111 · Pasted", parsed.rows, _unresolved(parsed), assessment=assessment),
+        base_dir=store,
+    )
+    monkeypatch.setattr(intake, "load_seeding_run_file", lambda slug: load_run(slug, base_dir=store))
+
+    assert intake._load_seeding_run(path.parent.name)
+
+    assert intake.st.session_state["_seeding_pending_event_url"] == ""
+    assert intake.st.session_state["_seeding_result_event_id"] is None
 
 
 # -------- a name that another run already owns ----------------------------

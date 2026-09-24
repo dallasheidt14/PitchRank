@@ -107,7 +107,7 @@ Work in the worktree `C:/pitchrank-seeding-run-safety` on branch `fix/seeding-ru
 The shipped code departs from steps 2 to 4 in seven places. Read this section, not those steps, for what the code does.
 
 - **Both checks live in the store.** `save_run` raises `RunNameTaken` and `RunSourceChanged`, and no intake-side `_saved_run_source` helper exists. Tests that point the store at a temporary folder therefore exercise the real refusals.
-- **The source rule has a fourth case.** A partial walk never replaces a saved complete walk of the same event, and the refusal says the walk covers less. An older save with no event id or source URL counts as the event named in its `GotSport Event N` name.
+- **The source rule has a fourth case.** A partial walk never replaces a saved complete walk of the same event, and the refusal says the walk covers less. An older save with no assessment and no source URL counts as the event named in its `GotSport Event N` name, and reopens with that event's URL and id so its next save matches.
 - **A detach uses its own flag.** It uses `_seeding_detach_run`, not `_seeding_pending_name = ""`. A pending name makes every save refuse, which would pause matching. The loaded-run handoff also clears the paste box and resets the source.
   - The next render empties the name and clears the loaded slug.
   - It assigns the resume selector `None`. Removing the key never reached the browser, which sent its old choice back and reopened the old run.
