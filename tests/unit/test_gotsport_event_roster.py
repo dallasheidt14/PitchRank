@@ -6,6 +6,7 @@ import argparse
 import io
 import json
 import logging
+import time
 from pathlib import Path
 from urllib.parse import quote_plus
 
@@ -650,6 +651,61 @@ class TestFetchFailures:
 
         with pytest.raises(WafChallengeError):
             scrape_event_roster("52975", fetch=fetch, max_workers=workers)
+
+    def test_a_blocked_walk_hands_back_the_team_pages_it_already_read(self):
+        pages = _one_division_event(
+            teams=[("1", "A"), ("2", "B"), ("3", "C")], provider_ids={"1": "521426", "2": "521427"}
+        )
+        fetch = _fetch_for(pages, blocking=frozenset({"team=3"}))
+
+        with pytest.raises(WafChallengeError) as caught:
+            scrape_event_roster("52975", fetch=fetch, max_workers=1)
+
+        partial = caught.value.partial
+        assert [(team.team_name, team.provider_team_id) for team in partial.teams] == [
+            ("A", "521426"), ("B", "521427"), ("C", None),
+        ]
+        assert partial.teams_unreadable == 1
+        assert not partial.is_complete
+
+    def test_a_bot_challenge_stops_buying_the_pages_still_queued(self):
+        ids = [str(9001 + index) for index in range(40)]
+        pages = _one_division_event(teams=[(rid, f"Team {rid}") for rid in ids], provider_ids={})
+        slow = _fetch_for(pages, blocking=frozenset({f"team={ids[0]}"}))
+
+        def fetch(url):
+            if "team=" in url and f"team={ids[0]}" not in url:
+                time.sleep(0.05)
+            return slow(url)
+
+        with pytest.raises(WafChallengeError):
+            scrape_event_roster("52975", fetch=fetch, max_workers=4)
+
+        team_pages = [url for url in slow.calls if "team=" in url]
+        assert len(team_pages) <= 12, f"{len(team_pages)} of 40 team pages were bought after the block"
+
+    def test_an_interrupt_from_progress_reporting_stops_buying_queued_pages(self):
+        class Rerun(BaseException):
+            """Streamlit raises its stop and rerun from BaseException."""
+
+        ids = [str(9001 + index) for index in range(40)]
+        pages = _one_division_event(teams=[(rid, f"Team {rid}") for rid in ids], provider_ids={})
+        slow = _fetch_for(pages)
+
+        def fetch(url):
+            if "team=" in url:
+                time.sleep(0.05)
+            return slow(url)
+
+        def on_progress(done, total):
+            if done and total == len(ids):
+                raise Rerun()
+
+        with pytest.raises(Rerun):
+            scrape_event_roster("52975", fetch=fetch, max_workers=4, on_progress=on_progress)
+
+        team_pages = [url for url in slow.calls if "team=" in url]
+        assert len(team_pages) <= 12, f"{len(team_pages)} of 40 team pages were bought after the interrupt"
 
     def test_a_blocked_division_page_aborts_the_walk(self):
         fetch = _fetch_for(_one_division_event(), blocking=frozenset({"group="}))
@@ -2516,6 +2572,23 @@ def test_completed_plain_fixture_label_reuses_an_unambiguous_linked_participant(
     )
     assert [team.team_name for team in roster.teams] == ["Home FC"]
 
+
+
+def test_a_blocked_walk_does_not_count_a_team_with_no_registration_as_unread():
+    pages = _completed_pages()
+    pages["schedules?group=1"] = pages["schedules?group=1"].replace(
+        '<tr><td><a href="?team=12">Second FC</a></td><td>0</td></tr>',
+        '<tr><td>Source-only FC</td><td>0</td></tr>',
+    )
+    fetch = _fetch_for(pages, blocking=frozenset({"schedules?team="}))
+
+    with pytest.raises(WafChallengeError) as caught:
+        scrape_event_roster("52975", fetch=fetch, completed_event=True)
+
+    partial = caught.value.partial
+    assert "Source-only FC" in [team.team_name for team in partial.teams]
+    assert not any("Source-only FC" in warning for warning in partial.warnings)
+    assert partial.teams_unreadable == len([team for team in partial.teams if team.registration_id])
 
 def test_completed_source_only_pool_and_fixture_name_count_once():
     pages = _completed_pages()
