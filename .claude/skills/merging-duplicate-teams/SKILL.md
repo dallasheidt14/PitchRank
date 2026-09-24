@@ -19,7 +19,7 @@ Copy this checklist and check off items as you complete them:
 ```
 Task Progress:
 - [ ] Step 1: Preflight — credentials, then prove the guards still fire
-- [ ] Step 2: Generate candidates from both doorways
+- [ ] Step 2: Generate candidates from every doorway
 - [ ] Step 3: Decide every candidate from evidence
 - [ ] Step 4: Review the refusals
 - [ ] Step 5: Adversarially review the approved set
@@ -82,9 +82,10 @@ reversible — the RPC snapshots the deprecated row and leaves `games` untouched
 `--merged-by` explicitly when reverting, because the reverter's default actor is not the
 one the applier records and a default-argument revert matches nothing and reports success.
 
-## Step 2: Generate candidates from both doorways
+## Step 2: Generate candidates from every doorway
 
-There are two independent ways to nominate a pair, and the skill's tooling only covers one.
+There are four independent ways to nominate a pair, A to D below, and their blind spots differ, so
+no one of them stands in for the others.
 
 **Doorway A — name similarity.** `scripts/find_fuzzy_duplicate_teams.py`, called in-process by
 `decide_team_merges.py`. This is the recall ceiling for everything in Step 3: a pair it cannot
@@ -298,9 +299,52 @@ same-club identical-name tier returned 30 of 30 on a random hand-check. The brid
 **20 merge, 3 reject out of 23** — roughly one in eight wrong. Treat bridged candidates as
 review-required, never as a batch to apply on the screens alone.
 
+**Doorway D — one squad, its cohort and club spelled differently.** The class the owner merges
+by hand, one cohort at a time: the same club's squad under two rows whose names agree on the
+squad word and disagree on everything around it, such as `ESC- 2015 Purple` against
+`EDGE Purple 15B`. Doorway A cannot score these past its threshold and
+Doorway C needs identical names. About a third of the owner's hand merges were two rows on the
+*same* provider, re-registered for different events, so this doorway does not require a
+provider difference.
+
+`scripts/find_squad_key_duplicates.py --state <XX>` implements it, propose-only, by pairing rows
+whose **squad key** — the name with its club, cohort, gender and league words removed — is
+equal. Its `--help` carries the pairing rules, the screens and the blind spots; read it rather
+than a copy here. Its JSON goes through Steps 4 to 6 and then straight to
+`apply_vetted_team_merges.py`. Do not route it through `decide_team_merges.py`: that script
+compares `club_name` and `state_code` as raw strings, which refuses exactly the respellings this
+doorway pairs.
+
+**The cohort test is what makes the key safe, so read it before changing it.** Stripping the
+age tokens throws away the one thing separating `2012 Westy Elite` from `2013 Westy Elite`,
+`U12G Black` from `U11G Black`, and a club's 2009 squad from its 2007/08 squad, both of which
+sit on the u19 board. Measured on Colorado 2026-09-23: with the test disabled, 81 of 634
+proposals paired two squads a year apart. The script's `--help` states the cohort rules.
+
+Measured on Colorado, 2026-09-23 (one-off counts, not tracked by the checker):
+
+- **Replay against the owner's 36 hand merges.** The key matched 28. None of the 36 was refused
+  by the cohort or league test. The 8 misses are all one shape, where one provider names the
+  squad by its league (`BU12 Pre MLS Next`) and the other by a squad word (`BU12 Academy`).
+  Only someone who knows the club can pair those.
+- **Review of the proposals.** 255 proposals went to five adversarial reviewers, pair by pair,
+  and then to an opposite-prior pass over their flags. Five were set aside first: three merged by
+  hand meanwhile, one EA division pair, one whose names both missed the stored age group. Of the 250
+  left, 216
+  merged, 25 were held and 9 rejected. The rejections were two squads playing different leagues
+  or flights on one weekend, an adult futsal team, a 2008 squad against a 2009 squad,
+  Pre-Academy against Academy, and a row carrying a Modular11 HD alias.
+- **What caused the holds.** Clubs fielding several squads that share one squad word, then
+  gameless rows whose cohort nothing confirms. Expect a pass at this tier's rates rather than a
+  clean batch.
+
+One rebrand the script cannot see, recorded here because the data does not show it: Colorado
+Rapids Youth Soccer Club merged into Colorado Storm, so a Rapids row and a Storm row of one
+cohort can be one squad.
+
 **Loosening a threshold and adding an independent signal are not the same move.** The measured
-table in evidence-rules.md forbids the first. Doorways B and C are the second, and are the only
-routes past the ceiling.
+table in evidence-rules.md forbids the first. Doorways B, C and D are the second, and are the
+only routes past the ceiling.
 
 ## What the signals are actually worth (measured 2026-09-12)
 
@@ -458,9 +502,10 @@ artifacts that look identical to real evidence in the output, and each has a spe
 | `clubs differ` | one side is NULL, coerced to `''` | is either `club_name` NULL? then nothing was compared |
 | `both played a game on the same day` | the shared dates are the *same fixtures*, or belong to a row merged in earlier | run the four-step test below — two steps are not enough |
 
-Doorway C's refusals are in scope here too, and are why its CSV keeps them rather than only
-counting them: its `0_rejected` rows carry the same `both played a game on the same day`
-reason — the bulk of its refusals — and the four-step test below applies to them unchanged.
+Doorway C's and Doorway D's refusals are in scope here too, and are why both CSVs keep them
+rather than only counting them: C's `0_rejected` rows and D's `rejected` rows carry the same
+`both played a game on the same day` reason — the bulk of C's refusals — and the four-step test
+below applies to them unchanged.
 
 That last row is the one that matters most, and it takes four steps, not two. The rule's stated
 intent is that a squad cannot be in two places — but the code performs none of the opponent
@@ -512,7 +557,9 @@ reject** — no case of two different teams being wrongly paired. With zero erro
 statement is that the true rate is *probably under 10%*; do not quote it as 0%. The single hold
 was the survivor-integrity failure above, not a mis-paired candidate. Direct the review at the
 qualifier traps that per-pair name comparison cannot see, all of which appeared in that sample and
-all of which were settled by same-weekend fixture evidence rather than by reasoning about names:
+all of which were settled by same-weekend fixture evidence rather than by reasoning about names.
+Doorway D measured worse than both: about one approved pair in seven was held or rejected
+(figures and causes in Step 2).
 
 - **Colour** — Pacific FC *Blue* vs *Orange*, Richmond United *Red* vs *Orange*.
 - **Letter suffix** (Washington especially) — `Sound FC G16A` vs `G16B` are different squads; both
@@ -598,8 +645,8 @@ risk.
 
 ## Step 6: Apply only what survives review
 
-Filter `.turbo/step3/decisions_approved.json` down to the pairs that survived review, keeping the
-same object shape. Then dry-run:
+Filter `.turbo/step3/decisions_approved.json` — or Doorway C's or D's JSON — down to the pairs
+that survived review, keeping the same object shape. Then dry-run:
 
 ```bash
 python scripts/apply_vetted_team_merges.py --file <vetted.json>
@@ -608,8 +655,23 @@ python scripts/apply_vetted_team_merges.py --file <vetted.json>
 **Check the direction before you apply.** `pick_canonical_pair` scores name aesthetics — club
 name present, mixed case, length — and is uncorrelated with which row holds the data. A merge
 copies no columns onto the survivor, so keeping the prettier row can leave the live team with a
-wrong state, a NULL distinction and a shallower rank history. Where the two rows disagree, keep
-the one with the live schedule and the populated columns, and swap `merge_id`/`keep_id` by hand.
+wrong state, a NULL distinction and a shallower rank history.
+
+So decide the survivor in this order. First, the name, by owner decision (2026-09-23: "we want
+to merge into the new age format with two numbers i.e. 2015/16 or U11 preferabbly over 2016(just
+a birth year)"): keep the row whose name states a two-year band or a current U-age over one
+stating a bare birth year, over one stating no age, and last one whose stated age contradicts
+the stored cohort — most often a stale U-age, where `U13` on a team now filed u14 would put last
+season's age on the board. Then,
+between equally named rows, keep the one holding more games, and after that the one that played
+last. Game count is a stand-in for the live schedule, not the same thing: where a busy row has
+gone quiet and a thinner one holds this season's fixtures, keep the live one. Games follow the
+survivor through `team_merge_map`; columns do not. Where the better-named row lacks a value the
+other holds — a state, a club, a distinction — keep the name and list the gap in Step 8, for the
+state or club-name workflow to settle. Doorway D's script applies the
+name, game-count and last-game order itself, but it neither compares the columns nor looks for a
+row that has gone quiet, so both checks are yours. Swap
+`merge_id`/`keep_id` by hand wherever the order says the other row survives.
 
 Output the vetted list and the held-pair count as text, then use `AskUserQuestion` to confirm
 before writing. On approval:
