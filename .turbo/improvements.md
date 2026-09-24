@@ -1562,3 +1562,13 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `.claude/hooks/git-guard.sh:87` (`target` is resolved at `:77-84`, then `branch=$(branch_of "$cwd")` at `:87`)
 - **Why**: The hook computes `target` correctly at `:77-84`, honouring a `git -C <dir>` or an earlier `cd <dir>`, and its own comment says every check below "answers about the wrong repository otherwise". Line 87 then reads `branch_of "$cwd"` rather than `branch_of "$target"`; only the `git -C` form re-resolves, at `:88-90`. The consequence is a false rejection: `cd <feature-branch worktree> && git commit` is refused whenever the main checkout happens to sit on main, which is routine while worktrees are in use and was hit on 2026-09-23. **It is not a bypass** -- a separate check at `:103-111` resolves the `cd` target independently and denies when *that* checkout is on main, covered by `test_git_guard_blocks_commit_on_main`; an earlier draft of this entry claimed otherwise and was wrong. So the fix is narrow: read `$target` at `:87`, which also makes `:88-90` redundant. Hooks here go live for every session the moment the file is saved, so fixture-test the change before committing it.
 - **Noted**: 2026-09-23
+
+### Compare predictions cap every forecast at ~73% and are built on unfitted heuristics
+
+- **ID**: IMP-266
+- **Status**: open
+- **Type**: plan
+- **Category**: feature
+- **Where**: `frontend/lib/matchPredictor.ts` (`applyOutcomeCalibration` at `:875-908`, `calibrateProbability` at `:724-772`, the composite at `:1210-1225`); `frontend/public/data/calibration/heuristic_outcome_calibration.json`; `scripts/predictor_python.py`
+- **Why**: The live Compare predictor mixes 45% of a fixed 0.433/0.133/0.433 prior into every forecast, so no team can be shown above ~73% or below ~20%; a synthetic run of the rank-1 team against the bottom of its cohort returns 73/7/20 where the Glicko gap implies 99%. Its honest pre-game record is 56-58% winner accuracy and 0.93 three-way log loss on ~1,000 frozen April 2026 forecasts, and the Python backtest port has no draw probability, so no committed backtest can rank candidates. `docs/compare-prediction-accuracy-research.md` (2026-09-24) holds the survey, the evidence table, the literature, and a phased plan: walk-forward scorecard on `prediction_feature_history` first, then a fitted rating-gap ordered logit in place of the prior blend and the hand-typed calibration table, then one attack/defense Poisson goal model for score, margin and blowout risk, then a learned model only if headroom remains.
+- **Noted**: 2026-09-24
