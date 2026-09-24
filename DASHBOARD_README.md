@@ -191,9 +191,8 @@ streamlit run dashboard.py --server.headless true
 ```
 
 ### External Access
-```bash
-streamlit run dashboard.py --server.address 0.0.0.0
-```
+
+Don't expose the dashboard. It holds the service-role key and has no login, so `--server.address 0.0.0.0` gives full database access to anyone who can reach the port. `.streamlit/config.toml` binds `127.0.0.1` for this reason.
 
 ## Related Files
 

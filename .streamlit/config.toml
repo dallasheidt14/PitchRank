@@ -8,7 +8,11 @@ font = "sans serif"
 [server]
 headless = true
 port = 8501
-enableCORS = false
+# The apps hold the service-role key and have no login, so they listen only on
+# this machine, and Streamlit's origin check turns away most pages from other
+# sites. A DNS-rebinding page still passes it.
+address = "127.0.0.1"
+enableCORS = true
 enableXsrfProtection = true
 # Use the polling watcher: the default watchdog-based watcher crashes on
 # Windows when site-packages and the repo live on different drives
