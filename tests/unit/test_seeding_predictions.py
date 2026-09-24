@@ -55,11 +55,13 @@ def _result():
                     "7": {"team_id_master": B, "prediction_game_count": 20, "ratings_as_of": "2026-09-14T01:00:00Z"},
                 },
                 "unavailable": {},
+                "unavailable_codes": {},
                 "predictions": [forward, reverse],
             },
             "u12:Female": {
                 "teams": {},
                 "unavailable": {"8": "No published rank"},
+                "unavailable_codes": {"8": "no_current_rating"},
                 "predictions": [],
             },
         },
@@ -93,6 +95,7 @@ def test_loads_both_orientations_and_keeps_credentials_out_of_files_commands_and
     assert batch.predictions["u14:Male"][("7", "6")].expected_margin == -3.8
     assert batch.predictions["u14:Male"][("6", "7")].confidence == "medium"
     assert batch.unavailable["u12:Female"] == {"8": "No published rank"}
+    assert batch.unavailable_codes["u12:Female"] == {"8": "no_current_rating"}
     assert batch.teams["u14:Male"]["6"]["prediction_game_count"] == 20
     assert len(batch.predictor_sha256) == 64
     command, kwargs, payload = calls[0]
@@ -138,6 +141,12 @@ def test_loads_both_orientations_and_keeps_credentials_out_of_files_commands_and
             "score",
         ),
         (lambda result: result["cohorts"]["u14:Male"]["teams"]["6"].update(prediction_game_count=-1), "game count"),
+        (lambda result: result["cohorts"]["u12:Female"].pop("unavailable_codes"), "unavailable code"),
+        (lambda result: result["cohorts"]["u12:Female"]["unavailable_codes"].clear(), "unavailable code"),
+        (lambda result: result["cohorts"]["u12:Female"]["unavailable_codes"].update({"8": "inactive"}),
+         "unavailable code"),
+        (lambda result: result["cohorts"]["u14:Male"]["unavailable_codes"].update({"6": "no_current_rating"}),
+         "unavailable code"),
     ],
 )
 def test_rejects_incomplete_or_invalid_predictor_output(mutate, match):
