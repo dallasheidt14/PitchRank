@@ -66,6 +66,11 @@ event_name        TEXT
 -- Games are NEVER updated, only inserted
 ```
 
+`result` (`W`/`L`/`D`/`U`) is from the **scraping team's** side, not the home side: a `W` row can be
+a home loss. When filling scores onto an unscored fixture (the `batch_backfill_null_scores` RPC)
+whose home and away are the other way round from the incoming result, swap the scores and keep
+`result` unchanged.
+
 ### `rankings_full`
 
 > Canonical: the `rankings-algorithm` skill, § Output Tables → "`rankings_full` (Primary)".
