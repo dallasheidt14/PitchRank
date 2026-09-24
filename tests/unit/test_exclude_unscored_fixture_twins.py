@@ -255,3 +255,11 @@ def test_a_fixture_scored_after_selection_is_not_excluded(monkeypatch, tmp_path)
     assert _run_main(monkeypatch, db, ["--execute", "--out", str(tmp_path / "log.json")]) == 0
 
     assert _excluded(db) == []
+
+
+def test_a_rematch_provider_result_is_not_evidence_for_a_gotsport_fixture(monkeypatch, tmp_path):
+    db = _DB([_game("fx"), _game("res", home_score=3, away_score=0, provider="prov-pm-tournament")])
+
+    assert _run_main(monkeypatch, db, ["--execute", "--out", str(tmp_path / "log.json")]) == 0
+
+    assert _excluded(db) == []

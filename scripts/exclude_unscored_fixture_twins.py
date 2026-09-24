@@ -8,8 +8,8 @@ a second row, so the team page lists the game twice: once blank, once with the s
 A past-dated (date, team pair) group qualifies when it holds at least one unscored row and no more
 unscored rows than scored ones; each unscored row there is a stale fixture of a game that has a
 result. A group with more fixtures than results may hold a game still awaiting its score, so it is
-left alone. Only games not already excluded and with both master ids count, and a fixture from a
-rematch provider, which can hold two same-day games for one pair, never qualifies or counts.
+left alone. Only games not already excluded and with both master ids count, and a row from a
+rematch provider, which can hold two same-day games for one pair, is never a twin or a result.
 
 Games are immutable, so this sets is_excluded, which the team page and the ranking loader skip.
 Excluding a row fires trg_propagate_game_exclusion, which also excludes every other game on that
@@ -104,11 +104,14 @@ def pair_key(game: dict) -> tuple:
 def select_twins(unscored: list[dict], scored: list[dict], rematch_provider_ids: set[str]) -> list[dict]:
     """Unscored rows whose (date, pair) holds at least as many scored rows.
 
-    Rematch providers can put one pair on the pitch twice in a day, so their fixtures are never
-    twins. A row scored between the two reads appears in both lists and must not be its own result.
+    Rematch providers can put one pair on the pitch twice in a day, so their rows are neither twins
+    nor evidence of one. A row scored between the two reads appears in both lists and must not be
+    its own result.
     """
     unscored_ids = {g["id"] for g in unscored}
-    results = Counter(pair_key(g) for g in scored if g["id"] not in unscored_ids)
+    results = Counter(
+        pair_key(g) for g in scored if g["id"] not in unscored_ids and g["provider_id"] not in rematch_provider_ids
+    )
     fixtures: dict[tuple, list[dict]] = defaultdict(list)
     for g in unscored:
         if g["provider_id"] not in rematch_provider_ids:

@@ -1567,6 +1567,15 @@ class EnhancedETLPipeline:
             return 0
 
         fills_disabled = bool(self.provider_code and self.provider_code.lower() in REMATCH_PROVIDERS)
+        rematch_provider_ids = set()
+        if not fills_disabled:
+            try:
+                result = self.supabase.table("providers").select("id").in_("code", sorted(REMATCH_PROVIDERS)).execute()
+                rematch_provider_ids = {p["id"] for p in result.data or []}
+            except Exception as e:
+                # Without the ids a rematch provider's fixture cannot be told apart, so fill nothing
+                logger.warning(f"Could not load rematch provider ids, fixture fills disabled: {e}")
+                fills_disabled = True
 
         # Query DB for existing games on each date
         for game_date, incoming_games in games_by_date.items():
@@ -1587,7 +1596,7 @@ class EnhancedETLPipeline:
                     result = (
                         self.supabase.table("games")
                         .select(
-                            "id, game_uid, home_team_master_id, away_team_master_id, "
+                            "id, game_uid, provider_id, home_team_master_id, away_team_master_id, "
                             "home_score, away_score, is_excluded"
                         )
                         .eq("game_date", game_date)
@@ -1622,7 +1631,11 @@ class EnhancedETLPipeline:
 
                         if row.get("is_excluded"):
                             continue
-                        if h_score is None and a_score is None:
+                        if row.get("provider_id") in rematch_provider_ids:
+                            # One of possibly several same-day games for the pair: never a fill target,
+                            # and its presence makes the pair's day ambiguous
+                            scored_pairs[sorted_ids] = scored_pairs.get(sorted_ids, 0) + 1
+                        elif h_score is None and a_score is None:
                             unscored_fixtures.setdefault(sorted_ids, []).append(
                                 (row.get("game_uid"), sorted_ids[0] == h_master)
                             )

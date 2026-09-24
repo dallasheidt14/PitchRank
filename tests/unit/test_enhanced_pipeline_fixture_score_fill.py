@@ -18,10 +18,20 @@ FIXTURE_UID = f"gotsport:{DATE}:471854:483752"
 RESULT_UID = f"gotsport:{DATE}:{AFC}:{GREMIO}"
 
 
-def _row(uid, home, away, home_score=None, away_score=None, excluded=False):
+GOTSPORT_ID = "prov-gotsport"
+PM_TOURNAMENT_ID = "prov-pm-tournament"
+PROVIDERS = [
+    {"id": GOTSPORT_ID, "code": "gotsport"},
+    {"id": PM_TOURNAMENT_ID, "code": "playmetrics_tournament"},
+    {"id": "prov-a2e", "code": "athletes2events"},
+]
+
+
+def _row(uid, home, away, home_score=None, away_score=None, excluded=False, provider=GOTSPORT_ID):
     return {
         "id": f"row-{uid}",
         "game_uid": uid,
+        "provider_id": provider,
         "game_date": DATE,
         "home_team_master_id": home,
         "away_team_master_id": away,
@@ -32,10 +42,11 @@ def _row(uid, home, away, home_score=None, away_score=None, excluded=False):
 
 
 class _Query:
-    """games select double: applies eq/or_, projects the selected columns, records at execute()."""
+    """Select double: applies eq/in_/or_, projects the selected columns, records at execute()."""
 
-    def __init__(self, db):
+    def __init__(self, db, table):
         self._db = db
+        self._table = table
         self._columns = None
         self._predicates = []
 
@@ -45,6 +56,10 @@ class _Query:
 
     def eq(self, field, value):
         self._predicates.append(lambda r: r.get(field) == value)
+        return self
+
+    def in_(self, field, values):
+        self._predicates.append(lambda r: r.get(field) in values)
         return self
 
     def or_(self, terms):
@@ -60,8 +75,11 @@ class _Query:
         raise AssertionError(f"unmodeled builder method {name!r}")
 
     def execute(self):
-        self._db.executed.append(("games", "select"))
-        rows = [r for r in self._db.games if all(p(r) for p in self._predicates)]
+        self._db.executed.append((self._table, "select"))
+        if self._table == "providers" and self._db.providers_error:
+            raise self._db.providers_error
+        source = self._db.games if self._table == "games" else PROVIDERS
+        rows = [r for r in source if all(p(r) for p in self._predicates)]
         return SimpleNamespace(data=[{c: r[c] for c in self._columns} for r in rows])
 
 
@@ -89,10 +107,11 @@ class _DB:
         self.games = games
         self.executed = []
         self.rpc_calls = []
+        self.providers_error = None
 
     def table(self, name):
-        assert name == "games", name
-        return _Query(self)
+        assert name in ("games", "providers"), name
+        return _Query(self, name)
 
     def rpc(self, name, params):
         return _Rpc(self, name, params)
@@ -285,4 +304,35 @@ def test_a_fixture_without_a_game_uid_is_never_the_fill_target(monkeypatch):
     inserted = _import(monkeypatch, db, _incoming(GREMIO, AFC, 0, 3))
 
     assert [g["game_uid"] for g in inserted] == [RESULT_UID]
+    assert db.rpc_calls == []
+
+
+def test_a_result_never_fills_a_rematch_provider_fixture(monkeypatch):
+    fixture = _row(FIXTURE_UID, GREMIO, AFC, provider=PM_TOURNAMENT_ID)
+    db = _DB([fixture])
+
+    inserted = _import(monkeypatch, db, _incoming(GREMIO, AFC, 0, 3))
+
+    assert [(g["home_score"], g["away_score"]) for g in inserted] == [(0, 3)]
+    assert db.rpc_calls == []
+
+
+def test_a_rematch_provider_game_that_day_blocks_the_fill(monkeypatch):
+    fixture = _row(FIXTURE_UID, GREMIO, AFC)
+    tournament_game = _row("playmetrics_tournament:x", GREMIO, AFC, 1, 1, provider=PM_TOURNAMENT_ID)
+    db = _DB([fixture, tournament_game])
+
+    inserted = _import(monkeypatch, db, _incoming(GREMIO, AFC, 0, 3))
+
+    assert [(g["home_score"], g["away_score"]) for g in inserted] == [(0, 3)]
+    assert db.rpc_calls == []
+
+
+def test_fills_are_withheld_when_the_rematch_providers_cannot_be_loaded(monkeypatch):
+    db = _DB([_row(FIXTURE_UID, GREMIO, AFC)])
+    db.providers_error = RuntimeError("providers unavailable")
+
+    inserted = _import(monkeypatch, db, _incoming(GREMIO, AFC, 0, 3))
+
+    assert [(g["home_score"], g["away_score"]) for g in inserted] == [(0, 3)]
     assert db.rpc_calls == []
