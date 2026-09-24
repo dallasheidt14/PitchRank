@@ -6,7 +6,7 @@ the `decisions-<run>` folder inside it), or a JSON list of `{"id": ..., "data": 
 documents. Team ids come only from the manifest; a saved choice contributes its decision, its
 swap, and a note that is only printed. The run fails outright, rather than guessing, on a choice naming a pair
 the page never showed, on a duplicate or mislabelled document, on a decision or swap of the
-wrong kind, and on finding no choices at all.
+wrong kind, on merges that disagree about which team survives, and on finding no choices at all.
 
 Never touches the database: it writes the merge list and prints the pairs behind every other
 decision, with the notes.
@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from collections import Counter
 from pathlib import Path
 
 DECISIONS = ("merge", "separate", "unsure")
@@ -70,7 +71,18 @@ def collect(manifest: dict, choices: dict[str, dict]) -> dict:
             pair = {"merge_id": pair["keep_id"], "keep_id": pair["merge_id"],
                     "merge_name": pair["keep_name"], "keep_name": pair["merge_name"]}
         merges.append(dict(pair))
+    refuse_conflicts(merges)
     return {"merges": merges, "by_decision": by_decision, "notes": notes}
+
+
+def refuse_conflicts(merges: list[dict]) -> None:
+    """A team merged into two survivors, or merged away while also a survivor, makes the applier
+    drop or chain those merges, so the owner's cluster decision would not land as chosen."""
+    retired = Counter(m["merge_id"] for m in merges)
+    clash = [m for m in merges if retired[m["merge_id"]] > 1 or m["keep_id"] in retired]
+    if clash:
+        lines = "\n".join(f"  {m['merge_name']} -> {m['keep_name']}" for m in clash)
+        raise SystemExit(f"these merges disagree about which team survives; settle the cluster on the page:\n{lines}")
 
 
 def main() -> int:

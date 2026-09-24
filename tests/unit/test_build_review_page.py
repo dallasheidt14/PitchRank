@@ -241,11 +241,24 @@ def _manifest():
     }}
 
 
-def test_a_merge_takes_its_direction_from_the_manifest_and_the_swap():
-    result = crd.collect(_manifest(), {P1: {"decision": "merge"}, P2: {"decision": "merge", "swap": True}})
-    assert [(m["merge_id"], m["keep_id"], m["merge_name"], m["keep_name"]) for m in result["merges"]] == [
-        (A, B, "A", "B"), (B, C, "B", "C")
-    ]
+@pytest.mark.parametrize("swap, expected", [(False, (A, B, "A", "B")), (True, (B, A, "B", "A"))])
+def test_a_merge_takes_its_direction_from_the_manifest_and_the_swap(swap, expected):
+    result = crd.collect(_manifest(), {P1: {"decision": "merge", "swap": swap}})
+    assert [(m["merge_id"], m["keep_id"], m["merge_name"], m["keep_name"]) for m in result["merges"]] == [expected]
+
+
+def test_merges_sharing_one_survivor_are_kept():
+    result = crd.collect(_manifest(), {P1: {"decision": "merge"}, P2: {"decision": "merge"}})
+    assert [(m["merge_id"], m["keep_id"]) for m in result["merges"]] == [(A, B), (C, B)]
+
+
+@pytest.mark.parametrize("choices", [
+    {P1: {"decision": "merge", "swap": True}, P2: {"decision": "merge", "swap": True}},  # B into A and into C
+    {P1: {"decision": "merge"}, P2: {"decision": "merge", "swap": True}},  # A into B, B into C
+])
+def test_merges_that_disagree_about_the_survivor_fail_the_run(choices):
+    with pytest.raises(SystemExit, match="disagree"):
+        crd.collect(_manifest(), choices)
 
 
 def test_ids_written_into_a_saved_choice_are_ignored():
