@@ -3715,6 +3715,7 @@ def _run_event_roster_scrape(
         return
 
     parked = 0
+    saved_before_block: int | None = None
     lock_key = event_key("gotsport", event_id, None)
     try:
         with _acquire_scrape_lock(lock_key):
@@ -3722,15 +3723,22 @@ def _run_event_roster_scrape(
             st.session_state._scrape_in_progress = True
             try:
                 def capture(on_phase=None, on_stage=None) -> int:
-                    captured = scrape_event_roster(
-                        event_id,
-                        fetch=make_zenrows_fetcher(api_key),
-                        limit_groups=limit_groups,
-                        max_workers=_SEEDING_EVENT_WORKERS,
-                        wanted_cohorts=None if keys == _BACKTEST_KEYS else _RANKED_COHORTS,
-                        on_phase=on_phase,
-                        **({"completed_event": True} if keys == _BACKTEST_KEYS else {}),
-                    )
+                    nonlocal saved_before_block
+                    try:
+                        captured = scrape_event_roster(
+                            event_id,
+                            fetch=make_zenrows_fetcher(api_key),
+                            limit_groups=limit_groups,
+                            max_workers=_SEEDING_EVENT_WORKERS,
+                            wanted_cohorts=None if keys == _BACKTEST_KEYS else _RANKED_COHORTS,
+                            on_phase=on_phase,
+                            **({"completed_event": True} if keys == _BACKTEST_KEYS else {}),
+                        )
+                    except WafChallengeError as exc:
+                        # Saved here, before any Streamlit cleanup on the way out
+                        # can raise a rerun and discard the pages already bought.
+                        saved_before_block = _keep_blocked_walk(exc.partial, limit_groups, keys)
+                        raise
                     return _park_event_roster(
                         url, captured, limit_groups, supabase_client, keys=keys, on_stage=on_stage
                     )
@@ -3782,6 +3790,10 @@ def _run_event_roster_scrape(
         st.error(
             f"GotSport answered event {event_id} with a bot challenge instead of the page, "
             "so the walk stopped. Try again later."
+            + (
+                f" What it read was saved as a partial capture ({saved_before_block} team ID(s))."
+                if saved_before_block is not None else ""
+            )
         )
         return
     except RuntimeError as exc:
@@ -3797,6 +3809,46 @@ def _run_event_roster_scrape(
     # The result, counts and optional estimate were all drawn from session state
     # before this ran, so without a rerun they would describe the previous walk.
     st.rerun()
+
+
+def _write_recovery(roster: EventRoster, limit_groups: int | None, keys: _WalkKeys) -> bool:
+    """Write the walk to its tab's recovery file.
+
+    False when that tab's writer declined or failed, so the caller must not claim a save.
+    """
+    if keys == _BACKTEST_KEYS:
+        return _write_backtest_recovery(roster, limit_groups)
+    return _write_event_roster_recovery(roster, limit_groups)
+
+
+def _linked_ids_on_disk(path: Path) -> frozenset[str] | None:
+    """The distinct provider ids a saved walk holds, or None when nothing readable is saved."""
+    try:
+        existing = read_json(path)
+    except (OSError, ValueError):
+        return None
+    teams = existing.get("teams") if isinstance(existing, dict) else None
+    if not isinstance(teams, list):
+        return None
+    return frozenset(
+        str(team["provider_team_id"]) for team in teams if isinstance(team, dict) and team.get("provider_team_id")
+    )
+
+
+def _keep_blocked_walk(partial: EventRoster | None, limit_groups: int | None, keys: _WalkKeys) -> int | None:
+    """Save what a blocked walk read; return its team-id count, or None when nothing was saved.
+
+    A finished walk always writes. A blocked retry after "try again later" usually
+    stops earlier than the walk it follows, so a saved walk holding as many
+    distinct team ids is kept rather than replaced.
+    """
+    if partial is None or not partial.teams:
+        return None
+    linked = {team.provider_team_id for team in partial.teams if team.provider_team_id}
+    saved = _linked_ids_on_disk(_event_recovery_path(partial.event_id, completed_event=keys == _BACKTEST_KEYS))
+    if saved is not None and len(saved) >= len(linked):
+        return None
+    return len(linked) if _write_recovery(partial, limit_groups, keys) else None
 
 
 def _park_event_roster(
@@ -3823,12 +3875,9 @@ def _park_event_roster(
     only when the operator asks and the tab holds less than it does. Naming a
     run and keeping it stays the operator's step.
     """
-    if keys == _BACKTEST_KEYS:
-        if on_stage:
-            on_stage("Saving recoverable capture")
-        _write_backtest_recovery(roster, limit_groups)
-    else:
-        _write_event_roster_recovery(roster, limit_groups)
+    if keys == _BACKTEST_KEYS and on_stage:
+        on_stage("Saving recoverable capture")
+    _write_recovery(roster, limit_groups, keys)
 
     if on_stage:
         on_stage("Matching database teams (read-only)")
@@ -3994,7 +4043,7 @@ def _event_recovery_path(event_id: str, *, completed_event: bool = False) -> Pat
     return default_seeding_base_dir() / f"gotsport_{event_id}" / "last_walk.json"
 
 
-def _write_backtest_recovery(roster: EventRoster, limit_groups: int | None) -> None:
+def _write_backtest_recovery(roster: EventRoster, limit_groups: int | None) -> bool:
     """Keep the paid Backtest capture separately from upcoming-event Seeding."""
     from src.tournaments.backtest_intake_state import assert_capture_preserved
     from src.tournaments.gotsport_event_roster import event_roster_from_dict, event_roster_to_dict
@@ -4011,9 +4060,11 @@ def _write_backtest_recovery(roster: EventRoster, limit_groups: int | None) -> N
                               "limit_groups": limit_groups})
     except Exception as exc:
         logger.warning("Could not preserve this Backtest walk: %s", exc)
+        return False
+    return True
 
 
-def _write_event_roster_recovery(roster: EventRoster, limit_groups: int | None = None) -> None:
+def _write_event_roster_recovery(roster: EventRoster, limit_groups: int | None = None) -> bool:
     """Drop the walked roster where a lost run can be recovered from.
 
     Takes the roster rather than the converted pair so it can run before any of
@@ -4038,7 +4089,7 @@ def _write_event_roster_recovery(roster: EventRoster, limit_groups: int | None =
     path = _event_recovery_path(roster.event_id)
     if not roster.is_complete and _recovery_holds_a_complete_walk(path):
         logger.info("Kept the complete walk already at %s rather than this partial one", path)
-        return
+        return False
     try:
         write_json(
             path,
@@ -4060,6 +4111,8 @@ def _write_event_roster_recovery(roster: EventRoster, limit_groups: int | None =
         )
     except Exception as exc:  # noqa: BLE001 — the roster outranks its own backup
         logger.warning("Could not write the event roster recovery file: %s", exc)
+        return False
+    return True
 
 
 def _recovery_holds_a_complete_walk(path: Path) -> bool:

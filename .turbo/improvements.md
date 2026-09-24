@@ -639,16 +639,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: The CLI still writes `reports/seeding/gotsport_<id>/roster.json` and nothing reads it — a grep over `*.py`, `*.md` and `*.yml` on 2026-09-05 finds only the writer. The Streamlit path now converts a walk into a seeding run instead, so a scrape started from the terminal produces an artifact the app cannot open while a scrape started from the app produces one the terminal cannot. The option not taken when wiring the UI: have the CLI call `to_seeding_rows` and the `SeedingRun` writer, so both entry points land in the same place. Deliberately left out to keep the UI change to one path.
 - **Noted**: 2026-09-05
 
-### Cancel the in-flight batch when an event walk is blocked
-
-- **ID**: IMP-175
-- **Status**: open
-- **Type**: direct
-- **Category**: cost
-- **Where**: `src/tournaments/gotsport_event_roster.py` `_in_pool`
-- **Why**: A `WafChallengeError` propagates out of the pool while pages are still queued, and every one of those is a paid request that would meet the same challenge. The exposure is smaller than it looks: `Executor.map`'s result generator cancels its un-yielded futures when the exception closes it, so only the batch already in flight is paid for — driving the repo's own `_in_pool` over 200 entries at `max_workers=8` and raising on the first entered 32 of them (2026-09-05, CPython 3.13; the exact count is scheduling-dependent, the bound is not). So `shutdown(cancel_futures=True)` would add nothing, and what is left is the handful of pages already dispatched. Worth an explicit cancel only if that batch grows with concurrency.
-- **Noted**: 2026-09-05
-
 ### Fold the WAF-clearing fetch mode into the one GotSport event scraper
 
 - **ID**: IMP-177
@@ -1561,4 +1551,14 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Category**: reliability
 - **Where**: `.claude/hooks/git-guard.sh:87` (`target` is resolved at `:77-84`, then `branch=$(branch_of "$cwd")` at `:87`)
 - **Why**: The hook computes `target` correctly at `:77-84`, honouring a `git -C <dir>` or an earlier `cd <dir>`, and its own comment says every check below "answers about the wrong repository otherwise". Line 87 then reads `branch_of "$cwd"` rather than `branch_of "$target"`; only the `git -C` form re-resolves, at `:88-90`. The consequence is a false rejection: `cd <feature-branch worktree> && git commit` is refused whenever the main checkout happens to sit on main, which is routine while worktrees are in use and was hit on 2026-09-23. **It is not a bypass** -- a separate check at `:103-111` resolves the `cd` target independently and denies when *that* checkout is on main, covered by `test_git_guard_blocks_commit_on_main`; an earlier draft of this entry claimed otherwise and was wrong. So the fix is narrow: read `$target` at `:87`, which also makes `:88-90` redundant. Hooks here go live for every session the moment the file is saved, so fixture-test the change before committing it.
+- **Noted**: 2026-09-23
+
+### Keep a blocked walk's pages in the command-line event walk too
+
+- **ID**: IMP-268
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `scripts/scrape_event_roster.py:main` (the `except WafChallengeError` branch)
+- **Why**: A blocked walk exits with "Blocked: ..." and drops `exc.partial`, the roster it already paid for, while the Seeding and Backtest tabs now save it through `tournament_intake._keep_blocked_walk`. Saving it here means routing the partial through the CLI's own roster writes, and never replacing a saved file that already holds as many distinct provider team ids, the rule `_keep_blocked_walk` applies. The `_write_roster` docstring already describes a blocked walk writing, which becomes true only once this is done.
 - **Noted**: 2026-09-23

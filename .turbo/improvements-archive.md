@@ -1417,3 +1417,14 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Noted**: 2026-09-16
 - **Refs**: branch `feat/team-cleanup-pipeline-foundation`. Both scripts are tracked under `scripts/` and import as package modules, so the lint and test gates cover them. The weekly re-check imports the applier as `scripts.fix_band_cohorts` rather than loading it from a file path. `tests/unit/test_fix_band_cohorts.py` pins the three write predicates one at a time, the dry-run and hold guards, and both revert paths; `tests/unit/test_weekly_age_recheck.py` pins each population rule and that the pass writes no database rows. Every guard was checked by mutating it alone: one disjunct of the already-moved rule is an equivalent mutant and is documented as such in the test. The Windows task "PitchRank Weekly Age-Group Recheck" was repointed at the new path by hand; it needs the checkout it names to hold the file.
 
+### Cancel the in-flight batch when an event walk is blocked
+
+- **ID**: IMP-175
+- **Status**: done
+- **Type**: direct
+- **Category**: cost
+- **Where**: `src/tournaments/gotsport_event_roster.py` `_in_pool`
+- **Why**: A `WafChallengeError` propagates out of the pool while pages are still queued, and every one of those is a paid request that would meet the same challenge. The exposure is smaller than it looks: `Executor.map`'s result generator cancels its un-yielded futures when the exception closes it, so only the batch already in flight is paid for — driving the repo's own `_in_pool` over 200 entries at `max_workers=8` and raising on the first entered 32 of them (2026-09-05, CPython 3.13; the exact count is scheduling-dependent, the bound is not). So `shutdown(cancel_futures=True)` would add nothing, and what is left is the handful of pages already dispatched. Worth an explicit cancel only if that batch grows with concurrency.
+- **Noted**: 2026-09-05
+- **Update (2026-09-23)**: `_in_pool` no longer uses `Executor.map`: it submits every page and waits on `FIRST_COMPLETED`, so leaving the pool waited for, and paid for, every queued page, and the bound above no longer held.
+- **Refs**: branch `fix/seeding-walk-block-stops-spend`. `_in_pool` calls `executor.shutdown(cancel_futures=True)` when a block or any `BaseException` escapes, and the team-ID phase hands back the pages already read.
