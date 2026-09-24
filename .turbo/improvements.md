@@ -1603,3 +1603,24 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `tournament_intake.py` `_render_seeding_run_controls` (the `seeding_resume_choice` selectbox)
 - **Why**: Streamlit 1.50's selectbox folds `options` into its element id (`key_as_main_identity={"options", ...}` in `streamlit/elements/widgets/selectbox.py`). "Save this run" writes a new run after the picker has already drawn, so the next rerun draws the picker with a longer list under a new id, and the browser's first choice, made against the old one, is discarded. A browser smoke run on 2026-09-24 reproduced it: saving "Cup B" and then choosing "Cup A" left the page on Cup B, and a second pick worked. Main draws the picker before the save controls too, so this likely predates the Seeding run-safety change; it has been reproduced only with that change applied. Candidate fixes: rerun after a save that adds a run, or draw the picker after the save controls.
 - **Noted**: 2026-09-24
+
+### Close the DNS-rebinding path into the local Streamlit apps
+
+- **ID**: IMP-271
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `.streamlit/config.toml` `[server]`, shared by `dashboard.py` and `tournament_intake.py`
+- **Why**: The loopback bind and origin check refuse a foreign page, but a page whose domain re-points to 127.0.0.1 mid-visit passes. Tornado's same-host origin check sees Origin and Host agree, and Streamlit has no Host allowlist. Against Streamlit 1.50, a request of that shape gets a 101 on the websocket (checked 2026-09-24). XSRF does not help, because the websocket checks the token only on the login-cookie path. The owner declined adding a password on 2026-09-24, which leaves a Host allowlist hooked into Tornado; that hook is fragile across Streamlit upgrades, so it would need a test against the installed version.
+- **Noted**: 2026-09-24
+
+### Decide whether the Codespaces launch should keep CORS and XSRF off
+
+- **ID**: IMP-272
+- **Status**: deferred
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `.devcontainer/devcontainer.json` `postAttachCommand`
+- **Why**: The command passes `--server.enableCORS false --server.enableXsrfProtection false`, and CLI flags beat `.streamlit/config.toml`, so inside a Codespace the dashboard runs without the origin check `.streamlit/config.toml` enables. It still binds 127.0.0.1, and Codespaces forwards ports privately by default. The flags are probably what lets the dashboard load behind the `*.app.github.dev` proxy, so removing them untested could break it. The owner does not use Codespaces (2026-09-24).
+- **Noted**: 2026-09-24
+- **Trigger**: Anyone opens PitchRank in a Codespace or devcontainer.
