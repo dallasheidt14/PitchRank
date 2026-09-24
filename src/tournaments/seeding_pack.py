@@ -14,8 +14,11 @@ from typing import Any
 from src.tournaments.compare_predictor_bridge import ComparePrediction
 from src.tournaments.roster_paste import RosterRow
 from src.tournaments.roster_resolver import ResolvedTeam
-from src.tournaments.seeding_predictions import _parse_batch
+from src.tournaments.seeding_predictions import UNAVAILABLE_STATUS, _parse_batch
 from src.tournaments.seeding_tiers import (
+    DATA_REVIEW,
+    NO_CURRENT_RATING,
+    NOT_FOUND,
     CheatSheetAnalysis,
     TierEntrant,
     TierPolicy,
@@ -34,24 +37,9 @@ _LEGACY_UNAVAILABLE_REASONS = {
         "Confirm the club and team match. Then use recent results or club input before seeding."
     ),
 }
-_DUPLICATE_IDENTITY_REASONS = frozenset({
-    "Two roster entries resolve to the same team; verify the matches.",
-    "Two roster entries appear to be the same team. Confirm both team matches before seeding.",
-})
-
-
-def has_snapshot_identity_conflict(pack: dict[str, Any], selected: Sequence[str]) -> bool:
-    """Compare can discover merges that were not known when the roster was matched."""
-    unavailable = pack.get("unavailable")
-    if not isinstance(unavailable, dict):
-        return True  # Keep malformed snapshots draft until normal validation reports them.
-    for key in selected:
-        reasons = unavailable.get(key)
-        if not isinstance(reasons, dict):
-            return True
-        if any(not isinstance(reason, str) or reason in _DUPLICATE_IDENTITY_REASONS for reason in reasons.values()):
-            return True
-    return False
+# A pack without unavailable_codes is classified by sentence: this must equal the no_current_rating
+# reason in seedingPredictions.ts, and every other sentence is a data review.
+_LEGACY_NO_RATING_REASON = "No usable current PitchRank rating is available."
 
 
 def _valid_cohort(age_group: str, gender: str) -> bool:
@@ -173,6 +161,7 @@ def make_pack(
         "predictor_sha256": batch.predictor_sha256,
         "teams": batch.teams,
         "unavailable": batch.unavailable,
+        "unavailable_codes": batch.unavailable_codes,
         "ratings": {key: dict(value) for key, value in ratings.items() if key in requested_ids},
         "predictions": {
             key: [{"entrant_a": a, "entrant_b": b, **asdict(value)} for (a, b), value in sorted(pairs.items())]
@@ -236,21 +225,25 @@ def _snapshot_predictions(
         not isinstance(value, dict) for value in pack["ratings"].values()
     ):
         raise ValueError("Seeding snapshot has invalid ratings.")
-    for section in ("manual_groups", "operator_notes"):
+    for section in ("manual_groups", "operator_notes", "unavailable_codes"):
         if not isinstance(pack.get(section, {}), dict) or not set(pack.get(section, {})).issubset(request):
             raise ValueError(f"Seeding snapshot has invalid {section} cohort coverage.")
     if any(not isinstance(note, str) for note in pack.get("operator_notes", {}).values()):
         raise ValueError("Seeding snapshot has invalid placement notes.")
+    codes = pack.get("unavailable_codes", {})
     try:
         result = _parse_batch({
             "schema_version": 1,
             "generated_at": pack.get("generated_at"),
             "ratings_as_of": pack.get("ratings_as_of"),
             "cohorts": {
-                key: {section: pack[section][key] for section in ("teams", "unavailable", "predictions")}
+                key: {
+                    **{section: pack[section][key] for section in ("teams", "unavailable", "predictions")},
+                    "unavailable_codes": codes.get(key, {}),
+                }
                 for key in request
             },
-        }, request, str(pack.get("predictor_sha256") or ""))
+        }, request, str(pack.get("predictor_sha256") or ""), require_codes=False)
     except (TypeError, KeyError, AttributeError) as exc:
         raise ValueError("Seeding snapshot has malformed forecast data; rebuild the seeding sheets.") from exc
     for teams in result.teams.values():
@@ -272,30 +265,36 @@ def _published_score(team: dict[str, Any]) -> float | None:
     return float(score)
 
 
-def _review_reason(row: RosterRow, team: dict[str, Any], unavailable: str | None, identity: str | None) -> str | None:
+def _review_reason(
+    row: RosterRow, team: dict[str, Any], unavailable: str | None, code: str | None, identity: str | None,
+) -> tuple[str | None, str]:
+    """The status is meaningful only when a reason is returned."""
     if not _valid_cohort(row.section_age_group, row.section_gender):
-        return "Confirm the listed age group and gender before seeding."
+        return "Confirm the listed age group and gender before seeding.", DATA_REVIEW
     if not identity:
-        return "Confirm the club, team name, and age group before seeding."
+        return "Confirm the club, team name, and age group before seeding.", DATA_REVIEW
     if unavailable:
-        return _LEGACY_UNAVAILABLE_REASONS.get(unavailable, unavailable)
+        status = UNAVAILABLE_STATUS[code] if code else (
+            NO_CURRENT_RATING if unavailable == _LEGACY_NO_RATING_REASON else DATA_REVIEW
+        )
+        return _LEGACY_UNAVAILABLE_REASONS.get(unavailable, unavailable), status
     if not team:
-        return "Current PitchRank data is unavailable. Confirm the team match before seeding."
+        return "Current PitchRank data is unavailable. Confirm the team match before seeding.", NO_CURRENT_RATING
     if team.get("status") == "Inactive":
-        return "No current ranking. Use recent results or club input."
+        return "No current ranking. Use recent results or club input.", NO_CURRENT_RATING
     if _published_score(team) is None:
-        return "No current PitchRank score. Use recent results or club input."
+        return "No current PitchRank score. Use recent results or club input.", NO_CURRENT_RATING
     expected_gender = "M" if row.section_gender == "Male" else "F"
     if team.get("gender") not in {expected_gender, "B" if expected_gender == "M" else "G"}:
-        return "The matched team may be in a different gender group. Confirm before seeding."
+        return "The matched team may be in a different gender group. Confirm before seeding.", DATA_REVIEW
     age = team.get("age")
     if isinstance(age, bool) or not isinstance(age, int) or not 1 <= age <= 99:
-        return "Confirm the team's age before seeding."
+        return "Confirm the team's age before seeding.", DATA_REVIEW
     if age > int(row.section_age_group[1:]):
-        return "The matched team may be older than this age group. Confirm eligibility before seeding."
+        return "The matched team may be older than this age group. Confirm eligibility before seeding.", DATA_REVIEW
     # Younger entrants may intentionally play up. The tournament heading
     # controls their placement, while Compare uses their actual recorded age.
-    return None
+    return None, DATA_REVIEW
 
 
 def analyze_pack(
@@ -320,6 +319,7 @@ def analyze_pack(
         cohort_rows = [row for row in rows if cohort_key(row.section_age_group, row.section_gender) == key]
         teams = pack["teams"].get(key, {})
         unavailable = pack["unavailable"].get(key, {})
+        codes = pack.get("unavailable_codes", {}).get(key, {})
         entrants = []
         for row in cohort_rows:
             entrant_id = str(row.source_index)
@@ -329,20 +329,23 @@ def analyze_pack(
             evidence = {**supplemental, **team}
             override = overrides.get(row.source_index) or {}
             if override.get("not_found"):
-                review_reason = "Not found in PitchRank; no current score is assigned."
+                review_reason, review_status = "Not found in PitchRank; no current score is assigned.", NOT_FOUND
             else:
-                review_reason = _review_reason(row, evidence, unavailable.get(entrant_id), identity)
+                review_reason, review_status = _review_reason(
+                    row, evidence, unavailable.get(entrant_id), codes.get(entrant_id), identity,
+                )
             if row.source_index in duplicate_rows:
-                review_reason = (
+                review_reason, review_status = (
                     "Multiple roster entries resolve to the same PitchRank team. "
                     "Confirm each registration before seeding."
-                )
+                ), DATA_REVIEW
             entrants.append(TierEntrant(
                 entrant_id=entrant_id,
                 team_name=row.registered_name,
                 power_score=_published_score(evidence),
                 review_reason=review_reason,
                 limited_history=evidence.get("status") == "Not Enough Ranked Games",
+                review_status=review_status,
             ))
         # Legacy manual tiers remain in the pack for reference, but they no
         # longer drive the customer-facing cheat sheet or imply a format.

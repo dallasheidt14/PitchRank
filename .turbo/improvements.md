@@ -1553,6 +1553,26 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: The hook computes `target` correctly at `:77-84`, honouring a `git -C <dir>` or an earlier `cd <dir>`, and its own comment says every check below "answers about the wrong repository otherwise". Line 87 then reads `branch_of "$cwd"` rather than `branch_of "$target"`; only the `git -C` form re-resolves, at `:88-90`. The consequence is a false rejection: `cd <feature-branch worktree> && git commit` is refused whenever the main checkout happens to sit on main, which is routine while worktrees are in use and was hit on 2026-09-23. **It is not a bypass** -- a separate check at `:103-111` resolves the `cd` target independently and denies when *that* checkout is on main, covered by `test_git_guard_blocks_commit_on_main`; an earlier draft of this entry claimed otherwise and was wrong. So the fix is narrow: read `$target` at `:87`, which also makes `:88-90` redundant. Hooks here go live for every session the moment the file is saved, so fixture-test the change before committing it.
 - **Noted**: 2026-09-23
 
+### Decide whether an older or different-gender matched team should still hold a seeding pack in draft
+
+- **ID**: IMP-266
+- **Status**: open
+- **Type**: plan
+- **Category**: feature
+- **Where**: `src/tournaments/seeding_pack.py:_review_reason` (the gender-group and "older than this age group" branches)
+- **Why**: Both branches return "Data review required", and any such status forces the pack into draft. The owner said on 2026-09-23 that the director's list decides a team's division whatever its own age: "It doesnt matter what age the team is. Example if they are u11 and they signed up for the u12 bracket then that is what we are using." Younger teams already pass; older and different-gender matches do not, so the two rules may disagree. Ask the owner before changing it.
+- **Noted**: 2026-09-23
+
+### Show a dash instead of "None" for unseeded rows in the Seeding tab's seed grid
+
+- **ID**: IMP-267
+- **Status**: open
+- **Type**: direct
+- **Category**: readability
+- **Where**: `src/tournaments/seeding_intake_ui.py:_render_cohort_review` (the rows passed to `st.data_editor`, `"Seed": row.seed`)
+- **Why**: Unseeded rows carry `seed=None`, which the grid renders as "None", while the neighbouring empty cells use "—". A 2026-09-23 smoke run also saw the "PitchRank match" column stay empty after "Load PitchRank team names" when the pasted names matched PitchRank's exactly; the cause is unverified and may be intended.
+- **Noted**: 2026-09-23
+
 ### Keep a blocked walk's pages in the command-line event walk too
 
 - **ID**: IMP-268

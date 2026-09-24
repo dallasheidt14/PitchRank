@@ -17,6 +17,13 @@ from statistics import median
 
 from src.tournaments.compare_predictor_bridge import ComparePrediction
 
+SEEDED = "Seeded"
+NOT_FOUND = "Not found in PitchRank"
+NO_CURRENT_RATING = "No current rating"
+DATA_REVIEW = "Data review required"
+PLACEMENT_STATUSES = (SEEDED, NOT_FOUND, NO_CURRENT_RATING, DATA_REVIEW)
+REVIEW_STATUSES = frozenset(PLACEMENT_STATUSES) - {SEEDED}
+
 
 @dataclass(frozen=True)
 class TierEntrant:
@@ -25,6 +32,7 @@ class TierEntrant:
     power_score: float | None = None
     review_reason: str | None = None
     limited_history: bool = False
+    review_status: str = DATA_REVIEW
 
 
 @dataclass(frozen=True)
@@ -396,15 +404,6 @@ def build_tiers(
     )
 
 
-def _placement_status(reason: str) -> str:
-    lowered = reason.casefold()
-    if "not found in pitchrank" in lowered:
-        return "Not found in PitchRank"
-    if "no current" in lowered or "inactive" in lowered or "unavailable" in lowered:
-        return "No current rating"
-    return "Data review required"
-
-
 def _window_for_boundary(
     ordered: Sequence[str], boundary: int, size: int,
 ) -> tuple[tuple[str, ...], tuple[str, ...]] | None:
@@ -452,12 +451,14 @@ def build_cheat_sheet_analysis(
             raise ValueError(f"Duplicate entrant ID: {entrant.entrant_id}")
         if entrant.power_score is not None and not math.isfinite(entrant.power_score):
             raise ValueError(f"Non-finite PowerScore for {entrant.entrant_id}")
+        if entrant.review_status not in REVIEW_STATUSES:
+            raise ValueError(f"Unknown placement status for {entrant.entrant_id}")
         by_id[entrant.entrant_id] = entrant
     review = {key: str(value.review_reason) for key, value in sorted(by_id.items()) if value.review_reason}
     ordered = tuple(sorted((key for key in by_id if key not in review), key=lambda key: _display_key(by_id[key])))
     pairs = _read_pairs(ordered, predictions)
-    statuses = {key: "Seeded" for key in ordered}
-    statuses.update({key: _placement_status(reason) for key, reason in review.items()})
+    statuses = {key: SEEDED for key in ordered}
+    statuses.update({key: by_id[key].review_status for key in review})
 
     candidates: list[StrengthBreak] = []
     boundary_windows: list[BoundaryWindow] = []
