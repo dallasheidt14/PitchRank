@@ -14,6 +14,7 @@ from openpyxl.worksheet.table import Table, TableStyleInfo
 from src.tournaments.seeding_content import DIRECTOR_LEGEND, LIMITED_HISTORY_LEGEND, build_director_cohort
 from src.tournaments.seeding_pack import cohort_key, cohort_label
 from src.tournaments.seeding_sheet import CohortSheet
+from src.tournaments.seeding_tiers import PLACEMENT_STATUSES
 
 FOREST = "0B5345"
 FOREST_DEEP = "083E33"
@@ -91,7 +92,7 @@ def build_seeding_workbook(
         sheet.merge_cells("A5:K5")
         sheet["A5"] = " · ".join(
             f"{label}: {sum(row.placement_status == label for row in team_rows)}"
-            for label in ("Seeded", "Not found in PitchRank", "No current rating", "Data review required")
+            for label in PLACEMENT_STATUSES
         )
         sheet["A5"].font = Font(color=MUTED, size=9)
         headers = [

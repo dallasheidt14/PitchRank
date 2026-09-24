@@ -14,7 +14,7 @@ import re
 import shutil
 import subprocess
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -24,12 +24,21 @@ from src.tournaments.compare_predictor_bridge import (
     _parse_prediction,
     canonical_predictor_sha256,
 )
+from src.tournaments.seeding_tiers import DATA_REVIEW, NO_CURRENT_RATING
 
 _FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
 _SCRIPT = _FRONTEND_DIR / "scripts" / "run-seeding-predictions.ts"
 _SHIM = _FRONTEND_DIR / "scripts" / "server-only-shim.cjs"
 _TSX_CLI = _FRONTEND_DIR / "node_modules" / "tsx" / "dist" / "cli.mjs"
 _UUID = re.compile(r"^[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$")
+# Keys mirror SEEDING_UNAVAILABLE_CODES; a matched team without a current
+# rating is unrated, while every identity problem blocks delivery.
+UNAVAILABLE_STATUS = {
+    "team_not_found": DATA_REVIEW,
+    "no_current_rating": NO_CURRENT_RATING,
+    "metadata_conflict": DATA_REVIEW,
+    "duplicate_entry": DATA_REVIEW,
+}
 
 
 @dataclass(frozen=True)
@@ -40,6 +49,7 @@ class SeedingPredictionBatch:
     generated_at: str
     ratings_as_of: str | None
     predictor_sha256: str
+    unavailable_codes: dict[str, dict[str, str]] = field(default_factory=dict)
 
 
 def seeding_predictor_sha256() -> str:
@@ -83,7 +93,9 @@ def _validate_finite(value: Any) -> None:
             _validate_finite(item)
 
 
-def _parse_batch(result: Any, cohorts: dict[str, dict[str, str]], predictor_sha256: str) -> SeedingPredictionBatch:
+def _parse_batch(
+    result: Any, cohorts: dict[str, dict[str, str]], predictor_sha256: str, *, require_codes: bool = True,
+) -> SeedingPredictionBatch:
     if not isinstance(result, dict) or result.get("schema_version") != 1:
         raise ValueError("Invalid Seeding Compare result schema")
     _validate_finite(result)
@@ -99,6 +111,7 @@ def _parse_batch(result: Any, cohorts: dict[str, dict[str, str]], predictor_sha2
     predictions = {}
     teams = {}
     unavailable = {}
+    unavailable_codes = {}
     for cohort_key, entrants in cohorts.items():
         output = outputs[cohort_key]
         if not isinstance(output, dict):
@@ -112,6 +125,14 @@ def _parse_batch(result: Any, cohorts: dict[str, dict[str, str]], predictor_sha2
             raise ValueError("Seeding Compare result has incomplete entrant coverage")
         if any(not isinstance(reason, str) or not reason for reason in missing.values()):
             raise ValueError("Seeding Compare result is missing an unavailable reason")
+        codes = output.get("unavailable_codes", {})
+        if (
+            not isinstance(codes, dict)
+            or not set(codes) <= set(missing)
+            or (require_codes and set(codes) != set(missing))
+            or any(code not in UNAVAILABLE_STATUS for code in codes.values())
+        ):
+            raise ValueError("Seeding Compare result has an invalid unavailable code")
         for team in cohort_teams.values():
             if not isinstance(team, dict) or not _UUID.fullmatch(str(team.get("team_id_master", ""))):
                 raise ValueError("Seeding Compare result has an invalid team identity")
@@ -163,6 +184,7 @@ def _parse_batch(result: Any, cohorts: dict[str, dict[str, str]], predictor_sha2
         predictions[cohort_key] = parsed
         teams[cohort_key] = cohort_teams
         unavailable[cohort_key] = missing
+        unavailable_codes[cohort_key] = codes
     return SeedingPredictionBatch(
         predictions=predictions,
         teams=teams,
@@ -170,6 +192,7 @@ def _parse_batch(result: Any, cohorts: dict[str, dict[str, str]], predictor_sha2
         generated_at=stamp,
         ratings_as_of=ratings_as_of,
         predictor_sha256=predictor_sha256,
+        unavailable_codes=unavailable_codes,
     )
 
 

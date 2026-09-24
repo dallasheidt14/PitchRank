@@ -104,8 +104,9 @@ def test_mixed_placement_statuses_keep_identical_pdf_and_excel_order():
     analysis = build_cheat_sheet_analysis([
         TierEntrant("seeded", "Seeded team", .9),
         TierEntrant("review", "Zebra review", .8, "Confirm the team identity."),
-        TierEntrant("notfound", "Alpha not found", None, "Not found in PitchRank."),
-        TierEntrant("unrated", "Beta unrated", None, "No current rating."),
+        TierEntrant("notfound", "Alpha not found", None, "Not found in PitchRank.",
+                    review_status="Not found in PitchRank"),
+        TierEntrant("unrated", "Beta unrated", None, "No current rating.", review_status="No current rating"),
     ], {})
     cohort = CohortSheet("u10", "Male", (
         SheetTeam("Seeded team", "Club", .9, entrant_id="seeded"),

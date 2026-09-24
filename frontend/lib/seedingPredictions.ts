@@ -33,6 +33,19 @@ export interface SeedingPairPrediction {
   confidence_score: number | null;
 }
 
+export const SEEDING_UNAVAILABLE_CODES = [
+  'team_not_found',
+  'no_current_rating',
+  'metadata_conflict',
+  'duplicate_entry',
+] as const;
+export type SeedingUnavailableCode = (typeof SEEDING_UNAVAILABLE_CODES)[number];
+
+interface Unavailable {
+  code: SeedingUnavailableCode;
+  reason: string;
+}
+
 export interface SeedingPredictionResult {
   schema_version: 1;
   generated_at: string;
@@ -42,6 +55,7 @@ export interface SeedingPredictionResult {
     {
       teams: Record<string, SeedingTeam>;
       unavailable: Record<string, string>;
+      unavailable_codes: Record<string, SeedingUnavailableCode>;
       predictions: SeedingPairPrediction[];
     }
   >;
@@ -107,7 +121,7 @@ export async function buildSeedingPredictions(
   await warmMatchPredictorCalibration();
   const resolvedByRequested = new Map<string, ResolvedTeam>();
   const teamByCanonical = new Map<string, PredictionTeam>();
-  const unavailableByCanonical = new Map<string, string>();
+  const unavailableByCanonical = new Map<string, Unavailable>();
   const requestedIds = [...new Set(Object.values(cohorts).flatMap((entries) => Object.values(entries)))].sort();
 
   // Bounded concurrency: large tournament packs do not open hundreds of requests together.
@@ -132,14 +146,20 @@ export async function buildSeedingPredictions(
           teamByCanonical.set(teamId, team);
         } catch (error) {
           if (error instanceof AppError && error.code === 'team_not_found') {
-            unavailableByCanonical.set(teamId, 'Confirm the club, team name, and age group before seeding.');
+            unavailableByCanonical.set(teamId, {
+              code: 'team_not_found',
+              reason: 'Confirm the club, team name, and age group before seeding.',
+            });
           } else if (error instanceof AppError && error.code === 'prediction_unavailable') {
-            unavailableByCanonical.set(teamId, 'No usable current PitchRank rating is available.');
+            unavailableByCanonical.set(teamId, {
+              code: 'no_current_rating',
+              reason: 'No usable current PitchRank rating is available.',
+            });
           } else if (error instanceof AppError && error.code === 'prediction_metadata_conflict') {
-            unavailableByCanonical.set(
-              teamId,
-              `${error.message} Then rebuild matchup tiers. Your team match is saved.`
-            );
+            unavailableByCanonical.set(teamId, {
+              code: 'metadata_conflict',
+              reason: `${error.message} Then rebuild matchup tiers. Your team match is saved.`,
+            });
           } else {
             throw error;
           }
@@ -162,7 +182,16 @@ export async function buildSeedingPredictions(
   };
 
   for (const [cohortKey, entrants] of Object.entries(cohorts)) {
-    const output: SeedingPredictionResult['cohorts'][string] = { teams: {}, unavailable: {}, predictions: [] };
+    const output: SeedingPredictionResult['cohorts'][string] = {
+      teams: {},
+      unavailable: {},
+      unavailable_codes: {},
+      predictions: [],
+    };
+    const markUnavailable = (entrantId: string, { code, reason }: Unavailable) => {
+      output.unavailable[entrantId] = reason;
+      output.unavailable_codes[entrantId] = code;
+    };
     result.cohorts[cohortKey] = output;
     const canonicalCounts = new Map<string, number>();
     for (const requested of Object.values(entrants)) {
@@ -173,13 +202,15 @@ export async function buildSeedingPredictions(
     for (const entrantId of entrantIds) {
       const resolved = resolvedByRequested.get(entrants[entrantId])!;
       if (canonicalCounts.get(resolved.canonicalTeamId)! > 1) {
-        output.unavailable[entrantId] =
-          'Two roster entries appear to be the same team. Confirm both team matches before seeding.';
+        markUnavailable(entrantId, {
+          code: 'duplicate_entry',
+          reason: 'Two roster entries appear to be the same team. Confirm both team matches before seeding.',
+        });
         continue;
       }
       const team = teamByCanonical.get(resolved.canonicalTeamId);
       if (!team) {
-        output.unavailable[entrantId] = unavailableByCanonical.get(resolved.canonicalTeamId)!;
+        markUnavailable(entrantId, unavailableByCanonical.get(resolved.canonicalTeamId)!);
         continue;
       }
       // Compare currently builds recent profiles from the canonical ID only.
