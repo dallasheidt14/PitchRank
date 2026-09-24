@@ -342,6 +342,9 @@ One rebrand the script cannot see, recorded here because the data does not show 
 Rapids Youth Soccer Club merged into Colorado Storm, so a Rapids row and a Storm row of one
 cohort can be one squad.
 
+To work a whole state through this doorway, reviewers and owner page included, follow
+[references/state-runs.md](references/state-runs.md).
+
 **Loosening a threshold and adding an independent signal are not the same move.** The measured
 table in evidence-rules.md forbids the first. Doorways B, C and D are the second, and are the
 only routes past the ceiling.
@@ -818,6 +821,17 @@ A row is two squads when its provider ids play different opponents on the same l
 show up as self-play. Split it before anything merges into it. This covers fusion at the alias
 layer. When `team_merge_map` shows the moving squad arrived through a merge, revert that merge
 instead (Step 6): its games still name the absorbed row, which still holds the provider id.
+
+**When the moving id's real team already has a row, move the id to it instead of creating one.**
+Follow the write order below with that row as the new row, skipping step 2: repoint the alias
+with the update guarded on its current `team_id_master`, and relink only the scored sides that
+carry the moving id. For the relink, import `move_side` from
+`scripts/reassign_games_between_teams.py` and call it once per game side, with the fused row as
+`expected` and the existing row as `target`. It returns `moved`, `already_moved`, or
+`skipped_changed_since_read`. Skip any game whose opponent is already the target row, since
+relinking it would make the team play itself. Write the log before the first write so a side
+left empty can be found again. Unscored fixtures on the moving id are excluded, as below. An id
+that carries no games needs the alias write alone.
 
 **Decide which ids move from the provider's own team name for each id**, read from the scraped
 game data (alias rows store no name), not from alias method: SincSports names `Premier 1` and

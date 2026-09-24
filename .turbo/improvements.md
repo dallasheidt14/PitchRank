@@ -1624,3 +1624,13 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: The command passes `--server.enableCORS false --server.enableXsrfProtection false`, and CLI flags beat `.streamlit/config.toml`, so inside a Codespace the dashboard runs without the origin check `.streamlit/config.toml` enables. It still binds 127.0.0.1, and Codespaces forwards ports privately by default. The flags are probably what lets the dashboard load behind the `*.app.github.dev` proxy, so removing them untested could break it. The owner does not use Codespaces (2026-09-24).
 - **Noted**: 2026-09-24
 - **Trigger**: Anyone opens PitchRank in a Codespace or devcontainer.
+
+### Bundle the state-run helpers into the merging-duplicate-teams skill
+
+- **ID**: IMP-273
+- **Status**: open
+- **Type**: plan
+- **Category**: dx
+- **Where**: `.claude/skills/merging-duplicate-teams/scripts/` (new), beside `build_review_page.py` and `collect_review_decisions.py`
+- **Why**: Running Doorway D state by state on 2026-09-24 (OK, KY, NC, TX; 1,488 merges) relied on three helpers that exist only in a session scratchpad: a post-apply check over the apply logs (self-play, names stating both genders, names two or more birth years apart, same-day two-event dates), a classifier that splits those dates into already-on-one-row / recorded-twice / merge-created (on TX it cut 331 flagged dates to 3 merge-created, 1 real), and the reviewer brief with its input-to-output name check, which caught two swapped verdict lines in OK. Bundle them as skill scripts with unit tests through the Supabase double and point `references/state-runs.md` at them.
+- **Noted**: 2026-09-24
