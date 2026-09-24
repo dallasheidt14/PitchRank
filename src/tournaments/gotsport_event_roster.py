@@ -738,7 +738,15 @@ class WafChallengeError(RuntimeError):
     caller that accepted it would report an empty event instead of a failed
     fetch. Both shapes count: the AWS WAF proof-of-work page and the
     ``/verify_captchas`` reCAPTCHA the event scraper meets elsewhere.
+
+    ``partial`` is the roster a walk had read when a team page was blocked,
+    flagged incomplete, so a caller can keep the pages it already paid for. It
+    is None when the block came earlier, on an event or division page.
     """
+
+    def __init__(self, message: str = "", *, partial: EventRoster | None = None):
+        super().__init__(message)
+        self.partial = partial
 
 
 def make_zenrows_fetcher(
@@ -1412,7 +1420,7 @@ def scrape_event_roster(
             on_phase("Resolving GotSport IDs", done, total)
 
         team_progress = report_team_progress
-    outcomes = _provider_ids_for(throttled, event_id, pending, max_workers, team_progress)
+    outcomes, challenge = _provider_ids_for(throttled, event_id, pending, max_workers, team_progress)
 
     teams: list[EventRosterTeam] = []
     unreadable = 0
@@ -1444,7 +1452,7 @@ def scrape_event_roster(
             )
         )
 
-    return EventRoster(
+    roster = EventRoster(
         event_id=event_id,
         teams=tuple(teams),
         warnings=tuple(warnings),
@@ -1458,6 +1466,9 @@ def scrape_event_roster(
         completed_event=completed_event,
         **metadata,
     )
+    if challenge is not None:
+        raise WafChallengeError(str(challenge), partial=roster) from challenge
+    return roster
 
 
 @dataclass(frozen=True)
@@ -1788,14 +1799,16 @@ def _provider_ids_for(
     pending: list[tuple[_Division, tuple[str, str]]],
     max_workers: int,
     on_progress: Callable[[int, int], None] | None = None,
-) -> list[tuple[str | None, str | None]]:
+) -> tuple[list[tuple[str | None, str | None]], WafChallengeError | None]:
     """Read each team's provider id, keeping the results in ``pending`` order.
 
     One unreadable team page costs that team its id and nothing else — the
     division it sits in is still worth returning, and the caller counts these
     so a blocked run cannot pass for a complete one. A bot challenge is the
-    exception: every remaining page will fail the same way, and swallowing it
-    would report an event whose teams simply have no ids.
+    exception: every remaining page would fail the same way, so the walk stops
+    and the challenge is returned beside the outcomes already read, because
+    those pages are paid for. A team whose page was never read is reported
+    unreadable rather than as a team with no id.
 
     A registration id appearing in two divisions is fetched once; at 25 credits
     a page, paying twice for the same page buys nothing.
@@ -1804,18 +1817,31 @@ def _provider_ids_for(
     for _, (registration_id, team_name) in pending:
         if registration_id:
             names.setdefault(registration_id, team_name)
+    read: dict[str, tuple[str | None, str | None]] = {}
 
     def provider_id_for(registration_id: str) -> tuple[str | None, str | None]:
         url = f"{EVENT_BASE}/{event_id}/schedules?team={registration_id}"
         try:
-            return parse_provider_team_id(fetch(url)), None
+            outcome = parse_provider_team_id(fetch(url)), None
         except WafChallengeError:
             raise
         except Exception as exc:
-            return None, f"Could not read {names[registration_id]} ({registration_id}): {exc}"
+            outcome = None, f"Could not read {names[registration_id]} ({registration_id}): {exc}"
+        read[registration_id] = outcome
+        return outcome
 
-    by_id = dict(zip(names, _in_pool(provider_id_for, list(names), max_workers, on_progress=on_progress)))
-    return [by_id.get(registration_id, (None, None)) for _, (registration_id, _) in pending]
+    challenge: WafChallengeError | None = None
+    try:
+        _in_pool(provider_id_for, list(names), max_workers, on_progress=on_progress)
+    except WafChallengeError as exc:
+        challenge = exc
+    outcomes = []
+    for _, (registration_id, team_name) in pending:
+        if registration_id and challenge is not None and registration_id not in read:
+            outcomes.append((None, f"Not read: {team_name} ({registration_id}); the walk stopped at a bot challenge"))
+        else:
+            outcomes.append(read.get(registration_id, (None, None)))
+    return outcomes, challenge
 
 
 def _report_progress(on_progress: Callable[[int, int], None], done: int, total: int) -> None:
@@ -1839,17 +1865,23 @@ def _in_pool(work, entries, max_workers: int, on_progress: Callable[[int, int], 
             results = [None] * len(entries)
             pending = set(futures)
             done = 0
-            while pending:
-                completed, pending = wait(pending, timeout=1.0, return_when=FIRST_COMPLETED)
-                if not completed:
+            try:
+                while pending:
+                    completed, pending = wait(pending, timeout=1.0, return_when=FIRST_COMPLETED)
+                    if not completed:
+                        if on_progress:
+                            _report_progress(on_progress, done, len(entries))
+                        continue
+                    for future in completed:
+                        results[futures[future]] = future.result()
+                        done += 1
                     if on_progress:
                         _report_progress(on_progress, done, len(entries))
-                    continue
-                for future in completed:
-                    results[futures[future]] = future.result()
-                    done += 1
-                if on_progress:
-                    _report_progress(on_progress, done, len(entries))
+            except BaseException:
+                # Every queued page is billed when it runs, and leaving the ``with``
+                # block waits for all of them; a block or an interrupt must not buy the rest.
+                executor.shutdown(cancel_futures=True)
+                raise
             return results
     results = []
     for done, entry in enumerate(entries, start=1):

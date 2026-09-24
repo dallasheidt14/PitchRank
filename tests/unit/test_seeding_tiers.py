@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from src.tournaments.compare_predictor_bridge import ComparePrediction
-from src.tournaments.seeding_tiers import TierEntrant, TierPolicy, build_tiers
+from src.tournaments.seeding_tiers import TierEntrant, TierPolicy, build_cheat_sheet_analysis, build_tiers
 
 
 def prediction(margin, blowout=0.1):
@@ -354,3 +354,11 @@ def test_duplicate_id_and_nonfinite_powerscore_fail():
         build_tiers(entrants(["a", "a"]), {})
     with pytest.raises(ValueError, match="Non-finite PowerScore"):
         build_tiers([TierEntrant("a", "A", float("nan"))], {})
+
+
+def test_cheat_sheet_carries_each_entrant_status_and_rejects_an_unknown_one():
+    roster = [TierEntrant("a", "A", 0.5),
+              TierEntrant("b", "B", None, "No rating yet", review_status="No current rating")]
+    assert build_cheat_sheet_analysis(roster, {}).placement_status == {"a": "Seeded", "b": "No current rating"}
+    with pytest.raises(ValueError, match="Unknown placement status"):
+        build_cheat_sheet_analysis([replace(roster[1], review_status="Seeded")], {})

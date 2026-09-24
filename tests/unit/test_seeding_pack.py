@@ -1,8 +1,10 @@
 """The saved operator pack is a complete, reproducible selected-cohort snapshot."""
 
 import json
+import re
 from copy import deepcopy
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
@@ -209,6 +211,7 @@ def test_duplicate_identity_uses_one_compare_representative_and_reviews_every_re
         "0": "Multiple roster entries resolve to the same PitchRank team. Confirm each registration before seeding.",
         "1": "Multiple roster entries resolve to the same PitchRank team. Confirm each registration before seeding.",
     }
+    assert analysis.placement_status == {"0": "Data review required", "1": "Data review required", "2": "Seeded"}
     assert len(analysis.ordered_ids) + len(analysis.review) == len(rows)
     assert len({team["team_id_master"] for team in pack["teams"]["u12|Male"].values()}) == 2
     identities = team_ids_by_row(rows, resolved, {})
@@ -361,6 +364,7 @@ def test_game_count_does_not_exclude_a_team_with_a_valid_powerscore(published, l
 def test_older_or_unknown_team_age_requires_review(age, reason):
     result = analyze_pack(_pack(change_team={"age": age}), ROWS, RESOLVED, {})[("u12", "Male")]
     assert result.review["0"] == reason
+    assert result.placement_status["0"] == "Data review required"
 
 
 def test_younger_team_may_play_up_into_the_tournament_cohort():
@@ -371,6 +375,7 @@ def test_younger_team_may_play_up_into_the_tournament_cohort():
 def test_matched_gender_disagreement_requires_review():
     result = analyze_pack(_pack(change_team={"gender": "F"}), ROWS, RESOLVED, {})[("u12", "Male")]
     assert result.review["0"] == "The matched team may be in a different gender group. Confirm before seeding."
+    assert result.placement_status["0"] == "Data review required"
 
 
 @pytest.mark.parametrize("age,gender", [("u²", "Male"), ("u123", "Male"), ("u0", "Male"), ("u12", "Unknown")])
@@ -382,12 +387,14 @@ def test_invalid_tournament_cohort_is_retained_for_review_without_requesting_pre
     pack = _pack([key], rows=rows)
     result = analyze_pack(pack, rows, RESOLVED, {})[(age, gender)]
     assert result.review == {"0": "Confirm the listed age group and gender before seeding."}
+    assert result.placement_status == {"0": "Data review required"}
 
 
 @pytest.mark.parametrize("score", [None, "unknown", True, 1.5])
 def test_missing_or_invalid_display_score_requires_review_not_default_strength(score):
     result = analyze_pack(_pack(change_team={"power_score_final": score}), ROWS, RESOLVED, {})[("u12", "Male")]
     assert result.review["0"] == "No current PitchRank score. Use recent results or club input."
+    assert result.placement_status["0"] == "No current rating"
 
 
 def test_valid_powerscore_without_a_published_rank_is_still_seeded():
@@ -438,6 +445,7 @@ def test_clean_cohort_does_not_require_placement_acknowledgment():
 def test_inactive_ranking_is_named_clearly():
     result = analyze_pack(_pack(change_team={"status": "Inactive"}), ROWS, RESOLVED, {})[("u12", "Male")]
     assert result.review["0"] == "No current ranking. Use recent results or club input."
+    assert result.placement_status["0"] == "No current rating"
 
 
 def test_known_duplicate_reason_is_friendly_and_every_roster_row_stays_visible():
@@ -464,6 +472,94 @@ def test_arbitrary_unavailable_reason_survives_unchanged():
     result = analyze_pack(pack, ROWS, RESOLVED, {})[("u12", "Male")]
 
     assert result.review["0"] == "Director note: confirm the local team name."
+
+
+_TYPESCRIPT_PREDICTOR = Path(__file__).resolve().parents[2] / "frontend" / "lib" / "seedingPredictions.ts"
+_STATUS_BY_CODE = {
+    "team_not_found": "Data review required",
+    "no_current_rating": "No current rating",
+    "metadata_conflict": "Data review required",
+    "duplicate_entry": "Data review required",
+}
+
+
+def _typescript_unavailable_codes():
+    source = _TYPESCRIPT_PREDICTOR.read_text(encoding="utf-8")
+    declared = re.search(r"SEEDING_UNAVAILABLE_CODES = \[(.*?)\] as const", source, re.DOTALL)
+    return sorted(re.findall(r"'([^']+)'", declared.group(1))), sorted(set(re.findall(r"code: '([^']+)'", source)))
+
+
+def test_every_code_the_typescript_predictor_sends_has_a_placement_status():
+    declared, sent = _typescript_unavailable_codes()
+    assert declared == sorted(_STATUS_BY_CODE)
+    assert sent == sorted(_STATUS_BY_CODE)
+
+
+def _unavailable_pack(reason, code=None):
+    batch = _batch(prediction_request(ROWS, RESOLVED, {}, ["u12|Male"]))
+    batch.teams["u12|Male"].pop("0")
+    batch.predictions["u12|Male"] = {}
+    batch.unavailable["u12|Male"]["0"] = reason
+    if code:
+        batch.unavailable_codes["u12|Male"] = {"0": code}
+    return make_pack(ROWS, RESOLVED, {}, ["u12|Male"], batch, {})
+
+
+@pytest.mark.parametrize("code", _typescript_unavailable_codes()[0])
+def test_each_typescript_unavailable_code_sets_the_status_whatever_the_sentence_says(code):
+    pack = json.loads(json.dumps(_unavailable_pack("Director note: confirm the local team name.", code)))
+
+    result = analyze_pack(pack, ROWS, RESOLVED, {})[("u12", "Male")]
+
+    assert result.review["0"] == "Director note: confirm the local team name."
+    assert result.placement_status["0"] == _STATUS_BY_CODE[code]
+
+
+def test_matched_team_without_a_rating_is_unrated_not_a_data_review():
+    pack = _unavailable_pack("No usable current PitchRank rating is available.", "no_current_rating")
+
+    result = analyze_pack(pack, ROWS, RESOLVED, {})[("u12", "Male")]
+
+    assert result.placement_status == {"0": "No current rating", "1": "Seeded", "2": "Data review required"}
+
+
+@pytest.mark.parametrize("reason,status", [
+    ("No usable current PitchRank rating is available.", "No current rating"),
+    ("Two roster entries appear to be the same team. Confirm both team matches before seeding.",
+     "Data review required"),
+    ("Confirm the club, team name, and age group before seeding.", "Data review required"),
+])
+def test_pack_saved_before_codes_still_classifies_its_reasons(reason, status):
+    pack = _unavailable_pack(reason)
+    del pack["unavailable_codes"]
+
+    result = analyze_pack(pack, ROWS, RESOLVED, {})[("u12", "Male")]
+
+    assert result.placement_status["0"] == status
+
+
+def test_saved_unavailable_code_for_a_seeded_team_is_rejected():
+    pack = _unavailable_pack("No usable current PitchRank rating is available.", "no_current_rating")
+    pack["unavailable_codes"]["u12|Male"]["1"] = "no_current_rating"
+
+    with pytest.raises(ValueError, match="unavailable code"):
+        analyze_pack(pack, ROWS, RESOLVED, {})
+
+
+def test_saved_unavailable_codes_for_an_unrequested_cohort_are_rejected():
+    pack = _unavailable_pack("No usable current PitchRank rating is available.", "no_current_rating")
+    pack["unavailable_codes"]["u14|Male"] = {}
+
+    with pytest.raises(ValueError, match="unavailable_codes cohort coverage"):
+        analyze_pack(pack, ROWS, RESOLVED, {})
+
+
+def test_unknown_saved_unavailable_code_is_rejected():
+    pack = _unavailable_pack("No usable current PitchRank rating is available.", "no_current_rating")
+    pack["unavailable_codes"]["u12|Male"]["0"] = "inactive"
+
+    with pytest.raises(ValueError, match="unavailable code"):
+        analyze_pack(pack, ROWS, RESOLVED, {})
 
 
 def test_ambiguous_legacy_ranking_error_preserves_identity_and_recent_results_actions():
