@@ -24,7 +24,6 @@ from src.tournaments.seeding_pack import (
     available_cohorts,
     cohort_key,
     cohort_label,
-    has_snapshot_identity_conflict,
     make_pack,
     needs_placement_review,
     pack_matches,
@@ -38,6 +37,7 @@ from src.tournaments.seeding_pdf import SeedingPdfError, render_seeding_pdf
 from src.tournaments.seeding_predictions import load_seeding_predictions, seeding_predictor_sha256
 from src.tournaments.seeding_run_store import slugify
 from src.tournaments.seeding_sheet import CohortSheet, build_cohort_sheets, make_ratings_lookup, render_sheet_html
+from src.tournaments.seeding_tiers import DATA_REVIEW, NO_CURRENT_RATING, NOT_FOUND
 from src.tournaments.seeding_workbook import build_seeding_workbook, validate_seeding_workbook, workbook_sheet_titles
 
 _PACK_KEY = "_seeding_pack"
@@ -178,8 +178,8 @@ def _render_cohort_review(
         row.section_age_group == age_group and row.section_gender == gender
         for row in roster_rows.values()
     )
-    unrated = sum(status in {"Not found in PitchRank", "No current rating"} for status in statuses.values())
-    data_review = sum(status == "Data review required" for status in statuses.values())
+    unrated = sum(status in {NOT_FOUND, NO_CURRENT_RATING} for status in statuses.values())
+    data_review = sum(status == DATA_REVIEW for status in statuses.values())
     first, second, third, fourth = st.columns(4)
     first.metric("Accepted", accepted)
     second.metric("Seeded", seeded)
@@ -379,8 +379,8 @@ def render_seeding_pack(
     ]
     draft = metadata.get("coverage") != "complete" or bool(assessment.attention & selected_indices) or any(
         could_belong(row, *key.split("|", 1)) for row in uncertain for key in selected
-    ) or (current_pack and has_snapshot_identity_conflict(pack, selected)) or analysis_error is not None or any(
-        status == "Data review required"
+    ) or analysis_error is not None or any(
+        status == DATA_REVIEW
         for analysis in analyses.values() for status in analysis.placement_status.values()
     ) or bool(pending_reviews)
     if draft:

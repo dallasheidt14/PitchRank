@@ -132,6 +132,16 @@ CloudFront WAF, which is why `use_zenrows` stays on. Whether datacenter IPs surv
 thousand URLs is open; residential is the known-good configuration. Recommend the cheap tier
 only alongside volume evidence.
 
+**A 422 under `wait_for` is not a bot block, even on every attempt.** With `js_render`, ZenRows
+answers 422 whenever the selector never appears, and ordinary GotSport pages do that. On a live
+one-division dry run of event 55368 (2026-09-23), the event page failed twice before loading,
+one team page once, and one team page on all three attempts while every other page loaded.
+Keep a walk going on "422 on every attempt": detect a block from a challenge body, or from
+failures across several different pages, since one page's attempts cannot tell the two apart.
+`make_zenrows_fetcher` in `src/tournaments/gotsport_event_roster.py` retries a 422, then raises
+an ordinary `RuntimeError`. A team or division page is then recorded as unreadable; an event
+landing page that exhausts its attempts ends the walk.
+
 **Inside `GotSportScraper.scrape_team_games`, only the match-list call routes through
 ZenRows.** `_extract_club_name` (`src/scrapers/gotsport.py:638`) and
 `_fetch_club_name_for_team_id` (`:797`) both use `self.session` directly, so 1–31 requests per

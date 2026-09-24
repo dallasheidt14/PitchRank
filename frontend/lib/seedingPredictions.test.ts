@@ -154,12 +154,14 @@ describe('Seeding canonical Compare bridge', () => {
       const result = await buildSeedingPredictions(db.client, { 'u14|Male': { a: A, b: B } });
       expect(result.cohorts['u14|Male'].unavailable.a).toContain('Recalculate rankings');
       expect(result.cohorts['u14|Male'].unavailable.a).toContain('Your team match is saved');
+      expect(result.cohorts['u14|Male'].unavailable_codes).toEqual({ a: 'metadata_conflict' });
       expect(result.cohorts['u14|Male'].teams.a).toBeUndefined();
       expect(result.cohorts['u14|Male'].predictions).toEqual([]);
       if (table === 'rankings_full') data[table][0].age_group = 'u14';
       else data[table][0].age = 14;
       const updated = await buildSeedingPredictions(db.client, { 'u15|Male': { a: A, b: B } });
       expect(updated.cohorts['u15|Male'].unavailable).toEqual({});
+      expect(updated.cohorts['u15|Male'].unavailable_codes).toEqual({});
       expect(updated.cohorts['u15|Male'].teams.a).toMatchObject({ age: 14, ratings_age: 14 });
       const compare = await buildMatchPrediction(db.client, A, B);
       expect(updated.cohorts['u15|Male'].predictions[0].expected_margin).toBe(compare.prediction.expectedMargin);
@@ -255,6 +257,7 @@ describe('Seeding canonical Compare bridge', () => {
     expect(result.cohorts['u14:Male'].unavailable['1']).toBe(
       'Two roster entries appear to be the same team. Confirm both team matches before seeding.'
     );
+    expect(result.cohorts['u14:Male'].unavailable_codes).toEqual({ '1': 'duplicate_entry', '2': 'duplicate_entry' });
     expect(result.cohorts['u14:Male'].predictions).toEqual([]);
     expect(result.cohorts['u15:Male'].predictions).toHaveLength(2);
   });
@@ -277,6 +280,7 @@ describe('Seeding canonical Compare bridge', () => {
     data.teams = data.teams.filter((row) => row.team_id_master !== B);
     const result = await buildSeedingPredictions(database(data).client, { cohort: { a: A, b: B } });
     expect(result.cohorts.cohort.unavailable.b).toBe('Confirm the club, team name, and age group before seeding.');
+    expect(result.cohorts.cohort.unavailable_codes).toEqual({ b: 'team_not_found' });
   });
 
   it('includes a PowerScore team with zero ranked games and zero recent prediction games', async () => {
@@ -297,6 +301,7 @@ describe('Seeding canonical Compare bridge', () => {
     data.rankings_full[1].power_score_final = null;
     const result = await buildSeedingPredictions(database(data).client, { cohort: { a: A, b: B } });
     expect(result.cohorts.cohort.unavailable.b).toBe('No usable current PitchRank rating is available.');
+    expect(result.cohorts.cohort.unavailable_codes).toEqual({ b: 'no_current_rating' });
     expect(result.cohorts.cohort.teams.b).toBeUndefined();
     expect(result.cohorts.cohort.predictions).toEqual([]);
   });

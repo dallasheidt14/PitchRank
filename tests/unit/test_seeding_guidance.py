@@ -169,7 +169,8 @@ def test_workbook_keeps_secondary_identity_and_roster_context_on_team_row():
     assert tab["D7"].value == 70
     assert all(text in document for text in content.rows[0].name_lines)
     assert tab.row_dimensions[7].height >= 75
-    assert tab.auto_filter.ref == "A6:K7"
+    assert tab.auto_filter.ref is None
+    assert [table.autoFilter.ref for table in tab.tables.values()] == ["A6:K7"]
 
 
 def test_score_step_does_not_require_a_likely_blowout():

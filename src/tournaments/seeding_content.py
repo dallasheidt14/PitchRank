@@ -7,6 +7,8 @@ import json
 from dataclasses import asdict, dataclass
 from typing import TYPE_CHECKING, Mapping, Sequence
 
+from src.tournaments.seeding_tiers import DATA_REVIEW, NO_CURRENT_RATING, SEEDED
+
 if TYPE_CHECKING:
     from src.tournaments.seeding_sheet import CohortSheet, SheetTeam
 
@@ -106,12 +108,12 @@ def build_director_cohort(sheet: CohortSheet, operator_note: str = "") -> Direct
         statuses = getattr(analysis, "placement_status", {})
         breaks = {item.after_seed for item in getattr(analysis, "breaks", ())}
         markers = {seed: analysis.marker_for_seed(seed) for seed in breaks}
-    rows = [DirectorRow(seed, team, markers.get(seed, ""), "Seeded", seed in breaks)
+    rows = [DirectorRow(seed, team, markers.get(seed, ""), SEEDED, seed in breaks)
             for seed, team in enumerate(seeded, 1)]
     for team in unseeded:
         status = statuses.get(team.entrant_id) or (
-            "Data review required" if analysis is not None
-            else "No current rating"
+            DATA_REVIEW if analysis is not None
+            else NO_CURRENT_RATING
         )
         rows.append(DirectorRow(None, team, "", status))
     notes = list(getattr(analysis, "notes", ()))

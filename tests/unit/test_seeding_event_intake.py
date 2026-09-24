@@ -32,6 +32,7 @@ from src.tournaments.gotsport_event_roster import (
     EventRoster,
     EventRosterTeam,
     WafChallengeError,
+    event_roster_from_dict,
 )
 from src.tournaments.gotsport_event_structure import Fixture, Pool, PoolMember, ScrapedDivision
 from src.tournaments.roster_paste import ParsedRoster, RosterRow
@@ -110,6 +111,21 @@ class _FakeSessionState(dict):
             return self[key]
         except KeyError:
             return default
+
+    def pop(self, key: str, *default: Any) -> Any:
+        """``MutableMapping.pop``, which ``st.session_state`` inherits: a read, then a delete.
+
+        ``dict.pop`` is C-level and reaches neither override, so without this a
+        pop would slip past both yield points production gives it.
+        """
+        try:
+            value = self[key]
+        except KeyError:
+            if default:
+                return default[0]
+            raise
+        del self[key]
+        return value
 
     def __getattr__(self, name: str) -> Any:
         try:
@@ -501,7 +517,9 @@ def test_an_event_publishing_no_teams_warns_and_parks_nothing(app):
 
     _scrape(limit_groups=2)
 
-    assert fake_st.warnings
+    fake_st.warnings.clear()
+    tournament_intake._render_seeding_notices()
+    assert any("published no teams" in message for message in fake_st.warnings), "the rerun erased the warning"
     assert fake_st.session_state.get("_seeding_result") is None
     assert fake_st.session_state["_seeding_event_probe"]["divisions_walked"] == 2
 
@@ -523,6 +541,188 @@ def test_a_bot_challenge_is_reported_as_a_block(app):
     assert any("bot challenge" in message for message in fake_st.errors)
     assert fake_st.session_state._scrape_in_progress is False
     assert ("exit", "Walking the event...") in fake_st.spinners
+
+
+_BLOCKED_TABS = [
+    pytest.param(tournament_intake._SEEDING_KEYS, id="seeding"),
+    pytest.param(tournament_intake._BACKTEST_KEYS, id="backtest"),
+]
+
+
+def _blocked(app, partial, keys=tournament_intake._SEEDING_KEYS, fake_st=None):
+    app.setattr(
+        tournament_intake,
+        "scrape_event_roster",
+        _RecordingScrape(raises=WafChallengeError("challenged", partial=partial)),
+    )
+    fake_st = _install(app, fake_st or _FakeSt())
+    _scrape(limit_groups=None, keys=keys)
+    return fake_st
+
+
+def _recovery_path(keys=tournament_intake._SEEDING_KEYS):
+    return tournament_intake._event_recovery_path(
+        "52975", completed_event=keys == tournament_intake._BACKTEST_KEYS
+    )
+
+
+def _recovered(keys=tournament_intake._SEEDING_KEYS):
+    return event_roster_from_dict(tournament_intake.read_json(_recovery_path(keys)))
+
+
+def _said_saved(fake_st, team_ids):
+    return any(
+        "bot challenge" in message and f"saved as a partial capture ({team_ids} team ID(s))" in message
+        for message in fake_st.errors
+    )
+
+
+def _said_nothing_saved(fake_st):
+    return any("bot challenge" in message and "saved" not in message for message in fake_st.errors)
+
+
+@pytest.mark.parametrize("keys", _BLOCKED_TABS)
+def test_a_blocked_walk_keeps_the_team_pages_it_already_read(app, keys):
+    partial = _roster(_team(0, provider_team_id="521426"), _team(1), teams_unreadable=1)
+
+    fake_st = _blocked(app, partial, keys)
+
+    saved = _recovered(keys)
+    assert [(team.team_name, team.provider_team_id) for team in saved.teams] == [
+        ("Team 0", "521426"), ("Team 1", None),
+    ]
+    assert not saved.is_complete
+    assert _said_saved(fake_st, 1)
+
+
+def test_a_walk_blocked_before_any_team_id_is_still_kept(app):
+    partial = _roster(_team(0), _team(1), teams_unreadable=2)
+
+    fake_st = _blocked(app, partial)
+
+    assert [team.team_name for team in _recovered().teams] == ["Team 0", "Team 1"]
+    assert _said_saved(fake_st, 0)
+
+
+@pytest.mark.parametrize("unreadable", ["{not json", "[]"], ids=["invalid-json", "json-list"])
+def test_an_unreadable_saved_walk_does_not_stop_the_blocked_walk_being_kept(app, unreadable):
+    path = _recovery_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(unreadable, encoding="utf-8")
+    partial = _roster(_team(0, provider_team_id="521426"), _team(1), teams_unreadable=1)
+
+    fake_st = _blocked(app, partial)
+
+    assert [team.provider_team_id for team in _recovered().teams] == ["521426", None]
+    assert _said_saved(fake_st, 1)
+
+
+def test_a_rerun_while_the_spinner_clears_cannot_lose_a_blocked_walk(app):
+    partial = _roster(_team(0, provider_team_id="521426"), _team(1), teams_unreadable=1)
+
+    _blocked(app, partial, fake_st=_FakeSt(spinner_raises=_Rerun()))
+
+    assert [team.provider_team_id for team in _recovered().teams] == ["521426", None]
+
+
+@pytest.mark.parametrize("keys", _BLOCKED_TABS)
+def test_a_blocked_retry_does_not_replace_a_walk_that_linked_more_teams(app, keys):
+    earlier = _roster(_team(0, provider_team_id="521426"), _team(1, provider_team_id="521427"), teams_unreadable=0)
+    assert tournament_intake._write_recovery(earlier, None, keys)
+    retry = _roster(_team(0, provider_team_id="521426"), _team(1), teams_unreadable=1)
+
+    fake_st = _blocked(app, retry, keys)
+
+    assert [team.provider_team_id for team in _recovered(keys).teams] == ["521426", "521427"]
+    assert _said_nothing_saved(fake_st)
+
+
+
+def test_a_blocked_retry_keeps_the_team_ids_an_earlier_retry_read(app):
+    earlier = _roster(*(_team(index, provider_team_id=pid) for index, pid in ((0, "A"), (1, "B"))),
+                      *(_team(index) for index in (2, 3, 4)), teams_unreadable=3)
+    assert tournament_intake._write_recovery(earlier, None, tournament_intake._SEEDING_KEYS)
+    retry = _roster(_team(0), _team(1), *(_team(index, provider_team_id=pid) for index, pid in ((2, "C"), (3, "D"), (4, "E"))),
+                    teams_unreadable=2, warnings=("Not read: Team 0 (4200000); the walk stopped at a bot challenge",))
+
+    fake_st = _blocked(app, retry)
+
+    kept = _recovered()
+    assert [team.provider_team_id for team in kept.teams] == ["A", "B", "C", "D", "E"]
+    assert kept.teams_unreadable == 0
+    assert kept.warnings == ()
+    assert _said_saved(fake_st, 5)
+
+def test_a_blocked_retry_that_adds_nothing_keeps_the_earlier_walk(app):
+    earlier = _roster(_team(0, provider_team_id="521426"), _team(1, provider_team_id="521427"), teams_unreadable=0)
+    assert tournament_intake._write_recovery(earlier, None, tournament_intake._SEEDING_KEYS)
+    retry = _roster(_team(0), _team(1, provider_team_id="521427"), teams_unreadable=1)
+
+    fake_st = _blocked(app, retry)
+
+    assert [team.provider_team_id for team in _recovered().teams] == ["521426", "521427"]
+    assert _said_nothing_saved(fake_st)
+
+
+def test_two_blocked_retries_that_read_different_teams_are_combined(app):
+    earlier = _roster(_team(0, provider_team_id="521426"), _team(1), teams_unreadable=1)
+    assert tournament_intake._write_recovery(earlier, None, tournament_intake._SEEDING_KEYS)
+    retry = _roster(_team(0), _team(1, provider_team_id="521427"), teams_unreadable=1)
+
+    fake_st = _blocked(app, retry)
+
+    assert [team.provider_team_id for team in _recovered().teams] == ["521426", "521427"]
+    assert _said_saved(fake_st, 2)
+
+
+def test_a_team_listed_in_several_divisions_counts_once(app):
+    earlier = _roster(_team(0, provider_team_id="202"), _team(1, provider_team_id="303"), teams_unreadable=0)
+    assert tournament_intake._write_recovery(earlier, None, tournament_intake._SEEDING_KEYS)
+    retry = _roster(*(_team(index, provider_team_id="101") for index in range(3)), teams_unreadable=1)
+
+    fake_st = _blocked(app, retry)
+
+    assert [team.provider_team_id for team in _recovered().teams] == ["202", "303"]
+    assert _said_nothing_saved(fake_st)
+
+
+@pytest.mark.parametrize("keys", _BLOCKED_TABS)
+def test_a_blocked_walk_claims_nothing_when_the_writer_keeps_a_complete_capture(app, keys):
+    # A complete walk can hold teams with no provider id, so it may link fewer
+    # teams than the partial and still be the capture to keep.
+    complete = _roster(_team(0), _team(1), divisions_found=1, divisions_walked=1)
+    assert tournament_intake._write_recovery(complete, None, keys)
+    partial = _roster(_team(0, provider_team_id="521426"), _team(1), teams_unreadable=1,
+                      divisions_found=1, divisions_walked=1)
+
+    fake_st = _blocked(app, partial, keys)
+
+    assert _recovered(keys).is_complete
+    assert _said_nothing_saved(fake_st)
+
+
+@pytest.mark.parametrize("keys", _BLOCKED_TABS)
+def test_a_blocked_walk_claims_nothing_when_the_write_fails(app, keys):
+    def refuse(*_args, **_kwargs):
+        raise OSError("disk full")
+
+    app.setattr(tournament_intake, "write_json", refuse)
+    partial = _roster(_team(0, provider_team_id="521426"), _team(1), teams_unreadable=1)
+
+    fake_st = _blocked(app, partial, keys)
+
+    assert not _recovery_path(keys).exists()
+    assert _said_nothing_saved(fake_st)
+
+
+def test_a_finished_backtest_walk_writes_only_the_backtest_recovery_file(app):
+    app.setattr(tournament_intake, "scrape_event_roster", _RecordingScrape(_roster(_team(0), _team(1))))
+    _install(app, _FakeSt())
+
+    _scrape(limit_groups=None, keys=tournament_intake._BACKTEST_KEYS)
+
+    assert _recovery_path(tournament_intake._BACKTEST_KEYS).exists()
+    assert not _recovery_path(tournament_intake._SEEDING_KEYS).exists()
 
 
 def test_an_ordinary_failure_is_not_reported_as_a_block(app):
@@ -1488,7 +1688,9 @@ def test_a_probe_that_found_no_teams_still_reruns(app):
     _scrape(limit_groups=2)
 
     assert fake_st.reruns == 1
-    assert fake_st.warnings
+    fake_st.warnings.clear()
+    tournament_intake._render_seeding_notices()
+    assert any("published no teams" in message for message in fake_st.warnings)
 
 
 # -------- the name pass is pending until it commits -----------------------

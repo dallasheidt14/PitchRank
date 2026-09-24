@@ -17,11 +17,13 @@ import json
 import logging
 import os
 import re
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from src.tournaments.gotsport_event_roster import event_id_from
 from src.tournaments.roster_paste import RosterRow
 from src.tournaments.roster_resolver import ResolvedTeam
 from src.tournaments.storage._io import write_json
@@ -30,9 +32,12 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "RUN_FILENAME",
+    "RunNameTaken",
+    "RunSourceChanged",
     "SeedingRun",
     "SeedingRunEntry",
     "default_base_dir",
+    "legacy_event_id",
     "list_runs",
     "load_run",
     "save_run",
@@ -45,6 +50,7 @@ _SEEDING_DIR_ENV = "MATCHBALANCE_SEEDING_DIR"
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 _SLUG_STRIP = re.compile(r"[^a-z0-9]+")
+_LEGACY_EVENT_NAME = re.compile(r"\bGotSport\s+Event\s+(\d+)\b", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -59,6 +65,24 @@ class SeedingRun:
     source_url: str = ""
     assessment: dict[str, Any] = field(default_factory=dict)
     cohort_decisions: dict[int, dict[str, Any]] = field(default_factory=dict)
+
+
+class RunNameTaken(ValueError):
+    """Another run's name already maps to this folder."""
+
+    def __init__(self, existing: str):
+        super().__init__(f"A run called {existing!r} already saves under this name")
+        self.existing = existing
+
+
+class RunSourceChanged(ValueError):
+    """The run saved under this name came from a different roster, or a fuller walk of it."""
+
+    def __init__(self, existing: str, *, less_complete: bool = False):
+        reason = "holds a more complete walk" if less_complete else "came from a different roster"
+        super().__init__(f"The saved run {existing!r} {reason}")
+        self.existing = existing
+        self.less_complete = less_complete
 
 
 @dataclass(frozen=True)
@@ -137,10 +161,57 @@ def slugify(name: str) -> str:
     return slug
 
 
+def legacy_event_id(name: Any) -> str | None:
+    """The event id older saves carried only in their generated ``GotSport Event N`` name."""
+    match = _LEGACY_EVENT_NAME.search(str(name or ""))
+    return match.group(1) if match else None
+
+
+def _event_of(assessment: Mapping[str, Any], source_url: Any) -> str | None:
+    event_id = assessment.get("event_id") or event_id_from(str(source_url or ""))
+    return str(event_id) if event_id else None
+
+
+def _source_conflict(existing: Mapping[str, Any], run: SeedingRun) -> RunSourceChanged | None:
+    """The refusal that saving ``run`` over ``existing`` earns, or None.
+
+    Two pasted lists are one run, so a corrected paste replaces the last one. An
+    event is its own run, and a partial walk never replaces a complete one.
+    """
+    name = str(existing.get("name") or run.name)
+    saved = existing.get("assessment")
+    saved = saved if isinstance(saved, dict) else {}
+    saved_event = _event_of(saved, existing.get("source_url"))
+    if not saved and not existing.get("source_url"):
+        saved_event = legacy_event_id(existing.get("name"))
+    if saved_event != _event_of(run.assessment, run.source_url):
+        return RunSourceChanged(name)
+    if saved_event and saved.get("coverage") == "complete" and run.assessment.get("coverage") != "complete":
+        return RunSourceChanged(name, less_complete=True)
+    return None
+
+
 def save_run(run: SeedingRun, *, base_dir: Path | str | None = None, archive_previous: bool = True) -> Path:
-    """Replace the latest save; archive revisions but not automatic progress checkpoints."""
+    """Replace the latest save; archive revisions but not automatic progress checkpoints.
+
+    Refuses to write over another run: one whose name maps to the same folder
+    (``RunNameTaken``), or one from a different source or a fuller walk of the
+    same event (``RunSourceChanged``). A saved file that cannot be read is replaceable.
+    """
     root = Path(base_dir) if base_dir is not None else default_base_dir()
     target = root / slugify(run.name)
+    path = target / RUN_FILENAME
+    try:
+        existing = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        existing = None
+    if isinstance(existing, dict):
+        existing_name = str(existing.get("name") or "")
+        if existing_name and existing_name != run.name:
+            raise RunNameTaken(existing_name)
+        conflict = _source_conflict(existing, run)
+        if conflict is not None:
+            raise conflict
     target.mkdir(parents=True, exist_ok=True)
 
     payload = {
@@ -156,7 +227,6 @@ def save_run(run: SeedingRun, *, base_dir: Path | str | None = None, archive_pre
         "cohort_decisions": {str(index): value for index, value in run.cohort_decisions.items()},
     }
 
-    path = target / RUN_FILENAME
     if archive_previous and path.exists():
         # Preserve the exact bytes so a damaged snapshot cannot prevent recovery.
         previous = path.read_bytes()
