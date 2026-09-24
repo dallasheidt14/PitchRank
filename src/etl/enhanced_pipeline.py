@@ -793,18 +793,7 @@ class EnhancedETLPipeline:
                     game_records = [g for g in game_records if g.get("game_uid") not in regen_existing_uids]
 
                     if null_score_updates:
-                        score_bf = await self._update_null_score_games(
-                            null_score_updates, regen_uid_master_ids
-                        )
-                        batch_metrics.scores_backfilled = (
-                            getattr(batch_metrics, "scores_backfilled", 0) + score_bf
-                        )
-                        self.metrics.scores_backfilled += score_bf
-                        failed = len(null_score_updates) - score_bf
-                        batch_metrics.scores_backfill_failed = (
-                            getattr(batch_metrics, "scores_backfill_failed", 0) + failed
-                        )
-                        self.metrics.scores_backfill_failed += failed
+                        await self._backfill_scores(null_score_updates, regen_uid_master_ids, batch_metrics)
 
                     regen_dupes = len(true_dupes)
                     if regen_dupes > 0:
@@ -856,6 +845,10 @@ class EnhancedETLPipeline:
             # After team matching resolves master IDs, check for existing games with
             # the same (game_date, master team pair, scores) regardless of provider IDs.
             master_dedup_removed = await self._check_duplicates_by_master_ids(game_records)
+            fixture_score_updates = [g["_fixture_score_update"] for g in game_records if "_fixture_score_update" in g]
+            if fixture_score_updates:
+                game_records = [g for g in game_records if "_fixture_score_update" not in g]
+                await self._backfill_scores(fixture_score_updates, {}, batch_metrics)
             if master_dedup_removed > 0:
                 pre_count = len(game_records)
                 master_dupes_list = [g for g in game_records if g.get("_master_dedup_skip")]
@@ -1533,7 +1526,10 @@ class EnhancedETLPipeline:
         existing games with matching (game_date, master team pair, scores)
         regardless of which provider_team_ids were used.
 
-        Marks duplicates with '_master_dedup_skip' = True for filtering by caller.
+        Marks duplicates with '_master_dedup_skip' = True for filtering by caller. A scored result
+        whose pair has one unscored fixture and no other game that day is tagged
+        '_fixture_score_update' instead, for the caller to write as a score backfill; it is not
+        counted as a duplicate.
 
         Returns:
             Number of duplicates found
@@ -1570,6 +1566,8 @@ class EnhancedETLPipeline:
         if not games_by_date:
             return 0
 
+        fills_disabled = bool(self.provider_code and self.provider_code.lower() in REMATCH_PROVIDERS)
+
         # Query DB for existing games on each date
         for game_date, incoming_games in games_by_date.items():
             try:
@@ -1579,27 +1577,36 @@ class EnhancedETLPipeline:
                     master_ids.add(g["home_team_master_id"])
                     master_ids.add(g["away_team_master_id"])
 
-                # Query existing games on this date involving any of these master teams
-                master_id_list = list(master_ids)
-                or_filter = ",".join(
-                    f"home_team_master_id.eq.{mid},away_team_master_id.eq.{mid}" for mid in master_id_list
-                )
+                # Query existing games on this date involving any of these master teams,
+                # 50 teams (100 or-terms) per call to stay inside the URI limit
+                rows_by_id: Dict[str, Dict] = {}
+                for team_batch in self._chunks(sorted(master_ids), 50):
+                    or_filter = ",".join(
+                        f"home_team_master_id.eq.{mid},away_team_master_id.eq.{mid}" for mid in team_batch
+                    )
+                    result = (
+                        self.supabase.table("games")
+                        .select(
+                            "id, game_uid, home_team_master_id, away_team_master_id, "
+                            "home_score, away_score, is_excluded"
+                        )
+                        .eq("game_date", game_date)
+                        .or_(or_filter)
+                        .execute()
+                    )
+                    # A game whose two teams fall in different batches comes back twice
+                    rows_by_id.update((row["id"], row) for row in result.data or [])
 
-                result = (
-                    self.supabase.table("games")
-                    .select("home_team_master_id, away_team_master_id, home_score, away_score")
-                    .eq("game_date", game_date)
-                    .or_(or_filter)
-                    .execute()
-                )
-
-                if not result.data:
+                if not rows_by_id:
                     continue
 
                 # Build a set of existing master-level keys from DB
                 # Key: (sorted_master_id_1, sorted_master_id_2, score_for_id_1, score_for_id_2)
                 existing_master_keys = set()
-                for row in result.data:
+                # Per sorted pair: count of scored rows, and unscored fixtures as (game_uid, home is sorted-first)
+                scored_pairs: Dict[tuple, int] = {}
+                unscored_fixtures: Dict[tuple, List[tuple]] = {}
+                for row in rows_by_id.values():
                     h_master = row.get("home_team_master_id")
                     a_master = row.get("away_team_master_id")
                     h_score = _safe_int(row.get("home_score"))
@@ -1612,6 +1619,15 @@ class EnhancedETLPipeline:
                         else:
                             key = (sorted_ids[0], sorted_ids[1], a_score, h_score)
                         existing_master_keys.add(key)
+
+                        if row.get("is_excluded"):
+                            continue
+                        if h_score is None and a_score is None:
+                            unscored_fixtures.setdefault(sorted_ids, []).append(
+                                (row.get("game_uid"), sorted_ids[0] == h_master)
+                            )
+                        elif h_score is not None and a_score is not None:
+                            scored_pairs[sorted_ids] = scored_pairs.get(sorted_ids, 0) + 1
 
                 # Check incoming games against existing master-level keys
                 for game in incoming_games:
@@ -1638,12 +1654,57 @@ class EnhancedETLPipeline:
                             f"already exists with different provider IDs. "
                             f"game_uid={game.get('game_uid')}"
                         )
+                        continue
+
+                    # A result whose fixture was saved under a different game_uid (a partial
+                    # match at the time keeps the provider-id uid). Fill that fixture in rather
+                    # than add a second row, but only when it is the pair's only non-excluded game that day:
+                    # two fixtures, or one already scored, may be a same-day rematch. Rematch
+                    # providers give each same-day game its own uid, so a different uid there
+                    # is a different game.
+                    fixtures = unscored_fixtures.get(sorted_ids, [])
+                    if (
+                        not fills_disabled
+                        and h_score is not None
+                        and a_score is not None
+                        and len(fixtures) == 1
+                        and fixtures[0][0]
+                        and not scored_pairs.get(sorted_ids)
+                    ):
+                        fixture_uid, fixture_home_first = fixtures[0]
+                        same_orientation = fixture_home_first == (sorted_ids[0] == h_master)
+                        game["_fixture_score_update"] = {
+                            **game,
+                            "game_uid": fixture_uid,
+                            "home_score": h_score if same_orientation else a_score,
+                            "away_score": a_score if same_orientation else h_score,
+                        }
+                        # The fixture is filled now: a copy of this result later in the batch is a
+                        # duplicate, and any other result for the pair must not reuse the fixture
+                        del unscored_fixtures[sorted_ids]
+                        scored_pairs[sorted_ids] = 1
+                        existing_master_keys.add(key)
+                        logger.info(
+                            f"[Pipeline] Result fills fixture {fixture_uid} on {game_date} "
+                            f"instead of inserting game_uid={game.get('game_uid')}"
+                        )
 
             except Exception as e:
                 logger.warning(f"Error in master-level dedup check for date {game_date}: {e}")
                 # Non-fatal: continue without this check rather than block the import
 
         return duplicates_found
+
+    async def _backfill_scores(
+        self, games_to_update: List[Dict], game_uid_to_master_ids: Dict[str, Dict], batch_metrics: ImportMetrics
+    ) -> None:
+        """Fill null-score rows and record how many landed on both the batch and run metrics."""
+        score_bf = await self._update_null_score_games(games_to_update, game_uid_to_master_ids)
+        failed = len(games_to_update) - score_bf
+        batch_metrics.scores_backfilled += score_bf
+        batch_metrics.scores_backfill_failed += failed
+        self.metrics.scores_backfilled += score_bf
+        self.metrics.scores_backfill_failed += failed
 
     async def _update_null_score_games(
         self, games_to_update: List[Dict], game_uid_to_master_ids: Dict[str, Dict]

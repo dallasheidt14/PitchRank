@@ -1624,3 +1624,13 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: The command passes `--server.enableCORS false --server.enableXsrfProtection false`, and CLI flags beat `.streamlit/config.toml`, so inside a Codespace the dashboard runs without the origin check `.streamlit/config.toml` enables. It still binds 127.0.0.1, and Codespaces forwards ports privately by default. The flags are probably what lets the dashboard load behind the `*.app.github.dev` proxy, so removing them untested could break it. The owner does not use Codespaces (2026-09-24).
 - **Noted**: 2026-09-24
 - **Trigger**: Anyone opens PitchRank in a Codespace or devcontainer.
+
+### Batch the team lookup that auto-hides twins of excluded games
+
+- **ID**: IMP-273
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `src/etl/enhanced_pipeline.py` `EnhancedETLPipeline._propagate_exclusions_to_new_games`
+- **Why**: It builds one `.or_()` filter naming every master team on a date (`home_team_master_id.eq.X,away_team_master_id.eq.X` per team) and sends it in a single request. `_check_duplicates_by_master_ids` batches the same query with `self._chunks(..., 50)`; this second copy does not. A date with enough teams can exceed the URI limit, and the method's broad `except` then logs a warning and skips the date, so a new copy of an already-excluded game is inserted live (failure mode reported by review, not reproduced). Apply the same batching, with a test whose two teams fall in different batches.
+- **Noted**: 2026-09-24
