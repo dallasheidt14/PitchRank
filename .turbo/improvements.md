@@ -1664,3 +1664,13 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `tests/unit/test_gotsport_event_roster.py` `test_completed_birth_year_uses_the_event_date_for_published_age`, `test_reads_a_birth_year_label_onto_its_board`, `test_a_boardable_birth_year_still_resolves`, `test_names_a_cohort_the_boards_exclude`
 - **Why**: It asserts the current-identity cohort of a `B2014` team as `u13`, which is true only in the 2026-27 season. The age comes from `resolve_cohort`, which reads the live season, so the test goes red on 2027-08-01 with no code change. Pin the season with a `team_utils._soccer_season_year` monkeypatch, as the label tests beside it do. The same wall-clock dependence breaks `TestResolveCohort.test_reads_a_birth_year_label_onto_its_board` and `test_a_boardable_birth_year_still_resolves` (both `G2007 Gold`, which ages out of u19), and the `B2018 Silver` case in `TestNamesCohortOutside.test_names_a_cohort_the_boards_exclude` (which ages onto the u10 board).
 - **Noted**: 2026-09-24
+
+### Keep an interrupted Seeding build findable after the run is renamed mid-build
+
+- **ID**: IMP-277
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `src/tournaments/seeding_run_store.py` `PackRecovery`; `tournament_intake.py` `_render_seeding_sheet`
+- **Why**: The recovery file is keyed by the run name, so renaming the run while a build runs files the finished build under the old name, and the renamed page never offers it. It is not lost: a named run is autosaved when its roster is imported, so the old name appears under "Open a saved run" and reopening it offers the build. Keying the file by roster fingerprint, or listing recovery-only folders in the run picker, would close it. Raised by the Codex review on #1221; the owner chose to log it on 2026-09-24.
+- **Noted**: 2026-09-24
