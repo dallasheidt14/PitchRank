@@ -815,6 +815,24 @@ def test_backtest_recovery_is_written_before_a_status_update_can_interrupt(app):
     assert _recovery_path(tournament_intake._BACKTEST_KEYS).exists()
 
 
+def test_backtest_does_not_claim_recovery_when_the_write_failed(app):
+    fake_st = _install(app, _FakeSt())
+    stages = []
+    app.setattr(tournament_intake, "_write_recovery", lambda *_args, **_kwargs: False)
+
+    tournament_intake._park_event_roster(
+        EVENT_URL,
+        _roster(_team(0)),
+        None,
+        None,
+        keys=tournament_intake._BACKTEST_KEYS,
+        on_stage=stages.append,
+    )
+
+    assert stages == []
+    assert fake_st.session_state[tournament_intake._BACKTEST_KEYS.snapshot].roster.event_id == "52975"
+
+
 def test_an_ordinary_failure_is_not_reported_as_a_block(app):
     app.setattr(
         tournament_intake,
