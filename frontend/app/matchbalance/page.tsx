@@ -35,7 +35,7 @@ const DELIVERABLES = [
   {
     icon: FileText,
     title: 'A PDF sheet for every age group',
-    body: 'Each covered age group and gender gets its own sheet: teams grouped into tiers of the closest projected matchups, with close calls and teams that need manual placement flagged for your review.',
+    body: "Each covered age group and gender gets its own sheet: teams in a suggested seed order by PitchRank score, with the larger score gaps marked and any team PitchRank can't place listed separately for your review.",
   },
   {
     icon: FileSpreadsheet,
@@ -71,7 +71,7 @@ const FAQS: FAQ[] = [
   {
     question: 'What happens to teams PitchRank has no current rank for?',
     answer:
-      'They stay on the sheet in their own section, marked for manual placement. PitchRank has no current rank for these teams, so nothing is guessed for them; you place them using recent results, prior division or club input.',
+      'They stay on the sheet in their own section, without a seed. PitchRank has no current rank for these teams, so nothing is guessed for them; you place them using recent results, prior division or club input.',
   },
   {
     question: 'How quickly will I hear back?',

@@ -1674,3 +1674,13 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `src/tournaments/seeding_run_store.py` `PackRecovery`; `tournament_intake.py` `_render_seeding_sheet`
 - **Why**: The recovery file is keyed by the run name, so renaming the run while a build runs files the finished build under the old name, and the renamed page never offers it. It is not lost: a named run is autosaved when its roster is imported, so the old name appears under "Open a saved run" and reopening it offers the build. Keying the file by roster fingerprint, or listing recovery-only folders in the run picker, would close it. Raised by the Codex review on #1221; the owner chose to log it on 2026-09-24.
 - **Noted**: 2026-09-24
+
+### Reword the Seeding metadata-conflict reason that still says "rebuild matchup tiers"
+
+- **ID**: IMP-278
+- **Status**: open
+- **Type**: direct
+- **Category**: readability
+- **Where**: `frontend/lib/seedingPredictions.ts` `metadata_conflict` reason; `src/tournaments/seeding_predictions.py` `seeding_predictor_sha256`
+- **Why**: A team whose PitchRank details conflict is sent to data review with "... Then rebuild matchup tiers. Your team match is saved.", naming a button the Seeding tab no longer has ("Build seeding sheets"). The file is hashed into the predictor identity, so editing it makes every saved run report "The predictor has been updated" and need a rebuild; the owner chose on 2026-09-24 to change it with the next real predictor update instead. `seedingPredictions.test.ts` asserts only "Your team match is saved", so the wording change needs no test edit.
+- **Noted**: 2026-09-24

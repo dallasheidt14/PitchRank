@@ -307,10 +307,7 @@ def analyze_pack(
     overrides: Mapping[int, dict[str, Any]],
 ) -> dict[tuple[str, str], CheatSheetAnalysis]:
     if not pack_matches(pack, rows, resolved, overrides):
-        raise ValueError(
-            "The roster or team matches changed. Rebuild seeding sheets; Rebuild matchup tiers are replaced "
-            "as part of that action before exporting."
-        )
+        raise ValueError("The roster or team matches changed. Build seeding sheets again before exporting.")
     try:
         policy = TierPolicy(**pack["policy"])
     except (TypeError, KeyError) as exc:

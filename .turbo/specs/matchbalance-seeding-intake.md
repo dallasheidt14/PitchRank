@@ -1,7 +1,7 @@
 # MatchBalance Seeding Intake — Design
 
 - **Date**: 2026-09-02
-- **Status**: draft, awaiting review
+- **Status**: superseded — the shipped workflow is documented in docs/matchbalance-seeding.md
 - **Mode**: seeding (upcoming tournaments). The backtest path is untouched.
 
 ## Problem
