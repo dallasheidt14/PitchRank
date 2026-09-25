@@ -84,6 +84,7 @@ execution_dir_for_segment() {
   target_re="git[[:space:]]+-C[[:space:]]+([^[:space:]]+)[[:space:]]+(-c[[:space:]]+[^[:space:]]+[[:space:]]+)*${verb}${end}"
   if [[ $segment =~ $target_re ]]; then
     target=$(shell_path "${BASH_REMATCH[1]}")
+    case "$target" in /*|[A-Za-z]:*) ;; *) target="$cwd/$target" ;; esac
   fi
   printf '%s\n' "$target"
 }
@@ -105,6 +106,16 @@ cd_re="${at_cmd}cd[[:space:]]+([^[:space:];&|)]+)"
 worktree_remove_re="${git_cmd}worktree[[:space:]]+remove[[:space:]]+([^;&|()]*)"
 clean_re="${git_cmd}clean[[:space:]]+([^;&|()]*)"
 
+# `cd` changes the parent shell only when it actually runs outside a pipeline or
+# subshell. The lightweight scanner below intentionally does not execute a shell
+# parser, so fail closed when control flow makes a later clean's cwd ambiguous.
+ambiguous_cd_scope=false
+if [[ $stripped =~ $cd_re ]]; then
+  if [[ $stripped =~ [\(\)\`] ]] || [[ $stripped == *"|"* ]] || [[ $stripped =~ \&\&[[:space:]]*cd[[:space:]] ]]; then
+    ambiguous_cd_scope=true
+  fi
+fi
+
 while IFS= read -r segment; do
   [ -n "$segment" ] || continue
   if [[ $segment =~ $cd_re ]]; then
@@ -125,7 +136,7 @@ while IFS= read -r segment; do
       modules="$remove_target/frontend/node_modules"
       if is_reparse_point "$modules"; then
         case "$(uname -s)" in
-          MINGW*|MSYS*|CYGWIN*) unlink_hint="cmd /c rmdir frontend\\node_modules" ;;
+          MINGW*|MSYS*|CYGWIN*) unlink_hint='cmd /c rmdir "frontend\node_modules"' ;;
           *) unlink_hint="unlink frontend/node_modules" ;;
         esac
         deny "BLOCKED: $modules is a junction or symlink. Run '$unlink_hint' inside that worktree first, then retry git worktree remove."
@@ -143,6 +154,9 @@ while IFS= read -r segment; do
       esac
     done
     if $cleans_ignored; then
+      if $ambiguous_cd_scope; then
+        deny "BLOCKED: git clean -x/-X follows an ambiguous cd scope. Split the commands so the checkout can be verified."
+      fi
       clean_cwd=$(execution_dir_for_segment "$segment" "$guard_cwd" clean)
       clean_root=$(git -C "$clean_cwd" rev-parse --show-toplevel 2>/dev/null)
       clean_root=$(shell_path "$clean_root")

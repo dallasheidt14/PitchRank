@@ -259,7 +259,7 @@ def test_git_guard_blocks_worktree_remove_when_node_modules_is_linked(tmp_path: 
 
         result = _bash(f'git worktree remove "{worktree.as_posix()}"', root)
         assert result.returncode == 2, result.stderr
-        expected_unlink = "cmd /c rmdir" if os.name == "nt" else "unlink"
+        expected_unlink = 'cmd /c rmdir "frontend\\node_modules"' if os.name == "nt" else "unlink frontend/node_modules"
         assert expected_unlink in result.stderr and "node_modules" in result.stderr
         relative = os.path.relpath(worktree, root).replace("\\", "/")
         routed = _bash(f'git -C "{root.as_posix()}" worktree remove "{relative}"', root)
@@ -292,6 +292,9 @@ def test_git_guard_allows_ignored_file_cleanup_in_linked_worktree(tmp_path: Path
         assert _bash(f'git -C "{worktree.as_posix()}" clean -fdx', root, cwd=root).returncode == 0
         routed_to_primary = _bash(f'git -C "{root.as_posix()}" clean -fdx', root, cwd=worktree)
         assert routed_to_primary.returncode == 2, routed_to_primary.stderr
+        relative_primary = os.path.relpath(root, worktree).replace("\\", "/")
+        relative_routed = _bash(f'git -C "{relative_primary}" clean -fdx', root, cwd=worktree)
+        assert relative_routed.returncode == 2, relative_routed.stderr
         followed_by_cd = _bash(f'git clean -fdx && cd "{worktree.as_posix()}"', root, cwd=root)
         assert followed_by_cd.returncode == 2, followed_by_cd.stderr
         second_clean = _bash(f'git -C "{worktree.as_posix()}" clean -fdx && git clean -fdx', root, cwd=root)
@@ -301,6 +304,12 @@ def test_git_guard_allows_ignored_file_cleanup_in_linked_worktree(tmp_path: Path
             root,
         )
         assert changed_back.returncode == 2, changed_back.stderr
+        subshell_cd = _bash(f'(cd "{worktree.as_posix()}"); git clean -fdx', root, cwd=root)
+        assert subshell_cd.returncode == 2, subshell_cd.stderr
+        conditional_cd = _bash(f'false && cd "{worktree.as_posix()}"; git clean -fdx', root, cwd=root)
+        assert conditional_cd.returncode == 2, conditional_cd.stderr
+        fallback_clean = _bash(f'cd "{worktree.as_posix()}" || git clean -fdx', root, cwd=root)
+        assert fallback_clean.returncode == 2, fallback_clean.stderr
     finally:
         _git(root, "worktree", "remove", "--force", str(worktree))
 
