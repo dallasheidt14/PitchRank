@@ -115,6 +115,7 @@ from src.tournaments.seeding_optimizer import (
 )
 from src.tournaments.seeding_pack import duplicate_identity_rows, snapshot_matches_roster, team_ids_by_row
 from src.tournaments.seeding_run_store import (
+    PackRecovery,
     RunNameTaken,
     RunSourceChanged,
     SeedingRun,
@@ -4891,8 +4892,10 @@ def _seeding_team_ids(parsed: ParsedRoster, resolved: Sequence[ResolvedTeam]) ->
 
 def _render_seeding_sheet(parsed: ParsedRoster, resolved: Sequence[ResolvedTeam], supabase_client: Any) -> None:
     """Review matchup tiers and generate the selected cohort PDF pack."""
+    name = _seeding_run_name()
     render_seeding_pack(
-        parsed, resolved, supabase_client, event_name=_seeding_run_name(), save=_autosave_seeding_run,
+        parsed, resolved, supabase_client, event_name=name, save=_autosave_seeding_run,
+        recovery=PackRecovery(name, default_seeding_base_dir()) if name else None,
     )
 
 

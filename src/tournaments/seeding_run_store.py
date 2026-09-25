@@ -31,7 +31,9 @@ from src.tournaments.storage._io import write_json
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "PACK_RECOVERY_FILENAME",
     "RUN_FILENAME",
+    "PackRecovery",
     "RunNameTaken",
     "RunSourceChanged",
     "SeedingRun",
@@ -45,6 +47,7 @@ __all__ = [
 ]
 
 RUN_FILENAME = "seeding_run.json"
+PACK_RECOVERY_FILENAME = "pack_recovery.json"
 
 _SEEDING_DIR_ENV = "MATCHBALANCE_SEEDING_DIR"
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -191,6 +194,14 @@ def _source_conflict(existing: Mapping[str, Any], run: SeedingRun) -> RunSourceC
     return None
 
 
+def _saved_payload(folder: Path) -> Any:
+    """The run file saved in ``folder``, or None when there is none that parses."""
+    try:
+        return json.loads((folder / RUN_FILENAME).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
 def save_run(run: SeedingRun, *, base_dir: Path | str | None = None, archive_previous: bool = True) -> Path:
     """Replace the latest save; archive revisions but not automatic progress checkpoints.
 
@@ -201,10 +212,7 @@ def save_run(run: SeedingRun, *, base_dir: Path | str | None = None, archive_pre
     root = Path(base_dir) if base_dir is not None else default_base_dir()
     target = root / slugify(run.name)
     path = target / RUN_FILENAME
-    try:
-        existing = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        existing = None
+    existing = _saved_payload(target)
     if isinstance(existing, dict):
         existing_name = str(existing.get("name") or "")
         if existing_name and existing_name != run.name:
@@ -239,6 +247,60 @@ def save_run(run: SeedingRun, *, base_dir: Path | str | None = None, archive_pre
             os.fsync(archive.fileno())
     write_json(path, payload, indent=1)
     return path
+
+
+@dataclass(frozen=True)
+class PackRecovery:
+    """A finished sheet build, kept on disk until it is saved, discarded or superseded.
+
+    Streamlit can abandon a script run at any session-state write once a click
+    has queued a rerun, so a build that finished during a click would otherwise
+    vanish. The file sits beside the run it belongs to and names that run.
+    """
+
+    name: str
+    base_dir: Path | str | None = None
+
+    @property
+    def path(self) -> Path:
+        root = Path(self.base_dir) if self.base_dir is not None else default_base_dir()
+        return root / slugify(self.name) / PACK_RECOVERY_FILENAME
+
+    def write(self, pack: dict[str, Any]) -> bool:
+        """Keep ``pack``, refusing a folder another run's name already owns."""
+        path = self.path
+        existing = _saved_payload(path.parent)
+        owner = str(existing.get("name") or "") if isinstance(existing, dict) else ""
+        if owner and owner != self.name:
+            logger.info("Kept no build recovery in %s: the run saved there is %r", path.parent, owner)
+            return False
+        try:
+            write_json(path, {
+                "name": self.name,
+                "saved_at": datetime.now(timezone.utc).isoformat(timespec="microseconds"),
+                "pack": pack,
+            }, indent=1)
+        except (OSError, ValueError, TypeError) as exc:
+            logger.warning("Could not write the seeding build recovery file: %s", exc)
+            return False
+        return True
+
+    def load(self) -> dict[str, Any] | None:
+        """The kept pack, or None when there is none for this run."""
+        try:
+            payload = json.loads(self.path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        if not isinstance(payload, dict) or payload.get("name") != self.name:
+            return None
+        pack = payload.get("pack")
+        return pack if isinstance(pack, dict) else None
+
+    def clear(self) -> None:
+        try:
+            self.path.unlink(missing_ok=True)
+        except OSError as exc:
+            logger.warning("Could not remove the seeding build recovery file: %s", exc)
 
 
 def load_run(slug: str, *, base_dir: Path | str | None = None) -> SeedingRun:
