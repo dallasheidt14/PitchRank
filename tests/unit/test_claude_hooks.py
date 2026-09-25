@@ -283,7 +283,7 @@ def test_git_guard_blocks_worktree_remove_when_node_modules_is_linked(tmp_path: 
         escaped_remove = _bash(f"git worktree remove {escaped_target}", root)
         assert escaped_remove.returncode == 2, escaped_remove.stderr
         assert "quoted literal paths" in escaped_remove.stderr
-        escaped_base = root.as_posix().replace(" ", "\\ ")
+        escaped_base = f"{root.as_posix()}\\ base"
         escaped_base_remove = _bash(f'git -C {escaped_base} worktree remove "{relative}"', root)
         assert escaped_base_remove.returncode == 2, escaped_base_remove.stderr
         assert "quoted literal paths" in escaped_base_remove.stderr
@@ -341,7 +341,7 @@ def test_git_guard_allows_ignored_file_cleanup_in_linked_worktree(tmp_path: Path
         unresolved_clean = _bash('git -C "missing-repository" clean -fdx', root, cwd=worktree)
         assert unresolved_clean.returncode == 2, unresolved_clean.stderr
         assert "could not be resolved" in unresolved_clean.stderr
-        escaped_base = root.as_posix().replace(" ", "\\ ")
+        escaped_base = f"{root.as_posix()}\\ base"
         escaped_clean = _bash(f"git -C {escaped_base} clean -fdx", root, cwd=worktree)
         assert escaped_clean.returncode == 2, escaped_clean.stderr
         assert "quoted literal paths" in escaped_clean.stderr
