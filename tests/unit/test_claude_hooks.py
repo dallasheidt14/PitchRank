@@ -332,6 +332,8 @@ def test_git_guard_allows_ignored_file_cleanup_in_linked_worktree(tmp_path: Path
         assert conditional_cd.returncode == 2, conditional_cd.stderr
         fallback_clean = _bash(f'cd "{worktree.as_posix()}" || git clean -fdx', root, cwd=root)
         assert fallback_clean.returncode == 2, fallback_clean.stderr
+        bare_cd = _bash("cd; git clean -fdx", root, cwd=worktree)
+        assert bare_cd.returncode == 2, bare_cd.stderr
         skipped_branch = _bash(f'if false; then cd "{worktree.as_posix()}"; fi; git clean -fdx', root, cwd=root)
         assert skipped_branch.returncode == 2, skipped_branch.stderr
         failed_cd = _bash(f'cd "{(tmp_path / "missing").as_posix()}"; git clean -fdx', root, cwd=root)

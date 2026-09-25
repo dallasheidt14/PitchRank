@@ -138,7 +138,7 @@ clean_re="${git_cmd}clean[[:space:]]+([^;&|()]*)"
 # than imitate a shell parser around a destructive clean, require the equivalent
 # unambiguous `git -C <path> clean ...` form whenever a command also contains cd.
 has_cd=false
-[[ $stripped =~ $cd_re ]] && has_cd=true
+[[ $stripped =~ ${at_cmd}cd${end} ]] && has_cd=true
 has_git_context_override=false
 if [[ $stripped =~ (^|[[:space:];&|])GIT_[A-Za-z0-9_]*= ]] || [[ $stripped =~ git[[:space:]].*(--git-dir|-c[[:space:]]|--config-env) ]]; then
   has_git_context_override=true
