@@ -3919,11 +3919,11 @@ def _park_event_roster(
     only when the operator asks and the tab holds less than it does. Naming a
     run and keeping it stays the operator's step.
     """
-    if keys == _BACKTEST_KEYS and on_stage:
-        on_stage("Saving recoverable capture")
     _write_recovery(roster, limit_groups, keys)
 
     if on_stage:
+        if keys == _BACKTEST_KEYS:
+            on_stage("Recoverable capture saved")
         on_stage("Matching database teams (read-only)")
     master_ids, resolve_warnings = resolve_master_ids(
         roster.teams,

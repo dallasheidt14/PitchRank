@@ -24,6 +24,14 @@ def test_heading_sets_cohort_for_following_rows():
     assert row.section_gender == "Male"
 
 
+def test_heading_wins_when_the_team_name_looks_like_a_different_birth_year():
+    parsed = parse_roster("Male U13\nBlack Lions\tBLACK LIONS 14/15 U13B SELECT\tTX")
+
+    assert len(parsed.rows) == 1
+    assert parsed.rows[0].section_age_group == "u13"
+    assert parsed.rows[0].section_gender == "Male"
+
+
 def test_second_heading_switches_cohort():
     parsed = parse_roster(
         "Male U14\nA Club\tA Team\tTX\nMale U13\nB Club\tB Team\tTX",
