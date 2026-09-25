@@ -46,9 +46,11 @@ import requests
 from bs4 import BeautifulSoup
 
 from config.settings import AGE_GROUPS
-from src.scrapers._age_normalization import normalize_age
+from src.tournaments.cohort_labels import AGE_RUN as _AGE_RUN
+from src.tournaments.cohort_labels import RUN_NUMBER as _RUN_NUMBER
+from src.tournaments.cohort_labels import ascii_dashes as _ascii_dashes
+from src.tournaments.cohort_labels import normalize_label, read_label
 from src.tournaments.gotsport_event_structure import ScrapedDivision, parse_division_structure
-from src.utils.team_utils import calculate_age_group_from_birth_year
 
 logger = logging.getLogger(__name__)
 
@@ -103,36 +105,6 @@ _KEPT_CONTROLS = frozenset({chr(9), chr(10)})
 # Zl/Zp are the line and paragraph separators: legal JSON under
 # ensure_ascii=False, and a break in every JavaScript consumer that reads it.
 _STRIPPED_CATEGORIES = frozenset({"Cc", "Cf", "Co", "Cs", "Zl", "Zp"})
-
-# One grammar reads the whole label. A run is an age expression with an optional
-# gender letter at either end: `BU12`, `U-12`, `U12B`, `12U`, `12UB`, `B2015`,
-# and any of those continued by `/` or `-` into further numbers (`U15/16`,
-# `17/19U`, `B2017/18`, `U13–14`). A single grammar is what keeps `17/19U`
-# from reading as one cohort: an age the pattern does not reach is an age the
-# multi-cohort check cannot count. Separators include the Unicode dashes,
-# because `U13–14` is a two-cohort label that `U13-14` already withholds.
-_AGE_RUN = re.compile(
-    r"\b(?P<lead>[BG])?"
-    r"(?P<body>(?:U-?)?[0-9]{1,4}(?:\s*[/\-‐-―]\s*(?:U-?)?[0-9]{1,4})*)"
-    r"(?P<tail_u>U)?(?P<tail>[BG])?\b",
-    re.IGNORECASE,
-)
-_RUN_NUMBER = re.compile(r"[0-9]{1,4}")
-_GENDER_WORD = re.compile(r"\b(male|female|boys?|girls?)\b", re.IGNORECASE)
-
-_EARLIEST_BIRTH_YEAR = 1990
-# Two-digit birth years are read as 2000s; every board sits well inside that.
-_COMPACT_YEAR_CENTURY = 2000
-
-_GENDER_WORDS = {
-    "male": "Male",
-    "boys": "Male",
-    "boy": "Male",
-    "female": "Female",
-    "girls": "Female",
-    "girl": "Female",
-}
-_GENDER_LETTERS = {"B": "Male", "G": "Female"}
 
 _DIVISION_HEADING = "Division"
 _RANKINGS_ANCHOR_TEXT = "View Rankings"
@@ -319,18 +291,13 @@ def resolve_cohort(label: str) -> tuple[str, str]:
     both (``Boys/Girls U10``); ``seeding_optimizer.normalize_gender_label("")``
     answers ``"Male"``, so a guess is exactly as harmful as the empty string it
     would replace.
-
-    U-ages beat birth years when a label carries both, because
-    ``U12G (AUG 1, 2014 - JULY 31, 2015)`` names its own cohort and the years
-    are the band it spans.
     """
-    runs = [_read_run(match) for match in _AGE_RUN.finditer(_ascii_dashes(label))]
-    named = _named_cohort(label)
-    return (named if named in AGE_GROUPS else ""), _gender_of(label, runs)
+    reading = read_label(label)
+    return (reading.cohort if reading.cohort in AGE_GROUPS else ""), reading.gender
 
 
 def names_cohort_outside(label: str, wanted: Collection[str]) -> bool:
-    """Does this label plainly name one cohort, and is that cohort unwanted?
+    """Does this label name cohorts, every one of them unwanted?
 
     ``resolve_cohort`` withholds a cohort outside the boards, which makes
     ``U9 Boys Gold`` and a label nobody can parse arrive as the same empty
@@ -338,128 +305,11 @@ def names_cohort_outside(label: str, wanted: Collection[str]) -> bool:
     the first is a division known to be unwanted, the second is one that cannot
     be judged and must therefore be kept.
 
-    False whenever the label names nothing, or names more than one cohort. Both
-    mean the same thing here — no single claim to act on — and a division is
-    only ever dropped on a claim this module would make.
+    ``U8/U9`` and the U9 band ``B2017/18`` are unwanted too: every age they name
+    is off the boards. A label naming even one wanted age (``U9/U10``) is kept.
     """
-    named = _named_cohort(label)
-    return bool(named) and named not in wanted
-
-
-def _named_cohort(label: str) -> str:
-    """The one cohort this label names, in whatever form names it.
-
-    A boarded cohort comes back as itself. An age the boards exclude comes back
-    as the label's own literal (``u20``) and an unboarded birth year as its year
-    (``by2005``), which are deliberately not cohort ids: nothing may match them
-    against a board, and their only job is to be distinguishable from the empty
-    string an unreadable label yields.
-    """
-    runs = [_read_run(match) for match in _AGE_RUN.finditer(_ascii_dashes(label))]
-    cohorts = _cohorts_of(runs, "u_age") or _cohorts_of(runs, "birth_year")
-    return cohorts.pop() if len(cohorts) == 1 else ""
-
-
-@dataclass(frozen=True)
-class _AgeRun:
-    kind: str
-    cohorts: frozenset[str]
-    genders: frozenset[str]
-
-
-def _read_run(match: re.Match) -> _AgeRun:
-    """Turn one age expression into the cohorts and genders it names."""
-    body = match.group("body")
-    numbers = [int(number) for number in _RUN_NUMBER.findall(body)]
-    letters = {
-        letter.upper() for letter in (match.group("lead"), match.group("tail")) if letter
-    }
-    genders = frozenset(_GENDER_LETTERS[letter] for letter in letters)
-
-    has_u = bool(match.group("tail_u")) or "u" in body.lower()
-    if numbers and numbers[0] >= _EARLIEST_BIRTH_YEAR:
-        return _AgeRun("birth_year", frozenset(_birth_year_cohorts(numbers)), genders)
-    if not has_u and letters and numbers and all(number < 100 for number in numbers):
-        # `14B` names a birth year, not an age: 2014 is U13, not U14. The `U`
-        # is the only thing separating the two forms, so this branch sits after
-        # the `has_u` test below can no longer claim the label. A gender letter
-        # is required, which keeps `Flight 14` from becoming a cohort, and a
-        # year off the boards resolves to "" like any other.
-        return _AgeRun(
-            "birth_year",
-            frozenset(_birth_year_cohorts([_COMPACT_YEAR_CENTURY + n for n in numbers])),
-            genders,
-        )
-    if has_u:
-        # `normalize_age` owns the U18->U19 merge and the boardable band, and
-        # answers None outside it. An age it will not board keeps the label's own
-        # literal — `u20`, `u5` — rather than collapsing to "". Both forms stay
-        # out of `AGE_GROUPS`, so `resolve_cohort` still withholds them and a
-        # label naming one boardable age and one unboardable one (`U18/U19/20`)
-        # still reads as two cohorts. What the literal buys is a caller being
-        # able to tell "an age we do not board" from "an age nobody can read".
-        return _AgeRun(
-            "u_age", frozenset(normalize_age(number) or f"u{number}" for number in numbers), genders
-        )
-    return _AgeRun("none", frozenset(), genders)
-
-
-def _birth_year_cohorts(numbers: list[int]) -> set[str]:
-    """Map each year to its board, expanding a two-digit continuation (``2017/18``).
-
-    ``calculate_age_group_from_birth_year`` answers ``None`` for a year no board
-    holds, which is every year outside a fourteen-wide window that slides each
-    Aug 1 — so a season or graduation year in a division name (``2026 Spring
-    U13``) reaches this. Keeping that ``None`` as ``""`` matches the ``normalize_age``
-    line above and withholds the cohort, where dereferencing it would abort the
-    whole walk after every page had been paid for.
-    """
-    century = (numbers[0] // 100) * 100
-    cohorts = set()
-    for number in numbers:
-        year = number if number >= _EARLIEST_BIRTH_YEAR else century + number
-        cohorts.add(calculate_age_group_from_birth_year(year) or f"by{year}")
-    return {cohort.lower() for cohort in cohorts}
-
-
-def _ascii_dashes(label: str) -> str:
-    """Fold every dash to ASCII so one grammar reads them all.
-
-    Enumerating dashes is how `U13–14` came to resolve as a single cohort while
-    `U13-14` withheld: a dash the pattern does not reach leaves the second age
-    unattached, and an unattached age is invisible to the multi-cohort check.
-    Unicode's own dash category answers this by construction where a list
-    cannot.
-    """
-    return "".join("-" if _is_dash(ch) else ch for ch in str(label or ""))
-
-
-def _is_dash(ch: str) -> bool:
-    """Is this character a dash by Unicode's own account?
-
-    Category ``Pd`` misses three a GotSport label can carry — MINUS SIGN
-    (``Sm``, which macOS substitutes for a typed hyphen), SOFT HYPHEN (``Cf``)
-    and HYPHEN BULLET (``Po``) — so the character's name decides instead. A
-    list of code points is what let ``U13-14`` with an en dash read as one
-    cohort while the ASCII form withheld.
-    """
-    name = unicodedata.name(ch, "")
-    return any(word in name for word in ("HYPHEN", "DASH", "MINUS"))
-
-
-def _cohorts_of(runs: list[_AgeRun], kind: str) -> set[str]:
-    return {cohort for run in runs if run.kind == kind for cohort in run.cohorts}
-
-
-def _gender_of(label: str, runs: list[_AgeRun]) -> str:
-    """Every gender the label names, or empty when it names none or several."""
-    named = _genders_named(label, runs)
-    return named.pop() if len(named) == 1 else ""
-
-
-def _genders_named(label: str, runs: list[_AgeRun]) -> set[str]:
-    named = {_GENDER_WORDS[word.group(1).lower()] for word in _GENDER_WORD.finditer(label or "")}
-    return named | {gender for run in runs for gender in run.genders}
+    cohorts = read_label(label).cohorts
+    return bool(cohorts) and all(cohort not in wanted for cohort in cohorts)
 
 
 def printable_text(text: str) -> str:
@@ -553,16 +403,18 @@ def _header_division(soup) -> str:
 
 
 def names_no_gender(label: str) -> bool:
-    """Did this label decline to name a gender, as opposed to naming several?
+    """Should the page header be asked for this label's gender?
 
     ``resolve_cohort`` answers ``""`` for both, and to a caller looking for a
     second opinion they are opposites. ``U14 Gold`` says nothing and leaves the
     page's header free to say it; ``Boys/Girls U10`` has already said the
     division holds both, and letting a header overrule that files every girl in
     it as a boy.
+
+    A letter standing after the age (``U12 B``) is not a firm answer either: it
+    can be a bracket, so the header is asked and wins when it names one.
     """
-    runs = [_read_run(match) for match in _AGE_RUN.finditer(_ascii_dashes(label))]
-    return not _genders_named(label, runs)
+    return not read_label(label).gender_is_firm
 
 
 def parse_header_gender(html: str) -> str:
@@ -584,6 +436,11 @@ def parse_header_gender(html: str) -> str:
     still resolves to nothing rather than to a guess.
     """
     return resolve_cohort(_header_division(BeautifulSoup(html or "", "html.parser")))[1]
+
+
+def _header_genders(html: str) -> frozenset[str]:
+    """Every gender the page header names, so "both" and "none" stay apart."""
+    return read_label(_header_division(BeautifulSoup(html or "", "html.parser"))).genders
 
 
 def parse_group_teams(html: str) -> tuple[tuple[str, str], ...]:
@@ -1004,8 +861,7 @@ def published_u_ages(label: str, *, expand_ranges: bool = False) -> set[int]:
     ages = set()
     # Tournament labels commonly prefix the format with ``5 Team`` or
     # ``7 Teams``. That number describes field size, not a second U-age.
-    published = _TEAM_COUNT.sub("", _ascii_dashes(label))
-    published = re.sub(r"\bu\s+(?=[0-9])", "U", published, flags=re.I)
+    published = _TEAM_COUNT.sub("", normalize_label(label))
     for match in _AGE_RUN.finditer(published):
         if match.group("tail_u") or "u" in match.group("body").lower():
             ages = ages | {int(number) for number in _RUN_NUMBER.findall(match.group("body"))}
@@ -1050,24 +906,13 @@ def _published_age(division, season: int | None) -> str:
     literal_u_age = _published_u_age(division.label)
     if literal_u_age:
         return literal_u_age
-    matches = list(_AGE_RUN.finditer(_ascii_dashes(division.label)))
-    if any(match.group("tail_u") or "u" in match.group("body").lower() for match in matches):
-        return ""
     if season is None:
         return ""
-    years = set()
-    for match in matches:
-        numbers = [int(number) for number in _RUN_NUMBER.findall(match.group("body"))]
-        if len(numbers) != 1:
-            return ""
-        number = numbers[0]
-        if number >= _EARLIEST_BIRTH_YEAR:
-            years.add(number)
-        elif match.group("lead") or match.group("tail"):
-            years.add(_COMPACT_YEAR_CENTURY + number)
-    if len(years) != 1:
+    reading = read_label(division.label, season=season)
+    if reading.has_u_age or len(reading.birth_years) != 1:
         return ""
-    age = season - years.pop() + 1
+    # The event season's literal age, boarded or not.
+    age = season - next(iter(reading.birth_years)) + 1
     return f"u{age}" if 0 < age < 100 else ""
 
 
@@ -1079,9 +924,8 @@ def _historical_lookup_age(label: str, event_season: int | None) -> str:
     the 2026 eligibility change makes shifting an earlier U-age a guess.
     Name matches are still operator review in completed-event mode.
     """
-    lookup_label = _TEAM_COUNT.sub("", _ascii_dashes(label))
-    runs = [_read_run(match) for match in _AGE_RUN.finditer(lookup_label)]
-    if _cohorts_of(runs, "u_age") and event_season != _soccer_season(date.today()):
+    lookup_label = _TEAM_COUNT.sub("", label)
+    if read_label(lookup_label).has_u_age and event_season != _soccer_season(date.today()):
         return ""
     return resolve_cohort(lookup_label)[0]
 
@@ -1272,13 +1116,12 @@ def scrape_event_roster(
     reports ``is_complete`` so a truncated or blocked walk cannot be mistaken
     for a whole one.
 
-    ``wanted_cohorts`` drops a division whose label plainly names a cohort
-    outside it, before any of its team pages are fetched. Team pages are most of
-    an event's bill, so an event carrying age groups nobody ranks is much cheaper
-    to walk with this set. The division's own page is still paid for, because its
-    label is the thing being read. A label naming no single cohort is always
-    kept: an unreadable label is not evidence a division is unwanted, and
-    guessing costs teams.
+    ``wanted_cohorts`` drops a division whose every named cohort is outside it,
+    before any of its team pages are fetched. Team pages are most of an event's
+    bill, so an event carrying age groups nobody ranks is much cheaper to walk with
+    this set. The division's own page is still paid for, because its label is the
+    thing being read. A label naming no cohort is always kept: an unreadable label
+    is not evidence a division is unwanted, and guessing costs teams.
 
     ID-less accepted Team rows are retained for name matching even before any
     fixtures or standings statistics exist.
@@ -1674,7 +1517,10 @@ def _read_divisions(
         published_label = _header_division(BeautifulSoup(group_html, "html.parser")) if completed_event else ""
         published_age = _effective_published_u_age(published_label or label) if completed_event else ""
         if names_no_gender(label):
-            gender = parse_header_gender(group_html)
+            header_genders = _header_genders(group_html)
+            if header_genders:
+                # A header naming both genders clears a standing letter's guess.
+                gender = next(iter(header_genders)) if len(header_genders) == 1 else ""
         named = label or f"group {group_id}"
         teams = parse_group_teams(group_html)
         source_teams = _seeding_source_rows(group_html, group_id, teams) if not completed_event else ()
@@ -1769,9 +1615,9 @@ def _wanted_divisions(
 ) -> tuple[list[_Division], list[_Division]]:
     """Split the divisions into the ones worth paying for and the ones that are not.
 
-    Only a division whose label names one cohort can be dropped. A label naming
-    none, or naming two, is kept: the caller cannot act on a cohort this module
-    would not assert, and dropping on a guess costs real teams.
+    Only a division whose every named cohort is unwanted is dropped (``U9``,
+    ``U8/U9``, ``B2017/18``). A label naming no cohort, or naming one we rank, is
+    kept: dropping on a guess costs real teams.
     """
     if wanted_cohorts is None:
         return divisions, []

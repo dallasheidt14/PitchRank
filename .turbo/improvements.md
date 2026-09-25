@@ -1644,3 +1644,23 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `src/etl/enhanced_pipeline.py` `EnhancedETLPipeline._propagate_exclusions_to_new_games`
 - **Why**: It builds one `.or_()` filter naming every master team on a date (`home_team_master_id.eq.X,away_team_master_id.eq.X` per team) and sends it in a single request. `_check_duplicates_by_master_ids` batches the same query with `self._chunks(..., 50)`; this second copy does not. A date with enough teams can exceed the URI limit, and the method's broad `except` then logs a warning and skips the date, so a new copy of an already-excluded game is inserted live (failure mode reported by review, not reproduced). Apply the same batching, with a test whose two teams fall in different batches.
 - **Noted**: 2026-09-24
+
+### Move the GotSport scraper's division-gender reader onto the shared label reader
+
+- **ID**: IMP-275
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `src/scrapers/gotsport.py` `_parse_division_gender`; `src/tournaments/cohort_labels.py` `read_label`
+- **Why**: The seeding paste parser and event walker read labels through `read_label`, but the scraper feeding the scheduled imports keeps its own gender grammar, which ignores a gender letter on a birth year or band (`B2013`, `G2015/2016`). The owner kept it out of the seeding fix on 2026-09-24 because changing it moves how scraped divisions are gendered, and with that the rankings. Measure the before and after against real scraped divisions before switching.
+- **Noted**: 2026-09-24
+
+### Pin the walker's birth-year tests to a season instead of the wall clock
+
+- **ID**: IMP-276
+- **Status**: open
+- **Type**: direct
+- **Category**: testing
+- **Where**: `tests/unit/test_gotsport_event_roster.py` `test_completed_birth_year_uses_the_event_date_for_published_age`, `test_reads_a_birth_year_label_onto_its_board`, `test_a_boardable_birth_year_still_resolves`, `test_names_a_cohort_the_boards_exclude`
+- **Why**: It asserts the current-identity cohort of a `B2014` team as `u13`, which is true only in the 2026-27 season. The age comes from `resolve_cohort`, which reads the live season, so the test goes red on 2027-08-01 with no code change. Pin the season with a `team_utils._soccer_season_year` monkeypatch, as the label tests beside it do. The same wall-clock dependence breaks `TestResolveCohort.test_reads_a_birth_year_label_onto_its_board` and `test_a_boardable_birth_year_still_resolves` (both `G2007 Gold`, which ages out of u19), and the `B2018 Silver` case in `TestNamesCohortOutside.test_names_a_cohort_the_boards_exclude` (which ages onto the u10 board).
+- **Noted**: 2026-09-24

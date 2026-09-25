@@ -303,8 +303,6 @@ class TestResolveCohort:
             "U18/U19/20",
             "17/19U BOYS GOLD DIVISION",
             "13/14U Girls",
-            "B2017/18",
-            "G2015/2016",
         ],
     )
     def test_withholds_a_cohort_when_the_label_names_more_than_one(self, label):
@@ -320,6 +318,51 @@ class TestResolveCohort:
     @pytest.mark.parametrize("label", ["Boys/Girls U10", "U14 Girls and Boys", "BU10/GU10"])
     def test_withholds_gender_when_the_label_names_both(self, label):
         assert resolve_cohort(label)[1] == ""
+
+
+class TestResolveCohortBandsAndGenderLetters:
+    """Bands, gender letters and sub-board labels, pinned at the 2026-27 season."""
+
+    @pytest.fixture(autouse=True)
+    def _season_2026(self, monkeypatch):
+        from src.utils import team_utils
+
+        monkeypatch.setattr(team_utils, "_soccer_season_year", lambda now=None: 2026)
+
+    @pytest.mark.parametrize(
+        ("label", "expected"),
+        [
+            ("B2013/2014", ("u13", "Male")),
+            ("B13/14", ("u13", "Male")),
+            ("2014/2015 Boys", ("u12", "Male")),
+            ("2014-2015 Girls", ("u12", "Female")),
+            ("G2015/2016", ("u11", "Female")),
+            ("U13 B D1", ("u13", "Male")),
+            ("U13 G", ("u13", "Female")),
+            ("13U B Gold", ("u13", "Male")),
+            ("U14M", ("u14", "Male")),
+            ("U12F", ("u12", "Female")),
+            ("U 15 Boys", ("u15", "Male")),
+            ("U13 Gold B2", ("u13", "")),
+        ],
+    )
+    def test_reads_bands_and_gender_letters(self, label, expected):
+        assert resolve_cohort(label) == expected
+
+    def test_a_u9_band_is_named_and_unwanted(self):
+        assert resolve_cohort("B2017/18") == ("", "Male")
+        assert names_cohort_outside("B2017/18", BOARDED)
+
+    @pytest.mark.parametrize("label", ["U8/U9", "U8/U9 Boys", "B2017/2018", "GU6-GU7"])
+    def test_a_label_naming_only_unboarded_ages_is_unwanted(self, label):
+        assert names_cohort_outside(label, BOARDED)
+
+    @pytest.mark.parametrize("label", ["U9/U10", "U13-U19", "U18/U19/20", "2025-2026 Spring Gold", "Boys 2025-2026"])
+    def test_a_label_naming_any_boarded_age_is_kept(self, label):
+        assert not names_cohort_outside(label, BOARDED)
+
+    def test_a_bracket_number_does_not_name_a_gender(self):
+        assert names_no_gender("U13 Gold B2")
 
 
 class TestResolveCohortAgainstRealFixtures:
@@ -1827,6 +1870,19 @@ class TestDivisionGenderFallsBackToTheHeader:
             ("u14", "Male")
         ]
 
+    def test_the_header_wins_over_a_letter_standing_after_the_age(self):
+        """``U12 B`` may be a bracket; the page header saying Girls settles it."""
+        assert self._walk(self._page("U12 B", "Female U12 - U12 B")) == [("u12", "Female")]
+
+    def test_a_header_naming_both_genders_overrules_a_standing_letter(self):
+        assert self._walk(self._page("U12 B", "Coed U12 - U12 B")) == [("u12", "")]
+
+    def test_two_gender_letters_are_not_overruled_by_the_header(self):
+        assert self._walk(self._page("U12 B/G", "Boys U12")) == [("u12", "")]
+
+    def test_a_standing_letter_holds_when_the_header_names_no_gender(self):
+        assert self._walk(self._page("U12 B", "Gold Bracket")) == [("u12", "Male")]
+
     def test_a_label_naming_both_genders_is_not_overruled_by_the_header(self):
         assert self._walk(self._page("Boys/Girls U10", "Male U10 - Gold")) == [("u10", "")]
 
@@ -1963,7 +2019,37 @@ class TestNamesCohortOutside:
         assert names_cohort_outside(label, BOARDED) is False
 
 
+def _sub_board_bands_first_event():
+    """A U9 band and a combined U8/U9 division precede two divisions inside the ranked ages."""
+    return {
+        "/org_event/events/52975": _landing_html(["7", "8", "10", "11", "12"]),
+        "schedules?group=7": _group_html("B2017/2018 Boys", [("7", "Band FC")]),
+        "schedules?group=8": _group_html("U8/U9 Girls", [("8", "Combined FC")]),
+        "schedules?group=10": _group_html("U10 Boys Gold", [("10", "U10 FC")]),
+        "schedules?group=11": _group_html("U11 Girls Silver", [("11", "U11 FC")]),
+        "schedules?group=12": _group_html("U12 Boys Gold", [("12", "U12 FC")]),
+        "schedules?team=7": _team_html("700"),
+        "schedules?team=8": _team_html("800"),
+        "schedules?team=10": _team_html("1000"),
+        "schedules?team=11": _team_html("1100"),
+        "schedules?team=12": _team_html("1200"),
+    }
+
+
 class TestCohortFilter:
+    def test_a_probe_does_not_count_or_buy_sub_board_bands(self, monkeypatch):
+        from src.utils import team_utils
+
+        monkeypatch.setattr(team_utils, "_soccer_season_year", lambda now=None: 2026)
+        fetch = _fetch_for(_sub_board_bands_first_event())
+
+        roster = scrape_event_roster("52975", fetch=fetch, limit_groups=2, wanted_cohorts=BOARDED)
+
+        assert [team.team_name for team in roster.teams] == ["U10 FC", "U11 FC"]
+        assert roster.divisions_walked == 4
+        assert roster.divisions_skipped == 2
+        assert sorted(url.split("team=")[1] for url in fetch.calls if "team=" in url) == ["10", "11"]
+
     def test_a_limited_probe_finds_two_ranked_age_divisions_after_younger_ones(self):
         fetch = _fetch_for(_young_first_event())
 
@@ -2392,6 +2478,28 @@ def test_completed_birth_year_uses_the_event_date_for_published_age():
     assert roster.divisions[0].age_group == "u12"
     assert roster.teams[0].published_age_group == "u12"
     assert roster.teams[0].age_group == "u13"
+
+
+@pytest.mark.parametrize(
+    ("label", "published"),
+    [
+        ("B2013/2014 Boys", "u12"),
+        ("Boys 2013 F1", "u13"),
+        ("G2013 F2", "u13"),
+        ("Under 15 Boys", "u15"),
+        ("Under 15 Boys M2", "u15"),
+        ("Boys M1 Gold", ""),
+        ("Boys 2005", "u21"),
+        ("B2012 B2013", ""),
+        ("U100 B2013", ""),
+        ("B2030", ""),
+    ],
+)
+def test_completed_labels_keep_their_tournament_age(label, published):
+    """The event ran in the 2025 season, so the band ``B2013/2014`` was U12 there."""
+    roster = scrape_event_roster("52975", fetch=_fetch_for(_completed_pages(label=label)), completed_event=True)
+
+    assert roster.divisions[0].published_age_group == published
 
 
 def test_completed_birth_year_without_a_date_does_not_invent_the_tournament_age():
