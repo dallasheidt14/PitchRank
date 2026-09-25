@@ -279,6 +279,18 @@ def test_git_guard_blocks_worktree_remove_when_node_modules_is_linked(tmp_path: 
         expanded_base = _bash(f'BASE="{root.as_posix()}"; git -C "$BASE" worktree remove "{relative}"', root)
         assert expanded_base.returncode == 2, expanded_base.stderr
         assert "literal git -C path" in expanded_base.stderr
+        escaped_target = worktree.as_posix().replace(" ", "\\ ")
+        escaped_remove = _bash(f"git worktree remove {escaped_target}", root)
+        assert escaped_remove.returncode == 2, escaped_remove.stderr
+        assert "quoted literal paths" in escaped_remove.stderr
+        escaped_base = root.as_posix().replace(" ", "\\ ")
+        escaped_base_remove = _bash(f'git -C {escaped_base} worktree remove "{relative}"', root)
+        assert escaped_base_remove.returncode == 2, escaped_base_remove.stderr
+        assert "quoted literal paths" in escaped_base_remove.stderr
+        for env_prefix in ("env --", "env -i"):
+            wrapped_remove = _bash(f'{env_prefix} git worktree remove "{worktree.as_posix()}"', root)
+            assert wrapped_remove.returncode == 2, wrapped_remove.stderr
+            assert "wrapped in env" in wrapped_remove.stderr
         assert sentinel.read_text() == "shared dependency\n"
     finally:
         _unlink_directory(modules)
@@ -329,6 +341,14 @@ def test_git_guard_allows_ignored_file_cleanup_in_linked_worktree(tmp_path: Path
         unresolved_clean = _bash('git -C "missing-repository" clean -fdx', root, cwd=worktree)
         assert unresolved_clean.returncode == 2, unresolved_clean.stderr
         assert "could not be resolved" in unresolved_clean.stderr
+        escaped_base = root.as_posix().replace(" ", "\\ ")
+        escaped_clean = _bash(f"git -C {escaped_base} clean -fdx", root, cwd=worktree)
+        assert escaped_clean.returncode == 2, escaped_clean.stderr
+        assert "quoted literal paths" in escaped_clean.stderr
+        for env_prefix in ("env --", "env -i"):
+            wrapped_clean = _bash(f"{env_prefix} git clean -fdx", root, cwd=root)
+            assert wrapped_clean.returncode == 2, wrapped_clean.stderr
+            assert "wrapped in env" in wrapped_clean.stderr
         followed_by_cd = _bash(f'git clean -fdx && cd "{worktree.as_posix()}"', root, cwd=root)
         assert followed_by_cd.returncode == 2, followed_by_cd.stderr
         second_clean = _bash(f'git -C "{worktree.as_posix()}" clean -fdx && git clean -fdx', root, cwd=root)

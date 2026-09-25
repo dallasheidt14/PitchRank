@@ -139,6 +139,15 @@ guard_cwd=$(shell_path "$guard_cwd")
 cd_re="${at_cmd}cd[[:space:]]+([^[:space:];&|)]+)"
 worktree_remove_re="${git_cmd}worktree[[:space:]]+remove[[:space:]]+([^;&|()]*)"
 clean_re="${git_cmd}clean[[:space:]]+([^;&|()]*)"
+env_scan=${stripped//$'\001'/ }
+env_guarded_re="${at_cmd}env[[:space:]]+([^;&|()]*)git[[:space:]]+${git_opts}(clean|worktree[[:space:]]+remove)${end}"
+if [[ $env_scan =~ $env_guarded_re ]]; then
+  deny "BLOCKED: guarded git clean and git worktree remove commands cannot be wrapped in env options. Run Git directly with literal paths."
+fi
+if [[ $stripped =~ \\[[:space:]] ]] &&
+  { [[ $stripped == *git*clean* ]] || [[ $stripped == *git*worktree*remove* ]]; }; then
+  deny "BLOCKED: guarded Git commands require quoted literal paths; backslash-escaped paths cannot be inspected safely."
+fi
 
 # Shell control flow decides whether `cd` runs and whether it persists. Rather
 # than imitate a shell parser around a destructive clean, require the equivalent
@@ -160,6 +169,9 @@ while IFS= read -r segment; do
 
   if [[ $segment =~ $worktree_remove_re ]]; then
     remove_args=${BASH_REMATCH[${#BASH_REMATCH[@]}-1]}
+    if [[ $segment =~ \\[[:space:]] ]]; then
+      deny "BLOCKED: git worktree remove requires quoted literal paths; backslash-escaped paths cannot be inspected safely."
+    fi
     remove_target=
     for arg in $remove_args; do
       case "$arg" in --|-*) ;; *) remove_target=$(shell_path "$arg"); break ;; esac
@@ -202,6 +214,9 @@ while IFS= read -r segment; do
       esac
     done
     if $cleans_ignored; then
+      if [[ $segment =~ \\[[:space:]] ]]; then
+        deny "BLOCKED: git clean -x/-X requires quoted literal paths; backslash-escaped paths cannot be inspected safely."
+      fi
       if $has_cd; then
         deny "BLOCKED: git clean -x/-X cannot be combined with cd because shell control flow can hide the checkout. Run it separately or use git -C <path> clean."
       fi
