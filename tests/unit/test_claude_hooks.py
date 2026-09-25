@@ -295,6 +295,16 @@ def test_git_guard_allows_ignored_file_cleanup_in_linked_worktree(tmp_path: Path
         relative_primary = os.path.relpath(root, worktree).replace("\\", "/")
         relative_routed = _bash(f'git -C "{relative_primary}" clean -fdx', root, cwd=worktree)
         assert relative_routed.returncode == 2, relative_routed.stderr
+        repeated_routing = _bash(f'git -C . -C "{relative_primary}" clean -fdx', root, cwd=worktree)
+        assert repeated_routing.returncode == 2, repeated_routing.stderr
+        work_tree_override = _bash(
+            f'git -C "{worktree.as_posix()}" --work-tree="{root.as_posix()}" clean -fdx', root, cwd=worktree
+        )
+        assert work_tree_override.returncode == 2, work_tree_override.stderr
+        split_work_tree_override = _bash(
+            f'git -C "{worktree.as_posix()}" --work-tree "{root.as_posix()}" clean -fdx', root, cwd=worktree
+        )
+        assert split_work_tree_override.returncode == 2, split_work_tree_override.stderr
         followed_by_cd = _bash(f'git clean -fdx && cd "{worktree.as_posix()}"', root, cwd=root)
         assert followed_by_cd.returncode == 2, followed_by_cd.stderr
         second_clean = _bash(f'git -C "{worktree.as_posix()}" clean -fdx && git clean -fdx', root, cwd=root)
@@ -310,6 +320,10 @@ def test_git_guard_allows_ignored_file_cleanup_in_linked_worktree(tmp_path: Path
         assert conditional_cd.returncode == 2, conditional_cd.stderr
         fallback_clean = _bash(f'cd "{worktree.as_posix()}" || git clean -fdx', root, cwd=root)
         assert fallback_clean.returncode == 2, fallback_clean.stderr
+        skipped_branch = _bash(f'if false; then cd "{worktree.as_posix()}"; fi; git clean -fdx', root, cwd=root)
+        assert skipped_branch.returncode == 2, skipped_branch.stderr
+        failed_cd = _bash(f'cd "{(tmp_path / "missing").as_posix()}"; git clean -fdx', root, cwd=root)
+        assert failed_cd.returncode == 2, failed_cd.stderr
     finally:
         _git(root, "worktree", "remove", "--force", str(worktree))
 

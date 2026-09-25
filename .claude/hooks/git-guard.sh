@@ -62,7 +62,7 @@ assign='([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*'
 at_cmd="((^|[;&|(\`{${nl}])[[:space:]]*${assign}|(^|[[:space:]])${wrapper}[[:space:]]+${assign})"
 end='([[:space:];&|)]|$)'
 end_or_eq='([[:space:];&|)=]|$)'
-git_opts='((-[Cc][[:space:]]+[^[:space:]]+|--[a-z-]+(=[^[:space:]]+)?)[[:space:]]+)*'
+git_opts='((-[Cc][[:space:]]+[^[:space:]]+|--(work-tree|git-dir)[[:space:]]+[^[:space:]]+|--[a-z-]+(=[^[:space:]]+)?)[[:space:]]+)*'
 git_cmd="${at_cmd}git[[:space:]]+${git_opts}"
 push_args="${git_cmd}push([[:space:]]+[^[:space:];&|()]+)*[[:space:]]+"
 
@@ -78,15 +78,43 @@ shell_path() {
 }
 
 execution_dir_for_segment() {
-  local segment=$1 cwd=$2 verb=$3
-  local target target_re
-  target=$cwd
-  target_re="git[[:space:]]+-C[[:space:]]+([^[:space:]]+)[[:space:]]+(-c[[:space:]]+[^[:space:]]+[[:space:]]+)*${verb}${end}"
-  if [[ $segment =~ $target_re ]]; then
-    target=$(shell_path "${BASH_REMATCH[1]}")
-    case "$target" in /*|[A-Za-z]:*) ;; *) target="$cwd/$target" ;; esac
+  local segment=$1 target=$2 honor_work_tree=$3
+  local i token value work_tree= seen_git=false
+  local -a tokens
+  read -r -a tokens <<< "$segment"
+  for ((i = 0; i < ${#tokens[@]}; i++)); do
+    token=${tokens[i]//$'\001'/ }
+    if ! $seen_git; then
+      [ "$token" = git ] && seen_git=true
+      continue
+    fi
+    case "$token" in
+      -C)
+        ((i++))
+        value=$(shell_path "${tokens[i]:-}")
+        case "$value" in /*|[A-Za-z]:*) ;; *) value="$target/$value" ;; esac
+        target=$value
+        ;;
+      -c) ((i++)) ;;
+      --work-tree)
+        ((i++))
+        value=$(shell_path "${tokens[i]:-}")
+        case "$value" in /*|[A-Za-z]:*) ;; *) value="$target/$value" ;; esac
+        work_tree=$value
+        ;;
+      --work-tree=*)
+        value=$(shell_path "${token#--work-tree=}")
+        case "$value" in /*|[A-Za-z]:*) ;; *) value="$target/$value" ;; esac
+        work_tree=$value
+        ;;
+      clean|worktree) break ;;
+    esac
+  done
+  if $honor_work_tree && [ -n "$work_tree" ]; then
+    printf '%s\n' "$work_tree"
+  else
+    printf '%s\n' "$target"
   fi
-  printf '%s\n' "$target"
 }
 
 is_reparse_point() {
@@ -106,15 +134,11 @@ cd_re="${at_cmd}cd[[:space:]]+([^[:space:];&|)]+)"
 worktree_remove_re="${git_cmd}worktree[[:space:]]+remove[[:space:]]+([^;&|()]*)"
 clean_re="${git_cmd}clean[[:space:]]+([^;&|()]*)"
 
-# `cd` changes the parent shell only when it actually runs outside a pipeline or
-# subshell. The lightweight scanner below intentionally does not execute a shell
-# parser, so fail closed when control flow makes a later clean's cwd ambiguous.
-ambiguous_cd_scope=false
-if [[ $stripped =~ $cd_re ]]; then
-  if [[ $stripped =~ [\(\)\`] ]] || [[ $stripped == *"|"* ]] || [[ $stripped =~ \&\&[[:space:]]*cd[[:space:]] ]]; then
-    ambiguous_cd_scope=true
-  fi
-fi
+# Shell control flow decides whether `cd` runs and whether it persists. Rather
+# than imitate a shell parser around a destructive clean, require the equivalent
+# unambiguous `git -C <path> clean ...` form whenever a command also contains cd.
+has_cd=false
+[[ $stripped =~ $cd_re ]] && has_cd=true
 
 while IFS= read -r segment; do
   [ -n "$segment" ] || continue
@@ -131,7 +155,7 @@ while IFS= read -r segment; do
       case "$arg" in --|-*) ;; *) remove_target=$(shell_path "$arg"); break ;; esac
     done
     if [ -n "$remove_target" ]; then
-      remove_base=$(execution_dir_for_segment "$segment" "$guard_cwd" 'worktree[[:space:]]+remove')
+      remove_base=$(execution_dir_for_segment "$segment" "$guard_cwd" false)
       case "$remove_target" in /*|[A-Za-z]:*) ;; *) remove_target="$remove_base/$remove_target" ;; esac
       modules="$remove_target/frontend/node_modules"
       if is_reparse_point "$modules"; then
@@ -154,10 +178,10 @@ while IFS= read -r segment; do
       esac
     done
     if $cleans_ignored; then
-      if $ambiguous_cd_scope; then
-        deny "BLOCKED: git clean -x/-X follows an ambiguous cd scope. Split the commands so the checkout can be verified."
+      if $has_cd; then
+        deny "BLOCKED: git clean -x/-X cannot be combined with cd because shell control flow can hide the checkout. Run it separately or use git -C <path> clean."
       fi
-      clean_cwd=$(execution_dir_for_segment "$segment" "$guard_cwd" clean)
+      clean_cwd=$(execution_dir_for_segment "$segment" "$guard_cwd" true)
       clean_root=$(git -C "$clean_cwd" rev-parse --show-toplevel 2>/dev/null)
       clean_root=$(shell_path "$clean_root")
       if [ -n "$clean_root" ] && [ -d "$clean_root/.git" ]; then
