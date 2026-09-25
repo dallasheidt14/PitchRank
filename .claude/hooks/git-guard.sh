@@ -167,6 +167,10 @@ command_guarded_re="${at_cmd}(builtin[[:space:]]+)?command([[:space:]]+-[^[:spac
 if [[ $env_scan =~ $command_guarded_re ]]; then
   deny "BLOCKED: guarded git clean and git worktree remove commands cannot be wrapped in command options. Run Git directly with literal paths."
 fi
+execution_wrapper_guarded_re="${at_cmd}(exec|xargs|sudo|nice|time)[[:space:]]+([^;&|()]*[[:space:]]+)?${git_bin}[[:space:]]+${git_opts}(clean|worktree[[:space:]]+remove)${end}"
+if [[ $env_scan =~ $execution_wrapper_guarded_re ]]; then
+  deny "BLOCKED: guarded git clean and git worktree remove commands cannot use an execution wrapper. Run Git directly with literal paths."
+fi
 if [[ $stripped == *\\* ]] &&
   { [[ $stripped == *git*clean* ]] || [[ $stripped == *git*worktree*remove* ]]; }; then
   deny "BLOCKED: guarded Git commands require quoted literal paths; backslash-escaped paths cannot be inspected safely."
@@ -215,7 +219,37 @@ while IFS= read -r segment; do
       if has_shell_path_syntax "$remove_base"; then
         deny "BLOCKED: git worktree remove requires a literal git -C path so frontend/node_modules can be inspected before removal."
       fi
-      case "$remove_target" in /*|[A-Za-z]:*) ;; *) remove_target="$remove_base/$remove_target" ;; esac
+      remove_arg=$remove_target
+      case "$remove_target" in
+        /*|[A-Za-z]:*) requested_target=$(realpath -m "$remove_target") ;;
+        *) requested_target=$(realpath -m "$remove_base/$remove_target") ;;
+      esac
+      registry_exact=
+      registry_shorthand=
+      registry_shorthand_count=0
+      while IFS= read -r registry_line; do
+        [[ $registry_line == worktree\ * ]] || continue
+        registry_target=$(shell_path "${registry_line#worktree }")
+        registry_target=$(realpath -m "$registry_target")
+        if [ "$registry_target" = "$requested_target" ]; then
+          registry_exact=$registry_target
+          break
+        fi
+        if [[ $remove_arg != */* && $remove_arg != *\\* ]] &&
+          [ "$(basename "$registry_target")" = "$remove_arg" ]; then
+          registry_shorthand=$registry_target
+          ((registry_shorthand_count++))
+        fi
+      done < <(git -C "$remove_base" worktree list --porcelain 2>/dev/null)
+      if [ -n "$registry_exact" ]; then
+        remove_target=$registry_exact
+      elif [ "$registry_shorthand_count" -eq 1 ]; then
+        remove_target=$registry_shorthand
+      elif [ "$registry_shorthand_count" -gt 1 ]; then
+        deny "BLOCKED: git worktree remove target is an ambiguous registered worktree name. Use its literal absolute path."
+      else
+        remove_target=$requested_target
+      fi
       modules="$remove_target/frontend/node_modules"
       if is_reparse_point "$modules"; then
         case "$(uname -s)" in
@@ -229,6 +263,9 @@ while IFS= read -r segment; do
 
   if [[ $segment =~ $clean_re ]]; then
     clean_args=${BASH_REMATCH[${#BASH_REMATCH[@]}-1]}
+    if has_shell_path_syntax "$(shell_path "$clean_args")"; then
+      deny "BLOCKED: git clean requires literal arguments so ignored-file flags and paths can be inspected safely."
+    fi
     cleans_ignored=false
     for arg in $clean_args; do
       case "$arg" in

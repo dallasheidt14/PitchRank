@@ -267,6 +267,9 @@ def test_git_guard_blocks_worktree_remove_when_node_modules_is_linked(tmp_path: 
         relative = os.path.relpath(worktree, root).replace("\\", "/")
         routed = _bash(f'git -C "{root.as_posix()}" worktree remove "{relative}"', root)
         assert routed.returncode == 2, routed.stderr
+        shorthand = _bash(f'git worktree remove --force "{worktree.name}"', root)
+        assert shorthand.returncode == 2, shorthand.stderr
+        assert "junction or symlink" in shorthand.stderr
         compound = _bash(
             f'git worktree remove "{safe_worktree.as_posix()}" && git worktree remove "{worktree.as_posix()}"',
             root,
@@ -307,6 +310,12 @@ def test_git_guard_blocks_worktree_remove_when_node_modules_is_linked(tmp_path: 
             )
             assert option_wrapped_remove.returncode == 2, option_wrapped_remove.stderr
             assert "guarded git clean" in option_wrapped_remove.stderr
+        for wrapper_prefix in ("time -p", "nice -n 0"):
+            option_wrapped_remove = _bash(
+                f'{wrapper_prefix} git worktree remove "{worktree.as_posix()}"', root
+            )
+            assert option_wrapped_remove.returncode == 2, option_wrapped_remove.stderr
+            assert "execution wrapper" in option_wrapped_remove.stderr
         paged_remove = _bash(f'git -P worktree remove "{worktree.as_posix()}"', root)
         assert paged_remove.returncode == 2, paged_remove.stderr
         assert "junction or symlink" in paged_remove.stderr
@@ -391,6 +400,13 @@ def test_git_guard_allows_ignored_file_cleanup_in_linked_worktree(tmp_path: Path
             option_wrapped_clean = _bash(f"{command_prefix} git clean -fdx", root, cwd=root)
             assert option_wrapped_clean.returncode == 2, option_wrapped_clean.stderr
             assert "guarded git clean" in option_wrapped_clean.stderr
+        for wrapper_prefix in ("time -p", "nice -n 0"):
+            option_wrapped_clean = _bash(f"{wrapper_prefix} git clean -fdx", root, cwd=root)
+            assert option_wrapped_clean.returncode == 2, option_wrapped_clean.stderr
+            assert "execution wrapper" in option_wrapped_clean.stderr
+        expanded_flags = _bash('FLAGS=-fdx; git clean "$FLAGS"', root, cwd=root)
+        assert expanded_flags.returncode == 2, expanded_flags.stderr
+        assert "literal arguments" in expanded_flags.stderr
         paged_clean = _bash("git -P clean -fdx", root, cwd=root)
         assert paged_clean.returncode == 2, paged_clean.stderr
         assert "primary checkout" in paged_clean.stderr
