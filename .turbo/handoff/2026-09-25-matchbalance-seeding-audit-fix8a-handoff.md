@@ -48,7 +48,12 @@ one. Do not re-ask this — it was already asked and answered once.
 ## Fix 8a: exact state right now
 
 - **Worktree:** `C:/pitchrank-seeding-docs`, branch `fix/seeding-docs-seed-order`, based on
-  `origin/main` at `35103130c` (which is PR #1221's merge commit). No PR opened yet.
+  `origin/main` at `35103130c` (which is PR #1221's merge commit). The 8-file diff below is
+  **committed as WIP and pushed to `origin/fix/seeding-docs-seed-order`** — review never
+  finished, so treat that commit as unreviewed, not as something to merge as-is. `git fetch
+  && git checkout fix/seeding-docs-seed-order` recovers it from any machine; the local
+  worktree at `C:/pitchrank-seeding-docs` is just a convenience, not the only copy. No PR
+  opened yet.
 - **Plan:** `C:/pitchrank-seeding-docs/.turbo/plans/seeding-docs-seed-order.md`, status
   `approved`, with an "As built" section already filled in (two deliberate deviations
   recorded there — read it before touching anything).
@@ -207,7 +212,7 @@ Concretely:
   `u10-boys.png`, `u12-girls.png`) deterministically from that fixture. Pair it with a
   renderer-hash test: hash the script's synthetic input plus the renderer module versions,
   compare against a committed hash, and fail loudly (pointing at the regeneration script)
-  when a renderer changes without the samples being regenerated. Update the four binary
+  when a renderer changes without the samples being regenerated. Update all five binary
   artifacts in the same PR by actually running the new script.
 - `.gitignore:72` is relevant context (cited in the O1 row) — check what it currently
   excludes near there before adding the new script's own scratch output to it.
@@ -307,9 +312,16 @@ retired. **Do not decide this unilaterally; ask first.** Once decided:
 
 All three are **coverage** findings — the code they describe already exists and is (as far
 as this audit found) behaving correctly; the gap is that nothing would catch a regression.
-Each needs a real test, not a behavior change. Read
-`.turbo/audit-2026-09-23/findings-combined.md` lines ~286-303, ~310-312 in full before
-starting (search for `**T1 ·`, `**T5 ·`, `**T8 ·`) — the excerpts below are trimmed.
+Each needs a real test, not a behavior change.
+
+`.turbo/audit-2026-09-23/findings-combined.md` (lines ~286-303, ~310-312, search for
+`**T1 ·`, `**T5 ·`, `**T8 ·`) has the full reviewer writeups this was condensed from, but
+that path is gitignored (`.gitignore:58`, `.turbo/*`) and exists only in the original local
+checkout that ran the audit — **it will not be present in a fresh clone or a different
+machine.** The excerpts below are condensed, not trimmed-with-omissions: treat them as the
+authoritative spec for fix 10 when the source file is unavailable, and only reach for the
+original if you have access to that specific checkout and want the raw reviewer evidence
+behind a claim.
 
 **T1** (`src/tournaments/seeding_enqueue.py:158-206`; `tests/unit/test_seeding_enqueue.py`):
 the only database write in the enqueue path — `make_enqueue_caller` and
