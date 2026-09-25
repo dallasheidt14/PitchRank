@@ -301,6 +301,26 @@ def test_git_guard_blocks_worktree_remove_when_node_modules_is_linked(tmp_path: 
         command_wrapped_remove = _bash(f'command git worktree remove "{worktree.as_posix()}"', root)
         assert command_wrapped_remove.returncode == 2, command_wrapped_remove.stderr
         assert "junction or symlink" in command_wrapped_remove.stderr
+        for command_prefix in ("command -p", "command --"):
+            option_wrapped_remove = _bash(
+                f'{command_prefix} git worktree remove "{worktree.as_posix()}"', root
+            )
+            assert option_wrapped_remove.returncode == 2, option_wrapped_remove.stderr
+            assert "guarded git clean" in option_wrapped_remove.stderr
+        paged_remove = _bash(f'git -P worktree remove "{worktree.as_posix()}"', root)
+        assert paged_remove.returncode == 2, paged_remove.stderr
+        assert "junction or symlink" in paged_remove.stderr
+        empty_routed_remove = _bash(f'git -C "" worktree remove "{worktree.as_posix()}"', root)
+        assert empty_routed_remove.returncode == 2, empty_routed_remove.stderr
+        assert "junction or symlink" in empty_routed_remove.stderr
+        windows_git_remove = _bash(f'git.exe worktree remove "{worktree.as_posix()}"', root)
+        assert windows_git_remove.returncode == 2, windows_git_remove.stderr
+        assert "junction or symlink" in windows_git_remove.stderr
+        substituted_target = _bash(
+            f'git worktree remove --force "`printf {worktree.as_posix()}`"', root
+        )
+        assert substituted_target.returncode == 2, substituted_target.stderr
+        assert "literal target path" in substituted_target.stderr
         assert sentinel.read_text() == "shared dependency\n"
     finally:
         _unlink_directory(modules)
@@ -367,6 +387,24 @@ def test_git_guard_allows_ignored_file_cleanup_in_linked_worktree(tmp_path: Path
         command_wrapped_clean = _bash("command git clean -fdx", root, cwd=root)
         assert command_wrapped_clean.returncode == 2, command_wrapped_clean.stderr
         assert "primary checkout" in command_wrapped_clean.stderr
+        for command_prefix in ("command -p", "command --"):
+            option_wrapped_clean = _bash(f"{command_prefix} git clean -fdx", root, cwd=root)
+            assert option_wrapped_clean.returncode == 2, option_wrapped_clean.stderr
+            assert "guarded git clean" in option_wrapped_clean.stderr
+        paged_clean = _bash("git -P clean -fdx", root, cwd=root)
+        assert paged_clean.returncode == 2, paged_clean.stderr
+        assert "primary checkout" in paged_clean.stderr
+        empty_routed_clean = _bash('git -C "" clean -fdx', root, cwd=root)
+        assert empty_routed_clean.returncode == 2, empty_routed_clean.stderr
+        assert "primary checkout" in empty_routed_clean.stderr
+        windows_git_clean = _bash("git.exe clean -fdx", root, cwd=root)
+        assert windows_git_clean.returncode == 2, windows_git_clean.stderr
+        assert "primary checkout" in windows_git_clean.stderr
+        substituted_base = _bash(
+            f'git -C "`printf {root.as_posix()}`" clean -fdx', root, cwd=worktree
+        )
+        assert substituted_base.returncode == 2, substituted_base.stderr
+        assert "literal -C" in substituted_base.stderr
         followed_by_cd = _bash(f'git clean -fdx && cd "{worktree.as_posix()}"', root, cwd=root)
         assert followed_by_cd.returncode == 2, followed_by_cd.stderr
         second_clean = _bash(f'git -C "{worktree.as_posix()}" clean -fdx && git clean -fdx', root, cwd=root)

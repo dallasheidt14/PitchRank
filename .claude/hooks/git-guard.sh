@@ -41,7 +41,12 @@ stripped=$(printf '%s\n' "$cmd" | awk '
         sub(/[ \t]+(-c|-lc|-command|-Command|-EncodedCommand|\/c|\/k)[ \t]+$/, " ; ", before)
       else {
         gsub(/\\/, "\002", seg)
-        gsub(/[ \t;&|()`]/, "\001", seg)
+        # Keep an empty quoted argument as a token and keep backticks distinct
+        # from harmless quoted whitespace. Both facts matter to destructive
+        # Git command inspection below.
+        if (seg == "") seg = "\003"
+        gsub(/`/, "\004", seg)
+        gsub(/[ \t;&|()]/, "\001", seg)
       }
       out = out before seg
       $0 = substr($0, RSTART + RLENGTH)
@@ -64,8 +69,14 @@ assign='([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*'
 at_cmd="((^|[;&|(\`{${nl}])[[:space:]]*${assign}|(^|[[:space:]])${wrapper}[[:space:]]+${assign})"
 end='([[:space:];&|)]|$)'
 end_or_eq='([[:space:];&|)=]|$)'
-git_opts='((-[Cc][[:space:]]+[^[:space:]]+|--(work-tree|git-dir)[[:space:]]+[^[:space:]]+|--[a-z-]+(=[^[:space:]]+)?)[[:space:]]+)*'
-git_cmd="${at_cmd}git[[:space:]]+${git_opts}"
+git_bin='git([.]exe)?'
+git_value='[^[:space:];&|()]+'
+# Git-wide short options either take the next/attached value or are one-letter
+# switches. Long options are switches or use =value; work-tree and git-dir also
+# accept a separate value. Keeping the grammar generic makes new long switches
+# fail closed if they appear before a guarded verb.
+git_opts="((-[Cc][[:space:]]+${git_value}|-C${git_value}|-c${git_value}|-[pPvVh]|--(work-tree|git-dir)[[:space:]]+${git_value}|--[a-z][a-z-]*(=${git_value})?)[[:space:]]+)*"
+git_cmd="${at_cmd}${git_bin}[[:space:]]+${git_opts}"
 push_args="${git_cmd}push([[:space:]]+[^[:space:];&|()]+)*[[:space:]]+"
 
 branch_of() { [ -d "$1" ] && git -C "$1" branch --show-current 2>/dev/null; }
@@ -73,6 +84,8 @@ branch_of() { [ -d "$1" ] && git -C "$1" branch --show-current 2>/dev/null; }
 shell_path() {
   local path=${1//$'\001'/ }
   path=${path//$'\002'/$'\\'}
+  path=${path//$'\003'/}
+  path=${path//$'\004'/$'\x60'}
   if [[ $path =~ ^[A-Za-z]:[\\/] ]] && command -v cygpath >/dev/null 2>&1; then
     cygpath -u "$path"
   else
@@ -94,13 +107,19 @@ execution_dir_for_segment() {
   for ((i = 0; i < ${#tokens[@]}; i++)); do
     token=${tokens[i]//$'\001'/ }
     if ! $seen_git; then
-      [ "$token" = git ] && seen_git=true
+      { [ "$token" = git ] || [ "$token" = git.exe ]; } && seen_git=true
       continue
     fi
     case "$token" in
       -C)
         ((i++))
         value=$(shell_path "${tokens[i]:-}")
+        [ -n "$value" ] || continue
+        case "$value" in /*|[A-Za-z]:*) ;; *) value="$target/$value" ;; esac
+        target=$value
+        ;;
+      -C?*)
+        value=$(shell_path "${token#-C}")
         case "$value" in /*|[A-Za-z]:*) ;; *) value="$target/$value" ;; esac
         target=$value
         ;;
@@ -140,9 +159,13 @@ cd_re="${at_cmd}cd[[:space:]]+([^[:space:];&|)]+)"
 worktree_remove_re="${git_cmd}worktree[[:space:]]+remove[[:space:]]+([^;&|()]*)"
 clean_re="${git_cmd}clean[[:space:]]+([^;&|()]*)"
 env_scan=${stripped//$'\001'/ }
-env_guarded_re="${at_cmd}env[[:space:]]+([^;&|()]*)git[[:space:]]+${git_opts}(clean|worktree[[:space:]]+remove)${end}"
+env_guarded_re="${at_cmd}env[[:space:]]+([^;&|()]*)${git_bin}[[:space:]]+${git_opts}(clean|worktree[[:space:]]+remove)${end}"
 if [[ $env_scan =~ $env_guarded_re ]]; then
   deny "BLOCKED: guarded git clean and git worktree remove commands cannot be wrapped in env options. Run Git directly with literal paths."
+fi
+command_guarded_re="${at_cmd}(builtin[[:space:]]+)?command([[:space:]]+-[^[:space:];&|()]*)+[[:space:]]+${assign}${git_bin}[[:space:]]+${git_opts}(clean|worktree[[:space:]]+remove)${end}"
+if [[ $env_scan =~ $command_guarded_re ]]; then
+  deny "BLOCKED: guarded git clean and git worktree remove commands cannot be wrapped in command options. Run Git directly with literal paths."
 fi
 if [[ $stripped == *\\* ]] &&
   { [[ $stripped == *git*clean* ]] || [[ $stripped == *git*worktree*remove* ]]; }; then
@@ -155,7 +178,7 @@ fi
 has_cd=false
 [[ $stripped =~ ${at_cmd}cd${end} ]] && has_cd=true
 has_git_context_override=false
-if [[ $stripped =~ (^|[[:space:];&|])GIT_[A-Za-z0-9_]*= ]] || [[ $stripped =~ git[[:space:]].*(--git-dir|-c[[:space:]]|--config-env) ]]; then
+if [[ $stripped =~ (^|[[:space:];&|])GIT_[A-Za-z0-9_]*= ]] || [[ $stripped =~ ${git_bin}[[:space:]].*(--git-dir|-c[[:space:]]|--config-env) ]]; then
   has_git_context_override=true
 fi
 
@@ -249,16 +272,16 @@ if [[ $stripped =~ ${git_cmd}(commit|push)${end} ]]; then
   target=$cwd
   # The -C has to belong to the guarded verb: in `git -C /elsewhere status && git
   # push`, the first -C names a repository this push never touches.
-  target_re="git[[:space:]]+-C[[:space:]]+([^[:space:]]+)[[:space:]]+(-c[[:space:]]+[^[:space:]]+[[:space:]]+)*(commit|push)${end}"
+  target_re="${git_bin}[[:space:]]+-C[[:space:]]+([^[:space:]]+)[[:space:]]+(-c[[:space:]]+[^[:space:]]+[[:space:]]+)*(commit|push)${end}"
   if [[ $stripped =~ $target_re ]]; then
-    target=${BASH_REMATCH[1]//$'\001'/ }
+    target=${BASH_REMATCH[2]//$'\001'/ }
   elif [[ $stripped =~ $cd_re ]]; then
     target=${BASH_REMATCH[${#BASH_REMATCH[@]}-1]//$'\001'/ }
     case "$target" in /*|[A-Za-z]:*) ;; *) target="$cwd/$target" ;; esac
   fi
   branch=$(branch_of "$cwd")
-  if [[ $stripped =~ git[[:space:]]+-C[[:space:]]+([^[:space:]]+)[[:space:]]+(-c[[:space:]]+[^[:space:]]+[[:space:]]+)*(commit|push)${end} ]]; then
-    branch=$(branch_of "${BASH_REMATCH[1]//$'\001'/ }")
+  if [[ $stripped =~ ${git_bin}[[:space:]]+-C[[:space:]]+([^[:space:]]+)[[:space:]]+(-c[[:space:]]+[^[:space:]]+[[:space:]]+)*(commit|push)${end} ]]; then
+    branch=$(branch_of "${BASH_REMATCH[2]//$'\001'/ }")
   fi
   if [ "$branch" = main ]; then
     deny "BLOCKED: branch is main. Run 'git checkout -b <feature> origin/main' first (CLAUDE.md: never commit to main)."
