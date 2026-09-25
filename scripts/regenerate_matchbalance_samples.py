@@ -55,6 +55,7 @@ RENDERER_FILES = (
     Path("src/tournaments/compare_predictor_bridge.py"),
     Path("src/tournaments/seeding_content.py"),
     Path("src/tournaments/seeding_pdf.py"),
+    Path("src/tournaments/seeding_pack.py"),
     Path("src/tournaments/seeding_sheet.py"),
     Path("src/tournaments/seeding_tiers.py"),
     Path("src/tournaments/seeding_workbook.py"),
