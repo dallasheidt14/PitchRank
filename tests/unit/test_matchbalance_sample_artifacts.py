@@ -9,6 +9,12 @@ from scripts.regenerate_matchbalance_samples import (
 def test_renderer_dependencies_follow_transitive_local_imports(tmp_path: Path):
     package = tmp_path / "src" / "sample_renderer"
     package.mkdir(parents=True)
+    (tmp_path / "src" / "__init__.py").write_text("", encoding="utf-8")
+    (package / "__init__.py").write_text(
+        "from .package_helper import SETTING\n",
+        encoding="utf-8",
+    )
+    (package / "package_helper.py").write_text("SETTING = 'sample'\n", encoding="utf-8")
     (package / "entry.py").write_text(
         "from src.sample_renderer.helper import render\n",
         encoding="utf-8",
@@ -25,9 +31,12 @@ def test_renderer_dependencies_follow_transitive_local_imports(tmp_path: Path):
     )
 
     assert dependencies == {
+        Path("src/__init__.py"),
+        Path("src/sample_renderer/__init__.py"),
         Path("src/sample_renderer/entry.py"),
         Path("src/sample_renderer/helper.py"),
         Path("src/sample_renderer/leaf.py"),
+        Path("src/sample_renderer/package_helper.py"),
     }
 
 

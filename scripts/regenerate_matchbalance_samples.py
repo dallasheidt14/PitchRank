@@ -127,16 +127,23 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _resolve_local_module(root: Path, module: str) -> Path | None:
-    """Resolve a dotted module name to a Python source file inside ``root``."""
+def _resolve_local_module(root: Path, module: str) -> set[Path]:
+    """Resolve a local module and every package initializer Python executes."""
     if not module:
-        return None
+        return set()
+    module_parts = module.split(".")
     base = root.joinpath(*module.split("."))
     candidates = (base.with_suffix(".py"), base / "__init__.py")
     for candidate in candidates:
         if candidate.is_file():
-            return candidate.relative_to(root)
-    return None
+            files = {candidate.relative_to(root)}
+            package_depth = len(module_parts) - 1
+            for depth in range(1, package_depth + 1):
+                initializer = root.joinpath(*module_parts[:depth], "__init__.py")
+                if initializer.is_file():
+                    files.add(initializer.relative_to(root))
+            return files
+    return set()
 
 
 def _local_imports(root: Path, relative: Path) -> set[Path]:
@@ -166,9 +173,7 @@ def _local_imports(root: Path, relative: Path) -> set[Path]:
             module_names.extend(f"{base}.{alias.name}" if base else alias.name for alias in node.names)
 
         for module_name in module_names:
-            resolved = _resolve_local_module(root, module_name)
-            if resolved is not None:
-                imports.add(resolved)
+            imports.update(_resolve_local_module(root, module_name))
     return imports
 
 
