@@ -8,6 +8,7 @@ Run this script on Windows with Excel, Node/Playwright, Poppler, and Pillow inst
 from __future__ import annotations
 
 import argparse
+import ast
 import hashlib
 import json
 import re
@@ -49,17 +50,9 @@ WORKBOOK_PREVIEWS = {
     "u12-girls": ROOT / "docs" / "design" / "matchbalance-excel" / "u12-girls.png",
 }
 OUTPUTS = (PUBLIC_PDF, PUBLIC_PNG, WORKBOOK, *WORKBOOK_PREVIEWS.values())
-RENDERER_FILES = (
-    Path(__file__).relative_to(ROOT),
+RENDERER_ENTRY_POINTS = (Path(__file__).relative_to(ROOT),)
+RENDERER_ASSETS = (
     Path("scripts/render_matchbalance_workbook_previews.ps1"),
-    Path("src/tournaments/compare_predictor_bridge.py"),
-    Path("src/tournaments/seeding_content.py"),
-    Path("src/tournaments/seeding_pdf.py"),
-    Path("src/tournaments/seeding_pack.py"),
-    Path("src/tournaments/seeding_sheet.py"),
-    Path("src/tournaments/seeding_tiers.py"),
-    Path("src/tournaments/seeding_workbook.py"),
-    Path("src/utils/us_states.py"),
     Path("frontend/scripts/render-seeding-pdf.mjs"),
     Path("frontend/package-lock.json"),
     Path("requirements.lock"),
@@ -134,6 +127,71 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _resolve_local_module(root: Path, module: str) -> Path | None:
+    """Resolve a dotted module name to a Python source file inside ``root``."""
+    if not module:
+        return None
+    base = root.joinpath(*module.split("."))
+    candidates = (base.with_suffix(".py"), base / "__init__.py")
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate.relative_to(root)
+    return None
+
+
+def _local_imports(root: Path, relative: Path) -> set[Path]:
+    """Return local modules imported directly by one Python source file."""
+    source = (root / relative).read_text(encoding="utf-8")
+    tree = ast.parse(source, filename=relative.as_posix())
+    package = list(relative.with_suffix("").parts[:-1])
+    imports: set[Path] = set()
+
+    for node in ast.walk(tree):
+        module_names: list[str] = []
+        if isinstance(node, ast.Import):
+            module_names.extend(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            if node.level:
+                parent_count = node.level - 1
+                if parent_count > len(package):
+                    continue
+                base_parts = package[: len(package) - parent_count]
+                if node.module:
+                    base_parts.extend(node.module.split("."))
+                base = ".".join(base_parts)
+            else:
+                base = node.module or ""
+            if base:
+                module_names.append(base)
+            module_names.extend(f"{base}.{alias.name}" if base else alias.name for alias in node.names)
+
+        for module_name in module_names:
+            resolved = _resolve_local_module(root, module_name)
+            if resolved is not None:
+                imports.add(resolved)
+    return imports
+
+
+def _derived_local_python_dependencies(root: Path, entry_points: tuple[Path, ...]) -> set[Path]:
+    """Derive the transitive local-import closure for renderer entry points."""
+    pending = list(entry_points)
+    dependencies: set[Path] = set()
+    while pending:
+        relative = pending.pop()
+        if relative in dependencies:
+            continue
+        dependencies.add(relative)
+        pending.extend(_local_imports(root, relative) - dependencies)
+    return dependencies
+
+
+def renderer_files() -> tuple[Path, ...]:
+    """Return derived Python dependencies plus explicit non-imported assets."""
+    files = _derived_local_python_dependencies(ROOT, RENDERER_ENTRY_POINTS)
+    files.update(RENDERER_ASSETS)
+    return tuple(sorted(files, key=lambda path: path.as_posix()))
+
+
 def renderer_fingerprint() -> str:
     """Identify the frozen input and every source file that renders it."""
     digest = hashlib.sha256()
@@ -146,7 +204,7 @@ def renderer_fingerprint() -> str:
     ).encode("utf-8")
     digest.update(len(fixture).to_bytes(8, "big"))
     digest.update(fixture)
-    for relative in sorted(RENDERER_FILES, key=lambda path: path.as_posix()):
+    for relative in renderer_files():
         name = relative.as_posix().encode("utf-8")
         contents = (ROOT / relative).read_bytes().replace(b"\r\n", b"\n")
         digest.update(len(name).to_bytes(4, "big"))
