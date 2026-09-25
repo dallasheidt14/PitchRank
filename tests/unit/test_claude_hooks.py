@@ -96,6 +96,25 @@ def _fresh_repo(parent: Path, name: str) -> Path:
     return root
 
 
+def _link_directory(link: Path, target: Path) -> None:
+    if os.name == "nt":
+        subprocess.run(
+            ["cmd", "/c", "mklink", "/J", str(link), str(target)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    else:
+        link.symlink_to(target, target_is_directory=True)
+
+
+def _unlink_directory(link: Path) -> None:
+    if os.name == "nt":
+        subprocess.run(["cmd", "/c", "rmdir", str(link)], check=True, capture_output=True, text=True)
+    else:
+        link.unlink()
+
+
 @pytest.fixture(scope="module")
 def repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
     root = tmp_path_factory.mktemp("hookrepo")
@@ -219,6 +238,53 @@ def test_git_guard_blocks_commit_on_main(repo: Path, tmp_path: Path) -> None:
 
 def test_git_guard_fails_closed_on_bad_payload(repo: Path) -> None:
     assert _exec("git-guard.sh", "not json", repo).returncode == 2
+
+
+def test_git_guard_blocks_worktree_remove_when_node_modules_is_linked(tmp_path: Path) -> None:
+    root = _fresh_repo(tmp_path, "worktree-remove")
+    worktree = tmp_path / "linked worktree"
+    shared_modules = tmp_path / "shared-node-modules"
+    shared_modules.mkdir()
+    sentinel = shared_modules / "keep.txt"
+    sentinel.write_text("shared dependency\n")
+    _git(root, "worktree", "add", "-q", str(worktree), "main")
+    modules = worktree / "frontend" / "node_modules"
+    modules.parent.mkdir()
+    _link_directory(modules, shared_modules)
+    try:
+        _git(root, "worktree", "prune", "--expire", "now")
+        assert modules.exists() and sentinel.read_text() == "shared dependency\n"
+
+        result = _bash(f'git worktree remove "{worktree.as_posix()}"', root)
+        assert result.returncode == 2, result.stderr
+        assert "rmdir" in result.stderr and "node_modules" in result.stderr
+        relative = os.path.relpath(worktree, root).replace("\\", "/")
+        routed = _bash(f'git -C "{root.as_posix()}" worktree remove "{relative}"', root)
+        assert routed.returncode == 2, routed.stderr
+        assert sentinel.read_text() == "shared dependency\n"
+    finally:
+        _unlink_directory(modules)
+        _git(root, "worktree", "remove", "--force", str(worktree))
+
+
+@pytest.mark.parametrize("command", ["git clean -fdx", "git clean -fX"])
+def test_git_guard_blocks_ignored_file_cleanup_in_primary_checkout(command: str, repo: Path) -> None:
+    result = _bash(command, repo)
+    assert result.returncode == 2, result.stderr
+    assert "primary checkout" in result.stderr
+
+
+def test_git_guard_allows_ignored_file_cleanup_in_linked_worktree(tmp_path: Path) -> None:
+    root = _fresh_repo(tmp_path, "worktree-clean")
+    worktree = tmp_path / "clean-linked"
+    _git(root, "worktree", "add", "-q", str(worktree), "main")
+    try:
+        assert _bash("git clean -fdx", root, cwd=worktree).returncode == 0
+        assert _bash(f'git -C "{worktree.as_posix()}" clean -fdx', root, cwd=root).returncode == 0
+        routed_to_primary = _bash(f'git -C "{root.as_posix()}" clean -fdx', root, cwd=worktree)
+        assert routed_to_primary.returncode == 2, routed_to_primary.stderr
+    finally:
+        _git(root, "worktree", "remove", "--force", str(worktree))
 
 
 @pytest.mark.parametrize(

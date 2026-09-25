@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # PreToolUse(Bash): block commits/pushes on main, blanket staging, force pushes,
-# hard resets, and whole-file ruff format. A typo-catcher over shell text, not
-# a security boundary. No `set -e`: exit codes are the hook contract.
+# hard resets, junctioned worktree removal, main-checkout ignored-file cleanup,
+# and whole-file ruff format. A typo-catcher over shell text, not a security
+# boundary. No `set -e`: exit codes are the hook contract.
 command -v jq >/dev/null || { echo "BLOCKED: git-guard needs jq on PATH (https://jqlang.github.io/jq/). Install it or remove the hook from .claude/settings.json." >&2; exit 2; }
 input=$(cat)
 cmd=$(printf '%s' "$input" | jq -r '.tool_input.command // ""') || { echo "BLOCKED: git-guard could not parse the hook payload." >&2; exit 2; }
@@ -66,6 +67,80 @@ git_cmd="${at_cmd}git[[:space:]]+${git_opts}"
 push_args="${git_cmd}push([[:space:]]+[^[:space:];&|()]+)*[[:space:]]+"
 
 branch_of() { [ -d "$1" ] && git -C "$1" branch --show-current 2>/dev/null; }
+
+shell_path() {
+  local path=${1//$'\001'/ }
+  if [[ $path =~ ^[A-Za-z]:[\\/] ]] && command -v cygpath >/dev/null 2>&1; then
+    cygpath -u "$path"
+  else
+    printf '%s\n' "$path"
+  fi
+}
+
+execution_dir_for() {
+  local verb=$1
+  local cwd target target_re cd_re
+  cwd=$(printf '%s' "$input" | jq -r '.cwd // ""')
+  cwd=$(shell_path "$cwd")
+  [ -d "$cwd" ] || cwd=$(shell_path "$CLAUDE_PROJECT_DIR")
+  target=$cwd
+  target_re="git[[:space:]]+-C[[:space:]]+([^[:space:]]+)[[:space:]]+(-c[[:space:]]+[^[:space:]]+[[:space:]]+)*${verb}${end}"
+  cd_re="${at_cmd}cd[[:space:]]+([^[:space:];&|)]+)"
+  if [[ $stripped =~ $target_re ]]; then
+    target=$(shell_path "${BASH_REMATCH[1]}")
+  elif [[ $stripped =~ $cd_re ]]; then
+    target=$(shell_path "${BASH_REMATCH[${#BASH_REMATCH[@]}-1]}")
+    case "$target" in /*|[A-Za-z]:*) ;; *) target="$cwd/$target" ;; esac
+  fi
+  printf '%s\n' "$target"
+}
+
+is_reparse_point() {
+  local path=$1 native fsutil_cmd
+  [ -L "$path" ] && return 0
+  fsutil_cmd=$(command -v fsutil.exe 2>/dev/null || command -v fsutil 2>/dev/null)
+  [ -n "$fsutil_cmd" ] || return 1
+  native=$path
+  command -v cygpath >/dev/null 2>&1 && native=$(cygpath -w "$path")
+  "$fsutil_cmd" reparsepoint query "$native" >/dev/null 2>&1
+}
+
+worktree_remove_re="${git_cmd}worktree[[:space:]]+remove[[:space:]]+([^;&|()]*)"
+if [[ $stripped =~ $worktree_remove_re ]]; then
+  remove_args=${BASH_REMATCH[${#BASH_REMATCH[@]}-1]}
+  remove_target=
+  for arg in $remove_args; do
+    case "$arg" in --|-*) ;; *) remove_target=$(shell_path "$arg"); break ;; esac
+  done
+  if [ -n "$remove_target" ]; then
+    remove_base=$(execution_dir_for 'worktree[[:space:]]+remove')
+    case "$remove_target" in /*|[A-Za-z]:*) ;; *) remove_target="$remove_base/$remove_target" ;; esac
+    modules="$remove_target/frontend/node_modules"
+    if is_reparse_point "$modules"; then
+      deny "BLOCKED: $modules is a junction or symlink. Run 'rmdir frontend\\node_modules' inside that worktree first, then retry git worktree remove."
+    fi
+  fi
+fi
+
+clean_re="${git_cmd}clean[[:space:]]+([^;&|()]*)"
+if [[ $stripped =~ $clean_re ]]; then
+  clean_args=${BASH_REMATCH[${#BASH_REMATCH[@]}-1]}
+  cleans_ignored=false
+  for arg in $clean_args; do
+    case "$arg" in
+      --*) ;;
+      -*) [[ ${arg#-} == *x* || ${arg#-} == *X* ]] && cleans_ignored=true ;;
+    esac
+  done
+  if $cleans_ignored; then
+    clean_cwd=$(execution_dir_for clean)
+    clean_root=$(git -C "$clean_cwd" rev-parse --show-toplevel 2>/dev/null)
+    clean_root=$(shell_path "$clean_root")
+    if [ -n "$clean_root" ] && [ -d "$clean_root/.git" ]; then
+      deny "BLOCKED: git clean -x/-X in the primary checkout can erase ignored worktrees, dependencies, and scratch files. Run it only in a disposable linked worktree."
+    fi
+  fi
+fi
 
 if [[ $stripped =~ ${git_cmd}(commit|push)${end} ]]; then
   cwd=$(printf '%s' "$input" | jq -r '.cwd // ""')
