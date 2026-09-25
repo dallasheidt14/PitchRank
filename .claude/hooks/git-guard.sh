@@ -77,20 +77,13 @@ shell_path() {
   fi
 }
 
-execution_dir_for() {
-  local verb=$1
-  local cwd target target_re cd_re
-  cwd=$(printf '%s' "$input" | jq -r '.cwd // ""')
-  cwd=$(shell_path "$cwd")
-  [ -d "$cwd" ] || cwd=$(shell_path "$CLAUDE_PROJECT_DIR")
+execution_dir_for_segment() {
+  local segment=$1 cwd=$2 verb=$3
+  local target target_re
   target=$cwd
   target_re="git[[:space:]]+-C[[:space:]]+([^[:space:]]+)[[:space:]]+(-c[[:space:]]+[^[:space:]]+[[:space:]]+)*${verb}${end}"
-  cd_re="${at_cmd}cd[[:space:]]+([^[:space:];&|)]+)"
-  if [[ $stripped =~ $target_re ]]; then
+  if [[ $segment =~ $target_re ]]; then
     target=$(shell_path "${BASH_REMATCH[1]}")
-  elif [[ $stripped =~ $cd_re ]]; then
-    target=$(shell_path "${BASH_REMATCH[${#BASH_REMATCH[@]}-1]}")
-    case "$target" in /*|[A-Za-z]:*) ;; *) target="$cwd/$target" ;; esac
   fi
   printf '%s\n' "$target"
 }
@@ -105,42 +98,60 @@ is_reparse_point() {
   "$fsutil_cmd" reparsepoint query "$native" >/dev/null 2>&1
 }
 
+guard_cwd=$(printf '%s' "$input" | jq -r '.cwd // ""')
+guard_cwd=$(shell_path "$guard_cwd")
+[ -d "$guard_cwd" ] || guard_cwd=$(shell_path "$CLAUDE_PROJECT_DIR")
+cd_re="${at_cmd}cd[[:space:]]+([^[:space:];&|)]+)"
 worktree_remove_re="${git_cmd}worktree[[:space:]]+remove[[:space:]]+([^;&|()]*)"
-if [[ $stripped =~ $worktree_remove_re ]]; then
-  remove_args=${BASH_REMATCH[${#BASH_REMATCH[@]}-1]}
-  remove_target=
-  for arg in $remove_args; do
-    case "$arg" in --|-*) ;; *) remove_target=$(shell_path "$arg"); break ;; esac
-  done
-  if [ -n "$remove_target" ]; then
-    remove_base=$(execution_dir_for 'worktree[[:space:]]+remove')
-    case "$remove_target" in /*|[A-Za-z]:*) ;; *) remove_target="$remove_base/$remove_target" ;; esac
-    modules="$remove_target/frontend/node_modules"
-    if is_reparse_point "$modules"; then
-      deny "BLOCKED: $modules is a junction or symlink. Run 'rmdir frontend\\node_modules' inside that worktree first, then retry git worktree remove."
-    fi
-  fi
-fi
-
 clean_re="${git_cmd}clean[[:space:]]+([^;&|()]*)"
-if [[ $stripped =~ $clean_re ]]; then
-  clean_args=${BASH_REMATCH[${#BASH_REMATCH[@]}-1]}
-  cleans_ignored=false
-  for arg in $clean_args; do
-    case "$arg" in
-      --*) ;;
-      -*) [[ ${arg#-} == *x* || ${arg#-} == *X* ]] && cleans_ignored=true ;;
-    esac
-  done
-  if $cleans_ignored; then
-    clean_cwd=$(execution_dir_for clean)
-    clean_root=$(git -C "$clean_cwd" rev-parse --show-toplevel 2>/dev/null)
-    clean_root=$(shell_path "$clean_root")
-    if [ -n "$clean_root" ] && [ -d "$clean_root/.git" ]; then
-      deny "BLOCKED: git clean -x/-X in the primary checkout can erase ignored worktrees, dependencies, and scratch files. Run it only in a disposable linked worktree."
+
+while IFS= read -r segment; do
+  [ -n "$segment" ] || continue
+  if [[ $segment =~ $cd_re ]]; then
+    next_cwd=$(shell_path "${BASH_REMATCH[${#BASH_REMATCH[@]}-1]}")
+    case "$next_cwd" in /*|[A-Za-z]:*) ;; *) next_cwd="$guard_cwd/$next_cwd" ;; esac
+    guard_cwd=$next_cwd
+  fi
+
+  if [[ $segment =~ $worktree_remove_re ]]; then
+    remove_args=${BASH_REMATCH[${#BASH_REMATCH[@]}-1]}
+    remove_target=
+    for arg in $remove_args; do
+      case "$arg" in --|-*) ;; *) remove_target=$(shell_path "$arg"); break ;; esac
+    done
+    if [ -n "$remove_target" ]; then
+      remove_base=$(execution_dir_for_segment "$segment" "$guard_cwd" 'worktree[[:space:]]+remove')
+      case "$remove_target" in /*|[A-Za-z]:*) ;; *) remove_target="$remove_base/$remove_target" ;; esac
+      modules="$remove_target/frontend/node_modules"
+      if is_reparse_point "$modules"; then
+        case "$(uname -s)" in
+          MINGW*|MSYS*|CYGWIN*) unlink_hint="cmd /c rmdir frontend\\node_modules" ;;
+          *) unlink_hint="unlink frontend/node_modules" ;;
+        esac
+        deny "BLOCKED: $modules is a junction or symlink. Run '$unlink_hint' inside that worktree first, then retry git worktree remove."
+      fi
     fi
   fi
-fi
+
+  if [[ $segment =~ $clean_re ]]; then
+    clean_args=${BASH_REMATCH[${#BASH_REMATCH[@]}-1]}
+    cleans_ignored=false
+    for arg in $clean_args; do
+      case "$arg" in
+        --*) ;;
+        -*) [[ ${arg#-} == *x* || ${arg#-} == *X* ]] && cleans_ignored=true ;;
+      esac
+    done
+    if $cleans_ignored; then
+      clean_cwd=$(execution_dir_for_segment "$segment" "$guard_cwd" clean)
+      clean_root=$(git -C "$clean_cwd" rev-parse --show-toplevel 2>/dev/null)
+      clean_root=$(shell_path "$clean_root")
+      if [ -n "$clean_root" ] && [ -d "$clean_root/.git" ]; then
+        deny "BLOCKED: git clean -x/-X in the primary checkout can erase ignored worktrees, dependencies, and scratch files. Run it only in a disposable linked worktree."
+      fi
+    fi
+  fi
+done < <(printf '%s\n' "$stripped" | awk '{ gsub(/[;&|()`{}]/, "\n"); print }')
 
 if [[ $stripped =~ ${git_cmd}(commit|push)${end} ]]; then
   cwd=$(printf '%s' "$input" | jq -r '.cwd // ""')

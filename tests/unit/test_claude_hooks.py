@@ -243,11 +243,13 @@ def test_git_guard_fails_closed_on_bad_payload(repo: Path) -> None:
 def test_git_guard_blocks_worktree_remove_when_node_modules_is_linked(tmp_path: Path) -> None:
     root = _fresh_repo(tmp_path, "worktree-remove")
     worktree = tmp_path / "linked worktree"
+    safe_worktree = tmp_path / "safe-linked"
     shared_modules = tmp_path / "shared-node-modules"
     shared_modules.mkdir()
     sentinel = shared_modules / "keep.txt"
     sentinel.write_text("shared dependency\n")
     _git(root, "worktree", "add", "-q", str(worktree), "main")
+    _git(root, "worktree", "add", "-q", "--detach", str(safe_worktree), "HEAD")
     modules = worktree / "frontend" / "node_modules"
     modules.parent.mkdir()
     _link_directory(modules, shared_modules)
@@ -257,14 +259,21 @@ def test_git_guard_blocks_worktree_remove_when_node_modules_is_linked(tmp_path: 
 
         result = _bash(f'git worktree remove "{worktree.as_posix()}"', root)
         assert result.returncode == 2, result.stderr
-        assert "rmdir" in result.stderr and "node_modules" in result.stderr
+        expected_unlink = "cmd /c rmdir" if os.name == "nt" else "unlink"
+        assert expected_unlink in result.stderr and "node_modules" in result.stderr
         relative = os.path.relpath(worktree, root).replace("\\", "/")
         routed = _bash(f'git -C "{root.as_posix()}" worktree remove "{relative}"', root)
         assert routed.returncode == 2, routed.stderr
+        compound = _bash(
+            f'git worktree remove "{safe_worktree.as_posix()}" && git worktree remove "{worktree.as_posix()}"',
+            root,
+        )
+        assert compound.returncode == 2, compound.stderr
         assert sentinel.read_text() == "shared dependency\n"
     finally:
         _unlink_directory(modules)
         _git(root, "worktree", "remove", "--force", str(worktree))
+        _git(root, "worktree", "remove", "--force", str(safe_worktree))
 
 
 @pytest.mark.parametrize("command", ["git clean -fdx", "git clean -fX"])
@@ -283,6 +292,15 @@ def test_git_guard_allows_ignored_file_cleanup_in_linked_worktree(tmp_path: Path
         assert _bash(f'git -C "{worktree.as_posix()}" clean -fdx', root, cwd=root).returncode == 0
         routed_to_primary = _bash(f'git -C "{root.as_posix()}" clean -fdx', root, cwd=worktree)
         assert routed_to_primary.returncode == 2, routed_to_primary.stderr
+        followed_by_cd = _bash(f'git clean -fdx && cd "{worktree.as_posix()}"', root, cwd=root)
+        assert followed_by_cd.returncode == 2, followed_by_cd.stderr
+        second_clean = _bash(f'git -C "{worktree.as_posix()}" clean -fdx && git clean -fdx', root, cwd=root)
+        assert second_clean.returncode == 2, second_clean.stderr
+        changed_back = _bash(
+            f'cd "{worktree.as_posix()}" && git clean -fdx && cd "{root.as_posix()}" && git clean -fX',
+            root,
+        )
+        assert changed_back.returncode == 2, changed_back.stderr
     finally:
         _git(root, "worktree", "remove", "--force", str(worktree))
 
