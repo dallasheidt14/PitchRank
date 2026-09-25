@@ -31,7 +31,12 @@ from typing import TYPE_CHECKING, Any
 
 from src.tournaments.roster_paste import RosterRow
 from src.tournaments.roster_resolver import ResolvedTeam
-from src.tournaments.seeding_content import DIRECTOR_LEGEND, LIMITED_HISTORY_LEGEND, build_director_cohort
+from src.tournaments.seeding_content import (
+    DIRECTOR_LEGEND,
+    LIMITED_HISTORY_LEGEND,
+    build_director_cohort,
+    format_state_rank,
+)
 
 if TYPE_CHECKING:
     from src.tournaments.seeding_tiers import CheatSheetAnalysis, TierPolicy
@@ -291,7 +296,7 @@ def fetch_ranking_run_date(supabase_client: Any) -> str:
 def _state_rank(team: SheetTeam) -> str:
     if team.state_rank is None:
         return "—"
-    return f"{team.state} #{team.state_rank}" if team.state else f"#{team.state_rank}"
+    return format_state_rank(team.state, team.state_rank)
 
 
 def _score(value: float | None) -> str:

@@ -1,12 +1,13 @@
+import re
 from io import BytesIO
 from itertools import combinations
 
+import pytest
 from openpyxl import load_workbook
 from openpyxl.worksheet.filters import AutoFilter
-import pytest
 
 from src.tournaments.compare_predictor_bridge import ComparePrediction
-from src.tournaments.seeding_sheet import CohortSheet, SheetTeam
+from src.tournaments.seeding_sheet import CohortSheet, SheetTeam, render_sheet_html
 from src.tournaments.seeding_tiers import TierEntrant, build_cheat_sheet_analysis
 from src.tournaments.seeding_workbook import build_seeding_workbook, validate_seeding_workbook, workbook_sheet_titles
 
@@ -72,8 +73,6 @@ def test_unassigned_gender_cohort_stays_distinct_from_girls():
 
 
 def test_cohort_notes_match_pdf_and_stay_outside_sortable_team_rows():
-    from src.tournaments.seeding_sheet import render_sheet_html
-
     entrants = [TierEntrant(str(index), f"Team {index}", .8) for index in range(3)]
     analysis = build_cheat_sheet_analysis(
         entrants, {(a.entrant_id, b.entrant_id): _prediction(.1) for a, b in combinations(entrants, 2)},
@@ -128,9 +127,6 @@ def test_validator_rejects_a_workbook_excel_cannot_open_or_filter_on_any_sheet(c
 
 
 def test_mixed_placement_statuses_keep_identical_pdf_and_excel_order():
-    import re
-    from src.tournaments.seeding_sheet import render_sheet_html
-
     analysis = build_cheat_sheet_analysis([
         TierEntrant("seeded", "Seeded team", .9),
         TierEntrant("review", "Zebra review", .8, "Confirm the team identity."),
@@ -153,3 +149,23 @@ def test_mixed_placement_statuses_keep_identical_pdf_and_excel_order():
     assert html_order == ["seeded", "review", "notfound", "unrated"]
     assert [sheet.cell(row, 2).value for row in range(7, 11)] == [by_id[key] for key in html_order]
     assert [sheet.cell(row, 1).value for row in range(7, 11)] == [1, None, None, None]
+
+
+def test_full_state_names_use_postal_codes_in_pdf_and_workbook():
+    cohort = CohortSheet(
+        "u13",
+        "Male",
+        (SheetTeam("Sample team", "Sample club", .8, 7, state="Texas", entrant_id="team"),),
+        (),
+    )
+
+    document = render_sheet_html(
+        "Sample Cup", [cohort], generated_on="2026-09-25", ranking_run="2026-09-22"
+    )
+    payload = build_seeding_workbook(
+        "Sample Cup", [cohort], generated_on="2026-09-25", ranking_run="2026-09-22"
+    )
+
+    assert "TX #7" in document
+    assert "Texas #7" not in document
+    assert load_workbook(BytesIO(payload)).active["E7"].value == "TX #7"
