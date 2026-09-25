@@ -77,6 +77,12 @@ shell_path() {
   fi
 }
 
+has_shell_path_syntax() {
+  local path=$1
+  [[ $path == *'$'* || $path == *'`'* || $path == '~'* || $path == *'*'* || $path == *'?'* ||
+    $path == *'['* || $path == *'<'* || $path == *'>'* || $path == *'%'* ]]
+}
+
 execution_dir_for_segment() {
   local segment=$1 target=$2 honor_work_tree=$3
   local i token value work_tree= seen_git=false
@@ -159,6 +165,9 @@ while IFS= read -r segment; do
       case "$arg" in --|-*) ;; *) remove_target=$(shell_path "$arg"); break ;; esac
     done
     if [ -n "$remove_target" ]; then
+      if has_shell_path_syntax "$remove_target"; then
+        deny "BLOCKED: git worktree remove requires a literal target path so frontend/node_modules can be inspected before removal."
+      fi
       case "$remove_target" in
         /*|[A-Za-z]:*) ;;
         *)
@@ -168,6 +177,9 @@ while IFS= read -r segment; do
           ;;
       esac
       remove_base=$(execution_dir_for_segment "$segment" "$guard_cwd" false)
+      if has_shell_path_syntax "$remove_base"; then
+        deny "BLOCKED: git worktree remove requires a literal git -C path so frontend/node_modules can be inspected before removal."
+      fi
       case "$remove_target" in /*|[A-Za-z]:*) ;; *) remove_target="$remove_base/$remove_target" ;; esac
       modules="$remove_target/frontend/node_modules"
       if is_reparse_point "$modules"; then
@@ -197,8 +209,14 @@ while IFS= read -r segment; do
         deny "BLOCKED: git clean -x/-X cannot use Git environment, git-dir, or config overrides because they can hide the cleaned tree. Use git -C and --work-tree explicitly."
       fi
       clean_cwd=$(execution_dir_for_segment "$segment" "$guard_cwd" true)
+      if has_shell_path_syntax "$clean_cwd"; then
+        deny "BLOCKED: git clean -x/-X requires literal -C and --work-tree paths so the cleaned tree can be verified."
+      fi
       clean_root=$(git -C "$clean_cwd" rev-parse --show-toplevel 2>/dev/null)
       clean_root=$(shell_path "$clean_root")
+      if [ -z "$clean_root" ]; then
+        deny "BLOCKED: git clean -x/-X target could not be resolved to a repository."
+      fi
       if [ -n "$clean_root" ] && [ -d "$clean_root/.git" ]; then
         deny "BLOCKED: git clean -x/-X in the primary checkout can erase ignored worktrees, dependencies, and scratch files. Run it only in a disposable linked worktree."
       fi

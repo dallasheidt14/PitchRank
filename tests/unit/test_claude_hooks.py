@@ -273,6 +273,12 @@ def test_git_guard_blocks_worktree_remove_when_node_modules_is_linked(tmp_path: 
         assert skipped_cd.returncode == 2, skipped_cd.stderr
         failed_cd = _bash(f'cd "{(tmp_path / "missing").as_posix()}"; git worktree remove "{relative}"', root)
         assert failed_cd.returncode == 2, failed_cd.stderr
+        expanded_target = _bash(f'WT="{worktree.as_posix()}"; git worktree remove --force "$WT"', root)
+        assert expanded_target.returncode == 2, expanded_target.stderr
+        assert "literal target path" in expanded_target.stderr
+        expanded_base = _bash(f'BASE="{root.as_posix()}"; git -C "$BASE" worktree remove "{relative}"', root)
+        assert expanded_base.returncode == 2, expanded_base.stderr
+        assert "literal git -C path" in expanded_base.stderr
         assert sentinel.read_text() == "shared dependency\n"
     finally:
         _unlink_directory(modules)
@@ -317,6 +323,12 @@ def test_git_guard_allows_ignored_file_cleanup_in_linked_worktree(tmp_path: Path
             f'env GIT_WORK_TREE="{root.as_posix()}" git -C "{worktree.as_posix()}" clean -fdx', root, cwd=worktree
         )
         assert wrapped_env_work_tree.returncode == 2, wrapped_env_work_tree.stderr
+        expanded_clean = _bash(f'ROOT="{root.as_posix()}"; git -C "$ROOT" clean -fdx', root, cwd=worktree)
+        assert expanded_clean.returncode == 2, expanded_clean.stderr
+        assert "literal -C" in expanded_clean.stderr
+        unresolved_clean = _bash('git -C "missing-repository" clean -fdx', root, cwd=worktree)
+        assert unresolved_clean.returncode == 2, unresolved_clean.stderr
+        assert "could not be resolved" in unresolved_clean.stderr
         followed_by_cd = _bash(f'git clean -fdx && cd "{worktree.as_posix()}"', root, cwd=root)
         assert followed_by_cd.returncode == 2, followed_by_cd.stderr
         second_clean = _bash(f'git -C "{worktree.as_posix()}" clean -fdx && git clean -fdx', root, cwd=root)
