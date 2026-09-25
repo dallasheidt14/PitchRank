@@ -27,7 +27,8 @@ app._render_seeding_tab(None)
 
 
 @pytest.fixture
-def operator(monkeypatch):
+def operator(monkeypatch, tmp_path):
+    monkeypatch.setattr(intake, "default_seeding_base_dir", lambda: tmp_path)
     monkeypatch.setattr(intake, "list_seeding_runs", lambda: [])
     monkeypatch.setattr(intake, "_autosave_seeding_run", lambda **_kwargs: True)
     monkeypatch.setattr(intake, "_render_seeding_event_scrape", lambda *_args: None)

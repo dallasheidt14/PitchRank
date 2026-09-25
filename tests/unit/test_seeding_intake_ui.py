@@ -10,6 +10,7 @@ from src.tournaments import seeding_intake_ui as ui
 from src.tournaments.compare_predictor_bridge import ComparePrediction
 from src.tournaments.roster_paste import parse_roster
 from src.tournaments.seeding_predictions import SeedingPredictionBatch
+from src.tournaments.seeding_run_store import PackRecovery
 
 APP = '''
 import streamlit as st
@@ -278,13 +279,14 @@ def test_selecting_cohorts_requires_new_pack_and_failed_refresh_preserves_snapsh
     assert "Database temporarily unavailable" in app.error[0].value
 
 
-def test_narrowing_cohorts_preserves_only_selected_notes_and_policy(operator):
+def test_narrowing_cohorts_keeps_every_cohorts_notes_and_policy(operator):
     app, calls = operator
     click(app, "Build seeding sheets")
     app.text_area[0].set_value("Boys placement notes")
     next(button for button in app.button if button.label == "Save director notes").click().run()
     app.text_area[1].set_value("Girls placement notes")
     [button for button in app.button if button.label == "Save director notes"][1].click().run()
+    app.session_state["_seeding_pack"]["placement_reviews"] = {"u15|Female": "f" * 64}
     original = deepcopy(app.session_state["_seeding_pack"])
     assert original["operator_notes"] == {"u14|Male": "Boys placement notes", "u15|Female": "Girls placement notes"}
     app.radio[0].set_value("Choose cohorts").run()
@@ -292,7 +294,8 @@ def test_narrowing_cohorts_preserves_only_selected_notes_and_policy(operator):
     click(app, "Build seeding sheets")
     assert not app.error
     rebuilt = app.session_state["_seeding_pack"]
-    assert rebuilt["operator_notes"] == {"u14|Male": "Boys placement notes"}
+    assert rebuilt["operator_notes"] == {"u14|Male": "Boys placement notes", "u15|Female": "Girls placement notes"}
+    assert rebuilt["placement_reviews"] == {"u15|Female": "f" * 64}
     from io import BytesIO
     from openpyxl import load_workbook
     workbook = load_workbook(BytesIO(app.session_state["_seeding_xlsx"]))
@@ -303,6 +306,9 @@ def test_narrowing_cohorts_preserves_only_selected_notes_and_policy(operator):
     assert len(calls) == 2
     assert "Boys placement notes" in app.session_state["_seeding_sheet_html"]
     assert "Girls placement notes" not in app.session_state["_seeding_sheet_html"]
+    app.multiselect[0].set_value(["u14|Male", "u15|Female"]).run()
+    click(app, "Build seeding sheets")
+    assert "Girls placement notes" in app.session_state["_seeding_sheet_html"]
 
 
 def test_unknown_gender_and_girls_cohort_build_together(operator):
@@ -600,3 +606,317 @@ def test_malformed_snapshot_shows_rebuild_message_instead_of_crashing(operator, 
     app.run()
     assert not app.exception
     assert any("needs rebuilding" in message.value for message in app.error)
+
+
+# -------- a build a click interrupts --------------------------------------
+
+
+_INTERRUPTED = "A build finished but was interrupted before it was saved."
+
+
+def _offered(app):
+    return _INTERRUPTED in [warning.value for warning in app.warning]
+
+
+def _recovery_app(store):
+    code = APP.replace(
+        "from src.tournaments.seeding_intake_ui import render_seeding_pack",
+        "from src.tournaments.seeding_intake_ui import render_seeding_pack\n"
+        "from src.tournaments.seeding_run_store import PackRecovery",
+    ).replace(
+        'event_name="Acceptance Cup", save=save)',
+        f'event_name="Acceptance Cup", save=save, recovery=PackRecovery("Acceptance Cup", {str(store)!r}))',
+    )
+    return AppTest.from_string(code, default_timeout=15).run()
+
+
+def _fresh_stamps(monkeypatch, *stamps):
+    """Give each build its own snapshot time, as the live predictor does."""
+    load = ui.load_seeding_predictions
+    queue = list(stamps)
+
+    def stamped(*args, **kwargs):
+        return replace(load(*args, **kwargs), generated_at=queue.pop(0))
+
+    monkeypatch.setattr(ui, "load_seeding_predictions", stamped)
+
+
+def _interrupt_the_next_build(monkeypatch):
+    """Queue a rerun mid-build so the run is abandoned before its pack is stored.
+
+    AppTest reruns on the same thread, so the offer shows on the page that
+    follows; a browser's fast rerun starts that page before the build finishes,
+    and the offer waits for the next interaction.
+    """
+    from streamlit.runtime.scriptrunner_utils.script_requests import RerunData
+    from streamlit.runtime.scriptrunner_utils.script_run_context import get_script_run_ctx
+
+    load = ui.load_seeding_predictions
+    fired = []
+
+    def interrupted(*args, **kwargs):
+        if not fired:
+            fired.append(True)
+            get_script_run_ctx().script_requests.request_rerun(RerunData())
+        return load(*args, **kwargs)
+
+    monkeypatch.setattr(ui, "load_seeding_predictions", interrupted)
+    return fired
+
+
+def test_a_build_a_click_interrupts_is_kept_and_offered_back(operator, monkeypatch, tmp_path):
+    _app, calls = operator
+    fired = _interrupt_the_next_build(monkeypatch)
+    app = _recovery_app(tmp_path)
+    next(button for button in app.button if button.label == "Build seeding sheets").click().run()
+
+    assert fired and "_seeding_pack" not in app.session_state
+    recovery_file = tmp_path / "acceptance-cup" / "pack_recovery.json"
+    assert recovery_file.exists()
+    assert _offered(app)
+    app.radio[0].set_value("Choose cohorts").run()
+    app.multiselect[0].set_value(["u14|Male"]).run()
+    click(app, "Restore the interrupted build")
+    assert app.radio[0].value == "All imported cohorts"
+    assert app.session_state["_seeding_pack"]["generated_at"] == "2026-09-15T10:00:00+00:00"
+    assert app.session_state["saved_count"] == 1
+    assert not recovery_file.exists()
+    assert not _offered(app)
+    assert app.session_state["_seeding_sheet_html"]
+    assert len(calls) == 1
+
+
+def test_restoring_a_narrowed_build_selects_its_cohorts(operator, monkeypatch, tmp_path):
+    _interrupt_the_next_build(monkeypatch)
+    app = _recovery_app(tmp_path)
+    app.radio[0].set_value("Choose cohorts").run()
+    app.multiselect[0].set_value(["u14|Male"]).run()
+    next(button for button in app.button if button.label == "Build seeding sheets").click().run()
+    app.multiselect[0].set_value(["u14|Male", "u15|Female"]).run()
+    click(app, "Restore the interrupted build")
+
+    assert app.session_state["_seeding_pack"]["selected_cohorts"] == ["u14|Male"]
+    assert app.radio[0].value == "Choose cohorts"
+    assert app.multiselect[0].value == ["u14|Male"]
+    assert app.session_state["_seeding_sheet_html"]
+
+
+def test_discarding_an_interrupted_build_keeps_the_saved_pack(operator, monkeypatch, tmp_path):
+    _interrupt_the_next_build(monkeypatch)
+    app = _recovery_app(tmp_path)
+    next(button for button in app.button if button.label == "Build seeding sheets").click().run()
+    click(app, "Discard it")
+
+    assert "_seeding_pack" not in app.session_state
+    assert not (tmp_path / "acceptance-cup" / "pack_recovery.json").exists()
+    assert not _offered(app)
+
+
+def test_a_build_that_finishes_leaves_nothing_to_restore(operator, tmp_path):
+    app = _recovery_app(tmp_path)
+    click(app, "Build seeding sheets")
+
+    assert app.session_state["_seeding_pack"]["generated_at"] == "2026-09-15T10:00:00+00:00"
+    assert not (tmp_path / "acceptance-cup" / "pack_recovery.json").exists()
+    assert not _offered(app)
+
+
+def test_a_kept_build_no_newer_than_the_saved_pack_is_dropped_unseen(operator, tmp_path):
+    from src.tournaments.seeding_run_store import PackRecovery
+
+    app = _recovery_app(tmp_path)
+    click(app, "Build seeding sheets")
+    PackRecovery("Acceptance Cup", tmp_path).write(deepcopy(app.session_state["_seeding_pack"]))
+    app.run()
+
+    assert not _offered(app)
+    assert not (tmp_path / "acceptance-cup" / "pack_recovery.json").exists()
+
+
+def test_a_kept_build_for_a_different_roster_is_dropped_unseen(operator, tmp_path):
+    from src.tournaments.seeding_run_store import PackRecovery
+
+    app = _recovery_app(tmp_path)
+    click(app, "Build seeding sheets")
+    stale = deepcopy(app.session_state["_seeding_pack"])
+    stale["generated_at"] = "2026-09-16T10:00:00+00:00"
+    stale["roster_fingerprint"] = "another roster"
+    PackRecovery("Acceptance Cup", tmp_path).write(stale)
+    app.run()
+
+    assert not _offered(app)
+    assert not (tmp_path / "acceptance-cup" / "pack_recovery.json").exists()
+
+
+def test_a_build_whose_sheets_fail_is_not_offered_back(operator, monkeypatch, tmp_path):
+    app = _recovery_app(tmp_path)
+    monkeypatch.setattr(ui, "build_seeding_workbook", lambda *_a, **_k: (_ for _ in ()).throw(ValueError("bad sheet")))
+    click(app, "Build seeding sheets")
+
+    assert "_seeding_pack" not in app.session_state
+    assert not (tmp_path / "acceptance-cup" / "pack_recovery.json").exists()
+
+
+def test_the_seeding_tab_keeps_builds_beside_its_named_run(monkeypatch, tmp_path):
+    import tournament_intake as intake
+
+    seen = []
+    monkeypatch.setattr(intake, "render_seeding_pack", lambda *_args, **kwargs: seen.append(kwargs["recovery"]))
+    monkeypatch.setattr(intake, "default_seeding_base_dir", lambda: tmp_path)
+    monkeypatch.setattr(intake, "_seeding_run_name", lambda: "Spring Cup")
+    intake._render_seeding_sheet(None, (), None)
+    monkeypatch.setattr(intake, "_seeding_run_name", lambda: "")
+    intake._render_seeding_sheet(None, (), None)
+
+    assert seen[0].path == tmp_path / "spring-cup" / "pack_recovery.json"
+    assert seen[1] is None
+
+
+def test_an_interrupted_rebuild_replaces_the_saved_pack_on_restore(operator, monkeypatch, tmp_path):
+    _fresh_stamps(monkeypatch, "2026-09-15T11:00:00+00:00", "2026-09-15T12:00:00+00:00")
+    app = _recovery_app(tmp_path)
+    click(app, "Build seeding sheets")
+    _interrupt_the_next_build(monkeypatch)
+    next(button for button in app.button if button.label == "Build seeding sheets").click().run()
+
+    assert app.session_state["_seeding_pack"]["generated_at"] == "2026-09-15T11:00:00+00:00"
+    assert _offered(app)
+    click(app, "Restore the interrupted build")
+    assert app.session_state["_seeding_pack"]["generated_at"] == "2026-09-15T12:00:00+00:00"
+    assert not (tmp_path / "acceptance-cup" / "pack_recovery.json").exists()
+
+
+def test_discarding_an_interrupted_rebuild_keeps_the_saved_pack(operator, monkeypatch, tmp_path):
+    _fresh_stamps(monkeypatch, "2026-09-15T11:00:00+00:00", "2026-09-15T12:00:00+00:00")
+    app = _recovery_app(tmp_path)
+    click(app, "Build seeding sheets")
+    _interrupt_the_next_build(monkeypatch)
+    next(button for button in app.button if button.label == "Build seeding sheets").click().run()
+    click(app, "Discard it")
+
+    assert app.session_state["_seeding_pack"]["generated_at"] == "2026-09-15T11:00:00+00:00"
+    assert not (tmp_path / "acceptance-cup" / "pack_recovery.json").exists()
+
+
+def test_a_note_saved_while_the_build_ran_survives_its_restore(operator, monkeypatch, tmp_path):
+    _fresh_stamps(monkeypatch, "2026-09-15T11:00:00+00:00", "2026-09-15T12:00:00+00:00")
+    app = _recovery_app(tmp_path)
+    click(app, "Build seeding sheets")
+    _interrupt_the_next_build(monkeypatch)
+    next(button for button in app.button if button.label == "Build seeding sheets").click().run()
+    app.text_area[0].set_value("Note written after the interrupted build")
+    next(button for button in app.button if button.label == "Save director notes").click().run()
+    app.session_state["_seeding_pack"]["placement_reviews"] = {"u14|Male": "e" * 64}
+    click(app, "Restore the interrupted build")
+
+    restored = app.session_state["_seeding_pack"]
+    assert restored["generated_at"] == "2026-09-15T12:00:00+00:00"
+    assert restored["operator_notes"]["u14|Male"] == "Note written after the interrupted build"
+    assert restored["placement_reviews"] == {"u14|Male": "e" * 64}
+
+
+def test_a_restore_whose_save_fails_keeps_the_build_until_a_save_lands(operator, monkeypatch, tmp_path):
+    _interrupt_the_next_build(monkeypatch)
+    app = _recovery_app(tmp_path)
+    next(button for button in app.button if button.label == "Build seeding sheets").click().run()
+    app.session_state["test_save_succeeds"] = False
+    click(app, "Restore the interrupted build")
+    recovery_file = tmp_path / "acceptance-cup" / "pack_recovery.json"
+
+    assert app.session_state["_seeding_pack_unsaved"] is True
+    assert recovery_file.exists()
+    app.run()
+    assert recovery_file.exists()
+    app.session_state["test_save_succeeds"] = True
+    click(app, "Retry saving pack")
+    assert not recovery_file.exists()
+
+
+def test_a_build_whose_save_fails_keeps_its_recovery(operator, tmp_path):
+    app = _recovery_app(tmp_path)
+    app.session_state["test_save_succeeds"] = False
+    click(app, "Build seeding sheets")
+
+    assert app.session_state["_seeding_pack_unsaved"] is True
+    assert (tmp_path / "acceptance-cup" / "pack_recovery.json").exists()
+    assert not _offered(app)
+
+
+def test_a_rerun_between_storing_and_saving_the_pack_keeps_its_recovery(operator, monkeypatch, tmp_path):
+    from streamlit.runtime.scriptrunner_utils.script_requests import RerunData
+    from streamlit.runtime.scriptrunner_utils.script_run_context import get_script_run_ctx
+
+    persist = ui._persist_decisions
+    fired = []
+
+    def interrupted(save):
+        if not fired:
+            fired.append(True)
+            get_script_run_ctx().script_requests.request_rerun(RerunData())
+        persist(save)
+
+    monkeypatch.setattr(ui, "_persist_decisions", interrupted)
+    app = _recovery_app(tmp_path)
+    next(button for button in app.button if button.label == "Build seeding sheets").click().run()
+
+    assert fired and "saved_count" not in app.session_state
+    assert app.session_state["_seeding_pack_unsaved"] is True
+    assert (tmp_path / "acceptance-cup" / "pack_recovery.json").exists()
+
+
+def test_a_restored_build_whose_sheets_fail_keeps_the_saved_pack(operator, monkeypatch, tmp_path):
+    _fresh_stamps(monkeypatch, "2026-09-15T11:00:00+00:00", "2026-09-15T12:00:00+00:00")
+    app = _recovery_app(tmp_path)
+    click(app, "Build seeding sheets")
+    _interrupt_the_next_build(monkeypatch)
+    next(button for button in app.button if button.label == "Build seeding sheets").click().run()
+    saved_count = app.session_state["saved_count"]
+    monkeypatch.setattr(ui, "build_seeding_workbook", lambda *_a, **_k: (_ for _ in ()).throw(ValueError("bad sheet")))
+    click(app, "Restore the interrupted build")
+
+    assert app.session_state["_seeding_pack"]["generated_at"] == "2026-09-15T11:00:00+00:00"
+    assert app.session_state["saved_count"] == saved_count
+    assert not (tmp_path / "acceptance-cup" / "pack_recovery.json").exists()
+
+
+def test_a_note_changed_while_the_build_ran_keeps_its_newer_text_on_restore(operator, monkeypatch, tmp_path):
+    _fresh_stamps(monkeypatch, "2026-09-15T11:00:00+00:00", "2026-09-15T12:00:00+00:00")
+    app = _recovery_app(tmp_path)
+    click(app, "Build seeding sheets")
+    app.text_area[0].set_value("Note before the rebuild")
+    next(button for button in app.button if button.label == "Save director notes").click().run()
+    app.session_state["_seeding_pack"]["placement_reviews"] = {"u14|Male": "a" * 64}
+    _interrupt_the_next_build(monkeypatch)
+    next(button for button in app.button if button.label == "Build seeding sheets").click().run()
+    kept = PackRecovery("Acceptance Cup", tmp_path).load()
+    assert kept["operator_notes"]["u14|Male"] == "Note before the rebuild"
+    assert kept["placement_reviews"] == {"u14|Male": "a" * 64}
+    app.text_area[0].set_value("Note changed during the rebuild")
+    next(button for button in app.button if button.label == "Save director notes").click().run()
+    app.session_state["_seeding_pack"]["placement_reviews"] = {"u14|Male": "b" * 64}
+    click(app, "Restore the interrupted build")
+
+    restored = app.session_state["_seeding_pack"]
+    assert restored["generated_at"] == "2026-09-15T12:00:00+00:00"
+    assert restored["operator_notes"]["u14|Male"] == "Note changed during the rebuild"
+    assert restored["placement_reviews"] == {"u14|Male": "b" * 64}
+
+
+def test_a_failing_rebuild_hands_the_recovery_back_to_the_unsaved_pack(operator, monkeypatch, tmp_path):
+    _fresh_stamps(monkeypatch, "2026-09-15T11:00:00+00:00", "2026-09-15T12:00:00+00:00")
+    app = _recovery_app(tmp_path)
+    app.session_state["test_save_succeeds"] = False
+    click(app, "Build seeding sheets")
+    monkeypatch.setattr(ui, "build_seeding_workbook", lambda *_a, **_k: (_ for _ in ()).throw(ValueError("bad sheet")))
+    click(app, "Build seeding sheets")
+
+    assert app.session_state["_seeding_pack"]["generated_at"] == "2026-09-15T11:00:00+00:00"
+    assert PackRecovery("Acceptance Cup", tmp_path).load()["generated_at"] == "2026-09-15T11:00:00+00:00"
+
+
+def test_the_seeding_app_does_not_warn_when_restore_sets_the_pickers():
+    import tomllib
+    from pathlib import Path
+
+    config = tomllib.loads((Path(__file__).resolve().parents[2] / ".streamlit" / "config.toml").read_text("utf-8"))
+    assert config["global"]["disableWidgetStateDuplicationWarning"] is True

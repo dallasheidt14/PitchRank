@@ -29,13 +29,14 @@ from src.tournaments.seeding_pack import (
     pack_matches,
     placement_review_fingerprint,
     prediction_request,
+    snapshot_matches_roster,
     snapshot_ratings,
     team_ids_by_row,
     upgrade_pack_analysis,
 )
 from src.tournaments.seeding_pdf import SeedingPdfError, render_seeding_pdf
 from src.tournaments.seeding_predictions import load_seeding_predictions, seeding_predictor_sha256
-from src.tournaments.seeding_run_store import slugify
+from src.tournaments.seeding_run_store import PackRecovery, slugify
 from src.tournaments.seeding_sheet import CohortSheet, build_cohort_sheets, make_ratings_lookup, render_sheet_html
 from src.tournaments.seeding_tiers import DATA_REVIEW, NO_CURRENT_RATING, NOT_FOUND
 from src.tournaments.seeding_workbook import build_seeding_workbook, validate_seeding_workbook, workbook_sheet_titles
@@ -83,6 +84,56 @@ def invalidate_seeding_exports(state: Any = None) -> None:
 
 def _persist_decisions(save: Callable[[], bool]) -> None:
     st.session_state["_seeding_pack_unsaved"] = not save()
+
+
+def _offer_interrupted_build(
+    recovery: PackRecovery, parsed: ParsedRoster, resolved: Sequence[ResolvedTeam],
+    overrides: Mapping[int, dict[str, Any]], pack: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Offer back a finished build that a rerun cut off; return it when the operator restores it.
+
+    The returned pack still has to pass the same export checks as a fresh build
+    before it replaces the saved one.
+    """
+    recovered = recovery.load()
+    if recovered is None:
+        return None
+    saved_at = str((pack or {}).get("generated_at") or "")
+    if (
+        not snapshot_matches_roster(recovered, parsed.rows, resolved, overrides)
+        or str(recovered.get("generated_at") or "") <= saved_at
+    ):
+        # A pack in memory whose save failed may be this very build, so the
+        # file stays until a save lands.
+        if not st.session_state.get("_seeding_pack_unsaved"):
+            recovery.clear()
+        return None
+    slot = st.empty()
+    with slot.container():
+        st.warning("A build finished but was interrupted before it was saved.")
+        restore, discard = st.columns(2)
+        restoring = restore.button("Restore the interrupted build", key="_seeding_restore_build")
+        discarding = discard.button("Discard it", key="_seeding_discard_build")
+    if discarding:
+        recovery.clear()
+        st.rerun()
+    if not restoring:
+        return None
+    slot.empty()
+    restored = dict(recovered)
+    if isinstance(pack, dict):
+        # Notes and reviews saved while the build ran are newer than its copy.
+        restored["operator_notes"] = {**recovered.get("operator_notes", {}), **pack.get("operator_notes", {})}
+        if isinstance(pack.get("placement_reviews"), dict):
+            restored["placement_reviews"] = {**recovered.get("placement_reviews", {}), **pack["placement_reviews"]}
+    # A keyed multiselect keeps the browser's value when only its default
+    # changes, so the pickers are set outright.
+    selection = list(restored["selected_cohorts"])
+    st.session_state["_seeding_pack_scope"] = (
+        "All imported cohorts" if set(selection) == set(available_cohorts(parsed.rows)) else "Choose cohorts"
+    )
+    st.session_state["_seeding_pack_cohorts"] = selection
+    return restored
 
 
 def _selected_cohorts(parsed: ParsedRoster, saved: dict[str, Any] | None) -> list[str]:
@@ -286,7 +337,7 @@ def _render_analysis_details(selected: Sequence[str], analyses: Mapping, pack: d
 
 def render_seeding_pack(
     parsed: ParsedRoster, resolved: Sequence[ResolvedTeam], supabase_client: Any, *,
-    event_name: str, save: Callable[[], bool],
+    event_name: str, save: Callable[[], bool], recovery: PackRecovery | None = None,
 ) -> None:
     st.markdown("#### Competitive seeding sheets")
     st.caption(
@@ -306,7 +357,8 @@ def render_seeding_pack(
         if st.button("Retry saving pack", key="_seeding_retry_pack_save"):
             _persist_decisions(save)
             st.rerun()
-    selected = _selected_cohorts(parsed, pack)
+    restored = _offer_interrupted_build(recovery, parsed, resolved, overrides, pack) if recovery else None
+    selected = _selected_cohorts(parsed, restored or pack)
     selected_rows = [row for row in parsed.rows if cohort_key(row.section_age_group, row.section_gender) in selected]
     st.caption(f"Selected: {len(selected)} cohort(s), {len(selected_rows)} accepted teams. "
                "Unmatched teams stay in the pack.")
@@ -315,8 +367,10 @@ def render_seeding_pack(
     if pack:
         st.caption("Rebuilding reads fresh data while preserving director notes and roster decisions.")
 
-    pending_replacement = False
+    pending_replacement = restored is not None
     pending_upgrade = False
+    if restored is not None:
+        pack = restored
     if st.button("Build seeding sheets", type="primary", key="_seeding_build_tiers"):
         try:
             with st.spinner("Reading current team data and comparing every matchup..."):
@@ -331,17 +385,19 @@ def render_seeding_pack(
                     # Rebuilds refresh predictions but preserve operator choices
                     # that are independent of the predictor snapshot.
                     candidate["policy"] = dict(pack.get("policy", candidate["policy"]))
-                    candidate["operator_notes"] = {
-                        key: note for key, note in pack.get("operator_notes", {}).items() if key in selected
-                    }
+                    # Every cohort's notes and reviews carry forward, selected or not;
+                    # a review only counts while its fingerprint still matches.
+                    candidate["operator_notes"] = dict(pack.get("operator_notes", {}))
                     if isinstance(pack.get("placement_reviews"), dict):
-                        candidate["placement_reviews"] = {
-                            key: value for key, value in pack["placement_reviews"].items() if key in selected
-                        }
+                        candidate["placement_reviews"] = dict(pack["placement_reviews"])
                     candidate["legacy_manual_groups"] = dict(
                         pack.get("legacy_manual_groups", pack.get("manual_groups", {}))
                     )
                 analyze_pack(candidate, parsed.rows, resolved, overrides)
+                # A click during the build reruns the script before the pack reaches
+                # session state, so the file is written before anything can yield.
+                if recovery is not None:
+                    recovery.write(candidate)
                 pack = candidate
                 pending_replacement = True
         except Exception as exc:
@@ -433,6 +489,13 @@ def render_seeding_pack(
     except Exception as exc:
         invalidate_seeding_exports()
         st.error(f"Could not prepare the director sheets. Your previous saved pack is preserved: {exc}")
+        if pending_replacement and recovery is not None:
+            # The failed build gives up the slot: to a pack still waiting on a failed save, or to nothing.
+            waiting = st.session_state.get(_PACK_KEY)
+            if st.session_state.get("_seeding_pack_unsaved") and isinstance(waiting, dict):
+                recovery.write(waiting)
+            else:
+                recovery.clear()
         saved_pack = st.session_state.get(_PACK_KEY)
         if isinstance(saved_pack, dict):
             for key in selected:
@@ -441,9 +504,14 @@ def render_seeding_pack(
                     _render_director_notes(key, saved_pack, save)
         return
     if pending_replacement:
+        # Marked unsaved first, so a rerun between here and the save leaves the
+        # retry banner and the recovery file in place.
+        st.session_state["_seeding_pack_unsaved"] = True
         st.session_state[_PACK_KEY] = pack
         invalidate_seeding_exports()
         _persist_decisions(save)
+        if recovery is not None and not st.session_state.get("_seeding_pack_unsaved"):
+            recovery.clear()
         if pending_upgrade:
             st.caption("Sheet guidance updated using saved predictions. Team choices and director notes are preserved.")
     if st.session_state.get("_seeding_export_fingerprint") != content_hash:

@@ -225,10 +225,15 @@ def _snapshot_predictions(
         not isinstance(value, dict) for value in pack["ratings"].values()
     ):
         raise ValueError("Seeding snapshot has invalid ratings.")
-    for section in ("manual_groups", "operator_notes", "unavailable_codes"):
+    for section in ("manual_groups", "unavailable_codes"):
         if not isinstance(pack.get(section, {}), dict) or not set(pack.get(section, {})).issubset(request):
             raise ValueError(f"Seeding snapshot has invalid {section} cohort coverage.")
-    if any(not isinstance(note, str) for note in pack.get("operator_notes", {}).values()):
+    # Notes may name a cohort outside this selection: a narrowed rebuild keeps
+    # them so they come back when the cohort is selected again.
+    notes = pack.get("operator_notes", {})
+    if not isinstance(notes, dict) or any(
+        not isinstance(key, str) or not isinstance(note, str) for key, note in notes.items()
+    ):
         raise ValueError("Seeding snapshot has invalid placement notes.")
     codes = pack.get("unavailable_codes", {})
     try:

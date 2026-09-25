@@ -111,6 +111,14 @@ def test_saved_analysis_upgrade_preserves_prediction_and_operator_choices_withou
     assert old["operator_notes"]["u12|Male"] == "Keep the director's exact note."
 
 
+def test_a_note_for_a_cohort_outside_the_selection_survives_an_upgrade():
+    old = _pack()
+    old["analysis_schema_version"] = 1
+    old["operator_notes"] = {"u15|Female": "Girls placement notes"}
+    upgraded = upgrade_pack_analysis(old, ROWS, RESOLVED, {}, ["u12|Male"], predictor_sha256="a" * 64)
+    assert upgraded["operator_notes"] == {"u15|Female": "Girls placement notes"}
+
+
 @pytest.mark.parametrize("corruption", ["prediction", "team", "policy", "notes", "roster", "version"])
 def test_upgrade_rejects_invalid_snapshot_without_replacing_old_pack(corruption):
     old = _pack()
@@ -122,7 +130,7 @@ def test_upgrade_rejects_invalid_snapshot_without_replacing_old_pack(corruption)
     elif corruption == "policy":
         old["policy"]["max_expected_margin"] = 0
     elif corruption == "notes":
-        old["operator_notes"] = {"u15|Female": "Omitted cohort"}
+        old["operator_notes"] = ["not", "a", "mapping"]
     elif corruption == "roster":
         old["roster_fingerprint"] = "stale"
     else:

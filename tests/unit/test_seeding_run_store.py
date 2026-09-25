@@ -18,6 +18,7 @@ import src.tournaments.seeding_run_store as seeding_run_store
 from src.tournaments.roster_paste import parse_roster
 from src.tournaments.roster_resolver import ResolvedTeam
 from src.tournaments.seeding_run_store import (
+    PackRecovery,
     SeedingRun,
     list_runs,
     load_run,
@@ -480,3 +481,44 @@ def test_a_paste_and_an_event_are_different_runs(tmp_path, saved_url, new_url):
 
     with pytest.raises(seeding_run_store.RunSourceChanged):
         save_run(_event_run(new_url), base_dir=tmp_path)
+
+
+# -------- interrupted-build recovery --------------------------------------
+
+
+def test_a_kept_build_reads_back_for_its_own_run(tmp_path):
+    recovery = PackRecovery("Spring Cup", tmp_path)
+
+    assert recovery.write({"generated_at": "2026-09-15T10:00:00+00:00"}) is True
+    assert recovery.path == tmp_path / "spring-cup" / "pack_recovery.json"
+    assert recovery.load() == {"generated_at": "2026-09-15T10:00:00+00:00"}
+
+
+def test_a_kept_build_is_not_written_into_another_runs_folder(tmp_path):
+    save_run(SeedingRun(name="Spring Cup", rows=(), resolved=()), base_dir=tmp_path)
+
+    assert PackRecovery("spring cup", tmp_path).write({"generated_at": "x"}) is False
+    assert not (tmp_path / "spring-cup" / "pack_recovery.json").exists()
+
+
+def test_a_kept_build_for_another_name_is_not_offered(tmp_path):
+    PackRecovery("Spring Cup", tmp_path).write({"generated_at": "x"})
+
+    assert PackRecovery("spring cup", tmp_path).load() is None
+
+
+def test_clearing_removes_the_kept_build_and_tolerates_none(tmp_path):
+    recovery = PackRecovery("Spring Cup", tmp_path)
+    recovery.clear()
+    recovery.write({"generated_at": "x"})
+    recovery.clear()
+
+    assert recovery.load() is None
+    assert not recovery.path.exists()
+
+
+def test_an_unwritable_store_reports_the_build_was_not_kept(tmp_path):
+    blocker = tmp_path / "store"
+    blocker.write_text("a file where the folder should be", encoding="utf-8")
+
+    assert PackRecovery("Spring Cup", blocker).write({"generated_at": "x"}) is False

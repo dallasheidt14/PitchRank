@@ -1,3 +1,8 @@
+[global]
+# Restoring an interrupted Seeding build sets its cohort pickers through session
+# state; the pickers still carry a default for a fresh page, which is intended.
+disableWidgetStateDuplicationWarning = true
+
 [theme]
 primaryColor = "#1f77b4"
 backgroundColor = "#FFFFFF"
