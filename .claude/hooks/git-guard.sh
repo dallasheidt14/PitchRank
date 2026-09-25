@@ -139,6 +139,10 @@ clean_re="${git_cmd}clean[[:space:]]+([^;&|()]*)"
 # unambiguous `git -C <path> clean ...` form whenever a command also contains cd.
 has_cd=false
 [[ $stripped =~ $cd_re ]] && has_cd=true
+has_git_context_override=false
+if [[ $stripped =~ (^|[[:space:];&|])GIT_[A-Za-z0-9_]*= ]] || [[ $stripped =~ git[[:space:]].*(--git-dir|-c[[:space:]]|--config-env) ]]; then
+  has_git_context_override=true
+fi
 
 while IFS= read -r segment; do
   [ -n "$segment" ] || continue
@@ -155,6 +159,14 @@ while IFS= read -r segment; do
       case "$arg" in --|-*) ;; *) remove_target=$(shell_path "$arg"); break ;; esac
     done
     if [ -n "$remove_target" ]; then
+      case "$remove_target" in
+        /*|[A-Za-z]:*) ;;
+        *)
+          if $has_cd; then
+            deny "BLOCKED: a relative git worktree remove target cannot be combined with cd. Run it separately, use an absolute target, or use git -C <path>."
+          fi
+          ;;
+      esac
       remove_base=$(execution_dir_for_segment "$segment" "$guard_cwd" false)
       case "$remove_target" in /*|[A-Za-z]:*) ;; *) remove_target="$remove_base/$remove_target" ;; esac
       modules="$remove_target/frontend/node_modules"
@@ -180,6 +192,9 @@ while IFS= read -r segment; do
     if $cleans_ignored; then
       if $has_cd; then
         deny "BLOCKED: git clean -x/-X cannot be combined with cd because shell control flow can hide the checkout. Run it separately or use git -C <path> clean."
+      fi
+      if $has_git_context_override || [ -n "${GIT_WORK_TREE:-}" ] || [ -n "${GIT_DIR:-}" ]; then
+        deny "BLOCKED: git clean -x/-X cannot use Git environment, git-dir, or config overrides because they can hide the cleaned tree. Use git -C and --work-tree explicitly."
       fi
       clean_cwd=$(execution_dir_for_segment "$segment" "$guard_cwd" true)
       clean_root=$(git -C "$clean_cwd" rev-parse --show-toplevel 2>/dev/null)
