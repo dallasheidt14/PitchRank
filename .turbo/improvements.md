@@ -1625,6 +1625,26 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Noted**: 2026-09-24
 - **Trigger**: Anyone opens PitchRank in a Codespace or devcontainer.
 
+### Bundle the state-run helpers into the merging-duplicate-teams skill
+
+- **ID**: IMP-273
+- **Status**: open
+- **Type**: plan
+- **Category**: dx
+- **Where**: `.claude/skills/merging-duplicate-teams/scripts/` (new), beside `build_review_page.py` and `collect_review_decisions.py`
+- **Why**: Running Doorway D state by state on 2026-09-24 (OK, KY, NC, TX; 1,488 merges) relied on three helpers that exist only in a session scratchpad: a post-apply check over the apply logs (self-play, names stating both genders, names two or more birth years apart, same-day two-event dates), a classifier that splits those dates into already-on-one-row / recorded-twice / merge-created (on TX it cut 331 flagged dates to 3 merge-created, 1 real), and the reviewer brief with its input-to-output name check, which caught two swapped verdict lines in OK. Bundle them as skill scripts with unit tests through the Supabase double and point `references/state-runs.md` at them.
+- **Noted**: 2026-09-24
+
+### Batch the team lookup that auto-hides twins of excluded games
+
+- **ID**: IMP-274
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `src/etl/enhanced_pipeline.py` `EnhancedETLPipeline._propagate_exclusions_to_new_games`
+- **Why**: It builds one `.or_()` filter naming every master team on a date (`home_team_master_id.eq.X,away_team_master_id.eq.X` per team) and sends it in a single request. `_check_duplicates_by_master_ids` batches the same query with `self._chunks(..., 50)`; this second copy does not. A date with enough teams can exceed the URI limit, and the method's broad `except` then logs a warning and skips the date, so a new copy of an already-excluded game is inserted live (failure mode reported by review, not reproduced). Apply the same batching, with a test whose two teams fall in different batches.
+- **Noted**: 2026-09-24
+
 ### Move the GotSport scraper's division-gender reader onto the shared label reader
 
 - **ID**: IMP-275

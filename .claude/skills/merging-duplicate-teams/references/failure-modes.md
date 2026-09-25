@@ -11,6 +11,7 @@ these to recognise a known shape quickly and to spend review effort hunting for 
 - Silent exclusions — pairs the scan drops without saying so
 - Shapes no name rule can reach
 - Shapes found only across a batch
+- Regional shapes
 - What review should hunt for
 
 ## Why the list keeps growing
@@ -208,6 +209,30 @@ the evidence that would have refused the merge.
 **A cluster that is one import event.** A large single-state or single-club cluster is usually
 a season registration wave, which is legitimate and raises confidence. Establish which it is
 from provider ids and creation dates rather than assuming either way.
+
+## Regional shapes
+
+Found running whole states on 2026-09-24. Each one made two squads look like one, or one squad
+look like two, and none shows in a single pair's names.
+
+- **A provider record reused for a younger squad.** HTX (Texas) hands each GotSport team record
+  to the next cohort down at the season change, so one row carries last season's squad and a
+  younger squad's new schedule. Read the opponents' ages across the season boundary before
+  treating the row as either squad.
+- **Colours reshuffled between seasons.** SA United (Texas) moved its 2014 boys squads to new
+  colours, so last season's Black is this season's Gold. Pair by the original name and the
+  schedule, not by the colour word.
+- **Original names crossed between squads.** Several Sting and Challenge rows (Texas) carry a
+  current name for one squad and an original name for a sibling squad. Where the two disagree,
+  the cluster goes to the owner.
+- **A league filed as a club.** `club_name = "El Paso Premier League"` covers many clubs; the
+  real club is in the team name, and two rows naming different clubs are different teams.
+- **A U-label that is current and one that is stale, in one state.** North Carolina Classic
+  League and PlayMetrics names such as `14 (U12)` name a two-year band by its older year, so the
+  U-label is this season's. SincSports labels such as `12 (14U)` on a birth year, and Charlotte
+  Soccer Academy names, carry last season's.
+- **Birth-year codes in SincSports ids are a hint.** `NCM13…` or `TXF12…` usually encodes the
+  birth year, but 165 of 833 North Carolina ids checked did not match it.
 
 ## What review should hunt for
 
