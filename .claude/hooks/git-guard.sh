@@ -39,8 +39,10 @@ stripped=$(printf '%s\n' "$cmd" | awk '
       # would read its own search pattern as a command and refuse it.
       if (before ~ /(^|[ \t;&|(`])(powershell|pwsh|bash|sh|zsh|cmd)(\.exe)?([ \t]+(-[A-Za-z]+|--[A-Za-z][A-Za-z-]*(=[^ \t]*)?))*[ \t]+(-c|-lc|-command|-Command|-EncodedCommand|\/c|\/k)[ \t]+$/)
         sub(/[ \t]+(-c|-lc|-command|-Command|-EncodedCommand|\/c|\/k)[ \t]+$/, " ; ", before)
-      else
+      else {
+        gsub(/\\/, "\002", seg)
         gsub(/[ \t;&|()`]/, "\001", seg)
+      }
       out = out before seg
       $0 = substr($0, RSTART + RLENGTH)
     }
@@ -57,7 +59,7 @@ stripped=$(printf '%s\n' "$cmd" | awk '
 
 nl=$'\n'
 # Guarded verbs only count at a command position.
-wrapper='(env|exec|xargs|sudo|nice|time|then|do|else)'
+wrapper='(env|exec|xargs|sudo|nice|time|command|builtin|then|do|else)'
 assign='([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*'
 at_cmd="((^|[;&|(\`{${nl}])[[:space:]]*${assign}|(^|[[:space:]])${wrapper}[[:space:]]+${assign})"
 end='([[:space:];&|)]|$)'
@@ -70,6 +72,7 @@ branch_of() { [ -d "$1" ] && git -C "$1" branch --show-current 2>/dev/null; }
 
 shell_path() {
   local path=${1//$'\001'/ }
+  path=${path//$'\002'/$'\\'}
   if [[ $path =~ ^[A-Za-z]:[\\/] ]] && command -v cygpath >/dev/null 2>&1; then
     cygpath -u "$path"
   else
@@ -104,19 +107,16 @@ execution_dir_for_segment() {
       -c) ((i++)) ;;
       --work-tree)
         ((i++))
-        value=$(shell_path "${tokens[i]:-}")
-        case "$value" in /*|[A-Za-z]:*) ;; *) value="$target/$value" ;; esac
-        work_tree=$value
+        work_tree=$(shell_path "${tokens[i]:-}")
         ;;
       --work-tree=*)
-        value=$(shell_path "${token#--work-tree=}")
-        case "$value" in /*|[A-Za-z]:*) ;; *) value="$target/$value" ;; esac
-        work_tree=$value
+        work_tree=$(shell_path "${token#--work-tree=}")
         ;;
       clean|worktree) break ;;
     esac
   done
   if $honor_work_tree && [ -n "$work_tree" ]; then
+    case "$work_tree" in /*|[A-Za-z]:*) ;; *) work_tree="$target/$work_tree" ;; esac
     printf '%s\n' "$work_tree"
   else
     printf '%s\n' "$target"
@@ -144,7 +144,7 @@ env_guarded_re="${at_cmd}env[[:space:]]+([^;&|()]*)git[[:space:]]+${git_opts}(cl
 if [[ $env_scan =~ $env_guarded_re ]]; then
   deny "BLOCKED: guarded git clean and git worktree remove commands cannot be wrapped in env options. Run Git directly with literal paths."
 fi
-if [[ $stripped =~ \\[[:space:]] ]] &&
+if [[ $stripped == *\\* ]] &&
   { [[ $stripped == *git*clean* ]] || [[ $stripped == *git*worktree*remove* ]]; }; then
   deny "BLOCKED: guarded Git commands require quoted literal paths; backslash-escaped paths cannot be inspected safely."
 fi
@@ -169,7 +169,7 @@ while IFS= read -r segment; do
 
   if [[ $segment =~ $worktree_remove_re ]]; then
     remove_args=${BASH_REMATCH[${#BASH_REMATCH[@]}-1]}
-    if [[ $segment =~ \\[[:space:]] ]]; then
+    if [[ $segment == *\\* ]]; then
       deny "BLOCKED: git worktree remove requires quoted literal paths; backslash-escaped paths cannot be inspected safely."
     fi
     remove_target=
@@ -214,7 +214,7 @@ while IFS= read -r segment; do
       esac
     done
     if $cleans_ignored; then
-      if [[ $segment =~ \\[[:space:]] ]]; then
+      if [[ $segment == *\\* ]]; then
         deny "BLOCKED: git clean -x/-X requires quoted literal paths; backslash-escaped paths cannot be inspected safely."
       fi
       if $has_cd; then
