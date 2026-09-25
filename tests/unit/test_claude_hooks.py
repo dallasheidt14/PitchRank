@@ -243,16 +243,21 @@ def test_git_guard_fails_closed_on_bad_payload(repo: Path) -> None:
 def test_git_guard_blocks_worktree_remove_when_node_modules_is_linked(tmp_path: Path) -> None:
     root = _fresh_repo(tmp_path, "worktree-remove")
     worktree = tmp_path / "linked worktree"
+    dash_worktree = tmp_path / "-linked"
     safe_worktree = tmp_path / "safe-linked"
     shared_modules = tmp_path / "shared-node-modules"
     shared_modules.mkdir()
     sentinel = shared_modules / "keep.txt"
     sentinel.write_text("shared dependency\n")
     _git(root, "worktree", "add", "-q", str(worktree), "main")
+    _git(root, "worktree", "add", "-q", "--detach", str(dash_worktree), "HEAD")
     _git(root, "worktree", "add", "-q", "--detach", str(safe_worktree), "HEAD")
     modules = worktree / "frontend" / "node_modules"
     modules.parent.mkdir()
     _link_directory(modules, shared_modules)
+    dash_modules = dash_worktree / "frontend" / "node_modules"
+    dash_modules.parent.mkdir()
+    _link_directory(dash_modules, shared_modules)
     try:
         _git(root, "worktree", "prune", "--expire", "now")
         assert modules.exists() and sentinel.read_text() == "shared dependency\n"
@@ -270,6 +275,9 @@ def test_git_guard_blocks_worktree_remove_when_node_modules_is_linked(tmp_path: 
         shorthand = _bash(f'git worktree remove --force "{worktree.name}"', root)
         assert shorthand.returncode == 2, shorthand.stderr
         assert "junction or symlink" in shorthand.stderr
+        option_like_shorthand = _bash("git worktree remove --force -- -linked", root)
+        assert option_like_shorthand.returncode == 2, option_like_shorthand.stderr
+        assert "junction or symlink" in option_like_shorthand.stderr
         compound = _bash(
             f'git worktree remove "{safe_worktree.as_posix()}" && git worktree remove "{worktree.as_posix()}"',
             root,
@@ -325,6 +333,9 @@ def test_git_guard_blocks_worktree_remove_when_node_modules_is_linked(tmp_path: 
         windows_git_remove = _bash(f'git.exe worktree remove "{worktree.as_posix()}"', root)
         assert windows_git_remove.returncode == 2, windows_git_remove.stderr
         assert "junction or symlink" in windows_git_remove.stderr
+        path_git_remove = _bash(f'/usr/bin/git worktree remove "{worktree.as_posix()}"', root)
+        assert path_git_remove.returncode == 2, path_git_remove.stderr
+        assert "junction or symlink" in path_git_remove.stderr
         substituted_target = _bash(
             f'git worktree remove --force "`printf {worktree.as_posix()}`"', root
         )
@@ -333,7 +344,9 @@ def test_git_guard_blocks_worktree_remove_when_node_modules_is_linked(tmp_path: 
         assert sentinel.read_text() == "shared dependency\n"
     finally:
         _unlink_directory(modules)
+        _unlink_directory(dash_modules)
         _git(root, "worktree", "remove", "--force", str(worktree))
+        _git(root, "worktree", "remove", "--force", str(dash_worktree))
         _git(root, "worktree", "remove", "--force", str(safe_worktree))
 
 
@@ -416,6 +429,9 @@ def test_git_guard_allows_ignored_file_cleanup_in_linked_worktree(tmp_path: Path
         windows_git_clean = _bash("git.exe clean -fdx", root, cwd=root)
         assert windows_git_clean.returncode == 2, windows_git_clean.stderr
         assert "primary checkout" in windows_git_clean.stderr
+        path_git_clean = _bash("/usr/bin/git clean -fdx", root, cwd=root)
+        assert path_git_clean.returncode == 2, path_git_clean.stderr
+        assert "primary checkout" in path_git_clean.stderr
         substituted_base = _bash(
             f'git -C "`printf {root.as_posix()}`" clean -fdx', root, cwd=worktree
         )

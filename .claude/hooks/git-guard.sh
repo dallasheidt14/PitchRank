@@ -69,7 +69,7 @@ assign='([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*'
 at_cmd="((^|[;&|(\`{${nl}])[[:space:]]*${assign}|(^|[[:space:]])${wrapper}[[:space:]]+${assign})"
 end='([[:space:];&|)]|$)'
 end_or_eq='([[:space:];&|)=]|$)'
-git_bin='git([.]exe)?'
+git_bin='([^[:space:];&|()]*/)?git([.]exe)?'
 git_value='[^[:space:];&|()]+'
 # Git-wide short options either take the next/attached value or are one-letter
 # switches. Long options are switches or use =value; work-tree and git-dir also
@@ -107,7 +107,7 @@ execution_dir_for_segment() {
   for ((i = 0; i < ${#tokens[@]}; i++)); do
     token=${tokens[i]//$'\001'/ }
     if ! $seen_git; then
-      { [ "$token" = git ] || [ "$token" = git.exe ]; } && seen_git=true
+      case "$token" in git|git.exe|*/git|*/git.exe) seen_git=true ;; esac
       continue
     fi
     case "$token" in
@@ -200,8 +200,16 @@ while IFS= read -r segment; do
       deny "BLOCKED: git worktree remove requires quoted literal paths; backslash-escaped paths cannot be inspected safely."
     fi
     remove_target=
+    remove_options_done=false
     for arg in $remove_args; do
-      case "$arg" in --|-*) ;; *) remove_target=$(shell_path "$arg"); break ;; esac
+      if ! $remove_options_done; then
+        case "$arg" in
+          --) remove_options_done=true; continue ;;
+          -*) continue ;;
+        esac
+      fi
+      remove_target=$(shell_path "$arg")
+      break
     done
     if [ -n "$remove_target" ]; then
       if has_shell_path_syntax "$remove_target"; then
@@ -311,14 +319,14 @@ if [[ $stripped =~ ${git_cmd}(commit|push)${end} ]]; then
   # push`, the first -C names a repository this push never touches.
   target_re="${git_bin}[[:space:]]+-C[[:space:]]+([^[:space:]]+)[[:space:]]+(-c[[:space:]]+[^[:space:]]+[[:space:]]+)*(commit|push)${end}"
   if [[ $stripped =~ $target_re ]]; then
-    target=${BASH_REMATCH[2]//$'\001'/ }
+    target=${BASH_REMATCH[3]//$'\001'/ }
   elif [[ $stripped =~ $cd_re ]]; then
     target=${BASH_REMATCH[${#BASH_REMATCH[@]}-1]//$'\001'/ }
     case "$target" in /*|[A-Za-z]:*) ;; *) target="$cwd/$target" ;; esac
   fi
   branch=$(branch_of "$cwd")
   if [[ $stripped =~ ${git_bin}[[:space:]]+-C[[:space:]]+([^[:space:]]+)[[:space:]]+(-c[[:space:]]+[^[:space:]]+[[:space:]]+)*(commit|push)${end} ]]; then
-    branch=$(branch_of "${BASH_REMATCH[2]//$'\001'/ }")
+    branch=$(branch_of "${BASH_REMATCH[3]//$'\001'/ }")
   fi
   if [ "$branch" = main ]; then
     deny "BLOCKED: branch is main. Run 'git checkout -b <feature> origin/main' first (CLAUDE.md: never commit to main)."
