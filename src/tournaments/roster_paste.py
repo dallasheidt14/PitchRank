@@ -23,21 +23,18 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from src.tournaments.gotsport_event_roster import published_u_ages
-from src.tournaments.seeding_optimizer import normalize_age_group
+from src.tournaments.cohort_labels import read_label
 
 __all__ = ["ParsedRoster", "RosterRow", "parse_roster", "split_roster_markers"]
 
-_GENDER_WORDS = {
-    "male": "Male",
-    "boys": "Male",
-    "boy": "Male",
-    "female": "Female",
-    "girls": "Female",
-    "girl": "Female",
-}
-
-_HEADING_GENDER = re.compile(r"\b(male|female|boys?|girls?)\b", re.IGNORECASE)
+# A heading names an age and a gender. One whose age is a U-age and whose
+# gender is a word may carry one word more ("Girls U9/U10 Mexico", "U14 Boys
+# Gold"); any other shape takes none, because "Solar 14G" and "Arsenal 2013
+# Girls" are teams entered without their club column, and reading one as a
+# heading drops a team from the quote.
+_HEADING_EXTRA_WORDS = 1
+_HEADING_FILLER = frozenset({"division", "div", "bracket", "group", "flight", "age", "and", "the"})
+_U_COHORT = re.compile(r"^u[0-9]{1,2}$")
 _COUNTER_LINE = re.compile(r"^teams accepted\b|\(\s*[0-9]+\s+of\s+[0-9]+\s*\)", re.IGNORECASE)
 
 
@@ -77,14 +74,23 @@ class ParsedRoster:
     warnings: tuple[str, ...]
 
 
-def _parse_heading(line: str) -> tuple[str, str] | None:
-    gender_match = _HEADING_GENDER.search(line)
-    ages = published_u_ages(line)
-    if not gender_match or not ages:
+def _parse_heading(line: str) -> tuple[str, str, bool] | None:
+    """A heading's ``(age_group, gender, names_several_ages)``, or None for a non-heading.
+
+    A heading replaces both carried fields even when it names more than one of
+    either, so the rows below ``Boys/Girls U13`` reach cohort review instead of
+    inheriting the section above.
+    """
+    reading = read_label(line)
+    ages = {cohort for cohort in reading.cohorts if _U_COHORT.match(cohort)}
+    extra = [
+        word for word in reading.leftover
+        if not word.isdigit() and word.lower() not in _HEADING_FILLER
+    ]
+    allowed = _HEADING_EXTRA_WORDS if reading.has_u_age and reading.gender_from_word else 0
+    if not (ages and reading.genders) or len(extra) > allowed:
         return None
-    # A mixed section is preserved for an explicit operator decision.
-    age = normalize_age_group(str(next(iter(ages)))) if len(ages) == 1 else ""
-    return age, _GENDER_WORDS[gender_match.group(1).lower()]
+    return (reading.cohort if reading.cohort in ages else ""), reading.gender, len(reading.cohorts) > 1
 
 
 def split_roster_markers(team_name: str) -> tuple[str, bool, bool]:
@@ -119,12 +125,16 @@ def parse_roster(text: str) -> ParsedRoster:
         if not line.strip():
             continue
 
-        if "\t" not in line:
-            heading = _parse_heading(line)
+        # Trailing tabs from a spreadsheet row do not make a heading a data row,
+        # but a line that is not a heading keeps every column it was pasted with.
+        if "\t" not in line.rstrip():
+            heading = _parse_heading(line.strip())
             if heading:
-                age_group, gender = heading
-                division = line.strip() if not age_group else ""
+                age_group, gender, mixed = heading
+                # A mixed section is preserved for an explicit operator decision.
+                division = line.strip() if mixed else ""
                 continue
+        if "\t" not in line:
             if _COUNTER_LINE.search(line.strip()):
                 continue
             cells = ["", line.strip()]

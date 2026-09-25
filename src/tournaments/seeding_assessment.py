@@ -10,6 +10,7 @@ from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from src.tournaments.cohort_labels import read_label
 from src.tournaments.gotsport_event_roster import published_u_ages
 from src.tournaments.roster_paste import ParsedRoster, RosterRow
 from src.tournaments.roster_resolver import ResolvedTeam
@@ -50,7 +51,10 @@ def could_belong(row: RosterRow, age: str, gender: str) -> bool:
     ages = published_u_ages(row.listed_division, expand_ranges=True)
     if ages:
         return age in {"u19" if value == 18 else f"u{value}" for value in ages}
-    return True
+    # A mixed birth-year heading (`Boys 2013/2015`) has no U-age to read; bound it
+    # by the cohorts its years name.
+    named = {cohort for cohort in read_label(row.listed_division).cohorts if cohort.startswith("u")}
+    return age in named if named else True
 
 
 def effective_roster(

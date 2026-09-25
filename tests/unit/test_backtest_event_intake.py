@@ -164,6 +164,7 @@ _READ_ONLY_MODULES = (
     "src/tournaments/backtest_reviewed_report.py",
     "src/tournaments/backtest_reviewed_run.py",
     "src/tournaments/backtest_scope.py",
+    "src/tournaments/cohort_labels.py",
     "src/tournaments/gotsport_event_structure.py",
     "src/tournaments/schedule_simulator.py",
     "src/tournaments/storage/_io.py",

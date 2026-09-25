@@ -8,6 +8,8 @@ string that reads like two clubs and the non-ASCII team name.
 
 from __future__ import annotations
 
+import pytest
+
 from src.tournaments.roster_paste import parse_roster
 
 # -------- heading handling ------------------------------------------------
@@ -183,3 +185,123 @@ def test_blank_lines_produce_neither_rows_nor_warnings():
 
     assert len(parsed.rows) == 1
     assert parsed.warnings == ()
+
+
+# -------- heading forms directors send ------------------------------------
+
+
+@pytest.fixture
+def season_2026(monkeypatch):
+    from src.utils import team_utils
+
+    monkeypatch.setattr(team_utils, "_soccer_season_year", lambda now=None: 2026)
+
+
+@pytest.mark.parametrize(
+    ("heading", "cohort"),
+    [
+        ("Boys 2012", ("u15", "Male")),
+        ("Male 2013", ("u14", "Male")),
+        ("B2013", ("u14", "Male")),
+        ("BU14", ("u14", "Male")),
+        ("U14B", ("u14", "Male")),
+        ("GU12", ("u12", "Female")),
+        ("Under 15 Boys", ("u15", "Male")),
+        ("Female U14\t\t", ("u14", "Female")),
+        ("Boys 2013/2014", ("u13", "Male")),
+        ("U14 Boys Gold Division", ("u14", "Male")),
+        ("U12 Girls Flight 1 Bracket 2", ("u12", "Female")),
+        ("U14 Boys Gold Flight Division", ("u14", "Male")),
+        ("Girls U13 M\u00e9xico", ("u13", "Female")),
+    ],
+)
+def test_a_heading_in_any_form_directors_send_sets_the_cohort(season_2026, heading, cohort):
+    parsed = parse_roster(f"{heading}\nA Club\tA Team\tTX")
+
+    assert len(parsed.rows) == 1
+    assert (parsed.rows[0].section_age_group, parsed.rows[0].section_gender) == cohort
+
+
+@pytest.mark.parametrize("heading", ["Boys/Girls U13", "Coed U13", "U13B/G"])
+def test_a_heading_naming_both_genders_leaves_gender_for_review(season_2026, heading):
+    parsed = parse_roster(f"Male U12\nA Club\tA Team\tTX\n{heading}\nB Club\tB Team\tTX")
+
+    assert (parsed.rows[1].section_age_group, parsed.rows[1].section_gender) == ("u13", "")
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "Tyler FC Boys U14 Black",
+        "Sting 12G Black",
+        "FC Dallas 2013B",
+        "Solar SC U14",
+        "Boys FC",
+        "Lady Hawks Girls",
+        "U13",
+        "Boys",
+        "Girls Division",
+        "Solar 14G",
+        "Liverpool B2014",
+        "Arsenal 2013 Girls",
+        "Crossfire 2012 Boys",
+        "U12G B Black",
+        "Barca U13 B",
+        "Boys 2013 Spring 2026",
+    ],
+)
+def test_a_line_without_both_an_age_and_a_gender_or_with_club_words_is_a_team(season_2026, line):
+    parsed = parse_roster(f"Male U12\nA Club\tA Team\tTX\n{line}\nB Club\tB Team\tTX")
+
+    assert [row.team_name_raw for row in parsed.rows] == ["A Team", line, "B Team"]
+    assert parsed.rows[1].intake_issue
+    assert (parsed.rows[2].section_age_group, parsed.rows[2].section_gender) == ("u12", "Male")
+
+
+def test_a_row_with_a_blank_team_cell_keeps_its_columns(season_2026):
+    parsed = parse_roster("Male U12\nTyler FC\t")
+
+    assert parsed.rows[0].club_raw == "Tyler FC"
+    assert parsed.rows[0].intake_issue == "Team name is missing."
+
+
+def test_a_mixed_birth_year_heading_keeps_its_label_and_bounds_its_rows(season_2026):
+    from src.tournaments.seeding_assessment import could_belong
+
+    row = parse_roster("Boys 2013/2015\nA Club\tA Team\tTX").rows[0]
+
+    assert (row.section_age_group, row.section_gender, row.listed_division) == ("", "Male", "Boys 2013/2015")
+    assert could_belong(row, "u14", "Male")
+    assert could_belong(row, "u12", "Male")
+    assert not could_belong(row, "u17", "Male")
+
+
+def test_a_heading_naming_a_boarded_and_an_unboarded_year_keeps_its_label(season_2026):
+    row = parse_roster("Boys 2013 1995\nA Club\tA Team\tTX").rows[0]
+
+    assert (row.section_age_group, row.section_gender, row.listed_division) == ("", "Male", "Boys 2013 1995")
+
+
+def test_a_mixed_age_heading_still_bounds_the_ages_its_rows_can_take(season_2026):
+    from src.tournaments.seeding_assessment import could_belong
+
+    row = parse_roster("Girls Under 13/14\nA Club\tA Team\tTX").rows[0]
+
+    assert could_belong(row, "u13", "Female")
+    assert could_belong(row, "u14", "Female")
+    assert not could_belong(row, "u15", "Female")
+
+
+def test_a_title_line_naming_only_a_season_is_not_a_heading(season_2026):
+    parsed = parse_roster("Male U12\n2026 Spring Cup\nA Club\tA Team\tTX")
+
+    assert parsed.rows[0].team_name_raw == "2026 Spring Cup"
+    assert (parsed.rows[1].section_age_group, parsed.rows[1].section_gender) == ("u12", "Male")
+
+
+def test_a_mixed_age_heading_keeps_its_label_for_the_operator(season_2026):
+    parsed = parse_roster("Girls U9/U10 Mexico\nA Club\tA Team\tTX")
+
+    assert parsed.rows[0].section_age_group == ""
+    assert parsed.rows[0].section_gender == "Female"
+    assert parsed.rows[0].listed_division == "Girls U9/U10 Mexico"
