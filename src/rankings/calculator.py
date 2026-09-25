@@ -490,11 +490,19 @@ def _score_cutoff_for_rank(cohort_df: pd.DataFrame, score_col: str, target_rank:
     return max(0.0, cutoff - 1e-6)
 
 
+def _validate_publication_cohorts(teams: pd.DataFrame) -> None:
+    """Never silently pool teams whose publication cohort is unknown."""
+    keys = ["age_num", "gender"]
+    if any(key not in teams.columns for key in keys) or teams[keys].isna().any().any():
+        raise ValueError("Publication caps require non-null age_num and gender for every team")
+
+
 def _compute_publication_cap_scores(teams_age: pd.DataFrame, base_scores: pd.Series) -> pd.Series:
     """Translate cap ranks onto the pre-cap final-score scale.
 
     Publication caps should be derived from the same score domain that drives the
-    published ranking, not raw powerscore_adj.
+    published ranking, not raw powerscore_adj. The caller may supply both genders;
+    each cutoff must use only the team's own (age, gender) publication cohort.
     """
     result = pd.Series(pd.NA, index=teams_age.index, dtype="Float64")
     if "publication_cap_rank" not in teams_age.columns:
@@ -504,20 +512,19 @@ def _compute_publication_cap_scores(teams_age: pd.DataFrame, base_scores: pd.Ser
     if not cap_rank_series.notna().any():
         return result
 
-    pre_cap_df = teams_age[["team_id"]].copy()
+    _validate_publication_cohorts(teams_age)
+    columns = ["team_id", "age_num", "gender"]
     if "status" in teams_age.columns:
-        pre_cap_df["status"] = teams_age["status"]
+        columns.append("status")
+    pre_cap_df = teams_age[columns].copy()
     pre_cap_df["pre_cap_base"] = pd.to_numeric(base_scores, errors="coerce")
-
-    age_cap_lookup: dict[int, float] = {}
-
-    def _cap_for_rank(val: float) -> float:
-        rank = int(val)
-        if rank not in age_cap_lookup:
-            age_cap_lookup[rank] = _score_cutoff_for_rank(pre_cap_df, "pre_cap_base", rank)
-        return age_cap_lookup[rank]
-
-    result.loc[cap_rank_series.notna()] = cap_rank_series.loc[cap_rank_series.notna()].map(_cap_for_rank)
+    for _, cohort in pre_cap_df.groupby(["age_num", "gender"]):
+        ranks = cap_rank_series.loc[cohort.index].dropna()
+        cutoff_by_rank = {
+            rank: _score_cutoff_for_rank(cohort, "pre_cap_base", int(rank))
+            for rank in ranks.unique()
+        }
+        result.loc[ranks.index] = ranks.map(cutoff_by_rank)
     return result
 
 
@@ -526,7 +533,8 @@ def _apply_publication_cap_band(base_scores: pd.Series, teams_age: pd.DataFrame)
 
     Teams that fail the same-age evidence gate still cannot rise above their
     cohort ceiling, but they keep a compressed version of their relative order
-    underneath that ceiling.
+    underneath that ceiling. Band membership is age/gender-specific even when
+    two cohorts happen to have the same numeric cutoff.
     """
     if "publication_cap_score" not in teams_age.columns:
         return base_scores
@@ -537,14 +545,17 @@ def _apply_publication_cap_band(base_scores: pd.Series, teams_age: pd.DataFrame)
     if not effective_mask.any():
         return adjusted
 
-    work = teams_age.loc[effective_mask, ["team_id", "age_num", "publication_cap_rank"]].copy()
+    _validate_publication_cohorts(teams_age)
+    work = teams_age.loc[effective_mask, ["team_id", "age_num", "gender", "publication_cap_rank"]].copy()
     work["base_pre_cap"] = pd.to_numeric(adjusted.loc[effective_mask], errors="coerce")
     work["cap_score"] = pd.to_numeric(cap_scores.loc[effective_mask], errors="coerce")
     work = work.dropna(subset=["base_pre_cap", "cap_score"])
     if work.empty:
         return adjusted
 
-    for (_, cap_rank, cap_score), grp in work.groupby(["age_num", "publication_cap_rank", "cap_score"], dropna=False):
+    for (_, _, cap_rank, cap_score), grp in work.groupby(
+        ["age_num", "gender", "publication_cap_rank", "cap_score"], dropna=False
+    ):
         age_num = _safe_int(grp["age_num"].iloc[0])
         policy = _same_age_evidence_policy(age_num)
         group_size = len(grp)
@@ -611,7 +622,10 @@ def _collect_top_tier_weak_uncapped(teams_age: pd.DataFrame, base_scores: pd.Ser
     if not required_cols.issubset(teams_age.columns):
         return pd.DataFrame()
 
+    _validate_publication_cohorts(teams_age)
     work = teams_age.copy()
+    if "status" in work.columns:
+        work = work[work["status"] == "Active"].copy()
     work["team_id"] = work["team_id"].astype(str)
     work["base_after_cap"] = pd.to_numeric(base_scores, errors="coerce")
     work = work[work["base_after_cap"].notna()].sort_values(["base_after_cap", "team_id"], ascending=[False, True])
@@ -619,7 +633,7 @@ def _collect_top_tier_weak_uncapped(teams_age: pd.DataFrame, base_scores: pd.Ser
         return pd.DataFrame()
 
     work = work.reset_index(drop=True)
-    work["provisional_rank"] = work.index + 1
+    work["provisional_rank"] = work.groupby(["age_num", "gender"]).cumcount() + 1
     age_num = _safe_int(work["age_num"].iloc[0]) if "age_num" in work.columns else 0
     policy = _same_age_evidence_policy(age_num)
     publication_cap_rank = pd.to_numeric(work.get("publication_cap_rank"), errors="coerce")

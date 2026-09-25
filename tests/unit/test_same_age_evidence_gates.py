@@ -9,9 +9,9 @@ from src.rankings.calculator import (
     _compute_same_age_evidence_metrics,
     _play_up_bonus,
     _positive_ml_evidence_scale,
-    _same_age_raw_shrink,
-    _same_age_publish_penalty,
     _publication_cap_rank,
+    _same_age_publish_penalty,
+    _same_age_raw_shrink,
     _validate_publication_caps,
 )
 
@@ -1412,6 +1412,7 @@ def test_apply_publication_cap_band_preserves_relative_order():
         {
             "team_id": ["5a", "69", "ff"],
             "age_num": [12, 12, 12],
+            "gender": ["Male"] * 3,
             "publication_cap_rank": [400, 400, 400],
             "publication_cap_score": [0.73320145, 0.73320145, 0.73320145],
         },
@@ -1429,6 +1430,8 @@ def test_compute_publication_cap_scores_uses_pre_cap_base_scale():
     teams_age = pd.DataFrame(
         {
             "team_id": ["A", "B", "C"],
+            "age_num": [12, 12, 12],
+            "gender": ["Male"] * 3,
             "status": ["Active", "Active", "Active"],
             "publication_cap_rank": [2, 2, pd.NA],
             "powerscore_adj": [0.95, 0.40, 0.20],
@@ -1450,6 +1453,7 @@ def test_apply_publication_cap_band_leaves_uncapped_and_below_cap_scores_alone()
         {
             "team_id": ["A", "B", "C"],
             "age_num": [12, 12, 12],
+            "gender": ["Male"] * 3,
             "publication_cap_rank": [400, 400, pd.NA],
             "publication_cap_score": [0.73320145, 0.73320145, pd.NA],
         },
@@ -1488,6 +1492,7 @@ def test_collect_top_tier_weak_uncapped_flags_surf_type_profile():
             "team_id": ["surf", "elite", "capped"],
             "team_name": ["Surf", "Elite", "Capped"],
             "age_num": [13, 13, 13],
+            "gender": ["Male"] * 3,
             "publication_cap_rank": [pd.NA, pd.NA, 400],
             "same_age_top100_opp_count": [0, 3, 0],
             "same_age_top500_opp_count": [2, 7, 1],
