@@ -1,0 +1,10 @@
+{
+  "outputs": {
+    "docs/design/matchbalance-excel/director-workbook-sample.xlsx": "5289926a888747c891ba0ea8b609820210ba18df4e3ce36be1fe4c4f817fea9a",
+    "docs/design/matchbalance-excel/u10-boys.png": "152aea2a0a278b08e132ef978164c8e3fd2bf9508f7216d110e4bf28559b6001",
+    "docs/design/matchbalance-excel/u12-girls.png": "8402e2a5946b6095080d49101c4e203b78e3b986dfff813b86494a1835a7164e",
+    "frontend/public/matchbalance/sample-u13-boys.pdf": "30937bd53b126f381b1ae54a5e25f25560af97e028bba7311e3bf847179269de",
+    "frontend/public/matchbalance/sample-u13-boys.png": "06c4b7d15f1e4f120f2355b7e44c608dc7264c9e47eb34c7a02db04e1634093b"
+  },
+  "renderer_sha256": "66728a0c34de72b91f73ecf84a88bc57383d20b3918b8bbb35bd6a658a2f1fcc"
+}

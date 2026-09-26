@@ -8,6 +8,7 @@ from dataclasses import asdict, dataclass
 from typing import TYPE_CHECKING, Mapping, Sequence
 
 from src.tournaments.seeding_tiers import DATA_REVIEW, NO_CURRENT_RATING, SEEDED
+from src.utils.us_states import STATE_CODE_TO_NAME, state_name_to_code
 
 if TYPE_CHECKING:
     from src.tournaments.seeding_sheet import CohortSheet, SheetTeam
@@ -46,7 +47,7 @@ class DirectorRow:
         team = self.team
         if team.state_rank is None:
             return ""
-        return f"{team.state} #{team.state_rank}" if team.state else f"#{team.state_rank}"
+        return format_state_rank(team.state, team.state_rank)
 
     @property
     def roster_context(self) -> tuple[str, ...]:
@@ -81,6 +82,15 @@ class DirectorCohort:
     @property
     def unseeded(self) -> tuple[DirectorRow, ...]:
         return tuple(row for row in self.rows if row.seed is None)
+
+
+def format_state_rank(state: str | None, rank: int) -> str:
+    """Use one compact state label even when Compare returns a full name."""
+    value = str(state or "").strip()
+    code = state_name_to_code(value)
+    if not code and value.upper() in STATE_CODE_TO_NAME:
+        code = value.upper()
+    return f"{code or value} #{rank}" if value else f"#{rank}"
 
 
 def build_director_cohort(sheet: CohortSheet, operator_note: str = "") -> DirectorCohort:

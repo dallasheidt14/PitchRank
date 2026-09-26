@@ -19,6 +19,11 @@ markers describe competitive differences; they do not assign divisions or
 pools. Pricing, matching diagnostics, and database identifiers stay out of the
 director's workbook.
 
+The workbook, both worksheet images, and the public PDF/PNG sample are built
+from one frozen synthetic fixture. Regenerate them with
+`python scripts/regenerate_matchbalance_samples.py`; its committed manifest
+keeps renderer changes from leaving these examples stale.
+
 ## U10 Boys
 
 ![U10 Boys worksheet](u10-boys.png)
