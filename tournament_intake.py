@@ -98,6 +98,7 @@ from src.tournaments.run_orchestrator import (
 )
 from src.tournaments.seeding_assessment import (
     age_number,
+    assess_roster,
     carry_decisions,
     effective_roster,
     package_roster,
@@ -587,6 +588,7 @@ def _init_session_state() -> None:
     st.session_state.setdefault("_seeding_overrides", {})
     st.session_state.setdefault("_seeding_sheet_html", None)
     st.session_state.setdefault("_seeding_notices", [])
+    st.session_state.setdefault("_seeding_active_step", None)
     # Streamlit drops a widget's value on any run that does not draw the widget,
     # such as one showing the other view. Writing it back keeps it for the next.
     for key in _SEEDING_KEPT_WIDGETS:
@@ -4540,12 +4542,24 @@ def _render_seeding_override(
             st.caption(_as_plain_text(item.review_reason))
 
         current_override = st.session_state.get(keys.overrides, {}).get(row.source_index) or {}
+        editing_key = f"{keys.prefix}_seed_editing_{row.source_index}"
+        if current_override.get("team_id_master") and not st.session_state.get(editing_key):
+            matched_name = str(current_override.get("team_name") or current_override["team_id_master"])
+            st.success(
+                f"Matched to {_as_plain_text(matched_name)}. "
+                "PitchRank supplies the rating; the tournament cohort above controls where this team is seeded."
+            )
+            if st.button("Change this match", key=f"{keys.prefix}_seed_change_{row.source_index}"):
+                st.session_state[editing_key] = True
+                st.rerun()
+            return
         if keys is _SEEDING_KEYS and current_override.get("not_found"):
             st.info("Marked not found in PitchRank. It remains in the roster as an unranked team.")
             if st.button("Reopen matching", key=f"{keys.prefix}_seed_reopen_{row.source_index}"):
                 overrides = dict(st.session_state.get(keys.overrides, {}))
                 overrides.pop(row.source_index, None)
                 st.session_state[keys.overrides] = overrides
+                st.session_state[editing_key] = True
                 metadata = dict(st.session_state.get("_seeding_assessment", {}))
                 metadata["completed"] = [
                     index for index in metadata.get("completed", []) if index != row.source_index
@@ -4558,19 +4572,54 @@ def _render_seeding_override(
                 st.rerun()
             return
 
-        pasted = st.text_input(
-            "GotSport link, GotSport id, or team_id_master",
-            key=f"{keys.prefix}_seed_fix_{row.source_index}",
-            placeholder="https://rankings.gotsport.com/teams/534748",
+        existing_match = current_override.get("team_id_master") or (
+            item.team_id_master if item.status in {"gotsport_id", "exact_name"} else None
         )
-        if keys is _SEEDING_KEYS and st.button(
-            "Mark team not found in PitchRank", key=f"{keys.prefix}_seed_not_found_{row.source_index}",
-            help=("Record that this accepted tournament team is not in PitchRank. It stays in the roster "
-                  "and final sheets as unranked."),
-        ):
+        if existing_match and not st.session_state.get(editing_key):
+            matched_name = str(item.matched_name or existing_match)
+            st.success(
+                f"Matched to {_as_plain_text(matched_name)}. "
+                "PitchRank supplies the rating; the tournament cohort above controls where this team is seeded."
+            )
+            if st.button("Review or change match", key=f"{keys.prefix}_seed_change_{row.source_index}"):
+                st.session_state[editing_key] = True
+                st.rerun()
+            return
+        decision_options = ["Choose another PitchRank team"]
+        if existing_match:
+            decision_options.insert(0, "Keep current match")
+        if keys is _SEEDING_KEYS:
+            decision_options.append("Not found in PitchRank")
+        decision = st.radio(
+            "Match decision",
+            decision_options,
+            key=f"{keys.prefix}_seed_decision_{row.source_index}",
+        )
+        if decision == "Keep current match":
+            matched_name = str(current_override.get("team_name") or item.matched_name or existing_match)
+            st.info(f"Current PitchRank match: {_as_plain_text(matched_name)}")
+            if st.button("Done", key=f"{keys.prefix}_seed_keep_{row.source_index}"):
+                st.session_state.pop(editing_key, None)
+                st.rerun()
+            return
+
+        if decision == "Not found in PitchRank":
+            st.warning(
+                "Use this only when the accepted tournament team does not exist in PitchRank. "
+                "The team stays in the seed pack without a PowerScore."
+            )
+            mark_not_found = st.button(
+                "Confirm not found in PitchRank",
+                key=f"{keys.prefix}_seed_not_found_{row.source_index}",
+            )
+        else:
+            mark_not_found = False
+
+        if mark_not_found:
             overrides = dict(st.session_state.get(keys.overrides, {}))
             overrides[row.source_index] = {"not_found": True}
             st.session_state[keys.overrides] = overrides
+            st.session_state.pop(editing_key, None)
             metadata = dict(st.session_state.get("_seeding_assessment", {}))
             metadata["completed"] = sorted(set(metadata.get("completed", [])) | {row.source_index})
             st.session_state["_seeding_assessment"] = metadata
@@ -4586,6 +4635,16 @@ def _render_seeding_override(
             invalidate_seeding_exports(st.session_state)
             _autosave_seeding_run()
             st.rerun()
+            return
+        if decision == "Not found in PitchRank":
+            return
+
+        pasted = st.text_input(
+            "GotSport team link or PitchRank team ID",
+            key=f"{keys.prefix}_seed_fix_{row.source_index}",
+            placeholder="https://rankings.gotsport.com/teams/534748",
+            help="A bare GotSport team number or internal PitchRank UUID also works.",
+        )
         if not pasted:
             return
 
@@ -4601,7 +4660,7 @@ def _render_seeding_override(
         if outcome.status == "unrecognized":
             st.error(
                 "Not a link or id I can read. Paste a rankings.gotsport.com link, its number, "
-                "or a team_id_master."
+                "or a PitchRank team ID."
             )
             return
         if outcome.status == "not_found":
@@ -4624,6 +4683,7 @@ def _render_seeding_override(
                 "team_id_master": outcome.team_id_master,
                 "team_name": details.get("team_name", ""),
             }
+            st.session_state.pop(editing_key, None)
             # `_autosave_seeding_run` saves a *seeding* run specifically — it reads
             # and writes the hardcoded `_seeding_*` names directly, so calling it
             # for a Backtest-view override would autosave nothing real and mean
@@ -4795,6 +4855,19 @@ def _apply_seeding_transition() -> None:
         st.session_state["_seeding_pending_event_url"] = update["source_url"]
         st.session_state["_seeding_save_error"] = False
         st.session_state["_seeding_loaded_slug"] = update["loaded_slug"]
+        parsed = effective_roster(update["raw"], update["decisions"])
+        assessment = assess_roster(
+            parsed,
+            update["resolved"],
+            update["overrides"],
+            coverage=update["metadata"].get("coverage", "unknown"),
+            completed=update["metadata"].get("completed"),
+        )
+        st.session_state["_seeding_active_step"] = 2 if assessment.attention else 3
+    else:
+        # A fresh import always pauses at matching, even when every automatic
+        # match succeeded, so the operator can verify what PitchRank found.
+        st.session_state["_seeding_active_step"] = 2 if pair else 1
     st.session_state.pop("_seeding_transition", None)
 
 
@@ -4808,10 +4881,15 @@ def _seeding_context_matches(parsed: ParsedRoster, metadata: Mapping[str, Any]) 
 def _reset_seeding_review_widgets() -> None:
     for key in list(st.session_state):
         if key.startswith(("_seed_name_", "_seed_age_", "_seed_gender_", "_seed_exclude_", "_seed_bulk_",
-                           "_seeding_seed_fix_", "_seeding_seed_use_")):
+                           "_seeding_seed_fix_", "_seeding_seed_use_", "_seeding_seed_editing_",
+                           "_seeding_seed_decision_")):
             st.session_state.pop(key, None)
+    st.session_state.pop("_seeding_active_step", None)
     st.session_state.pop("_seed_verify_coverage", None)
-    for key in ("_seeding_pack_scope", "_seeding_pack_cohorts", "_seeding_review_update"):
+    for key in (
+        "_seeding_pack_scope", "_seeding_pack_cohorts", "_seeding_review_update",
+        "_seeding_review_issue_filter", "_seeding_review_cohort_filter", "_seeding_review_team",
+    ):
         st.session_state.pop(key, None)
 
 
@@ -4890,12 +4968,18 @@ def _seeding_team_ids(parsed: ParsedRoster, resolved: Sequence[ResolvedTeam]) ->
     return [str(team_id) for team_id in identities.values() if team_id]
 
 
-def _render_seeding_sheet(parsed: ParsedRoster, resolved: Sequence[ResolvedTeam], supabase_client: Any) -> None:
+def _render_seeding_sheet(
+    parsed: ParsedRoster,
+    resolved: Sequence[ResolvedTeam],
+    supabase_client: Any,
+    *,
+    view: str = "build",
+) -> None:
     """Review matchup tiers and generate the selected cohort PDF pack."""
     name = _seeding_run_name()
     render_seeding_pack(
         parsed, resolved, supabase_client, event_name=name, save=_autosave_seeding_run,
-        recovery=PackRecovery(name, default_seeding_base_dir()) if name else None,
+        recovery=PackRecovery(name, default_seeding_base_dir()) if name else None, view=view,
     )
 
 
@@ -5338,6 +5422,89 @@ def _render_seeding_progress_metrics(parsed, resolved, overrides):
     return by_index, [row for row in parsed.rows if row.source_index in assessment.attention]
 
 
+def _render_seeding_workflow_progress(
+    parsed: ParsedRoster | None = None,
+    resolved: Sequence[ResolvedTeam] = (),
+    overrides: Mapping[int, dict[str, Any]] | None = None,
+) -> int:
+    """Show progress and return the single step that should be rendered."""
+    names = ["Import teams", "Match to PitchRank", "Review seed order", "Export director pack"]
+    available = 1
+    default_step = 1
+    attention: int | None = None
+    export_ready = False
+    if parsed is not None:
+        overrides = overrides or {}
+        metadata = st.session_state.get("_seeding_assessment", {})
+        assessment = assess_roster(
+            parsed,
+            resolved,
+            overrides,
+            coverage=metadata.get("coverage", "unknown"),
+            completed=metadata.get("completed"),
+        )
+        attention = len(assessment.attention)
+        pack_ready = snapshot_matches_roster(
+            st.session_state.get("_seeding_pack"), parsed.rows, resolved, overrides
+        )
+        export_ready = pack_ready and bool(st.session_state.get("_seeding_sheet_html"))
+        available = 2 if attention else 4 if export_ready else 3
+        default_step = 2 if attention else 3
+    active = st.session_state.get("_seeding_active_step")
+    if not isinstance(active, int) or isinstance(active, bool):
+        active = default_step
+    active = max(1, min(active, available))
+    st.session_state["_seeding_active_step"] = active
+    complete = [parsed is not None, parsed is not None and not attention, export_ready, False]
+    details = [
+        f"{len(parsed.rows)} teams" if parsed is not None else "",
+        f"{attention} need attention" if attention is not None else "",
+        "",
+        "",
+    ]
+    cards = []
+    for index, name in enumerate(names, 1):
+        if index == active:
+            status = "Current"
+        elif index < active or complete[index - 1]:
+            status = "Complete"
+        elif index <= available:
+            status = "Ready"
+        else:
+            status = "Locked"
+        cards.append((name, " · ".join(part for part in (status, details[index - 1]) if part)))
+    title, _status = cards[active - 1]
+    st.progress(active / 4, text=f"Step {active} of 4: {title}")
+    st.caption("  ·  ".join(f"{index}. {name}: {status}" for index, (name, status) in enumerate(cards, 1)))
+    st.caption("Your saved run keeps the imported roster and match decisions.")
+    return active
+
+
+def _render_seeding_step_navigation(
+    *,
+    back: tuple[str, int] | None = None,
+    next_step: tuple[str, int] | None = None,
+    next_disabled: bool = False,
+    next_help: str | None = None,
+) -> None:
+    """Move between available workflow steps without rendering them together."""
+    back_column, next_column = st.columns(2)
+    with back_column:
+        if back and st.button(back[0], key=f"_seeding_go_{back[1]}_back"):
+            st.session_state["_seeding_active_step"] = back[1]
+            st.rerun()
+    with next_column:
+        if next_step and st.button(
+            next_step[0],
+            type="primary",
+            key=f"_seeding_go_{next_step[1]}_next",
+            disabled=next_disabled,
+            help=next_help,
+        ):
+            st.session_state["_seeding_active_step"] = next_step[1]
+            st.rerun()
+
+
 def _render_seeding_save() -> None:
     """Offer to keep the run, once it has a name to be kept under.
 
@@ -5381,34 +5548,68 @@ def _render_seeding_workspace(supabase_client: Any) -> None:
         _autosave_seeding_run()
         st.session_state.pop("_seeding_review_update", None)
     _render_seeding_run_controls(supabase_client)
-    with st.expander("Import or refresh teams", expanded=not st.session_state.get("_seeding_result")):
-        source = st.radio(
-            "Roster source", ["GotSport event", "Paste team list"], horizontal=True, key="_seeding_source"
+    result = st.session_state.get("_seeding_result")
+    progress_parsed = None
+    if result and _seeding_context_matches(result[0], st.session_state.get("_seeding_assessment", {})):
+        progress_parsed = effective_roster(
+            result[0], st.session_state.get("_seeding_cohort_decisions", {})
         )
-        if source == "GotSport event":
-            _render_seeding_event_scrape(supabase_client)
-        else:
-            st.caption("Paste a tab-separated Club, Team, State list with headings such as Boys U14. "
-                       "Questionable lines stay available for correction.")
-            text = st.text_area(
-                "Accepted teams", key="seeding_roster_text", height=220, placeholder=_SEEDING_PLACEHOLDER
+    active_step = _render_seeding_workflow_progress(
+        progress_parsed,
+        result[1] if result else (),
+        st.session_state.get("_seeding_overrides", {}),
+    )
+
+    if active_step == 1:
+        with st.container(border=True):
+            st.markdown("### 1. Import tournament teams")
+            st.caption(
+                "Import the tournament's accepted-team list. Its age group and gender assignments are the "
+                "seeding cohorts; PitchRank will not replace them."
             )
-            if st.session_state.get("_seeding_paste_draft") != text:
-                st.session_state["_seeding_paste_complete"] = False
-                st.session_state["_seeding_paste_draft"] = text
-            preview = parse_roster(text)
-            if text:
-                st.caption(f"Preview: {len(preview.rows)} entries retained.")
-                st.dataframe(pd.DataFrame([{"Team": row.team_name_raw, "Age": row.section_age_group,
-                                           "Gender": row.section_gender, "Check": row.intake_issue}
-                                          for row in preview.rows]), hide_index=True, width="stretch")
-            st.checkbox("This is the complete accepted-team list for all U10+ cohorts", key="_seeding_paste_complete")
-            if st.button("Import and match teams", type="primary", disabled=not preview.rows):
-                if _run_seeding_resolve(text, supabase_client):
-                    st.rerun()
+            if result:
+                st.success(
+                    f"{len(result[0].rows)} teams are imported. "
+                    "Open the controls below only to replace or refresh them."
+                )
+            with st.expander("Import or refresh teams", expanded=not result):
+                source = st.radio(
+                    "Roster source", ["GotSport event", "Paste team list"], horizontal=True, key="_seeding_source"
+                )
+                if source == "GotSport event":
+                    _render_seeding_event_scrape(supabase_client)
+                else:
+                    st.caption("Paste a tab-separated Club, Team, State list with headings such as Boys U14. "
+                               "Questionable lines stay available for correction.")
+                    text = st.text_area(
+                        "Accepted teams", key="seeding_roster_text", height=220, placeholder=_SEEDING_PLACEHOLDER
+                    )
+                    if st.session_state.get("_seeding_paste_draft") != text:
+                        st.session_state["_seeding_paste_complete"] = False
+                        st.session_state["_seeding_paste_draft"] = text
+                    preview = parse_roster(text)
+                    if text:
+                        st.caption(f"Preview: {len(preview.rows)} entries retained.")
+                        st.dataframe(pd.DataFrame([{"Team": row.team_name_raw, "Age": row.section_age_group,
+                                                   "Gender": row.section_gender, "Check": row.intake_issue}
+                                                  for row in preview.rows]), hide_index=True, width="stretch")
+                    st.checkbox(
+                        "This is the complete accepted-team list for all U10+ cohorts",
+                        key="_seeding_paste_complete",
+                    )
+                    if st.button("Import and match teams", type="primary", disabled=not preview.rows):
+                        if _run_seeding_resolve(text, supabase_client):
+                            st.rerun()
+            _render_seeding_step_navigation(
+                next_step=("Continue to matching", 2),
+                next_disabled=progress_parsed is None,
+                next_help="Import tournament teams before continuing.",
+            )
+        return
 
     result = st.session_state.get("_seeding_result")
     if not result:
+        st.info("Start with step 1. Matching, seed order, and exports become available after teams are imported.")
         return
     raw, resolved = result
     metadata = st.session_state.get("_seeding_assessment", {})
@@ -5419,53 +5620,108 @@ def _render_seeding_workspace(supabase_client: Any) -> None:
     overrides = st.session_state._seeding_overrides
     metadata = st.session_state.get("_seeding_assessment", {})
     source_label = metadata.get("source_url") or metadata.get("source_kind") or "Saved roster"
-    st.caption("Assessment source: " + _as_plain_text(source_label) +
-               " · Coverage: " + metadata.get("coverage", "unknown"))
-    _render_seeding_progress_metrics(parsed, resolved, overrides)
-    duplicates = duplicate_identity_rows(parsed.rows, resolved, overrides)
-    if duplicates:
-        st.warning(f"{len(duplicates)} registration rows share a PitchRank team in the same cohort. "
-                   "Review each flagged match.")
-    _render_seeding_save()
-    if metadata.get("coverage", "unknown") == "unknown":
-        if st.checkbox("I verified this roster includes every accepted U10+ team", key="_seed_verify_coverage", help=(
-            "Check this after comparing the imported list with the full accepted-team roster. Then click "
-            "Confirm complete roster to mark coverage complete. This does not automatically verify completeness "
-            "or resolve unmatched teams and cohort questions."
-        )):
-            if st.button("Confirm complete roster", help=(
-                "Changes coverage to complete based on your confirmation that no accepted U10+ teams are missing. "
-                "Outstanding matches and cohort questions still need review."
-            )):
-                st.session_state["_seeding_assessment"] = {**metadata, "coverage": "complete"}
-                _autosave_seeding_run()
-                st.rerun()
-    if st.session_state.get("_seeding_resolution_failed"):
-        if st.button("Retry unfinished matching", key="_seed_retry_remaining"):
-            _run_seeding_name_lookup(raw, resolved, supabase_client)
-            st.rerun()
-    if any(item.team_id_master for item in resolved):
-        if st.button("Load PitchRank team names", key="_seed_load_names", help=(
-            "Loads the database names for teams already matched by ID, so you can compare them with registered "
-            "names. Updates the displayed names without changing which teams are matched."
-        )):
-            try:
-                enriched = _enrich_seeding_names(resolved, supabase_client)
-                _park_seeding_result((raw, enriched), event_id=metadata.get("event_id"))
-                _autosave_seeding_run()
-                st.rerun()
-            except Exception:
-                st.error("Team names are temporarily unavailable. ID matches are kept; try again.")
-    with st.expander("Import details"):
-        st.caption("Any issues found while reading your roster appear here. Check these details if teams "
-                   "or divisions seem to be missing.")
-        _render_seeding_warnings(raw)
-    frame = _seeding_result_frame(parsed, resolved, overrides)
-    render_review(raw, resolved, overrides, frame,
-                  lambda row, item: _render_seeding_override(row, item, supabase_client), _autosave_seeding_run)
+    if active_step == 2:
+        with st.container(border=True):
+            st.markdown("### 2. Match teams to PitchRank")
+            st.caption(
+                "A match supplies the PowerScore and ranking history. The tournament cohort from step 1 still "
+                "controls where the team is seeded, even when PitchRank lists a different age or gender."
+            )
+            st.caption("Import source: " + _as_plain_text(source_label) +
+                       " · Coverage: " + metadata.get("coverage", "unknown"))
+            assessment = assess_roster(
+                parsed, resolved, overrides, coverage=metadata.get("coverage", "unknown"),
+                completed=metadata.get("completed"),
+            )
+            not_found = len(assessment.not_found)
+            summary_columns = st.columns(4)
+            summary_columns[0].metric("Resolved", assessment.matched + not_found)
+            summary_columns[1].metric("Matched", assessment.matched)
+            summary_columns[2].metric("Not found", not_found)
+            summary_columns[3].metric("Needs attention", len(assessment.attention))
+            if assessment.attention:
+                st.info(
+                    f"Review {len(assessment.attention)} team(s) below. Marking a team not found is also a complete "
+                    "decision; it will remain in the pack without a PowerScore."
+                )
+            else:
+                st.success("Every imported team has a PitchRank match or a completed not-found decision.")
+            duplicates = duplicate_identity_rows(parsed.rows, resolved, overrides)
+            if duplicates:
+                st.warning(f"{len(duplicates)} registration rows share a PitchRank team in the same cohort. "
+                           "Review each flagged match.")
+            _render_seeding_save()
+            if metadata.get("coverage", "unknown") == "unknown":
+                if st.checkbox(
+                    "I verified this roster includes every accepted U10+ team",
+                    key="_seed_verify_coverage",
+                    help=(
+                        "Check this after comparing the imported list with the full accepted-team roster. Then click "
+                        "Confirm complete roster to mark coverage complete. This does not automatically verify "
+                        "completeness or resolve unmatched teams and cohort questions."
+                    ),
+                ):
+                    if st.button("Confirm complete roster", help=(
+                        "Changes coverage to complete based on your confirmation that no accepted U10+ teams are "
+                        "missing. Outstanding matches and cohort questions still need review."
+                    )):
+                        st.session_state["_seeding_assessment"] = {**metadata, "coverage": "complete"}
+                        _autosave_seeding_run()
+                        st.rerun()
+            if st.session_state.get("_seeding_resolution_failed"):
+                if st.button("Retry unfinished matching", key="_seed_retry_remaining"):
+                    _run_seeding_name_lookup(raw, resolved, supabase_client)
+                    st.rerun()
+            if any(item.team_id_master for item in resolved):
+                if st.button("Load PitchRank team names", key="_seed_load_names", help=(
+                    "Loads the database names for teams already matched by ID, so you can compare them with registered "
+                    "names. Updates the displayed names without changing which teams are matched."
+                )):
+                    try:
+                        enriched = _enrich_seeding_names(resolved, supabase_client)
+                        _park_seeding_result((raw, enriched), event_id=metadata.get("event_id"))
+                        _autosave_seeding_run()
+                        st.rerun()
+                    except Exception:
+                        st.error("Team names are temporarily unavailable. ID matches are kept; try again.")
+            with st.expander("Quote, cohort counts, and import details", expanded=False):
+                _render_seeding_progress_metrics(parsed, resolved, overrides)
+                st.caption("Any issues found while reading your roster appear below.")
+                _render_seeding_warnings(raw)
+            frame = _seeding_result_frame(parsed, resolved, overrides)
+            render_review(
+                raw, resolved, overrides, frame,
+                lambda row, item: _render_seeding_override(row, item, supabase_client),
+                _autosave_seeding_run,
+            )
+            _render_seeding_enqueue(package_roster(parsed), resolved, supabase_client)
+            _render_seeding_step_navigation(
+                back=("Back to import", 1),
+                next_step=("Continue to seed order", 3),
+                next_disabled=bool(assessment.attention),
+                next_help="Resolve every team that needs attention before continuing.",
+            )
+        return
+
     eligible = package_roster(parsed)
-    _render_seeding_sheet(eligible, resolved, supabase_client)
-    _render_seeding_enqueue(eligible, resolved, supabase_client)
+    if active_step == 3:
+        with st.container(border=True):
+            _render_seeding_sheet(eligible, resolved, supabase_client, view="build")
+            pack_ready = snapshot_matches_roster(
+                st.session_state.get("_seeding_pack"), eligible.rows, resolved, overrides
+            )
+            export_ready = pack_ready and bool(st.session_state.get("_seeding_sheet_html"))
+            _render_seeding_step_navigation(
+                back=("Back to matching", 2),
+                next_step=("Continue to export", 4),
+                next_disabled=not export_ready,
+                next_help="Build the current seed order before continuing.",
+            )
+        return
+
+    with st.container(border=True):
+        _render_seeding_sheet(eligible, resolved, supabase_client, view="export")
+        _render_seeding_step_navigation(back=("Back to seed order", 3))
 
 
 def _render_backtest_tab(supabase_client: Any) -> None:

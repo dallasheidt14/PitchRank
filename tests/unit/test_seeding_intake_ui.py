@@ -65,6 +65,23 @@ def click(app, label):
     assert not app.exception
 
 
+def test_seed_order_and_export_are_presented_as_steps_three_and_four(operator):
+    app, _calls = operator
+
+    headings = [item.value for item in app.markdown]
+    assert "### 3. Build and review the seed order" in headings
+    assert "### 4. Export the director pack" not in headings
+    assert any("Build the seed order in step 3" in item.value for item in app.info)
+
+    click(app, "Build seeding sheets")
+
+    headings = [item.value for item in app.markdown]
+    assert headings.index("### 3. Build and review the seed order") < headings.index(
+        "### 4. Export the director pack"
+    )
+    assert any(button.label == "Generate PDF pack" for button in app.button)
+
+
 def test_predictor_update_requires_rebuild_and_keeps_saved_team_choices(operator, monkeypatch):
     app, calls = operator
     app.session_state["_seeding_overrides"] = {
@@ -154,10 +171,10 @@ def test_main_review_shows_scores_without_internal_ids_or_close_labels(operator)
     app, _calls = operator
     click(app, "Build seeding sheets")
     editor = app.dataframe[0].value
-    assert list(editor.columns)[:4] == ["Seed", "Team", "PowerScore", "State rank"]
+    assert list(editor.columns)[:4] == ["Suggested seed", "Team", "PowerScore", "State rank"]
     assert editor["PowerScore"].tolist() == pytest.approx([55., 55.])
     assert "Entrant" not in editor.columns
-    assert editor["Strength marker"].tolist() == ["", ""]
+    assert editor["Compare evidence"].tolist() == ["", ""]
     assert "Close range" not in app.session_state["_seeding_sheet_html"]
     assert "PDF and Excel" in app.text_area[0].label
 

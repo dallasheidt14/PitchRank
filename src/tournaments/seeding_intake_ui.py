@@ -199,11 +199,19 @@ def _render_director_notes(key: str, pack: dict[str, Any], save: Callable[[], bo
     generation = hashlib.sha256((
         str(pack["generated_at"]) + str(pack.get("operator_notes", {}).get(key))
     ).encode()).hexdigest()[:12]
+    notes_key = f"_seeding_cheat_sheet_notes_{key}"
+    generation_key = f"{notes_key}_generation"
+    if st.session_state.get(generation_key) != generation:
+        # Install a newly loaded or saved note before the stable widget is created.
+        # A generation in the widget key leaves AppTest and fast browser reruns
+        # holding a widget whose state Streamlit has already cleaned up.
+        st.session_state[notes_key] = pack.get("operator_notes", {}).get(key, "")
+        st.session_state[generation_key] = generation
     with st.form(f"_seeding_cheat_sheet_form_{key}_{generation}"):
         notes = st.text_area(
             "Director notes (included in PDF and Excel)",
-            value=pack.get("operator_notes", {}).get(key, ""), max_chars=1800,
-            key=f"_seeding_cheat_sheet_notes_{key}_{generation}",
+            max_chars=1800,
+            key=notes_key,
         )
         applied = st.form_submit_button("Save director notes")
     if applied:
@@ -243,16 +251,19 @@ def _render_cohort_review(
         st.caption(observation)
     for row in content.rows:
         rows.append({
-            "Seed": row.seed,
+            "Suggested seed": row.seed,
             "Team": row.team.team_name,
             "PowerScore": row.score,
             "State rank": row.state_rank or "—",
-            "Strength marker": row.observation,
+            "Compare evidence": row.observation,
             "Placement status": row.display_status,
             "PitchRank match": row.team.pitchrank_team_name or "",
             "Roster context": " · ".join(row.roster_context),
         })
     if rows:
+        st.caption(
+            "PowerScore sets the suggested order. Compare flags placements for review; it does not reorder teams yet."
+        )
         st.data_editor(
             pd.DataFrame(rows), hide_index=True, use_container_width=True,
             disabled=list(pd.DataFrame(rows).columns),
@@ -335,17 +346,29 @@ def _render_analysis_details(selected: Sequence[str], analyses: Mapping, pack: d
             } for item in detail.close_ranges]), hide_index=True)
 
 
+def _render_export_waiting(message: str) -> None:
+    st.info(message)
+
+
 def render_seeding_pack(
     parsed: ParsedRoster, resolved: Sequence[ResolvedTeam], supabase_client: Any, *,
     event_name: str, save: Callable[[], bool], recovery: PackRecovery | None = None,
+    view: str = "all",
 ) -> None:
-    st.markdown("#### Competitive seeding sheets")
-    st.caption(
-        "Compare every matchup in each selected cohort, review the seed order, "
-        "then download the director sheets."
-    )
+    if view not in {"all", "build", "export"}:
+        raise ValueError(f"Unknown seeding pack view: {view}")
+    if view != "export":
+        st.markdown("### 3. Review the seed order" if view == "build" else "### 3. Build and review the seed order")
+        st.caption(
+            "PowerScore sets the starting order. Compare predictions then flag placements that need your review; "
+            "they do not automatically move teams."
+        )
+    else:
+        st.markdown("### 4. Export the director pack")
+        st.caption("Check readiness, then download the PDF. Excel and printable HTML are available as backups.")
     if not event_name:
         st.info("Name the event above before preparing its sheets.")
+        _render_export_waiting("The next step unlocks after the event is named and a seed order is built.")
         return
     overrides = st.session_state._seeding_overrides
     pack = st.session_state.get(_PACK_KEY)
@@ -357,21 +380,37 @@ def render_seeding_pack(
         if st.button("Retry saving pack", key="_seeding_retry_pack_save"):
             _persist_decisions(save)
             st.rerun()
-    restored = _offer_interrupted_build(recovery, parsed, resolved, overrides, pack) if recovery else None
-    selected = _selected_cohorts(parsed, restored or pack)
+    restored = (
+        _offer_interrupted_build(recovery, parsed, resolved, overrides, pack)
+        if view != "export" and recovery
+        else None
+    )
+    choices = available_cohorts(parsed.rows)
+    selected = (
+        _selected_cohorts(parsed, restored or pack)
+        if view != "export"
+        else [key for key in (pack or {}).get("selected_cohorts", []) if key in choices]
+    )
     selected_rows = [row for row in parsed.rows if cohort_key(row.section_age_group, row.section_gender) in selected]
-    st.caption(f"Selected: {len(selected)} cohort(s), {len(selected_rows)} accepted teams. "
-               "Unmatched teams stay in the pack.")
+    st.caption(
+        f"Selected: {len(selected)} cohort(s), {len(selected_rows)} accepted teams. "
+        "Unmatched teams stay in the pack."
+    )
     if not selected:
+        _render_export_waiting(
+            "Select at least one tournament cohort, then build the seed order."
+            if view != "export"
+            else "Go back to step 3 and build a seed order before exporting."
+        )
         return
-    if pack:
+    if pack and view != "export":
         st.caption("Rebuilding reads fresh data while preserving director notes and roster decisions.")
 
     pending_replacement = restored is not None
     pending_upgrade = False
     if restored is not None:
         pack = restored
-    if st.button("Build seeding sheets", type="primary", key="_seeding_build_tiers"):
+    if view != "export" and st.button("Build seeding sheets", type="primary", key="_seeding_build_tiers"):
         try:
             with st.spinner("Reading current team data and comparing every matchup..."):
                 request = prediction_request(parsed.rows, resolved, overrides, selected)
@@ -414,6 +453,7 @@ def render_seeding_pack(
         except (ValueError, TypeError, KeyError) as exc:
             invalidate_seeding_exports()
             st.info(f"The saved pack needs a fresh build: {exc}")
+            _render_export_waiting("Rebuild the seed order before exporting.")
             return
 
     current_pack = pack_matches(pack, parsed.rows, resolved, overrides, selected)
@@ -433,36 +473,43 @@ def render_seeding_pack(
         "|".join(key) for key, analysis in analyses.items()
         if needs_placement_review(pack, "|".join(key), analysis)
     ]
-    draft = metadata.get("coverage") != "complete" or bool(assessment.attention & selected_indices) or any(
-        could_belong(row, *key.split("|", 1)) for row in uncertain for key in selected
-    ) or analysis_error is not None or any(
+    has_data_review = any(
         status == DATA_REVIEW
         for analysis in analyses.values() for status in analysis.placement_status.values()
-    ) or bool(pending_reviews)
-    if draft:
+    )
+    draft = metadata.get("coverage") != "complete" or bool(assessment.attention & selected_indices) or any(
+        could_belong(row, *key.split("|", 1)) for row in uncertain for key in selected
+    ) or analysis_error is not None or has_data_review or bool(pending_reviews)
+    if draft and view != "export":
         st.info("Delivery status: draft. Complete roster and placement checks before sending.")
         if pending_reviews:
             st.caption("Placement review pending: " + ", ".join(cohort_label(key) for key in pending_reviews))
-    else:
+    elif view != "export":
         st.caption("Delivery status: roster assessed. Review seed order and director notes before sending.")
-    st.download_button(
-        "Download all selected teams as CSV", team_csv(selected_rows, resolved, overrides, draft=draft),
-        file_name=f"{slugify(event_name)}-teams.csv", mime="text/csv", key="_seeding_all_teams_csv",
-    )
+    if view != "export":
+        with st.expander("Internal roster CSV (optional)", expanded=False):
+            st.caption("This is a review file, not the director pack.")
+            st.download_button(
+                "Download all selected teams as CSV", team_csv(selected_rows, resolved, overrides, draft=draft),
+                file_name=f"{slugify(event_name)}-teams.csv", mime="text/csv", key="_seeding_all_teams_csv",
+            )
     if not current_pack:
         invalidate_seeding_exports()
         if pack:
             st.info("The selected cohorts or team matches changed. Build seeding sheets to update this pack.")
+        _render_export_waiting("Build the seed order in step 3 before exporting.")
         return
     if pack.get("predictor_sha256") != seeding_predictor_sha256():
         invalidate_seeding_exports()
         st.info("The predictor has been updated since this pack was built. After rankings finish, "
                 "click Build seeding sheets to refresh predictions. Your team matches and tournament "
                 "age assignments are saved.")
+        _render_export_waiting("Rebuild the seed order with the current predictor before exporting.")
         return
     if analysis_error is not None:
         invalidate_seeding_exports()
         st.error(f"This pack needs rebuilding: {analysis_error}")
+        _render_export_waiting("Rebuild the seed order before exporting.")
         return
     st.caption(f"Saved prediction snapshot: {pack['generated_at']} · "
                f"Ratings as of {pack.get('ratings_as_of') or 'unknown'}")
@@ -502,6 +549,7 @@ def render_seeding_pack(
                 if key in saved_pack.get("selected_cohorts", []):
                     st.markdown(f"##### {cohort_label(key)}")
                     _render_director_notes(key, saved_pack, save)
+        _render_export_waiting("Fix the sheet error and rebuild the seed order before exporting.")
         return
     if pending_replacement:
         # Marked unsaved first, so a rerun between here and the save leaves the
@@ -524,13 +572,50 @@ def render_seeding_pack(
     st.session_state["_seeding_xlsx"] = workbook
     st.session_state["_seeding_xlsx_hash"] = content_hash
     st.session_state["_seeding_export_fingerprint"] = content_hash
-    with st.expander("Review seed order and director notes", expanded=True):
-        roster_rows = {str(row.source_index): row for row in parsed.rows}
-        by_cohort = {cohort_key(sheet.age_group, sheet.gender): sheet for sheet in sheets}
-        for key in selected:
-            _render_cohort_review(key, analyses[tuple(key.split("|", 1))], pack, save, roster_rows, by_cohort[key])
-    with st.expander("Analysis details", expanded=False):
-        _render_analysis_details(selected, analyses, pack)
+    if view != "export":
+        with st.expander("Review seed order and director notes", expanded=True):
+            roster_rows = {str(row.source_index): row for row in parsed.rows}
+            by_cohort = {cohort_key(sheet.age_group, sheet.gender): sheet for sheet in sheets}
+            for key in selected:
+                _render_cohort_review(
+                    key, analyses[tuple(key.split("|", 1))], pack, save, roster_rows, by_cohort[key]
+                )
+        with st.expander("Analysis details", expanded=False):
+            _render_analysis_details(selected, analyses, pack)
+        if view == "build":
+            return
+
+    if view == "all":
+        st.markdown("### 4. Export the director pack")
+        st.caption("PDF is the normal handoff; Excel and printable HTML are available as backups.")
+
+    st.markdown("#### Readiness")
+    match_ready = not bool(assessment.attention & selected_indices)
+    coverage_ready = metadata.get("coverage") == "complete"
+    placement_ready = not pending_reviews and not has_data_review
+    readiness = [
+        ("Accepted-team roster confirmed", coverage_ready, "Confirm the complete roster in step 2."),
+        ("Match decisions complete", match_ready, "Resolve the remaining teams in step 2."),
+        ("PowerScore and Compare snapshot current", True, "Rebuild the seed order in step 3."),
+        ("Placement checks complete", placement_ready, "Review flagged placements in step 3."),
+    ]
+    for label, ready, action in readiness:
+        st.markdown(f"{'✅' if ready else '⚠️'} **{label}**" + ("" if ready else f" — {action}"))
+    st.caption("Director notes are optional and can be edited in step 3.")
+    if view == "export":
+        with st.expander("Advanced downloads", expanded=False):
+            st.caption("The CSV is an internal review file, not the director pack.")
+            st.download_button(
+                "Download all selected teams as CSV", team_csv(selected_rows, resolved, overrides, draft=draft),
+                file_name=f"{slugify(event_name)}-teams.csv", mime="text/csv", key="_seeding_all_teams_csv",
+            )
+    if draft:
+        st.warning(
+            "These files are marked DRAFT. They are safe to inspect, but finish the remaining roster or "
+            "placement checks before sending them to the tournament director."
+        )
+    else:
+        st.success("The reviewed director pack is ready to export.")
     if st.button("Generate PDF pack", key="_seeding_generate_pdf"):
         try:
             with st.spinner("Laying out the printable sheets..."):
