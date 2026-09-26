@@ -16,6 +16,11 @@ from itertools import combinations
 from statistics import median
 
 from src.tournaments.compare_predictor_bridge import ComparePrediction
+from src.tournaments.seeding_suggested_order import (
+    OrderingConflict,
+    TeamMovement,
+    resolve_suggested_order,
+)
 
 SEEDED = "Seeded"
 NOT_FOUND = "Not found in PitchRank"
@@ -47,9 +52,13 @@ class TierPolicy:
     # A stricter, separately tunable label for adjacent teams. This is not the
     # same claim as merely being competitive enough for the same group.
     very_close_expected_goal_difference: float = field(default=1.0, kw_only=True)
-    # The directional advantage required before a lower PowerScore seed enters
-    # placement review. It is independent of competitive-fit limits.
+    # The directional advantage required before a lower PowerScore seed can be
+    # considered for local-consensus movement. It is independent of fit limits.
     material_reversal_expected_goal_difference: float = field(default=1.0, kw_only=True)
+    max_automatic_seed_movement: int = field(default=2, kw_only=True)
+    local_consensus_window_sizes: tuple[int, ...] = field(default=(5, 6, 7), kw_only=True)
+    local_consensus_min_shared_opponents: int = field(default=3, kw_only=True)
+    local_consensus_support_threshold: float = field(default=0.5, kw_only=True)
 
     def __post_init__(self) -> None:
         if not math.isfinite(self.max_expected_margin) or self.max_expected_margin <= 0:
@@ -70,6 +79,29 @@ class TierPolicy:
             or self.material_reversal_expected_goal_difference <= 0
         ):
             raise ValueError("Material-reversal expected goal difference must be finite and greater than zero")
+        if (
+            isinstance(self.max_automatic_seed_movement, bool)
+            or not isinstance(self.max_automatic_seed_movement, int)
+            or self.max_automatic_seed_movement < 0
+        ):
+            raise ValueError("Maximum automatic seed movement must be a non-negative integer")
+        windows = tuple(self.local_consensus_window_sizes)
+        if not windows or any(isinstance(value, bool) or not isinstance(value, int) or value < 2 for value in windows):
+            raise ValueError("Local-consensus window sizes must be integers of at least two")
+        if len(set(windows)) != len(windows):
+            raise ValueError("Local-consensus window sizes must be unique")
+        object.__setattr__(self, "local_consensus_window_sizes", windows)
+        if (
+            isinstance(self.local_consensus_min_shared_opponents, bool)
+            or not isinstance(self.local_consensus_min_shared_opponents, int)
+            or self.local_consensus_min_shared_opponents < 1
+        ):
+            raise ValueError("Local consensus needs at least one shared opponent")
+        if (
+            not math.isfinite(self.local_consensus_support_threshold)
+            or not 0 <= self.local_consensus_support_threshold < 1
+        ):
+            raise ValueError("Local-consensus support threshold must be at least zero and less than one")
 
 
 @dataclass(frozen=True)
@@ -93,7 +125,7 @@ class TierAnalysis:
 
 @dataclass(frozen=True)
 class StrengthBreak:
-    """A supported competitive difference between adjacent published seeds."""
+    """A supported competitive difference between adjacent displayed seeds."""
 
     after_seed: int
     score_gap: float
@@ -142,7 +174,7 @@ class PlacementCheck:
 
 @dataclass(frozen=True)
 class LocalConsensusCheck:
-    """Review-only evidence for a possible move away from PowerScore order."""
+    """PowerScore-anchored evidence for a possible MatchBalance move."""
 
     entrant_id: str
     compared_with_id: str
@@ -168,7 +200,8 @@ class CheatSheetAnalysis:
     ``tiers``, ``borderline``, and ``boundaries`` are retained only so older
     saved packs and operator diagnostics can be read during the migration. The
     public sheet uses ``ordered_ids`` and supported strength observations.
-    ``close_ranges`` and ``boundary_windows`` are internal evidence only.
+    ``close_ranges`` drives subtle customer annotations; ``boundary_windows``
+    remains internal evidence.
     """
 
     ordered_ids: tuple[str, ...]
@@ -187,11 +220,17 @@ class CheatSheetAnalysis:
     borderline: Mapping[str, tuple[int, ...]] = field(default_factory=dict)
     boundaries: tuple[str, ...] = ()
     warnings: tuple[str, ...] = ()
+    baseline_order: tuple[str, ...] = ()
+    suggested_order: tuple[str, ...] = ()
+    manual_override: bool = False
+    manual_holds: tuple[str, ...] = ()
+    movements: tuple[TeamMovement, ...] = ()
+    ordering_conflicts: tuple[OrderingConflict, ...] = ()
 
     def marker_for_seed(self, seed: int) -> str:
         for item in self.breaks:
             if item.after_seed == seed:
-                return f"Score step: {item.score_gap * 100:.1f} points between seeds {seed} and {seed + 1}."
+                return "Competitive Break"
         return ""
 
 
@@ -524,6 +563,7 @@ def _profile_support(
     baseline_team: str,
     references: Sequence[str],
     pairs: Mapping[tuple[str, str], _Pair],
+    support_threshold: float,
 ) -> tuple[bool, float, float]:
     """Compare two teams against identical opponents from the baseline neighborhood."""
     advantages = [
@@ -536,7 +576,7 @@ def _profile_support(
     average = math.fsum(advantages) / len(advantages)
     # A strict majority plus a positive average prevents one large comparison
     # from turning a mostly contrary neighborhood into apparent consensus.
-    supported = sum(value > 1e-8 for value in advantages) * 2 > len(advantages) and average > 1e-8
+    supported = support_fraction > support_threshold and average > 1e-8
     return supported, support_fraction, average
 
 
@@ -545,17 +585,16 @@ def _local_consensus_checks(
     by_id: Mapping[str, TierEntrant],
     pairs: Mapping[tuple[str, str], _Pair],
     placement_checks: Sequence[PlacementCheck],
-    *,
-    max_movement: int = 2,
+    policy: TierPolicy,
 ) -> tuple[LocalConsensusCheck, ...]:
-    """Evaluate material reversals without changing the PowerScore order.
+    """Evaluate material reversals against the frozen PowerScore order.
 
     The pilot deliberately uses only direction, not a fitted strength score:
     the lower seed must look better against a strict majority of the same
     established-history neighbors, the average profile edge must be positive,
-    and that conclusion must survive every available 5-7 team window plus
-    leave-one-neighbor-out checks. Threshold calibration and constrained
-    reordering remain separate validation work.
+    and that conclusion must survive every available configured window plus
+    leave-one-neighbor-out checks. Historical validation of the resulting
+    suggestions remains separate work.
     """
     results: list[LocalConsensusCheck] = []
     for check in placement_checks:
@@ -565,8 +604,10 @@ def _local_consensus_checks(
         baseline_team = ordered[upper_index]
         distance = check.lower_seed - check.upper_seed
         blockers: list[str] = []
-        if distance > max_movement:
-            blockers.append(f"The change spans more than the {max_movement}-seed pilot cap.")
+        if distance > policy.max_automatic_seed_movement:
+            blockers.append(
+                f"The change spans more than the {policy.max_automatic_seed_movement}-seed movement cap."
+            )
         pair_has_reliable_evidence = not (
             by_id[candidate].limited_history or by_id[baseline_team].limited_history
         )
@@ -574,7 +615,7 @@ def _local_consensus_checks(
             blockers.append("One of the compared teams has limited ranked history.")
 
         window_results: list[tuple[int, tuple[str, ...], bool, float, float, bool]] = []
-        for size in (5, 6, 7):
+        for size in policy.local_consensus_window_sizes:
             window = _pair_neighborhood(ordered, upper_index, lower_index, size)
             if window is None:
                 continue
@@ -582,22 +623,27 @@ def _local_consensus_checks(
                 entrant_id for entrant_id in window
                 if entrant_id not in {candidate, baseline_team} and not by_id[entrant_id].limited_history
             )
-            if len(references) < 3:
+            if len(references) < policy.local_consensus_min_shared_opponents:
                 continue
-            supported, fraction, average = _profile_support(candidate, baseline_team, references, pairs)
+            supported, fraction, average = _profile_support(
+                candidate, baseline_team, references, pairs, policy.local_consensus_support_threshold,
+            )
             leave_one_out = all(
                 _profile_support(
                     candidate,
                     baseline_team,
                     tuple(value for value in references if value != omitted),
                     pairs,
+                    policy.local_consensus_support_threshold,
                 )[0]
                 for omitted in references
             )
             window_results.append((size, references, supported, fraction, average, leave_one_out))
 
         if not window_results:
-            blockers.append("Fewer than three established-history neighbors are available for comparison.")
+            blockers.append(
+                "Too few established-history neighbors are available for the configured comparison."
+            )
             primary_references: tuple[str, ...] = ()
             support_fraction = 0.0
             average_profile_advantage = 0.0
@@ -669,8 +715,10 @@ def build_cheat_sheet_analysis(
     policy: TierPolicy = TierPolicy(),
     *,
     legacy: TierAnalysis | None = None,
+    manual_order: Sequence[str] | None = None,
+    manual_holds: Sequence[str] = (),
 ) -> CheatSheetAnalysis:
-    """Build a format-neutral reference without assigning divisions or pools."""
+    """Build a recommendation without altering PowerScore or publishing a ranking."""
     by_id: dict[str, TierEntrant] = {}
     for entrant in entrants:
         if not entrant.entrant_id or entrant.entrant_id.strip() != entrant.entrant_id:
@@ -692,10 +740,37 @@ def build_cheat_sheet_analysis(
             raise ValueError(f"Unknown placement status for {entrant.entrant_id}")
         by_id[entrant.entrant_id] = entrant
     review = {key: str(value.review_reason) for key, value in sorted(by_id.items()) if value.review_reason}
-    ordered = tuple(sorted((key for key in by_id if key not in review), key=lambda key: _display_key(by_id[key])))
-    pairs = _read_pairs(ordered, predictions)
-    statuses = {key: SEEDED for key in ordered}
+    baseline_order = tuple(
+        sorted((key for key in by_id if key not in review), key=lambda key: _display_key(by_id[key]))
+    )
+    pairs = _read_pairs(baseline_order, predictions)
+    statuses = {key: SEEDED for key in baseline_order}
     statuses.update({key: by_id[key].review_status for key in review})
+
+    placement_checks = tuple(
+        PlacementCheck(upper + 1, lower + 1, -_margin(pairs, baseline_order[upper], baseline_order[lower]))
+        for upper in range(len(baseline_order)) for lower in range(upper + 1, len(baseline_order))
+        if (
+            _margin(pairs, baseline_order[upper], baseline_order[lower])
+            <= -policy.material_reversal_expected_goal_difference
+        )
+    )
+    consensus_checks = _local_consensus_checks(
+        baseline_order, by_id, pairs, placement_checks, policy,
+    )
+    supported_relationships = tuple(
+        (item.entrant_id, item.compared_with_id)
+        for item in consensus_checks
+        if item.supported
+    )
+    order_result = resolve_suggested_order(
+        baseline_order,
+        supported_relationships,
+        immovable_ids=(key for key in baseline_order if by_id[key].limited_history),
+        max_movement=policy.max_automatic_seed_movement,
+    )
+    suggested_order = order_result.order
+    ordered = suggested_order
 
     candidates: list[StrengthBreak] = []
     boundary_windows: list[BoundaryWindow] = []
@@ -805,20 +880,51 @@ def build_cheat_sheet_analysis(
                 f"{item.after_seed} and {item.after_seed + 1}."
             )
 
-    placement_checks = tuple(
-        PlacementCheck(upper + 1, lower + 1, -_margin(pairs, ordered[upper], ordered[lower]))
-        for upper in range(len(ordered)) for lower in range(upper + 1, len(ordered))
-        if (
-            _margin(pairs, ordered[upper], ordered[lower])
-            <= -policy.material_reversal_expected_goal_difference
-        )
-    )
+    effective_order = suggested_order
+    effective_breaks = breaks
+    effective_close_ranges = tuple(close_ranges)
+    holds = tuple(manual_holds)
+    if manual_order is not None:
+        effective_order = tuple(manual_order)
+        if len(set(effective_order)) != len(effective_order) or not set(effective_order).issubset(by_id):
+            raise ValueError("Manual seed order must contain unique entrants from this cohort")
+        if len(set(holds)) != len(holds) or not set(holds).issubset(baseline_order):
+            raise ValueError("Manual seed holds must contain unique automatically eligible entrants")
+        if set(effective_order) & set(holds):
+            raise ValueError("A team cannot have a manual seed and be held for manual placement")
+        if set(baseline_order) != (set(effective_order) & set(baseline_order)) | set(holds):
+            raise ValueError(
+                "Every automatically eligible team needs a unique manual seed or an explicit hold"
+            )
+
+        effective_positions = {entrant_id: seed for seed, entrant_id in enumerate(effective_order, 1)}
+        retained_breaks = []
+        for item in breaks:
+            upper_id = suggested_order[item.after_seed - 1]
+            lower_id = suggested_order[item.after_seed]
+            upper_seed = effective_positions.get(upper_id)
+            lower_seed = effective_positions.get(lower_id)
+            if upper_seed is not None and lower_seed == upper_seed + 1:
+                retained_breaks.append(replace(item, after_seed=upper_seed))
+        retained_close = []
+        for item in close_ranges:
+            members = item.entrant_ids
+            for start in range(len(effective_order) - len(members) + 1):
+                if effective_order[start:start + len(members)] == members:
+                    retained_close.append(replace(item, start_seed=start + 1, end_seed=start + len(members)))
+                    break
+        effective_breaks = tuple(retained_breaks)
+        effective_close_ranges = tuple(retained_close)
+        notes = []
 
     diagnostics: list[str] = []
     low_confidence = sum(pair.low_confidence for pair in pairs.values())
     if low_confidence:
         diagnostics.append(f"{low_confidence}/{len(pairs)} matchups have low outcome confidence.")
-    reversals = sum(_margin(pairs, first, second) < -1e-8 for first, second in combinations(ordered, 2))
+    reversals = sum(
+        _margin(pairs, first, second) < -1e-8
+        for first, second in combinations(baseline_order, 2)
+    )
     if reversals:
         diagnostics.append(f"{reversals} matchup prediction(s) favor a lower published seed.")
     diagnostics.append(
@@ -828,22 +934,32 @@ def build_cheat_sheet_analysis(
         "in at least 75% of pairings, with a positive average advantage. "
         "These are display heuristics, not calibrated outcome guarantees."
     )
+    if order_result.conflicts:
+        diagnostics.append(
+            f"{len(order_result.conflicts)} supported ordering relationship(s) could not be applied safely."
+        )
 
     return CheatSheetAnalysis(
-        ordered_ids=ordered,
+        ordered_ids=effective_order,
         review=review,
         placement_status=statuses,
-        breaks=breaks,
-        close_ranges=tuple(close_ranges),
+        breaks=effective_breaks,
+        close_ranges=effective_close_ranges,
         notes=tuple(notes),
         diagnostics=tuple(diagnostics),
         boundary_windows=tuple(boundary_windows),
         standouts=tuple(item for item in selected if item.standout),
-        limited_history=tuple(key for key in ordered if by_id[key].limited_history),
+        limited_history=tuple(key for key in baseline_order if by_id[key].limited_history),
         placement_checks=placement_checks,
-        local_consensus_checks=_local_consensus_checks(ordered, by_id, pairs, placement_checks),
+        local_consensus_checks=consensus_checks,
         tiers=legacy.tiers if legacy else (),
         borderline=legacy.borderline if legacy else {},
         boundaries=legacy.boundaries if legacy else (),
         warnings=legacy.warnings if legacy else (),
+        baseline_order=baseline_order,
+        suggested_order=suggested_order,
+        manual_override=manual_order is not None,
+        manual_holds=holds,
+        movements=order_result.movements,
+        ordering_conflicts=order_result.conflicts,
     )

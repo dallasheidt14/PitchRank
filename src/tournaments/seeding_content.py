@@ -12,11 +12,12 @@ from src.tournaments.seeding_tiers import DATA_REVIEW, NO_CURRENT_RATING, SEEDED
 if TYPE_CHECKING:
     from src.tournaments.seeding_sheet import CohortSheet, SheetTeam
 
-CONTENT_VERSION = 3
+CONTENT_VERSION = 4
 DIRECTOR_LEGEND = (
-    "Start with the numbered seed order. Higher PowerScores indicate greater published strength; "
-    "bars use the same 0–100 scale. Score steps highlight larger differences supported by nearby "
-    "matchups; they do not assign divisions or pools."
+    "Start with the numbered MatchBalance Seed order. PowerScore remains the original published-strength "
+    "baseline; bars use the same 0-100 scale. Competitive Breaks show natural separation supported by "
+    "nearby matchups; they do not assign divisions or pools. Very-close ranges identify the same competitive "
+    "neighborhood without claiming the teams are equal."
 )
 LIMITED_HISTORY_LEGEND = "Fewer ranked games support this score. Keep it as a starting point for placement."
 
@@ -28,6 +29,11 @@ class DirectorRow:
     observation: str
     placement_status: str
     strength_break_after: bool = False
+    power_score_seed: int | None = None
+    matchbalance_seed: int | None = None
+    manual_override: bool = False
+    movement: str = ""
+    close_range_after: str = ""
 
     @property
     def score(self) -> float | None:
@@ -96,7 +102,10 @@ def build_director_cohort(sheet: CohortSheet, operator_note: str = "") -> Direct
     else:
         ordered = analysis.ordered_ids
         ordered_set = set(ordered)
-        if len(ordered) != len(ordered_set) or ordered_set & set(analysis.review):
+        manual_override = bool(getattr(analysis, "manual_override", False))
+        if len(ordered) != len(ordered_set) or (
+            ordered_set & set(analysis.review) and not manual_override
+        ):
             raise ValueError("Cheat sheet analysis contains duplicate or overlapping entrant IDs.")
         if (ordered_set | set(analysis.review)) - set(by_id):
             raise ValueError("Cheat sheet analysis contains a team outside this cohort.")
@@ -108,15 +117,61 @@ def build_director_cohort(sheet: CohortSheet, operator_note: str = "") -> Direct
         statuses = getattr(analysis, "placement_status", {})
         breaks = {item.after_seed for item in getattr(analysis, "breaks", ())}
         markers = {seed: analysis.marker_for_seed(seed) for seed in breaks}
-    rows = [DirectorRow(seed, team, markers.get(seed, ""), SEEDED, seed in breaks)
-            for seed, team in enumerate(seeded, 1)]
+    baseline_sequence = (
+        getattr(analysis, "baseline_order", ()) or analysis.ordered_ids
+        if analysis is not None else ()
+    )
+    suggested_sequence = (
+        getattr(analysis, "suggested_order", ()) or analysis.ordered_ids
+        if analysis is not None else ()
+    )
+    baseline_seeds = {
+        entrant_id: seed for seed, entrant_id in enumerate(baseline_sequence, 1)
+    }
+    matchbalance_seeds = {
+        entrant_id: seed for seed, entrant_id in enumerate(suggested_sequence, 1)
+    }
+    close_after = {
+        item.end_seed: f"Very close: seeds {item.start_seed}-{item.end_seed}"
+        for item in getattr(analysis, "close_ranges", ())
+    } if analysis is not None else {}
+    rows = []
+    for seed, team in enumerate(seeded, 1):
+        original = baseline_seeds.get(team.entrant_id)
+        suggested = matchbalance_seeds.get(team.entrant_id)
+        movement = ""
+        if original is None:
+            movement = "Manual placement"
+        else:
+            displayed_seed = seed if manual_override else suggested
+            if displayed_seed is not None and displayed_seed != original:
+                arrow = "↑" if displayed_seed < original else "↓"
+                movement = f"{arrow} from PowerScore #{original}"
+        if analysis is not None and manual_override and suggested != seed:
+            manual_detail = f"Manual from MatchBalance #{suggested}" if suggested is not None else "Manual placement"
+            movement = " · ".join(value for value in (movement, manual_detail) if value)
+        status = statuses.get(team.entrant_id, SEEDED)
+        rows.append(DirectorRow(
+            seed,
+            team,
+            markers.get(seed, ""),
+            status,
+            seed in breaks,
+            original,
+            suggested,
+            bool(analysis and manual_override),
+            movement,
+            close_after.get(seed, ""),
+        ))
     for team in unseeded:
         status = statuses.get(team.entrant_id) or (
             DATA_REVIEW if analysis is not None
             else NO_CURRENT_RATING
         )
         rows.append(DirectorRow(None, team, "", status))
-    notes = list(getattr(analysis, "notes", ()))
+    # Automatic break/standout evidence stays in the operator view. The
+    # customer gets the visual annotations plus only deliberately entered copy.
+    notes = []
     if operator_note.strip():
         notes.append(operator_note.strip())
     return DirectorCohort(tuple(rows), tuple(dict.fromkeys(notes)))

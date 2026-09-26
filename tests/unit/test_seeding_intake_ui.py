@@ -154,15 +154,17 @@ def test_main_review_shows_scores_without_internal_ids_or_close_labels(operator)
     app, _calls = operator
     click(app, "Build seeding sheets")
     editor = app.dataframe[0].value
-    assert list(editor.columns)[:4] == ["Seed", "Team", "PowerScore", "State rank"]
+    assert list(editor.columns)[:4] == [
+        "PowerScore Seed", "MatchBalance Seed", "Manual/Effective Seed", "Team",
+    ]
     assert editor["PowerScore"].tolist() == pytest.approx([55., 55.])
     assert "Entrant" not in editor.columns
-    assert editor["Strength marker"].tolist() == ["", ""]
+    assert editor["Competitive marker"].tolist() == ["", ""]
     assert "Close range" not in app.session_state["_seeding_sheet_html"]
     assert "PDF and Excel" in app.text_area[0].label
 
 
-def test_supported_local_consensus_is_visible_without_reordering_the_sheet(monkeypatch):
+def test_supported_local_consensus_is_visible_and_reorders_the_sheet(monkeypatch):
     app_code = '''
 import streamlit as st
 from src.tournaments.roster_paste import parse_roster
@@ -225,8 +227,8 @@ render_seeding_pack(parsed, resolved, None, event_name="Consensus Cup", save=lam
 
     rendered = "\n".join(item.value for item in app.markdown)
     assert "PowerScore-anchored local-consensus proposals" in rendered
-    assert "Review moving seed 3 · Team 2 to seed 2" in rendered
-    assert app.dataframe[0].value["Team"].tolist() == ["Team 0", "Team 1", "Team 2", "Team 3", "Team 4"]
+    assert "Team 2: PowerScore #3 → MatchBalance #2" in rendered
+    assert app.dataframe[0].value["Team"].tolist() == ["Team 0", "Team 2", "Team 1", "Team 3", "Team 4"]
 
 
 def test_placement_review_stays_internal_and_resets_when_director_notes_change(operator, monkeypatch):
@@ -283,7 +285,7 @@ def test_legacy_analysis_reuses_predictions_and_preserves_notes(operator):
     app.run()
     assert not app.exception and not app.error
     upgraded = app.session_state["_seeding_pack"]
-    assert upgraded["analysis_schema_version"] == 6
+    assert upgraded["analysis_schema_version"] == 7
     assert upgraded["predictions"] == pack["predictions"]
     assert upgraded["generated_at"] == pack["generated_at"]
     assert upgraded["operator_notes"] == pack["operator_notes"]
@@ -397,7 +399,7 @@ def test_rebuild_materializes_new_policy_defaults_from_a_version_three_pack(oper
     click(app, "Build seeding sheets")
 
     rebuilt = app.session_state["_seeding_pack"]
-    assert rebuilt["analysis_schema_version"] == 6
+    assert rebuilt["analysis_schema_version"] == 7
     assert rebuilt["policy"]["blowout_cost_weight"] == 2.0
     assert rebuilt["policy"]["very_close_expected_goal_difference"] == 1.0
     assert rebuilt["policy"]["material_reversal_expected_goal_difference"] == 1.0
@@ -506,12 +508,55 @@ def test_failed_save_banner_survives_rerun_and_successful_retry_clears_it(operat
     assert "Latest reviewed notes must survive retry." in app.session_state["_seeding_sheet_html"]
 
 
-def _merge_editor_tiers(app):
-    # AppTest exposes data_editor as a dataframe, without an edit-cell helper.
-    # Supply the same row-delta widget state that Streamlit's editor sends.
-    keys = [key for key in app.session_state.filtered_state if key.startswith("_seeding_tier_editor_u14|Male_")]
+def _edit_manual_order(app, edits):
+    keys = [
+        key for key in app.session_state.filtered_state
+        if key.startswith("_seeding_manual_order_editor_u14|Male_")
+    ]
     assert len(keys) == 1
-    app.session_state[keys[0]] = {"edited_rows": {1: {"Tier": 1}}, "added_rows": [], "deleted_rows": []}
+    app.session_state[keys[0]] = {
+        "edited_rows": edits,
+        "added_rows": [],
+        "deleted_rows": [],
+    }
+
+
+def test_manual_order_requires_explicit_hold_and_restore_removes_override(operator):
+    app, _calls = operator
+    click(app, "Build seeding sheets")
+    _edit_manual_order(app, {1: {"Manual/Effective Seed": None}})
+    click(app, "Save manual seed order")
+    assert any("assign a seed or explicitly hold it" in message.value for message in app.error)
+    assert app.session_state["_seeding_pack"]["manual_seed_orders"] == {}
+
+    _edit_manual_order(app, {
+        1: {"Manual/Effective Seed": None, "Hold for manual placement": True},
+    })
+    click(app, "Save manual seed order")
+    saved = app.session_state["_seeding_pack"]["manual_seed_orders"]["u14|Male"]
+    assert saved == {"seeded": ["0"], "held": ["1"]}
+    assert "Manual/Effective Seed" in app.session_state["_seeding_sheet_html"]
+
+    click(app, "Restore MatchBalance suggested order")
+    assert app.session_state["_seeding_pack"]["manual_seed_orders"] == {}
+    assert "Manual/Effective Seed" not in app.session_state["_seeding_sheet_html"]
+
+
+def test_rebuild_drops_manual_orders_for_deselected_cohorts(operator):
+    app, _calls = operator
+    click(app, "Build seeding sheets")
+    app.session_state["_seeding_pack"]["manual_seed_orders"] = {
+        "u14|Male": {"seeded": ["0", "1"], "held": []},
+        "u15|Female": {"seeded": [], "held": ["2"]},
+    }
+
+    app.radio[0].set_value("Choose cohorts").run()
+    app.multiselect[0].set_value(["u14|Male"]).run()
+    click(app, "Build seeding sheets")
+
+    assert app.session_state["_seeding_pack"]["manual_seed_orders"] == {
+        "u14|Male": {"seeded": ["0", "1"], "held": []},
+    }
 
 
 def test_manual_unsafe_merge_warning_and_notes_reach_the_sheet_and_restore_clears_editor(operator):
@@ -579,7 +624,7 @@ def test_unsupported_saved_note_remains_editable_after_export_failure(operator, 
     click(app, "Save director notes")
     assert not app.error
     assert app.session_state["_seeding_pack"]["operator_notes"]["u14|Male"] == "Corrected note"
-    assert app.session_state["_seeding_pack"]["analysis_schema_version"] == 6
+    assert app.session_state["_seeding_pack"]["analysis_schema_version"] == 7
     assert "Corrected note" in app.session_state["_seeding_sheet_html"]
     assert "_seeding_xlsx" in app.session_state and len(calls) == 1
 
