@@ -95,9 +95,11 @@ def build_seeding_workbook(
             for label in PLACEMENT_STATUSES
         )
         sheet["A5"].font = Font(color=MUTED, size=9)
+        manual = bool(cohort.tier_analysis and getattr(cohort.tier_analysis, "manual_override", False))
         headers = [
-            "Suggested seed", "Team name", "Club", "PitchRank score", "State rank", "Strength marker",
-            "Placement status", "Final division", "Pool", "Final seed", "Director notes",
+            "Manual/Effective seed" if manual else "MatchBalance seed",
+            "Team name", "Club", "PowerScore", "State rank", "PowerScore seed",
+            "Movement / placement notes", "Final division", "Pool", "Final seed", "Director notes",
         ]
         for column, value in enumerate(headers, 1):
             cell = sheet.cell(6, column, value)
@@ -106,16 +108,21 @@ def build_seeding_workbook(
             cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
             cell.border = Border(bottom=Side(style="thin", color=YELLOW))
         for row_index, row in enumerate(team_rows, 7):
-            team, marker = row.team, row.observation
+            team = row.team
+            placement = " · ".join(
+                value for value in (
+                    row.movement, row.observation, row.close_range_after, row.display_status,
+                ) if value
+            )
             values = [
                 row.seed, "\n".join(row.name_lines), _safe_text(team.club_name), row.score,
-                row.state_rank, _safe_text(marker), _safe_text(row.display_status), "", "", "", "",
+                row.state_rank, row.power_score_seed, _safe_text(placement), "", "", "", "",
             ]
             for column, value in enumerate(values, 1):
                 cell = sheet.cell(row_index, column, value)
                 if isinstance(value, str):
                     _set_text(cell, value)
-                cell.alignment = Alignment(vertical="top", wrap_text=column in {2, 3, 6, 7, 8, 9, 11})
+                cell.alignment = Alignment(vertical="top", wrap_text=column in {2, 3, 7, 8, 9, 11})
                 cell.border = Border(bottom=Side(
                     style="medium" if row.strength_break_after else "hair",
                     color=FOREST if row.strength_break_after else RULE,
@@ -124,7 +131,7 @@ def build_seeding_workbook(
                     cell.fill = PatternFill("solid", fgColor="FFF9DB")
                 if column == 4 and value is not None:
                     cell.number_format = "0.0"
-                if column in {1, 4, 5, 10}:
+                if column in {1, 4, 5, 6, 10}:
                     cell.alignment = Alignment(horizontal="center", vertical="top")
             if row_index % 2 == 0:
                 for column in range(1, 8):
@@ -132,7 +139,7 @@ def build_seeding_workbook(
             # Excel does not autofit wrapped rows reliably when printing.
             sheet.row_dimensions[row_index].height = 15 * max(
                 sum(max(1, (len(line) + width - 1) // width) for line in str(value or "").split("\n"))
-                for value, width in ((values[1], 30), (values[2], 22), (values[5], 18), (values[6], 22))
+                for value, width in ((values[1], 30), (values[2], 22), (values[6], 30))
             )
         end_row = max(6, 6 + len(team_rows))
         if content.seeded:
@@ -163,7 +170,7 @@ def build_seeding_workbook(
                 sheet.row_dimensions[end_row].height = 15 * sum(
                     max(1, (len(line) + 139) // 140) for line in note.splitlines()
                 )
-        widths = [14, 32, 24, 15, 15, 20, 24, 18, 12, 14, 32]
+        widths = [17, 32, 24, 15, 15, 15, 34, 18, 12, 14, 32]
         for column, width in enumerate(widths, 1):
             sheet.column_dimensions[get_column_letter(column)].width = width
         sheet.print_title_rows = "1:6"

@@ -17,8 +17,8 @@ from src.tournaments.seeding_pack import (
     cohort_label,
     duplicate_identity_rows,
     make_pack,
-    pack_matches,
     needs_placement_review,
+    pack_matches,
     placement_review_fingerprint,
     prediction_request,
     roster_fingerprint,
@@ -107,16 +107,16 @@ def test_saved_analysis_upgrade_preserves_prediction_and_operator_choices_withou
     before = deepcopy(old)
     upgraded = upgrade_pack_analysis(old, ROWS, RESOLVED, {}, ["u12|Male"], predictor_sha256="a" * 64)
     assert old == before
-    assert upgraded["analysis_schema_version"] == 6
+    assert upgraded["schema_version"] == 4
+    assert upgraded["analysis_schema_version"] == 7
     assert upgraded["policy"] == {
         **old["policy"],
         "blowout_cost_weight": 2.0,
         "very_close_expected_goal_difference": 1.0,
         "material_reversal_expected_goal_difference": 1.0,
     }
-    assert {k: v for k, v in upgraded.items() if k not in {"analysis_schema_version", "policy"}} == {
-        k: v for k, v in old.items() if k not in {"analysis_schema_version", "policy"}
-    }
+    assert upgraded["manual_seed_orders"] == old["manual_seed_orders"]
+    assert upgraded["ordering"]
     upgraded["operator_notes"]["u12|Male"] = "Changed copy"
     assert old["operator_notes"]["u12|Male"] == "Keep the director's exact note."
 
@@ -127,6 +127,54 @@ def test_a_note_for_a_cohort_outside_the_selection_survives_an_upgrade():
     old["operator_notes"] = {"u15|Female": "Girls placement notes"}
     upgraded = upgrade_pack_analysis(old, ROWS, RESOLVED, {}, ["u12|Male"], predictor_sha256="a" * 64)
     assert upgraded["operator_notes"] == {"u15|Female": "Girls placement notes"}
+
+
+def test_schema_three_pack_upgrades_with_reproducible_separate_orders():
+    old = _pack()
+    old["schema_version"] = 3
+    old["analysis_schema_version"] = 6
+    old.pop("manual_seed_orders")
+    old.pop("ordering")
+
+    upgraded = upgrade_pack_analysis(
+        old, ROWS, RESOLVED, {}, ["u12|Male"], predictor_sha256="a" * 64,
+    )
+
+    assert upgraded["schema_version"] == 4
+    assert upgraded["analysis_schema_version"] == 7
+    assert upgraded["manual_seed_orders"] == {}
+    ordering = upgraded["ordering"]["u12|Male"]
+    assert ordering["baseline_order"]
+    assert ordering["suggested_order"]
+    assert len(ordering["movements"]) == len(ordering["baseline_order"])
+    assert "relationship_evidence" in ordering
+
+
+def test_manual_override_survives_reopen_and_removing_it_restores_suggested_order():
+    pack = _pack()
+    suggested = analyze_pack(pack, ROWS, RESOLVED, {})[("u12", "Male")].suggested_order
+    pack["manual_seed_orders"] = {
+        "u12|Male": {"seeded": list(reversed(suggested)), "held": []},
+    }
+
+    reopened = json.loads(json.dumps(pack))
+    manual = analyze_pack(reopened, ROWS, RESOLVED, {})[("u12", "Male")]
+    assert manual.manual_override
+    assert manual.ordered_ids == tuple(reversed(suggested))
+    assert manual.suggested_order == suggested
+
+    del reopened["manual_seed_orders"]["u12|Male"]
+    restored = analyze_pack(reopened, ROWS, RESOLVED, {})[("u12", "Male")]
+    assert not restored.manual_override
+    assert restored.ordered_ids == suggested
+
+
+def test_reopen_rejects_ordering_evidence_that_disagrees_with_frozen_snapshot():
+    pack = _pack()
+    pack["ordering"]["u12|Male"]["suggested_order"] = ["stale"]
+
+    with pytest.raises(ValueError, match="inconsistent saved ordering evidence"):
+        analyze_pack(pack, ROWS, RESOLVED, {})
 
 
 @pytest.mark.parametrize("corruption", ["prediction", "team", "policy", "notes", "roster", "version"])
@@ -175,6 +223,7 @@ def test_a_la_carte_request_keeps_row_identity_and_uses_manual_matches():
 def test_not_found_overrides_rejected_match_in_predictions_duplicates_and_exports():
     import csv
     from io import StringIO
+
     from src.tournaments.seeding_intake_ui import team_csv
 
     resolved = (replace(RESOLVED[0], matched_name="Rejected match"),

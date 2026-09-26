@@ -78,7 +78,7 @@ def test_counts_preserved_without_equivalence_or_format_claims(count):
         assert tab.cell(index, 1).value == row.seed
         assert tab.cell(index, 2).value == row.team.team_name
         assert tab.cell(index, 4).value == pytest.approx(row.score)
-        assert tab.cell(index, 6).value is None
+        assert tab.cell(index, 6).value == row.power_score_seed
     assert "Director notes" not in [tab.cell(i, 1).value for i in range(7, tab.max_row + 1)]
 
 
@@ -133,16 +133,16 @@ def test_all_window_sizes_must_agree_and_rejected_evidence_survives():
 def test_clear_gap_has_one_specific_observation_across_pdf_and_excel():
     sheet, _, _ = cohort(8, gap=4)
     content = build_director_cohort(sheet, "=Keep this literal.")
-    assert content.rows[3].observation == "Score step: 31.0 points between seeds 4 and 5."
+    assert content.rows[3].observation == "Competitive Break"
     assert content.rows[3].strength_break_after
     assert not content.rows[4].strength_break_after
-    assert content.notes == ("Score step: 31.0 points between seeds 4 and 5.", "=Keep this literal.")
+    assert content.notes == ("=Keep this literal.",)
     args = dict(generated_on="2026-09-20", ranking_run="2026-09-19",
                 operator_notes={("u14", "Male"): "=Keep this literal."})
     document = render_sheet_html("=Event", [sheet], **args)
     tab = load_workbook(BytesIO(build_seeding_workbook("=Event", [sheet], **args))).active
-    assert 'data-entrant="3" class="strength-break"' in document
-    assert tab.cell(10, 6).value == content.rows[3].observation
+    assert '<tr class="competitive-break">' in document
+    assert content.rows[3].observation in tab.cell(10, 7).value
     assert tab.cell(10, 1).border.bottom.style == "medium"
     assert tab["A1"].data_type == "s"
     for note in content.notes:
@@ -262,14 +262,16 @@ def test_material_reversal_threshold_is_independent_of_competitive_limit():
     ] == [(2, 3, 1.1)]
 
 
-def test_local_consensus_proposes_review_only_when_shared_neighborhood_is_stable():
+def test_local_consensus_applies_move_when_shared_neighborhood_is_stable():
     entrants, pairs = consensus_case({
         "0": 11, "1": 8, "2": 10, "3": 7, "4": 6, "5": 5, "6": 4,
     })
 
     analysis = build_cheat_sheet_analysis(entrants, pairs)
 
-    assert analysis.ordered_ids == ("0", "1", "2", "3", "4", "5", "6")
+    assert analysis.baseline_order == ("0", "1", "2", "3", "4", "5", "6")
+    assert analysis.suggested_order == ("0", "2", "1", "3", "4", "5", "6")
+    assert analysis.ordered_ids == analysis.suggested_order
     proposal = next(item for item in analysis.local_consensus_checks if item.entrant_id == "2")
     assert proposal.supported and proposal.stable
     assert (proposal.baseline_seed, proposal.proposed_seed, proposal.compared_with_seed) == (3, 2, 2)
@@ -279,6 +281,65 @@ def test_local_consensus_proposes_review_only_when_shared_neighborhood_is_stable
     assert proposal.tested_window_sizes == (5, 6, 7)
     assert proposal.minimum_game_count == 12
     assert proposal.evidence_quality == "established"
+
+
+def test_display_annotations_are_recomputed_from_suggested_adjacency():
+    entrants, pairs = consensus_case({
+        "0": 11, "1": 8, "2": 10, "3": 7, "4": 6, "5": 5, "6": 4,
+    })
+    scores = [.95, .80, .79, .78, .77, .76, .75]
+    entrants = [replace(entrant, power_score=scores[index]) for index, entrant in enumerate(entrants)]
+
+    analysis = build_cheat_sheet_analysis(entrants, pairs)
+
+    assert analysis.baseline_order[:3] == ("0", "1", "2")
+    assert analysis.suggested_order[:3] == ("0", "2", "1")
+    first_boundary = [item for item in analysis.boundary_windows if item.after_seed == 1]
+    assert first_boundary
+    assert all(item.lower_ids[:2] == ("2", "1") for item in first_boundary)
+    assert any(item.entrant_ids == ("0", "2") for item in analysis.close_ranges)
+
+
+def test_manual_order_requires_every_rated_team_to_be_seeded_or_explicitly_held():
+    entrants, pairs = consensus_case({str(index): 7 - index for index in range(5)}, count=5)
+
+    with pytest.raises(ValueError, match="unique manual seed or an explicit hold"):
+        build_cheat_sheet_analysis(entrants, pairs, manual_order=("0", "1"))
+
+    analysis = build_cheat_sheet_analysis(
+        entrants,
+        pairs,
+        manual_order=("1", "0"),
+        manual_holds=("2", "3", "4"),
+    )
+    assert analysis.manual_override
+    assert analysis.ordered_ids == ("1", "0")
+    assert analysis.manual_holds == ("2", "3", "4")
+
+
+def test_customer_sheet_labels_matchbalance_movement_breaks_and_close_ranges():
+    sheet, _, _ = cohort(8, gap=4)
+    document = render_sheet_html(
+        "Cup", [sheet], generated_on="2026-09-26", ranking_run="2026-09-25",
+    )
+    assert "MatchBalance Seed" in document
+    assert "Competitive Break" in document
+    assert "Very close: seeds" in document
+
+    entrants, pairs = consensus_case({
+        "0": 11, "1": 8, "2": 10, "3": 7, "4": 6, "5": 5, "6": 4,
+    })
+    moved = build_cheat_sheet_analysis(entrants, pairs)
+    moved_sheet = CohortSheet(
+        "u14", "Male",
+        tuple(SheetTeam(item.team_name, "Club", item.power_score, entrant_id=item.entrant_id)
+              for item in entrants),
+        (), moved,
+    )
+    moved_document = render_sheet_html(
+        "Cup", [moved_sheet], generated_on="2026-09-26", ranking_run="2026-09-25",
+    )
+    assert "↑ from PowerScore #3" in moved_document
 
 
 def test_isolated_head_to_head_reversal_does_not_earn_a_move_proposal():
@@ -293,7 +354,8 @@ def test_isolated_head_to_head_reversal_does_not_earn_a_move_proposal():
     assert not review.supported
     assert not review.stable
     assert any("shared-neighborhood" in blocker for blocker in review.blockers)
-    assert analysis.ordered_ids == ("0", "1", "2", "3", "4", "5", "6")
+    assert analysis.baseline_order == ("0", "1", "2", "3", "4", "5", "6")
+    assert analysis.suggested_order == analysis.baseline_order
 
 
 def test_limited_history_blocks_a_consensus_move_without_treating_the_team_as_weak():
@@ -323,8 +385,8 @@ def test_consensus_movement_cap_is_anchored_to_the_original_powerscore_order():
     )
     assert not distant.supported
     assert distant.proposed_seed is None
-    assert any("2-seed pilot cap" in blocker for blocker in distant.blockers)
-    assert analysis.ordered_ids == ("0", "1", "2", "3", "4", "5", "6")
+    assert any("2-seed movement cap" in blocker for blocker in distant.blockers)
+    assert analysis.suggested_order == ("0", "3", "1", "2", "4", "5", "6")
 
 
 def test_two_seed_proposal_must_be_supported_over_the_crossed_seed():
@@ -387,4 +449,4 @@ def test_limited_history_keeps_seed_and_literal_row_context_with_fixed_score_sca
     table_rows = sorted([tuple(cell.value for cell in row) for row in tab.iter_rows(min_row=7, max_row=14)],
                         key=lambda row: row[1], reverse=True)
     marked = next(row for row in table_rows if row[0] == 4)
-    assert marked[5] == content.rows[3].observation
+    assert content.rows[3].observation in marked[6]
