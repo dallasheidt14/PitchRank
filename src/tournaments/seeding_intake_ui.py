@@ -338,9 +338,10 @@ def _render_analysis_details(selected: Sequence[str], analyses: Mapping, pack: d
         f"{pack['policy']['max_blowout_probability']:.0%} four-goal risk. "
         f"Very close means adjacent teams are within "
         f"{pack['policy']['very_close_expected_goal_difference']:.2f} expected goals. "
+        f"A material reversal means Compare favors a lower seed by at least "
+        f"{pack['policy']['material_reversal_expected_goal_difference']:.2f} expected goals. "
         "Passing these limits does not establish equal strength or interchangeable placement."
-        " Placement checks flag lower seeds favored by at least half the expected-goal-difference limit; "
-        "minor reversals stay here."
+        " Smaller reversals stay in the diagnostics."
     )
     for key in selected:
         detail = analyses[tuple(key.split("|", 1))]
@@ -450,7 +451,7 @@ def render_seeding_pack(
     if (
         isinstance(pack, dict)
         and pack.get("schema_version") == 3
-        and pack.get("analysis_schema_version") in (1, 2, 3, 4)
+        and pack.get("analysis_schema_version") in (1, 2, 3, 4, 5)
     ):
         try:
             pack = upgrade_pack_analysis(

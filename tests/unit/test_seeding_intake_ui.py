@@ -278,11 +278,12 @@ def test_legacy_analysis_reuses_predictions_and_preserves_notes(operator):
     pack["policy"]["max_expected_margin"] = 1.5
     pack["policy"].pop("blowout_cost_weight")
     pack["policy"].pop("very_close_expected_goal_difference")
+    pack["policy"].pop("material_reversal_expected_goal_difference")
     app.session_state["_seeding_pack"] = pack
     app.run()
     assert not app.exception and not app.error
     upgraded = app.session_state["_seeding_pack"]
-    assert upgraded["analysis_schema_version"] == 5
+    assert upgraded["analysis_schema_version"] == 6
     assert upgraded["predictions"] == pack["predictions"]
     assert upgraded["generated_at"] == pack["generated_at"]
     assert upgraded["operator_notes"] == pack["operator_notes"]
@@ -290,6 +291,7 @@ def test_legacy_analysis_reuses_predictions_and_preserves_notes(operator):
         **pack["policy"],
         "blowout_cost_weight": 2.0,
         "very_close_expected_goal_difference": 1.0,
+        "material_reversal_expected_goal_difference": 1.0,
     }
     assert len(calls) == 1
     assert "_seeding_pdf" not in app.session_state
@@ -390,13 +392,15 @@ def test_rebuild_materializes_new_policy_defaults_from_a_version_three_pack(oper
     app.session_state["_seeding_pack"]["analysis_schema_version"] = 3
     app.session_state["_seeding_pack"]["policy"].pop("blowout_cost_weight")
     app.session_state["_seeding_pack"]["policy"].pop("very_close_expected_goal_difference")
+    app.session_state["_seeding_pack"]["policy"].pop("material_reversal_expected_goal_difference")
 
     click(app, "Build seeding sheets")
 
     rebuilt = app.session_state["_seeding_pack"]
-    assert rebuilt["analysis_schema_version"] == 5
+    assert rebuilt["analysis_schema_version"] == 6
     assert rebuilt["policy"]["blowout_cost_weight"] == 2.0
     assert rebuilt["policy"]["very_close_expected_goal_difference"] == 1.0
+    assert rebuilt["policy"]["material_reversal_expected_goal_difference"] == 1.0
 
 
 def test_unknown_gender_and_girls_cohort_build_together(operator):
@@ -425,6 +429,8 @@ def test_analysis_diagnostics_remain_collapsed_and_never_yellow(operator):
     assert any("Score steps require" in item.value for item in details.caption)
     assert any("Competitive enough means no more than 2.00" in item.value for item in details.caption)
     assert any("Very close means adjacent teams are within 1.00" in item.value for item in details.caption)
+    assert any("material reversal means Compare favors a lower seed by at least 1.00" in item.value
+               for item in details.caption)
     assert all(not any(text in item.value for text in (
         "has one team", "strength-order exception", "low outcome confidence",
     )) for item in app.warning)
@@ -519,7 +525,7 @@ def test_manual_unsafe_merge_warning_and_notes_reach_the_sheet_and_restore_clear
     assert "_seeding_pdf" not in app.session_state
 
 
-@pytest.mark.parametrize("analysis_version", [1, 2, 3, 4])
+@pytest.mark.parametrize("analysis_version", [1, 2, 3, 4, 5])
 def test_save_keeps_package_when_source_also_contains_younger_teams(operator, monkeypatch, analysis_version):
     import tournament_intake as intake
     from src.tournaments.roster_paste import ParsedRoster
@@ -556,7 +562,7 @@ def test_save_keeps_package_when_source_also_contains_younger_teams(operator, mo
     assert "_seeding_pack" not in fake.session_state
 
 
-@pytest.mark.parametrize("analysis_version", [1, 2, 3, 4])
+@pytest.mark.parametrize("analysis_version", [1, 2, 3, 4, 5])
 def test_unsupported_saved_note_remains_editable_after_export_failure(operator, analysis_version):
     app, calls = operator
     click(app, "Build seeding sheets")
@@ -573,7 +579,7 @@ def test_unsupported_saved_note_remains_editable_after_export_failure(operator, 
     click(app, "Save director notes")
     assert not app.error
     assert app.session_state["_seeding_pack"]["operator_notes"]["u14|Male"] == "Corrected note"
-    assert app.session_state["_seeding_pack"]["analysis_schema_version"] == 5
+    assert app.session_state["_seeding_pack"]["analysis_schema_version"] == 6
     assert "Corrected note" in app.session_state["_seeding_sheet_html"]
     assert "_seeding_xlsx" in app.session_state and len(calls) == 1
 

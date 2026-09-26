@@ -417,6 +417,12 @@ def test_very_close_limit_must_be_positive_finite_and_within_competitive_limit(v
         TierPolicy(very_close_expected_goal_difference=value)
 
 
+@pytest.mark.parametrize("value", [0, -1, float("inf"), float("nan")])
+def test_material_reversal_limit_must_be_positive_and_finite(value):
+    with pytest.raises(ValueError, match="Material-reversal"):
+        TierPolicy(material_reversal_expected_goal_difference=value)
+
+
 def test_empty_and_review_only_cohorts_do_not_invent_tiers():
     result = build_tiers([], {})
     assert result.tiers == ()

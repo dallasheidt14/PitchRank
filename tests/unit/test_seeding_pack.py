@@ -93,24 +93,26 @@ def test_cohorts_have_separate_age_gender_labels_and_numeric_order():
     assert cohort_label("u14|Male") == "U14 Boys"
 
 
-@pytest.mark.parametrize("old_version", [1, 2, 3, 4])
+@pytest.mark.parametrize("old_version", [1, 2, 3, 4, 5])
 def test_saved_analysis_upgrade_preserves_prediction_and_operator_choices_without_mutation(old_version):
     old = _pack()
     old["analysis_schema_version"] = old_version
     old["operator_notes"] = {"u12|Male": "Keep the director's exact note."}
     old["policy"]["max_expected_margin"] = 1.75
     old["policy"].pop("very_close_expected_goal_difference")
+    old["policy"].pop("material_reversal_expected_goal_difference")
     if old_version <= 3:
         old["policy"].pop("blowout_cost_weight")
     old["legacy_manual_groups"] = {"u12|Male": [["0", "1"]]}
     before = deepcopy(old)
     upgraded = upgrade_pack_analysis(old, ROWS, RESOLVED, {}, ["u12|Male"], predictor_sha256="a" * 64)
     assert old == before
-    assert upgraded["analysis_schema_version"] == 5
+    assert upgraded["analysis_schema_version"] == 6
     assert upgraded["policy"] == {
         **old["policy"],
         "blowout_cost_weight": 2.0,
         "very_close_expected_goal_difference": 1.0,
+        "material_reversal_expected_goal_difference": 1.0,
     }
     assert {k: v for k, v in upgraded.items() if k not in {"analysis_schema_version", "policy"}} == {
         k: v for k, v in old.items() if k not in {"analysis_schema_version", "policy"}

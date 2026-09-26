@@ -10,7 +10,7 @@ from openpyxl import load_workbook
 from src.tournaments.compare_predictor_bridge import ComparePrediction
 from src.tournaments.seeding_content import build_director_cohort, export_fingerprint
 from src.tournaments.seeding_sheet import CohortSheet, SheetTeam, render_sheet_html
-from src.tournaments.seeding_tiers import TierEntrant, build_cheat_sheet_analysis
+from src.tournaments.seeding_tiers import TierEntrant, TierPolicy, build_cheat_sheet_analysis
 from src.tournaments.seeding_workbook import build_seeding_workbook
 
 
@@ -244,6 +244,22 @@ def test_only_material_reversals_need_operator_review_without_reordering():
         (c.upper_seed, c.lower_seed, c.lower_expected_advantage) for c in analysis.placement_checks
     ] == [(1, 5, 1.25)]
     assert not any("favored" in note for note in analysis.notes)
+
+
+def test_material_reversal_threshold_is_independent_of_competitive_limit():
+    _, entrants, pairs = cohort(5)
+    pairs[("1", "2")] = prediction(-1.1)
+    policy = TierPolicy(
+        max_expected_margin=2.5,
+        material_reversal_expected_goal_difference=1.0,
+    )
+
+    analysis = build_cheat_sheet_analysis(entrants, pairs, policy)
+
+    assert [
+        (check.upper_seed, check.lower_seed, check.lower_expected_advantage)
+        for check in analysis.placement_checks
+    ] == [(2, 3, 1.1)]
 
 
 def test_local_consensus_proposes_review_only_when_shared_neighborhood_is_stable():

@@ -47,6 +47,9 @@ class TierPolicy:
     # A stricter, separately tunable label for adjacent teams. This is not the
     # same claim as merely being competitive enough for the same group.
     very_close_expected_goal_difference: float = field(default=1.0, kw_only=True)
+    # The directional advantage required before a lower PowerScore seed enters
+    # placement review. It is independent of competitive-fit limits.
+    material_reversal_expected_goal_difference: float = field(default=1.0, kw_only=True)
 
     def __post_init__(self) -> None:
         if not math.isfinite(self.max_expected_margin) or self.max_expected_margin <= 0:
@@ -62,6 +65,11 @@ class TierPolicy:
             raise ValueError("Very-close expected goal difference must be finite and greater than zero")
         if self.very_close_expected_goal_difference > self.max_expected_margin:
             raise ValueError("Very-close expected goal difference cannot exceed the competitive limit")
+        if (
+            not math.isfinite(self.material_reversal_expected_goal_difference)
+            or self.material_reversal_expected_goal_difference <= 0
+        ):
+            raise ValueError("Material-reversal expected goal difference must be finite and greater than zero")
 
 
 @dataclass(frozen=True)
@@ -777,7 +785,10 @@ def build_cheat_sheet_analysis(
     placement_checks = tuple(
         PlacementCheck(upper + 1, lower + 1, -_margin(pairs, ordered[upper], ordered[lower]))
         for upper in range(len(ordered)) for lower in range(upper + 1, len(ordered))
-        if _margin(pairs, ordered[upper], ordered[lower]) <= -policy.max_expected_margin / 2
+        if (
+            _margin(pairs, ordered[upper], ordered[lower])
+            <= -policy.material_reversal_expected_goal_difference
+        )
     )
 
     diagnostics: list[str] = []
