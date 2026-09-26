@@ -93,7 +93,7 @@ def test_cohorts_have_separate_age_gender_labels_and_numeric_order():
     assert cohort_label("u14|Male") == "U14 Boys"
 
 
-@pytest.mark.parametrize("old_version", [1, 2])
+@pytest.mark.parametrize("old_version", [1, 2, 3])
 def test_saved_analysis_upgrade_preserves_prediction_and_operator_choices_without_mutation(old_version):
     old = _pack()
     old["analysis_schema_version"] = old_version
@@ -103,9 +103,10 @@ def test_saved_analysis_upgrade_preserves_prediction_and_operator_choices_withou
     before = deepcopy(old)
     upgraded = upgrade_pack_analysis(old, ROWS, RESOLVED, {}, ["u12|Male"], predictor_sha256="a" * 64)
     assert old == before
-    assert upgraded["analysis_schema_version"] == 3
-    assert {k: v for k, v in upgraded.items() if k != "analysis_schema_version"} == {
-        k: v for k, v in old.items() if k != "analysis_schema_version"
+    assert upgraded["analysis_schema_version"] == 4
+    assert upgraded["policy"] == {**old["policy"], "blowout_cost_weight": 2.0}
+    assert {k: v for k, v in upgraded.items() if k not in {"analysis_schema_version", "policy"}} == {
+        k: v for k, v in old.items() if k not in {"analysis_schema_version", "policy"}
     }
     upgraded["operator_notes"]["u12|Male"] = "Changed copy"
     assert old["operator_notes"]["u12|Male"] == "Keep the director's exact note."

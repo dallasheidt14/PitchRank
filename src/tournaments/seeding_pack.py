@@ -27,7 +27,7 @@ from src.tournaments.seeding_tiers import (
 )
 
 PACK_SCHEMA_VERSION = 3
-ANALYSIS_SCHEMA_VERSION = 3
+ANALYSIS_SCHEMA_VERSION = 4
 _AGE_GROUP = re.compile(r"^u[1-9][0-9]?$")
 _LEGACY_UNAVAILABLE_REASONS = {
     "Two roster entries resolve to the same team; verify the matches.": (
@@ -351,6 +351,7 @@ def analyze_pack(
                 review_reason=review_reason,
                 limited_history=evidence.get("status") == "Not Enough Ranked Games",
                 review_status=review_status,
+                evidence_game_count=evidence.get("prediction_game_count"),
             ))
         # Legacy manual tiers remain in the pack for reference, but they no
         # longer drive the customer-facing cheat sheet or imply a format.
@@ -385,11 +386,15 @@ def upgrade_pack_analysis(
     The caller publishes this independent copy only after export validation succeeds.
     Older prediction/roster contracts still require a fresh build.
     """
-    if pack.get("schema_version") != PACK_SCHEMA_VERSION or pack.get("analysis_schema_version") not in (1, 2):
+    if pack.get("schema_version") != PACK_SCHEMA_VERSION or pack.get("analysis_schema_version") not in (1, 2, 3):
         raise ValueError("This saved pack requires a fresh build.")
     if pack.get("predictor_sha256") != predictor_sha256:
         raise ValueError("The predictor has changed; build seeding sheets to refresh predictions.")
     candidate = json.loads(json.dumps(pack, ensure_ascii=False, allow_nan=False))
+    try:
+        candidate["policy"] = asdict(TierPolicy(**candidate["policy"]))
+    except (TypeError, KeyError) as exc:
+        raise ValueError("Seeding snapshot has invalid matchup limits.") from exc
     candidate["analysis_schema_version"] = ANALYSIS_SCHEMA_VERSION
     if not pack_matches(candidate, rows, resolved, overrides, selected):
         raise ValueError("The roster or cohort selection changed; build seeding sheets.")

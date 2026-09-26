@@ -162,6 +162,73 @@ def test_main_review_shows_scores_without_internal_ids_or_close_labels(operator)
     assert "PDF and Excel" in app.text_area[0].label
 
 
+def test_supported_local_consensus_is_visible_without_reordering_the_sheet(monkeypatch):
+    app_code = '''
+import streamlit as st
+from src.tournaments.roster_paste import parse_roster
+from src.tournaments.roster_resolver import ResolvedTeam
+from src.tournaments.seeding_intake_ui import render_seeding_pack
+parsed = parse_roster("Male U14\\nClub\\tTeam 0\\tTX\\nClub\\tTeam 1\\tTX\\nClub\\tTeam 2\\tTX\\n"
+                      "Club\\tTeam 3\\tTX\\nClub\\tTeam 4\\tTX")
+resolved = tuple(ResolvedTeam(
+    source_index=index, status="gotsport_id",
+    team_id_master=f"00000000-0000-4000-8000-{index + 1:012d}",
+) for index in range(5))
+st.session_state.setdefault("_seeding_overrides", {})
+render_seeding_pack(parsed, resolved, None, event_name="Consensus Cup", save=lambda: True)
+'''
+
+    def load(cohorts, **_kwargs):
+        strengths = {"0": 11, "1": 8, "2": 10, "3": 7, "4": 6}
+        teams = {"u14|Male": {
+            entrant: {
+                "team_id_master": team_id,
+                "team_name": f"Team {entrant}",
+                "power_score_final": .90 - int(entrant) * .01,
+                "rank_in_cohort_final": int(entrant) + 1,
+                "gender": "M",
+                "age": 14,
+                "status": "Active",
+                "games_played": 20,
+                "prediction_game_count": 20,
+            }
+            for entrant, team_id in cohorts["u14|Male"].items()
+        }}
+        predictions = {}
+        for first in teams["u14|Male"]:
+            for second in teams["u14|Male"]:
+                if first == second:
+                    continue
+                margin = strengths[first] - strengths[second]
+                predictions[(first, second)] = ComparePrediction(
+                    "team_a" if margin > 0 else "team_b",
+                    .70 if margin > 0 else .15,
+                    .15 if margin > 0 else .70,
+                    .15,
+                    {"teamA": 2 if margin > 0 else 1, "teamB": 1 if margin > 0 else 2},
+                    margin,
+                    max(abs(margin), .5),
+                    .1,
+                    "high",
+                    .8,
+                )
+        return SeedingPredictionBatch(
+            {"u14|Male": predictions}, teams, {"u14|Male": {}},
+            "2026-09-25T12:00:00+00:00", "2026-09-24", "a" * 64,
+        )
+
+    monkeypatch.setattr(ui, "load_seeding_predictions", load)
+    monkeypatch.setattr(ui, "seeding_predictor_sha256", lambda: "a" * 64)
+    monkeypatch.setattr(ui, "make_ratings_lookup", lambda _client: lambda _ids: {})
+    app = AppTest.from_string(app_code, default_timeout=15).run()
+    click(app, "Build seeding sheets")
+
+    rendered = "\n".join(item.value for item in app.markdown)
+    assert "PowerScore-anchored local-consensus proposals" in rendered
+    assert "Review moving seed 3 · Team 2 to seed 2" in rendered
+    assert app.dataframe[0].value["Team"].tolist() == ["Team 0", "Team 1", "Team 2", "Team 3", "Team 4"]
+
+
 def test_placement_review_stays_internal_and_resets_when_director_notes_change(operator, monkeypatch):
     app, calls = operator
     exported = []
@@ -213,11 +280,11 @@ def test_legacy_analysis_reuses_predictions_and_preserves_notes(operator):
     app.run()
     assert not app.exception and not app.error
     upgraded = app.session_state["_seeding_pack"]
-    assert upgraded["analysis_schema_version"] == 3
+    assert upgraded["analysis_schema_version"] == 4
     assert upgraded["predictions"] == pack["predictions"]
     assert upgraded["generated_at"] == pack["generated_at"]
     assert upgraded["operator_notes"] == pack["operator_notes"]
-    assert upgraded["policy"] == pack["policy"]
+    assert upgraded["policy"] == {**pack["policy"], "blowout_cost_weight": 2.0}
     assert len(calls) == 1
     assert "_seeding_pdf" not in app.session_state
     assert "Keep this note." in app.session_state["_seeding_sheet_html"]
@@ -483,7 +550,7 @@ def test_unsupported_saved_note_remains_editable_after_export_failure(operator, 
     click(app, "Save director notes")
     assert not app.error
     assert app.session_state["_seeding_pack"]["operator_notes"]["u14|Male"] == "Corrected note"
-    assert app.session_state["_seeding_pack"]["analysis_schema_version"] == 3
+    assert app.session_state["_seeding_pack"]["analysis_schema_version"] == 4
     assert "Corrected note" in app.session_state["_seeding_sheet_html"]
     assert "_seeding_xlsx" in app.session_state and len(calls) == 1
 

@@ -15,7 +15,9 @@ from src.tournaments.seeding_workbook import build_seeding_workbook
 
 
 def prediction(margin, risk=.1):
-    return ComparePrediction("team_a", .6, .3, .1, {"teamA": 2, "teamB": 1}, margin, 1.5, risk, "low", .4)
+    return ComparePrediction(
+        "team_a", .6, .3, .1, {"teamA": 2, "teamB": 1}, margin, max(abs(margin), .5), risk, "low", .4,
+    )
 
 
 def cohort(count, *, gap=None, bottom=False):
@@ -33,6 +35,25 @@ def cohort(count, *, gap=None, bottom=False):
         SheetTeam(e.team_name, "Club", e.power_score, entrant_id=e.entrant_id) for e in entrants
     ), (), analysis)
     return sheet, entrants, pairs
+
+
+def consensus_case(compare_strengths, *, count=7, limited=()):
+    ids = [str(index) for index in range(count)]
+    entrants = [
+        TierEntrant(
+            entrant_id,
+            f"Team {entrant_id}",
+            .90 - index * .01,
+            limited_history=entrant_id in limited,
+            evidence_game_count=12 + index,
+        )
+        for index, entrant_id in enumerate(ids)
+    ]
+    pairs = {
+        (first, second): prediction(compare_strengths[first] - compare_strengths[second])
+        for first, second in combinations(ids, 2)
+    }
+    return entrants, pairs
 
 
 @pytest.mark.parametrize("count", [0, 1, 2, *range(3, 17), 32])
@@ -219,8 +240,96 @@ def test_only_material_reversals_need_operator_review_without_reordering():
     analysis = build_cheat_sheet_analysis(entrants, pairs)
     assert analysis.ordered_ids == ("0", "1", "2", "3", "4")
     assert analysis.limited_history == ("1",)
-    assert [(c.upper_seed, c.lower_seed, c.lower_expected_advantage) for c in analysis.placement_checks] == [(1, 5, 1.25)]
+    assert [
+        (c.upper_seed, c.lower_seed, c.lower_expected_advantage) for c in analysis.placement_checks
+    ] == [(1, 5, 1.25)]
     assert not any("favored" in note for note in analysis.notes)
+
+
+def test_local_consensus_proposes_review_only_when_shared_neighborhood_is_stable():
+    entrants, pairs = consensus_case({
+        "0": 11, "1": 8, "2": 10, "3": 7, "4": 6, "5": 5, "6": 4,
+    })
+
+    analysis = build_cheat_sheet_analysis(entrants, pairs)
+
+    assert analysis.ordered_ids == ("0", "1", "2", "3", "4", "5", "6")
+    proposal = next(item for item in analysis.local_consensus_checks if item.entrant_id == "2")
+    assert proposal.supported and proposal.stable
+    assert (proposal.baseline_seed, proposal.proposed_seed, proposal.compared_with_seed) == (3, 2, 2)
+    assert proposal.direct_expected_advantage == pytest.approx(2)
+    assert proposal.support_fraction == 1
+    assert proposal.average_profile_advantage == pytest.approx(2)
+    assert proposal.tested_window_sizes == (5, 6, 7)
+    assert proposal.minimum_game_count == 12
+    assert proposal.evidence_quality == "established"
+
+
+def test_isolated_head_to_head_reversal_does_not_earn_a_move_proposal():
+    entrants, pairs = consensus_case({
+        "0": 11, "1": 10, "2": 9, "3": 8, "4": 7, "5": 6, "6": 5,
+    })
+    pairs[("1", "2")] = prediction(-1.25)
+
+    analysis = build_cheat_sheet_analysis(entrants, pairs)
+
+    review = next(item for item in analysis.local_consensus_checks if item.entrant_id == "2")
+    assert not review.supported
+    assert not review.stable
+    assert any("shared-neighborhood" in blocker for blocker in review.blockers)
+    assert analysis.ordered_ids == ("0", "1", "2", "3", "4", "5", "6")
+
+
+def test_limited_history_blocks_a_consensus_move_without_treating_the_team_as_weak():
+    entrants, pairs = consensus_case(
+        {"0": 11, "1": 8, "2": 10, "3": 7, "4": 6, "5": 5, "6": 4}, limited={"2"},
+    )
+
+    analysis = build_cheat_sheet_analysis(entrants, pairs)
+
+    review = next(item for item in analysis.local_consensus_checks if item.entrant_id == "2")
+    assert not review.supported
+    assert review.evidence_quality == "limited"
+    assert any("limited ranked history" in blocker for blocker in review.blockers)
+    assert analysis.ordered_ids[2] == "2"
+
+
+def test_consensus_movement_cap_is_anchored_to_the_original_powerscore_order():
+    entrants, pairs = consensus_case({
+        "0": 9, "1": 8, "2": 7, "3": 12, "4": 6, "5": 5, "6": 4,
+    })
+
+    analysis = build_cheat_sheet_analysis(entrants, pairs)
+
+    distant = next(
+        item for item in analysis.local_consensus_checks
+        if item.entrant_id == "3" and item.compared_with_id == "0"
+    )
+    assert not distant.supported
+    assert distant.proposed_seed is None
+    assert any("2-seed pilot cap" in blocker for blocker in distant.blockers)
+    assert analysis.ordered_ids == ("0", "1", "2", "3", "4", "5", "6")
+
+
+def test_one_influential_neighbor_cannot_create_a_stable_consensus():
+    entrants, pairs = consensus_case({str(index): 0 for index in range(5)}, count=5)
+    pairs.update({
+        ("0", "1"): prediction(5),
+        ("0", "2"): prediction(2),
+        ("1", "2"): prediction(-1.25),
+        ("1", "3"): prediction(0),
+        ("2", "3"): prediction(1),
+        ("1", "4"): prediction(.5),
+        ("2", "4"): prediction(0),
+    })
+
+    analysis = build_cheat_sheet_analysis(entrants, pairs)
+
+    review = next(item for item in analysis.local_consensus_checks if item.entrant_id == "2")
+    assert review.support_fraction == pytest.approx(2 / 3)
+    assert review.average_profile_advantage > 0
+    assert not review.stable and not review.supported
+    assert any("unusually influential" in blocker for blocker in review.blockers)
 
 
 def test_limited_history_keeps_seed_and_literal_row_context_with_fixed_score_scale():
