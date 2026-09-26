@@ -133,15 +133,17 @@ def test_all_window_sizes_must_agree_and_rejected_evidence_survives():
 def test_clear_gap_has_one_specific_observation_across_pdf_and_excel():
     sheet, _, _ = cohort(8, gap=4)
     content = build_director_cohort(sheet, "=Keep this literal.")
-    assert content.rows[3].observation == "Score step: 31.0 points between seeds 4 and 5."
+    expected = "Competitive Break: 31.0 PowerScore points between seeds 4 and 5."
+    assert content.rows[3].observation == expected
     assert content.rows[3].strength_break_after
     assert not content.rows[4].strength_break_after
-    assert content.notes == ("Score step: 31.0 points between seeds 4 and 5.", "=Keep this literal.")
+    assert content.notes == (expected, "=Keep this literal.")
     args = dict(generated_on="2026-09-20", ranking_run="2026-09-19",
                 operator_notes={("u14", "Male"): "=Keep this literal."})
     document = render_sheet_html("=Event", [sheet], **args)
     tab = load_workbook(BytesIO(build_seeding_workbook("=Event", [sheet], **args))).active
     assert 'data-entrant="3" class="strength-break"' in document
+    assert '<tr class="competitive-break"><td colspan="5"><span>Competitive Break</span></td></tr>' in document
     assert tab.cell(10, 6).value == content.rows[3].observation
     assert tab.cell(10, 1).border.bottom.style == "medium"
     assert tab["A1"].data_type == "s"
@@ -194,7 +196,7 @@ def test_workbook_keeps_secondary_identity_and_roster_context_on_team_row():
     assert [table.autoFilter.ref for table in tab.tables.values()] == ["A6:K7"]
 
 
-def test_score_step_does_not_require_a_likely_blowout():
+def test_competitive_break_does_not_require_a_likely_blowout():
     _, entrants, pairs = cohort(8)
     entrants = [replace(e, power_score=e.power_score - (.04 if i >= 4 else 0))
                 for i, e in enumerate(entrants)]
@@ -207,7 +209,7 @@ def test_score_step_does_not_require_a_likely_blowout():
 
 
 @pytest.mark.parametrize("equal", [True, False])
-def test_predictions_alone_do_not_create_score_steps(equal):
+def test_predictions_alone_do_not_create_competitive_breaks(equal):
     _, entrants, pairs = cohort(8)
     if equal:
         entrants = [replace(e, power_score=.7) for e in entrants]

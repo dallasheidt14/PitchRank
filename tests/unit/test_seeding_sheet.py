@@ -489,7 +489,7 @@ def test_customer_pdf_prioritizes_seeding_actions_over_model_jargon():
     assert ">0.535</td>" not in document
     assert "they do not assign divisions or pools." in document
     assert "Seed order" in document
-    assert "Score steps" in document
+    assert "Competitive Breaks" in document
     assert "Close ranges" not in document
     assert "Suggested seed" in document
     assert "PitchRank score" in document

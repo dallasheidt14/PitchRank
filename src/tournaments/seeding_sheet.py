@@ -50,6 +50,7 @@ BRAND = {
     "forest": "#0B5345",
     "forest_deep": "#083E33",
     "yellow": "#F4D03F",
+    "yellow_soft": "#FFF8CF",
     "ink": "#12211D",
     "muted": "#5B6B66",
     "rule": "#D8E0DD",
@@ -368,7 +369,7 @@ def _rows_html(
             f'<span style="width:{team.power_score * 100:.2f}%"></span></span>'
             if numbered and team.power_score is not None else ""
         )
-        cells.append(
+        row = (
             f'<tr data-entrant="{html.escape(team.entrant_id, quote=True)}"{row_class}>'
             f'<td class="pos">{position if numbered else "-"}</td>'
             f'<td class="team">{html.escape(team.team_name)}{play_up}{flag}{pitchrank_name}'
@@ -377,6 +378,12 @@ def _rows_html(
             f'<td class="num state">{html.escape(_state_rank(team))}</td>'
             f'<td class="{note_class}">{html.escape(note)}</td></tr>'
         )
+        if team.entrant_id in strength_break_ids:
+            row += (
+                '<tr class="competitive-break"><td colspan="5">'
+                '<span>Competitive Break</span></td></tr>'
+            )
+        cells.append(row)
     return "".join(cells)
 
 
@@ -663,7 +670,11 @@ def render_sheet_html(
  background: #F0F5F3; }}
  table.grid td {{ padding: 5px 6px; border-bottom: 1px solid {BRAND["rule"]}; vertical-align: top;
  line-height: 1.35; overflow-wrap: anywhere; }}
- tr.strength-break td {{ border-bottom: 2px solid {BRAND["forest"]}; }}
+ tr.strength-break td {{ border-bottom: 0; }}
+ tr.competitive-break td {{ padding: 5px 8px; text-align: center; background: {BRAND["yellow_soft"]};
+  border-top: 1px solid {BRAND["yellow"]}; border-bottom: 1px solid {BRAND["yellow"]};
+  color: {BRAND["forest_deep"]}; font-family: Oswald, sans-serif; font-size: 9px; font-weight: 600;
+  letter-spacing: .18em; text-transform: uppercase; }}
  .pos {{ text-align: center; font-weight: 700; color: {BRAND["forest"]};
  font-variant-numeric: tabular-nums; }}
  td.pos {{ white-space: nowrap; }}

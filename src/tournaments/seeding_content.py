@@ -15,8 +15,8 @@ if TYPE_CHECKING:
 CONTENT_VERSION = 3
 DIRECTOR_LEGEND = (
     "Start with the numbered seed order. Higher PowerScores indicate greater published strength; "
-    "bars use the same 0–100 scale. Score steps highlight larger differences supported by nearby "
-    "matchups; they do not assign divisions or pools."
+    "bars use the same 0-100 scale. Competitive Breaks mark larger PowerScore steps supported by "
+    "nearby matchups; they do not assign divisions or pools. They remain advisory."
 )
 LIMITED_HISTORY_LEGEND = "Fewer ranked games support this score. Keep it as a starting point for placement."
 

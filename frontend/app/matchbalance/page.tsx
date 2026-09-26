@@ -628,9 +628,9 @@ export default function MatchBalancePage() {
             <Image
               src="/matchbalance/sample-u14-boys.png"
               width={1224}
-              height={1584}
+              height={760}
               sizes="(max-width: 1024px) 100vw, 650px"
-              alt="Page one of the MatchBalance seeding sheet for U14 Boys at the San Antonio Labor Cup 2026"
+              alt="Competitive Break excerpt from the MatchBalance U14 Boys seeding sheet for the San Antonio Labor Cup 2026"
               className="h-auto w-full rounded-lg transition-transform duration-300 group-hover:scale-[1.01]"
             />
           </a>
