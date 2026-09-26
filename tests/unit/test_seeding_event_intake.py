@@ -1935,7 +1935,8 @@ def test_the_seeding_tab_renders_the_event_intake_and_the_warnings(monkeypatch):
 
     tournament_intake._render_seeding_tab(None)
 
-    assert "_render_seeding_event_scrape" in called, "the GotSport event intake is not on the page"
+    assert "_render_seeding_event_scrape" not in called, "step 1 should not render while matching is active"
+    assert "_render_seeding_sheet" not in called, "step 3 should not render while matching is active"
     assert "_render_seeding_warnings" in called, "cohort and credential warnings never reach the operator"
     assert "_render_seeding_save" in called
 
@@ -2129,13 +2130,12 @@ def test_an_automatic_match_is_shown_before_the_manual_replacement_controls(monk
 def test_seeding_progress_names_the_four_operator_steps(monkeypatch):
     fake_st = _install(monkeypatch, _FakeSt())
 
-    tournament_intake._render_seeding_workflow_progress()
+    active = tournament_intake._render_seeding_workflow_progress()
 
-    assert fake_st.markdowns == [
-        "**1. Import teams** → **2. Match to PitchRank** → "
-        "**3. Build seed order** → **4. Export director pack**"
-    ]
-    assert fake_st.infos == ["Current step: 1. Import teams — Start here"]
+    assert active == 1
+    assert fake_st.progress_texts == ["Step 1 of 4: Import teams"]
+    assert "1. Import teams: Current" in fake_st.captions[0]
+    assert "4. Export director pack: Locked" in fake_st.captions[0]
 
 
 def test_the_candidates_line_cannot_carry_a_link_either(monkeypatch):

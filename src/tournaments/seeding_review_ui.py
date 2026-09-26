@@ -91,7 +91,7 @@ def render_review(raw, resolved, overrides, frame, render_override, save):
     issue_options = ["Needs attention", "Manual matches", "Cohort / input questions", "Awaiting lookup",
                      "Not found in PitchRank", "All teams"]
     issue = left.selectbox(
-        "Show", issue_options, index=0 if assessment.attention else len(issue_options) - 1,
+        "Show", issue_options, index=0,
         key="_seeding_review_issue_filter",
     )
     cohort_options = ["All cohorts", *dict.fromkeys(frame["Cohort"].tolist())]
@@ -107,16 +107,10 @@ def render_review(raw, resolved, overrides, frame, render_override, save):
     filtered = frame[frame["#"].isin([index + 1 for index in indices])]
     if cohort != "All cohorts":
         filtered = filtered[filtered["Cohort"] == cohort]
-    st.dataframe(filtered, hide_index=True, width="stretch")
-    if not filtered.empty:
-        st.download_button("Download filtered review as CSV",
-                           data=filtered.apply(lambda column: column.map(csv_safe)).to_csv(index=False).encode("utf-8"),
-                           file_name="seeding-review.csv", mime="text/csv", help=(
-                               "Downloads only the rows shown by your current review and cohort filters. "
-                               "An internal work list you can open in Excel, not the director's finished workbook."
-                           ))
     choices = [int(number) - 1 for number in filtered["#"]]
     rows = {row.source_index: row for row in parsed.rows}
+    if issue == "Needs attention" and not choices:
+        st.success("No teams need attention. Every registration has a match or a completed not-found decision.")
     if choices:
         if st.session_state.get("_seeding_review_team") not in (None, *choices):
             st.session_state.pop("_seeding_review_team", None)
@@ -168,6 +162,17 @@ def render_review(raw, resolved, overrides, frame, render_override, save):
                     "decisions": decisions, "metadata": metadata,
                 }
                 st.rerun()
+    if not filtered.empty:
+        with st.expander(f"View {len(filtered)} team(s) in this filter", expanded=False):
+            st.dataframe(filtered, hide_index=True, width="stretch")
+            st.download_button(
+                "Download filtered review as CSV",
+                data=filtered.apply(lambda column: column.map(csv_safe)).to_csv(index=False).encode("utf-8"),
+                file_name="seeding-review.csv", mime="text/csv", help=(
+                    "Downloads only the rows shown by your current review and cohort filters. "
+                    "An internal work list you can open in Excel, not the director's finished workbook."
+                ),
+            )
     excluded = [row for row in raw.rows if decisions.get(row.source_index, {}).get("exclude")]
     if excluded:
         with st.expander(f"Excluded entries ({len(excluded)})"):

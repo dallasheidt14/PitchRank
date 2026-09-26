@@ -343,7 +343,7 @@ def test_a_refused_paste_does_not_rerun_over_its_own_message(monkeypatch, store)
     monkeypatch.setattr(intake, "list_seeding_runs", lambda: [])
     monkeypatch.setattr(intake, "_autosave_seeding_run", lambda **_kw: False)
     intake._park_seeding_result((parse_roster(EVENT_ROWS), _unresolved(parse_roster(EVENT_ROWS))), event_id=None)
-    fake.session_state.update(_seeding_overrides={}, _seeding_assessment={})
+    fake.session_state.update(_seeding_overrides={}, _seeding_assessment={}, _seeding_active_step=1)
 
     with contextlib.suppress(_Rerun):
         intake._render_seeding_tab(None)

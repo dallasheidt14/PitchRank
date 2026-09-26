@@ -46,14 +46,14 @@ def click(app, label):
 def test_summary_and_single_review_are_usable_during_database_outage(operator):
     app = operator
     assert {metric.label: metric.value for metric in app.metric} == {
-        "Imported teams": "3", "Matched to PitchRank": "1", "Still need a match": "2",
+        "Resolved": "1", "Matched": "1", "Not found": "0", "Needs attention": "2",
         "Total U10+ teams": "2–3", "Matched": "1", "Manual matches needed": "2",
         "Additional cohort / input fixes": "0", "Suggested event price": "$199",
     }
-    assert sum(widget.label == "GotSport link, GotSport id, or team_id_master" for widget in app.text_input) == 1
+    assert sum(widget.label == "GotSport team link or PitchRank team ID" for widget in app.text_input) == 1
     assert any(button.label == "Save this run" for button in app.button)
     assert any(button.label == "Load PitchRank team names" for button in app.button)
-    assert any(button.label == "Download all selected teams as CSV" for button in app.get("download_button"))
+    assert not any(button.label == "Build seeding sheets" for button in app.button)
     assert not app.error
 
 
@@ -70,14 +70,36 @@ def test_cohort_correction_changes_quote_and_can_exclude_younger(operator):
 
 def test_mark_not_found_removes_team_from_matching_queue(operator):
     app = operator
-    click(app, "Mark team not found in PitchRank")
+    next(widget for widget in app.radio if widget.label == "Match decision").set_value("Not found in PitchRank").run()
+    click(app, "Confirm not found in PitchRank")
 
     assert app.session_state["_seeding_overrides"][1] == {"not_found": True}
     assert 1 in app.session_state["_seeding_assessment"]["completed"]
+    assert next(metric.value for metric in app.metric if metric.label == "Resolved") == "2"
     assert next(metric.value for metric in app.metric if metric.label == "Manual matches needed") == "1"
     assert any("Marked not found in PitchRank: 1" in caption.value for caption in app.caption)
     next(widget for widget in app.selectbox if widget.label == "Show").set_value("Not found in PitchRank").run()
     assert any(button.label == "Reopen matching" for button in app.button)
+
+
+def test_only_the_active_workflow_step_renders(operator):
+    app = operator
+    headings = [item.value for item in app.markdown]
+    assert "### 2. Match teams to PitchRank" in headings
+    assert not any(value.startswith("### 1.") or value.startswith("### 3.") or value.startswith("### 4.")
+                   for value in headings)
+
+    app.session_state["_seeding_active_step"] = 1
+    app.run()
+    headings = [item.value for item in app.markdown]
+    assert "### 1. Import tournament teams" in headings
+    assert not any(value.startswith("### 2.") or value.startswith("### 3.") or value.startswith("### 4.")
+                   for value in headings)
+
+    click(app, "Continue to matching")
+    headings = [item.value for item in app.markdown]
+    assert "### 2. Match teams to PitchRank" in headings
+    assert next(button for button in app.button if button.label == "Continue to seed order").disabled
 
 
 @pytest.mark.parametrize("pending_rows, expected_summary", [
@@ -117,11 +139,11 @@ render_assessment(parsed, resolved, {i: {"team_id_master": f"team-{i}"} for i in
 def test_manual_lookup_transport_error_does_not_hide_quote_or_export(operator, monkeypatch):
     monkeypatch.setattr(intake, "_seeding_provider_id_lookup", lambda *_args: (_ for _ in ()).throw(httpx.ConnectError("refused")))
     app = operator
-    next(widget for widget in app.text_input if widget.label.startswith("GotSport link")).set_value("12345").run()
+    next(widget for widget in app.text_input if widget.label.startswith("GotSport team link")).set_value("12345").run()
     assert not app.exception
     assert any("temporarily unavailable" in error.value for error in app.error)
     assert any(metric.label == "Suggested event price" for metric in app.metric)
-    assert any(button.label == "Build seeding sheets" for button in app.button)
+    assert next(button for button in app.button if button.label == "Continue to seed order").disabled
 
 
 def test_incremental_lookup_keeps_success_and_retries_only_unfinished(monkeypatch):
