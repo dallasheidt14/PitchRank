@@ -77,7 +77,10 @@ def _fetch_latest_good_rows(cur, snapshot_date: str):
                 rank_in_cohort_ml,
                 rank_in_cohort_final,
                 rank_in_state,
+                power_score_true,
                 power_score_final,
+                prediction_power_score,
+                power_score_scale_version,
                 powerscore_ml
             from ranking_history
             where snapshot_date = %s::date
@@ -96,7 +99,10 @@ def _fetch_latest_good_rows(cur, snapshot_date: str):
             rank_in_cohort_ml,
             rank_in_cohort_final,
             rank_in_state,
+            power_score_true,
             power_score_final,
+            prediction_power_score,
+            power_score_scale_version,
             powerscore_ml
         from latest
         order by team_id
@@ -133,13 +139,26 @@ def restore(snapshot_date: str | None, execute: bool) -> int:
                 rank_in_cohort_ml,
                 rank_in_cohort_final,
                 rank_in_state,
+                stored_power_score_true,
                 power_score_final,
+                prediction_power_score,
+                power_score_scale_version,
                 powerscore_ml,
             ) in rows:
-                anchor = _anchor_for_age_group(age_group)
-                power_score_true = 0.0
-                if power_score_final is not None and anchor > 0:
-                    power_score_true = max(0.0, min(float(power_score_final) / anchor, 1.0))
+                if stored_power_score_true is not None:
+                    power_score_true = max(0.0, min(float(stored_power_score_true), 1.0))
+                else:
+                    # Legacy history did not retain the unscaled score.
+                    anchor = _anchor_for_age_group(age_group)
+                    power_score_true = 0.0
+                    if power_score_final is not None and anchor > 0:
+                        power_score_true = max(0.0, min(float(power_score_final) / anchor, 1.0))
+
+                restored_prediction_score = (
+                    float(prediction_power_score)
+                    if prediction_power_score is not None
+                    else float(power_score_final)
+                )
 
                 rankings_full_rows.append(
                     (
@@ -158,6 +177,8 @@ def restore(snapshot_date: str | None, execute: bool) -> int:
                         float(power_score_true),
                         float(power_score_true),
                         float(power_score_final),
+                        restored_prediction_score,
+                        power_score_scale_version,
                         float(powerscore_ml) if powerscore_ml is not None else None,
                     )
                 )
@@ -196,6 +217,8 @@ def restore(snapshot_date: str | None, execute: bool) -> int:
                     national_power_score,
                     power_score_true,
                     power_score_final,
+                    prediction_power_score,
+                    power_score_scale_version,
                     powerscore_ml
                 ) values %s
                 on conflict (team_id) do update set
@@ -213,6 +236,8 @@ def restore(snapshot_date: str | None, execute: bool) -> int:
                     national_power_score = excluded.national_power_score,
                     power_score_true = excluded.power_score_true,
                     power_score_final = excluded.power_score_final,
+                    prediction_power_score = excluded.prediction_power_score,
+                    power_score_scale_version = excluded.power_score_scale_version,
                     powerscore_ml = excluded.powerscore_ml
                 """,
                 rankings_full_rows,

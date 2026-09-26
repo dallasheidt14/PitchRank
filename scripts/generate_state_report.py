@@ -201,7 +201,10 @@ def fetch_league_callouts(cur, state: str, leagues: tuple[str, ...]) -> list[dic
         WHERE rf.state_code = %(state)s
           AND rf.status = 'Active'
           AND t.league = ANY(%(leagues)s)
-        ORDER BY t.league, rf.power_score_final DESC NULLS LAST
+        ORDER BY t.league,
+                 rf.rank_in_cohort_final ASC NULLS LAST,
+                 rf.power_score_final DESC NULLS LAST,
+                 rf.team_id
         """,
         {"state": state, "leagues": list(leagues)},
     )

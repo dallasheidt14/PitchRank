@@ -188,6 +188,8 @@ def _fetch_prediction_feature_snapshots_via_db(
             status,
             rank_in_cohort_final,
             power_score_final,
+            prediction_power_score,
+            power_score_scale_version,
             sos_norm,
             offense_norm,
             defense_norm,
@@ -294,7 +296,8 @@ async def _fetch_prediction_feature_snapshots_via_rest(
 
     fields = (
         "snapshot_date,team_id,age_group,gender,status,rank_in_cohort_final,"
-        "power_score_final,sos_norm,offense_norm,defense_norm,glicko_rating,glicko_rd,"
+        "power_score_final,prediction_power_score,power_score_scale_version,"
+        "sos_norm,offense_norm,defense_norm,glicko_rating,glicko_rd,"
         "glicko_volatility,wins,losses,draws,games_played,win_percentage,exp_margin,"
         "exp_win_rate,exp_goals_for,exp_goals_against,same_age_games,same_age_game_share,"
         "same_age_unique_opponents,same_age_top100_opp_count,same_age_top500_opp_count,"
@@ -514,7 +517,8 @@ async def fetch_rankings(supabase: Client) -> pd.DataFrame:
 
     try:
         fields = (
-            "team_id, power_score_final, sos_norm, off_norm, def_norm, age_group, games_played, "
+            "team_id, power_score_final, prediction_power_score, power_score_scale_version, "
+            "sos_norm, off_norm, def_norm, age_group, games_played, "
             "glicko_rating, glicko_rd, glicko_volatility"
         )
         rows = []
@@ -591,7 +595,8 @@ async def fetch_prediction_feature_snapshots(
 
     fields = (
         "snapshot_date, team_id, age_group, gender, status, rank_in_cohort_final, "
-        "power_score_final, sos_norm, offense_norm, defense_norm, glicko_rating, glicko_rd, "
+        "power_score_final, prediction_power_score, power_score_scale_version, "
+        "sos_norm, offense_norm, defense_norm, glicko_rating, glicko_rd, "
         "glicko_volatility, wins, losses, draws, games_played, win_percentage, exp_margin, "
         "exp_win_rate, exp_goals_for, exp_goals_against, same_age_games, same_age_game_share, "
         "same_age_unique_opponents, same_age_top100_opp_count, same_age_top500_opp_count, "
@@ -739,6 +744,7 @@ def build_team_ranking(team_id: str, source_row: dict, team_name: Optional[str])
     return TeamRanking(
         team_id_master=team_id,
         power_score_final=source_row.get("power_score_final"),
+        prediction_power_score=source_row.get("prediction_power_score"),
         sos_norm=source_row.get("sos_norm"),
         offense_norm=source_row.get("offense_norm", source_row.get("off_norm")),
         defense_norm=source_row.get("defense_norm", source_row.get("def_norm")),
@@ -903,6 +909,7 @@ async def run_backtest(
             "team_id": team_id,
             "age_group": row.get("age_group"),
             "power_score_final": row.get("power_score_final"),
+            "prediction_power_score": row.get("prediction_power_score"),
             "sos_norm": row.get("sos_norm"),
             "offense_norm": row.get("offense_norm"),
             "defense_norm": row.get("defense_norm"),

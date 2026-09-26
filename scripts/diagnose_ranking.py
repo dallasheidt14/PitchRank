@@ -27,6 +27,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from src.rankings.constants import AGE_TO_ANCHOR, SOS_ML_THRESHOLD_HIGH, SOS_ML_THRESHOLD_LOW
+from src.rankings.power_score_scale import get_power_score_scale, published_power_score, published_power_score_cap
 from src.rankings.shared import sos_ml_blend
 from src.utils.merge_resolver import MergeResolver
 from supabase import create_client
@@ -50,7 +51,6 @@ ALGORITHM = {
     "SHRINK_TAU": 8.0,
     "RECENCY_DECAY_RATE": 0.08,
     "UNRANKED_SOS_BASE": 0.35,
-    "ANCHORS": AGE_TO_ANCHOR,
 }
 
 # Metric columns to fetch from rankings_full
@@ -102,7 +102,10 @@ METRIC_COLS = [
     "powerscore_ml",
     # Final scores
     "national_power_score",
+    "power_score_true",
     "power_score_final",
+    "prediction_power_score",
+    "power_score_scale_version",
     # Ranks
     "rank_in_cohort",
     "rank_in_cohort_ml",
@@ -121,7 +124,17 @@ LAYER_BREAKDOWN = [
     ("Performance (Layer 6)", ["perf_raw", "perf_centered"]),
     ("Pre-ML Score (Layer 10)", ["power_presos", "powerscore_core", "provisional_mult", "powerscore_adj"]),
     ("ML Layer 13", ["ml_overperf", "ml_norm", "powerscore_ml"]),
-    ("Final (anchor-scaled)", ["power_score_final", "national_power_score", "anchor", "national_rank", "state_rank"]),
+    (
+        "Final (versioned age/gender scale)",
+        [
+            "power_score_true",
+            "power_score_final",
+            "prediction_power_score",
+            "power_score_scale_version",
+            "national_rank",
+            "state_rank",
+        ],
+    ),
 ]
 
 
@@ -358,25 +371,54 @@ def validate_algorithm(team: dict, cohort_stats: dict) -> list:
             scale = (sos_n - SOS_ML_THRESHOLD_LOW) / (SOS_ML_THRESHOLD_HIGH - SOS_ML_THRESHOLD_LOW)
             checks.append(("OK", f"ML partial authority ({scale:.0%}) — SOS ({sos_n:.3f}) in transition zone"))
 
-    # --- Age anchor scaling ---
+    # --- Published age/gender scaling ---
     age_str = team.get("age_group", "")
     try:
         age_num = int(age_str.replace("u", "").replace("U", ""))
     except (ValueError, TypeError):
         age_num = None
-    if age_num and age_num in ALGORITHM["ANCHORS"]:
-        expected_anchor = ALGORITHM["ANCHORS"][age_num]
+    if age_num:
         ps_final = team.get("power_score_final")
-        if ps_final is not None and ps_final > expected_anchor + 0.001:
+        ps_true = team.get("power_score_true")
+        gender = team.get("gender")
+        scale_version = team.get("power_score_scale_version")
+        if scale_version:
+            try:
+                scale_cap = published_power_score_cap(age_num, gender, str(scale_version))
+                expected_final = (
+                    published_power_score(float(ps_true), age_num, gender, str(scale_version))
+                    if ps_true is not None
+                    else None
+                )
+            except ValueError as error:
+                checks.append(("FAIL", f"Published scale validation failed: {error}"))
+                scale_cap = None
+                expected_final = None
+        else:
+            scale_cap = AGE_TO_ANCHOR.get(age_num)
+            expected_final = (
+                min(float(ps_true) * scale_cap, scale_cap)
+                if ps_true is not None and scale_cap is not None
+                else None
+            )
+        if ps_final is not None and scale_cap is not None and ps_final > scale_cap + 0.001:
             checks.append(
                 (
                     "FAIL",
-                    f"power_score_final ({ps_final:.4f}) exceeds age anchor ceiling "
-                    f"({expected_anchor:.3f} for {age_str})",
+                    f"power_score_final ({ps_final:.4f}) exceeds published scale cap "
+                    f"({scale_cap:.3f} for {age_str} {gender})",
                 )
             )
-        elif ps_final is not None:
-            checks.append(("OK", f"Final score ({ps_final:.4f}) within anchor ceiling ({expected_anchor:.3f})"))
+        elif ps_final is not None and expected_final is not None and abs(ps_final - expected_final) > 1e-9:
+            checks.append(
+                (
+                    "FAIL",
+                    f"power_score_final ({ps_final:.4f}) does not match the active scale "
+                    f"mapping ({expected_final:.4f})",
+                )
+            )
+        elif ps_final is not None and scale_cap is not None:
+            checks.append(("OK", f"Final score ({ps_final:.4f}) matches active scale; cap={scale_cap:.3f}"))
 
     # --- Performance layer should be disabled (PERF_BLEND_WEIGHT = 0.00) ---
     perf = team.get("perf_centered")
@@ -429,11 +471,16 @@ def validate_algorithm(team: dict, cohort_stats: dict) -> list:
 
 
 def simulate_powerscore(
-    off_norm: float, def_norm: float, sos_norm: float, games_played: int, ml_norm: float, age_num: int
+    off_norm: float,
+    def_norm: float,
+    sos_norm: float,
+    games_played: int,
+    ml_norm: float,
+    age_num: int,
+    gender: str,
 ) -> dict:
     """
-    Reproduce the full v53e → ML → anchor pipeline from normalized components.
-    This matches the actual engine — no shortcuts, no display multipliers.
+    Reproduce the diagnostic v53e → ML → published-scale path from normalized components.
 
     Returns dict with every intermediate value for transparency.
     """
@@ -463,9 +510,8 @@ def simulate_powerscore(
         min(1.0, (sos_norm - SOS_ML_THRESHOLD_LOW) / (SOS_ML_THRESHOLD_HIGH - SOS_ML_THRESHOLD_LOW)),
     )
 
-    # Age anchor scaling: final = ps_ml * anchor, capped at anchor
-    anchor = ALGORITHM["ANCHORS"].get(age_num, 1.0)
-    ps_final = min(anchor, ps_ml * anchor)
+    ps_final = published_power_score(ps_ml, age_num, gender)
+    scale_cap = published_power_score_cap(age_num, gender)
 
     return {
         "ps_core": round(ps_core, 6),
@@ -474,7 +520,7 @@ def simulate_powerscore(
         "ml_delta": round(ml_delta, 6),
         "ml_scale": round(ml_scale, 4),
         "ps_ml": round(ps_ml, 6),
-        "anchor": anchor,
+        "scale_cap": round(scale_cap, 6),
         "ps_final": round(ps_final, 6),
     }
 
@@ -491,6 +537,7 @@ def simulate_what_if(team: dict, top1: dict, cohort_top: list) -> list:
         age_num = int(age_str.replace("u", "").replace("U", ""))
     except (ValueError, TypeError):
         age_num = 14
+    gender = str(team.get("gender") or "Male")
 
     target_final = top1.get("power_score_final", 0)
     team_off = team.get("off_norm") or 0.5
@@ -517,23 +564,23 @@ def simulate_what_if(team: dict, top1: dict, cohort_top: list) -> list:
     scenarios = []
 
     # Scenario 1: Current (baseline)
-    current = simulate_powerscore(team_off, team_def, team_sos, team_gp, team_ml, age_num)
+    current = simulate_powerscore(team_off, team_def, team_sos, team_gp, team_ml, age_num, gender)
     scenarios.append(("Current", "No changes", current["ps_final"], sim_rank(current["ps_final"])))
 
     # Scenario 2: Max out SOS (play the toughest schedule possible)
-    s = simulate_powerscore(team_off, team_def, 1.0, team_gp, team_ml, age_num)
+    s = simulate_powerscore(team_off, team_def, 1.0, team_gp, team_ml, age_num, gender)
     scenarios.append(
         ("Max SOS", "sos_norm → 1.000 (hardest schedule in cohort)", s["ps_final"], sim_rank(s["ps_final"]))
     )
 
     # Scenario 3: Max out offense
-    s = simulate_powerscore(1.0, team_def, team_sos, team_gp, team_ml, age_num)
+    s = simulate_powerscore(1.0, team_def, team_sos, team_gp, team_ml, age_num, gender)
     scenarios.append(
         ("Max Offense", "off_norm → 1.000 (best scoring in cohort)", s["ps_final"], sim_rank(s["ps_final"]))
     )
 
     # Scenario 4: Max out defense
-    s = simulate_powerscore(team_off, 1.0, team_sos, team_gp, team_ml, age_num)
+    s = simulate_powerscore(team_off, 1.0, team_sos, team_gp, team_ml, age_num, gender)
     scenarios.append(
         ("Max Defense", "def_norm → 1.000 (best defense in cohort)", s["ps_final"], sim_rank(s["ps_final"]))
     )
@@ -544,13 +591,13 @@ def simulate_what_if(team: dict, top1: dict, cohort_top: list) -> list:
     top_sos = top1.get("sos_norm") or 0.5
     top_gp = top1.get("games_played") or 30
     top_ml = top1.get("ml_norm") or 0.0
-    s = simulate_powerscore(top_off, top_def, top_sos, top_gp, top_ml, age_num)
+    s = simulate_powerscore(top_off, top_def, top_sos, top_gp, top_ml, age_num, gender)
     scenarios.append(
         ("Clone #1's metrics", "Copy all normalized values from #1", s["ps_final"], sim_rank(s["ps_final"]))
     )
 
     # Scenario 6: Improve SOS to match #1's SOS only
-    s = simulate_powerscore(team_off, team_def, top_sos, team_gp, team_ml, age_num)
+    s = simulate_powerscore(team_off, team_def, top_sos, team_gp, team_ml, age_num, gender)
     scenarios.append(
         ("Match #1's SOS", f"sos_norm → {top_sos:.3f} (keep everything else)", s["ps_final"], sim_rank(s["ps_final"]))
     )
@@ -561,7 +608,7 @@ def simulate_what_if(team: dict, top1: dict, cohort_top: list) -> list:
     off_b = boosted if weakest_metric[0] == "off" else team_off
     def_b = boosted if weakest_metric[0] == "def" else team_def
     sos_b = boosted if weakest_metric[0] == "sos" else team_sos
-    s = simulate_powerscore(off_b, def_b, sos_b, team_gp, team_ml, age_num)
+    s = simulate_powerscore(off_b, def_b, sos_b, team_gp, team_ml, age_num, gender)
     scenarios.append(
         (
             f"Boost weakest ({weakest_metric[0]})",
@@ -573,7 +620,7 @@ def simulate_what_if(team: dict, top1: dict, cohort_top: list) -> list:
 
     # Scenario 8: More games (if provisional penalty applies)
     if team_gp < 15:
-        s = simulate_powerscore(team_off, team_def, team_sos, 30, team_ml, age_num)
+        s = simulate_powerscore(team_off, team_def, team_sos, 30, team_ml, age_num, gender)
         scenarios.append(
             (
                 "Full season (30 GP)",
@@ -585,7 +632,7 @@ def simulate_what_if(team: dict, top1: dict, cohort_top: list) -> list:
 
     # Scenario 9: ML boost (strong recent form)
     better_ml = min(0.5, team_ml + 0.20)
-    s = simulate_powerscore(team_off, team_def, team_sos, team_gp, better_ml, age_num)
+    s = simulate_powerscore(team_off, team_def, team_sos, team_gp, better_ml, age_num, gender)
     scenarios.append(
         (
             "Strong ML form",
@@ -601,14 +648,14 @@ def simulate_what_if(team: dict, top1: dict, cohort_top: list) -> list:
     needed_sos = None
     for _ in range(50):
         mid = (lo + hi) / 2
-        s = simulate_powerscore(team_off, team_def, mid, team_gp, team_ml, age_num)
+        s = simulate_powerscore(team_off, team_def, mid, team_gp, team_ml, age_num, gender)
         if s["ps_final"] >= target_final:
             needed_sos = mid
             hi = mid
         else:
             lo = mid
     if needed_sos is not None and needed_sos <= 1.0:
-        s = simulate_powerscore(team_off, team_def, needed_sos, team_gp, team_ml, age_num)
+        s = simulate_powerscore(team_off, team_def, needed_sos, team_gp, team_ml, age_num, gender)
         scenarios.append(
             (
                 "Min SOS for #1",
@@ -866,7 +913,7 @@ def diagnose_team(supabase, team_id: str, merge_resolver: MergeResolver | None =
     if not is_number_one:
         console.print("[bold underline]Simulator: Path to #1[/bold underline]")
         console.print("[dim]  Uses the exact v53e formula: core = OFF*0.20 + DEF*0.20 + SOS*0.60,[/dim]")
-        console.print("[dim]  then provisional mult, SOS-conditioned ML blend, age anchor scaling.[/dim]")
+        console.print("[dim]  then provisional mult, SOS-conditioned ML blend, and the published scale.[/dim]")
         console.print()
 
         # First verify simulator matches actual output
@@ -883,6 +930,7 @@ def diagnose_team(supabase, team_id: str, merge_resolver: MergeResolver | None =
             team.get("games_played") or 0,
             team.get("ml_norm") or 0.0,
             age_num,
+            str(team.get("gender") or "Male"),
         )
         actual_final = team.get("power_score_final") or 0
         sim_diff = abs(current_sim["ps_final"] - actual_final)
@@ -1068,7 +1116,7 @@ def main():
             f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n"
             f"[dim]Algorithm: v53e (OFF:20% DEF:20% SOS:60%) + ML Layer 13 (α=0.08)\n"
             f"SOS-conditioned ML: suppressed below SOS 0.45, full above 0.60\n"
-            f"Age anchors: U10=0.40 → U19=1.00[/dim]",
+            f"Published scale: {get_power_score_scale().version} (adaptive elite tail)[/dim]",
             title="🔍 Ranking Diagnostic",
         )
     )

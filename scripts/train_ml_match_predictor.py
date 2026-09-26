@@ -86,7 +86,7 @@ async def fetch_rankings(supabase: Client, use_full: bool = False) -> pd.DataFra
             response = (
                 supabase.table("rankings_full")
                 .select(
-                    "team_id, power_score_final, sos_norm, off_norm, "
+                    "team_id, power_score_final, prediction_power_score, sos_norm, off_norm, "
                     "def_norm, win_percentage, games_played, rank_in_cohort"
                 )
                 .limit(50000)
@@ -119,6 +119,17 @@ async def fetch_rankings(supabase: Client, use_full: bool = False) -> pd.DataFra
             .execute()
         )
         rankings_df = pd.DataFrame(response.data)
+        if not rankings_df.empty:
+            compatibility = (
+                supabase.table("rankings_full")
+                .select("team_id, prediction_power_score")
+                .limit(50000)
+                .execute()
+            )
+            compatibility_df = pd.DataFrame(compatibility.data)
+            if not compatibility_df.empty:
+                compatibility_df = compatibility_df.rename(columns={"team_id": "team_id_master"})
+                rankings_df = rankings_df.merge(compatibility_df, on="team_id_master", how="left")
         print(f"Fetched rankings from rankings_view for {len(rankings_df)} teams")
         return rankings_df
     except Exception as e:

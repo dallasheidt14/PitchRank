@@ -9,6 +9,7 @@
 
 import type { TeamWithRanking } from './types';
 import type { MatchPrediction } from './matchPredictor';
+import { predictionPowerScore } from './predictionPowerScore';
 import { extractAgeFromTeamName } from './utils';
 
 type ExplanationMagnitude = 'significant' | 'moderate' | 'minimal';
@@ -88,8 +89,8 @@ function explainPowerScore(teamA: TeamWithRanking, teamB: TeamWithRanking, power
 
   const advantage = powerDiff > 0 ? 'team_a' : 'team_b';
   const strongerTeam = powerDiff > 0 ? teamA.team_name : teamB.team_name;
-  const strongerPower = powerDiff > 0 ? teamA.power_score_final || 0.5 : teamB.power_score_final || 0.5;
-  const weakerPower = powerDiff > 0 ? teamB.power_score_final || 0.5 : teamA.power_score_final || 0.5;
+  const strongerPower = predictionPowerScore(powerDiff > 0 ? teamA : teamB);
+  const weakerPower = predictionPowerScore(powerDiff > 0 ? teamB : teamA);
   const strongerRank = powerDiff > 0 ? teamA.rank_in_cohort_final : teamB.rank_in_cohort_final;
   const weakerRank = powerDiff > 0 ? teamB.rank_in_cohort_final : teamA.rank_in_cohort_final;
 

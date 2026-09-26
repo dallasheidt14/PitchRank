@@ -28,6 +28,8 @@ function inputWith(opts: {
     ranking: {
       rank_in_cohort_final: opts.rankNow,
       power_score_final: 0.5,
+      prediction_power_score: 0.5,
+      power_score_scale_version: null,
       sos_norm: null,
       wins: 0,
       losses: 0,

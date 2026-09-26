@@ -89,12 +89,21 @@ export async function GET(req: Request, { params }: { params: Promise<{ teamId: 
       power_score_final: number | null;
     };
 
+    type PredictionScaleRow = {
+      team_id: string;
+      prediction_power_score: number | null;
+      power_score_scale_version: string | null;
+    };
+
     type RankingHistoryRow = {
       snapshot_date: string;
       rank_in_cohort: number;
       rank_in_cohort_ml: number | null;
       rank_in_cohort_final: number | null;
       power_score_final: number | null;
+      power_score_true: number | null;
+      prediction_power_score: number | null;
+      power_score_scale_version: string | null;
     };
 
     type CohortRow = {
@@ -127,10 +136,43 @@ export async function GET(req: Request, { params }: { params: Promise<{ teamId: 
       console.error('Error fetching opponent rankings:', oppRankError);
     }
 
+    // Published PowerScore is intentionally age-scaled and can change between
+    // display-scale versions. Persona comparisons must use the stable predictor
+    // input instead, otherwise a presentation-only calibration changes labels.
+    const predictionIds = Array.from(new Set([teamId, ...opponentIds]));
+    const predictionScaleResult = await supabase
+      .from('rankings_full')
+      .select('team_id, prediction_power_score, power_score_scale_version')
+      .in('team_id', predictionIds);
+
+    if (predictionScaleResult.error) {
+      console.error('Error fetching prediction scale fields:', predictionScaleResult.error);
+    }
+
+    const predictionScaleErrorMessage = predictionScaleResult.error?.message.toLowerCase() ?? '';
+    const preVersionedSchema =
+      predictionScaleResult.error?.code === '42703' ||
+      predictionScaleErrorMessage.includes('prediction_power_score') ||
+      predictionScaleErrorMessage.includes('power_score_scale_version');
+    const predictionScaleQueryFailed = predictionScaleResult.error !== null && !preVersionedSchema;
+
+    const predictionScaleMap = new Map(
+      ((predictionScaleResult.data || []) as PredictionScaleRow[]).map((row) => [row.team_id, row])
+    );
+
+    const stablePredictionScore = (teamIdForLookup: string, legacyScore: number | null): number | null => {
+      if (predictionScaleQueryFailed) return null;
+      const scale = predictionScaleMap.get(teamIdForLookup);
+      if (scale?.prediction_power_score != null) return scale.prediction_power_score;
+      // Rows predating versioned publication scales used power_score_final as
+      // the predictor input. Never apply that fallback to a versioned row.
+      return scale?.power_score_scale_version == null ? legacyScore : null;
+    };
+
     const oppRankMap = new Map(
       ((opponentRankings || []) as OpponentRankingRow[]).map((opp: OpponentRankingRow) => [
         opp.team_id_master,
-        { rank: opp.rank_in_cohort_final, power: opp.power_score_final },
+        { rank: opp.rank_in_cohort_final, power: stablePredictionScore(opp.team_id_master, opp.power_score_final) },
       ])
     );
 
@@ -139,7 +181,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ teamId: 
     // rows, so reading teamId alone loses every snapshot filed under an absorbed ID.
     const { data: rankingHistoryRows, error: historyError } = await supabase
       .from('ranking_history')
-      .select('team_id, snapshot_date, rank_in_cohort, rank_in_cohort_ml, rank_in_cohort_final, power_score_final')
+      .select(
+        'team_id, snapshot_date, rank_in_cohort, rank_in_cohort_ml, rank_in_cohort_final, power_score_final, power_score_true, prediction_power_score, power_score_scale_version'
+      )
       .in('team_id', teamIdList)
       .order('snapshot_date', { ascending: false })
       .limit(30 * teamIdList.length);
@@ -261,6 +305,10 @@ export async function GET(req: Request, { params }: { params: Promise<{ teamId: 
       ranking: {
         rank_in_cohort_final: ranking?.rank_in_cohort_final ?? null,
         power_score_final: ranking?.power_score_final ?? null,
+        prediction_power_score: predictionScaleMap.get(teamId)?.prediction_power_score ?? null,
+        power_score_scale_version:
+          predictionScaleMap.get(teamId)?.power_score_scale_version ??
+          (predictionScaleQueryFailed ? 'unavailable' : null),
         sos_norm: ranking?.sos_norm ?? null,
         wins: ranking?.wins ?? 0,
         losses: ranking?.losses ?? 0,
@@ -300,6 +348,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ teamId: 
         rank_in_cohort_ml: h.rank_in_cohort_ml ?? undefined,
         rank_in_cohort: h.rank_in_cohort,
         power_score_final: h.power_score_final,
+        power_score_true: h.power_score_true,
+        prediction_power_score: h.prediction_power_score,
+        power_score_scale_version: h.power_score_scale_version,
       })),
       cohortStats,
       stateCohort,

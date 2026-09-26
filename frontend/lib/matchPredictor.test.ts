@@ -86,6 +86,40 @@ describe('poissonBlowout4PlusProbability', () => {
 });
 
 describe('predictMatch', () => {
+  it('keeps forecasts stable when only the published display scale changes', () => {
+    const legacyA = makeTeam({ team_id_master: 'team-a', power_score_final: 0.71 });
+    const legacyB = makeTeam({ team_id_master: 'team-b', power_score_final: 0.56 });
+    const legacy = predictMatch(legacyA, legacyB, []);
+
+    const versioned = predictMatch(
+      makeTeam({
+        ...legacyA,
+        power_score_final: 0.64,
+        prediction_power_score: 0.71,
+        power_score_scale_version: 'age-gender-v2-2026-09-25',
+      }),
+      makeTeam({
+        ...legacyB,
+        power_score_final: 0.49,
+        prediction_power_score: 0.56,
+        power_score_scale_version: 'age-gender-v2-2026-09-25',
+      }),
+      []
+    );
+
+    expect(versioned).toEqual(legacy);
+  });
+
+  it('refuses a versioned rating without its prediction compatibility score', () => {
+    expect(() =>
+      predictMatch(
+        makeTeam({ power_score_scale_version: 'age-gender-v2-2026-09-25' }),
+        makeTeam({ team_id_master: 'team-b' }),
+        []
+      )
+    ).toThrow(/missing prediction_power_score/);
+  });
+
   it.each([
     ['unequal teams', { power_score_final: 0.75, glicko_rating: 1640 }, { power_score_final: 0.43 }],
     ['nearly equal teams', { power_score_final: 0.5001 }, {}],

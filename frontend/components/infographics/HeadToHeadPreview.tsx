@@ -73,6 +73,8 @@ function TeamCard({ team, rank, side, rankSize, teamNameSize, smallTextSize, max
 interface HeadToHeadPreviewProps {
   team1: RankingRow & { rank?: number };
   team2: RankingRow & { rank?: number };
+  predictionTeam1: TeamWithRanking;
+  predictionTeam2: TeamWithRanking;
   platform: Platform;
   scale?: number;
   generatedDate?: string;
@@ -84,7 +86,19 @@ interface HeadToHeadPreviewProps {
 
 export const HeadToHeadPreview = forwardRef<HTMLDivElement, HeadToHeadPreviewProps>(
   (
-    { team1, team2, platform, scale = 0.5, generatedDate, ageGroup, gender, regionName: _regionName, allGames = [] },
+    {
+      team1,
+      team2,
+      predictionTeam1,
+      predictionTeam2,
+      platform,
+      scale = 0.5,
+      generatedDate,
+      ageGroup,
+      gender,
+      regionName: _regionName,
+      allGames = [],
+    },
     ref
   ) => {
     const dimensions = PLATFORM_DIMENSIONS[platform];
@@ -129,11 +143,7 @@ export const HeadToHeadPreview = forwardRef<HTMLDivElement, HeadToHeadPreviewPro
     const genderLabel = gender === 'M' ? 'BOYS' : 'GIRLS';
 
     // Get prediction using the same logic as compare tab
-    const matchPrediction = predictMatch(
-      { ...team1, team_id_master: team1.team_id_master || '', last_scraped_at: null } as unknown as TeamWithRanking,
-      { ...team2, team_id_master: team2.team_id_master || '', last_scraped_at: null } as unknown as TeamWithRanking,
-      allGames
-    );
+    const matchPrediction = predictMatch(predictionTeam1, predictionTeam2, allGames);
     const prediction = {
       winProbability1: matchPrediction.winProbabilityA,
       winProbability2: matchPrediction.winProbabilityB,

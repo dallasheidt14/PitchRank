@@ -86,12 +86,20 @@ function normalizeRecentForm(goalDiff) {
   return sigmoid(goalDiff * 0.5);
 }
 
+function predictionPowerScore(team) {
+  if (typeof team.prediction_power_score === 'number') return team.prediction_power_score;
+  if (team.power_score_scale_version == null && typeof team.power_score_final === 'number') {
+    return team.power_score_final;
+  }
+  throw new Error(`Missing stable prediction score for ${team.team_id_master}`);
+}
+
 /**
  * Enhanced match prediction with multiple features
  */
 function predictMatchEnhanced(teamA, teamB, allGames) {
   // 1. Base power score differential
-  const powerDiff = teamA.power_score_final - teamB.power_score_final;
+  const powerDiff = predictionPowerScore(teamA) - predictionPowerScore(teamB);
 
   // 2. SOS differential (already normalized 0-1)
   const sosDiff = (teamA.sos_norm || 0.5) - (teamB.sos_norm || 0.5);
@@ -149,7 +157,7 @@ function predictMatchEnhanced(teamA, teamB, allGames) {
  * Simple prediction (original version for comparison)
  */
 function predictMatchSimple(teamA, teamB) {
-  const powerDiff = teamA.power_score_final - teamB.power_score_final;
+  const powerDiff = predictionPowerScore(teamA) - predictionPowerScore(teamB);
   const winProbA = sigmoid(5.0 * powerDiff);
   const predictedMargin = powerDiff * 8.0;
 
@@ -191,6 +199,33 @@ async function validate() {
     console.error('❌ Error fetching rankings:', rankingsError);
     process.exit(1);
   }
+
+  const predictionScaleData = [];
+  const rankingTeamIds = rankingsData.map(team => team.team_id_master);
+  for (let index = 0; index < rankingTeamIds.length; index += 100) {
+    const { data, error } = await supabase
+      .from('rankings_full')
+      .select('team_id, prediction_power_score, power_score_scale_version')
+      .in('team_id', rankingTeamIds.slice(index, index + 100));
+    if (error) {
+      const message = error.message || '';
+      const isPreMigration =
+        error.code === '42703' ||
+        message.includes('prediction_power_score') ||
+        message.includes('power_score_scale_version');
+      if (!isPreMigration) {
+        console.error('❌ Error fetching stable prediction scores:', error);
+        process.exit(1);
+      }
+      console.warn('⚠️ Stable prediction columns are not deployed; using legacy published scores.');
+      predictionScaleData.length = 0;
+      break;
+    }
+    predictionScaleData.push(...(data || []));
+  }
+
+  const predictionScaleByTeam = new Map(predictionScaleData.map(row => [row.team_id, row]));
+  rankingsData.forEach(team => Object.assign(team, predictionScaleByTeam.get(team.team_id_master) || {}));
 
   console.log(`✅ Loaded ${rankingsData.length} team rankings`);
 
