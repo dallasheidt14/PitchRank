@@ -190,6 +190,21 @@ def test_close_range_reports_average_fit_cost_and_worst_pair():
     assert full.worst_pair == ("a", "c")
 
 
+def test_competitive_enough_and_very_close_are_separate_policy_thresholds():
+    roster = entrants(["a", "b"])
+    prediction_value = replace(prediction(.1), expected_absolute_goal_difference=1.4)
+    policy = TierPolicy(
+        max_expected_margin=3.0,
+        very_close_expected_goal_difference=1.0,
+    )
+
+    tiers = build_tiers(roster, {("a", "b"): prediction_value}, policy)
+    analysis = build_cheat_sheet_analysis(roster, {("a", "b"): prediction_value}, policy)
+
+    assert len(tiers.tiers) == 1
+    assert analysis.close_ranges == ()
+
+
 def test_margin_and_probability_limits_are_independent_and_inclusive():
     roster = entrants(["a", "b"])
     assert len(build_tiers(roster, {("a", "b"): prediction(2.0, 0.30)}).tiers) == 1
@@ -394,6 +409,12 @@ def test_policy_must_be_finite_and_in_valid_range(margin, blowout):
 def test_matchup_cost_weight_must_be_finite_and_non_negative(weight):
     with pytest.raises(ValueError, match="Blowout cost weight"):
         TierPolicy(blowout_cost_weight=weight)
+
+
+@pytest.mark.parametrize("value", [0, -1, float("inf"), float("nan"), 2.1])
+def test_very_close_limit_must_be_positive_finite_and_within_competitive_limit(value):
+    with pytest.raises(ValueError, match="Very-close"):
+        TierPolicy(very_close_expected_goal_difference=value)
 
 
 def test_empty_and_review_only_cohorts_do_not_invent_tiers():

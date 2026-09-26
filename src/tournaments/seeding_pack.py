@@ -27,7 +27,7 @@ from src.tournaments.seeding_tiers import (
 )
 
 PACK_SCHEMA_VERSION = 3
-ANALYSIS_SCHEMA_VERSION = 4
+ANALYSIS_SCHEMA_VERSION = 5
 _AGE_GROUP = re.compile(r"^u[1-9][0-9]?$")
 _LEGACY_UNAVAILABLE_REASONS = {
     "Two roster entries resolve to the same team; verify the matches.": (
@@ -396,7 +396,7 @@ def upgrade_pack_analysis(
     The caller publishes this independent copy only after export validation succeeds.
     Older prediction/roster contracts still require a fresh build.
     """
-    if pack.get("schema_version") != PACK_SCHEMA_VERSION or pack.get("analysis_schema_version") not in (1, 2, 3):
+    if pack.get("schema_version") != PACK_SCHEMA_VERSION or pack.get("analysis_schema_version") not in (1, 2, 3, 4):
         raise ValueError("This saved pack requires a fresh build.")
     if pack.get("predictor_sha256") != predictor_sha256:
         raise ValueError("The predictor has changed; build seeding sheets to refresh predictions.")

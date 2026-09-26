@@ -333,9 +333,11 @@ def _render_placement_checks(key, analysis, pack, roster_rows, save) -> None:
 def _render_analysis_details(selected: Sequence[str], analyses: Mapping, pack: dict[str, Any]) -> None:
     st.caption(
         "Score steps use published scores plus the direction of nearby Compare predictions. "
-        f"The separate matchup diagnostics use limits of "
-        f"{pack['policy']['max_expected_margin']:.2f} expected absolute goal difference "
-        f"and {pack['policy']['max_blowout_probability']:.0%} four-goal risk. "
+        f"Competitive enough means no more than {pack['policy']['max_expected_margin']:.2f} "
+        "expected absolute goal difference and "
+        f"{pack['policy']['max_blowout_probability']:.0%} four-goal risk. "
+        f"Very close means adjacent teams are within "
+        f"{pack['policy']['very_close_expected_goal_difference']:.2f} expected goals. "
         "Passing these limits does not establish equal strength or interchangeable placement."
         " Placement checks flag lower seeds favored by at least half the expected-goal-difference limit; "
         "minor reversals stay here."
@@ -361,7 +363,8 @@ def _render_analysis_details(selected: Sequence[str], analyses: Mapping, pack: d
             } for item in detail.boundary_windows]), hide_index=True)
         if detail.close_ranges:
             st.caption(
-                "Local ranges within all-pair analysis limits. Fit cost equals expected absolute goal difference "
+                "Very-close ranges meet the competitive-enough limits for every pairing and the stricter "
+                "very-close limit for adjacent teams. Fit cost equals expected absolute goal difference "
                 f"plus {pack['policy'].get('blowout_cost_weight', 2.0):.1f} × four-goal blowout risk. "
                 "Overlapping ranges do not form a larger group."
             )
@@ -447,7 +450,7 @@ def render_seeding_pack(
     if (
         isinstance(pack, dict)
         and pack.get("schema_version") == 3
-        and pack.get("analysis_schema_version") in (1, 2, 3)
+        and pack.get("analysis_schema_version") in (1, 2, 3, 4)
     ):
         try:
             pack = upgrade_pack_analysis(

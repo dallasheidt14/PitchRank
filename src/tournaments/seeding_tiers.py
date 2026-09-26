@@ -38,11 +38,15 @@ class TierEntrant:
 
 @dataclass(frozen=True)
 class TierPolicy:
-    # The stored key is retained for saved-pack compatibility; it now governs
-    # expected absolute goal difference, not the absolute value of signed margin.
+    # The stored key is retained for saved-pack compatibility. It defines when
+    # a matchup is competitive enough for the same group, independently of
+    # which team is favored.
     max_expected_margin: float = 2.0
     max_blowout_probability: float = 0.30
     blowout_cost_weight: float = 2.0
+    # A stricter, separately tunable label for adjacent teams. This is not the
+    # same claim as merely being competitive enough for the same group.
+    very_close_expected_goal_difference: float = field(default=1.0, kw_only=True)
 
     def __post_init__(self) -> None:
         if not math.isfinite(self.max_expected_margin) or self.max_expected_margin <= 0:
@@ -51,6 +55,13 @@ class TierPolicy:
             raise ValueError("Maximum four-goal blowout probability must be greater than zero and at most one")
         if not math.isfinite(self.blowout_cost_weight) or self.blowout_cost_weight < 0:
             raise ValueError("Blowout cost weight must be finite and non-negative")
+        if (
+            not math.isfinite(self.very_close_expected_goal_difference)
+            or self.very_close_expected_goal_difference <= 0
+        ):
+            raise ValueError("Very-close expected goal difference must be finite and greater than zero")
+        if self.very_close_expected_goal_difference > self.max_expected_margin:
+            raise ValueError("Very-close expected goal difference cannot exceed the competitive limit")
 
 
 @dataclass(frozen=True)
@@ -723,7 +734,7 @@ def build_cheat_sheet_analysis(
                 continue
             if any(
                 pairs[_pair_key(members[index], members[index + 1])].absolute_goal_difference
-                > policy.max_expected_margin / 2
+                > policy.very_close_expected_goal_difference
                 for index in range(length - 1)
             ):
                 continue
