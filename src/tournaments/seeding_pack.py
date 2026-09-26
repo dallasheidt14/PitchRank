@@ -27,7 +27,7 @@ from src.tournaments.seeding_tiers import (
 )
 
 PACK_SCHEMA_VERSION = 3
-ANALYSIS_SCHEMA_VERSION = 3
+ANALYSIS_SCHEMA_VERSION = 6
 _AGE_GROUP = re.compile(r"^u[1-9][0-9]?$")
 _LEGACY_UNAVAILABLE_REASONS = {
     "Two roster entries resolve to the same team; verify the matches.": (
@@ -40,6 +40,16 @@ _LEGACY_UNAVAILABLE_REASONS = {
 # A pack without unavailable_codes is classified by sentence: this must equal the no_current_rating
 # reason in seedingPredictions.ts, and every other sentence is a data review.
 _LEGACY_NO_RATING_REASON = "No usable current PitchRank rating is available."
+
+
+def normalize_policy(value: Any) -> dict[str, Any]:
+    """Materialize every policy default so saved analysis stays reproducible."""
+    if not isinstance(value, dict):
+        raise ValueError("Seeding snapshot has invalid matchup limits.")
+    try:
+        return asdict(TierPolicy(**value))
+    except (TypeError, KeyError) as exc:
+        raise ValueError("Seeding snapshot has invalid matchup limits.") from exc
 
 
 def _valid_cohort(age_group: str, gender: str) -> bool:
@@ -351,6 +361,7 @@ def analyze_pack(
                 review_reason=review_reason,
                 limited_history=evidence.get("status") == "Not Enough Ranked Games",
                 review_status=review_status,
+                evidence_game_count=evidence.get("prediction_game_count"),
             ))
         # Legacy manual tiers remain in the pack for reference, but they no
         # longer drive the customer-facing cheat sheet or imply a format.
@@ -385,11 +396,15 @@ def upgrade_pack_analysis(
     The caller publishes this independent copy only after export validation succeeds.
     Older prediction/roster contracts still require a fresh build.
     """
-    if pack.get("schema_version") != PACK_SCHEMA_VERSION or pack.get("analysis_schema_version") not in (1, 2):
+    if (
+        pack.get("schema_version") != PACK_SCHEMA_VERSION
+        or pack.get("analysis_schema_version") not in (1, 2, 3, 4, 5)
+    ):
         raise ValueError("This saved pack requires a fresh build.")
     if pack.get("predictor_sha256") != predictor_sha256:
         raise ValueError("The predictor has changed; build seeding sheets to refresh predictions.")
     candidate = json.loads(json.dumps(pack, ensure_ascii=False, allow_nan=False))
+    candidate["policy"] = normalize_policy(candidate.get("policy"))
     candidate["analysis_schema_version"] = ANALYSIS_SCHEMA_VERSION
     if not pack_matches(candidate, rows, resolved, overrides, selected):
         raise ValueError("The roster or cohort selection changed; build seeding sheets.")

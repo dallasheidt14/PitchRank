@@ -154,6 +154,57 @@ def test_blowout_risk_can_reject_even_expected_margin():
     assert "Clear separation" not in result.boundaries[0]
 
 
+def test_even_signed_margin_cannot_hide_a_large_expected_absolute_goal_difference():
+    volatile = replace(prediction(0), expected_absolute_goal_difference=5, blowout_4plus_probability=.1)
+
+    result = build_tiers(entrants(["a", "b"]), {("a", "b"): volatile})
+
+    assert len(result.tiers) == 2
+    assert result.tiers[0].max_expected_absolute_goal_difference == 0
+    assert result.tiers[1].max_expected_absolute_goal_difference == 0
+
+
+def test_absolute_goal_difference_cannot_be_smaller_than_absolute_signed_margin():
+    impossible = replace(prediction(5), expected_absolute_goal_difference=0)
+
+    with pytest.raises(ValueError, match="Invalid expected absolute goal difference"):
+        build_tiers(entrants(["a", "b"]), {("a", "b"): impossible})
+
+
+def test_close_range_reports_average_fit_cost_and_worst_pair():
+    roster = entrants(["a", "b", "c"])
+    predictions = {
+        ("a", "b"): replace(prediction(.1), expected_absolute_goal_difference=.5),
+        ("a", "c"): replace(
+            prediction(.1), expected_absolute_goal_difference=.8, blowout_4plus_probability=.2,
+        ),
+        ("b", "c"): replace(prediction(.1), expected_absolute_goal_difference=.6),
+    }
+
+    analysis = build_cheat_sheet_analysis(roster, predictions)
+
+    full = next(item for item in analysis.close_ranges if (item.start_seed, item.end_seed) == (1, 3))
+    assert full.average_matchup_cost == pytest.approx((.7 + 1.2 + .8) / 3)
+    assert full.max_expected_absolute_goal_difference == .8
+    assert full.max_blowout_probability == .2
+    assert full.worst_pair == ("a", "c")
+
+
+def test_competitive_enough_and_very_close_are_separate_policy_thresholds():
+    roster = entrants(["a", "b"])
+    prediction_value = replace(prediction(.1), expected_absolute_goal_difference=1.4)
+    policy = TierPolicy(
+        max_expected_margin=3.0,
+        very_close_expected_goal_difference=1.0,
+    )
+
+    tiers = build_tiers(roster, {("a", "b"): prediction_value}, policy)
+    analysis = build_cheat_sheet_analysis(roster, {("a", "b"): prediction_value}, policy)
+
+    assert len(tiers.tiers) == 1
+    assert analysis.close_ranges == ()
+
+
 def test_margin_and_probability_limits_are_independent_and_inclusive():
     roster = entrants(["a", "b"])
     assert len(build_tiers(roster, {("a", "b"): prediction(2.0, 0.30)}).tiers) == 1
@@ -170,7 +221,12 @@ def test_operator_limits_change_placement_without_changing_prediction():
 
 
 def test_low_outcome_confidence_does_not_exclude_well_matched_teams():
-    value = SimpleNamespace(expected_margin=0.1, blowout_4plus_probability=0.1, confidence="low")
+    value = SimpleNamespace(
+        expected_margin=0.1,
+        expected_absolute_goal_difference=.5,
+        blowout_4plus_probability=0.1,
+        confidence="low",
+    )
     result = build_tiers(entrants(["a", "b"]), {("a", "b"): value})
     assert memberships(result) == [{"a", "b"}]
     assert result.review == {}
@@ -235,7 +291,7 @@ def test_minimum_groups_avoids_greedy_chaining_and_fixed_sizes():
     result = build_tiers(entrants(ids), matrix(ids, strengths))
     assert len(result.tiers) == 2
     assert sorted(len(tier.entrant_ids) for tier in result.tiers) == [2, 3]
-    assert all(tier.max_expected_margin <= 2 for tier in result.tiers)
+    assert all(tier.max_expected_absolute_goal_difference <= 2 for tier in result.tiers)
 
 
 def test_safe_partition_uses_the_clearest_strength_break():
@@ -262,11 +318,12 @@ def test_safe_partition_uses_the_clearest_strength_break():
 def test_manual_unsafe_merge_reports_risk_and_named_pair():
     result = build_tiers(entrants(["a", "b"]), {("a", "b"): prediction(4, 0.6)}, manual_groups=[["a", "b"]])
     assert memberships(result) == [{"a", "b"}]
-    assert result.tiers[0].max_expected_margin == 4
+    assert result.tiers[0].max_expected_absolute_goal_difference == 4
     assert result.tiers[0].max_blowout_probability == 0.6
     assert result.tiers[0].worst_pair == ("a", "b")
     assert result.warnings == (
-        "Tier 1 exceeds the matchup limits: up to 4.00 expected goals and 60% chance of a four-goal margin. "
+        "Tier 1 exceeds the matchup limits: up to 4.00 expected absolute goal difference and "
+        "60% chance of a four-goal margin. "
         "Review Team a vs Team b.",
     )
 
@@ -333,11 +390,37 @@ def test_inconsistent_reverse_blowout_fails():
         build_tiers(entrants(["a", "b"]), {("a", "b"): prediction(2, 0.1), ("b", "a"): prediction(-2, 0.2)})
 
 
+def test_inconsistent_reverse_absolute_goal_difference_fails():
+    with pytest.raises(ValueError, match="Inconsistent forward/reverse"):
+        build_tiers(entrants(["a", "b"]), {
+            ("a", "b"): prediction(2),
+            ("b", "a"): replace(prediction(-2), expected_absolute_goal_difference=3),
+        })
+
+
 @pytest.mark.parametrize("margin,blowout", [(0, 0.3), (-1, 0.3), (float("inf"), 0.3), (float("nan"), 0.3),
                                            (2, 0), (2, -0.1), (2, 1.1), (2, float("nan"))])
 def test_policy_must_be_finite_and_in_valid_range(margin, blowout):
     with pytest.raises(ValueError):
         TierPolicy(margin, blowout)
+
+
+@pytest.mark.parametrize("weight", [-1, float("inf"), float("nan")])
+def test_matchup_cost_weight_must_be_finite_and_non_negative(weight):
+    with pytest.raises(ValueError, match="Blowout cost weight"):
+        TierPolicy(blowout_cost_weight=weight)
+
+
+@pytest.mark.parametrize("value", [0, -1, float("inf"), float("nan"), 2.1])
+def test_very_close_limit_must_be_positive_finite_and_within_competitive_limit(value):
+    with pytest.raises(ValueError, match="Very-close"):
+        TierPolicy(very_close_expected_goal_difference=value)
+
+
+@pytest.mark.parametrize("value", [0, -1, float("inf"), float("nan")])
+def test_material_reversal_limit_must_be_positive_and_finite(value):
+    with pytest.raises(ValueError, match="Material-reversal"):
+        TierPolicy(material_reversal_expected_goal_difference=value)
 
 
 def test_empty_and_review_only_cohorts_do_not_invent_tiers():
@@ -354,6 +437,12 @@ def test_duplicate_id_and_nonfinite_powerscore_fail():
         build_tiers(entrants(["a", "a"]), {})
     with pytest.raises(ValueError, match="Non-finite PowerScore"):
         build_tiers([TierEntrant("a", "A", float("nan"))], {})
+
+
+@pytest.mark.parametrize("count", [True, -1, 1.5])
+def test_invalid_evidence_game_count_fails(count):
+    with pytest.raises(ValueError, match="Invalid evidence game count"):
+        build_cheat_sheet_analysis([TierEntrant("a", "A", .5, evidence_game_count=count)], {})
 
 
 def test_cheat_sheet_carries_each_entrant_status_and_rejects_an_unknown_one():

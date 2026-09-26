@@ -11,7 +11,7 @@ from __future__ import annotations
 import math
 from collections import Counter
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from itertools import combinations
 from statistics import median
 
@@ -33,25 +33,50 @@ class TierEntrant:
     review_reason: str | None = None
     limited_history: bool = False
     review_status: str = DATA_REVIEW
+    evidence_game_count: int | None = None
 
 
 @dataclass(frozen=True)
 class TierPolicy:
+    # The stored key is retained for saved-pack compatibility. It defines when
+    # a matchup is competitive enough for the same group, independently of
+    # which team is favored.
     max_expected_margin: float = 2.0
     max_blowout_probability: float = 0.30
+    blowout_cost_weight: float = 2.0
+    # A stricter, separately tunable label for adjacent teams. This is not the
+    # same claim as merely being competitive enough for the same group.
+    very_close_expected_goal_difference: float = field(default=1.0, kw_only=True)
+    # The directional advantage required before a lower PowerScore seed enters
+    # placement review. It is independent of competitive-fit limits.
+    material_reversal_expected_goal_difference: float = field(default=1.0, kw_only=True)
 
     def __post_init__(self) -> None:
         if not math.isfinite(self.max_expected_margin) or self.max_expected_margin <= 0:
-            raise ValueError("Maximum expected margin must be finite and greater than zero")
+            raise ValueError("Maximum expected absolute goal difference must be finite and greater than zero")
         if not math.isfinite(self.max_blowout_probability) or not 0 < self.max_blowout_probability <= 1:
             raise ValueError("Maximum four-goal blowout probability must be greater than zero and at most one")
+        if not math.isfinite(self.blowout_cost_weight) or self.blowout_cost_weight < 0:
+            raise ValueError("Blowout cost weight must be finite and non-negative")
+        if (
+            not math.isfinite(self.very_close_expected_goal_difference)
+            or self.very_close_expected_goal_difference <= 0
+        ):
+            raise ValueError("Very-close expected goal difference must be finite and greater than zero")
+        if self.very_close_expected_goal_difference > self.max_expected_margin:
+            raise ValueError("Very-close expected goal difference cannot exceed the competitive limit")
+        if (
+            not math.isfinite(self.material_reversal_expected_goal_difference)
+            or self.material_reversal_expected_goal_difference <= 0
+        ):
+            raise ValueError("Material-reversal expected goal difference must be finite and greater than zero")
 
 
 @dataclass(frozen=True)
 class TierGroup:
     number: int
     entrant_ids: tuple[str, ...]
-    max_expected_margin: float
+    max_expected_absolute_goal_difference: float
     max_blowout_probability: float
     worst_pair: tuple[str, str] | None
 
@@ -100,8 +125,10 @@ class CloseRange:
     start_seed: int
     end_seed: int
     entrant_ids: tuple[str, ...]
-    max_expected_margin: float
+    average_matchup_cost: float
+    max_expected_absolute_goal_difference: float
     max_blowout_probability: float
+    worst_pair: tuple[str, str]
 
 
 @dataclass(frozen=True)
@@ -111,6 +138,27 @@ class PlacementCheck:
     upper_seed: int
     lower_seed: int
     lower_expected_advantage: float
+
+
+@dataclass(frozen=True)
+class LocalConsensusCheck:
+    """Review-only evidence for a possible move away from PowerScore order."""
+
+    entrant_id: str
+    compared_with_id: str
+    baseline_seed: int
+    compared_with_seed: int
+    proposed_seed: int | None
+    direct_expected_advantage: float
+    neighborhood_ids: tuple[str, ...]
+    support_fraction: float
+    average_profile_advantage: float
+    tested_window_sizes: tuple[int, ...]
+    minimum_game_count: int | None
+    evidence_quality: str
+    stable: bool
+    supported: bool
+    blockers: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -134,6 +182,7 @@ class CheatSheetAnalysis:
     standouts: tuple[StrengthBreak, ...] = ()
     limited_history: tuple[str, ...] = ()
     placement_checks: tuple[PlacementCheck, ...] = ()
+    local_consensus_checks: tuple[LocalConsensusCheck, ...] = ()
     tiers: tuple[TierGroup, ...] = ()
     borderline: Mapping[str, tuple[int, ...]] = field(default_factory=dict)
     boundaries: tuple[str, ...] = ()
@@ -149,6 +198,7 @@ class CheatSheetAnalysis:
 @dataclass(frozen=True)
 class _Pair:
     margin: float
+    absolute_goal_difference: float
     blowout: float
     low_confidence: bool
 
@@ -180,6 +230,12 @@ def _read_pairs(
             if not math.isfinite(candidate.expected_margin):
                 raise ValueError(f"Non-finite expected margin for {first} vs {second}")
             if (
+                not math.isfinite(candidate.expected_absolute_goal_difference)
+                or candidate.expected_absolute_goal_difference < 0
+                or candidate.expected_absolute_goal_difference + 1e-8 < abs(candidate.expected_margin)
+            ):
+                raise ValueError(f"Invalid expected absolute goal difference for {first} vs {second}")
+            if (
                 not math.isfinite(candidate.blowout_4plus_probability)
                 or not 0 <= candidate.blowout_4plus_probability <= 1
             ):
@@ -187,10 +243,15 @@ def _read_pairs(
         if forward is not None and reverse is not None:
             if not math.isclose(forward.expected_margin, -reverse.expected_margin, abs_tol=1e-8) or not math.isclose(
                 forward.blowout_4plus_probability, reverse.blowout_4plus_probability, abs_tol=1e-8
+            ) or not math.isclose(
+                forward.expected_absolute_goal_difference,
+                reverse.expected_absolute_goal_difference,
+                abs_tol=1e-8,
             ):
                 raise ValueError(f"Inconsistent forward/reverse Compare predictions for {first} vs {second}")
         pairs[(first, second)] = _Pair(
             margin=prediction.expected_margin if forward is not None else -prediction.expected_margin,
+            absolute_goal_difference=prediction.expected_absolute_goal_difference,
             blowout=prediction.blowout_4plus_probability,
             low_confidence=getattr(prediction, "confidence", None) == "low",
         )
@@ -203,7 +264,15 @@ def _margin(pairs: Mapping[tuple[str, str], _Pair], first: str, second: str) -> 
 
 
 def _risk(pair: _Pair, policy: TierPolicy) -> float:
-    return max(abs(pair.margin) / policy.max_expected_margin, pair.blowout / policy.max_blowout_probability)
+    return max(
+        pair.absolute_goal_difference / policy.max_expected_margin,
+        pair.blowout / policy.max_blowout_probability,
+    )
+
+
+def _matchup_cost(pair: _Pair, policy: TierPolicy) -> float:
+    """Policy-weighted competitive-fit cost, independent of favored direction."""
+    return pair.absolute_goal_difference + policy.blowout_cost_weight * pair.blowout
 
 
 def _automatic_groups(
@@ -322,12 +391,13 @@ def build_tiers(
     for number, group in enumerate(groups, 1):
         group_pairs = sorted(_pair_key(first, second) for first, second in combinations(group, 2))
         worst = max(group_pairs, key=lambda key: _risk(pairs[key], policy)) if group_pairs else None
-        max_margin = max((abs(pairs[key].margin) for key in group_pairs), default=0.0)
+        max_margin = max((pairs[key].absolute_goal_difference for key in group_pairs), default=0.0)
         max_blowout = max((pairs[key].blowout for key in group_pairs), default=0.0)
         tiers.append(TierGroup(number, group, max_margin, max_blowout, worst))
         if worst is not None and _risk(pairs[worst], policy) > 1:
             warnings.append(
-                f"Tier {number} exceeds the matchup limits: up to {max_margin:.2f} expected goals and "
+                f"Tier {number} exceeds the matchup limits: up to {max_margin:.2f} "
+                "expected absolute goal difference and "
                 f"{max_blowout:.0%} chance of a four-goal margin. Review "
                 f"{by_id[worst[0]].team_name} vs {by_id[worst[1]].team_name}."
             )
@@ -435,6 +505,164 @@ def _separation_stats(
     return supported, average, favored, risky
 
 
+def _pair_neighborhood(
+    ordered: Sequence[str], upper_index: int, lower_index: int, size: int,
+) -> tuple[str, ...] | None:
+    """Return one baseline-anchored window containing both comparison teams."""
+    if len(ordered) < size or size < 2 or lower_index - upper_index >= size:
+        return None
+    midpoint = (upper_index + lower_index) / 2
+    start = round(midpoint - (size - 1) / 2)
+    start = max(0, min(start, len(ordered) - size))
+    if not start <= upper_index < lower_index < start + size:
+        return None
+    return tuple(ordered[start:start + size])
+
+
+def _profile_support(
+    candidate: str,
+    baseline_team: str,
+    references: Sequence[str],
+    pairs: Mapping[tuple[str, str], _Pair],
+) -> tuple[bool, float, float]:
+    """Compare two teams against identical opponents from the baseline neighborhood."""
+    advantages = [
+        _margin(pairs, candidate, opponent) - _margin(pairs, baseline_team, opponent)
+        for opponent in references
+    ]
+    if not advantages:
+        return False, 0.0, 0.0
+    support_fraction = sum(value > 1e-8 for value in advantages) / len(advantages)
+    average = math.fsum(advantages) / len(advantages)
+    # A strict majority plus a positive average prevents one large comparison
+    # from turning a mostly contrary neighborhood into apparent consensus.
+    supported = sum(value > 1e-8 for value in advantages) * 2 > len(advantages) and average > 1e-8
+    return supported, support_fraction, average
+
+
+def _local_consensus_checks(
+    ordered: Sequence[str],
+    by_id: Mapping[str, TierEntrant],
+    pairs: Mapping[tuple[str, str], _Pair],
+    placement_checks: Sequence[PlacementCheck],
+    *,
+    max_movement: int = 2,
+) -> tuple[LocalConsensusCheck, ...]:
+    """Evaluate material reversals without changing the PowerScore order.
+
+    The pilot deliberately uses only direction, not a fitted strength score:
+    the lower seed must look better against a strict majority of the same
+    established-history neighbors, the average profile edge must be positive,
+    and that conclusion must survive every available 5-7 team window plus
+    leave-one-neighbor-out checks. Threshold calibration and constrained
+    reordering remain separate validation work.
+    """
+    results: list[LocalConsensusCheck] = []
+    for check in placement_checks:
+        upper_index = check.upper_seed - 1
+        lower_index = check.lower_seed - 1
+        candidate = ordered[lower_index]
+        baseline_team = ordered[upper_index]
+        distance = check.lower_seed - check.upper_seed
+        blockers: list[str] = []
+        if distance > max_movement:
+            blockers.append(f"The change spans more than the {max_movement}-seed pilot cap.")
+        pair_has_reliable_evidence = not (
+            by_id[candidate].limited_history or by_id[baseline_team].limited_history
+        )
+        if not pair_has_reliable_evidence:
+            blockers.append("One of the compared teams has limited ranked history.")
+
+        window_results: list[tuple[int, tuple[str, ...], bool, float, float, bool]] = []
+        for size in (5, 6, 7):
+            window = _pair_neighborhood(ordered, upper_index, lower_index, size)
+            if window is None:
+                continue
+            references = tuple(
+                entrant_id for entrant_id in window
+                if entrant_id not in {candidate, baseline_team} and not by_id[entrant_id].limited_history
+            )
+            if len(references) < 3:
+                continue
+            supported, fraction, average = _profile_support(candidate, baseline_team, references, pairs)
+            leave_one_out = all(
+                _profile_support(
+                    candidate,
+                    baseline_team,
+                    tuple(value for value in references if value != omitted),
+                    pairs,
+                )[0]
+                for omitted in references
+            )
+            window_results.append((size, references, supported, fraction, average, leave_one_out))
+
+        if not window_results:
+            blockers.append("Fewer than three established-history neighbors are available for comparison.")
+            primary_references: tuple[str, ...] = ()
+            support_fraction = 0.0
+            average_profile_advantage = 0.0
+        else:
+            primary = max(window_results, key=lambda item: item[0])
+            primary_references = primary[1]
+            support_fraction = primary[3]
+            average_profile_advantage = primary[4]
+            if not all(item[2] for item in window_results):
+                blockers.append("The shared-neighborhood comparisons do not consistently support the change.")
+            if not all(item[5] for item in window_results):
+                blockers.append("The recommendation depends on one unusually influential neighbor.")
+
+        stable = bool(window_results) and all(item[2] and item[5] for item in window_results)
+        evidence_ids = {candidate, baseline_team, *primary_references}
+        game_counts = [
+            by_id[entrant_id].evidence_game_count
+            for entrant_id in evidence_ids
+            if by_id[entrant_id].evidence_game_count is not None
+        ]
+        evidence_quality = "established" if pair_has_reliable_evidence else "limited"
+        supported = not blockers
+        results.append(LocalConsensusCheck(
+            entrant_id=candidate,
+            compared_with_id=baseline_team,
+            baseline_seed=check.lower_seed,
+            compared_with_seed=check.upper_seed,
+            proposed_seed=check.upper_seed if supported else None,
+            direct_expected_advantage=check.lower_expected_advantage,
+            neighborhood_ids=primary_references,
+            support_fraction=support_fraction,
+            average_profile_advantage=average_profile_advantage,
+            tested_window_sizes=tuple(item[0] for item in window_results),
+            minimum_game_count=min(game_counts) if game_counts else None,
+            evidence_quality=evidence_quality,
+            stable=stable,
+            supported=supported,
+            blockers=tuple(blockers),
+        ))
+    # A two-seed proposal must also earn a supported adjacent proposal over the
+    # intervening team. Process shorter moves first so a longer destination can
+    # rely only on already-validated crossed-seed evidence.
+    validated: dict[int, LocalConsensusCheck] = {}
+    supported_by_target: dict[tuple[str, int], LocalConsensusCheck] = {}
+    for index, result in sorted(
+        enumerate(results),
+        key=lambda item: item[1].baseline_seed - item[1].compared_with_seed,
+    ):
+        crossed_seeds = range(result.compared_with_seed + 1, result.baseline_seed)
+        if result.supported and not all(
+            supported_by_target.get((result.entrant_id, seed), None)
+            and supported_by_target[(result.entrant_id, seed)].supported
+            for seed in crossed_seeds
+        ):
+            result = replace(
+                result,
+                proposed_seed=None,
+                supported=False,
+                blockers=(*result.blockers, "The proposed move is not supported over every crossed seed."),
+            )
+        validated[index] = result
+        supported_by_target[(result.entrant_id, result.compared_with_seed)] = result
+    return tuple(validated[index] for index in range(len(results)))
+
+
 def build_cheat_sheet_analysis(
     entrants: Sequence[TierEntrant],
     predictions: Mapping[tuple[str, str], ComparePrediction],
@@ -451,6 +679,15 @@ def build_cheat_sheet_analysis(
             raise ValueError(f"Duplicate entrant ID: {entrant.entrant_id}")
         if entrant.power_score is not None and not math.isfinite(entrant.power_score):
             raise ValueError(f"Non-finite PowerScore for {entrant.entrant_id}")
+        if (
+            entrant.evidence_game_count is not None
+            and (
+                isinstance(entrant.evidence_game_count, bool)
+                or not isinstance(entrant.evidence_game_count, int)
+                or entrant.evidence_game_count < 0
+            )
+        ):
+            raise ValueError(f"Invalid evidence game count for {entrant.entrant_id}")
         if entrant.review_status not in REVIEW_STATUSES:
             raise ValueError(f"Unknown placement status for {entrant.entrant_id}")
         by_id[entrant.entrant_id] = entrant
@@ -527,16 +764,24 @@ def build_cheat_sheet_analysis(
             if not member_pairs or any(_risk(pair, policy) > 1 for pair in member_pairs):
                 continue
             if any(
-                abs(_margin(pairs, members[index], members[index + 1])) > policy.max_expected_margin / 2
+                pairs[_pair_key(members[index], members[index + 1])].absolute_goal_difference
+                > policy.very_close_expected_goal_difference
                 for index in range(length - 1)
             ):
                 continue
+            worst_pair = max(
+                combinations(members, 2),
+                key=lambda pair: _matchup_cost(pairs[_pair_key(*pair)], policy),
+            )
             close_candidates.append(CloseRange(
                 start_seed=start + 1,
                 end_seed=start + length,
                 entrant_ids=members,
-                max_expected_margin=max(abs(pair.margin) for pair in member_pairs),
+                average_matchup_cost=math.fsum(_matchup_cost(pair, policy) for pair in member_pairs)
+                / len(member_pairs),
+                max_expected_absolute_goal_difference=max(pair.absolute_goal_difference for pair in member_pairs),
                 max_blowout_probability=max(pair.blowout for pair in member_pairs),
+                worst_pair=_pair_key(*worst_pair),
             ))
     close_ranges: list[CloseRange] = []
     for item in sorted(close_candidates, key=lambda value: (-(value.end_seed - value.start_seed), value.start_seed)):
@@ -563,7 +808,10 @@ def build_cheat_sheet_analysis(
     placement_checks = tuple(
         PlacementCheck(upper + 1, lower + 1, -_margin(pairs, ordered[upper], ordered[lower]))
         for upper in range(len(ordered)) for lower in range(upper + 1, len(ordered))
-        if _margin(pairs, ordered[upper], ordered[lower]) <= -1.0
+        if (
+            _margin(pairs, ordered[upper], ordered[lower])
+            <= -policy.material_reversal_expected_goal_difference
+        )
     )
 
     diagnostics: list[str] = []
@@ -593,6 +841,7 @@ def build_cheat_sheet_analysis(
         standouts=tuple(item for item in selected if item.standout),
         limited_history=tuple(key for key in ordered if by_id[key].limited_history),
         placement_checks=placement_checks,
+        local_consensus_checks=_local_consensus_checks(ordered, by_id, pairs, placement_checks),
         tiers=legacy.tiers if legacy else (),
         borderline=legacy.borderline if legacy else {},
         boundaries=legacy.boundaries if legacy else (),

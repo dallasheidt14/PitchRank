@@ -26,6 +26,7 @@ from src.tournaments.seeding_pack import (
     cohort_label,
     make_pack,
     needs_placement_review,
+    normalize_policy,
     pack_matches,
     placement_review_fingerprint,
     prediction_request,
@@ -272,7 +273,8 @@ def _render_placement_checks(key, analysis, pack, roster_rows, save) -> None:
     with st.expander("Placement checks — internal", expanded=pending):
         st.caption(
             "Review these placements using team identity, recent results or club context. "
-            "Seed order stays in published order. Add any delivery guidance to Director notes above."
+            "PowerScore remains the baseline order. Local consensus can propose a review, but it does not move a team. "
+            "Add any delivery guidance to Director notes above."
         )
         seed_by_id = {entrant: seed for seed, entrant in enumerate(analysis.ordered_ids, 1)}
         for entrant in analysis.limited_history:
@@ -284,6 +286,35 @@ def _render_placement_checks(key, analysis, pack, roster_rows, save) -> None:
                 f"Seed {check.lower_seed} · {lower} is favored by {check.lower_expected_advantage:.1f} expected "
                 f"goals against seed {check.upper_seed} · {upper}. Check the placement before delivery."
             )
+        supported = [item for item in analysis.local_consensus_checks if item.supported]
+        if supported:
+            st.markdown("**PowerScore-anchored local-consensus proposals**")
+            st.caption(
+                "These are review proposals only. They compare both teams against the same nearby opponents, "
+                "keep the two-seed movement cap anchored to the original PowerScore order, "
+                "and leave the sheet unchanged."
+            )
+            for item in supported:
+                team = roster_rows[item.entrant_id].registered_name
+                compared = roster_rows[item.compared_with_id].registered_name
+                windows = ", ".join(str(value) for value in item.tested_window_sizes)
+                games = (
+                    f"; at least {item.minimum_game_count} prediction games across the evidence set"
+                    if item.minimum_game_count is not None else ""
+                )
+                st.write(
+                    f"Review moving seed {item.baseline_seed} · {team} to seed {item.proposed_seed}. "
+                    f"Compare favors it by {item.direct_expected_advantage:.1f} goals over seed "
+                    f"{item.compared_with_seed} · {compared}; it has the stronger shared-opponent profile in "
+                    f"{item.support_fraction:.0%} of the {len(item.neighborhood_ids)} nearby comparisons "
+                    f"across stable {windows}-team windows{games}."
+                )
+        unsupported = [item for item in analysis.local_consensus_checks if not item.supported]
+        if unsupported:
+            with st.expander("Why other Compare reversals did not earn a move proposal"):
+                for item in unsupported:
+                    team = roster_rows[item.entrant_id].registered_name
+                    st.write(f"Seed {item.baseline_seed} · {team}: {' '.join(item.blockers)}")
         if pending:
             st.caption("This pack remains a draft until these placements have been reviewed.")
             if st.button("Mark placement review complete", key=f"_seeding_placement_review_{key}"):
@@ -302,10 +333,15 @@ def _render_placement_checks(key, analysis, pack, roster_rows, save) -> None:
 def _render_analysis_details(selected: Sequence[str], analyses: Mapping, pack: dict[str, Any]) -> None:
     st.caption(
         "Score steps use published scores plus the direction of nearby Compare predictions. "
-        f"The separate matchup diagnostics use limits of {pack['policy']['max_expected_margin']:.2f} expected goals "
-        f"and {pack['policy']['max_blowout_probability']:.0%} four-goal risk. "
+        f"Competitive enough means no more than {pack['policy']['max_expected_margin']:.2f} "
+        "expected absolute goal difference and "
+        f"{pack['policy']['max_blowout_probability']:.0%} four-goal risk. "
+        f"Very close means adjacent teams are within "
+        f"{pack['policy']['very_close_expected_goal_difference']:.2f} expected goals. "
+        f"A material reversal means Compare favors a lower seed by at least "
+        f"{pack['policy']['material_reversal_expected_goal_difference']:.2f} expected goals. "
         "Passing these limits does not establish equal strength or interchangeable placement."
-        " Placement checks flag lower seeds favored by at least one expected goal; minor reversals stay here."
+        " Smaller reversals stay in the diagnostics."
     )
     for key in selected:
         detail = analyses[tuple(key.split("|", 1))]
@@ -327,11 +363,18 @@ def _render_analysis_details(selected: Sequence[str], analyses: Mapping, pack: d
                 "Average advantage": item.average_expected_margin, "Supports direction": item.supported,
             } for item in detail.boundary_windows]), hide_index=True)
         if detail.close_ranges:
-            st.caption("Local ranges within analysis limits. Overlapping ranges do not form a larger group.")
+            st.caption(
+                "Very-close ranges meet the competitive-enough limits for every pairing and the stricter "
+                "very-close limit for adjacent teams. Fit cost equals expected absolute goal difference "
+                f"plus {pack['policy'].get('blowout_cost_weight', 2.0):.1f} × four-goal blowout risk. "
+                "Overlapping ranges do not form a larger group."
+            )
             st.dataframe(pd.DataFrame([{
                 "Seeds": f"{item.start_seed}–{item.end_seed}",
-                "Largest expected margin": item.max_expected_margin,
+                "Average fit cost": item.average_matchup_cost,
+                "Largest expected goal difference": item.max_expected_absolute_goal_difference,
                 "Largest four-goal risk": item.max_blowout_probability,
+                "Worst projected matchup": " vs ".join(str(seed_by_id[value]) for value in item.worst_pair),
             } for item in detail.close_ranges]), hide_index=True)
 
 
@@ -384,7 +427,7 @@ def render_seeding_pack(
                 if isinstance(pack, dict):
                     # Rebuilds refresh predictions but preserve operator choices
                     # that are independent of the predictor snapshot.
-                    candidate["policy"] = dict(pack.get("policy", candidate["policy"]))
+                    candidate["policy"] = normalize_policy(pack.get("policy", candidate["policy"]))
                     # Every cohort's notes and reviews carry forward, selected or not;
                     # a review only counts while its fingerprint still matches.
                     candidate["operator_notes"] = dict(pack.get("operator_notes", {}))
@@ -405,7 +448,11 @@ def render_seeding_pack(
             message = str(exc).replace(str(SUPABASE_SERVICE_ROLE_KEY or "__no_secret__"), "[redacted]")
             st.error(f"Could not build seeding sheets: {message}")
 
-    if isinstance(pack, dict) and pack.get("schema_version") == 3 and pack.get("analysis_schema_version") in (1, 2):
+    if (
+        isinstance(pack, dict)
+        and pack.get("schema_version") == 3
+        and pack.get("analysis_schema_version") in (1, 2, 3, 4, 5)
+    ):
         try:
             pack = upgrade_pack_analysis(
                 pack, parsed.rows, resolved, overrides, selected, predictor_sha256=seeding_predictor_sha256(),
