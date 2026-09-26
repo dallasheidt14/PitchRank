@@ -8,9 +8,7 @@ import type { TeamWithRanking } from './types';
 export function predictionPowerScore(team: TeamWithRanking): number {
   if (team.prediction_power_score != null) return team.prediction_power_score;
   if (team.power_score_scale_version != null) {
-    throw new Error(
-      `Prediction input is missing prediction_power_score for scale ${team.power_score_scale_version}`
-    );
+    throw new Error(`Prediction input is missing prediction_power_score for scale ${team.power_score_scale_version}`);
   }
   return team.power_score_final ?? 0.5;
 }

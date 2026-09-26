@@ -1116,7 +1116,7 @@ def main():
             f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n"
             f"[dim]Algorithm: v53e (OFF:20% DEF:20% SOS:60%) + ML Layer 13 (α=0.08)\n"
             f"SOS-conditioned ML: suppressed below SOS 0.45, full above 0.60\n"
-            f"Published scale: {get_power_score_scale().active_version} (adaptive elite tail)[/dim]",
+            f"Published scale: {get_power_score_scale().version} (adaptive elite tail)[/dim]",
             title="🔍 Ranking Diagnostic",
         )
     )

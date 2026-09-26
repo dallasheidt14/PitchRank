@@ -80,9 +80,7 @@ function calculateStreakFragmentation(recent: Array<{ result: 'W' | 'L' | 'D' }>
  */
 function calculatePowerScoreVolatility(rankingHistory: InsightInputData['rankingHistory']): number {
   const latestVersion = rankingHistory[0]?.power_score_scale_version ?? null;
-  const comparableHistory = rankingHistory.filter(
-    (row) => (row.power_score_scale_version ?? null) === latestVersion
-  );
+  const comparableHistory = rankingHistory.filter((row) => (row.power_score_scale_version ?? null) === latestVersion);
   const scoresNewestFirst = comparableHistory
     .map((row) => row.power_score_true ?? row.power_score_final)
     .filter((score): score is number => score !== null && score !== undefined);
