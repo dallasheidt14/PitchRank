@@ -634,6 +634,62 @@ render_seeding_pack(parsed, resolved, None, event_name="Draft Cup", save=lambda:
     assert not any("roster assessed" in message.value for message in app.caption)
 
 
+def test_orphan_above_a_heading_holds_a_partially_selected_pack_in_draft(monkeypatch):
+    app_code = '''
+import streamlit as st
+from src.tournaments.roster_paste import parse_roster
+from src.tournaments.roster_resolver import ResolvedTeam
+from src.tournaments.seeding_intake_ui import render_seeding_pack
+parsed = parse_roster("Orphan Club\\tOrphan Team\\tTX\\nMale U14\\nA Club\\tA Team\\tTX\\n"
+                      "Female U15\\nB Club\\tB Team\\tTX")
+resolved = (ResolvedTeam(0, "unresolved"),
+            ResolvedTeam(1, "gotsport_id", team_id_master="00000000-0000-4000-8000-000000000001"),
+            ResolvedTeam(2, "gotsport_id", team_id_master="00000000-0000-4000-8000-000000000002"))
+st.session_state["_seeding_overrides"] = {}
+st.session_state["_seeding_assessment"] = {"coverage": "complete", "completed": [0, 1, 2]}
+render_seeding_pack(parsed, resolved, None, event_name="Partial Cup", save=lambda: True)
+'''
+
+    def load(cohorts, **_kwargs):
+        teams = {
+            key: {
+                entrant: {
+                    "team_id_master": team_id,
+                    "team_name": f"Team {entrant}",
+                    "power_score_final": .55,
+                    "rank_in_cohort_final": 40,
+                    "gender": "M" if key.endswith("|Male") else "F",
+                    "age": int(key.split("|", 1)[0][1:]),
+                    "status": "Active",
+                    "games_played": 10,
+                    "prediction_game_count": 10,
+                }
+                for entrant, team_id in members.items()
+            }
+            for key, members in cohorts.items()
+        }
+        return SeedingPredictionBatch(
+            {key: {} for key in cohorts},
+            teams,
+            {key: {} for key in cohorts},
+            "2026-09-15T10:00:00+00:00",
+            "2026-09-14",
+            "a" * 64,
+        )
+
+    monkeypatch.setattr(ui, "load_seeding_predictions", load)
+    monkeypatch.setattr(ui, "seeding_predictor_sha256", lambda: "a" * 64)
+    monkeypatch.setattr(ui, "make_ratings_lookup", lambda _client: lambda _ids: {})
+    app = AppTest.from_string(app_code, default_timeout=15).run()
+    next(widget for widget in app.radio if widget.label == "Sheet pack").set_value("Choose cohorts").run()
+    app.multiselect[0].set_value(["u14|Male"]).run()
+
+    click(app, "Build seeding sheets")
+
+    assert app.session_state["_seeding_pack"]["selected_cohorts"] == ["u14|Male"]
+    assert "DRAFT" in app.session_state["_seeding_sheet_html"]
+
+
 def test_live_legacy_session_without_assessment_exports_draft(operator):
     app, _calls = operator
     assert any("Delivery status: draft" in message.value for message in app.info)

@@ -7,11 +7,15 @@ rather than merely to report zero.
 
 from __future__ import annotations
 
+from datetime import date
+
 from src.tournaments.roster_paste import parse_roster
 from src.tournaments.roster_resolver import ResolvedTeam
 from src.tournaments.seeding_enqueue import (
     SEEDING_REQUEST_PRIORITY,
     enqueue_resolved_teams,
+    make_enqueue_caller,
+    make_provider_team_id_lookup,
 )
 
 PASTE = (
@@ -45,6 +49,58 @@ class _RecordingRpc:
 
     def __call__(self, payload):
         self.calls.append(payload)
+
+
+class _Result:
+    def __init__(self, data=None):
+        self.data = data or []
+
+
+class _DbRequest:
+    """Supabase request builder whose effects happen only at ``execute``."""
+
+    def __init__(self, db, kind, name, payload=None):
+        self.db = db
+        self.kind = kind
+        self.name = name
+        self.payload = payload
+        self.filters = []
+        self.row_limit = None
+
+    def select(self, _columns):
+        return self
+
+    def eq(self, column, value):
+        self.filters.append((column, value))
+        return self
+
+    def limit(self, value):
+        self.row_limit = value
+        return self
+
+    def execute(self):
+        if self.kind == "rpc":
+            self.db.rpc_executes.append((self.name, self.payload))
+            return _Result()
+        self.db.query_executes.append((self.name, tuple(self.filters)))
+        rows = [
+            row for row in self.db.rows.get(self.name, [])
+            if all(row.get(column) == value for column, value in self.filters)
+        ]
+        return _Result(rows[:self.row_limit] if self.row_limit is not None else rows)
+
+
+class _Db:
+    def __init__(self, rows=None):
+        self.rows = rows or {}
+        self.rpc_executes = []
+        self.query_executes = []
+
+    def rpc(self, name, payload):
+        return _DbRequest(self, "rpc", name, payload)
+
+    def table(self, name):
+        return _DbRequest(self, "table", name)
 
 
 def test_only_resolved_teams_are_queued():
@@ -128,6 +184,53 @@ def test_a_failing_call_is_counted_without_stopping_the_rest():
     assert result.queued == 1
     assert result.failed == 1
     assert "master-1" in result.failures[0]
+
+
+def test_enqueue_caller_executes_the_exact_scrape_request_rpc_and_arguments():
+    db = _Db()
+
+    enqueue_resolved_teams(
+        _rows()[:1],
+        _resolved()[:1],
+        {},
+        enqueue=make_enqueue_caller(db, "gotsport-provider"),
+    )
+
+    assert db.rpc_executes == [(
+        "enqueue_scrape_request",
+        {
+            "p_team_id_master": "master-1",
+            "p_team_name": "Barcelona SC 13B Aztecas",
+            "p_provider_id": "gotsport-provider",
+            "p_provider_team_id": "534748",
+            "p_game_date": date.today().isoformat(),
+            "p_request_type": "missing_games",
+            "p_priority": SEEDING_REQUEST_PRIORITY,
+        },
+    )]
+
+
+def test_provider_team_id_lookup_filters_out_another_provider_before_limit():
+    db = _Db({
+        "teams": [
+            {
+                "team_id_master": "master-3",
+                "provider_id": "another-provider",
+                "provider_team_id": "wrong-id",
+            },
+            {
+                "team_id_master": "master-3",
+                "provider_id": "gotsport-provider",
+                "provider_team_id": "333",
+            },
+        ],
+    })
+
+    assert make_provider_team_id_lookup(db, "gotsport-provider")("master-3") == "333"
+    assert db.query_executes == [(
+        "teams",
+        (("team_id_master", "master-3"), ("provider_id", "gotsport-provider")),
+    )]
 
 
 # -------- provider ids ----------------------------------------------------

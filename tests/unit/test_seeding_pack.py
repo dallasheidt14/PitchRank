@@ -3,7 +3,7 @@
 import json
 import re
 from copy import deepcopy
-from dataclasses import replace
+from dataclasses import asdict, replace
 from pathlib import Path
 
 import pytest
@@ -17,8 +17,8 @@ from src.tournaments.seeding_pack import (
     cohort_label,
     duplicate_identity_rows,
     make_pack,
-    pack_matches,
     needs_placement_review,
+    pack_matches,
     placement_review_fingerprint,
     prediction_request,
     roster_fingerprint,
@@ -458,6 +458,39 @@ def test_clean_cohort_does_not_require_placement_acknowledgment():
     pack = _pack()
     analysis = analyze_pack(pack, ROWS, RESOLVED, {})[("u12", "Male")]
     assert not needs_placement_review(pack, "u12|Male", analysis)
+
+
+def test_forecast_reversal_alone_requires_placement_acknowledgment():
+    pack = _pack()
+    key = "u12|Male"
+    for prediction in pack["predictions"][key]:
+        pair = (prediction["entrant_a"], prediction["entrant_b"])
+        replacement = _prediction(-4 if pair == ("0", "1") else 4)
+        prediction.update(asdict(replacement))
+
+    analysis = analyze_pack(pack, ROWS, RESOLVED, {})[("u12", "Male")]
+
+    assert analysis.limited_history == ()
+    assert analysis.placement_checks
+    assert needs_placement_review(pack, key, analysis)
+
+
+def test_matched_girls_team_reaches_the_female_seeded_sheet():
+    pack = _pack(selected=("u12|Female",))
+    analyses = analyze_pack(pack, ROWS, RESOLVED, {})
+    analysis = analyses[("u12", "Female")]
+    sheets = build_cohort_sheets(
+        ROWS,
+        RESOLVED,
+        {},
+        snapshot_ratings(pack, team_ids_by_row(ROWS, RESOLVED, {})),
+        tier_analyses=analyses,
+    )
+    sheet = next(item for item in sheets if item.age_group == "u12" and item.gender == "Female")
+
+    assert analysis.placement_status["3"] == "Seeded"
+    assert [team.entrant_id for team in sheet.rated] == ["3"]
+    assert sheet.gender == "Female"
 
 
 def test_inactive_ranking_is_named_clearly():

@@ -178,19 +178,29 @@ class _FakeSpinner:
 class _FakeProgress:
     """``st.progress``, which the caller drives and then clears."""
 
-    def __init__(self, log: list[str]) -> None:
-        self._log = log
+    def __init__(self, owner: _FakeSt) -> None:
+        self._owner = owner
 
     def progress(self, _value: float, text: str = "") -> None:
-        self._log.append(str(text))
+        self._owner.progress_texts.append(str(text))
+        self._owner.session_state._yield()
 
     def empty(self) -> None:
-        self._log.append("<cleared>")
+        self._owner.progress_texts.append("<cleared>")
+        self._owner.session_state._yield()
 
 
 class _FakeStatus:
-    def update(self, **_kw: Any) -> None:
-        pass
+    def __init__(self, owner: _FakeSt) -> None:
+        self._owner = owner
+
+    def update(self, **kwargs: Any) -> None:
+        self._owner.status_updates.append(dict(kwargs))
+        if self._owner._status_update_raises is not None:
+            error = self._owner._status_update_raises
+            self._owner._status_update_raises = None
+            raise error
+        self._owner.session_state._yield()
 
 
 class _FakeColumn:
@@ -219,7 +229,9 @@ class _FakeSt:
         *,
         buttons: dict[str, bool] | None = None,
         text: dict[str, str] | None = None,
+        radio: dict[str, str] | None = None,
         spinner_raises: BaseException | None = None,
+        status_update_raises: BaseException | None = None,
         session_state_raises: BaseException | None = None,
     ) -> None:
         self.session_state = _FakeSessionState(session_state_raises)
@@ -231,6 +243,8 @@ class _FakeSt:
         self.markdowns: list[str] = []
         self.spinners: list[tuple[str, str]] = []
         self.progress_texts: list[str] = []
+        self.status_updates: list[dict[str, Any]] = []
+        self.radios: list[dict[str, Any]] = []
         self.buttons: list[dict[str, Any]] = []
         self.metrics: list[tuple[str, Any]] = []
         self.downloads: list[str] = []
@@ -239,7 +253,30 @@ class _FakeSt:
         self.reruns = 0
         self._button_returns = buttons or {}
         self._text_returns = text or {}
+        self._radio_returns = radio or {}
         self._spinner_raises = spinner_raises
+        self._status_update_raises = status_update_raises
+
+    def begin_run(self) -> None:
+        """Clear output the way Streamlit does before drawing a fresh run."""
+        for messages in (
+            self.errors,
+            self.warnings,
+            self.infos,
+            self.captions,
+            self.successes,
+            self.markdowns,
+            self.spinners,
+            self.progress_texts,
+            self.status_updates,
+            self.radios,
+            self.buttons,
+            self.metrics,
+            self.downloads,
+            self.download_payloads,
+        ):
+            messages.clear()
+        self.dataframes = 0
 
     def error(self, message: str) -> None:
         self.errors.append(str(message))
@@ -260,18 +297,19 @@ class _FakeSt:
         self.markdowns.append(str(message))
 
     def progress(self, _value: float = 0.0, text: str = "") -> _FakeProgress:
-        bar = _FakeProgress(self.progress_texts)
+        bar = _FakeProgress(self)
         bar.progress(_value, text=text)
         return bar
 
     def status(self, *_a: Any, **_kw: Any) -> _FakeStatus:
-        return _FakeStatus()
+        return _FakeStatus(self)
 
     def spinner(self, text: str = "") -> _FakeSpinner:
         return _FakeSpinner(self.spinners, str(text), self._spinner_raises)
 
     def rerun(self) -> None:
         self.reruns += 1
+        self.begin_run()
         raise _Rerun()
 
     def text_input(self, _label: str, **kw: Any) -> str:
@@ -311,8 +349,13 @@ class _FakeSt:
     def checkbox(self, *_args, **_kw):
         return False
 
-    def radio(self, _label, options, **_kw):
-        return options[0]
+    def radio(self, label, options, **kwargs):
+        call = {"label": label, "options": tuple(options), **kwargs}
+        self.radios.append(call)
+        selected = self._radio_returns.get(kwargs.get("key"), self._radio_returns.get(label, options[0]))
+        if selected not in options:
+            raise ValueError(f"radio selection {selected!r} is not in {options!r}")
+        return selected
 
     def selectbox(self, _label, options, **_kw):
         return options[0] if options else None
@@ -400,7 +443,12 @@ def app(monkeypatch):
     monkeypatch.setenv("ZENROWS_API_KEY", "test-key")
     monkeypatch.setattr(tournament_intake, "_acquire_scrape_lock", _no_lock)
     monkeypatch.setattr(tournament_intake, "make_zenrows_fetcher", lambda *_a, **_kw: (lambda url: ""))
-    monkeypatch.setattr(tournament_intake, "_autosave_seeding_run", lambda **_kwargs: True)
+    monkeypatch.autosave_succeeds = True
+    monkeypatch.setattr(
+        tournament_intake,
+        "_autosave_seeding_run",
+        lambda **_kwargs: monkeypatch.autosave_succeeds,
+    )
     monkeypatch.setattr(tournament_intake, "_enrich_seeding_names", lambda resolved, _client: tuple(resolved))
     monkeypatch.setattr(tournament_intake, "resolve_master_ids", lambda teams, **_kw: ({}, []))
     monkeypatch.setattr(tournament_intake, "search_gotsport_teams", lambda *_a, **_kw: [])
@@ -437,6 +485,39 @@ def _scrape(
 def _render_controls(client: Any = None) -> None:
     with contextlib.suppress(_Rerun):
         tournament_intake._render_seeding_event_scrape(client)
+
+
+def test_fake_streamlit_clears_transient_messages_on_rerun():
+    fake_st = _FakeSt()
+    fake_st.error("old error")
+    fake_st.warning("old warning")
+
+    with contextlib.suppress(_Rerun):
+        fake_st.rerun()
+
+    assert fake_st.errors == []
+    assert fake_st.warnings == []
+    assert fake_st.reruns == 1
+
+
+def test_fake_progress_and_status_updates_are_observable_yield_points():
+    fake_st = _FakeSt()
+
+    progress = fake_st.progress(.25, text="Reading divisions")
+    progress.progress(.5, text="Reading teams")
+    fake_st.status("Capture").update(label="Capture saved", state="complete")
+    fake_st.session_state.arm(_Rerun())
+    with pytest.raises(_Rerun):
+        progress.progress(.75, text="Interrupted progress")
+    fake_st.session_state.arm(_Rerun())
+    with pytest.raises(_Rerun):
+        fake_st.status("Capture").update(label="Interrupted status", state="running")
+
+    assert fake_st.progress_texts == ["Reading divisions", "Reading teams", "Interrupted progress"]
+    assert fake_st.status_updates == [
+        {"label": "Capture saved", "state": "complete"},
+        {"label": "Interrupted status", "state": "running"},
+    ]
 
 
 # -------- the runner's paid arguments -------------------------------------
@@ -517,7 +598,6 @@ def test_an_event_publishing_no_teams_warns_and_parks_nothing(app):
 
     _scrape(limit_groups=2)
 
-    fake_st.warnings.clear()
     tournament_intake._render_seeding_notices()
     assert any("published no teams" in message for message in fake_st.warnings), "the rerun erased the warning"
     assert fake_st.session_state.get("_seeding_result") is None
@@ -723,6 +803,34 @@ def test_a_finished_backtest_walk_writes_only_the_backtest_recovery_file(app):
 
     assert _recovery_path(tournament_intake._BACKTEST_KEYS).exists()
     assert not _recovery_path(tournament_intake._SEEDING_KEYS).exists()
+
+
+def test_backtest_recovery_is_written_before_a_status_update_can_interrupt(app):
+    app.setattr(tournament_intake, "scrape_event_roster", _RecordingScrape(_roster(_team(0))))
+    fake_st = _install(app, _FakeSt(status_update_raises=_Rerun()))
+
+    _scrape(limit_groups=None, keys=tournament_intake._BACKTEST_KEYS)
+
+    assert fake_st.status_updates
+    assert _recovery_path(tournament_intake._BACKTEST_KEYS).exists()
+
+
+def test_backtest_does_not_claim_recovery_when_the_write_failed(app):
+    fake_st = _install(app, _FakeSt())
+    stages = []
+    app.setattr(tournament_intake, "_write_recovery", lambda *_args, **_kwargs: False)
+
+    tournament_intake._park_event_roster(
+        EVENT_URL,
+        _roster(_team(0)),
+        None,
+        None,
+        keys=tournament_intake._BACKTEST_KEYS,
+        on_stage=stages.append,
+    )
+
+    assert stages == []
+    assert fake_st.session_state[tournament_intake._BACKTEST_KEYS.snapshot].roster.event_id == "52975"
 
 
 def test_an_ordinary_failure_is_not_reported_as_a_block(app):
@@ -1688,7 +1796,6 @@ def test_a_probe_that_found_no_teams_still_reruns(app):
     _scrape(limit_groups=2)
 
     assert fake_st.reruns == 1
-    fake_st.warnings.clear()
     tournament_intake._render_seeding_notices()
     assert any("published no teams" in message for message in fake_st.warnings)
 
@@ -1884,6 +1991,64 @@ def test_seeding_enqueue_explains_missing_database_instead_of_crashing(app):
 
     assert not fake_st.errors
     assert fake_st.button_by_key("_seeding_enqueue")["disabled"] is True
+
+
+def test_check_teams_available_to_refresh_executes_no_rpc(app):
+    from src.tournaments.roster_paste import parse_roster
+
+    class Request:
+        def __init__(self, owner, *, rows=None, rpc=None):
+            self.owner = owner
+            self.rows = rows or []
+            self.rpc = rpc
+            self.filters = []
+
+        def select(self, _columns):
+            return self
+
+        def eq(self, column, value):
+            self.filters.append((column, value))
+            return self
+
+        def limit(self, _value):
+            return self
+
+        def execute(self):
+            if self.rpc is not None:
+                self.owner.rpc_executes.append(self.rpc)
+                return type("Result", (), {"data": []})()
+            data = [
+                row for row in self.rows
+                if all(row.get(column) == value for column, value in self.filters)
+            ]
+            return type("Result", (), {"data": data[:1]})()
+
+    class Db:
+        def __init__(self):
+            self.rpc_executes = []
+
+        def table(self, name):
+            rows = [{
+                "team_id_master": "master-a",
+                "provider_id": "gotsport-provider",
+                "provider_team_id": "534748",
+            }] if name == "teams" else []
+            return Request(self, rows=rows)
+
+        def rpc(self, name, payload):
+            return Request(self, rpc=(name, payload))
+
+    parsed = parse_roster("Male U14\nClub A\tTeam A\tTX")
+    resolved = (ResolvedTeam(source_index=0, status="exact_name", team_id_master="master-a"),)
+    database = Db()
+    fake_st = _install(app, _FakeSt(buttons={"_seeding_check_refresh": True}))
+    fake_st.session_state._seeding_overrides = {}
+    app.setattr(tournament_intake, "fetch_gotsport_provider_id", lambda _client: "gotsport-provider")
+
+    tournament_intake._render_seeding_enqueue(parsed, resolved, database)
+
+    assert database.rpc_executes == []
+    assert fake_st.infos == ["1 teams available to refresh; 0 cannot be queued."]
 
 
 # -------- the tab actually wires its parts together -----------------------
@@ -2936,6 +3101,31 @@ def test_the_paste_path_parks_a_roster_belonging_to_no_event(app):
     assert fake_st.session_state.get("_seeding_result_event_id") is None
 
 
+def test_roster_source_radio_can_drive_the_import_and_match_button(app):
+    roster_text = "Male U14\nClub\tTeam\tState\nBarcelona Soccer Club\tBarcelona SC 13B Aztecas\tTX"
+    fake_st = _install(
+        app,
+        _FakeSt(
+            buttons={None: True},
+            text={"seeding_roster_text": roster_text},
+            radio={"_seeding_source": "Paste team list"},
+        ),
+    )
+    imported = []
+    app.setattr(tournament_intake, "_render_seeding_run_controls", lambda _client: None)
+    app.setattr(
+        tournament_intake,
+        "_run_seeding_resolve",
+        lambda text, client: imported.append((text, client)) or True,
+    )
+
+    with contextlib.suppress(_Rerun):
+        tournament_intake._render_seeding_workspace(None)
+
+    assert imported == [(roster_text, None)]
+    assert fake_st.reruns == 1
+
+
 @pytest.mark.parametrize("text", ["", "Male U14\nClub\tTeam\tState\nNew Club\tNew Team\tTX"])
 def test_failed_replacement_paste_preserves_saved_decisions_and_exports(app, text):
     fake_st = _install(app, _FakeSt())
@@ -2949,7 +3139,7 @@ def test_failed_replacement_paste_preserves_saved_decisions_and_exports(app, tex
     def fail(*_args, **_kwargs):
         raise tournament_intake.requests.RequestException("temporary provider outage")
 
-    app.setattr(tournament_intake, "_autosave_seeding_run", lambda: False)
+    app.autosave_succeeds = False
     assert tournament_intake._run_seeding_resolve(text, None) is False
 
     assert fake_st.session_state._seeding_result == prior
