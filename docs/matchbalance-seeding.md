@@ -65,9 +65,10 @@ team's own PitchRank age and gender cohort.
 Compare then adds evidence without replacing that starting order:
 
 - A **score step** appears only when an adjacent PowerScore gap is conspicuous
-  and every available three-, four-, and five-team window supports the stronger
-  side in at least 75% of its cross-line matchups. A score step is a strength
-  marker, not an automatic division or pool boundary.
+  and the deterministic neighboring window at each available three-, four-, and
+  five-team size supports the stronger side in at least 75% of its cross-line
+  matchups. A score step is a strength marker, not an automatic division or pool
+  boundary.
 - A **very-close range** identifies nearby seeds for which every pairing is
   competitive enough and every adjacent pairing meets the stricter very-close
   limit. Overlapping ranges are not combined into a larger claim of equal
@@ -101,8 +102,9 @@ all of these safeguards also pass:
 1. Both teams have established ranked history.
 2. The lower seed has the stronger profile against a strict majority of the same
    nearby opponents, with a positive average profile advantage.
-3. That conclusion remains true in every available five-, six-, and seven-team
-   neighborhood and when each neighboring opponent is removed one at a time.
+3. That conclusion remains true in one deterministic, baseline-anchored
+   neighborhood at each available five-, six-, and seven-team size, and when
+   each neighboring opponent is removed one at a time.
 4. The proposed change moves no more than two seed positions from the original
    PowerScore order.
 5. A two-position move is separately supported over every seed it would cross.
