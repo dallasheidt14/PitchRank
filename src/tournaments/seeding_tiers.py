@@ -11,7 +11,7 @@ from __future__ import annotations
 import math
 from collections import Counter
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from itertools import combinations
 from statistics import median
 
@@ -637,7 +637,30 @@ def _local_consensus_checks(
             supported=supported,
             blockers=tuple(blockers),
         ))
-    return tuple(results)
+    # A two-seed proposal must also earn a supported adjacent proposal over the
+    # intervening team. Process shorter moves first so a longer destination can
+    # rely only on already-validated crossed-seed evidence.
+    validated: dict[int, LocalConsensusCheck] = {}
+    supported_by_target: dict[tuple[str, int], LocalConsensusCheck] = {}
+    for index, result in sorted(
+        enumerate(results),
+        key=lambda item: item[1].baseline_seed - item[1].compared_with_seed,
+    ):
+        crossed_seeds = range(result.compared_with_seed + 1, result.baseline_seed)
+        if result.supported and not all(
+            supported_by_target.get((result.entrant_id, seed), None)
+            and supported_by_target[(result.entrant_id, seed)].supported
+            for seed in crossed_seeds
+        ):
+            result = replace(
+                result,
+                proposed_seed=None,
+                supported=False,
+                blockers=(*result.blockers, "The proposed move is not supported over every crossed seed."),
+            )
+        validated[index] = result
+        supported_by_target[(result.entrant_id, result.compared_with_seed)] = result
+    return tuple(validated[index] for index in range(len(results)))
 
 
 def build_cheat_sheet_analysis(

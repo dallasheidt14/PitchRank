@@ -327,6 +327,23 @@ def test_consensus_movement_cap_is_anchored_to_the_original_powerscore_order():
     assert analysis.ordered_ids == ("0", "1", "2", "3", "4", "5", "6")
 
 
+def test_two_seed_proposal_must_be_supported_over_the_crossed_seed():
+    entrants, pairs = consensus_case({
+        "0": 8, "1": 11, "2": 10, "3": 7, "4": 6, "5": 5, "6": 4,
+    })
+
+    analysis = build_cheat_sheet_analysis(entrants, pairs)
+
+    proposal = next(
+        item for item in analysis.local_consensus_checks
+        if item.entrant_id == "2" and item.compared_with_id == "0"
+    )
+    assert proposal.stable
+    assert not proposal.supported
+    assert proposal.proposed_seed is None
+    assert any("every crossed seed" in blocker for blocker in proposal.blockers)
+
+
 def test_one_influential_neighbor_cannot_create_a_stable_consensus():
     entrants, pairs = consensus_case({str(index): 0 for index in range(5)}, count=5)
     pairs.update({
