@@ -10,6 +10,12 @@ from typing import TYPE_CHECKING, Optional
 import pandas as pd
 
 from src.rankings.constants import AGE_TO_ANCHOR
+from src.rankings.power_score_scale import (
+    active_power_score_scale_version,
+    prediction_power_score,
+    published_power_score,
+    published_power_score_cap,
+)
 from src.rankings.predictive_priors import ensure_predictive_priors
 from src.rankings.shared import normalize_gender
 
@@ -1052,15 +1058,62 @@ def v53e_to_rankings_full_format(
 
     rankings_df = ensure_predictive_priors(rankings_df)
 
-    # =================================================================
-    # ANCHOR PASS-THROUGH ASSERTION
-    # =================================================================
     # power_score_final is computed in calculator.py (sole application point).
-    # The adapter MUST NOT recompute it. Validate it arrived correctly.
-    # =================================================================
+    # The adapter never recomputes it; it validates either a versioned new-scale
+    # payload or the unversioned legacy anchor payload used by older callers.
     if "power_score_final" in rankings_df.columns and rankings_df["power_score_final"].notna().any():
-        logger.info("🔒 Anchor pass-through validation (power_score_final from calculator.py):")
-        if "age_num" in rankings_df.columns:
+        versioned = "power_score_scale_version" in rankings_df.columns and rankings_df[
+            "power_score_scale_version"
+        ].notna().any()
+        if versioned:
+            logger.info("🔒 Versioned PowerScore pass-through validation:")
+            required = {"age_num", "gender", "power_score_true", "prediction_power_score"}
+            missing = required - set(rankings_df.columns)
+            if missing:
+                raise ValueError(f"Versioned PowerScore rows are missing required fields: {sorted(missing)}")
+            active_version = active_power_score_scale_version()
+            ranked_mask = rankings_df["power_score_final"].notna()
+            if rankings_df.loc[ranked_mask, "power_score_scale_version"].isna().any():
+                raise ValueError("Versioned PowerScore payload contains ranked rows without a scale version")
+            versions = set(rankings_df.loc[ranked_mask, "power_score_scale_version"].astype(str))
+            if versions != {active_version}:
+                raise ValueError(f"Expected PowerScore scale {active_version!r}, got {sorted(versions)!r}")
+            if rankings_df.loc[ranked_mask, "prediction_power_score"].isna().any():
+                raise ValueError("Versioned PowerScore payload contains ranked rows without prediction_power_score")
+            for (age_val, gender), subset in rankings_df.loc[ranked_mask].groupby(["age_num", "gender"]):
+                expected = subset["power_score_true"].astype(float).map(
+                    lambda value: published_power_score(value, int(age_val), gender, active_version)
+                )
+                max_diff = (expected - subset["power_score_final"].astype(float)).abs().max()
+                expected_prediction = subset["power_score_true"].astype(float).map(
+                    lambda value: prediction_power_score(value, int(age_val))
+                )
+                prediction_diff = (
+                    expected_prediction - subset["prediction_power_score"].astype(float)
+                ).abs().max()
+                cap = published_power_score_cap(int(age_val), gender, active_version)
+                if (
+                    max_diff >= 1e-12
+                    or prediction_diff >= 1e-12
+                    or subset["power_score_final"].astype(float).max() > cap + 1e-12
+                ):
+                    raise ValueError(
+                        f"PowerScore scale pass-through failure for U{int(age_val)} {gender}: "
+                        f"max_diff={max_diff:.12f}, prediction_diff={prediction_diff:.12f}, "
+                        f"cap={cap:.12f}"
+                    )
+                logger.info(
+                    "   U%s %s: max power_score_final=%.4f, cap=%.4f, "
+                    "max_diff=%.12f, prediction_diff=%.12f ✅",
+                    int(age_val),
+                    gender,
+                    subset["power_score_final"].max(),
+                    cap,
+                    max_diff,
+                    prediction_diff,
+                )
+        elif "age_num" in rankings_df.columns:
+            logger.info("🔒 Legacy anchor pass-through validation:")
             for age_val in sorted(rankings_df["age_num"].dropna().unique()):
                 age_int = int(age_val)
                 if age_int not in AGE_TO_ANCHOR:
@@ -1074,7 +1127,7 @@ def v53e_to_rankings_full_format(
                         f"exceeding anchor={anchor_val:.3f}. Calculator.py must be the sole anchor applier."
                     )
                 logger.info(f"   Age {age_int}: max power_score_final={max_psf:.4f}, anchor={anchor_val:.3f} ✅")
-        logger.info("✅ Anchor pass-through validation passed")
+        logger.info("✅ PowerScore pass-through validation passed")
     else:
         logger.warning("⚠️ power_score_final not available from calculator — this should not happen")
 
@@ -1144,6 +1197,8 @@ def v53e_to_rankings_full_format(
         "global_power_score",
         "power_score_true",
         "power_score_final",
+        "prediction_power_score",
+        "power_score_scale_version",
         "exp_margin",
         "exp_win_rate",
         "exp_goals_for",

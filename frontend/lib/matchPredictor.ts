@@ -50,6 +50,7 @@ import type { TeamWithRanking } from './types';
 import type { Game } from './types';
 import { loadCalibrationJson } from './calibrationLoader.ts';
 import { computeConfidence, warmConfidenceCalibration } from './confidenceEngine.ts';
+import { predictionPowerScore } from './predictionPowerScore.ts';
 import { extractAgeFromTeamName } from './teamAge.ts';
 
 // Age group parameters (loaded from JSON, fallback to defaults)
@@ -975,8 +976,8 @@ function computeEvidenceReliability(team: TeamWithRanking): number {
   reliability -= repeatShare * 0.12;
   reliability *= clamp(0.82 + mlEvidenceScale * 0.18, 0.82, 1.02);
 
-  if (team.power_score_final != null && team.publication_cap_score != null) {
-    reliability -= clamp((team.power_score_final - team.publication_cap_score) * 1.2, 0, 0.1);
+  if ((team.prediction_power_score != null || team.power_score_final != null) && team.publication_cap_score != null) {
+    reliability -= clamp((predictionPowerScore(team) - team.publication_cap_score) * 1.2, 0, 0.1);
   }
 
   if (team.publication_cap_rank != null) {
@@ -1161,8 +1162,8 @@ export function predictMatch(teamA: TeamWithRanking, teamB: TeamWithRanking, all
   const evidenceReliabilityA = computeEvidenceReliability(teamA);
   const evidenceReliabilityB = computeEvidenceReliability(teamB);
   const powerDiff =
-    shrinkToNeutral(teamA.power_score_final ?? 0.5, evidenceReliabilityA) -
-    shrinkToNeutral(teamB.power_score_final ?? 0.5, evidenceReliabilityB);
+    shrinkToNeutral(predictionPowerScore(teamA), evidenceReliabilityA) -
+    shrinkToNeutral(predictionPowerScore(teamB), evidenceReliabilityB);
   const glickoStrength = calculateGlickoStrength(teamA, teamB);
   const offenseA = teamA.offense_norm ?? 0.5;
   const defenseA = teamA.defense_norm ?? 0.5;

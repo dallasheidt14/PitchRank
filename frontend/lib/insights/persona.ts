@@ -17,33 +17,46 @@ import { formatGender } from '@/lib/constants';
 import type { InsightInputData, PersonaInsight } from './types';
 
 /**
- * Base power score difference threshold for opponent categorization (in powerscore_adj space, [0-1])
+ * Base power score difference threshold for opponent categorization.
  *
  * 0.08 ≈ meaningful strength gap in the pre-anchor [0,1] range.
  * For context: In a 100-team cohort, this is roughly 8 percentile points.
  *
- * IMPORTANT: power_score_final is anchor-scaled by age (U10 max=0.40, U18 max=1.00).
- * A fixed threshold in final space would be too coarse for younger age groups.
- * We scale this by the team's age anchor so the threshold represents the same
- * relative strength gap regardless of age group.
+ * A fixed threshold in final space would be too coarse for cohorts with a
+ * lower published ceiling, so scale it by the active age/gender ceiling.
  */
 const BASE_POWER_DIFF_THRESHOLD = 0.08;
 
 /**
- * Age-to-anchor mapping matching v53e Layer 11
- * Younger age groups have compressed power_score_final ranges
+ * Published ceilings for age-gender-v1-2026-09-25.
+ * U18 is displayed on the combined U19 board.
  */
-const AGE_TO_ANCHOR: Record<number, number> = {
-  10: 0.4,
-  11: 0.475,
-  12: 0.55,
-  13: 0.625,
-  14: 0.7,
-  15: 0.775,
-  16: 0.85,
-  17: 0.925,
-  18: 1.0,
-  19: 1.0,
+const CAP_SCALE = 0.8 / 59;
+const POWER_SCORE_CAP: Record<'M' | 'F', Record<number, number>> = {
+  M: {
+    10: 45 * CAP_SCALE,
+    11: 47 * CAP_SCALE,
+    12: 49 * CAP_SCALE,
+    13: 51 * CAP_SCALE,
+    14: 54 * CAP_SCALE,
+    15: 55.5 * CAP_SCALE,
+    16: 57 * CAP_SCALE,
+    17: 59 * CAP_SCALE,
+    18: 59 * CAP_SCALE,
+    19: 59 * CAP_SCALE,
+  },
+  F: {
+    10: 43 * CAP_SCALE,
+    11: 44 * CAP_SCALE,
+    12: 45 * CAP_SCALE,
+    13: 47 * CAP_SCALE,
+    14: 49 * CAP_SCALE,
+    15: 51 * CAP_SCALE,
+    16: 52 * CAP_SCALE,
+    17: 53 * CAP_SCALE,
+    18: 52 * CAP_SCALE,
+    19: 52 * CAP_SCALE,
+  },
 };
 
 /**
@@ -388,12 +401,9 @@ function findSignatureResult(games: InsightInputData['games'], teamId: string): 
 export function generatePersonaInsight(data: InsightInputData): PersonaInsight {
   const { team, ranking, games } = data;
 
-  // Scale power diff threshold by age anchor to maintain consistent sensitivity
-  // across age groups. power_score_final range varies: U10=[0,0.40], U18=[0,1.0]
-  // Without scaling, U10 teams almost always get "Wildcard" because 0.08 is 20%
-  // of their entire range vs only 8% for U18.
-  const anchor = (team.age !== null ? AGE_TO_ANCHOR[team.age] : null) ?? 1.0;
-  const scaledThreshold = BASE_POWER_DIFF_THRESHOLD * anchor;
+  const genderKey = team.gender === 'F' || team.gender === 'G' ? 'F' : 'M';
+  const scaleCap = (team.age !== null ? POWER_SCORE_CAP[genderKey][team.age] : null) ?? 1.0;
+  const scaledThreshold = BASE_POWER_DIFF_THRESHOLD * scaleCap;
 
   // Use power score for tier analysis (cohort-size independent)
   const stats = analyzePerformanceByTier(games, team.team_id_master, ranking.power_score_final, scaledThreshold);

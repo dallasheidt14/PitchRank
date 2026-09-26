@@ -79,7 +79,13 @@ function calculateStreakFragmentation(recent: Array<{ result: 'W' | 'L' | 'D' }>
  * climbing. Only deviations from the trend count as volatility.
  */
 function calculatePowerScoreVolatility(rankingHistory: InsightInputData['rankingHistory']): number {
-  const scoresNewestFirst = rankingHistory.map((h) => h.power_score_final).filter((s): s is number => s !== null);
+  const latestVersion = rankingHistory[0]?.power_score_scale_version ?? null;
+  const comparableHistory = rankingHistory.filter(
+    (row) => (row.power_score_scale_version ?? null) === latestVersion
+  );
+  const scoresNewestFirst = comparableHistory
+    .map((row) => row.power_score_true ?? row.power_score_final)
+    .filter((score): score is number => score !== null && score !== undefined);
 
   if (scoresNewestFirst.length < 4) return 0;
 

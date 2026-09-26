@@ -58,7 +58,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 OPTIONAL_RANKINGS_FULL_FIELDS = (
-    "team_id, age_group, gender, rank_in_cohort_final, power_score_final, glicko_rating, glicko_rd, "
+    "team_id, age_group, gender, rank_in_cohort_final, power_score_final, prediction_power_score, "
+    "power_score_scale_version, glicko_rating, glicko_rd, "
     "glicko_volatility, sos_norm, off_norm, def_norm, wins, losses, draws, games_played, "
     "same_age_games, same_age_game_share, same_age_unique_opponents, same_age_top100_opp_count, "
     "same_age_top500_opp_count, same_age_avg_opp_power_adj, repeat_opponent_share, "
@@ -606,6 +607,8 @@ def _fetch_team_contexts(
             "gender": _normalize_gender_code(rankings_row.get("gender") or team_row.get("gender")),
             "rank_in_cohort_final": rankings_row.get("rank_in_cohort_final"),
             "power_score_final": rankings_row.get("power_score_final"),
+            "prediction_power_score": rankings_row.get("prediction_power_score"),
+            "power_score_scale_version": rankings_row.get("power_score_scale_version"),
             "glicko_rating": rankings_row.get("glicko_rating"),
             "glicko_rd": rankings_row.get("glicko_rd"),
             "glicko_volatility": rankings_row.get("glicko_volatility"),
@@ -648,6 +651,8 @@ def _build_snapshot_payload(team_context: Dict[str, Any], snapshot_date: str) ->
         "status": "Active",
         "rank_in_cohort_final": team_context.get("rank_in_cohort_final"),
         "power_score_final": team_context.get("power_score_final"),
+        "prediction_power_score": team_context.get("prediction_power_score"),
+        "power_score_scale_version": team_context.get("power_score_scale_version"),
         "sos_norm": team_context.get("sos_norm"),
         "offense_norm": team_context.get("offense_norm"),
         "defense_norm": team_context.get("defense_norm"),
@@ -689,6 +694,8 @@ def _build_snapshot_index(
                 "snapshot_date": snapshot_date,
                 "snapshot_ts": snapshot_ts,
                 "power_score_final": team_context.get("power_score_final"),
+                "prediction_power_score": team_context.get("prediction_power_score"),
+                "power_score_scale_version": team_context.get("power_score_scale_version"),
                 "age_group": _normalize_age_group_label(team_context.get("age")),
             }
         ]

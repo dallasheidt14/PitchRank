@@ -25,6 +25,8 @@ def test_build_prediction_feature_snapshot_records_normalizes_live_predictor_fie
                 "status": "Active",
                 "rank_in_cohort_final": 8,
                 "power_score_final": 0.81,
+                "prediction_power_score": 0.77,
+                "power_score_scale_version": "age-gender-v1-2026-09-25",
                 "sos_norm": 0.63,
                 "off_norm": 0.71,
                 "def_norm": 0.66,
@@ -62,6 +64,8 @@ def test_build_prediction_feature_snapshot_records_normalizes_live_predictor_fie
     assert record["gender"] == "Male"
     assert record["state_code"] == "AZ"
     assert record["rank_in_cohort_final"] == 8
+    assert record["prediction_power_score"] == 0.77
+    assert record["power_score_scale_version"] == "age-gender-v1-2026-09-25"
     assert record["offense_norm"] == 0.71
     assert record["defense_norm"] == 0.66
     assert record["glicko_rating"] == 1580.0

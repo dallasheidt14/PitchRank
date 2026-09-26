@@ -17,6 +17,8 @@ export interface RankingRow {
   gender: 'M' | 'F' | 'B' | 'G'; // Backend returns single letter codes
   // Scores (backend contract)
   power_score_final: number;
+  prediction_power_score?: number | null; // Stable predictor input across display-scale versions
+  power_score_scale_version?: string | null; // Version used to publish power_score_final
   glicko_rating?: number | null; // Underlying Glicko rating (1500-centered)
   glicko_rd?: number | null; // Glicko rating deviation (lower = more certain)
   glicko_volatility?: number | null; // Glicko volatility parameter

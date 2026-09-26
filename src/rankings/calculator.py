@@ -19,6 +19,12 @@ from src.etl.glicko_engine import compute_rankings_v2
 from src.etl.v53e import V53EConfig, compute_rankings
 from src.rankings.data_adapter import batch_fetch_rows, fetch_games_for_rankings
 from src.rankings.layer13_predictive_adjustment import Layer13Config, apply_predictive_adjustment
+from src.rankings.power_score_scale import (
+    active_power_score_scale_version,
+    prediction_power_score,
+    published_power_score,
+    published_power_score_cap,
+)
 from src.rankings.prediction_feature_history import save_prediction_feature_snapshot
 from src.rankings.ranking_history import calculate_rank_changes, get_prior_cohort_ranks, save_ranking_snapshot
 
@@ -3022,25 +3028,30 @@ async def compute_all_cohorts(
                     f"max={ps_stats.max():.3f}, mean={ps_stats.mean():.3f}"
                 )
 
-    # ---- Final age-anchor scaling for PowerScore ----
+    # ---- Final published age/gender scaling for PowerScore ----
     if not teams_combined.empty:
         from src.rankings.constants import AGE_TO_ANCHOR, SOS_ML_THRESHOLD_HIGH, SOS_ML_THRESHOLD_LOW
-        from src.rankings.shared import sos_ml_blend
-
         if "age_num" not in teams_combined.columns:
-            logger.warning("⚠️ compute_all_cohorts: 'age_num' column missing; skipping anchor scaling")
+            logger.warning("⚠️ compute_all_cohorts: 'age_num' column missing; skipping published PowerScore scaling")
         else:
             # age_num is already integer from data adapter
             age_nums = teams_combined["age_num"]
 
             # Log age distribution
-            logger.info("📊 Applying anchor scaling by age. Age distribution: %s", age_nums.value_counts().to_dict())
+            scale_version = active_power_score_scale_version()
+            logger.info(
+                "📊 Applying published PowerScore scale %s. Age distribution: %s",
+                scale_version,
+                age_nums.value_counts().to_dict(),
+            )
 
             # Initialize output columns
-            if "power_score_final" not in teams_combined.columns:
-                teams_combined["power_score_final"] = None
-            if "power_score_true" not in teams_combined.columns:
-                teams_combined["power_score_true"] = None
+            # Clear any upstream/legacy values so unsupported or skipped cohorts
+            # cannot pass validation with a stale score.
+            teams_combined["power_score_final"] = np.nan
+            teams_combined["power_score_true"] = np.nan
+            teams_combined["prediction_power_score"] = np.nan
+            teams_combined["power_score_scale_version"] = scale_version
 
             # Process each age group separately
             for age, anchor_val in AGE_TO_ANCHOR.items():
@@ -3177,11 +3188,23 @@ async def compute_all_cohorts(
                                 details,
                             )
 
-                # Scale by anchor and clip to [0, anchor_val]
-                ps_scaled = (base * anchor_val).clip(0.0, anchor_val)
+                genders = teams_age.loc[base.index, "gender"]
+                ps_scaled = pd.Series(
+                    [
+                        published_power_score(float(score), age, gender, scale_version)
+                        for score, gender in zip(base, genders)
+                    ],
+                    index=base.index,
+                    dtype="float64",
+                )
+                prediction_scores = pd.Series(
+                    [prediction_power_score(float(score), age) for score in base],
+                    index=base.index,
+                    dtype="float64",
+                )
 
                 logger.info(
-                    "📊 Age %s: anchor %.3f, base max %.4f -> scaled max %.4f",
+                    "📊 Age %s: legacy prediction anchor %.3f, base max %.4f -> published max %.4f",
                     age,
                     anchor_val,
                     base.max(),
@@ -3191,48 +3214,20 @@ async def compute_all_cohorts(
                 # Save unanchored competitive score (single source of truth)
                 teams_combined.loc[ps_scaled.index, "power_score_true"] = base
 
-                # Apply anchor (sole application point)
+                # The published and predictor-compatible mappings are both applied once here.
                 teams_combined.loc[ps_scaled.index, "power_score_final"] = ps_scaled
+                teams_combined.loc[prediction_scores.index, "prediction_power_score"] = prediction_scores
 
-            # Check for teams that didn't get anchor scaling (ages outside 10-19 range)
+            # Unsupported cohorts must not be silently published on an arbitrary fallback scale.
             if "power_score_final" in teams_combined.columns:
                 unscaled_mask = teams_combined["power_score_final"].isna()
                 unscaled_count = unscaled_mask.sum()
                 if unscaled_count > 0:
-                    logger.warning(f"⚠️ {unscaled_count} teams didn't match any anchor age - applying fallback scaling")
-                    # For teams outside age range, use median anchor (0.70) and apply scaling
-                    # Also apply SOS-conditioned ML scaling (same thresholds as main loop)
-                    fallback_anchor = 0.70
-
-                    for idx in teams_combined[unscaled_mask].index:
-                        row = teams_combined.loc[idx]
-
-                        # powerscore_adj is REQUIRED - skip if not available
-                        if "powerscore_adj" not in teams_combined.columns or pd.isna(row.get("powerscore_adj")):
-                            logger.warning(f"⚠️ Team {idx}: powerscore_adj not available, skipping fallback")
-                            continue
-
-                        ps_adj = float(row["powerscore_adj"])
-
-                        # Apply SOS-conditioned ML scaling (same logic as main loop)
-                        has_ml = "powerscore_ml" in teams_combined.columns and pd.notna(row.get("powerscore_ml"))
-                        has_sos = "sos_norm" in teams_combined.columns and pd.notna(row.get("sos_norm"))
-
-                        if has_ml and has_sos:
-                            base_score = sos_ml_blend(ps_adj, float(row["powerscore_ml"]), float(row["sos_norm"]))
-                        else:
-                            base_score = ps_adj
-
-                        base_score = max(0.0, min(1.0, base_score))
-                        teams_combined.loc[idx, "power_score_true"] = base_score
-                        teams_combined.loc[idx, "power_score_final"] = min(
-                            base_score * fallback_anchor, fallback_anchor
-                        )
-
-                # Verify all teams have anchor-scaled power_score_final
-                still_null = teams_combined["power_score_final"].isna().sum()
-                if still_null > 0:
-                    logger.error(f"❌ {still_null} teams still have NULL power_score_final after anchor scaling!")
+                    unsupported = teams_combined.loc[unscaled_mask, ["team_id", "age_num", "gender"]].head(10)
+                    raise ValueError(
+                        f"{unscaled_count} teams did not match the active PowerScore scale; "
+                        f"sample={unsupported.to_dict(orient='records')}"
+                    )
 
             # Ensure power_score_true is numeric (initialized as None → object dtype)
             if "power_score_true" in teams_combined.columns:
@@ -3251,47 +3246,56 @@ async def compute_all_cohorts(
                     else:
                         logger.info(f"✅ power_score_true bounds: [{pst.min():.4f}, {pst.max():.4f}]")
 
-            # === MANDATORY: Anchor integrity validation ===
+            # === MANDATORY: published scale and predictor compatibility validation ===
             if "power_score_true" in teams_combined.columns:
-                logger.info("🔒 Anchor integrity validation:")
-                for age_val in sorted(AGE_TO_ANCHOR.keys()):
-                    mask = teams_combined["age_num"] == age_val
-                    if not mask.any():
-                        continue
-                    subset = teams_combined.loc[mask]
-                    anchor_val = AGE_TO_ANCHOR[age_val]
-                    expected = (subset["power_score_true"] * anchor_val).clip(0.0, anchor_val)
-                    actual = subset["power_score_final"]
-                    max_diff = (expected - actual).abs().max()
-                    if max_diff >= 0.001:
+                logger.info("🔒 Published PowerScore scale integrity validation:")
+                for (age_val, gender), subset in teams_combined.groupby(["age_num", "gender"]):
+                    expected = pd.Series(
+                        [
+                            published_power_score(float(score), int(age_val), gender, scale_version)
+                            for score in subset["power_score_true"]
+                        ],
+                        index=subset.index,
+                    )
+                    expected_prediction = subset["power_score_true"].astype(float).map(
+                        lambda score: prediction_power_score(score, int(age_val))
+                    )
+                    display_diff = (expected - subset["power_score_final"].astype(float)).abs().max()
+                    prediction_diff = (
+                        expected_prediction - subset["prediction_power_score"].astype(float)
+                    ).abs().max()
+                    cap = published_power_score_cap(int(age_val), gender, scale_version)
+                    if display_diff >= 1e-12 or prediction_diff >= 1e-12:
                         raise ValueError(
-                            f"❌ ANCHOR INTEGRITY FAILURE: Age {age_val}, max diff={max_diff:.6f}. "
-                            f"power_score_final must equal power_score_true * anchor."
+                            "PowerScore scale integrity failure for "
+                            f"U{int(age_val)} {gender}: display_diff={display_diff:.12f}, "
+                            f"prediction_diff={prediction_diff:.12f}"
                         )
-                    logger.info(f"  Age {age_val}: anchor={anchor_val}, max_diff={max_diff:.6f} ✅")
+                    logger.info(
+                        "  U%s %s: cap=%.4f, display_diff=%.12f, prediction_diff=%.12f ✅",
+                        int(age_val),
+                        gender,
+                        cap,
+                        display_diff,
+                        prediction_diff,
+                    )
 
             # === MANDATORY: Monotonicity guarantee ===
-            # Within a single cohort (same age/gender), all teams share the same anchor.
-            # Multiplying all scores by the same constant preserves order — but floating-point
-            # precision at the clip boundary (base near 1.0) can create micro-inversions.
-            # Fix: recompute power_score_final directly from power_score_true * anchor to
-            # guarantee identical ordering, eliminating any accumulated float drift from
-            # the intermediate computation path.
+            # The final curve is strictly increasing within each age/gender cohort.
+            # Validate the single computed path instead of overwriting it with legacy anchors.
             if "power_score_true" in teams_combined.columns and "gender" in teams_combined.columns:
-                logger.info("🔒 Monotonicity enforcement (recompute power_score_final from power_score_true):")
+                logger.info("🔒 Published PowerScore monotonicity validation:")
                 for (age_val, gender), grp in teams_combined.groupby(["age_num", "gender"]):
                     if len(grp) < 2:
                         continue
-                    anchor_val = AGE_TO_ANCHOR.get(int(age_val), 0.70)
-                    pst = grp["power_score_true"].fillna(0.0)
-                    psf_recomputed = (pst * anchor_val).clip(0.0, anchor_val)
-                    # Overwrite power_score_final to guarantee monotonicity
-                    teams_combined.loc[grp.index, "power_score_final"] = psf_recomputed
-                    logger.info(f"  {age_val} {gender}: {len(grp)} teams, monotonicity enforced ✅")
+                    ordered = grp.sort_values(["power_score_true", "team_id"], ascending=[False, True])
+                    if not ordered["power_score_final"].astype(float).is_monotonic_decreasing:
+                        raise ValueError(f"Published PowerScore inversion in U{int(age_val)} {gender}")
+                    logger.info(f"  {age_val} {gender}: {len(grp)} teams, monotonicity verified ✅")
 
             # === PUBLISHED RANK: canonical ordering by power_score_true DESC, team_id ASC ===
-            # power_score_true is unanchored, so within an (age, gender) cohort it produces
-            # the same ordering as power_score_final (anchor is a constant multiplier).
+            # The published curve is strictly increasing, so within an (age, gender)
+            # cohort power_score_true produces the same ordering as power_score_final.
             # team_id ASC is the deterministic tie-break (matches UI sort behavior).
             #
             # NOTE: The SQL views remap age 18 → 19.
@@ -3325,26 +3329,36 @@ async def compute_all_cohorts(
                             reference_date=_normalize_snapshot_date(today),
                         )
 
-            # === Anchor integrity sample (top 3 per age group) ===
+            # === Published scale integrity sample (top 3 per age/gender) ===
             if "power_score_true" in teams_combined.columns:
-                logger.info("📊 Anchor integrity sample (top 3 per age):")
+                logger.info("📊 Published PowerScore scale sample (top 3 per age/gender):")
                 for age_val in [10, 12, 14, 16, 19]:
                     mask = (teams_combined["age_num"] == age_val) & teams_combined["power_score_true"].notna()
                     if not mask.any():
                         continue
-                    sample = teams_combined.loc[mask].nlargest(3, "power_score_true")
-                    anchor_val = AGE_TO_ANCHOR.get(age_val, 0.70)
-                    for _, row in sample.iterrows():
-                        logger.info(
-                            f"  Age {age_val}: power_score_true={row['power_score_true']:.4f}, "
-                            f"power_score_final={row['power_score_final']:.4f}, "
-                            f"anchor={anchor_val:.3f}, "
-                            f"expected_final={row['power_score_true'] * anchor_val:.4f}"
-                        )
+                    for gender, gender_rows in teams_combined.loc[mask].groupby("gender"):
+                        sample = gender_rows.nlargest(3, "power_score_true")
+                        for _, row in sample.iterrows():
+                            logger.info(
+                                "  U%s %s: power_score_true=%.4f, power_score_final=%.4f, "
+                                "prediction_power_score=%.4f, scale=%s",
+                                age_val,
+                                gender,
+                                row["power_score_true"],
+                                row["power_score_final"],
+                                row["prediction_power_score"],
+                                scale_version,
+                            )
 
     # 🔒 Ensure PowerScore is fully clipped to [0, 1] after all operations
     if not teams_combined.empty:
-        cols_to_clip = ["powerscore_core", "powerscore_adj", "powerscore_ml", "power_score_final"]
+        cols_to_clip = [
+            "powerscore_core",
+            "powerscore_adj",
+            "powerscore_ml",
+            "power_score_final",
+            "prediction_power_score",
+        ]
         for col in cols_to_clip:
             if col in teams_combined.columns:
                 before_min = teams_combined[col].min()

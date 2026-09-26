@@ -9,6 +9,7 @@ from src.rankings.calculator import (
     _collect_top_tier_weak_uncapped,
     _compute_publication_cap_scores,
 )
+from src.rankings.power_score_scale import published_power_score
 
 
 def _teams():
@@ -163,5 +164,7 @@ async def test_full_publication_matches_gender_only_run_and_ignores_other_gender
     pd.testing.assert_frame_equal(combined, alone)
     pd.testing.assert_frame_equal(combined, changed)
     assert combined.loc["m1", "publication_cap_score"] == pytest.approx(0.799999)
-    assert combined.loc["m1", "power_score_final"] == pytest.approx(0.799998 * 0.973)
+    assert combined.loc["m1", "power_score_final"] == pytest.approx(
+        published_power_score(0.799998, 16, "Male")
+    )
     assert combined["rank_in_cohort_final"].tolist() == [1, 2]

@@ -96,7 +96,8 @@ def _compute_evidence_reliability(row: pd.Series) -> float:
     reliability -= repeat_share * 0.12
     reliability *= _clamp(0.82 + ml_evidence_scale * 0.18, 0.82, 1.02)
 
-    power_score_final = _safe_float(row.get("power_score_final"))
+    prediction_score = _safe_float(row.get("prediction_power_score"))
+    power_score_final = prediction_score if prediction_score is not None else _safe_float(row.get("power_score_final"))
     publication_cap_score = _safe_float(row.get("publication_cap_score"))
     if power_score_final is not None and publication_cap_score is not None:
         reliability -= _clamp((power_score_final - publication_cap_score) * 1.2, 0.0, 0.1)
@@ -129,7 +130,9 @@ def _compute_expected_goals(
 
 def _derive_margin_components(row: pd.Series) -> float:
     reliability = _compute_evidence_reliability(row)
-    power_score = _safe_float(row.get("power_score_final"), 0.5) or 0.5
+    power_score = _safe_float(row.get("prediction_power_score"))
+    if power_score is None:
+        power_score = _safe_float(row.get("power_score_final"), 0.5) or 0.5
     sos_norm = _safe_float(row.get("sos_norm"), 0.5) or 0.5
 
     offense_norm = _safe_float(row.get("offense_norm"))

@@ -27,6 +27,15 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
+
+def _prediction_power(features, default: float = 0.5) -> float:
+    value = features.get("prediction_power_score")
+    if value is None or pd.isna(value):
+        value = features.get("power_score_final", default)
+    if value is None or pd.isna(value):
+        return default
+    return float(value)
+
 try:
     from xgboost import XGBClassifier, XGBRegressor
 
@@ -171,12 +180,13 @@ class MLMatchPredictor:
                 )
 
             # Basic ranking features
+            home_power = _prediction_power(home_rank)
+            away_power = _prediction_power(away_rank)
             feature_dict = {
                 # Power score features
-                "home_power_score": home_rank.get("power_score_final", 0.5) or 0.5,
-                "away_power_score": away_rank.get("power_score_final", 0.5) or 0.5,
-                "power_score_diff": (home_rank.get("power_score_final", 0.5) or 0.5)
-                - (away_rank.get("power_score_final", 0.5) or 0.5),
+                "home_power_score": home_power,
+                "away_power_score": away_power,
+                "power_score_diff": home_power - away_power,
                 # SOS features
                 "home_sos_norm": home_rank.get("sos_norm", 0.5) or 0.5,
                 "away_sos_norm": away_rank.get("sos_norm", 0.5) or 0.5,
@@ -205,16 +215,14 @@ class MLMatchPredictor:
                 "rank_diff": (away_rank.get("rank_in_cohort_final", 1000) or 1000)
                 - (home_rank.get("rank_in_cohort_final", 1000) or 1000),  # Lower rank is better
                 # Additional interaction features
-                "power_score_product": (home_rank.get("power_score_final", 0.5) or 0.5)
-                * (away_rank.get("power_score_final", 0.5) or 0.5),
+                "power_score_product": home_power * away_power,
                 "sos_product": (home_rank.get("sos_norm", 0.5) or 0.5) * (away_rank.get("sos_norm", 0.5) or 0.5),
                 "offense_product": (home_rank.get("offense_norm", 0.5) or 0.5)
                 * (away_rank.get("offense_norm", 0.5) or 0.5),
                 "defense_product": (home_rank.get("defense_norm", 0.5) or 0.5)
                 * (away_rank.get("defense_norm", 0.5) or 0.5),
                 # Ratio features
-                "power_score_ratio": (home_rank.get("power_score_final", 0.5) or 0.5)
-                / max(0.01, (away_rank.get("power_score_final", 0.5) or 0.5)),
+                "power_score_ratio": home_power / max(0.01, away_power),
                 "games_played_ratio": (home_rank.get("games_played", 0) or 0)
                 / max(1, (away_rank.get("games_played", 0) or 0)),
             }
@@ -559,11 +567,12 @@ class MLMatchPredictor:
             home_features = team_b_features
             away_features = team_a_features
 
+        home_power = _prediction_power(home_features)
+        away_power = _prediction_power(away_features)
         feature_dict = {
-            "home_power_score": home_features.get("power_score_final", 0.5) or 0.5,
-            "away_power_score": away_features.get("power_score_final", 0.5) or 0.5,
-            "power_score_diff": (home_features.get("power_score_final", 0.5) or 0.5)
-            - (away_features.get("power_score_final", 0.5) or 0.5),
+            "home_power_score": home_power,
+            "away_power_score": away_power,
+            "power_score_diff": home_power - away_power,
             "home_sos_norm": home_features.get("sos_norm", 0.5) or 0.5,
             "away_sos_norm": away_features.get("sos_norm", 0.5) or 0.5,
             "sos_diff": (home_features.get("sos_norm", 0.5) or 0.5) - (away_features.get("sos_norm", 0.5) or 0.5),
@@ -586,15 +595,13 @@ class MLMatchPredictor:
             "rank_diff": (away_features.get("rank_in_cohort_final", 1000) or 1000)
             - (home_features.get("rank_in_cohort_final", 1000) or 1000),
             # Interaction features (must match build_features)
-            "power_score_product": (home_features.get("power_score_final", 0.5) or 0.5)
-            * (away_features.get("power_score_final", 0.5) or 0.5),
+            "power_score_product": home_power * away_power,
             "sos_product": (home_features.get("sos_norm", 0.5) or 0.5) * (away_features.get("sos_norm", 0.5) or 0.5),
             "offense_product": (home_features.get("offense_norm", 0.5) or 0.5)
             * (away_features.get("offense_norm", 0.5) or 0.5),
             "defense_product": (home_features.get("defense_norm", 0.5) or 0.5)
             * (away_features.get("defense_norm", 0.5) or 0.5),
-            "power_score_ratio": (home_features.get("power_score_final", 0.5) or 0.5)
-            / max(0.01, (away_features.get("power_score_final", 0.5) or 0.5)),
+            "power_score_ratio": home_power / max(0.01, away_power),
             "games_played_ratio": (home_features.get("games_played", 0) or 0)
             / max(1, (away_features.get("games_played", 0) or 0)),
         }

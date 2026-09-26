@@ -95,6 +95,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ teamId: 
       rank_in_cohort_ml: number | null;
       rank_in_cohort_final: number | null;
       power_score_final: number | null;
+      power_score_true: number | null;
+      prediction_power_score: number | null;
+      power_score_scale_version: string | null;
     };
 
     type CohortRow = {
@@ -139,7 +142,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ teamId: 
     // rows, so reading teamId alone loses every snapshot filed under an absorbed ID.
     const { data: rankingHistoryRows, error: historyError } = await supabase
       .from('ranking_history')
-      .select('team_id, snapshot_date, rank_in_cohort, rank_in_cohort_ml, rank_in_cohort_final, power_score_final')
+      .select(
+        'team_id, snapshot_date, rank_in_cohort, rank_in_cohort_ml, rank_in_cohort_final, power_score_final, power_score_true, prediction_power_score, power_score_scale_version'
+      )
       .in('team_id', teamIdList)
       .order('snapshot_date', { ascending: false })
       .limit(30 * teamIdList.length);
@@ -300,6 +305,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ teamId: 
         rank_in_cohort_ml: h.rank_in_cohort_ml ?? undefined,
         rank_in_cohort: h.rank_in_cohort,
         power_score_final: h.power_score_final,
+        power_score_true: h.power_score_true,
+        prediction_power_score: h.prediction_power_score,
+        power_score_scale_version: h.power_score_scale_version,
       })),
       cohortStats,
       stateCohort,

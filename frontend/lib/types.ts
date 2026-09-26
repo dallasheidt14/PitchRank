@@ -65,6 +65,8 @@ export interface TeamWithRanking {
   rank_in_cohort_final: number | null; // National rank within age/gender cohort
   rank_in_state_final?: number | null; // State rank - may not exist from rankings_view
   power_score_final: number | null; // Published Glicko-derived score
+  prediction_power_score?: number | null; // Stable pre-display-scale input for prediction math
+  power_score_scale_version?: string | null; // Version used to produce power_score_final
   glicko_rating?: number | null; // Underlying Glicko rating (mu)
   glicko_rd?: number | null; // Glicko rating deviation / uncertainty
   glicko_volatility?: number | null; // Glicko volatility parameter
