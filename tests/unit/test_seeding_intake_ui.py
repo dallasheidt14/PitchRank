@@ -542,6 +542,23 @@ def test_manual_order_requires_explicit_hold_and_restore_removes_override(operat
     assert "Manual/Effective Seed" not in app.session_state["_seeding_sheet_html"]
 
 
+def test_rebuild_drops_manual_orders_for_deselected_cohorts(operator):
+    app, _calls = operator
+    click(app, "Build seeding sheets")
+    app.session_state["_seeding_pack"]["manual_seed_orders"] = {
+        "u14|Male": {"seeded": ["0", "1"], "held": []},
+        "u15|Female": {"seeded": [], "held": ["2"]},
+    }
+
+    app.radio[0].set_value("Choose cohorts").run()
+    app.multiselect[0].set_value(["u14|Male"]).run()
+    click(app, "Build seeding sheets")
+
+    assert app.session_state["_seeding_pack"]["manual_seed_orders"] == {
+        "u14|Male": {"seeded": ["0", "1"], "held": []},
+    }
+
+
 def test_manual_unsafe_merge_warning_and_notes_reach_the_sheet_and_restore_clears_editor(operator):
     app, _calls = operator
     click(app, "Build seeding sheets")

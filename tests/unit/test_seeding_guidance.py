@@ -342,6 +342,30 @@ def test_customer_sheet_labels_matchbalance_movement_breaks_and_close_ranges():
     assert "↑ from PowerScore #3" in moved_document
 
 
+def test_customer_movement_uses_manual_effective_seed_and_keeps_matchbalance_detail():
+    entrants, pairs = consensus_case({
+        "0": 11, "1": 8, "2": 10, "3": 7, "4": 6, "5": 5, "6": 4,
+    })
+    automatic = build_cheat_sheet_analysis(entrants, pairs)
+    assert automatic.suggested_order.index("2") + 1 == 2
+    manual_order = tuple(item for item in automatic.suggested_order if item != "2")
+    manual_order = (*manual_order[:3], "2", *manual_order[3:])
+    manual = build_cheat_sheet_analysis(entrants, pairs, manual_order=manual_order)
+    sheet = CohortSheet(
+        "u14", "Male",
+        tuple(SheetTeam(item.team_name, "Club", item.power_score, entrant_id=item.entrant_id)
+              for item in entrants),
+        (), manual,
+    )
+
+    row = next(item for item in build_director_cohort(sheet).rows if item.team.entrant_id == "2")
+
+    assert row.seed == 4
+    assert row.power_score_seed == 3
+    assert row.matchbalance_seed == 2
+    assert row.movement == "↓ from PowerScore #3 · Manual from MatchBalance #2"
+
+
 def test_isolated_head_to_head_reversal_does_not_earn_a_move_proposal():
     entrants, pairs = consensus_case({
         "0": 11, "1": 10, "2": 9, "3": 8, "4": 7, "5": 6, "6": 5,

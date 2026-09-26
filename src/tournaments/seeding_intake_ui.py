@@ -580,7 +580,12 @@ def render_seeding_pack(
                         pack.get("legacy_manual_groups", pack.get("manual_groups", {}))
                     )
                     if pack.get("roster_fingerprint") == candidate["roster_fingerprint"]:
-                        candidate["manual_seed_orders"] = dict(pack.get("manual_seed_orders", {}))
+                        selected_keys = set(candidate["selected_cohorts"])
+                        candidate["manual_seed_orders"] = {
+                            key: value
+                            for key, value in pack.get("manual_seed_orders", {}).items()
+                            if key in selected_keys
+                        }
                 candidate_analyses = analyze_pack(candidate, parsed.rows, resolved, overrides)
                 persist_ordering(candidate, candidate_analyses)
                 # A click during the build reruns the script before the pack reaches

@@ -142,9 +142,11 @@ def build_director_cohort(sheet: CohortSheet, operator_note: str = "") -> Direct
         movement = ""
         if original is None:
             movement = "Manual placement"
-        elif suggested is not None and suggested != original:
-            arrow = "↑" if suggested < original else "↓"
-            movement = f"{arrow} from PowerScore #{original}"
+        else:
+            displayed_seed = seed if manual_override else suggested
+            if displayed_seed is not None and displayed_seed != original:
+                arrow = "↑" if displayed_seed < original else "↓"
+                movement = f"{arrow} from PowerScore #{original}"
         if analysis is not None and manual_override and suggested != seed:
             manual_detail = f"Manual from MatchBalance #{suggested}" if suggested is not None else "Manual placement"
             movement = " · ".join(value for value in (movement, manual_detail) if value)
