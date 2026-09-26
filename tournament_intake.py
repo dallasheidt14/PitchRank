@@ -4891,7 +4891,7 @@ def _seeding_team_ids(parsed: ParsedRoster, resolved: Sequence[ResolvedTeam]) ->
 
 
 def _render_seeding_sheet(parsed: ParsedRoster, resolved: Sequence[ResolvedTeam], supabase_client: Any) -> None:
-    """Review matchup tiers and generate the selected cohort PDF pack."""
+    """Review the seed order and generate the selected cohorts' director sheets."""
     name = _seeding_run_name()
     render_seeding_pack(
         parsed, resolved, supabase_client, event_name=name, save=_autosave_seeding_run,

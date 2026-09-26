@@ -329,7 +329,7 @@ def test_changed_identity_roster_or_purchase_selection_invalidates_snapshot():
     assert not pack_matches(pack, (replace(ROWS[0], team_name_raw="Changed"), *ROWS[1:]), RESOLVED, {})
     assert not pack_matches(pack, (replace(ROWS[0], section_age_group="u13"), *ROWS[1:]), RESOLVED, {})
     assert not pack_matches(pack, ROWS, RESOLVED, {}, ["u12|Female"])
-    with pytest.raises(ValueError, match="Rebuild matchup tiers"):
+    with pytest.raises(ValueError, match="Build seeding sheets again before exporting"):
         analyze_pack(pack, ROWS, RESOLVED, {0: {"team_id_master": IDS[4]}})
 
 
@@ -338,7 +338,7 @@ def test_previous_pack_schema_requires_rebuilding_the_matchup_matrix():
     pack["schema_version"] = 1
 
     assert not pack_matches(pack, ROWS, RESOLVED, {})
-    with pytest.raises(ValueError, match="Rebuild matchup tiers"):
+    with pytest.raises(ValueError, match="Build seeding sheets again before exporting"):
         analyze_pack(pack, ROWS, RESOLVED, {})
 
 
