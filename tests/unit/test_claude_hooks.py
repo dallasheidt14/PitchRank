@@ -96,6 +96,25 @@ def _fresh_repo(parent: Path, name: str) -> Path:
     return root
 
 
+def _link_directory(link: Path, target: Path) -> None:
+    if os.name == "nt":
+        subprocess.run(
+            ["cmd", "/c", "mklink", "/J", str(link), str(target)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    else:
+        link.symlink_to(target, target_is_directory=True)
+
+
+def _unlink_directory(link: Path) -> None:
+    if os.name == "nt":
+        subprocess.run(["cmd", "/c", "rmdir", str(link)], check=True, capture_output=True, text=True)
+    else:
+        link.unlink()
+
+
 @pytest.fixture(scope="module")
 def repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
     root = tmp_path_factory.mktemp("hookrepo")
@@ -219,6 +238,228 @@ def test_git_guard_blocks_commit_on_main(repo: Path, tmp_path: Path) -> None:
 
 def test_git_guard_fails_closed_on_bad_payload(repo: Path) -> None:
     assert _exec("git-guard.sh", "not json", repo).returncode == 2
+
+
+def test_git_guard_blocks_worktree_remove_when_node_modules_is_linked(tmp_path: Path) -> None:
+    root = _fresh_repo(tmp_path, "worktree-remove")
+    worktree = tmp_path / "linked worktree"
+    dash_worktree = tmp_path / "-linked"
+    safe_worktree = tmp_path / "safe-linked"
+    shared_modules = tmp_path / "shared-node-modules"
+    shared_modules.mkdir()
+    sentinel = shared_modules / "keep.txt"
+    sentinel.write_text("shared dependency\n")
+    _git(root, "worktree", "add", "-q", str(worktree), "main")
+    _git(root, "worktree", "add", "-q", "--detach", str(dash_worktree), "HEAD")
+    _git(root, "worktree", "add", "-q", "--detach", str(safe_worktree), "HEAD")
+    modules = worktree / "frontend" / "node_modules"
+    modules.parent.mkdir()
+    _link_directory(modules, shared_modules)
+    dash_modules = dash_worktree / "frontend" / "node_modules"
+    dash_modules.parent.mkdir()
+    _link_directory(dash_modules, shared_modules)
+    try:
+        _git(root, "worktree", "prune", "--expire", "now")
+        assert modules.exists() and sentinel.read_text() == "shared dependency\n"
+
+        result = _bash(f'git worktree remove "{worktree.as_posix()}"', root)
+        assert result.returncode == 2, result.stderr
+        expected_unlink = 'cmd /c rmdir "frontend\\node_modules"' if os.name == "nt" else "unlink frontend/node_modules"
+        assert expected_unlink in result.stderr and "node_modules" in result.stderr
+        native_quoted = _bash(f'git worktree remove "{worktree}"', root)
+        assert native_quoted.returncode == 2, native_quoted.stderr
+        assert "junction or symlink" in native_quoted.stderr
+        relative = os.path.relpath(worktree, root).replace("\\", "/")
+        routed = _bash(f'git -C "{root.as_posix()}" worktree remove "{relative}"', root)
+        assert routed.returncode == 2, routed.stderr
+        shorthand = _bash(f'git worktree remove --force "{worktree.name}"', root)
+        assert shorthand.returncode == 2, shorthand.stderr
+        assert "junction or symlink" in shorthand.stderr
+        option_like_shorthand = _bash("git worktree remove --force -- -linked", root)
+        assert option_like_shorthand.returncode == 2, option_like_shorthand.stderr
+        assert "junction or symlink" in option_like_shorthand.stderr
+        compound = _bash(
+            f'git worktree remove "{safe_worktree.as_posix()}" && git worktree remove "{worktree.as_posix()}"',
+            root,
+        )
+        assert compound.returncode == 2, compound.stderr
+        skipped_cd = _bash(f'false && cd /; git worktree remove "{relative}"', root)
+        assert skipped_cd.returncode == 2, skipped_cd.stderr
+        failed_cd = _bash(f'cd "{(tmp_path / "missing").as_posix()}"; git worktree remove "{relative}"', root)
+        assert failed_cd.returncode == 2, failed_cd.stderr
+        expanded_target = _bash(f'WT="{worktree.as_posix()}"; git worktree remove --force "$WT"', root)
+        assert expanded_target.returncode == 2, expanded_target.stderr
+        assert "literal target path" in expanded_target.stderr
+        expanded_base = _bash(f'BASE="{root.as_posix()}"; git -C "$BASE" worktree remove "{relative}"', root)
+        assert expanded_base.returncode == 2, expanded_base.stderr
+        assert "literal git -C path" in expanded_base.stderr
+        escaped_target = worktree.as_posix().replace(" ", "\\ ")
+        escaped_remove = _bash(f"git worktree remove {escaped_target}", root)
+        assert escaped_remove.returncode == 2, escaped_remove.stderr
+        assert "quoted literal paths" in escaped_remove.stderr
+        escaped_nonspace_target = worktree.as_posix().replace("/", "\\/", 1)
+        escaped_nonspace_remove = _bash(f"git worktree remove {escaped_nonspace_target}", root)
+        assert escaped_nonspace_remove.returncode == 2, escaped_nonspace_remove.stderr
+        assert "quoted literal paths" in escaped_nonspace_remove.stderr
+        escaped_base = f"{root.as_posix()}\\ base"
+        escaped_base_remove = _bash(f'git -C {escaped_base} worktree remove "{relative}"', root)
+        assert escaped_base_remove.returncode == 2, escaped_base_remove.stderr
+        assert "quoted literal paths" in escaped_base_remove.stderr
+        for env_prefix in ("env --", "env -i"):
+            wrapped_remove = _bash(f'{env_prefix} git worktree remove "{worktree.as_posix()}"', root)
+            assert wrapped_remove.returncode == 2, wrapped_remove.stderr
+            assert "wrapped in env" in wrapped_remove.stderr
+        command_wrapped_remove = _bash(f'command git worktree remove "{worktree.as_posix()}"', root)
+        assert command_wrapped_remove.returncode == 2, command_wrapped_remove.stderr
+        assert "junction or symlink" in command_wrapped_remove.stderr
+        for command_prefix in ("command -p", "command --"):
+            option_wrapped_remove = _bash(
+                f'{command_prefix} git worktree remove "{worktree.as_posix()}"', root
+            )
+            assert option_wrapped_remove.returncode == 2, option_wrapped_remove.stderr
+            assert "guarded git clean" in option_wrapped_remove.stderr
+        for wrapper_prefix in ("time -p", "nice -n 0"):
+            option_wrapped_remove = _bash(
+                f'{wrapper_prefix} git worktree remove "{worktree.as_posix()}"', root
+            )
+            assert option_wrapped_remove.returncode == 2, option_wrapped_remove.stderr
+            assert "execution wrapper" in option_wrapped_remove.stderr
+        paged_remove = _bash(f'git -P worktree remove "{worktree.as_posix()}"', root)
+        assert paged_remove.returncode == 2, paged_remove.stderr
+        assert "junction or symlink" in paged_remove.stderr
+        empty_routed_remove = _bash(f'git -C "" worktree remove "{worktree.as_posix()}"', root)
+        assert empty_routed_remove.returncode == 2, empty_routed_remove.stderr
+        assert "junction or symlink" in empty_routed_remove.stderr
+        windows_git_remove = _bash(f'git.exe worktree remove "{worktree.as_posix()}"', root)
+        assert windows_git_remove.returncode == 2, windows_git_remove.stderr
+        assert "junction or symlink" in windows_git_remove.stderr
+        path_git_remove = _bash(f'/usr/bin/git worktree remove "{worktree.as_posix()}"', root)
+        assert path_git_remove.returncode == 2, path_git_remove.stderr
+        assert "junction or symlink" in path_git_remove.stderr
+        substituted_target = _bash(
+            f'git worktree remove --force "`printf {worktree.as_posix()}`"', root
+        )
+        assert substituted_target.returncode == 2, substituted_target.stderr
+        assert "literal target path" in substituted_target.stderr
+        assert sentinel.read_text() == "shared dependency\n"
+    finally:
+        _unlink_directory(modules)
+        _unlink_directory(dash_modules)
+        _git(root, "worktree", "remove", "--force", str(worktree))
+        _git(root, "worktree", "remove", "--force", str(dash_worktree))
+        _git(root, "worktree", "remove", "--force", str(safe_worktree))
+
+
+@pytest.mark.parametrize("command", ["git clean -fdx", "git clean -fX"])
+def test_git_guard_blocks_ignored_file_cleanup_in_primary_checkout(command: str, repo: Path) -> None:
+    result = _bash(command, repo)
+    assert result.returncode == 2, result.stderr
+    assert "primary checkout" in result.stderr
+
+
+def test_git_guard_allows_ignored_file_cleanup_in_linked_worktree(tmp_path: Path) -> None:
+    root = _fresh_repo(tmp_path, "worktree-clean")
+    worktree = tmp_path / "clean-linked"
+    _git(root, "worktree", "add", "-q", str(worktree), "main")
+    try:
+        assert _bash("git clean -fdx", root, cwd=worktree).returncode == 0
+        assert _bash(f'git -C "{worktree.as_posix()}" clean -fdx', root, cwd=root).returncode == 0
+        assert _bash(f'git -C "{worktree}" clean -fdx', root, cwd=root).returncode == 0
+        routed_to_primary = _bash(f'git -C "{root.as_posix()}" clean -fdx', root, cwd=worktree)
+        assert routed_to_primary.returncode == 2, routed_to_primary.stderr
+        relative_primary = os.path.relpath(root, worktree).replace("\\", "/")
+        relative_routed = _bash(f'git -C "{relative_primary}" clean -fdx', root, cwd=worktree)
+        assert relative_routed.returncode == 2, relative_routed.stderr
+        repeated_routing = _bash(f'git -C . -C "{relative_primary}" clean -fdx', root, cwd=worktree)
+        assert repeated_routing.returncode == 2, repeated_routing.stderr
+        work_tree_override = _bash(
+            f'git -C "{worktree.as_posix()}" --work-tree="{root.as_posix()}" clean -fdx', root, cwd=worktree
+        )
+        assert work_tree_override.returncode == 2, work_tree_override.stderr
+        split_work_tree_override = _bash(
+            f'git -C "{worktree.as_posix()}" --work-tree "{root.as_posix()}" clean -fdx', root, cwd=worktree
+        )
+        assert split_work_tree_override.returncode == 2, split_work_tree_override.stderr
+        reordered_work_tree = _bash(
+            f'git --work-tree=. -C "{root.as_posix()}" clean -fdx', root, cwd=worktree
+        )
+        assert reordered_work_tree.returncode == 2, reordered_work_tree.stderr
+        env_work_tree = _bash(
+            f'GIT_WORK_TREE="{root.as_posix()}" git -C "{worktree.as_posix()}" clean -fdx', root, cwd=worktree
+        )
+        assert env_work_tree.returncode == 2, env_work_tree.stderr
+        wrapped_env_work_tree = _bash(
+            f'env GIT_WORK_TREE="{root.as_posix()}" git -C "{worktree.as_posix()}" clean -fdx', root, cwd=worktree
+        )
+        assert wrapped_env_work_tree.returncode == 2, wrapped_env_work_tree.stderr
+        expanded_clean = _bash(f'ROOT="{root.as_posix()}"; git -C "$ROOT" clean -fdx', root, cwd=worktree)
+        assert expanded_clean.returncode == 2, expanded_clean.stderr
+        assert "literal -C" in expanded_clean.stderr
+        unresolved_clean = _bash('git -C "missing-repository" clean -fdx', root, cwd=worktree)
+        assert unresolved_clean.returncode == 2, unresolved_clean.stderr
+        assert "could not be resolved" in unresolved_clean.stderr
+        escaped_base = f"{root.as_posix()}\\ base"
+        escaped_clean = _bash(f"git -C {escaped_base} clean -fdx", root, cwd=worktree)
+        assert escaped_clean.returncode == 2, escaped_clean.stderr
+        assert "quoted literal paths" in escaped_clean.stderr
+        for env_prefix in ("env --", "env -i"):
+            wrapped_clean = _bash(f"{env_prefix} git clean -fdx", root, cwd=root)
+            assert wrapped_clean.returncode == 2, wrapped_clean.stderr
+            assert "wrapped in env" in wrapped_clean.stderr
+        command_wrapped_clean = _bash("command git clean -fdx", root, cwd=root)
+        assert command_wrapped_clean.returncode == 2, command_wrapped_clean.stderr
+        assert "primary checkout" in command_wrapped_clean.stderr
+        for command_prefix in ("command -p", "command --"):
+            option_wrapped_clean = _bash(f"{command_prefix} git clean -fdx", root, cwd=root)
+            assert option_wrapped_clean.returncode == 2, option_wrapped_clean.stderr
+            assert "guarded git clean" in option_wrapped_clean.stderr
+        for wrapper_prefix in ("time -p", "nice -n 0"):
+            option_wrapped_clean = _bash(f"{wrapper_prefix} git clean -fdx", root, cwd=root)
+            assert option_wrapped_clean.returncode == 2, option_wrapped_clean.stderr
+            assert "execution wrapper" in option_wrapped_clean.stderr
+        expanded_flags = _bash('FLAGS=-fdx; git clean "$FLAGS"', root, cwd=root)
+        assert expanded_flags.returncode == 2, expanded_flags.stderr
+        assert "literal arguments" in expanded_flags.stderr
+        paged_clean = _bash("git -P clean -fdx", root, cwd=root)
+        assert paged_clean.returncode == 2, paged_clean.stderr
+        assert "primary checkout" in paged_clean.stderr
+        empty_routed_clean = _bash('git -C "" clean -fdx', root, cwd=root)
+        assert empty_routed_clean.returncode == 2, empty_routed_clean.stderr
+        assert "primary checkout" in empty_routed_clean.stderr
+        windows_git_clean = _bash("git.exe clean -fdx", root, cwd=root)
+        assert windows_git_clean.returncode == 2, windows_git_clean.stderr
+        assert "primary checkout" in windows_git_clean.stderr
+        path_git_clean = _bash("/usr/bin/git clean -fdx", root, cwd=root)
+        assert path_git_clean.returncode == 2, path_git_clean.stderr
+        assert "primary checkout" in path_git_clean.stderr
+        substituted_base = _bash(
+            f'git -C "`printf {root.as_posix()}`" clean -fdx', root, cwd=worktree
+        )
+        assert substituted_base.returncode == 2, substituted_base.stderr
+        assert "literal -C" in substituted_base.stderr
+        followed_by_cd = _bash(f'git clean -fdx && cd "{worktree.as_posix()}"', root, cwd=root)
+        assert followed_by_cd.returncode == 2, followed_by_cd.stderr
+        second_clean = _bash(f'git -C "{worktree.as_posix()}" clean -fdx && git clean -fdx', root, cwd=root)
+        assert second_clean.returncode == 2, second_clean.stderr
+        changed_back = _bash(
+            f'cd "{worktree.as_posix()}" && git clean -fdx && cd "{root.as_posix()}" && git clean -fX',
+            root,
+        )
+        assert changed_back.returncode == 2, changed_back.stderr
+        subshell_cd = _bash(f'(cd "{worktree.as_posix()}"); git clean -fdx', root, cwd=root)
+        assert subshell_cd.returncode == 2, subshell_cd.stderr
+        conditional_cd = _bash(f'false && cd "{worktree.as_posix()}"; git clean -fdx', root, cwd=root)
+        assert conditional_cd.returncode == 2, conditional_cd.stderr
+        fallback_clean = _bash(f'cd "{worktree.as_posix()}" || git clean -fdx', root, cwd=root)
+        assert fallback_clean.returncode == 2, fallback_clean.stderr
+        bare_cd = _bash("cd; git clean -fdx", root, cwd=worktree)
+        assert bare_cd.returncode == 2, bare_cd.stderr
+        skipped_branch = _bash(f'if false; then cd "{worktree.as_posix()}"; fi; git clean -fdx', root, cwd=root)
+        assert skipped_branch.returncode == 2, skipped_branch.stderr
+        failed_cd = _bash(f'cd "{(tmp_path / "missing").as_posix()}"; git clean -fdx', root, cwd=root)
+        assert failed_cd.returncode == 2, failed_cd.stderr
+    finally:
+        _git(root, "worktree", "remove", "--force", str(worktree))
 
 
 @pytest.mark.parametrize(

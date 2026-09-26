@@ -69,8 +69,10 @@ def test_supabase_server_stays_read_only_and_project_scoped() -> None:
 # A trailing wildcard lets the caller choose the argument, so it is only safe on a
 # command that cannot be made to execute what it is handed. ruff reads Python and
 # never runs it; git and gh act on the repo and the API, and the guard hook covers
-# their destructive verbs. `python -m pytest <any path>` runs that path, and eslint
-# and prettier execute the config they are pointed at, so those keep exact forms.
+# their destructive verbs. Worktree permissions name only the safe subcommand;
+# remove still prompts even though the hook also checks its target. `python -m
+# pytest <any path>` runs that path, and eslint and prettier execute the config
+# they are pointed at, so those keep exact forms.
 WILDCARD_OK = {
     "git add",
     "git commit",
@@ -81,7 +83,9 @@ WILDCARD_OK = {
     "git stash show",
     # Not bare `git stash`: `clear` and `drop` delete saved WIP with no undo,
     # and the guard hook does not look at stash at all.
-    "git worktree",
+    "git worktree add",
+    "git worktree list",
+    "git worktree prune",
     "git push origin",
     # Not `git fetch`: `--upload-pack=` names a program git then runs, and against
     # a local path remote it runs it here. `git push origin` escapes the same trap
@@ -106,6 +110,17 @@ def test_a_wildcard_never_reaches_a_command_that_runs_its_argument() -> None:
             continue
         command = rule[len("Bash(") : -len("*)")].strip()
         assert command in WILDCARD_OK, f"{rule} lets the caller pick what {command} runs"
+
+
+def test_worktree_allowlist_names_only_safe_subcommands() -> None:
+    rules = {rule for rule in _allowed() if rule.startswith("Bash(git worktree")}
+    assert rules == {
+        "Bash(git worktree add *)",
+        "Bash(git worktree list)",
+        "Bash(git worktree list *)",
+        "Bash(git worktree prune)",
+        "Bash(git worktree prune *)",
+    }
 
 
 def test_allowlist_stops_short_of_landing_a_change() -> None:
