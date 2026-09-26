@@ -42,6 +42,16 @@ _LEGACY_UNAVAILABLE_REASONS = {
 _LEGACY_NO_RATING_REASON = "No usable current PitchRank rating is available."
 
 
+def normalize_policy(value: Any) -> dict[str, Any]:
+    """Materialize every policy default so saved analysis stays reproducible."""
+    if not isinstance(value, dict):
+        raise ValueError("Seeding snapshot has invalid matchup limits.")
+    try:
+        return asdict(TierPolicy(**value))
+    except (TypeError, KeyError) as exc:
+        raise ValueError("Seeding snapshot has invalid matchup limits.") from exc
+
+
 def _valid_cohort(age_group: str, gender: str) -> bool:
     return bool(_AGE_GROUP.fullmatch(age_group)) and gender in {"Male", "Female"}
 
@@ -391,10 +401,7 @@ def upgrade_pack_analysis(
     if pack.get("predictor_sha256") != predictor_sha256:
         raise ValueError("The predictor has changed; build seeding sheets to refresh predictions.")
     candidate = json.loads(json.dumps(pack, ensure_ascii=False, allow_nan=False))
-    try:
-        candidate["policy"] = asdict(TierPolicy(**candidate["policy"]))
-    except (TypeError, KeyError) as exc:
-        raise ValueError("Seeding snapshot has invalid matchup limits.") from exc
+    candidate["policy"] = normalize_policy(candidate.get("policy"))
     candidate["analysis_schema_version"] = ANALYSIS_SCHEMA_VERSION
     if not pack_matches(candidate, rows, resolved, overrides, selected):
         raise ValueError("The roster or cohort selection changed; build seeding sheets.")

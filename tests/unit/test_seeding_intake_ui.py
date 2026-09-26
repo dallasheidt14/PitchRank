@@ -378,6 +378,19 @@ def test_narrowing_cohorts_keeps_every_cohorts_notes_and_policy(operator):
     assert "Girls placement notes" in app.session_state["_seeding_sheet_html"]
 
 
+def test_rebuild_materializes_new_policy_defaults_from_a_version_three_pack(operator):
+    app, _calls = operator
+    click(app, "Build seeding sheets")
+    app.session_state["_seeding_pack"]["analysis_schema_version"] = 3
+    app.session_state["_seeding_pack"]["policy"].pop("blowout_cost_weight")
+
+    click(app, "Build seeding sheets")
+
+    rebuilt = app.session_state["_seeding_pack"]
+    assert rebuilt["analysis_schema_version"] == 4
+    assert rebuilt["policy"]["blowout_cost_weight"] == 2.0
+
+
 def test_unknown_gender_and_girls_cohort_build_together(operator):
     from io import BytesIO
     from openpyxl import load_workbook

@@ -164,6 +164,13 @@ def test_even_signed_margin_cannot_hide_a_large_expected_absolute_goal_differenc
     assert result.tiers[1].max_expected_absolute_goal_difference == 0
 
 
+def test_absolute_goal_difference_cannot_be_smaller_than_absolute_signed_margin():
+    impossible = replace(prediction(5), expected_absolute_goal_difference=0)
+
+    with pytest.raises(ValueError, match="Invalid expected absolute goal difference"):
+        build_tiers(entrants(["a", "b"]), {("a", "b"): impossible})
+
+
 def test_close_range_reports_average_fit_cost_and_worst_pair():
     roster = entrants(["a", "b", "c"])
     predictions = {

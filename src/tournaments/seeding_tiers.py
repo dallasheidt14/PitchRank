@@ -213,6 +213,7 @@ def _read_pairs(
             if (
                 not math.isfinite(candidate.expected_absolute_goal_difference)
                 or candidate.expected_absolute_goal_difference < 0
+                or candidate.expected_absolute_goal_difference + 1e-8 < abs(candidate.expected_margin)
             ):
                 raise ValueError(f"Invalid expected absolute goal difference for {first} vs {second}")
             if (

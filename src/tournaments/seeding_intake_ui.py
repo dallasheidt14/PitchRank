@@ -26,6 +26,7 @@ from src.tournaments.seeding_pack import (
     cohort_label,
     make_pack,
     needs_placement_review,
+    normalize_policy,
     pack_matches,
     placement_review_fingerprint,
     prediction_request,
@@ -422,7 +423,7 @@ def render_seeding_pack(
                 if isinstance(pack, dict):
                     # Rebuilds refresh predictions but preserve operator choices
                     # that are independent of the predictor snapshot.
-                    candidate["policy"] = dict(pack.get("policy", candidate["policy"]))
+                    candidate["policy"] = normalize_policy(pack.get("policy", candidate["policy"]))
                     # Every cohort's notes and reviews carry forward, selected or not;
                     # a review only counts while its fingerprint still matches.
                     candidate["operator_notes"] = dict(pack.get("operator_notes", {}))
