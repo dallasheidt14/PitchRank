@@ -1,92 +1,119 @@
 # MatchBalance Seeding sheets
 
-Seeding is an internal service workflow: the operator prepares PDF cheat sheets
-and sends them to tournament directors. Directors use the sheets to place teams
-in competitive divisions and pools. Each age/gender cohort gets its own section.
-Sell a complete event pack or a pack containing only the requested cohorts.
+Seeding is an internal service workflow: the operator prepares a numbered seed
+order for each tournament age/gender cohort, reviews any evidence that challenges
+that order, and sends PDF or Excel reference sheets to the tournament director.
+The sheets support final division and pool placement; they do not assign either
+one automatically. Sell a complete event pack or only the requested cohorts.
 
 ## Prepare and deliver a pack
 
-1. Run `python -m streamlit run tournament_intake.py` and select **Seeding**.
-   Python requirements, Node.js, and `npm ci --prefix frontend` must be installed.
-   Configure the existing PitchRank Supabase environment variables. PDF export
-   uses installed Edge/Chrome or Playwright Chromium; if needed, run
-   `npx --prefix frontend playwright install chromium`.
-2. Name the event. Paste its accepted teams with age/gender headings, reopen a
-   saved run, or capture the GotSport event. Pasted rows may include an optional
-   fourth column for the team's requested flight. A captured event's published
-   division is retained separately as its listed division; it is not treated as
-   a request from the team. A two-division probe is only a sample;
-   finish the whole-event capture before selling a complete tournament pack.
-   Confirm the imported team and cohort counts against the director's list.
-3. Resolve team identities. A unique same-name result still requires review when
-   the submitted and matched club or state conflict. The review table also flags
-   every registration row that resolves to the same PitchRank team within one
-   cohort. Every accepted row stays in the sheet, including teams whose identity
-   or eligibility needs review.
-4. Under **Competitive seeding sheets**, select **All imported cohorts** for the
-   event pack or **Choose cohorts** for an à la carte order. Click
-   **Build matchup tiers**. This reads current data and compares every eligible
-   pairing within each selected cohort.
-5. Review the tier sizes, boundary explanations, placement alternatives, and
-   warnings. Edit the Tier column and **Save tier decisions** when tournament
-   knowledge calls for an adjustment. Manual saves preserve the entered tier
-   order; adding placement notes alone does not reorder teams.
-   A manual combination exceeding the selected limits keeps a visible warning
-   in the PDF. **Restore suggested tiers** removes that cohort's manual grouping.
-6. Click **Generate PDF pack**, preview the sheets, then **Download PDF pack**.
-   Each cohort starts on a fresh Letter page; long lists continue with repeated
-   table headings. Printable HTML is also available for browser printing.
+1. **Import the accepted teams.** Run
+   `python -m streamlit run tournament_intake.py`, select **Seeding**, and name or
+   reopen the run. Capture the complete GotSport U10+ event or paste the accepted
+   teams under their tournament age/gender headings. The heading is the cohort
+   the tournament supplied; Seeding does not second-guess it from the team name.
+   Pasted rows may include an optional fourth column for a requested flight. A
+   captured event's published division is kept only as listed context. Confirm
+   the imported counts against the director's list; a two-division probe is not
+   a complete event.
+2. **Match the teams to PitchRank.** Review the proposed database identity for
+   each registration. A same-name result still needs attention when the club or
+   state conflicts, and duplicate registrations resolving to one PitchRank team
+   are flagged. Every accepted row is retained. Unmatched, inactive, or otherwise
+   ineligible rows remain visible for placement review instead of disappearing.
+3. **Build and review the seed order.** Under **Competitive seeding sheets**,
+   choose all imported cohorts or a subset and click **Build seeding sheets**.
+   The build reads current ratings and runs the canonical Compare predictor for
+   every eligible pairing. Review the numbered PowerScore order, supported score
+   steps, limited-history labels, placement checks, local-consensus proposals,
+   and director notes. A proposal asks for operator review; it does not silently
+   move the team. Complete any required placement review before delivery.
+4. **Export the director pack.** Click **Generate PDF pack**, preview it, and
+   download the PDF. The same reviewed content is available as an Excel workbook
+   and printable HTML. Each cohort starts on a fresh Letter page; long lists
+   continue with repeated table headings.
 
-Team fixes, tier decisions, notes, preferences, predictions, and rating dates are
-saved in `reports/seeding/<event-name>/seeding_run.json`. Reopening a run uses its
-saved prediction snapshot. **Build matchup tiers** explicitly refreshes it and
-replaces its prior tier decisions and notes. An identity, roster, or cohort
-selection change hides outdated exports until the pack is rebuilt.
+Python requirements, Node.js, and `npm ci --prefix frontend` must be installed.
+Configure the existing PitchRank Supabase environment variables. PDF export uses
+installed Edge/Chrome or Playwright Chromium; if needed, run
+`npx --prefix frontend playwright install chromium`.
+
+Team matches, cohort choices, director notes, placement-review state, policy,
+predictions, and rating dates are saved in
+`reports/seeding/<event-name>/seeding_run.json`. Reopening a run uses its saved
+prediction snapshot. **Build seeding sheets** refreshes ratings and predictions
+while preserving the independent roster choices and director notes. A completed
+placement review counts only while its evidence fingerprint still matches. An
+identity, roster, or cohort-selection change hides outdated exports until the
+pack is rebuilt.
 
 The existing scrape queue requests new games. A scrape does not recalculate
 rankings; wait for scraping and the rankings run to finish, then rebuild the pack.
 The sheet displays its prediction date and the oldest known selected-team
 ratings date. Missing dates are labeled unknown.
 
-## What a tier means
-
-Tiers identify groups whose teams are projected to play competitive games.
-They have variable sizes and are advisory: they are not fixed six-team blocks,
-finished pool assignments, or a guarantee about any result.
+## How the seed order is built
 
 Seeding uses the website Compare predictor, calibration files, team inputs,
 and 365-day scored-game window. It does not convert the displayed
 PowerScore difference into a separate estimate. PowerScore is displayed on the
-website's 0–100 scale, already adjusts for age, and orders teams within each
-tier, including younger teams playing up. A state rank still describes the
+website's 0–100 scale, already adjusts for age, and establishes the starting seed
+order, including for younger teams playing up. A state rank still describes the
 team's own PitchRank age and gender cohort.
 
-The default placement preferences require **every pairing** within a suggested
-tier to have both:
+Compare then adds evidence without replacing that starting order:
 
-- At most **2.0 goals** of absolute expected goal margin.
-- At most a **30% chance of a 4+ goal margin**, from Compare's score distribution.
+- A **score step** appears only when an adjacent PowerScore gap is conspicuous
+  and the deterministic neighboring window at each available three-, four-, and
+  five-team size supports the stronger side in at least 75% of its cross-line
+  matchups. A score step is a strength marker, not an automatic division or pool
+  boundary.
+- A **very-close range** identifies nearby seeds for which every pairing is
+  competitive enough and every adjacent pairing meets the stricter very-close
+  limit. Overlapping ranges are not combined into a larger claim of equal
+  strength.
+- A **placement check** starts when Compare materially favors a lower
+  PowerScore seed over a higher one. Smaller reversals remain visible only in
+  diagnostics.
 
-These are adjustable operator preferences, not empirically validated universal
-cutoffs. Equal expected scores can still have a high blowout risk. A group average
-cannot conceal a badly overmatched team, and a chain of similar neighbors cannot
-join incompatible endpoints.
+The default policy keeps three separate decisions:
 
-PowerScore sets the suggested seed order. Compare evaluates every pair, and a
-deterministic partition finds the fewest contiguous safe groups in that order.
-Among equally small safe partitions, it places boundaries at the largest
-PowerScore breaks; lower within-group matchup risk breaks any remaining tie.
-This means Compare can split the rankings into safer flights but cannot silently
-place a lower-PowerScore team above a higher-PowerScore team. A singleton is
-explicitly labeled as having no peer in that tier. A **Boundary option** can only be the last
-suggested seed in the stronger tier or the first suggested seed in the weaker
-tier. It appears only when moving that one team leaves both resulting tiers
-within the matchup limits; interior teams are never suggested for movement.
-Cross-tier reversals produce review warnings.
-"Clear separation" requires directional evidence across the tier boundary:
-at least 75% of upper/lower pairings favor the upper tier, at least half exceed
-the grouping limits, and their average signed edge reaches half the margin limit.
+- **Competitive enough:** no more than **2.0 expected goals** of absolute
+  difference and no more than a **30% chance of a 4+ goal margin**. This asks
+  whether teams can reasonably belong together.
+- **Very close:** adjacent teams are within **1.0 expected goal**, in addition
+  to every pairing passing the competitive-enough limits. This is a stronger
+  label than merely being suitable for the same group.
+- **Material reversal:** Compare favors the lower seed by at least **1.0 expected
+  goal** before the matchup can enter placement review.
+
+The three decisions use separate settings. Changing the
+competitive-enough limit does not automatically change the very-close or
+material-reversal thresholds. They are operator policy, not empirically
+validated universal cutoffs. Equal expected scores can still carry meaningful
+blowout risk, which is why the probability limit remains a separate check.
+
+## How local-consensus review works
+
+A direct Compare reversal is only the trigger. It earns a move proposal only if
+all of these safeguards also pass:
+
+1. Both teams have established ranked history.
+2. The lower seed has the stronger profile against a strict majority of the same
+   nearby opponents, with a positive average profile advantage.
+3. That conclusion remains true in one deterministic, baseline-anchored
+   neighborhood at each available five-, six-, and seven-team size, and when
+   each neighboring opponent is removed one at a time.
+4. The proposed change moves no more than two seed positions from the original
+   PowerScore order.
+5. A two-position move is separately supported over every seed it would cross.
+
+Passing those checks produces a **PowerScore-anchored local-consensus proposal**
+for the operator. It never rewrites the sheet automatically. The original seed,
+proposed seed, direct Compare advantage, shared-opponent support, tested windows,
+and evidence limitations remain visible in the internal placement review. Failed
+proposals remain explainable diagnostics with the blocking reason.
 
 Any matched, active team with a valid PowerScore is seeded, including teams with
 a provisional score or little recent history. Unresolved, duplicate-identity,
@@ -100,12 +127,11 @@ PitchRank's matched name differs, it appears beneath it for verification. A
 listed-division context appears beside the PowerScore when available. Duplicate
 PitchRank matches remain visible and carry a review warning.
 
-The customer PDF leads with the recommended tier sizes and three direct steps:
-build flights from the same tier, seed each tier from top to bottom, and use a
-Boundary option when pool sizes do not fit. Technical thresholds, probabilities,
-and predictor diagnostics remain in the operator workflow. The PDF translates
-them into placement actions and labels incomplete teams **Manual placement
-needed** so a director can identify the recommended groups at a glance.
+The customer PDF leads with the numbered seed order and supported score-step
+markers. Technical thresholds, probabilities, local-consensus diagnostics, and
+move proposals remain in the operator workflow. The PDF labels incomplete teams
+**Manual placement needed** so the director can see which registrations require
+separate handling.
 
 ## Implementation and checks
 
@@ -113,8 +139,9 @@ needed** so a director can identify the recommended groups at a glance.
   `matchPredictionService.ts` and `matchPredictor.ts` with Compare. Failures abort
   the new snapshot; there is no approximate fallback.
 - `seeding_pack.py` freezes and validates cohort/entrant/pair coverage, predictor
-  identity, dates, and roster fingerprint. `seeding_tiers.py` applies the grouping
-  policy. `seeding_run_store.py` saves atomically.
+  identity, dates, policy, and roster fingerprint. `seeding_tiers.py` builds the
+  PowerScore order, strength observations, and local-consensus review evidence.
+  `seeding_run_store.py` saves atomically.
 - `seeding_sheet.py` renders one HTML source for preview and PDF.
   `seeding_pdf.py` uses the headless Playwright worker; fonts are embedded and
   remote requests and document scripts are blocked during PDF rendering.
