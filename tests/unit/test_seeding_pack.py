@@ -360,19 +360,12 @@ def test_game_count_does_not_exclude_a_team_with_a_valid_powerscore(published, l
     assert "0" not in result.review
 
 
-@pytest.mark.parametrize(
-    "age,reason",
-    [
-        (13, "The matched team may be older than this age group. Confirm eligibility before seeding."),
-        (None, "Confirm the team's age before seeding."),
-        (True, "Confirm the team's age before seeding."),
-        ("12", "Confirm the team's age before seeding."),
-    ],
-)
-def test_older_or_unknown_team_age_requires_review(age, reason):
+@pytest.mark.parametrize("age", [13, None, True, "12"])
+def test_pitchrank_age_does_not_override_the_tournament_cohort(age):
     result = analyze_pack(_pack(change_team={"age": age}), ROWS, RESOLVED, {})[("u12", "Male")]
-    assert result.review["0"] == reason
-    assert result.placement_status["0"] == "Data review required"
+
+    assert "0" in result.ordered_ids
+    assert "0" not in result.review
 
 
 def test_younger_team_may_play_up_into_the_tournament_cohort():
@@ -380,10 +373,50 @@ def test_younger_team_may_play_up_into_the_tournament_cohort():
     assert "0" in result.ordered_ids
 
 
-def test_matched_gender_disagreement_requires_review():
+def test_pitchrank_gender_does_not_override_the_tournament_cohort():
     result = analyze_pack(_pack(change_team={"gender": "F"}), ROWS, RESOLVED, {})[("u12", "Male")]
-    assert result.review["0"] == "The matched team may be in a different gender group. Confirm before seeding."
-    assert result.placement_status["0"] == "Data review required"
+
+    assert "0" in result.ordered_ids
+    assert "0" not in result.review
+
+
+def test_utah_royals_u12_girls_rating_seeds_in_the_tournament_u13_boys_cohort():
+    rows = parse_roster("Male U13\nUtah Royals FC AZ\tPRE ECNL U12\tAZ").rows
+    resolved = (
+        ResolvedTeam(
+            source_index=0,
+            status="gotsport_id",
+            team_id_master="d775fcb4-f904-4203-abf3-d38ba56a2623",
+            matched_name="Utah Royals FC AZ PRE ECNL U12",
+        ),
+    )
+    request = prediction_request(rows, resolved, {}, ["u13|Male"])
+    batch = _batch(request)
+    batch.teams["u13|Male"]["0"].update({
+        "team_name": "Utah Royals FC AZ PRE ECNL U12",
+        "age": 12,
+        "gender": "F",
+        "status": "Not Enough Ranked Games",
+        "power_score_final": 0.348665,
+        "games_played": 5,
+        "prediction_game_count": 5,
+    })
+    pack = make_pack(rows, resolved, {}, ["u13|Male"], batch, {})
+
+    analysis = analyze_pack(pack, rows, resolved, {})[("u13", "Male")]
+
+    assert analysis.ordered_ids == ("0",)
+    assert analysis.review == {}
+    assert analysis.placement_status == {"0": "Seeded"}
+    assert analysis.limited_history == ("0",)
+    sheets = build_cohort_sheets(
+        rows,
+        resolved,
+        {},
+        snapshot_ratings(pack, team_ids_by_row(rows, resolved, {})),
+        tier_analyses={("u13", "Male"): analysis},
+    )
+    assert sheets[0].rated[0].power_score == pytest.approx(0.348665)
 
 
 @pytest.mark.parametrize("age,gender", [("u²", "Male"), ("u123", "Male"), ("u0", "Male"), ("u12", "Unknown")])

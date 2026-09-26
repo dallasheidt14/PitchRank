@@ -65,6 +65,23 @@ def click(app, label):
     assert not app.exception
 
 
+def test_seed_order_and_export_are_presented_as_steps_three_and_four(operator):
+    app, _calls = operator
+
+    headings = [item.value for item in app.markdown]
+    assert "### 3. Build and review the seed order" in headings
+    assert "### 4. Export the director pack" in headings
+    assert any("Build the seed order in step 3" in item.value for item in app.info)
+
+    click(app, "Build seeding sheets")
+
+    headings = [item.value for item in app.markdown]
+    assert headings.index("### 3. Build and review the seed order") < headings.index(
+        "### 4. Export the director pack"
+    )
+    assert any(button.label == "Generate PDF pack" for button in app.button)
+
+
 def test_predictor_update_requires_rebuild_and_keeps_saved_team_choices(operator, monkeypatch):
     app, calls = operator
     app.session_state["_seeding_overrides"] = {

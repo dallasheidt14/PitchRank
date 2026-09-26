@@ -2034,6 +2034,110 @@ def test_a_scraped_team_name_cannot_put_a_link_on_its_review_card(monkeypatch):
     assert "collect.example" in heading, "the name itself must still be readable"
 
 
+def test_a_saved_manual_match_is_acknowledged_and_explains_the_tournament_cohort(monkeypatch):
+    from src.tournaments.roster_paste import RosterRow
+    from src.tournaments.roster_resolver import ResolvedTeam
+
+    fake_st = _install(monkeypatch, _FakeSt())
+    fake_st.session_state._seeding_overrides = {
+        0: {"team_id_master": "master-a", "team_name": "Next Level Soccer Southeast U13 Boys Blue"}
+    }
+    row = RosterRow(
+        source_index=0,
+        club_raw="Next Level Soccer (AZ)",
+        team_name_raw="Southeast U13 Boys Blue",
+        state="AZ",
+        section_age_group="u13",
+        section_gender="Male",
+        team_name_stripped="Southeast U13 Boys Blue",
+        has_star_marker=False,
+        has_c_marker=False,
+    )
+
+    tournament_intake._render_seeding_override(
+        row, ResolvedTeam(source_index=0, status="unresolved"), None
+    )
+
+    assert fake_st.successes == [
+        "Matched to Next Level Soccer Southeast U13 Boys Blue. PitchRank supplies the rating; "
+        "the tournament cohort above controls where this team is seeded."
+    ]
+    assert fake_st.button_by_key("_seeding_seed_change_0")["label"] == "Change this match"
+
+
+def test_opening_the_manual_match_editor_keeps_the_saved_match_until_a_replacement_is_chosen(monkeypatch):
+    from src.tournaments.roster_paste import RosterRow
+    from src.tournaments.roster_resolver import ResolvedTeam
+
+    fake_st = _install(monkeypatch, _FakeSt(buttons={"_seeding_seed_change_0": True}))
+    saved = {"team_id_master": "master-a", "team_name": "Saved match"}
+    fake_st.session_state._seeding_overrides = {0: dict(saved)}
+    row = RosterRow(
+        source_index=0,
+        club_raw="Club",
+        team_name_raw="Tournament entry",
+        state="AZ",
+        section_age_group="u13",
+        section_gender="Male",
+        team_name_stripped="Tournament entry",
+        has_star_marker=False,
+        has_c_marker=False,
+    )
+
+    with pytest.raises(_Rerun):
+        tournament_intake._render_seeding_override(
+            row, ResolvedTeam(source_index=0, status="unresolved"), None
+        )
+
+    assert fake_st.session_state._seeding_overrides == {0: saved}
+    assert fake_st.session_state._seeding_seed_editing_0 is True
+
+
+def test_an_automatic_match_is_shown_before_the_manual_replacement_controls(monkeypatch):
+    from src.tournaments.roster_paste import RosterRow
+    from src.tournaments.roster_resolver import ResolvedTeam
+
+    fake_st = _install(monkeypatch, _FakeSt())
+    fake_st.session_state._seeding_overrides = {}
+    row = RosterRow(
+        source_index=0,
+        club_raw="Utah Royals FC AZ",
+        team_name_raw="PRE ECNL U12",
+        state="AZ",
+        section_age_group="u13",
+        section_gender="Male",
+        team_name_stripped="PRE ECNL U12",
+        has_star_marker=False,
+        has_c_marker=False,
+    )
+    item = ResolvedTeam(
+        source_index=0,
+        status="gotsport_id",
+        team_id_master="d775fcb4-f904-4203-abf3-d38ba56a2623",
+        matched_name="Utah Royals FC AZ PRE ECNL U12",
+    )
+
+    tournament_intake._render_seeding_override(row, item, None)
+
+    assert fake_st.successes == [
+        "Matched to Utah Royals FC AZ PRE ECNL U12. PitchRank supplies the rating; "
+        "the tournament cohort above controls where this team is seeded."
+    ]
+    assert fake_st.button_by_key("_seeding_seed_change_0")["label"] == "Review or change match"
+
+
+def test_seeding_progress_names_the_four_operator_steps(monkeypatch):
+    fake_st = _install(monkeypatch, _FakeSt())
+
+    tournament_intake._render_seeding_workflow_progress()
+
+    assert fake_st.markdowns == [
+        "**1. Import teams** → **2. Match to PitchRank** → "
+        "**3. Build seed order** → **4. Export director pack**"
+    ]
+    assert fake_st.infos == ["Current step: 1. Import teams — Start here"]
+
+
 def test_the_candidates_line_cannot_carry_a_link_either(monkeypatch):
     """Candidate names come from the provider's own search results."""
     from src.tournaments.roster_paste import RosterRow

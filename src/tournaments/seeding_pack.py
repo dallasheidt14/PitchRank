@@ -289,16 +289,9 @@ def _review_reason(
         return "No current ranking. Use recent results or club input.", NO_CURRENT_RATING
     if _published_score(team) is None:
         return "No current PitchRank score. Use recent results or club input.", NO_CURRENT_RATING
-    expected_gender = "M" if row.section_gender == "Male" else "F"
-    if team.get("gender") not in {expected_gender, "B" if expected_gender == "M" else "G"}:
-        return "The matched team may be in a different gender group. Confirm before seeding.", DATA_REVIEW
-    age = team.get("age")
-    if isinstance(age, bool) or not isinstance(age, int) or not 1 <= age <= 99:
-        return "Confirm the team's age before seeding.", DATA_REVIEW
-    if age > int(row.section_age_group[1:]):
-        return "The matched team may be older than this age group. Confirm eligibility before seeding.", DATA_REVIEW
-    # Younger entrants may intentionally play up. The tournament heading
-    # controls their placement, while Compare uses their actual recorded age.
+    # The accepted roster is the source of truth for tournament placement.
+    # PitchRank age and gender describe the matched team's rating evidence;
+    # they do not overrule the cohort the tournament put that entrant in.
     return None, DATA_REVIEW
 
 

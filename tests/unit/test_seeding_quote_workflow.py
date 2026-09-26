@@ -46,6 +46,7 @@ def click(app, label):
 def test_summary_and_single_review_are_usable_during_database_outage(operator):
     app = operator
     assert {metric.label: metric.value for metric in app.metric} == {
+        "Imported teams": "3", "Matched to PitchRank": "1", "Still need a match": "2",
         "Total U10+ teams": "2–3", "Matched": "1", "Manual matches needed": "2",
         "Additional cohort / input fixes": "0", "Suggested event price": "$199",
     }
