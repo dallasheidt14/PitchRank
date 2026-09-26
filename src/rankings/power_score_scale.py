@@ -22,8 +22,10 @@ CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "power_score_scal
 @dataclass(frozen=True)
 class ScaleCurve:
     cap: float
-    reference_p: float | None
-    reference_score: float | None
+    tail_start_p: float
+    tail_start_score: float
+    observed_max_p: float
+    observed_top_score: float
 
 
 @dataclass(frozen=True)
@@ -68,29 +70,38 @@ def _validate_number(name: str, value: object, *, minimum: float, maximum: float
 
 def _validate_curve(version: str, gender: str, age: int, raw: dict[str, object]) -> ScaleCurve:
     cap = _validate_number(f"{version}.{gender}.{age}.cap", raw.get("cap"), minimum=0.0, maximum=1.0)
-    reference_p = raw.get("reference_p")
-    reference_score = raw.get("reference_score")
-    if reference_p is None and reference_score is None:
-        if cap <= 0:
-            raise ValueError(f"{version}.{gender}.{age}.cap must be positive")
-        return ScaleCurve(cap=cap, reference_p=None, reference_score=None)
-    if reference_p is None or reference_score is None:
-        raise ValueError(f"{version}.{gender}.{age} must set both reference values or neither")
-
-    p_ref = _validate_number(
-        f"{version}.{gender}.{age}.reference_p", reference_p, minimum=0.0, maximum=1.0
+    tail_start_p = _validate_number(
+        f"{version}.{gender}.{age}.tail_start_p", raw.get("tail_start_p"), minimum=0.0, maximum=1.0
     )
-    score_ref = _validate_number(
-        f"{version}.{gender}.{age}.reference_score", reference_score, minimum=0.0, maximum=1.0
+    tail_start_score = _validate_number(
+        f"{version}.{gender}.{age}.tail_start_score",
+        raw.get("tail_start_score"),
+        minimum=0.0,
+        maximum=1.0,
     )
-    if not 0 < p_ref < 1 or not 0 < score_ref < cap:
-        raise ValueError(f"{version}.{gender}.{age} reference must sit strictly below the cap")
-
-    upper_slope = (cap - score_ref) / (1.0 - p_ref)
-    slope_at_zero = (2.0 * score_ref / p_ref) - upper_slope
-    if upper_slope <= 0 or slope_at_zero <= 0:
-        raise ValueError(f"{version}.{gender}.{age} curve must be strictly increasing")
-    return ScaleCurve(cap=cap, reference_p=p_ref, reference_score=score_ref)
+    observed_max_p = _validate_number(
+        f"{version}.{gender}.{age}.observed_max_p", raw.get("observed_max_p"), minimum=0.0, maximum=1.0
+    )
+    observed_top_score = _validate_number(
+        f"{version}.{gender}.{age}.observed_top_score",
+        raw.get("observed_top_score"),
+        minimum=0.0,
+        maximum=1.0,
+    )
+    expected_tail_score = tail_start_p * AGE_TO_ANCHOR[age]
+    if not math.isclose(tail_start_score, expected_tail_score, rel_tol=0.0, abs_tol=1e-12):
+        raise ValueError(f"{version}.{gender}.{age} tail start must preserve the legacy age mapping")
+    if not 0 < tail_start_p < observed_max_p < 1:
+        raise ValueError(f"{version}.{gender}.{age} tail points must be strictly ordered inside (0, 1)")
+    if not 0 < tail_start_score < observed_top_score < cap <= 1:
+        raise ValueError(f"{version}.{gender}.{age} published landmarks must be strictly increasing")
+    return ScaleCurve(
+        cap=cap,
+        tail_start_p=tail_start_p,
+        tail_start_score=tail_start_score,
+        observed_max_p=observed_max_p,
+        observed_top_score=observed_top_score,
+    )
 
 
 @lru_cache(maxsize=1)
@@ -150,26 +161,24 @@ def get_power_score_scale(version: str | None = None) -> PowerScoreScale:
         raise ValueError(f"Unknown PowerScore scale version: {selected!r}") from error
 
 
-def _map_curve(score: float, curve: ScaleCurve) -> float:
-    if curve.reference_p is None or curve.reference_score is None:
-        return curve.cap * score
+def _map_curve(score: float, age: int, curve: ScaleCurve) -> float:
+    if score <= curve.tail_start_p:
+        return score * AGE_TO_ANCHOR[age]
+    if score <= curve.observed_max_p:
+        progress = (score - curve.tail_start_p) / (curve.observed_max_p - curve.tail_start_p)
+        return curve.tail_start_score + progress * (curve.observed_top_score - curve.tail_start_score)
 
-    p_ref = curve.reference_p
-    score_ref = curve.reference_score
-    upper_slope = (curve.cap - score_ref) / (1.0 - p_ref)
-    if score >= p_ref:
-        return score_ref + upper_slope * (score - p_ref)
-
-    u = score / p_ref
-    return (2.0 * score_ref - upper_slope * p_ref) * u + (upper_slope * p_ref - score_ref) * u * u
+    progress = (score - curve.observed_max_p) / (1.0 - curve.observed_max_p)
+    return curve.observed_top_score + progress * (curve.cap - curve.observed_top_score)
 
 
 def published_power_score(power_score_true: float, age: int, gender: str, version: str | None = None) -> float:
-    """Map a bounded underlying score onto the fixed published age/gender scale."""
+    """Map a bounded underlying score onto the versioned published age/gender scale."""
     score = _validate_number("power_score_true", power_score_true, minimum=0.0, maximum=1.0)
     scale = get_power_score_scale(version)
-    curve = scale.curve(age, gender)
-    mapped = _map_curve(score, curve)
+    canonical_age = scale.canonical_age(int(age))
+    curve = scale.curve(canonical_age, gender)
+    mapped = _map_curve(score, canonical_age, curve)
     if not math.isfinite(mapped) or not 0.0 <= mapped <= curve.cap + 1e-12:
         raise ValueError(
             f"Invalid mapped PowerScore for age={age!r}, gender={gender!r}, version={scale.version!r}: {mapped}"

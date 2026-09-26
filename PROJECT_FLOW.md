@@ -249,13 +249,15 @@ Parameters live in `src/etl/glicko_config.py` (`GlickoConfig`) and
    - Each game appears twice (home/away perspectives)
 4. Run the two Glicko-2 passes via `compute_all_cohorts()` in `src/rankings/calculator.py`
 5. Apply ML Layer 13, then the same-age evidence gates → `power_score_true`
-6. Multiply by `AGE_TO_ANCHOR[age]` → `power_score_final`
+6. Apply the versioned adaptive age/gender publication scale → `power_score_final`;
+   retain the legacy anchor-scaled value as `prediction_power_score`
 7. Convert back to Supabase format and save
 
 **Output:**
 - `rankings_full` — the primary output table. Score chain is
   `powerscore_core` → `powerscore_adj` → `powerscore_ml` → `power_score_true` →
-  `power_score_final`, plus `rank_in_cohort_final` (the published rank).
+  `prediction_power_score`, `power_score_final`, and `power_score_scale_version`, plus
+  `rank_in_cohort_final` (the published rank).
   `national_rank` and `state_rank` are always NULL here; the views compute display ranks.
 - `current_rankings` — legacy table, still written for backward compatibility.
 - `ranking_history` — snapshot for 7d/30d rank-change tracking.

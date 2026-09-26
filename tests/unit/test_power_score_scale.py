@@ -1,7 +1,9 @@
 import math
 
+import pandas as pd
 import pytest
 
+from src.rankings.calculator import _power_score_scale_alignment_report
 from src.rankings.constants import AGE_TO_ANCHOR
 from src.rankings.power_score_scale import (
     active_power_score_scale_version,
@@ -15,14 +17,14 @@ AGES = (10, 11, 12, 13, 14, 15, 16, 17, 19)
 
 
 def test_active_scale_preserves_the_separate_boys_and_girls_shape():
-    assert active_power_score_scale_version() == "age-gender-v1-2026-09-25"
-    assert published_power_score_cap(17, "Male") == pytest.approx(0.8)
+    assert active_power_score_scale_version() == "age-gender-v2-2026-09-25"
+    assert published_power_score_cap(17, "Male") == pytest.approx(0.646259980431884)
     assert published_power_score_cap(19, "Male") == pytest.approx(0.8)
-    assert published_power_score_cap(17, "Female") == pytest.approx(53 * 80 / 59 / 100)
-    assert published_power_score_cap(19, "Female") == pytest.approx(52 * 80 / 59 / 100)
-    assert published_power_score_cap(19, "Female") < published_power_score_cap(17, "Female")
-    assert published_power_score_cap(12, "Male") == pytest.approx(49 * 80 / 59 / 100)
-    assert published_power_score_cap(12, "Female") == pytest.approx(45 * 80 / 59 / 100)
+    assert published_power_score_cap(17, "Female") == pytest.approx(0.605779518153415)
+    assert published_power_score_cap(19, "Female") == pytest.approx(0.705084745762712)
+    assert published_power_score_cap(19, "Female") > published_power_score_cap(17, "Female")
+    assert published_power_score_cap(12, "Male") == pytest.approx(0.451016136022036)
+    assert published_power_score_cap(12, "Female") == pytest.approx(0.448130475383406)
 
 
 @pytest.mark.parametrize("gender", ["Male", "Female", "Boys", "Girls", "M", "F"])
@@ -37,19 +39,72 @@ def test_every_curve_is_bounded_and_strictly_increasing(age, gender):
     assert all(left < right for left, right in zip(values, values[1:]))
 
 
-def test_reference_landmarks_are_exact_and_curve_is_smooth():
+def test_tail_landmarks_are_exact_and_preserve_the_legacy_mapping_below_the_tail():
     scale = get_power_score_scale()
     for gender in ("Male", "Female"):
-        for age in AGES[1:]:
+        for age in AGES:
             curve = scale.curve(age, gender)
-            assert curve.reference_p is not None
-            assert curve.reference_score is not None
-            assert published_power_score(curve.reference_p, age, gender) == pytest.approx(curve.reference_score)
-            step = 1e-7
-            center = published_power_score(curve.reference_p, age, gender)
-            left_slope = (center - published_power_score(curve.reference_p - step, age, gender)) / step
-            right_slope = (published_power_score(curve.reference_p + step, age, gender) - center) / step
-            assert left_slope == pytest.approx(right_slope, abs=1e-5)
+            assert published_power_score(curve.tail_start_p, age, gender) == pytest.approx(curve.tail_start_score)
+            assert published_power_score(curve.observed_max_p, age, gender) == pytest.approx(
+                curve.observed_top_score
+            )
+            assert published_power_score(curve.tail_start_p / 2, age, gender) == pytest.approx(
+                curve.tail_start_p / 2 * AGE_TO_ANCHOR[age]
+            )
+
+
+def test_observed_younger_number_one_matches_the_frozen_next_age_number_25():
+    scale = get_power_score_scale()
+    next_age_by_age = dict(zip(AGES[:-1], AGES[1:]))
+    rank_25 = scale.reference_snapshot["next_age_rank_25_power_score_true"]
+
+    for gender in ("Male", "Female"):
+        for younger_age, older_age in next_age_by_age.items():
+            younger_curve = scale.curve(younger_age, gender)
+            older_rank_25_score = published_power_score(
+                rank_25[gender][str(older_age)], older_age, gender
+            )
+            assert younger_curve.observed_top_score == pytest.approx(older_rank_25_score)
+
+
+def test_alignment_monitor_reports_rank_25_and_detects_reference_max_drift():
+    scale = get_power_score_scale()
+    younger = scale.curve(12, "Male")
+    target = younger.observed_top_score
+    rows = [
+        {
+            "age_num": 12,
+            "gender": "Male",
+            "power_score_true": younger.observed_max_p + 0.001,
+            "power_score_final": target,
+            "status": "Active",
+        }
+    ]
+    rows.extend(
+        {
+            "age_num": 13,
+            "gender": "Male",
+            "power_score_true": 0.9 - index / 1000,
+            "power_score_final": target + (25 - index) / 1000,
+            "status": "Active",
+        }
+        for index in range(1, 26)
+    )
+    rows.append(
+        {
+            "age_num": 13,
+            "gender": "Male",
+            "power_score_true": 0.4,
+            "power_score_final": target - 0.001,
+            "status": "Active",
+        }
+    )
+
+    report = _power_score_scale_alignment_report(pd.DataFrame(rows), scale.version)
+    u12 = next(item for item in report if item["gender"] == "Male" and item["age"] == 12)
+
+    assert u12["equivalent_rank"] == 25
+    assert u12["max_drifted"] is True
 
 
 def test_u18_uses_the_combined_u19_scale_without_creating_a_new_board():

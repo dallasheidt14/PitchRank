@@ -27,7 +27,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from src.rankings.constants import AGE_TO_ANCHOR, SOS_ML_THRESHOLD_HIGH, SOS_ML_THRESHOLD_LOW
-from src.rankings.power_score_scale import published_power_score, published_power_score_cap
+from src.rankings.power_score_scale import get_power_score_scale, published_power_score, published_power_score_cap
 from src.rankings.shared import sos_ml_blend
 from src.utils.merge_resolver import MergeResolver
 from supabase import create_client
@@ -1116,7 +1116,7 @@ def main():
             f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n"
             f"[dim]Algorithm: v53e (OFF:20% DEF:20% SOS:60%) + ML Layer 13 (α=0.08)\n"
             f"SOS-conditioned ML: suppressed below SOS 0.45, full above 0.60\n"
-            f"Age anchors: U10=0.40 → U19=1.00[/dim]",
+            f"Published scale: {get_power_score_scale().active_version} (adaptive elite tail)[/dim]",
             title="🔍 Ranking Diagnostic",
         )
     )

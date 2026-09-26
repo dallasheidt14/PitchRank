@@ -1,13 +1,13 @@
 name: Enrich Instagram Handles
 
 # Manual dispatch only — no automatic schedule.
-# Run targeted sweeps first (--min-power-score, --state) before a full pass.
+# Run cohort-balanced sweeps first (--top-n-per-cohort) before a full pass.
 #
 # Recommended first runs:
 #   1. dry_run=true, limit=50              → validate scoring output
-#   2. dry_run=false, min_power_score=0.80 → enrich top ~500 ranked teams
-#   3. dry_run=false, min_power_score=0.60 → broader sweep ~2,000 teams
-#   4. dry_run=false (no filter)           → full 25K team sweep (~375K queries)
+#   2. dry_run=false, top_n_per_cohort=25 → enrich each cohort's top 25
+#   3. dry_run=false, top_n_per_cohort=100 → broader balanced sweep
+#   4. dry_run=false (blank cohort limit)  → full eligible-team sweep
 
 on:
   workflow_dispatch:
@@ -25,10 +25,18 @@ on:
         required: false
         default: ""
         type: string
-      min_power_score:
-        description: "Min power_score_final filter (0.0 = all teams, 0.70 = top ranked only)"
+      phase:
+        description: "1 = club handles; 2 = team handles (rank-balanced selection applies to phase 2)"
         required: false
-        default: "0.70"
+        default: "2"
+        type: choice
+        options:
+          - "1"
+          - "2"
+      top_n_per_cohort:
+        description: "Top N teams per age/gender cohort (blank = all eligible teams)"
+        required: false
+        default: "25"
         type: string
       state:
         description: "Filter to a single state code (e.g. TX, CA — blank = all states)"
@@ -104,7 +112,8 @@ jobs:
         env:
           DRY_RUN: ${{ github.event.inputs.dry_run }}
           LIMIT: ${{ github.event.inputs.limit }}
-          MIN_POWER_SCORE: ${{ github.event.inputs.min_power_score }}
+          PHASE: ${{ github.event.inputs.phase }}
+          TOP_N_PER_COHORT: ${{ github.event.inputs.top_n_per_cohort }}
           STATE: ${{ github.event.inputs.state }}
           AGE_GROUP: ${{ github.event.inputs.age_group }}
           GENDER: ${{ github.event.inputs.gender }}
@@ -112,6 +121,8 @@ jobs:
           WORKERS: ${{ github.event.inputs.workers }}
         run: |
           FLAGS=""
+
+          FLAGS="$FLAGS --phase ${PHASE:-2}"
 
           if [ "$DRY_RUN" = "true" ]; then
             FLAGS="$FLAGS --dry-run"
@@ -121,8 +132,8 @@ jobs:
             FLAGS="$FLAGS --limit $LIMIT"
           fi
 
-          if [ -n "$MIN_POWER_SCORE" ] && [ "$MIN_POWER_SCORE" != "0" ]; then
-            FLAGS="$FLAGS --min-power-score $MIN_POWER_SCORE"
+          if [ "${PHASE:-2}" = "2" ] && [ -n "$TOP_N_PER_COHORT" ] && [ "$TOP_N_PER_COHORT" != "0" ]; then
+            FLAGS="$FLAGS --top-n-per-cohort $TOP_N_PER_COHORT --national"
           fi
 
           if [ -n "$STATE" ]; then
@@ -157,7 +168,8 @@ jobs:
         env:
           DRY_RUN: ${{ github.event.inputs.dry_run }}
           LIMIT: ${{ github.event.inputs.limit }}
-          MIN_POWER_SCORE: ${{ github.event.inputs.min_power_score }}
+          PHASE: ${{ github.event.inputs.phase }}
+          TOP_N_PER_COHORT: ${{ github.event.inputs.top_n_per_cohort }}
           STATE: ${{ github.event.inputs.state }}
           AGE_GROUP: ${{ github.event.inputs.age_group }}
           GENDER: ${{ github.event.inputs.gender }}
@@ -166,7 +178,8 @@ jobs:
           echo "" >> "$GITHUB_STEP_SUMMARY"
           if [ "$DRY_RUN" = "true" ]; then MODE="DRY-RUN"; else MODE="LIVE"; fi
           echo "**Mode:** $MODE" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Filters:** limit=${LIMIT:-all} | power_score>=${MIN_POWER_SCORE:-0} | state=${STATE:-all} | age=${AGE_GROUP:-all} | gender=${GENDER:-all}" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Phase:** ${PHASE:-2}" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Filters:** limit=${LIMIT:-all} | top_n_per_cohort=${TOP_N_PER_COHORT:-all} | state=${STATE:-all} | age=${AGE_GROUP:-all} | gender=${GENDER:-all}" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "Results stored in \`team_social_profiles\` table." >> "$GITHUB_STEP_SUMMARY"
           echo "Review queue: \`team_instagram_review_queue\` view." >> "$GITHUB_STEP_SUMMARY"

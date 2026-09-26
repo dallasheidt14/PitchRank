@@ -96,13 +96,13 @@ describe('predictMatch', () => {
         ...legacyA,
         power_score_final: 0.64,
         prediction_power_score: 0.71,
-        power_score_scale_version: 'age-gender-v1-2026-09-25',
+        power_score_scale_version: 'age-gender-v2-2026-09-25',
       }),
       makeTeam({
         ...legacyB,
         power_score_final: 0.49,
         prediction_power_score: 0.56,
-        power_score_scale_version: 'age-gender-v1-2026-09-25',
+        power_score_scale_version: 'age-gender-v2-2026-09-25',
       }),
       []
     );
@@ -113,7 +113,7 @@ describe('predictMatch', () => {
   it('refuses a versioned rating without its prediction compatibility score', () => {
     expect(() =>
       predictMatch(
-        makeTeam({ power_score_scale_version: 'age-gender-v1-2026-09-25' }),
+        makeTeam({ power_score_scale_version: 'age-gender-v2-2026-09-25' }),
         makeTeam({ team_id_master: 'team-b' }),
         []
       )

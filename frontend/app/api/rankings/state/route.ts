@@ -1,7 +1,6 @@
 import { createServerSupabase } from '@/lib/supabase/server';
 import { NextRequest, NextResponse } from 'next/server';
 import { normalizeAgeGroup } from '@/lib/utils';
-import { enrichRankingPredictionFields } from '@/lib/rankingPredictionFields';
 
 /**
  * GET /api/rankings/state?state=TX&age=u12&gender=M&limit=1000&offset=0
@@ -54,8 +53,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to fetch state rankings' }, { status: 500 });
     }
 
-    const enrichedRows = await enrichRankingPredictionFields(supabase, data || []);
-    return NextResponse.json(enrichedRows, {
+    return NextResponse.json(data || [], {
       headers: {
         'Cache-Control': 'public, s-maxage=120, stale-while-revalidate=300',
       },

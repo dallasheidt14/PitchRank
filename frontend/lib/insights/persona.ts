@@ -22,41 +22,27 @@ import type { InsightInputData, PersonaInsight } from './types';
  * 0.08 ≈ meaningful strength gap in the pre-anchor [0,1] range.
  * For context: In a 100-team cohort, this is roughly 8 percentile points.
  *
- * A fixed threshold in final space would be too coarse for cohorts with a
- * lower published ceiling, so scale it by the active age/gender ceiling.
+ * Persona strength buckets use the prediction-compatible score, not the
+ * published display scale. Scale the threshold by the same legacy age anchor
+ * used to produce prediction_power_score.
  */
 const BASE_POWER_DIFF_THRESHOLD = 0.08;
 
 /**
- * Published ceilings for age-gender-v1-2026-09-25.
- * U18 is displayed on the combined U19 board.
+ * Prediction anchors mirror src/rankings/constants.py. They intentionally do
+ * not follow the versioned published scale.
  */
-const CAP_SCALE = 0.8 / 59;
-const POWER_SCORE_CAP: Record<'M' | 'F', Record<number, number>> = {
-  M: {
-    10: 45 * CAP_SCALE,
-    11: 47 * CAP_SCALE,
-    12: 49 * CAP_SCALE,
-    13: 51 * CAP_SCALE,
-    14: 54 * CAP_SCALE,
-    15: 55.5 * CAP_SCALE,
-    16: 57 * CAP_SCALE,
-    17: 59 * CAP_SCALE,
-    18: 59 * CAP_SCALE,
-    19: 59 * CAP_SCALE,
-  },
-  F: {
-    10: 43 * CAP_SCALE,
-    11: 44 * CAP_SCALE,
-    12: 45 * CAP_SCALE,
-    13: 47 * CAP_SCALE,
-    14: 49 * CAP_SCALE,
-    15: 51 * CAP_SCALE,
-    16: 52 * CAP_SCALE,
-    17: 53 * CAP_SCALE,
-    18: 52 * CAP_SCALE,
-    19: 52 * CAP_SCALE,
-  },
+const PREDICTION_AGE_ANCHOR: Record<number, number> = {
+  10: 0.788,
+  11: 0.81,
+  12: 0.855,
+  13: 0.896,
+  14: 0.943,
+  15: 0.949,
+  16: 0.973,
+  17: 0.98,
+  18: 0.992,
+  19: 1.0,
 };
 
 /**
@@ -67,7 +53,7 @@ const BIG_MARGIN_THRESHOLD = 3;
 
 /**
  * Analyzes performance against opponents by tier using power score
- * Threshold is scaled by age anchor to maintain consistent sensitivity across age groups
+ * Threshold is scaled by the prediction anchor to maintain consistent sensitivity across age groups.
  */
 function analyzePerformanceByTier(
   games: InsightInputData['games'],
@@ -401,12 +387,13 @@ function findSignatureResult(games: InsightInputData['games'], teamId: string): 
 export function generatePersonaInsight(data: InsightInputData): PersonaInsight {
   const { team, ranking, games } = data;
 
-  const genderKey = team.gender === 'F' || team.gender === 'G' ? 'F' : 'M';
-  const scaleCap = (team.age !== null ? POWER_SCORE_CAP[genderKey][team.age] : null) ?? 1.0;
-  const scaledThreshold = BASE_POWER_DIFF_THRESHOLD * scaleCap;
+  const anchor = (team.age !== null ? PREDICTION_AGE_ANCHOR[team.age] : null) ?? 1.0;
+  const scaledThreshold = BASE_POWER_DIFF_THRESHOLD * anchor;
+  const teamPower =
+    ranking.prediction_power_score ?? (ranking.power_score_scale_version === null ? ranking.power_score_final : null);
 
-  // Use power score for tier analysis (cohort-size independent)
-  const stats = analyzePerformanceByTier(games, team.team_id_master, ranking.power_score_final, scaledThreshold);
+  // Use the stable prediction score for tier analysis (cohort-size independent).
+  const stats = analyzePerformanceByTier(games, team.team_id_master, teamPower, scaledThreshold);
 
   const { label, explanation: baseExplanation } = determinePersona(stats);
   const signatureResult = findSignatureResult(games, team.team_id_master);

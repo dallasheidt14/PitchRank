@@ -125,10 +125,11 @@ PowerScore = 0.20 * Offense + 0.20 * Defense + 0.60 * SOS
 
 **Why 60% SOS?** Because *who you play matters more than how much you win by*.
 
-### Layer 11: Age Anchoring (Cross-Age Scaling)
-- **What it does:** Scales PowerScore by age group
-- **Why:** Younger teams have lower max scores; prevents U10s from outranking U19s
-- **Scale:** U10 = 0.40 max, U11 = 0.475, ..., U19 = 1.00
+### Layer 11: Versioned Age/Gender Publication Scale
+- **What it does:** Keeps the legacy age anchor through the ordinary range, then calibrates only the elite tail
+- **Why:** A younger cohort's #1 should land near the next age group's #20-30 teams without flattening most teams
+- **Safety:** The mapping stays strictly increasing, so rank order inside an age/gender cohort does not change
+- **Prediction isolation:** Match prediction keeps using `prediction_power_score`, not the display-scaled `power_score_final`
 
 ### Layer 12: Final Ranking & Status
 - **Active:** 5+ games in last 180 days
@@ -679,7 +680,7 @@ PitchRank tested on 10K head-to-head matchups (2024 season):
 
 ## Glossary
 
-**PowerScore:** PitchRank's primary ranking metric (0-1 scale, age-anchored)
+**PowerScore:** PitchRank's primary published ranking metric (0-1 scale, versioned age/gender calibration)
 
 **SOS (Strength of Schedule):** Weighted average of opponent strengths (0-1 scale)
 

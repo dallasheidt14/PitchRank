@@ -1,7 +1,6 @@
 import { createServerSupabase } from '@/lib/supabase/server';
 import { NextRequest, NextResponse } from 'next/server';
 import { normalizeAgeGroup } from '@/lib/utils';
-import { enrichRankingPredictionFields } from '@/lib/rankingPredictionFields';
 
 function isMissingNationalRankingsRpc(error: { code?: string | null } | null): boolean {
   return error?.code === 'PGRST202';
@@ -70,16 +69,14 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: 'Failed to fetch national rankings' }, { status: 500 });
       }
 
-      const enrichedRows = await enrichRankingPredictionFields(supabase, data || []);
-      return NextResponse.json(enrichedRows, {
+      return NextResponse.json(data || [], {
         headers: {
           'Cache-Control': 'public, s-maxage=120, stale-while-revalidate=300',
         },
       });
     }
 
-    const enrichedRows = await enrichRankingPredictionFields(supabase, rpcResult.data || []);
-    return NextResponse.json(enrichedRows, {
+    return NextResponse.json(rpcResult.data || [], {
       headers: {
         'Cache-Control': 'public, s-maxage=120, stale-while-revalidate=300',
       },

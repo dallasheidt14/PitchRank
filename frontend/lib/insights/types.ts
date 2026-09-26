@@ -148,6 +148,8 @@ export interface InsightInputData {
   ranking: {
     rank_in_cohort_final: number | null;
     power_score_final: number | null;
+    prediction_power_score: number | null;
+    power_score_scale_version: string | null;
     sos_norm: number | null;
     wins: number;
     losses: number;

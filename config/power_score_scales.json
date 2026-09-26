@@ -1,40 +1,66 @@
 {
-  "active_version": "age-gender-v1-2026-09-25",
+  "active_version": "age-gender-v2-2026-09-25",
   "versions": {
-    "age-gender-v1-2026-09-25": {
-      "description": "Fixed boys/girls age scale with one common 80/59 expansion, rank-25 overlap across adjacent U10-U17 boards, and the explicit U17/U19 terminal plateau or dip.",
+    "age-gender-v2-2026-09-25": {
+      "description": "Adaptive elite-tail scale. Preserve the legacy age mapping below each cohort tail, align each observed younger #1 to the next-age #25, and reserve 0.1 displayed points above the frozen observed maximum so the curve remains strictly increasing as new teams improve.",
       "reference_snapshot": {
         "rankings_calculated_at": "2026-09-25T19:12:47.176157+00:00",
         "rankings_fetched_at": "2026-09-25T21:21:19.246746+00:00",
         "rows": 60816,
         "sha256": "7405cb6718197ff90fca83d5ee05dddba4709c074ff2afdc472bb284f435c57d",
-        "target_next_age_rank": 25
+        "target_next_age_rank": 25,
+        "acceptable_next_age_rank_band": [20, 30],
+        "tail_percentile_limit": 0.9,
+        "legacy_headroom_ratio": 0.9,
+        "future_score_headroom": 0.001,
+        "next_age_rank_25_power_score_true": {
+          "Male": {
+            "11": 0.918734308338434,
+            "12": 0.914385880811726,
+            "13": 0.735963761952437,
+            "14": 0.748487036504027,
+            "15": 0.740723914377251,
+            "16": 0.681029676239967,
+            "17": 0.668423321291366,
+            "19": 0.713112657196094
+          },
+          "Female": {
+            "11": 0.835087166047939,
+            "12": 0.893454162335043,
+            "13": 0.729345816230044,
+            "14": 0.746363142698718,
+            "15": 0.735575399525766,
+            "16": 0.690463638504118,
+            "17": 0.674601475808152,
+            "19": 0.716816360899797
+          }
+        }
       },
       "age_aliases": {
         "18": 19
       },
       "groups": {
         "Male": {
-          "10": {"cap": 0.610169491525424, "reference_p": null, "reference_score": null},
-          "11": {"cap": 0.637288135593220, "reference_p": 0.918734308338434, "reference_score": 0.598442846526075},
-          "12": {"cap": 0.664406779661017, "reference_p": 0.914385880811726, "reference_score": 0.628016789823144},
-          "13": {"cap": 0.691525423728814, "reference_p": 0.735963761952437, "reference_score": 0.656879425303552},
-          "14": {"cap": 0.732203389830508, "reference_p": 0.748487036504027, "reference_score": 0.688516674447311},
-          "15": {"cap": 0.752542372881356, "reference_p": 0.740723914377251, "reference_score": 0.725299582153636},
-          "16": {"cap": 0.772881355932203, "reference_p": 0.681029676239967, "reference_score": 0.741789343365672},
-          "17": {"cap": 0.800000000000000, "reference_p": 0.668423321291366, "reference_score": 0.761403002138958},
-          "19": {"cap": 0.800000000000000, "reference_p": 0.668423321291366, "reference_score": 0.761403002138958}
+          "10": {"cap": 0.438940773013470, "tail_start_p": 0.467140557584827, "tail_start_score": 0.368106759376844, "observed_max_p": 0.980781331806623, "observed_top_score": 0.437940773013470},
+          "11": {"cap": 0.445004156674175, "tail_start_p": 0.488628871988022, "tail_start_score": 0.395789386310298, "observed_max_p": 0.980604023171602, "observed_top_score": 0.444004156674175},
+          "12": {"cap": 0.451016136022036, "tail_start_p": 0.473666415443139, "tail_start_score": 0.404984785203884, "observed_max_p": 0.982290519563112, "observed_top_score": 0.450016136022036},
+          "13": {"cap": 0.473844060226955, "tail_start_p": 0.474635780763214, "tail_start_score": 0.425273659563840, "observed_max_p": 0.977070401269285, "observed_top_score": 0.472844060226955},
+          "14": {"cap": 0.495271402050507, "tail_start_p": 0.471729196913883, "tail_start_score": 0.444840632689792, "observed_max_p": 0.960253429149211, "observed_top_score": 0.494271402050507},
+          "15": {"cap": 0.519426100787660, "tail_start_p": 0.478267486459909, "tail_start_score": 0.453875844650453, "observed_max_p": 0.897660873686647, "observed_top_score": 0.518426100787660},
+          "16": {"cap": 0.564608657710073, "tail_start_p": 0.488344067916456, "tail_start_score": 0.475158778082711, "observed_max_p": 0.882244540528557, "observed_top_score": 0.563608657710073},
+          "17": {"cap": 0.646259980431884, "tail_start_p": 0.509512201069067, "tail_start_score": 0.499321957047686, "observed_max_p": 0.870258273585740, "observed_top_score": 0.645259980431884},
+          "19": {"cap": 0.800000000000000, "tail_start_p": 0.496926955456619, "tail_start_score": 0.496926955456619, "observed_max_p": 0.937178700623145, "observed_top_score": 0.799000000000000}
         },
         "Female": {
-          "10": {"cap": 0.583050847457627, "reference_p": null, "reference_score": null},
-          "11": {"cap": 0.596610169491525, "reference_p": 0.835087166047939, "reference_score": 0.571571589836493},
-          "12": {"cap": 0.610169491525424, "reference_p": 0.893454162335043, "reference_score": 0.593838063709866},
-          "13": {"cap": 0.637288135593220, "reference_p": 0.729345816230044, "reference_score": 0.606411990696103},
-          "14": {"cap": 0.664406779661017, "reference_p": 0.746363142698718, "reference_score": 0.633652095919884},
-          "15": {"cap": 0.691525423728814, "reference_p": 0.735575399525766, "reference_score": 0.660971260342294},
-          "16": {"cap": 0.705084745762712, "reference_p": 0.690463638504118, "reference_score": 0.687105161472978},
-          "17": {"cap": 0.718644067796610, "reference_p": 0.674601475808152, "reference_score": 0.703552508229975},
-          "19": {"cap": 0.705084745762712, "reference_p": 0.674601475808152, "reference_score": 0.690277932602994}
+          "10": {"cap": 0.427679985746515, "tail_start_p": 0.487237877418008, "tail_start_score": 0.383943447405390, "observed_max_p": 0.980311738382357, "observed_top_score": 0.426679985746515},
+          "11": {"cap": 0.440854938274835, "tail_start_p": 0.488303942016033, "tail_start_score": 0.395526193032987, "observed_max_p": 0.981741942763258, "observed_top_score": 0.439854938274835},
+          "12": {"cap": 0.448130475383406, "tail_start_p": 0.470584844446160, "tail_start_score": 0.402350042001467, "observed_max_p": 0.975486156023337, "observed_top_score": 0.447130475383406},
+          "13": {"cap": 0.470734857019604, "tail_start_p": 0.471821148559933, "tail_start_score": 0.422751749109700, "observed_max_p": 0.968127194854761, "observed_top_score": 0.469734857019604},
+          "14": {"cap": 0.492821039918537, "tail_start_p": 0.469329451200437, "tail_start_score": 0.442577672482012, "observed_max_p": 0.971666939236536, "observed_top_score": 0.491821039918537},
+          "15": {"cap": 0.521207336945629, "tail_start_p": 0.485129575894466, "tail_start_score": 0.460387967523848, "observed_max_p": 0.961745767141305, "observed_top_score": 0.520207336945629},
+          "16": {"cap": 0.555299731232125, "tail_start_p": 0.512638236084375, "tail_start_score": 0.498797003710097, "observed_max_p": 0.973621012411185, "observed_top_score": 0.554299731232125},
+          "17": {"cap": 0.605779518153415, "tail_start_p": 0.536108238576072, "tail_start_score": 0.525386073804551, "observed_max_p": 0.916394100038658, "observed_top_score": 0.604779518153415},
+          "19": {"cap": 0.705084745762712, "tail_start_p": 0.530585110943644, "tail_start_score": 0.530585110943644, "observed_max_p": 0.966076882822588, "observed_top_score": 0.704084745762712}
         }
       }
     }

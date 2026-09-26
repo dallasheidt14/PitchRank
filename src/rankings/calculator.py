@@ -21,6 +21,7 @@ from src.rankings.data_adapter import batch_fetch_rows, fetch_games_for_rankings
 from src.rankings.layer13_predictive_adjustment import Layer13Config, apply_predictive_adjustment
 from src.rankings.power_score_scale import (
     active_power_score_scale_version,
+    get_power_score_scale,
     prediction_power_score,
     published_power_score,
     published_power_score_cap,
@@ -61,6 +62,52 @@ class RankingContext:
 
 
 logger = logging.getLogger(__name__)
+
+
+def _power_score_scale_alignment_report(rankings_df: pd.DataFrame, version: str) -> list[dict[str, Any]]:
+    """Measure live top-team overlap and frozen calibration drift without changing scores."""
+    scale = get_power_score_scale(version)
+    required = {"age_num", "gender", "power_score_true", "power_score_final", "status"}
+    if rankings_df.empty or not required.issubset(rankings_df.columns):
+        return []
+
+    active = rankings_df.loc[rankings_df["status"] == "Active", list(required)].dropna(
+        subset=["age_num", "gender", "power_score_true", "power_score_final"]
+    )
+    if active.empty:
+        return []
+    active = active.copy()
+    active["scale_age"] = active["age_num"].astype(int).map(scale.canonical_age)
+
+    report: list[dict[str, Any]] = []
+    for gender, age_curves in scale.groups.items():
+        ages = sorted(age_curves)
+        cohorts = {
+            age: active.loc[(active["gender"] == gender) & (active["scale_age"] == age)]
+            for age in ages
+        }
+        for index, age in enumerate(ages):
+            cohort = cohorts[age]
+            if cohort.empty:
+                continue
+            curve = age_curves[age]
+            top_true = float(cohort["power_score_true"].max())
+            item: dict[str, Any] = {
+                "gender": gender,
+                "age": age,
+                "top_true": top_true,
+                "observed_max_p": curve.observed_max_p,
+                "max_drifted": top_true > curve.observed_max_p + 1e-12,
+            }
+            if index < len(ages) - 1:
+                older_age = ages[index + 1]
+                older = cohorts[older_age]
+                if not older.empty:
+                    younger_top = float(cohort["power_score_final"].max())
+                    equivalent_rank = 1 + int((older["power_score_final"].astype(float) > younger_top).sum())
+                    item.update({"older_age": older_age, "equivalent_rank": equivalent_rank})
+            report.append(item)
+    return report
 
 
 def _section(timing_report: Optional["TimingReport"], name: str, **metadata):
@@ -3292,6 +3339,27 @@ async def compute_all_cohorts(
                     if not ordered["power_score_final"].astype(float).is_monotonic_decreasing:
                         raise ValueError(f"Published PowerScore inversion in U{int(age_val)} {gender}")
                     logger.info(f"  {age_val} {gender}: {len(grp)} teams, monotonicity verified ✅")
+
+                logger.info("📏 Published PowerScore age-ladder drift monitor:")
+                for item in _power_score_scale_alignment_report(teams_combined, scale_version):
+                    if item["max_drifted"]:
+                        logger.warning(
+                            "  U%s %s underlying max %.4f exceeds frozen reference %.4f; recalibrate the scale",
+                            item["age"],
+                            item["gender"],
+                            item["top_true"],
+                            item["observed_max_p"],
+                        )
+                    if "equivalent_rank" not in item:
+                        continue
+                    log = logger.info if 20 <= item["equivalent_rank"] <= 30 else logger.warning
+                    log(
+                        "  U%s %s #1 aligns with U%s #%s (target band #20-30)",
+                        item["age"],
+                        item["gender"],
+                        item["older_age"],
+                        item["equivalent_rank"],
+                    )
 
             # === PUBLISHED RANK: canonical ordering by power_score_true DESC, team_id ASC ===
             # The published curve is strictly increasing, so within an (age, gender)
