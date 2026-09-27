@@ -232,6 +232,47 @@ def test_provider_team_id_lookup_filters_out_another_provider_before_limit():
     )]
 
 
+def test_provider_team_id_lookup_executes_the_approved_provider_alias_fallback():
+    db = _Db({
+        "team_alias_map": [
+            {
+                "team_id_master": "master-3",
+                "provider_id": "another-provider",
+                "review_status": "approved",
+                "provider_team_id": "wrong-provider",
+            },
+            {
+                "team_id_master": "master-3",
+                "provider_id": "gotsport-provider",
+                "review_status": "pending",
+                "provider_team_id": "unreviewed",
+            },
+            {
+                "team_id_master": "master-3",
+                "provider_id": "gotsport-provider",
+                "review_status": "approved",
+                "provider_team_id": "333",
+            },
+        ],
+    })
+
+    assert make_provider_team_id_lookup(db, "gotsport-provider")("master-3") == "333"
+    assert db.query_executes == [
+        (
+            "teams",
+            (("team_id_master", "master-3"), ("provider_id", "gotsport-provider")),
+        ),
+        (
+            "team_alias_map",
+            (
+                ("team_id_master", "master-3"),
+                ("provider_id", "gotsport-provider"),
+                ("review_status", "approved"),
+            ),
+        ),
+    ]
+
+
 # -------- provider ids ----------------------------------------------------
 
 
