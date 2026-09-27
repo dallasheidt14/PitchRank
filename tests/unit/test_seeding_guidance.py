@@ -143,7 +143,13 @@ def test_clear_gap_has_one_specific_observation_across_pdf_and_excel():
     document = render_sheet_html("=Event", [sheet], **args)
     tab = load_workbook(BytesIO(build_seeding_workbook("=Event", [sheet], **args))).active
     assert 'data-entrant="3" class="strength-break"' in document
-    assert '<tr class="competitive-break"><td colspan="5"><span>Competitive Break</span></td></tr>' in document
+    break_group = (
+        '<tbody class="competitive-break-group"><tr class="competitive-break">'
+        '<td colspan="5"><span>Competitive Break</span></td></tr><tr data-entrant="4"'
+    )
+    assert break_group in document
+    assert "tbody.competitive-break-group { break-inside: avoid-page; " in document
+    assert "tr.competitive-break { break-after: avoid-page; " in document
     assert tab.cell(10, 6).value == content.rows[3].observation
     assert tab.cell(10, 1).border.bottom.style == "medium"
     assert tab["A1"].data_type == "s"

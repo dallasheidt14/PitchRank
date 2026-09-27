@@ -336,7 +336,9 @@ def _rows_html(
     placement_notes: Mapping[str, str] | None = None,
     strength_break_ids: frozenset[str] = frozenset(),
 ) -> str:
-    cells = []
+    row_groups = []
+    regular_rows = []
+    break_before_next_row = False
     for position, team in enumerate(teams, start=start):
         status = _status_label(team.status) if numbered else ""
         flag = (
@@ -378,13 +380,21 @@ def _rows_html(
             f'<td class="num state">{html.escape(_state_rank(team))}</td>'
             f'<td class="{note_class}">{html.escape(note)}</td></tr>'
         )
-        if team.entrant_id in strength_break_ids:
-            row += (
+        if break_before_next_row:
+            if regular_rows:
+                row_groups.append(f'<tbody>{"".join(regular_rows)}</tbody>')
+                regular_rows = []
+            row_groups.append(
+                '<tbody class="competitive-break-group">'
                 '<tr class="competitive-break"><td colspan="5">'
-                '<span>Competitive Break</span></td></tr>'
+                f'<span>Competitive Break</span></td></tr>{row}</tbody>'
             )
-        cells.append(row)
-    return "".join(cells)
+        else:
+            regular_rows.append(row)
+        break_before_next_row = team.entrant_id in strength_break_ids
+    if regular_rows:
+        row_groups.append(f'<tbody>{"".join(regular_rows)}</tbody>')
+    return "".join(row_groups)
 
 
 def _table_html(title: str, teams: Sequence[SheetTeam], *, numbered: bool, start: int = 1,
@@ -404,8 +414,7 @@ def _table_html(title: str, teams: Sequence[SheetTeam], *, numbered: bool, start
         f'<span class="cohort-tag">{html.escape(cohort_label)}</span>{summary}</th></tr>'
         '<tr class="columns"><th class="pos">Suggested seed</th><th>Team / club</th>'
         '<th class="num">PitchRank score</th><th class="num">State rank</th><th>What to know</th></tr>'
-        f'</thead><tbody>{rows}'
-        '</tbody></table>'
+        f'</thead>{rows}</table>'
     )
 
 
@@ -670,7 +679,9 @@ def render_sheet_html(
  background: #F0F5F3; }}
  table.grid td {{ padding: 5px 6px; border-bottom: 1px solid {BRAND["rule"]}; vertical-align: top;
  line-height: 1.35; overflow-wrap: anywhere; }}
+ tbody.competitive-break-group {{ break-inside: avoid-page; page-break-inside: avoid; }}
  tr.strength-break td {{ border-bottom: 0; }}
+ tr.competitive-break {{ break-after: avoid-page; page-break-after: avoid; }}
  tr.competitive-break td {{ padding: 5px 8px; text-align: center; background: {BRAND["yellow_soft"]};
   border-top: 1px solid {BRAND["yellow"]}; border-bottom: 1px solid {BRAND["yellow"]};
   color: {BRAND["forest_deep"]}; font-family: Oswald, sans-serif; font-size: 9px; font-weight: 600;

@@ -158,7 +158,7 @@ const FAQS: FAQ[] = [
 
 export default function MatchBalancePage() {
   return (
-    <main className="min-h-screen overflow-hidden bg-[#f7f6f1] text-[#14231f]">
+    <main className="min-h-screen overflow-x-clip bg-[#f7f6f1] text-[#14231f]">
       <BreadcrumbSchema
         items={[
           { name: 'Home', href: '/' },
