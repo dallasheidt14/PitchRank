@@ -2,6 +2,7 @@
 
 import json
 import sys
+from contextlib import contextmanager
 from dataclasses import asdict, replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -370,6 +371,49 @@ def _render_fixture_app():
     render_intake(ReadOnlyTeams())
 
 
+def _render_unrecovered_fixture_app():
+    from dataclasses import replace
+
+    import streamlit as st
+
+    import tournament_intake as app
+    from src.tournaments.backtest_intake_ui import render_intake
+    from tests.unit.test_backtest_intake_state import sample_snapshot
+    from tests.unit.test_backtest_intake_ui import ReadOnlyTeams
+
+    if app._BACKTEST_KEYS.snapshot not in st.session_state:
+        st.session_state[app._BACKTEST_KEYS.snapshot] = replace(
+            sample_snapshot(),
+            recovery_available=False,
+        )
+    render_intake(ReadOnlyTeams())
+
+
+def _render_unrecovered_verified_fixture_app():
+    from dataclasses import replace
+
+    import streamlit as st
+
+    import tournament_intake as app
+    from src.tournaments.backtest_intake_state import CaptureVerification
+    from src.tournaments.backtest_intake_ui import render_intake
+    from tests.unit.test_backtest_intake_state import sample_snapshot
+    from tests.unit.test_backtest_intake_ui import ReadOnlyTeams
+
+    if app._BACKTEST_KEYS.snapshot not in st.session_state:
+        st.session_state[app._BACKTEST_KEYS.snapshot] = replace(
+            sample_snapshot(),
+            recovery_available=False,
+            verification=CaptureVerification(
+                ("10", "20", "30"),
+                (2, 3, 3),
+                "2026-09-27T12:00:00+00:00",
+                True,
+            ),
+        )
+    render_intake(ReadOnlyTeams())
+
+
 def _render_failed_rollup_app():
     from pathlib import Path
 
@@ -431,6 +475,108 @@ def rendered_intake(tmp_path, monkeypatch):
     test = AppTest.from_function(_render_fixture_app, default_timeout=10).run()
     assert not test.exception, [error.message for error in test.exception]
     return test, tmp_path
+
+
+def test_main_backtest_redraw_surfaces_missing_recovery_controls(tmp_path, monkeypatch):
+    import tournament_intake as app
+
+    monkeypatch.setattr(app, "reports_dir", lambda: tmp_path)
+    monkeypatch.setattr(app, "_render_seeding_event_scrape", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        app,
+        "_seeding_merge_resolver",
+        lambda client: SimpleNamespace(version="ok", resolve=lambda team_id: team_id),
+    )
+
+    test = AppTest.from_function(_render_unrecovered_fixture_app, default_timeout=10).run()
+
+    assert not test.exception, [error.message for error in test.exception]
+    assert any("recovery file could not be saved" in item.value for item in test.error)
+    labels = {button.label for button in test.button}
+    assert "Retry saving recovery copy" in labels
+    assert "Continue without recovery copy" in labels
+
+
+def test_missing_division_capture_is_disabled_while_recovery_is_pending(tmp_path, monkeypatch):
+    import tournament_intake as app
+
+    monkeypatch.setenv("ZENROWS_API_KEY", "test-key")
+    monkeypatch.setattr(app, "reports_dir", lambda: tmp_path)
+    monkeypatch.setattr(app, "_render_seeding_event_scrape", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        app,
+        "_seeding_merge_resolver",
+        lambda client: SimpleNamespace(version="ok", resolve=lambda team_id: team_id),
+    )
+
+    test = AppTest.from_function(_render_unrecovered_verified_fixture_app, default_timeout=10).run()
+    test.checkbox(key="bt_show_capture_capture-one").check().run()
+
+    assert not test.exception, [error.message for error in test.exception]
+    capture = next(button for button in test.button if button.label == "Capture 1 missing or unreadable divisions")
+    assert capture.disabled is True
+
+
+def test_missing_division_capture_holds_the_shared_scrape_state(rendered_intake, monkeypatch):
+    import tournament_intake as app
+    from src.tournaments import gotsport_event_roster
+
+    test, _ = rendered_intake
+    snapshot = test.session_state[app._BACKTEST_KEYS.snapshot]
+    test.session_state[app._BACKTEST_KEYS.snapshot] = replace(
+        snapshot,
+        verification=CaptureVerification(
+            ("10", "20", "30"),
+            (2, 3, 3),
+            "2026-09-27T12:00:00+00:00",
+            True,
+        ),
+    )
+    monkeypatch.setenv("ZENROWS_API_KEY", "test-key")
+    observed = []
+
+    @contextmanager
+    def fake_lock(lock_key):
+        observed.append(("lock", lock_key))
+        yield
+
+    def fake_capture(roster, *_args, **_kwargs):
+        observed.append((
+            "capture",
+            app.st.session_state._scrape_in_progress,
+            app.st.session_state[app._BACKTEST_KEYS.lock_key],
+        ))
+        return roster
+
+    def fake_park(*_args, **_kwargs):
+        observed.append((
+            "park",
+            app.st.session_state._scrape_in_progress,
+            app.st.session_state[app._BACKTEST_KEYS.lock_key],
+        ))
+        return 3, True
+
+    monkeypatch.setattr(app, "_acquire_scrape_lock", fake_lock)
+    monkeypatch.setattr(app, "_park_event_roster", fake_park)
+    monkeypatch.setattr(gotsport_event_roster, "capture_event_divisions", fake_capture)
+    monkeypatch.setattr(gotsport_event_roster, "make_zenrows_fetcher", lambda _key: object())
+
+    test.run()
+    test.checkbox(key="bt_show_capture_capture-one").check().run()
+    next(
+        button for button in test.button
+        if button.label == "Capture 1 missing or unreadable divisions"
+    ).click().run()
+
+    assert not test.exception, [error.message for error in test.exception]
+    lock_key = observed[0][1]
+    assert observed == [
+        ("lock", lock_key),
+        ("capture", True, lock_key),
+        ("park", True, lock_key),
+    ]
+    assert test.session_state._scrape_in_progress is False
+    assert test.session_state[app._BACKTEST_KEYS.lock_key] is None
 
 
 def test_real_streamlit_render_shows_event_totals_every_team_and_only_intake_actions(rendered_intake):
