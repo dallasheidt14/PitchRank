@@ -931,6 +931,23 @@ def test_backtest_failed_recovery_can_be_retried_without_another_paid_walk(app):
     assert fake_st.session_state[tournament_intake._BACKTEST_KEYS.snapshot].recovery_written is True
 
 
+def test_backtest_recovery_retry_is_disabled_while_another_walk_is_running(app):
+    app.setattr(tournament_intake, "_write_recovery", lambda *_args, **_kwargs: False)
+    fake_st = _install(app, _FakeSt())
+    tournament_intake._park_event_roster(
+        EVENT_URL,
+        _roster(_team(0)),
+        None,
+        None,
+        keys=tournament_intake._BACKTEST_KEYS,
+    )
+    fake_st.session_state._scrape_in_progress = True
+
+    tournament_intake._render_seeding_event_scrape(None, keys=tournament_intake._BACKTEST_KEYS)
+
+    assert fake_st.button_by_key("_backtest_retry_recovery")["disabled"] is True
+
+
 def test_an_ordinary_failure_is_not_reported_as_a_block(app):
     app.setattr(
         tournament_intake,

@@ -5235,11 +5235,16 @@ def _render_seeding_event_scrape(supabase_client: Any, *, keys: _WalkKeys = _SEE
             "Some events list younger divisions first, so those division pages may be read while finding "
             "U10+ divisions; their younger team pages are skipped automatically."
         )
+    in_progress = _scrape_still_running(keys=keys)
     if keys == _BACKTEST_KEYS:
         snapshot = st.session_state.get(keys.snapshot)
         if snapshot is not None and not snapshot.recovery_written:
             st.error(_BACKTEST_RECOVERY_FAILED_NOTICE)
-            if st.button("Retry saving recovery copy", key=f"{keys.prefix}_retry_recovery"):
+            if st.button(
+                "Retry saving recovery copy",
+                key=f"{keys.prefix}_retry_recovery",
+                disabled=in_progress,
+            ):
                 if _write_recovery(snapshot.roster, snapshot.limit_groups, keys):
                     current = st.session_state.get(keys.snapshot)
                     if current is not None and current.generation == snapshot.generation:
@@ -5250,7 +5255,6 @@ def _render_seeding_event_scrape(supabase_client: Any, *, keys: _WalkKeys = _SEE
     if not os.getenv("ZENROWS_API_KEY"):
         st.info("ZENROWS_API_KEY is not set, so these pages cannot be fetched.")
 
-    in_progress = _scrape_still_running(keys=keys)
     url = st.text_input(
         "GotSport event URL",
         key=f"{keys.prefix.lstrip('_')}_event_url",
