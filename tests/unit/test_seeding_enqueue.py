@@ -65,8 +65,10 @@ class _DbRequest:
         self.payload = payload
         self.filters = []
         self.row_limit = None
+        self.columns = None
 
-    def select(self, _columns):
+    def select(self, columns):
+        self.columns = columns
         return self
 
     def eq(self, column, value):
@@ -81,11 +83,17 @@ class _DbRequest:
         if self.kind == "rpc":
             self.db.rpc_executes.append((self.name, self.payload))
             return _Result()
-        self.db.query_executes.append((self.name, tuple(self.filters)))
+        self.db.query_executes.append((self.name, self.columns, tuple(self.filters)))
         rows = [
             row for row in self.db.rows.get(self.name, [])
             if all(row.get(column) == value for column, value in self.filters)
         ]
+        if self.columns and self.columns != "*":
+            selected = [column.strip() for column in self.columns.split(",")]
+            rows = [
+                {column: row[column] for column in selected if column in row}
+                for row in rows
+            ]
         return _Result(rows[:self.row_limit] if self.row_limit is not None else rows)
 
 
@@ -228,6 +236,7 @@ def test_provider_team_id_lookup_filters_out_another_provider_before_limit():
     assert make_provider_team_id_lookup(db, "gotsport-provider")("master-3") == "333"
     assert db.query_executes == [(
         "teams",
+        "provider_team_id",
         (("team_id_master", "master-3"), ("provider_id", "gotsport-provider")),
     )]
 
@@ -260,10 +269,12 @@ def test_provider_team_id_lookup_executes_the_approved_provider_alias_fallback()
     assert db.query_executes == [
         (
             "teams",
+            "provider_team_id",
             (("team_id_master", "master-3"), ("provider_id", "gotsport-provider")),
         ),
         (
             "team_alias_map",
+            "provider_team_id",
             (
                 ("team_id_master", "master-3"),
                 ("provider_id", "gotsport-provider"),
