@@ -852,6 +852,18 @@ def test_backtest_runner_reports_recovery_failure_instead_of_claiming_a_save(app
     assert lookup_calls == [tournament_intake._BACKTEST_KEYS]
     assert fake_st.session_state[tournament_intake._BACKTEST_KEYS.resolution_failed] is False
 
+    rendered_error = fake_st.error
+
+    def rerun_before_error_is_rendered(_message):
+        raise _Rerun()
+
+    app.setattr(fake_st, "error", rerun_before_error_is_rendered)
+    with pytest.raises(_Rerun):
+        tournament_intake._render_seeding_event_scrape(None, keys=tournament_intake._BACKTEST_KEYS)
+
+    assert tournament_intake._BACKTEST_KEYS.recovery_notice in fake_st.session_state
+
+    app.setattr(fake_st, "error", rendered_error)
     tournament_intake._render_seeding_event_scrape(None, keys=tournament_intake._BACKTEST_KEYS)
 
     assert fake_st.errors == [

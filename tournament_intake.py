@@ -5235,9 +5235,10 @@ def _render_seeding_event_scrape(supabase_client: Any, *, keys: _WalkKeys = _SEE
             "Some events list younger divisions first, so those division pages may be read while finding "
             "U10+ divisions; their younger team pages are skipped automatically."
         )
-    recovery_notice = st.session_state.pop(keys.recovery_notice, "")
+    recovery_notice = st.session_state.get(keys.recovery_notice, "")
     if recovery_notice:
         st.error(recovery_notice)
+        st.session_state.pop(keys.recovery_notice, None)
     if not os.getenv("ZENROWS_API_KEY"):
         st.info("ZENROWS_API_KEY is not set, so these pages cannot be fetched.")
 
