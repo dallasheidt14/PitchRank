@@ -5251,7 +5251,57 @@ def _clear_result_from_other_event(url: str, *, keys: _WalkKeys = _SEEDING_KEYS)
     st.session_state[keys.resolution_failed] = False
 
 
-def _render_seeding_event_scrape(supabase_client: Any, *, keys: _WalkKeys = _SEEDING_KEYS) -> None:
+def _render_backtest_recovery_state(*, in_progress: bool | None = None) -> bool:
+    """Show durable-copy status on every Backtest redraw and return whether it blocks a paid walk."""
+    if in_progress is None:
+        in_progress = _scrape_still_running(keys=_BACKTEST_KEYS)
+    snapshot = st.session_state.get(_BACKTEST_KEYS.snapshot)
+    recovery_pending = (
+        snapshot is not None
+        and not snapshot.recovery_available
+        and not snapshot.recovery_bypassed
+    )
+    if recovery_pending and snapshot is not None:
+        st.error(_BACKTEST_RECOVERY_FAILED_NOTICE)
+        if st.button(
+            "Retry saving recovery copy",
+            key=f"{_BACKTEST_KEYS.prefix}_retry_recovery",
+            disabled=in_progress,
+        ):
+            if _write_recovery(snapshot.roster, snapshot.limit_groups, _BACKTEST_KEYS):
+                current = st.session_state.get(_BACKTEST_KEYS.snapshot)
+                if current is not None and current.generation == snapshot.generation:
+                    st.session_state[_BACKTEST_KEYS.snapshot] = replace(current, recovery_available=True)
+                    st.rerun()
+            else:
+                st.error("The recovery copy still could not be saved. Keep this tab open and retry again.")
+        st.warning(
+            "If this recovery file cannot be replaced, you can continue with the capture held only in this "
+            "tab. Save the reviewed intake before closing it."
+        )
+        if st.button(
+            "Continue without recovery copy",
+            key=f"{_BACKTEST_KEYS.prefix}_bypass_recovery",
+            disabled=in_progress,
+        ):
+            current = st.session_state.get(_BACKTEST_KEYS.snapshot)
+            if current is not None and current.generation == snapshot.generation:
+                st.session_state[_BACKTEST_KEYS.snapshot] = replace(current, recovery_bypassed=True)
+                st.rerun()
+    elif snapshot is not None and snapshot.recovery_bypassed and not snapshot.recovery_available:
+        st.warning(
+            "This capture has no recoverable disk copy. Keep this tab open and save the reviewed intake before "
+            "leaving."
+        )
+    return recovery_pending
+
+
+def _render_seeding_event_scrape(
+    supabase_client: Any,
+    *,
+    keys: _WalkKeys = _SEEDING_KEYS,
+    render_recovery_state: bool = True,
+) -> None:
     """Scrape a GotSport event instead of pasting its accepted-teams list.
 
     The Seeding view can scrape the full U10+ event immediately. An optional
@@ -5267,44 +5317,13 @@ def _render_seeding_event_scrape(supabase_client: Any, *, keys: _WalkKeys = _SEE
         )
     in_progress = _scrape_still_running(keys=keys)
     snapshot = st.session_state.get(keys.snapshot) if keys == _BACKTEST_KEYS else None
-    recovery_pending = (
+    recovery_pending = bool(
         snapshot is not None
         and not snapshot.recovery_available
         and not snapshot.recovery_bypassed
     )
-    if recovery_pending:
-        if snapshot is not None:
-            st.error(_BACKTEST_RECOVERY_FAILED_NOTICE)
-            if st.button(
-                "Retry saving recovery copy",
-                key=f"{keys.prefix}_retry_recovery",
-                disabled=in_progress,
-            ):
-                if _write_recovery(snapshot.roster, snapshot.limit_groups, keys):
-                    current = st.session_state.get(keys.snapshot)
-                    if current is not None and current.generation == snapshot.generation:
-                        st.session_state[keys.snapshot] = replace(current, recovery_available=True)
-                        st.rerun()
-                else:
-                    st.error("The recovery copy still could not be saved. Keep this tab open and retry again.")
-            st.warning(
-                "If this recovery file cannot be replaced, you can continue with the capture held only in this "
-                "tab. Save the reviewed intake before closing it."
-            )
-            if st.button(
-                "Continue without recovery copy",
-                key=f"{keys.prefix}_bypass_recovery",
-                disabled=in_progress,
-            ):
-                current = st.session_state.get(keys.snapshot)
-                if current is not None and current.generation == snapshot.generation:
-                    st.session_state[keys.snapshot] = replace(current, recovery_bypassed=True)
-                    st.rerun()
-    elif snapshot is not None and snapshot.recovery_bypassed and not snapshot.recovery_available:
-        st.warning(
-            "This capture has no recoverable disk copy. Keep this tab open and save the reviewed intake before "
-            "leaving."
-        )
+    if keys == _BACKTEST_KEYS and render_recovery_state:
+        recovery_pending = _render_backtest_recovery_state(in_progress=in_progress)
     if not os.getenv("ZENROWS_API_KEY"):
         st.info("ZENROWS_API_KEY is not set, so these pages cannot be fetched.")
 

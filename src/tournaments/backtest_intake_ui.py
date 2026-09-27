@@ -1282,7 +1282,11 @@ def _render_capture_details(snapshot: BacktestSnapshot, supabase_client: Any, ba
                 progress.empty()
 
     with st.expander("Start or repeat a Backtest capture"):
-        _render_seeding_event_scrape(supabase_client, keys=_BACKTEST_KEYS)
+        _render_seeding_event_scrape(
+            supabase_client,
+            keys=_BACKTEST_KEYS,
+            render_recovery_state=False,
+        )
 
 
 def _display_gender(value: str) -> str:
@@ -2064,7 +2068,13 @@ def _render_backtest_runner(
 
 
 def render_intake(supabase_client: Any) -> None:
-    from tournament_intake import _BACKTEST_KEYS, _as_plain_text, _render_seeding_event_scrape, reports_dir
+    from tournament_intake import (
+        _BACKTEST_KEYS,
+        _as_plain_text,
+        _render_backtest_recovery_state,
+        _render_seeding_event_scrape,
+        reports_dir,
+    )
 
     base_dir = reports_dir()
     st.markdown("### Completed tournament intake")
@@ -2074,6 +2084,7 @@ def render_intake(supabase_client: Any) -> None:
     if snapshot is None:
         _render_seeding_event_scrape(supabase_client, keys=_BACKTEST_KEYS)
         return
+    _render_backtest_recovery_state()
     snapshot = _restore_review_baseline(snapshot, base_dir)
     if st.session_state.pop(f"bt_saved_{snapshot.generation}", False):
         st.success("Saved the tournament capture, team decisions, cohort corrections, and tiebreak rule.")
