@@ -132,6 +132,23 @@ def test_recovery_containment_allows_candidate_team_enrichment():
     assert_capture_evidence_contained(required, candidate)
 
 
+def test_full_recovery_covers_probe_with_skipped_divisions(tmp_path, monkeypatch):
+    import tournament_intake as app
+
+    full = roster(fixture())
+    probe = replace(full, divisions_skipped=1)
+    monkeypatch.setattr(app, "reports_dir", lambda: tmp_path)
+    assert app._write_backtest_recovery(full, None).written is True
+    recovery_path = app._event_recovery_path("51783", completed_event=True)
+    before = recovery_path.read_bytes()
+
+    recovery = app._write_backtest_recovery(probe, 1)
+
+    assert recovery.available is True
+    assert recovery.written is False
+    assert recovery_path.read_bytes() == before
+
+
 def test_unique_published_number_allows_a_score_correction_without_a_provider_link():
     old = fixture(source_url="")
     corrected = replace(old, home_shootout_score=2, away_shootout_score=3, result_text="0 - 0 PKS: 2 - 3")

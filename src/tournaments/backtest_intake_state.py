@@ -818,7 +818,7 @@ def assert_capture_evidence_contained(required: EventRoster, candidate: EventRos
         candidate.divisions_found >= required.divisions_found
         and candidate.divisions_walked >= required.divisions_walked
         and candidate.divisions_unreadable <= required.divisions_unreadable
-        and candidate.divisions_skipped >= required.divisions_skipped
+        and candidate.divisions_skipped <= required.divisions_skipped
         and candidate.teams_unreadable <= required.teams_unreadable
         and (not required.divisions_stable or candidate.divisions_stable)
         and (not required.completed_event or candidate.completed_event)
