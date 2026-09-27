@@ -836,28 +836,29 @@ def test_backtest_does_not_claim_recovery_when_the_write_failed(app):
 def test_backtest_runner_reports_recovery_failure_instead_of_claiming_a_save(app):
     app.setattr(tournament_intake, "scrape_event_roster", _RecordingScrape(_roster(_team(0))))
     app.setattr(tournament_intake, "_write_recovery", lambda *_args, **_kwargs: False)
+    fake_st = _install(app, _FakeSt(text={"backtest_event_url": EVENT_URL}))
+    lookup_calls = []
 
-    def stop_after_completion_message(*_args, **_kwargs):
-        raise RuntimeError("stop after completion message")
+    def complete_lookup(_parsed, _resolved, _client, *, keys=tournament_intake._SEEDING_KEYS):
+        lookup_calls.append(keys)
+        fake_st.session_state[keys.resolution_failed] = False
 
-    app.setattr(tournament_intake, "_run_seeding_name_lookup", stop_after_completion_message)
-    fake_st = _install(app, _FakeSt())
+    app.setattr(tournament_intake, "_run_seeding_name_lookup", complete_lookup)
 
-    with pytest.raises(RuntimeError, match="stop after completion message"):
-        tournament_intake._run_event_roster_scrape(
-            EVENT_URL,
-            None,
-            limit_groups=None,
-            keys=tournament_intake._BACKTEST_KEYS,
-        )
+    _scrape(limit_groups=None, keys=tournament_intake._BACKTEST_KEYS)
 
-    assert "Capture saved and matching complete" not in fake_st.progress_texts
-    assert "Matching complete; recovery file was not saved" in fake_st.progress_texts
-    assert {
-        "label": "Capture completed, but recovery was not saved",
-        "state": "error",
-        "expanded": True,
-    } in fake_st.status_updates
+    assert fake_st.progress_texts == [], "the mandatory rerun clears transient progress output"
+    assert fake_st.status_updates == [], "the mandatory rerun clears transient status output"
+    assert lookup_calls == [tournament_intake._BACKTEST_KEYS]
+    assert fake_st.session_state[tournament_intake._BACKTEST_KEYS.resolution_failed] is False
+
+    tournament_intake._render_seeding_event_scrape(None, keys=tournament_intake._BACKTEST_KEYS)
+
+    assert fake_st.errors == [
+        "The event capture is available in this tab, but its recovery file could not be saved. "
+        "Do not close the tab; retry the capture to create a recoverable copy."
+    ]
+    assert tournament_intake._BACKTEST_KEYS.recovery_notice not in fake_st.session_state
 
 
 def test_an_ordinary_failure_is_not_reported_as_a_block(app):

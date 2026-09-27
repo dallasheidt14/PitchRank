@@ -3552,6 +3552,10 @@ class _WalkKeys:
         return f"{self.prefix}_scrape_lock_key"
 
     @property
+    def recovery_notice(self) -> str:
+        return f"{self.prefix}_recovery_notice"
+
+    @property
     def loaded_slug(self) -> str:
         return f"{self.prefix}_loaded_slug"
 
@@ -3792,6 +3796,10 @@ def _run_event_roster_scrape(
                             progress.progress(1.0, text="Capture saved and matching complete")
                             status_box.update(label="Event capture complete", state="complete", expanded=False)
                         else:
+                            st.session_state[keys.recovery_notice] = (
+                                "The event capture is available in this tab, but its recovery file could not be "
+                                "saved. Do not close the tab; retry the capture to create a recoverable copy."
+                            )
                             progress.progress(1.0, text="Matching complete; recovery file was not saved")
                             status_box.update(
                                 label="Capture completed, but recovery was not saved",
@@ -5227,6 +5235,9 @@ def _render_seeding_event_scrape(supabase_client: Any, *, keys: _WalkKeys = _SEE
             "Some events list younger divisions first, so those division pages may be read while finding "
             "U10+ divisions; their younger team pages are skipped automatically."
         )
+    recovery_notice = st.session_state.pop(keys.recovery_notice, "")
+    if recovery_notice:
+        st.error(recovery_notice)
     if not os.getenv("ZENROWS_API_KEY"):
         st.info("ZENROWS_API_KEY is not set, so these pages cannot be fetched.")
 
