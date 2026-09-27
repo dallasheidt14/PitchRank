@@ -230,7 +230,10 @@ class CheatSheetAnalysis:
     def marker_for_seed(self, seed: int) -> str:
         for item in self.breaks:
             if item.after_seed == seed:
-                return "Competitive Break"
+                return (
+                    f"Competitive Break: {item.score_gap * 100:.1f} PowerScore points "
+                    f"between seeds {seed} and {seed + 1}."
+                )
         return ""
 
 
@@ -876,7 +879,7 @@ def build_cheat_sheet_analysis(
             )
         else:
             notes.append(
-                f"Score step: {item.score_gap * 100:.1f} points between seeds "
+                f"Competitive Break: {item.score_gap * 100:.1f} PowerScore points between seeds "
                 f"{item.after_seed} and {item.after_seed + 1}."
             )
 

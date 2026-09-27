@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 CONTENT_VERSION = 4
 DIRECTOR_LEGEND = (
     "Start with the numbered MatchBalance Seed order. PowerScore remains the original published-strength "
-    "baseline; bars use the same 0-100 scale. Competitive Breaks show natural separation supported by "
+    "baseline; bars use the same 0-100 scale. Competitive Breaks mark larger PowerScore steps supported by "
     "nearby matchups; they do not assign divisions or pools. Very-close ranges identify the same competitive "
     "neighborhood without claiming the teams are equal."
 )

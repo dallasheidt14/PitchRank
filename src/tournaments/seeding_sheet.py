@@ -51,6 +51,7 @@ BRAND = {
     "forest": "#0B5345",
     "forest_deep": "#083E33",
     "yellow": "#F4D03F",
+    "yellow_soft": "#FFF8CF",
     "ink": "#12211D",
     "muted": "#5B6B66",
     "rule": "#D8E0DD",
@@ -338,7 +339,9 @@ def _rows_html(
     movement_notes: Mapping[str, str] | None = None,
     close_range_notes: Mapping[str, str] | None = None,
 ) -> str:
-    cells = []
+    row_groups = []
+    regular_rows = []
+    break_before_next_row = False
     for position, team in enumerate(teams, start=start):
         status = _status_label(team.status) if numbered else ""
         flag = (
@@ -376,8 +379,9 @@ def _rows_html(
             f'<span style="width:{team.power_score * 100:.2f}%"></span></span>'
             if numbered and team.power_score is not None else ""
         )
-        cells.append(
-            f'<tr data-entrant="{html.escape(team.entrant_id, quote=True)}">'
+        row_class = ' class="strength-break"' if team.entrant_id in strength_break_ids else ""
+        row = (
+            f'<tr data-entrant="{html.escape(team.entrant_id, quote=True)}"{row_class}>'
             f'<td class="pos">{position if numbered else "-"}</td>'
             f'<td class="team">{html.escape(team.team_name)}{play_up}{flag}{pitchrank_name}'
             f'<span class="club">{html.escape(team.club_name)}</span></td>'
@@ -386,14 +390,23 @@ def _rows_html(
             f'<td class="movement">{html.escape((movement_notes or {}).get(team.entrant_id, ""))}</td>'
             f'<td class="{note_class}">{html.escape(note)}{close_html}</td></tr>'
         )
-        if team.entrant_id in strength_break_ids:
-            cells.append(
+        if break_before_next_row:
+            if regular_rows:
+                row_groups.append(f'<tbody>{"".join(regular_rows)}</tbody>')
+                regular_rows = []
+            row_groups.append(
+                '<tbody class="competitive-break-group">'
                 '<tr class="competitive-break"><td colspan="5">'
                 '<span>Competitive Break</span>'
                 '<small>Natural model separation - not a required flight or division</small>'
-                '</td></tr>'
+                f'</td></tr>{row}</tbody>'
             )
-    return "".join(cells)
+        else:
+            regular_rows.append(row)
+        break_before_next_row = team.entrant_id in strength_break_ids
+    if regular_rows:
+        row_groups.append(f'<tbody>{"".join(regular_rows)}</tbody>')
+    return "".join(row_groups)
 
 
 def _table_html(title: str, teams: Sequence[SheetTeam], *, numbered: bool, start: int = 1,
@@ -417,8 +430,7 @@ def _table_html(title: str, teams: Sequence[SheetTeam], *, numbered: bool, start
         f'<span class="cohort-tag">{html.escape(cohort_label)}</span>{summary}</th></tr>'
         f'<tr class="columns"><th class="pos">{html.escape(seed_label)}</th><th>Team / club</th>'
         '<th class="num">PowerScore</th><th>Movement</th><th>What to know</th></tr>'
-        f'</thead><tbody>{rows}'
-        '</tbody></table>'
+        f'</thead>{rows}</table>'
     )
 
 
@@ -700,10 +712,14 @@ def render_sheet_html(
  background: #F0F5F3; }}
  table.grid td {{ padding: 5px 6px; border-bottom: 1px solid {BRAND["rule"]}; vertical-align: top;
  line-height: 1.35; overflow-wrap: anywhere; }}
- tr.competitive-break td {{ padding: 4px 8px; border: 0; background: {BRAND["forest_deep"]};
- color: white; text-align: center; letter-spacing: .08em; text-transform: uppercase;
- font-family: "Oswald", sans-serif; }}
- tr.competitive-break small {{ display: block; margin-top: 1px; color: #DDE9E5;
+ tbody.competitive-break-group {{ break-inside: avoid-page; page-break-inside: avoid; }}
+ tr.strength-break td {{ border-bottom: 0; }}
+ tr.competitive-break {{ break-after: avoid-page; page-break-after: avoid; }}
+ tr.competitive-break td {{ padding: 5px 8px; text-align: center; background: {BRAND["yellow_soft"]};
+  border-top: 1px solid {BRAND["yellow"]}; border-bottom: 1px solid {BRAND["yellow"]};
+  color: {BRAND["forest_deep"]}; font-family: Oswald, sans-serif; font-size: 9px; font-weight: 600;
+  letter-spacing: .18em; text-transform: uppercase; }}
+ tr.competitive-break small {{ display: block; margin-top: 1px; color: {BRAND["muted"]};
  font: 7.5px "DM Sans", sans-serif; letter-spacing: 0; text-transform: none; }}
  .close-note {{ display: block; margin-top: 2px; padding: 2px 4px; background: #EEF4F2;
  color: {BRAND["forest_deep"]}; font-size: 8px; font-weight: 700; line-height: 1.25; }}

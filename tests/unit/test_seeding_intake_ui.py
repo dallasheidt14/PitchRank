@@ -333,6 +333,7 @@ def test_note_changes_invalidate_both_downloads_under_one_content_identity(opera
     assert app.session_state["_seeding_export_fingerprint"] != before
     assert app.session_state["_seeding_xlsx_hash"] == app.session_state["_seeding_export_fingerprint"]
     from io import BytesIO
+
     from openpyxl import load_workbook
     workbook = load_workbook(BytesIO(app.session_state["_seeding_xlsx"]))
     assert any(cell.value == "Edited after PDF generation" for row in workbook["U14 Boys"] for cell in row)
@@ -374,6 +375,7 @@ def test_narrowing_cohorts_keeps_every_cohorts_notes_and_policy(operator):
     assert rebuilt["operator_notes"] == {"u14|Male": "Boys placement notes", "u15|Female": "Girls placement notes"}
     assert rebuilt["placement_reviews"] == {"u15|Female": "f" * 64}
     from io import BytesIO
+
     from openpyxl import load_workbook
     workbook = load_workbook(BytesIO(app.session_state["_seeding_xlsx"]))
     values = [cell.value for row in workbook.active for cell in row]
@@ -407,6 +409,7 @@ def test_rebuild_materializes_new_policy_defaults_from_a_version_three_pack(oper
 
 def test_unknown_gender_and_girls_cohort_build_together(operator):
     from io import BytesIO
+
     from openpyxl import load_workbook
 
     app_code = APP.replace("resolved =", '''from dataclasses import replace
@@ -643,6 +646,7 @@ def test_legacy_pack_fingerprint_remains_valid_with_empty_new_provenance_fields(
     import hashlib
     import json
     from dataclasses import asdict
+
     from src.tournaments.roster_resolver import ResolvedTeam
     from src.tournaments.seeding_pack import roster_fingerprint
 
@@ -715,6 +719,7 @@ def test_compare_discovered_conflicts_mark_all_exports_as_draft(operator, monkey
     assert b"Draft" in exported[-1]
     assert "DRAFT" in app.session_state["_seeding_sheet_html"]
     from io import BytesIO
+
     from openpyxl import load_workbook
     assert "DRAFT" in load_workbook(BytesIO(app.session_state["_seeding_xlsx"])).active["A1"].value
 
