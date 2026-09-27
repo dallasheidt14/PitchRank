@@ -7,6 +7,7 @@ import pytest
 from src.tournaments.backtest_intake_state import (
     BacktestSnapshot,
     IntakeOverwriteRefused,
+    assert_capture_evidence_contained,
     assert_capture_preserved,
     write_snapshot,
 )
@@ -82,6 +83,22 @@ def test_a_corrected_draw_can_clear_the_derived_winner():
                   away_score=1, result_text="0 - 1")
     corrected = replace(old, home_score=1, result_text="1 - 1", winner_side="", winner_registration_id=None)
     assert_capture_preserved(roster(old), roster(corrected))
+
+
+def test_recovery_containment_rejects_a_stale_winner_cleared_by_a_corrected_draw():
+    stale = fixture(
+        home_shootout_score=None,
+        away_shootout_score=None,
+        home_score=1,
+        away_score=1,
+        result_text="1 - 1",
+        winner_side="home",
+        winner_registration_id="100",
+    )
+    corrected = replace(stale, winner_side="", winner_registration_id=None)
+
+    with pytest.raises(IntakeOverwriteRefused):
+        assert_capture_evidence_contained(roster(corrected), roster(stale))
 
 
 def test_unique_published_number_allows_a_score_correction_without_a_provider_link():
@@ -202,6 +219,43 @@ def test_intact_equivalent_recovery_remains_available_when_rewrite_fails(tmp_pat
     recovery = app._write_backtest_recovery(captured, None)
 
     assert recovery.available is True
+    assert recovery.written is False
+    assert recovery_path.read_bytes() == before
+
+
+def test_stale_corrected_recovery_is_not_available_when_rewrite_fails(tmp_path, monkeypatch):
+    import tournament_intake as app
+
+    saved = roster(fixture(
+        home_score=0,
+        away_score=0,
+        result_text="0 - 0",
+        home_shootout_score=None,
+        away_shootout_score=None,
+        winner_side="",
+        winner_registration_id=None,
+    ))
+    corrected = roster(fixture(
+        home_score=2,
+        away_score=1,
+        result_text="2 - 1",
+        home_shootout_score=None,
+        away_shootout_score=None,
+        winner_side="home",
+        winner_registration_id="100",
+    ))
+    monkeypatch.setattr(app, "reports_dir", lambda: tmp_path)
+    assert app._write_backtest_recovery(saved, None).written is True
+    recovery_path = app._event_recovery_path("51783", completed_event=True)
+    before = recovery_path.read_bytes()
+
+    def fail_write(*_args, **_kwargs):
+        raise OSError("simulated atomic rewrite failure")
+
+    monkeypatch.setattr(app, "write_json", fail_write)
+    recovery = app._write_backtest_recovery(corrected, None)
+
+    assert recovery.available is False
     assert recovery.written is False
     assert recovery_path.read_bytes() == before
 

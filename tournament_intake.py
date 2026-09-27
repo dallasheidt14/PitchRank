@@ -4127,7 +4127,11 @@ def _event_recovery_path(event_id: str, *, completed_event: bool = False) -> Pat
 
 def _write_backtest_recovery(roster: EventRoster, limit_groups: int | None) -> _RecoveryResult:
     """Keep the paid Backtest capture, or retain a richer usable copy already on disk."""
-    from src.tournaments.backtest_intake_state import IntakeOverwriteRefused, assert_capture_preserved
+    from src.tournaments.backtest_intake_state import (
+        IntakeOverwriteRefused,
+        assert_capture_evidence_contained,
+        assert_capture_preserved,
+    )
     from src.tournaments.gotsport_event_roster import event_roster_from_dict, event_roster_to_dict
     from src.tournaments.storage._file_lock import _acquire_file_lock
 
@@ -4147,11 +4151,11 @@ def _write_backtest_recovery(roster: EventRoster, limit_groups: int | None) -> _
                     # evidence. An incomparable fresh walk can also contain new
                     # evidence absent from the file, so the reverse check must
                     # pass before that file counts as a recovery for this walk.
-                    assert_capture_preserved(roster, existing)
+                    assert_capture_evidence_contained(roster, existing)
                     logger.info("Kept the richer Backtest recovery already saved at %s", path)
                     return _RecoveryResult(available=True, written=False)
                 try:
-                    assert_capture_preserved(roster, existing)
+                    assert_capture_evidence_contained(roster, existing)
                 except IntakeOverwriteRefused:
                     # The fresh walk has evidence the existing file lacks, so a
                     # failed replacement would still leave this walk unprotected.

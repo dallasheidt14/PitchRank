@@ -497,7 +497,13 @@ def _fixture_source_refined(previous: str, fresh: str) -> bool:
     return (old.scheme, old.netloc, old.path, old_query) == (new.scheme, new.netloc, new.path, new_query)
 
 
-def _fixture_evidence_preserved(previous: Any, fresh: Any, *, corrections: bool) -> bool:
+def _fixture_evidence_preserved(
+    previous: Any,
+    fresh: Any,
+    *,
+    corrections: bool,
+    require_same_known_values: bool = False,
+) -> bool:
     """Known evidence cannot become absent or uninterpretable.
 
     A uniquely identified game may carry corrected nonempty source values.
@@ -514,6 +520,17 @@ def _fixture_evidence_preserved(previous: Any, fresh: Any, *, corrections: bool)
         if fresh.home_shootout_score is not None or fresh.away_shootout_score is not None
         else (fresh.home_score, fresh.away_score)
     )
+    required_scores = (
+        (previous.home_shootout_score, previous.away_shootout_score)
+        if previous.home_shootout_score is not None or previous.away_shootout_score is not None
+        else (previous.home_score, previous.away_score)
+    )
+    known_draw = (
+        previous.result_status == "played" and not previous.winner_side
+        and previous.winner_registration_id is None
+        and required_scores[0] is not None
+        and required_scores[0] == required_scores[1]
+    )
     corrected_draw = (
         corrections and fresh.result_status == "played" and not fresh.winner_side
         and fresh.winner_registration_id is None and deciding_scores[0] is not None
@@ -523,6 +540,13 @@ def _fixture_evidence_preserved(previous: Any, fresh: Any, *, corrections: bool)
         new_value = new_values.get(field)
         old_level = _fixture_evidence_level(field, old_value)
         new_level = _fixture_evidence_level(field, new_value)
+        if (
+            require_same_known_values
+            and known_draw
+            and field in {"winner_side", "winner_registration_id"}
+            and new_level
+        ):
+            return False
         if corrected_draw and field in {"winner_side", "winner_registration_id"}:
             continue  # A corrected draw has no winning side to preserve.
         if new_level < old_level:
@@ -536,7 +560,13 @@ def _fixture_evidence_preserved(previous: Any, fresh: Any, *, corrections: bool)
     return True
 
 
-def _fixtures_preserved(previous: Any, fresh: Any) -> bool:
+def _fixtures_preserved(
+    previous: Any,
+    fresh: Any,
+    *,
+    allow_corrections: bool = True,
+    require_same_known_values: bool = False,
+) -> bool:
     """Pair rows one-to-one, independent of order and duplicate match numbers.
 
     Provider match links or unique published numbers permit source corrections.
@@ -560,11 +590,16 @@ def _fixtures_preserved(previous: Any, fresh: Any) -> bool:
                 continue
             if old_fixture.match_number and not same_number and not same_source:
                 continue
-            corrections = (
+            corrections = allow_corrections and (
                 (same_source and old_source_counts[old_id] == new_source_counts[new_id] == 1)
                 or (same_number and old_numbers[old_fixture.match_number] == new_numbers[new_fixture.match_number] == 1)
             )
-            if _fixture_evidence_preserved(old_fixture, new_fixture, corrections=corrections):
+            if _fixture_evidence_preserved(
+                old_fixture,
+                new_fixture,
+                corrections=corrections,
+                require_same_known_values=require_same_known_values,
+            ):
                 compatible.append(new_index)
         candidates.append(compatible)
 
@@ -600,13 +635,13 @@ def _fixtures_preserved(previous: Any, fresh: Any) -> bool:
     return True
 
 
-def assert_capture_preserved(previous: EventRoster, fresh: EventRoster) -> None:
-    """Refuse omitted evidence; allow identified games' nonempty corrections.
-
-    This is an omission guard, not an assertion that a provider can never
-    correct a published result. Removing previously known facts requires
-    retaining/reviewing the richer capture rather than silently replacing it.
-    """
+def _assert_capture_preserved(
+    previous: EventRoster,
+    fresh: EventRoster,
+    *,
+    allow_fixture_corrections: bool,
+    require_same_known_values: bool,
+) -> None:
     if previous.event_id != fresh.event_id:
         raise IntakeOverwriteRefused("The saved capture belongs to another event")
     old_teams = {(team.group_id, entrant_key(team)) for team in previous.teams}
@@ -626,13 +661,49 @@ def assert_capture_preserved(previous: EventRoster, fresh: EventRoster) -> None:
         or (division.fixtures_readable and not new_divisions[group].fixtures_readable)
         or len(division.pools) > len(new_divisions[group].pools)
         or bool(pool_members(division) - pool_members(new_divisions[group]))
-        or not _fixtures_preserved(division.fixtures, new_divisions[group].fixtures)
+        or not _fixtures_preserved(
+            division.fixtures,
+            new_divisions[group].fixtures,
+            allow_corrections=allow_fixture_corrections,
+            require_same_known_values=require_same_known_values,
+        )
         for group, division in old_divisions.items() if group in new_divisions
     )
     if ((previous.is_complete and not fresh.is_complete) or not old_teams <= new_teams
             or not old_divisions.keys() <= new_divisions.keys()
             or downgraded):
         raise IntakeOverwriteRefused("A larger capture is saved; load it before saving this event")
+
+
+def assert_capture_preserved(previous: EventRoster, fresh: EventRoster) -> None:
+    """Refuse omitted evidence; allow identified games' nonempty corrections.
+
+    This is an omission guard, not an assertion that a provider can never
+    correct a published result. Removing previously known facts requires
+    retaining/reviewing the richer capture rather than silently replacing it.
+    """
+    _assert_capture_preserved(
+        previous,
+        fresh,
+        allow_fixture_corrections=True,
+        require_same_known_values=False,
+    )
+
+
+def assert_capture_evidence_contained(required: EventRoster, candidate: EventRoster) -> None:
+    """Require ``candidate`` to hold every known value in ``required`` exactly.
+
+    Unlike the normal overwrite guard, this check does not allow a uniquely
+    identified fixture's nonempty fields to be corrected. It is used when an
+    older disk copy is the only fallback for a failed rewrite: a different old
+    score is not protection for the fresh score still held only in memory.
+    """
+    _assert_capture_preserved(
+        required,
+        candidate,
+        allow_fixture_corrections=False,
+        require_same_known_values=True,
+    )
 
 
 def write_snapshot(
