@@ -877,7 +877,8 @@ def test_backtest_runner_reports_recovery_failure_instead_of_claiming_a_save(app
     tournament_intake._render_seeding_event_scrape(None, keys=tournament_intake._BACKTEST_KEYS)
 
     assert fake_st.errors == [tournament_intake._BACKTEST_RECOVERY_FAILED_NOTICE]
-    assert fake_st.session_state[tournament_intake._BACKTEST_KEYS.snapshot].recovery_written is True
+    assert fake_st.button_by_key("_backtest_retry_recovery")["label"] == "Retry saving recovery copy"
+    assert fake_st.session_state[tournament_intake._BACKTEST_KEYS.snapshot].recovery_written is False
 
 
 def test_backtest_recovery_failure_is_published_atomically_with_the_snapshot(app):
@@ -901,6 +902,32 @@ def test_backtest_recovery_failure_is_published_atomically_with_the_snapshot(app
     tournament_intake._render_seeding_event_scrape(None, keys=tournament_intake._BACKTEST_KEYS)
 
     assert fake_st.errors == [tournament_intake._BACKTEST_RECOVERY_FAILED_NOTICE]
+    assert fake_st.session_state[tournament_intake._BACKTEST_KEYS.snapshot].recovery_written is False
+
+
+def test_backtest_failed_recovery_can_be_retried_without_another_paid_walk(app):
+    app.setattr(tournament_intake, "_write_recovery", lambda *_args, **_kwargs: False)
+    fake_st = _install(app, _FakeSt())
+    tournament_intake._park_event_roster(
+        EVENT_URL,
+        _roster(_team(0)),
+        None,
+        None,
+        keys=tournament_intake._BACKTEST_KEYS,
+    )
+    retried = []
+
+    def write_retry(roster, limit_groups, keys):
+        retried.append((roster.event_id, limit_groups, keys))
+        return True
+
+    app.setattr(tournament_intake, "_write_recovery", write_retry)
+    fake_st._button_returns["_backtest_retry_recovery"] = True
+
+    with pytest.raises(_Rerun):
+        tournament_intake._render_seeding_event_scrape(None, keys=tournament_intake._BACKTEST_KEYS)
+
+    assert retried == [("52975", None, tournament_intake._BACKTEST_KEYS)]
     assert fake_st.session_state[tournament_intake._BACKTEST_KEYS.snapshot].recovery_written is True
 
 

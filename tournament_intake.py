@@ -3582,7 +3582,7 @@ _BACKTEST_KEYS = _WalkKeys("_backtest")
 
 _BACKTEST_RECOVERY_FAILED_NOTICE = (
     "The event capture is available in this tab, but its recovery file could not be saved. "
-    "Do not close the tab; retry the capture to create a recoverable copy."
+    "Do not close the tab; retry saving the recovery copy below."
 )
 
 _SEEDING_LOOKUP_DELAY_SECONDS = 0.4
@@ -5239,9 +5239,14 @@ def _render_seeding_event_scrape(supabase_client: Any, *, keys: _WalkKeys = _SEE
         snapshot = st.session_state.get(keys.snapshot)
         if snapshot is not None and not snapshot.recovery_written:
             st.error(_BACKTEST_RECOVERY_FAILED_NOTICE)
-            current = st.session_state.get(keys.snapshot)
-            if current is not None and current.generation == snapshot.generation:
-                st.session_state[keys.snapshot] = replace(current, recovery_written=True)
+            if st.button("Retry saving recovery copy", key=f"{keys.prefix}_retry_recovery"):
+                if _write_recovery(snapshot.roster, snapshot.limit_groups, keys):
+                    current = st.session_state.get(keys.snapshot)
+                    if current is not None and current.generation == snapshot.generation:
+                        st.session_state[keys.snapshot] = replace(current, recovery_written=True)
+                        st.rerun()
+                else:
+                    st.error("The recovery copy still could not be saved. Keep this tab open and retry again.")
     if not os.getenv("ZENROWS_API_KEY"):
         st.info("ZENROWS_API_KEY is not set, so these pages cannot be fetched.")
 
