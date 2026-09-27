@@ -423,6 +423,30 @@ def test_material_reversal_limit_must_be_positive_and_finite(value):
         TierPolicy(material_reversal_expected_goal_difference=value)
 
 
+@pytest.mark.parametrize("value", [True, -1, 1.5])
+def test_automatic_movement_cap_must_be_a_non_negative_integer(value):
+    with pytest.raises(ValueError, match="Maximum automatic seed movement"):
+        TierPolicy(max_automatic_seed_movement=value)
+
+
+@pytest.mark.parametrize("windows", [(), (1,), (5, 5), (5, 2.5)])
+def test_local_consensus_windows_are_independently_validated(windows):
+    with pytest.raises(ValueError, match="window sizes"):
+        TierPolicy(local_consensus_window_sizes=windows)
+
+
+@pytest.mark.parametrize("value", [True, 0, -1, 1.5])
+def test_local_consensus_minimum_shared_opponents_is_a_positive_integer(value):
+    with pytest.raises(ValueError, match="at least one shared opponent"):
+        TierPolicy(local_consensus_min_shared_opponents=value)
+
+
+@pytest.mark.parametrize("value", [-0.1, 1.0, float("inf"), float("nan")])
+def test_local_consensus_support_threshold_is_an_independent_fraction(value):
+    with pytest.raises(ValueError, match="support threshold"):
+        TierPolicy(local_consensus_support_threshold=value)
+
+
 def test_empty_and_review_only_cohorts_do_not_invent_tiers():
     result = build_tiers([], {})
     assert result.tiers == ()

@@ -26,8 +26,9 @@ from src.tournaments.seeding_tiers import (
     build_tiers,
 )
 
-PACK_SCHEMA_VERSION = 3
-ANALYSIS_SCHEMA_VERSION = 6
+PACK_SCHEMA_VERSION = 4
+ANALYSIS_SCHEMA_VERSION = 7
+_UPGRADABLE_PACK_SCHEMAS = frozenset({3, 4})
 _AGE_GROUP = re.compile(r"^u[1-9][0-9]?$")
 _LEGACY_UNAVAILABLE_REASONS = {
     "Two roster entries resolve to the same team; verify the matches.": (
@@ -47,7 +48,7 @@ def normalize_policy(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError("Seeding snapshot has invalid matchup limits.")
     try:
-        return asdict(TierPolicy(**value))
+        return json.loads(json.dumps(asdict(TierPolicy(**value))))
     except (TypeError, KeyError) as exc:
         raise ValueError("Seeding snapshot has invalid matchup limits.") from exc
 
@@ -180,9 +181,12 @@ def make_pack(
         "policy": asdict(TierPolicy()),
         "manual_groups": {},
         "legacy_manual_groups": {},
+        "manual_seed_orders": {},
+        "ordering": {},
         "operator_notes": {},
     }
     _snapshot_predictions(pack, request)
+    persist_ordering(pack, analyze_pack(pack, rows, resolved, overrides))
     # A saved forecast must not share mutable nested dictionaries with a batch
     # or ratings cache that can later be refreshed in the same operator session.
     return json.loads(json.dumps(pack, ensure_ascii=False, allow_nan=False))
@@ -192,8 +196,10 @@ def pack_matches(
     pack: Any, rows: Sequence[RosterRow], resolved: Sequence[ResolvedTeam],
     overrides: Mapping[int, dict[str, Any]], selected: Sequence[str] | None = None,
 ) -> bool:
-    return snapshot_matches_roster(pack, rows, resolved, overrides, selected) and (
-        pack.get("analysis_schema_version") == ANALYSIS_SCHEMA_VERSION
+    return (
+        snapshot_matches_roster(pack, rows, resolved, overrides, selected)
+        and pack.get("schema_version") == PACK_SCHEMA_VERSION
+        and pack.get("analysis_schema_version") == ANALYSIS_SCHEMA_VERSION
     )
 
 
@@ -205,7 +211,7 @@ def snapshot_matches_roster(
 
     This retention check does not authorize analysis or exports.
     """
-    if not isinstance(pack, dict) or pack.get("schema_version") != PACK_SCHEMA_VERSION:
+    if not isinstance(pack, dict) or pack.get("schema_version") not in _UPGRADABLE_PACK_SCHEMAS:
         return False
     saved_selection = pack.get("selected_cohorts")
     if (
@@ -235,7 +241,7 @@ def _snapshot_predictions(
         not isinstance(value, dict) for value in pack["ratings"].values()
     ):
         raise ValueError("Seeding snapshot has invalid ratings.")
-    for section in ("manual_groups", "unavailable_codes"):
+    for section in ("manual_groups", "unavailable_codes", "manual_seed_orders", "ordering"):
         if not isinstance(pack.get(section, {}), dict) or not set(pack.get(section, {})).issubset(request):
             raise ValueError(f"Seeding snapshot has invalid {section} cohort coverage.")
     # Notes may name a cohort outside this selection: a narrowed rebuild keeps
@@ -381,10 +387,51 @@ def analyze_pack(
                 legacy = build_tiers(entrants, snapshot_predictions[key], policy=policy)
         else:
             legacy = build_tiers(entrants, snapshot_predictions[key], policy=policy)
+        manual = pack.get("manual_seed_orders", {}).get(key)
+        if manual is not None and (
+            not isinstance(manual, dict)
+            or not isinstance(manual.get("seeded"), list)
+            or not isinstance(manual.get("held"), list)
+            or any(not isinstance(value, str) for value in (*manual["seeded"], *manual["held"]))
+        ):
+            raise ValueError("Seeding snapshot has an invalid manual seed order.")
         analyses[tuple(key.split("|", 1))] = build_cheat_sheet_analysis(
-            entrants, snapshot_predictions[key], policy=policy, legacy=legacy,
+            entrants,
+            snapshot_predictions[key],
+            policy=policy,
+            legacy=legacy,
+            manual_order=manual["seeded"] if manual is not None else None,
+            manual_holds=manual["held"] if manual is not None else (),
         )
+    if pack.get("ordering") and pack["ordering"] != ordering_snapshot(analyses):
+        raise ValueError("Seeding snapshot has inconsistent saved ordering evidence.")
     return analyses
+
+
+def ordering_snapshot(
+    analyses: Mapping[tuple[str, str], CheatSheetAnalysis],
+) -> dict[str, dict[str, Any]]:
+    """Serialize the reproducible ordering result and team-centered movement reasons."""
+    snapshot = {
+        cohort_key(*key): {
+            "baseline_order": list(analysis.baseline_order),
+            "suggested_order": list(analysis.suggested_order),
+            "movements": [asdict(item) for item in analysis.movements],
+            "relationship_evidence": [
+                asdict(item) for item in analysis.local_consensus_checks
+            ],
+            "conflicts": [asdict(item) for item in analysis.ordering_conflicts],
+        }
+        for key, analysis in analyses.items()
+    }
+    return json.loads(json.dumps(snapshot, ensure_ascii=False, allow_nan=False))
+
+
+def persist_ordering(
+    pack: dict[str, Any], analyses: Mapping[tuple[str, str], CheatSheetAnalysis],
+) -> None:
+    """Persist derived order evidence only after a complete analysis succeeds."""
+    pack["ordering"] = ordering_snapshot(analyses)
 
 
 def upgrade_pack_analysis(
@@ -397,18 +444,22 @@ def upgrade_pack_analysis(
     Older prediction/roster contracts still require a fresh build.
     """
     if (
-        pack.get("schema_version") != PACK_SCHEMA_VERSION
-        or pack.get("analysis_schema_version") not in (1, 2, 3, 4, 5)
+        pack.get("schema_version") not in _UPGRADABLE_PACK_SCHEMAS
+        or pack.get("analysis_schema_version") not in (1, 2, 3, 4, 5, 6)
     ):
         raise ValueError("This saved pack requires a fresh build.")
     if pack.get("predictor_sha256") != predictor_sha256:
         raise ValueError("The predictor has changed; build seeding sheets to refresh predictions.")
     candidate = json.loads(json.dumps(pack, ensure_ascii=False, allow_nan=False))
+    candidate["schema_version"] = PACK_SCHEMA_VERSION
     candidate["policy"] = normalize_policy(candidate.get("policy"))
     candidate["analysis_schema_version"] = ANALYSIS_SCHEMA_VERSION
+    candidate.setdefault("manual_seed_orders", {})
+    candidate["ordering"] = {}
     if not pack_matches(candidate, rows, resolved, overrides, selected):
         raise ValueError("The roster or cohort selection changed; build seeding sheets.")
-    analyze_pack(candidate, rows, resolved, overrides)
+    analyses = analyze_pack(candidate, rows, resolved, overrides)
+    persist_ordering(candidate, analyses)
     return candidate
 
 
@@ -424,7 +475,8 @@ def placement_review_fingerprint(pack: dict[str, Any], key: str, analysis: Cheat
 
 
 def needs_placement_review(pack: dict[str, Any], key: str, analysis: CheatSheetAnalysis) -> bool:
-    if not analysis.limited_history and not analysis.placement_checks:
+    unresolved_reversal = any(not item.supported for item in analysis.local_consensus_checks)
+    if not analysis.limited_history and not unresolved_reversal and not analysis.ordering_conflicts:
         return False
     reviews = pack.get("placement_reviews", {})
     return not isinstance(reviews, dict) or reviews.get(key) != placement_review_fingerprint(pack, key, analysis)
