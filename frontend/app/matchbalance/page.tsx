@@ -2,7 +2,6 @@ import type { Metadata } from 'next';
 import Image from 'next/image';
 import {
   ArrowRight,
-  ArrowUp,
   BarChart3,
   CheckCircle2,
   FileSpreadsheet,
@@ -398,11 +397,11 @@ export default function MatchBalancePage() {
               <div className="space-y-5 p-7">
                 <div className="rounded-xl border border-[#dce6e1] p-4">
                   <div className="flex items-start gap-3">
-                    <ArrowUp className="mt-0.5 h-5 w-5 text-[#0b7a5a]" aria-hidden="true" />
+                    <BarChart3 className="mt-0.5 h-5 w-5 text-[#0b7a5a]" aria-hidden="true" />
                     <div>
-                      <p className="font-semibold">Review Team C for a possible move above Team B</p>
+                      <p className="font-semibold">PowerScore order stays visible</p>
                       <p className="mt-1 text-sm text-[#65736e]">
-                        The same nearby comparisons consistently support it.
+                        Every suggested seed keeps its published score alongside it.
                       </p>
                     </div>
                   </div>
