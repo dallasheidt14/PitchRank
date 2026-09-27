@@ -61,9 +61,9 @@ const CAPABILITIES = [
   {
     icon: UsersRound,
     number: '03',
-    title: 'Very-close groups',
-    body: 'Sometimes the useful answer is that the exact order matters less. MatchBalance identifies small ranges that stay within strict matchup limits so you can spend your time on the placement decisions with meaningful competitive consequences.',
-    footer: 'Close does not mean identical or interchangeable.',
+    title: 'Close-match analysis',
+    body: 'MatchBalance tests small ranges against strict matchup limits. That evidence helps distinguish gradual score changes from meaningful breaks, so the sheet can emphasize the placement decisions with real competitive consequences.',
+    footer: 'Close-range evidence informs the analysis; it is not a separate placement label.',
   },
   {
     icon: ShieldCheck,
@@ -113,7 +113,7 @@ const DELIVERABLES = [
 
 const CONTEXT_POINTS = [
   'MatchBalance does not automatically create divisions, brackets or schedules.',
-  'Competitive Breaks are advisory, and very-close groups are not claims that teams are identical.',
+  'Competitive Breaks are advisory, and close-range evidence is not a claim that teams are identical.',
   'Teams with insufficient information are identified for manual placement instead of being guessed into the field.',
 ];
 
@@ -270,10 +270,6 @@ export default function MatchBalancePage() {
                   <span className="font-mono text-sm font-bold">{score}</span>
                 </div>
               ))}
-              <div className="flex items-center justify-between gap-4 bg-[#edf6f2] px-5 py-3 text-sm sm:px-6">
-                <span className="font-semibold text-[#0b5345]">Very close: seeds 4–6</span>
-                <span className="text-xs text-[#5f6f69]">Review as one competitive neighborhood</span>
-              </div>
             </div>
           </div>
         </div>
@@ -418,11 +414,11 @@ export default function MatchBalancePage() {
                 </div>
                 <div className="rounded-xl bg-[#eaf3ef] p-4">
                   <div className="flex items-start gap-3">
-                    <UsersRound className="mt-0.5 h-5 w-5 text-[#0b5345]" aria-hidden="true" />
+                    <ShieldCheck className="mt-0.5 h-5 w-5 text-[#0b5345]" aria-hidden="true" />
                     <div>
-                      <p className="font-semibold text-[#0b5345]">Very close: seeds 4–6</p>
+                      <p className="font-semibold text-[#0b5345]">Limited-history teams stay visible</p>
                       <p className="mt-1 text-sm text-[#65736e]">
-                        Focus less on the exact order and more on where the group belongs.
+                        The sheet flags them for review instead of guessing a placement.
                       </p>
                     </div>
                   </div>
