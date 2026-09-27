@@ -12,7 +12,6 @@ from datetime import date
 from src.tournaments.roster_paste import parse_roster
 from src.tournaments.roster_resolver import ResolvedTeam
 from src.tournaments.seeding_enqueue import (
-    SEEDING_REQUEST_PRIORITY,
     enqueue_resolved_teams,
     make_enqueue_caller,
     make_provider_team_id_lookup,
@@ -171,7 +170,7 @@ def test_queued_rows_carry_the_roster_team_name_and_provider_id():
     first = rpc.calls[0]
     assert first["p_team_name"] == "Barcelona SC 13B Aztecas"
     assert first["p_provider_team_id"] == "534748"
-    assert first["p_priority"] == SEEDING_REQUEST_PRIORITY
+    assert first["p_priority"] == 1
 
 
 def test_a_failing_call_is_counted_without_stopping_the_rest():
@@ -205,7 +204,7 @@ def test_enqueue_caller_executes_the_exact_scrape_request_rpc_and_arguments():
             "p_provider_team_id": "534748",
             "p_game_date": date.today().isoformat(),
             "p_request_type": "missing_games",
-            "p_priority": SEEDING_REQUEST_PRIORITY,
+            "p_priority": 1,
         },
     )]
 
