@@ -4132,6 +4132,7 @@ def _write_backtest_recovery(roster: EventRoster, limit_groups: int | None) -> _
     from src.tournaments.storage._file_lock import _acquire_file_lock
 
     path = _event_recovery_path(roster.event_id, completed_event=True)
+    existing_covers_fresh = False
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         with _acquire_file_lock(path.with_suffix(".lock"), timeout=1.0):
@@ -4149,11 +4150,19 @@ def _write_backtest_recovery(roster: EventRoster, limit_groups: int | None) -> _
                     assert_capture_preserved(roster, existing)
                     logger.info("Kept the richer Backtest recovery already saved at %s", path)
                     return _RecoveryResult(available=True, written=False)
+                try:
+                    assert_capture_preserved(roster, existing)
+                except IntakeOverwriteRefused:
+                    # The fresh walk has evidence the existing file lacks, so a
+                    # failed replacement would still leave this walk unprotected.
+                    pass
+                else:
+                    existing_covers_fresh = True
             write_json(path, {**event_roster_to_dict(roster), "walked_at": utc_now_iso(),
                               "limit_groups": limit_groups})
     except Exception as exc:
         logger.warning("Could not preserve this Backtest walk: %s", exc)
-        return _RecoveryResult(available=False, written=False)
+        return _RecoveryResult(available=existing_covers_fresh, written=False)
     return _RecoveryResult(available=True, written=True)
 
 

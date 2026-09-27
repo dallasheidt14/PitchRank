@@ -186,6 +186,26 @@ def test_same_row_evidence_loss_preserves_saved_snapshot_and_recovery_bytes(tmp_
     assert recovery_path.read_bytes() == before_recovery
 
 
+def test_intact_equivalent_recovery_remains_available_when_rewrite_fails(tmp_path, monkeypatch):
+    import tournament_intake as app
+
+    captured = roster(fixture())
+    monkeypatch.setattr(app, "reports_dir", lambda: tmp_path)
+    assert app._write_backtest_recovery(captured, None).written is True
+    recovery_path = app._event_recovery_path("51783", completed_event=True)
+    before = recovery_path.read_bytes()
+
+    def fail_write(*_args, **_kwargs):
+        raise OSError("simulated atomic rewrite failure")
+
+    monkeypatch.setattr(app, "write_json", fail_write)
+    recovery = app._write_backtest_recovery(captured, None)
+
+    assert recovery.available is True
+    assert recovery.written is False
+    assert recovery_path.read_bytes() == before
+
+
 def test_incomparable_recovery_does_not_claim_to_cover_fresh_evidence(tmp_path, monkeypatch):
     import tournament_intake as app
 
