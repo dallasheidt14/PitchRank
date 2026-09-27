@@ -833,6 +833,33 @@ def test_backtest_does_not_claim_recovery_when_the_write_failed(app):
     assert fake_st.session_state[tournament_intake._BACKTEST_KEYS.snapshot].roster.event_id == "52975"
 
 
+def test_backtest_runner_reports_recovery_failure_instead_of_claiming_a_save(app):
+    app.setattr(tournament_intake, "scrape_event_roster", _RecordingScrape(_roster(_team(0))))
+    app.setattr(tournament_intake, "_write_recovery", lambda *_args, **_kwargs: False)
+
+    def stop_after_completion_message(*_args, **_kwargs):
+        raise RuntimeError("stop after completion message")
+
+    app.setattr(tournament_intake, "_run_seeding_name_lookup", stop_after_completion_message)
+    fake_st = _install(app, _FakeSt())
+
+    with pytest.raises(RuntimeError, match="stop after completion message"):
+        tournament_intake._run_event_roster_scrape(
+            EVENT_URL,
+            None,
+            limit_groups=None,
+            keys=tournament_intake._BACKTEST_KEYS,
+        )
+
+    assert "Capture saved and matching complete" not in fake_st.progress_texts
+    assert "Matching complete; recovery file was not saved" in fake_st.progress_texts
+    assert {
+        "label": "Capture completed, but recovery was not saved",
+        "state": "error",
+        "expanded": True,
+    } in fake_st.status_updates
+
+
 def test_an_ordinary_failure_is_not_reported_as_a_block(app):
     app.setattr(
         tournament_intake,

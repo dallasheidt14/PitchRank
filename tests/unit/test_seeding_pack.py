@@ -19,6 +19,7 @@ from src.tournaments.seeding_pack import (
     make_pack,
     needs_placement_review,
     pack_matches,
+    persist_ordering,
     placement_review_fingerprint,
     prediction_request,
     roster_fingerprint,
@@ -517,6 +518,9 @@ def test_forecast_reversal_alone_requires_placement_acknowledgment():
         replacement = _prediction(-4 if pair == ("0", "1") else 4)
         prediction.update(asdict(replacement))
 
+    pack["ordering"] = {}
+    analyses = analyze_pack(pack, ROWS, RESOLVED, {})
+    persist_ordering(pack, analyses)
     analysis = analyze_pack(pack, ROWS, RESOLVED, {})[("u12", "Male")]
 
     assert analysis.limited_history == ()

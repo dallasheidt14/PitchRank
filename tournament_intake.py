@@ -3737,7 +3737,7 @@ def _run_event_roster_scrape(
             st.session_state[keys.lock_key] = lock_key
             st.session_state._scrape_in_progress = True
             try:
-                def capture(on_phase=None, on_stage=None) -> int:
+                def capture(on_phase=None, on_stage=None) -> tuple[int, bool]:
                     nonlocal saved_before_block
                     try:
                         captured = scrape_event_roster(
@@ -3760,7 +3760,7 @@ def _run_event_roster_scrape(
 
                 if keys != _BACKTEST_KEYS:
                     with st.spinner("Walking the event..."):
-                        parked = capture()
+                        parked, _recovery_written = capture()
                 else:
                     status_box = st.status("Starting event capture", expanded=True)
                     progress = st.progress(0.0, text="Discovering divisions...")
@@ -3787,9 +3787,17 @@ def _run_event_roster_scrape(
                         status_box.update(label=stage, state="running", expanded=True)
 
                     try:
-                        parked = capture(on_phase, on_stage)
-                        progress.progress(1.0, text="Capture saved and matching complete")
-                        status_box.update(label="Event capture complete", state="complete", expanded=False)
+                        parked, recovery_written = capture(on_phase, on_stage)
+                        if recovery_written:
+                            progress.progress(1.0, text="Capture saved and matching complete")
+                            status_box.update(label="Event capture complete", state="complete", expanded=False)
+                        else:
+                            progress.progress(1.0, text="Matching complete; recovery file was not saved")
+                            status_box.update(
+                                label="Capture completed, but recovery was not saved",
+                                state="error",
+                                expanded=True,
+                            )
                     except Exception:
                         status_box.update(label="Event capture stopped", state="error", expanded=True)
                         raise
@@ -3903,8 +3911,8 @@ def _park_event_roster(
     *,
     keys: _WalkKeys = _SEEDING_KEYS,
     on_stage: Callable[[str], None] | None = None,
-) -> int:
-    """Keep the walk's result, and return how many rows it holds.
+) -> tuple[int, bool]:
+    """Keep the walk's result; return its row count and whether recovery was written.
 
     The file is written first, from the roster alone, and that ordering is the
     whole point. Streamlit raises a queued rerun from ``BaseException``, which no
@@ -4005,7 +4013,7 @@ def _park_event_roster(
         # Saved here, not first in the match pass, so a roster from another source
         # detaches before that pass checks for a name and pauses on the refusal.
         _autosave_seeding_run()
-        return len(parsed.rows)
+        return len(parsed.rows), recovery_written
     st.session_state[keys.probe] = probe
     st.session_state[keys.structure] = roster.divisions
     st.session_state[keys.registrations] = registrations
@@ -4020,14 +4028,14 @@ def _park_event_roster(
         # under this event's name.
         _park_seeding_result(None, event_id=None, keys=keys)
         st.session_state[keys.resolution_failed] = False
-        return 0
+        return 0, recovery_written
 
     _park_seeding_result((parsed, resolved), event_id=roster.event_id, keys=keys)
     # Marked failed until the free name pass commits its result: that pass runs
     # under a spinner too, so it has the same yield point, and a run lost there
     # would otherwise leave no retry offered.
     st.session_state[keys.resolution_failed] = True
-    return len(parsed.rows)
+    return len(parsed.rows), recovery_written
 
 
 def _scrape_still_running(*, keys: _WalkKeys = _SEEDING_KEYS) -> bool:
