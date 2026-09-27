@@ -11,9 +11,10 @@ import hashlib
 import json
 import re
 from collections import Counter
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, fields, replace
+from dataclasses import field as dataclass_field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from uuid import uuid4
 
 from src.tournaments.backtest_result_summary import tournament_result_summary
@@ -150,6 +151,10 @@ class BacktestSnapshot:
     cohort_decisions: tuple[CohortDecision, ...] = ()
     verification: CaptureVerification | None = None
     tiebreak_decision: EventTiebreakDecision | None = None
+    # Session-only publication state. A completed named snapshot is itself the
+    # durable copy, so this intentionally is not serialized by ``to_dict``.
+    recovery_available: bool = dataclass_field(default=True, compare=False, repr=False)
+    recovery_bypassed: bool = dataclass_field(default=False, compare=False, repr=False)
 
     def __post_init__(self) -> None:
         expected = [team.source_index for team in self.roster.teams]
@@ -158,6 +163,10 @@ class BacktestSnapshot:
             raise ValueError("Every captured entrant must have exactly one matching outcome")
         if not self.generation or not self.captured_at:
             raise ValueError("An intake needs its capture identity and timestamp")
+        if type(self.recovery_available) is not bool:
+            raise ValueError("Recovery state must be true or false")
+        if type(self.recovery_bypassed) is not bool:
+            raise ValueError("Recovery bypass state must be true or false")
         group_ids = {division.group_id for division in self.roster.divisions}
         decided = set()
         for decision in self.cohort_decisions:
@@ -195,8 +204,22 @@ class BacktestSnapshot:
         return to_seeding_rows(self.roster, {})[0]
 
     @classmethod
-    def create(cls, roster: EventRoster, resolved, *, limit_groups=None) -> BacktestSnapshot:
-        return cls(roster, tuple(resolved), uuid4().hex, utc_now_iso(), limit_groups)
+    def create(
+        cls,
+        roster: EventRoster,
+        resolved,
+        *,
+        limit_groups=None,
+        recovery_available: bool = True,
+    ) -> BacktestSnapshot:
+        return cls(
+            roster,
+            tuple(resolved),
+            uuid4().hex,
+            utc_now_iso(),
+            limit_groups,
+            recovery_available=recovery_available,
+        )
 
     def with_resolution(self, parsed, resolved, *, generation: str) -> BacktestSnapshot:
         if generation != self.generation or parsed.rows != self.parsed.rows:
@@ -474,7 +497,13 @@ def _fixture_source_refined(previous: str, fresh: str) -> bool:
     return (old.scheme, old.netloc, old.path, old_query) == (new.scheme, new.netloc, new.path, new_query)
 
 
-def _fixture_evidence_preserved(previous: Any, fresh: Any, *, corrections: bool) -> bool:
+def _fixture_evidence_preserved(
+    previous: Any,
+    fresh: Any,
+    *,
+    corrections: bool,
+    require_same_known_values: bool = False,
+) -> bool:
     """Known evidence cannot become absent or uninterpretable.
 
     A uniquely identified game may carry corrected nonempty source values.
@@ -491,6 +520,18 @@ def _fixture_evidence_preserved(previous: Any, fresh: Any, *, corrections: bool)
         if fresh.home_shootout_score is not None or fresh.away_shootout_score is not None
         else (fresh.home_score, fresh.away_score)
     )
+    required_scores = (
+        (previous.home_shootout_score, previous.away_shootout_score)
+        if previous.home_shootout_score is not None or previous.away_shootout_score is not None
+        else (previous.home_score, previous.away_score)
+    )
+    known_draw = (
+        previous.result_status == "played" and not previous.winner_side
+        and previous.winner_registration_id is None
+        and required_scores[0] is not None
+        and required_scores[0] == required_scores[1]
+    )
+    known_without_result = previous.result_status in {"unplayed", "cancelled", "postponed"}
     corrected_draw = (
         corrections and fresh.result_status == "played" and not fresh.winner_side
         and fresh.winner_registration_id is None and deciding_scores[0] is not None
@@ -500,12 +541,34 @@ def _fixture_evidence_preserved(previous: Any, fresh: Any, *, corrections: bool)
         new_value = new_values.get(field)
         old_level = _fixture_evidence_level(field, old_value)
         new_level = _fixture_evidence_level(field, new_value)
+        if (
+            require_same_known_values
+            and known_draw
+            and field in {"winner_side", "winner_registration_id"}
+            and new_level
+        ):
+            return False
+        if (
+            require_same_known_values
+            and known_without_result
+            and field in {
+                "home_score",
+                "away_score",
+                "result_text",
+                "home_shootout_score",
+                "away_shootout_score",
+                "winner_side",
+                "winner_registration_id",
+            }
+            and new_value != old_value
+        ):
+            return False
         if corrected_draw and field in {"winner_side", "winner_registration_id"}:
             continue  # A corrected draw has no winning side to preserve.
         if new_level < old_level:
             return False
         if old_level and old_value != new_value and not corrections:
-            if new_level > old_level:
+            if new_level > old_level and not require_same_known_values:
                 continue
             if field == "source_url" and _fixture_source_refined(old_value, new_value):
                 continue
@@ -513,7 +576,13 @@ def _fixture_evidence_preserved(previous: Any, fresh: Any, *, corrections: bool)
     return True
 
 
-def _fixtures_preserved(previous: Any, fresh: Any) -> bool:
+def _fixtures_preserved(
+    previous: Any,
+    fresh: Any,
+    *,
+    allow_corrections: bool = True,
+    require_same_known_values: bool = False,
+) -> bool:
     """Pair rows one-to-one, independent of order and duplicate match numbers.
 
     Provider match links or unique published numbers permit source corrections.
@@ -537,11 +606,16 @@ def _fixtures_preserved(previous: Any, fresh: Any) -> bool:
                 continue
             if old_fixture.match_number and not same_number and not same_source:
                 continue
-            corrections = (
+            corrections = allow_corrections and (
                 (same_source and old_source_counts[old_id] == new_source_counts[new_id] == 1)
                 or (same_number and old_numbers[old_fixture.match_number] == new_numbers[new_fixture.match_number] == 1)
             )
-            if _fixture_evidence_preserved(old_fixture, new_fixture, corrections=corrections):
+            if _fixture_evidence_preserved(
+                old_fixture,
+                new_fixture,
+                corrections=corrections,
+                require_same_known_values=require_same_known_values,
+            ):
                 compatible.append(new_index)
         candidates.append(compatible)
 
@@ -577,13 +651,109 @@ def _fixtures_preserved(previous: Any, fresh: Any) -> bool:
     return True
 
 
-def assert_capture_preserved(previous: EventRoster, fresh: EventRoster) -> None:
-    """Refuse omitted evidence; allow identified games' nonempty corrections.
+def _known_dataclass_values_contained(
+    required: Any,
+    candidate: Any,
+    *,
+    ignore: frozenset[str] = frozenset(),
+) -> bool:
+    """Require each nonblank scalar captured in ``required`` to match."""
+    for item in fields(required):
+        if item.name in ignore:
+            continue
+        required_value = getattr(required, item.name)
+        if required_value is None or (isinstance(required_value, str) and not required_value.strip()):
+            continue
+        if getattr(candidate, item.name) != required_value:
+            return False
+    return True
 
-    This is an omission guard, not an assertion that a provider can never
-    correct a published result. Removing previously known facts requires
-    retaining/reviewing the richer capture rather than silently replacing it.
-    """
+
+def _sequence_evidence_contained(
+    required: tuple[Any, ...],
+    candidate: tuple[Any, ...],
+    contains: Callable[[Any, Any], bool],
+) -> bool:
+    """Pair every required item to a distinct compatible candidate item."""
+    options = [
+        [candidate_index for candidate_index, item in enumerate(candidate) if contains(required_item, item)]
+        for required_item in required
+    ]
+    matched_candidate: dict[int, int] = {}
+    matched_required: dict[int, int] = {}
+    for start in range(len(required)):
+        queue = [start]
+        visited_required = {start}
+        reached_by: dict[int, int] = {}
+        free = None
+        for required_index in queue:
+            for candidate_index in options[required_index]:
+                if candidate_index in reached_by:
+                    continue
+                reached_by[candidate_index] = required_index
+                if candidate_index not in matched_candidate:
+                    free = candidate_index
+                    break
+                owner = matched_candidate[candidate_index]
+                if owner not in visited_required:
+                    visited_required.add(owner)
+                    queue.append(owner)
+            if free is not None:
+                break
+        if free is None:
+            return False
+        while free is not None:
+            owner = reached_by[free]
+            displaced = matched_required.get(owner)
+            matched_candidate[free] = owner
+            matched_required[owner] = free
+            free = displaced
+    return True
+
+
+def _pool_evidence_contained(required: Any, candidate: Any) -> bool:
+    return (
+        _known_dataclass_values_contained(required, candidate, ignore=frozenset({"members"}))
+        and _sequence_evidence_contained(
+            required.members,
+            candidate.members,
+            _known_dataclass_values_contained,
+        )
+    )
+
+
+def _division_evidence_contained(required: Any, candidate: Any) -> bool:
+    return (
+        _known_dataclass_values_contained(
+            required,
+            candidate,
+            ignore=frozenset({
+                "pools",
+                "fixtures",
+                "pools_readable",
+                "fixtures_readable",
+                "warnings",
+                "rules_links",
+            }),
+        )
+        and (not required.pools_readable or candidate.pools_readable)
+        and (not required.fixtures_readable or candidate.fixtures_readable)
+        and _sequence_evidence_contained(required.pools, candidate.pools, _pool_evidence_contained)
+        and _sequence_evidence_contained(
+            required.rules_links,
+            candidate.rules_links,
+            _known_dataclass_values_contained,
+        )
+    )
+
+
+def _assert_capture_preserved(
+    previous: EventRoster,
+    fresh: EventRoster,
+    *,
+    allow_fixture_corrections: bool,
+    require_same_known_values: bool,
+) -> None:
     if previous.event_id != fresh.event_id:
         raise IntakeOverwriteRefused("The saved capture belongs to another event")
     old_teams = {(team.group_id, entrant_key(team)) for team in previous.teams}
@@ -603,13 +773,91 @@ def assert_capture_preserved(previous: EventRoster, fresh: EventRoster) -> None:
         or (division.fixtures_readable and not new_divisions[group].fixtures_readable)
         or len(division.pools) > len(new_divisions[group].pools)
         or bool(pool_members(division) - pool_members(new_divisions[group]))
-        or not _fixtures_preserved(division.fixtures, new_divisions[group].fixtures)
+        or not _fixtures_preserved(
+            division.fixtures,
+            new_divisions[group].fixtures,
+            allow_corrections=allow_fixture_corrections,
+            require_same_known_values=require_same_known_values,
+        )
         for group, division in old_divisions.items() if group in new_divisions
     )
     if ((previous.is_complete and not fresh.is_complete) or not old_teams <= new_teams
             or not old_divisions.keys() <= new_divisions.keys()
             or downgraded):
         raise IntakeOverwriteRefused("A larger capture is saved; load it before saving this event")
+
+
+def assert_capture_preserved(previous: EventRoster, fresh: EventRoster) -> None:
+    """Refuse omitted evidence; allow identified games' nonempty corrections.
+
+    This is an omission guard, not an assertion that a provider can never
+    correct a published result. Removing previously known facts requires
+    retaining/reviewing the richer capture rather than silently replacing it.
+    """
+    _assert_capture_preserved(
+        previous,
+        fresh,
+        allow_fixture_corrections=True,
+        require_same_known_values=False,
+    )
+
+
+def assert_capture_evidence_contained(required: EventRoster, candidate: EventRoster) -> None:
+    """Require ``candidate`` to hold every known value in ``required`` exactly.
+
+    Unlike the normal overwrite guard, this check does not allow a uniquely
+    identified fixture's nonempty fields to be corrected. It is used when an
+    older disk copy is the only fallback for a failed rewrite: a different old
+    score is not protection for the fresh score still held only in memory.
+    """
+    _assert_capture_preserved(
+        required,
+        candidate,
+        allow_fixture_corrections=False,
+        require_same_known_values=True,
+    )
+    event_fields_match = all(
+        (
+            getattr(required, name) is None
+            or (isinstance(getattr(required, name), str) and not getattr(required, name).strip())
+            or getattr(candidate, name) == getattr(required, name)
+        )
+        for name in (
+            "event_name",
+            "event_start_date",
+            "event_end_date",
+            "event_season_year",
+            "event_dates_source",
+        )
+    )
+    counters_contained = (
+        candidate.divisions_found >= required.divisions_found
+        and candidate.divisions_walked >= required.divisions_walked
+        and candidate.divisions_unreadable <= required.divisions_unreadable
+        and candidate.divisions_skipped <= required.divisions_skipped
+        and candidate.teams_unreadable <= required.teams_unreadable
+        and (not required.divisions_stable or candidate.divisions_stable)
+        and (not required.completed_event or candidate.completed_event)
+    )
+    teams_contained = _sequence_evidence_contained(
+        required.teams,
+        candidate.teams,
+        lambda required_team, candidate_team: (
+            required_team.group_id == candidate_team.group_id
+            and entrant_key(required_team) == entrant_key(candidate_team)
+            and _known_dataclass_values_contained(required_team, candidate_team)
+        ),
+    )
+    candidate_divisions = {division.group_id: division for division in candidate.divisions}
+    divisions_contained = all(
+        group_id in candidate_divisions
+        and _division_evidence_contained(required_division, candidate_divisions[group_id])
+        for group_id, required_division in (
+            (division.group_id, division) for division in required.divisions
+        )
+    )
+    if not (event_fields_match and counters_contained and teams_contained and divisions_contained):
+        raise IntakeOverwriteRefused("The saved recovery does not contain every fresh captured value")
 
 
 def write_snapshot(
