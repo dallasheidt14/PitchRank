@@ -2304,7 +2304,8 @@ def test_the_seeding_tab_renders_the_event_intake_and_the_warnings(monkeypatch):
 
     tournament_intake._render_seeding_tab(None)
 
-    assert "_render_seeding_event_scrape" in called, "the GotSport event intake is not on the page"
+    assert "_render_seeding_event_scrape" not in called, "step 1 should not render while matching is active"
+    assert "_render_seeding_sheet" not in called, "step 3 should not render while matching is active"
     assert "_render_seeding_warnings" in called, "cohort and credential warnings never reach the operator"
     assert "_render_seeding_save" in called
 
@@ -2401,6 +2402,148 @@ def test_a_scraped_team_name_cannot_put_a_link_on_its_review_card(monkeypatch):
     heading = fake_st.markdowns[0]
     assert "](" not in heading, "an image or link reached the operator's review card"
     assert "collect.example" in heading, "the name itself must still be readable"
+
+
+def test_a_saved_manual_match_is_acknowledged_and_explains_the_tournament_cohort(monkeypatch):
+    from src.tournaments.roster_paste import RosterRow
+    from src.tournaments.roster_resolver import ResolvedTeam
+
+    fake_st = _install(monkeypatch, _FakeSt())
+    fake_st.session_state._seeding_overrides = {
+        0: {"team_id_master": "master-a", "team_name": "Next Level Soccer Southeast U13 Boys Blue"}
+    }
+    row = RosterRow(
+        source_index=0,
+        club_raw="Next Level Soccer (AZ)",
+        team_name_raw="Southeast U13 Boys Blue",
+        state="AZ",
+        section_age_group="u13",
+        section_gender="Male",
+        team_name_stripped="Southeast U13 Boys Blue",
+        has_star_marker=False,
+        has_c_marker=False,
+    )
+
+    tournament_intake._render_seeding_override(
+        row, ResolvedTeam(source_index=0, status="unresolved"), None
+    )
+
+    assert fake_st.successes == [
+        "Matched to Next Level Soccer Southeast U13 Boys Blue. PitchRank supplies the rating; "
+        "the tournament cohort above controls where this team is seeded."
+    ]
+    assert fake_st.button_by_key("_seeding_seed_change_0")["label"] == "Change this match"
+
+
+def test_opening_the_manual_match_editor_keeps_the_saved_match_until_a_replacement_is_chosen(monkeypatch):
+    from src.tournaments.roster_paste import RosterRow
+    from src.tournaments.roster_resolver import ResolvedTeam
+
+    fake_st = _install(monkeypatch, _FakeSt(buttons={"_seeding_seed_change_0": True}))
+    saved = {"team_id_master": "master-a", "team_name": "Saved match"}
+    fake_st.session_state._seeding_overrides = {0: dict(saved)}
+    row = RosterRow(
+        source_index=0,
+        club_raw="Club",
+        team_name_raw="Tournament entry",
+        state="AZ",
+        section_age_group="u13",
+        section_gender="Male",
+        team_name_stripped="Tournament entry",
+        has_star_marker=False,
+        has_c_marker=False,
+    )
+
+    with pytest.raises(_Rerun):
+        tournament_intake._render_seeding_override(
+            row, ResolvedTeam(source_index=0, status="unresolved"), None
+        )
+
+    assert fake_st.session_state._seeding_overrides == {0: saved}
+    assert fake_st.session_state._seeding_seed_editing_0 is True
+
+
+def test_an_automatic_match_is_shown_before_the_manual_replacement_controls(monkeypatch):
+    from src.tournaments.roster_paste import RosterRow
+    from src.tournaments.roster_resolver import ResolvedTeam
+
+    fake_st = _install(monkeypatch, _FakeSt())
+    fake_st.session_state._seeding_overrides = {}
+    row = RosterRow(
+        source_index=0,
+        club_raw="Utah Royals FC AZ",
+        team_name_raw="PRE ECNL U12",
+        state="AZ",
+        section_age_group="u13",
+        section_gender="Male",
+        team_name_stripped="PRE ECNL U12",
+        has_star_marker=False,
+        has_c_marker=False,
+    )
+    item = ResolvedTeam(
+        source_index=0,
+        status="gotsport_id",
+        team_id_master="d775fcb4-f904-4203-abf3-d38ba56a2623",
+        matched_name="Utah Royals FC AZ PRE ECNL U12",
+    )
+
+    tournament_intake._render_seeding_override(row, item, None)
+
+    assert fake_st.successes == [
+        "Matched to Utah Royals FC AZ PRE ECNL U12. PitchRank supplies the rating; "
+        "the tournament cohort above controls where this team is seeded."
+    ]
+    assert fake_st.button_by_key("_seeding_seed_change_0")["label"] == "Review or change match"
+
+
+def test_seeding_progress_names_the_four_operator_steps(monkeypatch):
+    fake_st = _install(monkeypatch, _FakeSt())
+
+    active = tournament_intake._render_seeding_workflow_progress()
+
+    assert active == 1
+    assert fake_st.progress_texts == ["Step 1 of 4: Import teams"]
+    assert "1. Import teams: Current" in fake_st.captions[0]
+    assert "4. Export director pack: Locked" in fake_st.captions[0]
+
+
+def test_seeding_progress_checks_export_against_the_packaged_u10_plus_roster(monkeypatch):
+    from types import SimpleNamespace
+
+    from src.tournaments.roster_paste import parse_roster
+
+    fake_st = _install(monkeypatch, _FakeSt())
+    parsed = parse_roster(
+        "Male U9\nYoung Club\tYoung Team\tAZ\n"
+        "Male U13\nEligible Club\tEligible Team\tAZ"
+    )
+    resolved = (
+        ResolvedTeam(0, "gotsport_id", team_id_master="young", provider_team_id="9"),
+        ResolvedTeam(1, "gotsport_id", team_id_master="eligible", provider_team_id="13"),
+    )
+    compared_rows = []
+    monkeypatch.setattr(
+        tournament_intake,
+        "assess_roster",
+        lambda *_args, **_kwargs: SimpleNamespace(attention=set()),
+    )
+
+    def snapshot_matches(_pack, rows, _resolved, _overrides):
+        compared_rows.extend(rows)
+        return True
+
+    monkeypatch.setattr(tournament_intake, "snapshot_matches_roster", snapshot_matches)
+    fake_st.session_state.update(
+        _seeding_pack={"snapshot": "current"},
+        _seeding_sheet_html="<html>ready</html>",
+        _seeding_assessment={},
+        _seeding_active_step=4,
+    )
+
+    active = tournament_intake._render_seeding_workflow_progress(parsed, resolved, {})
+
+    assert active == 4
+    assert [row.section_age_group for row in compared_rows] == ["u13"]
 
 
 def test_the_candidates_line_cannot_carry_a_link_either(monkeypatch):
