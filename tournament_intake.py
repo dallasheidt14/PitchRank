@@ -5564,8 +5564,9 @@ def _render_seeding_workflow_progress(
             completed=metadata.get("completed"),
         )
         attention = len(assessment.attention)
+        eligible = package_roster(parsed)
         pack_ready = snapshot_matches_roster(
-            st.session_state.get("_seeding_pack"), parsed.rows, resolved, overrides
+            st.session_state.get("_seeding_pack"), eligible.rows, resolved, overrides
         )
         export_ready = pack_ready and bool(st.session_state.get("_seeding_sheet_html"))
         available = 2 if attention else 4 if export_ready else 3

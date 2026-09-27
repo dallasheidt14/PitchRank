@@ -2507,6 +2507,45 @@ def test_seeding_progress_names_the_four_operator_steps(monkeypatch):
     assert "4. Export director pack: Locked" in fake_st.captions[0]
 
 
+def test_seeding_progress_checks_export_against_the_packaged_u10_plus_roster(monkeypatch):
+    from types import SimpleNamespace
+
+    from src.tournaments.roster_paste import parse_roster
+
+    fake_st = _install(monkeypatch, _FakeSt())
+    parsed = parse_roster(
+        "Male U9\nYoung Club\tYoung Team\tAZ\n"
+        "Male U13\nEligible Club\tEligible Team\tAZ"
+    )
+    resolved = (
+        ResolvedTeam(0, "gotsport_id", team_id_master="young", provider_team_id="9"),
+        ResolvedTeam(1, "gotsport_id", team_id_master="eligible", provider_team_id="13"),
+    )
+    compared_rows = []
+    monkeypatch.setattr(
+        tournament_intake,
+        "assess_roster",
+        lambda *_args, **_kwargs: SimpleNamespace(attention=set()),
+    )
+
+    def snapshot_matches(_pack, rows, _resolved, _overrides):
+        compared_rows.extend(rows)
+        return True
+
+    monkeypatch.setattr(tournament_intake, "snapshot_matches_roster", snapshot_matches)
+    fake_st.session_state.update(
+        _seeding_pack={"snapshot": "current"},
+        _seeding_sheet_html="<html>ready</html>",
+        _seeding_assessment={},
+        _seeding_active_step=4,
+    )
+
+    active = tournament_intake._render_seeding_workflow_progress(parsed, resolved, {})
+
+    assert active == 4
+    assert [row.section_age_group for row in compared_rows] == ["u13"]
+
+
 def test_the_candidates_line_cannot_carry_a_link_either(monkeypatch):
     """Candidate names come from the provider's own search results."""
     from src.tournaments.roster_paste import RosterRow
