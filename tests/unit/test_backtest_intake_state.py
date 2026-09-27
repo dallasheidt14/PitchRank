@@ -77,12 +77,14 @@ def test_snapshot_round_trip_preserves_all_divisions_entrants_scores_and_reviews
 
 
 def test_recovery_outcome_is_session_only_snapshot_state():
-    snapshot = replace(sample_snapshot(), recovery_available=False)
+    snapshot = replace(sample_snapshot(), recovery_available=False, recovery_bypassed=True)
 
     payload = snapshot.to_dict()
 
     assert "recovery_available" not in payload
+    assert "recovery_bypassed" not in payload
     assert BacktestSnapshot.from_dict(payload).recovery_available is True
+    assert BacktestSnapshot.from_dict(payload).recovery_bypassed is False
 
 
 def test_optional_verification_and_sourced_cohort_decision_round_trip(tmp_path):

@@ -996,6 +996,47 @@ def test_richer_existing_backtest_recovery_is_available_instead_of_blocking_the_
     assert fake_st.button_by_key("_backtest_event_reload_walk")["label"] == "Load the walk already paid for"
 
 
+def test_unreadable_backtest_recovery_can_be_explicitly_bypassed(app):
+    recovery_path = _recovery_path(tournament_intake._BACKTEST_KEYS)
+    recovery_path.parent.mkdir(parents=True, exist_ok=True)
+    recovery_path.write_text('{"schema_version": 999}', encoding="utf-8")
+    fake_st = _install(
+        app,
+        _FakeSt(
+            buttons={"_backtest_bypass_recovery": True},
+            text={"backtest_event_url": EVENT_URL},
+        ),
+    )
+    tournament_intake._park_event_roster(
+        EVENT_URL,
+        _roster(_team(0)),
+        None,
+        None,
+        keys=tournament_intake._BACKTEST_KEYS,
+    )
+
+    with pytest.raises(_Rerun):
+        tournament_intake._render_seeding_event_scrape(None, keys=tournament_intake._BACKTEST_KEYS)
+
+    snapshot = fake_st.session_state[tournament_intake._BACKTEST_KEYS.snapshot]
+    assert snapshot.recovery_available is False
+    assert snapshot.recovery_bypassed is True
+    assert recovery_path.read_text(encoding="utf-8") == '{"schema_version": 999}'
+
+    other_url = "https://system.gotsport.com/org_event/events/52980"
+    paid_walks = []
+    fake_st._button_returns["_backtest_bypass_recovery"] = False
+    fake_st._button_returns["_backtest_event_full_run"] = True
+    fake_st._text_returns["backtest_event_url"] = other_url
+    app.setattr(tournament_intake, "_run_event_roster_scrape", lambda *args, **kwargs: paid_walks.append((args, kwargs)))
+
+    tournament_intake._render_seeding_event_scrape(None, keys=tournament_intake._BACKTEST_KEYS)
+
+    assert len(paid_walks) == 1
+    assert paid_walks[0][0][0] == other_url
+    assert any("no recoverable disk copy" in warning for warning in fake_st.warnings)
+
+
 def test_an_ordinary_failure_is_not_reported_as_a_block(app):
     app.setattr(
         tournament_intake,

@@ -186,6 +186,26 @@ def test_same_row_evidence_loss_preserves_saved_snapshot_and_recovery_bytes(tmp_
     assert recovery_path.read_bytes() == before_recovery
 
 
+def test_incomparable_recovery_does_not_claim_to_cover_fresh_evidence(tmp_path, monkeypatch):
+    import tournament_intake as app
+
+    saved = roster(fixture())
+    fresh = replace(
+        saved,
+        divisions=(replace(saved.divisions[0], group_id="20", fixtures=(replace(fixture(), match_number="2"),)),),
+    )
+    monkeypatch.setattr(app, "reports_dir", lambda: tmp_path)
+    assert app._write_backtest_recovery(saved, None)
+    path = app._event_recovery_path("51783", completed_event=True)
+    before = path.read_bytes()
+
+    recovery = app._write_backtest_recovery(fresh, None)
+
+    assert recovery.available is False
+    assert recovery.written is False
+    assert path.read_bytes() == before
+
+
 def test_completed_cli_uses_the_same_evidence_guard(tmp_path):
     from scripts.scrape_event_roster import _write_completed_roster
 

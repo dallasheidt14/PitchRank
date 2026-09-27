@@ -154,6 +154,7 @@ class BacktestSnapshot:
     # Session-only publication state. A completed named snapshot is itself the
     # durable copy, so this intentionally is not serialized by ``to_dict``.
     recovery_available: bool = dataclass_field(default=True, compare=False, repr=False)
+    recovery_bypassed: bool = dataclass_field(default=False, compare=False, repr=False)
 
     def __post_init__(self) -> None:
         expected = [team.source_index for team in self.roster.teams]
@@ -164,6 +165,8 @@ class BacktestSnapshot:
             raise ValueError("An intake needs its capture identity and timestamp")
         if type(self.recovery_available) is not bool:
             raise ValueError("Recovery state must be true or false")
+        if type(self.recovery_bypassed) is not bool:
+            raise ValueError("Recovery bypass state must be true or false")
         group_ids = {division.group_id for division in self.roster.divisions}
         decided = set()
         for decision in self.cohort_decisions:

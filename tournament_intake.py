@@ -4142,6 +4142,11 @@ def _write_backtest_recovery(roster: EventRoster, limit_groups: int | None) -> _
                 except IntakeOverwriteRefused:
                     if existing.event_id != roster.event_id:
                         raise
+                    # The first check only proves the fresh walk omitted saved
+                    # evidence. An incomparable fresh walk can also contain new
+                    # evidence absent from the file, so the reverse check must
+                    # pass before that file counts as a recovery for this walk.
+                    assert_capture_preserved(roster, existing)
                     logger.info("Kept the richer Backtest recovery already saved at %s", path)
                     return _RecoveryResult(available=True, written=False)
             write_json(path, {**event_roster_to_dict(roster), "walked_at": utc_now_iso(),
@@ -5262,7 +5267,11 @@ def _render_seeding_event_scrape(supabase_client: Any, *, keys: _WalkKeys = _SEE
         )
     in_progress = _scrape_still_running(keys=keys)
     snapshot = st.session_state.get(keys.snapshot) if keys == _BACKTEST_KEYS else None
-    recovery_pending = snapshot is not None and not snapshot.recovery_available
+    recovery_pending = (
+        snapshot is not None
+        and not snapshot.recovery_available
+        and not snapshot.recovery_bypassed
+    )
     if recovery_pending:
         if snapshot is not None:
             st.error(_BACKTEST_RECOVERY_FAILED_NOTICE)
@@ -5278,6 +5287,24 @@ def _render_seeding_event_scrape(supabase_client: Any, *, keys: _WalkKeys = _SEE
                         st.rerun()
                 else:
                     st.error("The recovery copy still could not be saved. Keep this tab open and retry again.")
+            st.warning(
+                "If this recovery file cannot be replaced, you can continue with the capture held only in this "
+                "tab. Save the reviewed intake before closing it."
+            )
+            if st.button(
+                "Continue without recovery copy",
+                key=f"{keys.prefix}_bypass_recovery",
+                disabled=in_progress,
+            ):
+                current = st.session_state.get(keys.snapshot)
+                if current is not None and current.generation == snapshot.generation:
+                    st.session_state[keys.snapshot] = replace(current, recovery_bypassed=True)
+                    st.rerun()
+    elif snapshot is not None and snapshot.recovery_bypassed and not snapshot.recovery_available:
+        st.warning(
+            "This capture has no recoverable disk copy. Keep this tab open and save the reviewed intake before "
+            "leaving."
+        )
     if not os.getenv("ZENROWS_API_KEY"):
         st.info("ZENROWS_API_KEY is not set, so these pages cannot be fetched.")
 
