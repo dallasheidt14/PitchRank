@@ -154,12 +154,81 @@ def test_main_review_shows_scores_without_internal_ids_or_close_labels(operator)
     app, _calls = operator
     click(app, "Build seeding sheets")
     editor = app.dataframe[0].value
-    assert list(editor.columns)[:4] == ["Seed", "Team", "PowerScore", "State rank"]
+    assert list(editor.columns)[:4] == [
+        "PowerScore Seed", "MatchBalance Seed", "Manual/Effective Seed", "Team",
+    ]
     assert editor["PowerScore"].tolist() == pytest.approx([55., 55.])
     assert "Entrant" not in editor.columns
-    assert editor["Strength marker"].tolist() == ["", ""]
+    assert editor["Competitive marker"].tolist() == ["", ""]
     assert "Close range" not in app.session_state["_seeding_sheet_html"]
     assert "PDF and Excel" in app.text_area[0].label
+
+
+def test_supported_local_consensus_is_visible_and_reorders_the_sheet(monkeypatch):
+    app_code = '''
+import streamlit as st
+from src.tournaments.roster_paste import parse_roster
+from src.tournaments.roster_resolver import ResolvedTeam
+from src.tournaments.seeding_intake_ui import render_seeding_pack
+parsed = parse_roster("Male U14\\nClub\\tTeam 0\\tTX\\nClub\\tTeam 1\\tTX\\nClub\\tTeam 2\\tTX\\n"
+                      "Club\\tTeam 3\\tTX\\nClub\\tTeam 4\\tTX")
+resolved = tuple(ResolvedTeam(
+    source_index=index, status="gotsport_id",
+    team_id_master=f"00000000-0000-4000-8000-{index + 1:012d}",
+) for index in range(5))
+st.session_state.setdefault("_seeding_overrides", {})
+render_seeding_pack(parsed, resolved, None, event_name="Consensus Cup", save=lambda: True)
+'''
+
+    def load(cohorts, **_kwargs):
+        strengths = {"0": 11, "1": 8, "2": 10, "3": 7, "4": 6}
+        teams = {"u14|Male": {
+            entrant: {
+                "team_id_master": team_id,
+                "team_name": f"Team {entrant}",
+                "power_score_final": .90 - int(entrant) * .01,
+                "rank_in_cohort_final": int(entrant) + 1,
+                "gender": "M",
+                "age": 14,
+                "status": "Active",
+                "games_played": 20,
+                "prediction_game_count": 20,
+            }
+            for entrant, team_id in cohorts["u14|Male"].items()
+        }}
+        predictions = {}
+        for first in teams["u14|Male"]:
+            for second in teams["u14|Male"]:
+                if first == second:
+                    continue
+                margin = strengths[first] - strengths[second]
+                predictions[(first, second)] = ComparePrediction(
+                    "team_a" if margin > 0 else "team_b",
+                    .70 if margin > 0 else .15,
+                    .15 if margin > 0 else .70,
+                    .15,
+                    {"teamA": 2 if margin > 0 else 1, "teamB": 1 if margin > 0 else 2},
+                    margin,
+                    max(abs(margin), .5),
+                    .1,
+                    "high",
+                    .8,
+                )
+        return SeedingPredictionBatch(
+            {"u14|Male": predictions}, teams, {"u14|Male": {}},
+            "2026-09-25T12:00:00+00:00", "2026-09-24", "a" * 64,
+        )
+
+    monkeypatch.setattr(ui, "load_seeding_predictions", load)
+    monkeypatch.setattr(ui, "seeding_predictor_sha256", lambda: "a" * 64)
+    monkeypatch.setattr(ui, "make_ratings_lookup", lambda _client: lambda _ids: {})
+    app = AppTest.from_string(app_code, default_timeout=15).run()
+    click(app, "Build seeding sheets")
+
+    rendered = "\n".join(item.value for item in app.markdown)
+    assert "PowerScore-anchored local-consensus proposals" in rendered
+    assert "Team 2: PowerScore #3 → MatchBalance #2" in rendered
+    assert app.dataframe[0].value["Team"].tolist() == ["Team 0", "Team 2", "Team 1", "Team 3", "Team 4"]
 
 
 def test_placement_review_stays_internal_and_resets_when_director_notes_change(operator, monkeypatch):
@@ -209,15 +278,23 @@ def test_legacy_analysis_reuses_predictions_and_preserves_notes(operator):
     pack["analysis_schema_version"] = 1
     pack["operator_notes"] = {"u14|Male": "Keep this note."}
     pack["policy"]["max_expected_margin"] = 1.5
+    pack["policy"].pop("blowout_cost_weight")
+    pack["policy"].pop("very_close_expected_goal_difference")
+    pack["policy"].pop("material_reversal_expected_goal_difference")
     app.session_state["_seeding_pack"] = pack
     app.run()
     assert not app.exception and not app.error
     upgraded = app.session_state["_seeding_pack"]
-    assert upgraded["analysis_schema_version"] == 3
+    assert upgraded["analysis_schema_version"] == 7
     assert upgraded["predictions"] == pack["predictions"]
     assert upgraded["generated_at"] == pack["generated_at"]
     assert upgraded["operator_notes"] == pack["operator_notes"]
-    assert upgraded["policy"] == pack["policy"]
+    assert upgraded["policy"] == {
+        **pack["policy"],
+        "blowout_cost_weight": 2.0,
+        "very_close_expected_goal_difference": 1.0,
+        "material_reversal_expected_goal_difference": 1.0,
+    }
     assert len(calls) == 1
     assert "_seeding_pdf" not in app.session_state
     assert "Keep this note." in app.session_state["_seeding_sheet_html"]
@@ -256,6 +333,7 @@ def test_note_changes_invalidate_both_downloads_under_one_content_identity(opera
     assert app.session_state["_seeding_export_fingerprint"] != before
     assert app.session_state["_seeding_xlsx_hash"] == app.session_state["_seeding_export_fingerprint"]
     from io import BytesIO
+
     from openpyxl import load_workbook
     workbook = load_workbook(BytesIO(app.session_state["_seeding_xlsx"]))
     assert any(cell.value == "Edited after PDF generation" for row in workbook["U14 Boys"] for cell in row)
@@ -297,6 +375,7 @@ def test_narrowing_cohorts_keeps_every_cohorts_notes_and_policy(operator):
     assert rebuilt["operator_notes"] == {"u14|Male": "Boys placement notes", "u15|Female": "Girls placement notes"}
     assert rebuilt["placement_reviews"] == {"u15|Female": "f" * 64}
     from io import BytesIO
+
     from openpyxl import load_workbook
     workbook = load_workbook(BytesIO(app.session_state["_seeding_xlsx"]))
     values = [cell.value for row in workbook.active for cell in row]
@@ -311,8 +390,26 @@ def test_narrowing_cohorts_keeps_every_cohorts_notes_and_policy(operator):
     assert "Girls placement notes" in app.session_state["_seeding_sheet_html"]
 
 
+def test_rebuild_materializes_new_policy_defaults_from_a_version_three_pack(operator):
+    app, _calls = operator
+    click(app, "Build seeding sheets")
+    app.session_state["_seeding_pack"]["analysis_schema_version"] = 3
+    app.session_state["_seeding_pack"]["policy"].pop("blowout_cost_weight")
+    app.session_state["_seeding_pack"]["policy"].pop("very_close_expected_goal_difference")
+    app.session_state["_seeding_pack"]["policy"].pop("material_reversal_expected_goal_difference")
+
+    click(app, "Build seeding sheets")
+
+    rebuilt = app.session_state["_seeding_pack"]
+    assert rebuilt["analysis_schema_version"] == 7
+    assert rebuilt["policy"]["blowout_cost_weight"] == 2.0
+    assert rebuilt["policy"]["very_close_expected_goal_difference"] == 1.0
+    assert rebuilt["policy"]["material_reversal_expected_goal_difference"] == 1.0
+
+
 def test_unknown_gender_and_girls_cohort_build_together(operator):
     from io import BytesIO
+
     from openpyxl import load_workbook
 
     app_code = APP.replace("resolved =", '''from dataclasses import replace
@@ -335,6 +432,10 @@ def test_analysis_diagnostics_remain_collapsed_and_never_yellow(operator):
     details = next(item for item in app.expander if item.label == "Analysis details")
     assert not details.proto.expanded
     assert any("Score steps require" in item.value for item in details.caption)
+    assert any("Competitive enough means no more than 2.00" in item.value for item in details.caption)
+    assert any("Very close means adjacent teams are within 1.00" in item.value for item in details.caption)
+    assert any("material reversal means Compare favors a lower seed by at least 1.00" in item.value
+               for item in details.caption)
     assert all(not any(text in item.value for text in (
         "has one team", "strength-order exception", "low outcome confidence",
     )) for item in app.warning)
@@ -410,12 +511,55 @@ def test_failed_save_banner_survives_rerun_and_successful_retry_clears_it(operat
     assert "Latest reviewed notes must survive retry." in app.session_state["_seeding_sheet_html"]
 
 
-def _merge_editor_tiers(app):
-    # AppTest exposes data_editor as a dataframe, without an edit-cell helper.
-    # Supply the same row-delta widget state that Streamlit's editor sends.
-    keys = [key for key in app.session_state.filtered_state if key.startswith("_seeding_tier_editor_u14|Male_")]
+def _edit_manual_order(app, edits):
+    keys = [
+        key for key in app.session_state.filtered_state
+        if key.startswith("_seeding_manual_order_editor_u14|Male_")
+    ]
     assert len(keys) == 1
-    app.session_state[keys[0]] = {"edited_rows": {1: {"Tier": 1}}, "added_rows": [], "deleted_rows": []}
+    app.session_state[keys[0]] = {
+        "edited_rows": edits,
+        "added_rows": [],
+        "deleted_rows": [],
+    }
+
+
+def test_manual_order_requires_explicit_hold_and_restore_removes_override(operator):
+    app, _calls = operator
+    click(app, "Build seeding sheets")
+    _edit_manual_order(app, {1: {"Manual/Effective Seed": None}})
+    click(app, "Save manual seed order")
+    assert any("assign a seed or explicitly hold it" in message.value for message in app.error)
+    assert app.session_state["_seeding_pack"]["manual_seed_orders"] == {}
+
+    _edit_manual_order(app, {
+        1: {"Manual/Effective Seed": None, "Hold for manual placement": True},
+    })
+    click(app, "Save manual seed order")
+    saved = app.session_state["_seeding_pack"]["manual_seed_orders"]["u14|Male"]
+    assert saved == {"seeded": ["0"], "held": ["1"]}
+    assert "Manual/Effective Seed" in app.session_state["_seeding_sheet_html"]
+
+    click(app, "Restore MatchBalance suggested order")
+    assert app.session_state["_seeding_pack"]["manual_seed_orders"] == {}
+    assert "Manual/Effective Seed" not in app.session_state["_seeding_sheet_html"]
+
+
+def test_rebuild_drops_manual_orders_for_deselected_cohorts(operator):
+    app, _calls = operator
+    click(app, "Build seeding sheets")
+    app.session_state["_seeding_pack"]["manual_seed_orders"] = {
+        "u14|Male": {"seeded": ["0", "1"], "held": []},
+        "u15|Female": {"seeded": [], "held": ["2"]},
+    }
+
+    app.radio[0].set_value("Choose cohorts").run()
+    app.multiselect[0].set_value(["u14|Male"]).run()
+    click(app, "Build seeding sheets")
+
+    assert app.session_state["_seeding_pack"]["manual_seed_orders"] == {
+        "u14|Male": {"seeded": ["0", "1"], "held": []},
+    }
 
 
 def test_manual_unsafe_merge_warning_and_notes_reach_the_sheet_and_restore_clears_editor(operator):
@@ -429,7 +573,7 @@ def test_manual_unsafe_merge_warning_and_notes_reach_the_sheet_and_restore_clear
     assert "_seeding_pdf" not in app.session_state
 
 
-@pytest.mark.parametrize("analysis_version", [1, 2, 3])
+@pytest.mark.parametrize("analysis_version", [1, 2, 3, 4, 5])
 def test_save_keeps_package_when_source_also_contains_younger_teams(operator, monkeypatch, analysis_version):
     import tournament_intake as intake
     from src.tournaments.roster_paste import ParsedRoster
@@ -466,7 +610,7 @@ def test_save_keeps_package_when_source_also_contains_younger_teams(operator, mo
     assert "_seeding_pack" not in fake.session_state
 
 
-@pytest.mark.parametrize("analysis_version", [1, 2, 3])
+@pytest.mark.parametrize("analysis_version", [1, 2, 3, 4, 5])
 def test_unsupported_saved_note_remains_editable_after_export_failure(operator, analysis_version):
     app, calls = operator
     click(app, "Build seeding sheets")
@@ -483,7 +627,7 @@ def test_unsupported_saved_note_remains_editable_after_export_failure(operator, 
     click(app, "Save director notes")
     assert not app.error
     assert app.session_state["_seeding_pack"]["operator_notes"]["u14|Male"] == "Corrected note"
-    assert app.session_state["_seeding_pack"]["analysis_schema_version"] == 3
+    assert app.session_state["_seeding_pack"]["analysis_schema_version"] == 7
     assert "Corrected note" in app.session_state["_seeding_sheet_html"]
     assert "_seeding_xlsx" in app.session_state and len(calls) == 1
 
@@ -502,6 +646,7 @@ def test_legacy_pack_fingerprint_remains_valid_with_empty_new_provenance_fields(
     import hashlib
     import json
     from dataclasses import asdict
+
     from src.tournaments.roster_resolver import ResolvedTeam
     from src.tournaments.seeding_pack import roster_fingerprint
 
@@ -630,6 +775,7 @@ def test_compare_discovered_conflicts_mark_all_exports_as_draft(operator, monkey
     assert b"Draft" in exported[-1]
     assert "DRAFT" in app.session_state["_seeding_sheet_html"]
     from io import BytesIO
+
     from openpyxl import load_workbook
     assert "DRAFT" in load_workbook(BytesIO(app.session_state["_seeding_xlsx"])).active["A1"].value
 

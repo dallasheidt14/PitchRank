@@ -203,7 +203,7 @@ def test_rendered_page_is_a_standalone_document():
 def test_the_two_groups_are_labelled_ranked_and_unranked():
     html = render_sheet_html("STX Cup 2026", _sheets(), generated_on="2026-09-02", ranking_run="2026-08-31")
 
-    assert "Suggested seed order" in html
+    assert "MatchBalance Suggested Seeding" in html
     assert "Unseeded teams" in html
 
 
@@ -488,10 +488,10 @@ def test_customer_pdf_prioritizes_seeding_actions_over_model_jargon():
     assert ">53.5<span class=\"score-track\"" in document
     assert ">0.535</td>" not in document
     assert "they do not assign divisions or pools." in document
-    assert "Seed order" in document
-    assert "Score steps" in document
+    assert "MatchBalance Seed" in document
+    assert "Competitive Breaks" in document
     assert "Close ranges" not in document
-    assert "Suggested seed" in document
+    assert "MatchBalance Seed" in document
     assert "PitchRank score" in document
     assert "What to know" in document
     assert "Placement status" not in document
@@ -516,8 +516,8 @@ def test_all_manual_cohort_does_not_instruct_director_to_use_missing_tiers():
     )
     document = _render_tier(analysis)
 
-    assert "0 seeded in published order · 3 held for placement review." in document
-    assert "Suggested seed order" in document
+    assert "0 teams in the effective seed order · 3 held for placement review." in document
+    assert "MatchBalance Suggested Seeding" in document
     assert "Build flights from the same tier" not in document
     assert "Tier 1 is strongest" not in document
     assert "Use a Boundary option" not in document
@@ -557,7 +557,7 @@ def test_customer_pdf_translates_system_diagnostics_into_seeding_actions():
     )
     document = _render_tier(analysis)
 
-    assert "Suggested seed order" in document
+    assert "MatchBalance Suggested Seeding" in document
     assert "Tier 2 has one team" not in document
     assert "A lower-tier team may compete well with an upper tier" not in document
     assert "Several projected matchups are too close to call" not in document
@@ -602,8 +602,8 @@ def test_tier_headings_repeat_and_review_table_stays_together_when_it_fits():
     document = _render_tier()
 
     seed_table = document.split('<table class="grid tier-table">', 1)[1].split("</table>", 1)[0]
-    assert seed_table.index("Suggested seed order") < seed_table.index("</thead>")
-    assert seed_table.index("Suggested seed") < seed_table.index("</thead>")
+    assert seed_table.index("MatchBalance Suggested Seeding") < seed_table.index("</thead>")
+    assert seed_table.index("MatchBalance Seed") < seed_table.index("</thead>")
     assert "table.grid thead { display: table-header-group; }" in document
     assert "table.review { break-inside: avoid-page; page-break-inside: avoid; }" in document
 
@@ -656,4 +656,4 @@ def test_invalid_score_still_renders_team_with_its_placement_review_reason(score
     assert document.count('data-entrant="2"') == 1
     assert "Data review required" in document
     row = document.split('data-entrant="2"', 1)[1].split("</tr>", 1)[0]
-    assert '<td class="num score">-</td>' in row
+    assert '<td class="num score">-<span class="state">—</span></td>' in row
