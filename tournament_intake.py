@@ -5236,9 +5236,10 @@ def _render_seeding_event_scrape(supabase_client: Any, *, keys: _WalkKeys = _SEE
             "U10+ divisions; their younger team pages are skipped automatically."
         )
     in_progress = _scrape_still_running(keys=keys)
-    if keys == _BACKTEST_KEYS:
-        snapshot = st.session_state.get(keys.snapshot)
-        if snapshot is not None and not snapshot.recovery_written:
+    snapshot = st.session_state.get(keys.snapshot) if keys == _BACKTEST_KEYS else None
+    recovery_pending = snapshot is not None and not snapshot.recovery_written
+    if recovery_pending:
+        if snapshot is not None:
             st.error(_BACKTEST_RECOVERY_FAILED_NOTICE)
             if st.button(
                 "Retry saving recovery copy",
@@ -5294,7 +5295,7 @@ def _render_seeding_event_scrape(supabase_client: Any, *, keys: _WalkKeys = _SEE
                 full_label,
                 key=f"{keys.prefix}_event_full_run",
                 type="primary",
-                disabled=not url or in_progress or already_walked,
+                disabled=not url or in_progress or already_walked or recovery_pending,
             )
     with secondary:
         probe_clicked = st.button(
@@ -5304,7 +5305,7 @@ def _render_seeding_event_scrape(supabase_client: Any, *, keys: _WalkKeys = _SEE
                 _SEEDING_EVENT_PROBE_DIVISIONS, *(_money(price) for price in _seeding_probe_price())
             ),
             key=f"{keys.prefix}_event_probe_run",
-            disabled=not url or in_progress or complete,
+            disabled=not url or in_progress or complete or recovery_pending,
         )
 
     if probe:
@@ -5325,22 +5326,25 @@ def _render_seeding_event_scrape(supabase_client: Any, *, keys: _WalkKeys = _SEE
                 _run_seeding_name_lookup(result[0], result[1], supabase_client, keys=keys)
                 st.rerun()
 
-    if probe_clicked and not complete:
+    if probe_clicked and not complete and not recovery_pending:
         _run_event_roster_scrape(
             url, supabase_client, limit_groups=_SEEDING_EVENT_PROBE_DIVISIONS, keys=keys
         )
     elif refresh_clicked and priced:
         _run_event_roster_scrape(url, supabase_client, limit_groups=None, keys=keys)
-    elif full_clicked and not already_walked:
+    elif full_clicked and not already_walked and not recovery_pending:
         _run_event_roster_scrape(url, supabase_client, limit_groups=None, keys=keys)
     elif probe_clicked or full_clicked or refresh_clicked:
         # `disabled` is a hint to the browser, not a gate: Streamlit hands back the
         # trigger of any button that was enabled when it was clicked. The import
         # and refresh actions have different widget keys, so a stale import click
         # queued during a walk cannot become a paid refresh after that walk finishes.
-        st.error(
-            "Nothing to scrape: enter a GotSport event URL, or wait for the current walk to finish."
-        )
+        if recovery_pending:
+            st.error("Save the recovery copy before starting another paid event walk.")
+        else:
+            st.error(
+                "Nothing to scrape: enter a GotSport event URL, or wait for the current walk to finish."
+            )
 
 
 def _render_seeding_warnings(parsed: ParsedRoster) -> None:

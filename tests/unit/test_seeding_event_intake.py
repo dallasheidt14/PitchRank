@@ -948,6 +948,34 @@ def test_backtest_recovery_retry_is_disabled_while_another_walk_is_running(app):
     assert fake_st.button_by_key("_backtest_retry_recovery")["disabled"] is True
 
 
+def test_backtest_pending_recovery_blocks_a_new_paid_walk_even_for_another_url(app):
+    app.setattr(tournament_intake, "_write_recovery", lambda *_args, **_kwargs: False)
+    other_url = "https://system.gotsport.com/org_event/events/52980"
+    fake_st = _install(
+        app,
+        _FakeSt(
+            buttons={"_backtest_event_full_run": True},
+            text={"backtest_event_url": other_url},
+        ),
+    )
+    tournament_intake._park_event_roster(
+        EVENT_URL,
+        _roster(_team(0)),
+        None,
+        None,
+        keys=tournament_intake._BACKTEST_KEYS,
+    )
+    paid_walks = []
+    app.setattr(tournament_intake, "_run_event_roster_scrape", lambda *args, **kwargs: paid_walks.append((args, kwargs)))
+
+    tournament_intake._render_seeding_event_scrape(None, keys=tournament_intake._BACKTEST_KEYS)
+
+    assert fake_st.button_by_key("_backtest_event_full_run")["disabled"] is True
+    assert fake_st.button_by_key("_backtest_event_probe_run")["disabled"] is True
+    assert paid_walks == []
+    assert "Save the recovery copy" in fake_st.errors[-1]
+
+
 def test_an_ordinary_failure_is_not_reported_as_a_block(app):
     app.setattr(
         tournament_intake,
