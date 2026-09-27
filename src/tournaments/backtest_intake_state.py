@@ -531,6 +531,7 @@ def _fixture_evidence_preserved(
         and required_scores[0] is not None
         and required_scores[0] == required_scores[1]
     )
+    known_without_result = previous.result_status in {"unplayed", "cancelled", "postponed"}
     corrected_draw = (
         corrections and fresh.result_status == "played" and not fresh.winner_side
         and fresh.winner_registration_id is None and deciding_scores[0] is not None
@@ -547,12 +548,27 @@ def _fixture_evidence_preserved(
             and new_level
         ):
             return False
+        if (
+            require_same_known_values
+            and known_without_result
+            and field in {
+                "home_score",
+                "away_score",
+                "result_text",
+                "home_shootout_score",
+                "away_shootout_score",
+                "winner_side",
+                "winner_registration_id",
+            }
+            and new_value != old_value
+        ):
+            return False
         if corrected_draw and field in {"winner_side", "winner_registration_id"}:
             continue  # A corrected draw has no winning side to preserve.
         if new_level < old_level:
             return False
         if old_level and old_value != new_value and not corrections:
-            if new_level > old_level:
+            if new_level > old_level and not require_same_known_values:
                 continue
             if field == "source_url" and _fixture_source_refined(old_value, new_value):
                 continue
