@@ -77,6 +77,11 @@ class _FakeSessionState(dict):
         dict.__setattr__(self, "_pending", error)
         dict.__setattr__(self, "_sticky", sticky)
 
+    def arm_after_write(self, key: str, error: BaseException) -> None:
+        """Queue a one-shot rerun immediately after one selected key is published."""
+        dict.__setattr__(self, "_arm_after_key", key)
+        dict.__setattr__(self, "_arm_after_error", error)
+
     def disarm(self) -> None:
         """Begin a fresh script run, which carries no queued stop of its own."""
         dict.__setattr__(self, "_pending", None)
@@ -137,6 +142,11 @@ class _FakeSessionState(dict):
         self._yield()
         self.__dict__.setdefault("_writes", []).append(key)
         super().__setitem__(key, value)
+        if key == self.__dict__.get("_arm_after_key"):
+            dict.__setattr__(self, "_pending", self.__dict__.get("_arm_after_error"))
+            dict.__setattr__(self, "_sticky", False)
+            dict.__setattr__(self, "_arm_after_key", None)
+            dict.__setattr__(self, "_arm_after_error", None)
 
     def __setattr__(self, name: str, value: Any) -> None:
         self[name] = value
@@ -861,16 +871,37 @@ def test_backtest_runner_reports_recovery_failure_instead_of_claiming_a_save(app
     with pytest.raises(_Rerun):
         tournament_intake._render_seeding_event_scrape(None, keys=tournament_intake._BACKTEST_KEYS)
 
-    assert tournament_intake._BACKTEST_KEYS.recovery_notice in fake_st.session_state
+    assert fake_st.session_state[tournament_intake._BACKTEST_KEYS.snapshot].recovery_written is False
 
     app.setattr(fake_st, "error", rendered_error)
     tournament_intake._render_seeding_event_scrape(None, keys=tournament_intake._BACKTEST_KEYS)
 
-    assert fake_st.errors == [
-        "The event capture is available in this tab, but its recovery file could not be saved. "
-        "Do not close the tab; retry the capture to create a recoverable copy."
-    ]
-    assert tournament_intake._BACKTEST_KEYS.recovery_notice not in fake_st.session_state
+    assert fake_st.errors == [tournament_intake._BACKTEST_RECOVERY_FAILED_NOTICE]
+    assert fake_st.session_state[tournament_intake._BACKTEST_KEYS.snapshot].recovery_written is True
+
+
+def test_backtest_recovery_failure_is_published_atomically_with_the_snapshot(app):
+    app.setattr(tournament_intake, "_write_recovery", lambda *_args, **_kwargs: False)
+    fake_st = _install(app, _FakeSt())
+    fake_st.session_state.arm_after_write(tournament_intake._BACKTEST_KEYS.snapshot, _Rerun())
+
+    with pytest.raises(_Rerun):
+        tournament_intake._park_event_roster(
+            EVENT_URL,
+            _roster(_team(0)),
+            None,
+            None,
+            keys=tournament_intake._BACKTEST_KEYS,
+        )
+
+    snapshot = fake_st.session_state[tournament_intake._BACKTEST_KEYS.snapshot]
+    assert snapshot.roster.event_id == "52975"
+    assert snapshot.recovery_written is False
+
+    tournament_intake._render_seeding_event_scrape(None, keys=tournament_intake._BACKTEST_KEYS)
+
+    assert fake_st.errors == [tournament_intake._BACKTEST_RECOVERY_FAILED_NOTICE]
+    assert fake_st.session_state[tournament_intake._BACKTEST_KEYS.snapshot].recovery_written is True
 
 
 def test_an_ordinary_failure_is_not_reported_as_a_block(app):

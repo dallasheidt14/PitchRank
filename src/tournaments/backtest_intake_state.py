@@ -12,6 +12,7 @@ import json
 import re
 from collections import Counter
 from dataclasses import asdict, dataclass, replace
+from dataclasses import field as dataclass_field
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -150,6 +151,9 @@ class BacktestSnapshot:
     cohort_decisions: tuple[CohortDecision, ...] = ()
     verification: CaptureVerification | None = None
     tiebreak_decision: EventTiebreakDecision | None = None
+    # Session-only publication state. A completed named snapshot is itself the
+    # durable copy, so this intentionally is not serialized by ``to_dict``.
+    recovery_written: bool = dataclass_field(default=True, compare=False, repr=False)
 
     def __post_init__(self) -> None:
         expected = [team.source_index for team in self.roster.teams]
@@ -158,6 +162,8 @@ class BacktestSnapshot:
             raise ValueError("Every captured entrant must have exactly one matching outcome")
         if not self.generation or not self.captured_at:
             raise ValueError("An intake needs its capture identity and timestamp")
+        if type(self.recovery_written) is not bool:
+            raise ValueError("Recovery state must be true or false")
         group_ids = {division.group_id for division in self.roster.divisions}
         decided = set()
         for decision in self.cohort_decisions:
@@ -195,8 +201,22 @@ class BacktestSnapshot:
         return to_seeding_rows(self.roster, {})[0]
 
     @classmethod
-    def create(cls, roster: EventRoster, resolved, *, limit_groups=None) -> BacktestSnapshot:
-        return cls(roster, tuple(resolved), uuid4().hex, utc_now_iso(), limit_groups)
+    def create(
+        cls,
+        roster: EventRoster,
+        resolved,
+        *,
+        limit_groups=None,
+        recovery_written: bool = True,
+    ) -> BacktestSnapshot:
+        return cls(
+            roster,
+            tuple(resolved),
+            uuid4().hex,
+            utc_now_iso(),
+            limit_groups,
+            recovery_written=recovery_written,
+        )
 
     def with_resolution(self, parsed, resolved, *, generation: str) -> BacktestSnapshot:
         if generation != self.generation or parsed.rows != self.parsed.rows:

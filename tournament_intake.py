@@ -3552,10 +3552,6 @@ class _WalkKeys:
         return f"{self.prefix}_scrape_lock_key"
 
     @property
-    def recovery_notice(self) -> str:
-        return f"{self.prefix}_recovery_notice"
-
-    @property
     def loaded_slug(self) -> str:
         return f"{self.prefix}_loaded_slug"
 
@@ -3583,6 +3579,11 @@ class _WalkKeys:
 
 _SEEDING_KEYS = _WalkKeys("_seeding")
 _BACKTEST_KEYS = _WalkKeys("_backtest")
+
+_BACKTEST_RECOVERY_FAILED_NOTICE = (
+    "The event capture is available in this tab, but its recovery file could not be saved. "
+    "Do not close the tab; retry the capture to create a recoverable copy."
+)
 
 _SEEDING_LOOKUP_DELAY_SECONDS = 0.4
 
@@ -3796,10 +3797,6 @@ def _run_event_roster_scrape(
                             progress.progress(1.0, text="Capture saved and matching complete")
                             status_box.update(label="Event capture complete", state="complete", expanded=False)
                         else:
-                            st.session_state[keys.recovery_notice] = (
-                                "The event capture is available in this tab, but its recovery file could not be "
-                                "saved. Do not close the tab; retry the capture to create a recoverable copy."
-                            )
                             progress.progress(1.0, text="Matching complete; recovery file was not saved")
                             status_box.update(
                                 label="Capture completed, but recovery was not saved",
@@ -3986,7 +3983,10 @@ def _park_event_roster(
         # The compatibility fields below may be interrupted independently, but
         # the Backtest display and save path consume only this coherent object.
         st.session_state[keys.snapshot] = BacktestSnapshot.create(
-            roster, resolved, limit_groups=limit_groups
+            roster,
+            resolved,
+            limit_groups=limit_groups,
+            recovery_written=recovery_written,
         )
 
     probe = {
@@ -5235,10 +5235,13 @@ def _render_seeding_event_scrape(supabase_client: Any, *, keys: _WalkKeys = _SEE
             "Some events list younger divisions first, so those division pages may be read while finding "
             "U10+ divisions; their younger team pages are skipped automatically."
         )
-    recovery_notice = st.session_state.get(keys.recovery_notice, "")
-    if recovery_notice:
-        st.error(recovery_notice)
-        st.session_state.pop(keys.recovery_notice, None)
+    if keys == _BACKTEST_KEYS:
+        snapshot = st.session_state.get(keys.snapshot)
+        if snapshot is not None and not snapshot.recovery_written:
+            st.error(_BACKTEST_RECOVERY_FAILED_NOTICE)
+            current = st.session_state.get(keys.snapshot)
+            if current is not None and current.generation == snapshot.generation:
+                st.session_state[keys.snapshot] = replace(current, recovery_written=True)
     if not os.getenv("ZENROWS_API_KEY"):
         st.info("ZENROWS_API_KEY is not set, so these pages cannot be fetched.")
 

@@ -76,6 +76,15 @@ def test_snapshot_round_trip_preserves_all_divisions_entrants_scores_and_reviews
     assert loaded.resolved[2].candidates == ({"team_id_master": "candidate-c"},)
 
 
+def test_recovery_outcome_is_session_only_snapshot_state():
+    snapshot = replace(sample_snapshot(), recovery_written=False)
+
+    payload = snapshot.to_dict()
+
+    assert "recovery_written" not in payload
+    assert BacktestSnapshot.from_dict(payload).recovery_written is True
+
+
 def test_optional_verification_and_sourced_cohort_decision_round_trip(tmp_path):
     snapshot = sample_snapshot()
     decision = CohortDecision("10", "u12/u13", "Male", "Published combined bracket", "https://example.test")
@@ -396,7 +405,7 @@ def test_interrupted_parking_keeps_event_identity_structure_and_results_together
     new = sample_snapshot()
     state = InterruptibleState({app._BACKTEST_KEYS.snapshot: old, "_seeding_result": "untouched"})
     monkeypatch.setattr(app, "st", SimpleNamespace(session_state=state))
-    monkeypatch.setattr(app, "_write_backtest_recovery", lambda *args: None)
+    monkeypatch.setattr(app, "_write_backtest_recovery", lambda *args: True)
     monkeypatch.setattr(app, "resolve_master_ids", lambda *args, **kwargs: ({"501": "new-team-id"}, ()))
 
     with pytest.raises(Interrupted):
