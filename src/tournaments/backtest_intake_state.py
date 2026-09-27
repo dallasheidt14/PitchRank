@@ -11,10 +11,10 @@ import hashlib
 import json
 import re
 from collections import Counter
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, fields, replace
 from dataclasses import field as dataclass_field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from uuid import uuid4
 
 from src.tournaments.backtest_result_summary import tournament_result_summary
@@ -635,6 +635,102 @@ def _fixtures_preserved(
     return True
 
 
+def _known_dataclass_values_contained(
+    required: Any,
+    candidate: Any,
+    *,
+    ignore: frozenset[str] = frozenset(),
+) -> bool:
+    """Require each nonblank scalar captured in ``required`` to match."""
+    for item in fields(required):
+        if item.name in ignore:
+            continue
+        required_value = getattr(required, item.name)
+        if required_value is None or (isinstance(required_value, str) and not required_value.strip()):
+            continue
+        if getattr(candidate, item.name) != required_value:
+            return False
+    return True
+
+
+def _sequence_evidence_contained(
+    required: tuple[Any, ...],
+    candidate: tuple[Any, ...],
+    contains: Callable[[Any, Any], bool],
+) -> bool:
+    """Pair every required item to a distinct compatible candidate item."""
+    options = [
+        [candidate_index for candidate_index, item in enumerate(candidate) if contains(required_item, item)]
+        for required_item in required
+    ]
+    matched_candidate: dict[int, int] = {}
+    matched_required: dict[int, int] = {}
+    for start in range(len(required)):
+        queue = [start]
+        visited_required = {start}
+        reached_by: dict[int, int] = {}
+        free = None
+        for required_index in queue:
+            for candidate_index in options[required_index]:
+                if candidate_index in reached_by:
+                    continue
+                reached_by[candidate_index] = required_index
+                if candidate_index not in matched_candidate:
+                    free = candidate_index
+                    break
+                owner = matched_candidate[candidate_index]
+                if owner not in visited_required:
+                    visited_required.add(owner)
+                    queue.append(owner)
+            if free is not None:
+                break
+        if free is None:
+            return False
+        while free is not None:
+            owner = reached_by[free]
+            displaced = matched_required.get(owner)
+            matched_candidate[free] = owner
+            matched_required[owner] = free
+            free = displaced
+    return True
+
+
+def _pool_evidence_contained(required: Any, candidate: Any) -> bool:
+    return (
+        _known_dataclass_values_contained(required, candidate, ignore=frozenset({"members"}))
+        and _sequence_evidence_contained(
+            required.members,
+            candidate.members,
+            _known_dataclass_values_contained,
+        )
+    )
+
+
+def _division_evidence_contained(required: Any, candidate: Any) -> bool:
+    return (
+        _known_dataclass_values_contained(
+            required,
+            candidate,
+            ignore=frozenset({
+                "pools",
+                "fixtures",
+                "pools_readable",
+                "fixtures_readable",
+                "warnings",
+                "rules_links",
+            }),
+        )
+        and (not required.pools_readable or candidate.pools_readable)
+        and (not required.fixtures_readable or candidate.fixtures_readable)
+        and _sequence_evidence_contained(required.pools, candidate.pools, _pool_evidence_contained)
+        and _sequence_evidence_contained(
+            required.rules_links,
+            candidate.rules_links,
+            _known_dataclass_values_contained,
+        )
+    )
+
+
 def _assert_capture_preserved(
     previous: EventRoster,
     fresh: EventRoster,
@@ -704,6 +800,48 @@ def assert_capture_evidence_contained(required: EventRoster, candidate: EventRos
         allow_fixture_corrections=False,
         require_same_known_values=True,
     )
+    event_fields_match = all(
+        (
+            getattr(required, name) is None
+            or (isinstance(getattr(required, name), str) and not getattr(required, name).strip())
+            or getattr(candidate, name) == getattr(required, name)
+        )
+        for name in (
+            "event_name",
+            "event_start_date",
+            "event_end_date",
+            "event_season_year",
+            "event_dates_source",
+        )
+    )
+    counters_contained = (
+        candidate.divisions_found >= required.divisions_found
+        and candidate.divisions_walked >= required.divisions_walked
+        and candidate.divisions_unreadable <= required.divisions_unreadable
+        and candidate.divisions_skipped >= required.divisions_skipped
+        and candidate.teams_unreadable <= required.teams_unreadable
+        and (not required.divisions_stable or candidate.divisions_stable)
+        and (not required.completed_event or candidate.completed_event)
+    )
+    teams_contained = _sequence_evidence_contained(
+        required.teams,
+        candidate.teams,
+        lambda required_team, candidate_team: (
+            required_team.group_id == candidate_team.group_id
+            and entrant_key(required_team) == entrant_key(candidate_team)
+            and _known_dataclass_values_contained(required_team, candidate_team)
+        ),
+    )
+    candidate_divisions = {division.group_id: division for division in candidate.divisions}
+    divisions_contained = all(
+        group_id in candidate_divisions
+        and _division_evidence_contained(required_division, candidate_divisions[group_id])
+        for group_id, required_division in (
+            (division.group_id, division) for division in required.divisions
+        )
+    )
+    if not (event_fields_match and counters_contained and teams_contained and divisions_contained):
+        raise IntakeOverwriteRefused("The saved recovery does not contain every fresh captured value")
 
 
 def write_snapshot(

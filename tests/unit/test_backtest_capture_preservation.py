@@ -101,6 +101,37 @@ def test_recovery_containment_rejects_a_stale_winner_cleared_by_a_corrected_draw
         assert_capture_evidence_contained(roster(corrected), roster(stale))
 
 
+def test_recovery_containment_requires_fresh_team_and_division_fields():
+    from tests.unit.test_backtest_intake_state import sample_snapshot
+
+    fresh = sample_snapshot().roster
+    stale_team = replace(
+        fresh,
+        teams=(replace(fresh.teams[0], provider_team_id=None, team_name="Old Alpha"),) + fresh.teams[1:],
+    )
+    stale_division = replace(
+        fresh,
+        divisions=(replace(fresh.divisions[0], division_label="Old division label"),) + fresh.divisions[1:],
+    )
+
+    with pytest.raises(IntakeOverwriteRefused):
+        assert_capture_evidence_contained(fresh, stale_team)
+    with pytest.raises(IntakeOverwriteRefused):
+        assert_capture_evidence_contained(fresh, stale_division)
+
+
+def test_recovery_containment_allows_candidate_team_enrichment():
+    from tests.unit.test_backtest_intake_state import sample_snapshot
+
+    candidate = sample_snapshot().roster
+    required = replace(
+        candidate,
+        teams=(replace(candidate.teams[0], provider_team_id=None),) + candidate.teams[1:],
+    )
+
+    assert_capture_evidence_contained(required, candidate)
+
+
 def test_unique_published_number_allows_a_score_correction_without_a_provider_link():
     old = fixture(source_url="")
     corrected = replace(old, home_shootout_score=2, away_shootout_score=3, result_text="0 - 0 PKS: 2 - 3")
@@ -254,6 +285,31 @@ def test_stale_corrected_recovery_is_not_available_when_rewrite_fails(tmp_path, 
 
     monkeypatch.setattr(app, "write_json", fail_write)
     recovery = app._write_backtest_recovery(corrected, None)
+
+    assert recovery.available is False
+    assert recovery.written is False
+    assert recovery_path.read_bytes() == before
+
+
+def test_recovery_missing_fresh_provider_id_is_not_available_when_rewrite_fails(tmp_path, monkeypatch):
+    import tournament_intake as app
+    from tests.unit.test_backtest_intake_state import sample_snapshot
+
+    fresh = sample_snapshot().roster
+    stale = replace(
+        fresh,
+        teams=(replace(fresh.teams[0], provider_team_id=None),) + fresh.teams[1:],
+    )
+    monkeypatch.setattr(app, "reports_dir", lambda: tmp_path)
+    assert app._write_backtest_recovery(stale, None).written is True
+    recovery_path = app._event_recovery_path("51783", completed_event=True)
+    before = recovery_path.read_bytes()
+
+    def fail_write(*_args, **_kwargs):
+        raise OSError("simulated atomic rewrite failure")
+
+    monkeypatch.setattr(app, "write_json", fail_write)
+    recovery = app._write_backtest_recovery(fresh, None)
 
     assert recovery.available is False
     assert recovery.written is False
