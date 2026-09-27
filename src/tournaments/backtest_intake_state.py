@@ -153,7 +153,7 @@ class BacktestSnapshot:
     tiebreak_decision: EventTiebreakDecision | None = None
     # Session-only publication state. A completed named snapshot is itself the
     # durable copy, so this intentionally is not serialized by ``to_dict``.
-    recovery_written: bool = dataclass_field(default=True, compare=False, repr=False)
+    recovery_available: bool = dataclass_field(default=True, compare=False, repr=False)
 
     def __post_init__(self) -> None:
         expected = [team.source_index for team in self.roster.teams]
@@ -162,7 +162,7 @@ class BacktestSnapshot:
             raise ValueError("Every captured entrant must have exactly one matching outcome")
         if not self.generation or not self.captured_at:
             raise ValueError("An intake needs its capture identity and timestamp")
-        if type(self.recovery_written) is not bool:
+        if type(self.recovery_available) is not bool:
             raise ValueError("Recovery state must be true or false")
         group_ids = {division.group_id for division in self.roster.divisions}
         decided = set()
@@ -207,7 +207,7 @@ class BacktestSnapshot:
         resolved,
         *,
         limit_groups=None,
-        recovery_written: bool = True,
+        recovery_available: bool = True,
     ) -> BacktestSnapshot:
         return cls(
             roster,
@@ -215,7 +215,7 @@ class BacktestSnapshot:
             uuid4().hex,
             utc_now_iso(),
             limit_groups,
-            recovery_written=recovery_written,
+            recovery_available=recovery_available,
         )
 
     def with_resolution(self, parsed, resolved, *, generation: str) -> BacktestSnapshot:

@@ -871,14 +871,14 @@ def test_backtest_runner_reports_recovery_failure_instead_of_claiming_a_save(app
     with pytest.raises(_Rerun):
         tournament_intake._render_seeding_event_scrape(None, keys=tournament_intake._BACKTEST_KEYS)
 
-    assert fake_st.session_state[tournament_intake._BACKTEST_KEYS.snapshot].recovery_written is False
+    assert fake_st.session_state[tournament_intake._BACKTEST_KEYS.snapshot].recovery_available is False
 
     app.setattr(fake_st, "error", rendered_error)
     tournament_intake._render_seeding_event_scrape(None, keys=tournament_intake._BACKTEST_KEYS)
 
     assert fake_st.errors == [tournament_intake._BACKTEST_RECOVERY_FAILED_NOTICE]
     assert fake_st.button_by_key("_backtest_retry_recovery")["label"] == "Retry saving recovery copy"
-    assert fake_st.session_state[tournament_intake._BACKTEST_KEYS.snapshot].recovery_written is False
+    assert fake_st.session_state[tournament_intake._BACKTEST_KEYS.snapshot].recovery_available is False
 
 
 def test_backtest_recovery_failure_is_published_atomically_with_the_snapshot(app):
@@ -897,12 +897,12 @@ def test_backtest_recovery_failure_is_published_atomically_with_the_snapshot(app
 
     snapshot = fake_st.session_state[tournament_intake._BACKTEST_KEYS.snapshot]
     assert snapshot.roster.event_id == "52975"
-    assert snapshot.recovery_written is False
+    assert snapshot.recovery_available is False
 
     tournament_intake._render_seeding_event_scrape(None, keys=tournament_intake._BACKTEST_KEYS)
 
     assert fake_st.errors == [tournament_intake._BACKTEST_RECOVERY_FAILED_NOTICE]
-    assert fake_st.session_state[tournament_intake._BACKTEST_KEYS.snapshot].recovery_written is False
+    assert fake_st.session_state[tournament_intake._BACKTEST_KEYS.snapshot].recovery_available is False
 
 
 def test_backtest_failed_recovery_can_be_retried_without_another_paid_walk(app):
@@ -928,7 +928,7 @@ def test_backtest_failed_recovery_can_be_retried_without_another_paid_walk(app):
         tournament_intake._render_seeding_event_scrape(None, keys=tournament_intake._BACKTEST_KEYS)
 
     assert retried == [("52975", None, tournament_intake._BACKTEST_KEYS)]
-    assert fake_st.session_state[tournament_intake._BACKTEST_KEYS.snapshot].recovery_written is True
+    assert fake_st.session_state[tournament_intake._BACKTEST_KEYS.snapshot].recovery_available is True
 
 
 def test_backtest_recovery_retry_is_disabled_while_another_walk_is_running(app):
@@ -974,6 +974,26 @@ def test_backtest_pending_recovery_blocks_a_new_paid_walk_even_for_another_url(a
     assert fake_st.button_by_key("_backtest_event_probe_run")["disabled"] is True
     assert paid_walks == []
     assert "Save the recovery copy" in fake_st.errors[-1]
+
+
+def test_richer_existing_backtest_recovery_is_available_instead_of_blocking_the_tab(app):
+    richer = _roster(_team(0), _team(1))
+    degraded = _roster(_team(0))
+    assert tournament_intake._write_backtest_recovery(richer, None)
+    fake_st = _install(app, _FakeSt(text={"backtest_event_url": EVENT_URL}))
+
+    tournament_intake._park_event_roster(
+        EVENT_URL,
+        degraded,
+        None,
+        None,
+        keys=tournament_intake._BACKTEST_KEYS,
+    )
+    tournament_intake._render_seeding_event_scrape(None, keys=tournament_intake._BACKTEST_KEYS)
+
+    assert fake_st.session_state[tournament_intake._BACKTEST_KEYS.snapshot].recovery_available is True
+    assert all(call.get("key") != "_backtest_retry_recovery" for call in fake_st.buttons)
+    assert fake_st.button_by_key("_backtest_event_reload_walk")["label"] == "Load the walk already paid for"
 
 
 def test_an_ordinary_failure_is_not_reported_as_a_block(app):

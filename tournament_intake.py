@@ -3585,6 +3585,18 @@ _BACKTEST_RECOVERY_FAILED_NOTICE = (
     "Do not close the tab; retry saving the recovery copy below."
 )
 
+
+@dataclass(frozen=True)
+class _RecoveryResult:
+    """Whether a usable recovery exists and whether this attempt wrote it."""
+
+    available: bool
+    written: bool
+
+    def __bool__(self) -> bool:
+        return self.available
+
+
 _SEEDING_LOOKUP_DELAY_SECONDS = 0.4
 
 _SEEDING_STATUS_LABEL = {
@@ -3765,7 +3777,7 @@ def _run_event_roster_scrape(
 
                 if keys != _BACKTEST_KEYS:
                     with st.spinner("Walking the event..."):
-                        parked, _recovery_written = capture()
+                        parked, _recovery_available = capture()
                 else:
                     status_box = st.status("Starting event capture", expanded=True)
                     progress = st.progress(0.0, text="Discovering divisions...")
@@ -3792,9 +3804,9 @@ def _run_event_roster_scrape(
                         status_box.update(label=stage, state="running", expanded=True)
 
                     try:
-                        parked, recovery_written = capture(on_phase, on_stage)
-                        if recovery_written:
-                            progress.progress(1.0, text="Capture saved and matching complete")
+                        parked, recovery_available = capture(on_phase, on_stage)
+                        if recovery_available:
+                            progress.progress(1.0, text="Capture protected and matching complete")
                             status_box.update(label="Event capture complete", state="complete", expanded=False)
                         else:
                             progress.progress(1.0, text="Matching complete; recovery file was not saved")
@@ -3843,10 +3855,15 @@ def _run_event_roster_scrape(
     st.rerun()
 
 
-def _write_recovery(roster: EventRoster, limit_groups: int | None, keys: _WalkKeys) -> bool:
+def _write_recovery(
+    roster: EventRoster,
+    limit_groups: int | None,
+    keys: _WalkKeys,
+) -> bool | _RecoveryResult:
     """Write the walk to its tab's recovery file.
 
-    False when that tab's writer declined or failed, so the caller must not claim a save.
+    For Backtest, true means a usable copy is available: either this roster was
+    written or a richer same-event capture was safely retained.
     """
     if keys == _BACKTEST_KEYS:
         return _write_backtest_recovery(roster, limit_groups)
@@ -3905,7 +3922,9 @@ def _keep_blocked_walk(partial: EventRoster | None, limit_groups: int | None, ke
     linked = {team.provider_team_id for team in partial.teams if team.provider_team_id}
     if saved is not None and len(set(saved.values())) >= len(linked):
         return None
-    return len(linked) if _write_recovery(partial, limit_groups, keys) else None
+    recovery = _write_recovery(partial, limit_groups, keys)
+    written = recovery.written if isinstance(recovery, _RecoveryResult) else bool(recovery)
+    return len(linked) if written else None
 
 
 def _park_event_roster(
@@ -3917,7 +3936,7 @@ def _park_event_roster(
     keys: _WalkKeys = _SEEDING_KEYS,
     on_stage: Callable[[str], None] | None = None,
 ) -> tuple[int, bool]:
-    """Keep the walk's result; return its row count and whether recovery was written.
+    """Keep the walk's result; return its row count and whether recovery is available.
 
     The file is written first, from the roster alone, and that ordering is the
     whole point. Streamlit raises a queued rerun from ``BaseException``, which no
@@ -3932,11 +3951,11 @@ def _park_event_roster(
     only when the operator asks and the tab holds less than it does. Naming a
     run and keeping it stays the operator's step.
     """
-    recovery_written = _write_recovery(roster, limit_groups, keys)
+    recovery_available = bool(_write_recovery(roster, limit_groups, keys))
 
-    if on_stage and (keys != _BACKTEST_KEYS or recovery_written):
+    if on_stage and (keys != _BACKTEST_KEYS or recovery_available):
         if keys == _BACKTEST_KEYS:
-            on_stage("Recoverable capture saved")
+            on_stage("Recoverable capture available")
         on_stage("Matching database teams (read-only)")
     master_ids, resolve_warnings = resolve_master_ids(
         roster.teams,
@@ -3986,7 +4005,7 @@ def _park_event_roster(
             roster,
             resolved,
             limit_groups=limit_groups,
-            recovery_written=recovery_written,
+            recovery_available=recovery_available,
         )
 
     probe = {
@@ -4021,7 +4040,7 @@ def _park_event_roster(
         # Saved here, not first in the match pass, so a roster from another source
         # detaches before that pass checks for a name and pauses on the refusal.
         _autosave_seeding_run()
-        return len(parsed.rows), recovery_written
+        return len(parsed.rows), recovery_available
     st.session_state[keys.probe] = probe
     st.session_state[keys.structure] = roster.divisions
     st.session_state[keys.registrations] = registrations
@@ -4036,14 +4055,14 @@ def _park_event_roster(
         # under this event's name.
         _park_seeding_result(None, event_id=None, keys=keys)
         st.session_state[keys.resolution_failed] = False
-        return 0, recovery_written
+        return 0, recovery_available
 
     _park_seeding_result((parsed, resolved), event_id=roster.event_id, keys=keys)
     # Marked failed until the free name pass commits its result: that pass runs
     # under a spinner too, so it has the same yield point, and a run lost there
     # would otherwise leave no retry offered.
     st.session_state[keys.resolution_failed] = True
-    return len(parsed.rows), recovery_written
+    return len(parsed.rows), recovery_available
 
 
 def _scrape_still_running(*, keys: _WalkKeys = _SEEDING_KEYS) -> bool:
@@ -4106,9 +4125,9 @@ def _event_recovery_path(event_id: str, *, completed_event: bool = False) -> Pat
     return default_seeding_base_dir() / f"gotsport_{event_id}" / "last_walk.json"
 
 
-def _write_backtest_recovery(roster: EventRoster, limit_groups: int | None) -> bool:
-    """Keep the paid Backtest capture separately from upcoming-event Seeding."""
-    from src.tournaments.backtest_intake_state import assert_capture_preserved
+def _write_backtest_recovery(roster: EventRoster, limit_groups: int | None) -> _RecoveryResult:
+    """Keep the paid Backtest capture, or retain a richer usable copy already on disk."""
+    from src.tournaments.backtest_intake_state import IntakeOverwriteRefused, assert_capture_preserved
     from src.tournaments.gotsport_event_roster import event_roster_from_dict, event_roster_to_dict
     from src.tournaments.storage._file_lock import _acquire_file_lock
 
@@ -4118,13 +4137,19 @@ def _write_backtest_recovery(roster: EventRoster, limit_groups: int | None) -> b
         with _acquire_file_lock(path.with_suffix(".lock"), timeout=1.0):
             if path.exists():
                 existing = event_roster_from_dict(read_json(path))
-                assert_capture_preserved(existing, roster)
+                try:
+                    assert_capture_preserved(existing, roster)
+                except IntakeOverwriteRefused:
+                    if existing.event_id != roster.event_id:
+                        raise
+                    logger.info("Kept the richer Backtest recovery already saved at %s", path)
+                    return _RecoveryResult(available=True, written=False)
             write_json(path, {**event_roster_to_dict(roster), "walked_at": utc_now_iso(),
                               "limit_groups": limit_groups})
     except Exception as exc:
         logger.warning("Could not preserve this Backtest walk: %s", exc)
-        return False
-    return True
+        return _RecoveryResult(available=False, written=False)
+    return _RecoveryResult(available=True, written=True)
 
 
 def _write_event_roster_recovery(roster: EventRoster, limit_groups: int | None = None) -> bool:
@@ -5237,7 +5262,7 @@ def _render_seeding_event_scrape(supabase_client: Any, *, keys: _WalkKeys = _SEE
         )
     in_progress = _scrape_still_running(keys=keys)
     snapshot = st.session_state.get(keys.snapshot) if keys == _BACKTEST_KEYS else None
-    recovery_pending = snapshot is not None and not snapshot.recovery_written
+    recovery_pending = snapshot is not None and not snapshot.recovery_available
     if recovery_pending:
         if snapshot is not None:
             st.error(_BACKTEST_RECOVERY_FAILED_NOTICE)
@@ -5249,7 +5274,7 @@ def _render_seeding_event_scrape(supabase_client: Any, *, keys: _WalkKeys = _SEE
                 if _write_recovery(snapshot.roster, snapshot.limit_groups, keys):
                     current = st.session_state.get(keys.snapshot)
                     if current is not None and current.generation == snapshot.generation:
-                        st.session_state[keys.snapshot] = replace(current, recovery_written=True)
+                        st.session_state[keys.snapshot] = replace(current, recovery_available=True)
                         st.rerun()
                 else:
                     st.error("The recovery copy still could not be saved. Keep this tab open and retry again.")

@@ -180,7 +180,9 @@ def test_same_row_evidence_loss_preserves_saved_snapshot_and_recovery_bytes(tmp_
     app._write_backtest_recovery(original, None)
     recovery_path = app._event_recovery_path("51783", completed_event=True)
     before_recovery = recovery_path.read_bytes()
-    app._write_backtest_recovery(degraded, None)
+    recovery = app._write_backtest_recovery(degraded, None)
+    assert recovery.available is True
+    assert recovery.written is False
     assert recovery_path.read_bytes() == before_recovery
 
 

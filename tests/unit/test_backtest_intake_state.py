@@ -77,12 +77,12 @@ def test_snapshot_round_trip_preserves_all_divisions_entrants_scores_and_reviews
 
 
 def test_recovery_outcome_is_session_only_snapshot_state():
-    snapshot = replace(sample_snapshot(), recovery_written=False)
+    snapshot = replace(sample_snapshot(), recovery_available=False)
 
     payload = snapshot.to_dict()
 
-    assert "recovery_written" not in payload
-    assert BacktestSnapshot.from_dict(payload).recovery_written is True
+    assert "recovery_available" not in payload
+    assert BacktestSnapshot.from_dict(payload).recovery_available is True
 
 
 def test_optional_verification_and_sourced_cohort_decision_round_trip(tmp_path):
@@ -330,7 +330,9 @@ def test_recovery_preserves_richer_incomplete_captures(tmp_path, monkeypatch, lo
     if loss == "source_only_team":
         reduced = replace(reduced, teams=reduced.teams[:-1])
 
-    app._write_backtest_recovery(reduced, None)
+    recovery = app._write_backtest_recovery(reduced, None)
+    assert recovery.available is True
+    assert recovery.written is False
 
     assert path.read_bytes() == before
     recovered, limit = app._recovered_walk(original.event_id, completed_event=True)
@@ -347,7 +349,7 @@ def test_future_recovery_schema_is_not_loaded_or_overwritten(tmp_path, monkeypat
     path.parent.mkdir(parents=True)
     path.write_text('{"schema_version": 999}', encoding="utf-8")
     assert app._recovered_walk(roster.event_id, completed_event=True) is None
-    app._write_backtest_recovery(roster, None)
+    assert not app._write_backtest_recovery(roster, None)
     assert path.read_text(encoding="utf-8") == '{"schema_version": 999}'
 
 
