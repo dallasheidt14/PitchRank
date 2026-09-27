@@ -74,7 +74,7 @@ from src.tournaments.schedule_simulator import (
     normalize_tiebreak_order,
 )
 from src.tournaments.storage._io import utc_now_iso
-from src.tournaments.storage.event_key import existing_event_key
+from src.tournaments.storage.event_key import event_key, existing_event_key
 
 
 def _set_session_value(key: str, value: Any) -> None:
@@ -1181,14 +1181,27 @@ def _preserve_review_state_after_capture(
     )
 
 
-def _render_capture_details(snapshot: BacktestSnapshot, supabase_client: Any, base_dir) -> None:
+def _render_capture_details(
+    snapshot: BacktestSnapshot,
+    supabase_client: Any,
+    base_dir,
+    *,
+    recovery_pending: bool = False,
+) -> None:
     from src.tournaments.gotsport_event_roster import (
         EVENT_BASE,
         capture_event_divisions,
         make_zenrows_fetcher,
         verify_event_divisions,
     )
-    from tournament_intake import _BACKTEST_KEYS, _park_event_roster, _render_seeding_event_scrape
+    from tournament_intake import (
+        _BACKTEST_KEYS,
+        _acquire_scrape_lock,
+        _park_event_roster,
+        _render_seeding_event_scrape,
+        _scrape_still_running,
+        _ScrapeLockContended,
+    )
 
     quality = summarize_structure_quality(snapshot.roster.divisions)
     st.markdown("#### Capture evidence")
@@ -1244,8 +1257,16 @@ def _render_capture_details(snapshot: BacktestSnapshot, supabase_client: Any, ba
             f"Last division check: {state} · reads {list(verification.observed_counts)} · "
             f"{len(missing)} new divisions"
         )
-        if targets and st.button(f"Capture {len(targets)} missing or unreadable divisions", disabled=not api_key):
-            progress = st.progress(0.0, text="Preparing targeted capture...")
+        in_progress = _scrape_still_running(keys=_BACKTEST_KEYS)
+        capture_clicked = targets and st.button(
+            f"Capture {len(targets)} missing or unreadable divisions",
+            disabled=not api_key or recovery_pending or in_progress,
+        )
+        if capture_clicked and recovery_pending:
+            st.error("Save the recovery copy before starting another paid event capture.")
+        elif capture_clicked and in_progress:
+            st.error("Another event capture is already running. Wait for it to finish and reload.")
+        elif capture_clicked:
             operator_state = replace(
                 snapshot,
                 reviews=_current_reviews(snapshot),
@@ -1255,31 +1276,43 @@ def _render_capture_details(snapshot: BacktestSnapshot, supabase_client: Any, ba
             def phase(name: str, done: int, total: int) -> None:
                 progress.progress(done / max(total, 1), text=f"{name}: {done} of {total}")
 
+            completed = False
+            lock_key = event_key("gotsport", snapshot.roster.event_id, None)
             try:
-                refreshed = capture_event_divisions(
-                    snapshot.roster,
-                    targets,
-                    fetch=make_zenrows_fetcher(api_key),
-                    all_group_ids=verification.group_ids,
-                    divisions_stable=verification.stable,
-                    max_workers=8,
-                    on_phase=phase,
-                )
-                assert_capture_preserved(snapshot.roster, refreshed)
-                _park_event_roster(
-                    f"{EVENT_BASE}/{snapshot.roster.event_id}", refreshed, None,
-                    supabase_client, keys=_BACKTEST_KEYS,
-                )
-                current = st.session_state[_BACKTEST_KEYS.snapshot]
-                st.session_state[_BACKTEST_KEYS.snapshot] = _preserve_review_state_after_capture(
-                    current, operator_state, refreshed, verification
-                )
-            except Exception as exc:
-                st.error(f"Missing divisions were not captured: {exc}")
-            else:
+                with _acquire_scrape_lock(lock_key):
+                    st.session_state[_BACKTEST_KEYS.lock_key] = lock_key
+                    st.session_state._scrape_in_progress = True
+                    progress = st.progress(0.0, text="Preparing targeted capture...")
+                    try:
+                        refreshed = capture_event_divisions(
+                            snapshot.roster,
+                            targets,
+                            fetch=make_zenrows_fetcher(api_key),
+                            all_group_ids=verification.group_ids,
+                            divisions_stable=verification.stable,
+                            max_workers=8,
+                            on_phase=phase,
+                        )
+                        assert_capture_preserved(snapshot.roster, refreshed)
+                        _park_event_roster(
+                            f"{EVENT_BASE}/{snapshot.roster.event_id}", refreshed, None,
+                            supabase_client, keys=_BACKTEST_KEYS,
+                        )
+                        current = st.session_state[_BACKTEST_KEYS.snapshot]
+                        st.session_state[_BACKTEST_KEYS.snapshot] = _preserve_review_state_after_capture(
+                            current, operator_state, refreshed, verification
+                        )
+                        completed = True
+                    except Exception as exc:
+                        st.error(f"Missing divisions were not captured: {exc}")
+                    finally:
+                        progress.empty()
+                        st.session_state._scrape_in_progress = False
+                        st.session_state[_BACKTEST_KEYS.lock_key] = None
+            except _ScrapeLockContended:
+                st.error("This event is already being captured in another tab — wait for it to finish and reload.")
+            if completed:
                 st.rerun()
-            finally:
-                progress.empty()
 
     with st.expander("Start or repeat a Backtest capture"):
         _render_seeding_event_scrape(
@@ -2084,7 +2117,7 @@ def render_intake(supabase_client: Any) -> None:
     if snapshot is None:
         _render_seeding_event_scrape(supabase_client, keys=_BACKTEST_KEYS)
         return
-    _render_backtest_recovery_state()
+    recovery_pending = _render_backtest_recovery_state()
     snapshot = _restore_review_baseline(snapshot, base_dir)
     if st.session_state.pop(f"bt_saved_{snapshot.generation}", False):
         st.success("Saved the tournament capture, team decisions, cohort corrections, and tiebreak rule.")
@@ -2249,7 +2282,12 @@ def render_intake(supabase_client: Any) -> None:
         if show_structure:
             _render_structure(display_snapshot)
         if show_capture:
-            _render_capture_details(snapshot, supabase_client, base_dir)
+            _render_capture_details(
+                snapshot,
+                supabase_client,
+                base_dir,
+                recovery_pending=recovery_pending,
+            )
     elif section == "Teams":
         st.markdown("#### Match tournament teams to PitchRank")
         st.caption(
