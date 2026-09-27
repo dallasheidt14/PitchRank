@@ -26,7 +26,9 @@ from src.tournaments.seeding_pack import (
     cohort_label,
     make_pack,
     needs_placement_review,
+    normalize_policy,
     pack_matches,
+    persist_ordering,
     placement_review_fingerprint,
     prediction_request,
     snapshot_matches_roster,
@@ -225,6 +227,102 @@ def _render_director_notes(key: str, pack: dict[str, Any], save: Callable[[], bo
         st.rerun()
 
 
+def _render_manual_seed_editor(
+    key: str,
+    analysis: Any,
+    pack: dict[str, Any],
+    save: Callable[[], bool],
+    roster_rows: Mapping[str, RosterRow],
+) -> None:
+    """Require an explicit seed-or-hold decision for every rated team."""
+    manual = pack.get("manual_seed_orders", {}).get(key)
+    seeded_order = tuple(manual["seeded"]) if isinstance(manual, dict) else analysis.suggested_order
+    held = set(manual.get("held", ())) if isinstance(manual, dict) else set()
+    seed_by_id = {entrant_id: seed for seed, entrant_id in enumerate(seeded_order, 1)}
+    generation = hashlib.sha256(
+        (str(pack["generated_at"]) + repr(manual) + repr(analysis.suggested_order)).encode()
+    ).hexdigest()[:12]
+    entrant_ids = tuple(dict.fromkeys((*analysis.suggested_order, *analysis.review)))
+    frame = pd.DataFrame([
+        {
+            "Entrant ID": entrant_id,
+            "Team": roster_rows[entrant_id].registered_name,
+            "Manual/Effective Seed": seed_by_id.get(entrant_id),
+            "Hold for manual placement": entrant_id in held,
+            "Automatically eligible": entrant_id in analysis.baseline_order,
+        }
+        for entrant_id in entrant_ids
+    ])
+    with st.form(f"_seeding_manual_order_{key}_{generation}"):
+        edited = st.data_editor(
+            frame,
+            hide_index=True,
+            width="stretch",
+            disabled=["Entrant ID", "Team", "Automatically eligible"],
+            column_config={
+                "Manual/Effective Seed": st.column_config.NumberColumn(min_value=1, step=1),
+                "Hold for manual placement": st.column_config.CheckboxColumn(),
+            },
+            key=f"_seeding_manual_order_editor_{key}_{generation}",
+        )
+        saved = st.form_submit_button("Save manual seed order")
+    if saved:
+        assigned: list[tuple[int, str]] = []
+        explicit_holds = []
+        errors = []
+        for record in edited.to_dict("records"):
+            entrant_id = str(record["Entrant ID"])
+            raw_seed = record["Manual/Effective Seed"]
+            has_seed = pd.notna(raw_seed)
+            is_held = bool(record["Hold for manual placement"])
+            if has_seed:
+                numeric = float(raw_seed)
+                if not numeric.is_integer() or numeric < 1:
+                    errors.append(f"{record['Team']} needs a positive whole-number seed.")
+                else:
+                    assigned.append((int(numeric), entrant_id))
+            if is_held:
+                explicit_holds.append(entrant_id)
+            if has_seed and is_held:
+                errors.append(f"{record['Team']} cannot be seeded and held at the same time.")
+            if entrant_id in analysis.baseline_order and not has_seed and not is_held:
+                errors.append(
+                    f"{record['Team']} is automatically eligible: assign a seed or explicitly hold it."
+                )
+        seeds = [seed for seed, _entrant_id in assigned]
+        if len(seeds) != len(set(seeds)):
+            errors.append("Manual seeds must be unique.")
+        if sorted(seeds) != list(range(1, len(seeds) + 1)):
+            errors.append("Manual seeds must be contiguous, starting at 1.")
+        if errors:
+            for error in dict.fromkeys(errors):
+                st.error(error)
+        else:
+            manual_orders = dict(pack.get("manual_seed_orders", {}))
+            manual_orders[key] = {
+                "seeded": [entrant_id for _seed, entrant_id in sorted(assigned)],
+                "held": [
+                    entrant_id for entrant_id in analysis.baseline_order if entrant_id in explicit_holds
+                ],
+            }
+            pack["manual_seed_orders"] = manual_orders
+            st.session_state[_PACK_KEY] = pack
+            invalidate_seeding_exports()
+            _persist_decisions(save)
+            st.rerun()
+    if manual is not None and st.button(
+        "Restore MatchBalance suggested order", key=f"_seeding_restore_suggested_{key}",
+    ):
+        pack["manual_seed_orders"] = {
+            cohort: value for cohort, value in pack.get("manual_seed_orders", {}).items()
+            if cohort != key
+        }
+        st.session_state[_PACK_KEY] = pack
+        invalidate_seeding_exports()
+        _persist_decisions(save)
+        st.rerun()
+
+
 def _render_cohort_review(
     key: str, analysis: Any, pack: dict[str, Any], save: Callable[[], bool],
     roster_rows: Mapping[str, RosterRow], sheet: CohortSheet,
@@ -251,25 +349,28 @@ def _render_cohort_review(
         st.caption(observation)
     for row in content.rows:
         rows.append({
-            "Suggested seed": row.seed,
+            "PowerScore Seed": row.power_score_seed,
+            "MatchBalance Seed": row.matchbalance_seed,
+            "Manual/Effective Seed": row.seed,
             "Team": row.team.team_name,
             "PowerScore": row.score,
+            "Movement": row.movement,
             "State rank": row.state_rank or "—",
-            "Compare evidence": row.observation,
+            "Competitive marker": " · ".join(
+                value for value in (row.observation, row.close_range_after) if value
+            ),
             "Placement status": row.display_status,
             "PitchRank match": row.team.pitchrank_team_name or "",
             "Roster context": " · ".join(row.roster_context),
         })
     if rows:
-        st.caption(
-            "PowerScore sets the suggested order. Compare flags placements for review; it does not reorder teams yet."
-        )
         st.data_editor(
-            pd.DataFrame(rows), hide_index=True, use_container_width=True,
+            pd.DataFrame(rows), hide_index=True, width="stretch",
             disabled=list(pd.DataFrame(rows).columns),
             column_config={"PowerScore": st.column_config.ProgressColumn(format="%.1f", min_value=0, max_value=100)},
             key=f"_seeding_cheat_sheet_editor_{key}",
         )
+        _render_manual_seed_editor(key, analysis, pack, save, roster_rows)
         _render_director_notes(key, pack, save)
     _render_placement_checks(key, analysis, pack, roster_rows, save)
     if data_review:
@@ -283,18 +384,76 @@ def _render_placement_checks(key, analysis, pack, roster_rows, save) -> None:
     with st.expander("Placement checks — internal", expanded=pending):
         st.caption(
             "Review these placements using team identity, recent results or club context. "
-            "Seed order stays in published order. Add any delivery guidance to Director notes above."
+            "PowerScore remains the frozen baseline. Fully supported local consensus can change only the "
+            "separate MatchBalance order, within the configured movement cap. "
+            "Add any delivery guidance to Director notes above."
         )
-        seed_by_id = {entrant: seed for seed, entrant in enumerate(analysis.ordered_ids, 1)}
+        seed_by_id = {entrant: seed for seed, entrant in enumerate(analysis.baseline_order, 1)}
         for entrant in analysis.limited_history:
-            st.write(f"Seed {seed_by_id[entrant]} · {roster_rows[entrant].registered_name}: limited ranked history.")
+            st.write(
+                f"PowerScore seed {seed_by_id[entrant]} · "
+                f"{roster_rows[entrant].registered_name}: limited ranked history."
+            )
         for check in analysis.placement_checks:
-            upper = roster_rows[analysis.ordered_ids[check.upper_seed - 1]].registered_name
-            lower = roster_rows[analysis.ordered_ids[check.lower_seed - 1]].registered_name
+            upper = roster_rows[analysis.baseline_order[check.upper_seed - 1]].registered_name
+            lower = roster_rows[analysis.baseline_order[check.lower_seed - 1]].registered_name
             st.write(
                 f"Seed {check.lower_seed} · {lower} is favored by {check.lower_expected_advantage:.1f} expected "
                 f"goals against seed {check.upper_seed} · {upper}. Check the placement before delivery."
             )
+        supported = [item for item in analysis.local_consensus_checks if item.supported]
+        if supported:
+            st.markdown("**PowerScore-anchored local-consensus proposals**")
+            st.caption(
+                "These relationships compare both teams against the same nearby opponents, "
+                f"keep the {pack['policy']['max_automatic_seed_movement']}-seed movement cap anchored "
+                "to the original PowerScore order, "
+                "and are resolved together rather than as sequential swaps."
+            )
+            for item in supported:
+                team = roster_rows[item.entrant_id].registered_name
+                compared = roster_rows[item.compared_with_id].registered_name
+                windows = ", ".join(str(value) for value in item.tested_window_sizes)
+                games = (
+                    f"; at least {item.minimum_game_count} prediction games across the evidence set"
+                    if item.minimum_game_count is not None else ""
+                )
+                st.write(
+                    f"PowerScore seed {item.baseline_seed} · {team} supports MatchBalance seed "
+                    f"{item.proposed_seed}. "
+                    f"Compare favors it by {item.direct_expected_advantage:.1f} goals over seed "
+                    f"{item.compared_with_seed} · {compared}; it has the stronger shared-opponent profile in "
+                    f"{item.support_fraction:.0%} of the {len(item.neighborhood_ids)} nearby comparisons "
+                    f"across stable {windows}-team windows{games}."
+                )
+        moved = [item for item in analysis.movements if item.original_seed != item.suggested_seed]
+        if moved:
+            st.markdown("**Applied MatchBalance movement**")
+            for item in moved:
+                team = roster_rows[item.entrant_id].registered_name
+                direction = "up" if item.suggested_seed < item.original_seed else "down"
+                reason = (
+                    "displaced only because another supported team moved past it"
+                    if item.displaced_only else
+                    f"supported by {len(item.relationships_causing_move)} applied relationship(s)"
+                )
+                st.write(
+                    f"{team}: PowerScore #{item.original_seed} → MatchBalance #{item.suggested_seed} "
+                    f"({direction}; {reason})."
+                )
+        if analysis.ordering_conflicts:
+            st.markdown("**Ordering conflicts requiring review**")
+            for conflict in analysis.ordering_conflicts:
+                st.write(
+                    f"{roster_rows[conflict.winner_id].registered_name} over "
+                    f"{roster_rows[conflict.loser_id].registered_name}: {conflict.reason}"
+                )
+        unsupported = [item for item in analysis.local_consensus_checks if not item.supported]
+        if unsupported:
+            with st.expander("Why other Compare reversals did not earn a move proposal"):
+                for item in unsupported:
+                    team = roster_rows[item.entrant_id].registered_name
+                    st.write(f"Seed {item.baseline_seed} · {team}: {' '.join(item.blockers)}")
         if pending:
             st.caption("This pack remains a draft until these placements have been reviewed.")
             if st.button("Mark placement review complete", key=f"_seeding_placement_review_{key}"):
@@ -313,20 +472,37 @@ def _render_placement_checks(key, analysis, pack, roster_rows, save) -> None:
 def _render_analysis_details(selected: Sequence[str], analyses: Mapping, pack: dict[str, Any]) -> None:
     st.caption(
         "Score steps use published scores plus the direction of nearby Compare predictions. "
-        f"The separate matchup diagnostics use limits of {pack['policy']['max_expected_margin']:.2f} expected goals "
-        f"and {pack['policy']['max_blowout_probability']:.0%} four-goal risk. "
+        f"Competitive enough means no more than {pack['policy']['max_expected_margin']:.2f} "
+        "expected absolute goal difference and "
+        f"{pack['policy']['max_blowout_probability']:.0%} four-goal risk. "
+        f"Very close means adjacent teams are within "
+        f"{pack['policy']['very_close_expected_goal_difference']:.2f} expected goals. "
+        f"A material reversal means Compare favors a lower seed by at least "
+        f"{pack['policy']['material_reversal_expected_goal_difference']:.2f} expected goals. "
+        f"Automatic movement is capped at {pack['policy']['max_automatic_seed_movement']} seed positions "
+        "from the original PowerScore order. "
         "Passing these limits does not establish equal strength or interchangeable placement."
-        " Placement checks flag lower seeds favored by at least one expected goal; minor reversals stay here."
+        " Smaller reversals stay in the diagnostics."
     )
     for key in selected:
         detail = analyses[tuple(key.split("|", 1))]
         st.markdown(f"**{cohort_label(key)}**")
         for diagnostic in detail.diagnostics:
             st.caption(diagnostic)
-        seed_by_id = {entrant: seed for seed, entrant in enumerate(detail.ordered_ids, 1)}
+        seed_by_id = {entrant: seed for seed, entrant in enumerate(detail.suggested_order, 1)}
         if seed_by_id:
             st.dataframe(pd.DataFrame([
-                {"Seed": seed, "Entrant": entrant} for entrant, seed in seed_by_id.items()
+                {
+                    "Entrant": item.entrant_id,
+                    "PowerScore Seed": item.original_seed,
+                    "MatchBalance Seed": item.suggested_seed,
+                    "Movement": item.movement_delta,
+                    "Cause": item.cause,
+                    "Displaced only": item.displaced_only,
+                    "Satisfied relationships": len(item.satisfied_relationships),
+                    "Unsatisfied relationships": len(item.unsatisfied_relationships),
+                }
+                for item in detail.movements
             ]), hide_index=True)
         if detail.boundary_windows:
             st.caption("Evidence for every tested boundary, including windows that did not support a strength break.")
@@ -338,11 +514,18 @@ def _render_analysis_details(selected: Sequence[str], analyses: Mapping, pack: d
                 "Average advantage": item.average_expected_margin, "Supports direction": item.supported,
             } for item in detail.boundary_windows]), hide_index=True)
         if detail.close_ranges:
-            st.caption("Local ranges within analysis limits. Overlapping ranges do not form a larger group.")
+            st.caption(
+                "Very-close ranges meet the competitive-enough limits for every pairing and the stricter "
+                "very-close limit for adjacent teams. Fit cost equals expected absolute goal difference "
+                f"plus {pack['policy'].get('blowout_cost_weight', 2.0):.1f} × four-goal blowout risk. "
+                "Overlapping ranges do not form a larger group."
+            )
             st.dataframe(pd.DataFrame([{
                 "Seeds": f"{item.start_seed}–{item.end_seed}",
-                "Largest expected margin": item.max_expected_margin,
+                "Average fit cost": item.average_matchup_cost,
+                "Largest expected goal difference": item.max_expected_absolute_goal_difference,
                 "Largest four-goal risk": item.max_blowout_probability,
+                "Worst projected matchup": " vs ".join(str(seed_by_id[value]) for value in item.worst_pair),
             } for item in detail.close_ranges]), hide_index=True)
 
 
@@ -423,7 +606,7 @@ def render_seeding_pack(
                 if isinstance(pack, dict):
                     # Rebuilds refresh predictions but preserve operator choices
                     # that are independent of the predictor snapshot.
-                    candidate["policy"] = dict(pack.get("policy", candidate["policy"]))
+                    candidate["policy"] = normalize_policy(pack.get("policy", candidate["policy"]))
                     # Every cohort's notes and reviews carry forward, selected or not;
                     # a review only counts while its fingerprint still matches.
                     candidate["operator_notes"] = dict(pack.get("operator_notes", {}))
@@ -432,7 +615,15 @@ def render_seeding_pack(
                     candidate["legacy_manual_groups"] = dict(
                         pack.get("legacy_manual_groups", pack.get("manual_groups", {}))
                     )
-                analyze_pack(candidate, parsed.rows, resolved, overrides)
+                    if pack.get("roster_fingerprint") == candidate["roster_fingerprint"]:
+                        selected_keys = set(candidate["selected_cohorts"])
+                        candidate["manual_seed_orders"] = {
+                            key: value
+                            for key, value in pack.get("manual_seed_orders", {}).items()
+                            if key in selected_keys
+                        }
+                candidate_analyses = analyze_pack(candidate, parsed.rows, resolved, overrides)
+                persist_ordering(candidate, candidate_analyses)
                 # A click during the build reruns the script before the pack reaches
                 # session state, so the file is written before anything can yield.
                 if recovery is not None:
@@ -444,7 +635,11 @@ def render_seeding_pack(
             message = str(exc).replace(str(SUPABASE_SERVICE_ROLE_KEY or "__no_secret__"), "[redacted]")
             st.error(f"Could not build seeding sheets: {message}")
 
-    if isinstance(pack, dict) and pack.get("schema_version") == 3 and pack.get("analysis_schema_version") in (1, 2):
+    if (
+        isinstance(pack, dict)
+        and pack.get("schema_version") in (3, 4)
+        and pack.get("analysis_schema_version") in (1, 2, 3, 4, 5, 6)
+    ):
         try:
             pack = upgrade_pack_analysis(
                 pack, parsed.rows, resolved, overrides, selected, predictor_sha256=seeding_predictor_sha256(),

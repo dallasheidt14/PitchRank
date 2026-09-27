@@ -1428,3 +1428,14 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Noted**: 2026-09-05
 - **Update (2026-09-23)**: `_in_pool` no longer uses `Executor.map`: it submits every page and waits on `FIRST_COMPLETED`, so leaving the pool waited for, and paid for, every queued page, and the bound above no longer held.
 - **Refs**: branch `fix/seeding-walk-block-stops-spend`. `_in_pool` calls `executor.shutdown(cancel_futures=True)` when a block or any `BaseException` escapes, and the team-ID phase hands back the pages already read.
+
+### Seeding sheet state ranks mix full state names and codes
+
+- **ID**: IMP-251
+- **Status**: done
+- **Type**: direct
+- **Category**: readability
+- **Where**: `src/tournaments/seeding_content.py` (`format_state_rank`), `src/tournaments/seeding_sheet.py` (`_state_rank`)
+- **Why**: One sheet showed both "Texas #60" and "TX #101" because Compare could provide a full state name while the state-ranking view provided a code. Both PDF and workbook state-rank labels now normalize recognized US names and codes to postal codes, and the public sample was rebuilt from the current renderer.
+- **Noted**: 2026-09-16
+- **Refs**: branch `fix/seeding-sample-regeneration`; closed 2026-09-25 with the deterministic sample generator and renderer manifest

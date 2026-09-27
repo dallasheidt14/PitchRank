@@ -10,12 +10,14 @@ from openpyxl import load_workbook
 from src.tournaments.compare_predictor_bridge import ComparePrediction
 from src.tournaments.seeding_content import build_director_cohort, export_fingerprint
 from src.tournaments.seeding_sheet import CohortSheet, SheetTeam, render_sheet_html
-from src.tournaments.seeding_tiers import TierEntrant, build_cheat_sheet_analysis
+from src.tournaments.seeding_tiers import TierEntrant, TierPolicy, build_cheat_sheet_analysis
 from src.tournaments.seeding_workbook import build_seeding_workbook
 
 
 def prediction(margin, risk=.1):
-    return ComparePrediction("team_a", .6, .3, .1, {"teamA": 2, "teamB": 1}, margin, 1.5, risk, "low", .4)
+    return ComparePrediction(
+        "team_a", .6, .3, .1, {"teamA": 2, "teamB": 1}, margin, max(abs(margin), .5), risk, "low", .4,
+    )
 
 
 def cohort(count, *, gap=None, bottom=False):
@@ -33,6 +35,25 @@ def cohort(count, *, gap=None, bottom=False):
         SheetTeam(e.team_name, "Club", e.power_score, entrant_id=e.entrant_id) for e in entrants
     ), (), analysis)
     return sheet, entrants, pairs
+
+
+def consensus_case(compare_strengths, *, count=7, limited=()):
+    ids = [str(index) for index in range(count)]
+    entrants = [
+        TierEntrant(
+            entrant_id,
+            f"Team {entrant_id}",
+            .90 - index * .01,
+            limited_history=entrant_id in limited,
+            evidence_game_count=12 + index,
+        )
+        for index, entrant_id in enumerate(ids)
+    ]
+    pairs = {
+        (first, second): prediction(compare_strengths[first] - compare_strengths[second])
+        for first, second in combinations(ids, 2)
+    }
+    return entrants, pairs
 
 
 @pytest.mark.parametrize("count", [0, 1, 2, *range(3, 17), 32])
@@ -57,7 +78,7 @@ def test_counts_preserved_without_equivalence_or_format_claims(count):
         assert tab.cell(index, 1).value == row.seed
         assert tab.cell(index, 2).value == row.team.team_name
         assert tab.cell(index, 4).value == pytest.approx(row.score)
-        assert tab.cell(index, 6).value is None
+        assert tab.cell(index, 6).value == row.power_score_seed
     assert "Director notes" not in [tab.cell(i, 1).value for i in range(7, tab.max_row + 1)]
 
 
@@ -112,16 +133,26 @@ def test_all_window_sizes_must_agree_and_rejected_evidence_survives():
 def test_clear_gap_has_one_specific_observation_across_pdf_and_excel():
     sheet, _, _ = cohort(8, gap=4)
     content = build_director_cohort(sheet, "=Keep this literal.")
-    assert content.rows[3].observation == "Score step: 31.0 points between seeds 4 and 5."
+    expected = "Competitive Break: 31.0 PowerScore points between seeds 4 and 5."
+    assert content.rows[3].observation == expected
     assert content.rows[3].strength_break_after
     assert not content.rows[4].strength_break_after
-    assert content.notes == ("Score step: 31.0 points between seeds 4 and 5.", "=Keep this literal.")
+    assert content.notes == ("=Keep this literal.",)
     args = dict(generated_on="2026-09-20", ranking_run="2026-09-19",
                 operator_notes={("u14", "Male"): "=Keep this literal."})
     document = render_sheet_html("=Event", [sheet], **args)
     tab = load_workbook(BytesIO(build_seeding_workbook("=Event", [sheet], **args))).active
     assert 'data-entrant="3" class="strength-break"' in document
-    assert tab.cell(10, 6).value == content.rows[3].observation
+    break_group = (
+        '<tbody class="competitive-break-group"><tr class="competitive-break">'
+        '<td colspan="5"><span>Competitive Break</span>'
+        '<small>Natural model separation - not a required flight or division</small>'
+        '</td></tr><tr data-entrant="4"'
+    )
+    assert break_group in document
+    assert "tbody.competitive-break-group { break-inside: avoid-page; " in document
+    assert "tr.competitive-break { break-after: avoid-page; " in document
+    assert content.rows[3].observation in tab.cell(10, 7).value
     assert tab.cell(10, 1).border.bottom.style == "medium"
     assert tab["A1"].data_type == "s"
     for note in content.notes:
@@ -173,7 +204,7 @@ def test_workbook_keeps_secondary_identity_and_roster_context_on_team_row():
     assert [table.autoFilter.ref for table in tab.tables.values()] == ["A6:K7"]
 
 
-def test_score_step_does_not_require_a_likely_blowout():
+def test_competitive_break_does_not_require_a_likely_blowout():
     _, entrants, pairs = cohort(8)
     entrants = [replace(e, power_score=e.power_score - (.04 if i >= 4 else 0))
                 for i, e in enumerate(entrants)]
@@ -186,7 +217,7 @@ def test_score_step_does_not_require_a_likely_blowout():
 
 
 @pytest.mark.parametrize("equal", [True, False])
-def test_predictions_alone_do_not_create_score_steps(equal):
+def test_predictions_alone_do_not_create_competitive_breaks(equal):
     _, entrants, pairs = cohort(8)
     if equal:
         entrants = [replace(e, power_score=.7) for e in entrants]
@@ -219,8 +250,215 @@ def test_only_material_reversals_need_operator_review_without_reordering():
     analysis = build_cheat_sheet_analysis(entrants, pairs)
     assert analysis.ordered_ids == ("0", "1", "2", "3", "4")
     assert analysis.limited_history == ("1",)
-    assert [(c.upper_seed, c.lower_seed, c.lower_expected_advantage) for c in analysis.placement_checks] == [(1, 5, 1.25)]
+    assert [
+        (c.upper_seed, c.lower_seed, c.lower_expected_advantage) for c in analysis.placement_checks
+    ] == [(1, 5, 1.25)]
     assert not any("favored" in note for note in analysis.notes)
+
+
+def test_material_reversal_threshold_is_independent_of_competitive_limit():
+    _, entrants, pairs = cohort(5)
+    pairs[("1", "2")] = prediction(-1.1)
+    policy = TierPolicy(
+        max_expected_margin=2.5,
+        material_reversal_expected_goal_difference=1.0,
+    )
+
+    analysis = build_cheat_sheet_analysis(entrants, pairs, policy)
+
+    assert [
+        (check.upper_seed, check.lower_seed, check.lower_expected_advantage)
+        for check in analysis.placement_checks
+    ] == [(2, 3, 1.1)]
+
+
+def test_local_consensus_applies_move_when_shared_neighborhood_is_stable():
+    entrants, pairs = consensus_case({
+        "0": 11, "1": 8, "2": 10, "3": 7, "4": 6, "5": 5, "6": 4,
+    })
+
+    analysis = build_cheat_sheet_analysis(entrants, pairs)
+
+    assert analysis.baseline_order == ("0", "1", "2", "3", "4", "5", "6")
+    assert analysis.suggested_order == ("0", "2", "1", "3", "4", "5", "6")
+    assert analysis.ordered_ids == analysis.suggested_order
+    proposal = next(item for item in analysis.local_consensus_checks if item.entrant_id == "2")
+    assert proposal.supported and proposal.stable
+    assert (proposal.baseline_seed, proposal.proposed_seed, proposal.compared_with_seed) == (3, 2, 2)
+    assert proposal.direct_expected_advantage == pytest.approx(2)
+    assert proposal.support_fraction == 1
+    assert proposal.average_profile_advantage == pytest.approx(2)
+    assert proposal.tested_window_sizes == (5, 6, 7)
+    assert proposal.minimum_game_count == 12
+    assert proposal.evidence_quality == "established"
+
+
+def test_display_annotations_are_recomputed_from_suggested_adjacency():
+    entrants, pairs = consensus_case({
+        "0": 11, "1": 8, "2": 10, "3": 7, "4": 6, "5": 5, "6": 4,
+    })
+    scores = [.95, .80, .79, .78, .77, .76, .75]
+    entrants = [replace(entrant, power_score=scores[index]) for index, entrant in enumerate(entrants)]
+
+    analysis = build_cheat_sheet_analysis(entrants, pairs)
+
+    assert analysis.baseline_order[:3] == ("0", "1", "2")
+    assert analysis.suggested_order[:3] == ("0", "2", "1")
+    first_boundary = [item for item in analysis.boundary_windows if item.after_seed == 1]
+    assert first_boundary
+    assert all(item.lower_ids[:2] == ("2", "1") for item in first_boundary)
+    assert any(item.entrant_ids == ("0", "2") for item in analysis.close_ranges)
+
+
+def test_manual_order_requires_every_rated_team_to_be_seeded_or_explicitly_held():
+    entrants, pairs = consensus_case({str(index): 7 - index for index in range(5)}, count=5)
+
+    with pytest.raises(ValueError, match="unique manual seed or an explicit hold"):
+        build_cheat_sheet_analysis(entrants, pairs, manual_order=("0", "1"))
+
+    analysis = build_cheat_sheet_analysis(
+        entrants,
+        pairs,
+        manual_order=("1", "0"),
+        manual_holds=("2", "3", "4"),
+    )
+    assert analysis.manual_override
+    assert analysis.ordered_ids == ("1", "0")
+    assert analysis.manual_holds == ("2", "3", "4")
+
+
+def test_customer_sheet_labels_matchbalance_movement_breaks_and_close_ranges():
+    sheet, _, _ = cohort(8, gap=4)
+    document = render_sheet_html(
+        "Cup", [sheet], generated_on="2026-09-26", ranking_run="2026-09-25",
+    )
+    assert "MatchBalance Seed" in document
+    assert "Competitive Break" in document
+    assert "Very close: seeds" in document
+
+    entrants, pairs = consensus_case({
+        "0": 11, "1": 8, "2": 10, "3": 7, "4": 6, "5": 5, "6": 4,
+    })
+    moved = build_cheat_sheet_analysis(entrants, pairs)
+    moved_sheet = CohortSheet(
+        "u14", "Male",
+        tuple(SheetTeam(item.team_name, "Club", item.power_score, entrant_id=item.entrant_id)
+              for item in entrants),
+        (), moved,
+    )
+    moved_document = render_sheet_html(
+        "Cup", [moved_sheet], generated_on="2026-09-26", ranking_run="2026-09-25",
+    )
+    assert "↑ from PowerScore #3" in moved_document
+
+
+def test_customer_movement_uses_manual_effective_seed_and_keeps_matchbalance_detail():
+    entrants, pairs = consensus_case({
+        "0": 11, "1": 8, "2": 10, "3": 7, "4": 6, "5": 5, "6": 4,
+    })
+    automatic = build_cheat_sheet_analysis(entrants, pairs)
+    assert automatic.suggested_order.index("2") + 1 == 2
+    manual_order = tuple(item for item in automatic.suggested_order if item != "2")
+    manual_order = (*manual_order[:3], "2", *manual_order[3:])
+    manual = build_cheat_sheet_analysis(entrants, pairs, manual_order=manual_order)
+    sheet = CohortSheet(
+        "u14", "Male",
+        tuple(SheetTeam(item.team_name, "Club", item.power_score, entrant_id=item.entrant_id)
+              for item in entrants),
+        (), manual,
+    )
+
+    row = next(item for item in build_director_cohort(sheet).rows if item.team.entrant_id == "2")
+
+    assert row.seed == 4
+    assert row.power_score_seed == 3
+    assert row.matchbalance_seed == 2
+    assert row.movement == "↓ from PowerScore #3 · Manual from MatchBalance #2"
+
+
+def test_isolated_head_to_head_reversal_does_not_earn_a_move_proposal():
+    entrants, pairs = consensus_case({
+        "0": 11, "1": 10, "2": 9, "3": 8, "4": 7, "5": 6, "6": 5,
+    })
+    pairs[("1", "2")] = prediction(-1.25)
+
+    analysis = build_cheat_sheet_analysis(entrants, pairs)
+
+    review = next(item for item in analysis.local_consensus_checks if item.entrant_id == "2")
+    assert not review.supported
+    assert not review.stable
+    assert any("shared-neighborhood" in blocker for blocker in review.blockers)
+    assert analysis.baseline_order == ("0", "1", "2", "3", "4", "5", "6")
+    assert analysis.suggested_order == analysis.baseline_order
+
+
+def test_limited_history_blocks_a_consensus_move_without_treating_the_team_as_weak():
+    entrants, pairs = consensus_case(
+        {"0": 11, "1": 8, "2": 10, "3": 7, "4": 6, "5": 5, "6": 4}, limited={"2"},
+    )
+
+    analysis = build_cheat_sheet_analysis(entrants, pairs)
+
+    review = next(item for item in analysis.local_consensus_checks if item.entrant_id == "2")
+    assert not review.supported
+    assert review.evidence_quality == "limited"
+    assert any("limited ranked history" in blocker for blocker in review.blockers)
+    assert analysis.ordered_ids[2] == "2"
+
+
+def test_consensus_movement_cap_is_anchored_to_the_original_powerscore_order():
+    entrants, pairs = consensus_case({
+        "0": 9, "1": 8, "2": 7, "3": 12, "4": 6, "5": 5, "6": 4,
+    })
+
+    analysis = build_cheat_sheet_analysis(entrants, pairs)
+
+    distant = next(
+        item for item in analysis.local_consensus_checks
+        if item.entrant_id == "3" and item.compared_with_id == "0"
+    )
+    assert not distant.supported
+    assert distant.proposed_seed is None
+    assert any("2-seed movement cap" in blocker for blocker in distant.blockers)
+    assert analysis.suggested_order == ("0", "3", "1", "2", "4", "5", "6")
+
+
+def test_two_seed_proposal_must_be_supported_over_the_crossed_seed():
+    entrants, pairs = consensus_case({
+        "0": 8, "1": 11, "2": 10, "3": 7, "4": 6, "5": 5, "6": 4,
+    })
+
+    analysis = build_cheat_sheet_analysis(entrants, pairs)
+
+    proposal = next(
+        item for item in analysis.local_consensus_checks
+        if item.entrant_id == "2" and item.compared_with_id == "0"
+    )
+    assert proposal.stable
+    assert not proposal.supported
+    assert proposal.proposed_seed is None
+    assert any("every crossed seed" in blocker for blocker in proposal.blockers)
+
+
+def test_one_influential_neighbor_cannot_create_a_stable_consensus():
+    entrants, pairs = consensus_case({str(index): 0 for index in range(5)}, count=5)
+    pairs.update({
+        ("0", "1"): prediction(5),
+        ("0", "2"): prediction(2),
+        ("1", "2"): prediction(-1.25),
+        ("1", "3"): prediction(0),
+        ("2", "3"): prediction(1),
+        ("1", "4"): prediction(.5),
+        ("2", "4"): prediction(0),
+    })
+
+    analysis = build_cheat_sheet_analysis(entrants, pairs)
+
+    review = next(item for item in analysis.local_consensus_checks if item.entrant_id == "2")
+    assert review.support_fraction == pytest.approx(2 / 3)
+    assert review.average_profile_advantage > 0
+    assert not review.stable and not review.supported
+    assert any("unusually influential" in blocker for blocker in review.blockers)
 
 
 def test_limited_history_keeps_seed_and_literal_row_context_with_fixed_score_scale():
@@ -245,4 +483,4 @@ def test_limited_history_keeps_seed_and_literal_row_context_with_fixed_score_sca
     table_rows = sorted([tuple(cell.value for cell in row) for row in tab.iter_rows(min_row=7, max_row=14)],
                         key=lambda row: row[1], reverse=True)
     marked = next(row for row in table_rows if row[0] == 4)
-    assert marked[5] == content.rows[3].observation
+    assert content.rows[3].observation in marked[6]
