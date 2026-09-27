@@ -1312,16 +1312,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: /matchbalance publishes fixed tier prices (`EVENT_PRICING` and `COHORT_PRICING` in `frontend/app/matchbalance/page.tsx`) in place of the original build brief's $3 per team. A grep of `src/tournaments/` and `tournament_intake.py` on 2026-09-16 found no quote or pricing logic, so nothing is wrong today, but whoever builds the operator quote step must use these tiers or quotes will disagree with the page.
 - **Noted**: 2026-09-16
 
-### Seeding sheet state ranks mix full state names and codes
-
-- **ID**: IMP-251
-- **Status**: open
-- **Type**: direct
-- **Category**: readability
-- **Where**: `src/tournaments/seeding_pack.py` (`snapshot_ratings`), `src/tournaments/seeding_sheet.py` (`_state_rank`)
-- **Why**: One sheet shows both "Texas #60" and "TX #101". `snapshot_ratings` keeps the Compare predictor's team `state` and only falls back to `make_ratings_lookup`'s `state_rankings_view.state` when the predictor lacks one. The view returns only codes (live: 14,238 rows `TX`, none `Texas`), while `matchPredictionService.ts` selects both `teams.state` and `state_code`, so the full name most likely comes from the predictor side. Visible on the public sample `frontend/public/matchbalance/sample-u13-boys.pdf`; normalize to one form in the sheet, then re-render that sample.
-- **Noted**: 2026-09-16
-
 ### Share the MatchBalance inquiry rate limit across serverless instances
 
 - **ID**: IMP-252
