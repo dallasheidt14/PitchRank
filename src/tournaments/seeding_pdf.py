@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import shutil
 import subprocess
-import tempfile
 from pathlib import Path
+
+from src.tournaments.temp_workspace import temporary_workspace
 
 __all__ = ["SeedingPdfError", "render_seeding_pdf"]
 
@@ -30,9 +31,9 @@ def render_seeding_pdf(document: str) -> bytes:
     if not script.is_file():
         raise SeedingPdfError("The PDF renderer is missing. Update this checkout and try again.")
 
-    with tempfile.TemporaryDirectory(prefix="matchbalance-pdf-") as temporary:
-        input_path = Path(temporary) / "sheet.html"
-        output_path = Path(temporary) / "sheet.pdf"
+    with temporary_workspace("matchbalance-pdf-") as temporary:
+        input_path = temporary / "sheet.html"
+        output_path = temporary / "sheet.pdf"
         input_path.write_text(document, encoding="utf-8")
         try:
             result = subprocess.run(

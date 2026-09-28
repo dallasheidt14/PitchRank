@@ -13,7 +13,6 @@ import os
 import re
 import shutil
 import subprocess
-import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -25,6 +24,7 @@ from src.tournaments.compare_predictor_bridge import (
     canonical_predictor_sha256,
 )
 from src.tournaments.seeding_tiers import DATA_REVIEW, NO_CURRENT_RATING
+from src.tournaments.temp_workspace import temporary_workspace
 
 _FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
 _SCRIPT = _FRONTEND_DIR / "scripts" / "run-seeding-predictions.ts"
@@ -213,9 +213,9 @@ def load_seeding_predictions(
     predictor_sha256 = seeding_predictor_sha256()
     environment = os.environ.copy()
     environment.update({"SUPABASE_URL": supabase_url, "SUPABASE_KEY": supabase_key})
-    with tempfile.TemporaryDirectory(prefix="matchbalance-seeding-") as directory:
-        input_path = Path(directory) / "input.json"
-        output_path = Path(directory) / "output.json"
+    with temporary_workspace("matchbalance-seeding-") as directory:
+        input_path = directory / "input.json"
+        output_path = directory / "output.json"
         input_path.write_text(json.dumps({"schema_version": 1, "cohorts": cohorts}, allow_nan=False), encoding="utf-8")
         command = [node, str(_TSX_CLI), "-r", str(_SHIM), str(_SCRIPT), str(input_path), str(output_path)]
         try:
