@@ -13,7 +13,6 @@ from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from itertools import combinations
-from statistics import median
 
 from src.tournaments.compare_predictor_bridge import ComparePrediction
 from src.tournaments.seeding_suggested_order import (
@@ -28,6 +27,14 @@ NO_CURRENT_RATING = "No current rating"
 DATA_REVIEW = "Data review required"
 PLACEMENT_STATUSES = (SEEDED, NOT_FOUND, NO_CURRENT_RATING, DATA_REVIEW)
 REVIEW_STATUSES = frozenset(PLACEMENT_STATUSES) - {SEEDED}
+SUPPORTED_SEPARATION = "Supported separation"
+NO_MEANINGFUL_SEPARATION = "No meaningful separation"
+UNCERTAIN_SEPARATION = "Uncertain"
+BOUNDARY_CLASSIFICATIONS = (
+    SUPPORTED_SEPARATION,
+    NO_MEANINGFUL_SEPARATION,
+    UNCERTAIN_SEPARATION,
+)
 
 
 @dataclass(frozen=True)
@@ -59,6 +66,16 @@ class TierPolicy:
     local_consensus_window_sizes: tuple[int, ...] = field(default=(5, 6, 7), kw_only=True)
     local_consensus_min_shared_opponents: int = field(default=3, kw_only=True)
     local_consensus_support_threshold: float = field(default=0.5, kw_only=True)
+    # Competitive-separation evidence is independent of the PowerScore step.
+    # Defaults preserve the existing local windows and the older tier
+    # diagnostic's direction, risk, and average-margin requirements.
+    boundary_window_sizes: tuple[int, ...] = field(default=(3, 4, 5), kw_only=True)
+    boundary_min_pairings: int = field(default=2, kw_only=True)
+    boundary_min_established_pairings: int = field(default=2, kw_only=True)
+    boundary_min_favored_fraction: float = field(default=0.75, kw_only=True)
+    boundary_min_average_signed_margin: float = field(default=1.0, kw_only=True)
+    boundary_min_over_limit_fraction: float = field(default=0.5, kw_only=True)
+    boundary_max_limited_pair_fraction: float = field(default=0.5, kw_only=True)
 
     def __post_init__(self) -> None:
         if not math.isfinite(self.max_expected_margin) or self.max_expected_margin <= 0:
@@ -102,6 +119,40 @@ class TierPolicy:
             or not 0 <= self.local_consensus_support_threshold < 1
         ):
             raise ValueError("Local-consensus support threshold must be at least zero and less than one")
+        boundary_windows = tuple(self.boundary_window_sizes)
+        if (
+            not boundary_windows
+            or any(
+                isinstance(value, bool) or not isinstance(value, int) or value < 3
+                for value in boundary_windows
+            )
+        ):
+            raise ValueError("Boundary window sizes must be integers of at least three")
+        if len(set(boundary_windows)) != len(boundary_windows):
+            raise ValueError("Boundary window sizes must be unique")
+        object.__setattr__(self, "boundary_window_sizes", boundary_windows)
+        for value, label in (
+            (self.boundary_min_pairings, "Boundary minimum pairings"),
+            (self.boundary_min_established_pairings, "Boundary minimum established pairings"),
+        ):
+            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+                raise ValueError(f"{label} must be a positive integer")
+        for value, label in (
+            (self.boundary_min_favored_fraction, "Boundary favored fraction"),
+            (self.boundary_min_over_limit_fraction, "Boundary over-limit fraction"),
+            (self.boundary_max_limited_pair_fraction, "Boundary limited-history fraction"),
+        ):
+            if not math.isfinite(value) or not 0 <= value <= 1:
+                raise ValueError(f"{label} must be between zero and one")
+        if self.boundary_min_favored_fraction <= 0:
+            raise ValueError("Boundary favored fraction must be greater than zero")
+        if self.boundary_min_over_limit_fraction <= 0:
+            raise ValueError("Boundary over-limit fraction must be greater than zero")
+        if (
+            not math.isfinite(self.boundary_min_average_signed_margin)
+            or self.boundary_min_average_signed_margin <= 0
+        ):
+            raise ValueError("Boundary average signed margin must be finite and greater than zero")
 
 
 @dataclass(frozen=True)
@@ -125,7 +176,7 @@ class TierAnalysis:
 
 @dataclass(frozen=True)
 class StrengthBreak:
-    """A supported competitive difference between adjacent displayed seeds."""
+    """A presentation projection of a supported boundary assessment."""
 
     after_seed: int
     score_gap: float
@@ -138,16 +189,68 @@ class StrengthBreak:
 
 @dataclass(frozen=True)
 class BoundaryWindow:
-    """Internal evidence for one tested boundary, including rejected windows."""
+    """Internal evidence for one configured local window at a boundary."""
 
     after_seed: int
     size: int
     upper_ids: tuple[str, ...]
     lower_ids: tuple[str, ...]
+    pairing_count: int
     favored_fraction: float
     over_limit_fraction: float
     average_expected_margin: float
+    average_expected_absolute_goal_difference: float
+    maximum_expected_absolute_goal_difference: float
+    average_blowout_probability: float
+    maximum_blowout_probability: float
+    worst_pair: tuple[str, str] | None
+    established_team_count: int
+    limited_history_team_count: int
+    established_pairing_count: int
+    limited_history_pairing_count: int
+    low_confidence_pairing_count: int
+    evidence_quality: str
+    evidence_sufficient: bool
+    direction_supported: bool
+    risk_supported: bool
     supported: bool
+
+
+@dataclass(frozen=True)
+class BoundaryAssessment:
+    """Complete, deterministic analysis for one adjacent suggested-order line."""
+
+    after_seed: int
+    upper_ids: tuple[str, ...]
+    lower_ids: tuple[str, ...]
+    pairing_count: int
+    favored_fraction: float
+    average_expected_margin: float
+    average_expected_absolute_goal_difference: float
+    maximum_expected_absolute_goal_difference: float
+    average_blowout_probability: float
+    maximum_blowout_probability: float
+    over_limit_fraction: float
+    worst_pair: tuple[str, str] | None
+    established_team_count: int
+    limited_history_team_count: int
+    established_pairing_count: int
+    limited_history_pairing_count: int
+    low_confidence_pairing_count: int
+    evidence_quality: str
+    adjacent_pair_expected_margin: float
+    adjacent_pair_expected_absolute_goal_difference: float
+    adjacent_pair_blowout_probability: float
+    adjacent_pair_over_limit: bool
+    adjacent_pair_limited_history: bool
+    adjacent_pair_low_confidence: bool
+    upper_power_score: float
+    lower_power_score: float
+    power_score_gap: float
+    tested_window_sizes: tuple[int, ...]
+    usable_window_sizes: tuple[int, ...]
+    classification: str
+    reason: str
 
 
 @dataclass(frozen=True)
@@ -199,9 +302,10 @@ class CheatSheetAnalysis:
 
     ``tiers``, ``borderline``, and ``boundaries`` are retained only so older
     saved packs and operator diagnostics can be read during the migration. The
-    public sheet uses ``ordered_ids`` and supported strength observations.
-    ``close_ranges`` drives subtle customer annotations; ``boundary_windows``
-    remains internal evidence.
+    public sheet uses ``ordered_ids`` and a prioritized projection of supported
+    boundaries. ``boundary_assessments`` is the complete analytical result;
+    ``close_ranges`` drives subtle customer annotations and ``boundary_windows``
+    preserves the underlying local-window evidence.
     """
 
     ordered_ids: tuple[str, ...]
@@ -212,6 +316,7 @@ class CheatSheetAnalysis:
     notes: tuple[str, ...]
     diagnostics: tuple[str, ...]
     boundary_windows: tuple[BoundaryWindow, ...] = ()
+    boundary_assessments: tuple[BoundaryAssessment, ...] = ()
     standouts: tuple[StrengthBreak, ...] = ()
     limited_history: tuple[str, ...] = ()
     placement_checks: tuple[PlacementCheck, ...] = ()
@@ -227,12 +332,34 @@ class CheatSheetAnalysis:
     movements: tuple[TeamMovement, ...] = ()
     ordering_conflicts: tuple[OrderingConflict, ...] = ()
 
+    @property
+    def supported_boundaries(self) -> tuple[BoundaryAssessment, ...]:
+        return tuple(
+            item for item in self.boundary_assessments
+            if item.classification == SUPPORTED_SEPARATION
+        )
+
+    @property
+    def uncertain_boundaries(self) -> tuple[BoundaryAssessment, ...]:
+        return tuple(
+            item for item in self.boundary_assessments
+            if item.classification == UNCERTAIN_SEPARATION
+        )
+
+    @property
+    def non_separating_boundaries(self) -> tuple[BoundaryAssessment, ...]:
+        return tuple(
+            item for item in self.boundary_assessments
+            if item.classification == NO_MEANINGFUL_SEPARATION
+        )
+
     def marker_for_seed(self, seed: int) -> str:
         for item in self.breaks:
             if item.after_seed == seed:
                 return (
-                    f"Competitive Break: {item.score_gap * 100:.1f} PowerScore points "
-                    f"between seeds {seed} and {seed + 1}."
+                    "Competitive Break: projected matchup quality worsens between "
+                    f"seeds {seed} and {seed + 1}; PowerScore difference "
+                    f"{abs(item.score_gap) * 100:.1f} points."
                 )
         return ""
 
@@ -533,18 +660,252 @@ def _window_for_boundary(
     return tuple(ordered[start:boundary]), tuple(ordered[boundary:start + size])
 
 
-def _separation_stats(
-    upper: Sequence[str], lower: Sequence[str], pairs: Mapping[tuple[str, str], _Pair], policy: TierPolicy,
-) -> tuple[bool, float, int, int]:
-    margins = [_margin(pairs, first, second) for first in upper for second in lower]
-    risky = sum(_risk(pairs[_pair_key(first, second)], policy) > 1 for first in upper for second in lower)
-    favored = sum(value > 1e-8 for value in margins)
-    average = math.fsum(margins) / len(margins) if margins else 0.0
-    supported = bool(margins) and (
-        favored / len(margins) >= 0.75
-        and average > 1e-8
+def _boundary_window_sizes(ordered: Sequence[str], policy: TierPolicy) -> tuple[int, ...]:
+    """Use configured local windows, with a deterministic small-cohort fallback."""
+    available = tuple(size for size in policy.boundary_window_sizes if size <= len(ordered))
+    if available or len(ordered) < 2:
+        return available
+    return (len(ordered),)
+
+
+def _boundary_window_assessment(
+    *,
+    boundary: int,
+    size: int,
+    upper: tuple[str, ...],
+    lower: tuple[str, ...],
+    by_id: Mapping[str, TierEntrant],
+    pairs: Mapping[tuple[str, str], _Pair],
+    policy: TierPolicy,
+) -> BoundaryWindow:
+    matchups = [
+        (first, second, pairs[_pair_key(first, second)], _margin(pairs, first, second))
+        for first in upper
+        for second in lower
+    ]
+    pairing_count = len(matchups)
+    favored = sum(margin > 1e-8 for _, _, _, margin in matchups)
+    over_limit = sum(_risk(pair, policy) > 1 for _, _, pair, _ in matchups)
+    limited_ids = {
+        entrant_id for entrant_id in (*upper, *lower)
+        if by_id[entrant_id].limited_history
+    }
+    limited_pairing_count = sum(
+        first in limited_ids or second in limited_ids
+        for first, second, _, _ in matchups
     )
-    return supported, average, favored, risky
+    established_pairing_count = pairing_count - limited_pairing_count
+    limited_fraction = limited_pairing_count / pairing_count if pairing_count else 1.0
+    evidence_sufficient = (
+        pairing_count >= policy.boundary_min_pairings
+        and established_pairing_count >= policy.boundary_min_established_pairings
+        and limited_fraction <= policy.boundary_max_limited_pair_fraction
+    )
+    if pairing_count < policy.boundary_min_pairings:
+        evidence_quality = "insufficient"
+    elif limited_fraction > policy.boundary_max_limited_pair_fraction:
+        evidence_quality = "limited-history-dominated"
+    elif established_pairing_count < policy.boundary_min_established_pairings:
+        evidence_quality = "insufficient"
+    elif limited_pairing_count:
+        evidence_quality = "mixed"
+    else:
+        evidence_quality = "established"
+
+    average_margin = (
+        math.fsum(margin for _, _, _, margin in matchups) / pairing_count
+        if pairing_count else 0.0
+    )
+    favored_fraction = favored / pairing_count if pairing_count else 0.0
+    over_limit_fraction = over_limit / pairing_count if pairing_count else 0.0
+    direction_supported = (
+        favored_fraction >= policy.boundary_min_favored_fraction
+        and average_margin >= policy.boundary_min_average_signed_margin
+    )
+    risk_supported = over_limit_fraction >= policy.boundary_min_over_limit_fraction
+    worst = max(
+        sorted(matchups, key=lambda item: (item[0], item[1])),
+        key=lambda item: (
+            _risk(item[2], policy),
+            _matchup_cost(item[2], policy),
+            item[2].absolute_goal_difference,
+            item[2].blowout,
+        ),
+        default=None,
+    )
+    return BoundaryWindow(
+        after_seed=boundary,
+        size=size,
+        upper_ids=upper,
+        lower_ids=lower,
+        pairing_count=pairing_count,
+        favored_fraction=favored_fraction,
+        over_limit_fraction=over_limit_fraction,
+        average_expected_margin=average_margin,
+        average_expected_absolute_goal_difference=(
+            math.fsum(pair.absolute_goal_difference for _, _, pair, _ in matchups) / pairing_count
+            if pairing_count else 0.0
+        ),
+        maximum_expected_absolute_goal_difference=max(
+            (pair.absolute_goal_difference for _, _, pair, _ in matchups), default=0.0,
+        ),
+        average_blowout_probability=(
+            math.fsum(pair.blowout for _, _, pair, _ in matchups) / pairing_count
+            if pairing_count else 0.0
+        ),
+        maximum_blowout_probability=max(
+            (pair.blowout for _, _, pair, _ in matchups), default=0.0,
+        ),
+        worst_pair=(worst[0], worst[1]) if worst else None,
+        established_team_count=len((*upper, *lower)) - len(limited_ids),
+        limited_history_team_count=len(limited_ids),
+        established_pairing_count=established_pairing_count,
+        limited_history_pairing_count=limited_pairing_count,
+        low_confidence_pairing_count=sum(pair.low_confidence for _, _, pair, _ in matchups),
+        evidence_quality=evidence_quality,
+        evidence_sufficient=evidence_sufficient,
+        direction_supported=direction_supported,
+        risk_supported=risk_supported,
+        supported=evidence_sufficient and direction_supported and risk_supported,
+    )
+
+
+def _classify_boundary(
+    windows: Sequence[BoundaryWindow], policy: TierPolicy, adjacent_pair: _Pair,
+) -> tuple[str, str, tuple[int, ...]]:
+    usable = tuple(item for item in windows if item.evidence_sufficient)
+    usable_sizes = tuple(item.size for item in usable)
+    if not usable:
+        return (
+            UNCERTAIN_SEPARATION,
+            "Too few established cross-boundary pairings are available, or limited-history "
+            "pairings dominate every local window.",
+            usable_sizes,
+        )
+    usable_summary = f"{len(usable)}/{len(windows)} evidence-sufficient local window(s)"
+    if _risk(adjacent_pair, policy) <= 1:
+        if any(item.risk_supported for item in usable):
+            return (
+                UNCERTAIN_SEPARATION,
+                "The immediate matchup remains within both competitive limits, but broader local "
+                "windows show substantial risk; the boundary location is conflicting.",
+                usable_sizes,
+            )
+        return (
+            NO_MEANINGFUL_SEPARATION,
+            f"The teams immediately across the line remain within both competitive limits; "
+            f"{usable_summary} provide supporting context.",
+            usable_sizes,
+        )
+    if all(item.supported for item in usable):
+        return (
+            SUPPORTED_SEPARATION,
+            f"{usable_summary} meet both the directional and competitive-risk thresholds.",
+            usable_sizes,
+        )
+    if all(not item.risk_supported for item in usable):
+        return (
+            NO_MEANINGFUL_SEPARATION,
+            f"{usable_summary} keep the fraction failing the competitive limits below "
+            f"{policy.boundary_min_over_limit_fraction:.0%}; crossing the boundary remains "
+            "competitively reasonable.",
+            usable_sizes,
+        )
+    if any(item.risk_supported for item in usable) and not all(
+        item.risk_supported for item in usable
+    ):
+        reason = "Usable local windows disagree on whether cross-boundary competitive risk is substantial."
+    else:
+        reason = (
+            "Cross-boundary competitive risk is substantial, but directional support or average "
+            "signed separation is too weak or conflicting."
+        )
+    return UNCERTAIN_SEPARATION, reason, usable_sizes
+
+
+def _build_boundary_assessments(
+    ordered: Sequence[str],
+    by_id: Mapping[str, TierEntrant],
+    pairs: Mapping[tuple[str, str], _Pair],
+    policy: TierPolicy,
+) -> tuple[tuple[BoundaryAssessment, ...], tuple[BoundaryWindow, ...]]:
+    assessments: list[BoundaryAssessment] = []
+    all_windows: list[BoundaryWindow] = []
+    window_sizes = _boundary_window_sizes(ordered, policy)
+    for boundary in range(1, len(ordered)):
+        windows: list[BoundaryWindow] = []
+        for size in window_sizes:
+            split = _window_for_boundary(ordered, boundary, size)
+            if split is None:
+                continue
+            window = _boundary_window_assessment(
+                boundary=boundary,
+                size=size,
+                upper=split[0],
+                lower=split[1],
+                by_id=by_id,
+                pairs=pairs,
+                policy=policy,
+            )
+            windows.append(window)
+            all_windows.append(window)
+        if not windows:
+            raise AssertionError(f"Boundary {boundary} has no deterministic local window")
+        primary = max(windows, key=lambda item: item.size)
+        upper_boundary_id = ordered[boundary - 1]
+        lower_boundary_id = ordered[boundary]
+        adjacent_pair = pairs[_pair_key(upper_boundary_id, lower_boundary_id)]
+        adjacent_margin = _margin(pairs, upper_boundary_id, lower_boundary_id)
+        classification, reason, usable_sizes = _classify_boundary(
+            windows, policy, adjacent_pair,
+        )
+        upper_score = by_id[upper_boundary_id].power_score
+        lower_score = by_id[lower_boundary_id].power_score
+        upper_power_score = float(upper_score) if upper_score is not None else 0.0
+        lower_power_score = float(lower_score) if lower_score is not None else 0.0
+        assessments.append(BoundaryAssessment(
+            after_seed=boundary,
+            upper_ids=primary.upper_ids,
+            lower_ids=primary.lower_ids,
+            pairing_count=primary.pairing_count,
+            favored_fraction=primary.favored_fraction,
+            average_expected_margin=primary.average_expected_margin,
+            average_expected_absolute_goal_difference=(
+                primary.average_expected_absolute_goal_difference
+            ),
+            maximum_expected_absolute_goal_difference=(
+                primary.maximum_expected_absolute_goal_difference
+            ),
+            average_blowout_probability=primary.average_blowout_probability,
+            maximum_blowout_probability=primary.maximum_blowout_probability,
+            over_limit_fraction=primary.over_limit_fraction,
+            worst_pair=primary.worst_pair,
+            established_team_count=primary.established_team_count,
+            limited_history_team_count=primary.limited_history_team_count,
+            established_pairing_count=primary.established_pairing_count,
+            limited_history_pairing_count=primary.limited_history_pairing_count,
+            low_confidence_pairing_count=primary.low_confidence_pairing_count,
+            evidence_quality=primary.evidence_quality,
+            adjacent_pair_expected_margin=adjacent_margin,
+            adjacent_pair_expected_absolute_goal_difference=(
+                adjacent_pair.absolute_goal_difference
+            ),
+            adjacent_pair_blowout_probability=adjacent_pair.blowout,
+            adjacent_pair_over_limit=_risk(adjacent_pair, policy) > 1,
+            adjacent_pair_limited_history=(
+                by_id[upper_boundary_id].limited_history
+                or by_id[lower_boundary_id].limited_history
+            ),
+            adjacent_pair_low_confidence=adjacent_pair.low_confidence,
+            upper_power_score=upper_power_score,
+            lower_power_score=lower_power_score,
+            power_score_gap=upper_power_score - lower_power_score,
+            tested_window_sizes=tuple(item.size for item in windows),
+            usable_window_sizes=usable_sizes,
+            classification=classification,
+            reason=reason,
+        ))
+    return tuple(assessments), tuple(all_windows)
 
 
 def _pair_neighborhood(
@@ -775,64 +1136,44 @@ def build_cheat_sheet_analysis(
     suggested_order = order_result.order
     ordered = suggested_order
 
-    candidates: list[StrengthBreak] = []
-    boundary_windows: list[BoundaryWindow] = []
-    score_gaps = [
-        (by_id[first].power_score or 0.0) - (by_id[second].power_score or 0.0)
-        for first, second in zip(ordered, ordered[1:])
+    boundary_assessments, boundary_windows = _build_boundary_assessments(
+        ordered, by_id, pairs, policy,
+    )
+    assessments_by_seed = {item.after_seed: item for item in boundary_assessments}
+    windows_by_seed = {
+        boundary: tuple(item for item in boundary_windows if item.after_seed == boundary)
+        for boundary in range(1, len(ordered))
+    }
+    candidates = [
+        StrengthBreak(
+            after_seed=item.after_seed,
+            score_gap=item.power_score_gap,
+            average_expected_margin=item.average_expected_margin,
+            supported_windows=tuple(
+                window.size for window in windows_by_seed[item.after_seed]
+                if window.supported
+            ),
+        )
+        for item in boundary_assessments
+        if item.classification == SUPPORTED_SEPARATION
     ]
-    # A display heuristic for conspicuous score steps, not a fitted predictor
-    # threshold: at least two points and three times the other steps' median.
-    # Exclude the candidate so a large gap cannot set its own rejection threshold.
-    # Fixed-scale score bars still show gradual differences without forcing lines.
-    for boundary in range(1, len(ordered)):
-        window_results: list[tuple[int, bool, float, int, int]] = []
-        for size in (3, 4, 5):
-            window = _window_for_boundary(ordered, boundary, size)
-            if window is None:
-                continue
-            supported, average, favored, risky = _separation_stats(*window, pairs, policy)
-            window_results.append((size, supported, average, favored, risky))
-            pair_count = len(window[0]) * len(window[1])
-            boundary_windows.append(BoundaryWindow(
-                after_seed=boundary, size=size, upper_ids=window[0], lower_ids=window[1],
-                favored_fraction=favored / pair_count, over_limit_fraction=risky / pair_count,
-                average_expected_margin=average, supported=supported,
-            ))
-        if not window_results or not all(item[1] for item in window_results):
-            continue
-        averages = [item[2] for item in window_results]
-        score_gap = score_gaps[boundary - 1]
-        other_gaps = score_gaps[:boundary - 1] + score_gaps[boundary:]
-        minimum_score_step = max(0.02, 3 * median(other_gaps)) if other_gaps else 0.02
-        if score_gap + 1e-12 < minimum_score_step:
-            continue
-        candidates.append(StrengthBreak(
-            after_seed=boundary,
-            score_gap=score_gap,
-            average_expected_margin=math.fsum(averages) / len(averages),
-            supported_windows=tuple(item[0] for item in window_results),
-            standout=boundary <= 2 or len(ordered) - boundary <= 2,
-            standout_start_seed=(1 if boundary <= 2 else boundary + 1)
-            if boundary <= 2 or len(ordered) - boundary <= 2 else None,
-            standout_end_seed=(boundary if boundary <= 2 else len(ordered))
-            if boundary <= 2 or len(ordered) - boundary <= 2 else None,
-        ))
 
-    # Keep the strongest line when several nearby windows describe the same
-    # gap. A standout at either end becomes a note rather than a divider.
-    selected: list[StrengthBreak] = []
-    def break_priority(item: StrengthBreak) -> tuple[float, float, int]:
-        # Arithmetic noise in equal decimal score gaps must not outrank
-        # the matchup evidence. Keep original precision in stored evidence.
-        return (-round(item.score_gap, 12), -round(item.average_expected_margin, 12), item.after_seed)
+    # The complete analysis above is authoritative. The current customer sheet
+    # may still prioritize three lines, but proximity and PowerScore magnitude
+    # never remove or reclassify an analytical finding.
+    def break_priority(item: StrengthBreak) -> tuple[float, float, float, float, float, int]:
+        assessment = assessments_by_seed[item.after_seed]
+        return (
+            -round(assessment.over_limit_fraction, 12),
+            -round(assessment.average_expected_absolute_goal_difference, 12),
+            -round(assessment.maximum_expected_absolute_goal_difference, 12),
+            -round(assessment.average_blowout_probability, 12),
+            -round(assessment.average_expected_margin, 12),
+            item.after_seed,
+        )
 
-    for candidate in sorted(candidates, key=break_priority):
-        if any(abs(candidate.after_seed - item.after_seed) <= 2 for item in selected):
-            continue
-        selected.append(candidate)
-    selected = sorted(sorted(selected, key=break_priority)[:3], key=lambda item: item.after_seed)
-    breaks = tuple(item for item in selected if not item.standout)
+    selected = sorted(sorted(candidates, key=break_priority)[:3], key=lambda item: item.after_seed)
+    breaks = tuple(selected)
 
     close_candidates: list[CloseRange] = []
     for length in range(2, min(5, len(ordered)) + 1):
@@ -872,16 +1213,12 @@ def build_cheat_sheet_analysis(
     close_ranges.sort(key=lambda item: item.start_seed)
 
     notes: list[str] = []
-    for item in sorted(selected, key=break_priority)[:3]:
-        if item.standout:
-            notes.append(
-                f"Seed {item.after_seed} is {item.score_gap * 100:.1f} points above seed {item.after_seed + 1}."
-            )
-        else:
-            notes.append(
-                f"Competitive Break: {item.score_gap * 100:.1f} PowerScore points between seeds "
-                f"{item.after_seed} and {item.after_seed + 1}."
-            )
+    for item in selected:
+        notes.append(
+            "Competitive Break: projected matchup quality worsens between "
+            f"seeds {item.after_seed} and {item.after_seed + 1}; PowerScore difference "
+            f"{abs(item.score_gap) * 100:.1f} points."
+        )
 
     effective_order = suggested_order
     effective_breaks = breaks
@@ -931,11 +1268,14 @@ def build_cheat_sheet_analysis(
     if reversals:
         diagnostics.append(f"{reversals} matchup prediction(s) favor a lower published seed.")
     diagnostics.append(
-        "Score steps require the greater of two points or three times the median "
-        "of the other adjacent gaps. "
-        "All available three-, four-, and five-team windows must favor the upper side "
-        "in at least 75% of pairings, with a positive average advantage. "
-        "These are display heuristics, not calibrated outcome guarantees."
+        "Every suggested-order boundary is classified independently. Evidence-sufficient "
+        f"windows require at least {policy.boundary_min_pairings} pairings, including "
+        f"{policy.boundary_min_established_pairings} established-history pairings, with no more "
+        f"than {policy.boundary_max_limited_pair_fraction:.0%} limited-history pairings. "
+        f"Supported separation requires at least {policy.boundary_min_favored_fraction:.0%} "
+        f"upper-side favor, {policy.boundary_min_average_signed_margin:.2f} average signed goals, "
+        f"and {policy.boundary_min_over_limit_fraction:.0%} of pairings outside the normal "
+        "competitive limits. PowerScore is context, not a gate."
     )
     if order_result.conflicts:
         diagnostics.append(
@@ -951,7 +1291,8 @@ def build_cheat_sheet_analysis(
         notes=tuple(notes),
         diagnostics=tuple(diagnostics),
         boundary_windows=tuple(boundary_windows),
-        standouts=tuple(item for item in selected if item.standout),
+        boundary_assessments=boundary_assessments,
+        standouts=(),
         limited_history=tuple(key for key in baseline_order if by_id[key].limited_history),
         placement_checks=placement_checks,
         local_consensus_checks=consensus_checks,

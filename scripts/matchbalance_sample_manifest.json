@@ -1,10 +1,10 @@
 {
   "outputs": {
-    "docs/design/matchbalance-excel/director-workbook-sample.xlsx": "7f14e213ccfba352479132c29157b794efe63628b0ef8d5c0a83f4b18bda5ae4",
-    "docs/design/matchbalance-excel/u10-boys.png": "d6a9e8a12132c913dda2e5b1f6aa479d6425f9d6d9cc06c5a819c030f44f2460",
-    "docs/design/matchbalance-excel/u12-girls.png": "ee5ed57316aab719d3d0896ee67c9c0faf2d54587c13f4fe67413a2506d3e3de",
-    "frontend/public/matchbalance/sample-u13-boys.pdf": "c386fb828ee64b450cd7f6a8dcdb373f57dfd1ff2936eaed53d37e85bebb5839",
-    "frontend/public/matchbalance/sample-u13-boys.png": "749c975e04b67a8bb25f1be748dc5c3d99fb900a9a76caa9f2ebdfe497bf001a"
+    "docs/design/matchbalance-excel/director-workbook-sample.xlsx": "257db20ae591f339b5d1ff74d15ee7d44aa2e493194785e906b6ce5d4fa2bff2",
+    "docs/design/matchbalance-excel/u10-boys.png": "446a63ccc1b4f6899f659f712d221f42f1df75fe49b58498d105f771a82b7824",
+    "docs/design/matchbalance-excel/u12-girls.png": "9c4c2f7a013083209ed2917b166cab64db9e3e6d21d46e04aff8d34849f7161a",
+    "frontend/public/matchbalance/sample-u13-boys.pdf": "ab1a0ad12fd6dd8de0bf0d4d584f5a333f5cdb5867f1b70fb1b166824ddb114d",
+    "frontend/public/matchbalance/sample-u13-boys.png": "609eb08fe7d5b043bc5086b8783cff07e39b3cc0b3ffdf465e278b2eff3b91db"
   },
-  "renderer_sha256": "c4cb87b642d46b1e42fe8d03a1471bbf4ec7796b9e71dc09b1d5ba17c2c60db1"
+  "renderer_sha256": "ae7a02f034e2ee51672ca54011fb093b2c2ebc2d50094deda697e685e0dc0a25"
 }

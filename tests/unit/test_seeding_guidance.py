@@ -102,19 +102,21 @@ def test_close_neighbors_do_not_hide_unsafe_endpoints_in_internal_evidence():
 
 
 @pytest.mark.parametrize("gap,bottom,expected", [
-    (1, False, "Seed 1 is 31.0 points above seed 2."),
-    (2, False, "Seed 2 is 31.0 points above seed 3."),
-    (1, True, "Seed 7 is 31.0 points above seed 8."),
-    (2, True, "Seed 6 is 31.0 points above seed 7."),
+    (1, False, 1),
+    (2, False, 2),
+    (1, True, 7),
+    (2, True, 6),
 ])
-def test_standouts_name_the_entire_end_segment(gap, bottom, expected):
+def test_supported_end_boundaries_remain_first_class_breaks(gap, bottom, expected):
     sheet, _, _ = cohort(8, gap=gap, bottom=bottom)
     analysis = sheet.tier_analysis
-    assert analysis.notes == (expected,)
-    assert analysis.breaks == ()
-    assert len(analysis.standouts) == 1
-    standout = analysis.standouts[0]
-    assert standout.standout_end_seed - standout.standout_start_seed + 1 == gap
+    assert [item.after_seed for item in analysis.supported_boundaries] == [expected]
+    assert [item.after_seed for item in analysis.breaks] == [expected]
+    assert analysis.standouts == ()
+    assert analysis.notes == (
+        "Competitive Break: projected matchup quality worsens between "
+        f"seeds {expected} and {expected + 1}; PowerScore difference 31.0 points.",
+    )
 
 
 def test_all_window_sizes_must_agree_and_rejected_evidence_survives():
@@ -133,7 +135,10 @@ def test_all_window_sizes_must_agree_and_rejected_evidence_survives():
 def test_clear_gap_has_one_specific_observation_across_pdf_and_excel():
     sheet, _, _ = cohort(8, gap=4)
     content = build_director_cohort(sheet, "=Keep this literal.")
-    expected = "Competitive Break: 31.0 PowerScore points between seeds 4 and 5."
+    expected = (
+        "Competitive Break: projected matchup quality worsens between seeds 4 and 5; "
+        "PowerScore difference 31.0 points."
+    )
     assert content.rows[3].observation == expected
     assert content.rows[3].strength_break_after
     assert not content.rows[4].strength_break_after
@@ -183,7 +188,7 @@ def test_many_supported_gaps_show_at_most_three_observations():
     ) for a, b in combinations(entrants, 2)}
     analysis = build_cheat_sheet_analysis(entrants, pairs)
     assert len(analysis.breaks) == len(analysis.notes) == 3
-    assert len({window.after_seed for window in analysis.boundary_windows if window.supported}) > 3
+    assert len(analysis.supported_boundaries) > 3
 
 
 def test_workbook_keeps_secondary_identity_and_roster_context_on_team_row():
@@ -204,42 +209,44 @@ def test_workbook_keeps_secondary_identity_and_roster_context_on_team_row():
     assert [table.autoFilter.ref for table in tab.tables.values()] == ["A6:K7"]
 
 
-def test_competitive_break_does_not_require_a_likely_blowout():
+def test_direction_without_competitive_risk_does_not_create_a_break():
     _, entrants, pairs = cohort(8)
     entrants = [replace(e, power_score=e.power_score - (.04 if i >= 4 else 0))
                 for i, e in enumerate(entrants)]
     pairs = {key: prediction(.4, .08) for key in pairs}
     analysis = build_cheat_sheet_analysis(entrants, pairs)
-    assert [item.after_seed for item in analysis.breaks] == [4]
-    assert analysis.breaks[0].score_gap == pytest.approx(.05)
+    assert analysis.breaks == ()
+    assert [item.after_seed for item in analysis.non_separating_boundaries] == list(range(1, 8))
     assert all(w.over_limit_fraction == 0 for w in analysis.boundary_windows)
     assert analysis.ordered_ids == tuple(str(i) for i in range(8))
 
 
 @pytest.mark.parametrize("equal", [True, False])
-def test_predictions_alone_do_not_create_competitive_breaks(equal):
+def test_matchup_separation_can_create_breaks_without_a_score_gap(equal):
     _, entrants, pairs = cohort(8)
     if equal:
         entrants = [replace(e, power_score=.7) for e in entrants]
     analysis = build_cheat_sheet_analysis(entrants, {key: prediction(4, .6) for key in pairs})
-    assert not analysis.breaks and not analysis.standouts
-    assert not analysis.notes
+    assert len(analysis.supported_boundaries) == 7
+    assert len(analysis.breaks) == len(analysis.notes) == 3
+    assert not analysis.standouts
 
 
-@pytest.mark.parametrize("scores,expected", [
-    ([.90, .50, .49], "Seed 1 is 40.0 points above seed 2."),
-    ([.90, .89, .20], "Seed 2 is 69.0 points above seed 3."),
-    ([.90, .70, .50], None),
-    ([.70, .70, .70], None),
-    ([.70, .695, .69], None),
+@pytest.mark.parametrize("scores", [
+    [.90, .50, .49],
+    [.90, .89, .20],
+    [.90, .70, .50],
+    [.70, .70, .70],
+    [.70, .695, .69],
 ])
-def test_three_team_cohorts_distinguish_standouts_from_gradual_scores(scores, expected):
+def test_three_team_score_shapes_do_not_create_findings_without_matchup_risk(scores):
     entrants = [TierEntrant(str(i), f"Team {i}", score) for i, score in enumerate(scores)]
     pairs = {(a.entrant_id, b.entrant_id): prediction(.5) for a, b in combinations(entrants, 2)}
     analysis = build_cheat_sheet_analysis(entrants, pairs)
-    assert analysis.notes == ((expected,) if expected else ())
-    assert len(analysis.standouts) == bool(expected)
-    assert not analysis.breaks
+    assert analysis.notes == ()
+    assert analysis.standouts == ()
+    assert analysis.breaks == ()
+    assert len(analysis.non_separating_boundaries) == 2
 
 
 def test_only_material_reversals_need_operator_review_without_reordering():

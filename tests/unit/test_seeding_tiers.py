@@ -447,6 +447,39 @@ def test_local_consensus_support_threshold_is_an_independent_fraction(value):
         TierPolicy(local_consensus_support_threshold=value)
 
 
+@pytest.mark.parametrize("windows", [(), (2,), (3, 3), (3, 4.5)])
+def test_boundary_windows_are_configurable_and_validated(windows):
+    with pytest.raises(ValueError, match="Boundary window sizes"):
+        TierPolicy(boundary_window_sizes=windows)
+
+
+@pytest.mark.parametrize("field", ["boundary_min_pairings", "boundary_min_established_pairings"])
+@pytest.mark.parametrize("value", [True, 0, -1, 1.5])
+def test_boundary_evidence_counts_are_positive_integers(field, value):
+    with pytest.raises(ValueError, match="positive integer"):
+        TierPolicy(**{field: value})
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "boundary_min_favored_fraction",
+        "boundary_min_over_limit_fraction",
+        "boundary_max_limited_pair_fraction",
+    ],
+)
+@pytest.mark.parametrize("value", [-0.1, 1.1, float("inf"), float("nan")])
+def test_boundary_fraction_thresholds_stay_in_probability_range(field, value):
+    with pytest.raises(ValueError, match="between zero and one"):
+        TierPolicy(**{field: value})
+
+
+@pytest.mark.parametrize("value", [0, -1, float("inf"), float("nan")])
+def test_boundary_average_margin_threshold_is_positive_and_finite(value):
+    with pytest.raises(ValueError, match="average signed margin"):
+        TierPolicy(boundary_min_average_signed_margin=value)
+
+
 def test_empty_and_review_only_cohorts_do_not_invent_tiers():
     result = build_tiers([], {})
     assert result.tiers == ()

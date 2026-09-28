@@ -26,9 +26,9 @@ from src.tournaments.seeding_tiers import (
     build_tiers,
 )
 
-PACK_SCHEMA_VERSION = 4
-ANALYSIS_SCHEMA_VERSION = 7
-_UPGRADABLE_PACK_SCHEMAS = frozenset({3, 4})
+PACK_SCHEMA_VERSION = 5
+ANALYSIS_SCHEMA_VERSION = 8
+_UPGRADABLE_PACK_SCHEMAS = frozenset({3, 4, 5})
 _AGE_GROUP = re.compile(r"^u[1-9][0-9]?$")
 _LEGACY_UNAVAILABLE_REASONS = {
     "Two roster entries resolve to the same team; verify the matches.": (
@@ -183,10 +183,13 @@ def make_pack(
         "legacy_manual_groups": {},
         "manual_seed_orders": {},
         "ordering": {},
+        "boundary_analysis": {},
         "operator_notes": {},
     }
     _snapshot_predictions(pack, request)
-    persist_ordering(pack, analyze_pack(pack, rows, resolved, overrides))
+    analyses = analyze_pack(pack, rows, resolved, overrides)
+    persist_ordering(pack, analyses)
+    persist_boundary_analysis(pack, analyses)
     # A saved forecast must not share mutable nested dictionaries with a batch
     # or ratings cache that can later be refreshed in the same operator session.
     return json.loads(json.dumps(pack, ensure_ascii=False, allow_nan=False))
@@ -241,7 +244,13 @@ def _snapshot_predictions(
         not isinstance(value, dict) for value in pack["ratings"].values()
     ):
         raise ValueError("Seeding snapshot has invalid ratings.")
-    for section in ("manual_groups", "unavailable_codes", "manual_seed_orders", "ordering"):
+    for section in (
+        "manual_groups",
+        "unavailable_codes",
+        "manual_seed_orders",
+        "ordering",
+        "boundary_analysis",
+    ):
         if not isinstance(pack.get(section, {}), dict) or not set(pack.get(section, {})).issubset(request):
             raise ValueError(f"Seeding snapshot has invalid {section} cohort coverage.")
     # Notes may name a cohort outside this selection: a narrowed rebuild keeps
@@ -398,6 +407,11 @@ def analyze_pack(
         )
     if pack.get("ordering") and pack["ordering"] != ordering_snapshot(analyses):
         raise ValueError("Seeding snapshot has inconsistent saved ordering evidence.")
+    if (
+        pack.get("boundary_analysis")
+        and pack["boundary_analysis"] != boundary_analysis_snapshot(analyses)
+    ):
+        raise ValueError("Seeding snapshot has inconsistent saved boundary evidence.")
     return analyses
 
 
@@ -427,6 +441,35 @@ def persist_ordering(
     pack["ordering"] = ordering_snapshot(analyses)
 
 
+def boundary_analysis_snapshot(
+    analyses: Mapping[tuple[str, str], CheatSheetAnalysis],
+) -> dict[str, dict[str, Any]]:
+    """Serialize every classified boundary before any presentation prioritization."""
+    snapshot = {
+        cohort_key(*key): {
+            "assessments": [asdict(item) for item in analysis.boundary_assessments],
+            "supported_boundaries": [
+                item.after_seed for item in analysis.supported_boundaries
+            ],
+            "uncertain_boundaries": [
+                item.after_seed for item in analysis.uncertain_boundaries
+            ],
+            "non_separating_boundaries": [
+                item.after_seed for item in analysis.non_separating_boundaries
+            ],
+        }
+        for key, analysis in analyses.items()
+    }
+    return json.loads(json.dumps(snapshot, ensure_ascii=False, allow_nan=False))
+
+
+def persist_boundary_analysis(
+    pack: dict[str, Any], analyses: Mapping[tuple[str, str], CheatSheetAnalysis],
+) -> None:
+    """Persist complete boundary evidence only after every cohort succeeds."""
+    pack["boundary_analysis"] = boundary_analysis_snapshot(analyses)
+
+
 def upgrade_pack_analysis(
     pack: dict[str, Any], rows: Sequence[RosterRow], resolved: Sequence[ResolvedTeam],
     overrides: Mapping[int, dict[str, Any]], selected: Sequence[str], *, predictor_sha256: str,
@@ -438,7 +481,7 @@ def upgrade_pack_analysis(
     """
     if (
         pack.get("schema_version") not in _UPGRADABLE_PACK_SCHEMAS
-        or pack.get("analysis_schema_version") not in (1, 2, 3, 4, 5, 6)
+        or pack.get("analysis_schema_version") not in (1, 2, 3, 4, 5, 6, 7)
     ):
         raise ValueError("This saved pack requires a fresh build.")
     if pack.get("predictor_sha256") != predictor_sha256:
@@ -449,10 +492,14 @@ def upgrade_pack_analysis(
     candidate["analysis_schema_version"] = ANALYSIS_SCHEMA_VERSION
     candidate.setdefault("manual_seed_orders", {})
     candidate["ordering"] = {}
+    # Old customer break markers were presentation output, not boundary
+    # classifications. Rebuild the new evidence only from frozen predictions.
+    candidate["boundary_analysis"] = {}
     if not pack_matches(candidate, rows, resolved, overrides, selected):
         raise ValueError("The roster or cohort selection changed; build seeding sheets.")
     analyses = analyze_pack(candidate, rows, resolved, overrides)
     persist_ordering(candidate, analyses)
+    persist_boundary_analysis(candidate, analyses)
     return candidate
 
 
