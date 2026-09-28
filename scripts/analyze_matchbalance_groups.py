@@ -342,13 +342,20 @@ def _addition_payload(addition: GroupAdditionAssessment | None) -> dict[str, Any
     }
 
 
-def _load_case(case: Mapping[str, Any]) -> dict[str, Any]:
-    source_path = Path(case["source_path"])
+def load_frozen_snapshot(
+    source_path: Path,
+    cohort: str,
+    *,
+    expected_source_sha256: str | None = None,
+    expected_predictor_sha256: str | None = None,
+) -> dict[str, Any]:
+    """Load and upgrade one saved pack without network access or source writes."""
+    source_path = source_path.resolve()
     source_bytes = source_path.read_bytes()
     actual_sha = _sha256_bytes(source_bytes)
-    if actual_sha != case["source_sha256"]:
+    if expected_source_sha256 is not None and actual_sha != expected_source_sha256:
         raise ValueError(
-            f"Frozen source hash changed for {case['slug']}: {actual_sha}"
+            f"Frozen source hash changed for {source_path}: {actual_sha}"
         )
     payload = json.loads(source_bytes.decode("utf-8"))
     parsed = ParsedRoster(
@@ -368,9 +375,15 @@ def _load_case(case: Mapping[str, Any]) -> dict[str, Any]:
         int(index): value for index, value in (payload.get("overrides") or {}).items()
     }
     original_pack = payload["pack"]
-    if original_pack.get("predictor_sha256") != EXPECTED_PREDICTOR:
-        raise ValueError(f"Unexpected predictor for {case['slug']}")
+    predictor_sha256 = str(original_pack.get("predictor_sha256") or "")
+    if (
+        expected_predictor_sha256 is not None
+        and predictor_sha256 != expected_predictor_sha256
+    ):
+        raise ValueError(f"Unexpected predictor for {source_path}")
     selected = list(original_pack["selected_cohorts"])
+    if cohort not in selected:
+        raise ValueError(f"Frozen snapshot does not include cohort {cohort!r}")
     with _network_blocked():
         upgraded_pack = upgrade_pack_analysis(
             original_pack,
@@ -378,13 +391,36 @@ def _load_case(case: Mapping[str, Any]) -> dict[str, Any]:
             resolved,
             overrides,
             selected,
-            predictor_sha256=EXPECTED_PREDICTOR,
+            predictor_sha256=predictor_sha256,
         )
         analyses = analyze_pack(upgraded_pack, rows, resolved, overrides)
         request = prediction_request(rows, resolved, overrides, selected)
         predictions = _snapshot_predictions(upgraded_pack, request)
-    age, gender = str(case["cohort"]).split("|", 1)
+    age, gender = cohort.split("|", 1)
     analysis = analyses[(age, gender)]
+    return {
+        "source_path": source_path,
+        "source_sha256": actual_sha,
+        "payload": payload,
+        "source_bytes": source_bytes,
+        "rows": rows,
+        "resolved": resolved,
+        "overrides": overrides,
+        "original_pack": original_pack,
+        "upgraded_pack": upgraded_pack,
+        "analysis": analysis,
+        "predictions": predictions[cohort],
+    }
+
+
+def _load_case(case: Mapping[str, Any]) -> dict[str, Any]:
+    loaded = load_frozen_snapshot(
+        Path(case["source_path"]),
+        str(case["cohort"]),
+        expected_source_sha256=str(case["source_sha256"]),
+        expected_predictor_sha256=EXPECTED_PREDICTOR,
+    )
+    analysis = loaded["analysis"]
     if len(analysis.suggested_order) != case["expected_team_count"]:
         raise ValueError(f"Unexpected seeded-team count for {case['slug']}")
     if tuple(analysis.baseline_order) != tuple(case["expected_order"]):
@@ -400,27 +436,25 @@ def _load_case(case: Mapping[str, Any]) -> dict[str, Any]:
     }
     if actual_boundaries != case["expected_boundaries"]:
         raise ValueError(f"Boundary classifications regressed for {case['slug']}")
-    return {
-        "payload": payload,
-        "source_bytes": source_bytes,
-        "rows": rows,
-        "resolved": resolved,
-        "overrides": overrides,
-        "original_pack": original_pack,
-        "upgraded_pack": upgraded_pack,
-        "analysis": analysis,
-        "predictions": predictions[str(case["cohort"])],
-        "actual_boundaries": actual_boundaries,
-    }
+    return {**loaded, "actual_boundaries": actual_boundaries}
 
 
-def _team_metadata(loaded: Mapping[str, Any], cohort: str) -> dict[str, GroupTeam]:
+def build_team_metadata(
+    loaded: Mapping[str, Any],
+    cohort: str,
+    entrant_ids: Sequence[str],
+) -> dict[str, GroupTeam]:
+    """Build frozen reporting metadata, retaining suggested seed references."""
     analysis = loaded["analysis"]
     rows = {str(row.source_index): row for row in loaded["rows"]}
     frozen_teams = loaded["upgraded_pack"]["teams"][cohort]
     ratings = loaded["upgraded_pack"]["ratings"]
+    suggested_seed = {
+        entrant_id: seed
+        for seed, entrant_id in enumerate(analysis.suggested_order, start=1)
+    }
     metadata: dict[str, GroupTeam] = {}
-    for seed, entrant_id in enumerate(analysis.suggested_order, start=1):
+    for entrant_id in entrant_ids:
         row = rows[entrant_id]
         frozen = frozen_teams.get(entrant_id, {})
         team_id = frozen.get("team_id_master")
@@ -443,13 +477,21 @@ def _team_metadata(loaded: Mapping[str, Any], cohort: str) -> dict[str, GroupTea
             entrant_id=entrant_id,
             team_name=row.registered_name,
             team_id_master=team_id,
-            seed=seed,
+            seed=suggested_seed.get(entrant_id),
             power_score=evidence.get("power_score_final"),
             limited_history=limited_history,
             evidence_game_count=evidence.get("prediction_game_count"),
             evidence_flags=tuple(flags),
         )
     return metadata
+
+
+def _team_metadata(loaded: Mapping[str, Any], cohort: str) -> dict[str, GroupTeam]:
+    return build_team_metadata(
+        loaded,
+        cohort,
+        loaded["analysis"].suggested_order,
+    )
 
 
 def _boundary_snapshot(loaded: Mapping[str, Any]) -> dict[str, Any]:
