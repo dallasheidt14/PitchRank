@@ -314,3 +314,74 @@ def test_rsl_lower_supported_boundaries_coexist_without_suppression():
     supported = {item.after_seed for item in analysis.supported_boundaries}
 
     assert {1, 3, 5, 13, 15}.issubset(supported)
+
+
+def test_insufficient_small_window_does_not_veto_larger_supported_windows():
+    analysis = _analysis(
+        [0.80 - index * 0.01 for index in range(6)],
+        "supported",
+        limited={2},
+    )
+
+    top = _boundary(analysis, 1)
+    windows = {
+        item.size: item
+        for item in analysis.boundary_windows
+        if item.after_seed == 1
+    }
+
+    assert windows[3].pairing_count == 2
+    assert windows[3].established_pairing_count == 1
+    assert windows[3].limited_history_pairing_count == 1
+    assert not windows[3].evidence_sufficient
+    assert windows[4].supported and windows[5].supported
+    assert top.usable_window_sizes == (4, 5)
+    assert top.classification == SUPPORTED_SEPARATION
+
+
+def test_local_no_separation_does_not_imply_a_gradual_stretch_is_compatible():
+    entrants = _entrants([0.80 - index * 0.01 for index in range(8)])
+    ids = [item.entrant_id for item in entrants]
+    predictions = _matrix(ids, "reasonable")
+    predictions[("0", "7")] = _prediction(
+        3.0,
+        absolute_goal_difference=3.0,
+        blowout=0.40,
+    )
+
+    analysis = build_cheat_sheet_analysis(entrants, predictions)
+
+    assert [
+        item.after_seed for item in analysis.non_separating_boundaries
+    ] == list(range(1, 8))
+    assert predictions[("0", "7")].expected_absolute_goal_difference > 2.0
+    assert predictions[("0", "7")].blowout_4plus_probability > 0.30
+
+
+def test_bridge_team_that_fits_both_sides_does_not_force_a_sharp_break():
+    entrants = _entrants([0.80 - index * 0.01 for index in range(7)])
+    ids = [item.entrant_id for item in entrants]
+    predictions = _matrix(ids, "reasonable")
+    for upper in ("0", "1", "2"):
+        for lower in ("4", "5", "6"):
+            predictions[(upper, lower)] = _prediction(
+                1.5,
+                absolute_goal_difference=3.0,
+                blowout=0.40,
+            )
+
+    analysis = build_cheat_sheet_analysis(entrants, predictions)
+
+    assert _boundary(analysis, 3).classification == UNCERTAIN_SEPARATION
+    assert _boundary(analysis, 4).classification == UNCERTAIN_SEPARATION
+    assert {3, 4}.isdisjoint(
+        item.after_seed for item in analysis.supported_boundaries
+    )
+    assert all(
+        predictions[tuple(sorted(pair))].expected_absolute_goal_difference <= 2.0
+        for pair in combinations(("0", "1", "2", "3"), 2)
+    )
+    assert all(
+        predictions[tuple(sorted(pair))].expected_absolute_goal_difference <= 2.0
+        for pair in combinations(("3", "4", "5", "6"), 2)
+    )
