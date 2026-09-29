@@ -16,7 +16,7 @@ import tournament_intake as intake
 from src.tournaments.roster_paste import parse_roster
 from src.tournaments.roster_resolver import ResolvedTeam
 from src.tournaments.seeding_assessment import source_fingerprint
-from src.tournaments.seeding_run_store import SeedingRun, load_run, save_run
+from src.tournaments.seeding_run_store import SeedingRun, list_runs, load_run, save_run
 from tests.unit.test_seeding_event_intake import (
     _FakeSessionState,
     _FakeSt,
@@ -286,6 +286,77 @@ def test_an_interrupted_import_is_reported_after_the_rerun_that_follows_it(monke
     assert not intake._autosave_seeding_run()
     _next_run(fake)
     assert any("The import was interrupted" in message for message in fake.warnings)
+
+
+# -------- switching between saved runs -----------------------------------
+
+
+def _save_second_event_run(store) -> None:
+    parsed = parse_roster(EVENT_ROWS)
+    assessment = {
+        "event_id": "111", "coverage": "complete", "source_kind": "GotSport event",
+        "source_url": EVENT_111, "completed": [0, 1], "fingerprint": source_fingerprint(parsed.rows),
+    }
+    save_run(
+        SeedingRun(
+            "Cup B",
+            parsed.rows,
+            _unresolved(parsed),
+            source_url=EVENT_111,
+            assessment=assessment,
+        ),
+        base_dir=store,
+    )
+
+
+def _choose_second_saved_run(monkeypatch, fake, store) -> None:
+    monkeypatch.setattr(intake, "list_seeding_runs", lambda: list_runs(base_dir=store))
+    monkeypatch.setattr(intake, "load_seeding_run_file", lambda slug: load_run(slug, base_dir=store))
+    original_selectbox = fake.selectbox
+
+    def choose(label, options, **kwargs):
+        if label == "Open a saved run":
+            assert "cup-b" in options
+            return "cup-b"
+        return original_selectbox(label, options, **kwargs)
+
+    monkeypatch.setattr(fake, "selectbox", choose)
+
+
+def test_switching_from_an_unchanged_run_preserves_its_exact_snapshot(monkeypatch, store):
+    fake = _install(monkeypatch, _FakeSt())
+    _open_event_run(fake, store)
+    _save_second_event_run(store)
+    _choose_second_saved_run(monkeypatch, fake, store)
+    path = store / "cup-a" / "seeding_run.json"
+    before = path.read_bytes()
+
+    with contextlib.suppress(_Rerun):
+        intake._render_seeding_run_controls()
+
+    assert path.read_bytes() == before
+    assert not (path.parent / "history").exists()
+    assert fake.session_state["_seeding_loaded_slug"] == "cup-b"
+
+
+def test_switching_from_a_changed_run_still_autosaves_before_opening(monkeypatch, store):
+    fake = _install(monkeypatch, _FakeSt())
+    _open_event_run(fake, store)
+    _save_second_event_run(store)
+    _choose_second_saved_run(monkeypatch, fake, store)
+    fake.session_state["_seeding_overrides"] = {
+        1: {"team_id_master": "manual-team", "team_name": "Manual Team"}
+    }
+    path = store / "cup-a" / "seeding_run.json"
+    before = path.read_bytes()
+
+    with contextlib.suppress(_Rerun):
+        intake._render_seeding_run_controls()
+
+    assert path.read_bytes() != before
+    assert load_run("cup-a", base_dir=store).overrides[1]["team_id_master"] == "manual-team"
+    assert len(list((path.parent / "history").glob("*.json"))) == 1
+    assert fake.session_state["_seeding_loaded_slug"] == "cup-b"
 
 
 # -------- messages raised before a rerun survive it -----------------------

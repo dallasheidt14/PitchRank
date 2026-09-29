@@ -4776,6 +4776,48 @@ def _render_seeding_notices() -> None:
         st.session_state.pop("_seeding_notices", None)
 
 
+def _active_seeding_run_snapshot() -> SeedingRun | None:
+    """Return the complete active run when it is safe to compare or save."""
+    name = _seeding_run_name()
+    result = st.session_state.get("_seeding_result")
+    if not name or not result:
+        return None
+    parsed, resolved = result
+    metadata = dict(st.session_state.get("_seeding_assessment") or {})
+    if not _seeding_context_matches(parsed, metadata):
+        return None
+    decisions = dict(st.session_state.get("_seeding_cohort_decisions") or {})
+    overrides = dict(st.session_state.get("_seeding_overrides") or {})
+    effective = package_roster(effective_roster(parsed, decisions))
+    pack = st.session_state.get("_seeding_pack")
+    if not snapshot_matches_roster(pack, effective.rows, resolved, overrides):
+        pack = None
+    return SeedingRun(
+        name=name,
+        rows=parsed.rows,
+        resolved=resolved,
+        overrides=overrides,
+        warnings=parsed.warnings,
+        pack=pack,
+        source_url=str(metadata.get("source_url") or ""),
+        assessment=metadata,
+        cohort_decisions=decisions,
+    )
+
+
+def _loaded_seeding_run_matches_active() -> bool:
+    """Whether switching runs can skip an autosave without losing work."""
+    slug = str(st.session_state.get("_seeding_loaded_slug") or "").strip()
+    active = _active_seeding_run_snapshot()
+    if not slug or active is None:
+        return False
+    try:
+        saved = load_seeding_run_file(slug)
+    except (OSError, ValueError, TypeError):
+        return False
+    return replace(saved, saved_at="") == active
+
+
 def _autosave_seeding_run(*, archive_previous: bool = True) -> bool:
     """Persist the run, reporting whether it actually landed.
 
@@ -4799,24 +4841,12 @@ def _autosave_seeding_run(*, archive_previous: bool = True) -> bool:
             "warning", "The import was interrupted. Reopen the saved run or captured event before saving."
         )
         return False
-    decisions = st.session_state.get("_seeding_cohort_decisions", {})
-    effective = package_roster(effective_roster(parsed, decisions))
-    pack = st.session_state.get("_seeding_pack")
-    if not snapshot_matches_roster(pack, effective.rows, resolved, st.session_state._seeding_overrides):
-        pack = None
+    active = _active_seeding_run_snapshot()
+    if active is None:
+        return False
     try:
         save_seeding_run_file(
-            SeedingRun(
-                name=name,
-                rows=parsed.rows,
-                resolved=resolved,
-                overrides=dict(st.session_state._seeding_overrides),
-                warnings=parsed.warnings,
-                pack=pack,
-                source_url=str(st.session_state.get("_seeding_assessment", {}).get("source_url") or ""),
-                assessment=dict(st.session_state.get("_seeding_assessment") or {}),
-                cohort_decisions=dict(decisions),
-            ),
+            active,
             archive_previous=archive_previous,
         )
     except RunNameTaken as exc:
@@ -5010,7 +5040,11 @@ def _render_seeding_run_controls(client: Any = None) -> None:
             key="seeding_resume_choice",
         )
         if chosen and chosen != st.session_state.get("_seeding_loaded_slug"):
-            if st.session_state.get("_seeding_result") and not _autosave_seeding_run():
+            if (
+                st.session_state.get("_seeding_result")
+                and not _loaded_seeding_run_matches_active()
+                and not _autosave_seeding_run()
+            ):
                 st.error("Save the current run successfully before opening another saved run.")
                 return
             if _load_seeding_run(chosen, client):
