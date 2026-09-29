@@ -10,7 +10,7 @@ from __future__ import annotations
 import math
 from collections import Counter
 from dataclasses import dataclass
-from typing import Mapping, Sequence
+from typing import Mapping, MutableMapping, Sequence
 
 from src.tournaments.compare_predictor_bridge import ComparePrediction
 from src.tournaments.seeding_group_assessment import (
@@ -407,6 +407,9 @@ def assess_flight_plan(
     accepted_entrant_ids: Sequence[str] | None = None,
     unassigned_entrants: Sequence[UnassignedEntrant] = (),
     plan_id: str = "plan",
+    group_assessment_cache: MutableMapping[
+        tuple[str, ...], GroupAssessment
+    ] | None = None,
 ) -> FlightPlanAssessment:
     """Assess one explicit contiguous partition without changing membership."""
     order = tuple(selected_order)
@@ -427,7 +430,15 @@ def assess_flight_plan(
     offset = 0
     for number, size in enumerate(sizes, start=1):
         members = order[offset : offset + size]
-        group = assess_group(members, predictions, policy, team_metadata)
+        group = (
+            group_assessment_cache.get(members)
+            if group_assessment_cache is not None
+            else None
+        )
+        if group is None:
+            group = assess_group(members, predictions, policy, team_metadata)
+            if group_assessment_cache is not None:
+                group_assessment_cache[members] = group
         flights.append(
             FlightAssessment(
                 flight_number=number,
@@ -740,6 +751,10 @@ def assess_all_opponents(
     predictions: Mapping[tuple[str, str], ComparePrediction],
     policy: TierPolicy,
     team_metadata: Mapping[str, GroupTeam],
+    *,
+    group_assessment_cache: MutableMapping[
+        tuple[str, ...], GroupAssessment
+    ] | None = None,
 ) -> tuple[AllOpponentAssessment, ...]:
     """Identify complete-prediction cases with no within-policy opponent."""
     ids = tuple(entrant_ids)
@@ -747,7 +762,15 @@ def assess_all_opponents(
         raise ValueError("All-opponent entrant IDs must be unique")
     if any(entrant_id not in team_metadata for entrant_id in ids):
         raise ValueError("Every accepted entrant requires frozen team metadata")
-    complete = assess_group(ids, predictions, policy, team_metadata)
+    complete = (
+        group_assessment_cache.get(ids)
+        if group_assessment_cache is not None
+        else None
+    )
+    if complete is None:
+        complete = assess_group(ids, predictions, policy, team_metadata)
+        if group_assessment_cache is not None:
+            group_assessment_cache[ids] = complete
     result = []
     for entrant_id in ids:
         pairings = tuple(
@@ -827,6 +850,7 @@ def assess_permitted_plans(
         *order,
         *(item.entrant_id for item in unassigned_entrants),
     )
+    group_assessment_cache: dict[tuple[str, ...], GroupAssessment] = {}
     plans = tuple(
         assess_flight_plan(
             order,
@@ -837,6 +861,7 @@ def assess_permitted_plans(
             accepted_entrant_ids=accepted,
             unassigned_entrants=unassigned_entrants,
             plan_id=f"plan-{index:03d}-{'-'.join(str(size) for size in sizes)}",
+            group_assessment_cache=group_assessment_cache,
         )
         for index, sizes in enumerate(enumeration.arrangements, start=1)
     )
@@ -864,7 +889,11 @@ def assess_permitted_plans(
         plans=plans,
         comparisons=compare_alternatives(plans),
         all_opponent_assessments=assess_all_opponents(
-            accepted, predictions, policy, team_metadata
+            accepted,
+            predictions,
+            policy,
+            team_metadata,
+            group_assessment_cache=group_assessment_cache,
         ),
         no_all_pair_within_policy_plan_among_evaluated=no_pass,
         no_all_pair_within_policy_plan_among_permitted=no_permitted,
