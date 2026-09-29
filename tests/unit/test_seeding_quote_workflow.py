@@ -167,6 +167,33 @@ def test_completed_run_keeps_step_two_clickable_and_focuses_not_found(completed_
     assert dict(app.session_state["_seeding_overrides"]) == before_overrides
 
 
+def test_step_two_does_not_focus_a_selected_cohort_without_not_found_teams(
+    completed_not_found_operator,
+):
+    app = completed_not_found_operator
+    parsed, resolved = app.session_state["_seeding_result"]
+    updated = list(resolved)
+    for index in (12, 13):
+        updated[index] = ResolvedTeam(
+            index,
+            "gotsport_id",
+            team_id_master=f"team-{index}",
+            matched_name=f"Team {index}",
+        )
+    app.session_state["_seeding_result"] = (parsed, tuple(updated))
+    app.session_state["_seeding_overrides"] = {
+        index: {"not_found": True} for index in range(14, 24)
+    }
+    app.run()
+
+    next(button for button in app.button if button.label == "2. Match to PitchRank").click().run()
+
+    assert not app.exception
+    assert next(widget for widget in app.selectbox if widget.label == "Show").value == "Not found in PitchRank"
+    assert next(widget for widget in app.selectbox if widget.label == "Filter cohort").value == "All cohorts"
+    assert any(button.label == "Reopen matching" for button in app.button)
+
+
 def test_seed_order_callout_opens_the_not_found_review(completed_not_found_operator):
     app = completed_not_found_operator
     assert any(
@@ -181,6 +208,13 @@ def test_seed_order_callout_opens_the_not_found_review(completed_not_found_opera
     assert next(widget for widget in app.selectbox if widget.label == "Show").value == "Not found in PitchRank"
     assert next(widget for widget in app.selectbox if widget.label == "Filter cohort").value == "Boys U14"
     assert any(button.label == "Reopen matching" for button in app.button)
+
+    click(app, "Reopen matching")
+
+    assert next(widget for widget in app.selectbox if widget.label == "Show").value == "Needs attention"
+    assert next(widget for widget in app.selectbox if widget.label == "Filter cohort").value == "Boys U14"
+    assert next(widget for widget in app.selectbox if widget.label == "Team to review").value == 12
+    assert any(widget.label == "Match decision" for widget in app.radio)
 
 
 @pytest.mark.parametrize("pending_rows, expected_summary", [

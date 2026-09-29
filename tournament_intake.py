@@ -4632,6 +4632,7 @@ def _render_seeding_override(
                 ]
                 st.session_state["_seeding_assessment"] = metadata
                 st.session_state["_seeding_resolution_failed"] = True
+                st.session_state["_seeding_pending_review_team"] = row.source_index
                 st.session_state.pop("_seeding_pack", None)
                 invalidate_seeding_exports(st.session_state)
                 _autosave_seeding_run()
@@ -4994,6 +4995,7 @@ def _reset_seeding_review_widgets() -> None:
     for key in (
         "_seeding_pack_scope", "_seeding_pack_cohorts", "_seeding_review_update",
         "_seeding_review_issue_filter", "_seeding_review_cohort_filter", "_seeding_review_team",
+        "_seeding_pending_review_team",
     ):
         st.session_state.pop(key, None)
 
@@ -5605,6 +5607,7 @@ def _render_seeding_workflow_progress(
     attention: int | None = None
     matched: int | None = None
     not_found: int | None = None
+    not_found_indices: frozenset[int] = frozenset()
     export_ready = False
     if parsed is not None:
         overrides = overrides or {}
@@ -5618,7 +5621,8 @@ def _render_seeding_workflow_progress(
         )
         attention = len(assessment.attention)
         matched = assessment.matched
-        not_found = len(assessment.not_found)
+        not_found_indices = assessment.not_found
+        not_found = len(not_found_indices)
         eligible = package_roster(parsed)
         pack_ready = snapshot_matches_roster(
             st.session_state.get("_seeding_pack"), eligible.rows, resolved, overrides
@@ -5672,7 +5676,11 @@ def _render_seeding_workflow_progress(
             _open_seeding_step(
                 index,
                 review_not_found=index == 2 and not attention and bool(not_found),
-                review_cohort=_seeding_review_cohort_label(selected[0]) if len(selected) == 1 else None,
+                review_cohort=(
+                    _seeding_not_found_review_cohort(parsed, selected, not_found_indices)
+                    if parsed is not None
+                    else None
+                ),
             )
             st.rerun()
     st.caption("Your saved run keeps the imported roster and match decisions.")
@@ -5693,6 +5701,24 @@ def _selected_seeding_cohorts(parsed: ParsedRoster) -> list[str]:
     if isinstance(saved, list) and all(isinstance(key, str) for key in saved):
         return [key for key in saved if key in choices]
     return choices
+
+
+def _seeding_not_found_review_cohort(
+    parsed: ParsedRoster,
+    selected_cohorts: Sequence[str],
+    not_found_indices: frozenset[int],
+) -> str | None:
+    """Focus one selected cohort only when it contains a not-found team."""
+    if len(selected_cohorts) != 1:
+        return None
+    selected = selected_cohorts[0]
+    if not any(
+        row.source_index in not_found_indices
+        and cohort_key(row.section_age_group, row.section_gender) == selected
+        for row in parsed.rows
+    ):
+        return None
+    return _seeding_review_cohort_label(selected)
 
 
 def _seeding_review_cohort_label(key: str) -> str:
@@ -5716,6 +5742,15 @@ def _open_seeding_step(
             st.session_state.pop("_seeding_review_cohort_filter", None)
         st.session_state.pop("_seeding_review_team", None)
     st.session_state["_seeding_active_step"] = step
+
+
+def _apply_pending_seeding_review_focus() -> None:
+    """Keep a reopened not-found team visible after its decision changes."""
+    pending = st.session_state.pop("_seeding_pending_review_team", None)
+    if not isinstance(pending, int) or isinstance(pending, bool):
+        return
+    st.session_state["_seeding_review_issue_filter"] = "Needs attention"
+    st.session_state["_seeding_review_team"] = pending
 
 
 def _render_seeding_step_navigation(
@@ -5810,6 +5845,7 @@ def _render_seeding_workspace(supabase_client: Any) -> None:
         _autosave_seeding_run()
         st.session_state.pop("_seeding_review_update", None)
     _render_seeding_run_controls(supabase_client)
+    _apply_pending_seeding_review_focus()
     result = st.session_state.get("_seeding_result")
     progress_parsed = None
     if result and _seeding_context_matches(result[0], st.session_state.get("_seeding_assessment", {})):
