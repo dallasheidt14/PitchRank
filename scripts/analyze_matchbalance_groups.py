@@ -385,14 +385,23 @@ def load_frozen_snapshot(
     if cohort not in selected:
         raise ValueError(f"Frozen snapshot does not include cohort {cohort!r}")
     with _network_blocked():
-        upgraded_pack = upgrade_pack_analysis(
-            original_pack,
-            rows,
-            resolved,
-            overrides,
-            selected,
-            predictor_sha256=predictor_sha256,
-        )
+        if (
+            original_pack.get("schema_version") == PACK_SCHEMA_VERSION
+            and original_pack.get("analysis_schema_version")
+            == ANALYSIS_SCHEMA_VERSION
+        ):
+            upgraded_pack = json.loads(
+                json.dumps(original_pack, ensure_ascii=False, allow_nan=False)
+            )
+        else:
+            upgraded_pack = upgrade_pack_analysis(
+                original_pack,
+                rows,
+                resolved,
+                overrides,
+                selected,
+                predictor_sha256=predictor_sha256,
+            )
         analyses = analyze_pack(upgraded_pack, rows, resolved, overrides)
         request = prediction_request(rows, resolved, overrides, selected)
         predictions = _snapshot_predictions(upgraded_pack, request)

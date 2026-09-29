@@ -224,9 +224,9 @@ def generate_candidate_structures(
     if (
         isinstance(assigned_team_count, bool)
         or not isinstance(assigned_team_count, int)
-        or assigned_team_count < 2
+        or assigned_team_count < 0
     ):
-        raise ValueError("Automatic flight generation needs at least two assigned teams")
+        raise ValueError("Assigned team count must be a non-negative integer")
     limit = (
         profile.max_candidate_structures
         if max_candidate_structures is None
@@ -252,6 +252,26 @@ def generate_candidate_structures(
         if preferred not in template_ids:
             preferred = template_ids[0]
         size_options.append(SizeTemplateOptions(size, template_ids, preferred))
+
+    if assigned_team_count < 2:
+        entrant_label = "entrant" if assigned_team_count == 1 else "entrants"
+        return CandidateStructureGeneration(
+            assigned_team_count=assigned_team_count,
+            supported_flight_sizes=sizes,
+            size_template_options=tuple(size_options),
+            excluded_templates=excluded,
+            structures=(),
+            total_distinct_structure_count=0,
+            generated_structure_count=0,
+            max_candidate_structures=limit,
+            search_complete=True,
+            unsupported=True,
+            reason=(
+                "Automatic flight generation requires at least two assigned "
+                f"entrants; this cohort has {assigned_team_count} assigned "
+                f"{entrant_label}. Operator review is required."
+            ),
+        )
 
     total = _ordered_composition_count(assigned_team_count, sizes) if sizes else 0
     if total == 0:

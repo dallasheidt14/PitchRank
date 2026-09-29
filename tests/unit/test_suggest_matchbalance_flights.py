@@ -1,15 +1,18 @@
 """Frozen-pack regressions for automatic MatchBalance flight suggestions."""
 
+import json
 from pathlib import Path
 
 import pytest
 
+from scripts import analyze_matchbalance_groups as group_report
 from scripts.suggest_matchbalance_flights import (
     STARTING_COMMIT,
     _csv_rows,
     _markdown_report,
     build_automatic_report,
 )
+from src.tournaments.seeding_pack import ANALYSIS_SCHEMA_VERSION, PACK_SCHEMA_VERSION
 
 PREDICTOR_SHA256 = (
     "98b059f074e32584e973ca679c09985581b0867fe4175002a02cec0ada73cb5d"
@@ -82,6 +85,60 @@ def _plan(suggestion, sizes: tuple[int, ...]):
         for item in suggestion["assessment"]["plans"]
         if tuple(item["flight_sizes"]) == sizes
     )
+
+
+def test_current_schema_snapshot_bypasses_legacy_upgrader(tmp_path, monkeypatch):
+    pack = {
+        "schema_version": PACK_SCHEMA_VERSION,
+        "analysis_schema_version": ANALYSIS_SCHEMA_VERSION,
+        "predictor_sha256": "a" * 64,
+        "selected_cohorts": ["u12|Male"],
+    }
+    path = tmp_path / "current-pack.json"
+    path.write_text(
+        json.dumps(
+            {
+                "rows": [],
+                "warnings": [],
+                "resolved": [],
+                "overrides": {},
+                "pack": pack,
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        group_report,
+        "upgrade_pack_analysis",
+        lambda *_args, **_kwargs: pytest.fail(
+            "Current-schema packs must not use the legacy upgrader"
+        ),
+    )
+    monkeypatch.setattr(
+        group_report,
+        "analyze_pack",
+        lambda *_args, **_kwargs: {("u12", "Male"): "current analysis"},
+    )
+    monkeypatch.setattr(
+        group_report,
+        "prediction_request",
+        lambda *_args, **_kwargs: {"u12|Male": {}},
+    )
+    monkeypatch.setattr(
+        group_report,
+        "_snapshot_predictions",
+        lambda *_args, **_kwargs: {"u12|Male": {}},
+    )
+
+    loaded = group_report.load_frozen_snapshot(
+        path,
+        "u12|Male",
+        expected_predictor_sha256="a" * 64,
+    )
+
+    assert loaded["analysis"] == "current analysis"
+    assert loaded["upgraded_pack"] == loaded["original_pack"]
+    assert loaded["upgraded_pack"] is not loaded["original_pack"]
 
 
 @pytest.mark.skipif(not SAN_SNAPSHOT.exists(), reason="Frozen San snapshot unavailable")

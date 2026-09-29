@@ -490,6 +490,26 @@ def test_unsupported_structure_is_explicit():
     assert result.primary_plan_id is None
 
 
+@pytest.mark.parametrize("ids", [[], ["a"]])
+def test_cohort_with_fewer_than_two_assigned_entrants_requires_review(ids):
+    library, profile = _library_profile()
+
+    result = suggest_automatic_flights(
+        ids,
+        _matrix(ids),
+        TierPolicy(),
+        _teams(ids),
+        library,
+        profile,
+    )
+
+    assert result.status == UNSUPPORTED_STRUCTURE
+    assert result.assessment is None
+    assert result.primary_plan_id is None
+    assert result.generation.assigned_team_count == len(ids)
+    assert "Operator review is required" in result.selection_reason
+
+
 def test_repeated_membership_uses_one_group_assessment(monkeypatch):
     from src.tournaments import seeding_plan_assessment as module
     from src.tournaments.seeding_plan_assessment import (
