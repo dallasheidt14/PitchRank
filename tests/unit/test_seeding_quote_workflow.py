@@ -211,7 +211,31 @@ def test_seed_order_callout_opens_the_not_found_review(completed_not_found_opera
 
     click(app, "Reopen matching")
 
-    assert next(widget for widget in app.selectbox if widget.label == "Show").value == "Needs attention"
+    assert next(widget for widget in app.selectbox if widget.label == "Show").value == "All teams"
+    assert next(widget for widget in app.selectbox if widget.label == "Filter cohort").value == "Boys U14"
+    assert next(widget for widget in app.selectbox if widget.label == "Team to review").value == 12
+    assert any(widget.label == "Match decision" for widget in app.radio)
+
+
+def test_reopening_not_found_over_an_automatic_match_keeps_the_team_visible(
+    completed_not_found_operator,
+):
+    app = completed_not_found_operator
+    parsed, resolved = app.session_state["_seeding_result"]
+    updated = list(resolved)
+    updated[12] = ResolvedTeam(
+        12,
+        "gotsport_id",
+        team_id_master="team-12",
+        matched_name="Team 12",
+    )
+    app.session_state["_seeding_result"] = (parsed, tuple(updated))
+    app.run()
+
+    click(app, "Review 2 not-found teams")
+    click(app, "Reopen matching")
+
+    assert next(widget for widget in app.selectbox if widget.label == "Show").value == "All teams"
     assert next(widget for widget in app.selectbox if widget.label == "Filter cohort").value == "Boys U14"
     assert next(widget for widget in app.selectbox if widget.label == "Team to review").value == 12
     assert any(widget.label == "Match decision" for widget in app.radio)

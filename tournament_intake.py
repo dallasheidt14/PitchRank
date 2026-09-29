@@ -5749,7 +5749,7 @@ def _apply_pending_seeding_review_focus() -> None:
     pending = st.session_state.pop("_seeding_pending_review_team", None)
     if not isinstance(pending, int) or isinstance(pending, bool):
         return
-    st.session_state["_seeding_review_issue_filter"] = "Needs attention"
+    st.session_state["_seeding_review_issue_filter"] = "All teams"
     st.session_state["_seeding_review_team"] = pending
 
 
