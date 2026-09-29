@@ -61,6 +61,16 @@ EXPECTED_BRANCH = "fix/matchbalance-boundary-analysis"
 REPORT_SCHEMA_VERSION = 1
 
 
+def _starting_commit_is_ancestor(head: str) -> bool:
+    """Record development ancestry without making delivered history a runtime gate."""
+    completed = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", STARTING_COMMIT, head],
+        check=False,
+        capture_output=True,
+    )
+    return completed.returncode == 0
+
+
 def _saved_selected_cohorts(snapshot_path: Path) -> tuple[str, ...]:
     payload = json.loads(snapshot_path.resolve().read_text(encoding="utf-8"))
     selected = tuple(str(item) for item in payload["pack"]["selected_cohorts"])
@@ -235,9 +245,7 @@ def build_automatic_report(
     """Build a complete internal automatic-suggestion report."""
     head = _git("rev-parse", "HEAD")
     branch = _git("branch", "--show-current")
-    subprocess.run(
-        ["git", "merge-base", "--is-ancestor", STARTING_COMMIT, head], check=True
-    )
+    starting_commit_is_ancestor = _starting_commit_is_ancestor(head)
 
     snapshot_path = snapshot_path.resolve()
     source_bytes = snapshot_path.read_bytes()
@@ -311,7 +319,8 @@ def build_automatic_report(
             "branch": branch,
             "implementation_branch": EXPECTED_BRANCH,
             "on_implementation_branch": branch == EXPECTED_BRANCH,
-            "starting_commit_is_ancestor": True,
+            "starting_commit_is_ancestor": starting_commit_is_ancestor,
+            "starting_commit_ancestry_required": False,
             "working_tree_clean_at_export": not bool(_git("status", "--short")),
             "pack_schema_version": PACK_SCHEMA_VERSION,
             "analysis_schema_version": ANALYSIS_SCHEMA_VERSION,

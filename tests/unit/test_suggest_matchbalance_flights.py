@@ -2,14 +2,17 @@
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from scripts import analyze_matchbalance_groups as group_report
+from scripts import suggest_matchbalance_flights as flight_report
 from scripts.suggest_matchbalance_flights import (
     STARTING_COMMIT,
     _csv_rows,
     _markdown_report,
+    _starting_commit_is_ancestor,
     build_automatic_report,
 )
 from src.tournaments.seeding_pack import ANALYSIS_SCHEMA_VERSION, PACK_SCHEMA_VERSION
@@ -87,6 +90,24 @@ def _plan(suggestion, sizes: tuple[int, ...]):
     )
 
 
+def test_unsquashed_starting_commit_is_provenance_not_a_runtime_gate(monkeypatch):
+    def not_an_ancestor(command, *, check, capture_output):
+        assert command == [
+            "git",
+            "merge-base",
+            "--is-ancestor",
+            STARTING_COMMIT,
+            "squashed-delivery-commit",
+        ]
+        assert check is False
+        assert capture_output is True
+        return SimpleNamespace(returncode=1)
+
+    monkeypatch.setattr(flight_report.subprocess, "run", not_an_ancestor)
+
+    assert _starting_commit_is_ancestor("squashed-delivery-commit") is False
+
+
 def test_current_schema_snapshot_bypasses_legacy_upgrader(tmp_path, monkeypatch):
     pack = {
         "schema_version": PACK_SCHEMA_VERSION,
@@ -155,6 +176,7 @@ def test_real_san_automatic_default_is_complete_and_preserves_regressions():
 
     assert report["code"]["starting_commit"] == STARTING_COMMIT
     assert report["code"]["starting_commit_is_ancestor"] is True
+    assert report["code"]["starting_commit_ancestry_required"] is False
     assert report["snapshot_provenance"]["source_file_sha256_before"] == SAN_SHA256
     assert report["snapshot_provenance"]["source_unchanged_during_analysis"] is True
     assert tuple(regression["before_order_state"]["baseline_order"]) == SAN_ORDER
