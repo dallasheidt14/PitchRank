@@ -9,6 +9,7 @@ backtest runs.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import html
 import json
 import logging
@@ -4776,9 +4777,9 @@ def _render_seeding_notices() -> None:
         st.session_state.pop("_seeding_notices", None)
 
 
-def _active_seeding_run_snapshot() -> SeedingRun | None:
+def _active_seeding_run_snapshot(*, name_override: str | None = None) -> SeedingRun | None:
     """Return the complete active run when it is safe to compare or save."""
-    name = _seeding_run_name()
+    name = name_override if name_override is not None else _seeding_run_name()
     result = st.session_state.get("_seeding_result")
     if not name or not result:
         return None
@@ -4805,17 +4806,21 @@ def _active_seeding_run_snapshot() -> SeedingRun | None:
     )
 
 
-def _loaded_seeding_run_matches_active() -> bool:
+def _seeding_run_signature(run: SeedingRun) -> str:
+    """Return a stable semantic signature that excludes save timestamps."""
+    payload = asdict(run)
+    payload.pop("saved_at", None)
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _persisted_seeding_run_matches_active() -> bool:
     """Whether switching runs can skip an autosave without losing work."""
-    slug = str(st.session_state.get("_seeding_loaded_slug") or "").strip()
+    persisted = str(st.session_state.get("_seeding_persisted_signature") or "")
     active = _active_seeding_run_snapshot()
-    if not slug or active is None:
+    if not persisted or active is None:
         return False
-    try:
-        saved = load_seeding_run_file(slug)
-    except (OSError, ValueError, TypeError):
-        return False
-    return replace(saved, saved_at="") == active
+    return persisted == _seeding_run_signature(active)
 
 
 def _autosave_seeding_run(*, archive_previous: bool = True) -> bool:
@@ -4869,6 +4874,7 @@ def _autosave_seeding_run(*, archive_previous: bool = True) -> bool:
         st.session_state["_seeding_save_error"] = True
         _add_seeding_notice("warning", f"Could not save this run: {exc}")
         return False
+    st.session_state["_seeding_persisted_signature"] = _seeding_run_signature(active)
     st.session_state["_seeding_save_error"] = False
     return True
 
@@ -4953,9 +4959,13 @@ def _apply_seeding_transition() -> None:
             completed=update["metadata"].get("completed"),
         )
         st.session_state["_seeding_active_step"] = 2 if assessment.attention else 3
+        active = _active_seeding_run_snapshot(name_override=update["name"])
+        if active is not None:
+            st.session_state["_seeding_persisted_signature"] = _seeding_run_signature(active)
     else:
         # A fresh import always pauses at matching, even when every automatic
         # match succeeded, so the operator can verify what PitchRank found.
+        st.session_state.pop("_seeding_persisted_signature", None)
         st.session_state["_seeding_active_step"] = 2 if pair else 1
     st.session_state.pop("_seeding_transition", None)
 
@@ -4993,6 +5003,7 @@ def _apply_pending_seeding_widgets() -> None:
     if st.session_state.get("_seeding_detach_run"):
         st.session_state["seeding_event_name"] = ""
         st.session_state["_seeding_loaded_slug"] = None
+        st.session_state.pop("_seeding_persisted_signature", None)
         # Assigned rather than removed: only an assignment reaches the browser,
         # which otherwise sends its old choice back and reopens that run.
         st.session_state["seeding_resume_choice"] = None
@@ -5042,7 +5053,7 @@ def _render_seeding_run_controls(client: Any = None) -> None:
         if chosen and chosen != st.session_state.get("_seeding_loaded_slug"):
             if (
                 st.session_state.get("_seeding_result")
-                and not _loaded_seeding_run_matches_active()
+                and not _persisted_seeding_run_matches_active()
                 and not _autosave_seeding_run()
             ):
                 st.error("Save the current run successfully before opening another saved run.")

@@ -309,6 +309,54 @@ def _save_second_event_run(store) -> None:
     )
 
 
+def _load_first_event_run(monkeypatch, fake, store) -> None:
+    parsed = parse_roster(EVENT_ROWS)
+    assessment = {
+        "event_id": "111", "coverage": "complete", "source_kind": "GotSport event",
+        "source_url": EVENT_111, "completed": [0, 1], "fingerprint": source_fingerprint(parsed.rows),
+    }
+    saved_resolved = tuple(
+        ResolvedTeam(
+            row.source_index,
+            "gotsport_id",
+            team_id_master=f"team-{row.source_index}",
+            matched_name=f"Saved Team {row.source_index}",
+        )
+        for row in parsed.rows
+    )
+    save_run(
+        SeedingRun(
+            "Cup A",
+            parsed.rows,
+            saved_resolved,
+            source_url=EVENT_111,
+            assessment=assessment,
+        ),
+        base_dir=store,
+    )
+    monkeypatch.setattr(intake, "load_seeding_run_file", lambda slug: load_run(slug, base_dir=store))
+    monkeypatch.setattr(
+        intake,
+        "_enrich_seeding_names",
+        lambda resolved, _client: tuple(
+            ResolvedTeam(
+                item.source_index,
+                item.status,
+                team_id_master=item.team_id_master,
+                provider_team_id=item.provider_team_id,
+                matched_name=f"Current Team {item.source_index}",
+                candidates=item.candidates,
+                review_reason=item.review_reason,
+            )
+            for item in resolved
+        ),
+    )
+    assert intake._load_seeding_run("cup-a", object())
+    intake._apply_pending_seeding_widgets()
+    assert fake.session_state["_seeding_result"][1][0].matched_name == "Current Team 0"
+    assert load_run("cup-a", base_dir=store).resolved[0].matched_name == "Saved Team 0"
+
+
 def _choose_second_saved_run(monkeypatch, fake, store) -> None:
     monkeypatch.setattr(intake, "list_seeding_runs", lambda: list_runs(base_dir=store))
     monkeypatch.setattr(intake, "load_seeding_run_file", lambda slug: load_run(slug, base_dir=store))
@@ -325,7 +373,7 @@ def _choose_second_saved_run(monkeypatch, fake, store) -> None:
 
 def test_switching_from_an_unchanged_run_preserves_its_exact_snapshot(monkeypatch, store):
     fake = _install(monkeypatch, _FakeSt())
-    _open_event_run(fake, store)
+    _load_first_event_run(monkeypatch, fake, store)
     _save_second_event_run(store)
     _choose_second_saved_run(monkeypatch, fake, store)
     path = store / "cup-a" / "seeding_run.json"
@@ -341,7 +389,7 @@ def test_switching_from_an_unchanged_run_preserves_its_exact_snapshot(monkeypatc
 
 def test_switching_from_a_changed_run_still_autosaves_before_opening(monkeypatch, store):
     fake = _install(monkeypatch, _FakeSt())
-    _open_event_run(fake, store)
+    _load_first_event_run(monkeypatch, fake, store)
     _save_second_event_run(store)
     _choose_second_saved_run(monkeypatch, fake, store)
     fake.session_state["_seeding_overrides"] = {
