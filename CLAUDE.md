@@ -581,12 +581,15 @@ about `ci.yml` and must stay copy-pasteable from here.
 
 ### Reproducing the CI gate locally
 
-`ci.yml` is the only merge gate: seven required checks, all of which run here. The whole
-set takes roughly four minutes on a warm checkout, nearly all of it pytest.
+`ci.yml` is the only merge gate: seven required status contexts, all of which run here.
+The required **Python Tests** context is an aggregate: it passes only after both the full
+Linux suite and the focused Windows/Python 3.13 MatchBalance export suite pass. The jobs
+run in parallel; the whole set takes roughly six minutes on a warm checkout.
 
 ```bash
 python -m ruff check src/ scripts/ config/ tournament_intake.py dashboard.py
 python -m pytest tests/ --ignore=tests/test_enhanced_pipeline.py
+python -m pytest tests/unit/test_temp_workspace.py tests/unit/test_seeding_predictions.py tests/unit/test_seeding_pdf.py tests/unit/test_compare_predictor_bridge.py
 
 cd frontend
 npx eslint .
@@ -596,11 +599,12 @@ npm run test
 npm run generate-llms && git diff --exit-code public/llms.txt
 ```
 
-Each line maps 1:1 to a required check, so a non-zero exit is a red PR. Nothing else blocks
-a merge — the Codex bot's review is advisory, and `claude-review` no longer runs on PRs at
+The two pytest lines jointly feed the required **Python Tests** context; every other line
+maps 1:1 to a required check. A non-zero exit is therefore a red PR. Nothing else blocks a
+merge — the Codex bot's review is advisory, and `claude-review` no longer runs on PRs at
 all. Its `pull_request` trigger is commented out (IMP-104) because it failed on every PR
-while not being required, so a permanent red X sat beside checks that mean something. It is
-`workflow_dispatch`-only until `CLAUDE_CODE_OAUTH_TOKEN` is rotated; re-enabling is a
+while not being required, so a permanent red X sat beside checks that mean something. It
+is `workflow_dispatch`-only until `CLAUDE_CODE_OAUTH_TOKEN` is rotated; re-enabling is a
 two-line edit in `.github/workflows/claude-code-review.yml`.
 
 ---
@@ -609,7 +613,7 @@ two-line edit in `.github/workflows/claude-code-review.yml`.
 
 | Workflow | Schedule | Purpose |
 |----------|----------|---------|
-| `ci.yml` | Every PR + push to `main` | **The merge gate** — Python Lint, Python Tests, Frontend Lint, Frontend Format, Frontend Typecheck, Frontend Tests, Frontend llms.txt Drift Check |
+| `ci.yml` | Every PR + push to `main` | **The merge gate** — Python Lint; Python Tests aggregate (full Linux suite + MatchBalance Windows Export Tests); Frontend Lint, Format, Typecheck, Tests, and llms.txt Drift Check |
 | `scrape-games.yml` | Manual dispatch | Bulk GotSport scrape (bootstrap, recovery) |
 | `enqueue-viewed-teams.yml` | Daily 05:47 UTC | Queue teams a signed-in subscriber opened in the last 36h (priority 2) |
 | `enqueue-yesterday-games.yml` | Daily 07:13 UTC | Queue teams whose yesterday games have null scores (priority 2) |

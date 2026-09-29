@@ -4,8 +4,9 @@ Before merging:
 - `python scripts/pr_wait.py` waits out the Codex review window (about 10 minutes
   from open), prints whatever it found, then merges. It exists because `gh pr checks`
   reports run status only, and the findings live on the review.
-- The seven `ci.yml` checks are the gate. `claude-review` no longer runs on PRs — its
-  trigger is disabled until its token is rotated (IMP-104), so it will not appear at all.
+- The seven required `ci.yml` contexts are the gate. **Python Tests** aggregates the full
+  Linux suite and **MatchBalance Windows Export Tests**. `claude-review` no longer runs on
+  PRs — its trigger is disabled until its token is rotated (IMP-104), so it will not appear.
 - If this finishes a `.turbo/improvements.md` entry, close it here: set
   `- **Status**: done` and add a `- **Refs**:` line naming this PR.
 -->

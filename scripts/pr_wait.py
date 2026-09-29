@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Wait out a pull request's review window, then hand the merge to GitHub.
 
-A change here spends far more time waiting than working. The seven-job quality
-gate takes about 3.1 minutes, and the median PR still sat open for 65 minutes
-(40 PRs merged 2026-08-20..25). Nearly all of that gap is a human round trip:
-noticing the gate went green, then merging by hand.
+A change here spends far more time waiting than working. The seven-check quality
+gate takes about six minutes now that its required Python Tests result aggregates
+the full Linux suite and the focused Windows export suite. The median PR still
+sat open for 65 minutes (40 PRs merged 2026-08-20..25). Nearly all of that gap
+is a human round trip: noticing the gate went green, then merging by hand.
 
 Two things must land before a merge is safe, and they finish at different times:
 

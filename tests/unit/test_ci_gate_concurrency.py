@@ -1,8 +1,8 @@
 """The quality gate supersedes stale PR runs without touching runs on main.
 
-Two pushes to a branch 32 seconds apart each ran the full seven-job gate. Once a
+Two pushes to a branch 32 seconds apart each ran the full seven-check gate. Once a
 PR's head moves the older run's checks gate nothing, so cancelling it costs
-nothing and returns about three minutes of runner time.
+nothing and returns several minutes of runner time.
 
 Runs on main are a different thing wearing the same workflow name. The ruleset
 does not require a PR to be up to date with main before merging, so the run that
@@ -26,6 +26,13 @@ def _concurrency() -> dict:
     return concurrency
 
 
+def _jobs() -> dict:
+    doc = yaml.safe_load(CI.read_text(encoding="utf-8"))
+    jobs = doc.get("jobs")
+    assert isinstance(jobs, dict), "ci.yml has no jobs"
+    return jobs
+
+
 def test_group_is_keyed_per_pull_request() -> None:
     group = _concurrency()["group"]
     assert "github.event.pull_request.number" in group, group
@@ -36,3 +43,14 @@ def test_only_pull_request_runs_are_cancelled() -> None:
     cancel = _concurrency().get("cancel-in-progress")
     assert cancel is not True, "cancels the post-merge run on main, the only check that main is green"
     assert "pull_request" in str(cancel), cancel
+
+
+def test_required_python_context_gates_linux_and_windows_suites() -> None:
+    jobs = _jobs()
+    gate = jobs["python-test"]
+
+    assert gate["name"] == "Python Tests"
+    assert set(gate["needs"]) == {"python-test-linux", "matchbalance-windows-export-test"}
+    assert "always()" in str(gate.get("if")), "a failed dependency must still produce a red required context"
+    assert jobs["python-test-linux"]["name"] == "Python Tests (Linux)"
+    assert jobs["matchbalance-windows-export-test"]["name"] == "MatchBalance Windows Export Tests"
