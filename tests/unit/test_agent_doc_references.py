@@ -269,6 +269,7 @@ def test_documented_ci_commands_match_the_workflow() -> None:
     docs = CLAUDE_MD.read_text(encoding="utf-8")
     for fragment in (
         "pytest tests/ --ignore=tests/test_enhanced_pipeline.py",
+        "tests/unit/test_temp_workspace.py",
         "ruff check src/ scripts/ config/ tournament_intake.py dashboard.py",
     ):
         assert fragment in ci, f"ci.yml no longer runs {fragment!r}"

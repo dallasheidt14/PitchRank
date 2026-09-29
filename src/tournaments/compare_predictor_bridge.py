@@ -7,11 +7,12 @@ import json
 import math
 import shutil
 import subprocess
-import tempfile
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Any
+
+from src.tournaments.temp_workspace import temporary_workspace
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _FRONTEND_DIR = _REPO_ROOT / "frontend"
@@ -218,9 +219,9 @@ def run_compare_prediction_batch(
         ],
         "games": games,
     }
-    with tempfile.TemporaryDirectory(prefix="matchbalance-compare-") as temp_dir:
-        input_path = Path(temp_dir) / "input.json"
-        output_path = Path(temp_dir) / "output.json"
+    with temporary_workspace("matchbalance-compare-") as temp_dir:
+        input_path = temp_dir / "input.json"
+        output_path = temp_dir / "output.json"
         input_path.write_text(
             json.dumps(_json_safe(payload), sort_keys=True, allow_nan=False),
             encoding="utf-8",

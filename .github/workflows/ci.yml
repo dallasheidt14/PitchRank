@@ -9,7 +9,7 @@ on:
   pull_request:
 
 concurrency:
-  # Two pushes to a branch 32 seconds apart each ran the full seven-job gate
+  # Two pushes to a branch 32 seconds apart each ran the full seven-check gate
   # (docs/one-owner-per-fact, 2026-08-25). Once the head moves, the older run's
   # checks gate nothing, so superseding it is free. Runs on main are the only
   # post-merge signal that main itself is green — those queue rather than cancel.
@@ -28,8 +28,8 @@ jobs:
       - run: pip install ruff
       - run: ruff check src/ scripts/ config/ tournament_intake.py dashboard.py --output-format=github
 
-  python-test:
-    name: Python Tests
+  python-test-linux:
+    name: Python Tests (Linux)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -48,6 +48,57 @@ jobs:
       # ruff is exercised by the hook-ordering test, not only the lint job
       - run: pip install ruff
       - run: pytest tests/ --ignore=tests/test_enhanced_pipeline.py
+
+  matchbalance-windows-export-test:
+    name: MatchBalance Windows Export Tests
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --ignore-scripts
+        working-directory: frontend
+      - run: pip install -r requirements.lock
+      - name: Test Windows subprocess export workspaces
+        run: >-
+          pytest
+          tests/unit/test_temp_workspace.py
+          tests/unit/test_seeding_predictions.py
+          tests/unit/test_seeding_pdf.py
+          tests/unit/test_compare_predictor_bridge.py
+
+  # The repository ruleset already requires the "Python Tests" context. Keep
+  # that stable while making the focused Windows regression part of the gate;
+  # older open PRs that predate this workflow continue to produce the same
+  # required context instead of being stranded by a new ruleset context.
+  python-test:
+    name: Python Tests
+    if: ${{ always() }}
+    needs:
+      - python-test-linux
+      - matchbalance-windows-export-test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require Linux and Windows Python suites
+        env:
+          LINUX_RESULT: ${{ needs.python-test-linux.result }}
+          WINDOWS_RESULT: ${{ needs.matchbalance-windows-export-test.result }}
+        run: |
+          if [ "$LINUX_RESULT" != "success" ]; then
+            echo "::error::Linux Python suite finished with $LINUX_RESULT"
+            exit 1
+          fi
+          if [ "$WINDOWS_RESULT" != "success" ]; then
+            echo "::error::MatchBalance Windows export suite finished with $WINDOWS_RESULT"
+            exit 1
+          fi
 
   frontend-lint:
     name: Frontend Lint

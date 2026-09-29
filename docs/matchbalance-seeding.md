@@ -7,9 +7,21 @@ PowerScore, or force a tournament format.
 
 ## Prepare and deliver a pack
 
-1. Run `python -m streamlit run tournament_intake.py` and select **Seeding**.
-   Configure the existing PitchRank Supabase environment. PDF export uses an
-   installed Edge/Chrome browser or Playwright Chromium.
+1. Install the locked browser dependencies and Playwright Chromium, then start
+   Streamlit and select **Seeding**:
+
+   ```powershell
+   npm ci --prefix frontend
+   Push-Location frontend
+   npx playwright install chromium
+   Pop-Location
+   python -m streamlit run tournament_intake.py
+   ```
+
+   Configure the existing PitchRank Supabase environment. PDF export can also
+   use an installed Edge or Chrome browser. Do not change `TEMP` or `TMP` to
+   work around Windows export failures; MatchBalance creates a
+   subprocess-compatible temporary workspace itself.
 2. Name the event and import the complete accepted roster. Preserve requested
    flight and listed-division context as separate fields. Confirm every cohort
    and accepted-team count against the director's list.
