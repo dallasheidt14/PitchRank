@@ -26,6 +26,36 @@ app._render_seeding_tab(None)
 '''
 
 
+COMPLETED_NOT_FOUND_APP = '''
+import streamlit as st
+import tournament_intake as app
+from src.tournaments.roster_paste import parse_roster
+from src.tournaments.roster_resolver import ResolvedTeam
+app._init_session_state()
+if not st.session_state.get("_seeding_result"):
+    text = "Boys U14\\n" + "\\n".join(f"Club\\tTeam {index}" for index in range(14))
+    text += "\\nBoys U15\\n" + "\\n".join(f"Club\\tTeam {index}" for index in range(14, 24))
+    parsed = parse_roster(text)
+    resolved = tuple(
+        ResolvedTeam(index, "gotsport_id", team_id_master=f"team-{index}", matched_name=f"Team {index}")
+        if index < 12 else ResolvedTeam(index, "unresolved")
+        for index in range(24)
+    )
+    app._park_seeding_result((parsed, resolved), event_id=None)
+    st.session_state["_seeding_overrides"] = {index: {"not_found": True} for index in range(12, 24)}
+    st.session_state["_seeding_assessment"] = {
+        "coverage": "complete",
+        "source_kind": "Paste team list",
+        "completed": list(range(24)),
+    }
+    st.session_state["_seeding_pack_scope"] = "Choose cohorts"
+    st.session_state["_seeding_pack_cohorts"] = ["u14|Male"]
+    st.session_state["_seeding_pack"] = {"selected_cohorts": ["u14|Male"]}
+    st.session_state["seeding_event_name"] = "Completed Workflow Cup"
+app._render_seeding_tab(None)
+'''
+
+
 @pytest.fixture
 def operator(monkeypatch, tmp_path):
     monkeypatch.setattr(intake, "default_seeding_base_dir", lambda: tmp_path)
@@ -34,6 +64,19 @@ def operator(monkeypatch, tmp_path):
     monkeypatch.setattr(intake, "_render_seeding_event_scrape", lambda *_args: None)
     monkeypatch.setattr(intake, "fetch_gotsport_provider_id", lambda *_args: pytest.fail("render queried refresh service"))
     app = AppTest.from_string(APP, default_timeout=15).run()
+    assert not app.exception
+    return app
+
+
+@pytest.fixture
+def completed_not_found_operator(monkeypatch, tmp_path):
+    monkeypatch.setattr(intake, "default_seeding_base_dir", lambda: tmp_path)
+    monkeypatch.setattr(intake, "list_seeding_runs", lambda: [])
+    monkeypatch.setattr(intake, "_autosave_seeding_run", lambda **_kwargs: True)
+    monkeypatch.setattr(intake, "_render_seeding_event_scrape", lambda *_args: None)
+    monkeypatch.setattr(intake, "_render_seeding_sheet", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(intake, "snapshot_matches_roster", lambda *_args, **_kwargs: False)
+    app = AppTest.from_string(COMPLETED_NOT_FOUND_APP, default_timeout=15).run()
     assert not app.exception
     return app
 
@@ -86,6 +129,7 @@ def test_only_the_active_workflow_step_renders(operator):
     app = operator
     headings = [item.value for item in app.markdown]
     assert "### 2. Match teams to PitchRank" in headings
+    assert next(button for button in app.button if button.label == "3. Review seed order").disabled
     assert not any(value.startswith("### 1.") or value.startswith("### 3.") or value.startswith("### 4.")
                    for value in headings)
 
@@ -100,6 +144,101 @@ def test_only_the_active_workflow_step_renders(operator):
     headings = [item.value for item in app.markdown]
     assert "### 2. Match teams to PitchRank" in headings
     assert next(button for button in app.button if button.label == "Continue to seed order").disabled
+
+
+def test_completed_run_keeps_step_two_clickable_and_focuses_not_found(completed_not_found_operator):
+    app = completed_not_found_operator
+    match_step = next(button for button in app.button if button.label == "2. Match to PitchRank")
+    seed_step = next(button for button in app.button if button.label == "3. Review seed order")
+    assert not match_step.disabled
+    assert seed_step.disabled
+    assert any("Complete · 12 matched · 12 not found" == caption.value for caption in app.caption)
+    before_result = app.session_state["_seeding_result"]
+    before_overrides = dict(app.session_state["_seeding_overrides"])
+
+    match_step.click().run()
+
+    assert not app.exception
+    assert "### 2. Match teams to PitchRank" in [item.value for item in app.markdown]
+    assert next(widget for widget in app.selectbox if widget.label == "Show").value == "Not found in PitchRank"
+    assert next(widget for widget in app.selectbox if widget.label == "Filter cohort").value == "Boys U14"
+    assert any(button.label == "Reopen matching" for button in app.button)
+    assert app.session_state["_seeding_result"] == before_result
+    assert dict(app.session_state["_seeding_overrides"]) == before_overrides
+
+
+def test_step_two_does_not_focus_a_selected_cohort_without_not_found_teams(
+    completed_not_found_operator,
+):
+    app = completed_not_found_operator
+    parsed, resolved = app.session_state["_seeding_result"]
+    updated = list(resolved)
+    for index in (12, 13):
+        updated[index] = ResolvedTeam(
+            index,
+            "gotsport_id",
+            team_id_master=f"team-{index}",
+            matched_name=f"Team {index}",
+        )
+    app.session_state["_seeding_result"] = (parsed, tuple(updated))
+    app.session_state["_seeding_overrides"] = {
+        index: {"not_found": True} for index in range(14, 24)
+    }
+    app.run()
+
+    next(button for button in app.button if button.label == "2. Match to PitchRank").click().run()
+
+    assert not app.exception
+    assert next(widget for widget in app.selectbox if widget.label == "Show").value == "Not found in PitchRank"
+    assert next(widget for widget in app.selectbox if widget.label == "Filter cohort").value == "All cohorts"
+    assert any(button.label == "Reopen matching" for button in app.button)
+
+
+def test_seed_order_callout_opens_the_not_found_review(completed_not_found_operator):
+    app = completed_not_found_operator
+    assert any(
+        message.value
+        == "2 accepted teams have no PitchRank match. They remain in the pack without a PowerScore."
+        for message in app.info
+    )
+
+    click(app, "Review 2 not-found teams")
+
+    assert "### 2. Match teams to PitchRank" in [item.value for item in app.markdown]
+    assert next(widget for widget in app.selectbox if widget.label == "Show").value == "Not found in PitchRank"
+    assert next(widget for widget in app.selectbox if widget.label == "Filter cohort").value == "Boys U14"
+    assert any(button.label == "Reopen matching" for button in app.button)
+
+    click(app, "Reopen matching")
+
+    assert next(widget for widget in app.selectbox if widget.label == "Show").value == "All teams"
+    assert next(widget for widget in app.selectbox if widget.label == "Filter cohort").value == "Boys U14"
+    assert next(widget for widget in app.selectbox if widget.label == "Team to review").value == 12
+    assert any(widget.label == "Match decision" for widget in app.radio)
+
+
+def test_reopening_not_found_over_an_automatic_match_keeps_the_team_visible(
+    completed_not_found_operator,
+):
+    app = completed_not_found_operator
+    parsed, resolved = app.session_state["_seeding_result"]
+    updated = list(resolved)
+    updated[12] = ResolvedTeam(
+        12,
+        "gotsport_id",
+        team_id_master="team-12",
+        matched_name="Team 12",
+    )
+    app.session_state["_seeding_result"] = (parsed, tuple(updated))
+    app.run()
+
+    click(app, "Review 2 not-found teams")
+    click(app, "Reopen matching")
+
+    assert next(widget for widget in app.selectbox if widget.label == "Show").value == "All teams"
+    assert next(widget for widget in app.selectbox if widget.label == "Filter cohort").value == "Boys U14"
+    assert next(widget for widget in app.selectbox if widget.label == "Team to review").value == 12
+    assert any(widget.label == "Match decision" for widget in app.radio)
 
 
 @pytest.mark.parametrize("pending_rows, expected_summary", [

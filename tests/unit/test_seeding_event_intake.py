@@ -2503,8 +2503,56 @@ def test_seeding_progress_names_the_four_operator_steps(monkeypatch):
 
     assert active == 1
     assert fake_st.progress_texts == ["Step 1 of 4: Import teams"]
-    assert "1. Import teams: Current" in fake_st.captions[0]
-    assert "4. Export director pack: Locked" in fake_st.captions[0]
+    assert [button["label"] for button in fake_st.buttons] == [
+        "1. Import teams",
+        "2. Match to PitchRank",
+        "3. Review seed order",
+        "4. Export director pack",
+    ]
+    assert fake_st.captions[:4] == ["Current", "Locked", "Locked", "Locked"]
+    assert fake_st.button_by_key("_seeding_step_1")["disabled"] is True
+    assert fake_st.button_by_key("_seeding_step_2")["disabled"] is True
+
+
+def test_completed_not_found_teams_stay_visible_in_clickable_progress(monkeypatch):
+    from src.tournaments.roster_paste import parse_roster
+
+    fake_st = _install(monkeypatch, _FakeSt())
+    parsed = parse_roster("Boys U14\n" + "\n".join(f"Club\tTeam {index}" for index in range(14)))
+    resolved = tuple(
+        ResolvedTeam(index, "gotsport_id", team_id_master=f"team-{index}")
+        if index < 12
+        else ResolvedTeam(index, "unresolved")
+        for index in range(14)
+    )
+    overrides = {12: {"not_found": True}, 13: {"not_found": True}}
+    fake_st.session_state["_seeding_assessment"] = {"coverage": "complete", "completed": list(range(14))}
+
+    active = tournament_intake._render_seeding_workflow_progress(parsed, resolved, overrides)
+
+    assert active == 3
+    assert fake_st.captions[1] == "Complete · 12 matched · 2 not found"
+    assert fake_st.button_by_key("_seeding_step_2")["disabled"] is False
+    assert fake_st.button_by_key("_seeding_step_3")["disabled"] is True
+
+
+def test_navigation_uses_the_saved_pack_cohort_before_step_three_widgets_render(monkeypatch):
+    from src.tournaments.roster_paste import parse_roster
+
+    fake_st = _install(monkeypatch, _FakeSt())
+    parsed = parse_roster("Boys U14\nClub\tFourteen\nBoys U15\nClub\tFifteen")
+    fake_st.session_state["_seeding_pack"] = {"selected_cohorts": ["u14|Male"]}
+
+    assert tournament_intake._selected_seeding_cohorts(parsed) == ["u14|Male"]
+
+
+def test_zero_not_found_teams_do_not_render_a_seed_order_shortcut(monkeypatch):
+    fake_st = _install(monkeypatch, _FakeSt())
+
+    tournament_intake._render_seeding_not_found_shortcut(0)
+
+    assert fake_st.infos == []
+    assert fake_st.buttons == []
 
 
 def test_seeding_progress_checks_export_against_the_packaged_u10_plus_roster(monkeypatch):
@@ -2525,7 +2573,7 @@ def test_seeding_progress_checks_export_against_the_packaged_u10_plus_roster(mon
     monkeypatch.setattr(
         tournament_intake,
         "assess_roster",
-        lambda *_args, **_kwargs: SimpleNamespace(attention=set()),
+        lambda *_args, **_kwargs: SimpleNamespace(attention=set(), matched=2, not_found=set()),
     )
 
     def snapshot_matches(_pack, rows, _resolved, _overrides):

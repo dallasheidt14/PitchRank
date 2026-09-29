@@ -115,7 +115,13 @@ from src.tournaments.seeding_optimizer import (
     normalize_age_group,
     normalize_gender_label,
 )
-from src.tournaments.seeding_pack import duplicate_identity_rows, snapshot_matches_roster, team_ids_by_row
+from src.tournaments.seeding_pack import (
+    available_cohorts,
+    cohort_key,
+    duplicate_identity_rows,
+    snapshot_matches_roster,
+    team_ids_by_row,
+)
 from src.tournaments.seeding_run_store import (
     PackRecovery,
     RunNameTaken,
@@ -4626,6 +4632,7 @@ def _render_seeding_override(
                 ]
                 st.session_state["_seeding_assessment"] = metadata
                 st.session_state["_seeding_resolution_failed"] = True
+                st.session_state["_seeding_pending_review_team"] = row.source_index
                 st.session_state.pop("_seeding_pack", None)
                 invalidate_seeding_exports(st.session_state)
                 _autosave_seeding_run()
@@ -4988,6 +4995,7 @@ def _reset_seeding_review_widgets() -> None:
     for key in (
         "_seeding_pack_scope", "_seeding_pack_cohorts", "_seeding_review_update",
         "_seeding_review_issue_filter", "_seeding_review_cohort_filter", "_seeding_review_team",
+        "_seeding_pending_review_team",
     ):
         st.session_state.pop(key, None)
 
@@ -5592,11 +5600,14 @@ def _render_seeding_workflow_progress(
     resolved: Sequence[ResolvedTeam] = (),
     overrides: Mapping[int, dict[str, Any]] | None = None,
 ) -> int:
-    """Show progress and return the single step that should be rendered."""
+    """Show clickable progress and return the single step that should be rendered."""
     names = ["Import teams", "Match to PitchRank", "Review seed order", "Export director pack"]
     available = 1
     default_step = 1
     attention: int | None = None
+    matched: int | None = None
+    not_found: int | None = None
+    not_found_indices: frozenset[int] = frozenset()
     export_ready = False
     if parsed is not None:
         overrides = overrides or {}
@@ -5609,6 +5620,9 @@ def _render_seeding_workflow_progress(
             completed=metadata.get("completed"),
         )
         attention = len(assessment.attention)
+        matched = assessment.matched
+        not_found_indices = assessment.not_found
+        not_found = len(not_found_indices)
         eligible = package_roster(parsed)
         pack_ready = snapshot_matches_roster(
             st.session_state.get("_seeding_pack"), eligible.rows, resolved, overrides
@@ -5624,7 +5638,12 @@ def _render_seeding_workflow_progress(
     complete = [parsed is not None, parsed is not None and not attention, export_ready, False]
     details = [
         f"{len(parsed.rows)} teams" if parsed is not None else "",
-        f"{attention} need attention" if attention is not None else "",
+        (
+            f"{matched} matched · {not_found} not found"
+            + (f" · {attention} need attention" if attention else "")
+            if matched is not None and not_found is not None
+            else ""
+        ),
         "",
         "",
     ]
@@ -5641,9 +5660,97 @@ def _render_seeding_workflow_progress(
         cards.append((name, " · ".join(part for part in (status, details[index - 1]) if part)))
     title, _status = cards[active - 1]
     st.progress(active / 4, text=f"Step {active} of 4: {title}")
-    st.caption("  ·  ".join(f"{index}. {name}: {status}" for index, (name, status) in enumerate(cards, 1)))
+    for index, ((name, status), column) in enumerate(zip(cards, st.columns(4), strict=True), 1):
+        with column:
+            clicked = st.button(
+                f"{index}. {name}",
+                key=f"_seeding_step_{index}",
+                type="primary" if index == active else "secondary",
+                disabled=index == active or index > available,
+                help=status,
+                use_container_width=True,
+            )
+            st.caption(status)
+        if clicked:
+            selected = _selected_seeding_cohorts(parsed) if parsed is not None else []
+            _open_seeding_step(
+                index,
+                review_not_found=index == 2 and not attention and bool(not_found),
+                review_cohort=(
+                    _seeding_not_found_review_cohort(parsed, selected, not_found_indices)
+                    if parsed is not None
+                    else None
+                ),
+            )
+            st.rerun()
     st.caption("Your saved run keeps the imported roster and match decisions.")
     return active
+
+
+def _selected_seeding_cohorts(parsed: ParsedRoster) -> list[str]:
+    """Read the cohort selection before the step-three widgets render."""
+    choices = list(available_cohorts(parsed.rows))
+    scope = st.session_state.get("_seeding_pack_scope")
+    selected = st.session_state.get("_seeding_pack_cohorts")
+    if scope == "Choose cohorts" and isinstance(selected, list):
+        return [key for key in selected if key in choices]
+    if scope == "All imported cohorts":
+        return choices
+    pack = st.session_state.get("_seeding_pack")
+    saved = pack.get("selected_cohorts") if isinstance(pack, dict) else None
+    if isinstance(saved, list) and all(isinstance(key, str) for key in saved):
+        return [key for key in saved if key in choices]
+    return choices
+
+
+def _seeding_not_found_review_cohort(
+    parsed: ParsedRoster,
+    selected_cohorts: Sequence[str],
+    not_found_indices: frozenset[int],
+) -> str | None:
+    """Focus one selected cohort only when it contains a not-found team."""
+    if len(selected_cohorts) != 1:
+        return None
+    selected = selected_cohorts[0]
+    if not any(
+        row.source_index in not_found_indices
+        and cohort_key(row.section_age_group, row.section_gender) == selected
+        for row in parsed.rows
+    ):
+        return None
+    return _seeding_review_cohort_label(selected)
+
+
+def _seeding_review_cohort_label(key: str) -> str:
+    """Translate a pack cohort key into the matching review filter's label."""
+    age_group, gender = key.split("|", 1)
+    return " ".join(part for part in (_display_gender(gender), age_group.upper()) if part)
+
+
+def _open_seeding_step(
+    step: int,
+    *,
+    review_not_found: bool = False,
+    review_cohort: str | None = None,
+) -> None:
+    """Move to one workflow step and optionally focus its completed not-found decisions."""
+    if step == 2 and review_not_found:
+        st.session_state["_seeding_review_issue_filter"] = "Not found in PitchRank"
+        if review_cohort:
+            st.session_state["_seeding_review_cohort_filter"] = review_cohort
+        else:
+            st.session_state.pop("_seeding_review_cohort_filter", None)
+        st.session_state.pop("_seeding_review_team", None)
+    st.session_state["_seeding_active_step"] = step
+
+
+def _apply_pending_seeding_review_focus() -> None:
+    """Keep a reopened not-found team visible after its decision changes."""
+    pending = st.session_state.pop("_seeding_pending_review_team", None)
+    if not isinstance(pending, int) or isinstance(pending, bool):
+        return
+    st.session_state["_seeding_review_issue_filter"] = "All teams"
+    st.session_state["_seeding_review_team"] = pending
 
 
 def _render_seeding_step_navigation(
@@ -5652,12 +5759,18 @@ def _render_seeding_step_navigation(
     next_step: tuple[str, int] | None = None,
     next_disabled: bool = False,
     next_help: str | None = None,
+    back_review_not_found: bool = False,
+    back_review_cohort: str | None = None,
 ) -> None:
     """Move between available workflow steps without rendering them together."""
     back_column, next_column = st.columns(2)
     with back_column:
         if back and st.button(back[0], key=f"_seeding_go_{back[1]}_back"):
-            st.session_state["_seeding_active_step"] = back[1]
+            _open_seeding_step(
+                back[1],
+                review_not_found=back_review_not_found,
+                review_cohort=back_review_cohort,
+            )
             st.rerun()
     with next_column:
         if next_step and st.button(
@@ -5667,8 +5780,26 @@ def _render_seeding_step_navigation(
             disabled=next_disabled,
             help=next_help,
         ):
-            st.session_state["_seeding_active_step"] = next_step[1]
+            _open_seeding_step(next_step[1])
             st.rerun()
+
+
+def _render_seeding_not_found_shortcut(not_found: int, *, review_cohort: str | None = None) -> None:
+    """Keep completed not-found decisions visible from the seed-order step."""
+    if not not_found:
+        return
+    team_word = "team" if not_found == 1 else "teams"
+    pronoun = "It remains" if not_found == 1 else "They remain"
+    st.info(
+        f"{not_found} accepted {team_word} {'has' if not_found == 1 else 'have'} no PitchRank match. "
+        f"{pronoun} in the pack without a PowerScore."
+    )
+    if st.button(
+        f"Review {not_found} not-found {team_word}",
+        key="_seeding_review_not_found_from_seed_order",
+    ):
+        _open_seeding_step(2, review_not_found=True, review_cohort=review_cohort)
+        st.rerun()
 
 
 def _render_seeding_save() -> None:
@@ -5714,6 +5845,7 @@ def _render_seeding_workspace(supabase_client: Any) -> None:
         _autosave_seeding_run()
         st.session_state.pop("_seeding_review_update", None)
     _render_seeding_run_controls(supabase_client)
+    _apply_pending_seeding_review_focus()
     result = st.session_state.get("_seeding_result")
     progress_parsed = None
     if result and _seeding_context_matches(result[0], st.session_state.get("_seeding_assessment", {})):
@@ -5872,6 +6004,27 @@ def _render_seeding_workspace(supabase_client: Any) -> None:
     eligible = package_roster(parsed)
     if active_step == 3:
         with st.container(border=True):
+            assessment = assess_roster(
+                eligible,
+                resolved,
+                overrides,
+                coverage=metadata.get("coverage", "unknown"),
+                completed=metadata.get("completed"),
+            )
+            selected_cohorts = _selected_seeding_cohorts(eligible)
+            selected_indices = {
+                row.source_index
+                for row in eligible.rows
+                if cohort_key(row.section_age_group, row.section_gender) in selected_cohorts
+            }
+            selected_not_found = assessment.not_found & selected_indices
+            review_cohort = (
+                _seeding_review_cohort_label(selected_cohorts[0]) if len(selected_cohorts) == 1 else None
+            )
+            _render_seeding_not_found_shortcut(
+                len(selected_not_found),
+                review_cohort=review_cohort,
+            )
             _render_seeding_sheet(eligible, resolved, supabase_client, view="build")
             pack_ready = snapshot_matches_roster(
                 st.session_state.get("_seeding_pack"), eligible.rows, resolved, overrides
@@ -5882,6 +6035,8 @@ def _render_seeding_workspace(supabase_client: Any) -> None:
                 next_step=("Continue to export", 4),
                 next_disabled=not export_ready,
                 next_help="Build the current seed order before continuing.",
+                back_review_not_found=not bool(assessment.attention) and bool(selected_not_found),
+                back_review_cohort=review_cohort,
             )
         return
 
