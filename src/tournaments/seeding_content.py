@@ -13,11 +13,12 @@ from src.utils.us_states import STATE_CODE_TO_NAME, state_name_to_code
 if TYPE_CHECKING:
     from src.tournaments.seeding_sheet import CohortSheet, SheetTeam
 
-CONTENT_VERSION = 4
+CONTENT_VERSION = 5
 DIRECTOR_LEGEND = (
     "Start with the numbered MatchBalance Seed order. PowerScore remains the original published-strength "
-    "baseline; bars use the same 0-100 scale. Competitive Breaks mark larger PowerScore steps supported by "
-    "nearby matchups; they do not assign divisions or pools. Very-close ranges identify the same competitive "
+    "baseline; bars use the same 0-100 scale. Competitive Breaks mark boundaries where nearby projected "
+    "matchups meaningfully worsen; the PowerScore difference is supporting context; they do not assign "
+    "divisions or pools. Very-close ranges identify the same competitive "
     "neighborhood without claiming the teams are equal."
 )
 LIMITED_HISTORY_LEGEND = "Fewer ranked games support this score. Keep it as a starting point for placement."
@@ -179,8 +180,8 @@ def build_director_cohort(sheet: CohortSheet, operator_note: str = "") -> Direct
             else NO_CURRENT_RATING
         )
         rows.append(DirectorRow(None, team, "", status))
-    # Automatic break/standout evidence stays in the operator view. The
-    # customer gets the visual annotations plus only deliberately entered copy.
+    # Complete boundary evidence stays in the operator view. The customer gets
+    # the prioritized visual annotations plus only deliberately entered copy.
     notes = []
     if operator_note.strip():
         notes.append(operator_note.strip())

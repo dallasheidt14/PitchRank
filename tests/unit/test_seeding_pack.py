@@ -14,11 +14,13 @@ from src.tournaments.roster_resolver import ResolvedTeam
 from src.tournaments.seeding_pack import (
     analyze_pack,
     available_cohorts,
+    boundary_analysis_snapshot,
     cohort_label,
     duplicate_identity_rows,
     make_pack,
     needs_placement_review,
     pack_matches,
+    persist_boundary_analysis,
     persist_ordering,
     placement_review_fingerprint,
     prediction_request,
@@ -29,6 +31,12 @@ from src.tournaments.seeding_pack import (
 )
 from src.tournaments.seeding_predictions import SeedingPredictionBatch
 from src.tournaments.seeding_sheet import build_cohort_sheets
+from src.tournaments.seeding_tiers import (
+    NO_MEANINGFUL_SEPARATION,
+    SUPPORTED_SEPARATION,
+    UNCERTAIN_SEPARATION,
+    TierPolicy,
+)
 
 IDS = [f"00000000-0000-4000-8000-{number:012d}" for number in range(1, 6)]
 ROWS = parse_roster(
@@ -94,30 +102,38 @@ def test_cohorts_have_separate_age_gender_labels_and_numeric_order():
     assert cohort_label("u14|Male") == "U14 Boys"
 
 
-@pytest.mark.parametrize("old_version", [1, 2, 3, 4, 5])
+@pytest.mark.parametrize("old_version", [1, 2, 3, 4, 5, 6, 7])
 def test_saved_analysis_upgrade_preserves_prediction_and_operator_choices_without_mutation(old_version):
     old = _pack()
+    old["schema_version"] = 4
     old["analysis_schema_version"] = old_version
+    old.pop("boundary_analysis")
     old["operator_notes"] = {"u12|Male": "Keep the director's exact note."}
     old["policy"]["max_expected_margin"] = 1.75
     old["policy"].pop("very_close_expected_goal_difference")
     old["policy"].pop("material_reversal_expected_goal_difference")
+    for field in (
+        "boundary_window_sizes",
+        "boundary_min_pairings",
+        "boundary_min_established_pairings",
+        "boundary_min_favored_fraction",
+        "boundary_min_average_signed_margin",
+        "boundary_min_over_limit_fraction",
+        "boundary_max_limited_pair_fraction",
+    ):
+        old["policy"].pop(field)
     if old_version <= 3:
         old["policy"].pop("blowout_cost_weight")
     old["legacy_manual_groups"] = {"u12|Male": [["0", "1"]]}
     before = deepcopy(old)
     upgraded = upgrade_pack_analysis(old, ROWS, RESOLVED, {}, ["u12|Male"], predictor_sha256="a" * 64)
     assert old == before
-    assert upgraded["schema_version"] == 4
-    assert upgraded["analysis_schema_version"] == 7
-    assert upgraded["policy"] == {
-        **old["policy"],
-        "blowout_cost_weight": 2.0,
-        "very_close_expected_goal_difference": 1.0,
-        "material_reversal_expected_goal_difference": 1.0,
-    }
+    assert upgraded["schema_version"] == 5
+    assert upgraded["analysis_schema_version"] == 8
+    assert upgraded["policy"] == json.loads(json.dumps(asdict(TierPolicy(max_expected_margin=1.75))))
     assert upgraded["manual_seed_orders"] == old["manual_seed_orders"]
     assert upgraded["ordering"]
+    assert upgraded["boundary_analysis"]
     upgraded["operator_notes"]["u12|Male"] = "Changed copy"
     assert old["operator_notes"]["u12|Male"] == "Keep the director's exact note."
 
@@ -141,14 +157,135 @@ def test_schema_three_pack_upgrades_with_reproducible_separate_orders():
         old, ROWS, RESOLVED, {}, ["u12|Male"], predictor_sha256="a" * 64,
     )
 
-    assert upgraded["schema_version"] == 4
-    assert upgraded["analysis_schema_version"] == 7
+    assert upgraded["schema_version"] == 5
+    assert upgraded["analysis_schema_version"] == 8
     assert upgraded["manual_seed_orders"] == {}
     ordering = upgraded["ordering"]["u12|Male"]
     assert ordering["baseline_order"]
     assert ordering["suggested_order"]
     assert len(ordering["movements"]) == len(ordering["baseline_order"])
     assert "relationship_evidence" in ordering
+    assert upgraded["boundary_analysis"]["u12|Male"]["assessments"]
+
+
+def test_old_visual_break_markers_are_not_reinterpreted_as_supported_boundaries():
+    old = _pack()
+    old["schema_version"] = 4
+    old["analysis_schema_version"] = 7
+    old.pop("boundary_analysis")
+    old["legacy_visual_breaks"] = {"u12|Male": [{"after_seed": 1, "score_gap": 0.30}]}
+
+    upgraded = upgrade_pack_analysis(
+        old, ROWS, RESOLVED, {}, ["u12|Male"], predictor_sha256="a" * 64,
+    )
+
+    saved = upgraded["boundary_analysis"]["u12|Male"]
+    assert saved["supported_boundaries"] == []
+    assert saved["uncertain_boundaries"] == [1]
+    assert saved["assessments"][0]["classification"] == UNCERTAIN_SEPARATION
+
+
+CLASSIFICATION_ROWS = parse_roster(
+    "Male U14\n"
+    + "\n".join(f"Club {index}\tTeam {index}\tTX" for index in range(6))
+).rows
+CLASSIFICATION_IDS = [
+    f"10000000-0000-4000-8000-{number:012d}" for number in range(1, 7)
+]
+CLASSIFICATION_RESOLVED = tuple(
+    ResolvedTeam(source_index=index, status="gotsport_id", team_id_master=team_id)
+    for index, team_id in enumerate(CLASSIFICATION_IDS)
+)
+
+
+def _classification_batch(request, shape):
+    key = "u14|Male"
+    cohort = request[key]
+    teams = {
+        key: {
+            entrant: {
+                "team_id_master": team_id,
+                "team_name": f"Team {entrant}",
+                "power_score_final": 0.80 - int(entrant) * 0.01,
+                "rank_in_cohort_final": int(entrant) + 1,
+                "age": 14,
+                "gender": "M",
+                "games_played": 20,
+                "prediction_game_count": 20,
+                "latest_game_date": "2026-09-20",
+            }
+            for entrant, team_id in cohort.items()
+        }
+    }
+    predictions = {key: {}}
+    for first in cohort:
+        for second in cohort:
+            if first == second:
+                continue
+            first_index, second_index = int(first), int(second)
+            if shape == "supported":
+                canonical_margin, absolute, blowout = 1.5, 3.0, 0.40
+            elif shape == "reasonable":
+                canonical_margin, absolute, blowout = 0.4, 1.2, 0.10
+            else:
+                canonical_margin = 1.5 if (first_index + second_index) % 2 else -1.5
+                absolute, blowout = 3.0, 0.40
+            margin = canonical_margin if first_index < second_index else -canonical_margin
+            predictions[key][(first, second)] = ComparePrediction(
+                predicted_winner="team_a" if margin > 0 else "team_b",
+                win_probability_a=0.60 if margin > 0 else 0.25,
+                win_probability_b=0.25 if margin > 0 else 0.60,
+                draw_probability=0.15,
+                expected_score={"teamA": 2, "teamB": 1} if margin > 0 else {"teamA": 1, "teamB": 2},
+                expected_margin=margin,
+                expected_absolute_goal_difference=absolute,
+                blowout_4plus_probability=blowout,
+                confidence="high",
+                confidence_score=0.80,
+            )
+    return SeedingPredictionBatch(
+        predictions=predictions,
+        teams=teams,
+        unavailable={key: {}},
+        generated_at="2026-09-28T12:00:00Z",
+        ratings_as_of="2026-09-27T12:00:00Z",
+        predictor_sha256="a" * 64,
+    )
+
+
+@pytest.mark.parametrize(
+    "shape,expected",
+    [
+        ("supported", SUPPORTED_SEPARATION),
+        ("reasonable", NO_MEANINGFUL_SEPARATION),
+        ("conflicting", UNCERTAIN_SEPARATION),
+    ],
+)
+def test_boundary_classifications_are_persisted_and_reopened_reproducibly(shape, expected):
+    request = prediction_request(
+        CLASSIFICATION_ROWS,
+        CLASSIFICATION_RESOLVED,
+        {},
+        ["u14|Male"],
+    )
+    pack = make_pack(
+        CLASSIFICATION_ROWS,
+        CLASSIFICATION_RESOLVED,
+        {},
+        ["u14|Male"],
+        _classification_batch(request, shape),
+        {team_id: {"state": "TX"} for team_id in CLASSIFICATION_IDS},
+    )
+    first = analyze_pack(
+        pack, CLASSIFICATION_ROWS, CLASSIFICATION_RESOLVED, {},
+    )
+    reopened = analyze_pack(
+        json.loads(json.dumps(pack)), CLASSIFICATION_ROWS, CLASSIFICATION_RESOLVED, {},
+    )
+
+    assert first == reopened
+    assert first[("u14", "Male")].boundary_assessments[0].classification == expected
+    assert pack["boundary_analysis"] == boundary_analysis_snapshot(first)
 
 
 def test_manual_override_survives_reopen_and_removing_it_restores_suggested_order():
@@ -175,6 +312,16 @@ def test_reopen_rejects_ordering_evidence_that_disagrees_with_frozen_snapshot():
     pack["ordering"]["u12|Male"]["suggested_order"] = ["stale"]
 
     with pytest.raises(ValueError, match="inconsistent saved ordering evidence"):
+        analyze_pack(pack, ROWS, RESOLVED, {})
+
+
+def test_reopen_rejects_boundary_evidence_that_disagrees_with_frozen_snapshot():
+    pack = _pack()
+    pack["boundary_analysis"]["u12|Male"]["assessments"][0]["classification"] = (
+        SUPPORTED_SEPARATION
+    )
+
+    with pytest.raises(ValueError, match="inconsistent saved boundary evidence"):
         analyze_pack(pack, ROWS, RESOLVED, {})
 
 
@@ -552,8 +699,10 @@ def test_forecast_reversal_alone_requires_placement_acknowledgment():
         prediction.update(asdict(replacement))
 
     pack["ordering"] = {}
+    pack["boundary_analysis"] = {}
     analyses = analyze_pack(pack, ROWS, RESOLVED, {})
     persist_ordering(pack, analyses)
+    persist_boundary_analysis(pack, analyses)
     analysis = analyze_pack(pack, ROWS, RESOLVED, {})[("u12", "Male")]
 
     assert analysis.limited_history == ()

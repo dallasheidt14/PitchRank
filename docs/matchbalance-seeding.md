@@ -88,6 +88,39 @@ exact boundary or contiguous member sequence still survives.
 Manual-placement warnings and plays-up/requested-flight/listed-division context
 stay visible. Uncertain teams are never silently pushed to the bottom.
 
+## Internal automatic flight suggestions
+
+The versioned library in `config/matchbalance_format_library.json` describes
+exact operational variants for a competitive flight. A flight and its pools are
+different layers: one eight-team competitive flight may contain two four-team
+pools, but it is still evaluated as one eight-team flight across all 28 possible
+pairings.
+
+Run the frozen-pack diagnostic without per-cohort flight counts or sizes:
+
+```powershell
+python scripts/suggest_matchbalance_flights.py `
+  --snapshot <saved-seeding-run.json> `
+  --event-name <event-name> `
+  --report-slug <report-slug> `
+  --output-dir <internal-output-directory>
+```
+
+With no `--cohort`, the command evaluates every cohort selected in the saved
+pack. With no `--profile`, it uses the versioned MatchBalance default profile.
+An explicit event profile applies event-wide. The command generates every
+profile-supported exact cover within the profile's search safeguard, partitions
+the unchanged saved order contiguously, and sends every unique membership
+through the complete-flight evaluator.
+
+The default recommendation policy considers only structurally valid plans with
+complete predictions and no projected matchup violations. It prefers the fewest
+competitive flights, then lower worst matchup cost, then lower pair-weighted
+average cost, with deterministic ties. It reports limited-history passes as
+provisional, retains useful alternatives, and returns review-required status
+when no complete within-policy arrangement exists. Team-count compatibility is
+not a claim of field, time, referee, or schedule feasibility.
+
 ## Implementation and checks
 
 - `seeding_suggested_order.py` contains the isolated deterministic constrained
@@ -96,6 +129,9 @@ stay visible. Uncertain teams are never silently pushed to the bottom.
   invokes the optimizer, and recomputes display annotations.
 - `seeding_pack.py` snapshots the baseline, suggestion, movement reasoning,
   conflicts, and explicit manual override under the versioned saved-pack schema.
+- `seeding_format_library.py` validates exact format variants and resolves the
+  event-wide profile; `seeding_flight_suggestions.py` generates and selects
+  fixed-order candidate structures without altering the seed or boundary logic.
 - `seeding_sheet.py` and `seeding_workbook.py` render the customer cheat sheet;
   `seeding_intake_ui.py` retains the detailed operator evidence and manual editor.
 - Relevant regression suites include `test_seeding_suggested_order.py`,

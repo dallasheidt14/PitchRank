@@ -262,6 +262,7 @@ def test_placement_review_stays_internal_and_resets_when_director_notes_change(o
     click(app, "Build seeding sheets")
     pack = app.session_state["_seeding_pack"]
     pack["teams"]["u14|Male"]["0"]["status"] = "Not Enough Ranked Games"
+    pack["boundary_analysis"] = {}
     app.session_state["_seeding_assessment"] = {"coverage": "complete", "completed": True}
     # The separate unmatched cohort has a completed not-found decision.
     app.session_state["_seeding_overrides"] = {2: {"not_found": True}}
@@ -302,7 +303,7 @@ def test_legacy_analysis_reuses_predictions_and_preserves_notes(operator):
     app.run()
     assert not app.exception and not app.error
     upgraded = app.session_state["_seeding_pack"]
-    assert upgraded["analysis_schema_version"] == 7
+    assert upgraded["analysis_schema_version"] == 8
     assert upgraded["predictions"] == pack["predictions"]
     assert upgraded["generated_at"] == pack["generated_at"]
     assert upgraded["operator_notes"] == pack["operator_notes"]
@@ -418,10 +419,11 @@ def test_rebuild_materializes_new_policy_defaults_from_a_version_three_pack(oper
     click(app, "Build seeding sheets")
 
     rebuilt = app.session_state["_seeding_pack"]
-    assert rebuilt["analysis_schema_version"] == 7
+    assert rebuilt["analysis_schema_version"] == 8
     assert rebuilt["policy"]["blowout_cost_weight"] == 2.0
     assert rebuilt["policy"]["very_close_expected_goal_difference"] == 1.0
     assert rebuilt["policy"]["material_reversal_expected_goal_difference"] == 1.0
+    assert rebuilt["policy"]["boundary_min_over_limit_fraction"] == 0.5
 
 
 def test_unknown_gender_and_girls_cohort_build_together(operator):
@@ -448,16 +450,36 @@ def test_analysis_diagnostics_remain_collapsed_and_never_yellow(operator):
     click(app, "Build seeding sheets")
     details = next(item for item in app.expander if item.label == "Analysis details")
     assert not details.proto.expanded
-    assert any("Score steps require" in item.value for item in details.caption)
+    assert any("Every adjacent MatchBalance boundary" in item.value for item in details.caption)
     assert any("Competitive enough means no more than 2.00" in item.value for item in details.caption)
     assert any("Very close means adjacent teams are within 1.00" in item.value for item in details.caption)
     assert any("material reversal means Compare favors a lower seed by at least 1.00" in item.value
                for item in details.caption)
+    boundary_table = next(
+        item.value for item in app.dataframe if "Classification" in item.value.columns
+    )
+    assert len(boundary_table) == 1
+    assert {
+        "Boundary",
+        "PowerScore gap (pts)",
+        "Matchups",
+        "Upper favored",
+        "Average signed margin",
+        "Average absolute goal difference",
+        "Worst absolute goal difference",
+        "Average 4+ goal risk",
+        "Worst 4+ goal risk",
+        "Failing competitive limits",
+        "Worst matchup",
+        "Evidence quality",
+        "Classification",
+        "Reason",
+    }.issubset(boundary_table.columns)
     assert all(not any(text in item.value for text in (
         "has one team", "strength-order exception", "low outcome confidence",
     )) for item in app.warning)
     assert "Analysis details" not in app.session_state["_seeding_sheet_html"]
-    assert "Score steps require" not in app.session_state["_seeding_sheet_html"]
+    assert "Every adjacent MatchBalance boundary" not in app.session_state["_seeding_sheet_html"]
 
 
 def test_restored_snapshot_renders_without_loading_new_predictions(operator, monkeypatch):
@@ -590,7 +612,7 @@ def test_manual_unsafe_merge_warning_and_notes_reach_the_sheet_and_restore_clear
     assert "_seeding_pdf" not in app.session_state
 
 
-@pytest.mark.parametrize("analysis_version", [1, 2, 3, 4, 5])
+@pytest.mark.parametrize("analysis_version", [1, 2, 3, 4, 5, 6, 7])
 def test_save_keeps_package_when_source_also_contains_younger_teams(operator, monkeypatch, analysis_version):
     import tournament_intake as intake
     from src.tournaments.roster_paste import ParsedRoster
@@ -627,7 +649,7 @@ def test_save_keeps_package_when_source_also_contains_younger_teams(operator, mo
     assert "_seeding_pack" not in fake.session_state
 
 
-@pytest.mark.parametrize("analysis_version", [1, 2, 3, 4, 5])
+@pytest.mark.parametrize("analysis_version", [1, 2, 3, 4, 5, 6, 7])
 def test_unsupported_saved_note_remains_editable_after_export_failure(operator, analysis_version):
     app, calls = operator
     click(app, "Build seeding sheets")
@@ -644,7 +666,7 @@ def test_unsupported_saved_note_remains_editable_after_export_failure(operator, 
     click(app, "Save director notes")
     assert not app.error
     assert app.session_state["_seeding_pack"]["operator_notes"]["u14|Male"] == "Corrected note"
-    assert app.session_state["_seeding_pack"]["analysis_schema_version"] == 7
+    assert app.session_state["_seeding_pack"]["analysis_schema_version"] == 8
     assert "Corrected note" in app.session_state["_seeding_sheet_html"]
     assert "_seeding_xlsx" in app.session_state and len(calls) == 1
 

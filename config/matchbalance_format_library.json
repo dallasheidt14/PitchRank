@@ -1,0 +1,425 @@
+{
+  "schema_version": 1,
+  "library_id": "matchbalance-format-library",
+  "library_version": "1.0.0",
+  "source_documents": [
+    {
+      "source_id": "coding-seeding-logic-2026-09-28",
+      "title": "Encodable Bracket-Size / Group-Format Logic for Multi-Flight Youth Soccer Tournaments",
+      "sha256": "0b1a0e2f794623b76673ba670a5c97b372088aee94111096a436292449a2fdc9",
+      "location": "User-supplied document: Coding Seeding logic.md",
+      "verification_status": "supplied_reference_not_independently_verified",
+      "note": "The document's VERIFIED labels are source claims, not verification performed by MatchBalance."
+    }
+  ],
+  "recommendation_policies": [
+    {
+      "policy_id": "matchbalance-compact-within-policy-v1",
+      "version": 1,
+      "status": "product_default",
+      "description": "Prefer fewer competitive flights when every required projected matchup meets the competitive limits.",
+      "selection_steps": [
+        "Require a structurally valid plan with complete required predictions and no projected matchup violations.",
+        "Prefer the fewest competitive flights.",
+        "Then prefer the lower worst matchup cost.",
+        "Then prefer the lower pair-weighted average matchup cost.",
+        "Use deterministic boundary and template ordering for numerical ties."
+      ],
+      "numerical_tie_relative_tolerance": 1e-12,
+      "numerical_tie_absolute_tolerance": 1e-12,
+      "provenance_status": "matchbalance_product_policy_not_official_tournament_rule"
+    }
+  ],
+  "templates": [
+    {
+      "template_id": "mb-default-usys-pc-03-v1",
+      "version": 1,
+      "team_count": 3,
+      "pool_sizes": [3],
+      "preliminary_play_type": "round_robin",
+      "advancement_description": "The group winner and runner-up advance to one final.",
+      "championship_type": "final",
+      "minimum_guaranteed_games_per_team": 2,
+      "maximum_possible_games_per_team": 3,
+      "unequal_pool_requirements": [],
+      "operational_requirements": [
+        "An event requiring at least three games for every team must not use this variant because the non-finalist receives two games."
+      ],
+      "unresolved_assumptions": [],
+      "source_id": "coding-seeding-logic-2026-09-28",
+      "source_section": "US Youth Soccer Presidents Cup - 3 teams",
+      "rule_year": "2024-25",
+      "provenance_status": "reference_described_not_independently_verified",
+      "availability_status": "enabled",
+      "blocked_reason": null
+    },
+    {
+      "template_id": "mb-default-usys-pc-04-v1",
+      "version": 1,
+      "team_count": 4,
+      "pool_sizes": [4],
+      "preliminary_play_type": "round_robin",
+      "advancement_description": "The group winner and runner-up advance to one final.",
+      "championship_type": "final",
+      "minimum_guaranteed_games_per_team": 3,
+      "maximum_possible_games_per_team": 4,
+      "unequal_pool_requirements": [],
+      "operational_requirements": [],
+      "unresolved_assumptions": [],
+      "source_id": "coding-seeding-logic-2026-09-28",
+      "source_section": "US Youth Soccer Presidents Cup - 4 teams",
+      "rule_year": "2024-25",
+      "provenance_status": "reference_described_not_independently_verified",
+      "availability_status": "enabled",
+      "blocked_reason": null
+    },
+    {
+      "template_id": "mb-default-usys-pc-05-v1",
+      "version": 1,
+      "team_count": 5,
+      "pool_sizes": [5],
+      "preliminary_play_type": "round_robin",
+      "advancement_description": "Champion and finalist are determined by final standings; no separate playoff is played.",
+      "championship_type": "standings_only",
+      "minimum_guaranteed_games_per_team": 4,
+      "maximum_possible_games_per_team": 4,
+      "unequal_pool_requirements": [],
+      "operational_requirements": [
+        "The event must accept a standings-only championship for this flight."
+      ],
+      "unresolved_assumptions": [],
+      "source_id": "coding-seeding-logic-2026-09-28",
+      "source_section": "US Youth Soccer Presidents Cup - 5 teams",
+      "rule_year": "2024-25",
+      "provenance_status": "reference_described_not_independently_verified",
+      "availability_status": "enabled",
+      "blocked_reason": null
+    },
+    {
+      "template_id": "mb-default-usys-pc-06-v1",
+      "version": 1,
+      "team_count": 6,
+      "pool_sizes": [3, 3],
+      "preliminary_play_type": "crossover",
+      "advancement_description": "The four highest point totals across the crossover advance to semifinals, seeded first versus fourth and second versus third.",
+      "championship_type": "semifinals_final",
+      "minimum_guaranteed_games_per_team": 3,
+      "maximum_possible_games_per_team": 5,
+      "unequal_pool_requirements": [],
+      "operational_requirements": [
+        "Each team must be able to play all three teams in the opposite pool before the semifinals."
+      ],
+      "unresolved_assumptions": [],
+      "source_id": "coding-seeding-logic-2026-09-28",
+      "source_section": "US Youth Soccer Presidents Cup - 6 teams",
+      "rule_year": "2024-25",
+      "provenance_status": "reference_described_not_independently_verified",
+      "availability_status": "enabled",
+      "blocked_reason": null
+    },
+    {
+      "template_id": "mb-default-usys-pc-07-v1",
+      "version": 1,
+      "team_count": 7,
+      "pool_sizes": [4, 3],
+      "preliminary_play_type": "mixed_round_robin",
+      "advancement_description": "Both group winners and two wildcards advance to semifinals.",
+      "championship_type": "semifinals_final",
+      "minimum_guaranteed_games_per_team": 2,
+      "maximum_possible_games_per_team": 5,
+      "unequal_pool_requirements": [
+        "Average points must be used when comparing teams that played only two group games with teams that played three."
+      ],
+      "operational_requirements": [],
+      "unresolved_assumptions": [],
+      "source_id": "coding-seeding-logic-2026-09-28",
+      "source_section": "US Youth Soccer Presidents Cup - 7 teams",
+      "rule_year": "2024-25",
+      "provenance_status": "reference_described_not_independently_verified",
+      "availability_status": "enabled",
+      "blocked_reason": null
+    },
+    {
+      "template_id": "mb-default-usys-pc-08-v1",
+      "version": 1,
+      "team_count": 8,
+      "pool_sizes": [4, 4],
+      "preliminary_play_type": "round_robin",
+      "advancement_description": "Each pool winner and runner-up advances to cross-pool semifinals.",
+      "championship_type": "semifinals_final",
+      "minimum_guaranteed_games_per_team": 3,
+      "maximum_possible_games_per_team": 5,
+      "unequal_pool_requirements": [],
+      "operational_requirements": [],
+      "unresolved_assumptions": [],
+      "source_id": "coding-seeding-logic-2026-09-28",
+      "source_section": "US Youth Soccer Presidents Cup - 8 teams",
+      "rule_year": "2024-25",
+      "provenance_status": "reference_described_not_independently_verified",
+      "availability_status": "enabled",
+      "blocked_reason": null
+    },
+    {
+      "template_id": "mb-default-usys-pc-09-v1",
+      "version": 1,
+      "team_count": 9,
+      "pool_sizes": [3, 3, 3],
+      "preliminary_play_type": "round_robin",
+      "advancement_description": "The three group winners and one wildcard advance to semifinals.",
+      "championship_type": "semifinals_final",
+      "minimum_guaranteed_games_per_team": 2,
+      "maximum_possible_games_per_team": 4,
+      "unequal_pool_requirements": [],
+      "operational_requirements": [],
+      "unresolved_assumptions": [],
+      "source_id": "coding-seeding-logic-2026-09-28",
+      "source_section": "US Youth Soccer Presidents Cup - 9 teams",
+      "rule_year": "2024-25",
+      "provenance_status": "reference_described_not_independently_verified",
+      "availability_status": "enabled",
+      "blocked_reason": null
+    },
+    {
+      "template_id": "mb-default-usys-pc-10-v1",
+      "version": 1,
+      "team_count": 10,
+      "pool_sizes": [4, 3, 3],
+      "preliminary_play_type": "mixed_round_robin_and_crossover",
+      "advancement_description": "The four-team pool winner and the three highest point totals from the two three-team crossover pools advance to semifinals.",
+      "championship_type": "semifinals_final",
+      "minimum_guaranteed_games_per_team": 3,
+      "maximum_possible_games_per_team": 5,
+      "unequal_pool_requirements": [],
+      "operational_requirements": [
+        "The two three-team pools must use crossover play."
+      ],
+      "unresolved_assumptions": [],
+      "source_id": "coding-seeding-logic-2026-09-28",
+      "source_section": "US Youth Soccer Presidents Cup - 10 teams",
+      "rule_year": "2024-25",
+      "provenance_status": "reference_described_not_independently_verified",
+      "availability_status": "enabled",
+      "blocked_reason": null
+    },
+    {
+      "template_id": "mb-reference-usys-pc-11-v1",
+      "version": 1,
+      "team_count": 11,
+      "pool_sizes": [4, 4, 3],
+      "preliminary_play_type": "round_robin",
+      "advancement_description": "The three group winners and one wildcard advance to semifinals.",
+      "championship_type": "semifinals_final",
+      "minimum_guaranteed_games_per_team": 2,
+      "maximum_possible_games_per_team": 5,
+      "unequal_pool_requirements": [],
+      "operational_requirements": [],
+      "unresolved_assumptions": [
+        "The supplied summary does not state how the wildcard comparison is normalized between teams playing two and three group games."
+      ],
+      "source_id": "coding-seeding-logic-2026-09-28",
+      "source_section": "US Youth Soccer Presidents Cup - 11 teams",
+      "rule_year": "2024-25",
+      "provenance_status": "reference_described_not_independently_verified",
+      "availability_status": "reference_only",
+      "blocked_reason": "Wildcard normalization is unresolved in the supplied summary."
+    },
+    {
+      "template_id": "mb-default-usys-pc-12-v1",
+      "version": 1,
+      "team_count": 12,
+      "pool_sizes": [4, 4, 4],
+      "preliminary_play_type": "round_robin",
+      "advancement_description": "The three group winners and one wildcard advance to semifinals.",
+      "championship_type": "semifinals_final",
+      "minimum_guaranteed_games_per_team": 3,
+      "maximum_possible_games_per_team": 5,
+      "unequal_pool_requirements": [],
+      "operational_requirements": [],
+      "unresolved_assumptions": [],
+      "source_id": "coding-seeding-logic-2026-09-28",
+      "source_section": "US Youth Soccer Presidents Cup - 12 teams",
+      "rule_year": "2024-25",
+      "provenance_status": "reference_described_not_independently_verified",
+      "availability_status": "enabled",
+      "blocked_reason": null
+    },
+    {
+      "template_id": "mb-default-usys-pc-13-v1",
+      "version": 1,
+      "team_count": 13,
+      "pool_sizes": [4, 3, 3, 3],
+      "preliminary_play_type": "round_robin",
+      "advancement_description": "Each of the four group winners advances to semifinals.",
+      "championship_type": "semifinals_final",
+      "minimum_guaranteed_games_per_team": 2,
+      "maximum_possible_games_per_team": 5,
+      "unequal_pool_requirements": [],
+      "operational_requirements": [],
+      "unresolved_assumptions": [],
+      "source_id": "coding-seeding-logic-2026-09-28",
+      "source_section": "US Youth Soccer Presidents Cup - 13 teams",
+      "rule_year": "2024-25",
+      "provenance_status": "reference_described_not_independently_verified",
+      "availability_status": "enabled",
+      "blocked_reason": null
+    },
+    {
+      "template_id": "mb-default-usys-pc-14-v1",
+      "version": 1,
+      "team_count": 14,
+      "pool_sizes": [4, 4, 3, 3],
+      "preliminary_play_type": "mixed_round_robin_and_crossover",
+      "advancement_description": "The two four-team pool winners and the two highest point totals from the two three-team crossover pools advance to semifinals.",
+      "championship_type": "semifinals_final",
+      "minimum_guaranteed_games_per_team": 3,
+      "maximum_possible_games_per_team": 5,
+      "unequal_pool_requirements": [],
+      "operational_requirements": [
+        "The two three-team pools must use crossover play."
+      ],
+      "unresolved_assumptions": [],
+      "source_id": "coding-seeding-logic-2026-09-28",
+      "source_section": "US Youth Soccer Presidents Cup - 14 teams",
+      "rule_year": "2024-25",
+      "provenance_status": "reference_described_not_independently_verified",
+      "availability_status": "enabled",
+      "blocked_reason": null
+    },
+    {
+      "template_id": "mb-default-usys-pc-15-v1",
+      "version": 1,
+      "team_count": 15,
+      "pool_sizes": [4, 4, 4, 3],
+      "preliminary_play_type": "round_robin",
+      "advancement_description": "Each of the four group winners advances to semifinals.",
+      "championship_type": "semifinals_final",
+      "minimum_guaranteed_games_per_team": 2,
+      "maximum_possible_games_per_team": 5,
+      "unequal_pool_requirements": [],
+      "operational_requirements": [],
+      "unresolved_assumptions": [],
+      "source_id": "coding-seeding-logic-2026-09-28",
+      "source_section": "US Youth Soccer Presidents Cup - 15 teams",
+      "rule_year": "2024-25",
+      "provenance_status": "reference_described_not_independently_verified",
+      "availability_status": "enabled",
+      "blocked_reason": null
+    },
+    {
+      "template_id": "mb-default-usys-pc-16-v1",
+      "version": 1,
+      "team_count": 16,
+      "pool_sizes": [4, 4, 4, 4],
+      "preliminary_play_type": "round_robin",
+      "advancement_description": "Each of the four group winners advances to semifinals.",
+      "championship_type": "semifinals_final",
+      "minimum_guaranteed_games_per_team": 3,
+      "maximum_possible_games_per_team": 5,
+      "unequal_pool_requirements": [],
+      "operational_requirements": [],
+      "unresolved_assumptions": [],
+      "source_id": "coding-seeding-logic-2026-09-28",
+      "source_section": "US Youth Soccer Presidents Cup - 16 teams",
+      "rule_year": "2024-25",
+      "provenance_status": "reference_described_not_independently_verified",
+      "availability_status": "enabled",
+      "blocked_reason": null
+    }
+  ],
+  "source_issues": [
+    {
+      "issue_id": "weston-10-team-total-inconsistent",
+      "source_entry": "Weston Cup - 10 teams",
+      "status": "blocked",
+      "reason": "The supplied description says one four-team bracket and two six-team brackets, totaling 16 rather than 10. No correction is inferred."
+    },
+    {
+      "issue_id": "consolidated-five-team-bundled-alternative",
+      "source_entry": "Consolidated ruleset - 5 teams",
+      "status": "blocked",
+      "reason": "Final or standings-only combines distinct championship semantics and is not one exact template."
+    },
+    {
+      "issue_id": "consolidated-eight-team-bundled-advancement",
+      "source_entry": "Consolidated ruleset - 8 teams",
+      "status": "blocked",
+      "reason": "Winners plus-or-minus runners-up combines distinct advancement variants and is not one exact template."
+    },
+    {
+      "issue_id": "nearest-size-fallback-prohibited",
+      "source_entry": "Supplied pseudocode nearest_defined(n_teams)",
+      "status": "blocked",
+      "reason": "A nearby team-count template cannot accommodate the actual accepted count."
+    },
+    {
+      "issue_id": "usa-cup-florida-qualifier-distinction",
+      "source_entry": "USA Cup and USA Cup Qualifier Florida",
+      "status": "reference_only",
+      "reason": "They are distinct events and cannot share one official profile without separate source validation."
+    },
+    {
+      "issue_id": "surf-event-and-year-distinction",
+      "source_entry": "Surf Cup event family",
+      "status": "reference_only",
+      "reason": "Goal caps and formats vary by Surf event and rule year; no combined official profile is created."
+    },
+    {
+      "issue_id": "arizona-large-count-mechanics-not-reproduced",
+      "source_entry": "Arizona State/Presidents Cup formats above 16 teams",
+      "status": "reference_only",
+      "reason": "The supplied report says the official table extends above 16 teams but does not reproduce each exact format's mechanics. No larger-flight template is enabled without checking that primary source."
+    }
+  ],
+  "profiles": [
+    {
+      "profile_id": "matchbalance-default-v1",
+      "version": 1,
+      "display_name": "MatchBalance default format profile",
+      "status": "enabled",
+      "is_default": true,
+      "template_ids": [
+        "mb-default-usys-pc-03-v1",
+        "mb-default-usys-pc-04-v1",
+        "mb-default-usys-pc-05-v1",
+        "mb-default-usys-pc-06-v1",
+        "mb-default-usys-pc-07-v1",
+        "mb-default-usys-pc-08-v1",
+        "mb-default-usys-pc-09-v1",
+        "mb-default-usys-pc-10-v1",
+        "mb-default-usys-pc-12-v1",
+        "mb-default-usys-pc-13-v1",
+        "mb-default-usys-pc-14-v1",
+        "mb-default-usys-pc-15-v1",
+        "mb-default-usys-pc-16-v1"
+      ],
+      "preferred_template_ids_by_team_count": {
+        "3": "mb-default-usys-pc-03-v1",
+        "4": "mb-default-usys-pc-04-v1",
+        "5": "mb-default-usys-pc-05-v1",
+        "6": "mb-default-usys-pc-06-v1",
+        "7": "mb-default-usys-pc-07-v1",
+        "8": "mb-default-usys-pc-08-v1",
+        "9": "mb-default-usys-pc-09-v1",
+        "10": "mb-default-usys-pc-10-v1",
+        "12": "mb-default-usys-pc-12-v1",
+        "13": "mb-default-usys-pc-13-v1",
+        "14": "mb-default-usys-pc-14-v1",
+        "15": "mb-default-usys-pc-15-v1",
+        "16": "mb-default-usys-pc-16-v1"
+      },
+      "recommendation_policy_id": "matchbalance-compact-within-policy-v1",
+      "required_minimum_games_per_team": null,
+      "operational_restrictions": [],
+      "format_preferences": [
+        "Use the preferred exact template for each flight size while retaining every compatible enabled variant."
+      ],
+      "max_candidate_structures": 10000,
+      "provenance_status": "matchbalance_selected_default_based_on_supplied_reference",
+      "source_note": "This is a MatchBalance product default, not an official/current USYS or event profile.",
+      "unresolved_assumptions": [
+        "Field availability, event duration, referee capacity, and actual schedule feasibility are unknown.",
+        "The official source documents cited by the supplied report were not independently verified by this implementation."
+      ]
+    }
+  ]
+}

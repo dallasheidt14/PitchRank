@@ -28,6 +28,7 @@ from src.tournaments.seeding_pack import (
     needs_placement_review,
     normalize_policy,
     pack_matches,
+    persist_boundary_analysis,
     persist_ordering,
     placement_review_fingerprint,
     prediction_request,
@@ -469,12 +470,21 @@ def _render_placement_checks(key, analysis, pack, roster_rows, save) -> None:
             st.caption("Placement review complete for this evidence and these director notes.")
 
 
-def _render_analysis_details(selected: Sequence[str], analyses: Mapping, pack: dict[str, Any]) -> None:
+def _render_analysis_details(
+    selected: Sequence[str], analyses: Mapping, pack: dict[str, Any], rows: Sequence[RosterRow],
+) -> None:
+    names_by_id = {str(row.source_index): row.registered_name for row in rows}
     st.caption(
-        "Score steps use published scores plus the direction of nearby Compare predictions. "
+        "Every adjacent MatchBalance boundary is evaluated from nearby Compare matchups; "
+        "PowerScore is supporting context and never gates the classification. "
         f"Competitive enough means no more than {pack['policy']['max_expected_margin']:.2f} "
         "expected absolute goal difference and "
         f"{pack['policy']['max_blowout_probability']:.0%} four-goal risk. "
+        f"Supported separation requires {pack['policy']['boundary_min_favored_fraction']:.0%} "
+        "upper-side favor, at least "
+        f"{pack['policy']['boundary_min_average_signed_margin']:.2f} average signed goals, and "
+        f"{pack['policy']['boundary_min_over_limit_fraction']:.0%} of cross-boundary pairings "
+        "outside either competitive limit. "
         f"Very close means adjacent teams are within "
         f"{pack['policy']['very_close_expected_goal_difference']:.2f} expected goals. "
         f"A material reversal means Compare favors a lower seed by at least "
@@ -504,15 +514,56 @@ def _render_analysis_details(selected: Sequence[str], analyses: Mapping, pack: d
                 }
                 for item in detail.movements
             ]), hide_index=True)
-        if detail.boundary_windows:
-            st.caption("Evidence for every tested boundary, including windows that did not support a strength break.")
+        if detail.boundary_assessments:
+            st.caption(
+                "Complete boundary analysis. No boundary is omitted because of its PowerScore gap, "
+                "position, proximity to another finding, or the customer-sheet display limit."
+            )
             st.dataframe(pd.DataFrame([{
-                "After seed": item.after_seed, "Window size": item.size,
-                "Upper seeds": ", ".join(str(seed_by_id[value]) for value in item.upper_ids),
-                "Lower seeds": ", ".join(str(seed_by_id[value]) for value in item.lower_ids),
-                "Upper favored": item.favored_fraction, "Over limits": item.over_limit_fraction,
-                "Average advantage": item.average_expected_margin, "Supports direction": item.supported,
-            } for item in detail.boundary_windows]), hide_index=True)
+                "Boundary": f"{item.after_seed} / {item.after_seed + 1}",
+                "PowerScore gap (pts)": item.power_score_gap * 100,
+                "Upper entrants": ", ".join(item.upper_ids),
+                "Lower entrants": ", ".join(item.lower_ids),
+                "Matchups": item.pairing_count,
+                "Upper favored": item.favored_fraction,
+                "Average signed margin": item.average_expected_margin,
+                "Average absolute goal difference": item.average_expected_absolute_goal_difference,
+                "Worst absolute goal difference": item.maximum_expected_absolute_goal_difference,
+                "Average 4+ goal risk": item.average_blowout_probability,
+                "Worst 4+ goal risk": item.maximum_blowout_probability,
+                "Failing competitive limits": item.over_limit_fraction,
+                "Worst matchup": (
+                    " vs ".join(
+                        f"#{seed_by_id[value]} {names_by_id.get(value, value)}"
+                        for value in item.worst_pair
+                    )
+                    if item.worst_pair else ""
+                ),
+                "Immediate pair over limits": item.adjacent_pair_over_limit,
+                "Evidence quality": (
+                    f"{item.evidence_quality}; {item.established_pairing_count} established / "
+                    f"{item.limited_history_pairing_count} limited-history pairings"
+                ),
+                "Classification": item.classification,
+                "Reason": item.reason,
+            } for item in detail.boundary_assessments]), hide_index=True)
+        if detail.boundary_windows:
+            with st.expander("Local-window evidence for every boundary"):
+                st.dataframe(pd.DataFrame([{
+                    "After seed": item.after_seed,
+                    "Window size": item.size,
+                    "Upper seeds": ", ".join(str(seed_by_id[value]) for value in item.upper_ids),
+                    "Lower seeds": ", ".join(str(seed_by_id[value]) for value in item.lower_ids),
+                    "Matchups": item.pairing_count,
+                    "Upper favored": item.favored_fraction,
+                    "Over limits": item.over_limit_fraction,
+                    "Average advantage": item.average_expected_margin,
+                    "Evidence": item.evidence_quality,
+                    "Usable": item.evidence_sufficient,
+                    "Direction supported": item.direction_supported,
+                    "Risk supported": item.risk_supported,
+                    "Supports separation": item.supported,
+                } for item in detail.boundary_windows]), hide_index=True)
         if detail.close_ranges:
             st.caption(
                 "Very-close ranges meet the competitive-enough limits for every pairing and the stricter "
@@ -622,8 +673,10 @@ def render_seeding_pack(
                             for key, value in pack.get("manual_seed_orders", {}).items()
                             if key in selected_keys
                         }
+                candidate["boundary_analysis"] = {}
                 candidate_analyses = analyze_pack(candidate, parsed.rows, resolved, overrides)
                 persist_ordering(candidate, candidate_analyses)
+                persist_boundary_analysis(candidate, candidate_analyses)
                 # A click during the build reruns the script before the pack reaches
                 # session state, so the file is written before anything can yield.
                 if recovery is not None:
@@ -637,8 +690,8 @@ def render_seeding_pack(
 
     if (
         isinstance(pack, dict)
-        and pack.get("schema_version") in (3, 4)
-        and pack.get("analysis_schema_version") in (1, 2, 3, 4, 5, 6)
+        and pack.get("schema_version") in (3, 4, 5)
+        and pack.get("analysis_schema_version") in (1, 2, 3, 4, 5, 6, 7)
     ):
         try:
             pack = upgrade_pack_analysis(
@@ -776,7 +829,7 @@ def render_seeding_pack(
                     key, analyses[tuple(key.split("|", 1))], pack, save, roster_rows, by_cohort[key]
                 )
         with st.expander("Analysis details", expanded=False):
-            _render_analysis_details(selected, analyses, pack)
+            _render_analysis_details(selected, analyses, pack, parsed.rows)
         if view == "build":
             return
 
