@@ -339,6 +339,31 @@ def test_insufficient_small_window_does_not_veto_larger_supported_windows():
     assert top.classification == SUPPORTED_SEPARATION
 
 
+def test_boundary_summary_uses_widest_evidence_sufficient_window():
+    analysis = _analysis(
+        [0.80 - index * 0.01 for index in range(5)],
+        "supported",
+        limited={0, 1},
+    )
+
+    boundary = _boundary(analysis, 3)
+    windows = {
+        item.size: item
+        for item in analysis.boundary_windows
+        if item.after_seed == 3
+    }
+
+    assert windows[3].evidence_sufficient
+    assert windows[4].evidence_sufficient
+    assert not windows[5].evidence_sufficient
+    assert boundary.classification == SUPPORTED_SEPARATION
+    assert boundary.usable_window_sizes == (3, 4)
+    assert boundary.upper_ids == windows[4].upper_ids
+    assert boundary.lower_ids == windows[4].lower_ids
+    assert boundary.evidence_quality == windows[4].evidence_quality
+    assert boundary.pairing_count == windows[4].pairing_count
+
+
 def test_local_no_separation_does_not_imply_a_gradual_stretch_is_compatible():
     entrants = _entrants([0.80 - index * 0.01 for index in range(8)])
     ids = [item.entrant_id for item in entrants]

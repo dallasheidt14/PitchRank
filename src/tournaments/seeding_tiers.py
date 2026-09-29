@@ -851,7 +851,6 @@ def _build_boundary_assessments(
             all_windows.append(window)
         if not windows:
             raise AssertionError(f"Boundary {boundary} has no deterministic local window")
-        primary = max(windows, key=lambda item: item.size)
         upper_boundary_id = ordered[boundary - 1]
         lower_boundary_id = ordered[boundary]
         adjacent_pair = pairs[_pair_key(upper_boundary_id, lower_boundary_id)]
@@ -859,6 +858,8 @@ def _build_boundary_assessments(
         classification, reason, usable_sizes = _classify_boundary(
             windows, policy, adjacent_pair,
         )
+        usable_windows = tuple(item for item in windows if item.evidence_sufficient)
+        primary = max(usable_windows or tuple(windows), key=lambda item: item.size)
         upper_score = by_id[upper_boundary_id].power_score
         lower_score = by_id[lower_boundary_id].power_score
         upper_power_score = float(upper_score) if upper_score is not None else 0.0

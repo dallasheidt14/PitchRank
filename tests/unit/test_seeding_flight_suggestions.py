@@ -7,6 +7,7 @@ import pytest
 
 from src.tournaments.compare_predictor_bridge import ComparePrediction
 from src.tournaments.seeding_flight_suggestions import (
+    NO_WITHIN_POLICY_PLAN,
     PRIMARY_SELECTED,
     PRIMARY_SELECTED_FOR_SUBSET,
     PROVISIONAL_EVIDENCE,
@@ -459,6 +460,31 @@ def test_unassigned_entrant_keeps_subset_semantics_visible():
     )
     assert primary.accepted_field_coverage.plan_for_assigned_subset is True
     assert primary.accepted_field_coverage.every_accepted_entrant_accounted_for is True
+
+
+def test_unaccounted_accepted_entrant_prevents_primary_selection():
+    library, profile = _library_profile()
+    ids = list("abcdefg")
+    assigned = ids[:6]
+
+    result = suggest_automatic_flights(
+        assigned,
+        _matrix(ids),
+        TierPolicy(),
+        _teams(ids),
+        library,
+        profile,
+        accepted_entrant_ids=ids,
+    )
+
+    assert result.status == NO_WITHIN_POLICY_PLAN
+    assert result.primary_plan_id is None
+    assert result.best_evaluated_plan_id is None
+    assert "accepted-field coverage is incomplete" in result.selection_reason
+    assert all(
+        plan.accepted_field_coverage.unaccounted_entrant_ids == ("g",)
+        for plan in result.assessment.plans
+    )
 
 
 def test_same_inputs_produce_identical_suggestion_objects():

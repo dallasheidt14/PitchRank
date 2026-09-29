@@ -624,7 +624,11 @@ def suggest_automatic_flights(
     eligible = tuple(
         item
         for item in assessment.plans
-        if item.structural.valid and item.all_pair_projected_fit_passed
+        if (
+            item.structural.valid
+            and item.all_pair_projected_fit_passed
+            and item.accepted_field_coverage.every_accepted_entrant_accounted_for
+        )
     )
     best_evaluated = _select_by_default_policy(
         eligible, recommendation_policy, options_by_size
@@ -709,12 +713,22 @@ def suggest_automatic_flights(
     )
     if complete_plans:
         status = NO_WITHIN_POLICY_PLAN
-        reason = (
-            "No complete within-policy arrangement among the evaluated, "
-            "profile-supported candidates. Limits were not relaxed, no entrant was "
-            "dropped, and the result does not claim that no possible schedule could "
-            "work. Operator review is required."
-        )
+        if any(
+            not item.accepted_field_coverage.every_accepted_entrant_accounted_for
+            for item in complete_plans
+        ):
+            reason = (
+                "No automatic primary was selected because accepted-field coverage "
+                "is incomplete. Every accepted entrant must be assigned to the plan "
+                "or explicitly recorded as unassigned. Operator review is required."
+            )
+        else:
+            reason = (
+                "No complete within-policy arrangement among the evaluated, "
+                "profile-supported candidates. Limits were not relaxed, no entrant was "
+                "dropped, and the result does not claim that no possible schedule could "
+                "work. Operator review is required."
+            )
     else:
         status = INCOMPLETE_PREDICTIONS
         reason = (
