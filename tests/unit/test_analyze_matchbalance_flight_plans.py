@@ -152,7 +152,8 @@ def test_real_san_complete_plan_regression():
     )
 
     regression = report["order_and_boundary_regression"]
-    assert report["code"]["branch"] == EXPECTED_BRANCH
+    assert report["code"]["implementation_branch"] == EXPECTED_BRANCH
+    assert report["code"]["starting_commit_ancestry_required"] is False
     assert report["code"]["starting_commit"] == STARTING_COMMIT
     assert tuple(regression["before_order_state"]["baseline_order"]) == SAN_ORDER
     assert tuple(regression["before_order_state"]["suggested_order"]) == SAN_ORDER

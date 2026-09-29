@@ -10,7 +10,6 @@ from __future__ import annotations
 import argparse
 import csv
 import json
-import subprocess
 import sys
 from dataclasses import asdict
 from pathlib import Path
@@ -32,12 +31,14 @@ from scripts.analyze_matchbalance_flight_plans import (  # noqa: E402
 )
 from scripts.analyze_matchbalance_groups import (  # noqa: E402
     _canonical_sha256,
+    _commit_is_ancestor,
     _git,
     _sha256_bytes,
     _team_payload,
     build_team_metadata,
     load_frozen_snapshot,
 )
+from src.tournaments.reports.render_csv import csv_safe  # noqa: E402
 from src.tournaments.seeding_flight_suggestions import (  # noqa: E402
     AutomaticFlightSuggestion,
     suggest_automatic_flights,
@@ -63,12 +64,7 @@ REPORT_SCHEMA_VERSION = 1
 
 def _starting_commit_is_ancestor(head: str) -> bool:
     """Record development ancestry without making delivered history a runtime gate."""
-    completed = subprocess.run(
-        ["git", "merge-base", "--is-ancestor", STARTING_COMMIT, head],
-        check=False,
-        capture_output=True,
-    )
-    return completed.returncode == 0
+    return _commit_is_ancestor(STARTING_COMMIT, head)
 
 
 def _saved_selected_cohorts(snapshot_path: Path) -> tuple[str, ...]:
@@ -840,7 +836,9 @@ def _write_csv(path: Path, rows: Sequence[Mapping[str, Any]]) -> None:
     with path.open("w", encoding="utf-8-sig", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames, extrasaction="raise")
         writer.writeheader()
-        writer.writerows(rows)
+        writer.writerows(
+            {key: csv_safe(value) for key, value in row.items()} for row in rows
+        )
 
 
 def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:

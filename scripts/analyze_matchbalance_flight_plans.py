@@ -11,7 +11,6 @@ import argparse
 import csv
 import json
 import re
-import subprocess
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -22,6 +21,7 @@ sys.path.insert(0, str(_REPO_ROOT))
 
 from scripts.analyze_matchbalance_groups import (  # noqa: E402
     _canonical_sha256,
+    _commit_is_ancestor,
     _git,
     _group_payload,
     _pair_payload,
@@ -30,6 +30,7 @@ from scripts.analyze_matchbalance_groups import (  # noqa: E402
     build_team_metadata,
     load_frozen_snapshot,
 )
+from src.tournaments.reports.render_csv import csv_safe  # noqa: E402
 from src.tournaments.seeding_pack import (  # noqa: E402
     ANALYSIS_SCHEMA_VERSION,
     PACK_SCHEMA_VERSION,
@@ -462,13 +463,7 @@ def build_report(
     """Reanalyze one frozen snapshot and return standalone report records."""
     head = _git("rev-parse", "HEAD")
     branch = _git("branch", "--show-current")
-    if branch != EXPECTED_BRANCH:
-        raise ValueError(
-            f"Run this diagnostic from {EXPECTED_BRANCH!r}, not {branch!r}"
-        )
-    subprocess.run(
-        ["git", "merge-base", "--is-ancestor", STARTING_COMMIT, head], check=True
-    )
+    starting_commit_is_ancestor = _commit_is_ancestor(STARTING_COMMIT, head)
     loaded = load_frozen_snapshot(
         snapshot_path,
         cohort,
@@ -541,7 +536,10 @@ def build_report(
             "commit": head,
             "starting_commit": STARTING_COMMIT,
             "branch": branch,
-            "starting_commit_is_ancestor": True,
+            "implementation_branch": EXPECTED_BRANCH,
+            "on_implementation_branch": branch == EXPECTED_BRANCH,
+            "starting_commit_is_ancestor": starting_commit_is_ancestor,
+            "starting_commit_ancestry_required": False,
             "working_tree_clean_at_export": not bool(_git("status", "--short")),
             "pack_schema_version": PACK_SCHEMA_VERSION,
             "analysis_schema_version": ANALYSIS_SCHEMA_VERSION,
@@ -1237,7 +1235,9 @@ def _write_csv(path: Path, rows: Sequence[Mapping[str, Any]]) -> None:
     with path.open("w", encoding="utf-8-sig", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames, extrasaction="raise")
         writer.writeheader()
-        writer.writerows(rows)
+        writer.writerows(
+            {key: csv_safe(value) for key, value in row.items()} for row in rows
+        )
 
 
 def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:

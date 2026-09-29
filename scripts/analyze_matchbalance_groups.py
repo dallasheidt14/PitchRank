@@ -23,6 +23,7 @@ from unittest.mock import patch
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_REPO_ROOT))
 
+from src.tournaments.reports.render_csv import csv_safe  # noqa: E402
 from src.tournaments.roster_paste import ParsedRoster, RosterRow  # noqa: E402
 from src.tournaments.roster_resolver import ResolvedTeam  # noqa: E402
 from src.tournaments.seeding_assessment import (  # noqa: E402
@@ -48,6 +49,7 @@ from src.tournaments.seeding_pack import (  # noqa: E402
 from src.tournaments.seeding_tiers import TierPolicy  # noqa: E402
 
 STARTING_COMMIT = "c7125bf72c438d4518971393217fb8535b8cb7ef"
+EXPECTED_BRANCH = "fix/matchbalance-boundary-analysis"
 EXPECTED_PREDICTOR = "98b059f074e32584e973ca679c09985581b0867fe4175002a02cec0ada73cb5d"
 REPORT_SCHEMA_VERSION = 1
 DEFAULT_GROUP_SIZES = (4, 5, 6, 8)
@@ -155,6 +157,16 @@ def _git(*args: str) -> str:
         ["git", *args], check=True, capture_output=True, text=True
     )
     return completed.stdout.strip()
+
+
+def _commit_is_ancestor(starting_commit: str, head: str) -> bool:
+    """Record development ancestry without requiring an unsquashed history."""
+    completed = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", starting_commit, head],
+        check=False,
+        capture_output=True,
+    )
+    return completed.returncode == 0
 
 
 def _team_payload(team: GroupTeam) -> dict[str, Any]:
@@ -864,7 +876,9 @@ def _write_csv(path: Path, rows: Sequence[Mapping[str, Any]]) -> None:
     with path.open("w", encoding="utf-8-sig", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames, extrasaction="raise")
         writer.writeheader()
-        writer.writerows(rows)
+        writer.writerows(
+            {key: csv_safe(value) for key, value in row.items()} for row in rows
+        )
 
 
 def main() -> None:
@@ -874,11 +888,7 @@ def main() -> None:
         raise ValueError("Group sizes must be unique positive integers")
     head = _git("rev-parse", "HEAD")
     branch = _git("branch", "--show-current")
-    if branch != "fix/matchbalance-boundary-analysis":
-        raise ValueError(f"Run this diagnostic from the isolated fix branch, not {branch!r}")
-    subprocess.run(
-        ["git", "merge-base", "--is-ancestor", STARTING_COMMIT, head], check=True
-    )
+    starting_commit_is_ancestor = _commit_is_ancestor(STARTING_COMMIT, head)
     reports = []
     csv_rows: list[dict[str, Any]] = []
     for case in CASES:
@@ -895,7 +905,10 @@ def main() -> None:
             "commit": head,
             "starting_commit": STARTING_COMMIT,
             "branch": branch,
-            "starting_commit_is_ancestor": True,
+            "implementation_branch": EXPECTED_BRANCH,
+            "on_implementation_branch": branch == EXPECTED_BRANCH,
+            "starting_commit_is_ancestor": starting_commit_is_ancestor,
+            "starting_commit_ancestry_required": False,
             "working_tree_clean_at_export": not bool(_git("status", "--short")),
             "pack_schema_version": PACK_SCHEMA_VERSION,
             "analysis_schema_version": ANALYSIS_SCHEMA_VERSION,

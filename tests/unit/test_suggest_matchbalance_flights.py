@@ -7,7 +7,6 @@ from types import SimpleNamespace
 import pytest
 
 from scripts import analyze_matchbalance_groups as group_report
-from scripts import suggest_matchbalance_flights as flight_report
 from scripts.suggest_matchbalance_flights import (
     STARTING_COMMIT,
     _csv_rows,
@@ -103,7 +102,7 @@ def test_unsquashed_starting_commit_is_provenance_not_a_runtime_gate(monkeypatch
         assert capture_output is True
         return SimpleNamespace(returncode=1)
 
-    monkeypatch.setattr(flight_report.subprocess, "run", not_an_ancestor)
+    monkeypatch.setattr(group_report.subprocess, "run", not_an_ancestor)
 
     assert _starting_commit_is_ancestor("squashed-delivery-commit") is False
 
@@ -175,7 +174,7 @@ def test_real_san_automatic_default_is_complete_and_preserves_regressions():
     suggestion = cohort["automatic_flight_suggestion"]
 
     assert report["code"]["starting_commit"] == STARTING_COMMIT
-    assert report["code"]["starting_commit_is_ancestor"] is True
+    assert report["code"]["starting_commit_is_ancestor"] is False
     assert report["code"]["starting_commit_ancestry_required"] is False
     assert report["snapshot_provenance"]["source_file_sha256_before"] == SAN_SHA256
     assert report["snapshot_provenance"]["source_unchanged_during_analysis"] is True
