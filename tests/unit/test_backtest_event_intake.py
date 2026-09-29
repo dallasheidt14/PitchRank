@@ -177,6 +177,7 @@ _READ_ONLY_MODULES = (
     "src/tournaments/roster_resolver.py",
     "src/tournaments/roster_paste.py",
     "src/tournaments/seeding_optimizer.py",
+    "src/tournaments/temp_workspace.py",
 )
 
 
