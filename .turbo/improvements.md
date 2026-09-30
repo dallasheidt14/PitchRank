@@ -1664,3 +1664,23 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `src/tournaments/seeding_run_store.py` `PackRecovery`; `tournament_intake.py` `_render_seeding_sheet`
 - **Why**: The recovery file is keyed by the run name, so renaming the run while a build runs files the finished build under the old name, and the renamed page never offers it. It is not lost: a named run is autosaved when its roster is imported, so the old name appears under "Open a saved run" and reopening it offers the build. Keying the file by roster fingerprint, or listing recovery-only folders in the run picker, would close it. Raised by the Codex review on #1221; the owner chose to log it on 2026-09-24.
 - **Noted**: 2026-09-24
+
+### Stop fuzzy alias auto-links from fusing a second squad onto a team row
+
+- **ID**: IMP-278
+- **Status**: open
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `src/models/game_matcher.py` `GameHistoryMatcher._match_team` (writes `match_method="fuzzy_auto"` aliases)
+- **Why**: The California Doorway D run on 2026-09-30 found team rows holding a second squad's provider id through a fuzzy auto-link, so one row plays different opponents on the same days (HB U13 White, alias 707685, linked 2026-09-29; Beach FC ECNL RL B2010/11 Black holding a Virginia-coded SincSports id, linked 2026-09-13). Each such row blocks merges and misattributes games, and the California fix lists were dominated by this shape. Reported by reviewers; which matcher wrote each alias is unverified.
+- **Noted**: 2026-09-30
+
+### Decide whether league-only Pre-ECNL and ECNL rows should pair in the squad-key scanner
+
+- **ID**: IMP-279
+- **Status**: open
+- **Type**: plan
+- **Category**: feature
+- **Where**: `scripts/find_squad_key_duplicates.py` `pairing_key`, `COMPATIBLE_LEAGUES`
+- **Why**: League-only names pair only on an identical league set, so a squad's Pre-ECNL row and its later ECNL row are never proposed on that path, although `leagues_conflict` treats Pre-ECNL moving up to ECNL as compatible when a squad word exists. Kept apart deliberately because league-only names carry the least evidence; measure a sample of such pairs before folding the two.
+- **Noted**: 2026-09-30
