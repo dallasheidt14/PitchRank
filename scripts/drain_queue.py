@@ -391,9 +391,17 @@ def _finalize_queue_items(supabase, queue_map: Dict[str, str], log_buffer: List[
             except Exception as e:
                 logger.warning(f"Failed to complete queue item {request_id}: {e}")
 
-    if failed_ids:
+    # Batched at 100 ids per ``.in_()`` for the reason ``_release_queue_items``
+    # gives: PostgREST puts the id list in the query string, so an unbatched call
+    # raises "URL component 'query' too long". That exception was caught and only
+    # logged while the summary below printed the intended count, so a run could
+    # report a clean finalize and leave every one of its failures stranded in
+    # 'processing' — a status nothing ever reclaims.
+    failed_count = 0
+    for i in range(0, len(failed_ids), 100):
+        batch = failed_ids[i : i + 100]
         try:
-            (
+            result = (
                 supabase.table("scrape_requests")
                 .update(
                     {
@@ -402,13 +410,16 @@ def _finalize_queue_items(supabase, queue_map: Dict[str, str], log_buffer: List[
                         "error_message": "Team not found or scrape error",
                     }
                 )
-                .in_("id", failed_ids)
+                .in_("id", batch)
                 .execute()
             )
+            # What PostgREST reports changed, not the batch size: counting the batch
+            # is what let a write that never landed read as complete.
+            failed_count += len(result.data or [])
         except Exception as e:
-            logger.warning(f"Failed to mark {len(failed_ids)} queue items as failed: {e}")
+            logger.warning(f"Failed to mark {len(batch)} queue items as failed: {e}")
 
-    console.print(f"[green]✓[/green] Queue finalized: {completed_count} completed, {len(failed_ids)} failed")
+    console.print(f"[green]✓[/green] Queue finalized: {completed_count} completed, {failed_count} failed")
 
 
 # ---------------------------------------------------------------------------
