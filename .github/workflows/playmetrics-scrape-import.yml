@@ -86,6 +86,8 @@ jobs:
             URLS=(
               # Wisconsin Youth Soccer SECL & State League — Fall 2026.
               "https://playmetricssports.com/g/leagues/1014-2319-3e2c725a/league_view.html"
+              # Colorado Soccer Association Advanced League — Fall 2026.
+              "https://playmetricssports.com/g/leagues/1017-2261-93bfc69f/league_view.html"
               # NC Youth Soccer Classic League — Fall 2026.
               "https://playmetricssports.com/g/leagues/1207-2289-46ec05ca/league_view.html"
             )
