@@ -12,7 +12,13 @@ import sys
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from scripts.requeue_failed_scrape_requests import best_request_per_team, is_retryable
+from scripts.requeue_failed_scrape_requests import (
+    _scrape_covered_failure,
+    attempt_time,
+    best_request_per_team,
+    is_retryable,
+    latest_attempt_per_team,
+)
 
 
 def _row(message=None, team=None, priority=2, request_type="active_team"):
@@ -77,3 +83,59 @@ def test_best_request_drops_rows_with_no_team():
     rows = [_row("x", team=None, priority=2), _row("x", team="team-b", priority=3)]
 
     assert set(best_request_per_team(rows)) == {"team-b"}
+
+
+def _attempted(when, team="team-a", priority=2, request_type="active_team", game_date="2026-09-20"):
+    row = _row("Team not found or scrape error", team=team, priority=priority, request_type=request_type)
+    row["processed_at"] = when
+    row["game_date"] = game_date
+    return row
+
+
+def test_scrape_after_the_failure_counts_as_coverage():
+    assert _scrape_covered_failure("2026-09-29T10:00:00+00:00", attempt_time(_attempted("2026-09-28T05:00:00+00:00")))
+
+
+def test_scrape_before_the_failure_is_not_coverage():
+    """The defect a wall-clock window hides: a recent scrape that predates the
+    failure has not covered it, and the team still needs re-queueing."""
+    assert not _scrape_covered_failure(
+        "2026-09-29T10:00:00+00:00", attempt_time(_attempted("2026-09-30T16:00:00+00:00"))
+    )
+
+
+def test_never_scraped_team_is_not_treated_as_covered():
+    assert not _scrape_covered_failure(None, attempt_time(_attempted("2026-09-28T05:00:00+00:00")))
+
+
+def test_attempt_time_prefers_the_claim_over_the_retirement_stamp():
+    """retire_stranded_scrape_requests.py stamps completed_at with the cleanup, so
+    reading that would date a days-old failure to the sweep that swept it up."""
+    row = _row("Retired by retire_stranded_scrape_requests.py: never finalized", team="team-a")
+    row["processed_at"] = "2026-09-27T18:39:00+00:00"
+    row["completed_at"] = "2026-09-30T22:22:00+00:00"
+
+    assert attempt_time(row).isoformat() == "2026-09-27T18:39:00+00:00"
+
+
+def test_latest_attempt_wins_so_an_older_success_cannot_suppress_a_new_failure():
+    rows = [
+        _attempted("2026-09-27T18:39:00+00:00"),
+        _attempted("2026-09-30T16:00:00+00:00"),
+    ]
+
+    latest = latest_attempt_per_team(rows)
+
+    assert latest["team-a"].isoformat() == "2026-09-30T16:00:00+00:00"
+    assert not _scrape_covered_failure("2026-09-29T10:00:00+00:00", latest["team-a"])
+
+
+def test_best_request_breaks_a_priority_tie_on_the_later_attempt():
+    """game_date comes from the chosen row, so the tie-break decides which date
+    the re-queued request carries."""
+    rows = [
+        _attempted("2026-09-27T18:39:00+00:00", game_date="2026-06-01"),
+        _attempted("2026-09-30T16:00:00+00:00", game_date="2026-09-29"),
+    ]
+
+    assert best_request_per_team(rows)["team-a"]["game_date"] == "2026-09-29"

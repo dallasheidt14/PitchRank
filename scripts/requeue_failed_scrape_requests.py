@@ -65,15 +65,13 @@ SUPABASE_KEY = SERVICE_ROLE_KEY or os.getenv("SUPABASE_KEY")
 # retire_stranded_scrape_requests.py, for the same reason.
 DEFAULT_MIN_STRANDED_AGE_HOURS = 24
 
-# A team scraped since its request failed has already been covered by whatever
-# picked it up, so re-enqueueing it spends a ZenRows call on nothing.
-DEFAULT_SKIP_SCRAPED_HOURS = 48
-
 PAGE_SIZE = 1000
 ID_BATCH = 100
 PROGRESS_EVERY = 500
 
-REQUEST_COLUMNS = "id,team_id_master,request_type,priority,status,error_message,processed_at,completed_at"
+REQUEST_COLUMNS = (
+    "id,team_id_master,request_type,priority,status,error_message,game_date,processed_at,completed_at"
+)
 
 # Messages naming a fault re-running cannot clear. Anything else -- the blanket
 # message, a connection reset, a proxy error -- is treated as retryable, and the
@@ -143,17 +141,64 @@ def is_retryable(row: dict) -> bool:
     return not any(marker in message for marker in PERMANENT_ERROR_MARKERS)
 
 
+def attempt_time(row: dict) -> datetime | None:
+    """When the drain took this row on.
+
+    processed_at is the claim, which both the finalize and the stranded path leave
+    alone. completed_at is not interchangeable: retire_stranded_scrape_requests.py
+    stamps it with the retirement, long after the attempt, so preferring it would
+    date a days-old failure to the cleanup that swept it up.
+    """
+    stamp = row.get("processed_at") or row.get("completed_at")
+    return datetime.fromisoformat(stamp) if stamp else None
+
+
+def _rank(row: dict) -> tuple[int, float]:
+    """Highest priority first, then most recent."""
+    when = attempt_time(row)
+    return (row["priority"], -(when.timestamp() if when else 0.0))
+
+
+def _scrape_covered_failure(last_scraped: str | None, failed_at: datetime | None) -> bool:
+    """Whether a productive scrape has happened since the failure."""
+    if not last_scraped or failed_at is None:
+        return False
+    return datetime.fromisoformat(last_scraped) > failed_at
+
+
 def best_request_per_team(rows: list[dict]) -> dict[str, dict]:
-    """The highest-priority request each team held, priority 1 being highest."""
+    """The highest-priority request each team held, priority 1 being highest.
+
+    A tie goes to the most recent, so game_date comes from the latest request at
+    that priority rather than whichever the page order happened to yield first.
+    """
     best: dict[str, dict] = {}
     for row in rows:
         team_id = row.get("team_id_master")
         if not team_id:
             continue
         held = best.get(team_id)
-        if held is None or row["priority"] < held["priority"]:
+        if held is None or _rank(row) < _rank(held):
             best[team_id] = row
     return best
+
+
+def latest_attempt_per_team(rows: list[dict]) -> dict[str, datetime | None]:
+    """The newest attempt each team made, across every one of its retryable rows.
+
+    The skip rule reads this rather than the chosen request's own timestamp: if a
+    team's newest attempt failed, it needs re-queueing whatever an older one did.
+    """
+    latest: dict[str, datetime | None] = {}
+    for row in rows:
+        team_id = row.get("team_id_master")
+        if not team_id:
+            continue
+        when = attempt_time(row)
+        held = latest.get(team_id)
+        if team_id not in latest or (when is not None and (held is None or when > held)):
+            latest[team_id] = when
+    return latest
 
 
 def load_teams(client, team_ids: list[str]) -> dict[str, dict]:
@@ -199,7 +244,7 @@ def summarize_sources(rows: list[dict], dropped: list[dict]) -> None:
         console.print(f"[dim]Excluded as permanent faults: {len(dropped):,} rows[/dim]")
 
 
-def enqueue(client, ready: list[dict], game_date: str) -> tuple[int, int]:
+def enqueue(client, ready: list[dict]) -> tuple[int, int]:
     ok = failed = 0
     for i, team in enumerate(ready, start=1):
         try:
@@ -210,7 +255,7 @@ def enqueue(client, ready: list[dict], game_date: str) -> tuple[int, int]:
                     "p_team_name": team["team_name"],
                     "p_provider_id": team["provider_id"],
                     "p_provider_team_id": team["provider_team_id"],
-                    "p_game_date": game_date,
+                    "p_game_date": team["game_date"],
                     "p_request_type": team["request_type"],
                     "p_priority": team["priority"],
                 },
@@ -246,12 +291,6 @@ def main() -> int:
         default=DEFAULT_MIN_STRANDED_AGE_HOURS,
         help=f"ignore 'processing' rows claimed more recently than this (default {DEFAULT_MIN_STRANDED_AGE_HOURS})",
     )
-    parser.add_argument(
-        "--skip-scraped-hours",
-        type=int,
-        default=DEFAULT_SKIP_SCRAPED_HOURS,
-        help=f"skip teams scraped within this window (default {DEFAULT_SKIP_SCRAPED_HOURS})",
-    )
     parser.add_argument("--limit", type=int, default=None, help="enqueue at most this many teams")
     parser.add_argument("--execute", action="store_true", help="Enqueue. Without this, report only.")
     parser.add_argument(
@@ -284,7 +323,6 @@ def main() -> int:
     now = datetime.now(timezone.utc)
     since_iso = (now - timedelta(hours=args.since_hours)).isoformat()
     min_stranded_iso = (now - timedelta(hours=args.min_stranded_age_hours)).isoformat()
-    scraped_cutoff_iso = (now - timedelta(hours=args.skip_scraped_hours)).isoformat()
 
     client = get_client()
 
@@ -305,13 +343,19 @@ def main() -> int:
         return 0
 
     best = best_request_per_team(retryable)
+    attempts = latest_attempt_per_team(retryable)
     canonical = resolve_merges(client, list(best))
     per_team: dict[str, dict] = {}
+    per_team_attempt: dict[str, datetime | None] = {}
     for team_id, row in best.items():
         target = canonical[team_id]
         held = per_team.get(target)
-        if held is None or row["priority"] < held["priority"]:
+        if held is None or _rank(row) < _rank(held):
             per_team[target] = row
+        when = attempts.get(team_id)
+        held_when = per_team_attempt.get(target)
+        if target not in per_team_attempt or (when is not None and (held_when is None or when > held_when)):
+            per_team_attempt[target] = when
 
     team_ids = sorted(per_team)
     console.print(f"Distinct teams after merge resolution: {len(team_ids):,}")
@@ -320,7 +364,7 @@ def main() -> int:
     protected = teams_with_pending_user_request(client, team_ids)
 
     ready: list[dict] = []
-    skipped = {"missing": 0, "deprecated": 0, "no_provider": 0, "scraped_recently": 0, "user_pending": 0}
+    skipped = {"missing": 0, "deprecated": 0, "no_provider": 0, "scraped_since_failure": 0, "user_pending": 0}
     for team_id in team_ids:
         team = teams.get(team_id)
         if not team:
@@ -332,9 +376,14 @@ def main() -> int:
         if not team.get("provider_id") or not team.get("provider_team_id"):
             skipped["no_provider"] += 1
             continue
-        last_scraped = team.get("last_scraped_at")
-        if last_scraped and last_scraped >= scraped_cutoff_iso:
-            skipped["scraped_recently"] += 1
+        # The scrape has to postdate the failure to have covered it. A fixed
+        # wall-clock window cannot tell the two apart once --since-hours is wider
+        # than the window: it re-enqueues a week-old failure the team already
+        # recovered from, and skips a failure from an hour ago because the team
+        # was scraped yesterday. last_scraped_at only advances on an attempt that
+        # reached the provider, so "later than the failure" means real coverage.
+        if _scrape_covered_failure(team.get("last_scraped_at"), per_team_attempt.get(team_id)):
+            skipped["scraped_since_failure"] += 1
             continue
         if team_id in protected:
             skipped["user_pending"] += 1
@@ -347,6 +396,10 @@ def main() -> int:
                 "provider_id": team["provider_id"],
                 "provider_team_id": team["provider_team_id"],
                 "request_type": request["request_type"],
+                # The request's own date, not today: process_missing_games scrapes a
+                # +/-90 day window around it, so re-anchoring on today moves the
+                # window off the date a user actually asked about.
+                "game_date": request["game_date"] or date.today().isoformat(),
                 "priority": request["priority"],
             }
         )
@@ -373,7 +426,7 @@ def main() -> int:
         console.print("\n[yellow]DRY RUN — nothing enqueued. Re-run with --execute.[/yellow]")
         return 0
 
-    ok, failed = enqueue(client, ready, date.today().isoformat())
+    ok, failed = enqueue(client, ready)
     console.print(f"\n[green]Enqueued {ok:,} teams[/green], {failed:,} failed.")
     console.print("[dim]process_missing_games drains 40 teams every 15 minutes; "
                   'run "Help Clear Queue" for a bulk drain.[/dim]')
