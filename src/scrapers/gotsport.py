@@ -79,6 +79,9 @@ logger = logging.getLogger(__name__)
 # GOTSPORT_WAF_COOLDOWN_SEC.
 _WAF_COOLDOWN_DEFAULT = 300
 
+# Page size for the team matches endpoint; a year of played games usually fits one page.
+MATCHES_PER_PAGE = 100
+
 
 class TeamNotFoundError(Exception):
     """Raised when a team ID returns 404 from the provider API"""
@@ -433,22 +436,11 @@ class GotSportScraper(BaseScraper):
 
         # API endpoint
         api_url = f"{self.BASE_URL}/teams/{normalized_team_id}/matches"
-        # NOTE: do NOT pass `past=true` here. With that param the GotSport API
-        # returns past games only — which silently drops every scheduled fixture.
-        # Calling without it returns past + future together (verified empirically:
-        # active teams return 1-7 future fixtures alongside their played history).
-        # The /schedule-driven-scraping/ design requires future games to land in
-        # the games table so the daily enqueue can trigger off them.
-        params: Dict[str, str] = {}
-
-        # Try to add date filtering at API level (if supported)
-        # Common parameter names: since_date, from_date, date_from, since
-        # Format: YYYY-MM-DD or ISO format
-        if since_date_obj:
-            since_date_str = since_date_obj.strftime("%Y-%m-%d")
-            # Try common date parameter names (API may ignore if not supported)
-            params["since_date"] = since_date_str
-            params["from_date"] = since_date_str
+        # GotSport answers 401 "Please log in" to this endpoint unless `past=true`
+        # is sent (since 2026-10-01), so only played games come back, paginated in
+        # a {"matches", "pagination"} envelope. Scheduled fixtures are no longer
+        # reachable without a login. since_date is applied client-side below.
+        params: Dict[str, str] = {"past": "true", "per_page": str(MATCHES_PER_PAGE)}
 
         # Fetch club name first
         club_name = self._extract_club_name(normalized_team_id)
@@ -460,31 +452,42 @@ class GotSportScraper(BaseScraper):
             # Pause if the cross-worker breaker is open (cooldown after a WAF trip).
             _waf_breaker.wait_if_open_sync()
             try:
-                # Use ZenRows if configured
-                if self.use_zenrows:
-                    response = self._make_zenrows_request(api_url, params)
-                else:
-                    response = self.session.get(api_url, params=params, timeout=self.timeout)
+                matches = []
+                page = 1
+                while True:
+                    page_params = {**params, "page": str(page)}
+                    # Use ZenRows if configured
+                    if self.use_zenrows:
+                        response = self._make_zenrows_request(api_url, page_params)
+                    else:
+                        response = self.session.get(api_url, params=page_params, timeout=self.timeout)
 
-                # Surface transparent urllib3 retries. response.raw.retries may be
-                # None on responses that never triggered the retry machinery.
-                retries_obj = getattr(response.raw, "retries", None)
-                history = getattr(retries_obj, "history", ()) or ()
-                n429 = sum(1 for h in history if getattr(h, "status", None) == 429)
-                if n429:
-                    logger.warning(
-                        "gotsport 429 retries: team=%s count=%d url=%s",
-                        normalized_team_id,
-                        n429,
-                        api_url,
-                    )
+                    # Surface transparent urllib3 retries. response.raw.retries may be
+                    # None on responses that never triggered the retry machinery.
+                    retries_obj = getattr(response.raw, "retries", None)
+                    history = getattr(retries_obj, "history", ()) or ()
+                    n429 = sum(1 for h in history if getattr(h, "status", None) == 429)
+                    if n429:
+                        logger.warning(
+                            "gotsport 429 retries: team=%s count=%d url=%s",
+                            normalized_team_id,
+                            n429,
+                            api_url,
+                        )
 
-                response.raise_for_status()
-                data = response.json()
+                    response.raise_for_status()
+                    data = response.json()
 
-                # API returns a list directly
-                if isinstance(data, list) and data:
-                    matches = data
+                    if isinstance(data, list):
+                        matches.extend(data)
+                        break
+                    matches.extend(data.get("matches") or [])
+                    total_pages = (data.get("pagination") or {}).get("total_pages") or 1
+                    if page >= total_pages:
+                        break
+                    page += 1
+
+                if matches:
                     # Sort by date (newest first) and cap to most recent 30
                     try:
                         matches.sort(key=lambda m: m.get("match_date") or "", reverse=True)
