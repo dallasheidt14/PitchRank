@@ -18,7 +18,8 @@ it introduces ECNL or MLS, so `Pre-NPL Gold` never shares a key with `NPL Gold`.
 when:
   - they share club (compared with punctuation and case stripped), age_group, gender and
     state_code, a NULL club borrowing the cohort's longest club the team name starts with
-  - their squad keys are equal and not empty
+  - their squad keys are equal and not empty, a name with no squad word left keying on the
+    set of leagues it states (`VDA 2011B ECNL` with `VDA ECNL B2010/11`)
   - the cohorts their names state can be one cohort: a band names one age, a U-age one age
     or a range of two, a bare birth year either of two, two bare years must be the same year,
     and a name whose
@@ -32,9 +33,9 @@ in effect, and pairing it would propose merges into a row that is going away.
 Screens, each decisive: opposite genders in the registered names, a head-to-head game, a
 shared game date, a self-play row. A row pairing cleanly with more than one other row is held
 rather than guessed at, and so is a pair neither of whose names fits the stored age group.
-The survivor is the row whose name states a band or a current U-age,
-then a bare birth year, then no age, and last a label stale for the stored cohort; ties go to
-more games, then the latest game.
+The survivor is the row whose name states a band or a U-age, even one the stored cohort
+contradicts, then a bare birth year, then no age, and last a bare birth year the stored cohort
+contradicts; ties go to more games, then the latest game.
 
 Every provider but modular11 is scanned, the per-event ones included, because a squad
 re-registered for each event is the shape it exists to find.
@@ -230,6 +231,19 @@ def squad_key(team_name: str | None, club: str | None, state_code: str | None = 
     return frozenset(kept)
 
 
+def pairing_key(team_name: str | None, club: str | None, state_code: str | None = None) -> frozenset:
+    """The squad key, or for a name left with no squad word (`VDA 2011B ECNL`) every league it
+    states, read after the club's words and initials and the row's state code are removed, so a
+    Georgia `GA` or a club called `GA Rush` is not taken for Girls Academy."""
+    key = squad_key(team_name, club, state_code)
+    if key:
+        return key
+    club_words = read_name(club).words
+    removable = set(club_words) | {(state_code or "").lower()}
+    own = [w for w in read_name(team_name).words if w not in removable and not is_club_initials(w, club_words)]
+    return stated_leagues(" ".join(own))
+
+
 def stated_cohort(team_name: str | None) -> tuple[set[int] | None, set[int]]:
     """(ages, bare): the ages a name allows, and a one-element set holding its bare birth year
     when it states exactly one, else an empty set.
@@ -261,6 +275,17 @@ def stated_league(team_name: str | None) -> str | None:
     return None
 
 
+def stated_leagues(text: str | None) -> frozenset:
+    """Every league a text states, each match removed before the next pattern runs so `ECNL RL`
+    is read as ECNL RL alone, the same league as a bare `RL`."""
+    lowered, found = (text or "").lower(), set()
+    for league, pattern in LEAGUE_PATTERNS:
+        if pattern.search(lowered):
+            found.add(league)
+            lowered = pattern.sub(" ", lowered)
+    return frozenset(found)
+
+
 def leagues_conflict(name_a: str | None, name_b: str | None) -> bool:
     a, b = stated_league(name_a), stated_league(name_b)
     return bool(a and b and a != b and frozenset({a, b}) not in COMPATIBLE_LEAGUES)
@@ -282,13 +307,13 @@ def contradicts_stored_cohort(team_name: str | None, age_group: str) -> bool:
 
 
 def name_rank(team_name: str | None, age_group: str) -> int:
-    """2 for a band or U-age that fits the stored cohort, 1 for a bare birth year, 0 for no
-    stated age, -1 for a label stale for, or contradicting, the stored cohort."""
+    """2 for a band or U-age, whether or not it fits the stored cohort, 1 for a bare birth year,
+    0 for no stated age, -1 for a bare birth year contradicting the stored cohort."""
     reading = read_name(team_name)
-    if ages_contradict(reading.ages, age_group):
-        return -1
     if reading.exact:
         return 2
+    if ages_contradict(reading.ages, age_group):
+        return -1
     return 1 if reading.bare else 0
 
 
@@ -312,7 +337,7 @@ def effective_clubs(teams) -> dict[str, str | None]:
 
 
 def build_pairs(teams, provider_code) -> tuple[list[dict], list[dict]]:
-    """Pairs sharing a squad key, split into those the names admit and those they refuse."""
+    """Pairs sharing a pairing key, split into those the names admit and those they refuse."""
     teams = [
         t
         for t in teams
@@ -322,7 +347,7 @@ def build_pairs(teams, provider_code) -> tuple[list[dict], list[dict]]:
     groups = defaultdict(list)
     for t in teams:
         club = clubs[t["team_id_master"]]
-        key = squad_key(t["team_name"], club, t["state_code"])
+        key = pairing_key(t["team_name"], club, t["state_code"])
         if club and key:
             groups[(normalize(club), t["age_group"], t["gender"], t["state_code"] or "", key)].append(t)
 

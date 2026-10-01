@@ -309,6 +309,7 @@ provider difference.
 
 `scripts/find_squad_key_duplicates.py --state <XX>` implements it, propose-only, by pairing rows
 whose **squad key** — the name with its club, cohort, gender and league words removed — is
+equal, or, for names with no squad word left (`VDA 2011B ECNL`), whose stated leagues are
 equal. Its `--help` carries the pairing rules, the screens and the blind spots; read it rather
 than a copy here. Its JSON goes through Steps 4 to 6 and then straight to
 `apply_vetted_team_merges.py`. Do not route it through `decide_team_merges.py`: that script
@@ -714,10 +715,11 @@ wrong state, a NULL distinction and a shallower rank history.
 
 So decide the survivor in this order. First, the name, by owner decision (2026-09-23: "we want
 to merge into the new age format with two numbers i.e. 2015/16 or U11 preferabbly over 2016(just
-a birth year)"): keep the row whose name states a two-year band or a current U-age over one
-stating a bare birth year, over one stating no age, and last one whose stated age contradicts
-the stored cohort — most often a stale U-age, where `U13` on a team now filed u14 would put last
-season's age on the board. Then,
+a birth year)"): keep the row whose name states a two-year band or a U-age over one stating a
+bare birth year, over one stating no age. A U-age that disagrees with the stored cohort still
+ranks first — the owner, 2026-09-30: "we always want to merge ... from a team name with a single
+birth year to a team with two birth years or a U as thats the new format." Only a bare birth
+year the stored cohort contradicts ranks last. Then,
 between equally named rows, keep the one holding more games, and after that the one that played
 last. Game count is a stand-in for the live schedule, not the same thing: where a busy row has
 gone quiet and a thinner one holds this season's fixtures, keep the live one. Games follow the

@@ -51,6 +51,14 @@ reviewers give `merge`, `separate` or `owner`; same-day reviewers give `refusal_
 both merge into a third row, and `"extra": true` to a merge between two rows no input pair
 joins, placed after the input-ordered objects.
 
+Parallel reviewers share one session scratchpad, so give each its own subfolder there in its
+prompt and tell it never to run a script it did not write. Without that they overwrite each
+other's helper scripts, and one re-ran another reviewer's writer over a finished verdict file.
+
+Reviewers often note a stored age group that disagrees with a team's name or schedule. A note
+that leaves the pair's own verdict unchanged goes into the state's Step 8 record and does not
+hold back the apply; a cohort difference between the pair's two rows still decides the verdict.
+
 ## Check every verdict file against its input
 
 Before combining anything, compare each output file with its input line by line on those four
@@ -80,6 +88,16 @@ cluster to the owner rather than choosing between them.
 - **Owner page:** everything else that review could not settle.
 
 ## Apply, then build the owner page
+
+Before starting or restarting an apply for a state, list the running Python processes. Git
+Bash's `ps` does not show native Windows processes, so from the Bash tool run:
+
+```bash
+powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | Select-Object ProcessId,CommandLine"
+```
+
+An apply that looks dead may still be running; a second one races it, and with the same `--out`
+overwrites its log.
 
 Apply the vetted merges (Step 6) before building the owner page, so each card shows games
 merged together. Re-point every owner pair at the survivors first: a pair whose row was retired

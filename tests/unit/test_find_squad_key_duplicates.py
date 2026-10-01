@@ -239,13 +239,18 @@ def test_every_league_spelling_is_read(a, b):
 # --- survivor name -----------------------------------------------------------------------
 
 
-def test_names_rank_band_or_u_age_then_bare_year_then_none_then_stale():
+def test_names_rank_band_or_u_age_then_bare_year_then_none_then_contradicting_year():
     assert fsk.name_rank(f"Club B{yy(born(12) - 1)}/B{yy(born(12))} Gold", "u12") == 2
     assert fsk.name_rank("Club U12B Gold", "u12") == 2
     assert fsk.name_rank(f"Club B{born(12) - 1}/{yy(born(12))} Gold", "u12") == 2
     assert fsk.name_rank(f"Club {born(12)}B Gold", "u12") == 1
     assert fsk.name_rank("Club Gold", "u12") == 0
-    assert fsk.name_rank("Club U13B Gold", "u12") == -1
+    assert fsk.name_rank(f"Club {born(14)}B Gold", "u12") == -1
+
+
+def test_a_u_age_outranks_a_bare_year_even_when_the_stored_cohort_contradicts_it():
+    assert fsk.name_rank("Club U13B Gold", "u12") == 2
+    assert fsk.name_rank(f"Club B{born(14) - 1}/{yy(born(14))} Gold", "u12") == 2
 
 
 def test_a_u18_name_fits_the_u19_board():
@@ -284,6 +289,59 @@ def test_two_spellings_of_one_squad_pair():
 
 def test_rows_with_no_squad_key_never_pair():
     teams = [team("a", "Colorado EDGE U12B"), team("b", f"EDGE {born(12)}B", provider=TGS)]
+    assert fsk.build_pairs(teams, PROVIDERS) == ([], [])
+
+
+def test_rows_left_with_only_a_league_pair_on_that_league():
+    teams = [team("a", f"EDGE {born(12)}B ECNL"), team("b", f"EDGE ECNL B{born(12) - 1}/{yy(born(12))}", provider=TGS)]
+    admitted, _ = fsk.build_pairs(teams, PROVIDERS)
+    assert pair_ids(admitted) == {frozenset({"a", "b"})}
+
+
+def test_rows_left_with_only_a_league_never_pair_across_leagues():
+    teams = [
+        team("a", f"EDGE {born(12)}B ECNL"),
+        team("b", f"EDGE ECNL RL B{born(12) - 1}/{yy(born(12))}", provider=TGS),
+    ]
+    assert fsk.build_pairs(teams, PROVIDERS) == ([], [])
+
+
+def test_a_league_only_row_pairs_across_spellings_of_one_league():
+    teams = [team("a", f"EDGE {born(12)}B RL"), team("b", f"EDGE ECNL RL B{born(12) - 1}/{yy(born(12))}", provider=TGS)]
+    admitted, _ = fsk.build_pairs(teams, PROVIDERS)
+    assert pair_ids(admitted) == {frozenset({"a", "b"})}
+
+
+@pytest.mark.parametrize(
+    "a_name, b_name",
+    [
+        (f"EDGE {born(12)}B ECNL NPL", f"EDGE ECNL B{born(12) - 1}/{yy(born(12))}"),
+        (f"EDGE {born(12)}B Pre-ECNL", f"EDGE ECNL B{born(12) - 1}/{yy(born(12))}"),
+    ],
+)
+def test_league_only_rows_pair_only_on_the_same_set_of_leagues(a_name, b_name):
+    teams = [team("a", a_name), team("b", b_name, provider=TGS)]
+    assert fsk.build_pairs(teams, PROVIDERS) == ([], [])
+
+
+def test_a_state_code_that_spells_a_league_is_not_a_league():
+    teams = [
+        team("a", f"Concorde Fire GA {born(12)}B", club="Concorde Fire", state="GA"),
+        team("b", f"Concorde Fire {born(12)} Boys GA", club="Concorde Fire", state="GA", provider=TGS),
+    ]
+    assert fsk.build_pairs(teams, PROVIDERS) == ([], [])
+
+
+def test_a_club_word_that_spells_a_league_is_not_a_league():
+    teams = [
+        team("a", f"GA Rush {born(12)}B", club="GA Rush", state="SC"),
+        team("b", f"GA Rush {born(12)} Boys", club="GA Rush", state="SC", provider=TGS),
+    ]
+    assert fsk.build_pairs(teams, PROVIDERS) == ([], [])
+
+
+def test_a_league_only_row_never_pairs_with_a_row_that_names_a_squad():
+    teams = [team("a", f"EDGE {born(12)}B ECNL"), team("b", f"EDGE ECNL {born(12)}B Purple", provider=TGS)]
     assert fsk.build_pairs(teams, PROVIDERS) == ([], [])
 
 
@@ -463,10 +521,10 @@ def test_scan_holds_a_pair_neither_of_whose_names_fits_the_stored_cohort():
 
 
 @pytest.mark.parametrize("stale_first", [True, False])
-def test_scan_proposes_a_pair_where_only_one_name_is_stale(stale_first):
+def test_scan_keeps_the_u_age_name_where_only_it_is_stale(stale_first):
     stale, fits = team("a", "EDGE U11B Purple"), team("b", f"EDGE {born(12)}B Purple", provider=TGS)
     rec = _only(_scan([stale, fits] if stale_first else [fits, stale]), fsk.PROPOSED)
-    assert rec["keep_id"] == "b"
+    assert rec["keep_id"] == "a"
 
 
 # --- output ------------------------------------------------------------------------------
