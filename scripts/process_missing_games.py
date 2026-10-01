@@ -4,6 +4,7 @@ Process Missing Games Requests
 
 This script processes user-initiated scrape requests from the scrape_requests table.
 It queries for pending requests, scrapes the requested games, and imports them.
+When the queue is empty it tops up from the teams table with drain_queue's selector.
 
 Usage:
     python scripts/process_missing_games.py [--limit 10] [--dry-run] [--continuous] [--interval 30]
@@ -29,6 +30,7 @@ from supabase import Client, create_client
 # Add project root to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from scripts.drain_queue import _fetch_topup_teams
 from src.etl.bulk_ops import bulk_update_last_scraped_at
 from src.scrapers.gotsport import GotSportScraper, TeamNotFoundError, WAFBlockedError
 
@@ -84,8 +86,12 @@ class MissingGamesProcessor:
             "waf_aborted": 0,
         }
 
-    def get_pending_requests(self, limit: int = 40) -> List[Dict]:
-        """Fetch pending scrape requests from database, ordered by priority then age."""
+    def get_pending_requests(self, limit: int = 40) -> Optional[List[Dict]]:
+        """Fetch pending scrape requests from database, ordered by priority then age.
+
+        Returns None when the read fails, so a failed read is not taken for an
+        empty queue and spent on a top-up.
+        """
         try:
             result = (
                 self.supabase.table("scrape_requests")
@@ -100,10 +106,14 @@ class MissingGamesProcessor:
             return result.data if result.data else []
         except Exception as e:
             logger.error(f"Error fetching pending requests: {e}")
-            return []
+            return None
 
-    def update_request_status(self, request_id: str, status: str, **kwargs):
+    def update_request_status(self, request_id: Optional[str], status: str, **kwargs):
         """Update scrape request status in database"""
+        # A topped-up team has no queue row to update.
+        if request_id is None:
+            return
+
         if self.dry_run:
             logger.info(f"[DRY RUN] Would update request {request_id} to status: {status}")
             return
@@ -602,11 +612,14 @@ class MissingGamesProcessor:
         # Get pending requests
         requests = self.get_pending_requests(limit)
 
-        if not requests:
-            logger.info("No pending requests found")
+        if requests is None:
             return self.stats
 
-        logger.info(f"Found {len(requests)} pending requests")
+        if requests:
+            logger.info(f"Found {len(requests)} pending requests")
+        else:
+            logger.info("No pending requests found")
+            self.process_topup_teams(limit)
 
         # Process each request
         for request in requests:
@@ -639,6 +652,54 @@ class MissingGamesProcessor:
         # Log summary
         self.log_summary()
         return self.stats
+
+    def process_topup_teams(self, limit: int) -> None:
+        """Scrape eligible teams from the teams table when the queue is empty.
+
+        Selects with drain_queue's top-up rules, so both drainers pick the same
+        teams. Each team is scraped as if requested for today, over the same
+        181-day window as a queue request.
+        """
+        provider_id = self.scrapers["gotsport"]._get_provider_id()
+        teams = _fetch_topup_teams(self.supabase, provider_id, limit, set())
+        logger.info(f"Topping up with {len(teams)} teams from the teams table")
+
+        today = datetime.now().strftime("%Y-%m-%d")
+        for index, team in enumerate(teams, start=1):
+            self.stats["processed"] += 1
+            team_id_master = team["team_id_master"]
+            provider_team_id = team["provider_team_id"]
+
+            try:
+                games = self.scrape_games_for_date("gotsport", provider_team_id, today)
+            except TeamNotFoundError as e:
+                logger.error(f"Failed to process top-up team {provider_team_id}: {e}")
+                self._record_scrape_attempt(team_id_master, provider_id, 0, "error", update_last_scraped_at=True)
+                self.stats["failed"] += 1
+                continue
+            except WAFBlockedError as e:
+                logger.error(f"GotSport WAF abort after {index} of {len(teams)} top-up teams: {e}")
+                self._record_scrape_attempt(team_id_master, provider_id, 0, "error", update_last_scraped_at=False)
+                self.stats["failed"] += 1
+                self.stats["waf_aborted"] += 1
+                break
+            except Exception as e:
+                logger.error(f"Failed to process top-up team {provider_team_id}: {e}")
+                self._record_scrape_attempt(team_id_master, provider_id, 0, "error", update_last_scraped_at=False)
+                self.stats["failed"] += 1
+                continue
+
+            self._record_scrape_attempt(
+                team_id_master,
+                provider_id,
+                len(games),
+                "success" if games else "partial",
+                update_last_scraped_at=True,
+            )
+            if games:
+                self._pending_imports.append(("gotsport", games, None))
+                self.stats["games_found"] += len(games)
+            self.stats["successful"] += 1
 
     def _flush_pending_imports(self) -> None:
         """Import every buffered request's games, one subprocess per provider.
