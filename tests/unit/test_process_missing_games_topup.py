@@ -40,14 +40,17 @@ class _Query:
             offset = self.payload["p_offset"]
             return Mock(data=self.db.topup_rows[offset : offset + self.payload["p_row_limit"]])
         if self.kind == "table" and self.name == "scrape_requests" and not self.payload:
+            if self.db.queue_read_error:
+                raise self.db.queue_read_error
             return Mock(data=self.db.pending)
         return Mock(data=[])
 
 
 class _Db:
-    def __init__(self, pending=None, topup_rows=None):
+    def __init__(self, pending=None, topup_rows=None, queue_read_error=None):
         self.pending = pending or []
         self.topup_rows = topup_rows or []
+        self.queue_read_error = queue_read_error
         self.executed = []
 
     def table(self, name):
@@ -154,6 +157,18 @@ def test_pending_queue_rows_suppress_the_topup():
 
     assert db.rpc_calls("find_topup_teams") == []
     assert [c.args[1] for c in processor.scrape_games_for_date.call_args_list] == ["101"]
+
+
+def test_failed_queue_read_does_not_top_up():
+    """A failed read is not an empty queue: topping up would spend the run on
+    unrelated teams while user requests sit unread."""
+    db = _Db(topup_rows=[_topup_row(1)], queue_read_error=RuntimeError("statement timeout"))
+    processor = _processor(db, lambda provider, team_id, date: [])
+
+    processor.process_all(limit=40)
+
+    assert db.rpc_calls("find_topup_teams") == []
+    processor.scrape_games_for_date.assert_not_called()
 
 
 def test_team_not_found_logs_an_error_and_moves_on():

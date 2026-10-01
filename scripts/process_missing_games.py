@@ -86,8 +86,12 @@ class MissingGamesProcessor:
             "waf_aborted": 0,
         }
 
-    def get_pending_requests(self, limit: int = 40) -> List[Dict]:
-        """Fetch pending scrape requests from database, ordered by priority then age."""
+    def get_pending_requests(self, limit: int = 40) -> Optional[List[Dict]]:
+        """Fetch pending scrape requests from database, ordered by priority then age.
+
+        Returns None when the read fails, so a failed read is not taken for an
+        empty queue and spent on a top-up.
+        """
         try:
             result = (
                 self.supabase.table("scrape_requests")
@@ -102,7 +106,7 @@ class MissingGamesProcessor:
             return result.data if result.data else []
         except Exception as e:
             logger.error(f"Error fetching pending requests: {e}")
-            return []
+            return None
 
     def update_request_status(self, request_id: Optional[str], status: str, **kwargs):
         """Update scrape request status in database"""
@@ -607,6 +611,9 @@ class MissingGamesProcessor:
 
         # Get pending requests
         requests = self.get_pending_requests(limit)
+
+        if requests is None:
+            return self.stats
 
         if requests:
             logger.info(f"Found {len(requests)} pending requests")
