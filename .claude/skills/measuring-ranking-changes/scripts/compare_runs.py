@@ -204,7 +204,10 @@ def run_checks(base: dict, cand: dict, freeze_dir: Path) -> dict:
         raise SystemExit(f"{freeze_dir / 'games.parquet'} is not the games file these runs used")
 
     bt, ct = base["teams"], cand["teams"]
-    joined = bt[["status", "games_played"]].join(ct[["status", "games_played"]], rsuffix="_c", how="inner")
+    # Outer, so a team one run dropped entirely still counts: it is "absent" with no games.
+    joined = bt[["status", "games_played"]].join(ct[["status", "games_played"]], rsuffix="_c", how="outer")
+    joined[["status", "status_c"]] = joined[["status", "status_c"]].fillna("absent")
+    joined[["games_played", "games_played_c"]] = joined[["games_played", "games_played_c"]].fillna(0)
     min_games = base["provenance"]["glicko_config"]["MIN_GAMES_PROVISIONAL"]
     engine_cols = ["mu", "powerscore_adj", "powerscore_ml"]
     before, after = bt[engine_cols].reindex(ct.index), ct[engine_cols]
@@ -218,6 +221,8 @@ def run_checks(base: dict, cand: dict, freeze_dir: Path) -> dict:
     return {
         "same_today": base["provenance"]["today"] == cand["provenance"]["today"],
         "same_team_set": bool(bt.index.sort_values().equals(ct.index.sort_values())),
+        "teams_only_in_base": int(len(bt.index.difference(ct.index))),
+        "teams_only_in_cand": int(len(ct.index.difference(bt.index))),
         "same_frozen_client_calls": base_calls == cand_calls,
         "became_active": int(((joined["status"] != "Active") & (joined["status_c"] == "Active")).sum()),
         "left_active": int(((joined["status"] == "Active") & (joined["status_c"] != "Active")).sum()),
@@ -246,8 +251,10 @@ def warnings(checks: dict) -> list[str]:
         )
     if checks["became_active"] or checks["left_active"] or not checks["same_team_set"]:
         out.append(
-            f"{checks['became_active']} teams became Active and {checks['left_active']} left Active; movement covers "
-            "teams Active in both runs, so report these counts and the min-games crossings beside it."
+            f"{checks['became_active']} teams became Active and {checks['left_active']} left Active "
+            f"({checks['teams_only_in_base']} exist only in the base run, {checks['teams_only_in_cand']} only in the "
+            "candidate); movement covers teams Active in both runs, so report these counts and the min-games "
+            "crossings beside it."
         )
     if checks["fetch_code_not_measured"]:
         out.append(

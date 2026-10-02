@@ -7,7 +7,7 @@ description: "Measures what a PitchRank ranking-engine change would do before it
 
 Re-rate one set of frozen production inputs with the baseline code and with the candidate, then compare the two runs. Nothing here writes to the database: the freeze sends only GET requests, and a board runs on an in-memory client that raises on every write.
 
-A board hands the frozen games straight to `compute_all_cohorts`, so it never runs `fetch_games_for_rankings`. A change to the games query, the exclusion list, merge resolution of game rows or de-duplication does not reach a board. Measure such a change at the input instead: freeze once with each code root on the same `--today`, then compare the two `<freeze dir>/games.parquet` files for games added or removed, teams affected, and teams crossing `MIN_GAMES_PROVISIONAL` (12). A board whose code root changed the fetch code lists the files in `fetch_code_not_measured`.
+A board hands the frozen games straight to `compute_all_cohorts`, so it never runs `fetch_games_for_rankings`. A change to the games query, the exclusion list, merge resolution of game rows or de-duplication does not reach a board. Measure such a change at the input instead: freeze once with each code root on the same `--today`, then compare the two `<freeze dir>/games.parquet` files for games added or removed, teams affected, and teams crossing `MIN_GAMES_PROVISIONAL` (12). A board whose code root changed the fetch's files, the helpers it calls, or the fetch window lists them in `fetch_code_not_measured`.
 
 ## Step 1: Prepare One Worktree per Code Version
 
@@ -61,7 +61,7 @@ python <skill dir>/scripts/compare_runs.py --base <run dir> --cand <run dir> --f
 It refuses two runs made on different freezes, or a `--freeze` the runs did not use, and prints its warnings. The report holds:
 
 - `checks.teams_with_engine_or_ml_change`: teams whose `mu`, `powerscore_adj` or `powerscore_ml` changed. Zero means the change never reaches the engine, given the A/A check in Step 6.
-- `checks.became_active`, `left_active`, `crossed_min_games_up` and `crossed_min_games_down`: the status and `MIN_GAMES_PROVISIONAL` crossings the blast radius needs.
+- `checks.became_active`, `left_active`, `crossed_min_games_up` and `crossed_min_games_down`: the status and `MIN_GAMES_PROVISIONAL` crossings the blast radius needs. A team one run dropped entirely counts as absent with no games, and `teams_only_in_base` and `teams_only_in_cand` count those teams.
 - `checks.config_differences`: config and environment keys that differ between the runs. Each must be one your change sets on purpose.
 - `checks.gate_columns_comparable`: false when the runs' `last_calculated` differ, which two pinned boards on one freeze never do.
 - `movement`: per board, for teams Active in both runs, each ranked on its own run's board: ranks changed, the largest move, points deltas on the 0–100 scale, and top-25 and top-100 entrants.

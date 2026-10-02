@@ -19,7 +19,9 @@ from __future__ import annotations
 import argparse
 import asyncio
 import hashlib
+import importlib
 import importlib.metadata
+import inspect
 import json
 import logging
 import os
@@ -45,8 +47,11 @@ ENGINE_FILES = [
     "src/utils/merge_resolver.py",
     "config/settings.py",
 ]
-# The games fetch runs only in a freeze; a board reports when its code root changed these files.
+# The games fetch runs only in a freeze; a board reports when its code root changed the fetch's own
+# files, the helpers it calls from elsewhere, or the fetch window (recorded as a value, since the
+# window's files are ones most ranking changes edit).
 FETCH_FILES = ["src/rankings/data_adapter.py", "src/utils/merge_resolver.py"]
+FETCH_FUNCTIONS = [("src.rankings.shared", "normalize_gender")]
 # fetch_games_for_rankings' output; the engine's own cache files add selection columns and hold one cohort.
 ENGINE_GAME_COLUMNS = {
     "age",
@@ -87,6 +92,14 @@ def write_json(path: Path, value) -> None:
 
 def git(root: Path, *args: str) -> str:
     return subprocess.check_output(["git", "-C", str(root), *args], text=True, encoding="utf-8")
+
+
+def fetch_fingerprint(code_root: Path) -> dict[str, str]:
+    prints = {f: digest(code_root / f) for f in FETCH_FILES}
+    for module_name, name in FETCH_FUNCTIONS:
+        source = inspect.getsource(getattr(importlib.import_module(module_name), name))
+        prints[f"{module_name}.{name}"] = hashlib.sha256(source.encode()).hexdigest()
+    return prints
 
 
 def load_freeze(freeze_dir: Path) -> dict:
@@ -205,8 +218,9 @@ def cmd_freeze(args) -> None:
             "code_head": git(code_root, "rev-parse", "HEAD").strip(),
             "games_source": games_source,
             "games_rows": len(games),
+            "fetch_lookback_days": lookback_days,
             # None when the games were reused: their fetch code is unknown.
-            "fetch_code_sha256": None if args.games_from else {f: digest(code_root / f) for f in FETCH_FILES},
+            "fetch_code_sha256": None if args.games_from else fetch_fingerprint(code_root),
             "metadata_ids_requested": len(ids),
             # Game team ids merged away since the games were resolved; drift when they were reused.
             "team_ids_deprecated_in_merge_map": len(set(ids) & set(snapshot)),
@@ -421,9 +435,16 @@ def cmd_board(args) -> None:
         raise SystemExit(f"merge map did not load from the frozen snapshot (version {resolver.version})")
 
     fetch_sha = manifest.get("fetch_code_sha256")
-    fetch_not_measured = (
-        None if fetch_sha is None else sorted(f for f, sha in fetch_sha.items() if digest(code_root / f) != sha)
-    )
+    fetch_not_measured = None
+    if fetch_sha is not None:
+        candidate_prints = fetch_fingerprint(code_root)
+        fetch_not_measured = sorted(k for k, sha in fetch_sha.items() if candidate_prints.get(k) != sha)
+    window = calculator._effective_fetch_lookback_days(365, use_glicko=True)
+    if manifest.get("fetch_lookback_days") not in (None, window):
+        fetch_not_measured = [
+            *(fetch_not_measured or []),
+            f"fetch window {manifest['fetch_lookback_days']} -> {window} days",
+        ]
     if fetch_not_measured:
         log.warning(
             "games-fetch code differs from the freeze's and is not measured by this board: %s", fetch_not_measured
