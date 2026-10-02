@@ -39,7 +39,7 @@ SQL_OUTPUT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "club
 PROVIDER_CHANGES_PATH = Path("logs") / "club_name_provider_changes.csv"
 REVIEW_PATH = Path("logs") / "club_name_review.csv"
 
-PROVIDER_RULE_CODES = ("sincsports", "playmetrics")
+PROVIDER_RULE_CODES = ("sincsports", "playmetrics", "affinity_ut")
 
 # Hard-coded canonical overrides: (state_code, match_type, pattern, canonical_name)
 # match_type: "exact" (case-insensitive), "prefix" (starts with), "regex"
@@ -495,6 +495,68 @@ CLUB_CANONICAL_OVERRIDES = [
     ("UT", "exact", "La Roca", "La Roca FC"),
     ("UT", "exact", "Atletico FC", "Atletico"),
     ("UT", "exact", "AYSO UTAH", "AYSO United"),
+    # The UYSA Affinity import (provider affinity_ut, first run 2026-10-02) writes the
+    # registration name, which carries the division tier, the squad colour, the coach's
+    # initials or the age group in the club field. The owner named the three canonical
+    # clubs on 2026-10-02: Blast SC (aka Blast Soccer, Blast Soccer Club), Northern Utah
+    # United Soccer (aka NUU) and Liverpool FC IA Utah (aka Liverpool International
+    # Academy), each of which already held teams under its GotSport spelling, so these
+    # entries rejoin one club rather than renaming a provider's own. Premier, Select and
+    # Provisional are team distinctions and not part of a club's name.
+    #
+    # The branch rule still applies: Utah Athletic Club's North (Draper), South, South
+    # (Nephi) and West (Tooele) rows stay their own clubs and are only re-cased, as do
+    # the UCSC squads. SWAT, WJFC and PAC B are acronyms and are deliberately absent.
+    ("UT", "exact", "Blast", "Blast SC"),
+    ("UT", "exact", "Blast Blue", "Blast SC"),
+    ("UT", "exact", "Blast White", "Blast SC"),
+    ("UT", "exact", "Blast Soccer HSP", "Blast SC"),
+    ("UT", "exact", "NUU", "Northern Utah United Soccer"),
+    ("UT", "exact", "NUU Avalanche ECNL RL", "Northern Utah United Soccer"),
+    ("UT", "exact", "Northern Utah United (NUU)", "Northern Utah United Soccer"),
+    ("UT", "exact", "Liverpool FC IA - Select", "Liverpool FC IA Utah"),
+    ("UT", "exact", "Liverpool FC IA - Premier", "Liverpool FC IA Utah"),
+    ("UT", "exact", "Liverpool FC IA - Provisional", "Liverpool FC IA Utah"),
+    ("UT", "exact", "Liverpool FCIAUT-EM", "Liverpool FC IA Utah"),
+    ("UT", "exact", "Liverpool FC International Academy", "Liverpool FC IA Utah"),
+    ("UT", "exact", "Liverpool FCIA", "Liverpool FC IA Utah"),
+    ("UT", "exact", "HSP Copper Mountain", "Copper Mountain"),
+    ("UT", "exact", "Atletico HSP", "Atletico"),
+    ("UT", "exact", "Avalanche Pre-ECNL", "Avalanche"),
+    ("UT", "exact", "Celtic GA", "Celtic"),
+    ("UT", "exact", "Celtic GA Aspire", "Celtic"),
+    ("UT", "exact", "Celtic Pre-GA", "Celtic"),
+    ("UT", "exact", "Celtic Pre-MLS NEXT", "Celtic"),
+    ("UT", "exact", "City SC UT Classic", "City SC UT"),
+    ("UT", "exact", "City SC UT HSP", "City SC UT"),
+    ("UT", "exact", "Impact Aspire", "Impact"),
+    ("UT", "exact", "Rock Springs Avengers HSP", "Rock Springs Avengers"),
+    ("UT", "exact", "GA Wasatch SC", "Wasatch SC"),
+    ("UT", "exact", "Wasatch SC HSP", "Wasatch SC"),
+    ("UT", "exact", "Strikers BW HSP", "Strikers"),
+    ("UT", "exact", "Strikers KS HSP", "Strikers"),
+    ("UT", "exact", "Strikers PD HSP", "Strikers"),
+    ("UT", "exact", "Strikers SR HSP", "Strikers"),
+    ("UT", "exact", "Strikers TW HSP", "Strikers"),
+    ("UT", "exact", "Cottonwood FC G HSP Red", "Cottonwood FC"),
+    ("UT", "exact", "Utah Rio FC - Girls Provisional", "Utah Rio FC"),
+    ("UT", "exact", "UCSC Titans HSP", "UCSC Titans"),
+    ("UT", "exact", "UCSC FC Silver Falcons HSP", "UCSC FC Silver Falcons"),
+    ("UT", "exact", "Utah Development Academy 12U Girls", "Utah Development Academy"),
+    ("UT", "exact", "Utah Development Academy 13U Boys", "Utah Development Academy"),
+    ("UT", "exact", "Utah Development Academy 14U Boys", "Utah Development Academy"),
+    ("UT", "exact", "Utah Development Academy 14U Girls", "Utah Development Academy"),
+    ("UT", "exact", "Utah Development Academy 15U Boys", "Utah Development Academy"),
+    ("UT", "exact", "Utah Development Academy 16U Boys", "Utah Development Academy"),
+    ("UT", "exact", "Utah Development Academy 17U Boys", "Utah Development Academy"),
+    ("UT", "exact", "Utah Development Academy 19U Boys", "Utah Development Academy"),
+    ("UT", "exact", "SCSL MAGIC UNITED", "SCSL Magic United"),
+    ("UT", "exact", "UTAH ATHLETIC ACADEMY NORTH", "Utah Athletic Academy North"),
+    ("UT", "exact", "UTAH ATHLETIC ACADEMY SOUTH", "Utah Athletic Academy South"),
+    ("UT", "exact", "UTAH ATHLETIC CLUB NORTH (DRAPER)", "Utah Athletic Club North (Draper)"),
+    ("UT", "exact", "UTAH ATHLETIC CLUB SOUTH", "Utah Athletic Club South"),
+    ("UT", "exact", "UTAH ATHLETIC CLUB SOUTH (NEPHI)", "Utah Athletic Club South (Nephi)"),
+    ("UT", "exact", "UTAH ATHLETIC CLUB WEST (TOOELE)", "Utah Athletic Club West (Tooele)"),
     ("UT", "exact", "blast fc", "Blast SC"),
     ("UT", "exact", "Club America", "Club America Nido Aguila Soccer Academy"),
     ("UT", "exact", "Colorado Elevation", "Colorado Elevation FC"),
@@ -505,7 +567,9 @@ CLUB_CANONICAL_OVERRIDES = [
     ("UT", "exact", "Layton Strikers Soccer Club", "Layton Strikers"),
     ("UT", "exact", "la roca south", "La Roca FC"),
     ("UT", "exact", "la roca sf", "La Roca FC"),
-    ("UT", "exact", "Liverpool FC", "Liverpool FC International Academy"),
+    # Redirected when "Liverpool FC International Academy" itself folded into
+    # "Liverpool FC IA Utah"; pointing at the retired spelling cost a second weekly run.
+    ("UT", "exact", "Liverpool FC", "Liverpool FC IA Utah"),
     ("UT", "exact", "peak fc", "Peak SC"),
     ("UT", "exact", "rampage fc", "Rampage SC"),
     ("UT", "exact", "Saratoga Youth Soccer", "Saratoga Springs FC"),
