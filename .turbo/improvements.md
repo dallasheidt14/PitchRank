@@ -1907,3 +1907,42 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
   - It compares scores, ranks, status, `MIN_GAMES_PROVISIONAL` crossings and games played, and has no handling of wins, draws, losses or the run's games-used file.
   - A scratch check on 2026-10-02 recounted each team's record from the freeze's raw scores of the games the run used, joined on game id and team id, and compared it with the run's teams file. On the Oct 1 freeze it found 210 mismatched teams on main's board and 0 on the goal-clipping fix's, with no used row unmatched. The skill's own report showed neither.
 - **Noted**: 2026-10-02
+
+### Test the no-state pass of the club standardizer, whose two gates nothing exercises
+
+- **Status**: open
+- **Type**: plan
+- **Category**: testing
+- **Where**: `scripts/full_club_analysis.py` (`analyze_no_state_teams`, `STATE_ONLY_PATTERNS`)
+- **Why**: The pass promotes a state-scoped override to a national rewrite for every team whose `state_code` is NULL or empty, and `execute_fixes` then issues `UPDATE teams SET club_name` filtered only on the old club plus `state_code.is.null,state_code.eq.` -- no state predicate. Two things hold it back: the check that a `(match_type, pattern)` resolves to one canonical across all states, and the `STATE_ONLY_PATTERNS` exclusion list. Measured 2026-09-30: `grep -rn STATE_ONLY_PATTERNS tests/` returns zero, and the only reference to `analyze_no_state_teams` in the whole test tree is the single negative assertion the MVLA fold added (`test_the_satellite_fold_stops_at_mvlas_nevada_club`), which pins two club names and touches neither gate. So loosening or reordering either gate renames teams into another state's clubs with nothing red. Found by the coverage review of the MVLA change; the owner chose on 2026-09-30 to keep it out of that change rather than widen its scope.
+- **Noted**: 2026-09-30
+
+
+### Reconcile the branch guard's "Five branches" with the four rows it holds
+
+- **Status**: open
+- **Type**: direct
+- **Category**: docs
+- **Where**: `tests/unit/test_club_overrides_keep_provider_branches.py` (module docstring, `COLLAPSED_BRANCHES`)
+- **Why**: The docstring opens "Five branches were folded into their parents on 2026-09-22. None may come back," while importing the module and counting `COLLAPSED_BRANCHES` gives four rows (measured 2026-09-30). Pre-existing since the file was added in `2ac13b803` (#1204). A reader either hunts for an unguarded fifth branch or adds a fifth row that was never decided -- and this file is the canonical home of the branch-versus-parent policy, so it is read whenever a new case arrives. Either correct the count to four or restore the row that went missing; deciding which needs the #1204 working notes.
+- **Noted**: 2026-09-30
+
+
+### Record the division a league import derived an age group from
+
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `src/models/affinity_or_matcher.py` (`_create_new_affinity_or_team`, the `team_data` insert), `scripts/import_games_enhanced.py` (`stream_games_csv` / `load_games_csv` column whitelists)
+- **Why**: A league import takes a team's age group from the division it scraped, then writes the team with `league` NULL -- measured 2026-10-02, all 675 teams of the first `affinity_ut` run. The division is the one signal the age-group audit rates as deciding for a league import, so once it is discarded those teams can never be checked against it; the audit falls back to the team's own name, and 90 of those 675 names state no cohort at all. Carrying it through needs three layers, which is why this is a plan and not a direct fix: the scraper has to emit the division, both loader whitelists have to admit the column (anything they do not name is dropped silently and a dry run still reports success), and the shared Affinity creation path has to write it without changing what Affinity OR records. Affects the OR and WA imports equally.
+- **Noted**: 2026-10-02
+
+
+### Give a provider-stamped state_code its own provenance value
+
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `src/models/affinity_ut_matcher.py`, `src/models/affinity_or_matcher.py`, `src/models/affinity_wa_matcher.py`, `src/models/playmetrics_matcher.py` (each one's new-team write), against the values `scripts/assign_team_states.py` writes
+- **Why**: Four provider imports stamp a `state_code` on team creation and all leave `state_source` NULL -- confirmed 2026-10-02 against the 675 teams of the first `affinity_ut` run. CLAUDE.md already warns that an audit of "what writes state" has to count these, and a NULL source makes a provider-stamped guess indistinguishable from a value no tool chose. The blocker is vocabulary rather than plumbing: the only values in use are `tier_a`, `tier_b` and `tier_e`, which belong to the ranked-evidence tiers in `assign_team_states.py`, so a provider constant needs a new value agreed across all four writers and across whatever reads the column -- not one invented per matcher. Related to the existing constant-state-provenance entry.
+- **Noted**: 2026-10-02
