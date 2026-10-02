@@ -1684,3 +1684,215 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `scripts/find_squad_key_duplicates.py` `pairing_key`, `COMPATIBLE_LEAGUES`
 - **Why**: League-only names pair only on an identical league set, so a squad's Pre-ECNL row and its later ECNL row are never proposed on that path, although `leagues_conflict` treats Pre-ECNL moving up to ECNL as compatible when a squad word exists. Kept apart deliberately because league-only names carry the least evidence; measure a sample of such pairs before folding the two.
 - **Noted**: 2026-09-30
+
+### Compare against the detected gender in run_glicko2_cohort's cross-age mask
+
+- **ID**: IMP-280
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `src/etl/glicko_engine.py` `run_glicko2_cohort` (`cross_age_mask` built from `cohort_gender`)
+- **Why**: Game rows carry lowercase gender, but the mask compares them with the capitalised `cohort_gender`, so every Pass-2 opponent counts as cross-age. Same-board opponents are therefore valued from the frozen Pass-1 map at RD 350; game selection and explainability compare against the lowercase value instead. This has been in place since 2026-04-02 (ad9d0e708 / fa427c43c). Fixing it on frozen Sept 30 inputs moved 26,920 of 60,831 active teams more than 100 places. In-sample agreement with results improved on U10–U12 and fell on U14–U19, so it needs an out-of-sample test and a decision on how it interacts with the post-SCF map first.
+- **Noted**: 2026-10-02
+
+### Keep clip_outlier_goals from changing a game's result
+
+- **ID**: IMP-281
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `src/etl/glicko_engine.py` `clip_outlier_goals`
+- **Why**: Goals for and against are capped separately at mean + 2.5σ for the team's own age/gender, then rounded. In the frozen Sept 30 games that flips 255 team-perspective results (8–6 becomes 6–6) and changes the outcome score of 7,702 rows (0.39%). Because each side is clipped against its own cohort, the same game can count as a win from one side and a draw from the other.
+- **Noted**: 2026-10-02
+
+### Stop a single-board calculate_rankings run from deleting every other board
+
+- **ID**: IMP-282
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `scripts/calculate_rankings.py` `save_rankings_to_supabase` (stale-row cleanup) and the `--age-group`/`--gender` filter in `main`
+- **Why**: A filtered run saves only that board's teams, and the stale-row cleanup then deletes every existing `rankings_full`/`current_rankings` row whose team is not in that set, which is every other board. The rankings-algorithm skill documents both flags as ordinary options. The existing-ids scan also pages without `.order()`, so it can skip or repeat rows.
+- **Noted**: 2026-10-02
+
+### Replace the publication-cap threshold cliffs with graded limits
+
+- **ID**: IMP-283
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `src/rankings/calculator.py` `_publication_cap_rank`
+- **Why**: Cap depth comes from hard cut-offs on opponent counts and average opponent strength.
+  - A U10 team whose average opponent strength moved from 0.504 to 0.500 crossed the 0.50 line. Its cap went from #400 to #2,000, costing 444 places and 14 points.
+  - The under-10 anchor fix alone flipped 125 teams' caps on frozen inputs.
+  - Tiny upstream changes therefore produce large, arbitrary rank moves.
+- **Noted**: 2026-10-02
+- **Update (2026-10-02)**: The thresholds bind nearly every ranked team. Only 338 of about 60,800 Active teams have no ceiling (`publication_cap_rank` null in `rankings_full`, queried 2026-10-01).
+
+### Key the rankings results cache by pass as well as games
+
+- **ID**: IMP-284
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `src/rankings/calculator.py` `compute_rankings_with_ml` (results-cache `hash_input`)
+- **Why**: The cache key covers game ids, lookback, provider, merge version and engine, but not the pass or the anchors. Pass 2 therefore overwrites Pass 1's entry, and a later run without `--force-rebuild` can load a previous Pass 2 result as its Pass 1. Production passes `--force-rebuild`, which is why this has not bitten yet.
+- **Noted**: 2026-10-02
+
+### Bring diagnose_ranking.py up to the Glicko engine
+
+- **ID**: IMP-285
+- **Status**: open
+- **Type**: plan
+- **Category**: dx
+- **Where**: `scripts/diagnose_ranking.py` (formula explanation and path-to-#1 simulation)
+- **Why**: `.claude/rules/ranking-changes.md` requires this tool before any ranking fix, but it is out of date.
+  - It still explains the retired v53e formula (OFF/DEF/SOS 20/20/60, anchors 0.40 → 1.00).
+  - It printed ranks #105/#665 for teams published at #448/#858.
+  - It reads future fixtures as 0–0 draws.
+- **Noted**: 2026-10-02
+
+### Stamp last_calculated with the run's as-of date, not the wall clock
+
+- **ID**: IMP-286
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `src/etl/glicko_engine.py` `compute_rankings_v2` (`last_calculated = pd.Timestamp.now("UTC")`) and `src/rankings/calculator.py` days-since-last derivation
+- **Why**: The evidence gates measure freshness from `last_calculated`, so two runs on identical frozen inputs on different UTC days produce different gate and cap outputs. Across one midnight, 47,187 teams' `power_score_true` differed while every engine and ML column was bit-identical. The run already carries an as-of `today`, but this path ignores it.
+- **Noted**: 2026-10-02
+
+### Page the ranking games fetch by keyset instead of OFFSET
+
+- **ID**: IMP-287
+- **Status**: open
+- **Type**: plan
+- **Category**: performance
+- **Where**: `src/rankings/data_adapter.py` `fetch_games_for_rankings` (`games_page_query`)
+- **Why**: Each OFFSET page makes Postgres walk every row before it, under an 8-second statement timeout, and the 393-day window is now about 1M games. A read-only live check on 2026-10-02 hit a `57014` statement timeout at offset 750,000; the existing retry absorbed it. Keyset paging on `(game_date, id)` keeps every page equally cheap as the window grows.
+- **Noted**: 2026-10-02
+
+### Stop Layer13Config.__post_init__ from overriding constructor arguments
+
+- **ID**: IMP-288
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `src/rankings/layer13_predictive_adjustment.py` `Layer13Config.__post_init__`
+- **Why**: When `ML_CONFIG` loads, it overwrites `enabled`, `alpha`, `recency_decay_lambda`, `min_team_games_for_residual`, `residual_clip_goals` and `norm_mode` passed to the constructor.
+  - Whether it loads depends on import order: `config/settings` imports `src.rankings` while half-loaded.
+  - The calculator's `Layer13Config(norm_mode="zscore")` is silently percentile in production.
+  - So is `test_low_sample_ml_rows_stay_neutral_after_normalization`'s config.
+  - A related archived note covered only `enabled` (#1034–#1040).
+- **Noted**: 2026-10-02
+
+### Value opponents with unreadable ages neutrally, and align v53e's fallback
+
+- **ID**: IMP-289
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `src/etl/glicko_engine.py` `get_anchor` (unparseable-string branch); `src/etl/v53e.py` `age_anchor_map` lookups
+- **Why**: Both engines still overvalue some opponents as U19.
+  - `get_anchor` returns 1.0, the U19 anchor, for an unparseable age string. The post-merge remap in `fetch_games_for_rankings` can produce `opp_age ""`, though the frozen Sept 30 data had none.
+  - v53e's `.get(…, 1.0)` / `.fillna(1.0)` lookups still treat U9 opponents as U19, unlike Glicko since the under-10 fix.
+  - Low priority: zero current rows, and v53e is off by default.
+- **Noted**: 2026-10-02
+
+### Make the fetch tests' _FakeQuery.range accumulate like postgrest
+
+- **ID**: IMP-290
+- **Status**: open
+- **Type**: direct
+- **Category**: testing
+- **Where**: `tests/unit/test_rankings_data_adapter_fetch.py` `_FakeQuery.range`
+- **Why**: postgrest's `range()` appends offset/limit to the builder it is called on, but this double returns a fresh clone. That is more permissive than production, and it hid the reused-builder bug fixed in #1243. The new pagination tests use the real client over `httpx.MockTransport`; the older tests still go through the permissive double.
+- **Noted**: 2026-10-02
+
+### Show branch or task names for dirty worktrees in the session-start line
+
+- **ID**: IMP-291
+- **Status**: open
+- **Type**: direct
+- **Category**: dx
+- **Where**: `.claude/hooks/session-start.sh` (the `unclean` list built from `${wt##*/}`)
+- **Why**: Codex worktrees live at `…/worktrees/<task>/PitchRank`, so every one prints as "PitchRank" in the ATTENTION line. On 2026-10-01 that hid which worktrees held the Sept 30 offline ranking run until the user pointed to it.
+- **Noted**: 2026-10-02
+
+### Check the rankings-algorithm skill's claim that SOS uses anchors
+
+- **ID**: IMP-292
+- **Status**: open
+- **Type**: investigate
+- **Category**: docs
+- **Where**: `.claude/skills/rankings-algorithm/SKILL.md` (Derived Components → SOS, "Cross-age scaling via anchors (Pass 2 only)") against `src/etl/glicko_engine.py` `compute_sos`
+- **Why**: A 2026-10-01 read of the engine suggested SOS averages opponent mu without applying anchors, but this was not settled in that session. Verify before editing.
+- **Noted**: 2026-10-02
+
+### Check possible age mislabels on the U10 boards
+
+- **ID**: IMP-293
+- **Status**: open
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `teams.age_group` for "KHA Swan City U9 White" (on the U10 boys board) and the "2019B …" / "2018B …" teams (on the U10 girls board)
+- **Why**: These names imply a younger cohort, or the other gender, than the board they rank on. The names were seen in 2026-10-01 game breakdowns and have not been checked against fixtures.
+- **Noted**: 2026-10-02
+
+### Check the state-rank fields the site reads
+
+- **ID**: IMP-294
+- **Status**: open
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `get_state_rankings` RPC (`rank_in_cohort_final` column), report-card state rank, PowerScore display scale
+- **Why**: These were reported by a review sweep on 2026-10-01 and are only partly verified.
+  - **Verified:** `get_state_rankings` returns a pre-adjustment national rank as `rank_in_cohort_final`. The main state tables read `rank_in_state_final` and show the correct state rank, so the mismatched field mostly feeds analytics.
+  - **Unverified:** the report card's state rank being always blank, and some pages showing scores on 0–1 instead of 0–100.
+- **Noted**: 2026-10-02
+
+### Point TestLayer13BlendFormula at the production blend
+
+- **ID**: IMP-295
+- **Status**: open
+- **Type**: direct
+- **Category**: testing
+- **Where**: `tests/unit/test_ml_layer13_sos_scaling.py` `TestLayer13BlendFormula`
+- **Why**: The class tests its own local copy of the formula, which still divides by `MAX_ML = 1 + 0.5·alpha`. Production computes `powerscore_ml = powerscore_adj + alpha·ml_norm` with no division, so these tests pass whatever production does. The ML eligible-only fix (branch `fix/ml-norm-eligible-teams`) adds an end-to-end assertion on `powerscore_ml`, but this class still documents a formula the code no longer uses.
+- **Noted**: 2026-10-02
+
+### Correct the column list in apply_predictive_adjustment's return docstring
+
+- **ID**: IMP-296
+- **Status**: open
+- **Type**: direct
+- **Category**: docs
+- **Where**: `src/rankings/layer13_predictive_adjustment.py` `apply_predictive_adjustment`
+- **Why**: The docstring says `game_residuals_df` has the columns `game_id, residual`, but both producers return `game_id, ml_overperformance`. `_extract_game_residuals` renames `residual`, and `_passthrough_ml` builds an empty frame with the same two columns. A caller following the docstring looks for a column that is never there.
+- **Noted**: 2026-10-02
+
+### Check how much the Glicko-2 round cap leaves unsettled
+
+- **ID**: IMP-297
+- **Status**: open
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `src/etl/glicko_engine.py` `run_glicko2_cohort` (the loop over `cfg.MAX_ITERATIONS`)
+- **Why**: Most board passes stop at the round cap while ratings are still moving.
+  - On the frozen Sept 30 inputs (shadow run, 2026-10-02), 30 of 36 board passes logged "did not converge after 30 iterations". At the cap they were still moving a rating by 5.3–7.8 points per round. The other 6 settled in 23–29 rounds.
+  - Earlier in this session, the Sept 25 and Sept 28 production run logs were read as showing the same 30 of 36.
+  - Before changing the cap, measure how far ranks move with more rounds.
+- **Noted**: 2026-10-02
+
+### Check whether the 30-game selection favours wins
+
+- **ID**: IMP-298
+- **Status**: open
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `src/etl/glicko_engine.py` `select_games_balanced` (with `cfg.MAX_GAMES`)
+- **Why**: Teams score better in the games the ranking uses than in their full record.
+  - Among the 12,494 Active teams with more than 30 games in the 393-day window, the ranking's game record earns 57.3% of available points (win 1, draw ½), against 54.4% across all their games. For top-100 teams it is 74.5% against 71.4%.
+  - Measured 2026-10-01 by SQL. It compared the Sept 28 run's `rankings_full` wins, draws and games played with every scored, non-excluded game after merge resolution.
+  - Find out whether the selection's quality weighting or its recency rules cause the lean before changing either.
+- **Noted**: 2026-10-02

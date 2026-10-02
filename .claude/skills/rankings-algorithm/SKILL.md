@@ -12,10 +12,13 @@ You are working on PitchRank's ranking system. This skill explains the Glicko-2 
 `compute_all_cohorts()` (`src/rankings/calculator.py`) is the two-pass orchestrator;
 `compute_rankings_with_ml()` handles one cohort. Canonical stage order:
 
-1. `fetch_games_for_rankings()` — Supabase → engine format (two rows per game); merge
-   resolution via `team_merge_map`, then every game touching a team in
-   `team_ranking_exclusions` is dropped from both sides. That read fails closed: a run
-   raises rather than ranking without the list
+1. `fetch_games_for_rankings()` — Supabase → engine format (two rows per game) over
+   `WINDOW_DAYS` + `WINDOW_GRACE_DAYS` = 393 days. `compute_all_cohorts`,
+   `compute_rankings_with_ml` and the CLI add the grace to `lookback_days` themselves
+   (`_effective_fetch_lookback_days`), so they take 365 and only a direct fetch call passes
+   393; given 393, they fetch 421 days. Merge resolution via `team_merge_map`, then every
+   game touching a team in `team_ranking_exclusions` is dropped from both sides. That read
+   fails closed: a run raises rather than ranking without the list
 2. Cache check (MD5 of game IDs + lookback + merge version + engine); the cache only
    ever serves Pass 1 — Pass 2 always rebuilds
 3. **Pass 1**: `compute_rankings_v2()` per (age, gender) cohort, `global_strength_map=None`
@@ -38,6 +41,13 @@ You are working on PitchRank's ranking system. This skill explains the Glicko-2 
 10. `calculate_rank_changes()` (7d/30d), clip PowerScore columns to [0, 1],
     `save_ranking_snapshot()` → `ranking_history`, then save to `rankings_full` +
     `current_rankings`
+
+`compute_rankings_v2` stamps `last_calculated` with the wall clock even when `today` is pinned,
+and the same-age evidence gates measure freshness from it. Two runs on identical frozen inputs
+with the same pinned `today` therefore match through `powerscore_ml` and, on different UTC days,
+differ from the gates onward (IMP-286). An unpinned `today` defaults to the wall clock as well,
+so such runs differ from the engine onward. Compare runs from the same UTC day, or compare only
+the columns up to `powerscore_ml`.
 
 ## Glicko-2 Engine (glicko_engine.py)
 
@@ -78,6 +88,7 @@ outcome = 0.5 ± 0.5 * log(1 + capped_gd) / log(1 + MAX_GD)
   - Cross-age scaling via anchors (Pass 2 only)
 
 - **SCF** (Schedule Connectivity Factor): regional bubble dampening
+  - It exists to stop teams in isolated regions from ranking far too high (the owner, 2026-10-01: "isolated regions teams wrongly ranking super high in the rankings"); keep that protection in any redesign
   - Measures opponent state diversity; low diversity dampens raw SOS toward 1500 (and mu, since `SCF_PUBLISH_ONLY=False`)
   - `scf_value = quality-weighted unique_states / SCF_DIVERSITY_DIVISOR` (capped at 1.0); floor 0.4 at ≥3 bridge games, ramping to 0.1 with none
   - League-family diversity is added for U13+ (`SCF_LEAGUE_FLOOR` 0.5)
@@ -179,6 +190,14 @@ Negative ML adjustments (downrating) always apply at full authority regardless o
 | `SOS_ML_THRESHOLD_HIGH` | 0.60 | Above: full ML authority |
 | `NEGATIVE_ML_FLOOR` | 1.0 | Documents the behaviour (the gate hardcodes 1.0 for negative deltas); the constant itself is only read into the cache fingerprint |
 
+`Layer13Config.__post_init__` silently replaces the constructor's `enabled`, `alpha`,
+`recency_decay_lambda`, `min_team_games_for_residual`, `residual_clip_goals` and `norm_mode`
+with `ML_CONFIG`'s values whenever `ML_CONFIG` loaded. That depends on import order:
+`config.settings` imports `src.rankings`, so importing `config.settings` first leaves
+`ML_CONFIG` as `None` and the constructor's values stand. Production imports the calculator
+first, so `ML_CONFIG` loads and the calculator's `norm_mode="zscore"` gives way to percentile.
+Set these attributes on the instance after construction (IMP-288).
+
 ### XGBoost Hyperparameters
 
 `n_estimators=220, max_depth=5, learning_rate=0.08, subsample=0.9, colsample_bytree=0.9, reg_lambda=1.0`
@@ -232,7 +251,7 @@ python scripts/calculate_rankings.py --engine glicko --lookback-days 365 --dry-r
 |------|--------|
 | `--ml` | No-op under Glicko: ML runs unless env `ML_LAYER_ENABLED=false` |
 | `--engine glicko` | Engine: glicko (default) or v53e (legacy) |
-| `--lookback-days 365` | Game window |
+| `--lookback-days 365` | Game window; Glicko raises it to at least 365 and adds the 28-day grace (393 days) |
 | `--dry-run` | No database writes |
 | `--force-rebuild` | Ignore cache |
 | `--age-group u14` | Filter age group |

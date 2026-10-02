@@ -219,6 +219,18 @@ green. When copying a double for a matcher that creates teams, take the raising 
 `tests/unit/test_playmetrics_matcher_row_state.py` or `tests/unit/test_athletes2events_matcher.py` — even when the rest of the double comes
 from elsewhere.
 
+A double whose `range()` returns a fresh clone is more permissive than postgrest, which mutates
+the builder, and it hid the reused-builder defect described under Pagination. To test paging,
+run the real client offline:
+`SyncPostgrestClient(base_url, http_client=httpx.Client(transport=httpx.MockTransport(handler)))`,
+with the handler answering by table, projecting each row to the `select` param as the first rule
+above requires, and recording each request's query params. `_PostgrestServer` in
+`tests/unit/test_rankings_data_adapter_fetch.py` shows the wiring, though it returns whole rows.
+`maybe_single()` asks for the single-object media type (application/vnd.pgrst.object+json), so
+answer it with a JSON object rather than a list. When nothing matches, answer 406 with
+`"code": "PGRST116"` and `"details": "The result contains 0 rows"`, which `maybe_single()` turns
+into `None`; a 200 with a `null` body comes back as `data == []` instead.
+
 ### Pagination (REQUIRED for large tables)
 ```python
 # PostgREST caps a response at max-rows: 200,000 on the hosted project (measured
@@ -248,6 +260,12 @@ def fetch_all_teams(client):
 
     return all_teams
 ```
+
+Build the query inside the loop, as above. postgrest-py's `range()` (1.1.1, which the locked
+`supabase==2.18.1` pins) appends `offset` and `limit` to the builder it is called on and returns
+that same builder, so a builder built once and paged with `.range()` sends one more pair on every
+page. The ranking games fetch reached a query string of about 25 KB at page 991, and the gateway
+answered a plain-text 400 that the client reports as `JSON could not be generated` (#1243).
 
 ### Batch Insert/Upsert
 ```python
@@ -554,9 +572,9 @@ for batch in chunks(ids, 100):
 # BAD - unbounded; truncates silently at max-rows (200,000 hosted, 1,000 local)
 client.table('games').select('*').execute()
 
-# GOOD - paginate, ordered by a unique column
-.order('id').range(0, 999).execute()
-.order('id').range(1000, 1999).execute()
+# GOOD - paginate, ordered by a unique column, building a fresh query for each page
+client.table('games').select('*').order('id').range(0, 999).execute()
+client.table('games').select('*').order('id').range(1000, 1999).execute()
 ```
 
 ## Safe Patterns
