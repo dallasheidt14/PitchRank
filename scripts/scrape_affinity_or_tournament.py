@@ -225,6 +225,7 @@ _GLUED_BAND = re.compile(r"\b([BG])(\d{2})(\d{2})\b", re.IGNORECASE)
 
 def _respell_glued_band(name: str) -> str:
     """'B1314' as 'B13/14', so the name-age reader sees a band rather than no age at all."""
+
     def respell(m: re.Match) -> str:
         one_year = abs(int(m.group(2)) - int(m.group(3))) == 1
         return f"{m.group(1)}{m.group(2)}/{m.group(3)}" if one_year else m.group(0)
