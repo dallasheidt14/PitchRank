@@ -220,6 +220,18 @@ def _gender_label_to_canonical(label: str) -> str:
     return "Male" if label.lower() in ("male", "boys", "boy", "b", "m") else "Female"
 
 
+_GLUED_BAND = re.compile(r"\b([BG])(\d{2})(\d{2})\b", re.IGNORECASE)
+
+
+def _respell_glued_band(name: str) -> str:
+    """'B1314' as 'B13/14', so the name-age reader sees a band rather than no age at all."""
+    def respell(m: re.Match) -> str:
+        one_year = abs(int(m.group(2)) - int(m.group(3))) == 1
+        return f"{m.group(1)}{m.group(2)}/{m.group(3)}" if one_year else m.group(0)
+
+    return _GLUED_BAND.sub(respell, name)
+
+
 def _board_from_team_names(
     home_name: str, away_name: str, division_birth_year: int, season_year: int
 ) -> Optional[Tuple[int, str]]:
@@ -234,7 +246,7 @@ def _board_from_team_names(
 
     readings = []
     for name in (home_name, away_name):
-        birth_year, _ = age_from_name(name, division_birth_year, season_year)
+        birth_year, _ = age_from_name(_respell_glued_band(name), division_birth_year, season_year)
         board = board_cohort(birth_year, season_year) if birth_year else None
         if board is None:
             return None

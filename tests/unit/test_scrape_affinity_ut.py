@@ -128,6 +128,16 @@ class TestAgeFromTeamNames:
 
         assert {r["age_group"] for r in records} == {"u13"}
 
+    def test_a_glued_band_is_read_from_the_name(self, monkeypatch):
+        """'B1314' names the U13 band; read as no age it would take this 14U flight's board."""
+        html = _schedule_html([_game("Cottonwood FC B1314 White JN", "Peak SC 13/14B MH Black")], FUTURE_HEADER)
+        monkeypatch.setattr(engine, "_fetch", lambda url, retries=3: html)
+        flight = {**FLIGHT, "division_name": "Boys 14U Premier", "birth_year": 2013, "age_u": 14}
+
+        records = engine.scrape_flight_games(scraper.TOURNAMENTS[0], flight, *WIDE_WINDOW)
+
+        assert {r["age_group"] for r in records} == {"u13"}
+
     def test_two_teams_playing_up_together_are_filed_by_their_names(self, monkeypatch):
         records = _scrape_game(monkeypatch, "La Roca U12B- J Walker", "Avalanche Pre-ECNL B2014/15 North")
 
