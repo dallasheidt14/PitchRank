@@ -504,9 +504,9 @@ CLUB_CANONICAL_OVERRIDES = [
     # entries rejoin one club rather than renaming a provider's own. Premier, Select and
     # Provisional are team distinctions and not part of a club's name.
     #
-    # The branch rule still applies: Utah Athletic Club's North (Draper), South, South
-    # (Nephi) and West (Tooele) rows stay their own clubs and are only re-cased, as do
-    # the UCSC squads. SWAT, WJFC and PAC B are acronyms and are deliberately absent.
+    # The branch rule still applies: Utah Athletic Club's North (Draper), South (Orem),
+    # South (Nephi) and West (Tooele) rows stay four separate clubs, as do the UCSC
+    # squads. SWAT, WJFC and PAC B are acronyms and are deliberately absent.
     ("UT", "exact", "Blast", "Blast SC"),
     ("UT", "exact", "Blast Blue", "Blast SC"),
     ("UT", "exact", "Blast White", "Blast SC"),
