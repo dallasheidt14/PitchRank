@@ -554,7 +554,11 @@ CLUB_CANONICAL_OVERRIDES = [
     ("UT", "exact", "UTAH ATHLETIC ACADEMY NORTH", "Utah Athletic Academy North"),
     ("UT", "exact", "UTAH ATHLETIC ACADEMY SOUTH", "Utah Athletic Academy South"),
     ("UT", "exact", "UTAH ATHLETIC CLUB NORTH (DRAPER)", "Utah Athletic Club North (Draper)"),
-    ("UT", "exact", "UTAH ATHLETIC CLUB SOUTH", "Utah Athletic Club South"),
+    # The bare "SOUTH" is the Orem branch, not a parent: both its teams are named
+    # "(OREM) ...", while Nephi's names no town. Writing the town in the club name is this
+    # club's own convention, as North (Draper) and West (Tooele) show. Confirmed by the
+    # owner 2026-10-02. Named straight to the town so no second weekly run is needed.
+    ("UT", "exact", "UTAH ATHLETIC CLUB SOUTH", "Utah Athletic Club South (Orem)"),
     ("UT", "exact", "UTAH ATHLETIC CLUB SOUTH (NEPHI)", "Utah Athletic Club South (Nephi)"),
     ("UT", "exact", "UTAH ATHLETIC CLUB WEST (TOOELE)", "Utah Athletic Club West (Tooele)"),
     ("UT", "exact", "blast fc", "Blast SC"),
