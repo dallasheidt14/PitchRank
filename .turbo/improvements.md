@@ -1895,4 +1895,13 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
   - Among the 12,494 Active teams with more than 30 games in the 393-day window, the ranking's game record earns 57.3% of available points (win 1, draw ½), against 54.4% across all their games. For top-100 teams it is 74.5% against 71.4%.
   - Measured 2026-10-01 by SQL. It compared the Sept 28 run's `rankings_full` wins, draws and games played with every scored, non-excluded game after merge resolution.
   - Find out whether the selection's quality weighting or its recency rules cause the lean before changing either.
+
+### Decide whether a one-sided DPLO tag marks a different squad in the Utah matcher
+
+- **ID**: IMP-299
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `src/models/affinity_ut_matcher.py` `AffinityUTGameMatcher._squad_key_match`, `_NOT_INITIALS`; `src/models/squad_name_gates.py` `TIER_TOKENS`
+- **Why**: `dplo` is in `find_squad_key_duplicates.LEAGUE_WORDS` (so the squad key drops it) but not in `TIER_TOKENS` (which holds `dpl`), and `leagues_conflict` needs both names to state a league, so a DPLO tag on one side only is invisible to every screen: `Avalanche U13B Black DW DPLO` links to a stored `Avalanche 14B Black DW`. If a club's DPLO squad is a separate team, add `dplo` to the tier set those gates read.
 - **Noted**: 2026-10-02

@@ -19,6 +19,7 @@ sys.path.append(str(Path(__file__).resolve().parents[2]))
 
 from src.etl import enhanced_pipeline
 from src.models.affinity_or_matcher import AffinityORGameMatcher
+from src.models.affinity_ut_matcher import AffinityUTGameMatcher
 from src.models.affinity_wa_matcher import AffinityWAGameMatcher
 from src.models.athletes2events_matcher import Athletes2EventsGameMatcher
 from src.models.modular11_matcher import Modular11GameMatcher
@@ -32,6 +33,7 @@ AUTOCREATING_MATCHERS = [
     ("sincsports", SincSportsGameMatcher),
     ("affinity_wa", AffinityWAGameMatcher),
     ("affinity_or", AffinityORGameMatcher),
+    ("affinity_ut", AffinityUTGameMatcher),
     ("playmetrics", PlayMetricsGameMatcher),
     ("modular11", Modular11GameMatcher),
     ("soccereventsgroup", SoccerEventsGroupGameMatcher),
@@ -69,11 +71,22 @@ def test_pipeline_passes_dry_run_to_every_autocreating_matcher(provider):
     assert "dry_run=self.dry_run" in block, f"{provider} matcher is constructed without dry_run"
 
 
+@pytest.mark.parametrize(("provider", "cls"), AUTOCREATING_MATCHERS)
+def test_pipeline_builds_each_providers_own_matcher(provider, cls):
+    """A copied branch that kept its sibling's class would file one league's teams under another's state."""
+    source = inspect.getsource(enhanced_pipeline.EnhancedETLPipeline._ensure_initialized)
+    block = source.split(f'== "{provider}"')[1].split("elif")[0]
+
+    assert f"self.matcher = {cls.__name__}(" in block
+
+
 @pytest.mark.parametrize(
     ("provider", "cls", "create"),
     [
         ("sincsports", SincSportsGameMatcher, "_create_new_sincsports_team"),
         ("affinity_wa", AffinityWAGameMatcher, "_create_new_affinity_wa_team"),
+        ("affinity_or", AffinityORGameMatcher, "_create_new_affinity_or_team"),
+        ("affinity_ut", AffinityUTGameMatcher, "_create_new_affinity_or_team"),
         ("soccereventsgroup", SoccerEventsGroupGameMatcher, "_create_new_soccereventsgroup_team"),
         ("athletes2events", Athletes2EventsGameMatcher, "_create_new_athletes2events_team"),
     ],

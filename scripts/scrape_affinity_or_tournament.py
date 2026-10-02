@@ -48,6 +48,9 @@ TOURNAMENTS = [
         "name": "2026 OYSA Fall League",
         "tournament_guid": "765ABB82-7406-4A4D-9446-7EA366142522",
         "base_url": "https://oysa.sportsaffinity.com",
+        "provider": "affinity_or",
+        "state": "Oregon",
+        "state_code": "OR",
         # The season this event's U-numbers were written in. Required, and
         # never the wall clock: this list is rescanned indefinitely, so a
         # clock-derived cohort would re-file this same 2026 event one group
@@ -104,7 +107,7 @@ SCRAPE_RUN_ID = f"{SCRAPE_TS}_{uuid.uuid4().hex[:6]}"
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 
-def _team_hash(team_name: str, source_age_u: int, gender: str) -> str:
+def _team_hash(provider: str, team_name: str, source_age_u: int, gender: str) -> str:
     """Deterministic provider-side team ID, unique per source flight.
 
     The cohort is part of the identity, not decoration. Alias uniqueness is
@@ -123,7 +126,7 @@ def _team_hash(team_name: str, source_age_u: int, gender: str) -> str:
     share one identity.
     """
     key = f"{team_name.lower().strip()}|u{source_age_u}|{gender}"
-    return f"affinity_or:{hashlib.md5(key.encode()).hexdigest()[:12]}"
+    return f"{provider}:{hashlib.md5(key.encode()).hexdigest()[:12]}"
 
 
 def _parse_date_header(text: str) -> Optional[datetime]:
@@ -169,7 +172,8 @@ def _age_u_to_birth_year(age_u: int, season_year: int) -> int:
 def _extract_age_gender_from_division(div_name: str) -> Tuple[Optional[str], Optional[int]]:
     """
     Parse 'BU13 RCL North 2' → (gender='Male', age_u=13).
-    Also handles the spelled-out Affinity form, 'Boys Under 12 Div 1'.
+    Also handles the spelled-out Affinity form, 'Boys Under 12 Div 1', and
+    UYSA's 'Boys 12U Premier' and 'Boys 18/19U Premier'.
 
     ``age_u`` is the cohort directly; OYSA and PitchRank number the Aug 1 -
     Jul 31 band the same way.
@@ -178,6 +182,15 @@ def _extract_age_gender_from_division(div_name: str) -> Tuple[Optional[str], Opt
     if compact:
         gender = "Male" if compact.group(1).upper() == "B" else "Female"
         return gender, int(compact.group(2))
+
+    trailing = re.match(r"^\s*(Boys|Girls)\s+(\d{1,2})(?:\s*/\s*(\d{1,2}))?U?\b", div_name, re.I)
+    if trailing:
+        gender = "Male" if trailing.group(1).lower() == "boys" else "Female"
+        first = int(trailing.group(2))
+        if trailing.group(3) is None:
+            return gender, first
+        # A two-age label is one cohort only when both ages fold into u19.
+        return gender, 19 if min(first, int(trailing.group(3))) >= 18 else None
 
     gender = None
     if re.search(r"\bBoys?\b", div_name, re.I):
@@ -205,6 +218,30 @@ def _age_label_to_int(label: str) -> int:
 def _gender_label_to_canonical(label: str) -> str:
     """'male' → 'Male', 'female' → 'Female'."""
     return "Male" if label.lower() in ("male", "boys", "boy", "b", "m") else "Female"
+
+
+def _board_from_team_names(
+    home_name: str, away_name: str, division_birth_year: int, season_year: int
+) -> Optional[Tuple[int, str]]:
+    """``(birth_year, age_group)`` both teams' own names put the game on, else None.
+
+    A team's name sets its age, not the division it plays in, and a game is
+    imported under one age group for both teams. So a game is held back when a
+    name cannot be placed on a board, or when the two names land on different
+    boards because one team is playing up.
+    """
+    from scripts.import_athletes2events_event import age_from_name, board_cohort
+
+    readings = []
+    for name in (home_name, away_name):
+        birth_year, _ = age_from_name(name, division_birth_year, season_year)
+        board = board_cohort(birth_year, season_year) if birth_year else None
+        if board is None:
+            return None
+        readings.append((birth_year, board))
+    if readings[0][1] != readings[1][1]:
+        return None
+    return readings[0]
 
 
 # ── Network ────────────────────────────────────────────────────────────────────
@@ -332,6 +369,7 @@ def scrape_flight_games(
 
     soup = BeautifulSoup(html, "lxml")
     records: List[Dict] = []
+    held_by_name = 0
 
     current_date: Optional[datetime] = None
 
@@ -404,10 +442,20 @@ def scrape_flight_games(
                 if ag:
                     age_group = ag.lower()
 
+            if tournament.get("age_from_team_name"):
+                named = _board_from_team_names(home_name, away_name, birth_year, tournament["season_year"])
+                if named is None:
+                    held_by_name += 1
+                    continue
+                birth_year, age_group = named
+
             gender_display = "Boys" if flight["gender"] == "Male" else "Girls"
+            provider = tournament["provider"]
+            home_id = _team_hash(provider, home_name, flight["age_u"], gender_display)
+            away_id = _team_hash(provider, away_name, flight["age_u"], gender_display)
 
             base_record = {
-                "provider": "affinity_or",
+                "provider": provider,
                 "scrape_run_id": SCRAPE_RUN_ID,
                 "event_id": tguid,
                 "event_name": f"{tournament['name']} - {division_name}",
@@ -415,8 +463,8 @@ def scrape_flight_games(
                 "age_year": birth_year or "",
                 "age_group": age_group,
                 "gender": gender_display,
-                "state": "Oregon",
-                "state_code": "OR",
+                "state": tournament["state"],
+                "state_code": tournament["state_code"],
                 "game_date": game_date_str,
                 "game_time": game_time if game_time != "--" else "",
                 "venue": venue if venue != "TBD" else "",
@@ -426,12 +474,12 @@ def scrape_flight_games(
 
             home_record = {
                 **base_record,
-                "team_id": _team_hash(home_name, flight["age_u"], gender_display),
-                "team_id_source": _team_hash(home_name, flight["age_u"], gender_display),
+                "team_id": home_id,
+                "team_id_source": home_id,
                 "team_name": home_name,
                 "club_name": "",
-                "opponent_id": _team_hash(away_name, flight["age_u"], gender_display),
-                "opponent_id_source": _team_hash(away_name, flight["age_u"], gender_display),
+                "opponent_id": away_id,
+                "opponent_id_source": away_id,
                 "opponent_name": away_name,
                 "opponent_club_name": "",
                 "home_away": "H",
@@ -441,12 +489,12 @@ def scrape_flight_games(
             }
             away_record = {
                 **base_record,
-                "team_id": _team_hash(away_name, flight["age_u"], gender_display),
-                "team_id_source": _team_hash(away_name, flight["age_u"], gender_display),
+                "team_id": away_id,
+                "team_id_source": away_id,
                 "team_name": away_name,
                 "club_name": "",
-                "opponent_id": _team_hash(home_name, flight["age_u"], gender_display),
-                "opponent_id_source": _team_hash(home_name, flight["age_u"], gender_display),
+                "opponent_id": home_id,
+                "opponent_id_source": home_id,
                 "opponent_name": home_name,
                 "opponent_club_name": "",
                 "home_away": "A",
@@ -457,14 +505,17 @@ def scrape_flight_games(
             records.append(home_record)
             records.append(away_record)
 
+    if held_by_name:
+        print(f"(held {held_by_name} whose team names disagree on age)", end=" ")
     return records
 
 
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Affinity OR game scraper")
+def main(tournaments: List[Dict] = TOURNAMENTS):
+    label = "/".join(sorted({t["state_code"] for t in tournaments}))
+    parser = argparse.ArgumentParser(description=f"Affinity {label} game scraper")
     parser.add_argument("--age", required=True, help="Age group, e.g. u12")
     parser.add_argument("--gender", required=True, help="male or female")
     parser.add_argument("--days-back", type=int, default=7, help="Days to look back")
@@ -488,14 +539,14 @@ def main():
     min_date = now - timedelta(days=days_back)
     max_date = now + timedelta(days=days_forward)
 
-    print("Affinity OR Scraper")
+    print(f"Affinity {label} Scraper")
     print(f"  Age: U{target_age}  Gender: {target_gender}")
     print(f"  Window: {min_date.strftime('%Y-%m-%d')} to {max_date.strftime('%Y-%m-%d')}")
     print(f"  Run ID: {SCRAPE_RUN_ID}")
 
     all_records: List[Dict] = []
 
-    for tournament in TOURNAMENTS:
+    for tournament in tournaments:
         print(f"\n  Tournament: {tournament['name']}")
         flights = discover_flights(tournament, target_age, target_gender)
         print(f"  Matched flights: {len(flights)}")

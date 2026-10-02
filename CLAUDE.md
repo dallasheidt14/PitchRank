@@ -383,6 +383,7 @@ import, so a process running across Aug 1 keeps last season's map until restart.
 | PlayMetrics | `playmetrics` | League JSON API | SECL + state leagues (events use `playmetrics_tournament`) |
 | Affinity WA | `affinity_wa` | HTML scraping | Washington RCL + state leagues |
 | Affinity OR | `affinity_or` | HTML scraping | Oregon (OYSA) leagues, keeps unplayed fixtures |
+| Affinity UT | `affinity_ut` | HTML scraping | Utah (UYSA) leagues through the OR scraper; games filed by team-name age, keeps unplayed fixtures |
 | Soccer Events Group | `soccereventsgroup` | JSON API + bracket HTML | Tournament brackets only (pool play is unpublished); operator-run per event via `scripts/import_soccereventsgroup_event.py` |
 | Athletes2Events | `athletes2events` | HTML scraping | White-label tournament sites, one subdomain per host club; operator-run per event via `scripts/import_athletes2events_event.py`, which takes the event URL and reads the host from it |
 
@@ -633,6 +634,7 @@ two-line edit in `.github/workflows/claude-code-review.yml`.
 | `backfill-unknown-team-names.yml` | Every 15 min | Resolve `unknown_<provider_team_id>` placeholder names |
 | `wa-scraper.yml` | Mon 6:00 + 7:00 AM UTC | Affinity WA tournament scrape + import |
 | `or-scraper.yml` | Mon 6:30 + 7:30 AM UTC | Affinity OR (OYSA) league scrape + import — keeps unplayed fixtures |
+| `ut-scraper.yml` | Mon 5:30 + 6:30 AM UTC | Affinity UT (UYSA) league scrape + import — keeps unplayed fixtures |
 | `playmetrics-scrape-import.yml` | Mon 6:30 AM UTC | PlayMetrics league scrape + import (deliberately ungated by `AGE_ROLLOVER_FREEZE`) |
 | `update-missing-club-and-state.yml` | Mon 10:00 AM UTC | Backfill missing `club_name` and standardize existing spellings — **every `state_code` step is `if: false`** (see below) |
 | `fill-team-states-weekly.yml` | Wed 9:37 AM UTC | Fill missing `state_code` from ranked evidence — fills only, never corrections |
@@ -687,25 +689,28 @@ by the `assigning-team-states` skill, and reaching a schedule through `fill-team
 (fills only, never corrections). **Do not re-enable a disabled step to fix a missing state** — a
 comment elsewhere in the tree may still point at one of them (`scrape_tgs_event.py:587` does).
 
-**Three provider imports still stamp a state on team creation, on a schedule**, which is a
+**Four provider imports still stamp a state on team creation, on a schedule**, which is a
 different thing from a backfill and is not covered by the above: `wa-scraper.yml` runs the
 Affinity WA matcher, which hardcodes `"WA"` (`src/models/affinity_wa_matcher.py:26`, written at
-`:390`), `or-scraper.yml` runs the Affinity OR matcher, and
+`:390`), `or-scraper.yml` and `ut-scraper.yml` run the Affinity OR matcher and its Utah subclass, and
 `playmetrics-scrape-import.yml` runs the PlayMetrics matcher, which writes the CSV row's
 `state_code` — a per-league constant the scraper derives from the governing body
 (`src/models/playmetrics_matcher.py`, in `_create_new_playmetrics_team`). None sets `state_source`.
 An audit of "what writes state" has to count these; the backlog entry on constant-state
 provenance tracks the fix.
 
-**Affinity OR is no longer a hardcode, and this file used to say it was.** `STATE_CODE = "OR"`
-(`src/models/affinity_or_matcher.py:41`) is now only a fallback: `_create_new_affinity_or_team`
-calls `_state_for_new_team(club_name)` (`:139`) at `:529`, which resolves the state from the club's
-existing rows and falls back to OR only when unanimous evidence is absent. `:506`, which this file
-previously cited as the write, is inside the existing-team lookup. Verified 2026-09-19.
+**Affinity OR is no longer a hardcode, and this file used to say it was.** `state_code = "OR"`
+(`src/models/affinity_or_matcher.py:107`) is now only a fallback: `_create_new_affinity_or_team`
+calls `_state_for_new_team(club_name)` (`:154`) at `:553`, which resolves the state from the club's
+existing rows and falls back to OR only when unanimous evidence is absent. Verified 2026-10-01.
+`AffinityUTGameMatcher` (`src/models/affinity_ut_matcher.py`, run by `ut-scraper.yml`) subclasses
+it with its own rule: a new team takes the state its club's stored teams agree on, counted only within
+UT/ID/WY/NV/CO/AZ, NULL when they disagree, and Utah when the club has none there. Asked nationally,
+a generic club word such as `Avalanche` (stored only in Virginia) sent Utah teams to Virginia.
 
 ### `AGE_ROLLOVER_FREEZE` (currently LIFTED)
 
-**Status: `'false'` in all nine workflows since the Aug 2026 rollover completed.**
+**Status: `'false'` in all eleven workflows since the Aug 2026 rollover completed.**
 Everything it gated is running normally, with one permanent exception: the
 `fix_team_age_groups.py` step carries a second, independent flag,
 `AGE_DERIVATION_ENABLED: 'false'`, in both `data-hygiene-weekly.yml` and
@@ -725,12 +730,13 @@ permanently. The game importers count: they create unmatched teams through the
 provider matchers using an age `EnhancedETLPipeline` derives at import time, so
 the derivation is invisible at the call site.
 
-**To re-arm for the next rollover**, set it to `'true'` in all ten:
+**To re-arm for the next rollover**, set it to `'true'` in all eleven:
 `data-hygiene-weekly.yml`, `unknown-opponent-hygiene-weekly.yml`,
 `auto-merge-queue.yml`, `fix-age-year-discrepancies.yml`,
 `tgs-event-scrape-import.yml`, `modular11-weekly-scrape.yml`,
 `modular11-events-weekly-scrape.yml`,
-`playmetrics-tournament-scrape-import.yml`, `wa-scraper.yml`, `or-scraper.yml`. Do it
+`playmetrics-tournament-scrape-import.yml`, `wa-scraper.yml`, `or-scraper.yml`,
+`ut-scraper.yml`. Do it
 before Aug 1;
 lift it again only once the relabel migration is applied and the boards verified.
 
