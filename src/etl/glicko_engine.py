@@ -640,10 +640,11 @@ def get_anchor(age, gender: str, cfg: GlickoConfig) -> float:
         cfg: GlickoConfig containing MALE_ANCHORS and FEMALE_ANCHORS.
 
     Returns:
-        Anchor float from the config, or 1.0 for unknown ages.
+        Anchor float from the config. An age outside the calibrated range takes
+        the nearest calibrated anchor (U9 takes the U10 anchor). An unparseable
+        string returns 1.0.
     """
-    # Normalise age to int. Parse via float so stringified floats ('14.0')
-    # resolve instead of crashing; unparseable ages take the unknown-age anchor.
+    # Via float, so '14.0' parses as 14 instead of falling to the unparseable 1.0.
     if isinstance(age, str):
         try:
             age = int(float(age.lstrip("Uu")))
@@ -656,7 +657,8 @@ def get_anchor(age, gender: str, cfg: GlickoConfig) -> float:
     else:
         anchors = cfg.FEMALE_ANCHORS
 
-    return anchors.get(age, 1.0)
+    age = min(max(age, min(anchors)), max(anchors))
+    return anchors[age]
 
 
 def scale_cross_age_rating(

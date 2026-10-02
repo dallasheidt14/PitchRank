@@ -364,6 +364,55 @@ class TestBalancedSelection:
         assert {"S0", "S1", "S2"}.issubset(selected_opp_ids)
         assert {"B0", "B1", "B2"}.issubset(selected_opp_ids)
 
+    def test_bridge_slots_rate_unranked_u9_opponent_at_u10_strength(self):
+        """A U9 bridge opponent counts as U10, so it cannot outbid stronger U11 bridges."""
+        cfg = GlickoConfig(
+            MAX_GAMES=30,
+            BALANCED_SELECTION_RECENT_GAMES=20,
+            BALANCED_SELECTION_SAME_AGE_QUALITY_GAMES=7,
+            BALANCED_SELECTION_BRIDGE_GAMES=3,
+        )
+        today = pd.Timestamp("2026-03-31")
+        rows = []
+        for i in range(20):
+            rows += make_game("A", f"R{i}", 2, 0, today - pd.Timedelta(days=i), age="10", gender="male")
+        for i in range(8):
+            rows += make_game("A", f"S{i}", 1, 0, today - pd.Timedelta(days=60 + i), age="10", gender="male")
+        rows += make_game("A", "Y9", 3, 0, today - pd.Timedelta(days=90), age="10", gender="male")
+        for i in range(3):
+            rows += make_game("A", f"E{i}", 1, 0, today - pd.Timedelta(days=91 + i), age="10", gender="male")
+        games = pd.DataFrame(rows)
+        games.loc[games["opp_id"] == "Y9", "opp_age"] = "9"
+        games.loc[games["opp_id"].str.startswith("E"), "opp_age"] = "11"
+
+        team_state_map = {"A": "TX", "Y9": "OK"}
+        rating_lookup = {"A": (1500.0, 200.0, 0.06)}
+        for i in range(20):
+            team_state_map[f"R{i}"] = "TX"
+            rating_lookup[f"R{i}"] = (1400.0, 200.0, 0.06)
+        for i in range(8):
+            team_state_map[f"S{i}"] = "TX"
+            rating_lookup[f"S{i}"] = (1600.0, 200.0, 0.06)
+        for i in range(3):
+            team_state_map[f"E{i}"] = "OK"
+
+        selected = select_games_balanced(
+            games,
+            "A",
+            cfg,
+            today,
+            rating_lookup=rating_lookup,
+            # Y9 is unranked, so it is absent from the map and takes INITIAL_MU (1500).
+            # U9 -> U10 anchor: 1500 + (0.783 - 0.783) * 400 = 1500.0
+            # U11 at 1520: 1520 + (0.793 - 0.783) * 400 = 1524.0
+            global_rating_map={"E0": 1520.0, "E1": 1520.0, "E2": 1520.0},
+            team_state_map=team_state_map,
+        )
+
+        bridge = selected[selected["selection_bucket"] == "bridge_quality"]
+        assert sorted(bridge["opp_id"].astype(str)) == ["E0", "E1", "E2"]
+        assert "Y9" not in set(selected["opp_id"].astype(str))
+
     def test_selection_includes_soft_window_grace_day(self):
         cfg = GlickoConfig()
         today = pd.Timestamp("2026-04-21")
@@ -527,6 +576,39 @@ class TestRunGlicko2Cohort:
         assert a_row["goals_for"] == 4  # 3 + 1 + 0
         assert a_row["goals_against"] == 4  # 1 + 1 + 2
 
+    def test_pass2_rates_unranked_u9_opponent_at_u10_strength(self):
+        """Only the opponent's age differs between the runs, so A's rating must not move.
+
+        U9 teams are not ranked, so their games reach the engine only from the opponent's
+        side, and Y has no row or map entry of its own, as in production.
+        """
+        cfg = GlickoConfig()
+        today = pd.Timestamp("2026-03-31")
+
+        def a_mu(opp_age):
+            rows = []
+            rows += make_game("A", "B", 2, 1, "2026-03-01", age="10", gender="male")
+            rows += make_game("B", "C", 1, 1, "2026-03-10", age="10", gender="male")
+            rows.append(
+                {
+                    "team_id": "A",
+                    "opp_id": "Y",
+                    "gf": 3,
+                    "ga": 0,
+                    "date": pd.Timestamp("2026-03-20"),
+                    "age": "10",
+                    "gender": "male",
+                    "opp_age": opp_age,
+                    "opp_gender": "male",
+                }
+            )
+            result, _ = run_glicko2_cohort(
+                pd.DataFrame(rows), cfg, today, global_rating_map={}, cohort_gender="Male"
+            )
+            return result.set_index("team_id").loc["A", "mu"]
+
+        assert a_mu("9") == pytest.approx(a_mu("10"), abs=1e-9)
+
 
 class TestCrossAgeScaling:
     def test_same_age_no_scaling(self):
@@ -568,16 +650,32 @@ class TestCrossAgeScaling:
         assert result > 1400  # Still a reasonable rating, not catastrophic
         assert result < 1500  # But lower than their actual rating
 
+    def test_u11_vs_unranked_u9_opponent(self):
+        """U11 team facing a U9 opponent: opponent gets reduced through the U10 anchor."""
+        cfg = GlickoConfig()
+        # opp_anchor(U9M -> U10M)=0.783, team_anchor(U11M)=0.793
+        # scaled = 1500 + (0.783 - 0.793) * 400 = 1496.0
+        assert abs(scale_cross_age_rating(1500.0, "9", "M", "11", "M", cfg) - 1496.0) < 0.1
+        # opp_anchor(U9F -> U10F)=0.792, team_anchor(U11F)=0.828
+        # scaled = 1500 + (0.792 - 0.828) * 400 = 1485.6
+        assert abs(scale_cross_age_rating(1500.0, "9", "F", "11", "F", cfg) - 1485.6) < 0.1
+
     def test_get_anchor_string_age(self):
         """get_anchor should handle string ages like 'U15'."""
         cfg = GlickoConfig()
         assert get_anchor("U15", "M", cfg) == cfg.MALE_ANCHORS[15]
         assert get_anchor("u15", "Female", cfg) == cfg.FEMALE_ANCHORS[15]
 
-    def test_get_anchor_unknown_age(self):
-        """Unknown age should return 1.0."""
+    def test_get_anchor_below_calibrated_range_uses_u10_anchor(self):
+        cfg = GlickoConfig()
+        assert get_anchor(9, "M", cfg) == 0.783
+        assert get_anchor("9", "Female", cfg) == 0.792
+        assert get_anchor("U8", "M", cfg) == 0.783
+
+    def test_get_anchor_above_calibrated_range_uses_u19_anchor(self):
         cfg = GlickoConfig()
         assert get_anchor(99, "M", cfg) == 1.0
+        assert get_anchor(20, "Female", cfg) == 1.0
 
 
 class TestExpectedScore:
@@ -1609,6 +1707,29 @@ class TestGameExplainability:
         team_anchor = cfg.MALE_ANCHORS[15]
         expected_scaled = 1650.0 + (opp_anchor - team_anchor) * cfg.ANCHOR_SCALE_FACTOR
         assert a_row["opp_mu"] == pytest.approx(expected_scaled, abs=0.1)
+
+    def test_unranked_u9_opponent_breakdown_uses_u10_anchor(self):
+        rows = make_game("A", "B", 2, 1, "2026-03-01", age="10", gender="male")
+        rows.append(
+            {
+                "team_id": "A",
+                "opp_id": "Y",
+                "gf": 3,
+                "ga": 0,
+                "date": pd.Timestamp("2026-03-20"),
+                "age": "10",
+                "gender": "male",
+                "opp_age": "9",
+                "opp_gender": "male",
+            }
+        )
+        result = compute_rankings_v2(
+            pd.DataFrame(rows), today=pd.Timestamp("2026-03-31"), global_rating_map={"Y": 1450.0}
+        )
+        explain = result["game_explainability"]
+        y_row = explain[(explain["team_id"] == "A") & (explain["opp_id"] == "Y")].iloc[0]
+        # opp_anchor(U9M -> U10M)=0.783 equals team_anchor(U10M): 1450 + 0 = 1450.0
+        assert y_row["opp_mu"] == pytest.approx(1450.0, abs=1e-9)
 
     def test_empty_games_returns_empty_df(self):
         """Empty games DataFrame should return empty result with correct columns."""
