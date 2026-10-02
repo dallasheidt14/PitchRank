@@ -149,7 +149,8 @@ Trains XGBoost on per-game residuals, aggregates per-team with recency decay, an
 3. **Fit XGBoost** (fallback RandomForest): predict goal_margin
 4. **Compute residuals**: `residual = actual_margin - predicted_margin` (clipped ±3.5)
 5. **Aggregate per-team**: weighted avg with recency decay by game rank (λ=0.06), min 12 games (`min_team_games_for_residual`)
-6. **Normalize**: percentile rank per cohort → `ml_norm ∈ [-0.5, +0.5]`
+6. **Normalize**: percentile rank per cohort among teams with at least `min_team_games_for_residual`
+   games → `ml_norm ∈ [-0.5, +0.5]`; every other team gets `ml_norm = 0` (`powerscore_ml = powerscore_adj`)
 7. **Asymmetric gate**, applied by the calculator *after* `powerscore_ml` is written
    (the gates produce `power_score_true`; `powerscore_ml` itself is ungated):
    - Positive corrections: scaled by `sos_norm` (0 below 0.45, full at 0.60, linear

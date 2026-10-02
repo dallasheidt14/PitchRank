@@ -288,7 +288,8 @@ async def apply_predictive_adjustment(
     """
     Returns a copy of teams_df with:
       - ml_overperf (raw residual per team, goal units, recency-weighted)
-      - ml_norm     (cohort-normalized residual, ~[-0.5,+0.5])
+      - ml_norm     (residual normalized within the cohort among teams with at least
+                     min_team_games_for_residual games, ~[-0.5,+0.5]; 0.0 for the rest)
       - powerscore_ml
       - rank_in_cohort_ml
 
@@ -407,13 +408,19 @@ async def apply_predictive_adjustment(
     out["ml_overperf"] = (
         out["ml_overperf"].fillna(0.0).clip(lower=-cfg.residual_clip_goals, upper=cfg.residual_clip_goals)
     )
-    normalized = normalize_by_cohort(
-        out, value_col="ml_overperf", out_col="__tmp__", mode=cfg.norm_mode, cohort_cols=list(cfg.cohort_key_cols)
-    )
-    # Use .reindex() to align by index, not positional order (groupby may reorder rows)
-    out["ml_norm"] = normalized["__tmp__"].reindex(out.index).values - 0.5
+    # Normalize among eligible teams only: the rest hold a placeholder 0.0 that would
+    # otherwise sit inside the scale and split eligible teams by the sign of their residual.
     eligible_ml_mask = out["ml_game_count"] >= cfg.min_team_games_for_residual
-    out.loc[~eligible_ml_mask, "ml_norm"] = 0.0
+    out["ml_norm"] = 0.0
+    if eligible_ml_mask.any():
+        normalized = normalize_by_cohort(
+            out[eligible_ml_mask],
+            value_col="ml_overperf",
+            out_col="__tmp__",
+            mode=cfg.norm_mode,
+            cohort_cols=list(cfg.cohort_key_cols),
+        )
+        out.loc[eligible_ml_mask, "ml_norm"] = normalized["__tmp__"] - 0.5
 
     # 6) Blend into PowerScore and rerank
     #
