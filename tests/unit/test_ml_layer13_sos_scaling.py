@@ -442,5 +442,142 @@ async def test_low_sample_ml_rows_stay_neutral_after_normalization(monkeypatch):
     assert pd.notna(eligible["ml_norm"])
 
 
+async def _apply_to_stubbed_residuals(monkeypatch, feats, teams_df, **cfg_settings):
+    import src.rankings.layer13_predictive_adjustment as layer13
+    from src.rankings.layer13_predictive_adjustment import Layer13Config, apply_predictive_adjustment
+
+    monkeypatch.setattr(layer13, "_HAS_ML", True)
+    monkeypatch.setattr(layer13, "_build_features", lambda *args, **kwargs: feats.copy())
+    monkeypatch.setattr(layer13, "_fit_and_residualize", lambda built, train_feats, cfg: built.copy())
+
+    # __post_init__ overwrites constructor arguments from ML_CONFIG, so settings are assigned afterwards.
+    cfg = Layer13Config()
+    cfg.enabled = True
+    cfg.min_training_rows = 1
+    for name, value in cfg_settings.items():
+        setattr(cfg, name, value)
+
+    # Feature building is stubbed, so this frame only has to be non-empty (an empty one triggers a
+    # Supabase fetch) and carry the required columns.
+    games_df = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2026-01-01"]),
+            "team_id": ["A"],
+            "opp_id": ["B"],
+            "gf": [1],
+            "ga": [0],
+            "age": [14],
+            "gender": ["M"],
+            "opp_age": [14],
+            "opp_gender": ["M"],
+        }
+    )
+    return await apply_predictive_adjustment(
+        supabase_client=None,
+        teams_df=teams_df,
+        games_used_df=games_df,
+        cfg=cfg,
+    )
+
+
+def _two_game_residuals_plus_low_sample(readings):
+    """Two games per team in readings, plus one game for the low-sample team L1."""
+    team_ids = [team for team in readings for _ in range(2)] + ["L1"]
+    return pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2026-01-01", "2026-03-31"] * len(readings) + ["2026-03-31"]),
+            "team_id": team_ids,
+            "age": [14] * len(team_ids),
+            "gender": ["M"] * len(team_ids),
+            "rank_recency": [2.0, 1.0] * len(readings) + [1.0],
+            "residual": [value for value in readings.values() for _ in range(2)] + [0.4],
+        }
+    )
+
+
+def _active_teams(team_ids, powerscore_adj):
+    return pd.DataFrame(
+        {
+            "team_id": team_ids,
+            "age": [14] * len(team_ids),
+            "gender": ["M"] * len(team_ids),
+            "powerscore_adj": powerscore_adj,
+            "status": ["Active"] * len(team_ids),
+        }
+    )
+
+
+@pytest.mark.asyncio
+async def test_low_sample_rows_stay_out_of_the_eligible_percentile_scale(monkeypatch):
+    """Only teams with enough games are on the percentile scale, including Z, whose 0.0
+    reading is real rather than a placeholder."""
+    feats = _two_game_residuals_plus_low_sample({"E": -0.2, "C": -0.1, "Z": 0.0, "B": 0.1, "F": 0.2})
+    team_ids = ["E", "C", "Z", "B", "F", "L1", "L2", "L3"]
+
+    out = await _apply_to_stubbed_residuals(
+        monkeypatch,
+        feats,
+        _active_teams(team_ids, [0.5] * 8),
+        norm_mode="percentile",
+        min_team_games_for_residual=2,
+        alpha=0.08,
+    )
+    scored = out.set_index("team_id")
+
+    assert scored.loc[["E", "C", "Z", "B", "F"], "ml_norm"].tolist() == pytest.approx(
+        [-0.3, -0.1, 0.1, 0.3, 0.5], abs=1e-9
+    )
+    assert scored.loc[["L1", "L2", "L3"], "ml_norm"].tolist() == [0.0, 0.0, 0.0]
+    assert scored.loc[team_ids, "powerscore_ml"].tolist() == pytest.approx(
+        [0.476, 0.492, 0.508, 0.524, 0.540, 0.5, 0.5, 0.5], abs=1e-9
+    )
+
+
+@pytest.mark.asyncio
+async def test_low_sample_rows_stay_out_of_the_eligible_zscore_scale(monkeypatch):
+    feats = _two_game_residuals_plus_low_sample({"P": 0.1, "Q": 0.2, "R": 0.3, "S": 0.6})
+    team_ids = ["P", "Q", "R", "S", "L1", "L2", "L3"]
+
+    out = await _apply_to_stubbed_residuals(
+        monkeypatch,
+        feats,
+        _active_teams(team_ids, [0.5] * 7),
+        norm_mode="zscore",
+        min_team_games_for_residual=2,
+    )
+    ml_norm = out.set_index("team_id")["ml_norm"]
+
+    # Eligible mean 0.3, population sd sqrt(0.035): ml_norm = sigmoid((x - 0.3) / sd) - 0.5
+    assert ml_norm[["P", "Q", "R", "S"]].tolist() == pytest.approx([-0.244415, -0.130537, 0.0, 0.332516], abs=1e-6)
+    assert ml_norm[["L1", "L2", "L3"]].tolist() == [0.0, 0.0, 0.0]
+
+
+@pytest.mark.asyncio
+async def test_ml_norm_stays_neutral_when_no_team_has_enough_games(monkeypatch):
+    # A's game falls before the 30-day holdout cutoff, so the run gets past the min_training_rows
+    # early return and reaches the no-eligible-team branch.
+    feats = pd.DataFrame(
+        {
+            "date": pd.to_datetime(["2026-01-01", "2026-03-31"]),
+            "team_id": ["A", "B"],
+            "age": [14, 14],
+            "gender": ["M", "M"],
+            "rank_recency": [1.0, 1.0],
+            "residual": [0.5, -0.5],
+        }
+    )
+
+    out = await _apply_to_stubbed_residuals(
+        monkeypatch,
+        feats,
+        _active_teams(["A", "B"], [0.80, 0.70]),
+        norm_mode="percentile",
+        min_team_games_for_residual=2,
+    )
+
+    assert out["ml_norm"].tolist() == [0.0, 0.0]
+    assert out["powerscore_ml"].tolist() == pytest.approx([0.80, 0.70], abs=1e-9)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
