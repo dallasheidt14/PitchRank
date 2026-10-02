@@ -1908,13 +1908,14 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
   - A scratch check on 2026-10-02 recounted each team's record from the freeze's raw scores of the games the run used, joined on game id and team id, and compared it with the run's teams file. On the Oct 1 freeze it found 210 mismatched teams on main's board and 0 on the goal-clipping fix's, with no used row unmatched. The skill's own report showed neither.
 - **Noted**: 2026-10-02
 
-### Test the no-state pass of the club standardizer, whose two gates nothing exercises
+### Test the cross-state uniqueness gate of the club standardizer's no-state pass
 
 - **Status**: open
 - **Type**: plan
 - **Category**: testing
-- **Where**: `scripts/full_club_analysis.py` (`analyze_no_state_teams`, `STATE_ONLY_PATTERNS`)
-- **Why**: The pass promotes a state-scoped override to a national rewrite for every team whose `state_code` is NULL or empty, and `execute_fixes` then issues `UPDATE teams SET club_name` filtered only on the old club plus `state_code.is.null,state_code.eq.` -- no state predicate. Two things hold it back: the check that a `(match_type, pattern)` resolves to one canonical across all states, and the `STATE_ONLY_PATTERNS` exclusion list. Measured 2026-09-30: `grep -rn STATE_ONLY_PATTERNS tests/` returns zero, and the only reference to `analyze_no_state_teams` in the whole test tree is the single negative assertion the MVLA fold added (`test_the_satellite_fold_stops_at_mvlas_nevada_club`), which pins two club names and touches neither gate. So loosening or reordering either gate renames teams into another state's clubs with nothing red. Found by the coverage review of the MVLA change; the owner chose on 2026-09-30 to keep it out of that change rather than widen its scope.
+- **Where**: `scripts/full_club_analysis.py` (`analyze_no_state_teams`, the `len(canonicals) == 1` check that builds `safe_overrides`)
+- **Why**: The pass promotes a state-scoped override to a national rewrite for every team whose `state_code` is NULL or empty, and `execute_fixes` then issues `UPDATE teams SET club_name` filtered only on the old club plus `state_code.is.null,state_code.eq.` -- no state predicate. Two things hold it back, and only one is now tested. The `STATE_ONLY_PATTERNS` exclusion is covered by `test_every_uysa_override_is_kept_out_of_the_no_state_pass` and `test_the_no_state_pass_leaves_a_generic_utah_name_alone`. The cross-state uniqueness check -- which skips a pattern resolving to different canonicals in different states, as `peak fc` does (Peak SC in UT, Pikes Peak FC in CO) -- is covered by nothing: measured 2026-10-02 by widening it to `len(canonicals) >= 1`, which left the whole suite green apart from two failures that predate the change. So that gate can be loosened or reordered and teams are renamed into another state's clubs with nothing red.
+- **Update (2026-10-02)**: narrowed from "neither gate is exercised" after the Utah PR added the two tests above. Raised as a P2 on #1250 as completed work; it is half done, and closing it would leave the uniqueness gate uncovered.
 - **Noted**: 2026-09-30
 
 

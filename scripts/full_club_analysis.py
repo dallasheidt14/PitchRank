@@ -505,9 +505,9 @@ CLUB_CANONICAL_OVERRIDES = [
     ("UT", "exact", "Layton Strikers Soccer Club", "Layton Strikers"),
     ("UT", "exact", "la roca south", "La Roca FC"),
     ("UT", "exact", "la roca sf", "La Roca FC"),
-    # Redirected when "Liverpool FC International Academy" itself folded into
-    # "Liverpool FC IA Utah"; pointing at the retired spelling cost a second weekly run.
-    ("UT", "exact", "Liverpool FC", "Liverpool FC IA Utah"),
+    # "Liverpool FC" is in AFFINITY_UT_OVERRIDES below rather than here: it was redirected
+    # when "Liverpool FC International Academy" folded into "Liverpool FC IA Utah", and a
+    # name that generic must stay out of the no-state pass.
     ("UT", "exact", "peak fc", "Peak SC"),
     ("UT", "exact", "rampage fc", "Rampage SC"),
     ("UT", "exact", "Saratoga Youth Soccer", "Saratoga Springs FC"),
@@ -2971,6 +2971,10 @@ CLUB_CANONICAL_OVERRIDES = [
 # stateless "Avalanche", "Strikers" or "Liverpool FC International Academy" -- all real club
 # names in other states -- to Utah's club. Add a new UYSA entry here, never inline above.
 AFFINITY_UT_OVERRIDES = [
+    # Pre-dates the UYSA import but belongs here: redirected when "Liverpool FC
+    # International Academy" folded into "Liverpool FC IA Utah", and "Liverpool FC" is a
+    # club name in fourteen other states, so the no-state pass must not claim it for Utah.
+    ("UT", "exact", "Liverpool FC", "Liverpool FC IA Utah"),
     ("UT", "exact", "Blast", "Blast SC"),
     ("UT", "exact", "Blast Blue", "Blast SC"),
     ("UT", "exact", "Blast White", "Blast SC"),
