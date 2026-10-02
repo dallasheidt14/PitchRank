@@ -277,7 +277,11 @@ def game_outcome(gf: int, ga: int, max_gd: int) -> float:
 # Game preprocessing
 # =========================================================
 def clip_outlier_goals(games_df: pd.DataFrame, zscore_threshold: float = 2.5) -> pd.DataFrame:
-    """Clip GF/GA per (age, gender) cohort to mean +/- zscore_threshold * std.
+    """Clip GF/GA per (age, gender) cohort to mean +/- zscore_threshold * std, keeping each result.
+
+    Each column is clipped on its own, which can level or reverse a high-scoring game (8-6 to 6-6).
+    The loser's goals are then capped at one below the winner's, and a draw stays level at the
+    lower clipped value, so every row keeps its win, draw or loss.
 
     Args:
         games_df: DataFrame with columns gf, ga, age, gender.
@@ -290,14 +294,29 @@ def clip_outlier_goals(games_df: pd.DataFrame, zscore_threshold: float = 2.5) ->
 
     for _, idx in df.groupby(["age", "gender"]).groups.items():
         group = df.loc[idx]
+        clipped = {}
         for col in ("gf", "ga"):
             mean = group[col].mean()
             std = group[col].std()
             if std == 0 or pd.isna(std):
+                clipped[col] = group[col]
                 continue
             lo = mean - zscore_threshold * std
             hi = mean + zscore_threshold * std
-            df.loc[idx, col] = group[col].clip(lower=lo, upper=hi).round().astype(int)
+            clipped[col] = group[col].clip(lower=lo, upper=hi).round()
+
+        won = group["gf"] > group["ga"]
+        lost = group["gf"] < group["ga"]
+        drew = group["gf"] == group["ga"]
+        gf, ga = clipped["gf"], clipped["ga"]
+        # A bound at or below half a goal rounds a winner's 1 to 0, which would leave the loser on -1.
+        gf = gf.mask(won, gf.clip(lower=1))
+        ga = ga.mask(won, np.minimum(ga, gf - 1))
+        ga = ga.mask(lost, ga.clip(lower=1))
+        gf = gf.mask(lost, np.minimum(gf, ga - 1))
+        level = np.minimum(gf, ga)
+        df.loc[idx, "gf"] = gf.mask(drew, level).astype(int)
+        df.loc[idx, "ga"] = ga.mask(drew, level).astype(int)
 
     return df
 

@@ -1439,3 +1439,15 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Why**: One sheet showed both "Texas #60" and "TX #101" because Compare could provide a full state name while the state-ranking view provided a code. Both PDF and workbook state-rank labels now normalize recognized US names and codes to postal codes, and the public sample was rebuilt from the current renderer.
 - **Noted**: 2026-09-16
 - **Refs**: branch `fix/seeding-sample-regeneration`; closed 2026-09-25 with the deterministic sample generator and renderer manifest
+
+### Keep clip_outlier_goals from changing a game's result
+
+- **ID**: IMP-281
+- **Status**: done
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `src/etl/glicko_engine.py` `clip_outlier_goals`
+- **Why**: Goals for and against are capped separately at mean + 2.5σ for the team's own age/gender, then rounded. In the frozen Sept 30 games that flips 255 team-perspective results (8–6 becomes 6–6) and changes the outcome score of 7,702 rows (0.39%). Because each side is clipped against its own cohort, the same game can count as a win from one side and a draw from the other.
+- **Noted**: 2026-10-02
+- **Update (2026-10-02)**: Re-measured on the frozen Oct 1 games before the fix: across all ages 85,025 rows were capped and 257 changed result (125 losses and 120 wins to draws, 10 losses to wins, 1 draw to a win, 1 win to a loss), and clipping left the two sides of 39 games with different results. On the U10–U19 rows the engine rates, 82,739 rows were capped and 241 changed result (118 losses and 112 wins to draws, 10 losses to wins, 1 draw to a win).
+- **Refs**: branch `fix/goal-clipping-keeps-results`. Each column is still clipped, and a result the clip changed is then restored: the loser's goals drop to one below the winner's, and a draw stays level. No result changes, and the same 85,025 rows stay capped.
