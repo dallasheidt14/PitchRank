@@ -1,5 +1,7 @@
+import httpx
 import pandas as pd
 import pytest
+from postgrest import SyncPostgrestClient
 
 from src.rankings import data_adapter
 
@@ -113,6 +115,126 @@ class _FakeSupabase:
 
     def table(self, table_name: str):
         return _FakeQuery(self, table_name)
+
+
+_TEAM_ROWS = {
+    team_id: {"team_id_master": team_id, "age_group": "u12", "gender": "Male", "is_deprecated": False, "league": None}
+    for team_id in ("team-home", "team-away")
+}
+
+_GAMES_FILTERS = [
+    ("select", "id,game_date,home_team_master_id,away_team_master_id,home_score,away_score,provider_id"),
+    ("game_date", "gte.2025-04-14"),
+    ("game_date", "lte.2026-04-14"),
+    ("home_team_master_id", "not.is.null"),
+    ("away_team_master_id", "not.is.null"),
+    ("home_score", "not.is.null"),
+    ("away_score", "not.is.null"),
+    ("is_excluded", "eq.False"),
+    ("order", "game_date.asc,id.asc"),
+]
+
+
+def _filters(params):
+    return [(key, value) for key, value in params.multi_items() if key not in ("offset", "limit")]
+
+
+def _game_row(game_id):
+    return {
+        "id": game_id,
+        "game_date": "2026-04-01",
+        "home_team_master_id": "team-home",
+        "away_team_master_id": "team-away",
+        "home_score": 2,
+        "away_score": 1,
+        "provider_id": "provider-1",
+    }
+
+
+class _PostgrestServer:
+    """Answers the real postgrest client and records each games request as it is sent.
+
+    The real builder, not a double, decides what each page's URL carries, so a builder
+    reused across pages shows up here as repeated offset/limit params.
+    """
+
+    def __init__(self, games):
+        self.games = games
+        self.games_requests = []
+
+    def __call__(self, request):
+        table = request.url.path.rsplit("/", 1)[-1]
+        params = request.url.params
+        if table == "games":
+            self.games_requests.append(params)
+            offset = int(params.get_list("offset")[-1])
+            limit = int(params.get_list("limit")[-1])
+            return httpx.Response(200, json=self.games[offset : offset + limit])
+        if table == "teams":
+            team_ids = params["team_id_master"].removeprefix("in.(").removesuffix(")").split(",")
+            return httpx.Response(200, json=[_TEAM_ROWS[team_id] for team_id in team_ids if team_id in _TEAM_ROWS])
+        if table == "team_ranking_exclusions":
+            return httpx.Response(200, json=[])
+        if table == "providers":
+            return httpx.Response(200, json={"id": "provider-1"})
+        raise AssertionError(f"Unexpected request {request.url}")
+
+    def client(self):
+        return SyncPostgrestClient(
+            "https://pitchrank.test/rest/v1", http_client=httpx.Client(transport=httpx.MockTransport(self))
+        )
+
+
+@pytest.mark.asyncio
+async def test_each_games_page_request_carries_one_offset_and_limit(monkeypatch):
+    """A builder reused across pages appends another offset/limit pair every page, so its
+    URL keeps growing until the gateway rejects the request."""
+    monkeypatch.setattr(data_adapter, "retry_supabase_query", lambda query_func, **_kwargs: query_func())
+    server = _PostgrestServer([_game_row(f"game-{idx}") for idx in range(2001)])
+
+    result = await data_adapter.fetch_games_for_rankings(
+        server.client(),
+        today=pd.Timestamp("2026-04-14", tz="UTC"),
+    )
+
+    assert [(params.get_list("offset"), params.get_list("limit")) for params in server.games_requests] == [
+        (["0"], ["1000"]),
+        (["1000"], ["1000"]),
+        (["2000"], ["1000"]),
+    ]
+    assert [_filters(params) for params in server.games_requests] == [_GAMES_FILTERS] * 3
+    assert result["game_id"].nunique() == 2001
+
+
+@pytest.mark.asyncio
+async def test_every_games_page_keeps_the_provider_filter(monkeypatch):
+    monkeypatch.setattr(data_adapter, "retry_supabase_query", lambda query_func, **_kwargs: query_func())
+    server = _PostgrestServer([_game_row(f"game-{idx}") for idx in range(1001)])
+
+    await data_adapter.fetch_games_for_rankings(
+        server.client(),
+        provider_filter="gotsport",
+        today=pd.Timestamp("2026-04-14", tz="UTC"),
+    )
+
+    assert [_filters(params) for params in server.games_requests] == [
+        _GAMES_FILTERS + [("provider_id", "eq.provider-1")]
+    ] * 2
+
+
+@pytest.mark.asyncio
+async def test_fetch_games_for_rankings_raises_at_the_game_cap_instead_of_truncating(monkeypatch):
+    monkeypatch.setattr(data_adapter, "retry_supabase_query", lambda query_func, **_kwargs: query_func())
+    monkeypatch.setattr(data_adapter, "MAX_RANKING_GAMES", 2000)
+    server = _PostgrestServer([_game_row(f"game-{idx}") for idx in range(3000)])
+
+    with pytest.raises(RuntimeError, match="2,000-game cap"):
+        await data_adapter.fetch_games_for_rankings(
+            server.client(),
+            today=pd.Timestamp("2026-04-14", tz="UTC"),
+        )
+
+    assert [params.get_list("offset") for params in server.games_requests] == [["0"], ["1000"]]
 
 
 @pytest.mark.asyncio
