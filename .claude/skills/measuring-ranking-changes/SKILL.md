@@ -40,9 +40,10 @@ echo $! > <run dir>.pid
 ```
 
 - `--out` must name a directory that does not exist yet.
-- A board takes about 70 minutes, peaks around 5.4 GB and writes about 900 MB, half of it the engine's own cache under `<run dir>/data/cache`. Delete that folder once `<run dir>/completed.json` exists. Check free memory first, and run at most two boards at once.
+- A board takes about 70 minutes, peaks around 5.4 GB and writes about 900 MB, half of it the engine's own cache under `<run dir>/data/cache`. Delete that folder once `<run dir>/completed.json` exists. Run at most two boards at once. Before starting, read free memory as `FreePhysicalMemory` from `Get-CimInstance Win32_OperatingSystem`: start one board only with about 6.5 GB free, and two only with about 12 GB free. These minimums protect the boards, not a watcher shell.
 - A board stamps `last_calculated` with the freeze's `today`, so its evidence gates measure freshness from the date its engine rated as of, and boards run on different days stay comparable.
 - Launch detached, as above. Claude Code stops background shells when memory runs low; a nohup'd board survives that, but a watcher loop may not. Learn that a run finished from `<run dir>/completed.json` and from its process.
+- When the session will sit idle while the boards run, chain both board commands and the Step 5 comparison with `&&` inside one nohup'd `sh -c`, each command keeping its own console log, and write the chain's `$!` to a pid file as above. Launch it only with the one-board minimum free, since the second board starts without a check of its own. The report then exists even if every watcher is stopped; run the Step 4 checks before trusting it.
 
 ## Step 4: Check Each Run Before Comparing
 
@@ -74,6 +75,7 @@ It refuses two runs made on different freezes, or a `--freeze` the runs did not 
 - Call the agreement metric "agreement with recorded results (in-sample)". The ratings were fit to those same games, so it measures consistency with results already played, not predictive accuracy; unchanged agreement does not show a change is safe.
 - Attribute movement with a controlled comparison: run the same upstream change with and without the ingredient in question, and report the net difference. Never report a `big_movers` label as the reason teams moved; counting co-occurrence once gave 839 where the controlled net was 411.
 - Treat a large effect as neither harm nor benefit until an outcome test, such as a time split on later games, judges it.
+- Label every count of values that moved between two states (a game's result from win to draw, a team's status between runs) with its direction, and check the parts sum to the total. `pd.crosstab(before, after).to_dict()` is keyed by the `after` value first, so reading it as before-then-after reverses every transition.
 - ML readings are percentile ranks, so one step is `100 · alpha / n` points of `powerscore_ml` on a board with `n` eligible teams (8 / n at alpha 0.08); the age anchor and the evidence gates shrink it further on the published scale. Set any fixed points threshold above the smallest board's step.
 - A board's `today` is midnight while production rates as of the moment it runs, so a baseline board does not match production team for team. Base and candidate share the date, so their comparison is unaffected.
 - Give the blast radius `.claude/rules/ranking-changes.md` asks for from the checks above, and keep the report's `provenance` and `freeze_manifest` with it.

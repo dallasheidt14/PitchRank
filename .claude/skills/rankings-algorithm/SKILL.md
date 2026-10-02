@@ -133,7 +133,7 @@ All normalizations are per-cohort (age, gender). Preserves natural gaps unlike p
 
 ### Other engine parameters (single home — CLAUDE.md and the agent point here)
 
-- GF/GA are clipped at ±2.5σ per cohort before the outcome formula above
+- GF/GA are clipped at ±2.5σ per cohort before the outcome formula above, and where the clip changes a row's win, draw or loss, it is restored: the loser drops to one below the winner, and a draw stays level at the lower value
 - **Game selection**: `MAX_GAMES` is a balanced pick of 20 recent + 7 same-age quality + 3 bridge, then recent backfill
 - **Weights**: the recency exponential is multiplied by the `WINDOW_GRACE_DAYS` taper and normalized to sum 1 per team; repeat-opponent multipliers 1.0 / 0.8 / 0.6 / 0.4
 - **Cross-age**: `opp_mu + (opp_anchor − team_anchor)·400`; Pass 2 rates cross-age opponents at RD 350 so g(φ) discounts them

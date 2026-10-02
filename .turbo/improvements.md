@@ -1695,16 +1695,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: Game rows carry lowercase gender, but the mask compares them with the capitalised `cohort_gender`, so every Pass-2 opponent counts as cross-age. Same-board opponents are therefore valued from the frozen Pass-1 map at RD 350; game selection and explainability compare against the lowercase value instead. This has been in place since 2026-04-02 (ad9d0e708 / fa427c43c). Fixing it on frozen Sept 30 inputs moved 26,920 of 60,831 active teams more than 100 places. In-sample agreement with results improved on U10–U12 and fell on U14–U19, so it needs an out-of-sample test and a decision on how it interacts with the post-SCF map first.
 - **Noted**: 2026-10-02
 
-### Keep clip_outlier_goals from changing a game's result
-
-- **ID**: IMP-281
-- **Status**: open
-- **Type**: plan
-- **Category**: reliability
-- **Where**: `src/etl/glicko_engine.py` `clip_outlier_goals`
-- **Why**: Goals for and against are capped separately at mean + 2.5σ for the team's own age/gender, then rounded. In the frozen Sept 30 games that flips 255 team-perspective results (8–6 becomes 6–6) and changes the outcome score of 7,702 rows (0.39%). Because each side is clipped against its own cohort, the same game can count as a win from one side and a draw from the other.
-- **Noted**: 2026-10-02
-
 ### Stop a single-board calculate_rankings run from deleting every other board
 
 - **ID**: IMP-282
@@ -1904,4 +1894,16 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Category**: reliability
 - **Where**: `src/models/affinity_ut_matcher.py` `AffinityUTGameMatcher._squad_key_match`, `_NOT_INITIALS`; `src/models/squad_name_gates.py` `TIER_TOKENS`
 - **Why**: `dplo` is in `find_squad_key_duplicates.LEAGUE_WORDS` (so the squad key drops it) but not in `TIER_TOKENS` (which holds `dpl`), and `leagues_conflict` needs both names to state a league, so a DPLO tag on one side only is invisible to every screen: `Avalanche U13B Black DW DPLO` links to a stored `Avalanche 14B Black DW`. If a club's DPLO squad is a separate team, add `dplo` to the tier set those gates read.
+- **Noted**: 2026-10-02
+
+### Check each team's published record against the real results in the run comparer
+
+- **ID**: IMP-300
+- **Status**: open
+- **Type**: direct
+- **Category**: testing
+- **Where**: `.claude/skills/measuring-ranking-changes/scripts/compare_runs.py` `run_checks`
+- **Why**: The comparer never checks a team's published win-draw-loss against the real results of the games it was rated on.
+  - It compares scores, ranks, status, `MIN_GAMES_PROVISIONAL` crossings and games played, and has no handling of wins, draws, losses or the run's games-used file.
+  - A scratch check on 2026-10-02 recounted each team's record from the freeze's raw scores of the games the run used, joined on game id and team id, and compared it with the run's teams file. On the Oct 1 freeze it found 210 mismatched teams on main's board and 0 on the goal-clipping fix's, with no used row unmatched. The skill's own report showed neither.
 - **Noted**: 2026-10-02

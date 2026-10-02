@@ -204,19 +204,47 @@ class TestGameOutcome:
 
 
 class TestClipOutlierGoals:
+    BASE_GF = [2, 1, 3, 2, 1, 2, 3, 1, 2, 2, 1, 3, 2, 1, 2, 3, 1, 2, 2, 1]
+    BASE_GA = [1, 2, 0, 1, 1, 2, 1, 0, 1, 2, 1, 0, 1, 2, 1, 0, 1, 2, 1, 1]
+
+    def _clip_last_game(self, gf, ga):
+        games = pd.DataFrame({"gf": self.BASE_GF + [gf], "ga": self.BASE_GA + [ga], "age": "U15", "gender": "M"})
+        last = clip_outlier_goals(games, zscore_threshold=2.5).iloc[-1]
+        return int(last["gf"]), int(last["ga"])
+
     def test_extreme_score_clipped(self):
-        """A 15-0 game should get GF clipped."""
-        n = 20
-        games = pd.DataFrame(
-            {
-                "gf": [2, 1, 3, 2, 1, 2, 3, 1, 2, 2, 1, 3, 2, 1, 2, 3, 1, 2, 2, 15],
-                "ga": [1, 2, 0, 1, 1, 2, 1, 0, 1, 2, 1, 0, 1, 2, 1, 0, 1, 2, 1, 0],
-                "age": ["U15"] * n,
-                "gender": ["M"] * n,
-            }
-        )
-        result = clip_outlier_goals(games, zscore_threshold=2.5)
-        assert result["gf"].iloc[3] < 15  # 15 should be clipped
+        """GF's bound of 9.88 clips a 15-0 game to 10-0."""
+        assert self._clip_last_game(15, 0) == (10, 0)
+
+    def test_close_high_scoring_win_stays_a_win(self):
+        """Bounds of 6.49 (GF) and 5.52 (GA) clip 9-8 to 6-6, so the loser drops to 5."""
+        assert self._clip_last_game(9, 8) == (6, 5)
+
+    def test_close_high_scoring_loss_stays_a_loss(self):
+        """Bounds of 5.96 (GF) and 6.08 (GA) clip 8-9 to 6-6, so the loser drops to 5."""
+        assert self._clip_last_game(8, 9) == (5, 6)
+
+    def test_clipped_draw_stays_level(self):
+        """Bounds of 4.95 (GF) and 4.46 (GA) clip 6-6 to 5-4, so the draw stays level at 4."""
+        assert self._clip_last_game(6, 6) == (4, 4)
+
+    def test_clipped_draw_stays_level_when_gf_clips_lower(self):
+        """Bounds of 4.46 (GF) and 4.95 (GA) clip 6-6 to 4-5, so the draw stays level at 4."""
+        games = pd.DataFrame({"gf": self.BASE_GA + [6], "ga": self.BASE_GF + [6], "age": "U15", "gender": "M"})
+        last = clip_outlier_goals(games, zscore_threshold=2.5).iloc[-1]
+        assert (int(last["gf"]), int(last["ga"])) == (4, 4)
+
+    def test_winner_keeps_a_goal_when_the_bound_is_below_half_a_goal(self):
+        """A GF bound of 0.26 rounds a 1-0 winner's goal to 0."""
+        games = pd.DataFrame({"gf": [1] + [0] * 99, "ga": [0] * 100, "age": "U15", "gender": "M"})
+        first = clip_outlier_goals(games, zscore_threshold=2.5).iloc[0]
+        assert (int(first["gf"]), int(first["ga"])) == (1, 0)
+
+    def test_loss_keeps_the_opponents_goal_when_the_bound_is_below_half_a_goal(self):
+        """A GA bound of 0.26 rounds the opponent's winning goal in a 0-1 loss to 0."""
+        games = pd.DataFrame({"gf": [0] * 100, "ga": [1] + [0] * 99, "age": "U15", "gender": "M"})
+        first = clip_outlier_goals(games, zscore_threshold=2.5).iloc[0]
+        assert (int(first["gf"]), int(first["ga"])) == (0, 1)
 
     def test_normal_scores_unchanged(self):
         """Normal scores within 2.5 sigma should not change."""
@@ -575,6 +603,25 @@ class TestRunGlicko2Cohort:
         assert a_row["draws"] == 1
         assert a_row["goals_for"] == 4  # 3 + 1 + 0
         assert a_row["goals_against"] == 4  # 1 + 1 + 2
+
+    def test_clipped_game_keeps_its_result_in_the_record(self):
+        """The cohort's bound of 7.45 clips a 9-8 win to 7-7, so the loser drops to 6 and the game stays a win."""
+        cfg = GlickoConfig()
+        today = pd.Timestamp("2026-03-31")
+        rows = []
+        scores = [(1, 0), (2, 1), (1, 1), (0, 1), (2, 0), (1, 2), (1, 0), (0, 0), (2, 1), (1, 1)]
+        for i, (gf, ga) in enumerate(scores):
+            rows += make_game("A", f"O{i}", gf, ga, f"2026-03-{i + 1:02d}")
+        rows += make_game("A", "Z", 9, 8, "2026-03-20")
+        games = pd.DataFrame(rows)
+
+        result, _ = run_glicko2_cohort(games, cfg, today)
+        a_row = result[result["team_id"] == "A"].iloc[0]
+        assert a_row["wins"] == 6
+        assert a_row["draws"] == 3
+        assert a_row["losses"] == 2
+        assert a_row["goals_for"] == 18  # 11 + 7
+        assert a_row["goals_against"] == 13  # 7 + 6
 
     def test_pass2_rates_unranked_u9_opponent_at_u10_strength(self):
         """Only the opponent's age differs between the runs, so A's rating must not move.
