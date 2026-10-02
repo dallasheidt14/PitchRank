@@ -90,6 +90,13 @@ class TestTournamentRegistry:
 
         assert incomplete == []
 
+    def test_each_tournament_declares_where_its_rows_are_filed(self):
+        incomplete = [
+            t.get("name") for t in scraper.TOURNAMENTS if not all(t.get(k) for k in ("provider", "state", "state_code"))
+        ]
+
+        assert incomplete == []
+
 
 class TestGenderAndAgeExtraction:
     """Both Affinity label styles must parse; OYSA writes the compact one."""
@@ -141,6 +148,9 @@ TOURNAMENT = {
     "name": "2026 OYSA Fall League",
     "tournament_guid": "765ABB82-7406-4A4D-9446-7EA366142522",
     "base_url": "https://oysa.sportsaffinity.com",
+    "provider": "affinity_or",
+    "state": "Oregon",
+    "state_code": "OR",
     "season_year": PINNED_SEASON,
 }
 
@@ -300,14 +310,14 @@ class TestTeamIdentity:
     """A provider team id is scoped to its cohort, because aliases are keyed on it."""
 
     def test_the_same_name_in_two_cohorts_gets_two_ids(self):
-        u12 = scraper._team_hash("SCA Gold", 12, "Boys")
-        u13 = scraper._team_hash("SCA Gold", 13, "Boys")
+        u12 = scraper._team_hash("affinity_or", "SCA Gold", 12, "Boys")
+        u13 = scraper._team_hash("affinity_or", "SCA Gold", 13, "Boys")
 
         assert u12 != u13
 
     def test_the_same_name_in_two_genders_gets_two_ids(self):
-        boys = scraper._team_hash("SCA Gold", 13, "Boys")
-        girls = scraper._team_hash("SCA Gold", 13, "Girls")
+        boys = scraper._team_hash("affinity_or", "SCA Gold", 13, "Boys")
+        girls = scraper._team_hash("affinity_or", "SCA Gold", 13, "Girls")
 
         assert boys != girls
 
@@ -318,8 +328,8 @@ class TestTeamIdentity:
         age group would give a BU18 squad and a BU19 squad of the same name one
         identity and link the later one to the earlier one's master team.
         """
-        u18 = scraper._team_hash("SCA Gold", 18, "Boys")
-        u19 = scraper._team_hash("SCA Gold", 19, "Boys")
+        u18 = scraper._team_hash("affinity_or", "SCA Gold", 18, "Boys")
+        u19 = scraper._team_hash("affinity_or", "SCA Gold", 19, "Boys")
 
         assert u18 != u19
         assert team_utils.calculate_age_group_from_birth_year(
@@ -329,8 +339,8 @@ class TestTeamIdentity:
         )
 
     def test_the_same_team_is_stable_across_runs(self):
-        assert scraper._team_hash("SCA Gold", 13, "Boys") == scraper._team_hash(
-            " sca gold ", 13, "Boys"
+        assert scraper._team_hash("affinity_or", "SCA Gold", 13, "Boys") == scraper._team_hash(
+            "affinity_or", " sca gold ", 13, "Boys"
         )
 
 
@@ -417,3 +427,12 @@ class TestRecordFields:
         assert all(record["age_year"] == 2014 for record in records)
         assert all(record["state_code"] == "OR" for record in records)
         assert all(record["provider"] == "affinity_or" for record in records)
+
+    def test_team_names_do_not_move_an_oregon_game(self, monkeypatch):
+        """Oregon files by division: its '13B' names its band's older year, so reading names would misfile it."""
+        mixed = PLAYED[:5] + ["Eugene Timbers U12 Blue", "3", "vs.", "Bend FC 2015 Red", "1"]
+
+        records = _scrape(monkeypatch, [mixed])
+
+        assert len(records) == 2
+        assert all(record["age_group"] == "u13" for record in records)

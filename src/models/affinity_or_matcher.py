@@ -38,10 +38,6 @@ from src.utils.team_name_utils import resolve_distinction
 
 logger = logging.getLogger(__name__)
 
-STATE_CODE = "OR"
-STATE_NAME = "Oregon"
-
-
 def _normalize_for_affinity_or(name: str) -> str:
     """
     Hygiene-style normalization for affinity_or provider names only.
@@ -108,9 +104,15 @@ class AffinityORGameMatcher(GameHistoryMatcher):
     Uses hygiene-style normalization so provider names match DB-normalized teams.
     """
 
+    state_code = "OR"
+    state_name = "Oregon"
+    # On an exact tie (equal score and tiebreak) Oregon keeps the first candidate; a league
+    # whose squad marks the gates can miss refuses the match instead.
+    refuse_tied_best = False
+
     def __init__(self, supabase, provider_id=None, alias_cache=None, dry_run=False):
         super().__init__(supabase, provider_id=provider_id, alias_cache=alias_cache, dry_run=dry_run)
-        self.default_state_code = STATE_CODE
+        self.default_state_code = self.state_code
         self._affinity_variant_gate_required = MATCHING_CONFIG.get("affinity_variant_gate_required", True)
         self._affinity_club_similarity_threshold = MATCHING_CONFIG.get("affinity_club_similarity_threshold", 0.9)
         self._affinity_debug_match_reasons = MATCHING_CONFIG.get("affinity_debug_match_reasons", False)
@@ -134,7 +136,19 @@ class AffinityORGameMatcher(GameHistoryMatcher):
             return None
         from src.models.game_matcher import extract_club_from_team_name
 
-        return extract_club_from_team_name(_normalize_for_affinity_or(team_name)) or None
+        return extract_club_from_team_name(self._normalize_provider_name(team_name)) or None
+
+    def _normalize_provider_name(self, name: str) -> str:
+        """Hygiene-style normalization, overridable for a league that spells names differently."""
+        return _normalize_for_affinity_or(name)
+
+    def _same_club_as_candidate(self, provider_club: str, candidate_club: str, candidate_name: str) -> bool:
+        """Whether a candidate belongs to the provider team's club; a league may also read the candidate's name."""
+        return _is_same_club(provider_club, candidate_club, self._affinity_club_similarity_threshold)
+
+    def _squads_conflict(self, provider_name: str, candidate_name: str) -> bool:
+        """Whether two same-club names mark different squads in a way the variant, tier and lane gates cannot see."""
+        return False
 
     def _state_for_new_team(self, club_name: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
         """``(state_code, state)`` to STORE on a newly created team.
@@ -166,7 +180,7 @@ class AffinityORGameMatcher(GameHistoryMatcher):
             return resolved_code, resolved_state
         if plurality is not None:
             return None, None
-        return STATE_CODE, STATE_NAME
+        return self.state_code, self.state_name
 
     def _state_for_club(self, club_name: Optional[str]) -> str:
         """State to SEARCH for this club's candidates, defaulting to Oregon.
@@ -183,7 +197,7 @@ class AffinityORGameMatcher(GameHistoryMatcher):
         not good enough there. Bounded at 1000 rows: a sample cannot settle a
         question about the whole, which is why this only chooses where to look.
         """
-        return self._club_state_plurality(club_name) or STATE_CODE
+        return self._club_state_plurality(club_name) or self.state_code
 
     def _club_state_plurality(self, club_name: Optional[str]) -> Optional[str]:
         """Most common stated state among the club's rows, or None if it has none.
@@ -233,10 +247,10 @@ class AffinityORGameMatcher(GameHistoryMatcher):
     ) -> Optional[Dict]:
         """Affinity-only fuzzy matching with gated candidate selection."""
         try:
-            from src.models.game_matcher import extract_club_from_team_name, extract_team_variant
+            from src.models.game_matcher import extract_team_variant
 
             # Canonicalize provider inputs before any candidate retrieval/scoring.
-            provider_team_name = _normalize_for_affinity_or(team_name)
+            provider_team_name = self._normalize_provider_name(team_name)
             age_group_normalized = age_group.lower() if age_group else age_group
             provider_club_name = _normalize_club_for_affinity(self._club_for(team_name, club_name))
 
@@ -275,10 +289,12 @@ class AffinityORGameMatcher(GameHistoryMatcher):
                 "variant_mismatch": 0,
                 "tier_mismatch": 0,
                 "lane_mismatch": 0,
+                "squad_conflict": 0,
             }
             best_match = None
             best_score = 0.0
             best_tiebreak = (0, 0, 0)
+            best_tied = False
             provider_team = {
                 "team_name": provider_team_name,
                 "club_name": provider_club_name,
@@ -291,7 +307,7 @@ class AffinityORGameMatcher(GameHistoryMatcher):
 
             for team in result.data:
                 candidate_name_raw = team.get("team_name", "")
-                candidate_name_norm = _normalize_for_affinity_or(candidate_name_raw)
+                candidate_name_norm = self._normalize_provider_name(candidate_name_raw)
                 candidate_club_raw = team.get("club_name")
                 candidate_club_norm = _normalize_club_for_affinity(candidate_club_raw)
                 # A row with no club_name still names its club inside team_name.
@@ -300,7 +316,7 @@ class AffinityORGameMatcher(GameHistoryMatcher):
                 # as having none, which caps it at 0.55 against a 0.75 threshold and
                 # makes every club-less row an unmatchable duplicate.
                 candidate_club_effective = candidate_club_norm or _normalize_club_for_affinity(
-                    extract_club_from_team_name(candidate_name_norm)
+                    self._club_for(candidate_name_raw, None)
                 )
 
                 # Stage 1 gate: canonical same-club (or very high similarity).
@@ -315,10 +331,8 @@ class AffinityORGameMatcher(GameHistoryMatcher):
                     if not candidate_club_effective:
                         reject_counts["club_unknown"] += 1
                         continue
-                    if not _is_same_club(
-                        provider_club_name,
-                        candidate_club_effective,
-                        self._affinity_club_similarity_threshold,
+                    if not self._same_club_as_candidate(
+                        provider_club_name, candidate_club_effective, candidate_name_raw
                     ):
                         reject_counts["club_mismatch"] += 1
                         continue
@@ -348,6 +362,9 @@ class AffinityORGameMatcher(GameHistoryMatcher):
                 candidate_lane = _extract_lane_number(candidate_name_norm)
                 if provider_lane and candidate_lane and provider_lane != candidate_lane:
                     reject_counts["lane_mismatch"] += 1
+                    continue
+                if self._squads_conflict(team_name, candidate_name_raw):
+                    reject_counts["squad_conflict"] += 1
                     continue
 
                 candidate_count_after_gate += 1
@@ -385,11 +402,14 @@ class AffinityORGameMatcher(GameHistoryMatcher):
                     else 0,
                 )
 
-                if score >= self.fuzzy_threshold and (
+                if score >= self.fuzzy_threshold and score == best_score and tiebreak == best_tiebreak:
+                    best_tied = True
+                elif score >= self.fuzzy_threshold and (
                     score > best_score or (score == best_score and tiebreak > best_tiebreak)
                 ):
                     best_score = score
                     best_tiebreak = tiebreak
+                    best_tied = False
                     best_match = {
                         "team_id": team["team_id_master"],
                         "team_name": candidate_name_raw,
@@ -399,7 +419,7 @@ class AffinityORGameMatcher(GameHistoryMatcher):
             if self._affinity_debug_match_reasons:
                 logger.info(
                     "[AffinityOR] Candidate gate stats: before=%s after=%s "
-                    "rejected(club=%s, club_unknown=%s, variant=%s, tier=%s, lane=%s) for '%s'",
+                    "rejected(club=%s, club_unknown=%s, variant=%s, tier=%s, lane=%s, squad=%s) for '%s'",
                     candidate_count_before_gate,
                     candidate_count_after_gate,
                     reject_counts["club_mismatch"],
@@ -407,8 +427,11 @@ class AffinityORGameMatcher(GameHistoryMatcher):
                     reject_counts["variant_mismatch"],
                     reject_counts["tier_mismatch"],
                     reject_counts["lane_mismatch"],
+                    reject_counts["squad_conflict"],
                     team_name,
                 )
+            if best_tied and self.refuse_tied_best:
+                return None
             return best_match
         except Exception as e:
             logger.error(f"AffinityOR fuzzy match error: {e}")
@@ -427,7 +450,7 @@ class AffinityORGameMatcher(GameHistoryMatcher):
 
     def _normalize_team_name(self, name: str) -> str:
         """Override: apply hygiene-style normalization (14B→2014) before base."""
-        pre = _normalize_for_affinity_or(name)
+        pre = self._normalize_provider_name(name)
         return super()._normalize_team_name(pre)
 
     def _match_team(

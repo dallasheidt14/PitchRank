@@ -285,6 +285,16 @@ class EnhancedETLPipeline:
                 alias_cache=self.alias_cache,
                 dry_run=self.dry_run,
             )
+        elif self.provider_code.lower() == "affinity_ut":
+            from src.models.affinity_ut_matcher import AffinityUTGameMatcher
+
+            logger.info("Using AffinityUTGameMatcher (OR normalization, UT default state + auto-create)")
+            self.matcher = AffinityUTGameMatcher(
+                self.supabase,
+                provider_id=self.provider_id,
+                alias_cache=self.alias_cache,
+                dry_run=self.dry_run,
+            )
         elif self.provider_code.lower() == "soccereventsgroup":
             from src.models.soccereventsgroup_matcher import SoccerEventsGroupGameMatcher
 

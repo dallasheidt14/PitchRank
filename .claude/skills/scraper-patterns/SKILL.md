@@ -636,7 +636,48 @@ To test matching against production without writes, construct the matcher with
 matching. Teams an earlier real run created then appear as existing candidates, so the
 replay's link counts overstate what a first run on a fresh event does.
 
-### Mirroring that matcher for a new provider
+Run that replay before shipping any matcher, and above all one reused from a sibling
+league. Wrap the client so every insert, update, upsert and delete is recorded and
+refused, record each would-be creation with its club and state, and read every link by
+hand. Treat a high create rate as a finding, not a result: the Oregon matcher reused
+unchanged for Utah would have created 167 of 195 teams, most of them already stored, and
+linked squads of different coaches, because Utah writes bands, U-ages and coach initials
+where Oregon does not. Diff the link list between runs and judge each added or removed link.
+
+### Squads, ties and region when names differ from the sibling's
+
+`src/models/affinity_ut_matcher.py` is the worked example; the rules generalize.
+
+- **Match first by squad key.** `squad_key` and `cohorts_compatible` from
+  `scripts/find_squad_key_duplicates.py` pair one squad's spellings across providers.
+  Take a stored team only when exactly one live row (`is_deprecated` false) agrees, and fall
+  back to fuzzy matching otherwise. Pass a band as a band (respelling a glued B1314 as
+  13/14), never as a bare year: the reader treats a band as one cohort and a bare year as
+  two, so rewriting 13/14B to 2014 first admits a U12 row.
+- **Cover the key's blind spots.** It drops league words and any token that reads as the
+  club's initials or a noise word, so `Black AS` and `Black SA` share `{black}`, and
+  `C Santos ECNL RL` shares a key with `C Santos`. Check coach initials and squad numbers
+  separately, and treat a competitive tier named on one side only as a different squad.
+  Unlike the both-sides rule for squad numbers above, Utah counts a squad number present
+  on one side only as a different squad, because it writes `Black SL` and `Black SL 2` for
+  two squads; take that exception only for a league that does the same.
+- **Read squad marks anywhere after the club**, not only at the end: `ZZ Black` against
+  `MH Black` is two coaches. Read a squad number with the initials removed, or `Black 2 DW`
+  hides its `2`. Keep state codes readable as initials, since a coach is often `NV` or
+  `CO`, except the league's own code, which its club names carry (`City SC UT`).
+- **Refuse a tied best match.** When two stored squads score alike, a name that names
+  neither cannot choose. Send the tie to review where the matcher has a review path, as
+  the rule above says; an autocreating matcher has none, so refusing there creates a team.
+  `refuse_tied_best` is a class attribute on `AffinityORGameMatcher`, false by default and
+  set true by the Utah subclass.
+- **Ask a club's state only within the league's region.** Asked nationally, a generic
+  club word answers for another state (`Avalanche` resolved to Virginia and sent Utah teams
+  there). Treat a club containing an ilike wildcard (`%`, `_`, `*`, `\`) as unknown.
+
+Each refusal costs a duplicate the merging-duplicate-teams skill can fold; each wrong link
+fuses two squads. Lean toward refusing.
+
+### Mirroring the Soccer Events Group matcher for a new provider
 
 Four things a first-draft port gets wrong. Symbols are named rather than line-numbered: the
 shared helpers moved out of the Soccer Events Group matcher on 2026-09-20 and every line
