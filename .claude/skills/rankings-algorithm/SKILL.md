@@ -98,7 +98,8 @@ All normalizations are per-cohort (age, gender). Preserves natural gaps unlike p
 ### Age Anchors — two tables
 
 - `GlickoConfig.MALE_ANCHORS` / `FEMALE_ANCHORS` (gendered): the Pass-2 cross-age
-  opponent offset. Male U10=0.783 → U19=1.0; Female U10=0.792 → U19=1.0
+  opponent offset. Male U10=0.783 → U19=1.0; Female U10=0.792 → U19=1.0. An age outside
+  10–19 takes the nearest calibrated anchor, so an unranked U9 opponent counts as U10
 - `AGE_TO_ANCHOR` (`src/rankings/constants.py`): the M/F average (U10 0.788 → U19 1.000),
   applied once at the end as `power_score_final = power_score_true × AGE_TO_ANCHOR[age]`
 
