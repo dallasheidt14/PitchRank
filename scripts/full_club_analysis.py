@@ -2975,6 +2975,13 @@ AFFINITY_UT_OVERRIDES = [
     # International Academy" folded into "Liverpool FC IA Utah", and "Liverpool FC" is a
     # club name in fourteen other states, so the no-state pass must not claim it for Utah.
     ("UT", "exact", "Liverpool FC", "Liverpool FC IA Utah"),
+    # The UYSA import's 11 ALL-CAPS rows outnumbered the 9 GotSport ones, which tipped the
+    # caps pass into proposing "Albion SC Utah" -> "ALBION SC Utah" -- the wrong direction,
+    # since ALBION is not an acronym and the club writes "Albion SC" across most of its
+    # forty-odd branches. The override runs before the caps pass and marks the club
+    # processed, so naming the mixed-case form here settles it. The branch stays its own
+    # club: it is not folded into "Albion SC".
+    ("UT", "exact", "ALBION SC Utah", "Albion SC Utah"),
     ("UT", "exact", "Blast", "Blast SC"),
     ("UT", "exact", "Blast Blue", "Blast SC"),
     ("UT", "exact", "Blast White", "Blast SC"),
