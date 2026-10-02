@@ -22,6 +22,10 @@ logger = logging.getLogger(__name__)
 # What MergeResolver.version reports when its read failed. It reports no merges either way.
 MERGE_MAP_LOAD_FAILED = "error"
 
+# Upper bound on one ranking fetch. A fetch that fills it is treated as runaway pagination
+# and fails rather than ranking a possibly truncated snapshot.
+MAX_RANKING_GAMES = 5_000_000
+
 
 # --------------------------------------------------------------------
 #  Retry wrapper for Supabase queries
@@ -224,33 +228,9 @@ async def fetch_games_for_rankings(
     cutoff = today - pd.Timedelta(days=lookback_days)
     cutoff_date_str = cutoff.strftime("%Y-%m-%d")
 
-    # Fetch games with pagination (Supabase defaults to 1000 rows per query)
-    # Filter out games with NULL team IDs at the query level to avoid fetching
-    # partial-match games that would be discarded during v53e conversion anyway.
-    # These NULL-FK games corrupt SOS by creating phantom opponents.
     today_date_str = today.strftime("%Y-%m-%d")
-    base_query = (
-        db.table("games")
-        .select(
-            "id, game_date, home_team_master_id, away_team_master_id, home_score, away_score, provider_id"
-        )
-        .gte("game_date", cutoff_date_str)
-        .lte(
-            "game_date",
-            today_date_str,  # Exclude future-dated games (phantom 0-0 draws)
-        )
-        .not_.is_("home_team_master_id", "null")
-        .not_.is_("away_team_master_id", "null")
-        .not_.is_("home_score", "null")
-        .not_.is_("away_score", "null")
-        .eq(
-            "is_excluded",
-            False,  # Exclude games flagged as non-ranking (e.g., futsal)
-        )
-        .order("game_date", desc=False)
-        .order("id", desc=False)
-    )  # Order for consistent pagination
 
+    provider_id = None
     if provider_filter:
         # Get provider ID with retry logic. A failed lookup must abort rather
         # than degrade to unfiltered all-provider rankings.
@@ -272,7 +252,37 @@ async def fetch_games_for_rankings(
             ) from e
         if not getattr(provider_result, "data", None):
             raise RuntimeError(f"Provider filter '{provider_filter}' matched no provider")
-        base_query = base_query.eq("provider_id", provider_result.data["id"])
+        provider_id = provider_result.data["id"]
+
+    def games_page_query(offset: int, page_size: int):
+        # Filter out games with NULL team IDs at the query level to avoid fetching
+        # partial-match games that would be discarded during v53e conversion anyway.
+        # These NULL-FK games corrupt SOS by creating phantom opponents.
+        query = (
+            db.table("games")
+            .select("id, game_date, home_team_master_id, away_team_master_id, home_score, away_score, provider_id")
+            .gte("game_date", cutoff_date_str)
+            .lte(
+                "game_date",
+                today_date_str,  # Exclude future-dated games (phantom 0-0 draws)
+            )
+            .not_.is_("home_team_master_id", "null")
+            .not_.is_("away_team_master_id", "null")
+            .not_.is_("home_score", "null")
+            .not_.is_("away_score", "null")
+            .eq(
+                "is_excluded",
+                False,  # Exclude games flagged as non-ranking (e.g., futsal)
+            )
+            .order("game_date", desc=False)
+            .order("id", desc=False)
+        )  # Order for consistent pagination
+        if provider_id is not None:
+            query = query.eq("provider_id", provider_id)
+        # A fresh builder per page: postgrest's range() appends offset and limit to the
+        # builder it is called on, so one reused across pages grows its URL with every
+        # page until the gateway rejects the request.
+        return query.range(offset, offset + page_size - 1)
 
     excluded_team_ids = fetch_excluded_team_ids(db)
 
@@ -280,12 +290,11 @@ async def fetch_games_for_rankings(
     games_data = []
     page_size = 1000
     offset = 0
-    max_games = 1000000  # Safety limit
 
     logger.info(f"📥 Fetching games from Supabase (cutoff: {cutoff_date_str})...")
 
-    while len(games_data) < max_games:
-        query = base_query.range(offset, offset + page_size - 1)
+    while True:
+        query = games_page_query(offset, page_size)
 
         try:
             games_result = retry_supabase_query(
@@ -308,6 +317,12 @@ async def fetch_games_for_rankings(
 
         if len(games_result.data) < page_size:
             break
+
+        if len(games_data) >= MAX_RANKING_GAMES:
+            raise RuntimeError(
+                f"Games fetch reached the {MAX_RANKING_GAMES:,}-game cap on a full page; "
+                "aborting rankings fetch instead of ranking a possibly truncated snapshot."
+            )
 
         offset += page_size
 
