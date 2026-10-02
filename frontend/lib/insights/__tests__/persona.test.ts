@@ -67,6 +67,8 @@ function buildInput(overrides: Partial<InsightInputData> = {}): InsightInputData
     ranking: {
       rank_in_cohort_final: null,
       power_score_final: null,
+      prediction_power_score: null,
+      power_score_scale_version: null,
       sos_norm: null,
       wins: 0,
       losses: 0,
@@ -190,6 +192,25 @@ describe('generatePersonaInsight — Title Contender', () => {
     expect(result.explanation).toContain('beat #3 ');
     expect(result.explanation).toContain('#11 ');
     expect(result.explanation).toContain('#18 ');
+  });
+
+  it('does not let a versioned display-scale change alter the persona', () => {
+    const games = [
+      { ...game({ opp_rank: 3, team_score: 2, opp_score: 1 }), opponent_power_score: 0.7 },
+      { ...game({ opp_rank: 11, team_score: 2, opp_score: 0 }), opponent_power_score: 0.7 },
+      { ...game({ opp_rank: 18, team_score: 1, opp_score: 0 }), opponent_power_score: 0.7 },
+    ];
+    const ranking = {
+      ...buildInput().ranking,
+      prediction_power_score: 0.5,
+      power_score_scale_version: 'age-gender-v2-2026-09-25',
+    };
+
+    const lowDisplay = generatePersonaInsight(buildInput({ ranking: { ...ranking, power_score_final: 0.25 }, games }));
+    const highDisplay = generatePersonaInsight(buildInput({ ranking: { ...ranking, power_score_final: 0.85 }, games }));
+
+    expect(highDisplay).toEqual(lowDisplay);
+    expect(highDisplay.label).toBe('Giant Killer');
   });
 
   it('populates details.trait and details.signatureWins', () => {

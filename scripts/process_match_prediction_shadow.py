@@ -79,6 +79,8 @@ def _normalize_team_snapshot(team_payload: Dict[str, Any], snapshot_date: str) -
         "status": "Active",
         "rank_in_cohort_final": team_payload.get("rank_in_cohort_final"),
         "power_score_final": team_payload.get("power_score_final"),
+        "prediction_power_score": team_payload.get("prediction_power_score"),
+        "power_score_scale_version": team_payload.get("power_score_scale_version"),
         "sos_norm": team_payload.get("sos_norm"),
         "offense_norm": team_payload.get("offense_norm"),
         "defense_norm": team_payload.get("defense_norm"),
@@ -177,7 +179,10 @@ def _fetch_snapshot_index(
         batch = ids[index : index + batch_size]
         response = (
             supabase.table("rankings_full")
-            .select("team_id, power_score_final, age_group")
+            .select(
+                "team_id, power_score_final, prediction_power_score, "
+                "power_score_scale_version, age_group"
+            )
             .in_("team_id", batch)
             .execute()
         )
@@ -195,6 +200,8 @@ def _fetch_snapshot_index(
                 "snapshot_date": snapshot_date,
                 "snapshot_ts": snapshot_ts,
                 "power_score_final": row.get("power_score_final"),
+                "prediction_power_score": row.get("prediction_power_score"),
+                "power_score_scale_version": row.get("power_score_scale_version"),
                 "age_group": row.get("age_group"),
             }
         ]

@@ -366,6 +366,8 @@ def _historical_ranking_row(snapshot: dict[str, Any]) -> dict[str, Any]:
         "status": snapshot.get("status"),
         "games_played": snapshot.get("games_played"),
         "power_score_final": snapshot.get("power_score_final"),
+        "prediction_power_score": snapshot.get("prediction_power_score"),
+        "power_score_scale_version": snapshot.get("power_score_scale_version"),
         "sos_norm": snapshot.get("sos_norm"),
         "off_norm": snapshot.get("offense_norm"),
         "def_norm": snapshot.get("defense_norm"),
@@ -677,6 +679,11 @@ def _build_predictor_team_ranking(row: dict[str, Any]) -> TeamRanking:
     return TeamRanking(
         team_id_master=str(row["team_id"]),
         power_score_final=float(row.get("power_score", row.get("power_score_final") or 0.5) or 0.5),
+        prediction_power_score=(
+            float(row["prediction_power_score"])
+            if row.get("prediction_power_score") is not None
+            else None
+        ),
         sos_norm=float(row.get("sos_norm") or 0.5),
         offense_norm=float(row.get("off_norm") or 0.5),
         defense_norm=float(row.get("def_norm") or 0.5),
@@ -748,6 +755,8 @@ def _build_entrant_row(
         "rating_basis": str(entrant.get("rating_basis") or "historical_snapshot"),
         "games_played": int(ranking_row.get("games_played") or 0),
         "power_score": float(power_score),
+        "prediction_power_score": ranking_row.get("prediction_power_score"),
+        "power_score_scale_version": ranking_row.get("power_score_scale_version"),
         "rank_in_cohort": ranking_row.get("rank_in_cohort_final"),
         "sos_norm": ranking_row.get("sos_norm"),
         "off_norm": ranking_row.get("off_norm"),

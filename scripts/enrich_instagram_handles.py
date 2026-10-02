@@ -17,7 +17,7 @@ Get your key at https://serper.dev (free tier: 2,500 queries/month).
 Examples:
     python3 scripts/enrich_instagram_handles.py --dry-run
     python3 scripts/enrich_instagram_handles.py --dry-run --limit 20
-    python3 scripts/enrich_instagram_handles.py --limit 500 --min-power-score 0.70
+    python3 scripts/enrich_instagram_handles.py --top-n-per-cohort 25 --national
     python3 scripts/enrich_instagram_handles.py --state TX --workers 3
     python3 scripts/enrich_instagram_handles.py --re-check --limit 100
     python3 scripts/enrich_instagram_handles.py --age-group u14 --gender F --dry-run
@@ -1304,7 +1304,10 @@ def main() -> None:
         type=float,
         default=0.0,
         dest="min_power_score",
-        help="Only process teams with power_score_final >= this value (default: 0 = all)",
+        help=(
+            "Legacy/manual filter: only process teams with power_score_final >= this value. "
+            "Threshold meaning changes with the publication scale; prefer --top-n-per-cohort."
+        ),
     )
     parser.add_argument(
         "--state",

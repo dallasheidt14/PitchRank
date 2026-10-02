@@ -66,6 +66,7 @@ class TeamRanking:
 
     team_id_master: str
     power_score_final: Optional[float] = None
+    prediction_power_score: Optional[float] = None
     sos_norm: Optional[float] = None
     offense_norm: Optional[float] = None
     defense_norm: Optional[float] = None
@@ -642,7 +643,13 @@ def calculate_glicko_strength(team_a: TeamRanking, team_b: TeamRanking) -> Optio
 
 
 def predict_match(team_a: TeamRanking, team_b: TeamRanking, all_games: List[Game]) -> MatchPrediction:
-    power_diff = (team_a.power_score_final or 0.5) - (team_b.power_score_final or 0.5)
+    power_a = team_a.prediction_power_score
+    if power_a is None:
+        power_a = team_a.power_score_final
+    power_b = team_b.prediction_power_score
+    if power_b is None:
+        power_b = team_b.power_score_final
+    power_diff = (power_a if power_a is not None else 0.5) - (power_b if power_b is not None else 0.5)
     glicko_strength = calculate_glicko_strength(team_a, team_b)
     strength_signal = glicko_strength["signal"] * 0.75 + power_diff * 0.25 if glicko_strength else power_diff
 

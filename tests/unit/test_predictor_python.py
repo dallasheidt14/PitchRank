@@ -1,6 +1,30 @@
 from scripts.predictor_python import Game, TeamRanking, calculate_common_opponent_signal, predict_match
 
 
+def test_predict_match_uses_compatibility_score_when_display_scale_changes():
+    legacy_a = TeamRanking(team_id_master="a", power_score_final=0.71, age=12, games_played=20)
+    legacy_b = TeamRanking(team_id_master="b", power_score_final=0.56, age=12, games_played=20)
+    legacy_prediction = predict_match(legacy_a, legacy_b, [])
+
+    versioned_a = TeamRanking(
+        team_id_master="a",
+        power_score_final=0.64,
+        prediction_power_score=0.71,
+        age=12,
+        games_played=20,
+    )
+    versioned_b = TeamRanking(
+        team_id_master="b",
+        power_score_final=0.49,
+        prediction_power_score=0.56,
+        age=12,
+        games_played=20,
+    )
+    versioned_prediction = predict_match(versioned_a, versioned_b, [])
+
+    assert versioned_prediction == legacy_prediction
+
+
 def test_predict_match_prefers_team_with_higher_glicko_rating():
     team_a = TeamRanking(
         team_id_master="a",

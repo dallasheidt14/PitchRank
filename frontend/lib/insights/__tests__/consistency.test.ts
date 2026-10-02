@@ -24,6 +24,8 @@ function buildInput(opts: {
     rank_in_cohort_ml: 50,
     rank_in_cohort_final: 50,
     power_score_final: s,
+    prediction_power_score: s,
+    power_score_scale_version: null,
   }));
 
   return {
@@ -31,6 +33,8 @@ function buildInput(opts: {
     ranking: {
       rank_in_cohort_final: 50,
       power_score_final: 0.5,
+      prediction_power_score: 0.5,
+      power_score_scale_version: null,
       sos_norm: null,
       wins: 0,
       losses: 0,

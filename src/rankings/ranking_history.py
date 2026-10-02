@@ -137,6 +137,15 @@ async def save_ranking_snapshot(
             "power_score_final": float(row.get("power_score_final"))
             if pd.notna(row.get("power_score_final"))
             else None,
+            "power_score_true": float(row.get("power_score_true"))
+            if pd.notna(row.get("power_score_true"))
+            else None,
+            "prediction_power_score": float(row.get("prediction_power_score"))
+            if pd.notna(row.get("prediction_power_score"))
+            else None,
+            "power_score_scale_version": str(row.get("power_score_scale_version"))
+            if pd.notna(row.get("power_score_scale_version"))
+            else None,
             "powerscore_ml": float(row.get("powerscore_ml")) if pd.notna(row.get("powerscore_ml")) else None,
             # NEW: State rank tracking
             "state_code": str(row.get("state_code")) if pd.notna(row.get("state_code")) else None,

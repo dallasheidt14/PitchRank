@@ -456,7 +456,8 @@ Games (Supabase; 365-day window + 28-day grace taper)
   → Pass 3: national/state SOS columns — display only, never feeds PowerScore
   → Same-age evidence gates (SOS-gated ML authority, shrink, play-up bonus, caps)
             → power_score_true
-  → power_score_final = power_score_true × AGE_TO_ANCHOR[age]
+  → versioned adaptive age/gender scale → power_score_final
+  → legacy anchor score retained separately as prediction_power_score
   → rank_in_cohort_final by power_score_true DESC (Active only) → 7d/30d changes
   → Clip PowerScore columns to [0, 1] → ranking_history → rankings_full + current_rankings
 ```
@@ -464,7 +465,9 @@ Games (Supabase; 365-day window + 28-day grace taper)
 ### PowerScore
 
 - Column chain in `rankings_full`: `powerscore_core` → `powerscore_adj` → `powerscore_ml`
-  → `power_score_true` (post-gates, unanchored) → `power_score_final` (× `AGE_TO_ANCHOR`).
+  → `power_score_true` (post-gates, unanchored) → `power_score_final` (versioned adaptive
+  age/gender publication scale). `prediction_power_score` retains the legacy anchor-scaled
+  value so display calibration cannot change prediction math.
   `rank_in_cohort_final` is the published rank; `national_rank` and `state_rank` are
   always NULL in `rankings_full` (views compute display ranks).
 - Two traps: there is no `powerscore` column, and `sos` is on the raw 1500-centred

@@ -72,7 +72,12 @@ def _metadata(payload: dict) -> dict:
     teams = [_safe_json(context.get(key)) for key in ("teamAInput", "teamBInput")]
     ages = [team.get("age") for team in teams]
     games = [team.get("games_played") for team in teams]
-    scores = [team.get("power_score_final") for team in teams]
+    scores = [
+        team.get("prediction_power_score")
+        if team.get("prediction_power_score") is not None
+        else team.get("power_score_final")
+        for team in teams
+    ]
     gender = _gender(teams[0].get("gender"))
     age = ages[0]
     age_group = f"U{int(age)}" if _finite(age) and age > 0 and int(age) == age else None

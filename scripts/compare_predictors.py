@@ -68,8 +68,14 @@ def predict_match_hardcoded(team_a: Dict, team_b: Dict) -> Dict:
     LEAGUE_AVG_GOALS = 2.5
 
     # Get team features
-    power_a = team_a.get("power_score_final", 0.5) or 0.5
-    power_b = team_b.get("power_score_final", 0.5) or 0.5
+    power_a = team_a.get("prediction_power_score")
+    if power_a is None:
+        power_a = team_a.get("power_score_final", 0.5)
+    power_b = team_b.get("prediction_power_score")
+    if power_b is None:
+        power_b = team_b.get("power_score_final", 0.5)
+    power_a = power_a if power_a is not None else 0.5
+    power_b = power_b if power_b is not None else 0.5
     power_diff = power_a - power_b
 
     # Adaptive weights
@@ -199,17 +205,21 @@ async def fetch_comparison_data(supabase: Client, limit: int = 5000) -> Tuple[pd
     print("Fetching rankings...")
     try:
         response = (
-            supabase.table("rankings_view")
+            supabase.table("rankings_full")
             .select(
-                "team_id_master, power_score_final, sos_norm, offense_norm, "
-                "defense_norm, win_percentage, games_played, rank_in_cohort_final"
+                "team_id, power_score_final, prediction_power_score, sos_norm, off_norm, "
+                "def_norm, win_percentage, games_played, rank_in_cohort_final"
             )
             .limit(50000)
             .execute()
         )
         rankings_df = pd.DataFrame(response.data)
+        if not rankings_df.empty:
+            rankings_df["team_id_master"] = rankings_df["team_id"]
+            rankings_df["offense_norm"] = rankings_df["off_norm"]
+            rankings_df["defense_norm"] = rankings_df["def_norm"]
     except Exception as e:
-        print(f"Could not fetch from rankings_view: {e}")
+        print(f"Could not fetch from rankings_full: {e}")
         print("Using empty rankings (will use defaults)")
         rankings_df = pd.DataFrame()
 
@@ -423,6 +433,7 @@ async def compare_predictors(
         # Hard-coded prediction (convert to dict format)
         home_rank_dict = {
             "power_score_final": home_rank.get("power_score_final", 0.5) or 0.5,
+            "prediction_power_score": home_rank.get("prediction_power_score"),
             "sos_norm": home_rank.get("sos_norm", 0.5) or 0.5,
             "offense_norm": home_rank.get("offense_norm", 0.5) or 0.5,
             "defense_norm": home_rank.get("defense_norm", 0.5) or 0.5,
@@ -431,6 +442,7 @@ async def compare_predictors(
 
         away_rank_dict = {
             "power_score_final": away_rank.get("power_score_final", 0.5) or 0.5,
+            "prediction_power_score": away_rank.get("prediction_power_score"),
             "sos_norm": away_rank.get("sos_norm", 0.5) or 0.5,
             "offense_norm": away_rank.get("offense_norm", 0.5) or 0.5,
             "defense_norm": away_rank.get("defense_norm", 0.5) or 0.5,
@@ -447,6 +459,7 @@ async def compare_predictors(
             # Convert dict to format expected by predictor
             home_features = {
                 "power_score_final": home_rank.get("power_score_final", 0.5) or 0.5,
+                "prediction_power_score": home_rank.get("prediction_power_score"),
                 "sos_norm": home_rank.get("sos_norm", 0.5) or 0.5,
                 "offense_norm": home_rank.get("offense_norm", 0.5) or 0.5,
                 "defense_norm": home_rank.get("defense_norm", 0.5) or 0.5,
@@ -458,6 +471,7 @@ async def compare_predictors(
 
             away_features = {
                 "power_score_final": away_rank.get("power_score_final", 0.5) or 0.5,
+                "prediction_power_score": away_rank.get("prediction_power_score"),
                 "sos_norm": away_rank.get("sos_norm", 0.5) or 0.5,
                 "offense_norm": away_rank.get("offense_norm", 0.5) or 0.5,
                 "defense_norm": away_rank.get("defense_norm", 0.5) or 0.5,

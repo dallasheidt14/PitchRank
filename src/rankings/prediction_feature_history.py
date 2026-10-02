@@ -185,6 +185,10 @@ def build_prediction_feature_snapshot_records(
             "status": str(row.get("status")).strip() if pd.notna(row.get("status")) else None,
             "rank_in_cohort_final": _safe_int(row.get("rank_in_cohort_final")),
             "power_score_final": _safe_float(row.get("power_score_final")),
+            "prediction_power_score": _safe_float(row.get("prediction_power_score")),
+            "power_score_scale_version": str(row.get("power_score_scale_version")).strip()
+            if pd.notna(row.get("power_score_scale_version"))
+            else None,
             "sos_norm": _safe_float(row.get("sos_norm")),
             "offense_norm": offense_norm,
             "defense_norm": defense_norm,

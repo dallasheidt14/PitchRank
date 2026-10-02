@@ -64,6 +64,8 @@ COHORT_SELECT_COLS = ",".join(
         "games_played",
         "power_score_true",
         "power_score_final",
+        "prediction_power_score",
+        "power_score_scale_version",
         "sos_norm",
         "off_norm",
         "def_norm",
@@ -237,6 +239,7 @@ def _resolve_seedable_teams(cohort_request: dict[str, Any], candidates: list[dic
                 "age_group": candidate.get("age_group") or cohort_request.get("age_group"),
                 "gender": candidate.get("gender") or cohort_request.get("gender"),
                 "power_score": candidate.get("power_score"),
+                "prediction_power_score": candidate.get("prediction_power_score"),
                 "rank_in_cohort": candidate.get("rank_in_cohort"),
                 "games_played": candidate.get("games_played"),
             }
@@ -258,6 +261,11 @@ def _build_predictor_team_ranking(row: dict[str, Any]) -> TeamRanking:
     return TeamRanking(
         team_id_master=str(row["team_id"]),
         power_score_final=float(row.get("power_score", row.get("power_score_final") or 0.5) or 0.5),
+        prediction_power_score=(
+            float(row["prediction_power_score"])
+            if row.get("prediction_power_score") is not None and not pd.isna(row.get("prediction_power_score"))
+            else None
+        ),
         sos_norm=float(row.get("sos_norm") or 0.5),
         offense_norm=float(row.get("offense_norm") or row.get("off_norm") or 0.5),
         defense_norm=float(row.get("defense_norm") or row.get("def_norm") or 0.5),
