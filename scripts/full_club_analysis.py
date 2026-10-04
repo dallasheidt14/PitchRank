@@ -1113,6 +1113,20 @@ CLUB_CANONICAL_OVERRIDES = [
     ("CA", "exact", "North Valley Soccer Club", "North Valley Youth Soccer League"),
     ("CA", "exact", "mvla", "Mountain View Los Altos Soccer Club"),
     ("CA", "exact", "mvla soccer club", "Mountain View Los Altos Soccer Club"),
+    # MVLA East and MVLA San Jose are MVLA's own satellite programs rather than separate
+    # clubs, on the owner's call 2026-09-30 -- an exception to the branch convention in
+    # tests/unit/test_club_overrides_keep_provider_branches.py, which decided Southern Soccer
+    # Academy the other way. The provider evidence pointed the other way here too, since
+    # GotSport supplies both names as its own club value, so the call overrode it rather than
+    # confirming it, and it is not a precedent.
+    #
+    # The fold has a cost: two names sharing one club_name become duplicate-merge candidates
+    # for each other, because find_fuzzy_duplicate_teams only pairs rows whose club_name is
+    # equal. An entry here rather than a one-off move of the 38 rows is still right -- the
+    # next import re-supplies the branch name, and nothing else re-applies the fold each
+    # Monday.
+    ("CA", "exact", "MVLA East", "Mountain View Los Altos Soccer Club"),
+    ("CA", "exact", "MVLA San Jose", "Mountain View Los Altos Soccer Club"),
     ("CA", "exact", "msa fc", "Murrieta Soccer Academy"),
     ("CA", "exact", "msa united", "Murrieta Soccer Academy"),
     ("CA", "exact", "lmfc", "LA Mirada FC"),
