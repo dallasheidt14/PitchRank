@@ -430,6 +430,40 @@ def test_no_override_names_a_canonical_that_another_override_moves_on_from():
     assert not chains, "these canonicals are spellings another override retires: " + "; ".join(chains)
 
 
+def test_every_uysa_override_is_kept_out_of_the_no_state_pass():
+    """`analyze_no_state_teams` reads a pattern resolving to one canonical across the whole
+    table as nationally safe, so a name established from one state's rows would rewrite a
+    stateless team anywhere. Several of the UYSA names are generic: measured 2026-10-02
+    against the non-Utah teams, a bare "Avalanche" club exists in another state, "Liverpool
+    FC International Academy" is a national brand with Michigan, Texas and Maryland clubs,
+    and "Strikers" spans dozens of clubs across half the states.
+
+    Derived from the list rather than enumerated, so a UYSA entry added tomorrow is covered
+    without anyone remembering to list it here.
+    """
+    missing = [
+        (mtype, pattern)
+        for _, mtype, pattern, _ in fca.AFFINITY_UT_OVERRIDES
+        if (mtype, pattern.lower()) not in fca.STATE_ONLY_PATTERNS
+    ]
+    assert not missing, f"these UYSA patterns would reach a stateless team nationally: {missing}"
+
+
+@pytest.mark.parametrize(
+    "club", ["Blast", "Liverpool FC International Academy", "Impact Aspire", "Celtic GA"]
+)
+def test_the_no_state_pass_leaves_a_generic_utah_name_alone(club):
+    """The behaviour the exclusion exists for, driven through the pass the weekly run calls
+    rather than asserted against the pattern set.
+
+    Every name here is a UYSA override pattern, so each case dies when the exclusion is
+    dropped. A name the list does not hold -- a bare "Avalanche" or "Strikers", which the
+    docstring above cites as real clubs elsewhere -- would pass this test either way, since
+    the pass never had a rule to apply to it.
+    """
+    assert analyze_no_state_teams([_team("t0", club, None)]) == []
+
+
 # (the satellite, the parent it folds into). Folded on the owner's call 2026-09-30, against
 # the branch convention in tests/unit/test_club_overrides_keep_provider_branches.py.
 FOLDED_SATELLITES = [
