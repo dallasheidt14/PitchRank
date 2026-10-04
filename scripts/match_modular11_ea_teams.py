@@ -23,8 +23,10 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from src.utils.club_normalizer import are_same_club
-from supabase import create_client
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from src.utils.club_normalizer import are_same_club  # noqa: E402
+from supabase import create_client  # noqa: E402
 
 EA2_RE = re.compile(r"\bEA2\b", re.IGNORECASE)
 EA_RE = re.compile(r"\bEA\b", re.IGNORECASE)
