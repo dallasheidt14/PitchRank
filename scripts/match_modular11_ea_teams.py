@@ -11,16 +11,45 @@ Usage:
 
 from __future__ import annotations
 
+import argparse
+import csv
+import os
 import re
+import sys
 from collections import defaultdict
 from dataclasses import dataclass
 from functools import lru_cache
+from pathlib import Path
+
+from dotenv import load_dotenv
 
 from src.utils.club_normalizer import are_same_club
+from supabase import create_client
 
 EA2_RE = re.compile(r"\bEA2\b", re.IGNORECASE)
 EA_RE = re.compile(r"\bEA\b", re.IGNORECASE)
 PROTECTED_RE = re.compile(r"\b(?:HD|AD|MLS\s*NEXT)\b", re.IGNORECASE)
+PAGE_SIZE = 1000
+REPORT_COLUMNS = [
+    "provider_team_id",
+    "club_name",
+    "display_name",
+    "tiers",
+    "bucket",
+    "reason",
+    "candidate_ids",
+    "candidate_names",
+    "candidate_clubs",
+    "candidate_providers",
+    "candidate_states",
+]
+CANDIDATE_FIELDS = (
+    ("candidate_ids", "team_id_master"),
+    ("candidate_names", "team_name"),
+    ("candidate_clubs", "club_name"),
+    ("candidate_providers", "provider_code"),
+    ("candidate_states", "state_code"),
+)
 
 
 def tier_marker(name: str) -> str | None:
@@ -90,3 +119,92 @@ def classify(ea_teams: list[EaTeam], db_teams: list[dict]) -> list[ReportRow]:
             else:
                 rows.append(ReportRow(ea, "no_match", "", ()))
     return rows
+
+
+def _provider_codes(sb) -> dict[str, str]:
+    return {r["id"]: r["code"] for r in sb.table("providers").select("id, code").execute().data}
+
+
+def fetch_db_teams(sb, age_group: str) -> list[dict]:
+    codes = _provider_codes(sb)
+    rows, offset = [], 0
+    while True:
+        page = (
+            sb.table("teams")
+            .select("team_id_master, team_name, club_name, state_code, provider_id, age_group, gender")
+            .eq("age_group", age_group)
+            .eq("gender", "Male")
+            .or_("is_deprecated.is.null,is_deprecated.eq.false")
+            .order("team_id_master")
+            .range(offset, offset + PAGE_SIZE - 1)
+            .execute()
+            .data
+        )
+        rows.extend(page)
+        if len(page) < PAGE_SIZE:
+            break
+        offset += PAGE_SIZE
+    eligible = []
+    for row in rows:
+        code = codes.get(row.get("provider_id"), "")
+        if code == "modular11" or is_protected(row["team_name"]):
+            continue
+        eligible.append({**row, "provider_code": code})
+    return eligible
+
+
+def _load_ea_teams(path: Path) -> list[EaTeam]:
+    with path.open(encoding="utf-8") as handle:
+        return [
+            EaTeam(
+                provider_team_id=r["provider_team_id"],
+                club_name=r["club_name"],
+                display_name=r["display_name"],
+                age_group=r["age_group"],
+                tiers=frozenset(t for t in r["tiers"].split(";") if t != "EA National"),
+            )
+            for r in csv.DictReader(handle)
+        ]
+
+
+def run(age: str, in_dir: Path, sb) -> dict[str, int]:
+    report = classify(_load_ea_teams(in_dir / age / "teams.csv"), fetch_db_teams(sb, age))
+    with (in_dir / age / "match_report.csv").open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=REPORT_COLUMNS)
+        writer.writeheader()
+        for row in report:
+            writer.writerow(
+                {
+                    "provider_team_id": row.ea.provider_team_id,
+                    "club_name": row.ea.club_name,
+                    "display_name": row.ea.display_name,
+                    "tiers": ";".join(sorted(row.ea.tiers)),
+                    "bucket": row.bucket,
+                    "reason": row.reason,
+                    **{
+                        column: "|".join(str(c.get(field) or "") for c in row.candidates)
+                        for column, field in CANDIDATE_FIELDS
+                    },
+                }
+            )
+    return {bucket: sum(r.bucket == bucket for r in report) for bucket in ("confident", "review", "no_match")}
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--age", required=True)
+    parser.add_argument("--in-dir", type=Path, default=Path("data/modular11_ea"))
+    args = parser.parse_args(argv)
+    load_dotenv()
+    url = os.environ.get("SUPABASE_URL") or os.environ.get("NEXT_PUBLIC_SUPABASE_URL")
+    key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or os.environ.get("SUPABASE_KEY")
+    if not url or not key:
+        print("ERROR: missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY", file=sys.stderr)
+        return 1
+    counts = run(args.age, args.in_dir, create_client(url, key))
+    print(" ".join(f"{name}={value}" for name, value in counts.items()))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
