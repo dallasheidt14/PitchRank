@@ -27,6 +27,7 @@ import yaml
 import scripts.full_club_analysis as fca
 from scripts.full_club_analysis import (
     Vocabulary,
+    analyze_no_state_teams,
     analyze_state,
     apply_provider_rules,
     csv_safe,
@@ -427,6 +428,45 @@ def test_no_override_names_a_canonical_that_another_override_moves_on_from():
             if out2 != pattern and not fca._matches_override(out2, mtype, pattern):
                 chains.append(f"{state}: {pattern!r}->{canonical!r}, but {p2!r}->{out2!r}")
     assert not chains, "these canonicals are spellings another override retires: " + "; ".join(chains)
+
+
+# (the satellite, the parent it folds into). Folded on the owner's call 2026-09-30, against
+# the branch convention in tests/unit/test_club_overrides_keep_provider_branches.py.
+FOLDED_SATELLITES = [
+    ("MVLA East", "Mountain View Los Altos Soccer Club"),
+    ("MVLA San Jose", "Mountain View Los Altos Soccer Club"),
+]
+
+# Where that exception stops: a different MVLA club in a different state, left alone on the
+# same call. A pattern widened to reach both satellites at once swallows these too.
+UNFOLDED_NEIGHBOURS = ["MVLA Nevada Soccer Club", "MVLA_NV"]
+
+
+@pytest.mark.parametrize("branch,parent", FOLDED_SATELLITES)
+def test_the_weekly_run_folds_an_approved_satellite_into_its_parent(branch, parent):
+    """Bound at `analyze_state` rather than at the override list, because membership and
+    applied behaviour are two different things: the first override that *changes* a club wins
+    and marks it processed, so an entry added earlier in the list decides the write while a
+    membership test still finds the MVLA tuple and stays green.
+    """
+    fixes, _, _ = analyze_state([_team("t0", branch, "CA")], "CA", VOCAB)
+    assert [(f["from"], f["to"]) for f in fixes if f["type"] == "CANONICAL"] == [(branch, parent)]
+
+
+@pytest.mark.parametrize("neighbour", UNFOLDED_NEIGHBOURS)
+def test_the_satellite_fold_stops_at_mvlas_nevada_club(neighbour):
+    """An exception without a boundary is not an exception. Shortening either pattern to a
+    `prefix` of "MVLA" reaches Nevada's own club, and no assertion on the override list can
+    see that -- `exact` and `prefix` both satisfy "an entry matches".
+
+    Both reachable paths are checked, and only these two are: a CA-scoped entry never sees a
+    row filed in another state, because `analyze_state` skips an override whose state differs
+    before it matches anything. So the exposure is a Nevada club mis-filed in CA, and the
+    no-state pass, which applies a CA-scoped entry to any row with no state at all.
+    """
+    fixes, _, _ = analyze_state([_team("t0", neighbour, "CA")], "CA", VOCAB)
+    assert [f for f in fixes if f["type"] == "CANONICAL"] == []
+    assert analyze_no_state_teams([_team("t0", neighbour, None)]) == []
 
 
 def test_a_name_needs_four_letters_to_count_as_all_caps():

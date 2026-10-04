@@ -20,6 +20,13 @@ SC" and "San Francisco Seals" differ by an acronym, "Orchard Valley SC" is what 
 positive. The transferable rule is prose, in the handoff and beside the entries: before
 folding a name that adds a place to its canonical, read the provider's club list, not
 only the team names.
+
+The rule has an exception the owner approved, recorded beside it because a reader deciding
+the next case needs it here: MVLA East and MVLA San Jose fold into "Mountain View Los Altos
+Club" on the owner's call of 2026-09-30, against the provider evidence rather than with it.
+The fold, and the boundary that keeps it off MVLA's Nevada club, are pinned in
+tests/unit/test_full_club_analysis.py.
+An exception the owner grants for one club is not a precedent for the next.
 """
 
 from __future__ import annotations

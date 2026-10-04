@@ -71,9 +71,14 @@ No measured yield exists for these tiers yet. Record one the first time a batch 
   row. The matcher derived that state from the swapped club, so the state is wrong too.
   Leave it here and fix it through the `assigning-team-states` skill, which decides a state
   from ranked evidence; writing one from this side would be a guess.
-- **A club branch is not its parent** — *not enforced anywhere*. "Albion SC San Diego" is
-  its own club, and a proposal that shortens a branch to its parent merges two clubs. Read
-  any proposal that drops a place or a qualifier from the stored club.
+- **A club branch is not its parent** — *not enforced in this script*. "Albion SC San Diego"
+  is its own club, and a proposal that shortens a branch to its parent merges two clubs. Read
+  any proposal that drops a place or a qualifier from the stored club. One fold is approved,
+  so do not read *it* as damage to repair: MVLA East and MVLA San Jose belong to "Mountain
+  View Los Altos Soccer Club" by the owner's call of 2026-09-30, recorded beside the entries
+  in `scripts/full_club_analysis.py`. It does not generalize — the next branch is still a
+  question for the owner, and `tests/unit/test_club_overrides_keep_provider_branches.py`
+  holds the default rule.
 
 ## Step 1: Preflight
 
