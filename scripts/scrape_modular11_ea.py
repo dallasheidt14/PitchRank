@@ -16,6 +16,7 @@ import html as htmllib
 import json
 import re
 import time
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import date
 
@@ -220,3 +221,89 @@ def fetch_team_schedule(
         page += 1
         sleep(delay)
     return rows
+
+
+@dataclass(frozen=True)
+class GameRow:
+    match_no: str
+    game_date: str
+    age_group: str
+    bracket: str
+    region: str
+    home_team_id: str
+    away_team_id: str
+    home_name: str
+    away_name: str
+    home_academy: str
+    away_academy: str
+    home_score: int | None
+    away_score: int | None
+    status: str
+    pairing: str
+
+
+def _sides(row: ScheduleRow):
+    return (("home", row.home_name, row.home_academy), ("away", row.away_name, row.away_academy))
+
+
+def team_display_name(team: RosterTeam, rows: list[ScheduleRow]) -> str:
+    """The name this team plays under: its side in games against other clubs."""
+    names = Counter()
+    for row in rows:
+        own = [name for _, name, academy in _sides(row) if academy == team.academy_id]
+        if len(own) == 1:
+            names[own[0]] += 1
+    if names:
+        return names.most_common(1)[0][0]
+    return f"{team.club_name} {team.age_group.upper()} {team.name_tier}"
+
+
+def _side_of(team: RosterTeam, display: str, row: ScheduleRow) -> str | None:
+    by_academy = [side for side, _, academy in _sides(row) if academy == team.academy_id]
+    if len(by_academy) == 1:
+        return by_academy[0]
+    pool = by_academy or [side for side, _, _ in _sides(row)]
+    by_name = [side for side, name, _ in _sides(row) if side in pool and name == display]
+    return by_name[0] if len(by_name) == 1 else None
+
+
+def pair_games(teams: list[RosterTeam], schedules: dict[str, list[ScheduleRow]], age_group: str) -> list[GameRow]:
+    by_id = {t.provider_team_id: t for t in teams}
+    display = {tid: team_display_name(by_id[tid], rows) for tid, rows in schedules.items()}
+    first_seen: dict[str, ScheduleRow] = {}
+    claims: dict[str, dict[str, set[str]]] = defaultdict(lambda: {"home": set(), "away": set()})
+    for tid, rows in schedules.items():
+        for row in rows:
+            first_seen.setdefault(row.match_no, row)
+            side = _side_of(by_id[tid], display[tid], row)
+            if side:
+                claims[row.match_no][side].add(tid)
+    games = []
+    for match_no, row in sorted(first_seen.items()):
+        home, away = claims[match_no]["home"], claims[match_no]["away"]
+        home_id = next(iter(home)) if len(home) == 1 else ""
+        away_id = next(iter(away)) if len(away) == 1 else ""
+        if len(home) > 1 or len(away) > 1 or not (home_id or away_id):
+            pairing = "unresolved"
+        else:
+            pairing = "both" if home_id and away_id else "one_sided"
+        games.append(
+            GameRow(
+                match_no=match_no,
+                game_date=row.game_date,
+                age_group=age_group,
+                bracket=row.bracket,
+                region=row.region,
+                home_team_id=home_id,
+                away_team_id=away_id,
+                home_name=row.home_name,
+                away_name=row.away_name,
+                home_academy=row.home_academy or "",
+                away_academy=row.away_academy or "",
+                home_score=row.home_score,
+                away_score=row.away_score,
+                status="played" if row.home_score is not None else "scheduled",
+                pairing=pairing,
+            )
+        )
+    return games
