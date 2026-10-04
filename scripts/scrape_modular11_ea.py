@@ -12,14 +12,19 @@ Usage:
 
 from __future__ import annotations
 
+import argparse
+import csv
 import html as htmllib
 import json
 import re
+import sys
 import time
 from collections import Counter, defaultdict
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import date
+from pathlib import Path
 
+import requests
 from bs4 import BeautifulSoup
 
 EA_PAGE_URL = "https://www.modular11.com/league-schedule/elite-academy-league"
@@ -29,6 +34,16 @@ HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; PitchRank/1.0)"}
 MIN_ROSTER_TEAMS = 1000
 AGE_CODES = {"20": "u11", "17": "u12", "21": "u13", "22": "u14", "33": "u15", "14": "u16", "15": "u17", "26": "u19"}
 NAME_TIERS = ("EA", "EA2")
+TEAM_COLUMNS = [
+    "provider_team_id",
+    "academy_id",
+    "club_name",
+    "display_name",
+    "age_group",
+    "tiers",
+    "regions",
+    "gender",
+]
 PAGE_RE = re.compile(r"(\d+)\s*page\s*out\s*of\s*(\d+)")
 SCORE_RE = re.compile(r"^(\d+)\s*:\s*(\d+)$")
 DATE_RE = re.compile(r"(\d{2})/(\d{2})/(\d{2})")
@@ -307,3 +322,82 @@ def pair_games(teams: list[RosterTeam], schedules: dict[str, list[ScheduleRow]],
             )
         )
     return games
+
+
+def season_bounds(today: date) -> tuple[str, str]:
+    year = today.year if today.month >= 8 else today.year - 1
+    return f"{year}-08-01 00:00:00", f"{year + 1}-07-31 23:59:59"
+
+
+def _new_session() -> requests.Session:
+    return requests.Session()
+
+
+def _write_csv(path: Path, columns: list[str], rows: list[dict]) -> None:
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=columns)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def run(age: str, out_dir: Path, session, today: date, delay: float = 1.0, sleep=time.sleep) -> dict[str, int]:
+    page = session.get(EA_PAGE_URL, headers=HEADERS, timeout=30)
+    page.raise_for_status()
+    teams = [t for t in parse_roster(page.content.decode("utf-8")) if t.age_group == age]
+    if not teams:
+        raise ScrapeError(f"the EA roster has no {age} teams")
+    start, end = season_bounds(today)
+    schedules = {
+        t.provider_team_id: fetch_team_schedule(session, t.provider_team_id, start, end, delay, sleep) for t in teams
+    }
+    genders = {row.gender for rows in schedules.values() for row in rows}
+    if genders - {"MALE"}:
+        raise ScrapeError(f"EA rows with gender {sorted(genders - {'MALE'})}; this scraper assumes boys only")
+    games = pair_games(teams, schedules, age)
+    target = out_dir / age
+    target.mkdir(parents=True, exist_ok=True)
+    _write_csv(
+        target / "teams.csv",
+        TEAM_COLUMNS,
+        [
+            {
+                "provider_team_id": t.provider_team_id,
+                "academy_id": t.academy_id,
+                "club_name": t.club_name,
+                "display_name": team_display_name(t, schedules[t.provider_team_id]),
+                "age_group": t.age_group,
+                "tiers": ";".join(t.tiers),
+                "regions": ";".join(t.regions),
+                "gender": "Male",
+            }
+            for t in teams
+        ],
+    )
+    _write_csv(target / "games.csv", list(GameRow.__dataclass_fields__), [asdict(g) for g in games])
+    return {
+        "teams": len(teams),
+        "games": len(games),
+        "played": sum(g.status == "played" for g in games),
+        "scheduled": sum(g.status == "scheduled" for g in games),
+        "one_sided": sum(g.pairing == "one_sided" for g in games),
+        "unresolved": sum(g.pairing == "unresolved" for g in games),
+    }
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--age", required=True, choices=sorted(set(AGE_CODES.values())))
+    parser.add_argument("--out-dir", type=Path, default=Path("data/modular11_ea"))
+    parser.add_argument("--delay", type=float, default=1.0, help="seconds between schedule requests")
+    args = parser.parse_args(argv)
+    try:
+        counts = run(args.age, args.out_dir, _new_session(), date.today(), args.delay)
+    except (ScrapeError, requests.RequestException) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+    print(" ".join(f"{key}={value}" for key, value in counts.items()))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
