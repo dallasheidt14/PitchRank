@@ -12,8 +12,12 @@ Usage:
 
 from __future__ import annotations
 
+import html as htmllib
 import json
+import re
+import time
 from dataclasses import dataclass
+from datetime import date
 
 from bs4 import BeautifulSoup
 
@@ -24,6 +28,11 @@ HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; PitchRank/1.0)"}
 MIN_ROSTER_TEAMS = 1000
 AGE_CODES = {"20": "u11", "17": "u12", "21": "u13", "22": "u14", "33": "u15", "14": "u16", "15": "u17", "26": "u19"}
 NAME_TIERS = ("EA", "EA2")
+PAGE_RE = re.compile(r"(\d+)\s*page\s*out\s*of\s*(\d+)")
+SCORE_RE = re.compile(r"^(\d+)\s*:\s*(\d+)$")
+DATE_RE = re.compile(r"(\d{2})/(\d{2})/(\d{2})")
+CREST_RE = re.compile(r"/academy/(\d+)/")
+NO_DATA = "No data available."
 
 
 class ScrapeError(RuntimeError):
@@ -108,3 +117,106 @@ def parse_roster(html: str, min_teams: int = MIN_ROSTER_TEAMS) -> list[RosterTea
             )
         )
     return sorted(teams, key=lambda t: (t.age_group, t.club_name, t.provider_team_id))
+
+
+@dataclass(frozen=True)
+class ScheduleRow:
+    match_no: str
+    gender: str
+    game_date: str
+    bracket: str
+    region: str
+    age_label: str
+    home_name: str
+    home_academy: str | None
+    away_name: str
+    away_academy: str | None
+    home_score: int | None
+    away_score: int | None
+
+
+def _crest_academy(node) -> str | None:
+    match = CREST_RE.search(node.get("style", ""))
+    return match.group(1) if match else None
+
+
+def _parse_row(row) -> ScheduleRow:
+    cols = row.find_all("div", recursive=False)
+    head = cols[0].get_text(" ", strip=True).split()
+    date_match = DATE_RE.search(cols[1].get_text(" ", strip=True))
+    names = [p.get("data-title", "").strip() for p in row.select(".container-first-team p, .container-second-team p")]
+    crests = [_crest_academy(node) for node in row.select(".club-photo")]
+    if len(head) < 2 or date_match is None or len(names) != 2 or len(crests) != 2:
+        raise ScrapeError(f"unreadable match row: {row.get_text(' ', strip=True)[:120]}")
+    mm, dd, yy = date_match.groups()
+    score_node = row.select_one(".score-match-table")
+    score_text = htmllib.unescape(score_node.get_text()).replace("\xa0", " ").strip() if score_node else ""
+    score = SCORE_RE.match(score_text)
+    return ScheduleRow(
+        match_no=head[0],
+        gender=head[1],
+        game_date=date(2000 + int(yy), int(mm), int(dd)).isoformat(),
+        bracket=row.get("js-match-bracket", ""),
+        region=row.get("js-match-group", ""),
+        age_label=cols[2].get_text(strip=True),
+        home_name=names[0],
+        home_academy=crests[0],
+        away_name=names[1],
+        away_academy=crests[1],
+        home_score=int(score.group(1)) if score else None,
+        away_score=int(score.group(2)) if score else None,
+    )
+
+
+def parse_schedule_page(html: str, expected_page: int) -> tuple[list[ScheduleRow], int]:
+    marker = PAGE_RE.search(html)
+    if marker is None:
+        if NO_DATA in html:
+            return [], 0
+        raise ScrapeError("schedule response has no 'page out of' marker and no 'No data available.'")
+    current, total = int(marker.group(1)), int(marker.group(2))
+    if current != expected_page:
+        raise ScrapeError(f"asked for page {expected_page}, got page {current} of {total}")
+    soup = BeautifulSoup(html, "html.parser")
+    return [_parse_row(r) for r in soup.select("div.table-content-row.hidden-xs")], total
+
+
+def _match_params(team_id: str, page: int, start: str, end: str) -> dict:
+    return {
+        "open_page": page,
+        "academy": 0,
+        "tournament": TOURNAMENT_ID,
+        "gender": 0,
+        "age": 0,
+        "brackets": "",
+        "groups": "",
+        "group": "",
+        "match_number": 0,
+        "status": "all",
+        "match_type": 2,
+        "schedule": 0,
+        "team": team_id,
+        "teamPlayer": 0,
+        "location": 0,
+        "as_referee": 0,
+        "start_date": start,
+        "end_date": end,
+    }
+
+
+def fetch_team_schedule(
+    session, team_id: str, start: str, end: str, delay: float = 1.0, sleep=time.sleep
+) -> list[ScheduleRow]:
+    """Every row of one team's season. Pages are 1-indexed: open_page=0 aliases page 1."""
+    rows: list[ScheduleRow] = []
+    page, total = 1, 1
+    while page <= total:
+        response = session.get(
+            MATCHES_URL, params=_match_params(team_id, page, start, end), headers=HEADERS, timeout=30
+        )
+        response.raise_for_status()
+        page_rows, total = parse_schedule_page(response.content.decode("utf-8"), expected_page=page)
+        rows.extend(page_rows)
+        page += 1
+        sleep(delay)
+    return rows
