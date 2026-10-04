@@ -163,7 +163,7 @@ def _load_ea_teams(path: Path) -> list[EaTeam]:
                 club_name=r["club_name"],
                 display_name=r["display_name"],
                 age_group=r["age_group"],
-                tiers=frozenset(t for t in r["tiers"].split(";") if t != "EA National"),
+                tiers=frozenset({r["name_tier"]}),
             )
             for r in csv.DictReader(handle)
         ]

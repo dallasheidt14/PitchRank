@@ -74,7 +74,17 @@ def _team(tid, name, club="Emerald City FC", age="u13", gender="Male", provider=
 def _write_teams_csv(tmp_path):
     folder = tmp_path / "u13"
     folder.mkdir()
-    columns = ["provider_team_id", "academy_id", "club_name", "display_name", "age_group", "tiers", "regions", "gender"]
+    columns = [
+        "provider_team_id",
+        "academy_id",
+        "club_name",
+        "display_name",
+        "age_group",
+        "name_tier",
+        "tiers",
+        "regions",
+        "gender",
+    ]
     with (folder / "teams.csv").open("w", newline="", encoding="utf-8") as fh:
         writer = csv.DictWriter(fh, fieldnames=columns)
         writer.writeheader()
@@ -85,6 +95,7 @@ def _write_teams_csv(tmp_path):
                 "club_name": "Emerald City FC",
                 "display_name": "Emerald City FC",
                 "age_group": "u13",
+                "name_tier": "EA",
                 "tiers": "EA;EA National",
                 "regions": "PACNW",
                 "gender": "Male",
@@ -115,4 +126,38 @@ def test_run_reports_only_eligible_candidates(tmp_path, monkeypatch):
 def test_mls_next_team_is_never_offered_for_review(tmp_path):
     db = _Db([_team("c", "Emerald City FC U13 HD")], [{"id": GOT, "code": "gotsport"}])
     _write_teams_csv(tmp_path)
+    assert m.run("u13", tmp_path, db) == {"confident": 0, "review": 0, "no_match": 1}
+
+
+def test_dual_tier_team_matches_only_its_name_tier(tmp_path):
+    folder = tmp_path / "u13"
+    folder.mkdir()
+    columns = [
+        "provider_team_id",
+        "academy_id",
+        "club_name",
+        "display_name",
+        "age_group",
+        "name_tier",
+        "tiers",
+        "regions",
+        "gender",
+    ]
+    with (folder / "teams.csv").open("w", newline="", encoding="utf-8") as fh:
+        writer = csv.DictWriter(fh, fieldnames=columns)
+        writer.writeheader()
+        writer.writerow(
+            {
+                "provider_team_id": "1",
+                "academy_id": "9",
+                "club_name": "Emerald City FC",
+                "display_name": "Emerald City FC",
+                "age_group": "u13",
+                "name_tier": "EA",
+                "tiers": "EA;EA National;EA2",
+                "regions": "PACNW",
+                "gender": "Male",
+            }
+        )
+    db = _Db([_team("a", "Emerald City FC 2014 EA2")], [{"id": GOT, "code": "gotsport"}])
     assert m.run("u13", tmp_path, db) == {"confident": 0, "review": 0, "no_match": 1}

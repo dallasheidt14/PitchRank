@@ -44,6 +44,7 @@ def test_run_writes_one_age(tmp_path):
     assert len(teams) == counts["teams"] == len([c for c in session.calls if c[0] == ea.MATCHES_URL])
     flyte = next(t for t in teams if t["provider_team_id"] == "9176")
     assert flyte["display_name"] == "FLYTE SC Blue- Inland Empire" and flyte["gender"] == "Male"
+    assert flyte["name_tier"] == "EA"
     games = list(csv.DictReader((tmp_path / "u13" / "games.csv").open(encoding="utf-8")))
     assert counts["games"] == len(games) == 39
 

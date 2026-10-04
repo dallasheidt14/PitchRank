@@ -40,6 +40,7 @@ TEAM_COLUMNS = [
     "club_name",
     "display_name",
     "age_group",
+    "name_tier",
     "tiers",
     "regions",
     "gender",
@@ -168,6 +169,8 @@ def _parse_row(row) -> ScheduleRow:
     score_node = row.select_one(".score-match-table")
     score_text = htmllib.unescape(score_node.get_text()).replace("\xa0", " ").strip() if score_node else ""
     score = SCORE_RE.match(score_text)
+    if score is None and score_text != "TBD":
+        raise ScrapeError(f"unrecognised score {score_text!r} in match {head[0]}")
     return ScheduleRow(
         match_no=head[0],
         gender=head[1],
@@ -366,6 +369,7 @@ def run(age: str, out_dir: Path, session, today: date, delay: float = 1.0, sleep
                 "club_name": t.club_name,
                 "display_name": team_display_name(t, schedules[t.provider_team_id]),
                 "age_group": t.age_group,
+                "name_tier": t.name_tier,
                 "tiers": ";".join(t.tiers),
                 "regions": ";".join(t.regions),
                 "gender": "Male",

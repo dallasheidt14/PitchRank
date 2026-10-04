@@ -100,3 +100,9 @@ def test_fetch_decodes_utf8_names():
     session = _Session({1: body})
     rows = fetch_team_schedule(session, "7343", "a", "b", sleep=lambda s: None)
     assert any(r.away_name == "Atlético SD" for r in rows)
+
+
+def test_unrecognised_score_text_raises():
+    html = _fixture("team_7343_p1.html").replace("\t\t\t\t\t\tTBD\t", "\t\t\t\t\t\tFF\t", 1)
+    with pytest.raises(ScrapeError, match="score"):
+        parse_schedule_page(html, expected_page=1)
