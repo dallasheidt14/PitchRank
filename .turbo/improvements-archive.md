@@ -1451,3 +1451,43 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Noted**: 2026-10-02
 - **Update (2026-10-02)**: Re-measured on the frozen Oct 1 games before the fix: across all ages 85,025 rows were capped and 257 changed result (125 losses and 120 wins to draws, 10 losses to wins, 1 draw to a win, 1 win to a loss), and clipping left the two sides of 39 games with different results. On the U10–U19 rows the engine rates, 82,739 rows were capped and 241 changed result (118 losses and 112 wins to draws, 10 losses to wins, 1 draw to a win).
 - **Refs**: branch `fix/goal-clipping-keeps-results`. Each column is still clipped, and a result the clip changed is then restored: the loser's goals drop to one below the winner's, and a draw stays level. No result changes, and the same 85,025 rows stay capped.
+
+### Check how much the Glicko-2 round cap leaves unsettled
+
+- **ID**: IMP-297
+- **Status**: done
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `src/etl/glicko_engine.py` `run_glicko2_cohort` (the loop over `cfg.MAX_ITERATIONS`)
+- **Why**: Most board passes stop at the round cap while ratings are still moving.
+  - On the frozen Sept 30 inputs (shadow run, 2026-10-02), 30 of 36 board passes logged "did not converge after 30 iterations". At the cap they were still moving a rating by 5.3–7.8 points per round. The other 6 settled in 23–29 rounds.
+  - The Sept 25 and Sept 28 production run logs were read as showing the same 30 of 36.
+  - Before changing the cap, measure how far ranks move with more rounds.
+- **Noted**: 2026-10-02
+- **Update (2026-10-02)**: Measured offline on the Oct 1 freeze with a 500-round cap and a 0.05 threshold.
+  - **Settling:** 18 of 36 passes settled, in 271–441 rounds.
+  - **Movement:** 61,375 of 61,766 Active teams changed rank, 11,601 of them by more than 300 places.
+  - **Agreement (in-sample):** it fell 0.48 points overall. U10–U12 rose 0.3–0.6, and U13–U19 fell by up to 2.6.
+  - **Cost:** the run took 46 minutes longer.
+  - **U10–U12 only:** inconclusive on September games (+0.05).
+  - The cap stays at 30.
+- **Refs**: branch `docs/later-games-scorer`. Measured offline, with no code change.
+
+### Check whether the 30-game selection favours wins
+
+- **ID**: IMP-298
+- **Status**: done
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `src/etl/glicko_engine.py` `select_games_balanced` (with `cfg.MAX_GAMES`)
+- **Why**: Teams score better in the games the ranking uses than in their full record.
+  - Among the 12,494 Active teams with more than 30 games in the 393-day window, the ranking's game record earns 57.3% of available points (win 1, draw ½), against 54.4% across all their games. For top-100 teams it is 74.5% against 71.4%.
+  - Measured 2026-10-01 by SQL. It compared the Sept 28 run's `rankings_full` wins, draws and games played with every scored, non-excluded game after merge resolution.
+  - Find out whether the selection's quality weighting or its recency rules cause the lean before changing either.
+- **Noted**: 2026-10-02
+- **Update (2026-10-04)**: The 7 same-age quality picks sort by `is_non_loss` first, the 3 bridge picks by `is_same_age` and then `is_non_loss`, and the backfill breaks ties within a date by `is_non_loss`.
+  - **The lean:** on the Aug 31 snapshot, capped teams' games used earn 56.6% of points, against 54.4% over all their games.
+  - **Removing the key failed on September games:** −0.47 points against today's engine and −0.48 on top of the October candidate (Holm p 0.008 and 0.002). The games used then earned 52.6%.
+  - **Caution:** the loss-heavier selection does not by itself explain the decline.
+  - The result-first sort stays. Untested alternatives are optional research (IMP-302).
+- **Refs**: branch `docs/later-games-scorer`. Measured offline, with no code change.
