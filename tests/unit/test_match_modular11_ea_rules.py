@@ -65,3 +65,21 @@ def test_candidate_claimed_by_two_ea_clubs_goes_to_review():
     cos = _ea("2", club="Colorado Rush - COS")
     rows = classify([rush, cos], [_db("a", "Colorado Rush 2014 EA", club="Colorado Rush")])
     assert {r.ea.provider_team_id: r.bucket for r in rows} == {"1": "review", "2": "review"}
+
+
+def test_team_name_led_by_ea_club_matches_despite_other_club_name():
+    db = _db("a", "ALBION SC Boulder County B10 EA", club="Albion SC Colorado")
+    [row] = classify([_ea(club="ALBION SC Boulder County")], [db])
+    assert row.bucket == "confident"
+
+
+def test_team_name_led_by_ea_club_handles_bracketed_tier():
+    db = _db("a", "Albion SC Fairfield B2010 (EA)", club="Regal Sporting Group")
+    [row] = classify([_ea(club="ALBION SC Fairfield")], [db])
+    assert row.bucket == "confident"
+
+
+def test_team_name_led_by_a_longer_branch_name_is_not_the_club():
+    db = _db("a", "ALBION SC Atlanta Metro B10 EA", club="Some Other Club")
+    [row] = classify([_ea(club="ALBION SC Atlanta")], [db])
+    assert row.bucket == "no_match"

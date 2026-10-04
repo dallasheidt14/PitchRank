@@ -31,6 +31,8 @@ from supabase import create_client  # noqa: E402
 EA2_RE = re.compile(r"\bEA2\b", re.IGNORECASE)
 EA_RE = re.compile(r"\bEA\b", re.IGNORECASE)
 PROTECTED_RE = re.compile(r"\b(?:HD|AD|MLS\s*NEXT)\b", re.IGNORECASE)
+NON_WORD_RE = re.compile(r"[^a-z0-9/]+")
+AGE_TOKEN_RE = re.compile(r"^(?:[bg]?u?[0-9]{2,4}(?:/[0-9]{2,4})?[bg]?|ea2?)$")
 PAGE_SIZE = 1000
 REPORT_COLUMNS = [
     "provider_team_id",
@@ -88,8 +90,28 @@ def _same_club(ea_club: str, db_club: str) -> bool:
     return are_same_club(ea_club, db_club)
 
 
+def _name_tokens(name: str) -> tuple[str, ...]:
+    return tuple(NON_WORD_RE.sub(" ", name.lower()).split())
+
+
+@lru_cache(maxsize=None)
+def _name_led_by_club(ea_club: str, team_name: str) -> bool:
+    """The team's own name opens with the EA club and goes straight on to an age or tier.
+
+    Requiring the age right after the club keeps a branch out: "ALBION SC Atlanta Metro B10"
+    does not open with club "ALBION SC Atlanta" followed by an age.
+    """
+    club, team = _name_tokens(ea_club), _name_tokens(team_name)
+    return len(team) > len(club) and team[: len(club)] == club and bool(AGE_TOKEN_RE.match(team[len(club)]))
+
+
 def _club_hits(ea: EaTeam, db_teams: list[dict]) -> list[dict]:
-    return [d for d in db_teams if _same_club(ea.club_name, d.get("club_name") or d["team_name"])]
+    return [
+        d
+        for d in db_teams
+        if _same_club(ea.club_name, d.get("club_name") or d["team_name"])
+        or _name_led_by_club(ea.club_name, d["team_name"])
+    ]
 
 
 def classify(ea_teams: list[EaTeam], db_teams: list[dict]) -> list[ReportRow]:
