@@ -31,7 +31,7 @@ concurrency:
 jobs:
   enqueue:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 60
     env:
       DRY_RUN_FLAG: ${{ inputs.dry_run == true && '--dry-run' || '' }}
     steps:
