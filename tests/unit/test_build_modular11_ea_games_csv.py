@@ -1,0 +1,159 @@
+"""The EA import CSV: played games between linked teams, two rows each; impact on the 12-game line."""
+
+import csv
+import re
+from pathlib import Path
+
+from scripts import build_modular11_ea_games_csv as build
+
+IMPORTER = Path(__file__).resolve().parents[2] / "scripts" / "import_games_enhanced.py"
+
+
+def _game(match_no="1", home="7155", away="7156", hs="3", as_="1", status="played"):
+    return {
+        "match_no": match_no,
+        "game_date": "2026-09-12",
+        "age_group": "u17",
+        "bracket": "EA",
+        "region": "PACNW",
+        "home_team_id": home,
+        "away_team_id": away,
+        "home_name": "Emerald City FC",
+        "away_name": "Sparta Tacoma",
+        "home_academy": "1534",
+        "away_academy": "1382",
+        "home_score": hs,
+        "away_score": as_,
+        "status": status,
+        "pairing": "both",
+    }
+
+
+TEAMS = {
+    "7155": {"provider_team_id": "7155", "display_name": "Emerald City FC", "club_name": "Emerald City FC"},
+    "7156": {"provider_team_id": "7156", "display_name": "Sparta Tacoma", "club_name": "Sparta Tacoma"},
+}
+LINKS = {"7155": "M1", "7156": "M2"}
+
+
+def test_played_game_with_both_linked_becomes_two_rows():
+    rows, held = build.build_rows([_game()], TEAMS, LINKS)
+    assert held == []
+    picked = [
+        (r["team_id"], r["opponent_id"], r["home_away"], r["goals_for"], r["goals_against"], r["result"]) for r in rows
+    ]
+    assert picked == [("7155", "7156", "H", 3, 1, "W"), ("7156", "7155", "A", 1, 3, "L")]
+    assert rows[0]["provider"] == "modular11_ea"
+    assert rows[0]["event_name"] == "Elite Academy League - EA"
+    assert (rows[0]["age_group"], rows[0]["gender"], rows[0]["game_date"]) == ("u17", "Boys", "2026-09-12")
+    assert (rows[0]["team_name"], rows[0]["opponent_name"]) == ("Emerald City FC", "Sparta Tacoma")
+
+
+def test_draw_is_d():
+    rows, _ = build.build_rows([_game(hs="2", as_="2")], TEAMS, LINKS)
+    assert [r["result"] for r in rows] == ["D", "D"]
+
+
+def test_scheduled_game_is_dropped():
+    rows, held = build.build_rows([_game(hs="", as_="", status="scheduled")], TEAMS, LINKS)
+    assert (rows, held) == ([], [])
+
+
+def test_one_unlinked_side_is_held():
+    game = _game(away="9999")
+    rows, held = build.build_rows([game], TEAMS, LINKS)
+    assert (rows, held) == ([], [game])
+
+
+def test_blank_side_is_held():
+    game = _game(away="")
+    rows, held = build.build_rows([game], TEAMS, LINKS)
+    assert (rows, held) == ([], [game])
+
+
+def _whitelist(function_name: str) -> set[str]:
+    source = IMPORTER.read_text(encoding="utf-8")
+    body = source.split(f"def {function_name}(", 1)[1].split("\ndef ", 1)[0]
+    return set(re.findall(r'"(\w+)": row\.get\(', body))
+
+
+def test_rows_use_only_columns_both_loaders_admit():
+    rows, _ = build.build_rows([_game()], TEAMS, LINKS)
+    stream, load = _whitelist("stream_games_csv"), _whitelist("load_games_csv")
+    assert len(stream) > 20 and len(load) > 20
+    assert set(rows[0]) <= stream & load
+
+
+class _Count:
+    def __init__(self, db, column, value):
+        self.db, self.column, self.value, self.since = db, column, value, None
+
+    def gte(self, column, value):
+        assert column == "game_date"
+        self.since = value
+        return self
+
+    def limit(self, _n):
+        return self
+
+    def execute(self):
+        assert self.since is not None, "count must be limited to the ranking window"
+        self.db.counted.append((self.column, self.value))
+        return type("R", (), {"count": self.db.stored.get((self.column, self.value), 0), "data": []})()
+
+
+class _Select:
+    def __init__(self, db):
+        self.db = db
+
+    def eq(self, column, value):
+        return _Count(self.db, column, value)
+
+
+class _Table:
+    def __init__(self, db, name):
+        self.db, self.name = db, name
+
+    def select(self, *_cols, count=None):
+        assert self.name == "games" and count == "exact"
+        return _Select(self.db)
+
+
+class _Db:
+    def __init__(self, stored):
+        self.stored, self.counted = stored, []
+
+    def table(self, name):
+        return _Table(self, name)
+
+
+def test_impact_counts_crossing_provisional_threshold():
+    games = [_game(match_no=str(i), home="7155", away="7156") for i in range(3)]
+    rows, _ = build.build_rows(games, TEAMS, LINKS)
+    db = _Db({("home_team_master_id", "M1"): 6, ("away_team_master_id", "M1"): 4, ("home_team_master_id", "M2"): 13})
+    result = build.impact(db, rows, LINKS)
+    assert result == {"games_added": 3, "teams_touched": 2, "crossing_up": 1, "crossing_teams": ["M1"]}
+
+
+def test_impact_follows_the_engine_threshold(monkeypatch):
+    rows, _ = build.build_rows([_game()], TEAMS, LINKS)
+    monkeypatch.setattr(build, "PROVISIONAL_GAMES", 2)
+    result = build.impact(_Db({}), rows, LINKS)
+    assert result["crossing_up"] == 0
+    monkeypatch.setattr(build, "PROVISIONAL_GAMES", 1)
+    assert build.impact(_Db({}), rows, LINKS)["crossing_up"] == 2
+
+
+def test_planned_mode_links_created_teams_without_reading_aliases(tmp_path):
+    plan = tmp_path / "link_plan.csv"
+    with plan.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=["provider_team_id", "action", "team_id_master"])
+        writer.writeheader()
+        writer.writerows(
+            [
+                {"provider_team_id": "7155", "action": "link", "team_id_master": "M1"},
+                {"provider_team_id": "7156", "action": "create", "team_id_master": ""},
+                {"provider_team_id": "7157", "action": "hold", "team_id_master": ""},
+            ]
+        )
+    assert build.planned_links(plan) == {"7155": "M1", "7156": "new:7156"}
