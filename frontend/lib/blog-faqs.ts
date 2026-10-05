@@ -816,7 +816,7 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
     {
       question: 'What are the biggest youth soccer clubs in South Carolina?',
       answer:
-        'By ranked team count: Carolina Elite Soccer Academy (26) in Greenville, South Carolina United FC (22) in Columbia, South Carolina Surf (14) and James Island Youth SC (13) in the Charleston area, and Clemson Anderson SA (5) in the Upstate.',
+        'By ranked team count: Carolina Elite Soccer Academy (26) in Greenville, South Carolina United FC (22) in Columbia, South Carolina Surf (14) and James Island Youth SC (13) in the Charleston area, Augusta Arsenal SC (8) in Aiken and North Augusta, and Clemson Anderson SA (5) in the Upstate.',
     },
     {
       question: 'Does South Carolina have ECNL and MLS NEXT teams?',
