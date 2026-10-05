@@ -1851,50 +1851,57 @@ def _publication_cap_rank(row: pd.Series) -> int | None:
         return int(policy["severe_cap_rank"])
     if quality_bridge:
         return int(policy["cap_rank"])
-    if (
-        recent_games is not None
-        and recent_games <= int(policy["freshness_hard_recent_games_cap"])
+    freshness_restricted = (
+        (
+            (recent_games is not None and recent_games <= int(policy["freshness_hard_recent_games_cap"]))
+            or stale_recent
+        )
         and not has_play_up_support
         and not strong_broad_profile
-    ):
-        return int(policy["cap_rank"])
-    if stale_recent and not has_play_up_support and not strong_broad_profile:
-        return int(policy["cap_rank"])
+    )
+
+    def with_freshness_limit(evidence_cap: int | None) -> int | None:
+        # Old or sparse schedules must not bypass a stricter evidence restriction.
+        # Keep the existing freshness limit when the evidence would allow more.
+        if freshness_restricted:
+            return max(int(policy["cap_rank"]), evidence_cap or 0)
+        return evidence_cap
+
     if quality_result_void:
         if avg_opp_power < float(policy["quality_result_void_severe_max_avg_opp_power"]):
-            return int(policy["severe_cap_rank"])
-        return int(policy["quality_result_void_cap_rank"])
+            return with_freshness_limit(int(policy["severe_cap_rank"]))
+        return with_freshness_limit(int(policy["quality_result_void_cap_rank"]))
     if thin_schedule and isolation_override:
-        return int(policy["severe_cap_rank"])
+        return with_freshness_limit(int(policy["severe_cap_rank"]))
     if zero_top100_weak_results_severe:
-        return int(policy["zero_top100_weak_results_escalated_cap_rank"])
+        return with_freshness_limit(int(policy["zero_top100_weak_results_escalated_cap_rank"]))
     if zero_top100_weak_results:
-        return int(policy["zero_top100_weak_results_cap_rank"])
+        return with_freshness_limit(int(policy["zero_top100_weak_results_cap_rank"]))
     if regional_thin_low_connectivity:
-        return int(policy["regional_thin_escalated_cap_rank"])
+        return with_freshness_limit(int(policy["regional_thin_escalated_cap_rank"]))
     if weak_field_connectivity_profile:
-        return int(policy["weak_field_connectivity_cap_rank"])
+        return with_freshness_limit(int(policy["weak_field_connectivity_cap_rank"]))
     if not severe_connectivity and authority >= float(policy["full_release_authority"]):
-        return None
+        return with_freshness_limit(None)
     if authority >= float(policy["soft_release_authority"]):
         if connectivity_constrained or weak_avg or weak_depth or repeat_heavy_for_cap:
-            return int(policy["soft_cap_rank"])
-        return None
+            return with_freshness_limit(int(policy["soft_cap_rank"]))
+        return with_freshness_limit(None)
     if mid_thin_quality and not isolation_override:
-        return int(policy["mid_thin_cap_rank"])
+        return with_freshness_limit(int(policy["mid_thin_cap_rank"]))
     if regional_thin_quality:
-        return int(policy["regional_thin_cap_rank"])
+        return with_freshness_limit(int(policy["regional_thin_cap_rank"]))
     if thin_schedule:
-        return int(policy["thin_schedule_cap_rank"])
+        return with_freshness_limit(int(policy["thin_schedule_cap_rank"]))
     if severe_connectivity:
-        return int(policy["cap_rank"])
+        return with_freshness_limit(int(policy["cap_rank"]))
 
     if one_top100_thin and isolation_override:
-        return int(policy["one_top100_thin_escalated_cap_rank"])
+        return with_freshness_limit(int(policy["one_top100_thin_escalated_cap_rank"]))
     if one_top100_thin:
-        return int(policy["one_top100_thin_cap_rank"])
+        return with_freshness_limit(int(policy["one_top100_thin_cap_rank"]))
     if weak_quality_results:
-        return int(policy["weak_quality_results_cap_rank"])
+        return with_freshness_limit(int(policy["weak_quality_results_cap_rank"]))
     thin_top100 = (
         top100 == 1
         and avg_opp_power is not None
@@ -1902,15 +1909,15 @@ def _publication_cap_rank(row: pd.Series) -> int | None:
         and avg_opp_power < float(policy["thin_top100_min_avg_opp_power"])
     )
     if thin_top100:
-        return int(policy["cap_rank"])
+        return with_freshness_limit(int(policy["cap_rank"]))
     if connectivity_constrained and top100 >= 1:
-        return int(policy["soft_cap_rank"])
+        return with_freshness_limit(int(policy["soft_cap_rank"]))
 
     if weak_avg or weak_depth or repeat_heavy_for_cap:
-        return int(policy["cap_rank"])
+        return with_freshness_limit(int(policy["cap_rank"]))
     if connectivity_constrained:
-        return int(policy["soft_cap_rank"])
-    return None
+        return with_freshness_limit(int(policy["soft_cap_rank"]))
+    return with_freshness_limit(None)
 
 
 async def _persist_game_residuals(supabase_client, game_residuals: pd.DataFrame) -> Tuple[int, int]:
