@@ -1414,14 +1414,14 @@ class EnhancedETLPipeline:
         if not game_uids:
             return set(), {}
 
-        # CRITICAL: Use small batch size (200) to avoid Supabase URL length limit.
-        # Modular11 game_uids are long (e.g., "modular11:2025-12-15:74:85:U15:AD")
-        # and 2000 UIDs in an IN clause easily exceeds the ~8KB URL limit,
-        # causing the query to silently fail and ALL games to be treated as new.
+        # CRITICAL: Use small batch size (100) to avoid Supabase URL length limit.
+        # Master-id UIDs carry two UUIDs, and REMATCH_PROVIDERS append a
+        # schedule_id ("playmetrics_tournament:2026-10-03:<uuid>:<uuid>:233329",
+        # ~114 chars). 200 of those are rejected with a 400; 150 pass.
         existing = set()
         game_uid_to_master_ids = {}  # Map game_uid to master team IDs
 
-        batch_size = 200  # Conservative batch size to stay well under URL length limit
+        batch_size = 100  # Conservative batch size to stay well under URL length limit
         for chunk in self._chunks(game_uids, batch_size):
             try:
                 # Query Supabase for existing game_uid values, master team IDs, and scores
