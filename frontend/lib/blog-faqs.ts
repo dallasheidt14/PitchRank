@@ -310,6 +310,33 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
     },
   ],
 
+  'kansas-youth-soccer-rankings-guide': [
+    {
+      question: 'How are Kansas youth soccer teams ranked?',
+      answer:
+        'PitchRank ranks Kansas teams using a rating algorithm that evaluates game-by-game results, strength of schedule, goal differential, recency, and consistency. Rankings update every Monday and currently cover 437 ranked Kansas teams drawn from 1,170 we track statewide.',
+    },
+    {
+      question: 'What are the biggest youth soccer clubs in Kansas?',
+      answer:
+        'By ranked team count: FC Wichita (44), Sporting Wichita (43), Union KC (24), Kansas City Athletics (24), Wichita United FC (20), Kansas Rush (20) and Sporting Blue Valley (17).',
+    },
+    {
+      question: 'Does Kansas have ECNL and MLS NEXT teams?',
+      answer:
+        'Yes, in both metros. Sporting Blue Valley and Kansas City Athletics field ECNL girls teams, and Kansas Rush, FC Wichita, Union KC and Kansas City Athletics field ECNL boys teams. MLS NEXT runs through Sporting Kansas City and Sporting City in the Homegrown Division and through Sporting Blue Valley and Sporting Wichita in the Academy Division. Girls Academy teams play through Union KC and KC Legends.',
+    },
+    {
+      question: 'Do Kansas teams play many out-of-state games?',
+      answer:
+        "Across the 5,641 games we've recorded for ranked Kansas teams over the past year, about two-thirds of their games (68%) were against other Kansas teams, and 11% against Missouri teams. Wichita teams play mostly in state, while Kansas City-side clubs such as Sporting Blue Valley, Kansas Rush and Union KC play a large share of their games against Missouri opponents.",
+    },
+    {
+      question: 'How does the Kansas State Cup work?',
+      answer:
+        'Kansas Youth Soccer runs a fall State Cup for girls 15U–17U and 19U and a spring State Cup that finishes June 3–6, 2027 at the Garmin Olathe Soccer Complex. All teams and players must be registered with Kansas Youth Soccer, and teams must have played in a sanctioned league. State Cup champions in the 13U through 18U/19U age brackets advance to the US Youth Soccer National Championships.',
+    },
+  ],
   'kentucky-youth-soccer-rankings-guide': [
     {
       question: 'How are youth soccer teams ranked in Kentucky?',
@@ -780,6 +807,33 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
     },
   ],
 
+  'south-carolina-youth-soccer-rankings-guide': [
+    {
+      question: 'How are South Carolina youth soccer teams ranked?',
+      answer:
+        'PitchRank ranks South Carolina teams using a rating algorithm that evaluates game-by-game results, strength of schedule, goal differential, recency, and consistency. Rankings update every Monday and currently cover 116 ranked South Carolina teams drawn from 714 we track statewide.',
+    },
+    {
+      question: 'What are the biggest youth soccer clubs in South Carolina?',
+      answer:
+        'By ranked team count: Carolina Elite Soccer Academy (26) in Greenville, South Carolina United FC (22) in Columbia, South Carolina Surf (14) and James Island Youth SC (13) in the Charleston area, Augusta Arsenal SC (8) in Aiken and North Augusta, and Clemson Anderson SA (5) in the Upstate.',
+    },
+    {
+      question: 'Does South Carolina have ECNL and MLS NEXT teams?',
+      answer:
+        "Yes. CESA and South Carolina United FC field ECNL boys and girls teams, and South Carolina Surf fields ECNL boys teams and joined ECNL Girls for 2026-27. All three also field ECNL Regional League teams. MLS NEXT runs through Lowcountry United and Charleston SC in the Academy Division, and Lowcountry United's girls play in Girls Academy's Aspire league.",
+    },
+    {
+      question: 'Why do South Carolina teams play so many out-of-state games?',
+      answer:
+        "Of the 2,435 games we've recorded for ranked South Carolina teams over the past year, only about 19% were against other South Carolina teams, while North Carolina and Georgia opponents each accounted for more than a quarter. CESA and South Carolina United FC play their ECNL conference schedules against Georgia and Florida clubs, and Charleston and Upstate clubs play heavily into North Carolina. That spread ties South Carolina rankings closely to the national picture.",
+    },
+    {
+      question: 'How does the South Carolina State Cup work?',
+      answer:
+        'The South Carolina Youth Soccer Association runs the South Carolina State Cup. For 2026-27, girls play one unified State Cup instead of separate State Cup and Presidents Cup events, and both the boys and girls cups are open to teams from qualifying leagues outside the US Youth Soccer and US Club Soccer joint pyramid. Champions qualify for the US Youth Soccer National Championships, girls finalists represent South Carolina at the Southeast Presidents Cup, and seeding follows league status within the pyramid and is set on November 1.',
+    },
+  ],
   'tennessee-youth-soccer-rankings-guide': [
     {
       question: 'How are Tennessee youth soccer teams ranked?',
@@ -836,6 +890,33 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
     },
   ],
 
+  'utah-youth-soccer-rankings-guide': [
+    {
+      question: 'How are Utah youth soccer teams ranked?',
+      answer:
+        'PitchRank ranks Utah teams using a rating algorithm that evaluates game-by-game results, strength of schedule, goal differential, recency, and consistency. Rankings update every Monday and currently cover 207 ranked Utah teams drawn from 1,770 we track statewide.',
+    },
+    {
+      question: 'What are the biggest youth soccer clubs in Utah?',
+      answer:
+        'By ranked team count: La Roca FC (42), Utah Avalanche (39), Wasatch SC (16), City SC Utah (16), Utah Celtic FC (13), Park City SC (13) and Utah Surf (10).',
+    },
+    {
+      question: 'Does Utah have ECNL and MLS NEXT teams?',
+      answer:
+        'Yes. La Roca FC and Utah Avalanche field ECNL boys and girls teams, and both also field ECNL Regional League teams, along with NUU Avalanche, Utah Athletic and Utah Surf. MLS NEXT runs through Real Salt Lake, whose academy trains in Herriman, in the Homegrown Division and through City SC Utah, Sparta United, Wasatch SC and Utah Celtic FC in the Academy Division. Girls Academy teams play through City SC Utah, Utah Celtic FC and Wasatch SC.',
+    },
+    {
+      question: 'Why do Utah teams play so many out-of-state games?',
+      answer:
+        "Of the 4,274 games we've recorded for ranked Utah teams over the past year, only about two in five were against other Utah teams. Colorado, Arizona, Nevada, California and Idaho opponents make up most of the rest, because Utah's ECNL, MLS NEXT and Girls Academy teams play in conferences that span the western states. That spread ties Utah rankings closely to the national picture.",
+    },
+    {
+      question: 'How does the Utah State Cup work?',
+      answer:
+        "The Utah Soccer Federation runs a fall State Cup for boys 13U–18/19U and a spring State Cup for boys 11U–12U and girls 11U–19U. From 13U up, last year's champion and last season's Premier 1 champion take the top two seeds, boys ECNL and MLS Next 2 teams and girls ECNL and GA teams are drawn into the next seeds, and everyone else is seeded by league alignment. State Cup winners in the 13U through 18/19U age groups represent Utah at the US Youth Soccer National Championships.",
+    },
+  ],
   'virginia-youth-soccer-rankings-guide': [
     {
       question: 'How are Virginia youth soccer teams ranked?',

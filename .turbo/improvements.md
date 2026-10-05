@@ -1694,6 +1694,10 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `src/etl/glicko_engine.py` `run_glicko2_cohort` (`cross_age_mask` built from `cohort_gender`)
 - **Why**: Game rows carry lowercase gender, but the mask compares them with the capitalised `cohort_gender`, so every Pass-2 opponent counts as cross-age. Same-board opponents are therefore valued from the frozen Pass-1 map at RD 350; game selection and explainability compare against the lowercase value instead. This has been in place since 2026-04-02 (ad9d0e708 / fa427c43c). Fixing it on frozen Sept 30 inputs moved 26,920 of 60,831 active teams more than 100 places. In-sample agreement with results improved on U10–U12 and fell on U14–U19, so it needs an out-of-sample test and a decision on how it interacts with the post-SCF map first.
 - **Noted**: 2026-10-02
+- **Update (2026-10-03)**: Scored on September games after rating from an Aug 31 freeze, with the rules locked before scoring.
+  - **Alone:** inconclusive at +0.02 points, with U10–U12 up and U17–U19 down.
+  - **With the out-of-state dampening off:** it passed against dampening off alone, at +0.34 (95% +0.08 to +0.60).
+  - That pair is the candidate locked for October confirmation (IMP-301).
 
 ### Stop a single-board calculate_rankings run from deleting every other board
 
@@ -1718,6 +1722,11 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
   - Tiny upstream changes therefore produce large, arbitrary rank moves.
 - **Noted**: 2026-10-02
 - **Update (2026-10-02)**: The thresholds bind nearly every ranked team. Only 338 of about 60,800 Active teams have no ceiling (`publication_cap_rank` null in `rankings_full`, queried 2026-10-01).
+- **Update (2026-10-04)**: With the out-of-state dampening off, the connectivity columns (`scf`, `unique_opp_states`, `bridge_games`, `is_isolated`) are not produced. The effects run both ways:
+  - this function's isolation and connectivity restrictions stop applying;
+  - some relief paths are lost and one becomes easier;
+  - the base evidence shrink and the authority score shift too.
+  - **Next:** a ceiling-only candidate that restores those values to the ceiling decisions alone was locked on 2026-10-04 (IMP-304). Percentile-based thresholds and graded limits remain separate, undesigned candidates.
 
 ### Key the rankings results cache by pass as well as games
 
@@ -1861,31 +1870,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: The docstring says `game_residuals_df` has the columns `game_id, residual`, but both producers return `game_id, ml_overperformance`. `_extract_game_residuals` renames `residual`, and `_passthrough_ml` builds an empty frame with the same two columns. A caller following the docstring looks for a column that is never there.
 - **Noted**: 2026-10-02
 
-### Check how much the Glicko-2 round cap leaves unsettled
-
-- **ID**: IMP-297
-- **Status**: open
-- **Type**: investigate
-- **Category**: reliability
-- **Where**: `src/etl/glicko_engine.py` `run_glicko2_cohort` (the loop over `cfg.MAX_ITERATIONS`)
-- **Why**: Most board passes stop at the round cap while ratings are still moving.
-  - On the frozen Sept 30 inputs (shadow run, 2026-10-02), 30 of 36 board passes logged "did not converge after 30 iterations". At the cap they were still moving a rating by 5.3–7.8 points per round. The other 6 settled in 23–29 rounds.
-  - Earlier in this session, the Sept 25 and Sept 28 production run logs were read as showing the same 30 of 36.
-  - Before changing the cap, measure how far ranks move with more rounds.
-- **Noted**: 2026-10-02
-
-### Check whether the 30-game selection favours wins
-
-- **ID**: IMP-298
-- **Status**: open
-- **Type**: investigate
-- **Category**: reliability
-- **Where**: `src/etl/glicko_engine.py` `select_games_balanced` (with `cfg.MAX_GAMES`)
-- **Why**: Teams score better in the games the ranking uses than in their full record.
-  - Among the 12,494 Active teams with more than 30 games in the 393-day window, the ranking's game record earns 57.3% of available points (win 1, draw ½), against 54.4% across all their games. For top-100 teams it is 74.5% against 71.4%.
-  - Measured 2026-10-01 by SQL. It compared the Sept 28 run's `rankings_full` wins, draws and games played with every scored, non-excluded game after merge resolution.
-  - Find out whether the selection's quality weighting or its recency rules cause the lean before changing either.
-
 ### Decide whether a one-sided DPLO tag marks a different squad in the Utah matcher
 
 - **ID**: IMP-299
@@ -1907,3 +1891,102 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
   - It compares scores, ranks, status, `MIN_GAMES_PROVISIONAL` crossings and games played, and has no handling of wins, draws, losses or the run's games-used file.
   - A scratch check on 2026-10-02 recounted each team's record from the freeze's raw scores of the games the run used, joined on game id and team id, and compared it with the run's teams file. On the Oct 1 freeze it found 210 mismatched teams on main's board and 0 on the goal-clipping fix's, with no used row unmatched. The skill's own report showed neither.
 - **Noted**: 2026-10-02
+
+### Test the cross-state uniqueness gate of the club standardizer's no-state pass
+
+- **Status**: open
+- **Type**: plan
+- **Category**: testing
+- **Where**: `scripts/full_club_analysis.py` (`analyze_no_state_teams`, the `len(canonicals) == 1` check that builds `safe_overrides`)
+- **Why**: The pass promotes a state-scoped override to a national rewrite for every team whose `state_code` is NULL or empty, and `execute_fixes` then issues `UPDATE teams SET club_name` filtered only on the old club plus `state_code.is.null,state_code.eq.` -- no state predicate. Two things hold it back, and only one is now tested. The `STATE_ONLY_PATTERNS` exclusion is covered by `test_every_uysa_override_is_kept_out_of_the_no_state_pass` and `test_the_no_state_pass_leaves_a_generic_utah_name_alone`. The cross-state uniqueness check -- which skips a pattern resolving to different canonicals in different states, as `peak fc` does (Peak SC in UT, Pikes Peak FC in CO) -- is covered by nothing: measured 2026-10-02 by widening it to `len(canonicals) >= 1`, which left the whole suite green apart from two failures that predate the change. So that gate can be loosened or reordered and teams are renamed into another state's clubs with nothing red.
+- **Update (2026-10-02)**: narrowed from "neither gate is exercised" after the Utah PR added the two tests above. Raised as a P2 on #1250 as completed work; it is half done, and closing it would leave the uniqueness gate uncovered.
+- **Noted**: 2026-09-30
+
+
+### Reconcile the branch guard's "Five branches" with the four rows it holds
+
+- **Status**: open
+- **Type**: direct
+- **Category**: docs
+- **Where**: `tests/unit/test_club_overrides_keep_provider_branches.py` (module docstring, `COLLAPSED_BRANCHES`)
+- **Why**: The docstring opens "Five branches were folded into their parents on 2026-09-22. None may come back," while importing the module and counting `COLLAPSED_BRANCHES` gives four rows (measured 2026-09-30). Pre-existing since the file was added in `2ac13b803` (#1204). A reader either hunts for an unguarded fifth branch or adds a fifth row that was never decided -- and this file is the canonical home of the branch-versus-parent policy, so it is read whenever a new case arrives. Either correct the count to four or restore the row that went missing; deciding which needs the #1204 working notes.
+- **Noted**: 2026-09-30
+
+
+### Record the division a league import derived an age group from
+
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `src/models/affinity_or_matcher.py` (`_create_new_affinity_or_team`, the `team_data` insert), `scripts/import_games_enhanced.py` (`stream_games_csv` / `load_games_csv` column whitelists)
+- **Why**: A league import takes a team's age group from the division it scraped, then writes the team with `league` NULL -- measured 2026-10-02, all 675 teams of the first `affinity_ut` run. The division is the one signal the age-group audit rates as deciding for a league import, so once it is discarded those teams can never be checked against it; the audit falls back to the team's own name, and 90 of those 675 names state no cohort at all. Carrying it through needs three layers, which is why this is a plan and not a direct fix: the scraper has to emit the division, both loader whitelists have to admit the column (anything they do not name is dropped silently and a dry run still reports success), and the shared Affinity creation path has to write it without changing what Affinity OR records. Affects the OR and WA imports equally.
+- **Noted**: 2026-10-02
+
+
+### Give a provider-stamped state_code its own provenance value
+
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `src/models/affinity_ut_matcher.py`, `src/models/affinity_or_matcher.py`, `src/models/affinity_wa_matcher.py`, `src/models/playmetrics_matcher.py` (each one's new-team write), against the values `scripts/assign_team_states.py` writes
+- **Why**: Four provider imports stamp a `state_code` on team creation and all leave `state_source` NULL -- confirmed 2026-10-02 against the 675 teams of the first `affinity_ut` run. CLAUDE.md already warns that an audit of "what writes state" has to count these, and a NULL source makes a provider-stamped guess indistinguishable from a value no tool chose. The blocker is vocabulary rather than plumbing: the only values in use are `tier_a`, `tier_b` and `tier_e`, which belong to the ranked-evidence tiers in `assign_team_states.py`, so a provider constant needs a new value agreed across all four writers and across whatever reads the column -- not one invented per matcher. Related to the existing constant-state-provenance entry.
+- **Noted**: 2026-10-02
+
+### Run the locked October confirmation of dampening off plus the gender-mask fix
+
+- **ID**: IMP-301
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `src/etl/glicko_config.py` `GlickoConfig.SCF_ENABLED`; `src/etl/glicko_engine.py` `run_glicko2_cohort` (`cross_age_mask`); `.claude/skills/measuring-ranking-changes/scripts/score_later_games.py`
+- **Why**: The candidate is two changes: dampening off by default, and `cross_age_mask` comparing against `_cohort_gender_detected`.
+  - On September games it ordered games better than today's engine by +2.47 percentage points of agreement. Dampening off alone gained +2.13, and the mask fix on top of it +0.34 (IMP-280), all on the same 21,009 games.
+  - It moves about 34,500 of 60,600 Active teams more than 300 places, so the owner requires confirmation on an untouched period first.
+  - **When October's results are in:** finish IMP-303 first. Then freeze as of 2026-09-30, freeze again later for the October games, run today's engine and the candidate, and score October with the rules locked on 2026-10-02 (the owner's "Later-games test plan" doc).
+  - **Apply the dampened-team cut:** pass `--scf-cand` with the candidate's name, since it runs with dampening off. September's combined runs skipped the cut; computed afterwards, it was +2.00 on 2,024 games (95% +0.26 to +3.74), within the rule.
+  - **Only if it passes:** go on to IMP-304.
+  - Nobody examines October outcomes for design work before then.
+- **Noted**: 2026-10-04
+
+### Research alternatives to the result-first game selection
+
+- **ID**: IMP-302
+- **Status**: open
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `src/etl/glicko_engine.py` `select_games_balanced`
+- **Why**: The 10 non-recent picks favour wins and draws over losses (IMP-298), but dropping the result key made September ordering worse.
+  - **Untested:** taking the newest games for those slots.
+  - **No presumption:** selecting to match each team's record would select by results again, toward a different target, so there is no reason to expect it helps.
+  - **Optional research:** judge any candidate on a period nobody has examined.
+- **Noted**: 2026-10-04
+
+### Harden the later-games scorer before the October confirmation
+
+- **ID**: IMP-303
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `.claude/skills/measuring-ranking-changes/scripts/score_later_games.py` (`isolation_checks`, `heldout_games`, `dyadic`, `main`)
+- **Why**: The scorer was committed with the logic that ran the September screen, and it reproduces that report exactly. Its review on 2026-10-04 found checks that record a problem without stopping a verdict. None changed a September result: every saved run matches all four freeze-manifest hashes (games, team metadata, merge map and fetch code) and records only the three allowed reads, every window started the day after the split, and every board with a zero standard error has a difference of exactly 0. The October run (IMP-301) should not depend on that.
+  - **Refuse to score:** a `--start` on or before the split freeze's `today`; a candidate named `base`, a repeated name, or a `--cand` with no `=`; a run missing any column but `scf`; an `--scf-cand` that names no candidate or whose baseline has no `scf` (make it repeatable, defaulting to none); a window with no primary games.
+  - **Withhold the verdicts** when the split check fails: write the report, set every screen to `void` and exit non-zero.
+  - **Inputs and record:** compare the three input hashes `compare_runs.py` compares (games, team metadata, merge map); re-hash the games and merge-map files the scorer reads, as `compare_runs.py` does for the games file; treat a missing `frozen_client_calls` as a failure; record the dates, both freezes, `--scf-cand` and each run's provenance in the report.
+  - **Statistics:** count an `UNKNOWN` state as unknown in the cut, and report a negative variance estimate as no inference rather than a zero standard error.
+  - **Tests**, loading the script as `tests/unit/test_build_review_page.py` loads its modules. `dyadic` on a=[A,A,A,D,B], b=[B,B,C,E,C], d=[1,0,1,0,0] gives a difference of 40.0, SE 11.313708 and p 0.000407; `holm` on {0.03, 0.04} gives {0.06, 0.06}; `heldout_games` on literal rows with a tie and a merged id. Pull the verdict rules out of `main` so each veto (a credibly harmed board, a significant loss, the cut, a failed split check) gets its own test.
+  - **Also:** argparse `description=__doc__` with per-flag help, and `allow_nan=False`, as `compare_runs.py` has; rename the `isolation` key to a split check and count games rather than rows in it; record the rule's three bounds with one sign (the report stores `cut_lower_bound` negative and the other two positive); note beside the credit and orientation code that it copies `compare_runs.py` on purpose, so a change there cannot move a locked measure.
+  - Update the skill's "Score on later games" section in the same change: remove the warning, rename `isolation.passed` in the split-check bullet, and drop the `--scf-cand` default and the crash from the dampening-off bullet.
+- **Noted**: 2026-10-04
+
+### Give the publication ceilings their connectivity values when dampening is off
+
+- **ID**: IMP-304
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `src/etl/glicko_engine.py` `apply_scf_dampening` (produces the values, only when `SCF_ENABLED`); `src/rankings/calculator.py` `_publication_cap_rank`; `.claude/skills/measuring-ranking-changes/scripts/score_later_games.py` `main`
+- **Why**: With dampening off, the connectivity values the ceilings read are not produced (IMP-283). The candidate locked on 2026-10-04 in the owner's "Later-games test plan" doc computes them on the run and passes them to the ceiling decisions only. Ratings, ML and every score before the ceilings stay as the October candidate's.
+  - **Only if the October candidate passes (IMP-301):** score this against that candidate alone, on October games, under its own locked rule.
+  - **The scorer cannot apply that rule yet.** Its cut takes the low-connectivity teams from today's engine's run on the same snapshot, but the script reads the baseline's `scf`, and this baseline has none, so the cut cannot run. Harm needs the cut to lose more than 1.0 point credibly, the rule's word for a 95% upper bound below −1.0, where the script tests the estimate. And a run is void unless every team's pre-ceiling score equals the October candidate's.
+  - Reported without deciding anything: U10 boys and girls separately and combined, ceiling depths per board before and after, and the blast radius.
+- **Noted**: 2026-10-04
