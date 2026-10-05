@@ -36,3 +36,15 @@ The frozen Texas and Washington diagnoses and prior ceiling-only replay are
 documented in `2026-10-05-ceiling-rule-order.md`. The full batch and descriptive
 September results belong in the separate release report. They must not be
 inferred from that earlier diagnostic replay.
+
+## CI portability correction
+
+The first Linux CI run found one last-bit difference in the independently saved
+Windows SCF fixture (`unique_states`: 0.8316870804994441 versus
+0.8316870804994442). The fixture comparison now permits at most two representable
+floating-point steps for decimal fields. Team/field coverage and categorical
+values remain exact, as do the same-runtime wrapper and full-run boundary checks.
+All 15 connectivity tests pass locally. A deliberate one-step perturbation passes;
+a 1e-10 change still fails the pinned-original test. All 15 frozen ranking,
+entry-point and measurement-source file hashes remain unchanged. The running
+validation batch is unaffected.

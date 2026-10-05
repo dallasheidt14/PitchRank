@@ -75,7 +75,18 @@ def test_refactor_matches_pinned_original(league):
         g = games.assign(age=age)
         for enabled in (True, False):
             cfg = GlickoConfig(SCF_ENABLED=enabled)
-            assert engine.compute_scf(g, states, ratings, cfg, tier_league_map=leagues) == expected[f"{age}-{enabled}"]
+            actual = engine.compute_scf(g, states, ratings, cfg, tier_league_map=leagues)
+            pinned = expected[f"{age}-{enabled}"]
+            assert actual.keys() == pinned.keys()
+            for team, values in pinned.items():
+                assert actual[team].keys() == values.keys()
+                for field, value in values.items():
+                    if isinstance(value, float):
+                        # The archived Windows fixture can differ by one final bit on Linux.
+                        # Same-runtime wrapper and full-run boundaries remain exact checks.
+                        np.testing.assert_array_max_ulp(actual[team][field], value, maxulp=2)
+                    else:
+                        assert actual[team][field] == value
 
 
 def test_collection_uses_current_pass2_ratings_and_selected_games(league, monkeypatch):
