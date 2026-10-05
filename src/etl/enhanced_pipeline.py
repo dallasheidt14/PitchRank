@@ -317,6 +317,16 @@ class EnhancedETLPipeline:
                 alias_cache=self.alias_cache,
                 dry_run=self.dry_run,
             )
+        elif self.provider_code.lower() == "modular11_ea":
+            from src.models.modular11_ea_matcher import Modular11EaGameMatcher
+
+            logger.info("Using Modular11EaGameMatcher (alias-only; teams come from link_modular11_ea_teams.py)")
+            self.matcher = Modular11EaGameMatcher(
+                self.supabase,
+                provider_id=self.provider_id,
+                alias_cache=self.alias_cache,
+                dry_run=self.dry_run,
+            )
         elif self.provider_code.lower() == "playmetrics":
             from src.models.playmetrics_matcher import PlayMetricsGameMatcher
 
