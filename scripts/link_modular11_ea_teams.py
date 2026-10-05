@@ -132,17 +132,79 @@ def _create_team(sb, provider_id: str, action: LinkAction) -> str:
     return team_id_master
 
 
+def _linked_team(sb, provider_id: str, provider_team_id: str) -> str | None:
+    rows = (
+        sb.table("team_alias_map")
+        .select("team_id_master")
+        .eq("provider_id", provider_id)
+        .eq("provider_team_id", provider_team_id)
+        .eq("review_status", "approved")
+        .limit(1)
+        .execute()
+        .data
+    )
+    return rows[0]["team_id_master"] if rows else None
+
+
+def _usable_target(sb, team_id_master: str, age_group: str) -> bool:
+    """The game import rejects a link whose team is in another age or gender; refuse it here instead."""
+    try:
+        team = (
+            sb.table("teams")
+            .select("age_group, gender, is_deprecated")
+            .eq("team_id_master", team_id_master)
+            .single()
+            .execute()
+            .data
+        )
+    except APIError as exc:
+        if exc.code == "PGRST116":
+            return False
+        raise
+    return (
+        (team.get("age_group") or "").lower() == age_group.lower()
+        and team.get("gender") == "Male"
+        and team.get("is_deprecated") is not True
+    )
+
+
 def apply_plan(sb, provider_id: str, plan: list[LinkAction], log_path: Path) -> tuple[dict[str, int], dict[str, str]]:
-    """Returns the counts and ``{provider_team_id: team_id_master}`` for teams created this run."""
-    counts = {"teams_created": 0, "teams_reused": 0, "aliases_written": 0, "conflicts": 0, "held": 0}
+    """Returns the counts and ``{provider_team_id: team_id_master}`` for teams created this run.
+
+    An EA team that already has an approved alias is never re-pointed here: a create reuses
+    it silently, and a link to a different team is reported as needing a merge.
+    """
+    counts = {
+        "teams_created": 0,
+        "teams_reused": 0,
+        "aliases_written": 0,
+        "conflicts": 0,
+        "held": 0,
+        "already_linked": 0,
+        "needs_merge": 0,
+        "links_rejected": 0,
+    }
     created: dict[str, str] = {}
     with log_path.open("a", encoding="utf-8") as log:
         for action in plan:
             if action.action == "hold":
                 counts["held"] += 1
                 continue
+            linked = _linked_team(sb, provider_id, action.provider_team_id)
             target = action.team_id_master
+            if action.action == "link":
+                if linked and linked != target:
+                    counts["needs_merge"] += 1
+                    print(f"EA team {action.provider_team_id} is already linked to {linked}; merge it into {target}")
+                    continue
+                if not _usable_target(sb, target, action.age_group):
+                    counts["links_rejected"] += 1
+                    print(f"EA team {action.provider_team_id}: {target} is missing, deprecated or another age/gender")
+                    continue
             if action.action == "create":
+                if linked:
+                    counts["already_linked"] += 1
+                    continue
                 target = _existing_team(sb, provider_id, action.provider_team_id)
                 if target:
                     counts["teams_reused"] += 1
@@ -265,11 +327,16 @@ def write_handback(
         "How to fill in handback.csv",
         "",
         "One row per EA team that was created (or would be) or still needs review.",
-        "Fill in only the your_pick column, then send the file back:",
-        "  - a PitchRank team id: this EA team IS that team (for a created team, the two get merged)",
-        "  - new: keep it as its own new team",
-        "  - skip: leave it out for now",
-        "Leave your_pick empty to decide later.",
+        "Fill in only the your_pick column, then send the file back. Leave it empty to decide later.",
+        "",
+        "Created rows (status 'created' or 'would create'):",
+        "  These are new PitchRank teams. If one already exists in PitchRank under another name,",
+        "  put that team's id in your_pick and the two will be merged by hand.",
+        "",
+        "Needs review rows (status 'needs review'): their games stay out until you pick.",
+        "  - a PitchRank team id (from the candidates column or your own search): this EA team IS that team",
+        "  - new: create it as its own new team",
+        "  - skip: leave it out (it stays out until a run that uses your sheet)",
         "",
         "Example rows from this run:",
     ]

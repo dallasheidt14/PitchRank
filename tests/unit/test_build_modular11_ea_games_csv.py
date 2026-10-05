@@ -157,3 +157,60 @@ def test_planned_mode_links_created_teams_without_reading_aliases(tmp_path):
             ]
         )
     assert build.planned_links(plan) == {"7155": "M1", "7156": "new:7156"}
+
+
+class _TeamsQuery:
+    def __init__(self, rows):
+        self.rows, self.ids = rows, None
+
+    def select(self, *_cols):
+        return self
+
+    def in_(self, column, ids):
+        assert column == "team_id_master" and len(ids) <= 100
+        self.ids = list(ids)
+        return self
+
+    def execute(self):
+        return type("R", (), {"data": [r for r in self.rows if r["team_id_master"] in self.ids]})()
+
+
+class _TeamsDb:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def table(self, name):
+        assert name == "teams"
+        return _TeamsQuery(self.rows)
+
+
+def test_links_to_teams_the_importer_would_reject_are_dropped():
+    rows = [
+        {"team_id_master": "OK", "age_group": "u17", "gender": "Male", "is_deprecated": False},
+        {"team_id_master": "AGE", "age_group": "u16", "gender": "Male", "is_deprecated": False},
+        {"team_id_master": "SEX", "age_group": "u17", "gender": "Female", "is_deprecated": None},
+        {"team_id_master": "DEP", "age_group": "u17", "gender": "Male", "is_deprecated": True},
+    ]
+    links = {"1": "OK", "2": "AGE", "3": "SEX", "4": "DEP", "5": "GONE"}
+    assert build.usable_links(_TeamsDb(rows), links, "u17") == {"1": "OK"}
+
+
+def test_planned_run_writes_a_preview_file_not_an_importable_one(tmp_path, monkeypatch):
+    age_dir = tmp_path / "u17"
+    age_dir.mkdir()
+    with (age_dir / "games.csv").open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(_game()))
+        writer.writeheader()
+        writer.writerow(_game())
+    with (age_dir / "teams.csv").open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=["provider_team_id", "display_name", "club_name"])
+        writer.writeheader()
+        writer.writerows(TEAMS.values())
+    with (age_dir / "link_plan.csv").open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=["provider_team_id", "action", "team_id_master"])
+        writer.writeheader()
+        writer.writerows([{"provider_team_id": t, "action": "create", "team_id_master": ""} for t in TEAMS])
+    monkeypatch.setattr(build, "_new_client", lambda: _Db({}))
+    assert build.main(["--age", "u17", "--in-dir", str(tmp_path), "--planned"]) == 0
+    assert (age_dir / "import_planned.csv").exists()
+    assert not (age_dir / "import.csv").exists()

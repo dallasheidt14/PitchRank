@@ -99,12 +99,17 @@ def alias_calls(monkeypatch):
                 "provider_id": kwargs["provider_uuid"],
                 "provider_team_id": kwargs["provider_team_id"],
                 "team_id_master": kwargs["team_id_master"],
+                "review_status": "approved",
             }
         )
         return {"action": "created"}
 
     monkeypatch.setattr(link, "upsert_team_alias", fake_upsert)
     return calls
+
+
+def _live(team_id_master, age_group="u17", gender="Male", deprecated=None):
+    return {"team_id_master": team_id_master, "age_group": age_group, "gender": gender, "is_deprecated": deprecated}
 
 
 def _team(tid, name="Emerald City FC", club="Emerald City FC"):
@@ -171,7 +176,16 @@ def test_execute_creates_team_and_direct_id_alias(tmp_path, alias_calls):
     assert [(c["provider_team_id"], c["team_id_master"], c["match_method"], c["confidence"]) for c in alias_calls] == [
         ("7155", new_id, "direct_id", 1.0)
     ]
-    assert counts == {"teams_created": 1, "teams_reused": 0, "aliases_written": 1, "conflicts": 0, "held": 0}
+    assert counts == {
+        "teams_created": 1,
+        "teams_reused": 0,
+        "aliases_written": 1,
+        "conflicts": 0,
+        "held": 0,
+        "already_linked": 0,
+        "needs_merge": 0,
+        "links_rejected": 0,
+    }
     log = [json.loads(line) for line in (tmp_path / "log.jsonl").read_text(encoding="utf-8").splitlines()]
     assert log == [
         {"kind": "team", "team_id_master": new_id},
@@ -180,10 +194,10 @@ def test_execute_creates_team_and_direct_id_alias(tmp_path, alias_calls):
 
 
 def test_confident_link_writes_fuzzy_auto_alias(tmp_path, alias_calls):
-    db = _Db()
+    db = _Db(teams=[_live("M1")])
     plan = link.plan_links([_team("1")], [_report("1", "confident", "M1")], {})
     link.apply_plan(db, PROVIDER, plan, tmp_path / "log.jsonl")
-    assert db.rows["teams"] == []
+    assert db.rows["teams"] == [_live("M1")]
     assert [(c["team_id_master"], c["match_method"], c["confidence"]) for c in alias_calls] == [("M1", "fuzzy_auto", 0.95)]
 
 
@@ -205,13 +219,14 @@ def test_hold_writes_nothing(tmp_path, alias_calls):
 
 
 def test_undo_removes_created_aliases_and_empty_teams(tmp_path, alias_calls):
-    db = _Db(aliases=[{"provider_id": PROVIDER, "provider_team_id": "9", "team_id_master": "KEEP"}])
+    keep = {"provider_id": PROVIDER, "provider_team_id": "9", "team_id_master": "KEEP", "review_status": "approved"}
+    db = _Db(aliases=[keep], teams=[_live("KEEP")])
     plan = link.plan_links([_team("7155"), _team("9")], [_report("7155", "no_match"), _report("9", "confident", "KEEP")], {})
     log = tmp_path / "log.jsonl"
     link.apply_plan(db, PROVIDER, plan, log)
     assert link.undo(db, PROVIDER, log) == {"aliases_removed": 1, "teams_removed": 1, "teams_refused": 0}
-    assert db.rows["teams"] == []
-    assert db.rows["team_alias_map"] == [{"provider_id": PROVIDER, "provider_team_id": "9", "team_id_master": "KEEP"}]
+    assert db.rows["teams"] == [_live("KEEP")]
+    assert db.rows["team_alias_map"] == [keep]
 
 
 def test_undo_refuses_team_with_games(tmp_path, alias_calls):
@@ -249,3 +264,50 @@ def test_handback_lists_created_and_review_teams(tmp_path):
     ]
     legend = (tmp_path / "handback_legend.txt").read_text(encoding="utf-8")
     assert "your_pick" in legend and "skip" in legend and "new" in legend
+
+
+def test_create_reuses_an_existing_approved_alias_and_writes_nothing(tmp_path, alias_calls):
+    alias = {"provider_id": PROVIDER, "provider_team_id": "7155", "team_id_master": "SURVIVOR", "review_status": "approved"}
+    deprecated = {"team_id_master": "OLD", "provider_id": PROVIDER, "provider_team_id": "7155", "is_deprecated": True}
+    db = _Db(teams=[deprecated], aliases=[alias])
+    plan = link.plan_links([_team("7155")], [_report("7155", "no_match")], {"7155": "new"})
+    counts, created = link.apply_plan(db, PROVIDER, plan, tmp_path / "log.jsonl")
+    assert (db.writes(), alias_calls, created) == ([], [], {})
+    assert (counts["already_linked"], counts["teams_created"], counts["teams_reused"]) == (1, 0, 0)
+
+
+def test_pick_for_an_already_linked_team_is_reported_not_written(tmp_path, alias_calls):
+    alias = {"provider_id": PROVIDER, "provider_team_id": "7155", "team_id_master": "CREATED", "review_status": "approved"}
+    db = _Db(teams=[_live("CREATED"), _live("OTHER")], aliases=[alias])
+    plan = link.plan_links([_team("7155")], [_report("7155", "no_match")], {"7155": "OTHER"})
+    counts, _ = link.apply_plan(db, PROVIDER, plan, tmp_path / "log.jsonl")
+    assert (db.writes(), alias_calls, counts["needs_merge"]) == ([], [], 1)
+
+
+@pytest.mark.parametrize(
+    "target",
+    [_live("P", age_group="u16"), _live("P", gender="Female"), _live("P", deprecated=True)],
+    ids=["other-age", "other-gender", "deprecated"],
+)
+def test_link_to_an_unusable_team_is_held(tmp_path, alias_calls, target):
+    db = _Db(teams=[target])
+    plan = link.plan_links([_team("1")], [_report("1", "review", "P|Q")], {"1": "P"})
+    counts, _ = link.apply_plan(db, PROVIDER, plan, tmp_path / "log.jsonl")
+    assert (alias_calls, counts["links_rejected"]) == ([], 1)
+
+
+def test_link_to_a_missing_team_is_held(tmp_path, alias_calls):
+    db = _Db()
+    plan = link.plan_links([_team("1")], [_report("1", "review", "P|Q")], {"1": "NOPE"})
+    counts, _ = link.apply_plan(db, PROVIDER, plan, tmp_path / "log.jsonl")
+    assert (alias_calls, counts["links_rejected"]) == ([], 1)
+
+
+def test_legend_offers_skip_only_for_review_rows(tmp_path):
+    report = [_report("1", "no_match"), _report("2", "review", "M1", "A")]
+    plan = link.plan_links([_team("1"), _team("2")], report, {})
+    link.write_handback(tmp_path / "handback.csv", plan, report, {})
+    legend = (tmp_path / "handback_legend.txt").read_text(encoding="utf-8")
+    assert "Needs review rows" in legend and "Created rows" in legend
+    created_part = legend.split("Created rows", 1)[1].split("Needs review rows", 1)[0]
+    assert "skip" not in created_part and "merge" in created_part

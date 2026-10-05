@@ -6,9 +6,13 @@ linked to PitchRank becomes two importer rows (one per side); every other played
 written to ``held_games.csv`` and waits for its teams to be linked. Links come from the
 live ``modular11_ea`` aliases, or with ``--planned`` from ``link_plan.csv`` (a team the
 plan would create counts as linked), so the impact can be read before anything is written.
+A live link whose team the importer would reject (another age or gender, or deprecated)
+is dropped, so its games are held rather than imported with one side missing.
 
-Read-only against the database. Import the result with:
+Read-only against the database. Import the result of a live run with:
     python scripts/import_games_enhanced.py data/modular11_ea/<age>/import.csv modular11_ea
+A ``--planned`` run writes ``import_planned.csv`` instead: a preview, never imported,
+because the teams it would create do not exist yet.
 
 Usage:
     python scripts/build_modular11_ea_games_csv.py --age u17 [--planned]
@@ -177,6 +181,28 @@ def live_links(sb) -> dict[str, str]:
         offset += PAGE_SIZE
 
 
+def usable_links(sb, links: dict[str, str], age_group: str) -> dict[str, str]:
+    """Keeps the links whose team the importer's age/gender check would accept."""
+    masters = sorted(set(links.values()))
+    usable = set()
+    for start in range(0, len(masters), 100):
+        rows = (
+            sb.table("teams")
+            .select("team_id_master, age_group, gender, is_deprecated")
+            .in_("team_id_master", masters[start : start + 100])
+            .execute()
+            .data
+        )
+        usable.update(
+            row["team_id_master"]
+            for row in rows
+            if (row.get("age_group") or "").lower() == age_group.lower()
+            and row.get("gender") == "Male"
+            and row.get("is_deprecated") is not True
+        )
+    return {tid: master for tid, master in links.items() if master in usable}
+
+
 def _read_csv(path: Path) -> list[dict]:
     with path.open(encoding="utf-8") as handle:
         return list(csv.DictReader(handle))
@@ -209,9 +235,15 @@ def main(argv: list[str] | None = None) -> int:
     games = _read_csv(age_dir / "games.csv")
     teams = {t["provider_team_id"]: t for t in _read_csv(age_dir / "teams.csv")}
     sb = _new_client()
-    links = planned_links(age_dir / "link_plan.csv") if args.planned else live_links(sb)
+    if args.planned:
+        links = planned_links(age_dir / "link_plan.csv")
+    else:
+        linked = live_links(sb)
+        links = usable_links(sb, linked, args.age)
+        if len(links) < len(linked):
+            print(f"Dropped {len(linked) - len(links)} links whose team is another age/gender or deprecated")
     rows, held = build_rows(games, teams, links)
-    _write_csv(age_dir / "import.csv", IMPORT_COLUMNS, rows)
+    _write_csv(age_dir / ("import_planned.csv" if args.planned else "import.csv"), IMPORT_COLUMNS, rows)
     _write_csv(age_dir / "held_games.csv", list(games[0]) if games else [], held)
     result = impact(sb, rows, links)
     print(
