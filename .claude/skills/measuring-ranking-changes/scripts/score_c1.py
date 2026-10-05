@@ -13,6 +13,12 @@ from c1_validation import InvalidRun, compare_boundary, digest, read_json, valid
 BOARDS = {f"{age}{gender}" for age in (*range(10, 18), 19) for gender in ("M", "F")}
 RULE = {"gain": .25, "alpha": .05, "board_harm": -1., "cut_scf": .6,
         "cut_min_games": 300, "cut_estimate": -1., "cut_lower": -2.}
+RELEASE_COMPARISONS = {
+    "sequence": ["fixed-combo-vs-incumbent", "ceiling-release-vs-fixed-combo"],
+    "c1_alone": "diagnostic-only",
+    "cumulative_safety": "ceiling-release-vs-incumbent",
+    "cumulative_harm": "board-or-isolation-ci95-upper-below-minus-one",
+}
 
 
 def _finite(value):
@@ -41,6 +47,20 @@ def verdict(overall: dict, boards: dict, cut: dict) -> str:
     return "inconclusive"
 
 
+def release_verdict(incremental: dict, cumulative: dict) -> str:
+    """Additional board/subgroup harm against the incumbent vetoes the release."""
+    boards, cut = cumulative["boards"], cumulative["isolation_cut"]
+    if incremental["verdict"] == "harm" or any(
+        _interval(value) and value["ci95"][1] < RULE["board_harm"]
+        for value in [*boards.values(), cut]
+    ):
+        return "harm"
+    if (set(boards) != BOARDS or not all(_finite(b.get("delta")) and _interval(b) for b in boards.values())
+            or not _finite(cut.get("delta")) or not _interval(cut)):
+        return "inconclusive"
+    return incremental["verdict"]
+
+
 def _check_lock(args, loaded: dict, freeze: Path) -> dict:
     if not args.design_lock:
         raise InvalidRun("C1 requires a recorded design lock before held-out data is read")
@@ -50,8 +70,11 @@ def _check_lock(args, loaded: dict, freeze: Path) -> dict:
     stamp = pd.Timestamp(lock["locked_at"])
     if stamp.tzinfo is None or stamp > pd.Timestamp.now(tz="UTC"):
         raise InvalidRun("Invalid lock timestamp")
-    if lock.get("profile") != "c1" or lock.get("rules") != RULE:
+    profile = getattr(args, "profile", "c1")
+    if lock.get("profile") != profile or lock.get("rules") != RULE:
         raise InvalidRun("Locked C1 rules do not match this scorer")
+    if profile == "ceiling-release" and lock.get("comparisons") != RELEASE_COMPARISONS:
+        raise InvalidRun("Release comparisons do not match the lock")
     if (lock.get("start"), lock.get("end")) != (args.start, args.end):
         raise InvalidRun("Evaluation period differs from the lock")
     for role, run in loaded.items():
@@ -160,7 +183,10 @@ def cmd_c1(args, scorer) -> None:
     out = Path(args.out)
     if out.exists():
         raise FileExistsError(out)
-    report = {"profile": "c1", "rules": RULE, "start": args.start, "end": args.end}
+    profile = getattr(args, "profile", "c1")
+    report = {"profile": profile, "rules": RULE, "start": args.start, "end": args.end}
+    if profile == "ceiling-release":
+        report["comparisons"] = RELEASE_COMPARISONS
     try:
         if len(args.cand) != 1 or not args.isolation_reference:
             raise InvalidRun("C1 needs one candidate and a separate SCF-enabled reference")
@@ -193,6 +219,13 @@ def cmd_c1(args, scorer) -> None:
             report["heldout_games_sha256"] = heldout_hash
             frames = {role: value["teams"].set_index("team_id") for role, value in loaded.items()}
             report.update(_score(args, scorer, frames["base"], frames["candidate"], frames["reference"]))
+            if profile == "ceiling-release":
+                cumulative = _score(args, scorer, frames["reference"], frames["candidate"], frames["reference"])
+                # The incumbent comparison is a safety veto, not a third improvement test.
+                cumulative.pop("verdict")
+                report["incremental_verdict"] = report["verdict"]
+                report["verdict"] = release_verdict(report, cumulative)
+                report["cumulative_vs_incumbent"] = cumulative
     except (InvalidRun, OSError, KeyError, ValueError, TypeError) as error:
         report.update(verdict="void", reason=str(error))
     with out.open("x", encoding="utf-8") as stream:

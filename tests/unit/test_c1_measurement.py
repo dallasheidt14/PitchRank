@@ -52,6 +52,31 @@ def test_zero_equal_board_average_blocks_pass():
     assert c1.verdict(metrics(), {b: metrics(delta=0.) for b in c1.BOARDS}, metrics()) == "inconclusive"
 
 
+@pytest.mark.parametrize("change,expected", [
+    ({}, "pass"),
+    ({"board": [-3., -1.01]}, "harm"),
+    ({"board": [-3., -1.]}, "pass"),
+    ({"cut": [-3., -1.01]}, "harm"),
+    ({"cut": None}, "inconclusive"),
+    ({"missing_board": True}, "inconclusive"),
+    ({"incremental": "harm", "missing_board": True}, "harm"),
+    ({"incremental": "inconclusive"}, "inconclusive"),
+])
+def test_release_cumulative_harm_cannot_be_hidden_by_incremental_pass(change, expected):
+    boards = {name: metrics(delta=.5) for name in c1.BOARDS}
+    cut = metrics(delta=0.)
+    if "board" in change:
+        boards["10F"]["ci95"] = change["board"]
+    if "cut" in change:
+        cut["ci95"] = change["cut"]
+    if change.get("missing_board"):
+        del boards["10M"]
+    assert c1.release_verdict(
+        {"verdict": change.get("incremental", "pass")},
+        {"boards": boards, "isolation_cut": cut},
+    ) == expected
+
+
 def test_canonical_comparison_preserves_duplicates_and_exact_changes():
     a = pd.DataFrame({"team_id": ["a", "a", "b"], "score": [.1, .1, .2]}, index=[0, 0, 1])
     checks.assert_equal_frames(a, a.iloc[::-1], "duplicates")

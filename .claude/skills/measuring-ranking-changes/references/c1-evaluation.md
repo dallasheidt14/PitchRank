@@ -2,7 +2,9 @@
 
 C1 is an offline experiment. It restores the existing connectivity calculation only while the
 publication ceiling is decided. Every earlier score must equal the October candidate exactly.
-The ordinary API default is false, and enabled mode refuses live fetching and persistence.
+The ordinary API default is false. The original C1 worktree refuses live fetching and
+persistence. The combined release permits these operations through the production entry
+point; the measurement harness independently blocks all live reads and writes.
 
 The experimental branch also contains the two recorded October-candidate edits: SCF's code default
 is false, and the convergence gender mask uses the detected cohort gender. These are dependencies
@@ -85,3 +87,14 @@ must also be at least -1. Credible harm takes precedence even for a small sample
 
 Report U10 boys, U10 girls and pooled U10 games separately. An overall gain does not establish a
 U10 improvement. No scorecard automatically authorizes adoption.
+
+## Combined release
+
+Use `--profile ceiling-release` for the complete release versus the unchanged October
+combination. C1 alone remains diagnostic. The original first-stage test stays unchanged.
+The new profile reuses all C1 statistics, thresholds and prerequisites, then vetoes a pass
+if a board or isolation subgroup has a 95% upper bound below -1 against the incumbent.
+Missing cumulative statistics are inconclusive. This safety comparison is not another
+improvement hypothesis. The lock must identify profile `ceiling-release` and include
+`comparisons` exactly as `score_c1.RELEASE_COMPARISONS` defines it, along with all
+the hashes above. The C1 lock cannot be reused. September remains descriptive.

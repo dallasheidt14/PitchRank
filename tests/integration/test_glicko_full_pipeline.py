@@ -147,8 +147,8 @@ class TestGlickoFullPipeline:
 
     def test_isolated_bubble_team_ranks_below_connected_team(self):
         """A team dominating an isolated bubble should rank lower than a connected
-        team with similar win rate against diverse opponents."""
-        cfg = GlickoConfig()
+        team with similar win rate when legacy SCF dampening is enabled."""
+        cfg = GlickoConfig(SCF_ENABLED=True)
         today = pd.Timestamp('2026-03-31')
         np.random.seed(123)
 

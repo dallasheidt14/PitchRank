@@ -256,8 +256,96 @@ async def test_full_composition_keeps_the_winning_cohorts_diagnostics(league, mo
 @pytest.mark.asyncio
 async def test_enabled_mode_refuses_unsafe_or_incompatible_entry(monkeypatch):
     monkeypatch.setenv("SCF_ENABLED", "false")
-    with pytest.raises(ValueError, match="frozen input"):
+    with pytest.raises(ValueError, match="requires Glicko"):
+        await calc.compute_all_cohorts(object(), ceiling_connectivity_enabled=True, use_glicko=False)
+    monkeypatch.setenv("SCF_ENABLED", "true")
+    with pytest.raises(ValueError, match="SCF disabled"):
         await calc.compute_all_cohorts(object(), ceiling_connectivity_enabled=True)
     with pytest.raises(ValueError, match="Pass2"):
         engine.compute_rankings_v2(pd.DataFrame(), cfg=GlickoConfig(SCF_ENABLED=False),
                                    collect_ceiling_connectivity=True, pass_label="Pass1", team_state_map={})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("dry_run", [False, True])
+async def test_production_composition_restores_caps_and_respects_writers(league, monkeypatch, tmp_path, dry_run):
+    """Drive the actual fetch/two-pass/cap path with production persistence settings."""
+    games, metadata = league
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("SCF_ENABLED", "false")
+    monkeypatch.setenv("ML_LAYER_ENABLED", "false")
+    calls = []
+    async def fetch(**kwargs):
+        calls.append("fetch")
+        return games.copy(deep=True)
+    monkeypatch.setattr(calc, "fetch_games_for_rankings", fetch)
+    async def explain(_client, frame):
+        assert "scf" not in frame.columns
+        calls.append("explainability")
+        return len(frame), 0
+    async def snapshot(**kwargs):
+        frame = kwargs["rankings_df"]
+        assert "scf" not in frame.columns
+        assert "_ceiling_source_cohort" not in frame.columns
+        assert frame.power_score_true.between(0, 1).all()
+        calls.append("snapshot")
+    async def features(supabase_client, rankings_df, **kwargs):
+        frame = rankings_df
+        assert "scf" not in frame.columns
+        calls.append("features")
+    async def changes(supabase_client, current_rankings_df, **kwargs):
+        calls.append("rank_changes")
+        return current_rankings_df
+    monkeypatch.setattr(calc, "_persist_game_explainability", explain)
+    monkeypatch.setattr(calc, "save_ranking_snapshot", snapshot)
+    monkeypatch.setattr(calc, "_save_prediction_feature_snapshot_safe", features)
+    monkeypatch.setattr(calc, "calculate_rank_changes", changes)
+    # An absent ML layer has no residual rows to persist; any call is a mistake.
+    async def unexpected(*args, **kwargs):
+        pytest.fail("Unexpected residual persistence without ML")
+    monkeypatch.setattr(calc, "_persist_game_residuals", unexpected)
+    original = calc._publication_cap_rank
+    capped = []
+    def cap(row):
+        assert all(field in row for field in ("scf", "unique_opp_states", "bridge_games", "is_isolated"))
+        capped.append(row.team_id)
+        return original(row)
+    monkeypatch.setattr(calc, "_publication_cap_rank", cap)
+    client = harness.FrozenClient(metadata, pd.DataFrame(columns=["deprecated_team_id", "canonical_team_id"]))
+    result = await calc.compute_all_cohorts(
+        client, today=pd.Timestamp("2026-08-31"), fetch_from_supabase=True,
+        ceiling_connectivity_enabled=True, persist_game_residuals=not dry_run,
+        persist_game_explainability=not dry_run, save_snapshot=not dry_run,
+    )
+    assert set(capped) == set(result["teams"].team_id)
+    assert len(result["teams"]) == 8
+    assert calls.count("fetch") == 1
+    assert calls.count("rank_changes") == 1
+    assert calls.count("explainability") == (0 if dry_run else 2)
+    assert calls.count("snapshot") == (0 if dry_run else 1)
+    assert calls.count("features") == (0 if dry_run else 1)
+
+
+@pytest.mark.asyncio
+async def test_missing_connectivity_stops_before_publication_snapshot(league, monkeypatch, tmp_path):
+    games, metadata = league
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("SCF_ENABLED", "false")
+    monkeypatch.setenv("ML_LAYER_ENABLED", "false")
+    original = calc.compute_rankings_v2
+    def incomplete(*args, **kwargs):
+        result = original(*args, **kwargs)
+        if kwargs.get("collect_ceiling_connectivity"):
+            result["ceiling_connectivity"] = result["ceiling_connectivity"].iloc[1:]
+        return result
+    monkeypatch.setattr(calc, "compute_rankings_v2", incomplete)
+    async def forbidden(**kwargs):
+        pytest.fail("An incomplete connectivity result reached snapshot publication")
+    monkeypatch.setattr(calc, "save_ranking_snapshot", forbidden)
+    client = harness.FrozenClient(metadata, pd.DataFrame(columns=["deprecated_team_id", "canonical_team_id"]))
+    with pytest.raises(ValueError, match="Ceiling diagnostics"):
+        await calc.compute_all_cohorts(
+            client, games_df=games, today=pd.Timestamp("2026-08-31"), fetch_from_supabase=False,
+            ceiling_connectivity_enabled=True, persist_game_residuals=False,
+            persist_game_explainability=False, save_snapshot=True,
+        )

@@ -2091,9 +2091,8 @@ async def compute_rankings_with_ml(
     glicko_cfg = GlickoConfig() if use_glicko else None
     if ceiling_connectivity_enabled and (
         not use_glicko or glicko_cfg.SCF_ENABLED or pass_label not in {"Pass1", "Pass2"}
-        or persist_game_residuals or persist_game_explainability or save_snapshot
     ):
-        raise ValueError("C1 requires an offline Glicko pass with SCF and persistence disabled")
+        raise ValueError("Ceiling connectivity requires a two-pass Glicko run with SCF disabled")
     fetch_lookback_days = _effective_fetch_lookback_days(lookback_days, use_glicko=use_glicko)
 
     # 1) Get games data
@@ -2543,10 +2542,9 @@ async def compute_all_cohorts(
     # Default config if not provided
     v53_cfg = v53_cfg or V53EConfig()
     if ceiling_connectivity_enabled and (
-        not use_glicko or GlickoConfig().SCF_ENABLED or fetch_from_supabase
-        or persist_game_residuals or persist_game_explainability or calculate_rank_changes_enabled or save_snapshot
+        not use_glicko or GlickoConfig().SCF_ENABLED
     ):
-        raise ValueError("C1 requires frozen input Glicko runs with SCF and all persistence disabled")
+        raise ValueError("Ceiling connectivity requires Glicko with SCF disabled")
 
     # Get merge version for cache invalidation
     merge_version = merge_resolver.version if merge_resolver else None

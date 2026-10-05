@@ -165,14 +165,15 @@ def test_first_stage_binding_and_actual_metrics(tmp_path, corruption):
             c1._check_prerequisite(args, loaded, tmp_path / "freeze")
 
 
+@pytest.mark.parametrize("profile", ["c1", "ceiling-release"])
 @pytest.mark.parametrize("failure", ["boundary", "lock", "prerequisite"])
-def test_cmd_never_reads_outcomes_when_a_gate_fails(captured_runs, tmp_path, monkeypatch, failure):
+def test_cmd_never_reads_outcomes_when_a_gate_fails(captured_runs, tmp_path, monkeypatch, failure, profile):
     args = SimpleNamespace(out=str(tmp_path / "report.json"), start="2026-09-01", end="2026-09-30",
                            train_freeze=str(captured_runs / "freeze"), base=str(captured_runs / "base"),
                            cand=[f"c1={captured_runs / 'candidate'}"],
                            isolation_reference=str(captured_runs / "base"),
                            heldout_freeze="must-not-be-read", design_lock=str(tmp_path / "lock.json"),
-                           prerequisite_report=str(tmp_path / "prerequisite.json"))
+                           prerequisite_report=str(tmp_path / "prerequisite.json"), profile=profile)
     save_json(Path(args.design_lock), {})
     save_json(Path(args.prerequisite_report), {})
     def reject(*unused):
@@ -191,6 +192,38 @@ def test_cmd_never_reads_outcomes_when_a_gate_fails(captured_runs, tmp_path, mon
         assert checks.read_json(Path(args.out))["verdict"] == "void"
 
 
+def test_release_command_applies_cumulative_veto(captured_runs, tmp_path, monkeypatch):
+    heldout = tmp_path / "heldout"
+    heldout.mkdir()
+    (heldout / "games.parquet").write_bytes(b"hash-only fixture; score computation is separately tested")
+    args = SimpleNamespace(out=str(tmp_path / "report.json"), start="2026-09-01", end="2026-09-30",
+                           train_freeze=str(captured_runs / "freeze"), base=str(captured_runs / "base"),
+                           cand=[f"release={captured_runs / 'candidate'}"],
+                           isolation_reference=str(captured_runs / "base"), heldout_freeze=str(heldout),
+                           design_lock=str(tmp_path / "lock.json"),
+                           prerequisite_report=str(tmp_path / "prerequisite.json"), profile="ceiling-release")
+    save_json(Path(args.design_lock), {})
+    save_json(Path(args.prerequisite_report), {})
+    monkeypatch.setattr(c1, "_check_reference", lambda *a: None)
+    monkeypatch.setattr(c1, "_check_lock", lambda *a: {})
+    monkeypatch.setattr(c1, "_check_prerequisite", lambda *a: (
+        True, {"heldout_games_sha256": checks.digest(heldout / "games.parquet")}))
+    calls = []
+    def score(*values):
+        calls.append(values)
+        boards = {name: dict(delta=.5, ci95=[-.5, 1.5]) for name in c1.BOARDS}
+        if len(calls) == 2:
+            boards["10F"] = dict(delta=-2., ci95=[-3., -1.01])
+        return dict(verdict="pass", boards=boards, isolation_cut=dict(delta=0., ci95=[-1., 1.]))
+    monkeypatch.setattr(c1, "_score", score)
+    c1.cmd_c1(args, scorer)
+    report = checks.read_json(Path(args.out))
+    assert len(calls) == 2
+    assert report["incremental_verdict"] == "pass"
+    assert report["verdict"] == "harm"
+    assert report["cumulative_vs_incumbent"]["boards"]["10F"]["ci95"] == [-3., -1.01]
+
+
 @pytest.mark.parametrize("scf", [None, float("inf"), float("nan")])
 def test_invalid_reference_membership_is_rejected_before_scoring(scf):
     run = {"provenance": {"glicko_config": {"SCF_ENABLED": True}},
@@ -199,18 +232,24 @@ def test_invalid_reference_membership_is_rejected_before_scoring(scf):
         c1._check_reference(run)
 
 
-@pytest.mark.parametrize("corruption", [None, "unlocked", "seen", "time", "period", "engine", "scorer", "freeze"])
-def test_design_lock_binds_code_rules_inputs_and_unseen_outcomes(captured_runs, tmp_path, corruption):
+@pytest.mark.parametrize("profile", ["c1", "ceiling-release"])
+@pytest.mark.parametrize("corruption", [
+    None, "unlocked", "seen", "time", "period", "engine", "scorer", "freeze", "profile", "comparisons",
+])
+def test_design_lock_binds_code_rules_inputs_and_unseen_outcomes(captured_runs, tmp_path, corruption, profile):
     freeze = captured_runs / "freeze"
     loaded = {role: checks.validate_run(captured_runs / name, freeze)
               for role, name in (("base", "base"), ("candidate", "candidate"), ("reference", "base"))}
-    args = SimpleNamespace(design_lock=str(tmp_path / "synthetic-lock.json"), start="2026-09-01", end="2026-09-30")
+    args = SimpleNamespace(design_lock=str(tmp_path / "synthetic-lock.json"),
+                           start="2026-09-01", end="2026-09-30", profile=profile)
     lock = dict(locked=True, outcomes_unseen_at_lock=True, locked_at="2026-08-31T00:00:00+00:00",
-                profile="c1", rules=c1.RULE, start=args.start, end=args.end,
+                profile=profile, rules=c1.RULE, start=args.start, end=args.end,
                 engine_file_sha256={role: run["provenance"]["engine_file_sha256"] for role, run in loaded.items()},
                 scorer_sha256={name: checks.digest(TOOLS / name)
                                for name in ("score_later_games.py", "score_c1.py", "c1_validation.py")},
                 training_manifest_sha256=checks.digest(freeze / "freeze-manifest.json"))
+    if profile == "ceiling-release":
+        lock["comparisons"] = c1.RELEASE_COMPARISONS
     if corruption == "unlocked":
         lock["locked"] = False
     elif corruption == "seen":
@@ -225,8 +264,12 @@ def test_design_lock_binds_code_rules_inputs_and_unseen_outcomes(captured_runs, 
         lock["scorer_sha256"]["score_c1.py"] = "changed"
     elif corruption == "freeze":
         lock["training_manifest_sha256"] = "changed"
+    elif corruption == "profile":
+        lock["profile"] = "legacy"
+    elif corruption == "comparisons":
+        lock["comparisons"] = {}
     save_json(Path(args.design_lock), lock)
-    if corruption is None:
+    if corruption is None or (corruption == "comparisons" and profile == "c1"):
         assert c1._check_lock(args, loaded, freeze) == lock
     else:
         with pytest.raises(checks.InvalidRun):

@@ -179,14 +179,14 @@ def main() -> None:
     ap.add_argument("--end", required=True)
     ap.add_argument("--scf-cand", default="scf", help="candidate name the dampening cut applies to")
     ap.add_argument("--out", required=True)
-    ap.add_argument("--profile", choices=("legacy", "c1"), default="legacy")
+    ap.add_argument("--profile", choices=("legacy", "c1", "ceiling-release"), default="legacy")
     ap.add_argument("--isolation-reference", help="C1: SCF-enabled incumbent on the training freeze")
     ap.add_argument("--prerequisite-report", help="C1: first-stage report made with --record-evaluation")
     ap.add_argument("--design-lock", help="C1: locked design, period and code hashes; required before outcomes")
     ap.add_argument("--record-evaluation", action="store_true",
                     help="record first-stage input bindings without changing rules")
     args = ap.parse_args()
-    if args.profile == "c1":
+    if args.profile in {"c1", "ceiling-release"}:
         from score_c1 import cmd_c1
         cmd_c1(args, sys.modules[__name__])
         return

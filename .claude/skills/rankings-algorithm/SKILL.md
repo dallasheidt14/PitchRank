@@ -24,10 +24,10 @@ You are working on PitchRank's ranking system. This skill explains the Glicko-2 
 3. **Pass 1**: `compute_rankings_v2()` per (age, gender) cohort, `global_strength_map=None`
    — an opponent outside the cohort is rated 1500 / RD 350. ML runs but its residuals
    are not persisted
-4. Build `global_strength_map = {team_id: mu}` from Pass 1 (after SCF dampening)
+4. Build `global_strength_map = {team_id: mu}` from Pass 1 (SCF is off in the release default)
 5. **Pass 2**: `compute_rankings_v2()` per cohort, warm-started; cross-age opponents come
    from the global map + anchor offset, at RD 350 so g(φ) discounts them. Per cohort,
-   post-convergence: OFF/DEF → SOS → SCF → sigmoid(z-score) → `powerscore_core`
+   post-convergence: OFF/DEF → SOS → optional SCF → sigmoid(z-score) → `powerscore_core`
    → × provisional_mult → `powerscore_adj`, then ML Layer 13 → `powerscore_ml`
 6. `_persist_game_residuals()` + `_persist_game_explainability()` — batch RPCs to
    Supabase (called inside `compute_rankings_with_ml` per cohort; skipped for Pass 1
@@ -61,6 +61,8 @@ Returns `{"teams": DataFrame, "games_used": DataFrame, "game_explainability": Da
 - Iterates until mean |delta_mu| < `CONVERGENCE_THRESHOLD` (1.0) or max 30 iterations
 - Exponential recency decay: `weight = exp(-RECENCY_LAMBDA * days_ago / 365)`
 - Caches game-by-game breakdowns for explainability
+- Same-age opponent classification uses the detected cohort gender, matching normalized
+  game labels; a capitalized caller label must not route those opponents through Pass 1's map.
 
 ### Rating Update: `glicko2_update()`
 
@@ -88,6 +90,10 @@ outcome = 0.5 ± 0.5 * log(1 + capped_gd) / log(1 + MAX_GD)
   - Cross-age scaling via anchors (Pass 2 only)
 
 - **SCF** (Schedule Connectivity Factor): regional bubble dampening
+  - Release default: dampening is off. The normal Glicko command requests separate Pass-2
+    connectivity diagnostics for ceiling decisions, with cache bypass. No restored diagnostic
+    reaches earlier shrinkage, ML authority, bonuses or penalties. Incompatible SCF-on settings
+    fail instead of silently disabling the ceiling safeguards.
   - It exists to stop teams in isolated regions from ranking far too high (the owner, 2026-10-01: "isolated regions teams wrongly ranking super high in the rankings"); keep that protection in any redesign
   - Measures opponent state diversity; low diversity dampens raw SOS toward 1500 (and mu, since `SCF_PUBLISH_ONLY=False`)
   - `scf_value = quality-weighted unique_states / SCF_DIVERSITY_DIVISOR` (capped at 1.0); floor 0.4 at ≥3 bridge games, ramping to 0.1 with none
@@ -96,7 +102,12 @@ outcome = 0.5 ± 0.5 * log(1 + capped_gd) / log(1 + MAX_GD)
   - Isolation penalty: weighted bridge games < 3, weighted states < 2, or (lower-tier league family) unique leagues below `SCF_MIN_UNIQUE_LEAGUES` → SOS capped at `1500 + ISOLATION_SOS_CAP(0.60)·(cohort max − 1500)` (the 0.60 is a coefficient on the raw 1500-centred scale, not a `sos_norm` threshold)
   - `UNKNOWN` filtering is opponent-side only: an opponent with no `state_code` contributes no state and no bridge. A **team** with no `state_code` (stored as `UNKNOWN`) fails the same-state test against every known opponent state, so all of its games count as bridges and its SCF is *inflated*, not dampened — one more reason `state_code` is load-bearing (see CLAUDE.md "Adding a new scraper")
   - Withholding state data cannot disable SCF: stateless teams become `UNKNOWN` and SCF still runs (it is skipped only when the metadata fetch returns nothing at all)
-  - Turning it off (`SCF_ENABLED` false) changes more than the dampening. `compute_scf` and `apply_scf_dampening` (`src/etl/glicko_engine.py`) never run, so `_compute_base_evidence_scale` reads every team as fully connected and the `teams` DataFrame has no `scf`, `unique_opp_states` or `bridge_games`. The same-age evidence gates read those columns in `_same_age_authority_score`, `_publication_cap_rank` and the helpers they call, so some restrictions stop applying, some relief paths close and one relief (`_has_quality_bridge_support`) becomes easier to get (IMP-283). Before describing what disabling a stage changes, grep every reader of what it produces
+  - Turning it off (`SCF_ENABLED` false) changes more than the dampening. The ordinary
+    `teams` frame lacks `scf`, `unique_opp_states` and `bridge_games`, affecting upstream
+    evidence consumers as in the fixed October candidate. The release supplies those values
+    only to a temporary row inside `_publication_cap_rank` and its helpers, restoring both
+    restrictions and relief there. Freshness limits cannot bypass stricter later evidence
+    restrictions. A ceiling depth remains a score ceiling, not a guaranteed final position.
 
 ### Normalization: `sigmoid_zscore_normalize()`
 

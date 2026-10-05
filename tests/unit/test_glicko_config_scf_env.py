@@ -1,7 +1,7 @@
 """Env-backed SCF defaults on GlickoConfig (SCF_ENABLED, SCF_FLOOR, SCF_DIVERSITY_DIVISOR).
 
 Each default_factory reads its env var at construction time, so an unset var must
-preserve prod behavior (SCF on, floor 0.4, divisor 4.0) and explicit overrides must
+select the release behavior (SCF off, floor 0.4, divisor 4.0) and explicit overrides must
 take effect. For SCF_ENABLED these cases hold regardless of the truthy-parse idiom;
 the ambiguous values ("" / "off" / typos) are intentionally not pinned here while
 that idiom is under review.
@@ -15,7 +15,7 @@ from src.etl.glicko_config import GlickoConfig
 @pytest.mark.parametrize(
     "value,expected",
     [
-        (None, True),  # unset → SCF on (prod default preserved)
+        (None, False),  # unset → release default; ceilings retain separate connectivity
         ("true", True),
         ("True", True),
         ("1", True),
