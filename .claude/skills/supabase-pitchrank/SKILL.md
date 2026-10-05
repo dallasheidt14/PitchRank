@@ -71,6 +71,11 @@ a home loss. When filling scores onto an unscored fixture (the `batch_backfill_n
 whose home and away are the other way round from the incoming result, swap the scores and keep
 `result` unchanged.
 
+To correct one stored game, insert a `game_corrections` row (`correction_type` `score`, with
+`original_values` and `corrected_values`) and call the `apply_game_correction(correction_id,
+approver_name)` RPC; the immutability trigger rejects a direct `.update()` on scores. A later score
+fill leaves `source_url` as it was, so it does not say which team's page supplied the score.
+
 ### `rankings_full`
 
 > Canonical: the `rankings-algorithm` skill, § Output Tables → "`rankings_full` (Primary)".
