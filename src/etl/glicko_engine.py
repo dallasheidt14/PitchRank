@@ -1686,7 +1686,7 @@ def run_glicko2_cohort(
         opp_genders = tg["opp_gender"].values if "opp_gender" in tg.columns else None
         cross_age_mask = None
         if opp_ages is not None and opp_genders is not None:
-            cross_age_mask = (opp_ages != cohort_age) | (opp_genders != cohort_gender)
+            cross_age_mask = (opp_ages != cohort_age) | (opp_genders != _cohort_gender_detected)
         team_arrays[t] = {
             "opp_ids": tg["opp_id"].values,
             "gf": tg["gf"].values.astype(int),

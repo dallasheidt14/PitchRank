@@ -85,7 +85,7 @@ class GlickoConfig:
 
     # SCF
     SCF_ENABLED: bool = field(
-        default_factory=lambda: os.getenv("SCF_ENABLED", "true").strip().lower() not in ("0", "false", "no")
+        default_factory=lambda: os.getenv("SCF_ENABLED", "false").strip().lower() not in ("0", "false", "no")
     )
     # Apply SCF dampening only to the published score, never to mu.
     # Dampened mu corrupts every downstream use of ratings (opponent credit, SOS,
