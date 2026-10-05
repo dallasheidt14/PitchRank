@@ -1,7 +1,8 @@
 name: EA Scraper
 
 # Modular11 Elite Academy League (tournament 27), separate from the MLS NEXT workflows.
-# One age group per manual run; writes CSVs to an artifact and nothing to the database.
+# One age group per manual run. Without `execute` it writes CSVs to an artifact and nothing
+# to the database; with it, it links/creates the age's teams and imports its played games.
 
 on:
   workflow_dispatch:
@@ -11,6 +12,19 @@ on:
         required: true
         type: choice
         options: [u11, u12, u13, u14, u15, u16, u17, u19]
+      execute:
+        description: 'Write links, new teams and games to PitchRank'
+        type: boolean
+        required: false
+        default: false
+
+env:
+  # Freezes team-creating imports across the Aug 1 age-group rollover; set to 'false'
+  # to lift, once the rollover is applied and verified. The link step writes teams with
+  # the age Modular11 labels them for this season, which runs a cohort ahead of the
+  # stored labels until the relabel lands. Gates test == 'false' (not != 'true') so a
+  # renamed or deleted flag leaves the step skipped. See CLAUDE.md.
+  AGE_ROLLOVER_FREEZE: 'false'
 
 concurrency:
   group: ea-scraper
@@ -54,6 +68,52 @@ jobs:
           set -euo pipefail
           python scripts/match_modular11_ea_teams.py --age "$AGE" | tee match_counts.txt
 
+      - name: Plan EA import (dry run)
+        if: ${{ !inputs.execute }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          PYTHONPATH: ${{ github.workspace }}
+          AGE: ${{ inputs.age }}
+        run: |
+          set -euo pipefail
+          python scripts/link_modular11_ea_teams.py --age "$AGE" | tee link_counts.txt
+          python scripts/build_modular11_ea_games_csv.py --age "$AGE" --planned | tee impact.txt
+
+      - name: Link EA teams
+        if: ${{ inputs.execute && env.AGE_ROLLOVER_FREEZE == 'false' }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          PYTHONPATH: ${{ github.workspace }}
+          AGE: ${{ inputs.age }}
+        run: |
+          set -euo pipefail
+          python scripts/link_modular11_ea_teams.py --age "$AGE" --execute | tee link_counts.txt
+
+      - name: Build EA import CSV
+        if: ${{ inputs.execute && env.AGE_ROLLOVER_FREEZE == 'false' }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          PYTHONPATH: ${{ github.workspace }}
+          AGE: ${{ inputs.age }}
+        run: |
+          set -euo pipefail
+          python scripts/build_modular11_ea_games_csv.py --age "$AGE" | tee impact.txt
+
+      - name: Import EA games
+        if: ${{ inputs.execute && env.AGE_ROLLOVER_FREEZE == 'false' }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          PYTHONPATH: ${{ github.workspace }}
+          AGE: ${{ inputs.age }}
+        run: |
+          set -euo pipefail
+          python scripts/import_games_enhanced.py "data/modular11_ea/$AGE/import.csv" modular11_ea
+
       - name: Upload EA output
         if: always()
         uses: actions/upload-artifact@v5
@@ -72,4 +132,6 @@ jobs:
             echo "## EA Scraper — ${AGE}"
             echo "- Scrape: $(cat scrape_counts.txt 2>/dev/null || echo 'did not finish')"
             echo "- Match report: $(cat match_counts.txt 2>/dev/null || echo 'did not finish')"
+            echo "- Links: $(cat link_counts.txt 2>/dev/null || echo 'not run')"
+            echo "- Import impact: $(cat impact.txt 2>/dev/null || echo 'not run')"
           } >> "$GITHUB_STEP_SUMMARY"
