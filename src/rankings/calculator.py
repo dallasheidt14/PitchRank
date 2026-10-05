@@ -45,6 +45,7 @@ class RankingContext:
     initial_ratings: Optional[Dict] = None
     # Engine selection & control
     use_glicko: bool = True
+    ceiling_connectivity_enabled: bool = False
     force_rebuild: bool = False
     save_snapshot: bool = True
     persist_game_residuals: bool = True
@@ -1682,6 +1683,38 @@ def _positive_ml_evidence_scale(row: pd.Series) -> float:
     return scale
 
 
+_CEILING_CONNECTIVITY_FIELDS = ("scf", "unique_opp_states", "bridge_games", "is_isolated")
+
+
+def _validate_ceiling_connectivity(frame: pd.DataFrame) -> None:
+    required = {"team_id", "source_cohort_age", "source_cohort_gender", *_CEILING_CONNECTIVITY_FIELDS}
+    if not isinstance(frame, pd.DataFrame) or not required.issubset(frame.columns):
+        raise ValueError("Missing ceiling connectivity diagnostics")
+    if frame[list(required)].isna().any().any():
+        raise ValueError("Missing value in ceiling connectivity diagnostics")
+    if frame.duplicated(["source_cohort_age", "source_cohort_gender", "team_id"]).any():
+        raise ValueError("Duplicate source cohort/team in ceiling connectivity diagnostics")
+    for field in _CEILING_CONNECTIVITY_FIELDS[:3]:
+        values = pd.to_numeric(frame[field], errors="coerce")
+        if not np.isfinite(values.to_numpy(dtype=float)).all():
+            raise ValueError(f"Nonfinite ceiling connectivity: {field}")
+    if not frame["is_isolated"].map(lambda value: isinstance(value, (bool, np.bool_))).all():
+        raise ValueError("Ceiling isolation diagnostics must be boolean")
+
+
+def _publication_cap_rank_with_connectivity(row: pd.Series, diagnostics: pd.DataFrame) -> int | None:
+    """Overlay only a private row; shared helper callers keep the ordinary inputs."""
+    key = (row["_ceiling_source_cohort"], row["team_id"])
+    try:
+        values = diagnostics.loc[key]
+    except KeyError as error:
+        raise ValueError(f"Missing ceiling connectivity for source row {key}") from error
+    cap_row = row.drop(labels=["_ceiling_source_cohort"]).copy(deep=True)
+    for field in _CEILING_CONNECTIVITY_FIELDS:
+        cap_row[field] = values[field]
+    return _publication_cap_rank(cap_row)
+
+
 def _publication_cap_rank(row: pd.Series) -> int | None:
     age_num = _safe_int(row.get("age_num"))
     policy = _same_age_evidence_policy(age_num)
@@ -2043,11 +2076,17 @@ async def compute_rankings_with_ml(
     pass_label = ctx.pass_label
     pre_sos_state = ctx.pre_sos_state
     use_glicko = ctx.use_glicko
+    ceiling_connectivity_enabled = ctx.ceiling_connectivity_enabled
     initial_ratings = ctx.initial_ratings
     snapshot_date = _normalize_snapshot_date(today)
 
     v53_cfg = v53_cfg or V53EConfig()
     glicko_cfg = GlickoConfig() if use_glicko else None
+    if ceiling_connectivity_enabled and (
+        not use_glicko or glicko_cfg.SCF_ENABLED or pass_label not in {"Pass1", "Pass2"}
+        or persist_game_residuals or persist_game_explainability or save_snapshot
+    ):
+        raise ValueError("C1 requires an offline Glicko pass with SCF and persistence disabled")
     fetch_lookback_days = _effective_fetch_lookback_days(lookback_days, use_glicko=use_glicko)
 
     # 1) Get games data
@@ -2170,7 +2209,7 @@ async def compute_rankings_with_ml(
 
     # Try to load from cache (both teams and games_used)
     base = None
-    if not force_rebuild and cache_file_teams.exists():
+    if not ceiling_connectivity_enabled and not force_rebuild and cache_file_teams.exists():
         try:
             cached_teams = pd.read_parquet(cache_file_teams)
             if not cached_teams.empty:
@@ -2218,6 +2257,8 @@ async def compute_rankings_with_ml(
                     pass_label=pass_label,
                     initial_ratings=initial_ratings,
                     tier_league_map=tier_league_map,
+                    **({"collect_ceiling_connectivity": True}
+                       if ceiling_connectivity_enabled and pass_label == "Pass2" else {}),
                 )
             logger.info(f"✅ Glicko-2 engine completed: {len(base['teams']):,} teams ranked")
         else:
@@ -2235,22 +2276,23 @@ async def compute_rankings_with_ml(
                 )
             logger.info(f"✅ v53e engine completed: {len(base['teams']):,} teams ranked")
 
-        # Save to cache (both teams and games_used DataFrames)
-        try:
-            if not base["teams"].empty:
-                base["teams"].to_parquet(cache_file_teams, index=False)
-                logger.debug(f"💾 Cached teams to {cache_file_teams}")
-            games_used_to_cache = base.get("games_used")
-            if games_used_to_cache is not None and not getattr(games_used_to_cache, "empty", True):
-                games_used_to_cache.to_parquet(cache_file_games, index=False)
-                logger.debug(f"💾 Cached games_used to {cache_file_games}")
-            explainability_to_cache = base.get("game_explainability")
-            if explainability_to_cache is not None and not getattr(explainability_to_cache, "empty", True):
-                explainability_to_cache.to_parquet(cache_file_explain, index=False)
-                logger.debug(f"💾 Cached game explainability to {cache_file_explain}")
-        except Exception:
-            # Cache save failed - continue without caching
-            pass
+        # C1 never mixes fresh diagnostics with cached engine state.
+        if not ceiling_connectivity_enabled:
+            try:
+                if not base["teams"].empty:
+                    base["teams"].to_parquet(cache_file_teams, index=False)
+                    logger.debug(f"💾 Cached teams to {cache_file_teams}")
+                games_used_to_cache = base.get("games_used")
+                if games_used_to_cache is not None and not getattr(games_used_to_cache, "empty", True):
+                    games_used_to_cache.to_parquet(cache_file_games, index=False)
+                    logger.debug(f"💾 Cached games_used to {cache_file_games}")
+                explainability_to_cache = base.get("game_explainability")
+                if explainability_to_cache is not None and not getattr(explainability_to_cache, "empty", True):
+                    explainability_to_cache.to_parquet(cache_file_explain, index=False)
+                    logger.debug(f"💾 Cached game explainability to {cache_file_explain}")
+            except Exception:
+                # Cache save failed - continue with computation.
+                pass
     else:
         logger.info("💾 Using cached v53e rankings")
 
@@ -2389,6 +2431,8 @@ async def compute_rankings_with_ml(
             game_explainability if not getattr(game_explainability, "empty", True) else pd.DataFrame()
         ),
         "pre_sos_state": _pre_sos_state,
+        **({"ceiling_connectivity": base.get("ceiling_connectivity")}
+           if ceiling_connectivity_enabled and pass_label == "Pass2" else {}),
     }
 
 
@@ -2474,6 +2518,7 @@ async def compute_all_cohorts(
     persist_game_explainability: bool = True,
     calculate_rank_changes_enabled: bool = True,
     save_snapshot: bool = True,
+    ceiling_connectivity_enabled: bool = False,
 ) -> Dict[str, pd.DataFrame]:
     """
     Compute rankings for all cohorts using two-pass architecture.
@@ -2490,6 +2535,11 @@ async def compute_all_cohorts(
     """
     # Default config if not provided
     v53_cfg = v53_cfg or V53EConfig()
+    if ceiling_connectivity_enabled and (
+        not use_glicko or GlickoConfig().SCF_ENABLED or fetch_from_supabase
+        or persist_game_residuals or persist_game_explainability or calculate_rank_changes_enabled or save_snapshot
+    ):
+        raise ValueError("C1 requires frozen input Glicko runs with SCF and all persistence disabled")
 
     # Get merge version for cache invalidation
     merge_version = merge_resolver.version if merge_resolver else None
@@ -2624,6 +2674,7 @@ async def compute_all_cohorts(
                 team_state_map=team_state_map,
                 tier_league_map=tier_league_map,
                 pass_label="Pass1",
+                ceiling_connectivity_enabled=ceiling_connectivity_enabled,
                 use_glicko=use_glicko,
                 persist_game_residuals=persist_game_residuals,
                 persist_game_explainability=persist_game_explainability,
@@ -2692,6 +2743,7 @@ async def compute_all_cohorts(
                 team_state_map=team_state_map,
                 tier_league_map=tier_league_map,
                 pass_label="Pass2",
+                ceiling_connectivity_enabled=ceiling_connectivity_enabled,
                 pre_sos_state=None if use_glicko else pass1_pre_sos_states.get(i),
                 use_glicko=use_glicko,
                 initial_ratings=pass1_glicko_ratings.get(i) if use_glicko else None,
@@ -2709,9 +2761,24 @@ async def compute_all_cohorts(
         all_teams = []
         all_games_used = []
         all_game_explainability = []
+        all_ceiling_connectivity = []
 
-        for result in pass2_results:
+        for source_cohort, result in enumerate(pass2_results):
             if not result["teams"].empty:
+                if ceiling_connectivity_enabled:
+                    diagnostics = result.get("ceiling_connectivity")
+                    _validate_ceiling_connectivity(diagnostics)
+                    age, gender = cohorts[source_cohort][0]
+                    if not (
+                        diagnostics["source_cohort_age"].eq(str(age)).all()
+                        and diagnostics["source_cohort_gender"].eq(str(gender)).all()
+                        and set(diagnostics["team_id"]) == set(result["teams"]["team_id"])
+                    ):
+                        raise ValueError("Ceiling diagnostics do not match their Pass2 source cohort")
+                    diagnostics = diagnostics.copy()
+                    diagnostics["_ceiling_source_cohort"] = source_cohort
+                    all_ceiling_connectivity.append(diagnostics)
+                    result["teams"] = result["teams"].assign(_ceiling_source_cohort=source_cohort)
                 all_teams.append(result["teams"])
             if not result.get("games_used", pd.DataFrame()).empty:
                 all_games_used.append(result["games_used"])
@@ -2723,6 +2790,9 @@ async def compute_all_cohorts(
         games_used_combined = pd.concat(all_games_used, ignore_index=True) if all_games_used else pd.DataFrame()
         game_explainability_combined = (
             pd.concat(all_game_explainability, ignore_index=True) if all_game_explainability else pd.DataFrame()
+        )
+        ceiling_connectivity = (
+            pd.concat(all_ceiling_connectivity, ignore_index=True) if all_ceiling_connectivity else pd.DataFrame()
         )
 
     # ========== Deduplicate cross-cohort teams ==========
@@ -2930,7 +3000,18 @@ async def compute_all_cohorts(
             )
 
         teams_combined["positive_ml_evidence_scale"] = teams_combined.apply(_positive_ml_evidence_scale, axis=1)
-        teams_combined["publication_cap_rank"] = teams_combined.apply(_publication_cap_rank, axis=1)
+        if ceiling_connectivity_enabled:
+            diagnostics = ceiling_connectivity.set_index(["_ceiling_source_cohort", "team_id"], verify_integrity=True)
+            teams_combined["publication_cap_rank"] = teams_combined.apply(
+                _publication_cap_rank_with_connectivity, diagnostics=diagnostics, axis=1
+            )
+            keys = teams_combined[["_ceiling_source_cohort", "team_id"]]
+            ceiling_connectivity = keys.merge(
+                ceiling_connectivity, on=["_ceiling_source_cohort", "team_id"], how="left", validate="one_to_one"
+            ).drop(columns="_ceiling_source_cohort")
+            teams_combined = teams_combined.drop(columns="_ceiling_source_cohort")
+        else:
+            teams_combined["publication_cap_rank"] = teams_combined.apply(_publication_cap_rank, axis=1)
         teams_combined["play_up_bonus"] = teams_combined.apply(_play_up_bonus, axis=1)
         teams_combined["publication_cap_score"] = pd.NA
 
@@ -3363,4 +3444,5 @@ async def compute_all_cohorts(
         "teams": teams_combined,
         "games_used": games_used_combined,
         "game_explainability": game_explainability_combined,
+        **({"ceiling_connectivity": ceiling_connectivity} if ceiling_connectivity_enabled else {}),
     }

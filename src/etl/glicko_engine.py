@@ -913,7 +913,34 @@ def compute_scf(
     team_games: Optional[Dict[str, pd.DataFrame]] = None,
     tier_league_map: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Dict]:
-    """Compute Schedule Connectivity Factor for each team.
+    """Preserve the SCF switch's legacy neutral values when dampening is off."""
+    if not cfg.SCF_ENABLED:
+        return {
+            team_id: {
+                "scf": 1.0,
+                "unique_states": 0,
+                "bridge_games": 0,
+                "is_isolated": False,
+                "quality_boosted": False,
+                "unique_leagues": 0,
+                "league_scf": 1.0,
+                "dominant_opp_league": None,
+                "dominant_opp_league_share": 0.0,
+            }
+            for team_id in team_ratings
+        }
+    return compute_schedule_connectivity(games_df, team_state_map, team_ratings, cfg, team_games, tier_league_map)
+
+
+def compute_schedule_connectivity(
+    games_df: pd.DataFrame,
+    team_state_map: Dict[str, str],
+    team_ratings: Dict[str, Tuple[float, float, float]],
+    cfg: GlickoConfig,
+    team_games: Optional[Dict[str, pd.DataFrame]] = None,
+    tier_league_map: Optional[Dict[str, str]] = None,
+) -> Dict[str, Dict]:
+    """Measure connectivity without applying dampening or consulting SCF_ENABLED.
 
     Detects teams playing in isolated bubbles — either regional (state-based)
     or league-based (e.g., cross-state ECNL_RL play). Assigns a diversity
@@ -943,20 +970,6 @@ def compute_scf(
     )
 
     for team_id in team_ratings:
-        if not cfg.SCF_ENABLED:
-            result[team_id] = {
-                "scf": 1.0,
-                "unique_states": 0,
-                "bridge_games": 0,
-                "is_isolated": False,
-                "quality_boosted": False,
-                "unique_leagues": 0,
-                "league_scf": 1.0,
-                "dominant_opp_league": None,
-                "dominant_opp_league_share": 0.0,
-            }
-            continue
-
         team_state = team_state_map.get(team_id, "")
         if team_games and team_id in team_games:
             tg = team_games[team_id]
@@ -1832,6 +1845,7 @@ def compute_rankings_v2(
     pass_label: Optional[str] = None,
     initial_ratings: Optional[Dict[str, Tuple[float, float, float]]] = None,
     tier_league_map: Optional[Dict[str, str]] = None,
+    collect_ceiling_connectivity: bool = False,
 ) -> Dict[str, pd.DataFrame]:
     """Run the full Glicko-2 ranking pipeline.
 
@@ -1866,6 +1880,8 @@ def compute_rankings_v2(
         today = today.tz_localize(None)
     if cfg is None:
         cfg = GlickoConfig()
+    if collect_ceiling_connectivity and (cfg.SCF_ENABLED or pass_label != "Pass2" or team_state_map is None):
+        raise ValueError("Ceiling connectivity requires Pass2, SCF disabled, and a frozen state map")
     label = f" [{pass_label}]" if pass_label else ""
     logger.info(f"Starting Glicko-2 ranking engine{label}")
 
@@ -1890,6 +1906,25 @@ def compute_rankings_v2(
     team_ratings: Dict[str, Tuple[float, float, float]] = dict(
         zip(team_df["team_id"], zip(team_df["mu"], team_df["sigma"], team_df["volatility"]))
     )
+    ceiling_connectivity = None
+    if collect_ceiling_connectivity:
+        measurements = compute_schedule_connectivity(
+            games_df, team_state_map, team_ratings, cfg, team_games, tier_league_map
+        )
+        ceiling_connectivity = pd.DataFrame(
+            [
+                {
+                    "team_id": team_id,
+                    "source_cohort_age": str(games_df["age"].iloc[0]),
+                    "source_cohort_gender": str(games_df["gender"].iloc[0]),
+                    "scf": values["scf"],
+                    "unique_opp_states": values["unique_states"],
+                    "bridge_games": values["bridge_games"],
+                    "is_isolated": values["is_isolated"],
+                }
+                for team_id, values in measurements.items()
+            ]
+        )
     recent_activity = {
         str(team_id): _summarize_team_recent_activity(tg, today) for team_id, tg in team_games.items()
     }
@@ -2137,4 +2172,5 @@ def compute_rankings_v2(
         "teams": team_df,
         "games_used": games_used,
         "game_explainability": game_explain_df,
+        **({"ceiling_connectivity": ceiling_connectivity} if collect_ceiling_connectivity else {}),
     }

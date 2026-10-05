@@ -1,5 +1,9 @@
 """Score candidate runs against a baseline on held-out games played after the split date (a time split).
 
+The historical behavior below describes the default legacy profile. The optional C1 profile adds
+strict run, boundary, design-lock and prerequisite checks before reading held-out outcomes; see
+references/c1-evaluation.md. It reuses the legacy credit and uncertainty calculations unchanged.
+
 Every run should rate the training freeze, whose manifest `today` is the split date, and --start should
 fall after that date. The report's `isolation` block records what can be checked about the runs and the
 freeze, but verdicts are written whether or not it passes, and nothing compares --start with the split.
@@ -21,6 +25,7 @@ import argparse
 import json
 import math
 import re
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -174,7 +179,17 @@ def main() -> None:
     ap.add_argument("--end", required=True)
     ap.add_argument("--scf-cand", default="scf", help="candidate name the dampening cut applies to")
     ap.add_argument("--out", required=True)
+    ap.add_argument("--profile", choices=("legacy", "c1"), default="legacy")
+    ap.add_argument("--isolation-reference", help="C1: SCF-enabled incumbent on the training freeze")
+    ap.add_argument("--prerequisite-report", help="C1: first-stage report made with --record-evaluation")
+    ap.add_argument("--design-lock", help="C1: locked design, period and code hashes; required before outcomes")
+    ap.add_argument("--record-evaluation", action="store_true",
+                    help="record first-stage input bindings without changing rules")
     args = ap.parse_args()
+    if args.profile == "c1":
+        from score_c1 import cmd_c1
+        cmd_c1(args, sys.modules[__name__])
+        return
     out_path = Path(args.out)
     if out_path.exists():
         raise SystemExit(f"{out_path} exists")
@@ -262,6 +277,16 @@ def main() -> None:
         else:
             res["screen"] = "inconclusive"
     report["results"] = results
+    if args.record_evaluation:
+        from c1_validation import digest
+        report["evaluation"] = {
+            "scorer_sha256": digest(Path(__file__)),
+            "start": args.start,
+            "end": args.end,
+            "training_manifest_sha256": digest(Path(args.train_freeze) / "freeze-manifest.json"),
+            "heldout_games_sha256": digest(Path(args.heldout_freeze) / "games.parquet"),
+            "run_completed_sha256": {name: digest(Path(run["dir"]) / "completed.json") for name, run in runs.items()},
+        }
 
     diag = {}
     for name, run in runs.items():
