@@ -1762,6 +1762,16 @@ class EnhancedETLPipeline:
             except (ValueError, TypeError):
                 continue
 
+            # A master-id game_uid sorts the two teams, so it also matches a row saved with home
+            # and away the other way round; the scores then belong on the opposite sides
+            existing = game_uid_to_master_ids.get(game_uid, {})
+            if (
+                existing.get("home_team_master_id") == game.get("away_team_master_id")
+                and existing.get("away_team_master_id") == game.get("home_team_master_id")
+                and game.get("home_team_master_id") != game.get("away_team_master_id")
+            ):
+                home_score_int, away_score_int = away_score_int, home_score_int
+
             payload.append(
                 {
                     "game_uid": game_uid,
