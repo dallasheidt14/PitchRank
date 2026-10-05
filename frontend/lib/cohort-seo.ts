@@ -123,6 +123,7 @@ export const STATE_PILLAR_SLUGS: Record<string, { slug: string; title: string }>
   id: { slug: 'idaho-youth-soccer-rankings-guide', title: 'Idaho Youth Soccer Rankings Guide' },
   il: { slug: 'illinois-youth-soccer-rankings-guide', title: 'Illinois Youth Soccer Rankings Guide' },
   in: { slug: 'indiana-youth-soccer-rankings-guide', title: 'Indiana Youth Soccer Rankings Guide' },
+  ks: { slug: 'kansas-youth-soccer-rankings-guide', title: 'Kansas Youth Soccer Rankings Guide' },
   ky: { slug: 'kentucky-youth-soccer-rankings-guide', title: 'Kentucky Youth Soccer Rankings Guide' },
   ma: { slug: 'massachusetts-youth-soccer-rankings-guide', title: 'Massachusetts Youth Soccer Rankings Guide' },
   md: { slug: 'maryland-youth-soccer-rankings-guide', title: 'Maryland Youth Soccer Rankings Guide' },
@@ -137,8 +138,10 @@ export const STATE_PILLAR_SLUGS: Record<string, { slug: string; title: string }>
   ok: { slug: 'oklahoma-youth-soccer-rankings-guide', title: 'Oklahoma Youth Soccer Rankings Guide' },
   or: { slug: 'oregon-youth-soccer-rankings-guide', title: 'Oregon Youth Soccer Rankings Guide' },
   pa: { slug: 'pennsylvania-youth-soccer-rankings-guide', title: 'Pennsylvania Youth Soccer Rankings Guide' },
+  sc: { slug: 'south-carolina-youth-soccer-rankings-guide', title: 'South Carolina Youth Soccer Rankings Guide' },
   tn: { slug: 'tennessee-youth-soccer-rankings-guide', title: 'Tennessee Youth Soccer Rankings Guide' },
   tx: { slug: 'texas-youth-soccer-rankings-guide', title: 'Texas Youth Soccer Rankings Guide' },
+  ut: { slug: 'utah-youth-soccer-rankings-guide', title: 'Utah Youth Soccer Rankings Guide' },
   va: { slug: 'virginia-youth-soccer-rankings-guide', title: 'Virginia Youth Soccer Rankings Guide' },
   wa: { slug: 'washington-youth-soccer-rankings-guide', title: 'Washington Youth Soccer Rankings Guide' },
 };
