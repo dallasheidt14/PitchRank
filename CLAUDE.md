@@ -443,7 +443,7 @@ Glicko path calls it. Parameters and feature flags live in `src/etl/glicko_confi
 ### Pipeline Flow
 
 ```
-Games (Supabase; 365-day window + 28-day grace taper)
+Games (Supabase; strict 365-day window; newest 30 games per team)
   → Merge Resolution (deprecated → canonical team IDs)
   → Drop every game with a team in `team_ranking_exclusions` on either side, so a listed
             team is neither ranked nor an opponent; the read fails closed

@@ -25,7 +25,7 @@ python <skill dir>/scripts/shadow_harness.py freeze \
 
 - `<skill dir>` is this skill's folder as an absolute path, in any checkout that has it; engine code is imported only from `--code-root`.
 - Use a worktree at origin/main as the code root, so the fetch is production's current code. Pass today's UTC date: the freeze reads the database as it is now, so a past date does not reproduce that day's inputs. A time split (Step 5) passes its split date instead.
-- The freeze fetches games over production's window (`WINDOW_DAYS` + `WINDOW_GRACE_DAYS`, 393 days), then the team metadata and the merge map. It takes about 20 minutes.
+- The freeze fetches games over production's window (`WINDOW_DAYS` + `WINDOW_GRACE_DAYS`, now 365 days; older freezes used 393), then the team metadata and the merge map. It takes about 20 minutes.
 - Before a fresh fetch, look for a saved input snapshot: a games file an earlier shadow run wrote (Codex worktrees keep those runs in folders under `data/cache/`). Pass it with `--games-from <file>` and the `--today` that run used. The freeze refuses a file whose columns or dates do not fit, which also rules out the engine's own per-cohort cache files (`rankings_<hash>_games.parquet`).
 - A reused snapshot is resolved against older merges and cannot reveal fetch-code changes. Report the manifest's `team_ids_deprecated_in_merge_map` as drift.
 - Keep freezes and runs outside the repo, in the session scratchpad. A freeze is about 350 MB.

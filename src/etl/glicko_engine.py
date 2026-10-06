@@ -327,6 +327,14 @@ def _window_cutoff(today: pd.Timestamp, window_days: int, grace_days: int = 0) -
     return today - pd.Timedelta(days=window_days + max(int(grace_days), 0))
 
 
+def _game_window_mask(dates: pd.Series, today: pd.Timestamp, window_days: int, grace_days: int = 0) -> pd.Series:
+    """Use the same inclusive date bounds for selection and the full-window record."""
+    today = pd.Timestamp(today).tz_localize(None)
+    if getattr(dates.dtype, "tz", None) is not None:
+        dates = dates.dt.tz_localize(None)
+    return dates.between(_window_cutoff(today, window_days, grace_days), today)
+
+
 def select_games(
     games_df: pd.DataFrame,
     team_id: str,
@@ -347,11 +355,9 @@ def select_games(
     Returns:
         Filtered DataFrame sorted by date descending, at most *max_games* rows.
     """
-    cutoff = _window_cutoff(today, window_days, grace_days)
-    dates = games_df["date"]
-    if hasattr(dates.dtype, "tz") and dates.dtype.tz is not None:
-        dates = dates.dt.tz_localize(None)
-    mask = (games_df["team_id"] == team_id) & (dates >= cutoff)
+    mask = (games_df["team_id"] == team_id) & _game_window_mask(
+        games_df["date"], today, window_days, grace_days
+    )
     sort_cols = [col for col in ["date", "game_id", "id", "opp_id"] if col in games_df.columns]
     ascending = [False] + [True] * (len(sort_cols) - 1)
     filtered = games_df.loc[mask].sort_values(sort_cols, ascending=ascending, kind="mergesort")
@@ -430,10 +436,9 @@ def select_games_balanced(
     team_state_map: Optional[Dict[str, str]] = None,
     tier_mult_fn=None,
 ) -> pd.DataFrame:
-    """Select a balanced evidence window: recent + same-age quality + bridge quality.
+    """Select newest games by default; the historical balanced policy is opt-in.
 
-    The output keeps the engine mostly recency-driven while reserving slots for
-    quality same-age evidence and meaningful connectivity games.
+    Production selection ignores results, opponent strength, location and league.
     """
     filtered = select_games(
         games_df,
@@ -1467,16 +1472,13 @@ def derive_windowed_record(games_df: pd.DataFrame, cfg: GlickoConfig, today: pd.
     """Per-team windowed, draw-aware record from ALL games in the lookback window.
 
     Distinct from the wins/games_played on team_df, which summarize only the selected
-    <=MAX_GAMES balanced subset: record_expected must reflect the full window (same cutoff as
-    select_games) so a strong record is not truncated by outcome-biased selection.
+    <=MAX_GAMES selected subset: record_expected continues to reflect the full window
+    (same date bounds as select_games), even when a team has more than MAX_GAMES games.
 
     Returns one row per team with the _REC_WINDOW_COLS columns.
     """
-    cutoff = _window_cutoff(today, cfg.WINDOW_DAYS, getattr(cfg, "WINDOW_GRACE_DAYS", 0))
-    dates = games_df["date"]
-    if hasattr(dates.dtype, "tz") and dates.dtype.tz is not None:
-        dates = dates.dt.tz_localize(None)
-    windowed = games_df.loc[dates >= cutoff, ["team_id", "gf", "ga"]].copy()
+    mask = _game_window_mask(games_df["date"], today, cfg.WINDOW_DAYS, cfg.WINDOW_GRACE_DAYS)
+    windowed = games_df.loc[mask, ["team_id", "gf", "ga"]].copy()
     if windowed.empty:
         return pd.DataFrame(columns=["team_id", *_REC_WINDOW_COLS])
 

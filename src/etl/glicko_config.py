@@ -25,9 +25,11 @@ class GlickoConfig:
     # Window
     MAX_GAMES: int = 30
     WINDOW_DAYS: int = 365
-    WINDOW_GRACE_DAYS: int = 28
+    # Production policy: newest 30 games in a strict 365-day window.
+    WINDOW_GRACE_DAYS: int = 0
     INACTIVE_DAYS: int = 180
-    BALANCED_SELECTION_ENABLED: bool = True
+    # Retain the old selector only for explicit historical comparisons.
+    BALANCED_SELECTION_ENABLED: bool = False
     BALANCED_SELECTION_RECENT_GAMES: int = 20
     BALANCED_SELECTION_SAME_AGE_QUALITY_GAMES: int = 7
     BALANCED_SELECTION_BRIDGE_GAMES: int = 3
