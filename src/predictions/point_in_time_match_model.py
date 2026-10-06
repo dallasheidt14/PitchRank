@@ -82,6 +82,7 @@ FEATURE_EXCLUDE_COLUMNS = {
 
 SNAPSHOT_NUMERIC_FIELDS = [
     "power_score_final",
+    "prediction_power_score",
     "sos_norm",
     "offense_norm",
     "defense_norm",
@@ -265,6 +266,14 @@ def _to_float(value: object, default: float = 0.0) -> float:
         return default
 
 
+def _prediction_power(snapshot: pd.Series | dict) -> float:
+    """Use the stable prediction feature, with legacy-history compatibility."""
+    value = snapshot.get("prediction_power_score")
+    if value is None or pd.isna(value):
+        value = snapshot.get("power_score_final")
+    return _to_float(value, default=0.5)
+
+
 def _to_int(value: object, default: int = 0) -> int:
     if value is None or pd.isna(value):
         return default
@@ -432,8 +441,8 @@ def _paired_snapshot_features(team_a_snapshot: dict, team_b_snapshot: dict) -> D
         math.exp(
             -5.5
             * abs(
-                _to_float(team_a_snapshot.get("power_score_final"))
-                - _to_float(team_b_snapshot.get("power_score_final"))
+                _prediction_power(team_a_snapshot)
+                - _prediction_power(team_b_snapshot)
             )
         ),
         math.exp(
@@ -461,9 +470,9 @@ def _paired_snapshot_features(team_a_snapshot: dict, team_b_snapshot: dict) -> D
             "glicko_confidence_gap": _to_float(team_b_snapshot.get("glicko_rd"))
             - _to_float(team_a_snapshot.get("glicko_rd")),
             "power_sos_interaction_diff": (
-                _to_float(team_a_snapshot.get("power_score_final")) * _to_float(team_a_snapshot.get("sos_norm"))
+                _prediction_power(team_a_snapshot) * _to_float(team_a_snapshot.get("sos_norm"))
             )
-            - (_to_float(team_b_snapshot.get("power_score_final")) * _to_float(team_b_snapshot.get("sos_norm"))),
+            - (_prediction_power(team_b_snapshot) * _to_float(team_b_snapshot.get("sos_norm"))),
             "offense_defense_balance_diff": offense_diff - defense_diff,
             "team_a_has_predictive_prior": 1.0
             if any(pd.notna(team_a_snapshot.get(field_name)) for field_name in PREDICTIVE_PRIOR_FIELDS)
@@ -669,7 +678,7 @@ def _build_common_opponent_feature_summary(
 
         recency_weight = math.exp(-days_since / COMMON_OPPONENT_RECENCY_DAYS)
         opponent_snapshot = _snapshot_as_of(snapshot_index, str(opponent_id), target_date)
-        opponent_power = _to_float(opponent_snapshot.get("power_score_final")) if opponent_snapshot else 0.5
+        opponent_power = _prediction_power(opponent_snapshot) if opponent_snapshot else 0.5
         opponent_age = _extract_age_numeric(opponent_snapshot.get("age_group")) if opponent_snapshot else 0
         same_age = 1.0 if team_age_numeric > 0 and opponent_age == team_age_numeric else 0.0
         opponent_strength_weight = float(np.clip(0.75 + opponent_power, 0.6, 1.75))

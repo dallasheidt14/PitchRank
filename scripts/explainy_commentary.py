@@ -34,7 +34,8 @@ def get_team_movement_analysis(cur, team_id, days=7):
     # Get rank history
     cur.execute(
         """
-        SELECT snapshot_date, rank_in_cohort, power_score_final, rank_in_state
+        SELECT snapshot_date, rank_in_cohort, power_score_final, rank_in_state,
+               power_score_scale_version
         FROM ranking_history
         WHERE team_id = %s
         ORDER BY snapshot_date DESC
@@ -68,7 +69,12 @@ def get_team_movement_analysis(cur, team_id, days=7):
     analysis["rank_change"] = previous[1] - current[1]
     analysis["current_power"] = float(current[2]) if current[2] else 0
     analysis["previous_power"] = float(previous[2]) if previous[2] else 0
-    analysis["power_change"] = analysis["current_power"] - analysis["previous_power"]
+    analysis["power_change_comparable"] = current[4] == previous[4]
+    analysis["power_change"] = (
+        analysis["current_power"] - analysis["previous_power"]
+        if analysis["power_change_comparable"]
+        else 0
+    )
 
     # Get recent games (within the period) - optimized query
     # Note: Ensure index on games(home_team_master_id, game_date) and games(away_team_master_id, game_date)
@@ -153,8 +159,12 @@ def generate_commentary(analysis, team_name, club_name):
     lines.append("")
 
     # Power score context
+    power_comparable = analysis.get("power_change_comparable", True)
     power_pct = (analysis["power_change"] / analysis["previous_power"] * 100) if analysis["previous_power"] else 0
-    if abs(power_pct) > 10:
+    if not power_comparable:
+        lines.append("PowerScore display scale changed; the before/after score values are not directly comparable.")
+        lines.append("")
+    elif abs(power_pct) > 10:
         lines.append(
             f"PowerScore: {analysis['previous_power']:.3f} → {analysis['current_power']:.3f} ({power_pct:+.1f}%)"
         )

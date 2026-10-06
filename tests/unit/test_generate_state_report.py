@@ -11,6 +11,7 @@ from scripts.generate_state_report import (
     MIN_PER_REQUIRED_LEAGUE,
     MIN_RANKED_TEAMS,
     REQUIRED_LEAGUES,
+    fetch_league_callouts,
     run_credibility_gate,
 )
 
@@ -53,3 +54,19 @@ def test_gate_reports_floor_and_league_failures_together():
     assert "ranked teams" in message
     for league in REQUIRED_LEAGUES:
         assert league in message
+
+
+def test_league_callouts_prioritize_cohort_rank_before_cross_age_power_score():
+    class Cursor:
+        def execute(self, query, params):
+            self.query = query
+            self.params = params
+
+        def fetchall(self):
+            return []
+
+    cursor = Cursor()
+    fetch_league_callouts(cursor, "TX", ("ECNL",))
+
+    assert "rf.rank_in_cohort_final ASC NULLS LAST" in cursor.query
+    assert cursor.query.index("rf.rank_in_cohort_final") < cursor.query.index("rf.power_score_final DESC")

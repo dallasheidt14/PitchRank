@@ -538,6 +538,8 @@ export const api = {
       age: age,
       gender: gender,
       power_score_final: powerScoreFinal,
+      prediction_power_score: rankingsFullData?.prediction_power_score ?? null,
+      power_score_scale_version: rankingsFullData?.power_score_scale_version ?? null,
       glicko_rating: glickoRating,
       glicko_rd: glickoRd,
       glicko_volatility: glickoVolatility,

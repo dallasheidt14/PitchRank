@@ -2,6 +2,7 @@ import pickle
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from src.predictions.point_in_time_match_model import (
     COMPETITIVE_MATCH_SELECTION_OBJECTIVE,
@@ -155,6 +156,49 @@ def test_build_point_in_time_dataset_is_chronological_and_mirrored():
     assert g3_original["actual_outcome"] == "team_a_win"
     assert g3_mirrored["actual_outcome"] == "team_b_win"
     assert g3_original["power_score_final_diff"] == -g3_mirrored["power_score_final_diff"]
+
+
+def test_point_in_time_features_ignore_published_display_rescaling():
+    game = pd.DataFrame(
+        [
+            {
+                "id": "g1",
+                "game_date": "2026-04-02",
+                "home_team_master_id": "a",
+                "away_team_master_id": "b",
+                "home_score": 2,
+                "away_score": 1,
+            }
+        ]
+    )
+    legacy_index = {
+        "a": [_snapshot("2026-04-01", "a", power_score_final=0.63)],
+        "b": [_snapshot("2026-04-01", "b", power_score_final=0.58)],
+    }
+    versioned_index = {
+        "a": [
+            _snapshot(
+                "2026-04-01",
+                "a",
+                power_score_final=0.71,
+                prediction_power_score=0.63,
+            )
+        ],
+        "b": [
+            _snapshot(
+                "2026-04-01",
+                "b",
+                power_score_final=0.66,
+                prediction_power_score=0.58,
+            )
+        ],
+    }
+
+    legacy = build_point_in_time_dataset(game, legacy_index, include_mirrored_examples=False).dataset.iloc[0]
+    versioned = build_point_in_time_dataset(game, versioned_index, include_mirrored_examples=False).dataset.iloc[0]
+    assert versioned["power_score_final_diff"] == pytest.approx(legacy["power_score_final_diff"])
+    assert versioned["power_sos_interaction_diff"] == pytest.approx(legacy["power_sos_interaction_diff"])
+    assert versioned["snapshot_strength_closeness"] == pytest.approx(legacy["snapshot_strength_closeness"])
 
 
 def test_build_point_in_time_dataset_skips_games_without_snapshot():

@@ -78,6 +78,8 @@ type RankingsFullRow = {
   gender?: string | null;
   rank_in_cohort_final?: number | null;
   power_score_final?: number | null;
+  prediction_power_score?: number | null;
+  power_score_scale_version?: string | null;
   glicko_rating?: number | null;
   glicko_rd?: number | null;
   glicko_volatility?: number | null;
@@ -114,13 +116,15 @@ type MergeRow = {
 const BASE_RANKINGS_FULL_FIELDS =
   'age_group, gender, rank_in_cohort_final, power_score_final, glicko_rating, glicko_rd, glicko_volatility, sos_norm, off_norm, def_norm, wins, losses, draws, games_played, last_calculated, status';
 const OPTIONAL_RANKINGS_FULL_PREDICTION_FIELDS =
-  'same_age_games, same_age_game_share, same_age_unique_opponents, same_age_top100_opp_count, same_age_top500_opp_count, same_age_avg_opp_power_adj, repeat_opponent_share, positive_ml_evidence_scale, publication_cap_rank, publication_cap_score';
+  'prediction_power_score, power_score_scale_version, same_age_games, same_age_game_share, same_age_unique_opponents, same_age_top100_opp_count, same_age_top500_opp_count, same_age_avg_opp_power_adj, repeat_opponent_share, positive_ml_evidence_scale, publication_cap_rank, publication_cap_score';
 
 function isMissingOptionalPredictionColumn(error: unknown): boolean {
   const message = String((error as { message?: string } | null)?.message ?? error ?? '').toLowerCase();
   return (
     (message.includes('column') || message.includes('schema cache') || message.includes('could not find')) &&
     (message.includes('same_age_') ||
+      message.includes('prediction_power_score') ||
+      message.includes('power_score_scale_version') ||
       message.includes('positive_ml_evidence_scale') ||
       message.includes('publication_cap_'))
   );
@@ -349,6 +353,8 @@ export async function fetchPredictionTeam(
       stateRankingData?.power_score_final ??
       rankingsFullData?.power_score_final ??
       null,
+    prediction_power_score: rankingsFullData?.prediction_power_score ?? null,
+    power_score_scale_version: rankingsFullData?.power_score_scale_version ?? null,
     glicko_rating:
       rankingData?.glicko_rating ?? stateRankingData?.glicko_rating ?? rankingsFullData?.glicko_rating ?? null,
     glicko_rd: rankingData?.glicko_rd ?? stateRankingData?.glicko_rd ?? rankingsFullData?.glicko_rd ?? null,
@@ -382,6 +388,14 @@ export async function fetchPredictionTeam(
     exp_goals_for: predictiveData?.exp_goals_for ?? null,
     exp_goals_against: predictiveData?.exp_goals_against ?? null,
   };
+
+  if (team.power_score_scale_version != null && team.prediction_power_score == null) {
+    throw new AppError(
+      'Prediction unavailable because the versioned rating is missing its compatibility score.',
+      'prediction_unavailable',
+      422
+    );
+  }
 
   if (team.power_score_final == null || (!options.allowEmptyHistory && team.games_played <= 0)) {
     throw new AppError(

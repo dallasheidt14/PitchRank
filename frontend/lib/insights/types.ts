@@ -148,6 +148,8 @@ export interface InsightInputData {
   ranking: {
     rank_in_cohort_final: number | null;
     power_score_final: number | null;
+    prediction_power_score: number | null;
+    power_score_scale_version: string | null;
     sos_norm: number | null;
     wins: number;
     losses: number;
@@ -177,6 +179,9 @@ export interface InsightInputData {
     rank_in_cohort_ml?: number;
     rank_in_cohort: number;
     power_score_final: number | null;
+    power_score_true?: number | null;
+    prediction_power_score?: number | null;
+    power_score_scale_version?: string | null;
   }>;
   cohortStats: {
     totalTeams: number;

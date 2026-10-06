@@ -25,6 +25,7 @@ import { renderStoryTemplateToCanvas, STORY_TYPES } from '@/components/infograph
 import { renderCoverImageToCanvas, COVER_PLATFORMS } from '@/components/infographics/coverImageRenderer';
 import { renderLeagueDistributionToCanvas } from '@/components/infographics/leagueDistributionRenderer';
 import { useRankings } from '@/hooks/useRankings';
+import { useTeam } from '@/lib/hooks';
 import { useInstagramHandles, collectHandlesForCaption } from '@/hooks/useInstagramHandles';
 import { US_STATES, AGE_GROUP_OPTIONS, GENDER_OPTIONS } from '@/lib/constants';
 import type { RankingRow } from '@/types/RankingRow';
@@ -134,6 +135,12 @@ export default function InfographicsPage() {
 
   // Fetch rankings
   const { data: rankings, isLoading, error, refetch } = useRankings(selectedRegion, selectedAgeGroup, selectedGender);
+  const headToHeadTeam1Id =
+    selectedInfographicType === 'headToHead' ? (rankings?.[headToHeadTeam1Index]?.team_id_master ?? '') : '';
+  const headToHeadTeam2Id =
+    selectedInfographicType === 'headToHead' ? (rankings?.[headToHeadTeam2Index]?.team_id_master ?? '') : '';
+  const { data: headToHeadPredictionTeam1 } = useTeam(headToHeadTeam1Id);
+  const { data: headToHeadPredictionTeam2 } = useTeam(headToHeadTeam2Id);
 
   const getPublishedRank = useCallback(
     (team: RankingRow): number | null => {
@@ -314,9 +321,14 @@ export default function InfographicsPage() {
         case 'headToHead':
           const team1 = rankings![headToHeadTeam1Index] || rankings![0];
           const team2 = rankings![headToHeadTeam2Index] || rankings![1];
+          if (!headToHeadPredictionTeam1 || !headToHeadPredictionTeam2) {
+            throw new Error('Prediction inputs are still loading. Please try again.');
+          }
           canvas = await renderHeadToHeadToCanvas({
             team1: { ...team1, rank: headToHeadTeam1Index + 1 },
             team2: { ...team2, rank: headToHeadTeam2Index + 1 },
+            predictionTeam1: headToHeadPredictionTeam1,
+            predictionTeam2: headToHeadPredictionTeam2,
             platform: selectedPlatform,
             ageGroup: selectedAgeGroup,
             gender: selectedGender,
@@ -387,6 +399,8 @@ export default function InfographicsPage() {
     selectedSpotlightTeamIndex,
     headToHeadTeam1Index,
     headToHeadTeam2Index,
+    headToHeadPredictionTeam1,
+    headToHeadPredictionTeam2,
     selectedStoryType,
     selectedCoverPlatform,
   ]);
@@ -947,7 +961,9 @@ export default function InfographicsPage() {
                 ) : selectedInfographicType === 'headToHead' &&
                   rankings &&
                   rankings[headToHeadTeam1Index] &&
-                  rankings[headToHeadTeam2Index] ? (
+                  rankings[headToHeadTeam2Index] &&
+                  headToHeadPredictionTeam1 &&
+                  headToHeadPredictionTeam2 ? (
                   <div
                     style={{
                       width: dimensions.width * previewScale,
@@ -958,6 +974,8 @@ export default function InfographicsPage() {
                     <HeadToHeadPreview
                       team1={{ ...rankings[headToHeadTeam1Index], rank: headToHeadTeam1Index + 1 }}
                       team2={{ ...rankings[headToHeadTeam2Index], rank: headToHeadTeam2Index + 1 }}
+                      predictionTeam1={headToHeadPredictionTeam1}
+                      predictionTeam2={headToHeadPredictionTeam2}
                       platform={selectedPlatform}
                       scale={previewScale}
                       generatedDate={new Date().toISOString()}

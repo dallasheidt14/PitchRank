@@ -8,6 +8,8 @@ import { teamDisplayName } from '@/lib/utils';
 interface HeadToHeadOptions {
   team1: RankingRow & { rank?: number };
   team2: RankingRow & { rank?: number };
+  predictionTeam1: TeamWithRanking;
+  predictionTeam2: TeamWithRanking;
   platform: Platform;
   ageGroup: string;
   gender: 'M' | 'F';
@@ -20,7 +22,18 @@ interface HeadToHeadOptions {
  * Renders a Head-to-Head comparison graphic between two teams.
  */
 export async function renderHeadToHeadToCanvas(options: HeadToHeadOptions): Promise<HTMLCanvasElement> {
-  const { team1, team2, platform, ageGroup, gender, regionName: _regionName, generatedDate, allGames = [] } = options;
+  const {
+    team1,
+    team2,
+    predictionTeam1,
+    predictionTeam2,
+    platform,
+    ageGroup,
+    gender,
+    regionName: _regionName,
+    generatedDate,
+    allGames = [],
+  } = options;
   const dimensions = PLATFORM_DIMENSIONS[platform];
   const isVertical = platform === 'instagramStory';
   const isSquare = platform === 'instagram';
@@ -244,11 +257,7 @@ export async function renderHeadToHeadToCanvas(options: HeadToHeadOptions): Prom
   });
 
   // ===== PROJECTED SCORE =====
-  const matchPrediction = predictMatch(
-    { ...team1, team_id_master: team1.team_id_master || '', last_scraped_at: null } as unknown as TeamWithRanking,
-    { ...team2, team_id_master: team2.team_id_master || '', last_scraped_at: null } as unknown as TeamWithRanking,
-    allGames
-  );
+  const matchPrediction = predictMatch(predictionTeam1, predictionTeam2, allGames);
   const prediction = {
     winProbability1: matchPrediction.winProbabilityA,
     winProbability2: matchPrediction.winProbabilityB,
