@@ -61,10 +61,17 @@ Ranks are from the saved release; no candidate rank is assigned to an ineligible
 
 ## Correctness checks and review
 
-- 452 ranking-related Python regressions pass, including production fetch/ML handoff, both engine passes, eligibility, 365-day endpoints, future-date exclusion, stable ties, no result/opponent/state/league preference and cache invalidation. Existing legacy-mode tests opt into their old policy explicitly.
+- 458 ranking unit/integration regressions pass (452 unit and 6 pipeline tests), including production fetch/ML handoff, both engine passes, eligibility, 365-day endpoints, future-date exclusion, stable ties, no result/opponent/state/league preference and cache invalidation. Existing legacy-mode tests opt into their old policy explicitly.
 - Repository Python lint and whitespace checks pass. Pre-push source review traced the old selection preference and the normal command through fetch, both passes, downstream selected-game reuse, eligibility and cache handling. No new score formulas, PowerScore clamp changes or ML time-split changes are introduced.
 - The live-only `diagnose_ranking.py` command was not rerun: the recorded diagnosis is the selector path itself, and this is the owner's explicit game-selection policy. Running that command now would fetch current game outcomes, which this task does not need.
 - A separate assistant review pass over the final changed files found no implementation blocker; it is not an independent external approval. Current-head GitHub checks/review are recorded on the PR.
+
+The initial full Linux suite found one stale SOS assertion: its reference average included
+future fixtures from the synthetic schedule while the new selector correctly excluded
+them. The reference now uses selected games and explicitly requires no future rows;
+the original correlation threshold remains unchanged. All six pipeline tests and the
+13 newest-selection regressions pass. This follow-up changes tests/reporting only;
+the audited engine files and all selection counts remain unchanged.
 
 ## Evidence and limits
 

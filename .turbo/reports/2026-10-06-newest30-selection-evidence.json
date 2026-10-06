@@ -486,7 +486,8 @@
       }
     ],
     "candidate_rankings_calculated": false,
-    "checks": "452 ranking-related Python regressions passed; repository Python lint passed; source diff reviewed before push",
-    "selection_replay_completion_receipt_sha256": "b9ef8ce0d97b6e7a6b4a171a6f4caeccc6f03d2e0b64e0720e52de4537fcd06c"
+    "checks": "458 ranking unit/integration regressions passed (452 unit plus 6 pipeline tests); repository Python lint passed; source diff reviewed before push",
+    "selection_replay_completion_receipt_sha256": "b9ef8ce0d97b6e7a6b4a171a6f4caeccc6f03d2e0b64e0720e52de4537fcd06c",
+    "ci_followup": "Initial full Linux suite: 8031 passed, 18 skipped, one stale SOS assertion referencing future/unselected games. Fixed the reference schedule and added a future exclusion assertion without changing its threshold or any engine source. Six pipeline and 13 newest-selection tests pass afterward; current-head CI is tracked on PR #1257."
   }
 }
