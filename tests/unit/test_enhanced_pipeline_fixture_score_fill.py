@@ -141,7 +141,7 @@ def _import(monkeypatch, db, game, dry_run=False, provider="gotsport"):
     return _import_pipeline(monkeypatch, db, [game], dry_run, provider)[0]
 
 
-def _import_pipeline(monkeypatch, db, games, dry_run=False, provider="gotsport"):
+def _import_pipeline(monkeypatch, db, games, dry_run=False, provider="gotsport", uid_check=False):
     pipeline = EnhancedETLPipeline(db, provider, dry_run=dry_run)
     pipeline.matcher = _Matcher()
     inserted = []
@@ -165,7 +165,8 @@ def _import_pipeline(monkeypatch, db, games, dry_run=False, provider="gotsport")
 
     monkeypatch.setattr(pipeline, "_ensure_initialized", lambda: None)
     monkeypatch.setattr(pipeline, "_validate_games", validate)
-    monkeypatch.setattr(pipeline, "_check_duplicates", no_uid_hits)
+    if not uid_check:
+        monkeypatch.setattr(pipeline, "_check_duplicates", no_uid_hits)
     monkeypatch.setattr(pipeline, "_check_duplicates_by_composite_key", no_composite_hits)
     monkeypatch.setattr(pipeline, "_bulk_insert_games", record_insert)
     monkeypatch.setattr(pipeline, "_backfill_duplicate_team_links", zero)
@@ -198,6 +199,47 @@ def test_a_result_oriented_the_other_way_swaps_the_scores_and_keeps_the_result(m
     [[update]] = db.rpc_calls
     assert (update["home_score"], update["away_score"], update["result"]) == (0, 3, "W")
     assert (fixture["home_score"], fixture["away_score"]) == (0, 3)
+
+
+@pytest.mark.parametrize(
+    ("incoming", "stored"),
+    [
+        pytest.param(_incoming(GREMIO, AFC, 0, 3), (0, 3), id="same-orientation"),
+        pytest.param(_incoming(AFC, GREMIO, 3, 0), (0, 3), id="other-orientation"),
+    ],
+)
+def test_a_result_filling_its_fixture_by_game_uid_lands_on_the_stored_sides(monkeypatch, incoming, stored):
+    fixture = _row(RESULT_UID, GREMIO, AFC)
+    db = _DB([fixture])
+
+    inserted, _ = _import_pipeline(monkeypatch, db, [incoming], uid_check=True)
+
+    assert inserted == []
+    [[update]] = db.rpc_calls
+    assert update["result"] == "W"
+    assert (fixture["home_score"], fixture["away_score"]) == stored
+
+
+OTHER = "0a1b2c3d-0000-4000-8000-000000000000"
+
+
+@pytest.mark.parametrize(
+    ("stored_home", "stored_away", "home", "away"),
+    [
+        pytest.param(OTHER, AFC, AFC, GREMIO, id="stored-home-is-not-incoming-away"),
+        pytest.param(GREMIO, OTHER, AFC, GREMIO, id="stored-away-is-not-incoming-home"),
+        pytest.param(GREMIO, GREMIO, GREMIO, GREMIO, id="both-sides-one-team"),
+    ],
+)
+def test_scores_are_written_as_sent_unless_the_stored_row_is_exactly_reversed(stored_home, stored_away, home, away):
+    db = _DB([])
+    pipeline = EnhancedETLPipeline(db, "gotsport")
+    stored = {RESULT_UID: {"home_team_master_id": stored_home, "away_team_master_id": stored_away}}
+
+    asyncio.run(pipeline._update_null_score_games([_incoming(home, away, 3, 0)], stored))
+
+    [[update]] = db.rpc_calls
+    assert (update["home_score"], update["away_score"]) == (3, 0)
 
 
 @pytest.mark.parametrize(
