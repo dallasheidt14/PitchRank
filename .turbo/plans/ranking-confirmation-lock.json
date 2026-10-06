@@ -1,4 +1,7 @@
 {
+  "execution_status": "superseded_owner_scope_reset",
+  "superseded_at": "2026-10-06T21:44:38.082751+00:00",
+  "superseded_reason": "Owner redirected work to original ranking corrections; November/December prediction confirmation is no longer the active release gate. Historical thresholds and evidence remain unchanged.",
   "locked": false,
   "outcomes_unseen_at_lock": false,
   "locked_at": null,

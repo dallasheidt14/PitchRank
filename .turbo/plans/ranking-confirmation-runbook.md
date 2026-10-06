@@ -1,3 +1,9 @@
+> **Superseded October 6, 2026 by the owner's ranking-policy scope correction.**
+> This runbook is retained as history. Do not execute it or schedule its November/
+> December steps under the current task. The active plan is
+> [ranking corrections with ceiling safeguards](ranking-accuracy-release.md).
+> No confirmation pass has been claimed, and publication still needs explicit approval.
+
 # November confirmation execution record
 
 Status: design frozen October 6; waiting for the October 31 training cutoff. No decision or publication is authorized.

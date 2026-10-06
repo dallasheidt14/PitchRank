@@ -1,4 +1,33 @@
-# Accuracy improvements with ceiling safeguards
+# Ranking corrections with ceiling safeguards
+
+## Active scope — owner correction, October 6, 2026
+
+The owner clarified that this work is about credible ranking placements and returning
+to the original five-item list. The November/December prediction-confirmation schedule
+below is superseded; it is not the current release gate. Do not start those scheduled
+runs or fetch their outcomes. Preserve the earlier results and numerical verdicts as
+historical evidence; this change of goal does not make an inconclusive test a pass.
+
+1. Finish reviewing the existing pull-off/gender/ceiling-safeguard package in PR #1255.
+   Its ranking code and measured September artifacts stay unchanged. Judge the code
+   against the stated ranking rules and the documented placement cases. Preserve
+   supported in-state and play-up exceptions; do not redesign those exceptions here.
+2. Implement the owner's newest-30 valid games within 365 days policy in a separate PR.
+   Keep the 12-game minimum, valid-game filters and the production approval boundary.
+   Report changed games, affected opponents and eligibility crossings before shipping.
+   The separate change is not included in #1255's measured ranking movement.
+3. Under-10 opponent strength, ML scaling and outcome-preserving goal clipping are
+   already merged. Do not reimplement them. Broader ceiling thresholds and extra
+   calculation rounds are deferred.
+
+The completed release fixes the investigated Texas and Washington rule-order cases;
+it does not prove every remaining high placement is justified. Preserve the full
+flagged-team review and the unresolved U10 findings. The next owner decision is an
+explicit merge/publication approval for a concrete reviewed change, with expected
+movement and limitations stated. No merge or publication is authorized by this note.
+Record rollback inputs before publication and verify stored ranks afterward.
+
+## Historical plan (superseded where it requires future prediction confirmation)
 
 User approved implementation on October 5, 2026. This release remains unmerged and
 unpublished until an untouched-period decision and explicit publication approval.
