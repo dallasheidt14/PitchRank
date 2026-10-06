@@ -1,5 +1,7 @@
 # Newest 30 games within 365 days — selection impact
 
+> Later owner decision: use a 10-game minimum. The original 12-game measurement below remains historical. See [the 10-game eligibility addendum](2026-10-06-minimum10-eligibility.md) for the approved policy and revised counts.
+
 Implemented October 6, 2026 on a separate branch from `2aef9e0b2`. No live rankings changed.
 
 ## Policy and concrete behavior

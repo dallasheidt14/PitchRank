@@ -240,7 +240,7 @@ class GlickoConfig:
     ML_ALPHA: float = 0.08
 
     # Provisional/publication floor
-    MIN_GAMES_PROVISIONAL: int = 12
+    MIN_GAMES_PROVISIONAL: int = 10
 
     def __post_init__(self):
         # Fail closed: the old SOS-credit cap and the new record reconciliation are two

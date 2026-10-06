@@ -89,23 +89,47 @@ def test_tied_dates_use_ids_independent_of_input_order():
         assert selected["game_id"].tolist() == [f"A-{day:03}" for day in range(30)]
 
 
+def eligibility_boundary_games():
+    return pd.concat(
+        [
+            games_for(),
+            games_for("C", range(10)),
+            games_for("D", [*range(9), 366]),
+            games_for("E", range(11)),
+            games_for("F", range(181, 191)),
+        ],
+        ignore_index=True,
+    )
+
+
+def assert_10_game_eligibility(teams):
+    teams = teams.set_index("team_id")
+    for team, count in [("A", 30), ("C", 10), ("E", 11)]:
+        assert teams.loc[team, "games_played"] == count
+        assert teams.loc[team, "status"] == "Active"
+        assert teams.loc[team, "sample_flag"] == "OK"
+        assert pd.notna(teams.loc[team, "rank_in_cohort"])
+    assert teams.loc["D", "games_played"] == 9
+    assert teams.loc["D", "status"] == "Not Enough Ranked Games"
+    assert teams.loc["D", "sample_flag"] == "LOW_SAMPLE"
+    assert pd.isna(teams.loc["D", "rank_in_cohort"])
+    assert teams.loc["F", "games_played"] == 10
+    assert teams.loc["F", "status"] == "Inactive"
+    assert pd.isna(teams.loc["F", "rank_in_cohort"])
+
+
 @pytest.mark.parametrize("pass_label", ["Pass1", "Pass2"])
-def test_engine_keeps_12_game_minimum_and_selects_the_same_newest_games(pass_label):
-    games = pd.concat([games_for(), games_for("C", range(12)), games_for("D", [*range(11), 366])], ignore_index=True)
+def test_engine_ranks_at_10_games_but_not_nine_or_inactive(pass_label):
     result = compute_rankings_v2(
-        games,
+        eligibility_boundary_games(),
         today=TODAY,
         pass_label=pass_label,
         global_rating_map={"B": 1750} if pass_label == "Pass2" else None,
     )
     used = result["games_used"]
     assert set(used.loc[used.team_id == "A", "game_id"]) == {f"A-{day:03}" for day in range(30)}
-    teams = result["teams"].set_index("team_id")
-    assert teams.loc["A", "games_played"] == 30
-    assert teams.loc["C", "games_played"] == 12
-    assert teams.loc["C", "status"] == "Active"
-    assert teams.loc["D", "games_played"] == 11
-    assert teams.loc["D", "status"] == "Not Enough Ranked Games"
+    assert "D-366" not in set(used.game_id)
+    assert_10_game_eligibility(result["teams"])
 
 
 @pytest.mark.asyncio
@@ -116,7 +140,7 @@ async def test_normal_calculator_fetches_365_days_and_passes_newest_games_to_ml(
 
     async def fetch(**kwargs):
         calls.append(kwargs)
-        return games_for()
+        return eligibility_boundary_games()
 
     async def ml(**kwargs):
         received.extend(kwargs["games_used_df"]["game_id"])
@@ -124,16 +148,23 @@ async def test_normal_calculator_fetches_365_days_and_passes_newest_games_to_ml(
 
     monkeypatch.setattr(calculator, "fetch_games_for_rankings", fetch)
     monkeypatch.setattr(calculator, "apply_predictive_adjustment", ml)
-    await calculator.compute_rankings_with_ml(object(), today=TODAY, ctx=offline_context())
+    result = await calculator.compute_rankings_with_ml(object(), today=TODAY, ctx=offline_context())
     assert calls[0]["lookback_days"] == 365
     assert calls[0]["today"] == TODAY
-    assert set(received) == {f"A-{day:03}" for day in range(30)}
+    expected = {
+        f"{team}-{day:03}"
+        for team, days in [("A", range(30)), ("C", range(10)), ("D", range(9)), ("E", range(11)), ("F", range(181, 191))]
+        for day in days
+    }
+    assert set(received) == expected
+    assert_10_game_eligibility(result["teams"])
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "change",
     [
+        {"MIN_GAMES_PROVISIONAL": 12},
         {"MAX_GAMES": 29},
         {"WINDOW_DAYS": 364},
         {"WINDOW_GRACE_DAYS": 1},

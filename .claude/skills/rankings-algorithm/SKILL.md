@@ -139,7 +139,7 @@ All normalizations are per-cohort (age, gender). Preserves natural gaps unlike p
 - **Weights**: the recency exponential is normalized to sum 1 per team; repeat-opponent multipliers 1.0 / 0.8 / 0.6 / 0.4. The legacy grace taper is inactive at the zero default.
 - **Cross-age**: `opp_mu + (opp_anchor − team_anchor)·400`; Pass 2 rates cross-age opponents at RD 350 so g(φ) discounts them
 - **SOS adjustment**: mu's distance from 1500 scaled down up to 16% when `sos_norm < 0.45`, up at most 3% when `sos_norm > 0.60`
-- **Provisional / status**: `provisional_mult = 1 − (RD/350)²`; Inactive after `INACTIVE_DAYS`; "Not Enough Ranked Games" below 12
+- **Provisional / status**: `provisional_mult = 1 − (RD/350)²`; Inactive after `INACTIVE_DAYS`; "Not Enough Ranked Games" below 10
 
 ### Feature flags currently OFF
 
