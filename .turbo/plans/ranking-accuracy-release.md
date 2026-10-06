@@ -3,6 +3,21 @@
 User approved implementation on October 5, 2026. This release remains unmerged and
 unpublished until an untouched-period decision and explicit publication approval.
 
+## October 6 confirmation update
+
+The completed September report and tested draft PR are delivered. The owner approved
+implementation of the final decision plan and selected “Not sure—verify first” for
+October exposure. The audit could not establish October independence, so the approved
+fallback is now **November 1–30**, trained through **October 31**, for a decision in
+early December. This supersedes the provisional October timing below; no scoring
+threshold or release behavior changes.
+
+See the [month audit](../reports/2026-10-06-ranking-confirmation-audit.md),
+[execution record](ranking-confirmation-runbook.md) and
+[pending evaluation lock](ranking-confirmation-lock.json). Design/source/runtime are
+frozen; the data-bound lock remains invalid until the future training inputs and run
+receipts are verified. No confirmation ranking run or outcome fetch has started.
+
 ## Fixed scope
 
 Use the tested SCF-off default and convergence gender correction, restore connectivity
