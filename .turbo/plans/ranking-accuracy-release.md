@@ -13,7 +13,8 @@ historical evidence; this change of goal does not make an inconclusive test a pa
    against the stated ranking rules and the documented placement cases. Preserve
    supported in-state and play-up exceptions; do not redesign those exceptions here.
 2. Implement the owner's newest-30 valid games within 365 days policy in a separate PR.
-   Keep the 12-game minimum, valid-game filters and the production approval boundary.
+   Owner update, October 6: use the approved 10-game minimum in PR #1257.
+   Keep valid-game filters and the production approval boundary.
    Report changed games, affected opponents and eligibility crossings before shipping.
    The separate change is not included in #1255's measured ranking movement.
 3. Under-10 opponent strength, ML scaling and outcome-preserving goal clipping are

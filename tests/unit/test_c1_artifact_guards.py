@@ -11,6 +11,8 @@ from types import SimpleNamespace
 import pandas as pd
 import pytest
 
+from src.etl.glicko_config import GlickoConfig
+
 ROOT = Path(__file__).resolve().parents[2]
 TOOLS = ROOT / ".claude/skills/measuring-ranking-changes/scripts"
 sys.path.insert(0, str(TOOLS))
@@ -45,7 +47,11 @@ def captured_runs(tmp_path_factory):
                                                    league=None, is_deprecated=False)),
         "merge-map.parquet": pd.DataFrame(dict(deprecated_team_id=["old"], canonical_team_id=["0"])),
     }
-    manifest = dict(today="2026-08-31", fetch_lookback_days=393, fetch_code_sha256=None)
+    # This fixture constructs recent games directly; describe this checkout's window.
+    # Literal production window boundaries are tested by test_newest_game_selection.
+    cfg = GlickoConfig()
+    manifest = dict(today="2026-08-31", fetch_lookback_days=cfg.WINDOW_DAYS + cfg.WINDOW_GRACE_DAYS,
+                    fetch_code_sha256=None)
     for (name, frame), key in zip(frames.items(), ("games_sha256", "teams_metadata_sha256", "merge_map_sha256")):
         frame.to_parquet(freeze / name, index=False)
         manifest[key] = checks.digest(freeze / name)
