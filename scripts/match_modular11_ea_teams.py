@@ -22,6 +22,7 @@ import re
 import sys
 from collections import defaultdict
 from dataclasses import dataclass
+from datetime import date
 from functools import lru_cache
 from pathlib import Path
 
@@ -29,6 +30,7 @@ from dotenv import load_dotenv
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from scripts.scrape_modular11_ea import season_bounds  # noqa: E402
 from src.models.modular11_ea_keys import club_state, ea_key, split_ea_key  # noqa: E402
 from src.models.modular11_ea_matcher import PROVIDER_CODE  # noqa: E402
 from supabase import create_client  # noqa: E402
@@ -46,6 +48,8 @@ TIER_TOKENS = frozenset({"ea", "ea1", "ea2"})
 PLAIN_AFTER_TIER = frozenset({"boys", "b", "premier", "academy", "elite"})
 COLOURS = frozenset({"red", "blue", "white", "black", "gold", "silver", "orange", "navy", "green", "grey", "purple"})
 BRANCH = "different branch"
+LINEAGE = "last season's age-below team"
+MIN_CLASH_DATES = 2
 PAGE_SIZE = 1000
 REPORT_COLUMNS = [
     "provider_team_id",
@@ -169,7 +173,33 @@ def squad_qualifier(ea: EaTeam, team_name: str) -> str | None:
     return None
 
 
-def _hold(ea: EaTeam, team: dict) -> str | None:
+def schedule_conflict(ea_games: list[dict], cand_games: list[dict]) -> bool:
+    """The candidate was playing another club on dates the EA team played its league games.
+
+    No single game decides: a doubleheader or a mis-dated row can put one game on the wrong
+    day, so it takes MIN_CLASH_DATES distinct dates.
+    """
+    ea_by_date: dict[str, list[dict]] = defaultdict(list)
+    for game in ea_games:
+        ea_by_date[game["game_date"]].append(game)
+    clashes = set()
+    for game in cand_games:
+        theirs = ea_by_date.get(game["game_date"])
+        if theirs and all(
+            club_relation(e["opponent_club"] or e["opponent_name"], game["opponent_club"], game["opponent_name"])
+            == "other"
+            for e in theirs
+        ):
+            clashes.add(game["game_date"])
+    return len(clashes) >= MIN_CLASH_DATES
+
+
+def lineage_target(age_minus_one_uid: str, season: int, links: dict[str, str]) -> str | None:
+    """The team linked last season to the club's slot one age below, which has since moved up."""
+    return links.get(ea_key(age_minus_one_uid, season - 1))
+
+
+def _hold(ea: EaTeam, team: dict, ea_games: dict[str, list[dict]], cand_games: dict[str, list[dict]]) -> str | None:
     """None when the team cannot be this EA team; else why it cannot be confident ("" when it can)."""
     relation = club_relation(ea.club_name, team.get("club_name"), team["team_name"])
     if relation == "other":
@@ -179,6 +209,8 @@ def _hold(ea: EaTeam, team: dict) -> str | None:
         return None
     if any(key != ea.key and split_ea_key(key)[1] == ea.season for key in team.get("ea_keys", ())):
         return None
+    if schedule_conflict(ea_games.get(ea.provider_team_id, []), cand_games.get(team["team_id_master"], [])):
+        return None
     if relation == "branch":
         return BRANCH
     if not state:
@@ -187,12 +219,25 @@ def _hold(ea: EaTeam, team: dict) -> str | None:
     return f"squad qualifier: {qualifier}" if qualifier else ""
 
 
-def classify(ea_teams: list[EaTeam], db_teams: list[dict]) -> list[ReportRow]:
-    hits = {ea.provider_team_id: [(d, why) for d in db_teams if (why := _hold(ea, d)) is not None] for ea in ea_teams}
+def classify(
+    ea_teams: list[EaTeam],
+    db_teams: list[dict],
+    ea_games: dict[str, list[dict]] | None = None,
+    cand_games: dict[str, list[dict]] | None = None,
+    lineage: dict[str, str] | None = None,
+) -> list[ReportRow]:
+    """``lineage`` maps an EA team to last season's link of its club's age-below slot (see lineage_target)."""
+    ea_games, cand_games, lineage = ea_games or {}, cand_games or {}, lineage or {}
+    hits = {
+        ea.provider_team_id: [(d, why) for d in db_teams if (why := _hold(ea, d, ea_games, cand_games)) is not None]
+        for ea in ea_teams
+    }
     tagged = {}
     for ea in ea_teams:
         found = hits[ea.provider_team_id]
-        tagged[ea.provider_team_id] = [(d, why) for d, why in found if tier_marker(d["team_name"]) in ea.tiers]
+        mine = [(d, why) for d, why in found if tier_marker(d["team_name"]) in ea.tiers]
+        lineal = [(d, why) for d, why in mine if d["team_id_master"] == lineage.get(ea.provider_team_id)]
+        tagged[ea.provider_team_id] = lineal or mine
     claims: dict[str, set[str]] = defaultdict(set)
     for ea_id, candidates in tagged.items():
         for candidate, why in candidates:
@@ -207,7 +252,9 @@ def classify(ea_teams: list[EaTeam], db_teams: list[dict]) -> list[ReportRow]:
         holds = sorted({why for _, why in mine if why})
         teams = tuple(d for d, _ in mine)
         if len(mine) == 1 and not shared and not holds:
-            rows.append(ReportRow(ea, "confident", "one same-club, same-age, same-tier team", teams))
+            lineal = mine[0][0]["team_id_master"] == lineage.get(ea.provider_team_id)
+            reason = LINEAGE if lineal else "one same-club, same-age, same-tier team"
+            rows.append(ReportRow(ea, "confident", reason, teams))
         elif mine:
             reasons = ([f"{len(mine)} candidates"] if len(mine) > 1 else []) + holds
             if shared:
@@ -279,6 +326,125 @@ def fetch_db_teams(sb, age_group: str) -> list[dict]:
     return eligible
 
 
+def _paged(build) -> list[dict]:
+    """Every row of an ordered query; ``build`` returns a fresh query for each page."""
+    rows, offset = [], 0
+    while True:
+        page = build().range(offset, offset + PAGE_SIZE - 1).execute().data
+        rows.extend(page)
+        if len(page) < PAGE_SIZE:
+            return rows
+        offset += PAGE_SIZE
+
+
+def _merge_map(sb, column: str, ids: list[str]) -> list[dict]:
+    rows = []
+    for start in range(0, len(ids), 100):
+        batch = ids[start : start + 100]
+        rows += _paged(
+            lambda b=batch: (
+                sb.table("team_merge_map")
+                .select("deprecated_team_id, canonical_team_id")
+                .in_(column, b)
+                .order("deprecated_team_id")
+            )
+        )
+    return rows
+
+
+def fetch_candidate_games(sb, ids: list[str], season: int) -> dict[str, list[dict]]:
+    """Per candidate, its non-excluded games this season as (date, opponent name, opponent club).
+
+    Merges are resolved both ways: games stored under a team merged into a candidate count as
+    the candidate's, and an opponent is named by the team it was merged into.
+    """
+    start, end = (bound[:10] for bound in season_bounds(date(season, 8, 1)))
+    owner = {team_id: team_id for team_id in ids}
+    for row in _merge_map(sb, "canonical_team_id", ids):
+        owner[row["deprecated_team_id"]] = row["canonical_team_id"]
+    played: list[tuple[str, str, str]] = []
+    keys = sorted(owner)
+    for side, other in (("home", "away"), ("away", "home")):
+        for offset in range(0, len(keys), 100):
+            batch = keys[offset : offset + 100]
+            games = _paged(
+                lambda b=batch, s=side: (
+                    sb.table("games")
+                    .select("id, game_date, home_team_master_id, away_team_master_id")
+                    .in_(f"{s}_team_master_id", b)
+                    .eq("is_excluded", False)
+                    .gte("game_date", start)
+                    .lte("game_date", end)
+                    .order("id")
+                )
+            )
+            played += [
+                (owner[g[f"{side}_team_master_id"]], g["game_date"][:10], g[f"{other}_team_master_id"]) for g in games
+            ]
+    opponents = sorted({opp for _, _, opp in played if opp})
+    canonical = {
+        r["deprecated_team_id"]: r["canonical_team_id"] for r in _merge_map(sb, "deprecated_team_id", opponents)
+    }
+    resolved = sorted({canonical.get(opp, opp) for opp in opponents})
+    names = {}
+    for offset in range(0, len(resolved), 100):
+        batch = resolved[offset : offset + 100]
+        for row in (
+            sb.table("teams").select("team_id_master, team_name, club_name").in_("team_id_master", batch).execute().data
+        ):
+            names[row["team_id_master"]] = row
+    out: dict[str, list[dict]] = defaultdict(list)
+    for team_id, game_date, opp in played:
+        team = names.get(canonical.get(opp, opp), {})
+        out[team_id].append(
+            {
+                "game_date": game_date,
+                "opponent_name": team.get("team_name") or "",
+                "opponent_club": team.get("club_name"),
+            }
+        )
+    return out
+
+
+def _ea_schedules(games: list[dict], clubs: dict[str, str]) -> dict[str, list[dict]]:
+    """Per EA team, its played games from its own side, as fetch_candidate_games reports them."""
+    out: dict[str, list[dict]] = defaultdict(list)
+    for game in games:
+        if game["status"] != "played" or not (game["home_team_id"] and game["away_team_id"]):
+            continue
+        for team, opponent, opponent_name in (
+            (game["home_team_id"], game["away_team_id"], game["away_name"]),
+            (game["away_team_id"], game["home_team_id"], game["home_name"]),
+        ):
+            out[team].append(
+                {
+                    "game_date": game["game_date"][:10],
+                    "opponent_name": opponent_name,
+                    "opponent_club": clubs.get(opponent),
+                }
+            )
+    return out
+
+
+def _lineage(below: Path, rows: list[dict], links: dict[str, str]) -> dict[str, str]:
+    """Per EA team, last season's link of its club's same-tier slot one age below."""
+    if not below.exists():
+        return {}
+    slots = {(r["academy_id"], r["name_tier"]): r["provider_team_id"] for r in _read_csv(below)}
+    out = {}
+    for row in rows:
+        uid = slots.get((row["academy_id"], row["name_tier"]))
+        target = lineage_target(uid, int(row["season"]), links) if uid else None
+        if target:
+            out[row["provider_team_id"]] = target
+    return out
+
+
+def _read_csv(path: Path) -> list[dict]:
+    with path.open(encoding="utf-8") as handle:
+        return list(csv.DictReader(handle))
+
+
 def _load_ea_teams(path: Path) -> list[EaTeam]:
     with path.open(encoding="utf-8") as handle:
         return [
@@ -296,8 +462,28 @@ def _load_ea_teams(path: Path) -> list[EaTeam]:
 
 
 def run(age: str, in_dir: Path, sb) -> dict[str, int]:
-    report = classify(_load_ea_teams(in_dir / age / "teams.csv"), fetch_db_teams(sb, age))
-    with (in_dir / age / "match_report.csv").open("w", newline="", encoding="utf-8") as handle:
+    age_dir = in_dir / age
+    ea_teams = _load_ea_teams(age_dir / "teams.csv")
+    db_teams = fetch_db_teams(sb, age)
+    rows = _read_csv(age_dir / "teams.csv")
+    games_path = age_dir / "games.csv"
+    ea_games = (
+        _ea_schedules(_read_csv(games_path), {r["provider_team_id"]: r["club_name"] for r in rows})
+        if games_path.exists()
+        else {}
+    )
+    cand_games = {}
+    if ea_games and ea_teams:
+        related = [
+            d["team_id_master"]
+            for d in db_teams
+            if any(club_relation(ea.club_name, d.get("club_name"), d["team_name"]) != "other" for ea in ea_teams)
+        ]
+        cand_games = fetch_candidate_games(sb, related, ea_teams[0].season) if related else {}
+    links = {key: d["team_id_master"] for d in db_teams for key in d["ea_keys"]}
+    lineage = _lineage(in_dir / f"u{int(age[1:]) - 1}" / "teams.csv", rows, links)
+    report = classify(ea_teams, db_teams, ea_games, cand_games, lineage)
+    with (age_dir / "match_report.csv").open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=REPORT_COLUMNS)
         writer.writeheader()
         for row in report:
