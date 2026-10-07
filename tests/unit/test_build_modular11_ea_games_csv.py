@@ -18,6 +18,8 @@ def _game(match_no="1", home="7155", away="7156", hs="3", as_="1", status="playe
         "region": "PACNW",
         "home_team_id": home,
         "away_team_id": away,
+        "home_key": f"{home}:2026" if home else "",
+        "away_key": f"{away}:2026" if away else "",
         "home_name": "Emerald City FC",
         "away_name": "Sparta Tacoma",
         "home_academy": "1534",
@@ -33,7 +35,7 @@ TEAMS = {
     "7155": {"provider_team_id": "7155", "display_name": "Emerald City FC", "club_name": "Emerald City FC"},
     "7156": {"provider_team_id": "7156", "display_name": "Sparta Tacoma", "club_name": "Sparta Tacoma"},
 }
-LINKS = {"7155": "M1", "7156": "M2"}
+LINKS = {"7155:2026": "M1", "7156:2026": "M2"}
 
 
 def test_played_game_with_both_linked_becomes_two_rows():
@@ -42,7 +44,7 @@ def test_played_game_with_both_linked_becomes_two_rows():
     picked = [
         (r["team_id"], r["opponent_id"], r["home_away"], r["goals_for"], r["goals_against"], r["result"]) for r in rows
     ]
-    assert picked == [("7155", "7156", "H", 3, 1, "W"), ("7156", "7155", "A", 1, 3, "L")]
+    assert picked == [("7155:2026", "7156:2026", "H", 3, 1, "W"), ("7156:2026", "7155:2026", "A", 1, 3, "L")]
     assert rows[0]["provider"] == "modular11_ea"
     assert rows[0]["event_name"] == "Elite Academy League - EA"
     assert (rows[0]["age_group"], rows[0]["gender"], rows[0]["game_date"]) == ("u17", "Boys", "2026-09-12")
@@ -147,16 +149,16 @@ def test_impact_follows_the_engine_threshold(monkeypatch):
 def test_planned_mode_links_created_teams_without_reading_aliases(tmp_path):
     plan = tmp_path / "link_plan.csv"
     with plan.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=["provider_team_id", "action", "team_id_master"])
+        writer = csv.DictWriter(handle, fieldnames=["provider_team_id", "key", "action", "team_id_master"])
         writer.writeheader()
         writer.writerows(
             [
-                {"provider_team_id": "7155", "action": "link", "team_id_master": "M1"},
-                {"provider_team_id": "7156", "action": "create", "team_id_master": ""},
-                {"provider_team_id": "7157", "action": "hold", "team_id_master": ""},
+                {"provider_team_id": "7155", "key": "7155:2026", "action": "link", "team_id_master": "M1"},
+                {"provider_team_id": "7156", "key": "7156:2026", "action": "create", "team_id_master": ""},
+                {"provider_team_id": "7157", "key": "7157:2026", "action": "hold", "team_id_master": ""},
             ]
         )
-    assert build.planned_links(plan) == {"7155": "M1", "7156": "new:7156"}
+    assert build.planned_links(plan) == {"7155:2026": "M1", "7156:2026": "new:7156:2026"}
 
 
 class _TeamsQuery:
@@ -207,10 +209,53 @@ def test_planned_run_writes_a_preview_file_not_an_importable_one(tmp_path, monke
         writer.writeheader()
         writer.writerows(TEAMS.values())
     with (age_dir / "link_plan.csv").open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=["provider_team_id", "action", "team_id_master"])
+        writer = csv.DictWriter(handle, fieldnames=["provider_team_id", "key", "action", "team_id_master"])
         writer.writeheader()
-        writer.writerows([{"provider_team_id": t, "action": "create", "team_id_master": ""} for t in TEAMS])
+        writer.writerows([{"provider_team_id": t, "key": f"{t}:2026", "action": "create", "team_id_master": ""} for t in TEAMS])
     monkeypatch.setattr(build, "_new_client", lambda: _Db({}))
     assert build.main(["--age", "u17", "--in-dir", str(tmp_path), "--planned"]) == 0
     assert (age_dir / "import_planned.csv").exists()
     assert not (age_dir / "import.csv").exists()
+
+
+def test_names_come_from_the_raw_uid_while_ids_are_season_keys():
+    rows, _ = build.build_rows([_game()], TEAMS, LINKS)
+    assert (rows[0]["team_id"], rows[0]["team_id_source"], rows[0]["club_name"]) == ("7155:2026", "7155:2026", "Emerald City FC")
+
+
+def test_season_keyed_rows_import_with_integer_scores(tmp_path):
+    from scripts.import_games_enhanced import stream_games_csv
+
+    rows, _ = build.build_rows([_game()], TEAMS, LINKS)
+    path = tmp_path / "import.csv"
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=build.IMPORT_COLUMNS)
+        writer.writeheader()
+        writer.writerows(rows)
+    [batch] = list(stream_games_csv(path))
+    assert [(g["team_id"], g["opponent_id"], g["goals_for"], g["goals_against"]) for g in batch] == [
+        ("7155:2026", "7156:2026", 3, 1),
+        ("7156:2026", "7155:2026", 1, 3),
+    ]
+
+
+def test_season_keyed_rows_load_with_integer_scores(tmp_path):
+    from scripts.import_games_enhanced import load_games_csv
+
+    rows, _ = build.build_rows([_game()], TEAMS, LINKS)
+    path = tmp_path / "import.csv"
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=build.IMPORT_COLUMNS)
+        writer.writeheader()
+        writer.writerows(rows)
+    games = load_games_csv(path)
+    assert [(g["team_id"], g["goals_for"], g["goals_against"]) for g in games] == [("7155:2026", 3, 1), ("7156:2026", 1, 3)]
+
+
+def test_float_numeric_ids_still_lose_their_decimal(tmp_path):
+    from scripts.import_games_enhanced import stream_games_csv
+
+    path = tmp_path / "gotsport.csv"
+    path.write_text("provider,team_id,opponent_id,goals_for,goals_against\ngotsport,3432.0,77.0,2,0\n", encoding="utf-8")
+    [[game]] = list(stream_games_csv(path))
+    assert (game["team_id"], game["opponent_id"], game["goals_for"], game["goals_against"]) == ("3432", "77", 2, 0)

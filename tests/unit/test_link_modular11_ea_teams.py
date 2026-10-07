@@ -9,7 +9,7 @@ from postgrest.exceptions import APIError
 from scripts import link_modular11_ea_teams as link
 
 PROVIDER = "prov-ea"
-TEAM_COLUMNS = ["provider_team_id", "academy_id", "club_name", "display_name", "age_group", "name_tier", "tiers", "regions", "gender"]
+TEAM_COLUMNS = ["provider_team_id", "academy_id", "club_name", "display_name", "age_group", "name_tier", "tiers", "regions", "gender", "season"]
 REPORT_COLUMNS = ["provider_team_id", "club_name", "display_name", "tiers", "bucket", "reason", "candidate_ids", "candidate_names", "candidate_clubs", "candidate_providers", "candidate_states"]
 
 
@@ -114,7 +114,7 @@ def _live(team_id_master, age_group="u17", gender="Male", deprecated=None):
 
 def _team(tid, name="Emerald City FC", club="Emerald City FC"):
     return {"provider_team_id": tid, "academy_id": "9", "club_name": club, "display_name": name, "age_group": "u17",
-            "name_tier": "EA", "tiers": "EA", "regions": "PACNW", "gender": "Male"}
+            "name_tier": "EA", "tiers": "EA", "regions": "PACNW", "gender": "Male", "season": "2026"}
 
 
 def _report(tid, bucket, ids="", names=""):
@@ -167,14 +167,14 @@ def test_execute_creates_team_and_direct_id_alias(tmp_path, alias_calls):
         "club_name": "Emerald City FC",
         "age_group": "u17",
         "gender": "Male",
-        "state_code": None,
-        "state": None,
+        "state_code": "WA",
+        "state": "Washington",
         "provider_id": PROVIDER,
-        "provider_team_id": "7155",
+        "provider_team_id": "7155:2026",
         "distinction": team["distinction"],
     }
     assert [(c["provider_team_id"], c["team_id_master"], c["match_method"], c["confidence"]) for c in alias_calls] == [
-        ("7155", new_id, "direct_id", 1.0)
+        ("7155:2026", new_id, "direct_id", 1.0)
     ]
     assert counts == {
         "teams_created": 1,
@@ -189,7 +189,7 @@ def test_execute_creates_team_and_direct_id_alias(tmp_path, alias_calls):
     log = [json.loads(line) for line in (tmp_path / "log.jsonl").read_text(encoding="utf-8").splitlines()]
     assert log == [
         {"kind": "team", "team_id_master": new_id},
-        {"kind": "alias", "provider_team_id": "7155", "team_id_master": new_id, "result": "created"},
+        {"kind": "alias", "provider_team_id": "7155:2026", "team_id_master": new_id, "result": "created"},
     ]
 
 
@@ -202,7 +202,7 @@ def test_confident_link_writes_fuzzy_auto_alias(tmp_path, alias_calls):
 
 
 def test_rerun_reuses_existing_team(tmp_path, alias_calls):
-    existing = {"team_id_master": "OLD", "provider_id": PROVIDER, "provider_team_id": "7155"}
+    existing = {"team_id_master": "OLD", "provider_id": PROVIDER, "provider_team_id": "7155:2026"}
     db = _Db(teams=[existing])
     plan = link.plan_links([_team("7155")], [_report("7155", "no_match")], {})
     counts, created = link.apply_plan(db, PROVIDER, plan, tmp_path / "log.jsonl")
@@ -219,7 +219,7 @@ def test_hold_writes_nothing(tmp_path, alias_calls):
 
 
 def test_undo_removes_created_aliases_and_empty_teams(tmp_path, alias_calls):
-    keep = {"provider_id": PROVIDER, "provider_team_id": "9", "team_id_master": "KEEP", "review_status": "approved"}
+    keep = {"provider_id": PROVIDER, "provider_team_id": "9:2026", "team_id_master": "KEEP", "review_status": "approved"}
     db = _Db(aliases=[keep], teams=[_live("KEEP")])
     plan = link.plan_links([_team("7155"), _team("9")], [_report("7155", "no_match"), _report("9", "confident", "KEEP")], {})
     log = tmp_path / "log.jsonl"
@@ -267,8 +267,8 @@ def test_handback_lists_created_and_review_teams(tmp_path):
 
 
 def test_create_reuses_an_existing_approved_alias_and_writes_nothing(tmp_path, alias_calls):
-    alias = {"provider_id": PROVIDER, "provider_team_id": "7155", "team_id_master": "SURVIVOR", "review_status": "approved"}
-    deprecated = {"team_id_master": "OLD", "provider_id": PROVIDER, "provider_team_id": "7155", "is_deprecated": True}
+    alias = {"provider_id": PROVIDER, "provider_team_id": "7155:2026", "team_id_master": "SURVIVOR", "review_status": "approved"}
+    deprecated = {"team_id_master": "OLD", "provider_id": PROVIDER, "provider_team_id": "7155:2026", "is_deprecated": True}
     db = _Db(teams=[deprecated], aliases=[alias])
     plan = link.plan_links([_team("7155")], [_report("7155", "no_match")], {"7155": "new"})
     counts, created = link.apply_plan(db, PROVIDER, plan, tmp_path / "log.jsonl")
@@ -277,7 +277,7 @@ def test_create_reuses_an_existing_approved_alias_and_writes_nothing(tmp_path, a
 
 
 def test_pick_for_an_already_linked_team_is_reported_not_written(tmp_path, alias_calls):
-    alias = {"provider_id": PROVIDER, "provider_team_id": "7155", "team_id_master": "CREATED", "review_status": "approved"}
+    alias = {"provider_id": PROVIDER, "provider_team_id": "7155:2026", "team_id_master": "CREATED", "review_status": "approved"}
     db = _Db(teams=[_live("CREATED"), _live("OTHER")], aliases=[alias])
     plan = link.plan_links([_team("7155")], [_report("7155", "no_match")], {"7155": "OTHER"})
     counts, _ = link.apply_plan(db, PROVIDER, plan, tmp_path / "log.jsonl")
@@ -311,3 +311,17 @@ def test_legend_offers_skip_only_for_review_rows(tmp_path):
     assert "Needs review rows" in legend and "Created rows" in legend
     created_part = legend.split("Created rows", 1)[1].split("Needs review rows", 1)[0]
     assert "skip" not in created_part and "merge" in created_part
+
+
+def test_last_seasons_link_does_not_count_for_this_season(tmp_path, alias_calls):
+    old = {"provider_id": PROVIDER, "provider_team_id": "7155:2025", "team_id_master": "LAST_YEAR", "review_status": "approved"}
+    db = _Db(aliases=[old])
+    plan = link.plan_links([_team("7155")], [_report("7155", "no_match")], {})
+    counts, created = link.apply_plan(db, PROVIDER, plan, tmp_path / "log.jsonl")
+    assert (counts["already_linked"], counts["teams_created"]) == (0, 1)
+    assert [c["provider_team_id"] for c in alias_calls] == ["7155:2026"]
+
+
+def test_raw_uid_decision_applies_to_the_season_key():
+    plan = link.plan_links([_team("7155")], [_report("7155", "review", "M1|M2")], {"7155": "M2"})
+    assert [(a.provider_team_id, a.key, a.action, a.team_id_master) for a in plan] == [("7155", "7155:2026", "link", "M2")]

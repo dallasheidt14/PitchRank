@@ -34,9 +34,11 @@ from postgrest.exceptions import APIError
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from src.models.modular11_ea_keys import club_state, ea_key  # noqa: E402
 from src.models.modular11_ea_matcher import PROVIDER_CODE  # noqa: E402
 from src.tournaments.alias_writer import upsert_team_alias  # noqa: E402
 from src.utils.team_name_utils import resolve_distinction  # noqa: E402
+from src.utils.us_states import STATE_CODE_TO_NAME  # noqa: E402
 from supabase import create_client  # noqa: E402
 
 ALIAS_CONFIDENCE = {"direct_id": 1.0, "fuzzy_auto": 0.95, "manual": 1.0}
@@ -55,12 +57,14 @@ HANDBACK_COLUMNS = [
 @dataclass(frozen=True)
 class LinkAction:
     provider_team_id: str
+    key: str
     action: str
     team_id_master: str
     match_method: str
     display_name: str
     club_name: str
     age_group: str
+    state_code: str
     reason: str
 
 
@@ -73,9 +77,11 @@ def plan_links(teams: list[dict], report: list[dict], decisions: dict[str, str])
         pick = (decisions.get(tid) or "").strip()
         base = {
             "provider_team_id": tid,
+            "key": ea_key(tid, int(team["season"])),
             "display_name": team["display_name"],
             "club_name": team["club_name"],
             "age_group": team["age_group"],
+            "state_code": club_state(team["club_name"]),
         }
         if pick.lower() == "skip":
             step = ("hold", "", "", "your pick: skip")
@@ -122,10 +128,10 @@ def _create_team(sb, provider_id: str, action: LinkAction) -> str:
             "club_name": action.club_name,
             "age_group": action.age_group,
             "gender": "Male",
-            "state_code": None,
-            "state": None,
+            "state_code": action.state_code,
+            "state": STATE_CODE_TO_NAME[action.state_code],
             "provider_id": provider_id,
-            "provider_team_id": action.provider_team_id,
+            "provider_team_id": action.key,
             "distinction": resolve_distinction(action.display_name, action.club_name, None),
         }
     ).execute()
@@ -190,7 +196,7 @@ def apply_plan(sb, provider_id: str, plan: list[LinkAction], log_path: Path) -> 
             if action.action == "hold":
                 counts["held"] += 1
                 continue
-            linked = _linked_team(sb, provider_id, action.provider_team_id)
+            linked = _linked_team(sb, provider_id, action.key)
             target = action.team_id_master
             if action.action == "link":
                 if linked and linked != target:
@@ -205,7 +211,7 @@ def apply_plan(sb, provider_id: str, plan: list[LinkAction], log_path: Path) -> 
                 if linked:
                     counts["already_linked"] += 1
                     continue
-                target = _existing_team(sb, provider_id, action.provider_team_id)
+                target = _existing_team(sb, provider_id, action.key)
                 if target:
                     counts["teams_reused"] += 1
                 else:
@@ -217,7 +223,7 @@ def apply_plan(sb, provider_id: str, plan: list[LinkAction], log_path: Path) -> 
             result = upsert_team_alias(
                 sb,
                 provider_uuid=provider_id,
-                provider_team_id=action.provider_team_id,
+                provider_team_id=action.key,
                 team_id_master=target,
                 provider_team_name=action.display_name,
                 confidence=confidence,
@@ -234,7 +240,7 @@ def apply_plan(sb, provider_id: str, plan: list[LinkAction], log_path: Path) -> 
                 json.dumps(
                     {
                         "kind": "alias",
-                        "provider_team_id": action.provider_team_id,
+                        "provider_team_id": action.key,
                         "team_id_master": target,
                         "result": outcome,
                     }

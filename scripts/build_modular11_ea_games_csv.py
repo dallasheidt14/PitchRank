@@ -80,16 +80,17 @@ def build_rows(games: list[dict], teams: dict[str, dict], links: dict[str, str])
     for game in games:
         if game["status"] != "played":
             continue
-        home, away = game["home_team_id"], game["away_team_id"]
+        home, away = game["home_key"], game["away_key"]
         if not (home in links and away in links):
             held.append(game)
             continue
         home_score, away_score = int(game["home_score"]), int(game["away_score"])
-        for team_id, opponent_id, goals_for, goals_against, home_away, name, opponent_name in (
-            (home, away, home_score, away_score, "H", game["home_name"], game["away_name"]),
-            (away, home, away_score, home_score, "A", game["away_name"], game["home_name"]),
+        home_uid, away_uid = game["home_team_id"], game["away_team_id"]
+        for team_id, opponent_id, team_uid, opponent_uid, goals_for, goals_against, home_away, name, opponent_name in (
+            (home, away, home_uid, away_uid, home_score, away_score, "H", game["home_name"], game["away_name"]),
+            (away, home, away_uid, home_uid, away_score, home_score, "A", game["away_name"], game["home_name"]),
         ):
-            team, opponent = teams.get(team_id, {}), teams.get(opponent_id, {})
+            team, opponent = teams.get(team_uid, {}), teams.get(opponent_uid, {})
             rows.append(
                 {
                     "provider": PROVIDER_CODE,
@@ -155,9 +156,9 @@ def planned_links(plan_path: Path) -> dict[str, str]:
     with plan_path.open(encoding="utf-8") as handle:
         for row in csv.DictReader(handle):
             if row["action"] == "link":
-                links[row["provider_team_id"]] = row["team_id_master"]
+                links[row["key"]] = row["team_id_master"]
             elif row["action"] == "create":
-                links[row["provider_team_id"]] = f"new:{row['provider_team_id']}"
+                links[row["key"]] = f"new:{row['key']}"
     return links
 
 

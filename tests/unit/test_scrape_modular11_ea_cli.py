@@ -47,6 +47,9 @@ def test_run_writes_one_age(tmp_path):
     assert flyte["name_tier"] == "EA"
     games = list(csv.DictReader((tmp_path / "u13" / "games.csv").open(encoding="utf-8")))
     assert counts["games"] == len(games) == 39
+    assert {t["season"] for t in teams} == {"2026"}
+    assert all(g["home_key"] == f"{g['home_team_id']}:2026" for g in games if g["home_team_id"])
+    assert all(g["away_key"] == (f"{g['away_team_id']}:2026" if g["away_team_id"] else "") for g in games)
 
 
 def test_failure_exits_1_and_writes_nothing(tmp_path, monkeypatch):

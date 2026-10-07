@@ -116,7 +116,10 @@ def stream_games_csv(
                         game["team_id"] = str(int(float(game["team_id"]))) if game["team_id"] else ""
                     if game["opponent_id"]:
                         game["opponent_id"] = str(int(float(game["opponent_id"]))) if game["opponent_id"] else ""
+                except (ValueError, TypeError):
+                    pass  # Keep as string if conversion fails
 
+                try:
                     # Convert scores to integers
                     if game["goals_for"]:
                         game["goals_for"] = int(float(game["goals_for"])) if game["goals_for"] else None
@@ -186,7 +189,10 @@ def load_games_csv(file_path: Path, limit: Optional[int] = None) -> List[Dict]:
                         game["team_id"] = str(int(float(game["team_id"]))) if game["team_id"] else ""
                     if game["opponent_id"]:
                         game["opponent_id"] = str(int(float(game["opponent_id"]))) if game["opponent_id"] else ""
+                except (ValueError, TypeError):
+                    pass  # Keep as string if conversion fails
 
+                try:
                     # Convert scores to integers
                     if game["goals_for"]:
                         game["goals_for"] = int(float(game["goals_for"])) if game["goals_for"] else None

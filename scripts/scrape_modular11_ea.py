@@ -29,7 +29,7 @@ from bs4 import BeautifulSoup
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src.models.modular11_ea_keys import season_start_year  # noqa: E402
+from src.models.modular11_ea_keys import ea_key, season_start_year  # noqa: E402
 
 EA_PAGE_URL = "https://www.modular11.com/league-schedule/elite-academy-league"
 MATCHES_URL = "https://www.modular11.com/public_schedule/league/get_matches"
@@ -48,6 +48,7 @@ TEAM_COLUMNS = [
     "tiers",
     "regions",
     "gender",
+    "season",
 ]
 PAGE_RE = re.compile(r"(\d+)\s*page\s*out\s*of\s*(\d+)")
 SCORE_RE = re.compile(r"^(\d+)\s*:\s*(\d+)$")
@@ -353,6 +354,7 @@ def run(age: str, out_dir: Path, session, today: date, delay: float = 1.0, sleep
     teams = [t for t in parse_roster(page.content.decode("utf-8")) if t.age_group == age]
     if not teams:
         raise ScrapeError(f"the EA roster has no {age} teams")
+    season = season_start_year(today)
     start, end = season_bounds(today)
     schedules = {
         t.provider_team_id: fetch_team_schedule(session, t.provider_team_id, start, end, delay, sleep) for t in teams
@@ -377,11 +379,23 @@ def run(age: str, out_dir: Path, session, today: date, delay: float = 1.0, sleep
                 "tiers": ";".join(t.tiers),
                 "regions": ";".join(t.regions),
                 "gender": "Male",
+                "season": season,
             }
             for t in teams
         ],
     )
-    _write_csv(target / "games.csv", list(GameRow.__dataclass_fields__), [asdict(g) for g in games])
+    _write_csv(
+        target / "games.csv",
+        [*GameRow.__dataclass_fields__, "home_key", "away_key"],
+        [
+            {
+                **asdict(g),
+                "home_key": ea_key(g.home_team_id, season) if g.home_team_id else "",
+                "away_key": ea_key(g.away_team_id, season) if g.away_team_id else "",
+            }
+            for g in games
+        ],
+    )
     return {
         "teams": len(teams),
         "games": len(games),
