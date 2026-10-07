@@ -377,7 +377,7 @@ export default async function SubscriptionsDashboardPage() {
               <KpiCard
                 label="Trial → Paid"
                 value={percentOf(metrics.lastMonth.converted, metrics.lastMonth.sample)}
-                sub={`${metrics.lastMonth.converted} of ${metrics.lastMonth.sample} trials that ended in ${metrics.lastMonth.label} went on to a paid subscription${metrics.lastMonth.excluded > 0 ? ` (${metrics.lastMonth.excluded} test/internal excluded)` : ''}`}
+                sub={`${metrics.lastMonth.converted} of ${metrics.lastMonth.sample} trials started in ${metrics.lastMonth.label} went on to a paid subscription${metrics.lastMonth.excluded > 0 ? ` (${metrics.lastMonth.excluded} test/internal excluded)` : ''}`}
               />
               <KpiCard
                 label="Retention"

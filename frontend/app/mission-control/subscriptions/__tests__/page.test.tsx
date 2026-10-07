@@ -134,7 +134,7 @@ describe('SubscriptionsDashboardPage', () => {
     expect(text).toContain('Last Month');
     expect(text).toContain('September 2026');
     expect(text).toContain('50%');
-    expect(text).toContain('6 of 12 trials that ended in September 2026');
+    expect(text).toContain('6 of 12 trials started in September 2026');
     expect(text).toContain('83%');
     expect(text).toContain('5 of those 6 paid subscribers');
   });

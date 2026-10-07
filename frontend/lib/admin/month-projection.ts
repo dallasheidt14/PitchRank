@@ -45,7 +45,7 @@ export type CohortWindow = {
 
 export type LastMonthCohort = {
   label: string; // e.g. "September 2026"
-  sample: number; // trials that ended last month
+  sample: number; // trials that started last month
   converted: number;
   retained: number; // of `converted`, still subscribed with no cancellation scheduled
   excluded: number;
@@ -167,19 +167,20 @@ export function computeTrialConversionRate({
   windowStart,
   excludedEmails,
 }: CohortWindow): RateEstimate {
-  const { ended, excluded } = trialsEndedIn(subs, windowStart, now, excludedEmails);
-  const observed = ended.filter((sub) => paidSubIds.has(sub.id)).length;
-  return finalizeRate(observed, ended.length, excluded, FALLBACK_CONVERSION_RATE);
+  const { trials, excluded } = trialsIn(subs, 'trial_end', windowStart, now, excludedEmails);
+  const observed = trials.filter((sub) => paidSubIds.has(sub.id)).length;
+  return finalizeRate(observed, trials.length, excluded, FALLBACK_CONVERSION_RATE);
 }
 
 /**
- * Trials that ended in the previous calendar month in {@link BUSINESS_TIMEZONE},
+ * Trials that started in the previous calendar month in {@link BUSINESS_TIMEZONE},
  * how many activated, and how many of those are still subscribed today with no
  * cancellation scheduled.
  *
- * `converted` uses the same window and activation test as
- * `computeTrialConversionRate`, so the two cards cannot disagree on what counts
- * as a conversion.
+ * `converted` uses the same activation test as `computeTrialConversionRate`, so
+ * the two cards cannot disagree on what counts as a conversion. A trial started
+ * in the last days of the month is still running early in this one, so it
+ * counts as not converted until it activates.
  */
 export function computeLastMonthCohort(
   subs: Stripe.Subscription[],
@@ -189,8 +190,8 @@ export function computeLastMonthCohort(
 ): LastMonthCohort {
   const { monthStart: lastMonthEnd } = monthBounds(now);
   const { monthStart: lastMonthStart } = monthBounds(new Date((lastMonthEnd - 1) * 1000));
-  const { ended, excluded } = trialsEndedIn(subs, lastMonthStart, lastMonthEnd, excludedEmails);
-  const converted = ended.filter((sub) => paidSubIds.has(sub.id));
+  const { trials, excluded } = trialsIn(subs, 'trial_start', lastMonthStart, lastMonthEnd, excludedEmails);
+  const converted = trials.filter((sub) => paidSubIds.has(sub.id));
   const retained = converted.filter(
     (sub) => (sub.status === 'active' || sub.status === 'past_due') && !isCancellationScheduled(sub)
   );
@@ -200,31 +201,32 @@ export function computeLastMonthCohort(
       year: 'numeric',
       timeZone: BUSINESS_TIMEZONE,
     }),
-    sample: ended.length,
+    sample: trials.length,
     converted: converted.length,
     retained: retained.length,
     excluded,
   };
 }
 
-function trialsEndedIn(
+function trialsIn(
   subs: Stripe.Subscription[],
+  edge: 'trial_start' | 'trial_end',
   windowStart: number,
   windowEnd: number,
   excludedEmails: Set<string>
-): { ended: Stripe.Subscription[]; excluded: number } {
-  const ended: Stripe.Subscription[] = [];
+): { trials: Stripe.Subscription[]; excluded: number } {
+  const trials: Stripe.Subscription[] = [];
   let excluded = 0;
   for (const sub of subs) {
-    const trialEnd = sub.trial_end;
-    if (trialEnd === null || trialEnd >= windowEnd || trialEnd < windowStart) continue;
+    const at = sub[edge];
+    if (at === null || at >= windowEnd || at < windowStart) continue;
     if (isExcluded(sub, excludedEmails)) {
       excluded += 1;
       continue;
     }
-    ended.push(sub);
+    trials.push(sub);
   }
-  return { ended, excluded };
+  return { trials, excluded };
 }
 
 /**

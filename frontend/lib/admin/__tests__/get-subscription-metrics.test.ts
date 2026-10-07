@@ -325,14 +325,16 @@ describe('getSubscriptionMetrics', () => {
   });
 
   it("counts last month's trials, their conversions, and the converts still subscribed", async () => {
+    // Every matured trial started July 31, so read the page in mid-August.
+    vi.setSystemTime(Date.UTC(2026, 7, 16, 7));
     setStripe();
     const metrics = await getSubscriptionMetrics();
-    // Every matured trial ended Aug 7. sub_none never paid; sub_churned and
-    // sub_cancelled_annual paid then left; sub_pending_cancel paid but is set to
-    // cancel; sub_internal is excluded. That leaves the six active m/y subs.
+    // sub_none never paid; sub_churned and sub_cancelled_annual paid then left;
+    // sub_pending_cancel paid but is set to cancel; sub_internal is excluded.
+    // That leaves the six active m/y subs.
     expect(metrics.lastMonth).toEqual({
       available: true,
-      label: 'August 2026',
+      label: 'July 2026',
       sample: 10,
       converted: 9,
       retained: 6,

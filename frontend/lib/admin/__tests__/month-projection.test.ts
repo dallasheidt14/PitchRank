@@ -174,35 +174,39 @@ describe('computeLastMonthCohort', () => {
   const phoenix = (y: number, m: number, d: number, h = 0) => Date.UTC(y, m - 1, d, h + 7) / 1000;
   const now = new Date(phoenix(2026, 9, 16) * 1000);
   const august = phoenix(2026, 8, 15);
+  const trial = (start: number) => ({ trialStart: start, trialEnd: start + 7 * SECONDS_PER_DAY });
 
   // Apart from the baseline rows, each row isolates one condition, so dropping that condition changes a count.
   const subs = [
-    sub({ id: 'kept', status: 'active', trialEnd: august }),
-    sub({ id: 'kept_past_due', status: 'past_due', trialEnd: august }),
-    sub({ id: 'first_instant', status: 'active', trialEnd: phoenix(2026, 8, 1) }),
-    sub({ id: 'canceled', status: 'canceled', trialEnd: august }),
-    sub({ id: 'set_to_cancel', status: 'active', trialEnd: august, cancelAtPeriodEnd: true }),
-    sub({ id: 'cancel_at', status: 'past_due', trialEnd: august, cancelAt: phoenix(2026, 10, 15) }),
-    sub({ id: 'never_paid', status: 'active', trialEnd: august }),
-    sub({ id: 'internal', status: 'active', trialEnd: august, email: 'staff@example.com' }),
-    sub({ id: 'july', status: 'active', trialEnd: phoenix(2026, 8, 1) - 1 }),
-    sub({ id: 'september', status: 'active', trialEnd: phoenix(2026, 9, 1) }),
+    sub({ id: 'kept', status: 'active', ...trial(august) }),
+    sub({ id: 'kept_past_due', status: 'past_due', ...trial(august) }),
+    sub({ id: 'first_instant', status: 'active', ...trial(phoenix(2026, 8, 1)) }),
+    // Started in August, ended in September: counted, because the cohort is by start.
+    sub({ id: 'ends_next_month', status: 'active', ...trial(phoenix(2026, 8, 28)) }),
+    sub({ id: 'canceled', status: 'canceled', ...trial(august) }),
+    sub({ id: 'set_to_cancel', status: 'active', ...trial(august), cancelAtPeriodEnd: true }),
+    sub({ id: 'cancel_at', status: 'past_due', ...trial(august), cancelAt: phoenix(2026, 10, 15) }),
+    sub({ id: 'never_paid', status: 'active', ...trial(august) }),
+    sub({ id: 'internal', status: 'active', ...trial(august), email: 'staff@example.com' }),
+    // Started in July, ended in August: not counted.
+    sub({ id: 'july', status: 'active', ...trial(phoenix(2026, 8, 1) - 1) }),
+    sub({ id: 'september', status: 'active', ...trial(phoenix(2026, 9, 1)) }),
   ];
   const paid = new Set(subs.map((s) => s.id).filter((id) => id !== 'never_paid'));
   const excluded = new Set(['staff@example.com']);
 
-  it('counts trials ending in the previous Phoenix month, their conversions, and the converts still subscribed', () => {
+  it('counts trials started in the previous Phoenix month, their conversions, and the converts still subscribed', () => {
     expect(computeLastMonthCohort(subs, paid, now, excluded)).toEqual({
       label: 'August 2026',
-      sample: 7,
-      converted: 6,
-      retained: 3,
+      sample: 8,
+      converted: 7,
+      retained: 4,
       excluded: 1,
     });
   });
 
   it('reaches back into the previous year in January', () => {
-    const december = [sub({ id: 'dec', status: 'active', trialEnd: phoenix(2026, 12, 15) })];
+    const december = [sub({ id: 'dec', status: 'active', trialStart: phoenix(2026, 12, 15) })];
     const result = computeLastMonthCohort(december, new Set(['dec']), new Date(phoenix(2027, 1, 15) * 1000), NONE);
     expect(result).toEqual({ label: 'December 2026', sample: 1, converted: 1, retained: 1, excluded: 0 });
   });
