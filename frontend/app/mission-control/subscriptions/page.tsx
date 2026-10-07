@@ -23,6 +23,10 @@ function formatCount(n: number): string {
   return n.toLocaleString('en-US', { maximumFractionDigits: 1 });
 }
 
+function percentOf(part: number, whole: number): string {
+  return whole === 0 ? '—' : `${Math.round((part / whole) * 100)}%`;
+}
+
 function signedCount(n: number): string {
   return `${n >= 0 ? '+' : '−'}${formatCount(Math.abs(n))}`;
 }
@@ -295,96 +299,6 @@ export default async function SubscriptionsDashboardPage() {
 
         <section className="space-y-3">
           <div className="flex items-baseline justify-between">
-            <h2 className="font-display text-xl font-semibold">Unpaid Invoices</h2>
-            <span className="text-sm text-muted-foreground">
-              {metrics.unpaidInvoices.available
-                ? `${formatDollars(metrics.unpaidInvoices.outstanding)} outstanding · ${metrics.unpaidInvoices.noRetryScheduled} with no retry scheduled`
-                : 'could not be loaded'}
-            </span>
-          </div>
-          <Card variant="flat">
-            <CardContent className="p-0">
-              {!metrics.unpaidInvoices.available ? (
-                <div className="p-6 text-sm text-muted-foreground">
-                  Stripe did not return open invoices on this load, so this list is unknown rather than empty. The error
-                  is listed above.
-                </div>
-              ) : metrics.unpaidInvoices.list.length === 0 ? (
-                <div className="p-6 text-sm text-muted-foreground">No unpaid invoices. Every charge cleared.</div>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Customer</TableHead>
-                      <TableHead className="text-right">Outstanding</TableHead>
-                      <TableHead className="text-right">Attempts</TableHead>
-                      <TableHead>Retry</TableHead>
-                      <TableHead>Invoiced</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {metrics.unpaidInvoices.list.map((row) => (
-                      <TableRow key={row.id}>
-                        <TableCell>{row.email}</TableCell>
-                        <TableCell className="text-right">{formatDollars(row.amountRemaining)}</TableCell>
-                        <TableCell className="text-right">{row.attemptCount}</TableCell>
-                        <TableCell
-                          className={row.retryScheduled ? 'text-muted-foreground' : 'font-semibold text-destructive'}
-                        >
-                          {row.retryScheduled ? 'scheduled' : 'none'}
-                        </TableCell>
-                        <TableCell className="text-muted-foreground">{formatDate(row.created)}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-            </CardContent>
-          </Card>
-          <p className="text-sm text-muted-foreground">
-            Subscription charges Stripe finalized and could not collect — a mix of first charges after a trial and later
-            renewal failures. &ldquo;No retry&rdquo; means Stripe has nothing further on the calendar; the reverse does
-            not hold, because after a hard decline Stripe keeps scheduling attempts that only run once a new card is
-            added.
-          </p>
-        </section>
-
-        <section className="space-y-3">
-          <div className="flex items-baseline justify-between">
-            <h2 className="font-display text-xl font-semibold">Attention Needed</h2>
-            <span className="text-sm text-muted-foreground">
-              {metrics.pastDue.total} past_due {metrics.pastDue.total === 1 ? 'subscription' : 'subscriptions'} (counted
-              in MRR unless canceling)
-            </span>
-          </div>
-          <Card variant="flat">
-            <CardContent className="p-0">
-              {metrics.pastDue.list.length === 0 ? (
-                <div className="p-6 text-sm text-muted-foreground">No past_due subscriptions. All clear.</div>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Customer</TableHead>
-                      <TableHead>Plan</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {metrics.pastDue.list.map((row) => (
-                      <TableRow key={row.id}>
-                        <TableCell>{row.email}</TableCell>
-                        <TableCell className="capitalize">{row.interval === 'year' ? 'Annual' : 'Monthly'}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-            </CardContent>
-          </Card>
-        </section>
-
-        <section className="space-y-3">
-          <div className="flex items-baseline justify-between">
             <h2 className="font-display text-xl font-semibold">Trial Pipeline</h2>
             <span className="text-sm text-muted-foreground">
               sorted by soonest end · canceled trials hidden
@@ -450,6 +364,28 @@ export default async function SubscriptionsDashboardPage() {
               )}
             </CardContent>
           </Card>
+        </section>
+
+        <section className="space-y-3">
+          <h2 className="font-display text-xl font-semibold">Last Month · {metrics.lastMonth.label}</h2>
+          {!metrics.lastMonth.available ? (
+            <p className="text-sm text-muted-foreground">
+              Stripe did not return the subscriptions or payments these are counted from, so they could not be loaded.
+            </p>
+          ) : (
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <KpiCard
+                label="Trial → Paid"
+                value={percentOf(metrics.lastMonth.converted, metrics.lastMonth.sample)}
+                sub={`${metrics.lastMonth.converted} of ${metrics.lastMonth.sample} trials started in ${metrics.lastMonth.label} went on to a paid subscription${metrics.lastMonth.excluded > 0 ? ` (${metrics.lastMonth.excluded} test/internal excluded)` : ''}`}
+              />
+              <KpiCard
+                label="Retention"
+                value={percentOf(metrics.lastMonth.retained, metrics.lastMonth.converted)}
+                sub={`${metrics.lastMonth.retained} of those ${metrics.lastMonth.converted} paid subscribers are still subscribed today and not canceled or set to cancel`}
+              />
+            </div>
+          )}
         </section>
 
         <section className="space-y-3">

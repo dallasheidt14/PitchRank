@@ -9,7 +9,6 @@ import {
   computeMrr,
   bucketActivePaid,
   buildTrialPipeline,
-  buildPastDue,
   computeConversion,
   dedupeEmails,
   computeLeadConversion,
@@ -69,7 +68,7 @@ describe('bucketActivePaid', () => {
 });
 
 describe('buildTrialPipeline', () => {
-  const now = 1_700_000_000; // arbitrary fixed second
+  const now = 1_700_000_000; // 3:13pm Nov 14 2023 in Phoenix; the calendar-day test depends on the hour
 
   it('sorts by soonest trial end', () => {
     const subs = [
@@ -93,6 +92,13 @@ describe('buildTrialPipeline', () => {
     expect(result.endingIn3Days).toBe(2);
     expect(result.endingIn7Days).toBe(3);
     expect(result.endingIn3Days).toBeLessThanOrEqual(result.endingIn7Days);
+  });
+
+  it('counts days remaining as Phoenix calendar days, not rounded-up elapsed time', () => {
+    // This trial ends 8pm Nov 17 in Phoenix: 3.2 elapsed days from `now`, which a
+    // ceiling would show as 4 beside a date three days out.
+    const subs = [makeSub({ trialEnd: Date.UTC(2023, 10, 18, 3) / 1000 })];
+    expect(buildTrialPipeline(subs, now).list[0].daysRemaining).toBe(3);
   });
 
   it('skips subs without trial_end', () => {
@@ -132,23 +138,6 @@ describe('buildTrialPipeline', () => {
     // canceled trials must not affect ending buckets
     expect(result.endingIn3Days).toBe(1);
     expect(result.endingIn7Days).toBe(1);
-  });
-});
-
-describe('buildPastDue', () => {
-  it('returns total and list with email + interval', () => {
-    const subs = [
-      makeSub({ status: 'past_due', interval: 'month', email: 'a@x.com' }),
-      makeSub({ status: 'past_due', interval: 'year', email: 'b@x.com' }),
-    ];
-    const result = buildPastDue(subs);
-    expect(result.total).toBe(2);
-    expect(result.list[0].email).toBe('a@x.com');
-    expect(result.list[1].interval).toBe('year');
-  });
-
-  it('returns zero for empty list', () => {
-    expect(buildPastDue([])).toEqual({ total: 0, list: [] });
   });
 });
 

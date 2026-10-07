@@ -1,4 +1,5 @@
 import 'server-only';
+import { SECONDS_PER_DAY } from './constants';
 
 /**
  * The timezone the business is operated from, and the one every date on the
@@ -47,6 +48,17 @@ export function wallClockDate(instant: Date): WallClock {
     month: Number(parts.month),
     day: Number(parts.day),
   };
+}
+
+/**
+ * Calendar days from `from` to `to` as dated in {@link BUSINESS_TIMEZONE},
+ * ignoring the hour on either side (the 7th to the 10th is 3).
+ */
+export function calendarDaysBetween(from: Date, to: Date): number {
+  const a = wallClockDate(from);
+  const b = wallClockDate(to);
+  const dayMs = SECONDS_PER_DAY * 1000;
+  return Math.round((Date.UTC(b.year, b.month - 1, b.day) - Date.UTC(a.year, a.month - 1, a.day)) / dayMs);
 }
 
 /**

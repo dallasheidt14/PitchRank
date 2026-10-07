@@ -2260,7 +2260,10 @@ CLUB_CANONICAL_OVERRIDES = [
     ("IL", "exact", "Illinois Youth Soccer Assn (IYSA)", "Illinois Youth Soccer Association"),
     ("IL", "exact", "Chicago Fire Youth SC (CFYSC)", "Chicago Fire Youth SC"),
     ("IL", "exact", "CHICAGO FIRE", "Chicago Fire Youth SC"),
-    ("IL", "exact", "Greater Libertyville SA", "Greater Libertyville Soccer Association"),
+    # The owner chose the short form on 2026-10-07, and folded FC 1974 Libertyville in:
+    # nearly every team under either spelling is named "FC 1974 Libertyville ...".
+    ("IL", "exact", "Greater Libertyville Soccer Association", "Greater Libertyville SA"),
+    ("IL", "exact", "FC 1974 Libertyville", "Greater Libertyville SA"),
     ("IL", "exact", "Chicago Empire", "Chicago Empire FC"),
     ("IL", "exact", "St. Louis Scott Gallagher (IL)", "St. Louis Scott Gallagher"),
     ("IL", "norm", "Elmhurst City Surf", "Elmhurst City Surf"),
@@ -2325,9 +2328,8 @@ CLUB_CANONICAL_OVERRIDES = [
     ("IL", "exact", "Chicago Power Strikers SC", "Chicago Powerstrikers"),
     ("IL", "exact", "Illinois Premier", "Arlington Aces"),
     # Left apart: Chicago Soccer Academy writes CSA and Chicago Futbol Alliance CFA.
-    # Five open questions: the Illinois FC / Illinois Alliance pair, which hold each
-    # other's teams; whether "Greater Libertyville Soccer Association" belongs under
-    # "FC 1974 Libertyville", which 52 of its 80 teams name; whether Wilmette Wings SC is
+    # Four open questions: the Illinois FC / Illinois Alliance pair, which hold each
+    # other's teams; whether Wilmette Wings SC is
     # "Chicago Rush North Shore", which 25 of its 38 name; "Legacy FC" against
     # "Legacy SC"; and "Harvard FC", "Allegiant FC" and "Young SPORTSMENS SL (YSSL)",
     # each of which names another club on only some of its teams. "No Club Selection" is
