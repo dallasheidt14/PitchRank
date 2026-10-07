@@ -122,10 +122,23 @@ Three definitions are all reachable from the same data and only one is right:
 Churn has the mirror trap: restrict it to subscribers who actually paid, or a declined card at
 trial end reads as a customer leaving when it is a collection failure.
 
-The dashboard's Last Month cards (Trial → Paid, Retention) print a percent whenever the
-denominator is non-zero ("—" at zero), even below `MIN_COHORT_SAMPLE`; the 180-day and lead cards
-keep their "not enough data yet" rule. The owner chose this on 2026-10-07 so a quiet month still
-shows a figure beside its "X of Y" counts. Leave the rules different.
+The dashboard's Last Month and 2 Months Ago cards (Trial → Paid, Retention) count trials by the
+month they *started*, and print a percent whenever the denominator is non-zero ("—" at zero), even
+below `MIN_COHORT_SAMPLE`; the 180-day conversion and lead cards keep their "not enough data yet"
+rule. The owner chose this on 2026-10-07 so a quiet month still shows a figure beside its "X of Y"
+counts. Leave the rules different. The 180-day Retention card counts by trial *end*, like the
+conversion card above it, and is hidden whenever that card shows "not enough data yet".
+
+All-time churn and monthly growth read the unbounded status lists, never the 187-day cohort, and
+both count only subscriptions with a paid invoice from their own unbounded paid-invoice fetch; a
+window-bounded one would drop long-standing subscribers and overstate churn. Churn is per person
+(by email), so a subscriber who cancels and resubscribes is not churned. `unpaid` subscribers are
+in its base but count as not churned, because they paid and never cancelled. Growth rebuilds MRR
+at the start of last month and of this one from `trial_end`/`start_date` and the cancellation
+request time (`canceled_at`), priced at today's plans, so a past price change skews the earlier
+figure. It leaves `unpaid` out, as `mrr` does, because Stripe records no time at which an unpaid
+subscription stopped paying; and a cancellation set through `cancel_at` alone may count until
+service ends, since Stripe does not document `canceled_at` for that path.
 
 `.turbo/reports/2026-09-04-stripe-month-projection-baseline.md` carries the dated figures and the
 derivation. Read numbers from there rather than from this file, and re-measure before quoting them.
@@ -152,7 +165,7 @@ user how those two are configured.
 |---|---|
 | Client, price IDs, webhook event names, field helpers | `frontend/lib/stripe/server.ts` |
 | Shared constants and `getCustomerEmail` | `frontend/lib/admin/constants.ts` |
-| Rates, projection, last-month cohort (pure functions) | `frontend/lib/admin/month-projection.ts` |
+| Rates, projection, month cohorts, retention, lifetime churn (pure functions) | `frontend/lib/admin/month-projection.ts` |
 | Stripe fetching and assembly | `frontend/lib/admin/subscription-metrics.ts` |
 | Admin dashboard page | `frontend/app/mission-control/subscriptions/` |
 | Checkout, webhook, portal, sync routes | `frontend/app/api/stripe/` |
