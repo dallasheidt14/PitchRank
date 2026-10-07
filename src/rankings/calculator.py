@@ -540,14 +540,19 @@ def _apply_publication_cap_band(base_scores: pd.Series, teams_age: pd.DataFrame)
     if not effective_mask.any():
         return adjusted
 
-    work = teams_age.loc[effective_mask, ["team_id", "age_num", "publication_cap_rank"]].copy()
+    order_keys = ["age_num", "publication_cap_rank"]
+    order_keys += [col for col in ("gender", "status") if col in teams_age.columns]
+    work = teams_age.loc[effective_mask, ["team_id", *order_keys]].copy()
     work["base_pre_cap"] = pd.to_numeric(adjusted.loc[effective_mask], errors="coerce")
     work["cap_score"] = pd.to_numeric(cap_scores.loc[effective_mask], errors="coerce")
     work = work.dropna(subset=["base_pre_cap", "cap_score"])
     if work.empty:
         return adjusted
 
-    for (_, cap_rank, cap_score), grp in work.groupby(["age_num", "publication_cap_rank", "cap_score"], dropna=False):
+    # Eligibility and board boundaries apply to compression as well as order
+    # repair: inactive teams must not change an active team's score slot.
+    for _, grp in work.groupby([*order_keys, "cap_score"], dropna=False):
+        cap_score = float(grp["cap_score"].iloc[0])
         age_num = _safe_int(grp["age_num"].iloc[0])
         policy = _same_age_evidence_policy(age_num)
         group_size = len(grp)
@@ -573,8 +578,6 @@ def _apply_publication_cap_band(base_scores: pd.Series, teams_age: pd.DataFrame)
     # stronger team with the same restriction. Keep the existing score slots,
     # but assign them in pre-cap order across both sides of the boundary.
     # Do not transfer score slots between boards or eligibility statuses.
-    order_keys = ["age_num", "publication_cap_rank"]
-    order_keys += [col for col in ("gender", "status") if col in teams_age.columns]
     ordered_work = teams_age.loc[cap_scores.notna(), ["team_id", *order_keys]].copy()
     ordered_work["base_pre_cap"] = pd.to_numeric(base_scores.loc[ordered_work.index], errors="coerce")
     ordered_work["cap_score"] = cap_scores.loc[ordered_work.index]

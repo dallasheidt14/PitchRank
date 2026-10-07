@@ -2,7 +2,7 @@
 import pandas as pd
 import pytest
 
-from src.rankings.calculator import _apply_publication_cap_band
+from src.rankings.calculator import _apply_publication_cap_band, _compute_publication_cap_scores
 
 
 def _frame():
@@ -105,3 +105,38 @@ def test_ceiling_order_survives_published_age_scaling():
     published = teams.assign(score=result * 0.896).sort_values(["score", "team_id"], ascending=[False, True])
     assert published.team_id.tolist() == ["z-strong", "a-weaker"]
     assert (result <= base).all()
+
+
+@pytest.mark.parametrize("other_status", ["Inactive", "Provisional"])
+def test_ceiling_cutoff_ignores_ineligible_high_scores(other_status):
+    teams = pd.DataFrame({
+        "team_id": ["a", "b", "c"], "age_num": [10] * 3,
+        "gender": ["male"] * 3, "status": ["Active", "Active", other_status],
+        "publication_cap_rank": [2] * 3,
+    })
+    result = _compute_publication_cap_scores(teams, pd.Series([.6, .5, .99]))
+    assert result.tolist() == pytest.approx([.5 - 1e-6] * 3)
+
+
+@pytest.mark.parametrize("other_kind", ["gender", "status", "age_num"])
+def test_ceiling_compression_matches_processing_each_board_and_status_alone(other_kind):
+    own = _frame().iloc[:3].copy()
+    own["publication_cap_rank"] = 250
+    own["publication_cap_score"] = .7
+    other = own.copy()
+    other.index = [101, 103, 109]
+    other["team_id"] = ["other-strong", "other-middle", "other-below"]
+    other[other_kind] = {"gender": "female", "status": "Inactive", "age_num": 14}[other_kind]
+    teams = pd.concat([own, other])
+    base = pd.Series([.8, .75, .6999, .99, .9, .6998], index=teams.index)
+
+    together = _apply_publication_cap_band(base, teams)
+    for group in (own, other):
+        alone = _apply_publication_cap_band(base.loc[group.index], group)
+        pd.testing.assert_series_equal(together.loc[group.index], alone)
+    shuffled = teams.sample(frac=1, random_state=42)
+    pd.testing.assert_series_equal(
+        together.sort_index(),
+        _apply_publication_cap_band(base.loc[shuffled.index], shuffled).sort_index(),
+    )
+    assert (together <= base).all()
