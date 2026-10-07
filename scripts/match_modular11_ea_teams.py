@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 """Report which EA teams of one age match teams PitchRank already holds. Read-only.
 
-A link is proposed only when the club, the age and the EA tier all agree: an EA team never
-matches an EA2 name, and HD/AD/MLS NEXT names and modular11 rows are never candidates. This is
-its own same-tier rule; it does not loosen ``has_protected_division``.
+A link is proposed only when the club, the club's state, the age and the EA tier all agree: an
+EA team never matches an EA2 name, and HD/AD/MLS NEXT names and modular11 rows are never
+candidates. This is its own same-tier rule; it does not loosen ``has_protected_division``.
+
+A club branch, a candidate with no state, a squad qualifier in the name, or a team two EA teams
+claim can be reviewed but never linked with confidence. A team already linked to another EA team
+this season is not a candidate at all.
 
 Usage:
     python scripts/match_modular11_ea_teams.py --age u11
@@ -25,7 +29,8 @@ from dotenv import load_dotenv
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src.utils.club_normalizer import are_same_club  # noqa: E402
+from src.models.modular11_ea_keys import club_state, ea_key, split_ea_key  # noqa: E402
+from src.models.modular11_ea_matcher import PROVIDER_CODE  # noqa: E402
 from supabase import create_client  # noqa: E402
 
 EA2_RE = re.compile(r"\bEA2\b", re.IGNORECASE)
@@ -37,6 +42,10 @@ CLUB_WORD_RE = re.compile(r"[^a-z0-9]+")
 GENERIC = frozenset(
     {"sc", "fc", "soccer", "club", "futbol", "football", "academy", "youth", "the", "de", "cf", "ac", "sa", "united"}
 )
+TIER_TOKENS = frozenset({"ea", "ea1", "ea2"})
+PLAIN_AFTER_TIER = frozenset({"boys", "b", "premier", "academy", "elite"})
+COLOURS = frozenset({"red", "blue", "white", "black", "gold", "silver", "orange", "navy", "green", "grey", "purple"})
+BRANCH = "different branch"
 PAGE_SIZE = 1000
 REPORT_COLUMNS = [
     "provider_team_id",
@@ -79,6 +88,12 @@ class EaTeam:
     display_name: str
     age_group: str
     tiers: frozenset[str]
+    state: str
+    season: int
+
+    @property
+    def key(self) -> str:
+        return ea_key(self.provider_team_id, self.season)
 
 
 @dataclass(frozen=True)
@@ -87,11 +102,6 @@ class ReportRow:
     bucket: str
     reason: str
     candidates: tuple[dict, ...]
-
-
-@lru_cache(maxsize=None)
-def _same_club(ea_club: str, db_club: str) -> bool:
-    return are_same_club(ea_club, db_club)
 
 
 def _name_tokens(name: str) -> tuple[str, ...]:
@@ -133,41 +143,80 @@ def club_relation(ea_club: str, candidate_club: str | None, candidate_name: str)
     return "other"
 
 
-def _club_hits(ea: EaTeam, db_teams: list[dict]) -> list[dict]:
-    return [
-        d
-        for d in db_teams
-        if _same_club(ea.club_name, d.get("club_name") or d["team_name"])
-        or _name_led_by_club(ea.club_name, d["team_name"])
-    ]
+def squad_qualifier(ea: EaTeam, team_name: str) -> str | None:
+    """A word in the candidate's name that marks a different squad, unless the EA team's own name has it.
+
+    Three places carry one: a colour anywhere ("B09/10 Red EA"), a word between the club and the
+    age ("San Diego EC B10"), and a word after the tier marker ("B10 EA Mora").
+    """
+    own = set(_name_tokens(ea.display_name)) | set(_name_tokens(ea.club_name))
+    tokens = _name_tokens(team_name)
+    for token in tokens:
+        if token in COLOURS and token not in own:
+            return token
+    club = _name_tokens(ea.club_name)
+    if tokens[: len(club)] == club:
+        for token in tokens[len(club) :]:
+            if AGE_TOKEN_RE.match(token):
+                break
+            if token not in own and token not in GENERIC:
+                return token
+    markers = [i for i, token in enumerate(tokens) if token in TIER_TOKENS]
+    if markers:
+        for token in tokens[markers[-1] + 1 :]:
+            if not AGE_TOKEN_RE.match(token) and token not in own and token not in PLAIN_AFTER_TIER:
+                return token
+    return None
+
+
+def _hold(ea: EaTeam, team: dict) -> str | None:
+    """None when the team cannot be this EA team; else why it cannot be confident ("" when it can)."""
+    relation = club_relation(ea.club_name, team.get("club_name"), team["team_name"])
+    if relation == "other":
+        return None
+    state = (team.get("state_code") or "").strip()
+    if state and state != ea.state:
+        return None
+    if any(key != ea.key and split_ea_key(key)[1] == ea.season for key in team.get("ea_keys", ())):
+        return None
+    if relation == "branch":
+        return BRANCH
+    if not state:
+        return "no state"
+    qualifier = squad_qualifier(ea, team["team_name"])
+    return f"squad qualifier: {qualifier}" if qualifier else ""
 
 
 def classify(ea_teams: list[EaTeam], db_teams: list[dict]) -> list[ReportRow]:
-    hits = {ea.provider_team_id: _club_hits(ea, db_teams) for ea in ea_teams}
-    tagged = {
-        ea.provider_team_id: [d for d in hits[ea.provider_team_id] if tier_marker(d["team_name"]) in ea.tiers]
-        for ea in ea_teams
-    }
+    hits = {ea.provider_team_id: [(d, why) for d in db_teams if (why := _hold(ea, d)) is not None] for ea in ea_teams}
+    tagged = {}
+    for ea in ea_teams:
+        found = hits[ea.provider_team_id]
+        tagged[ea.provider_team_id] = [(d, why) for d, why in found if tier_marker(d["team_name"]) in ea.tiers]
     claims: dict[str, set[str]] = defaultdict(set)
     for ea_id, candidates in tagged.items():
-        for candidate in candidates:
-            claims[candidate["team_id_master"]].add(ea_id)
+        for candidate, why in candidates:
+            if why != BRANCH:
+                claims[candidate["team_id_master"]].add(ea_id)
     rows = []
     for ea in ea_teams:
         mine = tagged[ea.provider_team_id]
-        shared = sorted({other for c in mine for other in claims[c["team_id_master"]]} - {ea.provider_team_id})
-        if len(mine) == 1 and not shared:
-            rows.append(ReportRow(ea, "confident", "one same-club, same-age, same-tier team", tuple(mine)))
+        shared = sorted(
+            {other for d, why in mine if why != BRANCH for other in claims[d["team_id_master"]]} - {ea.provider_team_id}
+        )
+        holds = sorted({why for _, why in mine if why})
+        teams = tuple(d for d, _ in mine)
+        if len(mine) == 1 and not shared and not holds:
+            rows.append(ReportRow(ea, "confident", "one same-club, same-age, same-tier team", teams))
         elif mine:
-            if len(mine) > 1:
-                reason = f"{len(mine)} candidates"
-            else:
-                reason = f"candidate also fits EA team(s) {', '.join(shared)}"
-            rows.append(ReportRow(ea, "review", reason, tuple(mine)))
+            reasons = ([f"{len(mine)} candidates"] if len(mine) > 1 else []) + holds
+            if shared:
+                reasons.append(f"claimed by another EA team: {', '.join(shared)}")
+            rows.append(ReportRow(ea, "review", "; ".join(reasons), teams))
         else:
-            untagged = [d for d in hits[ea.provider_team_id] if tier_marker(d["team_name"]) is None]
+            untagged = tuple(d for d, _ in hits[ea.provider_team_id] if tier_marker(d["team_name"]) is None)
             if untagged:
-                rows.append(ReportRow(ea, "review", "club and age match, no EA tier in name", tuple(untagged)))
+                rows.append(ReportRow(ea, "review", "club and age match, no EA tier in name", untagged))
             else:
                 rows.append(ReportRow(ea, "no_match", "", ()))
     return rows
@@ -177,8 +226,33 @@ def _provider_codes(sb) -> dict[str, str]:
     return {r["id"]: r["code"] for r in sb.table("providers").select("id, code").execute().data}
 
 
+def _ea_links(sb, codes: dict[str, str]) -> dict[str, set[str]]:
+    """Per PitchRank team, the EA keys its approved modular11_ea aliases name."""
+    links: dict[str, set[str]] = defaultdict(set)
+    for provider_id in (pid for pid, code in codes.items() if code == PROVIDER_CODE):
+        offset = 0
+        while True:
+            page = (
+                sb.table("team_alias_map")
+                .select("provider_team_id, team_id_master")
+                .eq("provider_id", provider_id)
+                .eq("review_status", "approved")
+                .order("id")
+                .range(offset, offset + PAGE_SIZE - 1)
+                .execute()
+                .data
+            )
+            for row in page:
+                links[row["team_id_master"]].add(row["provider_team_id"])
+            if len(page) < PAGE_SIZE:
+                break
+            offset += PAGE_SIZE
+    return links
+
+
 def fetch_db_teams(sb, age_group: str) -> list[dict]:
     codes = _provider_codes(sb)
+    ea_links = _ea_links(sb, codes)
     rows, offset = [], 0
     while True:
         page = (
@@ -201,7 +275,7 @@ def fetch_db_teams(sb, age_group: str) -> list[dict]:
         code = codes.get(row.get("provider_id"), "")
         if code == "modular11" or is_protected(row["team_name"]):
             continue
-        eligible.append({**row, "provider_code": code})
+        eligible.append({**row, "provider_code": code, "ea_keys": frozenset(ea_links.get(row["team_id_master"], ()))})
     return eligible
 
 
@@ -214,6 +288,8 @@ def _load_ea_teams(path: Path) -> list[EaTeam]:
                 display_name=r["display_name"],
                 age_group=r["age_group"],
                 tiers=frozenset({r["name_tier"]}),
+                state=club_state(r["club_name"]),
+                season=int(r["season"]),
             )
             for r in csv.DictReader(handle)
         ]

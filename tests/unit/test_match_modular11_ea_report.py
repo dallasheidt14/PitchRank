@@ -36,6 +36,10 @@ class _Query:
     def execute(self):
         self.db.executed.append((self.table, list(self.filters), self.order_by, self.window))
         rows = [r for r in self.db.rows[self.table] if all(f[0] != "eq" or r.get(f[1]) == f[2] for f in self.filters)]
+        if self.table == "team_alias_map":
+            assert self.order_by == "id", "paging without a unique order skips rows"
+            lo, hi = self.window
+            rows = rows[lo : hi + 1]
         if self.table == "teams":
             assert self.order_by == "team_id_master", "paging without a unique order skips rows"
             if ("live",) in self.filters:
@@ -47,8 +51,8 @@ class _Query:
 
 
 class _Db:
-    def __init__(self, teams, providers):
-        self.rows = {"teams": teams, "providers": providers}
+    def __init__(self, teams, providers, aliases=()):
+        self.rows = {"teams": teams, "providers": providers, "team_alias_map": list(aliases)}
         self.executed = []
 
     def table(self, name):
@@ -84,6 +88,7 @@ def _write_teams_csv(tmp_path):
         "tiers",
         "regions",
         "gender",
+        "season",
     ]
     with (folder / "teams.csv").open("w", newline="", encoding="utf-8") as fh:
         writer = csv.DictWriter(fh, fieldnames=columns)
@@ -99,6 +104,7 @@ def _write_teams_csv(tmp_path):
                 "tiers": "EA;EA National",
                 "regions": "PACNW",
                 "gender": "Male",
+                "season": "2026",
             }
         )
 
@@ -142,6 +148,7 @@ def test_dual_tier_team_matches_only_its_name_tier(tmp_path):
         "tiers",
         "regions",
         "gender",
+        "season",
     ]
     with (folder / "teams.csv").open("w", newline="", encoding="utf-8") as fh:
         writer = csv.DictWriter(fh, fieldnames=columns)
@@ -157,7 +164,21 @@ def test_dual_tier_team_matches_only_its_name_tier(tmp_path):
                 "tiers": "EA;EA National;EA2",
                 "regions": "PACNW",
                 "gender": "Male",
+                "season": "2026",
             }
         )
     db = _Db([_team("a", "Emerald City FC 2014 EA2")], [{"id": GOT, "code": "gotsport"}])
     assert m.run("u13", tmp_path, db) == {"confident": 0, "review": 0, "no_match": 1}
+
+
+def test_run_drops_a_team_already_linked_to_another_ea_team_this_season(tmp_path):
+    providers = [{"id": GOT, "code": "gotsport"}, {"id": "p-ea", "code": "modular11_ea"}]
+    aliases = [
+        {"id": 1, "provider_id": "p-ea", "provider_team_id": "9:2026", "team_id_master": "a", "review_status": "approved"},
+        {"id": 2, "provider_id": GOT, "provider_team_id": "1:2026", "team_id_master": "b", "review_status": "approved"},
+    ]
+    db = _Db([_team("a", "Emerald City FC 2014 EA"), _team("b", "Emerald City FC B14 EA")], providers, aliases)
+    _write_teams_csv(tmp_path)
+    assert m.run("u13", tmp_path, db) == {"confident": 1, "review": 0, "no_match": 0}
+    [row] = list(csv.DictReader((tmp_path / "u13" / "match_report.csv").open(encoding="utf-8")))
+    assert row["candidate_ids"] == "b"
