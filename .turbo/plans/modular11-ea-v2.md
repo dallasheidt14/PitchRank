@@ -4,10 +4,10 @@
 
 **Goal:** Make EA matching trustworthy enough to import from. This means season-keyed EA ids, a
 pre-match cleanup that feeds the merge and state skills, and a branch-safe matcher that uses
-region states and schedules.
+club states and schedules.
 
 **Architecture:**
-- A small `src/models/modular11_ea_keys.py` owns the season key and the region→state table.
+- A small `src/models/modular11_ea_keys.py` owns the season key and the club→state table.
 - The step-1 matcher (`scripts/match_modular11_ea_teams.py`) gains the new rules as pure
   functions, plus one database read for schedule evidence.
 - A new `scripts/prepare_modular11_ea_cleanup.py` builds the candidate pool and writes the
@@ -51,8 +51,8 @@ region states and schedules.
    pairs.
 4. **A candidate with no state.** It must never be confident, and its reason string must say
    "no state". Pinned in Task 4.
-5. **A region missing from the table.** A new EA region that appears on the page must fail the
-   matcher run loudly, never pass every state. Pinned in Task 1.
+5. **A club missing from the table.** A new EA club on a roster must fail the matcher run
+   loudly, never pass every state. Pinned in Task 1.
 
 ## Branch
 
@@ -61,11 +61,18 @@ Continue on `feat/ea-scraper` in `C:\pitchrank-ea-scraper`. Merge `origin/main` 
 
 ---
 
-### Task 1: Season key and region→state table
+### Task 1: Season key and club→state table
+
+> **Changed 2026-10-07 at the owner's direction:** "i dont care about region i want the state
+> code" and "use the assigning state skill". The region→state table is dropped. Each EA club
+> gets one state, decided read-only with the `assigning-team-states` skill's club rule (Tier B),
+> the already-linked teams' states, PitchRank name variants, and six owner answers. The evidence
+> per club is in `data/modular11_ea/ea_club_states_draft.csv` (gitignored).
 
 **Files:**
 - Create: `src/models/modular11_ea_keys.py`
-- Create: `config/modular11_ea_regions.json`
+- Create: `config/modular11_ea_club_states.json` (162 clubs from the U17 and U11 rosters,
+  `{"EA club name": "ST"}`)
 - Test: `tests/unit/test_modular11_ea_keys.py`
 
 **Interfaces:**
@@ -74,20 +81,12 @@ Continue on `feat/ea-scraper` in `C:\pitchrank-ea-scraper`. Merge `origin/main` 
   - `split_ea_key(key: str) -> tuple[str, int]`, which raises `ValueError` on a key without a
     season
   - `season_start_year(today: date) -> int`
-  - `REGION_STATES: dict[str, frozenset[str]]`, loaded from the JSON
-  - `allowed_states(regions: Iterable[str]) -> frozenset[str]`, which raises
-    `UnknownRegionError(KeyError)` for an unmapped region
+  - `CLUB_STATES: dict[str, str]`, loaded from the JSON
+  - `club_state(ea_club: str) -> str`, which raises `UnknownClubError(KeyError)` for a club the
+    table does not hold. A new age's roster brings new clubs; the run fails until they are added
+    the same way (skill club rule → owner check).
 
-- [ ] **Step 1: Draft the table from the data, then STOP for the owner.** Write a read-only
-  scratch script that, for each of the 19 regions in
-  `tests/fixtures/modular11_ea/ea_page.html` (Florida, LA North, LA South, Mid-America, Nor Cal,
-  North, Northeast (East), Northeast (West), Oregon, PACNW, SD / OC / IE, South, Southeast,
-  Southwest, Southwest (North), Southwest (South), Southwest Desert, Southwest EA, Texas), lists
-  the `state_code` values of PitchRank teams already linked through `modular11_ea` aliases whose
-  EA team plays in that region. Use `data/modular11_ea/u17/teams.csv` for regions. Write the
-  draft JSON (`{"Florida": ["FL"], ...}`), adding obvious neighbours by hand and marking anything
-  guessed. Send the table to the owner in plain English and wait for corrections. **Do not continue
-  past Step 1 until the owner has answered.**
+- [x] **Step 1: Draft the table, then STOP for the owner.** Done 2026-10-07; owner answered.
 
 - [ ] **Step 2: Failing tests**
 
@@ -97,7 +96,7 @@ from datetime import date
 import pytest
 
 from src.models.modular11_ea_keys import (
-    REGION_STATES, UnknownRegionError, allowed_states, ea_key, season_start_year, split_ea_key,
+    CLUB_STATES, UnknownClubError, club_state, ea_key, season_start_year, split_ea_key,
 )
 
 
@@ -116,79 +115,30 @@ def test_season_turns_on_aug_1():
     assert season_start_year(date(2027, 8, 1)) == 2027
 
 
-def test_every_page_region_is_mapped():
-    assert len(REGION_STATES) == 19 and all(REGION_STATES.values())
+def test_every_roster_club_has_one_state():
+    assert len(CLUB_STATES) == 162
+    assert all(len(s) == 2 and s.isupper() for s in CLUB_STATES.values())
 
 
-def test_union_of_regions():
-    assert allowed_states(["LA North", "Texas"]) == frozenset({"CA", "TX"})
+def test_owner_answers():
+    assert club_state("JaHBat") == "IL"
+    assert club_state("United Soccer Group") == "MA"
+    assert club_state("ALBION SC Santa Ana") == "CA"
 
 
-def test_unknown_region_fails_loudly():
-    with pytest.raises(UnknownRegionError):
-        allowed_states(["Atlantis"])
+def test_unknown_club_fails_loudly():
+    with pytest.raises(UnknownClubError):
+        club_state("Atlantis FC")
 ```
 
-Adjust `test_union_of_regions` to the owner-approved table's literal values.
+- [ ] **Step 3: Run, confirm failure, implement** `modular11_ea_keys.py` (season helpers as
+  before; `club_state` looks the exact EA club name up in `CLUB_STATES` and raises
+  `UnknownClubError` when absent). Then make `scripts/scrape_modular11_ea.season_bounds` call
+  `season_start_year`, so the rule lives in one place.
 
-- [ ] **Step 3: Run, confirm failure, implement.**
-
-```python
-"""EA season keys and the region -> state table.
-
-An EA team id names an age slot (club, age, tier) that keeps its id every season while the
-players move up, so a link is only true for one season: PitchRank stores `<uid>:<season>`.
-"""
-
-import json
-from collections.abc import Iterable
-from datetime import date
-from pathlib import Path
-
-REGION_STATES: dict[str, frozenset[str]] = {
-    region: frozenset(states)
-    for region, states in json.loads(
-        (Path(__file__).resolve().parents[2] / "config" / "modular11_ea_regions.json").read_text(encoding="utf-8")
-    ).items()
-}
-
-
-class UnknownRegionError(KeyError):
-    """An EA region the table does not map; the page added one and the table must be extended."""
-
-
-def ea_key(uid: str, season: int) -> str:
-    return f"{uid}:{season}"
-
-
-def split_ea_key(key: str) -> tuple[str, int]:
-    uid, sep, season = key.partition(":")
-    if not sep or not uid.isdigit() or not season.isdigit():
-        raise ValueError(f"not a season-keyed EA id: {key!r}")
-    return uid, int(season)
-
-
-def season_start_year(today: date) -> int:
-    return today.year if today.month >= 8 else today.year - 1
-
-
-def allowed_states(regions: Iterable[str]) -> frozenset[str]:
-    states: set[str] = set()
-    for region in regions:
-        if region not in REGION_STATES:
-            raise UnknownRegionError(region)
-        states |= REGION_STATES[region]
-    return frozenset(states)
-```
-
-Then make `scripts/scrape_modular11_ea.season_bounds` call `season_start_year`, so the rule lives
-in one place.
-
-- [ ] **Step 4: Run and confirm the tests pass.** Mutation check: drop the `if region not in`
-  guard (so `REGION_STATES[region]` raises a plain `KeyError`) and confirm that
-  `test_unknown_region_fails_loudly` still catches it, because `UnknownRegionError` subclasses
-  `KeyError`. Then make the guard return an empty set and confirm the test fails.
-- [ ] **Step 5: Commit** — `git commit -m "Add EA season keys and the region-to-state table"`.
+- [ ] **Step 4: Run and confirm the tests pass.** Mutation check: make `club_state` return `""`
+  for a missing club and confirm `test_unknown_club_fails_loudly` fails.
+- [ ] **Step 5: Commit** — `git commit -m "Add EA season keys and the club-to-state table"`.
 
 ---
 
@@ -198,7 +148,8 @@ in one place.
 - Modify: `scripts/scrape_modular11_ea.py` (add a `season` column to `teams.csv`; add
   `home_key` and `away_key` columns to `games.csv`)
 - Modify: `scripts/link_modular11_ea_teams.py` (aliases and created teams use
-  `ea_key(provider_team_id, season)`; the decisions file keeps raw uids)
+  `ea_key(provider_team_id, season)`; the decisions file keeps raw uids; a created team takes
+  `state_code = club_state(club_name)` — added 2026-10-07 with the club table)
 - Modify: `scripts/build_modular11_ea_games_csv.py` (links keyed by season key; importer
   `team_id` and `opponent_id` are season keys)
 - Modify: `scripts/match_modular11_ea_teams.py` (the "already linked" exclusion reads season keys)
@@ -307,15 +258,15 @@ qualifier rule, and a test there pins it.
 - Test: `tests/unit/test_match_modular11_ea_rules.py`
 
 **Interfaces:**
-- Consumes: `club_relation`, `allowed_states`.
-- Produces: `EaTeam` gains `regions: frozenset[str]`. `classify(ea_teams, db_teams)` reasons now
-  include `different branch`, `state outside region`, `no state`, `squad qualifier`, and
+- Consumes: `club_relation`, `club_state`.
+- Produces: `EaTeam` gains `state: str` (from `club_state(club)`). `classify(ea_teams, db_teams)` reasons now
+  include `different branch`, `state differs from club`, `no state`, `squad qualifier`, and
   `claimed by another EA team`.
 
 **Rules, applied in order to each candidate:**
 1. `club_relation == "other"` → not a candidate.
 2. `club_relation == "branch"` → review only, reason `different branch`.
-3. The candidate's `state_code` is not in `allowed_states(ea.regions)` → not a candidate.
+3. The candidate's `state_code` is set and differs from the EA team's club state → not a candidate.
 4. No `state_code` → can never be confident, reason `no state`.
 5. **Squad qualifier.** A candidate name token after its tier marker that is not an age token,
    not a word of the EA team's own display name, and not in

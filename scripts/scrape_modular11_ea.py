@@ -27,6 +27,10 @@ from pathlib import Path
 import requests
 from bs4 import BeautifulSoup
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from src.models.modular11_ea_keys import season_start_year  # noqa: E402
+
 EA_PAGE_URL = "https://www.modular11.com/league-schedule/elite-academy-league"
 MATCHES_URL = "https://www.modular11.com/public_schedule/league/get_matches"
 TOURNAMENT_ID = "27"
@@ -328,7 +332,7 @@ def pair_games(teams: list[RosterTeam], schedules: dict[str, list[ScheduleRow]],
 
 
 def season_bounds(today: date) -> tuple[str, str]:
-    year = today.year if today.month >= 8 else today.year - 1
+    year = season_start_year(today)
     return f"{year}-08-01 00:00:00", f"{year + 1}-07-31 23:59:59"
 
 
