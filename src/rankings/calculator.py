@@ -1922,8 +1922,6 @@ def _publication_cap_rank(row: pd.Series) -> int | None:
         return with_freshness_limit(int(policy["regional_thin_cap_rank"]))
     if thin_schedule:
         return with_freshness_limit(int(policy["thin_schedule_cap_rank"]))
-    if severe_connectivity:
-        return with_freshness_limit(int(policy["cap_rank"]))
 
     if one_top100_thin and isolation_override:
         return with_freshness_limit(int(policy["one_top100_thin_escalated_cap_rank"]))
@@ -1931,6 +1929,9 @@ def _publication_cap_rank(row: pd.Series) -> int | None:
         return with_freshness_limit(int(policy["one_top100_thin_cap_rank"]))
     if weak_quality_results:
         return with_freshness_limit(int(policy["weak_quality_results_cap_rank"]))
+    # Poor connectivity cannot bypass a stricter weak-schedule restriction.
+    if severe_connectivity:
+        return with_freshness_limit(int(policy["cap_rank"]))
     thin_top100 = (
         top100 == 1
         and avg_opp_power is not None
