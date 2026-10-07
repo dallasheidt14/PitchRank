@@ -89,6 +89,7 @@ export function makeStripeSubscription(
     cancelAt?: number | null;
     cancelAtPeriodEnd?: boolean;
     created?: number;
+    startDate?: number;
   } = {}
 ): Stripe.Subscription {
   const {
@@ -107,11 +108,13 @@ export function makeStripeSubscription(
     cancelAt = null,
     cancelAtPeriodEnd = false,
     created = 0,
+    startDate = created,
   } = overrides;
   return {
     id,
     status,
     created,
+    start_date: startDate,
     trial_start: trialStart,
     trial_end: trialEnd,
     canceled_at: canceledAt,

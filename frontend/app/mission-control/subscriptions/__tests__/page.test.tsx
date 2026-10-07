@@ -22,6 +22,9 @@ function textOf(node: ReactNode): string {
   if (typeof node === 'string' || typeof node === 'number') return String(node);
   if (Array.isArray(node)) return node.map(textOf).join(' ');
   const element = node as ReactElement<{ children?: ReactNode }>;
+  if (typeof element === 'object' && 'props' in element && typeof element.type === 'function') {
+    return textOf((element.type as (props: unknown) => ReactNode)(element.props));
+  }
   if (typeof element === 'object' && 'props' in element) {
     return Object.values(element.props ?? {})
       .map((value) =>
@@ -38,8 +41,11 @@ function metrics(over: Partial<SubscriptionMetrics> = {}): SubscriptionMetrics {
     mrr: 403.19,
     activePaid: { total: 60, monthly: 46, annual: 14 },
     trials: { total: 15, canceledPending: 0, endingIn3Days: 2, endingIn7Days: 5, list: [] },
-    conversion: { windowDays: 180, sample: 20, converted: 10, percent: 50, excluded: 0 },
+    conversion: { windowDays: 180, sample: 20, converted: 10, percent: 50, excluded: 0, retained: 7 },
     lastMonth: { available: true, label: 'September 2026', sample: 12, converted: 6, retained: 5, excluded: 0 },
+    twoMonthsAgo: { available: true, label: 'August 2026', sample: 10, converted: 4, retained: 1, excluded: 0 },
+    lifetimeChurn: { available: true, paid: 80, churned: 20 },
+    mrrGrowth: { available: true, label: 'September 2026', from: 380, to: 403.19, change: 23.19, percent: 6.1 },
     reportCard: {
       totalRequests: 0,
       uniqueEmails: 0,
@@ -139,6 +145,103 @@ describe('SubscriptionsDashboardPage', () => {
     expect(text).toContain('5 of those 6 paid subscribers');
   });
 
+  it('shows the same two cards for the month before last', async () => {
+    getSubscriptionMetrics.mockReturnValue(metrics());
+    const text = textOf(await SubscriptionsDashboardPage());
+    expect(text).toContain('2 Months Ago');
+    expect(text).toContain('4 of 10 trials started in August 2026');
+    expect(text).toContain('40%');
+    expect(text).toContain('1 of those 4 paid subscribers');
+    expect(text).toContain('25%');
+  });
+
+  it('splits active paid subscribers into monthly and annual shares', async () => {
+    getSubscriptionMetrics.mockReturnValue(metrics());
+    const text = textOf(await SubscriptionsDashboardPage());
+    expect(text).toContain('46 monthly (77%) · 14 annual (23%)');
+  });
+
+  it('shows a dash for the monthly and annual shares when there are no paid subscribers', async () => {
+    getSubscriptionMetrics.mockReturnValue(metrics({ activePaid: { total: 0, monthly: 0, annual: 0 } }));
+    const text = textOf(await SubscriptionsDashboardPage());
+    expect(text).toContain('0 monthly (—) · 0 annual (—)');
+  });
+
+  it('shows all-time churn among everyone who ever paid', async () => {
+    getSubscriptionMetrics.mockReturnValue(metrics());
+    const text = textOf(await SubscriptionsDashboardPage());
+    expect(text).toContain('25%');
+    expect(text).toContain('20 of 80 subscribers who ever paid have since canceled');
+  });
+
+  it('shows monthly MRR growth in dollars and percent', async () => {
+    getSubscriptionMetrics.mockReturnValue(metrics());
+    const text = textOf(await SubscriptionsDashboardPage());
+    expect(text).toContain('Monthly Growth · September 2026');
+    expect(text).toContain('+$23.19 | +6.1%');
+    expect(text).toContain('MRR $380.00 at the start of September 2026 → $403.19 a month later');
+  });
+
+  it('signs a shrinking month negative', async () => {
+    getSubscriptionMetrics.mockReturnValue(
+      metrics({
+        mrrGrowth: { available: true, label: 'September 2026', from: 400, to: 390, change: -10, percent: -2.5 },
+      })
+    );
+    const text = textOf(await SubscriptionsDashboardPage());
+    expect(text).toContain('−$10.00 | −2.5%');
+  });
+
+  it('shows a flat month as +0%, and a dash when there was no MRR to grow from', async () => {
+    getSubscriptionMetrics.mockReturnValue(
+      metrics({ mrrGrowth: { available: true, label: 'September 2026', from: 400, to: 400, change: 0, percent: 0 } })
+    );
+    expect(textOf(await SubscriptionsDashboardPage())).toContain('+$0.00 | +0%');
+    getSubscriptionMetrics.mockReturnValue(
+      metrics({
+        mrrGrowth: { available: true, label: 'September 2026', from: 0, to: 6.99, change: 6.99, percent: null },
+      })
+    );
+    expect(textOf(await SubscriptionsDashboardPage())).toContain('+$6.99 | —');
+  });
+
+  it('marks churn unavailable on its own card', async () => {
+    getSubscriptionMetrics.mockReturnValue(metrics({ lifetimeChurn: { available: false, paid: 0, churned: 0 } }));
+    const text = textOf(await SubscriptionsDashboardPage());
+    expect(text).toMatch(/Churn · all time[^%$]*—[^%$]*could not be loaded/);
+    expect(text).not.toContain('subscribers who ever paid');
+    expect(text).toContain('+$23.19 | +6.1%');
+  });
+
+  it('marks growth unavailable on its own card', async () => {
+    getSubscriptionMetrics.mockReturnValue(
+      metrics({
+        mrrGrowth: { available: false, label: 'September 2026', from: 0, to: 0, change: 0, percent: null },
+      })
+    );
+    const text = textOf(await SubscriptionsDashboardPage());
+    expect(text).toMatch(/Monthly Growth · September 2026[^%$]*—[^%$]*could not be loaded/);
+    expect(text).not.toContain('at the start of September');
+    expect(text).toContain('20 of 80 subscribers who ever paid');
+  });
+
+  it('hides 180-day retention while the conversion card above says there is not enough data', async () => {
+    getSubscriptionMetrics.mockReturnValue(
+      metrics({ conversion: { windowDays: 180, sample: 3, converted: 1, percent: null, excluded: 0, retained: 1 } })
+    );
+    const text = textOf(await SubscriptionsDashboardPage());
+    expect(text).toContain('Not enough data yet');
+    expect(text).not.toContain('Retention · last');
+  });
+
+  it('shows retention over the 180-day conversion cohort', async () => {
+    getSubscriptionMetrics.mockReturnValue(metrics());
+    const text = textOf(await SubscriptionsDashboardPage());
+    expect(text).toContain('Retention · last');
+    expect(text).toContain('70%');
+    expect(text).toContain('7 of those 10 paid subscribers');
+  });
+
   it('shows a dash rather than NaN when last month had no trials to divide by', async () => {
     getSubscriptionMetrics.mockReturnValue(
       metrics({
@@ -154,6 +257,7 @@ describe('SubscriptionsDashboardPage', () => {
     getSubscriptionMetrics.mockReturnValue(
       metrics({
         lastMonth: { available: false, label: 'September 2026', sample: 0, converted: 0, retained: 0, excluded: 0 },
+        twoMonthsAgo: { available: false, label: 'August 2026', sample: 0, converted: 0, retained: 0, excluded: 0 },
       })
     );
     const text = textOf(await SubscriptionsDashboardPage());

@@ -124,7 +124,11 @@ function allSubscriptions() {
       created: nowSec - 192 * DAY,
       trialStart: nowSec - 192 * DAY,
       trialEnd: nowSec - 185 * DAY,
+      canceledAt: nowSec - 185 * DAY,
+      endedAt: nowSec - 185 * DAY,
     }),
+    // Paid once, long ago, then every renewal failed: still open, so not churned.
+    makeStripeSubscription({ id: 'sub_unpaid', status: 'unpaid', email: 'unpaid@example.com' }),
   ];
 }
 
@@ -141,10 +145,17 @@ const PAID = [
   'sub_internal',
   'sub_established',
   'sub_pending_cancel',
+  // No trial and created at 0, so outside every cohort window: only churn and growth see it.
+  'sub_past_due',
 ];
 
-const paidInvoices = () =>
-  PAID.map((id) => makeStripeInvoice({ amountPaid: id.startsWith('sub_y') ? 6999 : 699, subscription: id }));
+const paidInvoices = () => [
+  ...PAID.map((id) =>
+    makeStripeInvoice({ amountPaid: id.startsWith('sub_y') ? 6999 : 699, subscription: id, created: nowSec - 10 * DAY })
+  ),
+  // Older than the 187-day window, so only the lifetime fetch returns it.
+  makeStripeInvoice({ amountPaid: 699, subscription: 'sub_unpaid', created: nowSec - 400 * DAY }),
+];
 
 /** An async iterable whose Nth pull rejects, the way a real page fetch fails. */
 function rejectingIterable(failOnPull: number): AsyncIterable<never> {
@@ -173,15 +184,20 @@ function iterate<T>(items: T[]): AsyncIterable<T> {
 function setStripe(
   options: {
     paidThrows?: boolean;
+    lifetimeThrows?: boolean;
     cohortThrows?: boolean;
     activeThrows?: boolean;
     pastDueThrows?: boolean;
+    canceledThrows?: boolean;
+    unpaidThrows?: boolean;
   } = {}
 ) {
   const subs = allSubscriptions();
   subscriptionsList.mockImplementation((params: { status?: string; created?: { gte?: number } }) => {
     if (params.status === 'active' && options.activeThrows) return rejectingIterable(1);
     if (params.status === 'past_due' && options.pastDueThrows) return rejectingIterable(1);
+    if (params.status === 'canceled' && options.canceledThrows) return rejectingIterable(1);
+    if (params.status === 'unpaid' && options.unpaidThrows) return rejectingIterable(1);
     if (params.status === 'all') {
       // A mid-iteration rejection, not a synchronous throw — the shape Stripe
       // actually produces when a later page fails.
@@ -191,7 +207,12 @@ function setStripe(
     }
     return iterate(subs.filter((s) => s.status === params.status));
   });
-  invoicesList.mockImplementation(() => (options.paidThrows ? rejectingIterable(1) : iterate(paidInvoices())));
+  invoicesList.mockImplementation((params: { created?: { gte?: number } }) => {
+    const windowed = params.created !== undefined;
+    if (windowed ? options.paidThrows : options.lifetimeThrows) return rejectingIterable(1);
+    const since = params.created?.gte ?? 0;
+    return iterate(paidInvoices().filter((inv) => inv.created >= since));
+  });
 }
 
 beforeEach(() => {
@@ -342,11 +363,90 @@ describe('getSubscriptionMetrics', () => {
     });
   });
 
+  it('counts all-time churn per person from lifetime payments across every status list', async () => {
+    setStripe();
+    const metrics = await getSubscriptionMetrics();
+    // Twelve people ever paid: the six m/y subs, sub_churned, sub_cancelled_annual,
+    // sub_pending_cancel, sub_established, sub_unpaid (paid only before the
+    // 187-day window), and test@example.com, who holds sub_sep_done and
+    // sub_past_due. sub_internal is excluded. Three have left.
+    expect(metrics.lifetimeChurn).toEqual({ available: true, paid: 12, churned: 3 });
+  });
+
+  it('rebuilds MRR at the start of last month and this one from subscriptions that paid', async () => {
+    setStripe();
+    const metrics = await getSubscriptionMetrics();
+    // Aug 1: sub_established ($6.99) and sub_past_due's two annual seats ($11.665).
+    // Sept 1 adds the six m/y subs, sub_cancelled_annual (ends Sept 10),
+    // sub_pending_cancel (requested Sept 3) and sub_internal (growth does not
+    // exclude, like MRR); sub_churned ended Aug 21 and sub_sep_done's trial runs
+    // to Sept 8. sub_none, sub_past_due_canceling and sub_stale never paid.
+    expect(metrics.mrrGrowth).toEqual({
+      available: true,
+      label: 'August 2026',
+      from: 18.66,
+      to: 75.78,
+      change: 57.12,
+      percent: 306.1,
+    });
+  });
+
+  it.each([
+    ['active', { activeThrows: true }],
+    ['past_due', { pastDueThrows: true }],
+    ['canceled', { canceledThrows: true }],
+    ['lifetime paid invoice', { lifetimeThrows: true }],
+  ])('marks churn and growth unavailable when the %s list fails', async (_name, failure) => {
+    setStripe(failure);
+    const metrics = await getSubscriptionMetrics();
+    expect(metrics.lifetimeChurn.available).toBe(false);
+    expect(metrics.mrrGrowth.available).toBe(false);
+  });
+
+  it('marks only churn unavailable when the unpaid list fails', async () => {
+    setStripe({ unpaidThrows: true });
+    const metrics = await getSubscriptionMetrics();
+    expect(metrics.lifetimeChurn.available).toBe(false);
+    expect(metrics.mrrGrowth.available).toBe(true);
+  });
+
+  it('keeps churn and growth available when only the 187-day payments fail', async () => {
+    setStripe({ paidThrows: true });
+    const metrics = await getSubscriptionMetrics();
+    expect(metrics.lifetimeChurn.available).toBe(true);
+    expect(metrics.mrrGrowth.available).toBe(true);
+  });
+
+  it('counts the month before last the same way', async () => {
+    setStripe();
+    const metrics = await getSubscriptionMetrics();
+    // Read on Sept 16, two months back is July, when every matured trial started.
+    expect(metrics.twoMonthsAgo).toEqual({
+      available: true,
+      label: 'July 2026',
+      sample: 10,
+      converted: 9,
+      retained: 6,
+      excluded: 1,
+    });
+  });
+
+  it('counts how many of the 180-day converts are still subscribed', async () => {
+    setStripe();
+    const metrics = await getSubscriptionMetrics();
+    // Ten converts ended their trial in the window. sub_churned and
+    // sub_cancelled_annual have left and sub_pending_cancel is set to cancel.
+    expect(metrics.conversion.converted).toBe(10);
+    expect(metrics.conversion.retained).toBe(7);
+  });
+
   it('marks last month unavailable when the cohort fetch fails', async () => {
     setStripe({ cohortThrows: true });
     const metrics = await getSubscriptionMetrics();
     expect(metrics.lastMonth.available).toBe(false);
     expect(metrics.lastMonth.sample).toBe(0);
+    expect(metrics.twoMonthsAgo.available).toBe(false);
+    expect(metrics.twoMonthsAgo.sample).toBe(0);
   });
 
   it('measures only the trials that ended inside the window it reports', async () => {
@@ -370,7 +470,7 @@ describe('getSubscriptionMetrics', () => {
     setStripe();
     await getSubscriptionMetrics();
     const cohortCall = subscriptionsList.mock.calls.map((c) => c[0]).find((p) => p.status === 'all');
-    const paidCall = invoicesList.mock.calls.map((c) => c[0]).find((p) => p.status === 'paid');
+    const paidCall = invoicesList.mock.calls.map((c) => c[0]).find((p) => p.status === 'paid' && p.created);
     expect(cohortCall.created.gte).toBe(nowSec - 187 * DAY);
     expect(paidCall.created.gte).toBe(nowSec - 187 * DAY);
   });

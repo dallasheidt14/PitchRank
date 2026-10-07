@@ -6,8 +6,10 @@ import { SECONDS_PER_DAY } from '../constants';
 import {
   buildMonthProjection,
   collectPaidSubscriptionIds,
-  computeLastMonthCohort,
+  computeLifetimeChurn,
+  computeMonthCohort,
   computePaidChurnRate,
+  computeRetention,
   computeTrialConversionRate,
   computeTrialProjection,
   countAnnualRenewals,
@@ -169,7 +171,7 @@ describe('computeTrialConversionRate', () => {
   });
 });
 
-describe('computeLastMonthCohort', () => {
+describe('computeMonthCohort', () => {
   // Phoenix is UTC-7 all year, so its midnight on the 1st is 07:00 UTC.
   const phoenix = (y: number, m: number, d: number, h = 0) => Date.UTC(y, m - 1, d, h + 7) / 1000;
   const now = new Date(phoenix(2026, 9, 16) * 1000);
@@ -196,7 +198,7 @@ describe('computeLastMonthCohort', () => {
   const excluded = new Set(['staff@example.com']);
 
   it('counts trials started in the previous Phoenix month, their conversions, and the converts still subscribed', () => {
-    expect(computeLastMonthCohort(subs, paid, now, excluded)).toEqual({
+    expect(computeMonthCohort(subs, paid, now, 1, excluded)).toEqual({
       label: 'August 2026',
       sample: 8,
       converted: 7,
@@ -207,8 +209,77 @@ describe('computeLastMonthCohort', () => {
 
   it('reaches back into the previous year in January', () => {
     const december = [sub({ id: 'dec', status: 'active', trialStart: phoenix(2026, 12, 15) })];
-    const result = computeLastMonthCohort(december, new Set(['dec']), new Date(phoenix(2027, 1, 15) * 1000), NONE);
+    const result = computeMonthCohort(december, new Set(['dec']), new Date(phoenix(2027, 1, 15) * 1000), 1, NONE);
     expect(result).toEqual({ label: 'December 2026', sample: 1, converted: 1, retained: 1, excluded: 0 });
+  });
+});
+
+describe('computeMonthCohort two months back', () => {
+  const phoenix = (y: number, m: number, d: number) => Date.UTC(y, m - 1, d, 7) / 1000;
+  const trial = (id: string, start: number) => sub({ id, status: 'active', trialStart: start });
+
+  it('steps back two whole Phoenix months, across a year boundary', () => {
+    const subs = [
+      trial('dec', phoenix(2026, 12, 1)),
+      trial('nov', phoenix(2026, 11, 30)),
+      trial('jan', phoenix(2027, 1, 1)),
+    ];
+    const result = computeMonthCohort(subs, new Set(['dec']), new Date(phoenix(2027, 2, 10) * 1000), 2, NONE);
+    expect(result).toEqual({ label: 'December 2026', sample: 1, converted: 1, retained: 1, excluded: 0 });
+  });
+});
+
+describe('computeRetention', () => {
+  const now = 1_700_000_000;
+  const day = SECONDS_PER_DAY;
+  const ended = now - 10 * day;
+
+  it('counts converts in the window still subscribed with no cancellation scheduled', () => {
+    // Apart from the baseline rows, each row isolates one condition.
+    const subs = [
+      sub({ id: 'kept', status: 'active', trialEnd: ended }),
+      sub({ id: 'kept_past_due', status: 'past_due', trialEnd: ended }),
+      sub({ id: 'canceled', status: 'canceled', trialEnd: ended }),
+      sub({ id: 'unpaid', status: 'unpaid', trialEnd: ended }),
+      sub({ id: 'set_to_cancel', status: 'active', trialEnd: ended, cancelAtPeriodEnd: true }),
+      sub({ id: 'never_paid', status: 'active', trialEnd: ended }),
+      sub({ id: 'internal', status: 'active', trialEnd: ended, email: 'staff@example.com' }),
+      sub({ id: 'too_old', status: 'active', trialEnd: now - 181 * day }),
+      sub({ id: 'still_trialing', status: 'active', trialEnd: now + day }),
+    ];
+    const paid = new Set(subs.map((s) => s.id).filter((id) => id !== 'never_paid'));
+    const result = computeRetention(
+      window({ subs, now, paidSubIds: paid, excludedEmails: new Set(['staff@example.com']) })
+    );
+    expect(result).toBe(2);
+  });
+});
+
+describe('computeLifetimeChurn', () => {
+  it('counts canceled subscribers among everyone who ever paid', () => {
+    const subs = [
+      sub({ id: 'active', status: 'active', email: 'a@example.com' }),
+      sub({ id: 'past_due', status: 'past_due', email: 'b@example.com' }),
+      sub({ id: 'left', status: 'canceled', email: 'c@example.com' }),
+      sub({ id: 'set_to_cancel', status: 'active', cancelAtPeriodEnd: true, email: 'd@example.com' }),
+      sub({ id: 'never_paid', status: 'canceled', email: 'e@example.com' }),
+      sub({ id: 'internal', status: 'canceled', email: 'staff@example.com' }),
+    ];
+    const everPaid = new Set(['active', 'past_due', 'left', 'set_to_cancel', 'internal']);
+    expect(computeLifetimeChurn(subs, everPaid, new Set(['staff@example.com']))).toEqual({ paid: 4, churned: 1 });
+  });
+
+  it('counts people, not subscriptions, so a returning subscriber is not churned', () => {
+    const subs = [
+      // Active first, so a later canceled row for the same person must not overwrite it.
+      sub({ id: 'new', status: 'active', email: 'Back@example.com' }),
+      sub({ id: 'old', status: 'canceled', email: 'back@example.com' }),
+      sub({ id: 'twice_gone_a', status: 'canceled', email: 'gone@example.com' }),
+      sub({ id: 'twice_gone_b', status: 'canceled', email: 'gone@example.com' }),
+      sub({ id: 'unpaid', status: 'unpaid', email: 'owing@example.com' }),
+    ];
+    const everPaid = new Set(subs.map((s) => s.id));
+    expect(computeLifetimeChurn(subs, everPaid, NONE)).toEqual({ paid: 3, churned: 1 });
   });
 });
 

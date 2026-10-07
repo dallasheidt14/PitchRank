@@ -10,9 +10,12 @@ import {
   computeTrialProjection,
   countAnnualRenewals,
   countObservedChurn,
-  computeLastMonthCohort,
+  monthsBack,
+  computeLifetimeChurn,
+  computeMonthCohort,
+  computeRetention,
   type CohortWindow,
-  type LastMonthCohort,
+  type MonthCohort,
   type MonthProjection,
   type RateEstimate,
 } from './month-projection';
@@ -56,6 +59,16 @@ export type ReportCardMetrics = {
   recentLeads: ReportCardLead[];
 };
 
+export type AvailableMonthCohort = { available: boolean } & MonthCohort;
+
+export type MrrGrowth = {
+  label: string; // the month measured, e.g. "September 2026"
+  from: number; // MRR at that month's start, dollars
+  to: number; // MRR at the next month's start
+  change: number;
+  percent: number | null; // null when `from` is 0
+};
+
 export type SubscriptionMetrics = {
   mrr: number | null; // dollars with cents preserved (e.g. 61.25); null when a fetch it sums failed
   activePaid: {
@@ -76,8 +89,12 @@ export type SubscriptionMetrics = {
     converted: number;
     percent: number | null;
     excluded: number; // test/internal users filtered from sample
+    retained: number; // of `converted`, still subscribed with no cancellation scheduled
   };
-  lastMonth: { available: boolean } & LastMonthCohort;
+  lastMonth: AvailableMonthCohort;
+  twoMonthsAgo: AvailableMonthCohort;
+  lifetimeChurn: { available: boolean; paid: number; churned: number };
+  mrrGrowth: { available: boolean } & MrrGrowth;
   reportCard: ReportCardMetrics;
   monthProjection: { available: boolean } & MonthProjection;
   generatedAt: string;
@@ -251,6 +268,37 @@ export function computeMrr(subs: Stripe.Subscription[]): number {
     }
   }
   return Math.round(cents) / 100;
+}
+
+/**
+ * Subscriptions that were billing at `at`: past their trial and with no
+ * cancellation requested yet, matching how `mrr` drops a subscription once its
+ * cancellation is scheduled. Rebuilt from today's state, so each is priced at
+ * its current plan. `canceled_at` is the request time for a cancellation set
+ * with `cancel_at_period_end`; Stripe does not document it for one set through
+ * `cancel_at` alone, so such a subscription may count until service ends.
+ */
+export function payingAt(subs: Stripe.Subscription[], at: number): Stripe.Subscription[] {
+  return subs.filter((sub) => {
+    const billingFrom = sub.trial_end ?? sub.start_date;
+    const stoppedAt = sub.canceled_at ?? sub.ended_at;
+    return billingFrom <= at && (stoppedAt === null || stoppedAt > at);
+  });
+}
+
+/** MRR at the start of last month against the start of this one, in the business timezone. */
+export function computeMrrGrowth(subs: Stripe.Subscription[], now: Date): MrrGrowth {
+  const lastMonth = monthsBack(now, 1);
+  const from = computeMrr(payingAt(subs, lastMonth.monthStart));
+  const to = computeMrr(payingAt(subs, lastMonth.monthEnd));
+  const change = Math.round((to - from) * 100) / 100;
+  return {
+    label: lastMonth.label,
+    from,
+    to,
+    change,
+    percent: from > 0 ? Math.round((change / from) * 1000) / 10 : null,
+  };
 }
 
 export function bucketActivePaid(subs: Stripe.Subscription[]): { total: number; monthly: number; annual: number } {
@@ -530,23 +578,26 @@ export async function getSubscriptionMetrics(): Promise<SubscriptionMetrics> {
   const errors: string[] = [];
   const nowSec = Math.floor(Date.now() / 1000);
 
-  const [active, trialing, pastDue, canceled, cohort, paidInvoices, reportCardData] = await Promise.all([
-    safeList({ status: 'active' }, 'active subscriptions', errors),
-    safeList({ status: 'trialing' }, 'trialing subscriptions', errors),
-    safeList({ status: 'past_due' }, 'past_due subscriptions', errors),
-    safeList({ status: 'canceled' }, 'canceled subscriptions', errors),
-    safeList(
-      { status: 'all', created: { gte: nowSec - COHORT_FETCH_DAYS * SECONDS_PER_DAY } },
-      'conversion cohort',
-      errors
-    ),
-    safeListInvoices(
-      { status: 'paid', created: { gte: nowSec - COHORT_FETCH_DAYS * SECONDS_PER_DAY } },
-      'paid invoices',
-      errors
-    ),
-    fetchReportCardMetrics(errors),
-  ]);
+  const [active, trialing, pastDue, canceled, unpaid, cohort, paidInvoices, lifetimePaidInvoices, reportCardData] =
+    await Promise.all([
+      safeList({ status: 'active' }, 'active subscriptions', errors),
+      safeList({ status: 'trialing' }, 'trialing subscriptions', errors),
+      safeList({ status: 'past_due' }, 'past_due subscriptions', errors),
+      safeList({ status: 'canceled' }, 'canceled subscriptions', errors),
+      safeList({ status: 'unpaid' }, 'unpaid subscriptions', errors),
+      safeList(
+        { status: 'all', created: { gte: nowSec - COHORT_FETCH_DAYS * SECONDS_PER_DAY } },
+        'conversion cohort',
+        errors
+      ),
+      safeListInvoices(
+        { status: 'paid', created: { gte: nowSec - COHORT_FETCH_DAYS * SECONDS_PER_DAY } },
+        'paid invoices',
+        errors
+      ),
+      safeListInvoices({ status: 'paid' }, 'lifetime paid invoices', errors),
+      fetchReportCardMetrics(errors),
+    ]);
 
   // Stripe's MRR counts active and past_due subscriptions, and drops one as soon
   // as its cancellation is scheduled rather than when service ends.
@@ -571,7 +622,10 @@ export async function getSubscriptionMetrics(): Promise<SubscriptionMetrics> {
   };
   const conversionEstimate = computeTrialConversionRate(cohortWindow);
   const churnEstimate = computePaidChurnRate(cohortWindow);
-  const conversion = computeConversion(conversionEstimate, COHORT_LOOKBACK_DAYS);
+  const conversion = {
+    ...computeConversion(conversionEstimate, COHORT_LOOKBACK_DAYS),
+    retained: computeRetention(cohortWindow),
+  };
 
   const paidCohort = cohortWindow.subs.filter(
     (sub) => paidSubIds.has(sub.id) && !excludedEmails.has(getCustomerEmail(sub).toLowerCase())
@@ -590,7 +644,16 @@ export async function getSubscriptionMetrics(): Promise<SubscriptionMetrics> {
     // the active base the projected half is charged against.
     observedChurn: measurable ? countObservedChurn(canceled.items, now, paidSubIds, excludedEmails) : 0,
   });
-  const lastMonth = computeLastMonthCohort(cohortWindow.subs, paidSubIds, now, excludedEmails);
+  const lastMonth = computeMonthCohort(cohortWindow.subs, paidSubIds, now, 1, excludedEmails);
+  const twoMonthsAgo = computeMonthCohort(cohortWindow.subs, paidSubIds, now, 2, excludedEmails);
+  // `billedSubs` plus `unpaid` cover every status a subscription can hold after
+  // it has billed, each list unbounded. Growth leaves `unpaid` out the way `mrr`
+  // does: Stripe records no time at which an unpaid subscription stopped paying.
+  const everPaidIds = collectPaidSubscriptionIds(lifetimePaidInvoices.items);
+  const billedSubs = [...active.items, ...pastDue.items, ...canceled.items].filter((sub) => everPaidIds.has(sub.id));
+  const billingListsOk = active.ok && pastDue.ok && canceled.ok && lifetimePaidInvoices.ok;
+  const lifetimeChurn = computeLifetimeChurn([...billedSubs, ...unpaid.items], everPaidIds, excludedEmails);
+  const mrrGrowth = computeMrrGrowth(billedSubs, now);
   const leadConversion = computeLeadConversion(reportCardData.uniqueLeadEmails, active.items, pastDue.items);
   // Union the unbounded status lists so "ever trialed" is date-complete:
   // currently-trialing, trialed-then-paid (active + past_due), and
@@ -614,6 +677,9 @@ export async function getSubscriptionMetrics(): Promise<SubscriptionMetrics> {
     },
     conversion,
     lastMonth: { available: measurable, ...lastMonth },
+    twoMonthsAgo: { available: measurable, ...twoMonthsAgo },
+    lifetimeChurn: { available: billingListsOk && unpaid.ok, ...lifetimeChurn },
+    mrrGrowth: { available: billingListsOk, ...mrrGrowth },
     reportCard: {
       totalRequests: reportCardData.totalRequests,
       uniqueEmails: reportCardData.uniqueLeadEmails.size,

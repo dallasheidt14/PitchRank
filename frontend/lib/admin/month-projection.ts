@@ -43,9 +43,9 @@ export type CohortWindow = {
   excludedEmails: Set<string>;
 };
 
-export type LastMonthCohort = {
+export type MonthCohort = {
   label: string; // e.g. "September 2026"
-  sample: number; // trials that started last month
+  sample: number; // trials that started that month
   converted: number;
   retained: number; // of `converted`, still subscribed with no cancellation scheduled
   excluded: number;
@@ -173,39 +173,69 @@ export function computeTrialConversionRate({
 }
 
 /**
- * Trials that started in the previous calendar month in {@link BUSINESS_TIMEZONE},
- * how many activated, and how many of those are still subscribed today with no
- * cancellation scheduled.
+ * Of the trials that ended inside the window and activated, how many are still
+ * subscribed today with no cancellation scheduled. Same cohort and activation
+ * test as `computeTrialConversionRate`, so `retained` is a subset of its count.
+ */
+export function computeRetention({ subs, paidSubIds, now, windowStart, excludedEmails }: CohortWindow): number {
+  const { trials } = trialsIn(subs, 'trial_end', windowStart, now, excludedEmails);
+  return trials.filter((sub) => paidSubIds.has(sub.id) && isStillSubscribed(sub)).length;
+}
+
+/**
+ * Trials that started in the calendar month `monthsAgo` before the current one
+ * in {@link BUSINESS_TIMEZONE}, how many activated, and how many of those are
+ * still subscribed today with no cancellation scheduled.
  *
  * `converted` uses the same activation test as `computeTrialConversionRate`, so
- * the two cards cannot disagree on what counts as a conversion. A trial started
- * in the last days of the month is still running early in this one, so it
- * counts as not converted until it activates.
+ * the cards cannot disagree on what counts as a conversion. A trial started in
+ * the last days of a month is still running early in the next, so it counts as
+ * not converted until it activates.
  */
-export function computeLastMonthCohort(
+export function computeMonthCohort(
   subs: Stripe.Subscription[],
   paidSubIds: Set<string>,
   now: Date,
+  monthsAgo: number,
   excludedEmails: Set<string>
-): LastMonthCohort {
-  const { monthStart: lastMonthEnd } = monthBounds(now);
-  const { monthStart: lastMonthStart } = monthBounds(new Date((lastMonthEnd - 1) * 1000));
-  const { trials, excluded } = trialsIn(subs, 'trial_start', lastMonthStart, lastMonthEnd, excludedEmails);
+): MonthCohort {
+  const { monthStart, monthEnd, label } = monthsBack(now, monthsAgo);
+  const { trials, excluded } = trialsIn(subs, 'trial_start', monthStart, monthEnd, excludedEmails);
   const converted = trials.filter((sub) => paidSubIds.has(sub.id));
-  const retained = converted.filter(
-    (sub) => (sub.status === 'active' || sub.status === 'past_due') && !isCancellationScheduled(sub)
-  );
   return {
-    label: new Date(lastMonthStart * 1000).toLocaleDateString('en-US', {
-      month: 'long',
-      year: 'numeric',
-      timeZone: BUSINESS_TIMEZONE,
-    }),
+    label,
     sample: trials.length,
     converted: converted.length,
-    retained: retained.length,
+    retained: converted.filter(isStillSubscribed).length,
     excluded,
   };
+}
+
+/**
+ * Of everyone who ever activated, how many have since left: counted per person
+ * by email, so a subscriber who cancels and later resubscribes is not churned.
+ * A person counts as churned once every subscription they paid on is canceled.
+ * `everPaidIds` must be lifetime activation evidence: a window-bounded invoice
+ * list would drop long-standing subscribers and overstate churn.
+ */
+export function computeLifetimeChurn(
+  subs: Stripe.Subscription[],
+  everPaidIds: Set<string>,
+  excludedEmails: Set<string>
+): { paid: number; churned: number } {
+  const stillSubscribed = new Map<string, boolean>();
+  for (const sub of subs) {
+    if (!everPaidIds.has(sub.id) || isExcluded(sub, excludedEmails)) continue;
+    const email = getCustomerEmail(sub).toLowerCase();
+    const person = email.includes('@') ? email : sub.id;
+    stillSubscribed.set(person, (stillSubscribed.get(person) ?? false) || sub.status !== 'canceled');
+  }
+  const people = [...stillSubscribed.values()];
+  return { paid: people.length, churned: people.filter((here) => !here).length };
+}
+
+function isStillSubscribed(sub: Stripe.Subscription): boolean {
+  return (sub.status === 'active' || sub.status === 'past_due') && !isCancellationScheduled(sub);
 }
 
 function trialsIn(
@@ -274,6 +304,20 @@ function finalizeRate(observed: number, sample: number, excluded: number, fallba
     return { rate: fallback, observed, sample, excluded, isFallback: true };
   }
   return { rate: observed / sample, observed, sample, excluded, isFallback: false };
+}
+
+/** The calendar month `n` before the one containing `now`, in the business timezone. */
+export function monthsBack(now: Date, n: number): { monthStart: number; monthEnd: number; label: string } {
+  let { monthStart, monthEnd } = monthBounds(now);
+  for (let i = 0; i < n; i += 1) {
+    ({ monthStart, monthEnd } = monthBounds(new Date((monthStart - 1) * 1000)));
+  }
+  const label = new Date(monthStart * 1000).toLocaleDateString('en-US', {
+    month: 'long',
+    year: 'numeric',
+    timeZone: BUSINESS_TIMEZONE,
+  });
+  return { monthStart, monthEnd, label };
 }
 
 /**

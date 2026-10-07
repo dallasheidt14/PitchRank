@@ -7,6 +7,8 @@ vi.mock('server-only', () => ({}));
 
 import {
   computeMrr,
+  computeMrrGrowth,
+  payingAt,
   bucketActivePaid,
   buildTrialPipeline,
   computeConversion,
@@ -357,5 +359,95 @@ describe('computeLeadToTrial', () => {
   it('returns zero/null when no leads', () => {
     const result = computeLeadToTrial(new Set(), [], excluded);
     expect(result).toEqual({ leads: 0, trialed: 0, percent: null, excluded: 0 });
+  });
+});
+
+describe('payingAt', () => {
+  const at = 1_700_000_000;
+  const ids = (subs: ReturnType<typeof makeSub>[]) => payingAt(subs, at).map((s) => s.id);
+
+  it('starts billing at trial end, or at start_date without a trial', () => {
+    expect(
+      ids([
+        makeSub({ id: 'trial_over', trialEnd: at }),
+        makeSub({ id: 'in_trial', trialEnd: at + 1 }),
+        makeSub({ id: 'no_trial', startDate: at - 1 }),
+        makeSub({ id: 'not_started', startDate: at + 1 }),
+      ])
+    ).toEqual(['trial_over', 'no_trial']);
+  });
+
+  it('stops billing once a cancellation is requested, or service ends without one', () => {
+    expect(
+      ids([
+        makeSub({ id: 'requested_before', startDate: 0, canceledAt: at, cancelAtPeriodEnd: true }),
+        makeSub({ id: 'requested_after', startDate: 0, canceledAt: at + 1, cancelAtPeriodEnd: true }),
+        makeSub({ id: 'ended_before', status: 'canceled', startDate: 0, endedAt: at }),
+        makeSub({ id: 'ended_after', status: 'canceled', startDate: 0, endedAt: at + 1 }),
+        // Requested before `at`, served until after it: the request decides.
+        makeSub({
+          id: 'requested_then_served',
+          status: 'canceled',
+          startDate: 0,
+          canceledAt: at - 10,
+          endedAt: at + 10,
+        }),
+      ])
+    ).toEqual(['requested_after', 'ended_after']);
+  });
+});
+
+describe('computeMrrGrowth', () => {
+  // Phoenix is UTC-7 all year, so its midnight on the 1st is 07:00 UTC.
+  const phoenix = (y: number, m: number, d: number) => Date.UTC(y, m - 1, d, 7) / 1000;
+  const now = new Date(phoenix(2026, 10, 7) * 1000);
+
+  it('compares MRR at the start of last month with the start of this one', () => {
+    const subs = [
+      makeSub({ id: 'throughout', trialEnd: phoenix(2026, 8, 10) }),
+      makeSub({ id: 'joined', trialEnd: phoenix(2026, 9, 15) }),
+      makeSub({
+        id: 'left',
+        status: 'canceled',
+        trialEnd: phoenix(2026, 7, 1),
+        canceledAt: phoenix(2026, 9, 10),
+        endedAt: phoenix(2026, 9, 10),
+      }),
+      makeSub({
+        id: 'set_to_cancel',
+        trialEnd: phoenix(2026, 7, 1),
+        canceledAt: phoenix(2026, 9, 20),
+        cancelAtPeriodEnd: true,
+      }),
+      makeSub({
+        id: 'never_converted',
+        status: 'canceled',
+        trialEnd: phoenix(2026, 8, 20),
+        canceledAt: phoenix(2026, 8, 20),
+        endedAt: phoenix(2026, 8, 20),
+      }),
+      makeSub({ id: 'annual', interval: 'year', unitAmount: 6999, startDate: phoenix(2026, 6, 1) }),
+      makeSub({ id: 'trialing', status: 'trialing', trialEnd: phoenix(2026, 10, 10) }),
+    ];
+    // Sept 1: throughout, left, set_to_cancel, annual = 3 × $6.99 + $5.8325.
+    // Oct 1: throughout, joined, annual = 2 × $6.99 + $5.8325.
+    expect(computeMrrGrowth(subs, now)).toEqual({
+      label: 'September 2026',
+      from: 26.8,
+      to: 19.81,
+      change: -6.99,
+      percent: -26.1,
+    });
+  });
+
+  it('reports no percent when there was no MRR to grow from', () => {
+    const subs = [makeSub({ id: 'first', trialEnd: phoenix(2026, 9, 15) })];
+    expect(computeMrrGrowth(subs, now)).toEqual({
+      label: 'September 2026',
+      from: 0,
+      to: 6.99,
+      change: 6.99,
+      percent: null,
+    });
   });
 });

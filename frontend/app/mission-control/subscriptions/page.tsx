@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
-import { getSubscriptionMetrics } from '@/lib/admin/subscription-metrics';
+import { getSubscriptionMetrics, type AvailableMonthCohort } from '@/lib/admin/subscription-metrics';
 import { describeRate } from '@/lib/admin/month-projection';
 import { BUSINESS_TIMEZONE } from '@/lib/admin/timezone';
 
@@ -29,6 +29,10 @@ function percentOf(part: number, whole: number): string {
 
 function signedCount(n: number): string {
   return `${n >= 0 ? '+' : '−'}${formatCount(Math.abs(n))}`;
+}
+
+function signedPercent(n: number | null): string {
+  return n === null ? '—' : `${n >= 0 ? '+' : '−'}${Math.abs(n)}%`;
 }
 
 function signedDollars(n: number): string {
@@ -129,7 +133,7 @@ export default async function SubscriptionsDashboardPage() {
             <KpiCard
               label="Active Paid"
               value={metrics.activePaid.total.toString()}
-              sub={`${metrics.activePaid.monthly} monthly · ${metrics.activePaid.annual} annual`}
+              sub={`${metrics.activePaid.monthly} monthly (${percentOf(metrics.activePaid.monthly, metrics.activePaid.total)}) · ${metrics.activePaid.annual} annual (${percentOf(metrics.activePaid.annual, metrics.activePaid.total)})`}
             />
             <KpiCard
               label="Active Trials"
@@ -364,28 +368,58 @@ export default async function SubscriptionsDashboardPage() {
               )}
             </CardContent>
           </Card>
+          {metrics.conversion.percent !== null && (
+            <Card variant="flat">
+              <CardContent className="py-6">
+                <div className="space-y-1">
+                  <div className="text-sm text-muted-foreground">
+                    Retention · last {metrics.conversion.windowDays} days
+                  </div>
+                  <div className="font-display text-4xl font-bold">
+                    {percentOf(metrics.conversion.retained, metrics.conversion.converted)}
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    {`${metrics.conversion.retained} of those ${metrics.conversion.converted} paid subscribers are still subscribed today and not canceled or set to cancel.`}
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </section>
 
+        <MonthCohortSection title="Last Month" cohort={metrics.lastMonth} />
+        <MonthCohortSection title="2 Months Ago" cohort={metrics.twoMonthsAgo} />
+
         <section className="space-y-3">
-          <h2 className="font-display text-xl font-semibold">Last Month · {metrics.lastMonth.label}</h2>
-          {!metrics.lastMonth.available ? (
-            <p className="text-sm text-muted-foreground">
-              Stripe did not return the subscriptions or payments these are counted from, so they could not be loaded.
-            </p>
-          ) : (
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <KpiCard
-                label="Trial → Paid"
-                value={percentOf(metrics.lastMonth.converted, metrics.lastMonth.sample)}
-                sub={`${metrics.lastMonth.converted} of ${metrics.lastMonth.sample} trials started in ${metrics.lastMonth.label} went on to a paid subscription${metrics.lastMonth.excluded > 0 ? ` (${metrics.lastMonth.excluded} test/internal excluded)` : ''}`}
-              />
-              <KpiCard
-                label="Retention"
-                value={percentOf(metrics.lastMonth.retained, metrics.lastMonth.converted)}
-                sub={`${metrics.lastMonth.retained} of those ${metrics.lastMonth.converted} paid subscribers are still subscribed today and not canceled or set to cancel`}
-              />
-            </div>
-          )}
+          <h2 className="font-display text-xl font-semibold">Churn &amp; Growth</h2>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <KpiCard
+              label="Churn · all time"
+              value={
+                metrics.lifetimeChurn.available
+                  ? percentOf(metrics.lifetimeChurn.churned, metrics.lifetimeChurn.paid)
+                  : '—'
+              }
+              sub={
+                metrics.lifetimeChurn.available
+                  ? `${metrics.lifetimeChurn.churned} of ${metrics.lifetimeChurn.paid} subscribers who ever paid have since canceled`
+                  : 'could not be loaded'
+              }
+            />
+            <KpiCard
+              label={`Monthly Growth · ${metrics.mrrGrowth.label}`}
+              value={
+                metrics.mrrGrowth.available
+                  ? `${signedDollars(metrics.mrrGrowth.change)} | ${signedPercent(metrics.mrrGrowth.percent)}`
+                  : '—'
+              }
+              sub={
+                metrics.mrrGrowth.available
+                  ? `MRR ${formatDollars(metrics.mrrGrowth.from)} at the start of ${metrics.mrrGrowth.label} → ${formatDollars(metrics.mrrGrowth.to)} a month later`
+                  : 'could not be loaded'
+              }
+            />
+          </div>
         </section>
 
         <section className="space-y-3">
@@ -468,6 +502,34 @@ export default async function SubscriptionsDashboardPage() {
         </section>
       </div>
     </div>
+  );
+}
+
+function MonthCohortSection({ title, cohort }: { title: string; cohort: AvailableMonthCohort }) {
+  return (
+    <section className="space-y-3">
+      <h2 className="font-display text-xl font-semibold">
+        {title} · {cohort.label}
+      </h2>
+      {!cohort.available ? (
+        <p className="text-sm text-muted-foreground">
+          Stripe did not return the subscriptions or payments these are counted from, so they could not be loaded.
+        </p>
+      ) : (
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <KpiCard
+            label="Trial → Paid"
+            value={percentOf(cohort.converted, cohort.sample)}
+            sub={`${cohort.converted} of ${cohort.sample} trials started in ${cohort.label} went on to a paid subscription${cohort.excluded > 0 ? ` (${cohort.excluded} test/internal excluded)` : ''}`}
+          />
+          <KpiCard
+            label="Retention"
+            value={percentOf(cohort.retained, cohort.converted)}
+            sub={`${cohort.retained} of those ${cohort.converted} paid subscribers are still subscribed today and not canceled or set to cancel`}
+          />
+        </div>
+      )}
+    </section>
   );
 }
 
