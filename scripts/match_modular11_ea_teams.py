@@ -49,6 +49,7 @@ PLAIN_AFTER_TIER = frozenset({"boys", "b", "premier", "academy", "elite"})
 COLOURS = frozenset({"red", "blue", "white", "black", "gold", "silver", "orange", "navy", "green", "grey", "purple"})
 BRANCH = "different branch"
 LINEAGE = "last season's age-below team"
+CLASH = "schedule clash"
 MIN_CLASH_DATES = 2
 PAGE_SIZE = 1000
 REPORT_COLUMNS = [
@@ -223,7 +224,7 @@ def _hold(ea: EaTeam, team: dict, ea_games: dict[str, list[dict]], cand_games: d
     if any(key != ea.key and split_ea_key(key)[1] == ea.season for key in team.get("ea_keys", ())):
         return None
     if schedule_conflict(ea_games.get(ea.provider_team_id, []), cand_games.get(team["team_id_master"], [])):
-        return None
+        return CLASH
     if relation == "branch":
         return BRANCH
     if not state:
@@ -249,6 +250,9 @@ def classify(
     for ea in ea_teams:
         found = hits[ea.provider_team_id]
         mine = [(d, why) for d, why in found if tier_marker(d["team_name"]) in ea.tiers]
+        # A clash rules a candidate out only while another remains; dropping the last one would
+        # read as "no match" and the linker would create a duplicate of a team that exists.
+        mine = [(d, why) for d, why in mine if why != CLASH] or mine
         lineal = [(d, why) for d, why in mine if d["team_id_master"] == lineage.get(ea.provider_team_id)]
         tagged[ea.provider_team_id] = lineal or mine
     claims: dict[str, set[str]] = defaultdict(set)

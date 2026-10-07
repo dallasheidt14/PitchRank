@@ -227,3 +227,9 @@ def test_run_follows_last_seasons_link_of_the_age_below_slot(tmp_path):
     assert m.run("u17", tmp_path, db) == {"confident": 1, "review": 0, "no_match": 0}
     [row] = _report(tmp_path)
     assert (row["candidate_ids"], row["reason"]) == ("b", "last season's age-below team")
+
+
+def test_a_lone_busy_candidate_is_held_not_dropped():
+    cand_games = {"a": [_g(12, "Pacific FC 2010"), _g(19, "Seattle United B10")]}
+    [row] = classify([_ea()], TWO[:1], ea_games={"1": EA_GAMES}, cand_games=cand_games)
+    assert (row.bucket, row.reason, [c["team_id_master"] for c in row.candidates]) == ("review", "schedule clash", ["a"])
