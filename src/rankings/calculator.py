@@ -529,6 +529,8 @@ def _apply_publication_cap_band(base_scores: pd.Series, teams_age: pd.DataFrame)
     cohort ceiling, but they keep a compressed version of their relative order
     underneath that ceiling.
     """
+    from src.rankings.constants import AGE_TO_ANCHOR
+
     if "publication_cap_score" not in teams_age.columns:
         return base_scores
 
@@ -566,6 +568,33 @@ def _apply_publication_cap_band(base_scores: pd.Series, teams_age: pd.DataFrame)
 
         compressed = np.linspace(upper, lower, group_size)
         adjusted.loc[ranked.index] = compressed
+
+    # A below-cap team can sit inside the compressed band and overtake a
+    # stronger team with the same restriction. Keep the existing score slots,
+    # but assign them in pre-cap order across both sides of the boundary.
+    # Do not transfer score slots between boards or eligibility statuses.
+    order_keys = ["age_num", "publication_cap_rank"]
+    order_keys += [col for col in ("gender", "status") if col in teams_age.columns]
+    ordered_work = teams_age.loc[cap_scores.notna(), ["team_id", *order_keys]].copy()
+    ordered_work["base_pre_cap"] = pd.to_numeric(base_scores.loc[ordered_work.index], errors="coerce")
+    ordered_work["cap_score"] = cap_scores.loc[ordered_work.index]
+    ordered_work = ordered_work.dropna(subset=["base_pre_cap", "cap_score"])
+    for _, grp in ordered_work.groupby([*order_keys, "cap_score"], dropna=False):
+        ranked = grp.sort_values(["base_pre_cap", "team_id"], ascending=[False, True])
+        scores = np.sort(adjusted.loc[ranked.index].to_numpy(dtype=float))[::-1].copy()
+        team_ids = ranked["team_id"].to_numpy()
+        anchor = AGE_TO_ANCHOR.get(_safe_int(grp["age_num"].iloc[0]), 1.0)
+        for pos in range(1, len(scores)):
+            # State boards break ties after age scaling. Keep a conflicting
+            # tie separated on both score scales; zero cannot be split further.
+            conflicting_ids = team_ids[pos] < team_ids[pos - 1]
+            if scores[pos] > scores[pos - 1] or (
+                scores[pos] * anchor == scores[pos - 1] * anchor and conflicting_ids
+            ):
+                scores[pos] = min(scores[pos], np.nextafter(scores[pos - 1], 0.0))
+                while scores[pos] > 0 and conflicting_ids and scores[pos] * anchor == scores[pos - 1] * anchor:
+                    scores[pos] = np.nextafter(scores[pos], 0.0)
+        adjusted.loc[ranked.index] = scores
 
     return adjusted
 

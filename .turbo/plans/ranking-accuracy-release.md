@@ -9,7 +9,7 @@ runs or fetch their outcomes. Preserve the earlier results and numerical verdict
 historical evidence; this change of goal does not make an inconclusive test a pass.
 
 1. Finish reviewing the existing pull-off/gender/ceiling-safeguard package in PR #1255.
-   Its ranking code and measured September artifacts stay unchanged. Judge the code
+   Preserve the measured September artifacts. Judge the code
    against the stated ranking rules and the documented placement cases. Preserve
    supported in-state and play-up exceptions; do not redesign those exceptions here.
 2. Implement the owner's newest-30 valid games within 365 days policy in a separate PR.
@@ -27,6 +27,17 @@ flagged-team review and the unresolved U10 findings. The next owner decision is 
 explicit merge/publication approval for a concrete reviewed change, with expected
 movement and limitations stated. No merge or publication is authorized by this note.
 Record rollback inputs before publication and verify stored ranks afterward.
+
+## October 7 approved ordering correction
+
+The owner approved fixing reversals among teams with the same ceiling, preserving
+existing thresholds and exceptions, expanding the placement review, and replaying
+only the ceiling step from the saved combined preview. See the
+[ordering replay and remaining concerns](../reports/2026-10-07-ceiling-order-replay.md).
+This is a new source correction after the September freeze; it does not alter those
+historical outputs or authorize production publication. The 23 original flags remain,
+and the broader review identifies additional thin-evidence cases. A completed
+ordering fix does not establish that the isolated-schedule goal is fully solved.
 
 ## Historical plan (superseded where it requires future prediction confirmation)
 
