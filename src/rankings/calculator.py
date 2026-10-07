@@ -1941,6 +1941,9 @@ def _publication_cap_rank(row: pd.Series) -> int | None:
     if thin_top100:
         return with_freshness_limit(int(policy["cap_rank"]))
     if connectivity_constrained and top100 >= 1:
+        # Exposure alone does not establish a result that earns ceiling relief.
+        if top100_non_loss == 0:
+            return with_freshness_limit(int(policy["cap_rank"]))
         return with_freshness_limit(int(policy["soft_cap_rank"]))
 
     if weak_avg or weak_depth or repeat_heavy_for_cap:
