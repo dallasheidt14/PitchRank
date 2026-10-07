@@ -259,3 +259,45 @@ def test_float_numeric_ids_still_lose_their_decimal(tmp_path):
     path.write_text("provider,team_id,opponent_id,goals_for,goals_against\ngotsport,3432.0,77.0,2,0\n", encoding="utf-8")
     [[game]] = list(stream_games_csv(path))
     assert (game["team_id"], game["opponent_id"], game["goals_for"], game["goals_against"]) == ("3432", "77", 2, 0)
+
+
+class _AliasQuery:
+    def __init__(self, rows):
+        self.rows, self.window = rows, None
+
+    def select(self, *_cols):
+        return self
+
+    def eq(self, *_args):
+        return self
+
+    def single(self):
+        return self
+
+    def order(self, _column):
+        return self
+
+    def range(self, lo, hi):
+        self.window = (lo, hi)
+        return self
+
+    def execute(self):
+        if self.window is None:
+            return type("R", (), {"data": {"id": "p-ea"}})()
+        return type("R", (), {"data": self.rows[self.window[0] : self.window[1] + 1]})()
+
+
+class _AliasDb:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def table(self, _name):
+        return _AliasQuery(self.rows)
+
+
+def test_live_links_refuse_raw_ids():
+    import pytest
+
+    with pytest.raises(SystemExit, match="migrate_modular11_ea_season_keys.py"):
+        build.live_links(_AliasDb([{"provider_team_id": "7155", "team_id_master": "M1"}]))
+    assert build.live_links(_AliasDb([{"provider_team_id": "7155:2026", "team_id_master": "M1"}])) == {"7155:2026": "M1"}

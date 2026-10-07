@@ -24,6 +24,7 @@ class _Query:
     def __init__(self, db, table):
         self.db, self.table = db, table
         self.op, self.filters, self.payload, self.single_row = "select", [], None, False
+        self.window = None
 
     def select(self, *_cols, count=None):
         return self
@@ -47,6 +48,13 @@ class _Query:
         self.single_row = True
         return self
 
+    def order(self, _column):
+        return self
+
+    def range(self, start, end):
+        self.window = (start, end)
+        return self
+
     def _matching(self):
         return [r for r in self.db.rows[self.table] if all(r.get(c) == v for c, v in self.filters)]
 
@@ -60,6 +68,8 @@ class _Query:
             for row in rows:
                 self.db.rows[self.table].remove(row)
             return _Result(rows)
+        if self.window:
+            rows = rows[self.window[0] : self.window[1] + 1]
         if self.single_row:
             if len(rows) != 1:
                 raise APIError({"code": "PGRST116", "message": "JSON object requested, multiple (or no) rows returned"})
@@ -325,3 +335,12 @@ def test_last_seasons_link_does_not_count_for_this_season(tmp_path, alias_calls)
 def test_raw_uid_decision_applies_to_the_season_key():
     plan = link.plan_links([_team("7155")], [_report("7155", "review", "M1|M2")], {"7155": "M2"})
     assert [(a.provider_team_id, a.key, a.action, a.team_id_master) for a in plan] == [("7155", "7155:2026", "link", "M2")]
+
+
+def test_execute_refuses_while_raw_ids_remain(tmp_path, alias_calls):
+    raw = {"id": 1, "provider_id": PROVIDER, "provider_team_id": "7155", "team_id_master": "OLD", "review_status": "approved"}
+    db = _Db(aliases=[raw])
+    plan = link.plan_links([_team("7155")], [_report("7155", "no_match")], {})
+    with pytest.raises(SystemExit, match="migrate_modular11_ea_season_keys.py"):
+        link.apply_plan(db, PROVIDER, plan, tmp_path / "log.jsonl")
+    assert (db.writes(), alias_calls) == ([], [])

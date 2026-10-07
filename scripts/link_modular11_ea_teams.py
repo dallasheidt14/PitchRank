@@ -34,6 +34,7 @@ from postgrest.exceptions import APIError
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from scripts.migrate_modular11_ea_season_keys import refuse_unmigrated  # noqa: E402
 from src.models.modular11_ea_keys import club_state, ea_key  # noqa: E402
 from src.models.modular11_ea_matcher import PROVIDER_CODE  # noqa: E402
 from src.tournaments.alias_writer import upsert_team_alias  # noqa: E402
@@ -190,6 +191,7 @@ def apply_plan(sb, provider_id: str, plan: list[LinkAction], log_path: Path) -> 
         "needs_merge": 0,
         "links_rejected": 0,
     }
+    refuse_unmigrated(sb, provider_id)
     created: dict[str, str] = {}
     with log_path.open("a", encoding="utf-8") as log:
         for action in plan:

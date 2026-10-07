@@ -29,7 +29,7 @@ from postgrest.exceptions import APIError
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src.models.modular11_ea_keys import ea_key  # noqa: E402
+from src.models.modular11_ea_keys import ea_key, refuse_raw_keys  # noqa: E402
 from src.models.modular11_ea_matcher import PROVIDER_CODE  # noqa: E402
 from supabase import create_client  # noqa: E402
 
@@ -56,18 +56,31 @@ def _rows(sb, table: str, provider_id: str) -> list[dict]:
         offset += PAGE_SIZE
 
 
+def refuse_unmigrated(sb, provider_id: str) -> None:
+    """Stops a linker, matcher or builder run that would read raw ids as unlinked teams."""
+    refuse_raw_keys(row["provider_team_id"] for table in ROW_ID for row in _rows(sb, table, provider_id))
+
+
 def migrate(sb, provider_id: str, season: int, log_path: Path, execute: bool) -> dict[str, int]:
-    counts = {"aliases": 0, "teams": 0, "already_keyed": 0}
+    """A raw id whose key is already taken (a row linked or created after keys were introduced)
+    is counted as a collision and left for a person, rather than failing the unique index."""
+    counts = {"aliases": 0, "teams": 0, "already_keyed": 0, "collisions": 0}
     log = log_path.open("a", encoding="utf-8") if execute else None
     try:
         for table, counter in (("team_alias_map", "aliases"), ("teams", "teams")):
             id_column = ROW_ID[table]
-            for row in _rows(sb, table, provider_id):
+            rows = _rows(sb, table, provider_id)
+            taken = {row["provider_team_id"] for row in rows}
+            for row in rows:
                 old = row["provider_team_id"]
                 if ":" in old:
                     counts["already_keyed"] += 1
                     continue
                 new = ea_key(old, season)
+                if new in taken:
+                    counts["collisions"] += 1
+                    print(f"{table} {row[id_column]}: {new} is already taken; resolve by hand")
+                    continue
                 counts[counter] += 1
                 if not execute:
                     continue

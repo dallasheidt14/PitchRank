@@ -2,6 +2,8 @@
 
 import csv
 
+import pytest
+
 from scripts import match_modular11_ea_teams as m
 
 LIVE_FILTER = "is_deprecated.is.null,is_deprecated.eq.false"
@@ -182,3 +184,12 @@ def test_run_drops_a_team_already_linked_to_another_ea_team_this_season(tmp_path
     assert m.run("u13", tmp_path, db) == {"confident": 1, "review": 0, "no_match": 0}
     [row] = list(csv.DictReader((tmp_path / "u13" / "match_report.csv").open(encoding="utf-8")))
     assert row["candidate_ids"] == "b"
+
+
+def test_run_refuses_while_raw_ea_aliases_remain(tmp_path):
+    providers = [{"id": GOT, "code": "gotsport"}, {"id": "p-ea", "code": "modular11_ea"}]
+    aliases = [{"id": 1, "provider_id": "p-ea", "provider_team_id": "9", "team_id_master": "a", "review_status": "approved"}]
+    db = _Db([_team("a", "Emerald City FC 2014 EA")], providers, aliases)
+    _write_teams_csv(tmp_path)
+    with pytest.raises(SystemExit, match="migrate_modular11_ea_season_keys.py"):
+        m.run("u13", tmp_path, db)

@@ -34,6 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from scripts.scrape_modular11_ea import MATCHES_URL  # noqa: E402
 from src.etl.glicko_config import GlickoConfig  # noqa: E402
+from src.models.modular11_ea_keys import refuse_raw_keys  # noqa: E402
 from src.models.modular11_ea_matcher import PROVIDER_CODE  # noqa: E402
 from supabase import create_client  # noqa: E402
 
@@ -178,8 +179,10 @@ def live_links(sb) -> dict[str, str]:
         )
         links.update({row["provider_team_id"]: row["team_id_master"] for row in page})
         if len(page) < PAGE_SIZE:
-            return links
+            break
         offset += PAGE_SIZE
+    refuse_raw_keys(links)
+    return links
 
 
 def usable_links(sb, links: dict[str, str], age_group: str) -> dict[str, str]:

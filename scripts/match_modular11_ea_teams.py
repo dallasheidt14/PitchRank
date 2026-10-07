@@ -31,7 +31,7 @@ from dotenv import load_dotenv
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from scripts.scrape_modular11_ea import season_bounds  # noqa: E402
-from src.models.modular11_ea_keys import club_state, ea_key, split_ea_key  # noqa: E402
+from src.models.modular11_ea_keys import club_state, ea_key, refuse_raw_keys, split_ea_key  # noqa: E402
 from src.models.modular11_ea_matcher import PROVIDER_CODE  # noqa: E402
 from supabase import create_client  # noqa: E402
 
@@ -299,6 +299,7 @@ def _ea_links(sb, codes: dict[str, str]) -> dict[str, set[str]]:
             if len(page) < PAGE_SIZE:
                 break
             offset += PAGE_SIZE
+    refuse_raw_keys(key for keys in links.values() for key in keys)
     return links
 
 

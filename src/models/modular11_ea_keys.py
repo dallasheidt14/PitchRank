@@ -8,6 +8,7 @@ the owner. A roster club missing from the table stops the run rather than matchi
 """
 
 import json
+from collections.abc import Iterable
 from datetime import date
 from pathlib import Path
 
@@ -31,6 +32,16 @@ def split_ea_key(key: str) -> tuple[str, int]:
     if not sep or not uid.isdigit() or not season.isdigit():
         raise ValueError(f"not a season-keyed EA id: {key!r}")
     return uid, int(season)
+
+
+def refuse_raw_keys(keys: Iterable[str]) -> None:
+    """Stops a run that would read pre-season-key ids as unlinked teams and duplicate them."""
+    raw = sum(":" not in key for key in keys)
+    if raw:
+        raise SystemExit(
+            f"ERROR: {raw} modular11_ea ids are not season-keyed; "
+            "run scripts/migrate_modular11_ea_season_keys.py --season <year> --execute first"
+        )
 
 
 def season_start_year(today: date) -> int:

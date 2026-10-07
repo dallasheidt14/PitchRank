@@ -2,6 +2,9 @@
 
 import json
 
+import pytest
+from postgrest.exceptions import APIError
+
 from scripts import migrate_modular11_ea_season_keys as migrate
 
 PROVIDER = "prov-ea"
@@ -40,6 +43,16 @@ class _Query:
     def execute(self):
         rows = [r for r in self.db.rows[self.table] if all(r.get(c) == v for c, v in self.filters)]
         if self.op == "update":
+            for row in rows:
+                clash = [
+                    r
+                    for r in self.db.rows[self.table]
+                    if r is not row
+                    and r["provider_id"] == row["provider_id"]
+                    and r["provider_team_id"] == self.payload["provider_team_id"]
+                ]
+                if clash:
+                    raise APIError({"code": "23505", "message": "duplicate key value violates unique constraint"})
             self.db.updates.append((self.table, list(self.filters), dict(self.payload)))
             for row in rows:
                 row.update(self.payload)
@@ -78,7 +91,7 @@ def _ids(db, table):
 def test_execute_rekeys_only_this_providers_rows(tmp_path):
     db = _db()
     counts = migrate.migrate(db, PROVIDER, 2026, tmp_path / "log.jsonl", execute=True)
-    assert counts == {"aliases": 1, "teams": 1, "already_keyed": 0}
+    assert counts == {"aliases": 1, "teams": 1, "already_keyed": 0, "collisions": 0}
     assert _ids(db, "team_alias_map") == [(PROVIDER, "3432:2026"), ("prov-gotsport", "3432")]
     assert _ids(db, "teams") == [(PROVIDER, "7155:2026"), ("prov-gotsport", "7155")]
     log = [json.loads(line) for line in (tmp_path / "log.jsonl").read_text(encoding="utf-8").splitlines()]
@@ -93,7 +106,7 @@ def test_second_run_changes_nothing(tmp_path):
     migrate.migrate(db, PROVIDER, 2026, tmp_path / "first.jsonl", execute=True)
     db.updates.clear()
     counts = migrate.migrate(db, PROVIDER, 2026, tmp_path / "second.jsonl", execute=True)
-    assert counts == {"aliases": 0, "teams": 0, "already_keyed": 2}
+    assert counts == {"aliases": 0, "teams": 0, "already_keyed": 2, "collisions": 0}
     assert db.updates == []
     assert _ids(db, "team_alias_map")[0] == (PROVIDER, "3432:2026")
 
@@ -110,7 +123,7 @@ def test_update_is_guarded_on_the_value_read(tmp_path):
 def test_dry_run_counts_but_writes_nothing(tmp_path):
     db = _db()
     counts = migrate.migrate(db, PROVIDER, 2026, tmp_path / "log.jsonl", execute=False)
-    assert counts == {"aliases": 1, "teams": 1, "already_keyed": 0}
+    assert counts == {"aliases": 1, "teams": 1, "already_keyed": 0, "collisions": 0}
     assert db.updates == [] and not (tmp_path / "log.jsonl").exists()
 
 
@@ -130,3 +143,28 @@ def test_undo_skips_a_row_moved_since(tmp_path):
     db.rows["teams"][0]["provider_team_id"] = "7155:2027"
     assert migrate.undo(db, log) == {"restored": 1, "skipped": 1}
     assert db.rows["teams"][0]["provider_team_id"] == "7155:2027"
+
+
+def _collided():
+    db = _db()
+    db.rows["team_alias_map"].append({"id": 3, "provider_id": PROVIDER, "provider_team_id": "3432:2026", "team_id_master": "DUP"})
+    return db
+
+
+def test_a_keyed_row_already_present_is_a_collision_not_a_crash(tmp_path):
+    db = _collided()
+    counts = migrate.migrate(db, PROVIDER, 2026, tmp_path / "log.jsonl", execute=True)
+    assert counts == {"aliases": 0, "teams": 1, "already_keyed": 1, "collisions": 1}
+    assert db.rows["team_alias_map"][0]["provider_team_id"] == "3432"
+
+
+def test_dry_run_reports_the_collision(tmp_path):
+    counts = migrate.migrate(_collided(), PROVIDER, 2026, tmp_path / "log.jsonl", execute=False)
+    assert counts["collisions"] == 1
+
+
+def test_refuse_unmigrated_names_the_command():
+    with pytest.raises(SystemExit, match="migrate_modular11_ea_season_keys.py"):
+        migrate.refuse_unmigrated(_db(), PROVIDER)
+    keyed = _Db(aliases=[{"id": 1, "provider_id": PROVIDER, "provider_team_id": "3432:2026", "team_id_master": "C"}])
+    migrate.refuse_unmigrated(keyed, PROVIDER)
