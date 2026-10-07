@@ -161,6 +161,9 @@ def test_no_state_is_never_confident():
         ("Emerald City FC B10 EA Coachella", "coachella"),
         ("Emerald City FC B09/10 Red EA", "red"),
         ("Emerald City FC EC B10 EA", "ec"),
+        ("Emerald City FC B10 II EA", "ii"),
+        ("Emerald City FC B10 A EA", "a"),
+        ("Emerald City FC 2010 Ramirez EA", "ramirez"),
     ],
 )
 def test_squad_qualifier_is_never_confident(name, token):

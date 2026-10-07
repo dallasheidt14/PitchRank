@@ -150,8 +150,9 @@ def club_relation(ea_club: str, candidate_club: str | None, candidate_name: str)
 def squad_words(ea: EaTeam, team_name: str) -> list[str]:
     """Words in the candidate's name that mark a different squad, unless the EA team's own name has them.
 
-    Three places carry one: a colour anywhere ("B09/10 Red EA"), a word between the club and the
-    age ("San Diego EC B10"), and a word after the tier marker ("B10 EA Mora").
+    Four places carry one: a colour anywhere ("B09/10 Red EA"), a word between the club and the
+    age ("San Diego EC B10"), a word between the age and the tier marker ("B10 II EA",
+    "2010 Ramirez EA"), and a word after the tier marker ("B10 EA Mora").
     """
     own = set(_name_tokens(ea.display_name)) | set(_name_tokens(ea.club_name))
     tokens = _name_tokens(team_name)
@@ -165,6 +166,13 @@ def squad_words(ea: EaTeam, team_name: str) -> list[str]:
                 words.append(token)
     markers = [i for i, token in enumerate(tokens) if token in TIER_TOKENS]
     if markers:
+        ages = [i for i in range(markers[-1]) if AGE_TOKEN_RE.match(tokens[i]) and tokens[i] not in TIER_TOKENS]
+        if ages:
+            words += [
+                token
+                for token in tokens[ages[-1] + 1 : markers[-1]]
+                if token not in own and token not in GENERIC and token not in PLAIN_AFTER_TIER and token not in COLOURS
+            ]
         words += [
             token
             for token in tokens[markers[-1] + 1 :]
