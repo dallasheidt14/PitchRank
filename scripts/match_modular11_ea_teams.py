@@ -253,6 +253,8 @@ def classify(
         # A clash rules a candidate out only while another remains; dropping the last one would
         # read as "no match" and the linker would create a duplicate of a team that exists.
         mine = [(d, why) for d, why in mine if why != CLASH] or mine
+        # A branch is another club; it is worth showing only when the club itself has no candidate.
+        mine = [(d, why) for d, why in mine if why != BRANCH] or mine
         lineal = [(d, why) for d, why in mine if d["team_id_master"] == lineage.get(ea.provider_team_id)]
         tagged[ea.provider_team_id] = lineal or mine
     claims: dict[str, set[str]] = defaultdict(set)
@@ -278,7 +280,8 @@ def classify(
                 reasons.append(f"claimed by another EA team: {', '.join(shared)}")
             rows.append(ReportRow(ea, "review", "; ".join(reasons), teams))
         else:
-            untagged = tuple(d for d, _ in hits[ea.provider_team_id] if tier_marker(d["team_name"]) is None)
+            found = hits[ea.provider_team_id]
+            untagged = tuple(d for d, why in found if tier_marker(d["team_name"]) is None and why != BRANCH)
             if untagged:
                 rows.append(ReportRow(ea, "review", "club and age match, no EA tier in name", untagged))
             else:

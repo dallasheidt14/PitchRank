@@ -188,3 +188,15 @@ def test_team_linked_to_another_ea_team_this_season_is_not_a_candidate():
 def test_team_linked_last_season_or_to_this_key_stays_a_candidate():
     assert _one(_ea(), _db("a", "Emerald City FC 2014 EA", ea_keys={"9:2025"}))[0] == "confident"
     assert _one(_ea(), _db("a", "Emerald City FC 2014 EA", ea_keys={"1:2026"}))[0] == "confident"
+
+
+def test_a_branch_does_not_crowd_out_the_clubs_own_team():
+    ea = _ea(club="ALBION SC Antelope Valley", tiers=("EA2",), state="CA")
+    own = _db("av", "ALBION SC AV B10 EA2", club="Albion SC Antelope Valley", state="CA")
+    branch = _db("sd", "ALBION SC San Diego EC B10 EA2", club="ALBION SC San Diego", state="CA")
+    assert _one(ea, own, branch) == ("confident", "one same-club, same-age, same-tier team", ["av"])
+
+
+def test_untagged_branch_teams_are_not_offered():
+    ea = _ea(club="ALBION SC Miami", state="FL")
+    assert _one(ea, _db("m", "Miami FC 2010 Blue", club="Miami FC", state="FL")) == ("no_match", "", [])
