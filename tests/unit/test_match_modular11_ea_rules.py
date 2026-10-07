@@ -1,6 +1,8 @@
 """Same-club, same-age, same-tier rules for linking EA teams to existing ones."""
 
-from scripts.match_modular11_ea_teams import EaTeam, classify, is_protected, tier_marker
+import pytest
+
+from scripts.match_modular11_ea_teams import EaTeam, classify, club_relation, is_protected, tier_marker
 
 
 def _ea(tid="1", club="Emerald City FC", tiers=("EA",)):
@@ -83,3 +85,30 @@ def test_team_name_led_by_a_longer_branch_name_is_not_the_club():
     db = _db("a", "ALBION SC Atlanta Metro B10 EA", club="Some Other Club")
     [row] = classify([_ea(club="ALBION SC Atlanta")], [db])
     assert row.bucket == "no_match"
+
+
+@pytest.mark.parametrize(
+    "ea_club,cand_club,cand_name,expected",
+    [
+        ("ALBION SC Santa Ana", "Albion SC Santa Monica", "BU17 EA", "branch"),
+        ("Total Futbol Academy - OC", "Total Futbol Academy (TFA-SGV)", "TFA-SGV 2010 EA", "branch"),
+        ("LA Surf LC", "LA Surf Futures", "Futures EA BU16", "branch"),
+        ("ALBION SC Atlanta", "ALBION SC Atlanta Metro", "ALBION SC ATLANTA METRO B10 EA", "branch"),
+        ("ALBION SC San Diego", "Albion SC San Diego", "ALBION SC San Diego EC B10 EA2", "same"),
+        ("California Football Academy", "California Football Academy", "CFA OC BU17 EA", "same"),
+        ("ALBION SC Boulder County", "Albion SC Colorado", "ALBION SC Boulder County B10 EA", "same"),
+        ("Emerald City FC", "Sparta Tacoma", "Sparta 2010 EA", "other"),
+        ("Mt. Rainier", "Mt. Rainier Futbol Club", "Mt. Rainier FC 2010 EA", "same"),
+        ("LA Surf Futures", "Futures", "Futures EA BU16", "branch"),
+    ],
+)
+def test_club_relation(ea_club, cand_club, cand_name, expected):
+    assert club_relation(ea_club, cand_club, cand_name) == expected
+
+
+def test_club_relation_reads_the_team_name_when_club_is_blank():
+    assert club_relation("LA Surf LC", None, "LA Surf Futures 2010 EA") == "branch"
+
+
+def test_ea1_reads_as_ea():
+    assert tier_marker("AC Brea EA1") == "EA"

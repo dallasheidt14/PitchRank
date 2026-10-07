@@ -29,10 +29,14 @@ from src.utils.club_normalizer import are_same_club  # noqa: E402
 from supabase import create_client  # noqa: E402
 
 EA2_RE = re.compile(r"\bEA2\b", re.IGNORECASE)
-EA_RE = re.compile(r"\bEA\b", re.IGNORECASE)
+EA_RE = re.compile(r"\bEA1?\b", re.IGNORECASE)
 PROTECTED_RE = re.compile(r"\b(?:HD|AD|MLS\s*NEXT)\b", re.IGNORECASE)
 NON_WORD_RE = re.compile(r"[^a-z0-9/]+")
-AGE_TOKEN_RE = re.compile(r"^(?:[bg]?u?[0-9]{2,4}(?:/[0-9]{2,4})?[bg]?|ea2?)$")
+AGE_TOKEN_RE = re.compile(r"^(?:[bg]?u?[0-9]{2,4}(?:/[0-9]{2,4})?[bg]?|ea[12]?)$")
+CLUB_WORD_RE = re.compile(r"[^a-z0-9]+")
+GENERIC = frozenset(
+    {"sc", "fc", "soccer", "club", "futbol", "football", "academy", "youth", "the", "de", "cf", "ac", "sa", "united"}
+)
 PAGE_SIZE = 1000
 REPORT_COLUMNS = [
     "provider_team_id",
@@ -103,6 +107,30 @@ def _name_led_by_club(ea_club: str, team_name: str) -> bool:
     """
     club, team = _name_tokens(ea_club), _name_tokens(team_name)
     return len(team) > len(club) and team[: len(club)] == club and bool(AGE_TOKEN_RE.match(team[len(club)]))
+
+
+def _club_words(club: str) -> list[str]:
+    return [w for w in CLUB_WORD_RE.sub(" ", club.lower()).split() if w not in GENERIC]
+
+
+@lru_cache(maxsize=None)
+def club_relation(ea_club: str, candidate_club: str | None, candidate_name: str) -> str:
+    """Is the candidate the EA club ("same"), a sibling site of it ("branch"), or neither ("other")?
+
+    A branch differs from the club by a place or sub-site word, never by a generic one, so the
+    test reads the difference between the names rather than any list of branch words:
+    Santa Ana vs Santa Monica, TFA OC vs TFA SGV, Atlanta vs Atlanta Metro.
+    """
+    ea_words = _club_words(ea_club)
+    cand_words = _club_words(candidate_club or candidate_name)
+    if set(ea_words) == set(cand_words) or _name_led_by_club(ea_club, candidate_name):
+        return "same"
+    ea_set, cand_set = set(ea_words), set(cand_words)
+    if ea_set < cand_set or cand_set < ea_set:
+        return "branch"
+    if ea_words and cand_words and ea_words[0] == cand_words[0]:
+        return "branch"
+    return "other"
 
 
 def _club_hits(ea: EaTeam, db_teams: list[dict]) -> list[dict]:
