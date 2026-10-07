@@ -5,8 +5,8 @@ import { SECONDS_PER_DAY } from '../constants';
 
 import {
   buildMonthProjection,
-  buildUnpaidInvoices,
   collectPaidSubscriptionIds,
+  computeLastMonthCohort,
   computePaidChurnRate,
   computeTrialConversionRate,
   computeTrialProjection,
@@ -166,6 +166,45 @@ describe('computeTrialConversionRate', () => {
     const result = computeTrialConversionRate(window({ subs, now, paidSubIds: new Set(['sub_1']) }));
     expect(result.rate).toBe(FALLBACK_CONVERSION_RATE);
     expect(result.isFallback).toBe(true);
+  });
+});
+
+describe('computeLastMonthCohort', () => {
+  // Phoenix is UTC-7 all year, so its midnight on the 1st is 07:00 UTC.
+  const phoenix = (y: number, m: number, d: number, h = 0) => Date.UTC(y, m - 1, d, h + 7) / 1000;
+  const now = new Date(phoenix(2026, 9, 16) * 1000);
+  const august = phoenix(2026, 8, 15);
+
+  // Apart from the baseline rows, each row isolates one condition, so dropping that condition changes a count.
+  const subs = [
+    sub({ id: 'kept', status: 'active', trialEnd: august }),
+    sub({ id: 'kept_past_due', status: 'past_due', trialEnd: august }),
+    sub({ id: 'first_instant', status: 'active', trialEnd: phoenix(2026, 8, 1) }),
+    sub({ id: 'canceled', status: 'canceled', trialEnd: august }),
+    sub({ id: 'set_to_cancel', status: 'active', trialEnd: august, cancelAtPeriodEnd: true }),
+    sub({ id: 'cancel_at', status: 'past_due', trialEnd: august, cancelAt: phoenix(2026, 10, 15) }),
+    sub({ id: 'never_paid', status: 'active', trialEnd: august }),
+    sub({ id: 'internal', status: 'active', trialEnd: august, email: 'staff@example.com' }),
+    sub({ id: 'july', status: 'active', trialEnd: phoenix(2026, 8, 1) - 1 }),
+    sub({ id: 'september', status: 'active', trialEnd: phoenix(2026, 9, 1) }),
+  ];
+  const paid = new Set(subs.map((s) => s.id).filter((id) => id !== 'never_paid'));
+  const excluded = new Set(['staff@example.com']);
+
+  it('counts trials ending in the previous Phoenix month, their conversions, and the converts still subscribed', () => {
+    expect(computeLastMonthCohort(subs, paid, now, excluded)).toEqual({
+      label: 'August 2026',
+      sample: 7,
+      converted: 6,
+      retained: 3,
+      excluded: 1,
+    });
+  });
+
+  it('reaches back into the previous year in January', () => {
+    const december = [sub({ id: 'dec', status: 'active', trialEnd: phoenix(2026, 12, 15) })];
+    const result = computeLastMonthCohort(december, new Set(['dec']), new Date(phoenix(2027, 1, 15) * 1000), NONE);
+    expect(result).toEqual({ label: 'December 2026', sample: 1, converted: 1, retained: 1, excluded: 0 });
   });
 });
 
@@ -622,64 +661,6 @@ describe('buildMonthProjection', () => {
     expect(result.avgLifetimeMonths).toBeNull();
     expect(result.ltv).toBeNull();
     expect(result.cohortValue).toBeNull();
-  });
-});
-
-describe('buildUnpaidInvoices', () => {
-  const unpaid = (o: Parameters<typeof invoice>[0] = {}) =>
-    invoice({ amountPaid: 0, amountDue: 699, amountRemaining: 699, attempted: true, attemptCount: 1, ...o });
-
-  it('keeps only invoices Stripe actually tried to collect', () => {
-    const invoices = [
-      unpaid({ id: 'in_1' }),
-      unpaid({ id: 'in_2', attempted: false }),
-      unpaid({ id: 'in_3', amountRemaining: 0 }),
-    ];
-    const result = buildUnpaidInvoices(invoices);
-    expect(result.total).toBe(1);
-    expect(result.list[0].id).toBe('in_1');
-  });
-
-  it('ignores invoices with no subscription behind them', () => {
-    expect(buildUnpaidInvoices([unpaid({ subscription: null })]).total).toBe(0);
-  });
-
-  it('reports what is still owed, not the original amount', () => {
-    const result = buildUnpaidInvoices([unpaid({ amountDue: 6999, amountPaid: 3000, amountRemaining: 3999 })]);
-    expect(result.list[0].amountRemaining).toBe(39.99);
-    expect(result.outstanding).toBe(39.99);
-  });
-
-  it('reads whether a retry is scheduled from Stripe, not from the attempt count', () => {
-    const invoices = [
-      unpaid({ id: 'done', attemptCount: 1, nextPaymentAttempt: null }),
-      unpaid({ id: 'pending', attemptCount: 5, nextPaymentAttempt: 1_800_000_000 }),
-    ];
-    const result = buildUnpaidInvoices(invoices);
-    expect(result.noRetryScheduled).toBe(1);
-    expect(result.list.find((e) => e.id === 'done')?.retryScheduled).toBe(false);
-    expect(result.list.find((e) => e.id === 'pending')?.retryScheduled).toBe(true);
-  });
-
-  it('sorts the largest recoverable balance first', () => {
-    const invoices = [unpaid({ id: 'small', amountRemaining: 699 }), unpaid({ id: 'big', amountRemaining: 6999 })];
-    expect(buildUnpaidInvoices(invoices).list.map((e) => e.id)).toEqual(['big', 'small']);
-  });
-
-  it('breaks an equal-amount tie by invoice date', () => {
-    const invoices = [
-      unpaid({ id: 'newer', amountRemaining: 699, created: 1_700_000_500 }),
-      unpaid({ id: 'older', amountRemaining: 699, created: 1_700_000_000 }),
-    ];
-    expect(buildUnpaidInvoices(invoices).list.map((e) => e.id)).toEqual(['older', 'newer']);
-  });
-
-  it('survives a missing email', () => {
-    expect(buildUnpaidInvoices([unpaid({ email: null })]).list[0].email).toBe('(no email)');
-  });
-
-  it('returns empty totals for no invoices', () => {
-    expect(buildUnpaidInvoices([])).toEqual({ list: [], total: 0, outstanding: 0, noRetryScheduled: 0 });
   });
 });
 

@@ -173,11 +173,9 @@ function iterate<T>(items: T[]): AsyncIterable<T> {
 function setStripe(
   options: {
     paidThrows?: boolean;
-    openThrows?: boolean;
     cohortThrows?: boolean;
     activeThrows?: boolean;
     pastDueThrows?: boolean;
-    openInvoices?: Stripe.Invoice[];
   } = {}
 ) {
   const subs = allSubscriptions();
@@ -193,12 +191,7 @@ function setStripe(
     }
     return iterate(subs.filter((s) => s.status === params.status));
   });
-  invoicesList.mockImplementation((params: { status?: string }) => {
-    if (params.status === 'paid') {
-      return options.paidThrows ? rejectingIterable(1) : iterate(paidInvoices());
-    }
-    return options.openThrows ? rejectingIterable(1) : iterate(options.openInvoices ?? []);
-  });
+  invoicesList.mockImplementation(() => (options.paidThrows ? rejectingIterable(1) : iterate(paidInvoices())));
 }
 
 beforeEach(() => {
@@ -220,7 +213,6 @@ describe('getSubscriptionMetrics', () => {
     const metrics = await getSubscriptionMetrics();
     expect(metrics.activePaid).toEqual({ total: 8, monthly: 5, annual: 3 });
     expect(metrics.trials.total).toBe(1); // only the trialing subscription
-    expect(metrics.pastDue.total).toBe(2);
   });
 
   it('sums MRR the way Stripe does: active and past_due, less scheduled cancellations', async () => {
@@ -332,34 +324,27 @@ describe('getSubscriptionMetrics', () => {
     expect(metrics.errors.join(' ')).toContain('conversion cohort');
   });
 
-  it('says unpaid invoices are unknown when their fetch fails, not that none exist', async () => {
-    setStripe({ openThrows: true });
+  it("counts last month's trials, their conversions, and the converts still subscribed", async () => {
+    setStripe();
     const metrics = await getSubscriptionMetrics();
-    expect(metrics.unpaidInvoices.available).toBe(false);
-    expect(metrics.unpaidInvoices.list).toEqual([]);
-    expect(metrics.errors.join(' ')).toContain('open invoices');
+    // Every matured trial ended Aug 7. sub_none never paid; sub_churned and
+    // sub_cancelled_annual paid then left; sub_pending_cancel paid but is set to
+    // cancel; sub_internal is excluded. That leaves the six active m/y subs.
+    expect(metrics.lastMonth).toEqual({
+      available: true,
+      label: 'August 2026',
+      sample: 10,
+      converted: 9,
+      retained: 6,
+      excluded: 1,
+    });
   });
 
-  it('reports unpaid invoices as known when the fetch succeeds', async () => {
-    setStripe({
-      openInvoices: [
-        makeStripeInvoice({
-          id: 'in_open',
-          amountPaid: 0,
-          amountDue: 699,
-          amountRemaining: 699,
-          attempted: true,
-          attemptCount: 3,
-          nextPaymentAttempt: null,
-          subscription: 'sub_m1',
-        }),
-      ],
-    });
+  it('marks last month unavailable when the cohort fetch fails', async () => {
+    setStripe({ cohortThrows: true });
     const metrics = await getSubscriptionMetrics();
-    expect(metrics.unpaidInvoices.available).toBe(true);
-    expect(metrics.unpaidInvoices.total).toBe(1);
-    expect(metrics.unpaidInvoices.outstanding).toBe(6.99);
-    expect(metrics.unpaidInvoices.noRetryScheduled).toBe(1);
+    expect(metrics.lastMonth.available).toBe(false);
+    expect(metrics.lastMonth.sample).toBe(0);
   });
 
   it('measures only the trials that ended inside the window it reports', async () => {

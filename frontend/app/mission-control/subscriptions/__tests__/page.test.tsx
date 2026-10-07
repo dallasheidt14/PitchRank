@@ -38,8 +38,8 @@ function metrics(over: Partial<SubscriptionMetrics> = {}): SubscriptionMetrics {
     mrr: 403.19,
     activePaid: { total: 60, monthly: 46, annual: 14 },
     trials: { total: 15, canceledPending: 0, endingIn3Days: 2, endingIn7Days: 5, list: [] },
-    pastDue: { total: 0, list: [] },
     conversion: { windowDays: 180, sample: 20, converted: 10, percent: 50, excluded: 0 },
+    lastMonth: { available: true, label: 'September 2026', sample: 12, converted: 6, retained: 5, excluded: 0 },
     reportCard: {
       totalRequests: 0,
       uniqueEmails: 0,
@@ -80,7 +80,6 @@ function metrics(over: Partial<SubscriptionMetrics> = {}): SubscriptionMetrics {
       ltv: 42.16,
       cohortValue: 1728,
     },
-    unpaidInvoices: { available: true, total: 0, outstanding: 0, noRetryScheduled: 0, list: [] },
     generatedAt: new Date('2026-09-04T12:00:00Z').toISOString(),
     errors: [],
     ...over,
@@ -115,10 +114,9 @@ describe('SubscriptionsDashboardPage', () => {
   });
 
   it('describes MRR the way Stripe counts it', async () => {
-    getSubscriptionMetrics.mockReturnValue(metrics({ pastDue: { total: 2, list: [] } }));
+    getSubscriptionMetrics.mockReturnValue(metrics());
     const text = textOf(await SubscriptionsDashboardPage());
     expect(text).toContain('active + past due, less scheduled cancellations');
-    expect(text).toContain('counted in MRR unless canceling');
   });
 
   it('shows MRR as not loaded rather than a partial sum when a fetch failed', async () => {
@@ -130,22 +128,44 @@ describe('SubscriptionsDashboardPage', () => {
     expect(text).not.toContain('active + past due, less scheduled cancellations');
   });
 
-  it('says every charge cleared only when the fetch actually succeeded', async () => {
+  it("shows last month's trial conversion and how many of those converts are still subscribed", async () => {
     getSubscriptionMetrics.mockReturnValue(metrics());
     const text = textOf(await SubscriptionsDashboardPage());
-    expect(text).toContain('Every charge cleared');
+    expect(text).toContain('Last Month');
+    expect(text).toContain('September 2026');
+    expect(text).toContain('50%');
+    expect(text).toContain('6 of 12 trials that ended in September 2026');
+    expect(text).toContain('83%');
+    expect(text).toContain('5 of those 6 paid subscribers');
   });
 
-  it('does not claim every charge cleared when the invoice fetch failed', async () => {
+  it('shows a dash rather than NaN when last month had no trials to divide by', async () => {
     getSubscriptionMetrics.mockReturnValue(
       metrics({
-        unpaidInvoices: { available: false, total: 0, outstanding: 0, noRetryScheduled: 0, list: [] },
-        errors: ['open invoices: stripe unavailable'],
+        lastMonth: { available: true, label: 'September 2026', sample: 0, converted: 0, retained: 0, excluded: 0 },
       })
     );
     const text = textOf(await SubscriptionsDashboardPage());
-    expect(text).not.toContain('Every charge cleared');
-    expect(text).toContain('unknown rather than empty');
+    expect(text).toContain('—');
+    expect(text).not.toContain('NaN');
+  });
+
+  it('marks last month unavailable rather than printing zeros when its fetch failed', async () => {
+    getSubscriptionMetrics.mockReturnValue(
+      metrics({
+        lastMonth: { available: false, label: 'September 2026', sample: 0, converted: 0, retained: 0, excluded: 0 },
+      })
+    );
+    const text = textOf(await SubscriptionsDashboardPage());
+    expect(text).toContain('could not be loaded');
+    expect(text).not.toContain('Trial → Paid');
+  });
+
+  it('does not show unpaid invoice or past-due lists', async () => {
+    getSubscriptionMetrics.mockReturnValue(metrics());
+    const text = textOf(await SubscriptionsDashboardPage());
+    expect(text).not.toContain('Unpaid Invoices');
+    expect(text).not.toContain('Attention Needed');
   });
 
   it('marks the projection unavailable rather than printing its zeros', async () => {
@@ -170,8 +190,6 @@ describe('SubscriptionsDashboardPage', () => {
     getSubscriptionMetrics.mockReturnValue(
       metrics({
         monthProjection: { ...base.monthProjection, avgLifetimeMonths: null, ltv: null, cohortValue: null },
-        // Non-zero so a stray "$0.00" can only have come from the LTV card.
-        unpaidInvoices: { available: true, total: 1, outstanding: 769.53, noRetryScheduled: 1, list: [] },
       })
     );
     const text = textOf(await SubscriptionsDashboardPage());

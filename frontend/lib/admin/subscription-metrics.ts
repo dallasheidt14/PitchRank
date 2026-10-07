@@ -4,31 +4,26 @@ import { isCancellationScheduled, stripe } from '@/lib/stripe/server';
 import { createServiceSupabase } from '@/lib/supabase/service';
 import {
   buildMonthProjection,
-  buildUnpaidInvoices,
   collectPaidSubscriptionIds,
   computePaidChurnRate,
   computeTrialConversionRate,
   computeTrialProjection,
   countAnnualRenewals,
   countObservedChurn,
+  computeLastMonthCohort,
   type CohortWindow,
+  type LastMonthCohort,
   type MonthProjection,
   type RateEstimate,
-  type UnpaidInvoiceEntry,
 } from './month-projection';
 import { getCustomerEmail, MIN_COHORT_SAMPLE, SECONDS_PER_DAY, TRIAL_DAYS } from './constants';
+import { calendarDaysBetween } from './timezone';
 
 export type TrialPipelineEntry = {
   id: string;
   email: string;
   trialEnd: string;
   daysRemaining: number;
-  interval: 'month' | 'year';
-};
-
-export type PastDueEntry = {
-  id: string;
-  email: string;
   interval: 'month' | 'year';
 };
 
@@ -75,10 +70,6 @@ export type SubscriptionMetrics = {
     endingIn7Days: number;
     list: TrialPipelineEntry[];
   };
-  pastDue: {
-    total: number;
-    list: PastDueEntry[];
-  };
   conversion: {
     windowDays: number; // size of the lookback window
     sample: number;
@@ -86,16 +77,9 @@ export type SubscriptionMetrics = {
     percent: number | null;
     excluded: number; // test/internal users filtered from sample
   };
+  lastMonth: { available: boolean } & LastMonthCohort;
   reportCard: ReportCardMetrics;
   monthProjection: { available: boolean } & MonthProjection;
-  unpaidInvoices: {
-    /** False when the open-invoice fetch failed, so an empty list is not evidence of none. */
-    available: boolean;
-    total: number;
-    outstanding: number;
-    noRetryScheduled: number;
-    list: UnpaidInvoiceEntry[];
-  };
   generatedAt: string;
   errors: string[];
 };
@@ -307,7 +291,7 @@ export function buildTrialPipeline(
     }
     const interval = getInterval(sub);
     if (!interval) continue;
-    const daysRemaining = Math.ceil((sub.trial_end - now) / SECONDS_PER_DAY);
+    const daysRemaining = calendarDaysBetween(new Date(now * 1000), new Date(sub.trial_end * 1000));
     list.push({
       id: sub.id,
       email: getCustomerEmail(sub),
@@ -320,20 +304,6 @@ export function buildTrialPipeline(
   const endingIn3Days = list.filter((e) => e.daysRemaining <= 3).length;
   const endingIn7Days = list.filter((e) => e.daysRemaining <= 7).length;
   return { list, activeTotal: list.length, canceledPending, endingIn3Days, endingIn7Days };
-}
-
-export function buildPastDue(subs: Stripe.Subscription[]): { list: PastDueEntry[]; total: number } {
-  const list: PastDueEntry[] = [];
-  for (const sub of subs) {
-    const interval = getInterval(sub);
-    if (!interval) continue;
-    list.push({
-      id: sub.id,
-      email: getCustomerEmail(sub),
-      interval,
-    });
-  }
-  return { list, total: list.length };
 }
 
 /**
@@ -560,7 +530,7 @@ export async function getSubscriptionMetrics(): Promise<SubscriptionMetrics> {
   const errors: string[] = [];
   const nowSec = Math.floor(Date.now() / 1000);
 
-  const [active, trialing, pastDue, canceled, cohort, paidInvoices, openInvoices, reportCardData] = await Promise.all([
+  const [active, trialing, pastDue, canceled, cohort, paidInvoices, reportCardData] = await Promise.all([
     safeList({ status: 'active' }, 'active subscriptions', errors),
     safeList({ status: 'trialing' }, 'trialing subscriptions', errors),
     safeList({ status: 'past_due' }, 'past_due subscriptions', errors),
@@ -575,7 +545,6 @@ export async function getSubscriptionMetrics(): Promise<SubscriptionMetrics> {
       'paid invoices',
       errors
     ),
-    safeListInvoices({ status: 'open' }, 'open invoices', errors),
     fetchReportCardMetrics(errors),
   ]);
 
@@ -585,7 +554,6 @@ export async function getSubscriptionMetrics(): Promise<SubscriptionMetrics> {
   const mrr = active.ok && pastDue.ok ? computeMrr(mrrSubs) : null;
   const activePaid = bucketActivePaid(active.items);
   const trialBuckets = buildTrialPipeline(trialing.items, nowSec);
-  const pastDueOut = buildPastDue(pastDue.items);
   const paidSubIds = collectPaidSubscriptionIds(paidInvoices.items);
   const excludedEmails = getExcludedEmails();
   const now = new Date(nowSec * 1000);
@@ -622,7 +590,7 @@ export async function getSubscriptionMetrics(): Promise<SubscriptionMetrics> {
     // the active base the projected half is charged against.
     observedChurn: measurable ? countObservedChurn(canceled.items, now, paidSubIds, excludedEmails) : 0,
   });
-  const unpaid = buildUnpaidInvoices(openInvoices.items);
+  const lastMonth = computeLastMonthCohort(cohortWindow.subs, paidSubIds, now, excludedEmails);
   const leadConversion = computeLeadConversion(reportCardData.uniqueLeadEmails, active.items, pastDue.items);
   // Union the unbounded status lists so "ever trialed" is date-complete:
   // currently-trialing, trialed-then-paid (active + past_due), and
@@ -644,8 +612,8 @@ export async function getSubscriptionMetrics(): Promise<SubscriptionMetrics> {
       endingIn7Days: trialBuckets.endingIn7Days,
       list: trialBuckets.list,
     },
-    pastDue: pastDueOut,
     conversion,
+    lastMonth: { available: measurable, ...lastMonth },
     reportCard: {
       totalRequests: reportCardData.totalRequests,
       uniqueEmails: reportCardData.uniqueLeadEmails.size,
@@ -656,7 +624,6 @@ export async function getSubscriptionMetrics(): Promise<SubscriptionMetrics> {
       recentLeads: reportCardData.recentLeads,
     },
     monthProjection: { available: measurable, ...monthProjection },
-    unpaidInvoices: { available: openInvoices.ok, ...unpaid },
     generatedAt: new Date().toISOString(),
     errors,
   };
