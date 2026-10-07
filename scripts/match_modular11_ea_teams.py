@@ -147,30 +147,35 @@ def club_relation(ea_club: str, candidate_club: str | None, candidate_name: str)
     return "other"
 
 
-def squad_qualifier(ea: EaTeam, team_name: str) -> str | None:
-    """A word in the candidate's name that marks a different squad, unless the EA team's own name has it.
+def squad_words(ea: EaTeam, team_name: str) -> list[str]:
+    """Words in the candidate's name that mark a different squad, unless the EA team's own name has them.
 
     Three places carry one: a colour anywhere ("B09/10 Red EA"), a word between the club and the
     age ("San Diego EC B10"), and a word after the tier marker ("B10 EA Mora").
     """
     own = set(_name_tokens(ea.display_name)) | set(_name_tokens(ea.club_name))
     tokens = _name_tokens(team_name)
-    for token in tokens:
-        if token in COLOURS and token not in own:
-            return token
+    words = [token for token in tokens if token in COLOURS and token not in own]
     club = _name_tokens(ea.club_name)
     if tokens[: len(club)] == club:
         for token in tokens[len(club) :]:
             if AGE_TOKEN_RE.match(token):
                 break
             if token not in own and token not in GENERIC:
-                return token
+                words.append(token)
     markers = [i for i, token in enumerate(tokens) if token in TIER_TOKENS]
     if markers:
-        for token in tokens[markers[-1] + 1 :]:
-            if not AGE_TOKEN_RE.match(token) and token not in own and token not in PLAIN_AFTER_TIER:
-                return token
-    return None
+        words += [
+            token
+            for token in tokens[markers[-1] + 1 :]
+            if not AGE_TOKEN_RE.match(token) and token not in own and token not in PLAIN_AFTER_TIER
+        ]
+    return words
+
+
+def squad_qualifier(ea: EaTeam, team_name: str) -> str | None:
+    words = squad_words(ea, team_name)
+    return words[0] if words else None
 
 
 def schedule_conflict(ea_games: list[dict], cand_games: list[dict]) -> bool:
