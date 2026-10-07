@@ -2,7 +2,7 @@ import 'server-only';
 import type Stripe from 'stripe';
 import { isCancellationScheduled } from '@/lib/stripe/server';
 import { getCustomerEmail, MIN_COHORT_SAMPLE, SECONDS_PER_DAY, TRIAL_DAYS } from './constants';
-import { startOfMonth, wallClockDate } from './timezone';
+import { BUSINESS_TIMEZONE, startOfMonth, wallClockDate } from './timezone';
 
 /** Window over which a converted subscriber is checked for surviving their first paid month. */
 const CHURN_WINDOW_DAYS = 30;
@@ -41,6 +41,14 @@ export type CohortWindow = {
   now: number;
   windowStart: number;
   excludedEmails: Set<string>;
+};
+
+export type LastMonthCohort = {
+  label: string; // e.g. "September 2026"
+  sample: number; // trials that started last month
+  converted: number;
+  retained: number; // of `converted`, still subscribed with no cancellation scheduled
+  excluded: number;
 };
 
 export type TrialProjection = {
@@ -159,20 +167,66 @@ export function computeTrialConversionRate({
   windowStart,
   excludedEmails,
 }: CohortWindow): RateEstimate {
-  let sample = 0;
-  let observed = 0;
+  const { trials, excluded } = trialsIn(subs, 'trial_end', windowStart, now, excludedEmails);
+  const observed = trials.filter((sub) => paidSubIds.has(sub.id)).length;
+  return finalizeRate(observed, trials.length, excluded, FALLBACK_CONVERSION_RATE);
+}
+
+/**
+ * Trials that started in the previous calendar month in {@link BUSINESS_TIMEZONE},
+ * how many activated, and how many of those are still subscribed today with no
+ * cancellation scheduled.
+ *
+ * `converted` uses the same activation test as `computeTrialConversionRate`, so
+ * the two cards cannot disagree on what counts as a conversion. A trial started
+ * in the last days of the month is still running early in this one, so it
+ * counts as not converted until it activates.
+ */
+export function computeLastMonthCohort(
+  subs: Stripe.Subscription[],
+  paidSubIds: Set<string>,
+  now: Date,
+  excludedEmails: Set<string>
+): LastMonthCohort {
+  const { monthStart: lastMonthEnd } = monthBounds(now);
+  const { monthStart: lastMonthStart } = monthBounds(new Date((lastMonthEnd - 1) * 1000));
+  const { trials, excluded } = trialsIn(subs, 'trial_start', lastMonthStart, lastMonthEnd, excludedEmails);
+  const converted = trials.filter((sub) => paidSubIds.has(sub.id));
+  const retained = converted.filter(
+    (sub) => (sub.status === 'active' || sub.status === 'past_due') && !isCancellationScheduled(sub)
+  );
+  return {
+    label: new Date(lastMonthStart * 1000).toLocaleDateString('en-US', {
+      month: 'long',
+      year: 'numeric',
+      timeZone: BUSINESS_TIMEZONE,
+    }),
+    sample: trials.length,
+    converted: converted.length,
+    retained: retained.length,
+    excluded,
+  };
+}
+
+function trialsIn(
+  subs: Stripe.Subscription[],
+  edge: 'trial_start' | 'trial_end',
+  windowStart: number,
+  windowEnd: number,
+  excludedEmails: Set<string>
+): { trials: Stripe.Subscription[]; excluded: number } {
+  const trials: Stripe.Subscription[] = [];
   let excluded = 0;
   for (const sub of subs) {
-    const trialEnd = sub.trial_end;
-    if (trialEnd === null || trialEnd >= now || trialEnd < windowStart) continue;
+    const at = sub[edge];
+    if (at === null || at >= windowEnd || at < windowStart) continue;
     if (isExcluded(sub, excludedEmails)) {
       excluded += 1;
       continue;
     }
-    sample += 1;
-    if (paidSubIds.has(sub.id)) observed += 1;
+    trials.push(sub);
   }
-  return finalizeRate(observed, sample, excluded, FALLBACK_CONVERSION_RATE);
+  return { trials, excluded };
 }
 
 /**
@@ -439,62 +493,6 @@ export function buildMonthProjection(input: {
     avgLifetimeMonths,
     ltv,
     cohortValue: ltv === null ? null : cohortSubs * ltv,
-  };
-}
-
-export type UnpaidInvoiceEntry = {
-  id: string;
-  email: string;
-  amountRemaining: number;
-  attemptCount: number;
-  created: string;
-  retryScheduled: boolean;
-};
-
-/**
- * Subscription invoices Stripe finalized, attempted, and did not collect.
- *
- * `amount_remaining` rather than `amount_due`, since a part-paid invoice still
- * carries its full original `amount_due` and this list is ordered by what is
- * actually recoverable.
- *
- * `retryScheduled` reports only whether Stripe has another attempt on the
- * calendar. It is not a promise the attempt will succeed or even run: after a
- * non-retryable decline Stripe keeps scheduling retries that execute only once a
- * new payment method arrives. So a scheduled row can still be unrecoverable, and
- * the count of unscheduled rows is a floor on the work outstanding, not the whole
- * of it.
- *
- * Invoices with no subscription behind them are excluded: a manual or one-off
- * invoice going unpaid is not a failed subscriber charge. What remains still
- * mixes first-charge failures with later renewal failures, which is why the
- * dashboard names these unpaid invoices rather than failed conversions.
- */
-export function buildUnpaidInvoices(invoices: Stripe.Invoice[]): {
-  list: UnpaidInvoiceEntry[];
-  total: number;
-  outstanding: number;
-  noRetryScheduled: number;
-} {
-  const list: UnpaidInvoiceEntry[] = [];
-  for (const invoice of invoices) {
-    if (!invoice.attempted || invoice.amount_remaining <= 0) continue;
-    if (!getInvoiceSubscriptionId(invoice)) continue;
-    list.push({
-      id: invoice.id,
-      email: invoice.customer_email ?? '(no email)',
-      amountRemaining: invoice.amount_remaining / 100,
-      attemptCount: invoice.attempt_count,
-      created: new Date(invoice.created * 1000).toISOString(),
-      retryScheduled: invoice.next_payment_attempt !== null,
-    });
-  }
-  list.sort((a, b) => b.amountRemaining - a.amountRemaining || a.created.localeCompare(b.created));
-  return {
-    list,
-    total: list.length,
-    outstanding: Math.round(list.reduce((sum, entry) => sum + entry.amountRemaining, 0) * 100) / 100,
-    noRetryScheduled: list.filter((entry) => !entry.retryScheduled).length,
   };
 }
 

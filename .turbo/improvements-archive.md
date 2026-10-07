@@ -1491,3 +1491,15 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
   - **Caution:** the loss-heavier selection does not by itself explain the decline.
   - The result-first sort stays. Untested alternatives are optional research (IMP-302).
 - **Refs**: branch `docs/later-games-scorer`. Measured offline, with no code change.
+
+### Bound the open-invoice fetch the way the paid one beside it is bounded
+
+- **ID**: IMP-186
+- **Status**: dropped
+- **Type**: direct
+- **Category**: performance
+- **Where**: `frontend/lib/admin/subscription-metrics.ts` (`getSubscriptionMetrics`, the `{ status: 'open' }` call)
+- **Why**: The paid-invoice fetch carries `created: { gte: now - COHORT_FETCH_DAYS }`; the open one carries no date floor and no page cap, so it auto-paginates every unpaid invoice the account has ever accumulated on each render of a `force-dynamic` page with a Refresh link. Not a regression — the pre-existing `safeList({ status: 'canceled' })` is unbounded the same way — and fine at today's 47 invoices. It scales badly, and unlike the canceled list the open list only grows while collection keeps failing, which is exactly the condition under which someone reloads the page. **A `created` floor is the wrong remedy here**, despite the symmetry with the paid fetch: the paid list is evidence for a bounded conversion cohort, while this one feeds `buildUnpaidInvoices` (`month-projection.ts:472`), a *current* outstanding-debt total that sums `amount_remaining`. Bounding it by creation date would silently omit any invoice still owed from before the window and could show "No unpaid invoices" while collection is failing on an old one. Take the cost off pagination instead — a page cap with an explicit "showing N of M" affordance, or a cached total — and leave the date range open. The unbounded `safeList({ status: 'canceled' })` beside it is a separate call and can take the cohort floor safely, since nothing reads it as a current total.
+- **Noted**: 2026-09-04
+- **Update (2026-10-07)**: Dropped with the feature. The owner had the Unpaid Invoices section removed from `/mission-control/subscriptions`, and the open-invoice fetch and `buildUnpaidInvoices` went with it, so there is no unbounded fetch left to bound.
+- **Refs**: branch `feat/subscriptions-last-month-conversion`
