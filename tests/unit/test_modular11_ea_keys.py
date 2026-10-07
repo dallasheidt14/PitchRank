@@ -46,3 +46,11 @@ def test_owner_answers():
 def test_unknown_club_fails_loudly():
     with pytest.raises(UnknownClubError):
         club_state("Atlantis FC")
+
+
+def test_a_placeholder_club_never_gets_a_state(monkeypatch):
+    from src.models import modular11_ea_keys as keys
+
+    monkeypatch.setitem(keys.CLUB_STATES, "No Club Selection", "CA")
+    with pytest.raises(UnknownClubError):
+        club_state("No Club Selection")

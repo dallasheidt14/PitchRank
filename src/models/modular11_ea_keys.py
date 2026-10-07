@@ -11,6 +11,8 @@ import json
 from datetime import date
 from pathlib import Path
 
+from src.utils.placeholder_clubs import is_placeholder_club
+
 CLUB_STATES: dict[str, str] = json.loads(
     (Path(__file__).resolve().parents[2] / "config" / "modular11_ea_club_states.json").read_text(encoding="utf-8")
 )
@@ -36,6 +38,6 @@ def season_start_year(today: date) -> int:
 
 
 def club_state(ea_club: str) -> str:
-    if ea_club not in CLUB_STATES:
+    if is_placeholder_club(ea_club) or ea_club not in CLUB_STATES:
         raise UnknownClubError(ea_club)
     return CLUB_STATES[ea_club]
