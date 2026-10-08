@@ -198,23 +198,38 @@ def test_seed_order_callout_opens_the_not_found_review(completed_not_found_opera
     app = completed_not_found_operator
     assert any(
         message.value
-        == "2 accepted teams have no PitchRank match. They remain in the pack without a PowerScore."
+        == "2 accepted teams have no PitchRank match. They remain in the pack without a PowerScore. "
+        "These teams are already marked not found. Reviewing them again is optional."
         for message in app.info
     )
 
     click(app, "Review 2 not-found teams")
 
-    assert "### 2. Match teams to PitchRank" in [item.value for item in app.markdown]
-    assert next(widget for widget in app.selectbox if widget.label == "Show").value == "Not found in PitchRank"
-    assert next(widget for widget in app.selectbox if widget.label == "Filter cohort").value == "Boys U14"
-    assert any(button.label == "Reopen matching" for button in app.button)
+    assert "### Review 2 unmatched teams" in [item.value for item in app.markdown]
+    assert not app.selectbox
+    assert {button.key for button in app.button if button.label == "Reopen matching"} == {
+        "_seeding_seed_reopen_12", "_seeding_seed_reopen_13",
+    }
+    assert any("Team 12" in item.value for item in app.markdown)
+    assert any("Team 13" in item.value for item in app.markdown)
+    assert not any("Team 14" in item.value for item in app.markdown)
 
     click(app, "Reopen matching")
 
-    assert next(widget for widget in app.selectbox if widget.label == "Show").value == "All teams"
-    assert next(widget for widget in app.selectbox if widget.label == "Filter cohort").value == "Boys U14"
-    assert next(widget for widget in app.selectbox if widget.label == "Team to review").value == 12
+    assert not app.selectbox
+    assert app.session_state["_seeding_focused_review_indices"] == [12, 13]
     assert any(widget.label == "Match decision" for widget in app.radio)
+    assert app.button(key="_seeding_focused_return").disabled
+
+    next(widget for widget in app.radio if widget.label == "Match decision").set_value("Not found in PitchRank").run()
+    click(app, "Confirm not found in PitchRank")
+    assert not app.button(key="_seeding_focused_return").disabled
+    click(app, "Return to seed order")
+    assert app.session_state["_seeding_active_step"] == 3
+    assert app.session_state["seeding_event_name"] == "Completed Workflow Cup"
+    assert app.session_state["_seeding_pack_cohorts"] == ["u14|Male"]
+    assert app.session_state["_seeding_overrides"][12] == {"not_found": True}
+    assert "_seeding_focused_review_indices" not in app.session_state
 
 
 def test_reopening_not_found_over_an_automatic_match_keeps_the_team_visible(
@@ -235,10 +250,48 @@ def test_reopening_not_found_over_an_automatic_match_keeps_the_team_visible(
     click(app, "Review 2 not-found teams")
     click(app, "Reopen matching")
 
-    assert next(widget for widget in app.selectbox if widget.label == "Show").value == "All teams"
-    assert next(widget for widget in app.selectbox if widget.label == "Filter cohort").value == "Boys U14"
-    assert next(widget for widget in app.selectbox if widget.label == "Team to review").value == 12
+    assert not app.selectbox
+    assert app.session_state["_seeding_focused_review_indices"] == [12, 13]
     assert any(widget.label == "Match decision" for widget in app.radio)
+    assert app.button(key="_seeding_focused_return").disabled
+    click(app, "Done")
+    assert not app.button(key="_seeding_focused_return").disabled
+
+
+def test_focused_review_returns_without_changing_decisions(completed_not_found_operator):
+    app = completed_not_found_operator
+    app.session_state["_seeding_pack"] = {"selected_cohorts": ["u15|Male"]}
+    app.run()
+    before = dict(app.session_state["_seeding_overrides"])
+    before_result = app.session_state["_seeding_result"]
+    click(app, "Review 2 not-found teams")
+    app.run()  # Hidden run/scope widgets must survive cleanup on another rerun.
+    assert app.session_state["_seeding_pack_cohorts"] == ["u14|Male"]
+    click(app, "Return to seed order")
+    assert app.session_state["_seeding_result"] == before_result
+    assert dict(app.session_state["_seeding_overrides"]) == before
+    assert app.session_state["_seeding_pack_cohorts"] == ["u14|Male"]
+    assert app.session_state["seeding_event_name"] == "Completed Workflow Cup"
+
+
+def test_unnamed_focused_review_does_not_claim_decisions_are_saved(completed_not_found_operator):
+    app = completed_not_found_operator
+    app.text_input(key="seeding_event_name").set_value("").run()
+    assert not any("decisions are saved" in message.value for message in app.info)
+    click(app, "Review 2 not-found teams")
+    assert any("This run is not saved" in message.value for message in app.warning)
+    click(app, "Open full matching tools")
+    assert app.text_input(key="seeding_event_name").value == ""
+    assert any("Give this run a name" in message.value for message in app.info)
+
+
+def test_focused_review_can_open_full_tools(completed_not_found_operator):
+    app = completed_not_found_operator
+    click(app, "Review 2 not-found teams")
+    click(app, "Open full matching tools")
+    assert "_seeding_focused_review_indices" not in app.session_state
+    assert any(widget.label == "Show" for widget in app.selectbox)
+    assert app.session_state["_seeding_active_step"] == 2
 
 
 @pytest.mark.parametrize("pending_rows, expected_summary", [

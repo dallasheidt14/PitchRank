@@ -5005,7 +5005,7 @@ def _reset_seeding_review_widgets() -> None:
     for key in (
         "_seeding_pack_scope", "_seeding_pack_cohorts", "_seeding_review_update",
         "_seeding_review_issue_filter", "_seeding_review_cohort_filter", "_seeding_review_team",
-        "_seeding_pending_review_team",
+        "_seeding_pending_review_team", "_seeding_focused_review_indices",
     ):
         st.session_state.pop(key, None)
 
@@ -5669,30 +5669,31 @@ def _render_seeding_workflow_progress(
         cards.append((name, " · ".join(part for part in (status, details[index - 1]) if part)))
     title, _status = cards[active - 1]
     st.progress(active / 4, text=f"Step {active} of 4: {title}")
-    for index, ((name, status), column) in enumerate(zip(cards, st.columns(4), strict=True), 1):
-        with column:
-            clicked = st.button(
-                f"{index}. {name}",
-                key=f"_seeding_step_{index}",
-                type="primary" if index == active else "secondary",
-                disabled=index == active or index > available,
-                help=status,
-                use_container_width=True,
-            )
-            st.caption(status)
-        if clicked:
-            selected = _selected_seeding_cohorts(parsed) if parsed is not None else []
-            _open_seeding_step(
-                index,
-                review_not_found=index == 2 and not attention and bool(not_found),
-                review_cohort=(
-                    _seeding_not_found_review_cohort(parsed, selected, not_found_indices)
-                    if parsed is not None
-                    else None
-                ),
-            )
-            st.rerun()
-    st.caption("Your saved run keeps the imported roster and match decisions.")
+    st.markdown("Import teams → Match teams → Review seed order → Export")
+    with st.expander("Go back or jump to a step", expanded=False):
+        for index, ((name, status), column) in enumerate(zip(cards, st.columns(4), strict=True), 1):
+            with column:
+                clicked = st.button(
+                    f"{index}. {name}",
+                    key=f"_seeding_step_{index}",
+                    disabled=index == active or index > available,
+                    help=status,
+                    use_container_width=True,
+                )
+                st.caption(status)
+            if clicked:
+                selected = _selected_seeding_cohorts(parsed) if parsed is not None else []
+                _open_seeding_step(
+                    index,
+                    review_not_found=index == 2 and not attention and bool(not_found),
+                    review_cohort=(
+                        _seeding_not_found_review_cohort(parsed, selected, not_found_indices)
+                        if parsed is not None
+                        else None
+                    ),
+                )
+                st.rerun()
+        st.caption("Your saved run keeps the imported roster and match decisions.")
     return active
 
 
@@ -5741,8 +5742,12 @@ def _open_seeding_step(
     *,
     review_not_found: bool = False,
     review_cohort: str | None = None,
+    review_indices: Sequence[int] | None = None,
 ) -> None:
     """Move to one workflow step and optionally focus its completed not-found decisions."""
+    st.session_state.pop("_seeding_focused_review_indices", None)
+    if step == 2 and review_indices:
+        st.session_state["_seeding_focused_review_indices"] = sorted(set(review_indices))
     if step == 2 and review_not_found:
         st.session_state["_seeding_review_issue_filter"] = "Not found in PitchRank"
         if review_cohort:
@@ -5793,7 +5798,9 @@ def _render_seeding_step_navigation(
             st.rerun()
 
 
-def _render_seeding_not_found_shortcut(not_found: int, *, review_cohort: str | None = None) -> None:
+def _render_seeding_not_found_shortcut(
+    not_found: int, *, review_cohort: str | None = None, review_indices: Sequence[int] | None = None,
+) -> None:
     """Keep completed not-found decisions visible from the seed-order step."""
     if not not_found:
         return
@@ -5801,14 +5808,66 @@ def _render_seeding_not_found_shortcut(not_found: int, *, review_cohort: str | N
     pronoun = "It remains" if not_found == 1 else "They remain"
     st.info(
         f"{not_found} accepted {team_word} {'has' if not_found == 1 else 'have'} no PitchRank match. "
-        f"{pronoun} in the pack without a PowerScore."
+        f"{pronoun} in the pack without a PowerScore. "
+        "These teams are already marked not found. Reviewing them again is optional."
     )
     if st.button(
         f"Review {not_found} not-found {team_word}",
         key="_seeding_review_not_found_from_seed_order",
     ):
-        _open_seeding_step(2, review_not_found=True, review_cohort=review_cohort)
+        _open_seeding_step(2, review_not_found=True, review_cohort=review_cohort, review_indices=review_indices)
         st.rerun()
+
+
+def _render_seeding_focused_review(client: Any) -> bool:
+    """Review the alert's exact entrants, retaining them as their decisions change."""
+    indices = st.session_state.get("_seeding_focused_review_indices")
+    result = st.session_state.get("_seeding_result")
+    metadata = st.session_state.get("_seeding_assessment", {})
+    if not indices or not result or not _seeding_context_matches(result[0], metadata):
+        return False
+    parsed = effective_roster(result[0], st.session_state.get("_seeding_cohort_decisions", {}))
+    rows = {row.source_index: row for row in parsed.rows}
+    if any(index not in rows for index in indices):
+        st.session_state.pop("_seeding_focused_review_indices", None)
+        return False
+    # These widgets are intentionally absent here. Keep their values through
+    # Streamlit's widget cleanup so returning cannot change the run or scope.
+    for key in ("seeding_event_name", "seeding_resume_choice", "_seeding_pack_scope", "_seeding_pack_cohorts"):
+        if key in st.session_state:
+            st.session_state[key] = st.session_state[key]
+    st.caption(_as_plain_text(_seeding_run_name()))
+    st.markdown(f"### Review {len(indices)} unmatched {'team' if len(indices) == 1 else 'teams'}")
+    st.info(
+        "These are the teams from the alert. Leave a not-found decision as it is, "
+        "or reopen matching if you know the PitchRank team. Then return to the seed order."
+    )
+    by_index = {item.source_index: item for item in result[1]}
+    for index in indices:
+        _render_seeding_override(rows[index], by_index.get(index, ResolvedTeam(index, "unresolved")), client)
+    from src.tournaments.seeding_assessment import scoped_attention
+    assessment = assess_roster(
+        parsed, result[1], st.session_state.get("_seeding_overrides", {}),
+        coverage=metadata.get("coverage", "unknown"), completed=metadata.get("completed"),
+    )
+    selected = _selected_seeding_cohorts(package_roster(parsed))
+    pending = scoped_attention(parsed, assessment, selected)
+    editing = any(st.session_state.get(f"_seeding_seed_editing_{index}") for index in indices)
+    if pending or editing:
+        st.warning("Finish the reopened match decision before returning to the seed order.")
+    if not _seeding_run_name():
+        st.warning("This run is not saved. Open full matching tools below to name and save it before closing.")
+    elif st.session_state.get("_seeding_save_error"):
+        _render_seeding_save()
+    if st.button("Return to seed order", type="primary", key="_seeding_focused_return",
+                 disabled=bool(pending) or editing or not selected):
+        _open_seeding_step(3)
+        st.rerun()
+    with st.expander("More matching tools (optional)", expanded=False):
+        if st.button("Open full matching tools", key="_seeding_focused_all_tools"):
+            _open_seeding_step(2)
+            st.rerun()
+    return True
 
 
 def _render_seeding_save() -> None:
@@ -5853,8 +5912,11 @@ def _render_seeding_workspace(supabase_client: Any) -> None:
         st.session_state["_seeding_resolution_failed"] = True
         _autosave_seeding_run()
         st.session_state.pop("_seeding_review_update", None)
-    _render_seeding_run_controls(supabase_client)
+    _apply_pending_seeding_widgets()
     _apply_pending_seeding_review_focus()
+    if _render_seeding_focused_review(supabase_client):
+        return
+    _render_seeding_run_controls(supabase_client)
     result = st.session_state.get("_seeding_result")
     progress_parsed = None
     if result and _seeding_context_matches(result[0], st.session_state.get("_seeding_assessment", {})):
@@ -5959,6 +6021,11 @@ def _render_seeding_workspace(supabase_client: Any) -> None:
                 )
             else:
                 st.success("Every imported team has a PitchRank match or a completed not-found decision.")
+                st.info("Next: Continue to seed order. Use the matching tools below only to change a decision.")
+                if st.button("Continue to seed order", type="primary", key="_seeding_matching_complete_next",
+                             disabled=not _selected_seeding_cohorts(package_roster(parsed))):
+                    _open_seeding_step(3)
+                    st.rerun()
             duplicates = duplicate_identity_rows(parsed.rows, resolved, overrides)
             if duplicates:
                 st.warning(f"{len(duplicates)} registration rows share a PitchRank team in the same cohort. "
@@ -6023,7 +6090,7 @@ def _render_seeding_workspace(supabase_client: Any) -> None:
             _render_seeding_enqueue(package_roster(parsed), resolved, supabase_client)
             _render_seeding_step_navigation(
                 back=("Back to import", 1),
-                next_step=("Continue to seed order", 3),
+                next_step=("Continue to seed order", 3) if assessment.attention else None,
                 next_disabled=bool(scoped_attention(parsed, assessment, selected))
                 or not _selected_seeding_cohorts(package_roster(parsed)),
                 next_help="Resolve selected-cohort teams and relevant cohort questions before continuing.",
@@ -6050,11 +6117,12 @@ def _render_seeding_workspace(supabase_client: Any) -> None:
             review_cohort = (
                 _seeding_review_cohort_label(selected_cohorts[0]) if len(selected_cohorts) == 1 else None
             )
+            _render_seeding_sheet(eligible, resolved, supabase_client, view="build")
             _render_seeding_not_found_shortcut(
                 len(selected_not_found),
                 review_cohort=review_cohort,
+                review_indices=sorted(selected_not_found),
             )
-            _render_seeding_sheet(eligible, resolved, supabase_client, view="build")
             pack_ready = snapshot_matches_roster(
                 st.session_state.get("_seeding_pack"), eligible.rows, resolved, overrides, selected_cohorts
             )
