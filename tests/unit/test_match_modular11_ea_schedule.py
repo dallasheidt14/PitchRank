@@ -144,8 +144,8 @@ def test_fetch_candidate_games_resolves_merges_both_ways(monkeypatch):
             _game(4, 1, "Y", "Z"),
         ],
         team_merge_map=[
-            {"deprecated_team_id": "OLD_OPP", "canonical_team_id": "OPP"},
-            {"deprecated_team_id": "C_OLD", "canonical_team_id": "C"},
+            {"id": 1, "deprecated_team_id": "OLD_OPP", "canonical_team_id": "OPP"},
+            {"id": 2, "deprecated_team_id": "C_OLD", "canonical_team_id": "C"},
         ],
         teams=[
             {"team_id_master": "OPP", "team_name": "Pacific FC 2010", "club_name": "Pacific FC"},
@@ -233,3 +233,20 @@ def test_a_lone_busy_candidate_is_held_not_dropped():
     cand_games = {"a": [_g(12, "Pacific FC 2010"), _g(19, "Seattle United B10")]}
     [row] = classify([_ea()], TWO[:1], ea_games={"1": EA_GAMES}, cand_games=cand_games)
     assert (row.bucket, row.reason, [c["team_id_master"] for c in row.candidates]) == ("review", "schedule clash", ["a"])
+
+
+def test_fetch_candidate_games_follows_merge_chains(monkeypatch):
+    monkeypatch.setattr(m, "PAGE_SIZE", 1)
+    db = _Db(
+        games=[_game(1, 12, "A", "X")],
+        team_merge_map=[
+            {"id": 1, "deprecated_team_id": "A", "canonical_team_id": "B"},
+            {"id": 2, "deprecated_team_id": "B", "canonical_team_id": "C"},
+            {"id": 3, "deprecated_team_id": "X", "canonical_team_id": "Y"},
+            {"id": 4, "deprecated_team_id": "Y", "canonical_team_id": "Z"},
+        ],
+        teams=[{"team_id_master": "Z", "team_name": "Pacific FC 2010", "club_name": "Pacific FC"}],
+    )
+    assert m.fetch_candidate_games(db, ["C"], 2026) == {
+        "C": [{"game_date": "2026-09-12", "opponent_name": "Pacific FC 2010", "opponent_club": "Pacific FC"}]
+    }

@@ -32,6 +32,7 @@ from dotenv import load_dotenv
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from scripts.find_cross_provider_duplicates import load_merge_map, merged_into, page, resolver  # noqa: E402
 from scripts.scrape_modular11_ea import MATCHES_URL  # noqa: E402
 from src.etl.glicko_config import GlickoConfig  # noqa: E402
 from src.models.modular11_ea_keys import refuse_raw_keys  # noqa: E402
@@ -133,6 +134,57 @@ def _stored_games(sb, team_id_master: str, since: str) -> int:
         )
         total += result.count or 0
     return total
+
+
+def _fixture(day: str, team_a: str | None, team_b: str | None) -> tuple:
+    """One match whichever side recorded it, keyed as the importer's game uid is: date and teams.
+
+    A stored game can lack a team on one side; it then matches no importer row.
+    """
+    return (day, frozenset((team_a, team_b)))
+
+
+def unstored_rows(sb, rows: list[dict], links: dict[str, str]) -> list[dict]:
+    """The importer rows whose match PitchRank does not already hold, under any provider.
+
+    The importer drops a match it already has, so the impact is read only from what would
+    survive. Stored games are compared as the importer's game uid compares them, by date and
+    teams and not by score, so a result the provider corrected still counts as stored. Both teams
+    are followed through their whole merge chain, since a match imported before a merge names the
+    deprecated row.
+    """
+    masters = sorted({links[r["team_id"]] for r in rows if not links[r["team_id"]].startswith("new:")})
+    if not masters:
+        return list(rows)
+    merge_map = load_merge_map(sb)
+    canonical = resolver(merge_map)
+    ids = sorted(merged_into(masters, merge_map, canonical))
+    days = [r["game_date"][:10] for r in rows]
+    start, end = min(days), max(days)
+    stored = set()
+    for side in ("home_team_master_id", "away_team_master_id"):
+        for offset in range(0, len(ids), 100):
+            batch = ids[offset : offset + 100]
+            games = page(
+                lambda b=batch, s=side: (
+                    sb.table("games")
+                    .select("id, game_date, home_team_master_id, away_team_master_id")
+                    .in_(s, b)
+                    .gte("game_date", start)
+                    .lte("game_date", end)
+                ),
+                "id",
+            )
+            stored.update(
+                _fixture(g["game_date"][:10], canonical(g["home_team_master_id"]), canonical(g["away_team_master_id"]))
+                for g in games
+            )
+    return [
+        r
+        for r in rows
+        if _fixture(r["game_date"][:10], canonical(links[r["team_id"]]), canonical(links[r["opponent_id"]]))
+        not in stored
+    ]
 
 
 def impact(sb, rows: list[dict], links: dict[str, str]) -> dict:
@@ -249,9 +301,11 @@ def main(argv: list[str] | None = None) -> int:
     rows, held = build_rows(games, teams, links)
     _write_csv(age_dir / ("import_planned.csv" if args.planned else "import.csv"), IMPORT_COLUMNS, rows)
     _write_csv(age_dir / "held_games.csv", list(games[0]) if games else [], held)
-    result = impact(sb, rows, links)
+    new_rows = unstored_rows(sb, rows, links)
+    result = impact(sb, new_rows, links)
     print(
-        f"games_added={result['games_added']} held={len(held)} teams_touched={result['teams_touched']} "
+        f"games_added={result['games_added']} already_stored={(len(rows) - len(new_rows)) // 2} "
+        f"held={len(held)} teams_touched={result['teams_touched']} "
         f"crossing_{PROVISIONAL_GAMES}_games={result['crossing_up']}"
     )
     return 0

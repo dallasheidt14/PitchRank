@@ -30,6 +30,7 @@ from dotenv import load_dotenv
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from scripts.find_cross_provider_duplicates import load_merge_map, merged_into, resolver  # noqa: E402
 from scripts.scrape_modular11_ea import season_bounds  # noqa: E402
 from src.models.modular11_ea_keys import club_state, ea_key, refuse_raw_keys, split_ea_key  # noqa: E402
 from src.models.modular11_ea_matcher import PROVIDER_CODE  # noqa: E402
@@ -358,31 +359,18 @@ def _paged(build) -> list[dict]:
         offset += PAGE_SIZE
 
 
-def _merge_map(sb, column: str, ids: list[str]) -> list[dict]:
-    rows = []
-    for start in range(0, len(ids), 100):
-        batch = ids[start : start + 100]
-        rows += _paged(
-            lambda b=batch: (
-                sb.table("team_merge_map")
-                .select("deprecated_team_id, canonical_team_id")
-                .in_(column, b)
-                .order("deprecated_team_id")
-            )
-        )
-    return rows
-
-
 def fetch_candidate_games(sb, ids: list[str], season: int) -> dict[str, list[dict]]:
     """Per candidate, its non-excluded games this season as (date, opponent name, opponent club).
 
-    Merges are resolved both ways: games stored under a team merged into a candidate count as
-    the candidate's, and an opponent is named by the team it was merged into.
+    Merges are resolved both ways and through whole chains (A -> B -> C): games stored under any
+    team merged into a candidate count as the candidate's, and an opponent is named by the team
+    its chain ends at.
     """
     start, end = (bound[:10] for bound in season_bounds(date(season, 8, 1)))
-    owner = {team_id: team_id for team_id in ids}
-    for row in _merge_map(sb, "canonical_team_id", ids):
-        owner[row["deprecated_team_id"]] = row["canonical_team_id"]
+    merge_map = load_merge_map(sb)
+    canonical = resolver(merge_map)
+    candidate_of = {canonical(team_id): team_id for team_id in ids}
+    owner = {team_id: candidate_of[canonical(team_id)] for team_id in merged_into(ids, merge_map, canonical)}
     played: list[tuple[str, str, str]] = []
     keys = sorted(owner)
     for side, other in (("home", "away"), ("away", "home")):
@@ -403,10 +391,7 @@ def fetch_candidate_games(sb, ids: list[str], season: int) -> dict[str, list[dic
                 (owner[g[f"{side}_team_master_id"]], g["game_date"][:10], g[f"{other}_team_master_id"]) for g in games
             ]
     opponents = sorted({opp for _, _, opp in played if opp})
-    canonical = {
-        r["deprecated_team_id"]: r["canonical_team_id"] for r in _merge_map(sb, "deprecated_team_id", opponents)
-    }
-    resolved = sorted({canonical.get(opp, opp) for opp in opponents})
+    resolved = sorted({canonical(opp) for opp in opponents})
     names = {}
     for offset in range(0, len(resolved), 100):
         batch = resolved[offset : offset + 100]
@@ -416,7 +401,7 @@ def fetch_candidate_games(sb, ids: list[str], season: int) -> dict[str, list[dic
             names[row["team_id_master"]] = row
     out: dict[str, list[dict]] = defaultdict(list)
     for team_id, game_date, opp in played:
-        team = names.get(canonical.get(opp, opp), {})
+        team = names.get(canonical(opp), {})
         out[team_id].append(
             {
                 "game_date": game_date,

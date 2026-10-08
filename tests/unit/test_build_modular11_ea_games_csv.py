@@ -301,3 +301,81 @@ def test_live_links_refuse_raw_ids():
     with pytest.raises(SystemExit, match="migrate_modular11_ea_season_keys.py"):
         build.live_links(_AliasDb([{"provider_team_id": "7155", "team_id_master": "M1"}]))
     assert build.live_links(_AliasDb([{"provider_team_id": "7155:2026", "team_id_master": "M1"}])) == {"7155:2026": "M1"}
+
+
+class _StoredQuery:
+    """Records at execute(); paging needs an order and in_ batches are capped at 100."""
+
+    def __init__(self, db, table):
+        self.db, self.table, self.filters, self.order_by, self.window = db, table, [], None, None
+
+    def select(self, *_cols):
+        return self
+
+    def in_(self, column, values):
+        assert len(values) <= 100
+        self.filters.append(lambda r, c=column, v=set(values): r.get(c) in v)
+        return self
+
+    def gte(self, column, value):
+        self.filters.append(lambda r, c=column, v=value: r.get(c) >= v)
+        return self
+
+    def lte(self, column, value):
+        self.filters.append(lambda r, c=column, v=value: r.get(c) <= v)
+        return self
+
+    def order(self, column):
+        self.order_by = column
+        return self
+
+    def range(self, lo, hi):
+        self.window = (lo, hi)
+        return self
+
+    def execute(self):
+        rows = [dict(r) for r in self.db.rows[self.table] if all(f(r) for f in self.filters)]
+        if self.window:
+            assert self.order_by, "paging without an order skips rows"
+            rows = sorted(rows, key=lambda r: r[self.order_by])[self.window[0] : self.window[1] + 1]
+        return type("R", (), {"data": rows})()
+
+
+class _StoredDb:
+    def __init__(self, games=(), merges=()):
+        self.rows = {"games": list(games), "team_merge_map": list(merges)}
+
+    def table(self, name):
+        return _StoredQuery(self, name)
+
+
+def test_games_already_stored_are_not_counted_as_added():
+    games = [_game(match_no="1"), _game(match_no="2", home="7156", away="7155", hs="0", as_="0")]
+    games[1]["game_date"] = "2026-09-19"
+    rows, _ = build.build_rows(games, TEAMS, LINKS)
+    stored = [{"id": 1, "game_date": "2026-09-12", "home_team_master_id": "M2", "away_team_master_id": "OLD1",
+               "home_score": 1, "away_score": 3}]
+    db = _StoredDb(stored, [{"id": 1, "deprecated_team_id": "OLD1", "canonical_team_id": "M1"}])
+    new = build.unstored_rows(db, rows, LINKS)
+    assert [(r["game_date"], r["team_id"], r["goals_for"]) for r in new] == [
+        ("2026-09-19", "7156:2026", 0),
+        ("2026-09-19", "7155:2026", 0),
+    ]
+
+
+def test_planned_new_teams_have_nothing_stored():
+    rows, _ = build.build_rows([_game()], TEAMS, {"7155:2026": "new:7155:2026", "7156:2026": "M2"})
+    assert len(build.unstored_rows(_StoredDb(), rows, {"7155:2026": "new:7155:2026", "7156:2026": "M2"})) == 2
+
+
+def test_a_stored_match_with_a_corrected_score_still_counts_as_stored():
+    rows, _ = build.build_rows([_game(hs="5", as_="2")], TEAMS, LINKS)
+    stored = [{"id": 1, "game_date": "2026-09-12", "home_team_master_id": "M1", "away_team_master_id": "M2",
+               "home_score": 2, "away_score": 5}]
+    assert build.unstored_rows(_StoredDb(stored), rows, LINKS) == []
+
+
+def test_a_stored_game_with_a_blank_side_is_read_without_failing():
+    rows, _ = build.build_rows([_game()], TEAMS, LINKS)
+    stored = [{"id": 1, "game_date": "2026-09-12", "home_team_master_id": None, "away_team_master_id": "M2"}]
+    assert len(build.unstored_rows(_StoredDb(stored), rows, LINKS)) == 2

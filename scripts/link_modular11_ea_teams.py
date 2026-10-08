@@ -74,7 +74,7 @@ def plan_links(teams: list[dict], report: list[dict], decisions: dict[str, str])
     plan = []
     for team in teams:
         tid = team["provider_team_id"]
-        row = by_id.get(tid, {"bucket": "no_match", "candidate_ids": ""})
+        row = by_id.get(tid)
         pick = (decisions.get(tid) or "").strip()
         base = {
             "provider_team_id": tid,
@@ -84,7 +84,9 @@ def plan_links(teams: list[dict], report: list[dict], decisions: dict[str, str])
             "age_group": team["age_group"],
             "state_code": club_state(team["club_name"]),
         }
-        if pick.lower() == "skip":
+        if row is None:
+            step = ("hold", "", "", "not in match report")
+        elif pick.lower() == "skip":
             step = ("hold", "", "", "your pick: skip")
         elif pick.lower() == "new":
             step = ("create", "", "direct_id", "your pick: new")
@@ -176,7 +178,10 @@ def _usable_target(sb, team_id_master: str, age_group: str) -> bool:
 
 
 def apply_plan(sb, provider_id: str, plan: list[LinkAction], log_path: Path) -> tuple[dict[str, int], dict[str, str]]:
-    """Returns the counts and ``{provider_team_id: team_id_master}`` for teams created this run.
+    """Returns the counts and ``{provider_team_id: team_id_master}`` for each create action this run.
+
+    A team an interrupted earlier run already created is reused and reported here too, so the
+    hand-back can name it; only the log, which undo reads, records the teams this run inserted.
 
     An EA team that already has an approved alias is never re-pointed here: a create reuses
     it silently, and a link to a different team is reported as needing a merge.
@@ -218,9 +223,9 @@ def apply_plan(sb, provider_id: str, plan: list[LinkAction], log_path: Path) -> 
                     counts["teams_reused"] += 1
                 else:
                     target = _create_team(sb, provider_id, action)
-                    created[action.provider_team_id] = target
                     counts["teams_created"] += 1
                     log.write(json.dumps({"kind": "team", "team_id_master": target}) + "\n")
+                created[action.provider_team_id] = target
             confidence = ALIAS_CONFIDENCE[action.match_method]
             result = upsert_team_alias(
                 sb,
@@ -391,10 +396,13 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     report = _read_csv(age_dir / "match_report.csv")
+    teams = _read_csv(age_dir / "teams.csv")
+    if {r["provider_team_id"] for r in report} != {t["provider_team_id"] for t in teams}:
+        raise SystemExit("ERROR: teams.csv and match_report.csv list different EA teams; re-run the match report")
     decisions = {}
     if args.decisions:
         decisions = {r["provider_team_id"]: r.get("your_pick", "") for r in _read_csv(args.decisions)}
-    plan = plan_links(_read_csv(age_dir / "teams.csv"), report, decisions)
+    plan = plan_links(teams, report, decisions)
     with (age_dir / "link_plan.csv").open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=list(LinkAction.__dataclass_fields__))
         writer.writeheader()

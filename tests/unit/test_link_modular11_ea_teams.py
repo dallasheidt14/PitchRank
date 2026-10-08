@@ -218,7 +218,7 @@ def test_rerun_reuses_existing_team(tmp_path, alias_calls):
     counts, created = link.apply_plan(db, PROVIDER, plan, tmp_path / "log.jsonl")
     assert db.rows["teams"] == [existing]
     assert [c["team_id_master"] for c in alias_calls] == ["OLD"]
-    assert (counts["teams_created"], counts["teams_reused"], created) == (0, 1, {})
+    assert (counts["teams_created"], counts["teams_reused"], created) == (0, 1, {"7155": "OLD"})
 
 
 def test_hold_writes_nothing(tmp_path, alias_calls):
@@ -344,3 +344,19 @@ def test_execute_refuses_while_raw_ids_remain(tmp_path, alias_calls):
     with pytest.raises(SystemExit, match="migrate_modular11_ea_season_keys.py"):
         link.apply_plan(db, PROVIDER, plan, tmp_path / "log.jsonl")
     assert (db.writes(), alias_calls) == ([], [])
+
+
+def test_team_missing_from_the_report_is_held_not_created():
+    plan = link.plan_links([_team("1"), _team("2")], [_report("1", "no_match")], {})
+    assert _actions(plan) == {"1": ("create", "", "direct_id"), "2": ("hold", "", "")}
+    assert [a.reason for a in plan if a.provider_team_id == "2"] == ["not in match report"]
+
+
+def test_mismatched_roster_and_report_stop_the_run(tmp_path, monkeypatch):
+    age_dir = tmp_path / "u17"
+    age_dir.mkdir()
+    _write(age_dir / "teams.csv", TEAM_COLUMNS, [_team("1"), _team("2")])
+    _write(age_dir / "match_report.csv", REPORT_COLUMNS, [_report("1", "no_match"), _report("9", "no_match")])
+    monkeypatch.setattr(link, "_new_client", lambda: (_ for _ in ()).throw(AssertionError("opened a client")))
+    with pytest.raises(SystemExit, match="match_report.csv"):
+        link.main(["--age", "u17", "--in-dir", str(tmp_path), "--execute"])
