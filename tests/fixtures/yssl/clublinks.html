@@ -1,0 +1,1172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title>Clubs | YSSL</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+	<link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32x32.png">
+	<link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16x16.png">
+	<link rel="manifest" href="/icons/site.webmanifest">
+	<meta name="msapplication-TileColor" content="#da532c">
+	<meta name="msapplication-config" content="/icons/browserconfig.xml">
+	<meta name="theme-color" content="#ffffff">
+	
+  <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.4.0/css/bootstrap.min.css">
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+  <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.4.0/js/bootstrap.min.js"></script>
+  <link href="https://fonts.googleapis.com/css?family=Lato|Staatliches&display=swap" rel="stylesheet">
+  <script src="https://kit.fontawesome.com/9dcd3ba02e.js" crossorigin="anonymous"></script>  <link rel="stylesheet" href="/yssl/bootstrap.css">
+
+  <style>
+
+    body {
+        margin-top: 90px;
+    }
+
+
+    .navbar-brand {
+        float: left;
+        height: 50px;
+        padding: 10px 10px;
+        font-size: 18px;
+        line-height: 20px;
+    }
+
+    #subpage_header_img {
+         background:url(/images/new/header_subpage2.png);
+         width:90px;
+         height:40px;
+    }
+    @media screen and (max-width:400px) {
+         #subpage_header_img {
+             background:url(/images/new/header_subpageM.png);
+             width:240px;
+         }
+    }
+
+  </style>
+<link rel="stylesheet" href="//code.jquery.com/ui/1.11.1/themes/smoothness/jquery-ui.css">
+  <script src="//code.jquery.com/jquery-1.10.2.js"></script>
+  <script src="//code.jquery.com/ui/1.11.1/jquery-ui.js"></script>
+<LINK REL=Stylesheet HREF="/textcss.php" TYPE="text/css" />
+<script type="text/javascript" src="/ajaxpage.js"></script>
+<script type="text/javascript" src="/newwindow.js"></script>
+
+<script language="JavaScript" type="text/javascript">
+function CheckAll(fm) {
+  fmobj = document.getElementById(fm);
+  for (var i=0;i<fmobj.elements.length;i++) {
+    var e = fmobj.elements[i];
+    if ( (e.name != 'allcheck') && (e.type=='checkbox') && (!e.disabled) ) {
+      e.checked = fmobj.allcheck.checked;
+    }
+  }
+}
+
+function refreshnow(surl)
+{
+    window.location.href = surl;
+}
+
+function refreshlater(surl, to)
+{
+    setTimeout('refreshnow("'+surl+'")', to);
+}
+
+function setXAdminRes(adminres)
+{
+    var o = document.getElementById('div_adminres');
+    if(o != null)
+        o.innerHTML = '<table border=0 cellpadding=2 cellspacing=0><tr bgcolor="#FFC6C6"><td><img src="/images/error.gif" align=absmiddle />&nbsp;<span class=ErrorText>'+adminres+'</span>&nbsp;</td></tr></table>';
+}
+
+</script>
+
+
+<script src="https://cdn.tiny.cloud/1/syhqyb2h2hypi36195u0v65ed8mfz0zdwmacnan8frwu06p9/tinymce/5/tinymce.min.js"></script>
+<script>
+	  tinymce.init({
+	    selector: 'textarea.editme',
+		
+    selector: 'textarea.editme',
+    menu: {
+        custom: { title: 'Format', items: 'bold italic underline strikethrough superscript subscript codeformat | formats  | removeformat' },
+    },
+    document_base_url: 'https://yssl.org',
+    relative_urls: false,
+	remove_script_host: false,
+    menubar: 'edit insert custom table tools help',
+    // Added: image to plugins
+    plugins: 'advlist link lists code autoresize table hr insertdatetime charmap anchor nonbreaking help image',
+    // Added: image button to toolbar
+    toolbar: 'styleselect | bold italic underline | link image | alignleft aligncenter alignright alignjustify | outdent indent | removeformat code',
+    valid_elements: '@[class|align|valign|style],a[href|name|id|target],table[border|width|cellpadding|cellspacing],tr,td,strong/b,div,hr[size],br,p,span[class|style|id],i,ul,li,big,img[*]',
+    invalid_styles: 'font-family',
+    content_style: 'body { background-color: #FFF; margin: 5px; },p { margin: 0; margin-bottom: 10px; color: #000; letter-spacing: 2px; font-size: 14px; }',
+    statusbar: false,
+	content_css: 'https://maxcdn.bootstrapcdn.com/bootstrap/3.4.0/css/bootstrap.min.css,/yssl/bootstrap.css,/textcss.php',
+    forced_root_block: false,
+    formats: {
+        well:      { block: 'div', classes: 'well well-sm well-gray',  wrapper: true },
+        wellblue:  { block: 'div', classes: 'well well-sm well-blue',  wrapper: true },
+        wellred:   { block: 'div', classes: 'well well-sm well-red',   wrapper: true },
+        wellgreen: { block: 'div', classes: 'well well-sm well-green', wrapper: true },
+    },
+    style_formats_merge: true,
+    style_formats: [
+        { title: "Tiny Text",   inline: "span", classes: "SmallestText" },
+        { title: "Small Text",  inline: "span", classes: "SmallText" },
+        { title: "Normal Text", inline: "span", classes: "NormalText" },
+        { title: "Large Text",  inline: "span", classes: "LargeText" },
+        { title: "XLarge Text", inline: "span", classes: "XLargeText" },
+        { title: "Red Text",    inline: "span", styles: { color: "#cc0000" } },
+        { title: "Blue Text",   inline: "span", styles: { color: "#0000cc" } },
+        { title: "Green Text",  inline: "span", styles: { color: "#00cc00" } },
+        { title: 'Section', items: [
+            { title: "Section (gray box)",  format: "well" },
+            { title: "Section (blue box)",  format: "wellblue" },
+            { title: "Section (red box)",   format: "wellred" },
+            { title: "Section (green box)", format: "wellgreen" },
+        ]},
+    ],
+    contextmenu: "formats | paste pastetext | bold italic underline | link image | anchor",
+
+    // --- Image upload settings ---
+    image_title: true,
+    automatic_uploads: true,
+    images_upload_url: '/tinymce_upload.php',       // your PHP handler
+    images_upload_base_path: 'https://www.yssl.org/',                   // prepended to returned URL if needed
+    images_upload_credentials: false,                // send session cookies with upload
+    images_file_types: 'jpg,jpeg,png,gif,webp,svg',
+
+    // Alignment controls in the image dialog
+    image_advtab: true,
+
+    // Custom file picker (Browse button in image dialog)
+    file_picker_types: 'image',
+    file_picker_callback: (cb, value, meta) => {
+        const input = document.createElement('input');
+        input.setAttribute('type', 'file');
+        input.setAttribute('accept', 'image/*');
+        input.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            const reader = new FileReader();
+            reader.addEventListener('load', () => {
+                const id       = 'blobid' + Date.now();
+                const blobCache = tinymce.activeEditor.editorUpload.blobCache;
+                const base64   = reader.result.split(',')[1];
+                const blobInfo = blobCache.create(id, file, base64);
+                blobCache.add(blobInfo);
+                cb(blobInfo.blobUri(), { title: file.name });
+            });
+            reader.readAsDataURL(file);
+        });
+        input.click();
+    },
+	
+		min_height: 250,
+		max_height: 1000,
+	  });
+</script>
+	
+<script type="text/javascript" src="/jkpopimage.js?v=1790955574"></script>
+
+</head>
+<body>
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-56976160-1', 'auto');
+  ga('send', 'pageview');
+
+</script>
+<script language="JavaScript" type="text/javascript">
+function showalert(msg)
+{
+    myAlert(msg);
+}
+</script>
+<nav class="navbar navbar-inverse navbar-fixed-top margin-no-bottom bg-black">
+  <button type="button" class="navbar-toggle" data-toggle="collapse" data-target="#myNavbar">
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+      </button>
+
+    <div class="navbar-header">
+      <a class="navbar-brand" href="/index.php"><div id="subpage_header_img"></div></a>
+    </div>
+
+    <div class="collapse navbar-collapse" id="myNavbar">
+        <ul class="nav navbar-nav bg-black">
+    <li><a href="//yssl.org/index.php" class=whitelink>Home</a></li>
+		<li><a href="/anypage.php?f=WhotoContact.htm&title=Contact%20Us" target="contactus" class=whitelink>Contact Us</a></li>
+<li><a href="/login.php" class=whitelink>Sign in</a></li>        </ul>
+        </div>
+
+</nav>
+
+<div class="alert alert-success alert-sm alert-dismissible text-center" >Wonderful start to the YSSL Fall Season!  Thank you to all of our clubs!</div><div class="container-fluid">
+    <div class="row">
+        <div class="col-sm-12">
+
+    <!-- **** END subpage_header **** -->
+<form method="post" action="clublinks.php" name="theform" class=SmallText>
+<script>
+  $(function() {
+    var availableClubs = [
+			"60 UNITED FC",
+			"7 UNITED SOCCER CLUB",
+			"AAC EAGLES CHICAGO",
+			"ACADEMIA DE FUTBOL ATLAS FC CHICAGO",
+			"ACADEMIC SOCCER CLUB",
+			"AJAX FC NAPERVILLE",
+			"ARROYO FC",
+			"AURORA EAGLES SC",
+			"AYSO 300 UNITED",
+			"BARCA ACADEMY CHICAGO",
+			"BARTLETT HAWKS FC",
+			"BERBER CITY FC",
+			"BERWYN BLAZERS FC",
+			"BVB INTERNATIONAL ACADEMY - IL",
+			"CARY DEFENDERS",
+			"CHICAGO BLACK LIONS",
+			"CHICAGO BLAST SOCCER CLUB",
+			"CHICAGO CELTIC SC",
+			"CHICAGO CITY SC",
+			"CHICAGO EAGLES",
+			"CHICAGO EDGE SC",
+			"CHICAGO EMPIRE",
+			"CHICAGO FIRE YOUTH SC",
+			"CHICAGO FUTBOL ALLIANCE",
+			"CHICAGO INFERNO",
+			"CHICAGO INTER SOCCER CLUB",
+			"CHICAGO KICS FC",
+			"CHICAGO KNIGHTS FC",
+			"CHICAGO MAGIC",
+			"CHICAGO PHOENIX FC",
+			"CHICAGO PRO SOCCER ACADEMY",
+			"CHICAGO RUSH",
+			"CHICAGO SOCCER ACADEMY",
+			"CHICAGO STRIKERS",
+			"CRESTWOOD SOCCER CLUB",
+			"CROSSFIRE SC",
+			"DEKALB COUNTY UNITED ACADEMY",
+			"DEPORTIVO JUNIORS",
+			"DPSAL",
+			"ECLIPSE SELECT SOCCER CLUB",
+			"ELA SOCCER CLUB",
+			"ELITE S.C.",
+			"ELITE STRIKERS",
+			"ELK GROVE SOCCER CLUB",
+			"EVERGREEN UNITED FC",
+			"EVOLUTION SC",
+			"FC BARRINGTON",
+			"FC LAKE COUNTY",
+			"FC MIRAGE",
+			"FC STARS",
+			"FC-1 ACADEMY",
+			"FIREBIRDS SC",
+			"FORCE FC",
+			"FORGE SOCCER CLUB",
+			"FOX VALLEY BAYERN",
+			"GALAXY SOCCER CLUB",
+			"GLEN ELLYN LAKERS",
+			"GOLDEN EAGLES SOCCER CLUB",
+			"GOROS FC",
+			"GUADALUPE FC",
+			"HARVARD FC",
+			"HAWTHORN WOODS ELITE SOCCER CLUB",
+			"HOTC ELITE",
+			"HUSSARS UNITED",
+			"ILLINOIS MAGIC FC",
+			"ILLINOIS PREMIER ALLIANCE",
+			"IPROSKILLS ACADEMY",
+			"JOM SOCCER CLUB NFP",
+			"KANELAND UNITED SOCCER CLUB",
+			"KORA FC",
+			"LAMASSU SC",
+			"LANCER SC",
+			"LEGACY SC",
+			"LEO SOCCER SCHOOL",
+			"LG CELTICS",
+			"LIBERTYVILLE FC",
+			"LINDENHURST ASC",
+			"LISLE FC",
+			"LITHS SOCCER CLUB",
+			"LYONS TOWNSHIP SOCCER CLUB",
+			"MIDWEST GLADIATORS FC",
+			"MILLENNIUM SA",
+			"MT GREENWOOD KNIGHTS SC",
+			"MUSTANGS UNITED FC",
+			"NAPERVILLE EAGLES SOCCER CLUB",
+			"NAZ UNITED FC",
+			"NORRIDGE UNITED",
+			"NORTH AURORA FOOTBALL CLUB",
+			"NORTH SHORE FC",
+			"NORTHERN ALLIANCE",
+			"NORTHSIDE CHICAGO AYSO",
+			"NORTHWIND SOCCER CLUB",
+			"NWI LIONS UNITED",
+			"OLYMPIACOS CHICAGO",
+			"OPRF ALLIANCE",
+			"PALATINE CELTIC SC",
+			"PARK RIDGE SOCCER CLUB",
+			"PEGASUS FC",
+			"RAIDERS FC",
+			"RANGERS SOCCER ACADEMY",
+			"RBFC",
+			"REAL MADRID ROUND LAKE FC",
+			"RIIIZE FC",
+			"ROADRUNNERS SC",
+			"ROCKFORD ELITE FC",
+			"ROCKFORD OLYMPIC FC",
+			"ROCKFORD RAPTORS",
+			"ROSCOE LIONS SOCCER CLUB",
+			"SAA UNITED SC",
+			"SCHILLER PARK STALLIONS SC",
+			"SCOUTS FC",
+			"SHADOW PREMIER FC",
+			"SPARTAN FC",
+			"SPIDERS FC",
+			"STING FC",
+			"SUFC FALCONS",
+			"TBD",
+			"TEAM CHICAGO",
+			"TEAM ELMHURST",
+			"TEST CLUB",
+			"TIGRES NWS",
+			"TINLEY PARK BOBCATS",
+			"TREVIAN SC",
+			"TRI-CITIES SOCCER ASSOCIATION",
+			"UNION FC",
+			"UNITED ELITE SOCCER CLUB",
+			"VALENCIA CF ACADEMY CHICAGO",
+			"WC LIONS ACADEMY",
+			"WEST CHICAGO FC",
+			"WEST LAWN SOCCER CLUB",
+			"WHEATON UNITED SOCCER CLUB",
+			"WINDY CITY FC",
+			"WINDY CITY PRIDE",
+			"WIZARD CADENCE OB FC",
+			"YOUNG WOLVES POLISH SOCCER SCHOOL",
+			"YOUTH SOCCER INTERNATIONAL"    ];
+    $( "#clubname" ).autocomplete({
+      source: availableClubs
+    });
+  });
+  </script>
+
+<!-- table start -->
+<div class="row"><div class="col-md-8">
+            <div class="panel panel-default" >
+                <div class="panel-heading panel-heading-custom"><i class="fas fa-shield-alt small"></i>&nbsp;Clubs&nbsp;&nbsp;&nbsp;<span class="panel-heading-small"><i class="fas fa-angle-left"></i>&nbsp;137&nbsp;<i class="fas fa-angle-right"></i></span>&nbsp;<span class="bodyfont">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="panel-addtitle"><label for="tags">Search: </label>
+    <input name="clubname" id="clubname" size=15 class="panel-addtitle">&nbsp;<input type="submit" name="Submit" value="go" class="panel-addtitle"></span></span></div>
+        <div class="panel-body"><table  class="table table-borderless table-sm"><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #003399"></i>&nbsp;&nbsp;<a href="club.php?clu_code=SXT" class="hoverlink LargeText">60 UNITED FC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;LAKE FOREST & VERNON HILLS</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-users small"></i>&nbsp;managers:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=300146" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=177536" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=244775" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=177536" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #DAA520"></i>&nbsp;&nbsp;<a href="club.php?clu_code=SUN" class="hoverlink LargeText">7 UNITED SOCCER CLUB</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;NAPERVILLE & YORKVILLE</span></span></div><div class="col-sm-5 text-right"><i class="fas fa-link small"></i>&nbsp;<a href="http://www.7unitedsc.com/" target="_blank" class="hoverlink">www.7unitedsc.com/</a></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=326323" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #FF0000"></i>&nbsp;&nbsp;<a href="club.php?clu_code=AAC" class="hoverlink LargeText">AAC EAGLES CHICAGO</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;CHICAGO / ELK GROVE</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-users small"></i>&nbsp;managers:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=244992" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=213062" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #CC3333"></i>&nbsp;&nbsp;<a href="club.php?clu_code=ACD" class="hoverlink LargeText">ACADEMIA DE FUTBOL ATLAS FC CHICAGO</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;CHICAGO</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=244666" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #003399"></i>&nbsp;&nbsp;<a href="club.php?clu_code=ASC" class="hoverlink LargeText">ACADEMIC SOCCER CLUB</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;STREAMWOOD</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=293759" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #003399"></i>&nbsp;&nbsp;<a href="club.php?clu_code=AJX" class="hoverlink LargeText">AJAX FC NAPERVILLE</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;NAPERVILLE</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=245009" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #006600"></i>&nbsp;&nbsp;<a href="club.php?clu_code=ARR" class="hoverlink LargeText">ARROYO FC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;GLENDALE HEIGHTS</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=297579" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #003399"></i>&nbsp;&nbsp;<a href="club.php?clu_code=ATE" class="hoverlink LargeText">AURORA EAGLES SC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;AURORA</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=236331" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #003399"></i>&nbsp;&nbsp;<a href="club.php?clu_code=AYO" class="hoverlink LargeText">AYSO 300 UNITED</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;WESTERN SPRINGS</span></span></div><div class="col-sm-5 text-right"><i class="fas fa-link small"></i>&nbsp;<a href="http://ayso300.org/united/" target="_blank" class="hoverlink">ayso300.org/united/</a></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=261015" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #204085"></i>&nbsp;&nbsp;<a href="club.php?clu_code=BRC" class="hoverlink LargeText">BARCA ACADEMY CHICAGO</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;CHICAGO</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=241513" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #003399"></i>&nbsp;&nbsp;<a href="club.php?clu_code=BRH" class="hoverlink LargeText">BARTLETT HAWKS FC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;BARTLETT</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=270544" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #000000"></i>&nbsp;&nbsp;<a href="club.php?clu_code=BRB" class="hoverlink LargeText">BERBER CITY FC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;CHICAGO</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=262621" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #FF6633"></i>&nbsp;&nbsp;<a href="club.php?clu_code=BRW" class="hoverlink LargeText">BERWYN BLAZERS FC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;BERWYN</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=248553" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #FFFF00"></i>&nbsp;&nbsp;<a href="club.php?clu_code=BVB" class="hoverlink LargeText">BVB INTERNATIONAL ACADEMY - IL</a>
+</div><div class="col-sm-3"><span class=small></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=177797" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #000066"></i>&nbsp;&nbsp;<a href="club.php?clu_code=CRD" class="hoverlink LargeText">CARY DEFENDERS</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;CARY</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=178075" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #003399"></i>&nbsp;&nbsp;<a href="club.php?clu_code=CBL" class="hoverlink LargeText">CHICAGO BLACK LIONS</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;BURBANK</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=217449" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #003399"></i>&nbsp;&nbsp;<a href="club.php?clu_code=CBS" class="hoverlink LargeText">CHICAGO BLAST SOCCER CLUB</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;OAK BROOK</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=262359" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #2E8B57"></i>&nbsp;&nbsp;<a href="club.php?clu_code=CLT" class="hoverlink LargeText">CHICAGO CELTIC SC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;CHICAGO</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=297823" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #99CCFF"></i>&nbsp;&nbsp;<a href="club.php?clu_code=CSC" class="hoverlink LargeText">CHICAGO CITY SC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;CHICAGO</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-users small"></i>&nbsp;managers:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=259467" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=239929" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=258346" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=286234" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=330749" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #003399"></i>&nbsp;&nbsp;<a href="club.php?clu_code=CEG" class="hoverlink LargeText">CHICAGO EAGLES</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;WEST CHICAGO</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=276061" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #003399"></i>&nbsp;&nbsp;<a href="club.php?clu_code=CED" class="hoverlink LargeText">CHICAGO EDGE SC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;OAK PARK-RIVER FOREST</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-users small"></i>&nbsp;managers:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=273043" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=256237" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #003399"></i>&nbsp;&nbsp;<a href="club.php?clu_code=CEM" class="hoverlink LargeText">CHICAGO EMPIRE</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;OAK BROOK</span></span></div><div class="col-sm-5 text-right"><i class="fas fa-link small"></i>&nbsp;<a href="http://www.chicagoempirefc.com" target="_blank" class="hoverlink">www.chicagoempirefc.com</a></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=252019" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #000033"></i>&nbsp;&nbsp;<a href="club.php?clu_code=CFY" class="hoverlink LargeText">CHICAGO FIRE YOUTH SC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;CHICAGO</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=207611" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #003399"></i>&nbsp;&nbsp;<a href="club.php?clu_code=CHF" class="hoverlink LargeText">CHICAGO FUTBOL ALLIANCE</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;EVANSTON / MUNSTER, IN</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-users small"></i>&nbsp;managers:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=280117" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=244778" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=303086" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=203630" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=298245" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #003399"></i>&nbsp;&nbsp;<a href="club.php?clu_code=CNF" class="hoverlink LargeText">CHICAGO INFERNO</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;CRYSTAL LAKE</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=241928" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #0000CC"></i>&nbsp;&nbsp;<a href="club.php?clu_code=CNT" class="hoverlink LargeText">CHICAGO INTER SOCCER CLUB</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;HOMER GLEN, IL</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-users small"></i>&nbsp;managers:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=281182" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=252107" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=252624" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #305BA4"></i>&nbsp;&nbsp;<a href="club.php?clu_code=CKS" class="hoverlink LargeText">CHICAGO KICS FC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;CHICAGO</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=268204" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #0000CC"></i>&nbsp;&nbsp;<a href="club.php?clu_code=CKN" class="hoverlink LargeText">CHICAGO KNIGHTS FC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;CHICAGO</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=177543" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #000066"></i>&nbsp;&nbsp;<a href="club.php?clu_code=CMS" class="hoverlink LargeText">CHICAGO MAGIC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;HIGHLAND PARK</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=177512" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #000000"></i>&nbsp;&nbsp;<a href="club.php?clu_code=CPX" class="hoverlink LargeText">CHICAGO PHOENIX FC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;DES PLAINES</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=281036" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #003399"></i>&nbsp;&nbsp;<a href="club.php?clu_code=CCU" class="hoverlink LargeText">CHICAGO PRO SOCCER ACADEMY</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;WORTH</span></span></div><div class="col-sm-5 text-right"><i class="fas fa-link small"></i>&nbsp;<a href="https://www.facebook.com/Chicagounitedsocceracademy/" target="_blank" class="hoverlink">https://www.facebook.com/Chicagounitedsocceracademy/</a></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=297870" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #003399"></i>&nbsp;&nbsp;<a href="club.php?clu_code=CHR" class="hoverlink LargeText">CHICAGO RUSH</a>
+</div><div class="col-sm-3"><span class=small></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-users small"></i>&nbsp;managers:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=236071" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=177377" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #0000CC"></i>&nbsp;&nbsp;<a href="club.php?clu_code=CSA" class="hoverlink LargeText">CHICAGO SOCCER ACADEMY</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;GENEVA</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=269919" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #0099FF"></i>&nbsp;&nbsp;<a href="club.php?clu_code=CHS" class="hoverlink LargeText">CHICAGO STRIKERS</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;NAPERVILLE</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=285393" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #FFD700"></i>&nbsp;&nbsp;<a href="club.php?clu_code=CST" class="hoverlink LargeText">CRESTWOOD SOCCER CLUB</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;CRESTWOOD</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-users small"></i>&nbsp;managers:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=213204" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=237340" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #6F127F"></i>&nbsp;&nbsp;<a href="club.php?clu_code=CRS" class="hoverlink LargeText">CROSSFIRE SC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;WOODSTOCK</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-users small"></i>&nbsp;managers:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=289098" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=277297" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #00733c"></i>&nbsp;&nbsp;<a href="club.php?clu_code=DKL" class="hoverlink LargeText">DEKALB COUNTY UNITED ACADEMY</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;DEKALB / SYCAMORE</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=326644" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #003399"></i>&nbsp;&nbsp;<a href="club.php?clu_code=DPT" class="hoverlink LargeText">DEPORTIVO JUNIORS</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;CHICAGO</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=217948" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #003399"></i>&nbsp;&nbsp;<a href="club.php?clu_code=DPS" class="hoverlink LargeText">DPSAL</a>
+</div><div class="col-sm-3"><span class=small></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=323287" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #04C4D9"></i>&nbsp;&nbsp;<a href="club.php?clu_code=ECL" class="hoverlink LargeText">ECLIPSE SELECT SOCCER CLUB</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;NAPERVILLE</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=285211" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #708090"></i>&nbsp;&nbsp;<a href="club.php?clu_code=ELA" class="hoverlink LargeText">ELA SOCCER CLUB</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;LAKE ZURICH</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-users small"></i>&nbsp;managers:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=177561" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=279980" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #000000"></i>&nbsp;&nbsp;<a href="club.php?clu_code=ESC" class="hoverlink LargeText">ELITE S.C.</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;ARLINGTON HEIGHTS</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-users small"></i>&nbsp;managers:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=258878" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=262223" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=262223" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #000066"></i>&nbsp;&nbsp;<a href="club.php?clu_code=ELT" class="hoverlink LargeText">ELITE STRIKERS</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;WINNETKA / GLENVIEW</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-users small"></i>&nbsp;managers:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=223085" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=238867" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #008000"></i>&nbsp;&nbsp;<a href="club.php?clu_code=ELK" class="hoverlink LargeText">ELK GROVE SOCCER CLUB</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;ELK GROVE VILLAGE</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=221040" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #006633"></i>&nbsp;&nbsp;<a href="club.php?clu_code=EVR" class="hoverlink LargeText">EVERGREEN UNITED FC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;EVERGREEN PARK</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-users small"></i>&nbsp;managers:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=258423" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=262186" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #000000"></i>&nbsp;&nbsp;<a href="club.php?clu_code=EVL" class="hoverlink LargeText">EVOLUTION SC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;NAPERVILLE / HINSDALE</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-users small"></i>&nbsp;managers:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=326528" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=331709" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=325861" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=326788" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #FF0000"></i>&nbsp;&nbsp;<a href="club.php?clu_code=FCX" class="hoverlink LargeText">FC BARRINGTON</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;BARRINGTON</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=177662" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #28406C"></i>&nbsp;&nbsp;<a href="club.php?clu_code=FCL" class="hoverlink LargeText">FC LAKE COUNTY</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;LAKE COUNTY (GURNEE / GRAYSLAKE)</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-users small"></i>&nbsp;managers:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=300649" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=177412" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #FF0033"></i>&nbsp;&nbsp;<a href="club.php?clu_code=MRG" class="hoverlink LargeText">FC MIRAGE</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;NORTHBROOK</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-users small"></i>&nbsp;managers:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=177390" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=297763" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=297831" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #0000CC"></i>&nbsp;&nbsp;<a href="club.php?clu_code=FCH" class="hoverlink LargeText">FC STARS</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;PARK RIDGE</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-users small"></i>&nbsp;managers:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=239775" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=232928" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=293647" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=273805" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=232541" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=293647" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #0000CC"></i>&nbsp;&nbsp;<a href="club.php?clu_code=FC1" class="hoverlink LargeText">FC-1 ACADEMY</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;GLENVIEW</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-users small"></i>&nbsp;managers:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=280347" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=223758" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #000000"></i>&nbsp;&nbsp;<a href="club.php?clu_code=FRB" class="hoverlink LargeText">FIREBIRDS SC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;LOMBARD</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-users small"></i>&nbsp;managers:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=297248" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=222768" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #0066CC"></i>&nbsp;&nbsp;<a href="club.php?clu_code=FRC" class="hoverlink LargeText">FORCE FC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;CRYSTAL LAKE</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-users small"></i>&nbsp;managers:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=262124" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=288002" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #CC0000"></i>&nbsp;&nbsp;<a href="club.php?clu_code=FRG" class="hoverlink LargeText">FORGE SOCCER CLUB</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;ST. CHARLES</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-users small"></i>&nbsp;managers:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=292887" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=292887" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #FF0000"></i>&nbsp;&nbsp;<a href="club.php?clu_code=FXV" class="hoverlink LargeText">FOX VALLEY BAYERN</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;SLEEPY HOLLOW / DUNDEE / CRYSTAL LAKE</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-users small"></i>&nbsp;managers:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=177457" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=241855" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #003399"></i>&nbsp;&nbsp;<a href="club.php?clu_code=GLX" class="hoverlink LargeText">GALAXY SOCCER CLUB</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;NAPERVILLE</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=236098" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #336633"></i>&nbsp;&nbsp;<a href="club.php?clu_code=GLL" class="hoverlink LargeText">GLEN ELLYN LAKERS</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;GLEN ELLYN</span></span></div><div class="col-sm-5 text-right"><i class="fas fa-link small"></i>&nbsp;<a href="https://lakersfc.com/" target="_blank" class="hoverlink">https://lakersfc.com/</a></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=279725" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #0000FF"></i>&nbsp;&nbsp;<a href="club.php?clu_code=GLD" class="hoverlink LargeText">GOLDEN EAGLES SOCCER CLUB</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;CHICAGO</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=223328" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #0099FF"></i>&nbsp;&nbsp;<a href="club.php?clu_code=GRS" class="hoverlink LargeText">GOROS FC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;GLENDALE HEIGHTS</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=284938" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #003399"></i>&nbsp;&nbsp;<a href="club.php?clu_code=GDL" class="hoverlink LargeText">GUADALUPE FC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;CHICAGO</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=258687" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #000000"></i>&nbsp;&nbsp;<a href="club.php?clu_code=HRD" class="hoverlink LargeText">HARVARD FC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;ROCKFORD</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=239166" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #000000"></i>&nbsp;&nbsp;<a href="club.php?clu_code=HTH" class="hoverlink LargeText">HAWTHORN WOODS ELITE SOCCER CLUB</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;HAWTHORN WOODS</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=273092" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #003399"></i>&nbsp;&nbsp;<a href="club.php?clu_code=HTC" class="hoverlink LargeText">HOTC ELITE</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;WAUKEGAN</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=244511" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #CC0000"></i>&nbsp;&nbsp;<a href="club.php?clu_code=HSS" class="hoverlink LargeText">HUSSARS UNITED</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;DES PLAINES</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=273777" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #003399"></i>&nbsp;&nbsp;<a href="club.php?clu_code=ILM" class="hoverlink LargeText">ILLINOIS MAGIC FC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;BRIDGEVIEW</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=297866" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #000000"></i>&nbsp;&nbsp;<a href="club.php?clu_code=ILP" class="hoverlink LargeText">ILLINOIS PREMIER ALLIANCE</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;ARLINGTON HEIGHTS</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-users small"></i>&nbsp;managers:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=262715" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=239919" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=262715" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=236811" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #000000"></i>&nbsp;&nbsp;<a href="club.php?clu_code=IPR" class="hoverlink LargeText">IPROSKILLS ACADEMY</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;CHICAGO</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=234210" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #003399"></i>&nbsp;&nbsp;<a href="club.php?clu_code=JOM" class="hoverlink LargeText">JOM SOCCER CLUB NFP</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;CHICAGO</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=251940" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #000000"></i>&nbsp;&nbsp;<a href="club.php?clu_code=KNL" class="hoverlink LargeText">KANELAND UNITED SOCCER CLUB</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;ELBURN</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=285825" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #B5C400"></i>&nbsp;&nbsp;<a href="club.php?clu_code=KRF" class="hoverlink LargeText">KORA FC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;ORLAND PARK</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=291599" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #003399"></i>&nbsp;&nbsp;<a href="club.php?clu_code=LMS" class="hoverlink LargeText">LAMASSU SC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;SKOKIE</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-users small"></i>&nbsp;managers:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=285821" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=288071" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #003399"></i>&nbsp;&nbsp;<a href="club.php?clu_code=LNC" class="hoverlink LargeText">LANCER SC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;ROSELLE</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=252590" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #0000FF"></i>&nbsp;&nbsp;<a href="club.php?clu_code=LEG" class="hoverlink LargeText">LEGACY SC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;NEW LENOX</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=326616" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #003399"></i>&nbsp;&nbsp;<a href="club.php?clu_code=LEO" class="hoverlink LargeText">LEO SOCCER SCHOOL</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;WHEELING</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=285215" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #009933"></i>&nbsp;&nbsp;<a href="club.php?clu_code=LGC" class="hoverlink LargeText">LG CELTICS</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;LA GRANGE</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=273533" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #000000"></i>&nbsp;&nbsp;<a href="club.php?clu_code=LBR" class="hoverlink LargeText">LIBERTYVILLE FC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;LIBERTYVILLE</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=293381" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #003399"></i>&nbsp;&nbsp;<a href="club.php?clu_code=LND" class="hoverlink LargeText">LINDENHURST ASC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;LINDENHURST</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=222030" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #FFFFFF"></i>&nbsp;&nbsp;<a href="club.php?clu_code=LFC" class="hoverlink LargeText">LISLE FC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;LISLE</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=300018" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #009933"></i>&nbsp;&nbsp;<a href="club.php?clu_code=LIT" class="hoverlink LargeText">LITHS SOCCER CLUB</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;LEMONT</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=297508" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #003399"></i>&nbsp;&nbsp;<a href="club.php?clu_code=LTS" class="hoverlink LargeText">LYONS TOWNSHIP SOCCER CLUB</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;MCCOOK</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-users small"></i>&nbsp;managers:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=275701" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=327452" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #006600"></i>&nbsp;&nbsp;<a href="club.php?clu_code=MGF" class="hoverlink LargeText">MIDWEST GLADIATORS FC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;MIDLOTHIAN</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=293373" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #87ceeb"></i>&nbsp;&nbsp;<a href="club.php?clu_code=MLL" class="hoverlink LargeText">MILLENNIUM SA</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;CROWN POINT, INDIANA</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=292884" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #009933"></i>&nbsp;&nbsp;<a href="club.php?clu_code=MTG" class="hoverlink LargeText">MT GREENWOOD KNIGHTS SC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;CHICAGO</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=244812" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #003399"></i>&nbsp;&nbsp;<a href="club.php?clu_code=MST" class="hoverlink LargeText">MUSTANGS UNITED FC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;EVERGREEN PARK</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=258121" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #0000FF"></i>&nbsp;&nbsp;<a href="club.php?clu_code=NPR" class="hoverlink LargeText">NAPERVILLE EAGLES SOCCER CLUB</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;NAPERVILLE</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=178136" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #000066"></i>&nbsp;&nbsp;<a href="club.php?clu_code=NZR" class="hoverlink LargeText">NAZ UNITED FC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;LEMONT</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=282920" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #003399"></i>&nbsp;&nbsp;<a href="club.php?clu_code=NRR" class="hoverlink LargeText">NORRIDGE UNITED</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;NORRIDGE</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=291169" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #6600CC"></i>&nbsp;&nbsp;<a href="club.php?clu_code=NAR" class="hoverlink LargeText">NORTH AURORA FOOTBALL CLUB</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;NORTH AURORA</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=229570" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #000000"></i>&nbsp;&nbsp;<a href="club.php?clu_code=NRT" class="hoverlink LargeText">NORTH SHORE FC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;LAKE FOREST</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=234611" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #FFCCFF"></i>&nbsp;&nbsp;<a href="club.php?clu_code=NTA" class="hoverlink LargeText">NORTHERN ALLIANCE</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;WAUKEGAN</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-users small"></i>&nbsp;managers:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=177515" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=236106" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=177515" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=236106" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #FFCC00"></i>&nbsp;&nbsp;<a href="club.php?clu_code=NCA" class="hoverlink LargeText">NORTHSIDE CHICAGO AYSO</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;CHICAGO</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=285179" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #006699"></i>&nbsp;&nbsp;<a href="club.php?clu_code=NWN" class="hoverlink LargeText">NORTHWIND SOCCER CLUB</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;CHICAGO, IL</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-users small"></i>&nbsp;managers:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=215722" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=215722" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #000000"></i>&nbsp;&nbsp;<a href="club.php?clu_code=NWI" class="hoverlink LargeText">NWI LIONS UNITED</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;CHESTERTON, PORTAGE, AND CROWN POINT IN</span></span></div><div class="col-sm-5 text-right"><i class="fas fa-link small"></i>&nbsp;<a href="https://www.nwilionsunitedfc.com" target="_blank" class="hoverlink">https://www.nwilionsunitedfc.com</a></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-users small"></i>&nbsp;managers:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=269005" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=269006" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #003399"></i>&nbsp;&nbsp;<a href="club.php?clu_code=OLY" class="hoverlink LargeText">OLYMPIACOS CHICAGO</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;NILES</span></span></div><div class="col-sm-5 text-right"><i class="fas fa-link small"></i>&nbsp;<a href="https://olympiacoschicago.com/" target="_blank" class="hoverlink">https://olympiacoschicago.com/</a></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=303875" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #000000"></i>&nbsp;&nbsp;<a href="club.php?clu_code=OPR" class="hoverlink LargeText">OPRF ALLIANCE</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;OAK PARK / RIVER FOREST</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=212642" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #008000"></i>&nbsp;&nbsp;<a href="club.php?clu_code=PLT" class="hoverlink LargeText">PALATINE CELTIC SC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;PALATINE</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=241456" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #F37A21"></i>&nbsp;&nbsp;<a href="club.php?clu_code=PRK" class="hoverlink LargeText">PARK RIDGE SOCCER CLUB</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;PARK RIDGE</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=293593" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #ED1B24"></i>&nbsp;&nbsp;<a href="club.php?clu_code=PGS" class="hoverlink LargeText">PEGASUS FC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;DEERFIELD</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=330995" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #003399"></i>&nbsp;&nbsp;<a href="club.php?clu_code=RFC" class="hoverlink LargeText">RAIDERS FC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;CHICAGO</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=327485" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #9370D8"></i>&nbsp;&nbsp;<a href="club.php?clu_code=RNG" class="hoverlink LargeText">RANGERS SOCCER ACADEMY</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;WORTH</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=282786" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #003300"></i>&nbsp;&nbsp;<a href="club.php?clu_code=RBC" class="hoverlink LargeText">RBFC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;RIVERSIDE</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=239386" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #003399"></i>&nbsp;&nbsp;<a href="club.php?clu_code=RMR" class="hoverlink LargeText">REAL MADRID ROUND LAKE FC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;ROUND LAKE</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=280803" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #000099"></i>&nbsp;&nbsp;<a href="club.php?clu_code=RIZ" class="hoverlink LargeText">RIIIZE FC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;ROCKFORD</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=326988" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #696969"></i>&nbsp;&nbsp;<a href="club.php?clu_code=RDR" class="hoverlink LargeText">ROADRUNNERS SC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;DOWNERS GROVE / WOODRIDGE</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-users small"></i>&nbsp;managers:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=281041" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=263660" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #FF0000"></i>&nbsp;&nbsp;<a href="club.php?clu_code=RCD" class="hoverlink LargeText">ROCKFORD ELITE FC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;ROCKFORD</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=274972" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #0033FF"></i>&nbsp;&nbsp;<a href="club.php?clu_code=RCK" class="hoverlink LargeText">ROCKFORD OLYMPIC FC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;ROCKFORD</span></span></div><div class="col-sm-5 text-right"><i class="fas fa-link small"></i>&nbsp;<a href="http://rockfordolympicfc.demosphere-secure.com/" target="_blank" class="hoverlink">rockfordolympicfc.demosphere-secure.com/</a></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=276087" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #003399"></i>&nbsp;&nbsp;<a href="club.php?clu_code=RPT" class="hoverlink LargeText">ROCKFORD RAPTORS</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;LOVES PARK</span></span></div><div class="col-sm-5 text-right"><i class="fas fa-link small"></i>&nbsp;<a href="https://www.rockfordraptors.org" target="_blank" class="hoverlink">https://www.rockfordraptors.org</a></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-users small"></i>&nbsp;managers:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=273164" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=220972" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #006633"></i>&nbsp;&nbsp;<a href="club.php?clu_code=RLS" class="hoverlink LargeText">ROSCOE LIONS SOCCER CLUB</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;ROSCOE</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=297570" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #000000"></i>&nbsp;&nbsp;<a href="club.php?clu_code=SAA" class="hoverlink LargeText">SAA UNITED SC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;SCHAUMBURG</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=285111" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #003399"></i>&nbsp;&nbsp;<a href="club.php?clu_code=SPS" class="hoverlink LargeText">SCHILLER PARK STALLIONS SC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;SCHILLER PARK</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=327015" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #FF0000"></i>&nbsp;&nbsp;<a href="club.php?clu_code=SCS" class="hoverlink LargeText">SCOUTS FC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;MUNDELEIN</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=269426" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #009900"></i>&nbsp;&nbsp;<a href="club.php?clu_code=SPF" class="hoverlink LargeText">SHADOW PREMIER FC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;BELVIDERE</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=199737" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #006600"></i>&nbsp;&nbsp;<a href="club.php?clu_code=SPR" class="hoverlink LargeText">SPARTAN FC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;NORTHBROOK</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=177513" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #0033CC"></i>&nbsp;&nbsp;<a href="club.php?clu_code=SPD" class="hoverlink LargeText">SPIDERS FC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;OSWEGO</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=248551" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #003399"></i>&nbsp;&nbsp;<a href="club.php?clu_code=STN" class="hoverlink LargeText">STING FC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;ORLAND PARK</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=227433" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #000033"></i>&nbsp;&nbsp;<a href="club.php?clu_code=SUF" class="hoverlink LargeText">SUFC FALCONS</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;CARPENTERSVILLE</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-users small"></i>&nbsp;managers:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=298631" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=274986" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #0000CC"></i>&nbsp;&nbsp;<a href="club.php?clu_code=TBD" class="hoverlink LargeText">TBD</a>
+</div><div class="col-sm-3"><span class=small></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=199662" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #003399"></i>&nbsp;&nbsp;<a href="club.php?clu_code=TMC" class="hoverlink LargeText">TEAM CHICAGO</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;NAPERVILLE / AURORA</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=264356" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #077F23"></i>&nbsp;&nbsp;<a href="club.php?clu_code=TME" class="hoverlink LargeText">TEAM ELMHURST</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;ELMHURST</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-users small"></i>&nbsp;managers:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=177578" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=231502" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #003399"></i>&nbsp;&nbsp;<a href="club.php?clu_code=TST" class="hoverlink LargeText">TEST CLUB</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;NONE</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=300942" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #000000"></i>&nbsp;&nbsp;<a href="club.php?clu_code=TGR" class="hoverlink LargeText">TIGRES NWS</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;ADDISON / BENSENVILLE</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=227874" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #000000"></i>&nbsp;&nbsp;<a href="club.php?clu_code=TNL" class="hoverlink LargeText">TINLEY PARK BOBCATS</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;TINLEY PARK</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=259251" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #3366CC"></i>&nbsp;&nbsp;<a href="club.php?clu_code=TRV" class="hoverlink LargeText">TREVIAN SC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;GLENVIEW</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=244652" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #003399"></i>&nbsp;&nbsp;<a href="club.php?clu_code=TCS" class="hoverlink LargeText">TRI-CITIES SOCCER ASSOCIATION</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;ST. CHARLES</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=276795" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #003399"></i>&nbsp;&nbsp;<a href="club.php?clu_code=UNF" class="hoverlink LargeText">UNION FC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;CARPENTERSVILLE</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=258786" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #000000"></i>&nbsp;&nbsp;<a href="club.php?clu_code=UNT" class="hoverlink LargeText">UNITED ELITE SOCCER CLUB</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;PLAINFIELD, ORLAND PARK, BOURBONNAIS,  FRANKFORT, NAPERVILLE, EVANSTON, WAUKEGAN</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-users small"></i>&nbsp;managers:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=177591" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=266741" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=177555" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=282171" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=248864" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=217424" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=252606" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=177591" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=238861" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=266741" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=284542" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=326594" class="hoverlink">COACH NAME</a>,&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=177555" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #FFFFFF"></i>&nbsp;&nbsp;<a href="club.php?clu_code=VLN" class="hoverlink LargeText">VALENCIA CF ACADEMY CHICAGO</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;DES PLAINES, NORRIDGE, SCHAUMBURG</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=231201" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #Royal"></i>&nbsp;&nbsp;<a href="club.php?clu_code=WCU" class="hoverlink LargeText">WC LIONS ACADEMY</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;WEST CHICAGO</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=203034" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #000066"></i>&nbsp;&nbsp;<a href="club.php?clu_code=WCF" class="hoverlink LargeText">WEST CHICAGO FC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;WEST CHICAGO</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=219316" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #99FF00"></i>&nbsp;&nbsp;<a href="club.php?clu_code=WSL" class="hoverlink LargeText">WEST LAWN SOCCER CLUB</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;CHICAGO</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=268977" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #000066"></i>&nbsp;&nbsp;<a href="club.php?clu_code=WHT" class="hoverlink LargeText">WHEATON UNITED SOCCER CLUB</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;WHEATON</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=244085" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #0000FF"></i>&nbsp;&nbsp;<a href="club.php?clu_code=WNY" class="hoverlink LargeText">WINDY CITY FC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;MT. PROSPECT</span></span></div><div class="col-sm-5 text-right"><i class="fas fa-link small"></i>&nbsp;<a href="http://www.windycityfc.net" target="_blank" class="hoverlink">www.windycityfc.net</a></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=248761" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #003399"></i>&nbsp;&nbsp;<a href="club.php?clu_code=WCP" class="hoverlink LargeText">WINDY CITY PRIDE</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;FRANKFORT</span></span></div><div class="col-sm-5 text-right"><i class="fas fa-link small"></i>&nbsp;<a href="http://www.windycitypride.com" target="_blank" class="hoverlink">www.windycitypride.com</a></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=177400" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #FFCC00"></i>&nbsp;&nbsp;<a href="club.php?clu_code=WZD" class="hoverlink LargeText">WIZARD CADENCE OB FC</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;HINSDALE</span></span></div><div class="col-sm-5 text-right"><i class="fas fa-link small"></i>&nbsp;<a href="http://www.wcobsoccer.com" target="_blank" class="hoverlink">www.wcobsoccer.com</a></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=231196" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #0000CC"></i>&nbsp;&nbsp;<a href="club.php?clu_code=YWP" class="hoverlink LargeText">YOUNG WOLVES POLISH SOCCER SCHOOL</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;LEMONT</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=298602" class="hoverlink">COACH NAME</a></div"></div></div></div><div class="well well-xs">
+                <div class="row">
+            <div class="col-sm-4"><i class="fas fa-flag small" style="color: #003399"></i>&nbsp;&nbsp;<a href="club.php?clu_code=YTH" class="hoverlink LargeText">YOUTH SOCCER INTERNATIONAL</a>
+</div><div class="col-sm-3"><span class=small><span class=SmallText><i class="fas fa-city small"></i>&nbsp;CHICAGO</span></span></div><div class="col-sm-5 text-right"></div></div><div class="row"><div class="col-sm-12 small text-right"><span class=SmallText><i class="fas fa-user small"></i>&nbsp;manager:</span>&nbsp;<a href="coachform.php?backpage=clublinks.php&coa_id=230851" class="hoverlink">COACH NAME</a></div"></div></div></div>		</table> <!-- end getTableStart table -->
+                </div> <!-- end panel-body -->
+            </div> <!-- end panel -->
+        </div></div><!-- table end -->
+
+
+</span></form>
+
+<!-- **** START subpage_footer **** -->
+        </div>
+    </div>
+</div>
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+
+<script language="JavaScript" type="text/javascript">
+	function toggle_boolean(name)
+	{
+		var v = document.getElementById(name);
+		var yes = document.getElementById(name+"_yes");
+		var no = document.getElementById(name+"_no");
+		var val = parseInt(v.value);
+		var yn = "yes";
+		if(val > 0)
+		{
+			v.value="-1";
+			yes.style.display="none";
+			no.style.display="inline";
+			yn = "no";
+		}
+		else
+		{
+			v.value="1";
+			yes.style.display="inline";
+			no.style.display="none";
+			yn = "yes";
+		}
+		if (typeof toggle_boolean_handler === "function") {
+			toggle_boolean_handler(name, yn);
+		}
+	}
+
+	function set_boolean(name, val)
+	{
+		var v = document.getElementById(name);
+		var yes = document.getElementById(name+"_yes");
+		var no = document.getElementById(name+"_no");
+
+		if(val == "-1")
+		{
+			if(v != null)
+				v.value="-1";
+			if(yes != null)
+				yes.style.display="none";
+			if(no != null)
+				no.style.display="inline";
+		}
+		else
+		{
+			if(v != null)
+				v.value="1";
+			if(yes != null)
+				yes.style.display="inline";
+			if(v != null)
+				no.style.display="none";
+		}
+
+	}
+</script>
+<footer class="container-fluid footer">
+<div class="row">
+    <div class="col-sm-4 small">
+      &copy; 2026 Young Sportsmen's Soccer League    </div>
+    <div class="col-sm-4 small">
+      Wed Oct 07, 2026 2:08pm &nbsp;&nbsp;[cache]    </div>
+	<div class="col-sm-4 small text-right">
+      website by <a href="http://www.pientkadesign.com" target="_blank" class="footerlink">Pientka Design LLC</a>
+    </div>
+</div>
+</footer>
+
+<script type="text/javascript">
+	function newButtonClassFunction() {
+		console.log("newButtonClassFunction() updating button classes...");
+		var c = ["butlink", "smbutlink", "lgbutlink"];
+		var a = ["", "b", "g","p", "r","o"];
+		var b = ["grey", "primary", "success", "p", "r","o"];
+
+		var x;
+		var i;
+		var len;
+		var cn="";
+		var k = 0;
+		var j = 0;
+        var cnt=0;
+		var alen = a.length;
+		for(k=0; k<c.length; k++)
+		{
+			for(j=0; j<alen; j++)
+			{
+				cn=c[k]+a[j];
+				x = document.getElementsByClassName(cn);
+				//console.log("  got "+x.length+" "+cn+" elements");
+				len = x.length;
+				for (i = 0; i < len; i++) {
+				  //console.log("   "+i+") got "+cn+" element: "+x[0].innerHTML);
+                  cnt++
+				  if(k==2)
+				  	x[0].className = "btn btn-"+b[j]+" btn-xs";
+				  else
+				  	x[0].className = "btn btn-"+b[j]+" btn-xxs";
+				}
+			}
+		}
+        console.log("newButtonClassFunction() updated "+cnt+" button classes");
+	}
+	setTimeout('newButtonClassFunction()', 200);
+</script>
+<div id="alertModal" class="modal fade" role="dialog">
+  <div class="modal-dialog">
+    <div class="modal-content">
+	
+      <div id="alertBody" class="modal-body">
+	  
+	<div class="row" style="margin-bottom: 5px">
+	<div class="col-sm-10">
+	<div id="alertModalMsg"></div>
+	</div><div class="col-sm-2 text-right">
+	<button onclick="myAlertOK(); return false" class="btn btn-primary">&nbsp;&nbsp;OK&nbsp;&nbsp;</button>
+	</div></div>
+	
+      </div>
+    </div>
+  </div>
+</div>
+	
+<div id="confirmModal" class="modal fade" role="dialog">
+  <div class="modal-dialog">
+    <div class="modal-content">
+	
+      <div id="confirmBody" class="modal-body">
+	  
+	<div class="row" style="margin-bottom: 5px">
+	<div class="col-sm-10">
+	<div id="confirmModalMsg"></div>
+	</div></div>
+	<div class="row">
+	<div class="col-sm-12 text-right">
+	<button onclick="modalConfirmYN('no'); return false" class="btn btn-danger">no</button>&nbsp;&nbsp;
+	<button onclick="modalConfirmYN('yes'); return false" class="btn btn-success">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;YES&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</button>
+	</div></div>
+	
+      </div>
+    </div>
+  </div>
+</div>
+	<script language="JavaScript" type="text/javascript">
+
+var modalAlertUrl;
+
+function showModal(id)
+{
+	$("#"+id+"Modal").modal("show");
+}
+
+function hideModal(id)
+{
+	$("#"+id+"Modal").modal("hide");
+}
+
+function myAlert(msg)
+{
+	modalAlertUrl = null;
+	var d = document.getElementById('alertModalMsg');
+	if(d != null)
+	{
+		d.innerHTML = '<i class="fas fa-exclamation-triangle small"></i> '+msg;
+		$('#alertModal').modal('show');
+	}
+}
+
+function myAlertHref(atag, msg)
+{
+	modalAlertUrl = atag.href;
+	var d = document.getElementById('alertModalMsg');
+	if(d != null)
+	{
+		d.innerHTML = '<i class="fas fa-exclamation-triangle small"></i> '+msg;
+		$('#alertModal').modal('show');
+	}
+}
+
+function myAlertUrl(url, msg)
+{
+	modalAlertUrl = url;
+	var d = document.getElementById('alertModalMsg');
+	if(d != null)
+	{
+		d.innerHTML = '<i class="fas fa-exclamation-triangle small"></i> '+msg;
+		$('#alertModal').modal('show');
+	}
+}
+
+function myAlert(msg)
+{
+	var d = document.getElementById('alertModalMsg');
+	if(d != null)
+	{
+		d.innerHTML = msg;
+		$('#alertModal').modal('show');
+	}
+	return false;
+}
+
+function myAlertTimeout(msg, to)
+{
+	var d = document.getElementById('alertModalMsg');
+	if(d != null)
+	{
+		d.innerHTML = msg;
+		$('#alertModal').modal('show');
+
+		setTimeout('myAlertTimeoutClose()', to);
+	}
+	return false;
+}
+
+function myAlertTimeoutClose()
+{
+	$('#alertModal').modal('hide');
+}
+
+function myAlertFunc(funcname, msg)
+{
+	modalAlertUrl = "func:"+funcname;
+	var d = document.getElementById('alertModalMsg');
+	if(d != null)
+	{
+		d.innerHTML = '<i class="fas fa-exclamation-triangle small"></i> '+msg;
+		$('#alertModal').modal('show');
+	}
+	return false;
+}
+
+function myAlertOK()
+{
+	$('#alertModal').modal('hide');
+
+	if(modalAlertUrl != null)
+	{
+		console.log('myAlertOK() modalAlertUrl='+modalAlertUrl);
+		if(modalAlertUrl.substr(0, 5) == "func:")
+		{
+						var fnName = modalAlertUrl.substr(5);
+			window[fnName]();
+		}
+		else
+		{
+						window.location = modalAlertUrl;
+		}
+	}
+	else {
+		console.log('myAlertOK() modalAlertUrl is null');
+	}
+}
+
+var modalConfirmUrl;
+var modalConfirmVal;
+
+function myConfirm(atag, msg)
+{
+	modalConfirmUrl = null;
+	modalConfirmVal = null;
+	var d = document.getElementById('confirmModalMsg');
+	if(d != null)
+	{
+				if(atag != null)
+		{
+        	modalConfirmUrl = atag.href;
+			console.log('myConfirm() modalConfirmUrl='+modalConfirmUrl)
+			d.innerHTML = msg;
+			$('#confirmModal').modal('show');
+		}
+		else
+		{
+						console.log('myConfirm() atag is null - returning true');
+			return true;
+		}
+   	}
+	else
+	{
+		console.log('myConfirm() no element id='+confirmModalMsg);
+	}
+	return false;
+}
+
+function myConfirmCallback(funcname, msg)
+{
+	modalConfirmUrl = null;
+	modalConfirmVal = null;
+	var d = document.getElementById('confirmModalMsg');
+	if(d != null)
+	{
+		modalConfirmUrl = "func:"+funcname;
+		d.innerHTML = msg;
+		$('#confirmModal').modal('show');
+   	}
+
+	return false;
+}
+
+function myConfirmCallbackVal(funcname, val, msg)
+{
+	modalConfirmUrl = null;
+	modalConfirmVal = null;
+	var d = document.getElementById('confirmModalMsg');
+	if(d != null)
+	{
+		modalConfirmUrl = "func:"+funcname;
+		modalConfirmVal=val;
+		d.innerHTML = msg;
+		$('#confirmModal').modal('show');
+		}
+
+	return false;
+}
+
+function myConfirmForm(formid, msg)
+{
+	modalConfirmUrl = null;
+	modalConfirmVal = null;
+	var d = document.getElementById('confirmModalMsg');
+	if(d != null)
+	{
+		console.log("myConfirmForm() formid="+formid);
+				var form = document.getElementById(formid);
+		if(form.submit instanceof Function)
+		{
+			modalConfirmUrl = "form:"+formid;
+			d.innerHTML = msg;
+			$('#confirmModal').modal('show');
+		}
+		else
+		{
+						console.log('myConfirmForm() form.submit not a function, submit input name is likely "submit" (e.g. name="submit") - returning true');
+			return true;
+		}
+   	}
+
+	return false;
+}
+
+function modalConfirmYN(yn)
+{
+	$('#confirmModal').modal('hide');
+	if(modalConfirmUrl != null)
+	{
+		if(modalConfirmUrl.substr(0, 5) == "func:")
+		{
+						var fnName = modalConfirmUrl.substr(5);
+			if(modalConfirmVal == null)
+			{
+				window[fnName](yn);
+			}
+			else
+			{
+				window[fnName](yn, modalConfirmVal)
+			}
+		}
+		else if(modalConfirmUrl.substr(0, 5) == "form:")
+		{
+						var formid = modalConfirmUrl.substr(5);
+			var form = document.getElementById(formid);
+			if(form != null)
+			{
+				if(yn == 'yes')
+					form.submit();
+			}
+			else
+			{
+								console.log('myConfirmForm() form '+formid+' is null - returning true');
+				return true;
+			}
+		}
+		else if(yn == 'yes')
+		{
+						window.location = modalConfirmUrl;
+		}
+	}
+}
+
+</script>
+
+</body>
+</html>
+<!-- **** END subpage_footer **** -->

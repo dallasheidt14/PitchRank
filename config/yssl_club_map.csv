@@ -1,0 +1,139 @@
+yssl_code,yssl_name,team_prefix,pitchrank_club_name,state_code,decided_by,note
+AAC,AAC EAGLES CHICAGO,,AAC Eagles,IL,agent-name-match,
+ACD,ACADEMIA DE FUTBOL ATLAS FC CHICAGO,,Academia de Futbol Atlas FC Chicago,IL,auto-exact,
+AJX,AJAX FC NAPERVILLE,,Ajax FC Naperville,IL,auto-exact,
+ARR,ARROYO FC,,Arroyo FC,IL,auto-exact,
+ASC,ACADEMIC SOCCER CLUB,,Academic Soccer Club,IL,auto-exact,
+ATE,AURORA EAGLES SC,,Aurora Eagles SC,IL,auto-exact,
+AYO,AYSO 300 UNITED,,AYSO 300 United,IL,auto-exact,
+BRB,BERBER CITY FC,,Berber City FC,IL,auto-exact,
+BRC,BARCA ACADEMY CHICAGO,,Barca Academy Chicago,IL,auto-exact,
+BRH,BARTLETT HAWKS FC,,Bartlett Hawks FC,IL,auto-exact,
+BRW,BERWYN BLAZERS FC,,Berwyn Blazers FC,IL,auto-exact,
+BVB,BVB INTERNATIONAL ACADEMY - IL,,BVB International Academy - Waterloo United,IN,owner,stored in PitchRank as Indiana
+CBL,CHICAGO BLACK LIONS,,Chicago Black Lions,IL,agent-new-club,no PitchRank club found
+CBS,CHICAGO BLAST SOCCER CLUB,,Chicago Blast,IL,auto-exact,
+CCU,CHICAGO PRO SOCCER ACADEMY,,Chicago Pro Soccer Academy,IL,agent-new-club,no PitchRank club found
+CED,CHICAGO EDGE SC,,Chicago Edge SC,IL,auto-exact,
+CEG,CHICAGO EAGLES,,Chicago Eagles,IL,auto-exact,
+CEM,CHICAGO EMPIRE,,Chicago Empire FC,IL,auto-exact,
+CFY,CHICAGO FIRE YOUTH SC,,Chicago Fire Youth SC,IL,auto-exact,
+CHF,CHICAGO FUTBOL ALLIANCE,,Chicago Futbol Alliance (CFA),IL,agent-name-match,
+CHR,CHICAGO RUSH,,Chicago Rush Soccer Club,IL,owner,every Rush branch except Wilmette Wings / North Shore (owner 2026-10-07)
+CHR,CHICAGO RUSH,RUSH - WILMETTE WINGS,Wilmette Wings SC,IL,owner,PitchRank files Wilmette Wings under its own club
+CHR,CHICAGO RUSH,RUSH NORTH SHORE,Wilmette Wings SC,IL,owner,PitchRank files Chicago Rush North Shore teams under Wilmette Wings SC
+CHS,CHICAGO STRIKERS,,Chicago Strikers,IL,auto-exact,
+CKN,CHICAGO KNIGHTS FC,,Chicago Knights SC,IL,auto-exact,
+CKS,CHICAGO KICS FC,,Chicago KICS Football Club,IL,agent-name-match,
+CLT,CHICAGO CELTIC SC,,Celtic FC Chicago,IL,owner,
+CMS,CHICAGO MAGIC,,Chicago Magic Soccer Club,IL,auto-exact,
+CNF,CHICAGO INFERNO,,Chicago Inferno,IL,auto-exact,
+CNT,CHICAGO INTER SOCCER CLUB,,Chicago Inter,IL,auto-exact,
+CPX,CHICAGO PHOENIX FC,,Chicago Phoenix,IL,auto-exact,
+CRD,CARY DEFENDERS,,Cary Defenders,IL,agent-new-club,no PitchRank club found
+CRS,CROSSFIRE SC,,Woodstock Crossfire Soccer Club,IL,owner,YSSL teams are all named WOODSTOCK CROSSFIRE SC
+CSA,CHICAGO SOCCER ACADEMY,,Chicago Soccer Academy (CSA),IL,agent-name-match,
+CSC,CHICAGO CITY SC,,Chicago City Soccer Club,IL,auto-exact,
+CST,CRESTWOOD SOCCER CLUB,,Crestwood Soccer Club,IL,agent-new-club,no PitchRank club found
+DKL,DEKALB COUNTY UNITED ACADEMY,,DeKalb County United Academy,IL,auto-exact,
+DPS,DPSAL,,DPSAL,IL,agent-new-club,no PitchRank club found
+DPT,DEPORTIVO JUNIORS,,Deportivo Juniors,IL,agent-new-club,no PitchRank club found
+ECL,ECLIPSE SELECT SOCCER CLUB,,Eclipse Select Soccer Club,IL,auto-exact,
+ELA,ELA SOCCER CLUB,,Ela Soccer Club,IL,auto-exact,
+ELK,ELK GROVE SOCCER CLUB,,ELK GROVE SOCCER CLUB,IL,auto-exact,
+ELT,ELITE STRIKERS,,Elite Strikers FC,IL,auto-exact,
+ESC,ELITE S.C.,,Elite SC,IL,agent-name-match,
+EVL,EVOLUTION SC,,Evolution SC,IL,auto-exact,
+EVR,EVERGREEN UNITED FC,,Evergreen United FC,IL,auto-exact,
+FC1,FC-1 ACADEMY,,FC-1 Academy,IL,auto-exact,
+FCH,FC STARS,,FC Stars (il),IL,agent-name-match,
+FCL,FC LAKE COUNTY,,FC Lake County,IL,auto-exact,
+FCX,FC BARRINGTON,,FC Barrington,IL,auto-exact,
+FRB,FIREBIRDS SC,,Firebirds SC,IL,auto-exact,
+FRC,FORCE FC,,Force Football Club,IL,agent-name-match,
+FRG,FORGE SOCCER CLUB,,Forge SC,IL,auto-exact,
+FXV,FOX VALLEY BAYERN,,Fox Valley Bayern,IL,auto-exact,
+GDL,GUADALUPE FC,,Guadalupe PFC,IL,agent-name-match,
+GLD,GOLDEN EAGLES SOCCER CLUB,,Golden Eagles Soccer Club,IL,auto-exact,
+GLL,GLEN ELLYN LAKERS,,Glen Ellyn Lakers,IL,auto-exact,
+GLX,GALAXY SOCCER CLUB,,Galaxy SC,IL,auto-exact,
+GRS,GOROS FC,,Goros FC Soccer Club,IL,auto-exact,
+HRD,HARVARD FC,,Harvard FC,IL,auto-exact,
+HSS,HUSSARS UNITED,,Hussars United,IL,auto-exact,
+HTC,HOTC ELITE,,HOTC Elite,IL,agent-new-club,no PitchRank club found
+HTH,HAWTHORN WOODS ELITE SOCCER CLUB,,Hawthorn Woods Elite SC,IL,auto-exact,
+ILM,ILLINOIS MAGIC FC,,Illinois Magic FC,IL,auto-exact,
+ILP,ILLINOIS PREMIER ALLIANCE,,Illinois Premier Alliance,IL,agent-new-club,no PitchRank club found
+IPR,IPROSKILLS ACADEMY,,IPROSKILLS,IL,agent-name-match,
+JOM,JOM SOCCER CLUB NFP,,"JOM Soccer Club, NFP",IL,auto-exact,
+KNL,KANELAND UNITED SOCCER CLUB,,Kaneland United Soccer Club,IL,auto-exact,
+KRF,KORA FC,,Kora FC,IL,auto-exact,
+LBR,LIBERTYVILLE FC,,Greater Libertyville Soccer Association,IL,owner,
+LEG,LEGACY SC,,Legacy SC,IL,auto-exact,
+LEO,LEO SOCCER SCHOOL,,Leo Soccer School,IL,auto-exact,
+LFC,LISLE FC,,Lisle FC,IL,auto-exact,
+LGC,LG CELTICS,,Lagrange Celtics,IL,agent-name-match,
+LIT,LITHS SOCCER CLUB,,Liths Soccer Club,IL,auto-exact,
+LMS,LAMASSU SC,,Lamassu SC,IL,agent-new-club,no PitchRank club found
+LNC,LANCER SC,,Lancer S.C.,IL,agent-name-match,
+LND,LINDENHURST ASC,,Lindenhurst Area Soccer Club,IL,agent-name-match,
+LTS,LYONS TOWNSHIP SOCCER CLUB,,Lyons Township SC,IL,auto-exact,
+MGF,MIDWEST GLADIATORS FC,,MIDWEST GLADIATORS F.C,IL,agent-name-match,
+MLL,MILLENNIUM SA,,Millennium Soccer Association,IN,owner,stored in PitchRank as Indiana
+MRG,FC MIRAGE,,FC Mirage,IL,auto-exact,
+MST,MUSTANGS UNITED FC,,Mustangs United FC,IL,auto-exact,
+MTG,MT GREENWOOD KNIGHTS SC,,Mt Greenwood Knights SC,IL,agent-new-club,no PitchRank club found
+NAR,NORTH AURORA FOOTBALL CLUB,,North Aurora Football Club,IL,agent-new-club,no PitchRank club found
+NCA,NORTHSIDE CHICAGO AYSO,,AYSO Region 1206 NorthSide Chicago,IL,agent-name-match,
+NPR,NAPERVILLE EAGLES SOCCER CLUB,,Naperville Eagles Soccer Club,IL,auto-exact,
+NRR,NORRIDGE UNITED,,Norridge United,IL,auto-exact,
+NRT,NORTH SHORE FC,,North Shore FC,IL,auto-exact,
+NTA,NORTHERN ALLIANCE,,Northern Alliance,IL,agent-new-club,no PitchRank club found
+NWI,NWI LIONS UNITED,,NWI Lions United,IN,owner,stored in PitchRank as Indiana
+NWN,NORTHWIND SOCCER CLUB,,Northwind SC,IL,auto-exact,
+NZR,NAZ UNITED FC,,NAZ United FC,IL,auto-exact,
+OLY,OLYMPIACOS CHICAGO,,Olympiacos Chicago,IL,auto-exact,
+OPR,OPRF ALLIANCE,,OPRF Alliance,IL,auto-exact,
+PGS,PEGASUS FC,,Pegasus FC,IL,auto-exact,
+PLT,PALATINE CELTIC SC,,Palatine Celtic SC,IL,auto-exact,
+PRK,PARK RIDGE SOCCER CLUB,,Park Ridge SC,IL,auto-exact,
+RBC,RBFC,,RBFC,IL,auto-exact,
+RCD,ROCKFORD ELITE FC,,Rockford Elite FC,IL,auto-exact,
+RCK,ROCKFORD OLYMPIC FC,,Rockford Olympic FC,IL,auto-exact,
+RDR,ROADRUNNERS SC,,Roadrunners SC,IL,auto-exact,
+RFC,RAIDERS FC,,Raiders FC,IL,auto-exact,
+RIZ,RIIIZE FC,,Riiize FC,IL,auto-exact,
+RLS,ROSCOE LIONS SOCCER CLUB,,Roscoe Lions Soccer Club,IL,agent-new-club,no PitchRank club found
+RMR,REAL MADRID ROUND LAKE FC,,Real Madrid Round Lake FC,IL,auto-exact,
+RNG,RANGERS SOCCER ACADEMY,,Rangers Academy,IN,owner,stored in PitchRank as Indiana; YSSL writes Rangers Soccer Academy
+RPT,ROCKFORD RAPTORS,,Rockford Raptors FC,IL,auto-exact,
+SAA,SAA UNITED SC,,SAA United SC,IL,auto-exact,
+SCS,SCOUTS FC,,Scouts FC,IL,auto-exact,
+SPD,SPIDERS FC,,Spiders FC,IL,auto-exact,
+SPF,SHADOW PREMIER FC,,Shadow Premier FC,IL,auto-exact,
+SPR,SPARTAN FC,,Spartan FC,IL,auto-exact,
+SPS,SCHILLER PARK STALLIONS SC,,Schiller Park Stallions SC,IL,auto-exact,
+STN,STING FC,,Orland Park Sting FC,IL,owner,PitchRank's IL Sting FC rows look like the Texas club
+SUF,SUFC FALCONS,,SUFC Falcons,IL,agent-new-club,no PitchRank club found
+SUN,7 UNITED SOCCER CLUB,,7 United SC,IL,auto-exact,
+SXT,60 UNITED FC,,60 United FC,IL,agent-new-club,no PitchRank club found
+TBD,TBD,,(skip),IL,agent-skip,"placeholder club, one fake team"
+TCS,TRI-CITIES SOCCER ASSOCIATION,,Tri Cities Soccer Association,IL,auto-exact,
+TGR,TIGRES NWS,,Tigres NWS,IL,auto-exact,
+TMC,TEAM CHICAGO,,Team Chicago SC,IL,auto-exact,
+TME,TEAM ELMHURST,,Team Elmhurst SC,IL,auto-exact,
+TNL,TINLEY PARK BOBCATS,,Tinley Park Bobcats,IL,auto-exact,
+TRV,TREVIAN SC,,Trevian SC,IL,auto-exact,
+TST,TEST CLUB,,(skip),IL,agent-skip,"test club, one fake team"
+UNF,UNION FC,,Union FC,IL,auto-exact,
+UNT,UNITED ELITE SOCCER CLUB,,United Elite,IL,auto-exact,
+VLN,VALENCIA CF ACADEMY CHICAGO,,VALENCIA CF ACADEMY CHICAGO,IL,auto-exact,
+WCF,WEST CHICAGO FC,,West Chicago FC,IL,auto-exact,
+WCP,WINDY CITY PRIDE,,Windy City Pride,IL,auto-exact,
+WCU,WC LIONS ACADEMY,,WC Lions Academy SC,IL,auto-exact,
+WHT,WHEATON UNITED SOCCER CLUB,,Wheaton United SC,IL,auto-exact,
+WNY,WINDY CITY FC,,Windy City FC,IL,auto-exact,
+WSL,WEST LAWN SOCCER CLUB,,West Lawn Soccer Club,IL,auto-exact,
+WZD,WIZARD CADENCE OB FC,,Wcob FC,IL,agent-name-match,
+YTH,YOUTH SOCCER INTERNATIONAL,,Youth Soccer International,IL,auto-exact,
+YWP,YOUNG WOLVES POLISH SOCCER SCHOOL,,Young Wolves Polish Soccer School,IL,auto-exact,
