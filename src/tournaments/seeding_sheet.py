@@ -608,7 +608,8 @@ def _sheet_html(
     notes = ""
     if guidance:
         items = "".join(f"<li>{html.escape(value)}</li>" for value in dict.fromkeys(guidance))
-        notes = f'<aside class="guidance"><h2>Director notes</h2><ul>{items}</ul></aside>'
+        notes = (f'<aside class="guidance"><h2>Director notes · {html.escape(cohort)}</h2>'
+                 f'<ul>{items}</ul></aside>')
     explanation = (
         DIRECTOR_LEGEND + " "
         + "PitchRank score already adjusts for age, so a younger team playing up can be compared here. "

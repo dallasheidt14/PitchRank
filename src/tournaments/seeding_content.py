@@ -13,7 +13,7 @@ from src.utils.us_states import STATE_CODE_TO_NAME, state_name_to_code
 if TYPE_CHECKING:
     from src.tournaments.seeding_sheet import CohortSheet, SheetTeam
 
-CONTENT_VERSION = 6
+CONTENT_VERSION = 7
 DIRECTOR_LEGEND = (
     "Start with the numbered MatchBalance Seed order. PowerScore remains the original published-strength "
     "baseline; bars use the same 0-100 scale. Competitive Breaks mark boundaries where nearby projected "
@@ -203,12 +203,20 @@ def build_director_cohort(sheet: CohortSheet, operator_note: str = "") -> Direct
         qualifier = ("Review-required compromise"
                      if guidance.get("status") == "review_required_compromise" else "Suggested tiers")
         guidance_summary = qualifier + ": " + " + ".join(str(item["size"]) for item in divisions) + " teams."
-        notes.append(qualifier + ": " + "; ".join(
+        tier_notes = [
             f"{item['label']}: seeds {item['start_seed']}-{item['end_seed']} "
-            f"({item['size']} teams; compatible pools {' + '.join(map(str, item['pool_sizes']))}; "
-            f"minimum {item['minimum_games']} games)"
+            + (f"({item['size']} teams; {item['selected_format']['summary']}; "
+               f"{item['selected_format']['pool_description']})"
+               if item.get("selected_format", {}).get("total_matches") is not None else
+               f"({item['size']} teams; compatible pools {' + '.join(map(str, item['pool_sizes']))}; "
+               f"minimum {item['minimum_games']} games)")
             for item in divisions
-        ) + ". Pool memberships remain the director's decision.")
+        ]
+        if all(item.get("selected_format", {}).get("total_matches") is not None for item in divisions):
+            notes.extend(tier_notes)
+        else:
+            notes.append(qualifier + ": " + "; ".join(tier_notes)
+                         + ". Pool memberships remain the director's decision.")
     notes.extend(guidance.get("warnings", []))
     if guidance.get("alternative_sizes"):
         alternative = guidance.get("alternative") or {}
@@ -242,6 +250,8 @@ def export_fingerprint(
         "policy": dict(policy), "legend": DIRECTOR_LEGEND,
         "cohorts": [{
             "age": sheet.age_group, "gender": sheet.gender,
+            "format_context_digest": (sheet.tier_analysis.tier_guidance or {}).get("format_context_digest")
+            if sheet.tier_analysis else None,
             "content": asdict(build_director_cohort(
                 sheet, operator_notes.get((sheet.age_group, sheet.gender), ""),
             )),

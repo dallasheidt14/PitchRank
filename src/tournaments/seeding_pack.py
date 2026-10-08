@@ -14,7 +14,8 @@ from typing import Any
 from src.tournaments.compare_predictor_bridge import ComparePrediction
 from src.tournaments.roster_paste import RosterRow
 from src.tournaments.roster_resolver import ResolvedTeam
-from src.tournaments.seeding_format_library import DEFAULT_LIBRARY_PATH, parse_format_library
+from src.tournaments.seeding_format_library import DEFAULT_LIBRARY_PATH, LEGACY_LIBRARY_PATH, parse_format_library
+from src.tournaments.seeding_format_preferences import effective_preferences
 from src.tournaments.seeding_predictions import UNAVAILABLE_STATUS, _parse_batch
 from src.tournaments.seeding_tier_guidance import build_tier_guidance
 from src.tournaments.seeding_tiers import (
@@ -28,9 +29,9 @@ from src.tournaments.seeding_tiers import (
     build_tiers,
 )
 
-PACK_SCHEMA_VERSION = 6
-ANALYSIS_SCHEMA_VERSION = 9
-_UPGRADABLE_PACK_SCHEMAS = frozenset({3, 4, 5, 6})
+PACK_SCHEMA_VERSION = 7
+ANALYSIS_SCHEMA_VERSION = 10
+_UPGRADABLE_PACK_SCHEMAS = frozenset({3, 4, 5, 6, 7})
 _AGE_GROUP = re.compile(r"^u[1-9][0-9]?$")
 _LEGACY_UNAVAILABLE_REASONS = {
     "Two roster entries resolve to the same team; verify the matches.": (
@@ -151,7 +152,8 @@ def _saved_manual_decisions(pack: Mapping) -> dict:
 def carry_pack_decisions(previous: Mapping, candidate: dict) -> None:
     """Preserve notes and settings; restore manual orders only when identity matches."""
     candidate["policy"] = normalize_policy(previous.get("policy", candidate["policy"]))
-    for field in ("operator_notes", "tier_names", "placement_reviews"):
+    for field in ("operator_notes", "tier_names", "placement_reviews",
+                  "format_preferences", "cohort_format_preferences"):
         candidate[field] = dict(previous.get(field, {}))
     if previous.get("format_profile_id"):
         candidate["format_profile_id"] = previous["format_profile_id"]
@@ -174,7 +176,7 @@ def retain_matching_cohorts(pack: Any, rows, resolved, overrides) -> Any:
     When no cohort matches, keep the dated pack only as a rebuild source. The
     analysis/export guard still rejects its stale roster fingerprint.
     """
-    if not isinstance(pack, dict) or pack.get("schema_version") != PACK_SCHEMA_VERSION:
+    if not isinstance(pack, dict) or pack.get("schema_version") not in {6, PACK_SCHEMA_VERSION}:
         return pack
     fingerprints = cohort_fingerprints(rows, resolved, overrides)
     saved = pack.get("cohort_fingerprints", {})
@@ -232,6 +234,8 @@ def make_pack(
                                 if key in selected},
         "format_library": json.loads(DEFAULT_LIBRARY_PATH.read_text(encoding="utf-8")),
         "tier_names": {},
+        "format_preferences": {},
+        "cohort_format_preferences": {},
         "selected_cohorts": list(dict.fromkeys(selected)),
         "generated_at": batch.generated_at,
         "ratings_as_of": batch.ratings_as_of,
@@ -296,7 +300,7 @@ def snapshot_matches_roster(
     matches = (
         isinstance(pack.get("cohort_fingerprints"), dict)
         and all(pack["cohort_fingerprints"].get(key) == fingerprints.get(key) for key in saved_selection)
-        if pack.get("schema_version") == PACK_SCHEMA_VERSION else
+        if pack.get("schema_version") in (6, PACK_SCHEMA_VERSION) else
         pack.get("roster_fingerprint") == roster_fingerprint(rows, resolved, overrides)
     )
     return (
@@ -418,6 +422,7 @@ def analyze_pack(
     snapshot_predictions = _snapshot_predictions(pack, request)
     identities = team_ids_by_row(rows, resolved, overrides)
     duplicate_rows = duplicate_identity_rows(rows, resolved, overrides)
+    library = parse_format_library(pack["format_library"])
     analyses = {}
     for key in pack["selected_cohorts"]:
         cohort_rows = [row for row in rows if cohort_key(row.section_age_group, row.section_gender) == key]
@@ -487,10 +492,10 @@ def analyze_pack(
             manual_order=manual["seeded"] if manual is not None else None,
             manual_holds=manual["held"] if manual is not None else (),
         )
-        library = parse_format_library(pack["format_library"])
         analyses[tuple(key.split("|", 1))] = replace(analysis, tier_guidance=build_tier_guidance(
             analysis, entrants, snapshot_predictions[key], policy, library,
             profile_id=pack.get("format_profile_id"), tier_names=pack.get("tier_names", {}).get(key, ()),
+            format_preferences=effective_preferences(pack, key),
         ))
     if pack.get("ordering") and pack["ordering"] != ordering_snapshot(analyses):
         raise ValueError("Seeding snapshot has inconsistent saved ordering evidence.")
@@ -568,7 +573,7 @@ def upgrade_pack_analysis(
     """
     if (
         pack.get("schema_version") not in _UPGRADABLE_PACK_SCHEMAS
-        or pack.get("analysis_schema_version") not in (1, 2, 3, 4, 5, 6, 7, 8)
+        or pack.get("analysis_schema_version") not in (1, 2, 3, 4, 5, 6, 7, 8, 9)
     ):
         raise ValueError("This saved pack requires a fresh build.")
     if not snapshot_matches_roster(pack, rows, resolved, overrides, selected):
@@ -578,8 +583,10 @@ def upgrade_pack_analysis(
     candidate["cohort_fingerprints"] = {
         key: value for key, value in cohort_fingerprints(rows, resolved, overrides).items() if key in selected
     }
-    candidate.setdefault("format_library", json.loads(DEFAULT_LIBRARY_PATH.read_text(encoding="utf-8")))
+    candidate.setdefault("format_library", json.loads(LEGACY_LIBRARY_PATH.read_text(encoding="utf-8")))
     candidate.setdefault("tier_names", {})
+    candidate.setdefault("format_preferences", {})
+    candidate.setdefault("cohort_format_preferences", {})
     candidate["policy"] = normalize_policy(candidate.get("policy"))
     candidate["analysis_schema_version"] = ANALYSIS_SCHEMA_VERSION
     candidate.setdefault("manual_seed_orders", {})

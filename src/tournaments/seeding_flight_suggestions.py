@@ -13,7 +13,7 @@ It never changes PowerScore, seed order, boundary classifications, or policy lim
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Mapping, Sequence
 
 from src.tournaments.compare_predictor_bridge import ComparePrediction
@@ -24,6 +24,7 @@ from src.tournaments.seeding_format_library import (
     MatchBalanceRecommendationPolicy,
     profile_templates,
 )
+from src.tournaments.seeding_format_preferences import format_exclusions, practical_format_key
 from src.tournaments.seeding_group_assessment import GroupTeam
 from src.tournaments.seeding_plan_assessment import (
     APPROVED_ALTERNATIVES,
@@ -74,6 +75,11 @@ class CandidateStructureGeneration:
     search_complete: bool
     unsupported: bool
     reason: str
+    search_method: str = "exhaustive"
+    alternatives_complete: bool = True
+    optimal_structure: tuple[int, ...] | None = None
+    optimal_compromise_structure: tuple[int, ...] | None = None
+    visited_search_states: int = 0
 
 
 @dataclass(frozen=True)
@@ -139,30 +145,10 @@ def _compatible_templates(
                 or "The template is not enabled by the effective event-wide profile.",
             )
         )
-    required_games = profile.required_minimum_games_per_team
     for template in profile_templates(library, profile):
-        if required_games is None:
-            compatible.append(template)
-            continue
-        guaranteed = template.minimum_guaranteed_games_per_team
-        if guaranteed is None:
-            excluded.append(
-                ExcludedTemplate(
-                    template.template_id,
-                    template.team_count,
-                    "The profile requires a known minimum-game guarantee, but this "
-                    "template's guarantee is unknown.",
-                )
-            )
-        elif guaranteed < required_games:
-            excluded.append(
-                ExcludedTemplate(
-                    template.template_id,
-                    template.team_count,
-                    f"The template guarantees {guaranteed} game(s), below the "
-                    f"profile requirement of {required_games}.",
-                )
-            )
+        reasons = format_exclusions(template, profile)
+        if reasons:
+            excluded.append(ExcludedTemplate(template.template_id, template.team_count, " ".join(reasons)))
         else:
             compatible.append(template)
     return tuple(compatible), tuple(excluded)
@@ -247,8 +233,11 @@ def generate_candidate_structures(
     sizes = tuple(sorted(templates_by_size))
     size_options = []
     for size in sizes:
+        if profile.format_selection == "practical_default":
+            templates_by_size[size].sort(key=practical_format_key)
         template_ids = tuple(item.template_id for item in templates_by_size[size])
-        preferred = profile.preferred_template_ids_by_team_count.get(size)
+        preferred = (template_ids[0] if profile.format_selection == "practical_default"
+                     else profile.preferred_template_ids_by_team_count.get(size))
         if preferred not in template_ids:
             preferred = template_ids[0]
         size_options.append(SizeTemplateOptions(size, template_ids, preferred))
@@ -602,6 +591,32 @@ def suggest_automatic_flights(
             operational_feasibility_note=operational_note,
         )
 
+    if (not generation.search_complete and profile.exact_search_enabled
+            and max_candidate_structures is None):
+        from src.tournaments.seeding_partition_search import search_partitions
+
+        search = search_partitions(order, predictions, competitive_policy, team_metadata,
+                                   generation.supported_flight_sizes, recommendation_policy,
+                                   maximum_states=profile.maximum_search_states)
+        # A completed empty search means no fully predicted partition exists.
+        structures = search.structures or generation.structures[:1]
+        generation = replace(
+            generation,
+            structures=structures,
+            generated_structure_count=len(structures),
+            search_complete=search.complete,
+            search_method="exact_dynamic_programming",
+            alternatives_complete=False,
+            optimal_structure=search.primary,
+            optimal_compromise_structure=search.compromise,
+            visited_search_states=search.visited_states,
+            reason=(
+                "Exact partition optimization completed; alternative formats and splits are summarized."
+                if search.complete
+                else "Exact partition optimization reached its state safeguard."
+            ),
+        )
+
     enumeration = enumerate_arrangements(
         APPROVED_ALTERNATIVES,
         generation.structures,
@@ -617,6 +632,21 @@ def suggest_automatic_flights(
         accepted_entrant_ids=accepted_entrant_ids,
         unassigned_entrants=unassigned_entrants,
     )
+    if generation.search_method == "exact_dynamic_programming":
+        # A completed optimization proves the primary; materialized alternatives remain a summary.
+        assessment = replace(
+            assessment,
+            enumeration=replace(
+                assessment.enumeration,
+                total_distinct_arrangement_count=generation.total_distinct_structure_count,
+                search_complete=False,
+                diagnostic=generation.reason,
+            ),
+            no_all_pair_within_policy_plan_among_permitted=(
+                generation.optimal_structure is None if generation.search_complete else None
+            ),
+            conclusion=generation.reason,
+        )
     format_options = _format_options(assessment, generation)
     options_by_size = {
         item.team_count: item for item in generation.size_template_options
@@ -633,6 +663,8 @@ def suggest_automatic_flights(
     best_evaluated = _select_by_default_policy(
         eligible, recommendation_policy, options_by_size
     )
+    if generation.search_method == "exact_dynamic_programming":
+        best_evaluated = next((item for item in eligible if item.flight_sizes == generation.optimal_structure), None)
     incomplete = tuple(
         item.plan_id for item in assessment.plans if not item.prediction_complete
     )

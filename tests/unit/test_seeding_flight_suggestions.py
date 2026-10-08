@@ -17,6 +17,7 @@ from src.tournaments.seeding_flight_suggestions import (
     suggest_automatic_flights,
 )
 from src.tournaments.seeding_format_library import (
+    LEGACY_LIBRARY_PATH,
     load_format_library,
     resolve_format_profile,
     validate_format_library,
@@ -66,7 +67,7 @@ def _teams(
 
 
 def _library_profile():
-    library = load_format_library()
+    library = load_format_library(LEGACY_LIBRARY_PATH)
     return library, resolve_format_profile(library)
 
 
@@ -198,7 +199,7 @@ def test_event_wide_minimum_game_requirement_excludes_incompatible_variants():
     assert result.unsupported is True
     excluded = {item.template_id: item.reason for item in result.excluded_templates}
     assert "mb-default-usys-pc-03-v1" in excluded
-    assert "below the profile requirement of 3" in excluded[
+    assert "minimum required is 3" in excluded[
         "mb-default-usys-pc-03-v1"
     ]
     assert "mb-default-usys-pc-07-v1" in excluded
