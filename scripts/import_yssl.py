@@ -171,6 +171,8 @@ HEADERS = {
 _CLUB_LINK = re.compile(r"club\.php\?clu_code=([A-Z0-9]{2,5})\b")
 _CLUB_NAME = re.compile(r"<b>Club</b></span>:\s*([^<]+?)\s*<br>", re.IGNORECASE)
 _TEA_ID = re.compile(r"tea_id=(\d+)")
+# A rained-out game keeps its struck dates and a stale score; it is reported but does not fail the run.
+RAINED_OUT = "rained out"
 _SITE_SEASON = re.compile(r"\b(Fall|Spring)\s+(20\d{2})\s+Teams\b")
 _TEA_NUM = re.compile(r"tea_num=([A-Z0-9]+)")
 _SITE_DATE = re.compile(r"^[A-Za-z]{3}\s+(\d{1,2})/(\d{1,2})(?:\s+(\d{1,2}:\d{2}\s*[ap]m))?$", re.IGNORECASE)
@@ -359,6 +361,9 @@ def parse_team_games(html: str, team_code: str, season: int, source_url: str) ->
         when = _SITE_DATE.match(_text(cells[1]))
         opponent = cells[2].find("a", href=_TEA_NUM)
         home_away = _text(cells[3])
+        if not when and "rainout" in _text(cells[1]).lower():
+            problems.append(f"{team_code} game {number.group(1)}: {RAINED_OUT}")
+            continue
         if not when or not opponent or home_away not in ("H", "A"):
             problems.append(f"{team_code} game {number.group(1)}: unreadable row")
             continue
@@ -965,7 +970,8 @@ def main() -> int:
 
     unmapped = sorted({row.club_code for row in left_out if row.club_name is None})
     failed = sorted(code for code, o in outcomes.items() if o.status in ("error", "conflict"))
-    must_fail = bool(unmapped or failed)
+    unread = [problem for problem in problems if not problem.endswith(RAINED_OUT)]
+    must_fail = bool(unmapped or failed or unread)
     summary = Table(title="YSSL")
     summary.add_column("")
     summary.add_column("Count", justify="right")
@@ -987,6 +993,8 @@ def main() -> int:
         )
     if failed:
         console.print(f"[red]{len(failed)} teams errored or conflicted; see the team report: {', '.join(failed)}[/red]")
+    if unread:
+        console.print(f"[red]{len(unread)} games could not be read and were left out; see the problems above.[/red]")
 
     if dry_run:
         console.print("\n[yellow]Dry run — no teams, aliases, review rows or games were written.[/yellow]")

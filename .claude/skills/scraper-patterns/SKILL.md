@@ -661,7 +661,8 @@ Reading a team:
   proposes rows for a new club. Each row carries the club's `state_code` (blank means IL; four NW
   Indiana clubs are IN), and a club named `(skip)` is left out without failing the run. A row
   with a blank name or `decided_by` is undecided, never "no club". A team no decided row fits is left out, and the run exits 1, as it does for any team
-  whose link errored or conflicted.
+  whose link errored or conflicted and for any played game it could not read. A rained-out game
+  (its date cell reads "rainout" once the struck dates are dropped) is listed but does not fail the run.
 
 ## Provider Matcher Name Parsing
 

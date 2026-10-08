@@ -85,6 +85,24 @@ class TestParseTeamGames:
         assert games == []
         assert problems == ["AACM121: games table not found"]
 
+    @pytest.mark.parametrize(
+        ("date_cell", "problem"),
+        [
+            (
+                '<td> <font color="#0000AA">rainout</font><br/><del>Fri 10/2 10:10am<br/>Fri 10/2 5:30pm</del></td>',
+                "AACM121 game 4267: rained out",
+            ),
+            ("<td>&nbsp;TBD</td>", "AACM121 game 4267: unreadable row"),
+        ],
+        ids=["rainout", "unreadable"],
+    )
+    def test_a_row_without_a_date_is_a_problem_naming_why(self, date_cell, problem):
+        original = "<td>&nbsp;Sun 9/13 4:00pm<br><del><font color=#999999>Sat 10/17 2:00pm</font></del></td>"
+        html = _fixture("team_130243.html")
+        assert html.count(original) == 1
+        _, problems = yssl.parse_team_games(html.replace(original, date_cell), "AACM121", 2026, TEAM_URL)
+        assert problems == [problem]
+
 
 def _side(no, team, opp, ha, gf, ga, day=date(2026, 9, 13)):
     return yssl.SideGame(no, day, "4:00pm", team, opp, ha, gf, ga, "FIELD", f"u/{team}")
@@ -548,6 +566,7 @@ def run_main(monkeypatch, tmp_path):
         queued=None,
         teams=None,
         collect_error=None,
+        collect_problems=(),
     ):
         _FakeMatcher.instances = []
         _FakeMatcher.results = results or {}
@@ -559,7 +578,7 @@ def run_main(monkeypatch, tmp_path):
             walked.append((clubs, season))
             if collect_error:
                 raise collect_error
-            return CLUBS, SIDES, []
+            return CLUBS, SIDES, list(collect_problems)
 
         def fake_existing_aliases(_client, _provider_id, codes):
             if not (_FakeMatcher.instances and not _FakeMatcher.instances[-1].dry_run):
@@ -645,6 +664,20 @@ class TestMain:
     def test_named_clubs_are_passed_to_the_walk(self, run_main):
         result = run_main("--club", "AAC", "--club", "ECL")
         assert result.walked == [(["AAC", "ECL"], 2026)]
+
+    @pytest.mark.parametrize(
+        ("problem", "code"),
+        [
+            ("AACM121 game 7: unreadable row", 1),
+            ("AACM121: games table not found", 1),
+            ("game 7: the two teams' pages disagree", 1),
+            ("AACM121 game 7: rained out", 0),
+        ],
+        ids=["unreadable", "no-table", "disagree", "rainout"],
+    )
+    def test_a_game_that_could_not_be_read_fails_the_run_unless_rained_out(self, run_main, problem, code):
+        result = run_main("--execute", club_map=_club_map(**EVERY_CLUB), collect_problems=[problem])
+        assert (result.code, len(result.imports)) == (code, 1)
 
     def test_a_site_still_listing_another_season_registers_and_imports_nothing(self, run_main):
         stale = yssl.StaleSeasonError("yssl.org lists the 2025 season's teams")
