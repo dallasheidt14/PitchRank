@@ -1,4 +1,5 @@
 import 'server-only';
+import { createHash } from 'node:crypto';
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { AppError } from './errors';
@@ -50,6 +51,7 @@ export interface SeedingPredictionResult {
   schema_version: 1;
   generated_at: string;
   ratings_as_of: string | null;
+  input_digests: Record<string, string>;
   cohorts: Record<
     string,
     {
@@ -178,6 +180,7 @@ export async function buildSeedingPredictions(
     generated_at: new Date().toISOString(),
     // A global newest timestamp would make older cohort ratings look fresh.
     ratings_as_of: ratingDates.length && ratingDates.every(Boolean) ? (ratingDates.sort()[0] ?? null) : null,
+    input_digests: {},
     cohorts: {},
   };
 
@@ -225,6 +228,22 @@ export async function buildSeedingPredictions(
       };
     }
     const available = entrantIds.filter((entrantId) => entrantId in output.teams);
+    const cohortIds = new Set(Object.values(entrants).flatMap((id) => resolvedByRequested.get(id)!.allTeamIds));
+    // Hash the actual loader inputs, including merged history and unavailable identities.
+    // Generation time is deliberately excluded; Python binds the model/code identity.
+    result.input_digests[cohortKey] = createHash('sha256')
+      .update(
+        JSON.stringify({
+          entrants: entrantIds.map((id) => {
+            const resolved = resolvedByRequested.get(entrants[id])!;
+            return [id, entrants[id], { ...resolved, allTeamIds: [...new Set(resolved.allTeamIds)].sort() }];
+          }),
+          teams: output.teams,
+          unavailable: output.unavailable_codes,
+          games: games.filter((game) => includesTeam(game, cohortIds)),
+        })
+      )
+      .digest('hex');
     for (let left = 0; left < available.length; left += 1) {
       for (let right = left + 1; right < available.length; right += 1) {
         const a = available[left];

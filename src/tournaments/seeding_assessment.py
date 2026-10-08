@@ -169,6 +169,26 @@ def assess_roster(
                       provisional, price, len(parsed.rows) - len(active))
 
 
+def scoped_attention(parsed: ParsedRoster, assessment: Assessment, selected: Sequence[str]) -> frozenset[int]:
+    """Unknown cohort entries still affect every selected cohort they could belong to."""
+    return frozenset(row.source_index for row in parsed.rows if row.source_index in assessment.attention and (
+        f"{row.section_age_group}|{row.section_gender}" in selected
+        or (row.source_index in assessment.cohort_review
+            and any(could_belong(row, *key.split("|", 1)) for key in selected))
+    ))
+
+
+def cohort_coverage_ready(rows: Sequence[RosterRow], metadata: Mapping, selected: Sequence[str]) -> bool:
+    if not selected:
+        return False
+    if metadata.get("coverage") == "complete":
+        return True
+    confirmations = metadata.get("cohort_coverage", {})
+    return all(confirmations.get(key) == source_fingerprint([
+        row for row in rows if f"{row.section_age_group}|{row.section_gender}" == key
+    ]) for key in selected)
+
+
 def carry_decisions(old_rows, new_rows, overrides, decisions):
     """Carry only unique, unchanged registrations; never carry a row-number match."""
     old_counts = Counter(row.registration_id for row in old_rows if row.registration_id)

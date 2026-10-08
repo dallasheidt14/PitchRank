@@ -139,6 +139,33 @@ function fixtures(): Record<string, Row[]> {
 }
 
 describe('Seeding canonical Compare bridge', () => {
+  it('digests the actual rating and merged game inputs without depending on request order', async () => {
+    const data = fixtures();
+    const digest = async (entries = { a: A, b: B }) =>
+      (await buildSeedingPredictions(database(data).client, { 'u14|Male': entries })).input_digests['u14|Male'];
+    const original = await digest();
+    expect(original).toMatch(/^[a-f0-9]{64}$/);
+    expect(await digest({ b: B, a: A })).toBe(original);
+    data.rankings_full[0].off_norm = 0.99;
+    const newRating = await digest();
+    expect(newRating).not.toBe(original);
+    data.games.find((row) => row.id === 'game-merged')!.home_score = 8;
+    expect(await digest()).not.toBe(newRating);
+    const mergedHistory = await digest();
+    data.games.find((row) => row.id === 'game-unrelated')!.home_score = 9;
+    expect(await digest()).toBe(mergedHistory);
+  });
+
+  it('keeps freshness stable when merged identity rows arrive in another order', async () => {
+    const data = fixtures();
+    data.team_merge_map.push({ deprecated_team_id: '00000000-0000-4000-8000-000000000099', canonical_team_id: A });
+    const before = await buildSeedingPredictions(database(data).client, { cohort: { a: A, b: B } });
+    data.team_merge_map.reverse();
+    const after = await buildSeedingPredictions(database(data).client, { cohort: { a: A, b: B } });
+    expect(after.cohorts).toEqual(before.cohorts);
+    expect(after.input_digests).toEqual(before.input_digests);
+  });
+
   it.each(['rankings_full', 'rankings_view', 'state_rankings_view'])(
     'identifies age disagreement in %s and recovers after rankings are updated',
     async (table) => {

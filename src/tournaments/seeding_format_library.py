@@ -239,6 +239,16 @@ def load_format_library(path: Path | None = None) -> FormatLibrary:
     source_path = (path or DEFAULT_LIBRARY_PATH).resolve()
     source_bytes = source_path.read_bytes()
     payload = json.loads(source_bytes.decode("utf-8"))
+    return parse_format_library(payload, source_path=source_path, source_bytes=source_bytes)
+
+
+def parse_format_library(
+    payload: Mapping[str, Any], *, source_path: Path = DEFAULT_LIBRARY_PATH,
+    source_bytes: bytes | None = None,
+) -> FormatLibrary:
+    """Validate a frozen library using the same contract as the checked-in source."""
+    if source_bytes is None:
+        source_bytes = json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()
     library = FormatLibrary(
         schema_version=int(payload["schema_version"]),
         library_id=str(payload["library_id"]),

@@ -1,4 +1,4 @@
-"""Operator controls for format-neutral MatchBalance cheat sheets."""
+"""Operator controls for MatchBalance strength-tier cheat sheets."""
 
 from __future__ import annotations
 
@@ -22,11 +22,11 @@ from src.tournaments.seeding_content import DIRECTOR_LEGEND, build_director_coho
 from src.tournaments.seeding_pack import (
     analyze_pack,
     available_cohorts,
+    carry_pack_decisions,
     cohort_key,
     cohort_label,
     make_pack,
     needs_placement_review,
-    normalize_policy,
     pack_matches,
     persist_boundary_analysis,
     persist_ordering,
@@ -89,6 +89,15 @@ def _persist_decisions(save: Callable[[], bool]) -> None:
     st.session_state["_seeding_pack_unsaved"] = not save()
 
 
+def select_cohorts(selection: Sequence[str], choices: Sequence[str] = ()) -> None:
+    """Button callback: update selection before keyed pickers render again."""
+    st.session_state["_seeding_pack_scope"] = (
+        "All imported cohorts" if set(selection) == set(choices) else "Choose cohorts"
+    )
+    st.session_state["_seeding_pack_cohorts"] = list(selection)
+    invalidate_seeding_exports()
+
+
 def _offer_interrupted_build(
     recovery: PackRecovery, parsed: ParsedRoster, resolved: Sequence[ResolvedTeam],
     overrides: Mapping[int, dict[str, Any]], pack: dict[str, Any] | None,
@@ -115,7 +124,10 @@ def _offer_interrupted_build(
     with slot.container():
         st.warning("A build finished but was interrupted before it was saved.")
         restore, discard = st.columns(2)
-        restoring = restore.button("Restore the interrupted build", key="_seeding_restore_build")
+        restoring = restore.button(
+            "Restore the interrupted build", key="_seeding_restore_build",
+            on_click=select_cohorts, args=(recovered["selected_cohorts"], available_cohorts(parsed.rows)),
+        )
         discarding = discard.button("Discard it", key="_seeding_discard_build")
     if discarding:
         recovery.clear()
@@ -129,13 +141,6 @@ def _offer_interrupted_build(
         restored["operator_notes"] = {**recovered.get("operator_notes", {}), **pack.get("operator_notes", {})}
         if isinstance(pack.get("placement_reviews"), dict):
             restored["placement_reviews"] = {**recovered.get("placement_reviews", {}), **pack["placement_reviews"]}
-    # A keyed multiselect keeps the browser's value when only its default
-    # changes, so the pickers are set outright.
-    selection = list(restored["selected_cohorts"])
-    st.session_state["_seeding_pack_scope"] = (
-        "All imported cohorts" if set(selection) == set(available_cohorts(parsed.rows)) else "Choose cohorts"
-    )
-    st.session_state["_seeding_pack_cohorts"] = selection
     return restored
 
 
@@ -318,6 +323,7 @@ def _render_manual_seed_editor(
             cohort: value for cohort, value in pack.get("manual_seed_orders", {}).items()
             if cohort != key
         }
+        pack.get("saved_manual_decisions", {}).pop(key, None)
         st.session_state[_PACK_KEY] = pack
         invalidate_seeding_exports()
         _persist_decisions(save)
@@ -346,31 +352,51 @@ def _render_cohort_review(
     st.caption(DIRECTOR_LEGEND)
     rows = []
     content = build_director_cohort(sheet, pack.get("operator_notes", {}).get(key, ""))
-    for observation in analysis.notes:
+    for observation in content.notes:
         st.caption(observation)
     for row in content.rows:
         rows.append({
+            "Effective seed": row.seed,
+            "Team": row.team.team_name,
+            "Tier": row.tier_label,
             "PowerScore Seed": row.power_score_seed,
             "MatchBalance Seed": row.matchbalance_seed,
             "Manual/Effective Seed": row.seed,
-            "Team": row.team.team_name,
             "PowerScore": row.score,
             "Movement": row.movement,
             "State rank": row.state_rank or "—",
             "Competitive marker": " · ".join(
-                value for value in (row.observation, row.close_range_after) if value
+                value for value in (row.break_label, row.observation, row.close_range_after) if value
             ),
             "Placement status": row.display_status,
             "PitchRank match": row.team.pitchrank_team_name or "",
             "Roster context": " · ".join(row.roster_context),
         })
     if rows:
+        primary_columns = ["Effective seed", "Team", "Tier", "PowerScore", "Competitive marker", "Placement status"]
+        with st.expander("Baseline, movement, and matching details"):
+            st.dataframe(pd.DataFrame(rows), hide_index=True)
         st.data_editor(
-            pd.DataFrame(rows), hide_index=True, width="stretch",
-            disabled=list(pd.DataFrame(rows).columns),
+            pd.DataFrame(rows)[primary_columns], hide_index=True, width="stretch",
+            disabled=primary_columns,
             column_config={"PowerScore": st.column_config.ProgressColumn(format="%.1f", min_value=0, max_value=100)},
             key=f"_seeding_cheat_sheet_editor_{key}",
         )
+        with st.expander("Tier names and format evidence"):
+            with st.form(f"_seeding_tier_names_{key}"):
+                names = st.text_input("Optional tier names, separated by commas", max_chars=240,
+                                      value=", ".join(pack.get("tier_names", {}).get(key, [])))
+                names_saved = st.form_submit_button("Save tier names")
+            if names_saved:
+                if ILLEGAL_CHARACTERS_RE.search(names):
+                    st.error("Remove unsupported control characters from tier names.")
+                else:
+                    pack.setdefault("tier_names", {})[key] = [name.strip() for name in names.split(",")]
+                    st.session_state[_PACK_KEY] = pack
+                    invalidate_seeding_exports()
+                    _persist_decisions(save)
+                    st.rerun()
+            st.json(analysis.tier_guidance)
         _render_manual_seed_editor(key, analysis, pack, save, roster_rows)
         _render_director_notes(key, pack, save)
     _render_placement_checks(key, analysis, pack, roster_rows, save)
@@ -379,7 +405,8 @@ def _render_cohort_review(
 
 
 def _render_placement_checks(key, analysis, pack, roster_rows, save) -> None:
-    if not analysis.limited_history and not analysis.placement_checks:
+    if (not analysis.limited_history and not analysis.placement_checks
+            and not analysis.tier_guidance.get("review_required")):
         return
     pending = needs_placement_review(pack, key, analysis)
     with st.expander("Placement checks — internal", expanded=pending):
@@ -580,6 +607,41 @@ def _render_analysis_details(
             } for item in detail.close_ranges]), hide_index=True)
 
 
+def _render_freshness(pack, parsed, resolved, overrides, selected, save):
+    from src.tournaments.seeding_freshness import acknowledge_freshness, check_freshness, snapshot_identity
+    with st.expander("Snapshot freshness and acknowledgment", expanded=False):
+        st.caption("Check current inputs without changing this saved seed order or its predictions.")
+        if st.button("Check snapshot freshness", key="_seeding_check_freshness"):
+            try:
+                batch = load_seeding_predictions(
+                    prediction_request(parsed.rows, resolved, overrides, selected),
+                    supabase_url=SUPABASE_URL, supabase_key=SUPABASE_SERVICE_ROLE_KEY,
+                )
+                pack["freshness_check"] = check_freshness(pack, batch)
+                st.session_state["_seeding_verified_identity"] = snapshot_identity(pack)
+            except Exception:
+                st.session_state.pop("_seeding_verified_identity", None)
+                st.warning("Freshness could not be checked. The saved snapshot is preserved.")
+            st.session_state[_PACK_KEY] = pack
+            invalidate_seeding_exports()
+            _persist_decisions(save)
+            st.rerun()
+        with st.form("_seeding_freshness_acknowledgment"):
+            reason = st.text_input("Reason for accepting this dated snapshot", max_chars=500)
+            accepted = st.form_submit_button("Accept dated snapshot for delivery")
+        if accepted:
+            try:
+                if ILLEGAL_CHARACTERS_RE.search(reason):
+                    raise ValueError("Remove unsupported control characters from the reason.")
+                pack["freshness_acknowledgment"] = acknowledge_freshness(pack, reason)
+                st.session_state[_PACK_KEY] = pack
+                invalidate_seeding_exports()
+                _persist_decisions(save)
+                st.rerun()
+            except ValueError as exc:
+                st.error(str(exc))
+
+
 def _render_export_waiting(message: str) -> None:
     st.info(message)
 
@@ -595,7 +657,7 @@ def render_seeding_pack(
         st.markdown("### 3. Review the seed order" if view == "build" else "### 3. Build and review the seed order")
         st.caption(
             "PowerScore sets the starting order. Compare predictions then flag placements that need your review; "
-            "they do not automatically move teams."
+            "supported evidence can make conservative adjustments before practical tier breaks are assessed."
         )
     else:
         st.markdown("### 4. Export the director pack")
@@ -621,6 +683,8 @@ def render_seeding_pack(
     )
     choices = available_cohorts(parsed.rows)
     selected = (
+        list(st.session_state["_seeding_selected_for_workflow"])
+        if view in {"build", "export"} and "_seeding_selected_for_workflow" in st.session_state else
         _selected_cohorts(parsed, restored or pack)
         if view != "export"
         else [key for key in (pack or {}).get("selected_cohorts", []) if key in choices]
@@ -640,6 +704,8 @@ def render_seeding_pack(
     if pack and view != "export":
         st.caption("Rebuilding reads fresh data while preserving director notes and roster decisions.")
 
+    freshly_built_identity = None
+    candidate_analyses = None
     pending_replacement = restored is not None
     pending_upgrade = False
     if restored is not None:
@@ -655,28 +721,15 @@ def render_seeding_pack(
                 ratings = make_ratings_lookup(supabase_client)(ids)
                 candidate = make_pack(parsed.rows, resolved, overrides, selected, batch, ratings)
                 if isinstance(pack, dict):
-                    # Rebuilds refresh predictions but preserve operator choices
-                    # that are independent of the predictor snapshot.
-                    candidate["policy"] = normalize_policy(pack.get("policy", candidate["policy"]))
-                    # Every cohort's notes and reviews carry forward, selected or not;
-                    # a review only counts while its fingerprint still matches.
-                    candidate["operator_notes"] = dict(pack.get("operator_notes", {}))
-                    if isinstance(pack.get("placement_reviews"), dict):
-                        candidate["placement_reviews"] = dict(pack["placement_reviews"])
-                    candidate["legacy_manual_groups"] = dict(
-                        pack.get("legacy_manual_groups", pack.get("manual_groups", {}))
-                    )
-                    if pack.get("roster_fingerprint") == candidate["roster_fingerprint"]:
-                        selected_keys = set(candidate["selected_cohorts"])
-                        candidate["manual_seed_orders"] = {
-                            key: value
-                            for key, value in pack.get("manual_seed_orders", {}).items()
-                            if key in selected_keys
-                        }
+                    carry_pack_decisions(pack, candidate)
                 candidate["boundary_analysis"] = {}
+                candidate["ordering"] = {}
                 candidate_analyses = analyze_pack(candidate, parsed.rows, resolved, overrides)
                 persist_ordering(candidate, candidate_analyses)
                 persist_boundary_analysis(candidate, candidate_analyses)
+                from src.tournaments.seeding_freshness import check_freshness, snapshot_identity
+                candidate["freshness_check"] = check_freshness(candidate, batch)
+                freshly_built_identity = snapshot_identity(candidate)
                 # A click during the build reruns the script before the pack reaches
                 # session state, so the file is written before anything can yield.
                 if recovery is not None:
@@ -685,13 +738,15 @@ def render_seeding_pack(
                 pending_replacement = True
         except Exception as exc:
             # No new snapshot or export is published until all input checks pass.
+            candidate_analyses = None
+            freshly_built_identity = None
             message = str(exc).replace(str(SUPABASE_SERVICE_ROLE_KEY or "__no_secret__"), "[redacted]")
             st.error(f"Could not build seeding sheets: {message}")
 
     if (
         isinstance(pack, dict)
-        and pack.get("schema_version") in (3, 4, 5)
-        and pack.get("analysis_schema_version") in (1, 2, 3, 4, 5, 6, 7)
+        and pack.get("schema_version") in (3, 4, 5, 6)
+        and pack.get("analysis_schema_version") in (1, 2, 3, 4, 5, 6, 7, 8)
     ):
         try:
             pack = upgrade_pack_analysis(
@@ -709,7 +764,7 @@ def render_seeding_pack(
     analysis_error = None
     if current_pack:
         try:
-            analyses = analyze_pack(pack, parsed.rows, resolved, overrides)
+            analyses = candidate_analyses or analyze_pack(pack, parsed.rows, resolved, overrides)
         except (ValueError, TypeError, KeyError) as exc:
             analysis_error = exc
     metadata = st.session_state.get("_seeding_assessment") or {}
@@ -725,7 +780,14 @@ def render_seeding_pack(
         status == DATA_REVIEW
         for analysis in analyses.values() for status in analysis.placement_status.values()
     )
-    draft = metadata.get("coverage") != "complete" or bool(assessment.attention & selected_indices) or any(
+    from src.tournaments.seeding_assessment import cohort_coverage_ready
+    from src.tournaments.seeding_freshness import freshness_note, freshness_ready
+    verified_identity = freshly_built_identity or st.session_state.get("_seeding_verified_identity")
+    coverage_ready = cohort_coverage_ready(parsed.rows, metadata, selected)
+    if current_pack and pack.get("predictor_sha256") != seeding_predictor_sha256():
+        verified_identity = None
+    snapshot_ready = bool(current_pack and freshness_ready(pack, verified_identity))
+    draft = not coverage_ready or not snapshot_ready or bool(assessment.attention & selected_indices) or any(
         could_belong(row, *key.split("|", 1)) for row in uncertain for key in selected
     ) or analysis_error is not None or has_data_review or bool(pending_reviews)
     if draft and view != "export":
@@ -748,12 +810,8 @@ def render_seeding_pack(
         _render_export_waiting("Build the seed order in step 3 before exporting.")
         return
     if pack.get("predictor_sha256") != seeding_predictor_sha256():
-        invalidate_seeding_exports()
-        st.info("The predictor has been updated since this pack was built. After rankings finish, "
-                "click Build seeding sheets to refresh predictions. Your team matches and tournament "
-                "age assignments are saved.")
-        _render_export_waiting("Rebuild the seed order with the current predictor before exporting.")
-        return
+        st.info("The predictor has changed since this snapshot. Rebuild to refresh, "
+                "or review and acknowledge the dated snapshot.")
     if analysis_error is not None:
         invalidate_seeding_exports()
         st.error(f"This pack needs rebuilding: {analysis_error}")
@@ -763,11 +821,15 @@ def render_seeding_pack(
                f"Ratings as of {pack.get('ratings_as_of') or 'unknown'}")
     identities = team_ids_by_row(parsed.rows, resolved, overrides)
     title = f"{event_name} · DRAFT — review needed" if draft else event_name
+    snapshot_note = freshness_note(pack, verified_identity)
+    st.caption(snapshot_note)
     notes = {tuple(key.split("|", 1)): value for key, value in pack.get("operator_notes", {}).items()}
     try:
         sheets = build_cohort_sheets(
             selected_rows, resolved, overrides, snapshot_ratings(pack, identities), tier_analyses=analyses,
         )
+        from dataclasses import replace
+        sheets = [replace(sheet, delivery_note=snapshot_note) for sheet in sheets]
         document = render_sheet_html(
             title, sheets, generated_on=pack["generated_at"][:10], ranking_run=pack.get("ratings_as_of") or "unknown",
             operator_notes=notes,
@@ -810,6 +872,9 @@ def render_seeding_pack(
             recovery.clear()
         if pending_upgrade:
             st.caption("Sheet guidance updated using saved predictions. Team choices and director notes are preserved.")
+    if freshly_built_identity:
+        st.session_state["_seeding_verified_identity"] = freshly_built_identity
+    _render_freshness(pack, parsed, resolved, overrides, selected, save)
     if st.session_state.get("_seeding_export_fingerprint") != content_hash:
         invalidate_seeding_exports()
     # The document hash also invalidates a cached PDF when its layout changes.
@@ -839,12 +904,12 @@ def render_seeding_pack(
 
     st.markdown("#### Readiness")
     match_ready = not bool(assessment.attention & selected_indices)
-    coverage_ready = metadata.get("coverage") == "complete"
     placement_ready = not pending_reviews and not has_data_review
     readiness = [
         ("Accepted-team roster confirmed", coverage_ready, "Confirm the complete roster in step 2."),
         ("Match decisions complete", match_ready, "Resolve the remaining teams in step 2."),
-        ("PowerScore and Compare snapshot current", True, "Rebuild the seed order in step 3."),
+        ("Snapshot freshness checked or acknowledged", snapshot_ready,
+         "Check freshness or acknowledge this dated snapshot."),
         ("Placement checks complete", placement_ready, "Review flagged placements in step 3."),
     ]
     for label, ready, action in readiness:

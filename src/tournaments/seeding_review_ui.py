@@ -2,19 +2,34 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pandas as pd
 import streamlit as st
 
 from src.tournaments.reports.render_csv import csv_safe
 from src.tournaments.roster_paste import split_roster_markers
-from src.tournaments.seeding_assessment import assess_roster, corrected_identities, effective_roster
-from src.tournaments.seeding_intake_ui import invalidate_seeding_exports
+from src.tournaments.seeding_assessment import (
+    assess_roster,
+    cohort_coverage_ready,
+    corrected_identities,
+    effective_roster,
+    scoped_attention,
+)
+from src.tournaments.seeding_intake_ui import select_cohorts
 
 
 def assessment_for(parsed, resolved, overrides):
     metadata = st.session_state.get("_seeding_assessment", {})
-    return assess_roster(parsed, resolved, overrides, coverage=metadata.get("coverage", "unknown"),
-                         completed=metadata.get("completed"))
+    assessment = assess_roster(parsed, resolved, overrides, coverage=metadata.get("coverage", "unknown"),
+                               completed=metadata.get("completed"))
+    # A completed cohort can supply a sample while the event-wide quote stays provisional.
+    return replace(assessment, cohorts=tuple({
+        **cohort, "Status": "Ready" if (
+            cohort_coverage_ready(parsed.rows, metadata, [cohort["key"]])
+            and not scoped_attention(parsed, assessment, [cohort["key"]])
+        ) else cohort["Status"],
+    } for cohort in assessment.cohorts))
 
 
 def render_assessment(parsed, resolved, overrides):
@@ -72,10 +87,8 @@ def render_assessment(parsed, resolved, overrides):
         st.success("Ready cohorts: " + " · ".join(cohort["Cohort"] for cohort in ready))
         choice = st.selectbox("Free sample cohort", options=[row["key"] for row in ready],
                               format_func=lambda key: next(row["Cohort"] for row in ready if row["key"] == key))
-        if st.button("Prepare this free sample", key="_seeding_sample"):
-            st.session_state["_seeding_pack_scope"] = "Choose cohorts"
-            st.session_state["_seeding_pack_cohorts"] = [choice]
-            invalidate_seeding_exports()
+        st.button("Prepare this free sample", key="_seeding_sample",
+                  on_click=select_cohorts, args=([choice],))
     else:
         st.caption("No cohort is ready yet. Confirm complete coverage, assign cohorts and match every team.")
     return assessment

@@ -43,7 +43,7 @@ class TierEntrant:
     team_name: str
     power_score: float | None = None
     review_reason: str | None = None
-    limited_history: bool = False
+    limited_history: bool | None = False
     review_status: str = DATA_REVIEW
     evidence_game_count: int | None = None
 
@@ -298,12 +298,12 @@ class LocalConsensusCheck:
 
 @dataclass(frozen=True)
 class CheatSheetAnalysis:
-    """Format-neutral competitive reference for a cohort.
+    """Ordering, natural separation evidence, and practical tier guidance.
 
     ``tiers``, ``borderline``, and ``boundaries`` are retained only so older
     saved packs and operator diagnostics can be read during the migration. The
-    public sheet uses ``ordered_ids`` and a prioritized projection of supported
-    boundaries. ``boundary_assessments`` is the complete analytical result;
+    public sheet uses ``ordered_ids`` and every supported boundary.
+    ``boundary_assessments`` is the complete suggested-order analytical result;
     ``close_ranges`` drives subtle customer annotations and ``boundary_windows``
     preserves the underlying local-window evidence.
     """
@@ -331,6 +331,7 @@ class CheatSheetAnalysis:
     manual_holds: tuple[str, ...] = ()
     movements: tuple[TeamMovement, ...] = ()
     ordering_conflicts: tuple[OrderingConflict, ...] = ()
+    tier_guidance: Mapping = field(default_factory=dict)
 
     @property
     def supported_boundaries(self) -> tuple[BoundaryAssessment, ...]:
@@ -1140,7 +1141,6 @@ def build_cheat_sheet_analysis(
     boundary_assessments, boundary_windows = _build_boundary_assessments(
         ordered, by_id, pairs, policy,
     )
-    assessments_by_seed = {item.after_seed: item for item in boundary_assessments}
     windows_by_seed = {
         boundary: tuple(item for item in boundary_windows if item.after_seed == boundary)
         for boundary in range(1, len(ordered))
@@ -1159,21 +1159,7 @@ def build_cheat_sheet_analysis(
         if item.classification == SUPPORTED_SEPARATION
     ]
 
-    # The complete analysis above is authoritative. The current customer sheet
-    # may still prioritize three lines, but proximity and PowerScore magnitude
-    # never remove or reclassify an analytical finding.
-    def break_priority(item: StrengthBreak) -> tuple[float, float, float, float, float, int]:
-        assessment = assessments_by_seed[item.after_seed]
-        return (
-            -round(assessment.over_limit_fraction, 12),
-            -round(assessment.average_expected_absolute_goal_difference, 12),
-            -round(assessment.maximum_expected_absolute_goal_difference, 12),
-            -round(assessment.average_blowout_probability, 12),
-            -round(assessment.average_expected_margin, 12),
-            item.after_seed,
-        )
-
-    selected = sorted(sorted(candidates, key=break_priority)[:3], key=lambda item: item.after_seed)
+    selected = sorted(candidates, key=lambda item: item.after_seed)
     breaks = tuple(selected)
 
     close_candidates: list[CloseRange] = []
@@ -1238,15 +1224,6 @@ def build_cheat_sheet_analysis(
                 "Every automatically eligible team needs a unique manual seed or an explicit hold"
             )
 
-        effective_positions = {entrant_id: seed for seed, entrant_id in enumerate(effective_order, 1)}
-        retained_breaks = []
-        for item in breaks:
-            upper_id = suggested_order[item.after_seed - 1]
-            lower_id = suggested_order[item.after_seed]
-            upper_seed = effective_positions.get(upper_id)
-            lower_seed = effective_positions.get(lower_id)
-            if upper_seed is not None and lower_seed == upper_seed + 1:
-                retained_breaks.append(replace(item, after_seed=upper_seed))
         retained_close = []
         for item in close_ranges:
             members = item.entrant_ids
@@ -1254,7 +1231,14 @@ def build_cheat_sheet_analysis(
                 if effective_order[start:start + len(members)] == members:
                     retained_close.append(replace(item, start_seed=start + 1, end_seed=start + len(members)))
                     break
-        effective_breaks = tuple(retained_breaks)
+        # A changed neighborhood requires new evidence even when one adjacency survives.
+        effective_breaks = ()
+        if set(effective_order).issubset(baseline_order):
+            effective_assessments, _ = _build_boundary_assessments(effective_order, by_id, pairs, policy)
+            effective_breaks = tuple(StrengthBreak(
+                after_seed=item.after_seed, score_gap=item.power_score_gap,
+                average_expected_margin=item.average_expected_margin, supported_windows=(),
+            ) for item in effective_assessments if item.classification == SUPPORTED_SEPARATION)
         effective_close_ranges = tuple(retained_close)
         notes = []
 
