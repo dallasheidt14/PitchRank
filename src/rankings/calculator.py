@@ -45,6 +45,7 @@ class RankingContext:
     initial_ratings: Optional[Dict] = None
     # Engine selection & control
     use_glicko: bool = True
+    ceiling_connectivity_enabled: bool = False
     force_rebuild: bool = False
     save_snapshot: bool = True
     persist_game_residuals: bool = True
@@ -528,6 +529,8 @@ def _apply_publication_cap_band(base_scores: pd.Series, teams_age: pd.DataFrame)
     cohort ceiling, but they keep a compressed version of their relative order
     underneath that ceiling.
     """
+    from src.rankings.constants import AGE_TO_ANCHOR
+
     if "publication_cap_score" not in teams_age.columns:
         return base_scores
 
@@ -537,14 +540,19 @@ def _apply_publication_cap_band(base_scores: pd.Series, teams_age: pd.DataFrame)
     if not effective_mask.any():
         return adjusted
 
-    work = teams_age.loc[effective_mask, ["team_id", "age_num", "publication_cap_rank"]].copy()
+    order_keys = ["age_num", "publication_cap_rank"]
+    order_keys += [col for col in ("gender", "status") if col in teams_age.columns]
+    work = teams_age.loc[effective_mask, ["team_id", *order_keys]].copy()
     work["base_pre_cap"] = pd.to_numeric(adjusted.loc[effective_mask], errors="coerce")
     work["cap_score"] = pd.to_numeric(cap_scores.loc[effective_mask], errors="coerce")
     work = work.dropna(subset=["base_pre_cap", "cap_score"])
     if work.empty:
         return adjusted
 
-    for (_, cap_rank, cap_score), grp in work.groupby(["age_num", "publication_cap_rank", "cap_score"], dropna=False):
+    # Eligibility and board boundaries apply to compression as well as order
+    # repair: inactive teams must not change an active team's score slot.
+    for _, grp in work.groupby([*order_keys, "cap_score"], dropna=False):
+        cap_score = float(grp["cap_score"].iloc[0])
         age_num = _safe_int(grp["age_num"].iloc[0])
         policy = _same_age_evidence_policy(age_num)
         group_size = len(grp)
@@ -565,6 +573,31 @@ def _apply_publication_cap_band(base_scores: pd.Series, teams_age: pd.DataFrame)
 
         compressed = np.linspace(upper, lower, group_size)
         adjusted.loc[ranked.index] = compressed
+
+    # A below-cap team can sit inside the compressed band and overtake a
+    # stronger team with the same restriction. Keep the existing score slots,
+    # but assign them in pre-cap order across both sides of the boundary.
+    # Do not transfer score slots between boards or eligibility statuses.
+    ordered_work = teams_age.loc[cap_scores.notna(), ["team_id", *order_keys]].copy()
+    ordered_work["base_pre_cap"] = pd.to_numeric(base_scores.loc[ordered_work.index], errors="coerce")
+    ordered_work["cap_score"] = cap_scores.loc[ordered_work.index]
+    ordered_work = ordered_work.dropna(subset=["base_pre_cap", "cap_score"])
+    for _, grp in ordered_work.groupby([*order_keys, "cap_score"], dropna=False):
+        ranked = grp.sort_values(["base_pre_cap", "team_id"], ascending=[False, True])
+        scores = np.sort(adjusted.loc[ranked.index].to_numpy(dtype=float))[::-1].copy()
+        team_ids = ranked["team_id"].to_numpy()
+        anchor = AGE_TO_ANCHOR.get(_safe_int(grp["age_num"].iloc[0]), 1.0)
+        for pos in range(1, len(scores)):
+            # State boards break ties after age scaling. Keep a conflicting
+            # tie separated on both score scales; zero cannot be split further.
+            conflicting_ids = team_ids[pos] < team_ids[pos - 1]
+            if scores[pos] > scores[pos - 1] or (
+                scores[pos] * anchor == scores[pos - 1] * anchor and conflicting_ids
+            ):
+                scores[pos] = min(scores[pos], np.nextafter(scores[pos - 1], 0.0))
+                while scores[pos] > 0 and conflicting_ids and scores[pos] * anchor == scores[pos - 1] * anchor:
+                    scores[pos] = np.nextafter(scores[pos], 0.0)
+        adjusted.loc[ranked.index] = scores
 
     return adjusted
 
@@ -1682,6 +1715,38 @@ def _positive_ml_evidence_scale(row: pd.Series) -> float:
     return scale
 
 
+_CEILING_CONNECTIVITY_FIELDS = ("scf", "unique_opp_states", "bridge_games", "is_isolated")
+
+
+def _validate_ceiling_connectivity(frame: pd.DataFrame) -> None:
+    required = {"team_id", "source_cohort_age", "source_cohort_gender", *_CEILING_CONNECTIVITY_FIELDS}
+    if not isinstance(frame, pd.DataFrame) or not required.issubset(frame.columns):
+        raise ValueError("Missing ceiling connectivity diagnostics")
+    if frame[list(required)].isna().any().any():
+        raise ValueError("Missing value in ceiling connectivity diagnostics")
+    if frame.duplicated(["source_cohort_age", "source_cohort_gender", "team_id"]).any():
+        raise ValueError("Duplicate source cohort/team in ceiling connectivity diagnostics")
+    for field in _CEILING_CONNECTIVITY_FIELDS[:3]:
+        values = pd.to_numeric(frame[field], errors="coerce")
+        if not np.isfinite(values.to_numpy(dtype=float)).all():
+            raise ValueError(f"Nonfinite ceiling connectivity: {field}")
+    if not frame["is_isolated"].map(lambda value: isinstance(value, (bool, np.bool_))).all():
+        raise ValueError("Ceiling isolation diagnostics must be boolean")
+
+
+def _publication_cap_rank_with_connectivity(row: pd.Series, diagnostics: pd.DataFrame) -> int | None:
+    """Overlay only a private row; shared helper callers keep the ordinary inputs."""
+    key = (row["_ceiling_source_cohort"], row["team_id"])
+    try:
+        values = diagnostics.loc[key]
+    except KeyError as error:
+        raise ValueError(f"Missing ceiling connectivity for source row {key}") from error
+    cap_row = row.drop(labels=["_ceiling_source_cohort"]).copy(deep=True)
+    for field in _CEILING_CONNECTIVITY_FIELDS:
+        cap_row[field] = values[field]
+    return _publication_cap_rank(cap_row)
+
+
 def _publication_cap_rank(row: pd.Series) -> int | None:
     age_num = _safe_int(row.get("age_num"))
     policy = _same_age_evidence_policy(age_num)
@@ -1818,50 +1883,58 @@ def _publication_cap_rank(row: pd.Series) -> int | None:
         return int(policy["severe_cap_rank"])
     if quality_bridge:
         return int(policy["cap_rank"])
-    if (
-        recent_games is not None
-        and recent_games <= int(policy["freshness_hard_recent_games_cap"])
+    freshness_restricted = (
+        (
+            (recent_games is not None and recent_games <= int(policy["freshness_hard_recent_games_cap"]))
+            or stale_recent
+        )
         and not has_play_up_support
         and not strong_broad_profile
-    ):
-        return int(policy["cap_rank"])
-    if stale_recent and not has_play_up_support and not strong_broad_profile:
-        return int(policy["cap_rank"])
+    )
+
+    def with_freshness_limit(evidence_cap: int | None) -> int | None:
+        # Old or sparse schedules must not bypass a stricter evidence restriction.
+        # Keep the existing freshness limit when the evidence would allow more.
+        if freshness_restricted:
+            return max(int(policy["cap_rank"]), evidence_cap or 0)
+        return evidence_cap
+
     if quality_result_void:
         if avg_opp_power < float(policy["quality_result_void_severe_max_avg_opp_power"]):
-            return int(policy["severe_cap_rank"])
-        return int(policy["quality_result_void_cap_rank"])
+            return with_freshness_limit(int(policy["severe_cap_rank"]))
+        return with_freshness_limit(int(policy["quality_result_void_cap_rank"]))
     if thin_schedule and isolation_override:
-        return int(policy["severe_cap_rank"])
+        return with_freshness_limit(int(policy["severe_cap_rank"]))
     if zero_top100_weak_results_severe:
-        return int(policy["zero_top100_weak_results_escalated_cap_rank"])
+        return with_freshness_limit(int(policy["zero_top100_weak_results_escalated_cap_rank"]))
     if zero_top100_weak_results:
-        return int(policy["zero_top100_weak_results_cap_rank"])
+        return with_freshness_limit(int(policy["zero_top100_weak_results_cap_rank"]))
     if regional_thin_low_connectivity:
-        return int(policy["regional_thin_escalated_cap_rank"])
+        return with_freshness_limit(int(policy["regional_thin_escalated_cap_rank"]))
     if weak_field_connectivity_profile:
-        return int(policy["weak_field_connectivity_cap_rank"])
+        return with_freshness_limit(int(policy["weak_field_connectivity_cap_rank"]))
     if not severe_connectivity and authority >= float(policy["full_release_authority"]):
-        return None
+        return with_freshness_limit(None)
     if authority >= float(policy["soft_release_authority"]):
         if connectivity_constrained or weak_avg or weak_depth or repeat_heavy_for_cap:
-            return int(policy["soft_cap_rank"])
-        return None
+            return with_freshness_limit(int(policy["soft_cap_rank"]))
+        return with_freshness_limit(None)
     if mid_thin_quality and not isolation_override:
-        return int(policy["mid_thin_cap_rank"])
+        return with_freshness_limit(int(policy["mid_thin_cap_rank"]))
     if regional_thin_quality:
-        return int(policy["regional_thin_cap_rank"])
+        return with_freshness_limit(int(policy["regional_thin_cap_rank"]))
     if thin_schedule:
-        return int(policy["thin_schedule_cap_rank"])
-    if severe_connectivity:
-        return int(policy["cap_rank"])
+        return with_freshness_limit(int(policy["thin_schedule_cap_rank"]))
 
     if one_top100_thin and isolation_override:
-        return int(policy["one_top100_thin_escalated_cap_rank"])
+        return with_freshness_limit(int(policy["one_top100_thin_escalated_cap_rank"]))
     if one_top100_thin:
-        return int(policy["one_top100_thin_cap_rank"])
+        return with_freshness_limit(int(policy["one_top100_thin_cap_rank"]))
     if weak_quality_results:
-        return int(policy["weak_quality_results_cap_rank"])
+        return with_freshness_limit(int(policy["weak_quality_results_cap_rank"]))
+    # Poor connectivity cannot bypass a stricter weak-schedule restriction.
+    if severe_connectivity:
+        return with_freshness_limit(int(policy["cap_rank"]))
     thin_top100 = (
         top100 == 1
         and avg_opp_power is not None
@@ -1869,15 +1942,18 @@ def _publication_cap_rank(row: pd.Series) -> int | None:
         and avg_opp_power < float(policy["thin_top100_min_avg_opp_power"])
     )
     if thin_top100:
-        return int(policy["cap_rank"])
+        return with_freshness_limit(int(policy["cap_rank"]))
     if connectivity_constrained and top100 >= 1:
-        return int(policy["soft_cap_rank"])
+        # Exposure alone does not establish a result that earns ceiling relief.
+        if top100_non_loss == 0:
+            return with_freshness_limit(int(policy["cap_rank"]))
+        return with_freshness_limit(int(policy["soft_cap_rank"]))
 
     if weak_avg or weak_depth or repeat_heavy_for_cap:
-        return int(policy["cap_rank"])
+        return with_freshness_limit(int(policy["cap_rank"]))
     if connectivity_constrained:
-        return int(policy["soft_cap_rank"])
-    return None
+        return with_freshness_limit(int(policy["soft_cap_rank"]))
+    return with_freshness_limit(None)
 
 
 async def _persist_game_residuals(supabase_client, game_residuals: pd.DataFrame) -> Tuple[int, int]:
@@ -2043,11 +2119,16 @@ async def compute_rankings_with_ml(
     pass_label = ctx.pass_label
     pre_sos_state = ctx.pre_sos_state
     use_glicko = ctx.use_glicko
+    ceiling_connectivity_enabled = ctx.ceiling_connectivity_enabled
     initial_ratings = ctx.initial_ratings
     snapshot_date = _normalize_snapshot_date(today)
 
     v53_cfg = v53_cfg or V53EConfig()
     glicko_cfg = GlickoConfig() if use_glicko else None
+    if ceiling_connectivity_enabled and (
+        not use_glicko or glicko_cfg.SCF_ENABLED or pass_label not in {"Pass1", "Pass2"}
+    ):
+        raise ValueError("Ceiling connectivity requires a two-pass Glicko run with SCF disabled")
     fetch_lookback_days = _effective_fetch_lookback_days(lookback_days, use_glicko=use_glicko)
 
     # 1) Get games data
@@ -2170,7 +2251,7 @@ async def compute_rankings_with_ml(
 
     # Try to load from cache (both teams and games_used)
     base = None
-    if not force_rebuild and cache_file_teams.exists():
+    if not ceiling_connectivity_enabled and not force_rebuild and cache_file_teams.exists():
         try:
             cached_teams = pd.read_parquet(cache_file_teams)
             if not cached_teams.empty:
@@ -2218,6 +2299,8 @@ async def compute_rankings_with_ml(
                     pass_label=pass_label,
                     initial_ratings=initial_ratings,
                     tier_league_map=tier_league_map,
+                    **({"collect_ceiling_connectivity": True}
+                       if ceiling_connectivity_enabled and pass_label == "Pass2" else {}),
                 )
             logger.info(f"✅ Glicko-2 engine completed: {len(base['teams']):,} teams ranked")
         else:
@@ -2235,22 +2318,23 @@ async def compute_rankings_with_ml(
                 )
             logger.info(f"✅ v53e engine completed: {len(base['teams']):,} teams ranked")
 
-        # Save to cache (both teams and games_used DataFrames)
-        try:
-            if not base["teams"].empty:
-                base["teams"].to_parquet(cache_file_teams, index=False)
-                logger.debug(f"💾 Cached teams to {cache_file_teams}")
-            games_used_to_cache = base.get("games_used")
-            if games_used_to_cache is not None and not getattr(games_used_to_cache, "empty", True):
-                games_used_to_cache.to_parquet(cache_file_games, index=False)
-                logger.debug(f"💾 Cached games_used to {cache_file_games}")
-            explainability_to_cache = base.get("game_explainability")
-            if explainability_to_cache is not None and not getattr(explainability_to_cache, "empty", True):
-                explainability_to_cache.to_parquet(cache_file_explain, index=False)
-                logger.debug(f"💾 Cached game explainability to {cache_file_explain}")
-        except Exception:
-            # Cache save failed - continue without caching
-            pass
+        # C1 never mixes fresh diagnostics with cached engine state.
+        if not ceiling_connectivity_enabled:
+            try:
+                if not base["teams"].empty:
+                    base["teams"].to_parquet(cache_file_teams, index=False)
+                    logger.debug(f"💾 Cached teams to {cache_file_teams}")
+                games_used_to_cache = base.get("games_used")
+                if games_used_to_cache is not None and not getattr(games_used_to_cache, "empty", True):
+                    games_used_to_cache.to_parquet(cache_file_games, index=False)
+                    logger.debug(f"💾 Cached games_used to {cache_file_games}")
+                explainability_to_cache = base.get("game_explainability")
+                if explainability_to_cache is not None and not getattr(explainability_to_cache, "empty", True):
+                    explainability_to_cache.to_parquet(cache_file_explain, index=False)
+                    logger.debug(f"💾 Cached game explainability to {cache_file_explain}")
+            except Exception:
+                # Cache save failed - continue with computation.
+                pass
     else:
         logger.info("💾 Using cached v53e rankings")
 
@@ -2389,6 +2473,8 @@ async def compute_rankings_with_ml(
             game_explainability if not getattr(game_explainability, "empty", True) else pd.DataFrame()
         ),
         "pre_sos_state": _pre_sos_state,
+        **({"ceiling_connectivity": base.get("ceiling_connectivity")}
+           if ceiling_connectivity_enabled and pass_label == "Pass2" else {}),
     }
 
 
@@ -2474,6 +2560,7 @@ async def compute_all_cohorts(
     persist_game_explainability: bool = True,
     calculate_rank_changes_enabled: bool = True,
     save_snapshot: bool = True,
+    ceiling_connectivity_enabled: bool = False,
 ) -> Dict[str, pd.DataFrame]:
     """
     Compute rankings for all cohorts using two-pass architecture.
@@ -2490,6 +2577,10 @@ async def compute_all_cohorts(
     """
     # Default config if not provided
     v53_cfg = v53_cfg or V53EConfig()
+    if ceiling_connectivity_enabled and (
+        not use_glicko or GlickoConfig().SCF_ENABLED
+    ):
+        raise ValueError("Ceiling connectivity requires Glicko with SCF disabled")
 
     # Get merge version for cache invalidation
     merge_version = merge_resolver.version if merge_resolver else None
@@ -2624,6 +2715,7 @@ async def compute_all_cohorts(
                 team_state_map=team_state_map,
                 tier_league_map=tier_league_map,
                 pass_label="Pass1",
+                ceiling_connectivity_enabled=ceiling_connectivity_enabled,
                 use_glicko=use_glicko,
                 persist_game_residuals=persist_game_residuals,
                 persist_game_explainability=persist_game_explainability,
@@ -2692,6 +2784,7 @@ async def compute_all_cohorts(
                 team_state_map=team_state_map,
                 tier_league_map=tier_league_map,
                 pass_label="Pass2",
+                ceiling_connectivity_enabled=ceiling_connectivity_enabled,
                 pre_sos_state=None if use_glicko else pass1_pre_sos_states.get(i),
                 use_glicko=use_glicko,
                 initial_ratings=pass1_glicko_ratings.get(i) if use_glicko else None,
@@ -2709,9 +2802,24 @@ async def compute_all_cohorts(
         all_teams = []
         all_games_used = []
         all_game_explainability = []
+        all_ceiling_connectivity = []
 
-        for result in pass2_results:
+        for source_cohort, result in enumerate(pass2_results):
             if not result["teams"].empty:
+                if ceiling_connectivity_enabled:
+                    diagnostics = result.get("ceiling_connectivity")
+                    _validate_ceiling_connectivity(diagnostics)
+                    age, gender = cohorts[source_cohort][0]
+                    if not (
+                        diagnostics["source_cohort_age"].eq(str(age)).all()
+                        and diagnostics["source_cohort_gender"].eq(str(gender)).all()
+                        and set(diagnostics["team_id"]) == set(result["teams"]["team_id"])
+                    ):
+                        raise ValueError("Ceiling diagnostics do not match their Pass2 source cohort")
+                    diagnostics = diagnostics.copy()
+                    diagnostics["_ceiling_source_cohort"] = source_cohort
+                    all_ceiling_connectivity.append(diagnostics)
+                    result["teams"] = result["teams"].assign(_ceiling_source_cohort=source_cohort)
                 all_teams.append(result["teams"])
             if not result.get("games_used", pd.DataFrame()).empty:
                 all_games_used.append(result["games_used"])
@@ -2723,6 +2831,9 @@ async def compute_all_cohorts(
         games_used_combined = pd.concat(all_games_used, ignore_index=True) if all_games_used else pd.DataFrame()
         game_explainability_combined = (
             pd.concat(all_game_explainability, ignore_index=True) if all_game_explainability else pd.DataFrame()
+        )
+        ceiling_connectivity = (
+            pd.concat(all_ceiling_connectivity, ignore_index=True) if all_ceiling_connectivity else pd.DataFrame()
         )
 
     # ========== Deduplicate cross-cohort teams ==========
@@ -2930,7 +3041,18 @@ async def compute_all_cohorts(
             )
 
         teams_combined["positive_ml_evidence_scale"] = teams_combined.apply(_positive_ml_evidence_scale, axis=1)
-        teams_combined["publication_cap_rank"] = teams_combined.apply(_publication_cap_rank, axis=1)
+        if ceiling_connectivity_enabled:
+            diagnostics = ceiling_connectivity.set_index(["_ceiling_source_cohort", "team_id"], verify_integrity=True)
+            teams_combined["publication_cap_rank"] = teams_combined.apply(
+                _publication_cap_rank_with_connectivity, diagnostics=diagnostics, axis=1
+            )
+            keys = teams_combined[["_ceiling_source_cohort", "team_id"]]
+            ceiling_connectivity = keys.merge(
+                ceiling_connectivity, on=["_ceiling_source_cohort", "team_id"], how="left", validate="one_to_one"
+            ).drop(columns="_ceiling_source_cohort")
+            teams_combined = teams_combined.drop(columns="_ceiling_source_cohort")
+        else:
+            teams_combined["publication_cap_rank"] = teams_combined.apply(_publication_cap_rank, axis=1)
         teams_combined["play_up_bonus"] = teams_combined.apply(_play_up_bonus, axis=1)
         teams_combined["publication_cap_score"] = pd.NA
 
@@ -3363,4 +3485,5 @@ async def compute_all_cohorts(
         "teams": teams_combined,
         "games_used": games_used_combined,
         "game_explainability": game_explainability_combined,
+        **({"ceiling_connectivity": ceiling_connectivity} if ceiling_connectivity_enabled else {}),
     }

@@ -5,6 +5,8 @@ description: "Measures what a PitchRank ranking-engine change would do before it
 
 # Measuring Ranking Changes
 
+For the C1 ceiling-only connectivity experiment, use [the C1 capture and evaluation supplement](references/c1-evaluation.md).
+
 Re-rate one set of frozen production inputs with the baseline code and with the candidate, then compare the two runs. Nothing here writes to the database: the freeze sends only GET requests, and a board runs on an in-memory client that raises on every write.
 
 A board hands the frozen games straight to `compute_all_cohorts`, so it never runs `fetch_games_for_rankings`. A change to the games query, the exclusion list, merge resolution of game rows or de-duplication does not reach a board. Measure such a change at the input instead: freeze once with each code root on the same `--today`, then compare the two `<freeze dir>/games.parquet` files for games added or removed, teams affected, and teams crossing `MIN_GAMES_PROVISIONAL` (12). A board whose code root changed the fetch's files, the helpers it calls, or the fetch window lists them in `fetch_code_not_measured`.

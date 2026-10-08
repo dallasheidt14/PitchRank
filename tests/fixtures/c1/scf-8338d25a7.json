@@ -1,0 +1,366 @@
+{
+  "source_commit": "8338d25a7e5cffc6bccb5b90789d65196c35442e",
+  "source_function": "src/etl/glicko_engine.py:compute_scf",
+  "cases": {
+    "10-True": {
+      "male-0": {
+        "scf": 0.4,
+        "unique_states": 0.9820828814446908,
+        "bridge_games": 5.892497288668144,
+        "is_isolated": true,
+        "quality_boosted": true,
+        "unique_leagues": 0,
+        "league_scf": 1.0,
+        "dominant_opp_league": null,
+        "dominant_opp_league_share": 0.0
+      },
+      "male-1": {
+        "scf": 0.4,
+        "unique_states": 0.9340330793901961,
+        "bridge_games": 5.604198476341175,
+        "is_isolated": true,
+        "quality_boosted": true,
+        "unique_leagues": 0,
+        "league_scf": 1.0,
+        "dominant_opp_league": null,
+        "dominant_opp_league_share": 0.0
+      },
+      "male-2": {
+        "scf": 0.4,
+        "unique_states": 0.8561743074965937,
+        "bridge_games": 5.137045844979563,
+        "is_isolated": true,
+        "quality_boosted": true,
+        "unique_leagues": 0,
+        "league_scf": 1.0,
+        "dominant_opp_league": null,
+        "dominant_opp_league_share": 0.0
+      },
+      "male-3": {
+        "scf": 0.4,
+        "unique_states": 1.3861451341657403,
+        "bridge_games": 8.31687080499444,
+        "is_isolated": true,
+        "quality_boosted": true,
+        "unique_leagues": 0,
+        "league_scf": 1.0,
+        "dominant_opp_league": null,
+        "dominant_opp_league_share": 0.0
+      },
+      "female-0": {
+        "scf": 0.4416077727917397,
+        "unique_states": 1.7664310911669587,
+        "bridge_games": 10.59858654700175,
+        "is_isolated": true,
+        "quality_boosted": true,
+        "unique_leagues": 0,
+        "league_scf": 1.0,
+        "dominant_opp_league": null,
+        "dominant_opp_league_share": 0.0
+      },
+      "female-1": {
+        "scf": 0.41710652512315227,
+        "unique_states": 1.668426100492609,
+        "bridge_games": 10.010556602955653,
+        "is_isolated": true,
+        "quality_boosted": true,
+        "unique_leagues": 0,
+        "league_scf": 1.0,
+        "dominant_opp_league": null,
+        "dominant_opp_league_share": 0.0
+      },
+      "female-2": {
+        "scf": 0.4002693069685933,
+        "unique_states": 1.6010772278743732,
+        "bridge_games": 9.606463367246239,
+        "is_isolated": true,
+        "quality_boosted": true,
+        "unique_leagues": 0,
+        "league_scf": 1.0,
+        "dominant_opp_league": null,
+        "dominant_opp_league_share": 0.0
+      },
+      "female-3": {
+        "scf": 0.6294918024417426,
+        "unique_states": 2.5179672097669705,
+        "bridge_games": 15.10780325860182,
+        "is_isolated": false,
+        "quality_boosted": true,
+        "unique_leagues": 0,
+        "league_scf": 1.0,
+        "dominant_opp_league": null,
+        "dominant_opp_league_share": 0.0
+      }
+    },
+    "10-False": {
+      "male-0": {
+        "scf": 1.0,
+        "unique_states": 0,
+        "bridge_games": 0,
+        "is_isolated": false,
+        "quality_boosted": false,
+        "unique_leagues": 0,
+        "league_scf": 1.0,
+        "dominant_opp_league": null,
+        "dominant_opp_league_share": 0.0
+      },
+      "male-1": {
+        "scf": 1.0,
+        "unique_states": 0,
+        "bridge_games": 0,
+        "is_isolated": false,
+        "quality_boosted": false,
+        "unique_leagues": 0,
+        "league_scf": 1.0,
+        "dominant_opp_league": null,
+        "dominant_opp_league_share": 0.0
+      },
+      "male-2": {
+        "scf": 1.0,
+        "unique_states": 0,
+        "bridge_games": 0,
+        "is_isolated": false,
+        "quality_boosted": false,
+        "unique_leagues": 0,
+        "league_scf": 1.0,
+        "dominant_opp_league": null,
+        "dominant_opp_league_share": 0.0
+      },
+      "male-3": {
+        "scf": 1.0,
+        "unique_states": 0,
+        "bridge_games": 0,
+        "is_isolated": false,
+        "quality_boosted": false,
+        "unique_leagues": 0,
+        "league_scf": 1.0,
+        "dominant_opp_league": null,
+        "dominant_opp_league_share": 0.0
+      },
+      "female-0": {
+        "scf": 1.0,
+        "unique_states": 0,
+        "bridge_games": 0,
+        "is_isolated": false,
+        "quality_boosted": false,
+        "unique_leagues": 0,
+        "league_scf": 1.0,
+        "dominant_opp_league": null,
+        "dominant_opp_league_share": 0.0
+      },
+      "female-1": {
+        "scf": 1.0,
+        "unique_states": 0,
+        "bridge_games": 0,
+        "is_isolated": false,
+        "quality_boosted": false,
+        "unique_leagues": 0,
+        "league_scf": 1.0,
+        "dominant_opp_league": null,
+        "dominant_opp_league_share": 0.0
+      },
+      "female-2": {
+        "scf": 1.0,
+        "unique_states": 0,
+        "bridge_games": 0,
+        "is_isolated": false,
+        "quality_boosted": false,
+        "unique_leagues": 0,
+        "league_scf": 1.0,
+        "dominant_opp_league": null,
+        "dominant_opp_league_share": 0.0
+      },
+      "female-3": {
+        "scf": 1.0,
+        "unique_states": 0,
+        "bridge_games": 0,
+        "is_isolated": false,
+        "quality_boosted": false,
+        "unique_leagues": 0,
+        "league_scf": 1.0,
+        "dominant_opp_league": null,
+        "dominant_opp_league_share": 0.0
+      }
+    },
+    "14-True": {
+      "male-0": {
+        "scf": 0.4,
+        "unique_states": 0.5892497288668145,
+        "bridge_games": 3.5354983732008876,
+        "is_isolated": true,
+        "quality_boosted": true,
+        "unique_leagues": 2,
+        "league_scf": 0.9666666666666668,
+        "dominant_opp_league": "lower",
+        "dominant_opp_league_share": 0.667
+      },
+      "male-1": {
+        "scf": 0.4,
+        "unique_states": 0.5604198476341176,
+        "bridge_games": 3.3625190858047063,
+        "is_isolated": true,
+        "quality_boosted": true,
+        "unique_leagues": 2,
+        "league_scf": 1.0,
+        "dominant_opp_league": "top",
+        "dominant_opp_league_share": 0.667
+      },
+      "male-2": {
+        "scf": 0.4,
+        "unique_states": 0.5137045844979562,
+        "bridge_games": 3.082227506987737,
+        "is_isolated": true,
+        "quality_boosted": true,
+        "unique_leagues": 2,
+        "league_scf": 0.9666666666666668,
+        "dominant_opp_league": "lower",
+        "dominant_opp_league_share": 0.667
+      },
+      "male-3": {
+        "scf": 0.4,
+        "unique_states": 0.8316870804994442,
+        "bridge_games": 4.990122482996664,
+        "is_isolated": true,
+        "quality_boosted": true,
+        "unique_leagues": 2,
+        "league_scf": 1.0,
+        "dominant_opp_league": "top",
+        "dominant_opp_league_share": 0.667
+      },
+      "female-0": {
+        "scf": 0.4,
+        "unique_states": 1.0598586547001752,
+        "bridge_games": 6.35915192820105,
+        "is_isolated": true,
+        "quality_boosted": true,
+        "unique_leagues": 2,
+        "league_scf": 0.9666666666666668,
+        "dominant_opp_league": "lower",
+        "dominant_opp_league_share": 0.667
+      },
+      "female-1": {
+        "scf": 0.4,
+        "unique_states": 1.0010556602955654,
+        "bridge_games": 6.00633396177339,
+        "is_isolated": true,
+        "quality_boosted": true,
+        "unique_leagues": 2,
+        "league_scf": 1.0,
+        "dominant_opp_league": "top",
+        "dominant_opp_league_share": 0.667
+      },
+      "female-2": {
+        "scf": 0.4,
+        "unique_states": 0.9606463367246239,
+        "bridge_games": 5.763878020347744,
+        "is_isolated": true,
+        "quality_boosted": true,
+        "unique_leagues": 2,
+        "league_scf": 0.9666666666666668,
+        "dominant_opp_league": "lower",
+        "dominant_opp_league_share": 0.667
+      },
+      "female-3": {
+        "scf": 0.4,
+        "unique_states": 1.5107803258601822,
+        "bridge_games": 9.064681955161094,
+        "is_isolated": true,
+        "quality_boosted": true,
+        "unique_leagues": 2,
+        "league_scf": 1.0,
+        "dominant_opp_league": "top",
+        "dominant_opp_league_share": 0.667
+      }
+    },
+    "14-False": {
+      "male-0": {
+        "scf": 1.0,
+        "unique_states": 0,
+        "bridge_games": 0,
+        "is_isolated": false,
+        "quality_boosted": false,
+        "unique_leagues": 0,
+        "league_scf": 1.0,
+        "dominant_opp_league": null,
+        "dominant_opp_league_share": 0.0
+      },
+      "male-1": {
+        "scf": 1.0,
+        "unique_states": 0,
+        "bridge_games": 0,
+        "is_isolated": false,
+        "quality_boosted": false,
+        "unique_leagues": 0,
+        "league_scf": 1.0,
+        "dominant_opp_league": null,
+        "dominant_opp_league_share": 0.0
+      },
+      "male-2": {
+        "scf": 1.0,
+        "unique_states": 0,
+        "bridge_games": 0,
+        "is_isolated": false,
+        "quality_boosted": false,
+        "unique_leagues": 0,
+        "league_scf": 1.0,
+        "dominant_opp_league": null,
+        "dominant_opp_league_share": 0.0
+      },
+      "male-3": {
+        "scf": 1.0,
+        "unique_states": 0,
+        "bridge_games": 0,
+        "is_isolated": false,
+        "quality_boosted": false,
+        "unique_leagues": 0,
+        "league_scf": 1.0,
+        "dominant_opp_league": null,
+        "dominant_opp_league_share": 0.0
+      },
+      "female-0": {
+        "scf": 1.0,
+        "unique_states": 0,
+        "bridge_games": 0,
+        "is_isolated": false,
+        "quality_boosted": false,
+        "unique_leagues": 0,
+        "league_scf": 1.0,
+        "dominant_opp_league": null,
+        "dominant_opp_league_share": 0.0
+      },
+      "female-1": {
+        "scf": 1.0,
+        "unique_states": 0,
+        "bridge_games": 0,
+        "is_isolated": false,
+        "quality_boosted": false,
+        "unique_leagues": 0,
+        "league_scf": 1.0,
+        "dominant_opp_league": null,
+        "dominant_opp_league_share": 0.0
+      },
+      "female-2": {
+        "scf": 1.0,
+        "unique_states": 0,
+        "bridge_games": 0,
+        "is_isolated": false,
+        "quality_boosted": false,
+        "unique_leagues": 0,
+        "league_scf": 1.0,
+        "dominant_opp_league": null,
+        "dominant_opp_league_share": 0.0
+      },
+      "female-3": {
+        "scf": 1.0,
+        "unique_states": 0,
+        "bridge_games": 0,
+        "is_isolated": false,
+        "quality_boosted": false,
+        "unique_leagues": 0,
+        "league_scf": 1.0,
+        "dominant_opp_league": null,
+        "dominant_opp_league_share": 0.0
+      }
+    }
+  }
+}

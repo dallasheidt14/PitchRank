@@ -975,6 +975,11 @@ class TestApplyTierMult:
 
 
 class TestSCF:
+    @pytest.fixture(autouse=True)
+    def enable_legacy_scf(self, monkeypatch):
+        # These tests exercise the retained opt-in dampening implementation.
+        monkeypatch.setenv("SCF_ENABLED", "true")
+
     def _make_games(self, team_id: str, opp_ids: list[str]) -> pd.DataFrame:
         """Helper: one game row per opponent for *team_id*."""
         rows = [
@@ -1487,7 +1492,7 @@ class TestComputeRankingsV2:
         """Publish-only SCF: identical results give identical mu, but the isolated
         team's published score is pulled toward neutral. Covers both publish branches."""
         games, state_map = self._isolated_vs_connected_games()
-        cfg = GlickoConfig(MIN_GAMES_PROVISIONAL=1, SOS_ADJ_ENABLED=sos_adj_enabled, SCF_PUBLISH_ONLY=True)
+        cfg = GlickoConfig(SCF_ENABLED=True, MIN_GAMES_PROVISIONAL=1, SOS_ADJ_ENABLED=sos_adj_enabled, SCF_PUBLISH_ONLY=True)
         result = compute_rankings_v2(games, today=pd.Timestamp("2026-03-31"), cfg=cfg, team_state_map=state_map)
         teams = result["teams"].set_index("team_id")
 
@@ -1498,7 +1503,7 @@ class TestComputeRankingsV2:
     def test_scf_legacy_dampens_mu(self):
         """SCF_PUBLISH_ONLY=False: the isolated team's mu itself is dampened toward 1500."""
         games, state_map = self._isolated_vs_connected_games()
-        cfg = GlickoConfig(MIN_GAMES_PROVISIONAL=1, SCF_PUBLISH_ONLY=False)
+        cfg = GlickoConfig(SCF_ENABLED=True, MIN_GAMES_PROVISIONAL=1, SCF_PUBLISH_ONLY=False)
         result = compute_rankings_v2(games, today=pd.Timestamp("2026-03-31"), cfg=cfg, team_state_map=state_map)
         teams = result["teams"].set_index("team_id")
 
@@ -1513,7 +1518,7 @@ class TestComputeRankingsV2:
         results = {}
         for publish_only in (True, False):
             cfg = GlickoConfig(
-                MIN_GAMES_PROVISIONAL=1, SOS_ADJ_ENABLED=sos_adj_enabled, SCF_PUBLISH_ONLY=publish_only
+                SCF_ENABLED=True, MIN_GAMES_PROVISIONAL=1, SOS_ADJ_ENABLED=sos_adj_enabled, SCF_PUBLISH_ONLY=publish_only
             )
             results[publish_only] = compute_rankings_v2(
                 games, today=pd.Timestamp("2026-03-31"), cfg=cfg, team_state_map=state_map

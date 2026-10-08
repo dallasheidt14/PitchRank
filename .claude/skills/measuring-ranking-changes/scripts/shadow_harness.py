@@ -35,6 +35,7 @@ from types import SimpleNamespace
 
 import pandas as pd
 import pyarrow.parquet as pq
+from c1_validation import StageCapture
 
 ENGINE_FILES = [
     "src/etl/glicko_engine.py",
@@ -470,12 +471,21 @@ def cmd_board(args) -> None:
             "glicko_config": asdict(GlickoConfig()),
             "ml_config": asdict(layer13.Layer13Config()),
             "persistence": "all flags false; frozen in-memory client; no network",
+            "ceiling_connectivity_enabled": bool(getattr(args, "ceiling_connectivity", False)),
+            "capture_stages": bool(getattr(args, "capture_stages", False)),
+            "tool_sha256": {
+                name: digest(Path(__file__).with_name(name))
+                for name in ("shadow_harness.py", "c1_validation.py")
+            },
         },
     )
 
     captured: list[str] = []
     original_caps = calculator._compute_publication_cap_scores
     original_v2 = calculator.compute_rankings_v2
+    stages = StageCapture(calculator, out) if getattr(args, "capture_stages", False) else None
+    if stages:
+        stages.install()
 
     def capture_caps(teams_age, base):
         frame = teams_age.copy(deep=True)
@@ -493,6 +503,8 @@ def cmd_board(args) -> None:
         # The engine rates as of the freeze's day but stamps the wall clock, which the evidence gates
         # read; production's run day is both, so pin the stamp to keep boards from different days comparable.
         result["teams"]["last_calculated"] = pinned
+        if stages:
+            stages.engine(result, call_kwargs)
         return result
 
     calculator._compute_publication_cap_scores = capture_caps
@@ -513,12 +525,21 @@ def cmd_board(args) -> None:
             persist_game_explainability=False,
             calculate_rank_changes_enabled=False,
             save_snapshot=False,
+            **({"ceiling_connectivity_enabled": True} if getattr(args, "ceiling_connectivity", False) else {}),
         )
     )
     calculator._compute_publication_cap_scores = original_caps
     calculator.compute_rankings_v2 = original_v2
     if not captured:
         raise SystemExit("the engine produced no pre-cap checkpoints")
+    stage_capture = stages.close() if stages else None
+
+    if getattr(args, "ceiling_connectivity", False):
+        connectivity = result.get("ceiling_connectivity")
+        calculator._validate_ceiling_connectivity(connectivity)
+        if set(connectivity["team_id"]) != set(result["teams"]["team_id"]):
+            raise SystemExit("Ceiling connectivity coverage differs from output teams")
+        connectivity.to_parquet(out / "ceiling-connectivity.parquet", index=False)
 
     result["teams"].to_parquet(out / "teams.parquet", index=False)
     for key, name, columns in (
@@ -544,6 +565,13 @@ def cmd_board(args) -> None:
             "teams_sha256": digest(out / "teams.parquet"),
             "frozen_client_calls": client.calls,
             "loaded_module_sha256": loaded_module_sha256(code_root),
+            "stage_capture": stage_capture,
+            "output_sha256": {
+                name: digest(out / name)
+                for name in ("teams.parquet", "games-used.parquet", "explainability.parquet")
+            },
+            **({"ceiling_connectivity_sha256": digest(out / "ceiling-connectivity.parquet")}
+               if getattr(args, "ceiling_connectivity", False) else {}),
         },
     )
     log.info("shadow board complete: %s teams; frozen client calls %s", f"{len(result['teams']):,}", client.calls)
@@ -562,7 +590,11 @@ def main() -> None:
     board.add_argument("--code-root", required=True, help="worktree holding the code version to run")
     board.add_argument("--freeze", required=True, help="freeze directory from the freeze command")
     board.add_argument("--out", required=True, help="new run directory; must not exist")
+    board.add_argument("--capture-stages", action="store_true", help="capture both passes and upstream adjustments")
+    board.add_argument("--ceiling-connectivity", action="store_true", help="C1: restore connectivity only to ceilings")
     args = parser.parse_args()
+    if getattr(args, "ceiling_connectivity", False) and not args.capture_stages:
+        parser.error("--ceiling-connectivity requires --capture-stages")
     {"freeze": cmd_freeze, "board": cmd_board}[args.cmd](args)
 
 
