@@ -162,7 +162,7 @@ def test_more_than_three_supported_boundaries_are_preserved_before_presentation(
     analysis = _analysis([0.80 - index * 0.01 for index in range(8)], "supported")
 
     assert len(analysis.supported_boundaries) == 7
-    assert len(analysis.breaks) == 3
+    assert len(analysis.breaks) == 7
 
 
 def test_limited_history_dominated_boundary_is_uncertain():
@@ -236,7 +236,7 @@ def test_boundary_analysis_does_not_mutate_powerscore_baseline():
     assert analysis.baseline_order == tuple(item.entrant_id for item in entrants)
 
 
-def test_customer_export_can_keep_a_three_finding_subset_without_losing_analysis():
+def test_customer_export_preserves_every_supported_boundary():
     entrants = _entrants([0.80 - index * 0.01 for index in range(8)])
     analysis = build_cheat_sheet_analysis(
         entrants,
@@ -262,7 +262,7 @@ def test_customer_export_can_keep_a_three_finding_subset_without_losing_analysis
     )
 
     assert len(analysis.supported_boundaries) == 7
-    assert sum(row.strength_break_after for row in content.rows) == 3
+    assert sum(row.strength_break_after for row in content.rows) == 7
     assert "Competitive Break" in html
 
 

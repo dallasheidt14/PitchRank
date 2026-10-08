@@ -2576,7 +2576,7 @@ def test_seeding_progress_checks_export_against_the_packaged_u10_plus_roster(mon
         lambda *_args, **_kwargs: SimpleNamespace(attention=set(), matched=2, not_found=set()),
     )
 
-    def snapshot_matches(_pack, rows, _resolved, _overrides):
+    def snapshot_matches(_pack, rows, _resolved, _overrides, _selected):
         compared_rows.extend(rows)
         return True
 

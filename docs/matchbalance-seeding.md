@@ -2,8 +2,8 @@
 
 Seeding is an internal service workflow: the operator prepares a PDF cheat
 sheet and sends it to tournament directors. Each age/gender cohort gets its own
-section. MatchBalance recommends an order; it does not publish a ranking, change
-PowerScore, or force a tournament format.
+section with consecutive strength tiers and compatible division formats.
+PowerScore remains the baseline; directors decide final placement and pool membership.
 
 ## Prepare and deliver a pack
 
@@ -25,29 +25,48 @@ PowerScore, or force a tournament format.
 2. Name the event and import the complete accepted roster. Preserve requested
    flight and listed-division context as separate fields. Confirm every cohort
    and accepted-team count against the director's list.
-3. Resolve identities. Unmatched teams, duplicate identities, inactive teams,
+3. Select the cohorts to finish, then resolve their identities. Unrelated open
+   cohorts do not block review; ambiguous entries that could belong to a selected
+   cohort still need review. Confirm coverage for the selected cohorts against
+   the accepted roster. Unmatched teams, duplicate identities, inactive teams,
    missing ratings, and metadata conflicts remain visible for manual placement.
    A younger team playing up remains eligible when its other data is valid.
-4. Select the cohorts and click **Build seeding sheets**. The saved pack freezes
+4. Click **Build seeding sheets**. The saved pack freezes
    its roster, current ratings, predictions, policy, and original PowerScore
    order for reproducibility.
 5. Review three distinct orders:
 
    - **PowerScore Seed** is the immutable baseline for this run.
    - **MatchBalance Seed** is the conservative algorithmic recommendation.
-   - **Manual/Effective Seed** appears only when the operator saves an override.
+   - **Effective Seed** follows MatchBalance unless the operator saves a manual override.
 
 6. To override the recommendation, assign unique, contiguous manual seeds. Every
    automatically eligible rated team must either receive a seed or be explicitly
    marked **Hold for manual placement**. Saving notes alone never changes order.
    **Restore MatchBalance suggested order** removes the manual override.
-7. Generate and inspect the PDF and Excel pack. An identity, roster, cohort,
-   rating-snapshot, or predictor change invalidates outdated exports.
+7. Check snapshot freshness and generate the PDF and Excel pack. Dated drafts
+   remain available. Final delivery requires a successful current-session check
+   or **Accept dated snapshot for delivery** with a recorded reason. This cannot
+   bypass identity, roster-integrity, coverage, or placement checks.
 
 Saved runs live under `reports/seeding/<event-name>/seeding_run.json`. Reopening
 uses the saved snapshot and reproduces its PowerScore baseline, MatchBalance
 suggestion, movement evidence, manual override, and notes. Rebuilding is the
 explicit refresh operation.
+
+Freshness is **verified current**, **newer inputs available**, or **not checked**.
+The prediction loader hashes the actual rating, merged-identity, and history
+inputs per cohort, with a separate model/code identity. Checking compares those
+inputs without replacing saved predictions. Reopening offline shows the last
+check time but requires another check or a snapshot-specific acknowledgment.
+Changes to report contents invalidate its acknowledgment and cached exports.
+
+Cohort fingerprints keep unrelated roster edits from invalidating completed
+cohorts. Narrowed rebuilds retain notes, tier names, and manual decisions for
+later selection; manual orders restore only while their cohort fingerprint
+matches. A stale snapshot may be saved as a rebuild source but cannot be exported
+as a current analysis. Legacy snapshots upgrade from their frozen predictions
+without querying the database or rewriting the original file during replay.
 
 ## Ordering policy
 
@@ -85,22 +104,23 @@ remain independently configurable.
 
 ## Customer cheat sheet
 
-The customer PDF emphasizes MatchBalance Seed, team, PowerScore, and movement
-from PowerScore Seed. Moved teams use plain language such as **up from
-PowerScore #6**. Technical support fractions, window diagnostics, probabilities,
-and leave-one-out results remain in the internal operator view.
+The PDF, printable HTML, Excel, and Streamlit review share one content model.
+Effective seed and team name come first, followed by tier, score, and essential
+warnings. Baseline comparisons and detailed diagnostics are expandable in the
+operator view. Tier names default to Tier 1, Tier 2, etc.; the operator can name
+them Gold, Silver, or another useful label.
 
-**Competitive Break** separators communicate natural model separation, not a
-mandatory bracket, division, or flight size. **Very close** ranges communicate
-that adjacent teams occupy the same competitive neighborhood without claiming
-they are equal. Both annotations are recalculated from the MatchBalance order's
-new adjacency. After a manual override, an annotation survives only when its
-exact boundary or contiguous member sequence still survives.
+**Competitive Break** means natural strength separation. **Recommended tier
+break** means a practical division boundary supported by complete-division
+matchup analysis. Both labels appear when the evidence agrees. Every natural
+boundary is evaluated without a display cap. Manual ordering or holds recompute
+the guidance for the effective membership. **Very close** ranges survive only
+when their full contiguous member sequence survives.
 
 Manual-placement warnings and plays-up/requested-flight/listed-division context
 stay visible. Uncertain teams are never silently pushed to the bottom.
 
-## Internal automatic flight suggestions
+## Practical tier selection
 
 The versioned library in `config/matchbalance_format_library.json` describes
 exact operational variants for a competitive flight. A flight and its pools are
@@ -131,7 +151,21 @@ competitive flights, then lower worst matchup cost, then lower pair-weighted
 average cost, with deterministic ties. It reports limited-history passes as
 provisional, retains useful alternatives, and returns review-required status
 when no complete within-policy arrangement exists. Team-count compatibility is
-not a claim of field, time, referee, or schedule feasibility.
+not a claim of field, time, referee, or schedule feasibility. The saved profile
+filters out formats that fail its minimum-game requirement.
+
+If no arrangement passes, the sheet offers a **review-required compromise**
+by lowest worst normalized mismatch risk, then fewer violating pairings, lower
+average cost, and fewer divisions. Normalized risk is the maximum of expected
+absolute goal difference divided by its limit and four-goal probability divided
+by its limit. A compromise never becomes a passing plan after operator review.
+Incomplete searches or missing matchup predictions cannot supply a recommendation.
+
+The sheet shows division sizes, compatible pool sizes, minimum games, the worst
+remaining mismatch, history concerns, and one useful alternative with the lowest
+worst-matchup cost when one exists. Additional alternatives stay internal.
+Unplaced entrants remain visible outside the seed order; subset guidance states
+its coverage, such as **12 of 14 teams assessed**.
 
 ## Implementation and checks
 
@@ -140,7 +174,9 @@ not a claim of field, time, referee, or schedule feasibility.
 - `seeding_tiers.py` freezes the PowerScore baseline, evaluates local consensus,
   invokes the optimizer, and recomputes display annotations.
 - `seeding_pack.py` snapshots the baseline, suggestion, movement reasoning,
-  conflicts, and explicit manual override under the versioned saved-pack schema.
+  conflicts, and explicit manual override (pack schema 6, analysis schema 9).
+- `seeding_freshness.py` binds freshness evidence and acknowledgments to the
+  saved snapshot. Shared export content uses schema version 6.
 - `seeding_format_library.py` validates exact format variants and resolves the
   event-wide profile; `seeding_flight_suggestions.py` generates and selects
   fixed-order candidate structures without altering the seed or boundary logic.
@@ -151,4 +187,5 @@ not a claim of field, time, referee, or schedule feasibility.
   `test_seeding_intake_ui.py`, `test_seeding_sheet.py`, and
   `test_seeding_workbook.py`.
 
-Historical backtesting of reversal proposals remains separate validation work.
+Historical prediction validation remains separate from projected benefits of
+alternate divisions. See [the historical scorecard](matchbalance-historical-scorecard.md).

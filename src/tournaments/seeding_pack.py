@@ -8,13 +8,15 @@ import math
 import re
 from collections import Counter
 from collections.abc import Mapping, Sequence
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from typing import Any
 
 from src.tournaments.compare_predictor_bridge import ComparePrediction
 from src.tournaments.roster_paste import RosterRow
 from src.tournaments.roster_resolver import ResolvedTeam
+from src.tournaments.seeding_format_library import DEFAULT_LIBRARY_PATH, parse_format_library
 from src.tournaments.seeding_predictions import UNAVAILABLE_STATUS, _parse_batch
+from src.tournaments.seeding_tier_guidance import build_tier_guidance
 from src.tournaments.seeding_tiers import (
     DATA_REVIEW,
     NO_CURRENT_RATING,
@@ -26,9 +28,9 @@ from src.tournaments.seeding_tiers import (
     build_tiers,
 )
 
-PACK_SCHEMA_VERSION = 5
-ANALYSIS_SCHEMA_VERSION = 8
-_UPGRADABLE_PACK_SCHEMAS = frozenset({3, 4, 5})
+PACK_SCHEMA_VERSION = 6
+ANALYSIS_SCHEMA_VERSION = 9
+_UPGRADABLE_PACK_SCHEMAS = frozenset({3, 4, 5, 6})
 _AGE_GROUP = re.compile(r"^u[1-9][0-9]?$")
 _LEGACY_UNAVAILABLE_REASONS = {
     "Two roster entries resolve to the same team; verify the matches.": (
@@ -130,6 +132,66 @@ def roster_fingerprint(
     return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
+def cohort_fingerprints(rows, resolved, overrides) -> dict[str, str]:
+    """Keep unrelated cohort edits outside a saved cohort's identity."""
+    return {key: roster_fingerprint(
+        [row for row in rows if cohort_key(row.section_age_group, row.section_gender) == key],
+        resolved, overrides,
+    ) for key in available_cohorts(rows)}
+
+
+def _saved_manual_decisions(pack: Mapping) -> dict:
+    saved = dict(pack.get("saved_manual_decisions", {}))
+    for key, order in pack.get("manual_seed_orders", {}).items():
+        saved[key] = {"fingerprint": pack.get("cohort_fingerprints", {}).get(key),
+                      "roster_fingerprint": pack.get("roster_fingerprint"), "order": order}
+    return json.loads(json.dumps(saved))
+
+
+def carry_pack_decisions(previous: Mapping, candidate: dict) -> None:
+    """Preserve notes and settings; restore manual orders only when identity matches."""
+    candidate["policy"] = normalize_policy(previous.get("policy", candidate["policy"]))
+    for field in ("operator_notes", "tier_names", "placement_reviews"):
+        candidate[field] = dict(previous.get(field, {}))
+    if previous.get("format_profile_id"):
+        candidate["format_profile_id"] = previous["format_profile_id"]
+    candidate["legacy_manual_groups"] = dict(previous.get("legacy_manual_groups", previous.get("manual_groups", {})))
+    candidate["saved_manual_decisions"] = _saved_manual_decisions(previous)
+    candidate["manual_seed_orders"] = {
+        key: item["order"] for key, item in candidate["saved_manual_decisions"].items()
+        if key in candidate["selected_cohorts"] and (
+            (item.get("fingerprint") is not None
+             and item["fingerprint"] == candidate["cohort_fingerprints"].get(key))
+            or (item.get("fingerprint") is None and item.get("roster_fingerprint") is not None
+                and item["roster_fingerprint"] == candidate["roster_fingerprint"])
+        )
+    }
+
+
+def retain_matching_cohorts(pack: Any, rows, resolved, overrides) -> Any:
+    """Retain usable cohort snapshots and all operator choices after roster edits.
+
+    When no cohort matches, keep the dated pack only as a rebuild source. The
+    analysis/export guard still rejects its stale roster fingerprint.
+    """
+    if not isinstance(pack, dict) or pack.get("schema_version") != PACK_SCHEMA_VERSION:
+        return pack
+    fingerprints = cohort_fingerprints(rows, resolved, overrides)
+    saved = pack.get("cohort_fingerprints", {})
+    if not isinstance(saved, dict):
+        return pack
+    selected = [key for key in pack.get("selected_cohorts", []) if saved.get(key) == fingerprints.get(key)]
+    if not selected or selected == pack.get("selected_cohorts"):
+        return pack
+    retained = json.loads(json.dumps(pack))
+    retained["saved_manual_decisions"] = _saved_manual_decisions(pack)
+    retained["selected_cohorts"] = selected
+    for field in ("cohort_fingerprints", "teams", "unavailable", "unavailable_codes", "input_digests",
+                  "predictions", "manual_groups", "manual_seed_orders", "ordering", "boundary_analysis"):
+        retained[field] = {key: value for key, value in pack.get(field, {}).items() if key in selected}
+    return retained
+
+
 def prediction_request(
     rows: Sequence[RosterRow], resolved: Sequence[ResolvedTeam], overrides: Mapping[int, dict[str, Any]],
     selected: Sequence[str],
@@ -166,10 +228,15 @@ def make_pack(
         "schema_version": PACK_SCHEMA_VERSION,
         "analysis_schema_version": ANALYSIS_SCHEMA_VERSION,
         "roster_fingerprint": roster_fingerprint(rows, resolved, overrides),
+        "cohort_fingerprints": {key: value for key, value in cohort_fingerprints(rows, resolved, overrides).items()
+                                if key in selected},
+        "format_library": json.loads(DEFAULT_LIBRARY_PATH.read_text(encoding="utf-8")),
+        "tier_names": {},
         "selected_cohorts": list(dict.fromkeys(selected)),
         "generated_at": batch.generated_at,
         "ratings_as_of": batch.ratings_as_of,
         "predictor_sha256": batch.predictor_sha256,
+        "input_digests": getattr(batch, "input_digests", {}),
         "teams": batch.teams,
         "unavailable": batch.unavailable,
         "unavailable_codes": batch.unavailable_codes,
@@ -225,8 +292,15 @@ def snapshot_matches_roster(
         or not set(saved_selection).issubset(available_cohorts(rows))
     ):
         return False
-    return (
+    fingerprints = cohort_fingerprints(rows, resolved, overrides)
+    matches = (
+        isinstance(pack.get("cohort_fingerprints"), dict)
+        and all(pack["cohort_fingerprints"].get(key) == fingerprints.get(key) for key in saved_selection)
+        if pack.get("schema_version") == PACK_SCHEMA_VERSION else
         pack.get("roster_fingerprint") == roster_fingerprint(rows, resolved, overrides)
+    )
+    return (
+        matches
         and (selected is None or set(saved_selection) == set(selected))
     )
 
@@ -260,12 +334,19 @@ def _snapshot_predictions(
         not isinstance(key, str) or not isinstance(note, str) for key, note in notes.items()
     ):
         raise ValueError("Seeding snapshot has invalid placement notes.")
+    names = pack.get("tier_names", {})
+    if not isinstance(names, dict) or any(
+        not isinstance(key, str) or not isinstance(value, list)
+        or any(not isinstance(label, str) for label in value) for key, value in names.items()
+    ):
+        raise ValueError("Seeding snapshot has invalid tier names.")
     codes = pack.get("unavailable_codes", {})
     try:
         result = _parse_batch({
             "schema_version": 1,
             "generated_at": pack.get("generated_at"),
             "ratings_as_of": pack.get("ratings_as_of"),
+            "input_digests": pack.get("input_digests", {}),
             "cohorts": {
                 key: {
                     **{section: pack[section][key] for section in ("teams", "unavailable", "predictions")},
@@ -367,7 +448,8 @@ def analyze_pack(
                 team_name=row.registered_name,
                 power_score=_published_score(evidence),
                 review_reason=review_reason,
-                limited_history=evidence.get("status") == "Not Enough Ranked Games",
+                limited_history=(evidence["status"] == "Not Enough Ranked Games"
+                                 if evidence.get("status") else None),
                 review_status=review_status,
                 evidence_game_count=evidence.get("prediction_game_count"),
             ))
@@ -397,7 +479,7 @@ def analyze_pack(
             or any(not isinstance(value, str) for value in (*manual["seeded"], *manual["held"]))
         ):
             raise ValueError("Seeding snapshot has an invalid manual seed order.")
-        analyses[tuple(key.split("|", 1))] = build_cheat_sheet_analysis(
+        analysis = build_cheat_sheet_analysis(
             entrants,
             snapshot_predictions[key],
             policy=policy,
@@ -405,6 +487,11 @@ def analyze_pack(
             manual_order=manual["seeded"] if manual is not None else None,
             manual_holds=manual["held"] if manual is not None else (),
         )
+        library = parse_format_library(pack["format_library"])
+        analyses[tuple(key.split("|", 1))] = replace(analysis, tier_guidance=build_tier_guidance(
+            analysis, entrants, snapshot_predictions[key], policy, library,
+            profile_id=pack.get("format_profile_id"), tier_names=pack.get("tier_names", {}).get(key, ()),
+        ))
     if pack.get("ordering") and pack["ordering"] != ordering_snapshot(analyses):
         raise ValueError("Seeding snapshot has inconsistent saved ordering evidence.")
     if (
@@ -481,13 +568,18 @@ def upgrade_pack_analysis(
     """
     if (
         pack.get("schema_version") not in _UPGRADABLE_PACK_SCHEMAS
-        or pack.get("analysis_schema_version") not in (1, 2, 3, 4, 5, 6, 7)
+        or pack.get("analysis_schema_version") not in (1, 2, 3, 4, 5, 6, 7, 8)
     ):
         raise ValueError("This saved pack requires a fresh build.")
-    if pack.get("predictor_sha256") != predictor_sha256:
-        raise ValueError("The predictor has changed; build seeding sheets to refresh predictions.")
+    if not snapshot_matches_roster(pack, rows, resolved, overrides, selected):
+        raise ValueError("The roster or cohort selection changed; build seeding sheets.")
     candidate = json.loads(json.dumps(pack, ensure_ascii=False, allow_nan=False))
     candidate["schema_version"] = PACK_SCHEMA_VERSION
+    candidate["cohort_fingerprints"] = {
+        key: value for key, value in cohort_fingerprints(rows, resolved, overrides).items() if key in selected
+    }
+    candidate.setdefault("format_library", json.loads(DEFAULT_LIBRARY_PATH.read_text(encoding="utf-8")))
+    candidate.setdefault("tier_names", {})
     candidate["policy"] = normalize_policy(candidate.get("policy"))
     candidate["analysis_schema_version"] = ANALYSIS_SCHEMA_VERSION
     candidate.setdefault("manual_seed_orders", {})
@@ -506,7 +598,8 @@ def upgrade_pack_analysis(
 def placement_review_fingerprint(pack: dict[str, Any], key: str, analysis: CheatSheetAnalysis) -> str:
     """Bind an operator's review to the evidence, seed order, and delivery notes."""
     payload = {
-        "version": ANALYSIS_SCHEMA_VERSION, "roster": pack["roster_fingerprint"],
+        "version": ANALYSIS_SCHEMA_VERSION,
+        "roster": pack.get("cohort_fingerprints", {}).get(key, pack["roster_fingerprint"]),
         "predictor": pack["predictor_sha256"], "teams": pack["teams"][key],
         "predictions": pack["predictions"][key], "analysis": asdict(analysis),
         "notes": pack.get("operator_notes", {}).get(key, ""),
@@ -516,7 +609,8 @@ def placement_review_fingerprint(pack: dict[str, Any], key: str, analysis: Cheat
 
 def needs_placement_review(pack: dict[str, Any], key: str, analysis: CheatSheetAnalysis) -> bool:
     unresolved_reversal = any(not item.supported for item in analysis.local_consensus_checks)
-    if not analysis.limited_history and not unresolved_reversal and not analysis.ordering_conflicts:
+    if (not analysis.limited_history and not unresolved_reversal and not analysis.ordering_conflicts
+            and not analysis.tier_guidance.get("review_required")):
         return False
     reviews = pack.get("placement_reviews", {})
     return not isinstance(reviews, dict) or reviews.get(key) != placement_review_fingerprint(pack, key, analysis)

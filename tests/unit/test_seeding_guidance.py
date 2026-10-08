@@ -150,8 +150,8 @@ def test_clear_gap_has_one_specific_observation_across_pdf_and_excel():
     assert 'data-entrant="3" class="strength-break"' in document
     break_group = (
         '<tbody class="competitive-break-group"><tr class="competitive-break">'
-        '<td colspan="5"><span>Competitive Break</span>'
-        '<small>Natural model separation - not a required flight or division</small>'
+        '<td colspan="5"><span>Competitive Break: natural strength separation</span>'
+        '<small>Strength guidance; the director makes the final placement decision</small>'
         '</td></tr><tr data-entrant="4"'
     )
     assert break_group in document
@@ -178,7 +178,7 @@ def test_fingerprint_includes_notes_policy_and_content_not_only_prediction_date(
     assert export_fingerprint("Event · DRAFT", [sheet], **args) != original
 
 
-def test_many_supported_gaps_show_at_most_three_observations():
+def test_all_supported_gaps_remain_visible():
     _, entrants, _ = cohort(24)
     entrants = [replace(e, power_score=.95 - (i // 4) * .12 - (i % 4) * .001)
                 for i, e in enumerate(entrants)]
@@ -187,8 +187,7 @@ def test_many_supported_gaps_show_at_most_three_observations():
         .5 if int(a.entrant_id) // 4 < int(b.entrant_id) // 4 else .1,
     ) for a, b in combinations(entrants, 2)}
     analysis = build_cheat_sheet_analysis(entrants, pairs)
-    assert len(analysis.breaks) == len(analysis.notes) == 3
-    assert len(analysis.supported_boundaries) > 3
+    assert len(analysis.breaks) == len(analysis.notes) == len(analysis.supported_boundaries) == 5
 
 
 def test_workbook_keeps_secondary_identity_and_roster_context_on_team_row():
@@ -228,7 +227,7 @@ def test_matchup_separation_can_create_breaks_without_a_score_gap(equal):
         entrants = [replace(e, power_score=.7) for e in entrants]
     analysis = build_cheat_sheet_analysis(entrants, {key: prediction(4, .6) for key in pairs})
     assert len(analysis.supported_boundaries) == 7
-    assert len(analysis.breaks) == len(analysis.notes) == 3
+    assert len(analysis.breaks) == len(analysis.notes) == 7
     assert not analysis.standouts
 
 
