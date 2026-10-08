@@ -43,7 +43,8 @@ def test_eighteen_team_example_has_distinct_strength_divisions_and_pools():
     result = build_tier_guidance(analysis, entrants, pairs, TierPolicy(), library,
                                  tier_names=["Gold", "Silver", "Bronze"])
     assert result["cuts"] == [8, 12]
-    assert [item["pool_sizes"] for item in result["divisions"]] == [[4, 4], [4], [3, 3]]
+    for division, expected_pools in zip(result["divisions"], [[4, 4], [4], [3, 3]], strict=True):
+        assert expected_pools in [option["pool_sizes"] for option in division["compatible_formats"]]
     assert [item["label"] for item in result["divisions"]] == ["Gold", "Silver", "Bronze"]
 
 
@@ -152,7 +153,8 @@ def test_manual_order_and_holds_recompute_guidance_from_effective_membership():
 def test_incomplete_search_never_promotes_evaluated_candidate():
     entrants, pairs, analysis = cohort(18, lambda a, b: prediction())
     library = load_format_library()
-    library = replace(library, profiles=(replace(resolve_format_profile(library), max_candidate_structures=1),))
+    library = replace(library, profiles=(replace(resolve_format_profile(library),
+                                                 max_candidate_structures=1, maximum_search_states=1),))
     result = build_tier_guidance(analysis, entrants, pairs, TierPolicy(), library)
     assert not result["search_complete"]
     assert result["cuts"] == []

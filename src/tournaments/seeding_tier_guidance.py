@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import asdict
 from functools import lru_cache
@@ -10,6 +11,7 @@ from typing import Any, Mapping, Sequence
 from src.tournaments.compare_predictor_bridge import ComparePrediction
 from src.tournaments.seeding_flight_suggestions import suggest_automatic_flights
 from src.tournaments.seeding_format_library import FormatLibrary, parse_format_library, resolve_format_profile
+from src.tournaments.seeding_format_preferences import apply_preferences, format_summary
 from src.tournaments.seeding_group_assessment import GroupTeam
 from src.tournaments.seeding_plan_assessment import UnassignedEntrant
 from src.tournaments.seeding_tiers import CheatSheetAnalysis, TierEntrant, TierPolicy
@@ -19,6 +21,7 @@ def build_tier_guidance(
     analysis: CheatSheetAnalysis, entrants: Sequence[TierEntrant], predictions: Mapping,
     policy: TierPolicy, library: FormatLibrary, *, profile_id: str | None = None,
     tier_names: Sequence[str] = (),
+    format_preferences: Mapping | None = None,
 ) -> dict[str, Any]:
     """Never change order, relax limits, or infer strength for unplaced entrants."""
     inputs = {
@@ -26,6 +29,7 @@ def build_tier_guidance(
         "review": analysis.review, "entrants": [asdict(item) for item in entrants],
         "predictions": [[list(pair), asdict(value)] for pair, value in sorted(predictions.items())],
         "policy": asdict(policy), "library": asdict(library), "profile": profile_id, "names": tier_names,
+        "format_preferences": format_preferences,
     }
     # Cache only immutable serialized inputs/results; callers receive their own copy.
     return json.loads(_cached_guidance(json.dumps(inputs, sort_keys=True, default=str, allow_nan=False)))
@@ -40,11 +44,13 @@ def _cached_guidance(serialized: str) -> str:
         {tuple(pair): ComparePrediction(**value) for pair, value in inputs["predictions"]},
         TierPolicy(**inputs["policy"]), parse_format_library(inputs["library"]),
         profile_id=inputs["profile"], tier_names=inputs["names"],
+        format_preferences=inputs.get("format_preferences"),
     )
     return json.dumps(result, allow_nan=False)
 
 
-def _calculate_guidance(order, natural, review, entrants, predictions, policy, library, *, profile_id, tier_names):
+def _calculate_guidance(order, natural, review, entrants, predictions, policy, library, *,
+                        profile_id, tier_names, format_preferences):
     accepted = tuple(item.entrant_id for item in entrants)
     positions = {key: seed for seed, key in enumerate(order, 1)}
     metadata = {
@@ -58,11 +64,19 @@ def _calculate_guidance(order, natural, review, entrants, predictions, policy, l
         UnassignedEntrant(item.entrant_id, review.get(item.entrant_id) or "Held for manual placement")
         for item in entrants if item.entrant_id not in positions
     )
-    profile = resolve_format_profile(library, profile_id)
+    profile = apply_preferences(resolve_format_profile(library, profile_id), format_preferences)
     result = suggest_automatic_flights(
         order, predictions, policy, metadata, library, profile,
         accepted_entrant_ids=accepted, unassigned_entrants=unassigned,
     )
+    format_context = {
+        "profile": asdict(profile),
+        "templates": [asdict(library.templates_by_id[key]) for key in profile.template_ids],
+        "recommendation_policy": asdict(result.recommendation_policy),
+    }
+    format_context_digest = hashlib.sha256(
+        json.dumps(format_context, sort_keys=True, allow_nan=False).encode()
+    ).hexdigest()
     plans = result.assessment.plans if result.assessment else ()
     by_id = {item.plan_id: item for item in plans}
 
@@ -79,6 +93,10 @@ def _calculate_guidance(order, natural, review, entrants, predictions, policy, l
     if chosen is None and result.generation.search_complete:
         complete = [item for item in plans if item.structural.valid and item.prediction_complete
                     and item.accepted_field_coverage.every_accepted_entrant_accounted_for]
+        if complete:
+            if result.generation.search_method == "exact_dynamic_programming":
+                complete = [item for item in complete
+                            if item.flight_sizes == result.generation.optimal_compromise_structure]
         if complete:
             chosen = min(complete, key=lambda item: (
                 normalized_risk(item), item.violating_pairing_count,
@@ -106,11 +124,9 @@ def _calculate_guidance(order, natural, review, entrants, predictions, policy, l
                 "entrant_ids": list(flight.entrant_ids), "pool_sizes": list(template.pool_sizes),
                 "template_id": template.template_id, "natural_break_after": end in natural,
                 "minimum_games": template.minimum_guaranteed_games_per_team,
-                "compatible_formats": [{
-                    "template_id": template_id,
-                    "pool_sizes": list(library.templates_by_id[template_id].pool_sizes),
-                    "minimum_games": library.templates_by_id[template_id].minimum_guaranteed_games_per_team,
-                } for template_id in options.compatible_template_ids],
+                "selected_format": format_summary(template),
+                "compatible_formats": [format_summary(library.templates_by_id[template_id])
+                                       for template_id in options.compatible_template_ids],
             })
             start = end + 1
     warnings = []
@@ -123,6 +139,20 @@ def _calculate_guidance(order, natural, review, entrants, predictions, policy, l
         warnings.append("Search incomplete; no primary tier split is recommended.")
     if chosen is None:
         warnings.append(result.selection_reason)
+        if result.generation.unsupported and format_preferences:
+            preferences = []
+            if profile.required_minimum_games_per_team is not None:
+                preferences.append(f"at least {profile.required_minimum_games_per_team} guaranteed games")
+            if profile.required_maximum_games_per_team is not None:
+                preferences.append(f"at most {profile.required_maximum_games_per_team} games per team")
+            if profile.repeat_opponents == "prohibited":
+                preferences.append("no repeat opponents")
+            if profile.playoffs != "any":
+                preferences.append(f"playoffs {profile.playoffs}")
+            if preferences:
+                warnings.append(f"No arrangement for {len(order)} assessed teams satisfies "
+                                "these restrictions together: "
+                                + "; ".join(preferences) + ". No restrictions were relaxed.")
     risks = []
     if chosen is not None:
         for flight in chosen.flights:
@@ -143,7 +173,7 @@ def _calculate_guidance(order, natural, review, entrants, predictions, policy, l
                 f"four-goal margin probability {worst.blowout_probability:.0%}."
             )
     return {
-        "version": 1, "status": "review_required_compromise" if compromise else result.status,
+        "version": 2, "status": "review_required_compromise" if compromise else result.status,
         "review_required": compromise or chosen is None or bool(unassigned)
         or result.primary_evidence_status == "provisional_due_to_history",
         "accepted_count": len(accepted), "assessed_count": len(positions),
@@ -152,8 +182,14 @@ def _calculate_guidance(order, natural, review, entrants, predictions, policy, l
         "alternative": alternative_detail,
         "warnings": list(dict.fromkeys(warnings)),
         "profile_id": profile.profile_id, "profile_version": profile.version,
+        "format_context_digest": format_context_digest,
         "format_assumptions": [profile.source_note, *profile.unresolved_assumptions],
         "search_complete": result.generation.search_complete,
+        "search_method": result.generation.search_method,
+        "alternatives_complete": result.generation.alternatives_complete,
+        "permitted_structure_count": result.generation.total_distinct_structure_count,
+        "format_preferences": dict(format_preferences or {}),
+        "excluded_formats": [asdict(item) for item in result.generation.excluded_templates],
         "candidate_count": result.generation.generated_structure_count,
         "risky_pairings": [{"entrant_ids": list(pair.entrant_ids),
                             "expected_absolute_goal_difference": pair.expected_absolute_goal_difference,

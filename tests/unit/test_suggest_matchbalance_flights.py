@@ -15,6 +15,7 @@ from scripts.suggest_matchbalance_flights import (
     build_automatic_report,
 )
 from src.tournaments.seeding_pack import ANALYSIS_SCHEMA_VERSION, PACK_SCHEMA_VERSION
+from src.tournaments.seeding_format_library import LEGACY_LIBRARY_PATH
 
 PREDICTOR_SHA256 = (
     "98b059f074e32584e973ca679c09985581b0867fe4175002a02cec0ada73cb5d"
@@ -78,6 +79,7 @@ def _report(snapshot: Path, sha256: str, event: str, slug: str):
         expected_source_sha256=sha256,
         expected_predictor_sha256=PREDICTOR_SHA256,
         max_candidate_structures=None,
+        library_path=LEGACY_LIBRARY_PATH,
     )
 
 

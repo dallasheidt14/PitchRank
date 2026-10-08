@@ -9,6 +9,7 @@ def snapshot_identity(pack: dict) -> str:
     fields = ("generated_at", "predictor_sha256", "input_digests", "cohort_fingerprints",
               "selected_cohorts", "teams", "predictions", "policy", "manual_seed_orders",
               "operator_notes", "tier_names", "format_library", "format_profile_id",
+              "format_preferences", "cohort_format_preferences",
               "ratings_as_of", "ratings", "unavailable", "unavailable_codes")
     return hashlib.sha256(json.dumps({key: pack.get(key) for key in fields},
                                    sort_keys=True, allow_nan=False).encode()).hexdigest()

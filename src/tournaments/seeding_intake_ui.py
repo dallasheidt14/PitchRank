@@ -19,6 +19,7 @@ from src.tournaments.roster_paste import ParsedRoster, RosterRow
 from src.tournaments.roster_resolver import ResolvedTeam
 from src.tournaments.seeding_assessment import assess_roster, could_belong
 from src.tournaments.seeding_content import DIRECTOR_LEGEND, build_director_cohort, export_fingerprint
+from src.tournaments.seeding_format_ui import render_format_preferences
 from src.tournaments.seeding_pack import (
     analyze_pack,
     available_cohorts,
@@ -335,6 +336,7 @@ def _render_cohort_review(
     roster_rows: Mapping[str, RosterRow], sheet: CohortSheet,
 ) -> None:
     st.markdown(f"##### {cohort_label(key)}")
+    render_format_preferences(pack, save, invalidate_seeding_exports, cohort=key)
     statuses = analysis.placement_status
     seeded = len(analysis.ordered_ids)
     age_group, gender = key.split("|", 1)
@@ -383,6 +385,10 @@ def _render_cohort_review(
             key=f"_seeding_cheat_sheet_editor_{key}",
         )
         with st.expander("Tier names and format evidence"):
+            for division in analysis.tier_guidance.get("divisions", []):
+                st.markdown(f"**{division['label']} — playing format options**")
+                for option in division.get("compatible_formats", []):
+                    st.caption(option.get("summary", option["template_id"]))
             with st.form(f"_seeding_tier_names_{key}"):
                 names = st.text_input("Optional tier names, separated by commas", max_chars=240,
                                       value=", ".join(pack.get("tier_names", {}).get(key, [])))
@@ -745,8 +751,8 @@ def render_seeding_pack(
 
     if (
         isinstance(pack, dict)
-        and pack.get("schema_version") in (3, 4, 5, 6)
-        and pack.get("analysis_schema_version") in (1, 2, 3, 4, 5, 6, 7, 8)
+        and pack.get("schema_version") in (3, 4, 5, 6, 7)
+        and pack.get("analysis_schema_version") in (1, 2, 3, 4, 5, 6, 7, 8, 9)
     ):
         try:
             pack = upgrade_pack_analysis(
@@ -760,6 +766,8 @@ def render_seeding_pack(
             return
 
     current_pack = pack_matches(pack, parsed.rows, resolved, overrides, selected)
+    if current_pack and view != "export":
+        render_format_preferences(pack, save, invalidate_seeding_exports)
     analyses = {}
     analysis_error = None
     if current_pack:

@@ -122,6 +122,11 @@ stay visible. Uncertain teams are never silently pushed to the bottom.
 
 ## Practical tier selection
 
+For the supplied catalog of division sizes, pools, crossovers, game guarantees,
+and playoff options, see the [tournament format reference](matchbalance-format-reference.md).
+It links the unchanged research, arithmetic corrections, and the v2 catalog's
+coverage of every numbered source variant.
+
 The versioned library in `config/matchbalance_format_library.json` describes
 exact operational variants for a competitive flight. A flight and its pools are
 different layers: one eight-team competitive flight may contain two four-team
@@ -141,9 +146,13 @@ python scripts/suggest_matchbalance_flights.py `
 With no `--cohort`, the command evaluates every cohort selected in the saved
 pack. With no `--profile`, it uses the versioned MatchBalance default profile.
 An explicit event profile applies event-wide. The command generates every
-profile-supported exact cover within the profile's search safeguard, partitions
+profile-supported exact cover for small fields, partitions
 the unchanged saved order contiguously, and sends every unique membership
-through the complete-flight evaluator.
+through the complete-flight evaluator. Larger fields use exact interval dynamic
+programming instead of materializing every split. The search preserves pair-weighted
+costs and deterministic ties. A state safeguard leaves the analysis explicitly
+incomplete if optimality has not been established; a shortened alternatives list
+does not mean the primary optimization is incomplete.
 
 The default recommendation policy considers only structurally valid plans with
 complete predictions and no projected matchup violations. It prefers the fewest
@@ -152,7 +161,25 @@ average cost, with deterministic ties. It reports limited-history passes as
 provisional, retains useful alternatives, and returns review-required status
 when no complete within-policy arrangement exists. Team-count compatibility is
 not a claim of field, time, referee, or schedule feasibility. The saved profile
-filters out formats that fail its minimum-game requirement.
+filters out formats that fail any explicit game or playoff requirements.
+
+New analyses use the expanded automatic profile with no mandatory game requirement.
+The collapsed **Tournament preferences** panel optionally sets minimum guaranteed
+games, maximum games, repeat opponents, and playoffs. A cohort can override these
+settings, including clearing an inherited limit. Conflicting restrictions are
+reported together and never silently relaxed.
+
+Strength boundaries are selected before choosing a playing format. The displayed
+format prefers three or four guaranteed games, fewer possible repeat meetings,
+lower maximum games, then fewer matches and a stable identifier. Outside that
+guarantee range, the nearest guarantee is preferred first. Compatible formats stay
+in the operator evidence view; they are different from alternative tier splits.
+
+Reopened runs retain their embedded catalog. **Use expanded formats for this saved
+analysis** explicitly updates formats while keeping frozen ratings and predictions;
+a rebuild also uses the current catalog. Both retain valid matching decisions,
+manual order, holds, notes, and tier names. Format and preference changes invalidate
+affected review/export identities; a cohort override leaves other cohort reviews valid.
 
 If no arrangement passes, the sheet offers a **review-required compromise**
 by lowest worst normalized mismatch risk, then fewer violating pairings, lower
@@ -174,9 +201,9 @@ its coverage, such as **12 of 14 teams assessed**.
 - `seeding_tiers.py` freezes the PowerScore baseline, evaluates local consensus,
   invokes the optimizer, and recomputes display annotations.
 - `seeding_pack.py` snapshots the baseline, suggestion, movement reasoning,
-  conflicts, and explicit manual override (pack schema 6, analysis schema 9).
+  conflicts, and explicit manual override (pack schema 7, analysis schema 10).
 - `seeding_freshness.py` binds freshness evidence and acknowledgments to the
-  saved snapshot. Shared export content uses schema version 6.
+  saved snapshot. Shared export content uses schema version 7.
 - `seeding_format_library.py` validates exact format variants and resolves the
   event-wide profile; `seeding_flight_suggestions.py` generates and selects
   fixed-order candidate structures without altering the seed or boundary logic.
