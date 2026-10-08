@@ -9,7 +9,7 @@ For the C1 ceiling-only connectivity experiment, use [the C1 capture and evaluat
 
 Re-rate one set of frozen production inputs with the baseline code and with the candidate, then compare the two runs. Nothing here writes to the database: the freeze sends only GET requests, and a board runs on an in-memory client that raises on every write.
 
-A board hands the frozen games straight to `compute_all_cohorts`, so it never runs `fetch_games_for_rankings`. A change to the games query, the exclusion list, merge resolution of game rows or de-duplication does not reach a board. Measure such a change at the input instead: freeze once with each code root on the same `--today`, then compare the two `<freeze dir>/games.parquet` files for games added or removed, teams affected, and teams crossing `MIN_GAMES_PROVISIONAL` (12). A board whose code root changed the fetch's files, the helpers it calls, or the fetch window lists them in `fetch_code_not_measured`.
+A board hands the frozen games straight to `compute_all_cohorts`, so it never runs `fetch_games_for_rankings`. A change to the games query, the exclusion list, merge resolution of game rows or de-duplication does not reach a board. Measure such a change at the input instead: freeze once with each code root on the same `--today`, then compare the two `<freeze dir>/games.parquet` files for games added or removed, teams affected, and teams crossing `MIN_GAMES_PROVISIONAL` (10). A board whose code root changed the fetch's files, the helpers it calls, or the fetch window lists them in `fetch_code_not_measured`.
 
 ## Step 1: Prepare One Worktree per Code Version
 
@@ -27,7 +27,7 @@ python <skill dir>/scripts/shadow_harness.py freeze \
 
 - `<skill dir>` is this skill's folder as an absolute path, in any checkout that has it; engine code is imported only from `--code-root`.
 - Use a worktree at origin/main as the code root, so the fetch is production's current code. Pass today's UTC date: the freeze reads the database as it is now, so a past date does not reproduce that day's inputs. A time split (Step 5) passes its split date instead.
-- The freeze fetches games over production's window (`WINDOW_DAYS` + `WINDOW_GRACE_DAYS`, 393 days), then the team metadata and the merge map. It takes about 20 minutes.
+- The freeze fetches games over production's window (`WINDOW_DAYS` + `WINDOW_GRACE_DAYS`, now 365 days; older freezes used 393), then the team metadata and the merge map. It takes about 20 minutes.
 - Before a fresh fetch, look for a saved input snapshot: a games file an earlier shadow run wrote (Codex worktrees keep those runs in folders under `data/cache/`). Pass it with `--games-from <file>` and the `--today` that run used. The freeze refuses a file whose columns or dates do not fit, which also rules out the engine's own per-cohort cache files (`rankings_<hash>_games.parquet`).
 - A reused snapshot is resolved against older merges and cannot reveal fetch-code changes. Report the manifest's `team_ids_deprecated_in_merge_map` as drift.
 - Keep freezes and runs outside the repo, in the session scratchpad. A freeze is about 350 MB.

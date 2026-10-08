@@ -13,13 +13,13 @@ You are working on PitchRank's ranking system. This skill explains the Glicko-2 
 `compute_rankings_with_ml()` handles one cohort. Canonical stage order:
 
 1. `fetch_games_for_rankings()` — Supabase → engine format (two rows per game) over
-   `WINDOW_DAYS` + `WINDOW_GRACE_DAYS` = 393 days. `compute_all_cohorts`,
-   `compute_rankings_with_ml` and the CLI add the grace to `lookback_days` themselves
-   (`_effective_fetch_lookback_days`), so they take 365 and only a direct fetch call passes
-   393; given 393, they fetch 421 days. Merge resolution via `team_merge_map`, then every
+   `WINDOW_DAYS` = 365 days, with `WINDOW_GRACE_DAYS = 0`. `compute_all_cohorts`,
+   `compute_rankings_with_ml` and the CLI use `_effective_fetch_lookback_days`; their
+   default 365-day request no longer fetches the old 28-day grace period. Merge resolution via `team_merge_map`, then every
    game touching a team in `team_ranking_exclusions` is dropped from both sides. That read
    fails closed: a run raises rather than ranking without the list
-2. Cache check (MD5 of game IDs + lookback + merge version + engine); the cache only
+2. Cache check (MD5 of game IDs + lookback + merge version + engine/config fingerprint,
+   including selection policy, limit, window and as-of timestamp); the cache only
    ever serves Pass 1 — Pass 2 always rebuilds
 3. **Pass 1**: `compute_rankings_v2()` per (age, gender) cohort, `global_strength_map=None`
    — an opponent outside the cohort is rated 1500 / RD 350. ML runs but its residuals
@@ -135,22 +135,22 @@ All normalizations are per-cohort (age, gender). Preserves natural gaps unlike p
 | `INITIAL_VOLATILITY` | 0.06 | Starting volatility |
 | `TAU` | 0.5 | Volatility system constant |
 | `GLICKO2_SCALE` | 173.7178 | Scale conversion factor (module constant in `glicko_engine.py`, not a config field) |
-| `MAX_GAMES` | 30 | Recent games for OFF/DEF |
+| `MAX_GAMES` | 30 | Newest valid games per team for rating, OFF/DEF, SOS and ML |
 | `WINDOW_DAYS` | 365 | Historical window |
 | `INACTIVE_DAYS` | 180 | Inactive threshold |
 | `RECENCY_LAMBDA` | 1.0 | Exponential decay rate |
 | `MAX_GD` | 6 | Max goal difference per game |
 | `CONVERGENCE_THRESHOLD` | 1.0 | Mean |delta_mu| to stop (max 30 Jacobi iterations) |
-| `WINDOW_GRACE_DAYS` | 28 | Linear taper applied to games 366–393 days old, on top of the exponential |
+| `WINDOW_GRACE_DAYS` | 0 | No expired games in the production selection |
 
 ### Other engine parameters (single home — CLAUDE.md and the agent point here)
 
 - GF/GA are clipped at ±2.5σ per cohort before the outcome formula above, and where the clip changes a row's win, draw or loss, it is restored: the loser drops to one below the winner, and a draw stays level at the lower value
-- **Game selection**: `MAX_GAMES` is a balanced pick of 20 recent + 7 same-age quality + 3 bridge, then recent backfill
-- **Weights**: the recency exponential is multiplied by the `WINDOW_GRACE_DAYS` taper and normalized to sum 1 per team; repeat-opponent multipliers 1.0 / 0.8 / 0.6 / 0.4
+- **Game selection**: newest `MAX_GAMES` games in the inclusive 365-day window ending at the as-of time. Date descending, then stable game/row/opponent IDs for ties. No preference for results, opponent strength, state or league. `BALANCED_SELECTION_ENABLED` defaults to false; the old 20/7/3 selector is available only through explicit configuration for historical comparisons.
+- **Weights**: the recency exponential is normalized to sum 1 per team; repeat-opponent multipliers 1.0 / 0.8 / 0.6 / 0.4. The legacy grace taper is inactive at the zero default.
 - **Cross-age**: `opp_mu + (opp_anchor − team_anchor)·400`; Pass 2 rates cross-age opponents at RD 350 so g(φ) discounts them
 - **SOS adjustment**: mu's distance from 1500 scaled down up to 16% when `sos_norm < 0.45`, up at most 3% when `sos_norm > 0.60`
-- **Provisional / status**: `provisional_mult = 1 − (RD/350)²`; Inactive after `INACTIVE_DAYS`; "Not Enough Ranked Games" below 12
+- **Provisional / status**: `provisional_mult = 1 − (RD/350)²`; Inactive after `INACTIVE_DAYS`; "Not Enough Ranked Games" below 10
 
 ### Feature flags currently OFF
 
@@ -263,7 +263,7 @@ python scripts/calculate_rankings.py --engine glicko --lookback-days 365 --dry-r
 |------|--------|
 | `--ml` | No-op under Glicko: ML runs unless env `ML_LAYER_ENABLED=false` |
 | `--engine glicko` | Engine: glicko (default) or v53e (legacy) |
-| `--lookback-days 365` | Game window; Glicko raises it to at least 365 and adds the 28-day grace (393 days) |
+| `--lookback-days 365` | Game fetch window; Glicko defaults to 365 with no grace, then selects at most 30 games per team within 365 days |
 | `--dry-run` | No database writes |
 | `--force-rebuild` | Ignore cache |
 | `--age-group u14` | Filter age group |

@@ -2121,6 +2121,9 @@ async def compute_rankings_with_ml(
     use_glicko = ctx.use_glicko
     ceiling_connectivity_enabled = ctx.ceiling_connectivity_enabled
     initial_ratings = ctx.initial_ratings
+    if use_glicko and today is None:
+        # Bind fetching, selection and cache identity to the same instant.
+        today = pd.Timestamp.now("UTC").tz_localize(None)
     snapshot_date = _normalize_snapshot_date(today)
 
     v53_cfg = v53_cfg or V53EConfig()
@@ -2194,8 +2197,17 @@ async def compute_rankings_with_ml(
     _ecfg = glicko_cfg or v53_cfg
     _ml = layer13_cfg or Layer13Config(lookback_days=_ecfg.WINDOW_DAYS if hasattr(_ecfg, "WINDOW_DAYS") else 365)
     _cfg_dict = {
-        "cache_schema": 3,
+        "cache_schema": 4,
         "engine": "glicko" if use_glicko else "v53e",
+        "as_of": pd.Timestamp(today).isoformat() if today is not None else None,
+        "selection_policy": (
+            "balanced_20_7_3_v1" if getattr(_ecfg, "BALANCED_SELECTION_ENABLED", False) else "newest_v1"
+        ) if use_glicko else "v53e",
+        "max_games": _ecfg.MAX_GAMES if use_glicko else _ecfg.MAX_GAMES_FOR_RANK,
+        "selection_recent": getattr(_ecfg, "BALANCED_SELECTION_RECENT_GAMES", None),
+        "selection_quality": getattr(_ecfg, "BALANCED_SELECTION_SAME_AGE_QUALITY_GAMES", None),
+        "selection_bridge": getattr(_ecfg, "BALANCED_SELECTION_BRIDGE_GAMES", None),
+        "selection_cross_age": getattr(_ecfg, "BALANCED_SELECTION_CROSS_AGE_BRIDGE_MULT", None),
         "min_games": _ecfg.MIN_GAMES_PROVISIONAL,
         "window": getattr(_ecfg, "WINDOW_DAYS", 365),
         "window_grace": getattr(_ecfg, "WINDOW_GRACE_DAYS", 0),

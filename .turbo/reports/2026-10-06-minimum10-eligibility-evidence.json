@@ -1,0 +1,323 @@
+{
+  "as_of": "2026-08-31",
+  "policy": "Newest 30 valid games within 365 days, minimum 10; inactivity still 180 days",
+  "owner_approval": "October 6, 2026: ok lets go with the 10",
+  "scope": "Eligibility-only reclassification of verified archived selected games; not final ranking movement or current live counts",
+  "totals": {
+    "previously_active": 60640,
+    "eligible12": 59545,
+    "eligible10": 65388,
+    "lost_at12": 1095,
+    "restored": 786,
+    "leaving": 309,
+    "newly_eligible": 5057,
+    "restored_recent60": 319,
+    "leaving_recent60": 185,
+    "newly_eligible_recent60": 1345
+  },
+  "boards": [
+    {
+      "age": "10",
+      "gender": "female",
+      "previously_active": 833,
+      "eligible12": 802,
+      "eligible10": 1046,
+      "lost_at12": 31,
+      "restored": 25,
+      "leaving": 6,
+      "newly_eligible": 219
+    },
+    {
+      "age": "10",
+      "gender": "male",
+      "previously_active": 1523,
+      "eligible12": 1488,
+      "eligible10": 1900,
+      "lost_at12": 35,
+      "restored": 21,
+      "leaving": 14,
+      "newly_eligible": 391
+    },
+    {
+      "age": "11",
+      "gender": "female",
+      "previously_active": 2942,
+      "eligible12": 2871,
+      "eligible10": 3220,
+      "lost_at12": 71,
+      "restored": 47,
+      "leaving": 24,
+      "newly_eligible": 302
+    },
+    {
+      "age": "11",
+      "gender": "male",
+      "previously_active": 5381,
+      "eligible12": 5308,
+      "eligible10": 5896,
+      "lost_at12": 73,
+      "restored": 43,
+      "leaving": 30,
+      "newly_eligible": 545
+    },
+    {
+      "age": "12",
+      "gender": "female",
+      "previously_active": 3187,
+      "eligible12": 3134,
+      "eligible10": 3346,
+      "lost_at12": 53,
+      "restored": 36,
+      "leaving": 17,
+      "newly_eligible": 176
+    },
+    {
+      "age": "12",
+      "gender": "male",
+      "previously_active": 5830,
+      "eligible12": 5718,
+      "eligible10": 6126,
+      "lost_at12": 112,
+      "restored": 84,
+      "leaving": 28,
+      "newly_eligible": 324
+    },
+    {
+      "age": "13",
+      "gender": "female",
+      "previously_active": 3388,
+      "eligible12": 3322,
+      "eligible10": 3553,
+      "lost_at12": 66,
+      "restored": 43,
+      "leaving": 23,
+      "newly_eligible": 188
+    },
+    {
+      "age": "13",
+      "gender": "male",
+      "previously_active": 5887,
+      "eligible12": 5765,
+      "eligible10": 6219,
+      "lost_at12": 122,
+      "restored": 79,
+      "leaving": 43,
+      "newly_eligible": 375
+    },
+    {
+      "age": "14",
+      "gender": "female",
+      "previously_active": 3108,
+      "eligible12": 3047,
+      "eligible10": 3245,
+      "lost_at12": 61,
+      "restored": 46,
+      "leaving": 15,
+      "newly_eligible": 152
+    },
+    {
+      "age": "14",
+      "gender": "male",
+      "previously_active": 5202,
+      "eligible12": 5098,
+      "eligible10": 5408,
+      "lost_at12": 104,
+      "restored": 74,
+      "leaving": 30,
+      "newly_eligible": 236
+    },
+    {
+      "age": "15",
+      "gender": "female",
+      "previously_active": 2898,
+      "eligible12": 2848,
+      "eligible10": 3008,
+      "lost_at12": 50,
+      "restored": 34,
+      "leaving": 16,
+      "newly_eligible": 126
+    },
+    {
+      "age": "15",
+      "gender": "male",
+      "previously_active": 4635,
+      "eligible12": 4564,
+      "eligible10": 4869,
+      "lost_at12": 71,
+      "restored": 51,
+      "leaving": 20,
+      "newly_eligible": 254
+    },
+    {
+      "age": "16",
+      "gender": "female",
+      "previously_active": 2159,
+      "eligible12": 2095,
+      "eligible10": 2300,
+      "lost_at12": 64,
+      "restored": 56,
+      "leaving": 8,
+      "newly_eligible": 149
+    },
+    {
+      "age": "16",
+      "gender": "male",
+      "previously_active": 3548,
+      "eligible12": 3482,
+      "eligible10": 3820,
+      "lost_at12": 66,
+      "restored": 50,
+      "leaving": 16,
+      "newly_eligible": 288
+    },
+    {
+      "age": "17",
+      "gender": "female",
+      "previously_active": 1639,
+      "eligible12": 1608,
+      "eligible10": 1800,
+      "lost_at12": 31,
+      "restored": 28,
+      "leaving": 3,
+      "newly_eligible": 164
+    },
+    {
+      "age": "17",
+      "gender": "male",
+      "previously_active": 2688,
+      "eligible12": 2659,
+      "eligible10": 2978,
+      "lost_at12": 29,
+      "restored": 20,
+      "leaving": 9,
+      "newly_eligible": 299
+    },
+    {
+      "age": "19",
+      "gender": "female",
+      "previously_active": 2312,
+      "eligible12": 2285,
+      "eligible10": 2645,
+      "lost_at12": 27,
+      "restored": 23,
+      "leaving": 4,
+      "newly_eligible": 337
+    },
+    {
+      "age": "19",
+      "gender": "male",
+      "previously_active": 3480,
+      "eligible12": 3451,
+      "eligible10": 4009,
+      "lost_at12": 29,
+      "restored": 26,
+      "leaving": 3,
+      "newly_eligible": 532
+    }
+  ],
+  "old_top100_lost_at12": [
+    {
+      "team_id": "31c414a1-4dbb-492d-abde-dda7f0297c12",
+      "age": "10",
+      "gender": "female",
+      "rank_in_cohort_final": 66,
+      "new_games": 10,
+      "eligible10": true
+    },
+    {
+      "team_id": "ace679f8-3d9a-4c86-a587-03202537fa4b",
+      "age": "10",
+      "gender": "female",
+      "rank_in_cohort_final": 7,
+      "new_games": 9,
+      "eligible10": false
+    },
+    {
+      "team_id": "be8aaf62-accf-4c40-8fea-0d90d892494c",
+      "age": "10",
+      "gender": "female",
+      "rank_in_cohort_final": 13,
+      "new_games": 8,
+      "eligible10": false
+    },
+    {
+      "team_id": "ed352161-9fc8-47be-8b0d-6f123eb00352",
+      "age": "10",
+      "gender": "female",
+      "rank_in_cohort_final": 43,
+      "new_games": 11,
+      "eligible10": true
+    },
+    {
+      "team_id": "1c69dc93-7575-4c57-badc-7884141ce40e",
+      "age": "10",
+      "gender": "female",
+      "rank_in_cohort_final": 11,
+      "new_games": 11,
+      "eligible10": true
+    },
+    {
+      "team_id": "18953f3f-5f43-45ae-9222-f4f8786f4181",
+      "age": "11",
+      "gender": "female",
+      "rank_in_cohort_final": 93,
+      "new_games": 11,
+      "eligible10": true
+    },
+    {
+      "team_id": "138021e2-dcbf-42b6-9fe9-e4768a9b72c7",
+      "age": "13",
+      "gender": "female",
+      "rank_in_cohort_final": 87,
+      "new_games": 6,
+      "eligible10": false
+    },
+    {
+      "team_id": "098a9210-4d7a-4c22-997f-f251d17d26e7",
+      "age": "13",
+      "gender": "female",
+      "rank_in_cohort_final": 35,
+      "new_games": 10,
+      "eligible10": true
+    },
+    {
+      "team_id": "9498f76a-4dfd-43a8-aaa7-87b923718646",
+      "age": "13",
+      "gender": "male",
+      "rank_in_cohort_final": 34,
+      "new_games": 8,
+      "eligible10": false
+    },
+    {
+      "team_id": "48562ef5-d082-41dc-9b7c-83c51289514d",
+      "age": "14",
+      "gender": "female",
+      "rank_in_cohort_final": 86,
+      "new_games": 11,
+      "eligible10": true
+    },
+    {
+      "team_id": "8c9578f5-6b80-4cc8-82e7-b6acce420c49",
+      "age": "16",
+      "gender": "male",
+      "rank_in_cohort_final": 63,
+      "new_games": 11,
+      "eligible10": true
+    }
+  ],
+  "selected_games_sha256": "d18625e895f6847209ae29a254c223adb7131692d2cf191f0f3511d8604ba191",
+  "selection_receipt_sha256": "b9ef8ce0d97b6e7a6b4a171a6f4caeccc6f03d2e0b64e0720e52de4537fcd06c",
+  "baseline_teams_sha256": "71d73b1e0a89b0b1b87a331b9baf6e340ac2bb95f2ff7fa970b45126114d0ad9",
+  "per_team_sha256": "6c826d121e48177956a13f6ca2ce2155da0ef4cba9aae96143765a3c1fd5bb16",
+  "source_sha256": {
+    "src/etl/glicko_config.py": "f7e4fc28265ffe21e786346281edc2e00286bf330e01dd0c0b667994e96c655d",
+    "src/etl/glicko_engine.py": "e2794f1589519a30fc92253eeb996dfbe5fa83e217d11e427fdb3db64c799fec",
+    "src/rankings/calculator.py": "0e67d508c77ef2e34a24184c2f143f8e8443648aa389c6869f40150a80abac99"
+  },
+  "limits": [
+    "Saved August inputs; not today's live eligibility.",
+    "Rank movement and effects on SOS or ceilings require the combined full preview.",
+    "The archived 12-game audit is preserved separately.",
+    "No October outcomes, prediction scoring, live database reads or publication."
+  ]
+}

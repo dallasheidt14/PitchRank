@@ -342,7 +342,7 @@ class TestSelectGames:
 
 class TestBalancedSelection:
     def test_balanced_selection_reserves_quality_slots(self):
-        cfg = GlickoConfig()
+        cfg = GlickoConfig(BALANCED_SELECTION_ENABLED=True)
         today = pd.Timestamp("2026-03-31")
         rows = []
 
@@ -396,6 +396,7 @@ class TestBalancedSelection:
         """A U9 bridge opponent counts as U10, so it cannot outbid stronger U11 bridges."""
         cfg = GlickoConfig(
             MAX_GAMES=30,
+            BALANCED_SELECTION_ENABLED=True,
             BALANCED_SELECTION_RECENT_GAMES=20,
             BALANCED_SELECTION_SAME_AGE_QUALITY_GAMES=7,
             BALANCED_SELECTION_BRIDGE_GAMES=3,
@@ -441,8 +442,8 @@ class TestBalancedSelection:
         assert sorted(bridge["opp_id"].astype(str)) == ["E0", "E1", "E2"]
         assert "Y9" not in set(selected["opp_id"].astype(str))
 
-    def test_selection_includes_soft_window_grace_day(self):
-        cfg = GlickoConfig()
+    def test_explicit_legacy_grace_keeps_recently_expired_game(self):
+        cfg = GlickoConfig(WINDOW_GRACE_DAYS=28)
         today = pd.Timestamp("2026-04-21")
         rows = make_game("A", "B", 2, 1, pd.Timestamp("2025-04-20"))
         games = pd.DataFrame(rows)

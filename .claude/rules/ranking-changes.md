@@ -9,7 +9,7 @@ When investigating a ranking issue, fix the confirmed bug first. Don't mix bug f
 ## Measure the blast radius before shipping
 A change to what the engine reads moves teams the change is not about. Measure it read-only first
 and put the numbers in the PR: how many games it removes or adds, how many teams on the other side
-of those games are affected, and how many cross `MIN_GAMES_PROVISIONAL` (12) in either direction —
+of those games are affected, and how many cross `MIN_GAMES_PROVISIONAL` (10) in either direction —
 crossing it takes a team's published rank away. A team that ends at zero games is usually a sign
 the change caught something it should not have, or that the team belonged to the same population.
 
