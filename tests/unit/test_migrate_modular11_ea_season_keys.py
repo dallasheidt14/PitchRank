@@ -168,3 +168,13 @@ def test_refuse_unmigrated_names_the_command():
         migrate.refuse_unmigrated(_db(), PROVIDER)
     keyed = _Db(aliases=[{"id": 1, "provider_id": PROVIDER, "provider_team_id": "3432:2026", "team_id_master": "C"}])
     migrate.refuse_unmigrated(keyed, PROVIDER)
+
+
+def test_execute_creates_its_log_folder(tmp_path, monkeypatch):
+    db = _db()
+    monkeypatch.setattr(migrate, "_new_client", lambda: db)
+    monkeypatch.setattr(migrate, "_provider_id", lambda sb: PROVIDER)
+    out = tmp_path / "fresh" / "modular11_ea"
+    assert migrate.main(["--season", "2026", "--out-dir", str(out), "--execute"]) == 0
+    assert len(list(out.glob("season_key_log_*.jsonl"))) == 1
+    assert _ids(db, "teams")[0] == (PROVIDER, "7155:2026")

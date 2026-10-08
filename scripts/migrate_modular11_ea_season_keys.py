@@ -153,6 +153,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--season is required")
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    if args.execute:
+        args.out_dir.mkdir(parents=True, exist_ok=True)
     log_path = args.out_dir / f"season_key_log_{stamp}.jsonl"
     counts = migrate(sb, _provider_id(sb), args.season, log_path, args.execute)
     print(" ".join(f"{k}={v}" for k, v in counts.items()))

@@ -155,6 +155,19 @@ def _linked_team(sb, provider_id: str, provider_team_id: str) -> str | None:
     return rows[0]["team_id_master"] if rows else None
 
 
+def _alias_row(sb, provider_id: str, key: str) -> dict | None:
+    """The alias row for this key in any review status: what an "updated" write overwrites."""
+    rows = (
+        sb.table("team_alias_map")
+        .select("id, team_id_master, match_method, match_confidence, review_status")
+        .eq("provider_id", provider_id)
+        .eq("provider_team_id", key)
+        .execute()
+        .data
+    )
+    return rows[0] if rows else None
+
+
 def _usable_target(sb, team_id_master: str, age_group: str) -> bool:
     """The game import rejects a link whose team is in another age or gender; refuse it here instead."""
     try:
@@ -227,6 +240,7 @@ def apply_plan(sb, provider_id: str, plan: list[LinkAction], log_path: Path) -> 
                     log.write(json.dumps({"kind": "team", "team_id_master": target}) + "\n")
                 created[action.provider_team_id] = target
             confidence = ALIAS_CONFIDENCE[action.match_method]
+            prior = _alias_row(sb, provider_id, action.key)
             result = upsert_team_alias(
                 sb,
                 provider_uuid=provider_id,
@@ -243,17 +257,10 @@ def apply_plan(sb, provider_id: str, plan: list[LinkAction], log_path: Path) -> 
             else:
                 counts["conflicts"] += 1
                 print(f"Alias for EA team {action.provider_team_id} not written: {result}")
-            log.write(
-                json.dumps(
-                    {
-                        "kind": "alias",
-                        "provider_team_id": action.key,
-                        "team_id_master": target,
-                        "result": outcome,
-                    }
-                )
-                + "\n"
-            )
+            entry = {"kind": "alias", "provider_team_id": action.key, "team_id_master": target, "result": outcome}
+            if outcome == "updated":
+                entry["prior"] = prior
+            log.write(json.dumps(entry) + "\n")
     return counts, created
 
 
@@ -266,10 +273,21 @@ def _game_count(sb, team_id_master: str) -> int:
 
 
 def undo(sb, provider_id: str, log_path: Path) -> dict[str, int]:
-    """Removes the aliases a run created, then the teams it created that no game references."""
+    """Removes the aliases a run created, restores the ones it updated, then removes the teams it
+    created that no game references. An alias moved since the run is left as it now stands."""
     entries = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines() if line.strip()]
-    counts = {"aliases_removed": 0, "teams_removed": 0, "teams_refused": 0}
+    counts = {"aliases_removed": 0, "aliases_restored": 0, "teams_removed": 0, "teams_refused": 0}
     for entry in entries:
+        if entry["kind"] == "alias" and entry["result"] == "updated" and entry.get("prior"):
+            prior = entry["prior"]
+            restored = (
+                sb.table("team_alias_map")
+                .update({k: v for k, v in prior.items() if k != "id"})
+                .eq("id", prior["id"])
+                .eq("team_id_master", entry["team_id_master"])
+                .execute()
+            )
+            counts["aliases_restored"] += len(restored.data or [])
         if entry["kind"] == "alias" and entry["result"] == "created":
             removed = (
                 sb.table("team_alias_map")

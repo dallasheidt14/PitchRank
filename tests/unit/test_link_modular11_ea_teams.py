@@ -37,6 +37,10 @@ class _Query:
         self.op = "delete"
         return self
 
+    def update(self, payload):
+        self.op, self.payload = "update", payload
+        return self
+
     def eq(self, column, value):
         self.filters.append((column, value))
         return self
@@ -64,12 +68,17 @@ class _Query:
             self.db.rows[self.table].append(dict(self.payload))
             return _Result([self.payload])
         rows = self._matching()
+        if self.op == "update":
+            for row in rows:
+                row.update(self.payload)
+            return _Result(rows)
         if self.op == "delete":
             for row in rows:
                 self.db.rows[self.table].remove(row)
             return _Result(rows)
         if self.window:
             rows = rows[self.window[0] : self.window[1] + 1]
+        rows = [dict(r) for r in rows]  # PostgREST returns copies, never the stored rows
         if self.single_row:
             if len(rows) != 1:
                 raise APIError({"code": "PGRST116", "message": "JSON object requested, multiple (or no) rows returned"})
@@ -86,12 +95,13 @@ class _Db:
         return _Query(self, name)
 
     def writes(self):
-        return [e for e in self.executed if e[0] in ("insert", "delete")]
+        return [e for e in self.executed if e[0] in ("insert", "delete", "update")]
 
 
 @pytest.fixture
 def alias_calls(monkeypatch):
-    """Stands in for upsert_team_alias: stores the alias in the double and reports created/updated."""
+    """Stands in for upsert_team_alias with its outcomes: an approved alias to another team is a
+    conflict, an approved one at no lower confidence is skipped, anything else is overwritten."""
     calls = []
 
     def fake_upsert(sb, **kwargs):
@@ -102,10 +112,17 @@ def alias_calls(monkeypatch):
             if a["provider_id"] == kwargs["provider_uuid"] and a["provider_team_id"] == kwargs["provider_team_id"]
         ]
         if existing:
-            existing[0]["team_id_master"] = kwargs["team_id_master"]
+            row = existing[0]
+            if row.get("review_status") == "approved" and row["team_id_master"] != kwargs["team_id_master"]:
+                return {"action": "conflict"}
+            if row.get("review_status") == "approved" and kwargs["confidence"] <= (row.get("match_confidence") or 0):
+                return {"action": "skipped_weaker_metadata"}
+            row.update(team_id_master=kwargs["team_id_master"], match_method=kwargs["match_method"],
+                       match_confidence=kwargs["confidence"], review_status="approved")
             return {"action": "updated"}
         sb.rows["team_alias_map"].append(
             {
+                "id": 1000 + len(sb.rows["team_alias_map"]),
                 "provider_id": kwargs["provider_uuid"],
                 "provider_team_id": kwargs["provider_team_id"],
                 "team_id_master": kwargs["team_id_master"],
@@ -229,12 +246,13 @@ def test_hold_writes_nothing(tmp_path, alias_calls):
 
 
 def test_undo_removes_created_aliases_and_empty_teams(tmp_path, alias_calls):
-    keep = {"provider_id": PROVIDER, "provider_team_id": "9:2026", "team_id_master": "KEEP", "review_status": "approved"}
+    keep = {"id": 1, "provider_id": PROVIDER, "provider_team_id": "9:2026", "team_id_master": "KEEP",
+            "match_confidence": 0.95, "review_status": "approved"}
     db = _Db(aliases=[keep], teams=[_live("KEEP")])
     plan = link.plan_links([_team("7155"), _team("9")], [_report("7155", "no_match"), _report("9", "confident", "KEEP")], {})
     log = tmp_path / "log.jsonl"
     link.apply_plan(db, PROVIDER, plan, log)
-    assert link.undo(db, PROVIDER, log) == {"aliases_removed": 1, "teams_removed": 1, "teams_refused": 0}
+    assert link.undo(db, PROVIDER, log) == {"aliases_removed": 1, "aliases_restored": 0, "teams_removed": 1, "teams_refused": 0}
     assert db.rows["teams"] == [_live("KEEP")]
     assert db.rows["team_alias_map"] == [keep]
 
@@ -245,7 +263,7 @@ def test_undo_refuses_team_with_games(tmp_path, alias_calls):
     log = tmp_path / "log.jsonl"
     _, created = link.apply_plan(db, PROVIDER, plan, log)
     db.rows["games"].append({"home_team_master_id": "X", "away_team_master_id": created["7155"]})
-    assert link.undo(db, PROVIDER, log) == {"aliases_removed": 1, "teams_removed": 0, "teams_refused": 1}
+    assert link.undo(db, PROVIDER, log) == {"aliases_removed": 1, "aliases_restored": 0, "teams_removed": 0, "teams_refused": 1}
     assert [t["team_id_master"] for t in db.rows["teams"]] == [created["7155"]]
 
 
@@ -360,3 +378,27 @@ def test_mismatched_roster_and_report_stop_the_run(tmp_path, monkeypatch):
     monkeypatch.setattr(link, "_new_client", lambda: (_ for _ in ()).throw(AssertionError("opened a client")))
     with pytest.raises(SystemExit, match="match_report.csv"):
         link.main(["--age", "u17", "--in-dir", str(tmp_path), "--execute"])
+
+
+def test_undo_restores_an_alias_the_run_updated(tmp_path, alias_calls):
+    pending = {"id": 7, "provider_id": PROVIDER, "provider_team_id": "1:2026", "team_id_master": "OTHER",
+               "match_method": "fuzzy_review", "match_confidence": 0.8, "review_status": "pending"}
+    db = _Db(aliases=[dict(pending)], teams=[_live("M1")])
+    plan = link.plan_links([_team("1")], [_report("1", "confident", "M1")], {})
+    log = tmp_path / "log.jsonl"
+    link.apply_plan(db, PROVIDER, plan, log)
+    assert db.rows["team_alias_map"][0]["team_id_master"] == "M1"
+    assert link.undo(db, PROVIDER, log) == {"aliases_removed": 0, "aliases_restored": 1, "teams_removed": 0, "teams_refused": 0}
+    assert db.rows["team_alias_map"] == [pending]
+
+
+def test_undo_leaves_an_updated_alias_that_moved_since(tmp_path, alias_calls):
+    pending = {"id": 7, "provider_id": PROVIDER, "provider_team_id": "1:2026", "team_id_master": "OTHER",
+               "match_method": "fuzzy_review", "match_confidence": 0.8, "review_status": "pending"}
+    db = _Db(aliases=[dict(pending)], teams=[_live("M1")])
+    plan = link.plan_links([_team("1")], [_report("1", "confident", "M1")], {})
+    log = tmp_path / "log.jsonl"
+    link.apply_plan(db, PROVIDER, plan, log)
+    db.rows["team_alias_map"][0]["team_id_master"] = "LATER"
+    assert link.undo(db, PROVIDER, log)["aliases_restored"] == 0
+    assert db.rows["team_alias_map"][0]["team_id_master"] == "LATER"

@@ -121,11 +121,36 @@ class _Table:
         return _Select(self.db)
 
 
+class _MergePage:
+    """team_merge_map paged by id, as load_merge_map reads it."""
+
+    def __init__(self, rows):
+        self.rows, self.window, self.order_by = rows, None, None
+
+    def select(self, *_cols):
+        return self
+
+    def order(self, column):
+        self.order_by = column
+        return self
+
+    def range(self, lo, hi):
+        self.window = (lo, hi)
+        return self
+
+    def execute(self):
+        assert self.order_by == "id"
+        rows = sorted(self.rows, key=lambda r: r["id"])[self.window[0] : self.window[1] + 1]
+        return type("R", (), {"data": rows})()
+
+
 class _Db:
-    def __init__(self, stored):
-        self.stored, self.counted = stored, []
+    def __init__(self, stored, merges=()):
+        self.stored, self.counted, self.merges = stored, [], list(merges)
 
     def table(self, name):
+        if name == "team_merge_map":
+            return _MergePage(self.merges)
         return _Table(self, name)
 
 
@@ -379,3 +404,14 @@ def test_a_stored_game_with_a_blank_side_is_read_without_failing():
     rows, _ = build.build_rows([_game()], TEAMS, LINKS)
     stored = [{"id": 1, "game_date": "2026-09-12", "home_team_master_id": None, "away_team_master_id": "M2"}]
     assert len(build.unstored_rows(_StoredDb(stored), rows, LINKS)) == 2
+
+
+def test_impact_counts_games_stored_under_merged_rows():
+    games = [_game(match_no=str(i), home="7155", away="7156") for i in range(3)]
+    rows, _ = build.build_rows(games, TEAMS, LINKS)
+    db = _Db(
+        {("home_team_master_id", "M1"): 6, ("away_team_master_id", "M1"): 4, ("home_team_master_id", "OLD1"): 3,
+         ("home_team_master_id", "M2"): 13},
+        merges=[{"id": 1, "deprecated_team_id": "OLD1", "canonical_team_id": "M1"}],
+    )
+    assert build.impact(db, rows, LINKS)["crossing_teams"] == []

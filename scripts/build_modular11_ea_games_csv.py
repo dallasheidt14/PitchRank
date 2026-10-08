@@ -188,12 +188,21 @@ def unstored_rows(sb, rows: list[dict], links: dict[str, str]) -> list[dict]:
 
 
 def impact(sb, rows: list[dict], links: dict[str, str]) -> dict:
-    """Games added, teams touched, and teams that reach the provisional game count."""
+    """Games added, teams touched, and teams that reach the provisional game count.
+
+    A team's stored games include those under rows merged into it, which rankings count as its own.
+    """
     added = Counter(links[row["team_id"]] for row in rows)
     since = (date.today() - timedelta(days=RANKING_WINDOW_DAYS)).isoformat()
+    merge_map = load_merge_map(sb) if any(not m.startswith("new:") for m in added) else {}
+    canonical = resolver(merge_map)
     crossing = []
     for team_id_master, new_games in sorted(added.items()):
-        stored = 0 if team_id_master.startswith("new:") else _stored_games(sb, team_id_master, since)
+        if team_id_master.startswith("new:"):
+            stored = 0
+        else:
+            rows_of_team = merged_into([team_id_master], merge_map, canonical)
+            stored = sum(_stored_games(sb, team_id, since) for team_id in sorted(rows_of_team))
         if stored < PROVISIONAL_GAMES <= stored + new_games:
             crossing.append(team_id_master)
     return {
