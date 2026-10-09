@@ -30,6 +30,7 @@ AGE_DERIVING_SCRIPTS = (
     "find_queue_matches.py",
     "auto_match_unknown_opponents.py",
     "discover_teams_from_opponents.py",
+    "import_yssl.py",
 )
 
 # Scripts with no safe default: they write unless a flag opts OUT, or they exist
@@ -121,6 +122,7 @@ def test_the_scan_finds_the_known_writing_steps():
     workflows = {w for w, _, _ in found}
     assert "data-hygiene-weekly.yml" in workflows
     assert "auto-merge-queue.yml" in workflows
+    assert "yssl-scraper.yml" in workflows
 
 
 def test_every_exemption_still_exists():

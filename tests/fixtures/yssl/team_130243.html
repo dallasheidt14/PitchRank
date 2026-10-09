@@ -1,0 +1,1225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title>AACM121 | Team | YSSL</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+	<link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32x32.png">
+	<link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16x16.png">
+	<link rel="manifest" href="/icons/site.webmanifest">
+	<meta name="msapplication-TileColor" content="#da532c">
+	<meta name="msapplication-config" content="/icons/browserconfig.xml">
+	<meta name="theme-color" content="#ffffff">
+	
+  <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.4.0/css/bootstrap.min.css">
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+  <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.4.0/js/bootstrap.min.js"></script>
+  <link href="https://fonts.googleapis.com/css?family=Lato|Staatliches&display=swap" rel="stylesheet">
+  <script src="https://kit.fontawesome.com/9dcd3ba02e.js" crossorigin="anonymous"></script>  <link rel="stylesheet" href="/yssl/bootstrap.css">
+
+  <style>
+
+    body {
+        margin-top: 90px;
+    }
+
+
+    .navbar-brand {
+        float: left;
+        height: 50px;
+        padding: 10px 10px;
+        font-size: 18px;
+        line-height: 20px;
+    }
+
+    #subpage_header_img {
+         background:url(/images/new/header_subpage2.png);
+         width:90px;
+         height:40px;
+    }
+    @media screen and (max-width:400px) {
+         #subpage_header_img {
+             background:url(/images/new/header_subpageM.png);
+             width:240px;
+         }
+    }
+
+  </style>
+<LINK REL=Stylesheet HREF="/textcss.php" TYPE="text/css" />
+<script type="text/javascript" src="rsspausescroller.js"></script><script type="text/javascript" src="/ajaxpage.js"></script>
+<script type="text/javascript" src="/newwindow.js"></script>
+
+<script language="JavaScript" type="text/javascript">
+function CheckAll(fm) {
+  fmobj = document.getElementById(fm);
+  for (var i=0;i<fmobj.elements.length;i++) {
+    var e = fmobj.elements[i];
+    if ( (e.name != 'allcheck') && (e.type=='checkbox') && (!e.disabled) ) {
+      e.checked = fmobj.allcheck.checked;
+    }
+  }
+}
+
+function refreshnow(surl)
+{
+    window.location.href = surl;
+}
+
+function refreshlater(surl, to)
+{
+    setTimeout('refreshnow("'+surl+'")', to);
+}
+
+function setXAdminRes(adminres)
+{
+    var o = document.getElementById('div_adminres');
+    if(o != null)
+        o.innerHTML = '<table border=0 cellpadding=2 cellspacing=0><tr bgcolor="#FFC6C6"><td><img src="/images/error.gif" align=absmiddle />&nbsp;<span class=ErrorText>'+adminres+'</span>&nbsp;</td></tr></table>';
+}
+
+</script>
+
+
+<script src="https://cdn.tiny.cloud/1/syhqyb2h2hypi36195u0v65ed8mfz0zdwmacnan8frwu06p9/tinymce/5/tinymce.min.js"></script>
+<script>
+	  tinymce.init({
+	    selector: 'textarea.editme',
+		
+    selector: 'textarea.editme',
+    menu: {
+        custom: { title: 'Format', items: 'bold italic underline strikethrough superscript subscript codeformat | formats  | removeformat' },
+    },
+    document_base_url: 'https://yssl.org',
+    relative_urls: false,
+	remove_script_host: false,
+    menubar: 'edit insert custom table tools help',
+    // Added: image to plugins
+    plugins: 'advlist link lists code autoresize table hr insertdatetime charmap anchor nonbreaking help image',
+    // Added: image button to toolbar
+    toolbar: 'styleselect | bold italic underline | link image | alignleft aligncenter alignright alignjustify | outdent indent | removeformat code',
+    valid_elements: '@[class|align|valign|style],a[href|name|id|target],table[border|width|cellpadding|cellspacing],tr,td,strong/b,div,hr[size],br,p,span[class|style|id],i,ul,li,big,img[*]',
+    invalid_styles: 'font-family',
+    content_style: 'body { background-color: #FFF; margin: 5px; },p { margin: 0; margin-bottom: 10px; color: #000; letter-spacing: 2px; font-size: 14px; }',
+    statusbar: false,
+	content_css: 'https://maxcdn.bootstrapcdn.com/bootstrap/3.4.0/css/bootstrap.min.css,/yssl/bootstrap.css,/textcss.php',
+    forced_root_block: false,
+    formats: {
+        well:      { block: 'div', classes: 'well well-sm well-gray',  wrapper: true },
+        wellblue:  { block: 'div', classes: 'well well-sm well-blue',  wrapper: true },
+        wellred:   { block: 'div', classes: 'well well-sm well-red',   wrapper: true },
+        wellgreen: { block: 'div', classes: 'well well-sm well-green', wrapper: true },
+    },
+    style_formats_merge: true,
+    style_formats: [
+        { title: "Tiny Text",   inline: "span", classes: "SmallestText" },
+        { title: "Small Text",  inline: "span", classes: "SmallText" },
+        { title: "Normal Text", inline: "span", classes: "NormalText" },
+        { title: "Large Text",  inline: "span", classes: "LargeText" },
+        { title: "XLarge Text", inline: "span", classes: "XLargeText" },
+        { title: "Red Text",    inline: "span", styles: { color: "#cc0000" } },
+        { title: "Blue Text",   inline: "span", styles: { color: "#0000cc" } },
+        { title: "Green Text",  inline: "span", styles: { color: "#00cc00" } },
+        { title: 'Section', items: [
+            { title: "Section (gray box)",  format: "well" },
+            { title: "Section (blue box)",  format: "wellblue" },
+            { title: "Section (red box)",   format: "wellred" },
+            { title: "Section (green box)", format: "wellgreen" },
+        ]},
+    ],
+    contextmenu: "formats | paste pastetext | bold italic underline | link image | anchor",
+
+    // --- Image upload settings ---
+    image_title: true,
+    automatic_uploads: true,
+    images_upload_url: '/tinymce_upload.php',       // your PHP handler
+    images_upload_base_path: 'https://www.yssl.org/',                   // prepended to returned URL if needed
+    images_upload_credentials: false,                // send session cookies with upload
+    images_file_types: 'jpg,jpeg,png,gif,webp,svg',
+
+    // Alignment controls in the image dialog
+    image_advtab: true,
+
+    // Custom file picker (Browse button in image dialog)
+    file_picker_types: 'image',
+    file_picker_callback: (cb, value, meta) => {
+        const input = document.createElement('input');
+        input.setAttribute('type', 'file');
+        input.setAttribute('accept', 'image/*');
+        input.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            const reader = new FileReader();
+            reader.addEventListener('load', () => {
+                const id       = 'blobid' + Date.now();
+                const blobCache = tinymce.activeEditor.editorUpload.blobCache;
+                const base64   = reader.result.split(',')[1];
+                const blobInfo = blobCache.create(id, file, base64);
+                blobCache.add(blobInfo);
+                cb(blobInfo.blobUri(), { title: file.name });
+            });
+            reader.readAsDataURL(file);
+        });
+        input.click();
+    },
+	
+		min_height: 250,
+		max_height: 1000,
+	  });
+</script>
+	
+<script type="text/javascript" src="/jkpopimage.js?v=1790955574"></script>
+
+</head>
+<body>
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-56976160-1', 'auto');
+  ga('send', 'pageview');
+
+</script>
+<script language="JavaScript" type="text/javascript">
+function showalert(msg)
+{
+    myAlert(msg);
+}
+</script>
+<nav class="navbar navbar-inverse navbar-fixed-top margin-no-bottom bg-black">
+  <button type="button" class="navbar-toggle" data-toggle="collapse" data-target="#myNavbar">
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+      </button>
+
+    <div class="navbar-header">
+      <a class="navbar-brand" href="/index.php"><div id="subpage_header_img"></div></a>
+    </div>
+
+    <div class="collapse navbar-collapse" id="myNavbar">
+        <ul class="nav navbar-nav bg-black">
+<li><a class=whitelink href="club.php?clu_code=AAC">Club</a></li>
+    <li><a href="//yssl.org/index.php" class=whitelink>Home</a></li>
+		<li><a href="/anypage.php?f=WhotoContact.htm&title=Contact%20Us" target="contactus" class=whitelink>Contact Us</a></li>
+<li><a href="/login.php" class=whitelink>Sign in</a></li>        </ul>
+        </div>
+
+<div class="bg-primary security-header clearfix">
+<div class="pull-left">
+</div>
+<div class="pull-right">
+</div>
+</div>
+</nav>
+
+<div class="alert alert-success alert-sm alert-dismissible text-center" >Wonderful start to the YSSL Fall Season!  Thank you to all of our clubs!</div><div class="container-fluid">
+    <div class="row">
+        <div class="col-sm-12">
+
+    <!-- **** END subpage_header **** -->
+<style>
+.bg-club-all {
+	background-color: #FF0000;
+	padding: 5px;
+	border-radius: 12px;
+}
+
+.bg-club {
+	background-color: #FF0000;
+    color: #990033;
+	padding: 5px;
+}
+
+.bg-clubnav {
+	background-color: #CC0033;
+    color: #000000;
+	padding: 5px;
+}
+
+.club-logo {
+	background-color: #FFFFFF;
+	}
+
+.img-div {
+	border-radius: 5px;
+	background-color: #FFFFFF;
+	padding: 3px;
+	margin-right: 8px;
+}
+
+.club-lg-text {
+	font-size: 12pt;
+}
+
+A.clublink:link { COLOR: #990033; TEXT-DECORATION: underline }
+A.clublink:visited { COLOR: #990033; TEXT-DECORATION: underline }
+A.clublink:hover { COLOR: #990033; TEXT-DECORATION: underline }
+
+</style>
+<div class="container-fluid">
+  <div class="row bg-club-all ">
+    <div class="col-sm-12">
+
+<div class="container-fluid margin-bottom-20">
+  <div class="row bg-club ">
+        <div class="col-sm-7">
+		<table>
+		<tr valign=top><td align=center>
+			<div class="img-div">
+<img src="/logos/AAC.png" class="club-logo img-responsive" />
+		</div>
+      </td><td>
+
+<span class=LargeText><font color="#990033"><b>Team:</b>&nbsp;U12/1 AAC EAGLES CHICAGO 14/15 GOLD</font></span></font></span><br>
+<span class=LargeText><font color="#990033"><b>Team #:</b>&nbsp;AACM121</font></span></font></span><br>
+<span class=LargeText><font color="#990033"><b>Club:</b>&nbsp;<a href="club.php?clu_code=AAC" class=clublink >AAC EAGLES CHICAGO</a></font></span>
+<br /><span class="NormalText"><font color="#990033"><b>Colors: Home:</b>&nbsp;WHITE</font></span>
+&nbsp;<span class="NormalText"><font color="#990033"><b>Away:</b>&nbsp;RED</font></span>
+<br /><span class="NormalText"><font color="#990033"><b>Website:</b></font>&nbsp;<a href="https://www.aaceagleschicago.com" class=clublink>https://www.aaceagleschicago...</a></span>
+		</td></tr></table>
+        </div>
+
+        <div class="col-sm-5 text-right">
+    <font color="#990033"><b>Team Contact:</b>&nbsp;<a href="coachform.php?backpage=club.php&coa_id=244992" class=clublink>COACH NAME</a></font><br />
+    <font color="#990033"><b>Head Coach:</b></font>&nbsp;<a href="coachform.php?backpage=club.php&coa_id=213062" class=clublink>COACH NAME</a></font><br />
+    <font color="#990033"><b>Assist Coach:</b></font>&nbsp;<a href="coachform.php?backpage=club.php&coa_id=244350" class=clublink>COACH NAME</a></font><br />
+        </div>
+    </div>
+
+<!--  team navigation -->
+    <div class="row">
+        <div class="col-sm-12 bg-clubnav">
+
+<span class="SmallText">
+&nbsp;&nbsp;<a href="divgames.php?div=U12/1&tea_id=130243" class="btn btn-xs btn-l" role="button">Division Games/Standings</a>
+        </div>
+    </div>
+</div>
+<!-- end team navigation -->
+
+<style>
+
+/* Carousel Fading slide */
+.carousel-fade .carousel-inner { background: #FFF; }
+.carousel-fade .carousel-control { z-index: 2; }
+.carousel-fade .item {
+  opacity: 0;
+  -webkit-transition-property: opacity;
+  -moz-transition-property: opacity;
+  -o-transition-property: opacity;
+  transition-property: opacity;
+  }
+
+  .carousel-fade .next.left,
+  .carousel-fade .prev.right,
+  .carousel-fade .item.active { opacity: 1; }
+
+  .carousel-fade .active.left,
+  .carousel-fade .active.right {
+    left: 0;
+    opacity: 0;
+    z-index: 1;
+    }
+
+
+/* Safari Fix */
+@media all and (transform-3d), (-webkit-transform-3d) {
+    .carousel-fade .carousel-inner > .item.next,
+    .carousel-fade .carousel-inner > .item.active.right {
+      opacity: 0;
+      -webkit-transform: translate3d(0, 0, 0);
+              transform: translate3d(0, 0, 0);
+    }
+    .carousel-fade .carousel-inner > .item.prev,
+    .carousel-fade .carousel-inner > .item.active.left {
+      opacity: 0;
+      -webkit-transform: translate3d(0, 0, 0);
+              transform: translate3d(0, 0, 0);
+    }
+    .carousel-fade .carousel-inner > .item.next.left,
+    .carousel-fade .carousel-inner > .item.prev.right,
+    .carousel-fade .carousel-inner > .item.active {
+      opacity: 1;
+      -webkit-transform: translate3d(0, 0, 0);
+              transform: translate3d(0, 0, 0);
+    }
+}
+
+
+
+
+/* Carousel Control custom */
+.carousel-control .control-icon {
+  font-size: 36px;
+  height: 30px;
+  margin-top: -15px;
+  width: 30px;
+  display: inline-block;
+  position: absolute;
+  top: 50%;
+  z-index: 5;
+  }
+  .carousel-control .prev { margin-left:  -40px;  left: 50%; } /* Prev */
+  .carousel-control .next { margin-right: -40px; right: 50%; } /* Next */
+
+
+/* Removing BS background */
+.carousel .control-box { opacity: 0; }
+a.carousel-control.left  { left: 0; background: none; border: 0;}
+a.carousel-control.right { right: 0; background: none; border: 0;}
+
+
+/* Animation */
+.control-box, a.carousel-control, .carousel-indicators li {
+  -webkit-transition: all 500ms ease;
+  -moz-transition: all 500ms ease;
+  -ms-transition: all 500ms ease;
+  -o-transition: all 500ms ease;
+  transition: all 500ms ease;
+  /* hardware acceleration causes Bootstrap carousel controlbox margin error in webkit */
+  /* Assigning animation to indicator li will make slides flicker */
+  }
+
+
+/* Hover animation */
+.carousel:hover .control-box { opacity: 1; }
+.carousel:hover a.carousel-control.left { left: 5px; }
+.carousel:hover a.carousel-control.right { right: 5px; }
+
+
+/* Carouse Indicator */
+.carousel-indicators li.active,
+.carousel-indicators li { border: 0; }
+
+.carousel-indicators li {
+  background: #666;
+  margin: 0 3px;
+  width: 12px;
+  height: 12px;
+  }
+
+.carousel-indicators li.active {
+  background: #ddd;
+  margin: 0 3px;
+  }
+
+.carousel-item-height {
+	height: 70px;
+}
+
+</style>
+<!-- table start -->
+<div class="row"><div class="col-md-12">
+            <div class="panel panel-default" >
+                <div class="panel-heading panel-heading-custom"><i class="fas fa-bullhorn small" style="color: #FF0000"></i>&nbsp;Important&nbsp;Messages&nbsp;&nbsp;&nbsp;<span class="panel-heading-small"><i class="fas fa-angle-left"></i>&nbsp;19&nbsp;<i class="fas fa-angle-right"></i></span>&nbsp;<span class="bodyfont">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <a href="/messages.php" target="_blank" class="btn btn-xxs btn-l" role="button">view all messages</a></span></div>
+        <div class="panel-body"><table  class="table table-borderless table-sm"><div id="myCarousel" class="carousel slide carousel-fade" data-ride="carousel">
+  <!-- Indicators -->
+
+  <!-- Wrapper for slides -->
+  <div class="carousel-inner">
+
+    <div class="item active carousel-item-height">
+	  <span class="small">(1 of 19)</span>&nbsp;ANNOUNCEMENT - <span class="small">posted 09/30/2026 12:00am</span><br><img src="https://www.yssl.org/uploads/tinymce/Sunset Calendar - Preseason -2.jpg" width="650" height="650" alt="" />	  <br />
+    </div>
+    <div class="item carousel-item-height">
+	  <span class="small">(2 of 19)</span>&nbsp;ANNOUNCEMENT - <span class="small">posted 09/19/2026 12:00am</span><br><img src="https://www.yssl.org/uploads/tinymce/Screenshot 2026-09-19 at 8.53.26 AM.png" width="650" height="800" alt="" /><img src="https://yssl.org/myfiles/YSSL%20Field%20Closure%20sign.pdf" alt="" />	  <br />
+    </div>
+    <div class="item carousel-item-height">
+	  <span class="small">(3 of 19)</span>&nbsp;ANNOUNCEMENT - <span class="small">posted 09/12/2026 12:00am</span><br><p><span class="XLargeText" style="caret-color: #51545e; color: #51545e; font-size: 16px; background-color: #f4f4f7;">***Remember that soccer can be played in the rain, but CANNOT be played in lightning nor thunder, if you see lightning, hear thunder or the park you&rsquo;re at has a lightning detection system that goes off, get to cars / buildings and make sure all kids are safe. ***\<br /></span></p>	  <br />
+    </div>
+    <div class="item carousel-item-height">
+	  <span class="small">(4 of 19)</span>&nbsp;ANNOUNCEMENT - <span class="small">posted 08/20/2026 12:00am</span><br><p><span style="color: #cc0000;"><span class="XLargeText"><strong>Important:</strong> </span><strong><span class="XLargeText">Player Adds/Transfers/Drops - Deadline<br /><br /></span></strong><span class="XLargeText">Please be aware that any player add or transfer you would like approved to play in the weekend&#39s game <strong>MUST be submitted in the YSSL system prior to Midnight on Thursdays</strong>. &nbsp;Any players entered after that day/time we CANNOT guarantee they will be approved and available to play. &nbsp;<br />&nbsp; &nbsp; &nbsp; &nbsp; &nbsp;It is the club&#39s responsibility to enter these players in a timely manner.</span></span></p>
+<p></p>	  <br />
+    </div>
+    <div class="item carousel-item-height">
+	  <span class="small">(5 of 19)</span>&nbsp;ANNOUNCEMENT - <span class="small">posted 08/05/2026 12:00am</span><br><span style="text-decoration: underline;"><span class="XLargeText"><span class="LargeText">Be</span></span></span><span style="text-decoration: underline;"><span class="XLargeText"><span class="LargeText"> sure to take Daylight Savings time into account when you are scheduling your games!</span>&nbsp;<br /></span></span><span class="LargeText">Unless<strong> your field has lights, games would need to start early as the sun sets by 6:00 p.m. by mid-October.&nbsp;&nbsp;</strong><a href="https://sunrisesunset.com/calendar.asp?comb_city_info=Chicago%2C+Illinois%3B87.6%3B41.9%3B-6%3B1&amp;time_type=0&amp;ianatz=&amp;back=&amp;btop=&amp;bbot=0&amp;want_twi_civ=0&amp;want_twi_naut=0&amp;want_twi_astro=0&amp;want_info=0&amp;want_mphase=0&amp;want_mrms=0&amp;want_solar_noon=0&amp;want_eqx_sol=0&amp;want_daylen=0&amp;month=9&amp;year=2026" target="_blank" rel="noopener">Click here for the sunset calendar.&nbsp;&nbsp;</a></span>	  <br />
+    </div>
+    <div class="item carousel-item-height">
+	  <span class="small">(6 of 19)</span>&nbsp;CLUB NEWS - <span class="small">posted 10/07/2026 9:18am&nbsp;by&nbsp;AAC EAGLES CHICAGO</span><br>AAC EAGLES: HIGH SCHOOL BOYS TRYOUTS 10/18	  <br />
+    </div>
+    <div class="item carousel-item-height">
+	  <span class="small">(7 of 19)</span>&nbsp;CLUB NEWS - <span class="small">posted 10/07/2026 9:18am&nbsp;by&nbsp;AAC EAGLES CHICAGO</span><br>AAC EAGLES: HIGH SCHOOL BOYS TRYOUTS 10/18	  <br />
+    </div>
+    <div class="item carousel-item-height">
+	  <span class="small">(8 of 19)</span>&nbsp;CLUB NEWS - <span class="small">posted 07/27/2026 8:42am&nbsp;by&nbsp;MILLENNIUM SA</span><br>2026 Region Cup Fall Showcase & 2027 Region Cup Spring Showcase	  <br />
+    </div>
+    <div class="item carousel-item-height">
+	  <span class="small">(9 of 19)</span>&nbsp;EVENT<br><b>Mon Oct 19</b>&nbsp;-&nbsp;Final date to submit Game Changes for the season.	  <br />
+    </div>
+    <div class="item carousel-item-height">
+	  <span class="small">(10 of 19)</span>&nbsp;EVENT<br><b>Sun Nov 8</b>&nbsp;-&nbsp;YSSL Fall 2026 Season Ends	  <br />
+    </div>
+    <div class="item carousel-item-height">
+	  <span class="small">(11 of 19)</span>&nbsp;EVENT<br><b>Thu Nov 12</b>&nbsp;-&nbsp;Final Fall 2026 Standings Posted	  <br />
+    </div>
+    <div class="item carousel-item-height">
+	  <span class="small">(12 of 19)</span>&nbsp;EVENT<br><b>Thu Nov 12</b>&nbsp;-&nbsp;YSSL Spring Registration  Opens for NEW teams	  <br />
+    </div>
+    <div class="item carousel-item-height">
+	  <span class="small">(13 of 19)</span>&nbsp;EVENT<br><b>Fri Nov 13</b>&nbsp;-&nbsp;YSSL Office CLOSED - Winter Break 11/13/26 - 2/8/27	  <br />
+    </div>
+    <div class="item carousel-item-height">
+	  <span class="small">(14 of 19)</span>&nbsp;EVENT<br><b>Sun Jan 31</b>&nbsp;-&nbsp;Spring 2027 Registration Closes - New Clubs Only	  <br />
+    </div>
+    <div class="item carousel-item-height">
+	  <span class="small">(15 of 19)</span>&nbsp;EVENT<br><b>Sun Feb 7</b>&nbsp;-&nbsp;Spring 2027 Registration Closes  - Existing Clubs (NEW Teams & Update Existing Teams)	  <br />
+    </div>
+    <div class="item carousel-item-height">
+	  <span class="small">(16 of 19)</span>&nbsp;EVENT<br><b>Mon Feb 15</b>&nbsp;-&nbsp;Last Date for Player Transfers Between Clubs	  <br />
+    </div>
+    <div class="item carousel-item-height">
+	  <span class="small">(17 of 19)</span>&nbsp;EVENT<br><b>Sun Feb 28</b>&nbsp;-&nbsp;YSSL In Person Seeding Meeting - Spring 2027	  <br />
+    </div>
+    <div class="item carousel-item-height">
+	  <span class="small">(18 of 19)</span>&nbsp;EVENT<br><b>Sat Apr 10</b>&nbsp;-&nbsp;YSSL Spring 2027 Season Begins	  <br />
+    </div>
+    <div class="item carousel-item-height">
+	  <span class="small">(19 of 19)</span>&nbsp;EVENT<br><b>Sun Jun 13</b>&nbsp;-&nbsp;YSSL Spring 2027 Season Ends	  <br />
+    </div>
+	<div class="control-box">
+      <a class="left carousel-control" href="#myCarousel" role="button" data-slide="prev">
+        <span class="control-icon prev fa fa-chevron-left" aria-hidden="true"></span>
+        <span class="sr-only">Previous</span>
+      </a>
+
+      <a class="right carousel-control" href="#myCarousel" role="button" data-slide="next">
+        <span class="control-icon next fa fa-chevron-right" aria-hidden="true"></span>
+        <span class="sr-only">Next</span>
+      </a>
+    </div>
+  </div>
+</div>
+<script language="JavaScript" type="text/javascript">
+$(document).ready(function() {
+    $('.carousel').carousel({
+      interval: 6000
+    })
+  });
+</script>
+		</table> <!-- end getTableStart table -->
+                </div> <!-- end panel-body -->
+            </div> <!-- end panel -->
+        </div></div><!-- table end -->
+
+<p>
+<!-- table start -->
+<div class="row"><div class="col-md-12">
+            <div class="panel panel-default" >
+                <div class="panel-heading panel-heading-custom"><i class="fas fa-calendar-alt small" style="color: #FF0000"></i>&nbsp;Fall 2026 Games</div>
+        <div class="panel-body"><table  class="table table-borderless table-sm">    <table class="table table-condensed table-striped">
+    <TR>
+    <th>Num</th>
+    <th>Date/Time</th>
+    <th>Opponent</th>
+    <th>H/A</th>
+    <th>Field</th>
+    <th>Result</th>
+        </TR>
+        <tr>
+        <td>&nbsp;4267*</td>
+        <td>&nbsp;Sun 9/13 4:00pm<br><del><font color=#999999>Sat 10/17 2:00pm</font></del></td>
+        <td >&nbsp;vs&nbsp;<a href="team.php?tea_num=ECLM121"  class="graylink2">ECLIPSE 14/15 DARIEN</a></td>
+        <td >&nbsp;H</td>
+        <td >&nbsp;<del><font color=#999999>HANSON FIELD - PARKING LOT ADJACENT</font></del><br><a class="graylink2"href="http://yssl.org/mapany.php?fld_id=2365" target="_blank">HUNTINGTON CHASE</a></td>
+        <td align=center class=SmallText>
+2 - 3</td><td align=right>        &nbsp;</td>
+        </tr>
+        <tr>
+        <td>&nbsp;503*</td>
+        <td>&nbsp;Sun 9/20 10:00am<br><del><font color=#999999>Sat 9/12 1:30pm</font></del></td>
+        <td >&nbsp;vs&nbsp;<a href="team.php?tea_num=WZDM125"  class="graylink2">WCOB FC 2014/15 ACADEMY BLACK</a></td>
+        <td >&nbsp;A</td>
+        <td >&nbsp;<del><font color=#999999>CENTRAL PARK NORTH - KENSINGTON RD. ENTRANCE - 3</font></del><br><a class="graylink2"href="http://yssl.org/mapany.php?fld_id=3208" target="_blank">CENTRAL PARK NORTH - KENSINGTON RD. ENTRANCE - TURF</a> <small>[away]</small></td>
+        <td align=center class=SmallText>
+2 - 7</td><td align=right>        &nbsp;</td>
+        </tr>
+        <tr>
+        <td>&nbsp;1840</td>
+        <td>&nbsp;Sat 9/26 12:00pm</td>
+        <td >&nbsp;vs&nbsp;<a href="team.php?tea_num=CEMM121"  class="graylink2">CHICAGO EMPIRE FC 14/15 PRE EA</a></td>
+        <td >&nbsp;A</td>
+        <td >&nbsp;<a class="graylink2"href="http://yssl.org/mapany.php?fld_id=1808" target="_blank">OAK BROOK POLO FIELDS - A 9V9</a> <small>[away]</small></td>
+        <td align=center class=SmallText>
+1 - 9</td><td align=right>        &nbsp;</td>
+        </tr>
+        <tr>
+        <td>&nbsp;3529*</td>
+        <td>&nbsp;Sun 9/27 10:00am<br><del><font color=#999999>Sat 10/10 2:00pm</font></del></td>
+        <td >&nbsp;vs&nbsp;<a href="team.php?tea_num=PGSM121"  class="graylink2">PEGASUS FC 14/15 RED</a></td>
+        <td >&nbsp;H</td>
+        <td >&nbsp;<del><font color=#999999>HANSON FIELD - PARKING LOT ADJACENT</font></del><br><a class="graylink2"href="http://yssl.org/mapany.php?fld_id=2365" target="_blank">HUNTINGTON CHASE</a></td>
+        <td align=center class=SmallText>
+2 - 11</td><td align=right>        &nbsp;</td>
+        </tr>
+        <tr>
+        <td>&nbsp;1294*</td>
+        <td>&nbsp;Sun 10/4 12:30pm<br><del><font color=#999999>Sat 9/19 2:00pm</font></del></td>
+        <td >&nbsp;vs&nbsp;<a href="team.php?tea_num=AJXM122"  class="graylink2">AJAX FC NAPERVILLE 2014/15 GOLD</a></td>
+        <td >&nbsp;H</td>
+        <td >&nbsp;<a class="graylink2"href="http://yssl.org/mapany.php?fld_id=2365" target="_blank">HUNTINGTON CHASE</a></td>
+        <td align=center class=SmallText>
+3 - 4</td><td align=right>        &nbsp;</td>
+        </tr>
+        <tr>
+        <td>&nbsp;4996*</td>
+        <td>&nbsp;Sat 10/24 2:00pm<br><del><font color=#999999>Sat 10/24 2:00pm</font></del></td>
+        <td >&nbsp;vs&nbsp;<a href="team.php?tea_num=CFYM121"  >CFYSC 14/15 PREMIER RED U12</a></td>
+        <td >&nbsp;H</td>
+        <td >&nbsp;<del><font color=#999999>HANSON FIELD - PARKING LOT ADJACENT</font></del><br><a href="http://yssl.org/mapany.php?fld_id=2365" target="_blank">HUNTINGTON CHASE</a></td>
+        <td align=center class=SmallText>
+</td><td align=right>        &nbsp;</td>
+        </tr>
+        <tr>
+        <td>&nbsp;2431*</td>
+        <td>&nbsp;Sun 10/25 10:00am<br><del><font color=#999999>Sat 10/3 10:00am</font></del></td>
+        <td >&nbsp;vs&nbsp;<a href="team.php?tea_num=LNDM121"  >LASC 14/15 ELITE</a></td>
+        <td >&nbsp;A</td>
+        <td >&nbsp;<a href="http://yssl.org/mapany.php?fld_id=2015" target="_blank">LAKE VILLA TOWNSHIP SOCCER COMPLEX  - FIELD D - 9V9</a> <small>[away]</small></td>
+        <td align=center class=SmallText>
+</td><td align=right>        &nbsp;</td>
+        </tr>
+        <tr>
+        <td>&nbsp;5188*</td>
+        <td>&nbsp;Sun 11/1 10:00am<br><del><font color=#999999>Sat 10/31 7:00am</font></del></td>
+        <td >&nbsp;vs&nbsp;<a href="team.php?tea_num=ECLM123"  >ECLIPSE 14/15 NAPERVILLE</a></td>
+        <td >&nbsp;A</td>
+        <td >&nbsp;<a href="http://yssl.org/mapany.php?fld_id=3193" target="_blank">CENTRAL PARK FIELDS - FOREST GATE RD. ENTRANCE - 9V9</a> <small>[away]</small></td>
+        <td align=center class=SmallText>
+</td><td align=right>        &nbsp;</td>
+        </tr>
+    </table>
+		</table> <!-- end getTableStart table -->
+
+<div class="row">
+    <div class="col-sm-6">
+    &nbsp;&nbsp;<span class="SmallText">* indicates game change</span>
+    </div>
+
+    <div class="col-sm-6 text-right">
+<a href="icalsched.php?tea_id=130243" target="_blank" class="btn btn-xs btn-p" role="button"><span class="SmallText">iCal Export</span></a>
+&nbsp;&nbsp;&nbsp;<a href="http://yssl.org/prtsched.php?tea_id=130243" target="_blank" class="btn btn-xs btn-p" role="button"><span class="SmallText">print schedule</span></a>
+    </div>
+</div>
+
+        
+                </div> <!-- end panel-body -->
+            </div> <!-- end panel -->
+        </div></div><!-- table end -->
+
+<span class=NormalText><font color="#990033">&nbsp;&nbsp;<b>Record</b>: 0-5-0&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<b>GF</b>: 10&nbsp;&nbsp;&nbsp;&nbsp;<b>GA</b>: 34</font></span>
+
+
+<p>&nbsp;</p>
+    <table border=0 width=100% cellpadding=2 cellspacing=0>
+    <tr>
+    <td><span class=SmallText>&nbsp;<font color="#990033">Game Change allowed Aug 05&nbsp;to&nbsp;Oct&nbsp;19</font></span></td>
+    <td align=right><span class=SmallText>
+<font color="#990033">Free Game Changes remaining: 2 of 2</font>    &nbsp;</span></td>
+    </tr>
+    </table>
+<!-- table start -->
+<div class="row"><div class="col-md-12">
+            <div class="panel panel-default" >
+                <div class="panel-heading panel-heading-custom"><i class="fas fa-calendar-times small" style="color: #FF0000"></i>&nbsp;Game Changes</div>
+        <div class="panel-body"><table  class="table table-borderless table-sm">    <table class="table table-condensed table-striped">
+    <tr>
+    <th>Num</th>
+    <th>Orig Date/Time</th>
+    <th>New Date/Time</th>
+    <th>New Field</th>
+    <th>Status</th>
+    </tr>
+
+
+        <tr class=NormalText bgcolor="#FFFFFF">
+
+        <td>&nbsp;1294+</td>
+
+
+        <td class=SmallText>&nbsp;Sat 9/19 2:00pm</td>
+
+        <td class=SmallText>&nbsp;Sat 9/19 2:00pm</td>
+
+        <td class=SmallText>&nbsp;<a href="mapany.php?fld_id=2365" target="_blank">HUNTINGTON CHASE</a>		</td>
+
+        <td class=SmallText>&nbsp;Approved&nbsp;
+
+        <span class=SmallText>(9/6/26 9:29am)</span></td>
+
+
+        </tr>
+
+
+        <tr class=NormalText bgcolor="#F2F2F2">
+
+        <td>&nbsp;1294+</td>
+
+
+        <td class=SmallText>&nbsp;Sat 9/19 2:00pm</td>
+
+        <td class=SmallText>&nbsp;Sun 10/4 12:30pm</td>
+
+        <td class=SmallText>&nbsp;<a href="mapany.php?fld_id=2365" target="_blank">HUNTINGTON CHASE</a>		</td>
+
+        <td class=SmallText>&nbsp;Approved&nbsp;
+
+        <span class=SmallText>(9/23/26 8:35pm)</span></td>
+
+
+        </tr>
+
+
+        <tr class=NormalText bgcolor="#FFFFFF">
+
+        <td>&nbsp;3529+</td>
+
+
+        <td class=SmallText>&nbsp;Sat 10/10 2:00pm</td>
+
+        <td class=SmallText>&nbsp;Sun 9/27 10:00am</td>
+
+        <td class=SmallText>&nbsp;<a href="mapany.php?fld_id=2196" target="_blank">HANSON FIELD - PARKING LOT ADJACENT</a>		</td>
+
+        <td class=SmallText>&nbsp;Approved&nbsp;
+
+        <span class=SmallText>(8/12/26 4:20pm)</span></td>
+
+
+        </tr>
+
+
+        <tr class=NormalText bgcolor="#F2F2F2">
+
+        <td>&nbsp;3529+</td>
+
+
+        <td class=SmallText>&nbsp;Sat 10/10 2:00pm</td>
+
+        <td class=SmallText>&nbsp;Sun 9/27 10:00am</td>
+
+        <td class=SmallText>&nbsp;<a href="mapany.php?fld_id=2365" target="_blank">HUNTINGTON CHASE</a>		</td>
+
+        <td class=SmallText>&nbsp;Approved&nbsp;
+
+        <span class=SmallText>(9/6/26 9:27am)</span></td>
+
+
+        </tr>
+
+
+        <tr class=NormalText bgcolor="#FFFFFF">
+
+        <td>&nbsp;4267+</td>
+
+
+        <td class=SmallText>&nbsp;Sat 10/17 2:00pm</td>
+
+        <td class=SmallText>&nbsp;Sun 9/13 4:00pm</td>
+
+        <td class=SmallText>&nbsp;<a href="mapany.php?fld_id=2196" target="_blank">HANSON FIELD - PARKING LOT ADJACENT</a>		</td>
+
+        <td class=SmallText>&nbsp;Approved&nbsp;
+
+        <span class=SmallText>(8/13/26 10:38pm)</span></td>
+
+
+        </tr>
+
+
+        <tr class=NormalText bgcolor="#F2F2F2">
+
+        <td>&nbsp;4267+</td>
+
+
+        <td class=SmallText>&nbsp;Sat 10/17 2:00pm</td>
+
+        <td class=SmallText>&nbsp;Sun 9/13 4:00pm</td>
+
+        <td class=SmallText>&nbsp;<a href="mapany.php?fld_id=2365" target="_blank">HUNTINGTON CHASE</a>		</td>
+
+        <td class=SmallText>&nbsp;Approved&nbsp;
+
+        <span class=SmallText>(9/8/26 1:11pm)</span></td>
+
+
+        </tr>
+
+
+        <tr class=NormalText bgcolor="#FFFFFF">
+
+        <td>&nbsp;4996+</td>
+
+
+        <td class=SmallText>&nbsp;Sat 10/24 2:00pm</td>
+
+        <td class=SmallText>&nbsp;Sat 10/24 2:00pm</td>
+
+        <td class=SmallText>&nbsp;<a href="mapany.php?fld_id=2365" target="_blank">HUNTINGTON CHASE</a>		</td>
+
+        <td class=SmallText>&nbsp;Approved&nbsp;
+
+        <span class=SmallText>(9/6/26 9:21am)</span></td>
+
+
+        </tr>
+
+
+        <tr class=NormalText bgcolor="#F2F2F2">
+
+        <td>&nbsp;5188+</td>
+
+
+        <td class=SmallText>&nbsp;Sat 10/31 7:00am</td>
+
+        <td class=SmallText>&nbsp;Sun 11/1 10:00am</td>
+
+        <td class=SmallText>&nbsp;<a href="mapany.php?fld_id=3193" target="_blank">CENTRAL PARK FIELDS - FOREST GATE RD. ENTRANCE - 9V9</a>		</td>
+
+        <td class=SmallText>&nbsp;Approved&nbsp;
+
+        <span class=SmallText>(8/18/26 12:00pm)</span></td>
+
+
+        </tr>
+
+        <tr>
+        <td>&nbsp;503+</td>
+        <td class=SmallText>&nbsp;Sat 9/12 1:30pm</td>
+        <td class=NormalText>&nbsp;Sun 9/20 10:00am</td>
+        <td class=SmallText>&nbsp;<a href="mapany.php?fld_id=3208" target="_blank">CENTRAL PARK NORTH - KENSINGTON RD. ENTRANCE</a>&nbsp;</td>
+        <td>&nbsp;Approved&nbsp;
+        <span class=SmallText>(8/7/26 4:46pm)</span></td>
+        </tr>
+        <tr>
+        <td>&nbsp;503+</td>
+        <td class=SmallText>&nbsp;Sat 9/12 1:30pm</td>
+        <td class=NormalText>&nbsp;Sun 9/20 10:00am</td>
+        <td class=SmallText>&nbsp;<a href="mapany.php?fld_id=3208" target="_blank">CENTRAL PARK NORTH - KENSINGTON RD. ENTRANCE - 3</a>&nbsp;-&nbsp;3&nbsp;</td>
+        <td>&nbsp;Approved&nbsp;
+        <span class=SmallText>(8/20/26 6:34am)</span></td>
+        </tr>
+        <tr>
+        <td>&nbsp;503+</td>
+        <td class=SmallText>&nbsp;Sat 9/12 1:30pm</td>
+        <td class=NormalText>&nbsp;Sun 9/20 10:00am</td>
+        <td class=SmallText>&nbsp;<a href="mapany.php?fld_id=3208" target="_blank">CENTRAL PARK NORTH - KENSINGTON RD. ENTRANCE - TURF</a>&nbsp;-&nbsp;Turf&nbsp;</td>
+        <td>&nbsp;Approved&nbsp;
+        <span class=SmallText>(9/19/26 11:32am)</span></td>
+        </tr>
+        <tr>
+        <td>&nbsp;2431+</td>
+        <td class=SmallText>&nbsp;Sat 10/3 10:00am</td>
+        <td class=NormalText>&nbsp;Sun 10/25 10:00am</td>
+        <td class=SmallText>&nbsp;<a href="mapany.php?fld_id=2015" target="_blank">LAKE VILLA TOWNSHIP SOCCER COMPLEX  - FIELD D - 9V9</a>&nbsp;-&nbsp;Field D - 9v9&nbsp;</td>
+        <td>&nbsp;Approved&nbsp;
+        <span class=SmallText>(8/18/26 9:43pm)</span></td>
+        </tr>
+</table>		</table> <!-- end getTableStart table -->
+
+<div class="row">
+    <div class="col-sm-4 small">
+            * indicates request by other team
+    </div>
+     <div class="col-sm-8 small">
+            + indicates request that does not count towards your total (for rainouts, etc)
+    </div>
+</div>
+        
+                </div> <!-- end panel-body -->
+            </div> <!-- end panel -->
+        </div></div><!-- table end -->
+<br /><br />
+<br />
+        </div>
+    </div>
+</div>
+<!-- **** START subpage_footer **** -->
+        </div>
+    </div>
+</div>
+<p>&nbsp;</p>
+<p>&nbsp;</p>
+
+<script language="JavaScript" type="text/javascript">
+	function toggle_boolean(name)
+	{
+		var v = document.getElementById(name);
+		var yes = document.getElementById(name+"_yes");
+		var no = document.getElementById(name+"_no");
+		var val = parseInt(v.value);
+		var yn = "yes";
+		if(val > 0)
+		{
+			v.value="-1";
+			yes.style.display="none";
+			no.style.display="inline";
+			yn = "no";
+		}
+		else
+		{
+			v.value="1";
+			yes.style.display="inline";
+			no.style.display="none";
+			yn = "yes";
+		}
+		if (typeof toggle_boolean_handler === "function") {
+			toggle_boolean_handler(name, yn);
+		}
+	}
+
+	function set_boolean(name, val)
+	{
+		var v = document.getElementById(name);
+		var yes = document.getElementById(name+"_yes");
+		var no = document.getElementById(name+"_no");
+
+		if(val == "-1")
+		{
+			if(v != null)
+				v.value="-1";
+			if(yes != null)
+				yes.style.display="none";
+			if(no != null)
+				no.style.display="inline";
+		}
+		else
+		{
+			if(v != null)
+				v.value="1";
+			if(yes != null)
+				yes.style.display="inline";
+			if(v != null)
+				no.style.display="none";
+		}
+
+	}
+</script>
+<footer class="container-fluid footer">
+<div class="row">
+    <div class="col-sm-4 small">
+      &copy; 2026 Young Sportsmen's Soccer League    </div>
+    <div class="col-sm-4 small">
+      Wed Oct 07, 2026 2:09pm &nbsp;&nbsp;[cache]    </div>
+	<div class="col-sm-4 small text-right">
+      website by <a href="http://www.pientkadesign.com" target="_blank" class="footerlink">Pientka Design LLC</a>
+    </div>
+</div>
+</footer>
+
+<script type="text/javascript">
+	function newButtonClassFunction() {
+		console.log("newButtonClassFunction() updating button classes...");
+		var c = ["butlink", "smbutlink", "lgbutlink"];
+		var a = ["", "b", "g","p", "r","o"];
+		var b = ["grey", "primary", "success", "p", "r","o"];
+
+		var x;
+		var i;
+		var len;
+		var cn="";
+		var k = 0;
+		var j = 0;
+        var cnt=0;
+		var alen = a.length;
+		for(k=0; k<c.length; k++)
+		{
+			for(j=0; j<alen; j++)
+			{
+				cn=c[k]+a[j];
+				x = document.getElementsByClassName(cn);
+				//console.log("  got "+x.length+" "+cn+" elements");
+				len = x.length;
+				for (i = 0; i < len; i++) {
+				  //console.log("   "+i+") got "+cn+" element: "+x[0].innerHTML);
+                  cnt++
+				  if(k==2)
+				  	x[0].className = "btn btn-"+b[j]+" btn-xs";
+				  else
+				  	x[0].className = "btn btn-"+b[j]+" btn-xxs";
+				}
+			}
+		}
+        console.log("newButtonClassFunction() updated "+cnt+" button classes");
+	}
+	setTimeout('newButtonClassFunction()', 200);
+</script>
+<div id="alertModal" class="modal fade" role="dialog">
+  <div class="modal-dialog">
+    <div class="modal-content">
+	
+      <div id="alertBody" class="modal-body">
+	  
+	<div class="row" style="margin-bottom: 5px">
+	<div class="col-sm-10">
+	<div id="alertModalMsg"></div>
+	</div><div class="col-sm-2 text-right">
+	<button onclick="myAlertOK(); return false" class="btn btn-primary">&nbsp;&nbsp;OK&nbsp;&nbsp;</button>
+	</div></div>
+	
+      </div>
+    </div>
+  </div>
+</div>
+	
+<div id="confirmModal" class="modal fade" role="dialog">
+  <div class="modal-dialog">
+    <div class="modal-content">
+	
+      <div id="confirmBody" class="modal-body">
+	  
+	<div class="row" style="margin-bottom: 5px">
+	<div class="col-sm-10">
+	<div id="confirmModalMsg"></div>
+	</div></div>
+	<div class="row">
+	<div class="col-sm-12 text-right">
+	<button onclick="modalConfirmYN('no'); return false" class="btn btn-danger">no</button>&nbsp;&nbsp;
+	<button onclick="modalConfirmYN('yes'); return false" class="btn btn-success">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;YES&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</button>
+	</div></div>
+	
+      </div>
+    </div>
+  </div>
+</div>
+	<script language="JavaScript" type="text/javascript">
+
+var modalAlertUrl;
+
+function showModal(id)
+{
+	$("#"+id+"Modal").modal("show");
+}
+
+function hideModal(id)
+{
+	$("#"+id+"Modal").modal("hide");
+}
+
+function myAlert(msg)
+{
+	modalAlertUrl = null;
+	var d = document.getElementById('alertModalMsg');
+	if(d != null)
+	{
+		d.innerHTML = '<i class="fas fa-exclamation-triangle small"></i> '+msg;
+		$('#alertModal').modal('show');
+	}
+}
+
+function myAlertHref(atag, msg)
+{
+	modalAlertUrl = atag.href;
+	var d = document.getElementById('alertModalMsg');
+	if(d != null)
+	{
+		d.innerHTML = '<i class="fas fa-exclamation-triangle small"></i> '+msg;
+		$('#alertModal').modal('show');
+	}
+}
+
+function myAlertUrl(url, msg)
+{
+	modalAlertUrl = url;
+	var d = document.getElementById('alertModalMsg');
+	if(d != null)
+	{
+		d.innerHTML = '<i class="fas fa-exclamation-triangle small"></i> '+msg;
+		$('#alertModal').modal('show');
+	}
+}
+
+function myAlert(msg)
+{
+	var d = document.getElementById('alertModalMsg');
+	if(d != null)
+	{
+		d.innerHTML = msg;
+		$('#alertModal').modal('show');
+	}
+	return false;
+}
+
+function myAlertTimeout(msg, to)
+{
+	var d = document.getElementById('alertModalMsg');
+	if(d != null)
+	{
+		d.innerHTML = msg;
+		$('#alertModal').modal('show');
+
+		setTimeout('myAlertTimeoutClose()', to);
+	}
+	return false;
+}
+
+function myAlertTimeoutClose()
+{
+	$('#alertModal').modal('hide');
+}
+
+function myAlertFunc(funcname, msg)
+{
+	modalAlertUrl = "func:"+funcname;
+	var d = document.getElementById('alertModalMsg');
+	if(d != null)
+	{
+		d.innerHTML = '<i class="fas fa-exclamation-triangle small"></i> '+msg;
+		$('#alertModal').modal('show');
+	}
+	return false;
+}
+
+function myAlertOK()
+{
+	$('#alertModal').modal('hide');
+
+	if(modalAlertUrl != null)
+	{
+		console.log('myAlertOK() modalAlertUrl='+modalAlertUrl);
+		if(modalAlertUrl.substr(0, 5) == "func:")
+		{
+						var fnName = modalAlertUrl.substr(5);
+			window[fnName]();
+		}
+		else
+		{
+						window.location = modalAlertUrl;
+		}
+	}
+	else {
+		console.log('myAlertOK() modalAlertUrl is null');
+	}
+}
+
+var modalConfirmUrl;
+var modalConfirmVal;
+
+function myConfirm(atag, msg)
+{
+	modalConfirmUrl = null;
+	modalConfirmVal = null;
+	var d = document.getElementById('confirmModalMsg');
+	if(d != null)
+	{
+				if(atag != null)
+		{
+        	modalConfirmUrl = atag.href;
+			console.log('myConfirm() modalConfirmUrl='+modalConfirmUrl)
+			d.innerHTML = msg;
+			$('#confirmModal').modal('show');
+		}
+		else
+		{
+						console.log('myConfirm() atag is null - returning true');
+			return true;
+		}
+   	}
+	else
+	{
+		console.log('myConfirm() no element id='+confirmModalMsg);
+	}
+	return false;
+}
+
+function myConfirmCallback(funcname, msg)
+{
+	modalConfirmUrl = null;
+	modalConfirmVal = null;
+	var d = document.getElementById('confirmModalMsg');
+	if(d != null)
+	{
+		modalConfirmUrl = "func:"+funcname;
+		d.innerHTML = msg;
+		$('#confirmModal').modal('show');
+   	}
+
+	return false;
+}
+
+function myConfirmCallbackVal(funcname, val, msg)
+{
+	modalConfirmUrl = null;
+	modalConfirmVal = null;
+	var d = document.getElementById('confirmModalMsg');
+	if(d != null)
+	{
+		modalConfirmUrl = "func:"+funcname;
+		modalConfirmVal=val;
+		d.innerHTML = msg;
+		$('#confirmModal').modal('show');
+		}
+
+	return false;
+}
+
+function myConfirmForm(formid, msg)
+{
+	modalConfirmUrl = null;
+	modalConfirmVal = null;
+	var d = document.getElementById('confirmModalMsg');
+	if(d != null)
+	{
+		console.log("myConfirmForm() formid="+formid);
+				var form = document.getElementById(formid);
+		if(form.submit instanceof Function)
+		{
+			modalConfirmUrl = "form:"+formid;
+			d.innerHTML = msg;
+			$('#confirmModal').modal('show');
+		}
+		else
+		{
+						console.log('myConfirmForm() form.submit not a function, submit input name is likely "submit" (e.g. name="submit") - returning true');
+			return true;
+		}
+   	}
+
+	return false;
+}
+
+function modalConfirmYN(yn)
+{
+	$('#confirmModal').modal('hide');
+	if(modalConfirmUrl != null)
+	{
+		if(modalConfirmUrl.substr(0, 5) == "func:")
+		{
+						var fnName = modalConfirmUrl.substr(5);
+			if(modalConfirmVal == null)
+			{
+				window[fnName](yn);
+			}
+			else
+			{
+				window[fnName](yn, modalConfirmVal)
+			}
+		}
+		else if(modalConfirmUrl.substr(0, 5) == "form:")
+		{
+						var formid = modalConfirmUrl.substr(5);
+			var form = document.getElementById(formid);
+			if(form != null)
+			{
+				if(yn == 'yes')
+					form.submit();
+			}
+			else
+			{
+								console.log('myConfirmForm() form '+formid+' is null - returning true');
+				return true;
+			}
+		}
+		else if(yn == 'yes')
+		{
+						window.location = modalConfirmUrl;
+		}
+	}
+}
+
+</script>
+
+</body>
+</html>
+<!-- **** END subpage_footer **** -->
