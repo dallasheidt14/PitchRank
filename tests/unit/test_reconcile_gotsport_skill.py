@@ -51,6 +51,37 @@ def test_classify(args, expected):
     assert triage.classify(*args) == expected
 
 
+NAMES_DECIDE = ("relabel", "the names state GotSport's age; this season's opponents cannot decide")
+
+
+@pytest.mark.parametrize(
+    "args,expected",
+    [
+        # Next Level "Southeast U10 Boys Black": stored u11, GotSport u10, four games split 2-2
+        ((11, 10, True, None, 10.5, 4, 4, None, frozenset({10})), NAMES_DECIDE),
+        ((11, 10, True, None, 10.5, 4, 4, None, frozenset()), ("hold", "this season's opponents split evenly between our age and GotSport's")),
+        # thin opponents, but the name states GotSport's age
+        ((11, 9, True, None, 9.0, 1, 1, None, frozenset({9})), NAMES_DECIDE),
+        # a name stating our age keeps the hold
+        ((11, 10, True, None, 10.5, 4, 4, None, frozenset({10, 11})), ("hold", "this season's opponents split evenly between our age and GotSport's")),
+        # a reused record is not relabelled on names
+        ((11, 10, False, None, 10.5, 4, 4, None, frozenset({10})), ("hold", "this season's opponents split evenly between our age and GotSport's")),
+        # opponents that do decide still win over the names
+        ((11, 10, True, None, 11.0, 5, 5, None, frozenset({10})), STORED),
+    ],
+)
+def test_classify_lets_names_decide_only_when_opponents_cannot(args, expected):
+    assert triage.classify(*args) == expected
+
+
+def test_name_ages():
+    # GotSport's band counts whatever the history; our U-age only for a team new this season
+    assert triage.name_ages("Southeast U10 Boys Black", "Southeast 16/17 Boys Black", False) == {10}
+    assert triage.name_ages("U10B Saxelby", "U10B Saxelby", True) == set()
+    assert triage.name_ages("U10B Saxelby", "U10B Saxelby", False) == {10}
+    assert triage.name_ages("2016 Clay", "U10B Wagner", True) == set()
+
+
 def test_classify_counts_dormancy_by_games_not_readable_opponents():
     # Three fall games against opponents whose age nothing states: active, not dormant.
     assert triage.classify(11, 10, True, 11.0, None, 3, 0, None) == (

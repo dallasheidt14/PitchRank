@@ -54,6 +54,7 @@ from apply_team_fields import PLAN_COLUMNS as FIELD_PLAN_COLUMNS  # noqa: E402
 from apply_team_fields import write_rows as write_field_plan  # noqa: E402
 
 from scripts.fix_band_cohorts import (  # noqa: E402
+    _NAME_UAGE,
     PLAN_FIELDS,
     band_of,
     csv_safe,
@@ -98,7 +99,7 @@ TRIAGE_FIELDS = (
     "class reason team_id_master provider_team_id team_name team_name_original gotsport_team_name "
     "club_name gender gotsport_gender name_gender opponent_name_gender opponent_gender_votes "
     "state_code stored_age_group gotsport_age_group same_squad our_squad_words gotsport_squad_words "
-    "stated_birth_years own_band games_last_season opp_age_last_season games_this_season "
+    "stated_birth_years own_band named_ages games_last_season opp_age_last_season games_this_season "
     "opp_age_this_season fixture_verdict opp_games_proposed opp_games_current collision_with "
     "adjacent_gotsport"
 ).split()
@@ -167,6 +168,22 @@ def fixture_verdict(opp_bands: List[Optional[str]], new: str, old: str) -> Tuple
     return "mixed", proposed, current
 
 
+def name_ages(our_name: Optional[str], gotsport_name: Optional[str], has_last_season: bool) -> set:
+    """Ages the names state this season: a band in GotSport's current name, and a U-age in
+    our name when the team has no games before Aug 1, so the name was written this season.
+    A U-age on a team with last season's games may be last season's label, so it is skipped."""
+    ages = set()
+    band = group_number(band_of(gotsport_name))
+    if band:
+        ages.add(band)
+    if not has_last_season:
+        for m in _NAME_UAGE.finditer(our_name or ""):
+            n = group_number(f"u{m.group(1) or m.group(2)}")
+            if n and 7 <= n <= 19:
+                ages.add(n)
+    return ages
+
+
 def classify(
     stored: int,
     theirs: int,
@@ -176,9 +193,11 @@ def classify(
     fall_games: int,
     fall_read: int,
     band: Optional[int] = None,
+    named: frozenset = frozenset(),
 ) -> Tuple[str, str]:
     """Age class. ``fall_games`` counts every game since Aug 1; ``fall_read`` those whose
-    opponent's age could be read, which is what ``fall`` is the median of."""
+    opponent's age could be read, which is what ``fall`` is the median of. ``named`` is
+    :func:`name_ages`."""
     # Owner, 2026-10-09: no games since Aug 1 means we are right and the team is most
     # likely dormant.
     if fall_games == 0:
@@ -188,8 +207,17 @@ def classify(
         return "hold", "the band in our own name backs the stored age"
     if band is not None and band != theirs:
         return "hold", f"the band in our own name says U{band}, neither ours nor GotSport's"
-    if fall_read < MIN_FALL_GAMES or fall is None:
+    thin = fall_read < MIN_FALL_GAMES or fall is None
+    tied = not thin and abs(fall - stored) == abs(fall - theirs)
+    # Opponents that cannot decide leave it to the names, when they state GotSport's age
+    # and none states ours (Next Level's "Southeast U10 Boys Black", stored u11, GotSport
+    # "Southeast 16/17 Boys Black", four games split two and two).
+    if (thin or tied) and theirs in named and stored not in named and same_squad is not False:
+        return "relabel", "the names state GotSport's age; this season's opponents cannot decide"
+    if thin:
         return "hold", f"only {fall_read} game(s) this season with a readable opponent age"
+    if tied:
+        return "hold", "this season's opponents split evenly between our age and GotSport's"
     if abs(fall - stored) <= NEAR:
         return "hold", "this season's opponents back the stored age"
     if abs(fall - theirs) > NEAR:
@@ -372,6 +400,7 @@ def assess(sb, row: Dict, team: Dict, ids: List[str], season_start: str, since: 
     if stated and not stated & cohort_years(theirs):
         same_squad = False
     band = group_number(single_band(team["team_name"], team.get("team_name_original")))
+    named = frozenset(name_ages(team["team_name"], row.get("gotsport_team_name"), len(games) > fall_games))
 
     pre_med, fall_med = summarize(pre), summarize(fall)
     verdict, proposed, current = fixture_verdict(fall_bands, f"u{theirs}", team["age_group"])
@@ -379,7 +408,7 @@ def assess(sb, row: Dict, team: Dict, ids: List[str], season_start: str, since: 
         # The age is judged on the next run, once the team sits on the right board.
         cls, reason = classify_gender(team["gender"], gs_gender, spelled, affix, opp_gender, seasons_split, fall_games)
     else:
-        cls, reason = classify(stored, theirs, same_squad, pre_med, fall_med, fall_games, len(fall), band)
+        cls, reason = classify(stored, theirs, same_squad, pre_med, fall_med, fall_games, len(fall), band, named)
 
     votes = fall_votes if fall_opps else pre_votes
     return {
@@ -404,6 +433,7 @@ def assess(sb, row: Dict, team: Dict, ids: List[str], season_start: str, since: 
         "gotsport_squad_words": " ".join(sorted(gs_words)),
         "stated_birth_years": " ".join(str(y) for y in sorted(stated)),
         "own_band": f"u{band}" if band else "",
+        "named_ages": " ".join(f"u{a}" for a in sorted(named)),
         "games_last_season": len(pre),
         "opp_age_last_season": "" if pre_med is None else pre_med,
         "games_this_season": fall_games,
