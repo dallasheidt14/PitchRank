@@ -85,9 +85,17 @@ Check these by hand, because the triage cannot see them:
   get their actual age group correct." Older opponents this season do not make a relabel, and a
   two-year band in our own name decides the age.
 - **MLS NEXT, AD, HD and EA teams** are out of scope. Hold them.
-- **A squad word can match by accident**, e.g. a colour shared by two of the club's squads. A birth
-  year in our name catches some of these; where the club fields several squads in the cohort,
-  compare against all of them.
+- **A squad word can match by accident**: a colour shared by two of the club's squads, a coach's
+  name, or a club program word such as RSL Arizona South's girls "Royals". A birth year in our name
+  catches some of these; where the club fields several squads in the cohort, compare against all of
+  them. At a club seen rotating coaches or reshuffling records (RSL Arizona South, CCV Stars), a
+  shared word does not make a relabel: treat the row as reused unless the owner says otherwise, and
+  move its row from the relabel plan to the reused-ID plan as `pending_split`, so Step 6 does not
+  relabel it before its games are split.
+- **A dormant hold can hide a squad that re-registered.** When a team held as "no games since
+  Aug 1" has a same-club, same-cohort row holding only this season's games, the squad likely moved
+  to a new GotSport record (Next Level's "Southeast 2016 Black" and "SE U11 Boys Black"). Propose
+  the pair as a merge through the `merging-duplicate-teams` skill.
 - **A hold whose reason is "no squad word to compare"** is often a club with one team per age, and
   the triage cannot catch a reused record there: Bala FC's `Bala FC - 2016` carried no squad word.
   Decide it from the club's other teams in both cohorts and from GotSport's current name, then
@@ -97,7 +105,10 @@ Check these by hand, because the triage cannot see them:
 
 ## Step 4: Find each reused record's old squad
 
-The old games move to the record GotSport now uses for the old squad. Look in this order:
+The old games move to the record GotSport now uses for the old squad. Read GotSport's current name
+and age for any record the reconcile looked up from its logs (`gotsport_team_name`, `gotsport_age_group`) before
+looking it up live: a live lookup can hang for minutes while GotSport is throttling a running
+reconcile. Look in this order:
 
 1. `adjacent_gotsport` in the triage. Clubs register squads in batches, so the old squad is often
    a neighbouring id: Bala FC's reused record was 614082 and its old squad 614084.

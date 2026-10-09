@@ -1981,3 +1981,24 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
   - **The scorer cannot apply that rule yet.** Its cut takes the low-connectivity teams from today's engine's run on the same snapshot, but the script reads the baseline's `scf`, and this baseline has none, so the cut cannot run. Harm needs the cut to lose more than 1.0 point credibly, the rule's word for a 95% upper bound below −1.0, where the script tests the estimate. And a run is void unless every team's pre-ceiling score equals the October candidate's.
   - Reported without deciding anything: U10 boys and girls separately and combined, ceiling depths per board before and after, and the blast radius.
 - **Noted**: 2026-10-04
+
+### Share one opponent-name gender vote between the two gender tools
+
+- **ID**: IMP-305
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `.claude/skills/reconcile-gotsport/scripts/triage_reconcile.py` `majority_gender`; `scripts/fix_gender_from_registered_name.py` `main` (the per-opponent `Counter` and `n * 2 <= total` block)
+- **Why**: Both read one vote per distinct opponent from its name and require a strict majority, written out twice. A change to the tie or majority rule in one leaves the two tools judging the same team differently. Skipped in the 2026-10-09 review to keep the skill PR off the tracked script.
+- **Noted**: 2026-10-09
+
+### Read a name's birth years against a cohort one way in the triage and the age applier
+
+- **ID**: IMP-306
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `.claude/skills/reconcile-gotsport/scripts/triage_reconcile.py` `cohort_years` (with `birth_years`); `scripts/fix_band_cohorts.py` `name_contradiction`
+- **Why**: The triage decides a record holds another squad when the name's birth years miss GotSport's cohort; the applier holds a relabel when the name's years miss the target cohort. They use different year readers and fold U18 differently: `cohort_years(19)` holds 2009, while `name_contradiction` allows only 2008 and 2007 for u19. A name can pass one stage and be held by the next.
+- **Noted**: 2026-10-09
+
