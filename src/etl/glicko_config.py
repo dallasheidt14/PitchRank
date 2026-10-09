@@ -25,9 +25,11 @@ class GlickoConfig:
     # Window
     MAX_GAMES: int = 30
     WINDOW_DAYS: int = 365
-    WINDOW_GRACE_DAYS: int = 28
+    # Production policy: newest 30 games in a strict 365-day window.
+    WINDOW_GRACE_DAYS: int = 0
     INACTIVE_DAYS: int = 180
-    BALANCED_SELECTION_ENABLED: bool = True
+    # Retain the old selector only for explicit historical comparisons.
+    BALANCED_SELECTION_ENABLED: bool = False
     BALANCED_SELECTION_RECENT_GAMES: int = 20
     BALANCED_SELECTION_SAME_AGE_QUALITY_GAMES: int = 7
     BALANCED_SELECTION_BRIDGE_GAMES: int = 3
@@ -85,7 +87,7 @@ class GlickoConfig:
 
     # SCF
     SCF_ENABLED: bool = field(
-        default_factory=lambda: os.getenv("SCF_ENABLED", "true").strip().lower() not in ("0", "false", "no")
+        default_factory=lambda: os.getenv("SCF_ENABLED", "false").strip().lower() not in ("0", "false", "no")
     )
     # Apply SCF dampening only to the published score, never to mu.
     # Dampened mu corrupts every downstream use of ratings (opponent credit, SOS,
@@ -238,7 +240,7 @@ class GlickoConfig:
     ML_ALPHA: float = 0.08
 
     # Provisional/publication floor
-    MIN_GAMES_PROVISIONAL: int = 12
+    MIN_GAMES_PROVISIONAL: int = 10
 
     def __post_init__(self):
         # Fail closed: the old SOS-credit cap and the new record reconciliation are two

@@ -327,6 +327,14 @@ def _window_cutoff(today: pd.Timestamp, window_days: int, grace_days: int = 0) -
     return today - pd.Timedelta(days=window_days + max(int(grace_days), 0))
 
 
+def _game_window_mask(dates: pd.Series, today: pd.Timestamp, window_days: int, grace_days: int = 0) -> pd.Series:
+    """Use the same inclusive date bounds for selection and the full-window record."""
+    today = pd.Timestamp(today).tz_localize(None)
+    if getattr(dates.dtype, "tz", None) is not None:
+        dates = dates.dt.tz_localize(None)
+    return dates.between(_window_cutoff(today, window_days, grace_days), today)
+
+
 def select_games(
     games_df: pd.DataFrame,
     team_id: str,
@@ -347,11 +355,9 @@ def select_games(
     Returns:
         Filtered DataFrame sorted by date descending, at most *max_games* rows.
     """
-    cutoff = _window_cutoff(today, window_days, grace_days)
-    dates = games_df["date"]
-    if hasattr(dates.dtype, "tz") and dates.dtype.tz is not None:
-        dates = dates.dt.tz_localize(None)
-    mask = (games_df["team_id"] == team_id) & (dates >= cutoff)
+    mask = (games_df["team_id"] == team_id) & _game_window_mask(
+        games_df["date"], today, window_days, grace_days
+    )
     sort_cols = [col for col in ["date", "game_id", "id", "opp_id"] if col in games_df.columns]
     ascending = [False] + [True] * (len(sort_cols) - 1)
     filtered = games_df.loc[mask].sort_values(sort_cols, ascending=ascending, kind="mergesort")
@@ -430,10 +436,9 @@ def select_games_balanced(
     team_state_map: Optional[Dict[str, str]] = None,
     tier_mult_fn=None,
 ) -> pd.DataFrame:
-    """Select a balanced evidence window: recent + same-age quality + bridge quality.
+    """Select newest games by default; the historical balanced policy is opt-in.
 
-    The output keeps the engine mostly recency-driven while reserving slots for
-    quality same-age evidence and meaningful connectivity games.
+    Production selection ignores results, opponent strength, location and league.
     """
     filtered = select_games(
         games_df,
@@ -913,7 +918,34 @@ def compute_scf(
     team_games: Optional[Dict[str, pd.DataFrame]] = None,
     tier_league_map: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Dict]:
-    """Compute Schedule Connectivity Factor for each team.
+    """Preserve the SCF switch's legacy neutral values when dampening is off."""
+    if not cfg.SCF_ENABLED:
+        return {
+            team_id: {
+                "scf": 1.0,
+                "unique_states": 0,
+                "bridge_games": 0,
+                "is_isolated": False,
+                "quality_boosted": False,
+                "unique_leagues": 0,
+                "league_scf": 1.0,
+                "dominant_opp_league": None,
+                "dominant_opp_league_share": 0.0,
+            }
+            for team_id in team_ratings
+        }
+    return compute_schedule_connectivity(games_df, team_state_map, team_ratings, cfg, team_games, tier_league_map)
+
+
+def compute_schedule_connectivity(
+    games_df: pd.DataFrame,
+    team_state_map: Dict[str, str],
+    team_ratings: Dict[str, Tuple[float, float, float]],
+    cfg: GlickoConfig,
+    team_games: Optional[Dict[str, pd.DataFrame]] = None,
+    tier_league_map: Optional[Dict[str, str]] = None,
+) -> Dict[str, Dict]:
+    """Measure connectivity without applying dampening or consulting SCF_ENABLED.
 
     Detects teams playing in isolated bubbles — either regional (state-based)
     or league-based (e.g., cross-state ECNL_RL play). Assigns a diversity
@@ -943,20 +975,6 @@ def compute_scf(
     )
 
     for team_id in team_ratings:
-        if not cfg.SCF_ENABLED:
-            result[team_id] = {
-                "scf": 1.0,
-                "unique_states": 0,
-                "bridge_games": 0,
-                "is_isolated": False,
-                "quality_boosted": False,
-                "unique_leagues": 0,
-                "league_scf": 1.0,
-                "dominant_opp_league": None,
-                "dominant_opp_league_share": 0.0,
-            }
-            continue
-
         team_state = team_state_map.get(team_id, "")
         if team_games and team_id in team_games:
             tg = team_games[team_id]
@@ -1467,16 +1485,13 @@ def derive_windowed_record(games_df: pd.DataFrame, cfg: GlickoConfig, today: pd.
     """Per-team windowed, draw-aware record from ALL games in the lookback window.
 
     Distinct from the wins/games_played on team_df, which summarize only the selected
-    <=MAX_GAMES balanced subset: record_expected must reflect the full window (same cutoff as
-    select_games) so a strong record is not truncated by outcome-biased selection.
+    <=MAX_GAMES selected subset: record_expected continues to reflect the full window
+    (same date bounds as select_games), even when a team has more than MAX_GAMES games.
 
     Returns one row per team with the _REC_WINDOW_COLS columns.
     """
-    cutoff = _window_cutoff(today, cfg.WINDOW_DAYS, getattr(cfg, "WINDOW_GRACE_DAYS", 0))
-    dates = games_df["date"]
-    if hasattr(dates.dtype, "tz") and dates.dtype.tz is not None:
-        dates = dates.dt.tz_localize(None)
-    windowed = games_df.loc[dates >= cutoff, ["team_id", "gf", "ga"]].copy()
+    mask = _game_window_mask(games_df["date"], today, cfg.WINDOW_DAYS, cfg.WINDOW_GRACE_DAYS)
+    windowed = games_df.loc[mask, ["team_id", "gf", "ga"]].copy()
     if windowed.empty:
         return pd.DataFrame(columns=["team_id", *_REC_WINDOW_COLS])
 
@@ -1686,7 +1701,7 @@ def run_glicko2_cohort(
         opp_genders = tg["opp_gender"].values if "opp_gender" in tg.columns else None
         cross_age_mask = None
         if opp_ages is not None and opp_genders is not None:
-            cross_age_mask = (opp_ages != cohort_age) | (opp_genders != cohort_gender)
+            cross_age_mask = (opp_ages != cohort_age) | (opp_genders != _cohort_gender_detected)
         team_arrays[t] = {
             "opp_ids": tg["opp_id"].values,
             "gf": tg["gf"].values.astype(int),
@@ -1832,6 +1847,7 @@ def compute_rankings_v2(
     pass_label: Optional[str] = None,
     initial_ratings: Optional[Dict[str, Tuple[float, float, float]]] = None,
     tier_league_map: Optional[Dict[str, str]] = None,
+    collect_ceiling_connectivity: bool = False,
 ) -> Dict[str, pd.DataFrame]:
     """Run the full Glicko-2 ranking pipeline.
 
@@ -1866,6 +1882,8 @@ def compute_rankings_v2(
         today = today.tz_localize(None)
     if cfg is None:
         cfg = GlickoConfig()
+    if collect_ceiling_connectivity and (cfg.SCF_ENABLED or pass_label != "Pass2" or team_state_map is None):
+        raise ValueError("Ceiling connectivity requires Pass2, SCF disabled, and a frozen state map")
     label = f" [{pass_label}]" if pass_label else ""
     logger.info(f"Starting Glicko-2 ranking engine{label}")
 
@@ -1890,6 +1908,25 @@ def compute_rankings_v2(
     team_ratings: Dict[str, Tuple[float, float, float]] = dict(
         zip(team_df["team_id"], zip(team_df["mu"], team_df["sigma"], team_df["volatility"]))
     )
+    ceiling_connectivity = None
+    if collect_ceiling_connectivity:
+        measurements = compute_schedule_connectivity(
+            games_df, team_state_map, team_ratings, cfg, team_games, tier_league_map
+        )
+        ceiling_connectivity = pd.DataFrame(
+            [
+                {
+                    "team_id": team_id,
+                    "source_cohort_age": str(games_df["age"].iloc[0]),
+                    "source_cohort_gender": str(games_df["gender"].iloc[0]),
+                    "scf": values["scf"],
+                    "unique_opp_states": values["unique_states"],
+                    "bridge_games": values["bridge_games"],
+                    "is_isolated": values["is_isolated"],
+                }
+                for team_id, values in measurements.items()
+            ]
+        )
     recent_activity = {
         str(team_id): _summarize_team_recent_activity(tg, today) for team_id, tg in team_games.items()
     }
@@ -2137,4 +2174,5 @@ def compute_rankings_v2(
         "teams": team_df,
         "games_used": games_used,
         "game_explainability": game_explain_df,
+        **({"ceiling_connectivity": ceiling_connectivity} if collect_ceiling_connectivity else {}),
     }

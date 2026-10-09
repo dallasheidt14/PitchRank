@@ -13,12 +13,13 @@ from src.utils.us_states import STATE_CODE_TO_NAME, state_name_to_code
 if TYPE_CHECKING:
     from src.tournaments.seeding_sheet import CohortSheet, SheetTeam
 
-CONTENT_VERSION = 5
+CONTENT_VERSION = 7
 DIRECTOR_LEGEND = (
     "Start with the numbered MatchBalance Seed order. PowerScore remains the original published-strength "
     "baseline; bars use the same 0-100 scale. Competitive Breaks mark boundaries where nearby projected "
     "matchups meaningfully worsen; the PowerScore difference is supporting context; they do not assign "
-    "divisions or pools. Very-close ranges identify the same competitive "
+    "divisions or pools. Recommended tier breaks use practical division sizes and all potential matchups. "
+    "A tier can contain multiple pools. Very-close ranges identify the same competitive "
     "neighborhood without claiming the teams are equal."
 )
 LIMITED_HISTORY_LEGEND = "Fewer ranked games support this score. Keep it as a starting point for placement."
@@ -36,6 +37,8 @@ class DirectorRow:
     manual_override: bool = False
     movement: str = ""
     close_range_after: str = ""
+    tier_label: str = ""
+    break_label: str = ""
 
     @property
     def score(self) -> float | None:
@@ -81,6 +84,7 @@ class DirectorRow:
 class DirectorCohort:
     rows: tuple[DirectorRow, ...]
     notes: tuple[str, ...]
+    guidance_summary: str = ""
 
     @property
     def seeded(self) -> tuple[DirectorRow, ...]:
@@ -147,6 +151,9 @@ def build_director_cohort(sheet: CohortSheet, operator_note: str = "") -> Direct
         for item in getattr(analysis, "close_ranges", ())
     } if analysis is not None else {}
     rows = []
+    guidance = getattr(analysis, "tier_guidance", {}) if analysis else {}
+    divisions = guidance.get("divisions", [])
+    practical = set(guidance.get("cuts", []))
     for seed, team in enumerate(seeded, 1):
         original = baseline_seeds.get(team.entrant_id)
         suggested = matchbalance_seeds.get(team.entrant_id)
@@ -162,17 +169,26 @@ def build_director_cohort(sheet: CohortSheet, operator_note: str = "") -> Direct
             manual_detail = f"Manual from MatchBalance #{suggested}" if suggested is not None else "Manual placement"
             movement = " · ".join(value for value in (movement, manual_detail) if value)
         status = statuses.get(team.entrant_id, SEEDED)
+        tier = next((item["label"] for item in divisions
+                     if item["start_seed"] <= seed <= item["end_seed"]), "")
+        break_label = (
+            "Recommended tier break + natural strength separation" if seed in practical and seed in breaks else
+            "Recommended tier break" if seed in practical else
+            "Competitive Break: natural strength separation" if seed in breaks else ""
+        )
         rows.append(DirectorRow(
             seed,
             team,
             markers.get(seed, ""),
             status,
-            seed in breaks,
+            seed in breaks or seed in practical,
             original,
             suggested,
             bool(analysis and manual_override),
             movement,
             close_after.get(seed, ""),
+            tier,
+            break_label,
         ))
     for team in unseeded:
         status = statuses.get(team.entrant_id) or (
@@ -180,12 +196,47 @@ def build_director_cohort(sheet: CohortSheet, operator_note: str = "") -> Direct
             else NO_CURRENT_RATING
         )
         rows.append(DirectorRow(None, team, "", status))
-    # Complete boundary evidence stays in the operator view. The customer gets
-    # the prioritized visual annotations plus only deliberately entered copy.
+    # The same concise guidance and full accepted roster feed every export.
     notes = []
+    guidance_summary = ""
+    if divisions:
+        qualifier = ("Review-required compromise"
+                     if guidance.get("status") == "review_required_compromise" else "Suggested tiers")
+        guidance_summary = qualifier + ": " + " + ".join(str(item["size"]) for item in divisions) + " teams."
+        tier_notes = [
+            f"{item['label']}: seeds {item['start_seed']}-{item['end_seed']} "
+            + (f"({item['size']} teams; {item['selected_format']['summary']}; "
+               f"{item['selected_format']['pool_description']})"
+               if item.get("selected_format", {}).get("total_matches") is not None else
+               f"({item['size']} teams; compatible pools {' + '.join(map(str, item['pool_sizes']))}; "
+               f"minimum {item['minimum_games']} games)")
+            for item in divisions
+        ]
+        if all(item.get("selected_format", {}).get("total_matches") is not None for item in divisions):
+            notes.extend(tier_notes)
+        else:
+            notes.append(qualifier + ": " + "; ".join(tier_notes)
+                         + ". Pool memberships remain the director's decision.")
+    notes.extend(guidance.get("warnings", []))
+    if guidance.get("alternative_sizes"):
+        alternative = guidance.get("alternative") or {}
+        tradeoffs = []
+        for field, label in (("worst_matchup_cost_delta", "worst matchup cost"),
+                             ("pair_weighted_average_matchup_cost_delta", "average matchup cost")):
+            delta = alternative.get(field)
+            if delta is not None and delta != 0:
+                tradeoffs.append(("lower " if delta < 0 else "higher ") + label)
+        if alternative.get("additional_flight_count", 0) > 0:
+            tradeoffs.append("more divisions to schedule")
+        notes.append("Alternative split: " + " + ".join(map(str, guidance["alternative_sizes"]))
+                     + " teams" + ("; " + ", ".join(tradeoffs) if tradeoffs else "") + ".")
+    if guidance:
+        notes.append("Formats use the saved MatchBalance profile; confirm game guarantees and event logistics.")
+    if sheet.delivery_note:
+        notes.append(sheet.delivery_note)
     if operator_note.strip():
         notes.append(operator_note.strip())
-    return DirectorCohort(tuple(rows), tuple(dict.fromkeys(notes)))
+    return DirectorCohort(tuple(rows), tuple(dict.fromkeys(notes)), guidance_summary)
 
 
 def export_fingerprint(
@@ -199,6 +250,8 @@ def export_fingerprint(
         "policy": dict(policy), "legend": DIRECTOR_LEGEND,
         "cohorts": [{
             "age": sheet.age_group, "gender": sheet.gender,
+            "format_context_digest": (sheet.tier_analysis.tier_guidance or {}).get("format_context_digest")
+            if sheet.tier_analysis else None,
             "content": asdict(build_director_cohort(
                 sheet, operator_notes.get((sheet.age_group, sheet.gender), ""),
             )),

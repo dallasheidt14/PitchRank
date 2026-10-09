@@ -51,7 +51,8 @@ def operator(monkeypatch):
         pairs = {key: ({("0", "1"): prediction, ("1", "0"): reverse} if len(members) == 2 else {})
                  for key, members in cohorts.items()}
         return SeedingPredictionBatch(pairs, teams, {key: {} for key in cohorts},
-                                      "2026-09-15T10:00:00+00:00", "2026-09-14", ui.seeding_predictor_sha256())
+                                      "2026-09-15T10:00:00+00:00", "2026-09-14", ui.seeding_predictor_sha256(),
+                                      input_digests={key: "d" * 64 for key in cohorts})
 
     monkeypatch.setattr(ui, "load_seeding_predictions", load)
     monkeypatch.setattr(ui, "seeding_predictor_sha256", lambda: "a" * 64)
@@ -82,7 +83,7 @@ def test_seed_order_and_export_are_presented_as_steps_three_and_four(operator):
     assert any(button.label == "Generate PDF pack" for button in app.button)
 
 
-def test_predictor_update_requires_rebuild_and_keeps_saved_team_choices(operator, monkeypatch):
+def test_predictor_update_keeps_dated_draft_and_saved_team_choices(operator, monkeypatch):
     app, calls = operator
     app.session_state["_seeding_overrides"] = {
         0: {"team_id_master": "00000000-0000-0000-0000-000000000001", "team_name": "Manual match"}
@@ -94,10 +95,9 @@ def test_predictor_update_requires_rebuild_and_keeps_saved_team_choices(operator
     monkeypatch.setattr(ui, "seeding_predictor_sha256", lambda: "b" * 64)
     app.run()
     assert not app.exception
-    assert any("predictor has been updated" in item.value for item in app.info)
-    assert "_seeding_pdf" not in app.session_state
-    assert app.session_state["_seeding_sheet_html"] is None
-    assert all(button.label != "Generate PDF pack" for button in app.button)
+    assert any("predictor has changed" in item.value for item in app.info)
+    assert "DRAFT" in app.session_state["_seeding_sheet_html"]
+    assert any(button.label == "Generate PDF pack" for button in app.button)
     assert app.session_state["_seeding_pack"] == pack
     assert app.session_state["_seeding_overrides"] == overrides
     assert len(calls) == 1
@@ -105,7 +105,7 @@ def test_predictor_update_requires_rebuild_and_keeps_saved_team_choices(operator
     assert len(calls) == 2
     assert app.session_state["_seeding_pack"]["predictor_sha256"] == "b" * 64
     assert app.session_state["_seeding_overrides"] == overrides
-    assert not any("predictor has been updated" in item.value for item in app.info)
+    assert not any("predictor has changed" in item.value for item in app.info)
     assert any(button.label == "Generate PDF pack" for button in app.button)
 
 
@@ -172,7 +172,7 @@ def test_main_review_shows_scores_without_internal_ids_or_close_labels(operator)
     click(app, "Build seeding sheets")
     editor = app.dataframe[0].value
     assert list(editor.columns)[:4] == [
-        "PowerScore Seed", "MatchBalance Seed", "Manual/Effective Seed", "Team",
+        "Effective seed", "Team", "Tier", "PowerScore Seed",
     ]
     assert editor["PowerScore"].tolist() == pytest.approx([55., 55.])
     assert "Entrant" not in editor.columns
@@ -273,7 +273,10 @@ def test_placement_review_stays_internal_and_resets_when_director_notes_change(o
     assert "Placement checks" not in app.session_state["_seeding_sheet_html"]
     assert "Draft — review needed" in exported[-1]
     assert "roster review needed" not in exported[-1]
-    click(app, "Mark placement review complete")
+    while any(button.label == "Mark placement review complete" for button in app.button):
+        click(app, "Mark placement review complete")
+    next(widget for widget in app.text_input if widget.label == "Reason for accepting this dated snapshot").set_value("Reviewed dated inputs")
+    click(app, "Accept dated snapshot for delivery")
     assert "DRAFT" not in app.session_state["_seeding_sheet_html"]
     assert "Draft" not in exported[-1]
     reviewed = deepcopy(app.session_state["_seeding_pack"])
@@ -303,7 +306,7 @@ def test_legacy_analysis_reuses_predictions_and_preserves_notes(operator):
     app.run()
     assert not app.exception and not app.error
     upgraded = app.session_state["_seeding_pack"]
-    assert upgraded["analysis_schema_version"] == 8
+    assert upgraded["analysis_schema_version"] == 10
     assert upgraded["predictions"] == pack["predictions"]
     assert upgraded["generated_at"] == pack["generated_at"]
     assert upgraded["operator_notes"] == pack["operator_notes"]
@@ -419,7 +422,7 @@ def test_rebuild_materializes_new_policy_defaults_from_a_version_three_pack(oper
     click(app, "Build seeding sheets")
 
     rebuilt = app.session_state["_seeding_pack"]
-    assert rebuilt["analysis_schema_version"] == 8
+    assert rebuilt["analysis_schema_version"] == 10
     assert rebuilt["policy"]["blowout_cost_weight"] == 2.0
     assert rebuilt["policy"]["very_close_expected_goal_difference"] == 1.0
     assert rebuilt["policy"]["material_reversal_expected_goal_difference"] == 1.0
@@ -579,9 +582,12 @@ def test_manual_order_requires_explicit_hold_and_restore_removes_override(operat
     assert saved == {"seeded": ["0"], "held": ["1"]}
     assert "Manual/Effective Seed" in app.session_state["_seeding_sheet_html"]
 
+    click(app, "Build seeding sheets")  # Archives the manual decision for a later rebuild.
     click(app, "Restore MatchBalance suggested order")
     assert app.session_state["_seeding_pack"]["manual_seed_orders"] == {}
     assert "Manual/Effective Seed" not in app.session_state["_seeding_sheet_html"]
+    click(app, "Build seeding sheets")
+    assert app.session_state["_seeding_pack"]["manual_seed_orders"] == {}
 
 
 def test_rebuild_drops_manual_orders_for_deselected_cohorts(operator):
@@ -643,10 +649,15 @@ def test_save_keeps_package_when_source_also_contains_younger_teams(operator, mo
     intake._park_seeding_result((raw, enriched), event_id=None)
     assert fake.session_state["_seeding_pack"] == pack
 
-    # A changed identity still discards the incompatible snapshot.
+    # An identity change keeps the dated pack as a rebuild source, never usable analysis.
     changed = (replace(enriched[0], team_id_master="changed"), *enriched[1:])
     intake._park_seeding_result((raw, changed), event_id=None)
-    assert "_seeding_pack" not in fake.session_state
+    from src.tournaments.seeding_pack import snapshot_matches_roster
+    retained = fake.session_state["_seeding_pack"]
+    assert retained["operator_notes"] == pack["operator_notes"]
+    assert "u14|Male" not in retained["selected_cohorts"] or not snapshot_matches_roster(
+        retained, raw.rows, changed, fake.session_state.get("_seeding_overrides", {}),
+    )
 
 
 @pytest.mark.parametrize("analysis_version", [1, 2, 3, 4, 5, 6, 7])
@@ -666,7 +677,7 @@ def test_unsupported_saved_note_remains_editable_after_export_failure(operator, 
     click(app, "Save director notes")
     assert not app.error
     assert app.session_state["_seeding_pack"]["operator_notes"]["u14|Male"] == "Corrected note"
-    assert app.session_state["_seeding_pack"]["analysis_schema_version"] == 8
+    assert app.session_state["_seeding_pack"]["analysis_schema_version"] == 10
     assert "Corrected note" in app.session_state["_seeding_sheet_html"]
     assert "_seeding_xlsx" in app.session_state and len(calls) == 1
 
@@ -796,7 +807,7 @@ def test_compare_discovered_conflicts_mark_all_exports_as_draft(operator, monkey
     app.session_state["_seeding_assessment"] = {"coverage": "complete", "completed": [0, 1, 2]}
     next(widget for widget in app.radio if widget.label == "Sheet pack").set_value("Choose cohorts").run()
     app.multiselect[0].set_value(["u14|Male"]).run()
-    assert any("roster assessed" in message.value for message in app.caption)
+    assert any("Delivery status: draft" in message.value for message in app.info)
     codes = {"u14|Male": {"0": code, "1": code}} if code else {}
     batch = SeedingPredictionBatch({"u14|Male": {}}, {"u14|Male": {}},
         {"u14|Male": {"0": reason, "1": reason}}, "2026-09-15T10:00:00+00:00", None, "a" * 64, codes)
@@ -831,6 +842,10 @@ def test_teams_without_a_current_rating_do_not_hold_the_pack_in_draft(operator, 
     monkeypatch.setattr(ui, "load_seeding_predictions", lambda *_args, **_kwargs: batch)
     click(app, "Build seeding sheets")
     assert not app.error
+    assert "DRAFT" in app.session_state["_seeding_sheet_html"]
+    click(app, "Mark placement review complete")
+    next(widget for widget in app.text_input if widget.label == "Reason for accepting this dated snapshot").set_value("Director will place unrated teams")
+    click(app, "Accept dated snapshot for delivery")
     assert not any("Delivery status: draft" in message.value for message in app.info)
     assert any("roster assessed" in message.value for message in app.caption)
     assert "DRAFT" not in app.session_state["_seeding_sheet_html"]
@@ -869,6 +884,182 @@ def _recovery_app(store):
         f'event_name="Acceptance Cup", save=save, recovery=PackRecovery("Acceptance Cup", {str(store)!r}))',
     )
     return AppTest.from_string(code, default_timeout=15).run()
+
+
+def test_recovery_can_change_a_picker_already_rendered_by_the_workflow(operator, monkeypatch, tmp_path):
+    _interrupt_the_next_build(monkeypatch)
+    code = APP.replace(
+        "render_seeding_pack(parsed,",
+        'from src.tournaments.seeding_intake_ui import _selected_cohorts\n'
+        'from src.tournaments.seeding_run_store import PackRecovery\n'
+        'st.session_state["_seeding_selected_for_workflow"] = _selected_cohorts(parsed, st.session_state.get("_seeding_pack"))\n'
+        'render_seeding_pack(parsed,',
+    ).replace('event_name="Acceptance Cup", save=save)',
+              f'event_name="Acceptance Cup", save=save, view="build", recovery=PackRecovery("Acceptance Cup", {str(tmp_path)!r}))')
+    app = AppTest.from_string(code, default_timeout=15).run()
+    next(button for button in app.button if button.label == "Build seeding sheets").click().run()
+    app.radio[0].set_value("Choose cohorts").run()
+    app.multiselect[0].set_value(["u14|Male"]).run()
+    click(app, "Restore the interrupted build")
+    assert app.radio[0].value == "All imported cohorts"
+    assert app.session_state["_seeding_pack"]["selected_cohorts"] == ["u14|Male", "u15|Female"]
+
+
+def test_free_sample_updates_the_previously_rendered_workflow_picker(operator):
+    code = APP.split("render_seeding_pack(parsed,", 1)[0] + '''
+from src.tournaments.seeding_intake_ui import _selected_cohorts
+from src.tournaments.seeding_review_ui import render_assessment
+st.session_state["_seeding_assessment"] = {"coverage": "complete", "completed": [0, 1, 2]}
+st.session_state["_seeding_selected_for_workflow"] = _selected_cohorts(parsed, None)
+render_assessment(parsed, resolved, {})
+'''
+    app = AppTest.from_string(code, default_timeout=15).run()
+    click(app, "Prepare this free sample")
+    assert app.radio[0].value == "Choose cohorts"
+    assert app.multiselect[0].value == ["u14|Male"]
+    assert app.session_state["_seeding_selected_for_workflow"] == ["u14|Male"]
+
+
+def test_free_sample_respects_scoped_completeness_without_completing_event_quote(operator):
+    code = APP.split("render_seeding_pack(parsed,", 1)[0] + '''
+from src.tournaments.seeding_assessment import source_fingerprint
+from src.tournaments.seeding_review_ui import render_assessment
+st.session_state["_seeding_assessment"] = {"coverage": "unknown", "completed": [0, 1, 2],
+    "cohort_coverage": {"u14|Male": source_fingerprint(parsed.rows[:2])}}
+render_assessment(parsed, resolved, {})
+'''
+    app = AppTest.from_string(code, default_timeout=15).run()
+    assert not app.exception
+    assert any(button.label == "Prepare this free sample" for button in app.button)
+    assert any("Provisional quote" in item.value for item in app.info)
+    assert app.selectbox[0].value == "u14|Male"
+
+
+
+def test_saved_catalog_update_keeps_the_frozen_evidence_and_operator_choices(operator):
+    import json
+
+    from src.tournaments.seeding_format_library import LEGACY_LIBRARY_PATH
+
+    app, calls = operator
+    click(app, "Build seeding sheets")
+    pack = deepcopy(app.session_state["_seeding_pack"])
+    pack["format_library"] = json.loads(LEGACY_LIBRARY_PATH.read_text())
+    pack["operator_notes"] = {"u14|Male": "Preserve this director note"}
+    pack["tier_names"] = {"u14|Male": ["Gold"]}
+    pack["manual_seed_orders"] = {"u14|Male": {"seeded": ["1", "0"], "held": []}}
+    app.session_state["_seeding_pack"] = pack
+    app.run()
+    assert app.session_state["_seeding_pack"]["format_library"]["schema_version"] == 1
+    click(app, "Use expanded formats for this saved analysis")
+    updated = app.session_state["_seeding_pack"]
+    assert updated["format_library"]["schema_version"] == 2
+    for field in ("teams", "predictions", "generated_at", "operator_notes", "tier_names", "manual_seed_orders"):
+        assert updated[field] == pack[field]
+    assert len(calls) == 1
+
+
+def test_optional_event_and_cohort_format_controls_save_without_reloading_predictions(operator):
+    app, calls = operator
+    click(app, "Build seeding sheets")
+    old_predictions = deepcopy(app.session_state["_seeding_pack"]["predictions"])
+    event = next(item for item in app.expander if item.label == "Tournament preferences (optional)")
+    event.checkbox[0].check()
+    event.number_input[0].set_value(4)
+    event.button[0].click().run()
+    assert not app.exception
+    assert app.session_state["_seeding_pack"]["format_preferences"]["minimum_games"] == 4
+    cohort = next(item for item in app.expander if item.label == "Age-group format preferences (optional)")
+    cohort.checkbox[0].uncheck()
+    cohort.number_input[0].set_value(3)
+    cohort.button[0].click().run()
+    assert not app.exception
+    assert app.session_state["_seeding_pack"]["cohort_format_preferences"]["u14|Male"]["minimum_games"] == 3
+    assert app.session_state["_seeding_pack"]["predictions"] == old_predictions
+    assert len(calls) == 1
+
+
+def test_saved_event_limits_and_inherited_cohort_limits_can_be_removed(operator):
+    import json
+
+    app, calls = operator
+    click(app, "Build seeding sheets")
+    event = next(item for item in app.expander if item.label == "Tournament preferences (optional)")
+    event.checkbox[0].check()
+    event.checkbox[1].check()
+    event.number_input[0].set_value(4)
+    event.number_input[1].set_value(6)
+    event.button[0].click().run()
+    cohort = next(item for item in app.expander if item.label == "Age-group format preferences (optional)")
+    cohort.checkbox[0].uncheck()
+    cohort.checkbox[1].uncheck()
+    cohort.checkbox[2].uncheck()
+    cohort.button[0].click().run()
+    pack = app.session_state["_seeding_pack"]
+    assert pack["format_preferences"]["minimum_games"] == 4
+    assert pack["format_preferences"]["maximum_games"] == 6
+    assert pack["cohort_format_preferences"]["u14|Male"]["minimum_games"] is None
+    assert pack["cohort_format_preferences"]["u14|Male"]["maximum_games"] is None
+    event = next(item for item in app.expander if item.label == "Tournament preferences (optional)")
+    event.checkbox[0].uncheck()
+    event.checkbox[1].uncheck()
+    event.button[0].click().run()
+    app.session_state["_seeding_pack"] = json.loads(json.dumps(app.session_state["_seeding_pack"]))
+    app.run()
+    assert not app.exception
+    assert app.session_state["_seeding_pack"]["format_preferences"]["minimum_games"] is None
+    assert app.session_state["_seeding_pack"]["format_preferences"]["maximum_games"] is None
+    assert len(calls) == 1
+
+
+def test_failed_recovery_write_discards_new_analysis_and_keeps_saved_exports(operator, monkeypatch, tmp_path):
+    app = _recovery_app(tmp_path)
+    click(app, "Build seeding sheets")
+    saved = deepcopy(app.session_state["_seeding_pack"])
+    document = app.session_state["_seeding_sheet_html"]
+    verified = app.session_state["_seeding_verified_identity"]
+    load = ui.load_seeding_predictions
+    def changed(*args, **kwargs):
+        batch = load(*args, **kwargs)
+        batch.teams["u14|Male"]["0"]["power_score_final"] = .1
+        batch.teams["u14|Male"]["1"]["power_score_final"] = .9
+        return replace(batch, generated_at="2026-09-16T10:00:00+00:00")
+    def failed_write(*args, **kwargs):
+        raise OSError("Recovery disk unavailable")
+    monkeypatch.setattr(ui, "load_seeding_predictions", changed)
+    monkeypatch.setattr(PackRecovery, "write", failed_write)
+    click(app, "Build seeding sheets")
+    assert any("Recovery disk unavailable" in item.value for item in app.error)
+    assert app.session_state["_seeding_pack"] == saved
+    assert app.session_state["_seeding_sheet_html"] == document
+    assert app.session_state["_seeding_verified_identity"] == verified
+
+
+def test_failed_freshness_recheck_preserves_snapshot_and_reverts_exports_to_draft(operator, monkeypatch):
+    from io import BytesIO
+
+    from openpyxl import load_workbook
+
+    app, _calls = operator
+    app.session_state["_seeding_assessment"] = {"coverage": "complete", "completed": [0, 1, 2]}
+    app.radio[0].set_value("Choose cohorts").run()
+    app.multiselect[0].set_value(["u14|Male"]).run()
+    click(app, "Build seeding sheets")
+    click(app, "Mark placement review complete")
+    click(app, "Check snapshot freshness")
+    assert "DRAFT" not in app.session_state["_seeding_sheet_html"]
+    click(app, "Generate PDF pack")
+    saved = deepcopy(app.session_state["_seeding_pack"])
+    def offline(*args, **kwargs):
+        raise RuntimeError("Offline")
+    monkeypatch.setattr(ui, "load_seeding_predictions", offline)
+    click(app, "Check snapshot freshness")
+    assert app.session_state["_seeding_pack"] == saved
+    assert "_seeding_verified_identity" not in app.session_state
+    assert "_seeding_pdf" not in app.session_state
+    assert "DRAFT" in app.session_state["_seeding_sheet_html"]
+    assert "Not checked in this session" in app.session_state["_seeding_sheet_html"]
+    assert "DRAFT" in load_workbook(BytesIO(app.session_state["_seeding_xlsx"])).active["A1"].value
 
 
 def _fresh_stamps(monkeypatch, *stamps):
@@ -981,7 +1172,7 @@ def test_a_kept_build_for_a_different_roster_is_dropped_unseen(operator, tmp_pat
     click(app, "Build seeding sheets")
     stale = deepcopy(app.session_state["_seeding_pack"])
     stale["generated_at"] = "2026-09-16T10:00:00+00:00"
-    stale["roster_fingerprint"] = "another roster"
+    stale["cohort_fingerprints"]["u14|Male"] = "another roster"
     PackRecovery("Acceptance Cup", tmp_path).write(stale)
     app.run()
 

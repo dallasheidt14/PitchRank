@@ -602,6 +602,68 @@ The gates in Provider Matcher Name Parsing below apply. This platform glues squa
   `off_board_links` compares each team only against its own division and never the two to each
   other.
 
+## YSSL Pages
+
+YSSL (Young Sportsmen's Soccer League, yssl.org) is a Chicago-area boys league. Its pages are
+server-rendered HTML declaring UTF-8 and answer `requests` sent with a browser User-Agent, with no
+proxy and no bot challenge. `scripts/import_yssl.py` is the driver and `yssl-scraper.yml` runs it
+weekly. Only the current season is published; there is no archive.
+
+- `clublinks.php` links every club as `club.php?clu_code=<CODE>`, with the club's name as the link
+  text.
+- `club.php?clu_code=<CODE>` lists the club's teams: a `team.php?tea_id=<n>` link reading
+  `<division>&nbsp;<team name>` (`U12/1&nbsp;AAC EAGLES CHICAGO 14/15 GOLD`), then the team code
+  in the next cell.
+- `team.php?tea_id=<n>` holds the games table: `Num | Date/Time | Opponent | H/A | Field | Result`.
+  The Game Changes table below it also starts with `Num`, so match the whole header.
+
+Reading a game:
+
+- A changed game prints its current date first and the original inside `<del>`; the field cell
+  does the same. Drop the struck parts before reading either.
+- Dates carry no year. Aug-Dec belong to the season's start year, Jan-Jul to the next.
+- `Result` is written from this team's side: `2 - 3` on the home team's page is `3 - 2` on the
+  away team's. The page's GF/GA totals confirm it.
+- An unplayed game has an empty `Result`. Every game appears on both teams' pages under one game
+  number, so merge on the number and hold back a game whose two pages disagree.
+- The opponent links by `team.php?tea_num=<code>`, never by `tea_id`.
+
+Reading a team:
+
+- The team code (`AACM121`: club code, `M`/`F`, U-age, squad index) carries the U-age, so on
+  Aug 1 each code passes to the next cohort's squad. The provider team id is therefore the code
+  scoped to its season (`2026-AACM121`): a bare code would carry last season's link onto a
+  different squad, and a scoped one starts unlinked and re-matches by name. `tea_id` is per
+  season and is not used. The season is the wall clock's, so a club page whose heading names
+  another season (still "Spring 2026 Teams" after Aug 1) stops the run before anything is
+  registered. That stop exits 0, so a green run during the rollover imported nothing.
+- Gender comes from the code's letter, except that a name saying `GIRLS` is a girls team: girls
+  teams play in this boys league, and their twin in PitchRank is filed Female. Their games
+  against boys teams are imported (owner, 2026-10-07).
+- YSSL names a squad by words the shared gates do not read: a branch (`RUSH - WILMETTE WINGS`,
+  `RUSH OSWEGO`), a location (`DARIEN`) or a squad name (`SOLAR`, `LUNAR`). `YSSLGameMatcher`
+  only considers candidates whose team name carries every such word, allowing a stored word of
+  four letters or more to abbreviate it. Without that rule a Wilmette Wings team linked to an
+  Oswego one at 0.99. A branch prefix is not stripped as the club, so its words (`NORTH SHORE`)
+  stay required unless the club names carry them, since the club map can file two branches
+  under one PitchRank club.
+- A squad number (`WHITE 2`, `WHITE II`, `2ND TEAM`) must match: squad 2 or later links only to
+  a candidate carrying that number, and an unnumbered or first squad only to an unnumbered or
+  `1` candidate (owner, 2026-10-08: "White1 and white2 are clearly different teams"). This is
+  deliberately stricter than the shared rule under Provider Matcher Name Parsing, which counts a
+  squad number only when both names carry one.
+- The age comes from the two-year band in the name (`14/15` is U12), and the division's U-age
+  only when there is no band. Small-sided divisions carry the format, as in "U08-5V5/4S".
+- YSSL abbreviates clubs (`ECLIPSE`) and runs some branches under one club code: `CHICAGO RUSH`
+  holds `RUSH NORTH`, `RUSH OSWEGO` and `RUSH - WILMETTE WINGS`. `config/yssl_club_map.csv` maps
+  each club code to the club name PitchRank stores, and a row with a `team_prefix` claims the
+  teams whose names start with it, ahead of the club's own row. `scripts/propose_yssl_club_map.py`
+  proposes rows for a new club. Each row carries the club's `state_code` (blank means IL; four NW
+  Indiana clubs are IN), and a club named `(skip)` is left out without failing the run. A row
+  with a blank name or `decided_by` is undecided, never "no club". A team no decided row fits is left out, and the run exits 1, as it does for any team
+  whose link errored or conflicted and for any played game it could not read. A rained-out game
+  (its date cell reads "rainout" once the struck dates are dropped) is listed but does not fail the run.
+
 ## Provider Matcher Name Parsing
 
 Rules for a provider matcher that gates fuzzy candidates on the team name
@@ -727,6 +789,13 @@ team it never creates and pass on `None`.
 And the matcher needs its own branch in `EnhancedETLPipeline._ensure_initialized`'s provider
 chain (`src/etl/enhanced_pipeline.py`): the `else` fallback constructs a bare `GameHistoryMatcher` **without** `dry_run`, so until
 that branch exists the provider's `--dry-run` import still writes aliases and review rows.
+
+A new provider is not finished until its driver has dry-run end to end against the production
+database (roster pass and the import's own dry run), with the provider's `teams`,
+`team_alias_map`, `team_match_review_queue` and `games` rows counted before and after to show
+zero writes. Read-only page scrapes and a green unit suite do not count: only that run surfaces a
+missing provider row, an unfilled club map and wrong links, so read its team report before calling
+the provider done.
 
 ### Carry two seasons, never one
 

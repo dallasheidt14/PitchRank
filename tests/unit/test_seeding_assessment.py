@@ -10,6 +10,8 @@ from src.tournaments.seeding_assessment import (
     assess_roster, carry_decisions, corrected_identities, effective_roster, event_price, source_fingerprint,
     could_belong,
     package_roster,
+    scoped_attention,
+    cohort_coverage_ready,
 )
 from src.tournaments.seeding_intake_ui import team_csv
 from src.tournaments.seeding_run_store import SeedingRun, load_run, save_run
@@ -82,6 +84,21 @@ def test_partial_or_legacy_sample_never_claims_ready(coverage):
     parsed = parse_roster("Boys U10\nC\tA")
     result = assess_roster(parsed, [ResolvedTeam(0, "gotsport_id", team_id_master="a")], {}, coverage=coverage)
     assert result.provisional and result.cohorts[0]["Status"] == "Check coverage"
+
+
+def test_selected_cohort_ignores_unrelated_pending_entries_but_keeps_relevant_ambiguity():
+    parsed = parse_roster("Boys U14\nC\tReady\nGirls U15\nC\tPending\nBoys U13/U14\nC\tAmbiguous")
+    resolved = (ResolvedTeam(0, "gotsport_id", team_id_master="a"),)
+    assessment = assess_roster(parsed, resolved, {}, completed=[0])
+    assert scoped_attention(parsed, assessment, ["u14|Male"]) == {2}
+    without_ambiguous = replace(parsed, rows=parsed.rows[:2])
+    assert not scoped_attention(without_ambiguous, assessment, ["u14|Male"])
+    metadata = {"coverage": "partial", "cohort_coverage": {
+        "u14|Male": source_fingerprint(parsed.rows[:1]),
+    }}
+    assert cohort_coverage_ready(parsed.rows, metadata, ["u14|Male"])
+    changed = (replace(parsed.rows[0], team_name_raw="Changed"), *parsed.rows[1:])
+    assert not cohort_coverage_ready(changed, metadata, ["u14|Male"])
 
 
 def test_malformed_paste_remains_reviewable_and_is_not_a_confirmed_quote_team():

@@ -50,6 +50,7 @@ class SeedingPredictionBatch:
     ratings_as_of: str | None
     predictor_sha256: str
     unavailable_codes: dict[str, dict[str, str]] = field(default_factory=dict)
+    input_digests: dict[str, str] = field(default_factory=dict)
 
 
 def seeding_predictor_sha256() -> str:
@@ -112,6 +113,12 @@ def _parse_batch(
     teams = {}
     unavailable = {}
     unavailable_codes = {}
+    input_digests = result.get("input_digests", {})
+    if not isinstance(input_digests, dict) or (input_digests and set(input_digests) != set(cohorts)) or any(
+        not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value)
+        for value in input_digests.values()
+    ):
+        raise ValueError("Seeding Compare result has invalid input digests")
     for cohort_key, entrants in cohorts.items():
         output = outputs[cohort_key]
         if not isinstance(output, dict):
@@ -193,6 +200,7 @@ def _parse_batch(
         ratings_as_of=ratings_as_of,
         predictor_sha256=predictor_sha256,
         unavailable_codes=unavailable_codes,
+        input_digests=input_digests,
     )
 
 

@@ -90,6 +90,7 @@ class CohortSheet:
     rated: tuple[SheetTeam, ...]
     unrated: tuple[SheetTeam, ...]
     tier_analysis: CheatSheetAnalysis | None = None
+    delivery_note: str = ""
 
     @property
     def total_teams(self) -> int:
@@ -343,10 +344,12 @@ def _rows_html(
     strength_break_ids: frozenset[str] = frozenset(),
     movement_notes: Mapping[str, str] | None = None,
     close_range_notes: Mapping[str, str] | None = None,
+    break_labels: Mapping[str, str] | None = None,
 ) -> str:
     row_groups = []
     regular_rows = []
     break_before_next_row = False
+    separator_label = "Competitive Break"
     for position, team in enumerate(teams, start=start):
         status = _status_label(team.status) if numbered else ""
         flag = (
@@ -402,13 +405,14 @@ def _rows_html(
             row_groups.append(
                 '<tbody class="competitive-break-group">'
                 '<tr class="competitive-break"><td colspan="5">'
-                '<span>Competitive Break</span>'
-                '<small>Natural model separation - not a required flight or division</small>'
+                f'<span>{html.escape(separator_label)}</span>'
+                '<small>Strength guidance; the director makes the final placement decision</small>'
                 f'</td></tr>{row}</tbody>'
             )
         else:
             regular_rows.append(row)
         break_before_next_row = team.entrant_id in strength_break_ids
+        separator_label = (break_labels or {}).get(team.entrant_id, "Competitive Break")
     if regular_rows:
         row_groups.append(f'<tbody>{"".join(regular_rows)}</tbody>')
     return "".join(row_groups)
@@ -420,12 +424,13 @@ def _table_html(title: str, teams: Sequence[SheetTeam], *, numbered: bool, start
                 strength_break_ids: frozenset[str] = frozenset(),
                 movement_notes: Mapping[str, str] | None = None,
                 close_range_notes: Mapping[str, str] | None = None,
+                break_labels: Mapping[str, str] | None = None,
                 seed_label: str = "MatchBalance Seed") -> str:
     summary = f'<div class="tier-description">{html.escape(subtitle)}</div>' if subtitle else ""
     purpose_html = f'<span class="tier-purpose">{html.escape(purpose)}</span>' if purpose else ""
     rows = _rows_html(teams, numbered=numbered, start=start, placement_notes=placement_notes,
                       strength_break_ids=strength_break_ids, movement_notes=movement_notes,
-                      close_range_notes=close_range_notes)
+                      close_range_notes=close_range_notes, break_labels=break_labels)
     return (
         f'<table class="grid{" review" if review else " tier-table"}">'
         '<colgroup><col class="seed-col"><col class="team-col"><col class="score-col">'
@@ -567,13 +572,14 @@ def _cheat_sheet_tables(sheet: CohortSheet) -> tuple[str, str]:
         ),
         placement_notes={
             row.team.entrant_id: " · ".join(
-                value for value in (row.observation, row.display_status) if value and value != "Seeded"
+                value for value in (row.tier_label, row.observation, row.display_status) if value and value != "Seeded"
             )
             for row in content.seeded
         },
         strength_break_ids=frozenset(row.team.entrant_id for row in content.seeded if row.strength_break_after),
         movement_notes={row.team.entrant_id: row.movement for row in content.seeded},
         close_range_notes={row.team.entrant_id: row.close_range_after for row in content.seeded},
+        break_labels={row.team.entrant_id: row.break_label for row in content.seeded},
         seed_label=seed_label,
     )
     if content.unseeded:
@@ -584,6 +590,7 @@ def _cheat_sheet_tables(sheet: CohortSheet) -> tuple[str, str]:
             placement_notes={row.team.entrant_id: row.placement_status for row in content.unseeded},
         )
     summary = (
+        (content.guidance_summary + " " if content.guidance_summary else "") +
         f"{len(content.seeded)} teams in the effective seed order · "
         f"{len(content.unseeded)} held for placement review."
     )
@@ -601,7 +608,8 @@ def _sheet_html(
     notes = ""
     if guidance:
         items = "".join(f"<li>{html.escape(value)}</li>" for value in dict.fromkeys(guidance))
-        notes = f'<aside class="guidance"><h2>Director notes</h2><ul>{items}</ul></aside>'
+        notes = (f'<aside class="guidance"><h2>Director notes · {html.escape(cohort)}</h2>'
+                 f'<ul>{items}</ul></aside>')
     explanation = (
         DIRECTOR_LEGEND + " "
         + "PitchRank score already adjusts for age, so a younger team playing up can be compared here. "

@@ -342,7 +342,7 @@ class TestSelectGames:
 
 class TestBalancedSelection:
     def test_balanced_selection_reserves_quality_slots(self):
-        cfg = GlickoConfig()
+        cfg = GlickoConfig(BALANCED_SELECTION_ENABLED=True)
         today = pd.Timestamp("2026-03-31")
         rows = []
 
@@ -396,6 +396,7 @@ class TestBalancedSelection:
         """A U9 bridge opponent counts as U10, so it cannot outbid stronger U11 bridges."""
         cfg = GlickoConfig(
             MAX_GAMES=30,
+            BALANCED_SELECTION_ENABLED=True,
             BALANCED_SELECTION_RECENT_GAMES=20,
             BALANCED_SELECTION_SAME_AGE_QUALITY_GAMES=7,
             BALANCED_SELECTION_BRIDGE_GAMES=3,
@@ -441,8 +442,8 @@ class TestBalancedSelection:
         assert sorted(bridge["opp_id"].astype(str)) == ["E0", "E1", "E2"]
         assert "Y9" not in set(selected["opp_id"].astype(str))
 
-    def test_selection_includes_soft_window_grace_day(self):
-        cfg = GlickoConfig()
+    def test_explicit_legacy_grace_keeps_recently_expired_game(self):
+        cfg = GlickoConfig(WINDOW_GRACE_DAYS=28)
         today = pd.Timestamp("2026-04-21")
         rows = make_game("A", "B", 2, 1, pd.Timestamp("2025-04-20"))
         games = pd.DataFrame(rows)
@@ -975,6 +976,11 @@ class TestApplyTierMult:
 
 
 class TestSCF:
+    @pytest.fixture(autouse=True)
+    def enable_legacy_scf(self, monkeypatch):
+        # These tests exercise the retained opt-in dampening implementation.
+        monkeypatch.setenv("SCF_ENABLED", "true")
+
     def _make_games(self, team_id: str, opp_ids: list[str]) -> pd.DataFrame:
         """Helper: one game row per opponent for *team_id*."""
         rows = [
@@ -1487,7 +1493,7 @@ class TestComputeRankingsV2:
         """Publish-only SCF: identical results give identical mu, but the isolated
         team's published score is pulled toward neutral. Covers both publish branches."""
         games, state_map = self._isolated_vs_connected_games()
-        cfg = GlickoConfig(MIN_GAMES_PROVISIONAL=1, SOS_ADJ_ENABLED=sos_adj_enabled, SCF_PUBLISH_ONLY=True)
+        cfg = GlickoConfig(SCF_ENABLED=True, MIN_GAMES_PROVISIONAL=1, SOS_ADJ_ENABLED=sos_adj_enabled, SCF_PUBLISH_ONLY=True)
         result = compute_rankings_v2(games, today=pd.Timestamp("2026-03-31"), cfg=cfg, team_state_map=state_map)
         teams = result["teams"].set_index("team_id")
 
@@ -1498,7 +1504,7 @@ class TestComputeRankingsV2:
     def test_scf_legacy_dampens_mu(self):
         """SCF_PUBLISH_ONLY=False: the isolated team's mu itself is dampened toward 1500."""
         games, state_map = self._isolated_vs_connected_games()
-        cfg = GlickoConfig(MIN_GAMES_PROVISIONAL=1, SCF_PUBLISH_ONLY=False)
+        cfg = GlickoConfig(SCF_ENABLED=True, MIN_GAMES_PROVISIONAL=1, SCF_PUBLISH_ONLY=False)
         result = compute_rankings_v2(games, today=pd.Timestamp("2026-03-31"), cfg=cfg, team_state_map=state_map)
         teams = result["teams"].set_index("team_id")
 
@@ -1513,7 +1519,7 @@ class TestComputeRankingsV2:
         results = {}
         for publish_only in (True, False):
             cfg = GlickoConfig(
-                MIN_GAMES_PROVISIONAL=1, SOS_ADJ_ENABLED=sos_adj_enabled, SCF_PUBLISH_ONLY=publish_only
+                SCF_ENABLED=True, MIN_GAMES_PROVISIONAL=1, SOS_ADJ_ENABLED=sos_adj_enabled, SCF_PUBLISH_ONLY=publish_only
             )
             results[publish_only] = compute_rankings_v2(
                 games, today=pd.Timestamp("2026-03-31"), cfg=cfg, team_state_map=state_map

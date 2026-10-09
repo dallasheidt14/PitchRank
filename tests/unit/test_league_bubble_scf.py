@@ -24,6 +24,11 @@ def _make_games(team_id: str, opp_ids: list[str]) -> pd.DataFrame:
 class TestLeagueBubbleSCF:
     """Verify league diversity affects SCF."""
 
+    @pytest.fixture(autouse=True)
+    def enable_legacy_scf(self, monkeypatch):
+        # League dampening remains testable as an explicit opt-in.
+        monkeypatch.setenv("SCF_ENABLED", "true")
+
     def test_single_league_opponents_get_low_scf(self):
         """Team with all opponents in one league → league_scf = 0.5."""
         cfg = GlickoConfig()

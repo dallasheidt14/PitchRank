@@ -160,7 +160,9 @@ PitchRank is a **youth soccer ranking platform** that scrapes game data from mul
 written under any of the seven is published on the next push, and history keeps it after any later
 edit. Keep live account identifiers out of all of them (a Stripe `acct_`, a customer email, an
 invoice or subscription id); aggregate figures are a disclosure judgement for the owner rather than
-a leak. Only paths *not* on that list are local scratch — run `git check-ignore -v <path>` before
+a leak. A plan step that checks a scrub worked must not quote what it scrubbed: a grep for three
+coaches' surnames publishes the surnames, so check for what should remain (every link reads the
+placeholder) instead. Only paths *not* on that list are local scratch — run `git check-ignore -v <path>` before
 assuming a new `.turbo/` subdirectory is one of them.
 
 Out-of-scope ideas noticed during work go to `.turbo/improvements.md` via
@@ -386,6 +388,7 @@ import, so a process running across Aug 1 keeps last season's map until restart.
 | Affinity UT | `affinity_ut` | HTML scraping | Utah (UYSA) leagues through the OR scraper; games filed by team-name age, keeps unplayed fixtures |
 | Soccer Events Group | `soccereventsgroup` | JSON API + bracket HTML | Tournament brackets only (pool play is unpublished); operator-run per event via `scripts/import_soccereventsgroup_event.py` |
 | Athletes2Events | `athletes2events` | HTML scraping | White-label tournament sites, one subdomain per host club; operator-run per event via `scripts/import_athletes2events_event.py`, which takes the event URL and reads the host from it |
+| YSSL | `yssl` | HTML scraping | Chicago-area boys league (Young Sportsmen's), walked club by club; teams take their club's state from the club map (IL, plus four NW Indiana clubs as IN), scored games only, weekly via `yssl-scraper.yml`. Clubs translate through the reviewed `config/yssl_club_map.csv` |
 
 #### TGS U-age divisions are only resolvable from 2026-08-01
 
@@ -443,7 +446,7 @@ Glicko path calls it. Parameters and feature flags live in `src/etl/glicko_confi
 ### Pipeline Flow
 
 ```
-Games (Supabase; 365-day window + 28-day grace taper)
+Games (Supabase; strict 365-day window; newest 30 games per team)
   → Merge Resolution (deprecated → canonical team IDs)
   → Drop every game with a team in `team_ranking_exclusions` on either side, so a listed
             team is neither ranked nor an opponent; the read fails closed
@@ -635,6 +638,7 @@ two-line edit in `.github/workflows/claude-code-review.yml`.
 | `wa-scraper.yml` | Mon 6:00 + 7:00 AM UTC | Affinity WA tournament scrape + import |
 | `or-scraper.yml` | Mon 6:30 + 7:30 AM UTC | Affinity OR (OYSA) league scrape + import — keeps unplayed fixtures |
 | `ut-scraper.yml` | Mon 5:30 + 6:30 AM UTC | Affinity UT (UYSA) league scrape + import — keeps unplayed fixtures |
+| `yssl-scraper.yml` | Mon 8:15 AM UTC | YSSL scrape, roster pass and import — scored games only; red when a team has no decided club-map row, a team's link errored or conflicted, a played game could not be read (rainouts excepted), or an in-season run read no scored games |
 | `playmetrics-scrape-import.yml` | Mon 6:30 AM UTC | PlayMetrics league scrape + import (deliberately ungated by `AGE_ROLLOVER_FREEZE`) |
 | `update-missing-club-and-state.yml` | Mon 10:00 AM UTC | Backfill missing `club_name` and standardize existing spellings — **every `state_code` step is `if: false`** (see below) |
 | `fill-team-states-weekly.yml` | Wed 9:37 AM UTC | Fill missing `state_code` from ranked evidence — fills only, never corrections |
@@ -689,13 +693,15 @@ by the `assigning-team-states` skill, and reaching a schedule through `fill-team
 (fills only, never corrections). **Do not re-enable a disabled step to fix a missing state** — a
 comment elsewhere in the tree may still point at one of them (`scrape_tgs_event.py:587` does).
 
-**Four provider imports still stamp a state on team creation, on a schedule**, which is a
+**Five provider imports still stamp a state on team creation, on a schedule**, which is a
 different thing from a backfill and is not covered by the above: `wa-scraper.yml` runs the
 Affinity WA matcher, which hardcodes `"WA"` (`src/models/affinity_wa_matcher.py:26`, written at
 `:390`), `or-scraper.yml` and `ut-scraper.yml` run the Affinity OR matcher and its Utah subclass, and
 `playmetrics-scrape-import.yml` runs the PlayMetrics matcher, which writes the CSV row's
 `state_code` — a per-league constant the scraper derives from the governing body
-(`src/models/playmetrics_matcher.py`, in `_create_new_playmetrics_team`). None sets `state_source`.
+(`src/models/playmetrics_matcher.py`, in `_create_new_playmetrics_team`), and `yssl-scraper.yml`
+stamps each created team with its club's state from `config/yssl_club_map.csv` (IL unless the row says otherwise). None
+sets `state_source`.
 An audit of "what writes state" has to count these; the backlog entry on constant-state
 provenance tracks the fix.
 
@@ -710,7 +716,7 @@ a generic club word such as `Avalanche` (stored only in Virginia) sent Utah team
 
 ### `AGE_ROLLOVER_FREEZE` (currently LIFTED)
 
-**Status: `'false'` in all eleven workflows since the Aug 2026 rollover completed.**
+**Status: `'false'` in all thirteen workflows since the Aug 2026 rollover completed.**
 Everything it gated is running normally, with one permanent exception: the
 `fix_team_age_groups.py` step carries a second, independent flag,
 `AGE_DERIVATION_ENABLED: 'false'`, in both `data-hygiene-weekly.yml` and
@@ -730,13 +736,13 @@ permanently. The game importers count: they create unmatched teams through the
 provider matchers using an age `EnhancedETLPipeline` derives at import time, so
 the derivation is invisible at the call site.
 
-**To re-arm for the next rollover**, set it to `'true'` in all twelve:
+**To re-arm for the next rollover**, set it to `'true'` in all thirteen:
 `data-hygiene-weekly.yml`, `unknown-opponent-hygiene-weekly.yml`,
 `auto-merge-queue.yml`, `fix-age-year-discrepancies.yml`,
 `tgs-event-scrape-import.yml`, `modular11-weekly-scrape.yml`,
 `modular11-events-weekly-scrape.yml`,
 `playmetrics-tournament-scrape-import.yml`, `wa-scraper.yml`, `or-scraper.yml`,
-`ut-scraper.yml`, `ea-scraper.yml`. Do it
+`ut-scraper.yml`, `yssl-scraper.yml`, `ea-scraper.yml`. Do it
 before Aug 1;
 lift it again only once the relabel migration is applied and the boards verified.
 
@@ -746,6 +752,9 @@ a gap. The one exception is `playmetrics-scrape-import.yml`, where scraping and
 importing are a single step: it is deliberately left ungated so collection
 continues, accepting that a brand-new PlayMetrics team created mid-rollover may
 land one cohort off. The exemption is named in the coverage test.
+`yssl-scraper.yml` is the opposite case: its single step is gated whole, so a
+frozen week collects nothing, and its season-to-date window refills the gap on
+the first run after the lift.
 
 `tests/unit/test_age_rollover_freeze_coverage.py` fails on any ungated writing
 step, or a gate widened by a top-level `||`. It guards the gates themselves, not

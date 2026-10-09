@@ -90,11 +90,13 @@ def build_seeding_workbook(
             sheet["A3"] = DIRECTOR_LEGEND + " Limited history: " + LIMITED_HISTORY_LEGEND
             sheet.row_dimensions[3].height = 42
         sheet.merge_cells("A5:K5")
-        sheet["A5"] = " · ".join(
+        sheet["A5"] = (content.guidance_summary + " " if content.guidance_summary else "") + " · ".join(
             f"{label}: {sum(row.placement_status == label for row in team_rows)}"
             for label in PLACEMENT_STATUSES
         )
         sheet["A5"].font = Font(color=MUTED, size=9)
+        sheet["A5"].alignment = Alignment(wrap_text=True, vertical="center")
+        sheet.row_dimensions[5].height = 30
         manual = bool(cohort.tier_analysis and getattr(cohort.tier_analysis, "manual_override", False))
         headers = [
             "Manual/Effective seed" if manual else "MatchBalance seed",
@@ -111,7 +113,8 @@ def build_seeding_workbook(
             team = row.team
             placement = " · ".join(
                 value for value in (
-                    row.movement, row.observation, row.close_range_after, row.display_status,
+                    row.tier_label, row.movement, row.observation, row.break_label,
+                    row.close_range_after, row.display_status,
                 ) if value
             )
             values = [

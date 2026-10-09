@@ -17,6 +17,7 @@ import subprocess
 import sys
 import tempfile
 import zipfile
+from dataclasses import replace
 from io import BytesIO
 from itertools import combinations
 from pathlib import Path
@@ -26,13 +27,16 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from src.tournaments.compare_predictor_bridge import ComparePrediction  # noqa: E402
+from src.tournaments.seeding_format_library import load_format_library  # noqa: E402
 from src.tournaments.seeding_pdf import render_seeding_pdf  # noqa: E402
 from src.tournaments.seeding_sheet import CohortSheet, SheetTeam, render_sheet_html  # noqa: E402
+from src.tournaments.seeding_tier_guidance import build_tier_guidance  # noqa: E402
 from src.tournaments.seeding_tiers import (  # noqa: E402
     DATA_REVIEW,
     NO_CURRENT_RATING,
     NOT_FOUND,
     TierEntrant,
+    TierPolicy,
     build_cheat_sheet_analysis,
 )
 from src.tournaments.seeding_workbook import (  # noqa: E402
@@ -56,6 +60,7 @@ RENDERER_ASSETS = (
     Path("frontend/scripts/render-seeding-pdf.mjs"),
     Path("frontend/package-lock.json"),
     Path("requirements.lock"),
+    Path("config/matchbalance_format_library.json"),
 )
 
 SYNTHETIC_FIXTURE: dict[str, Any] = {
@@ -293,6 +298,9 @@ def _build_cohort(fixture: dict[str, Any]) -> CohortSheet:
         for first, second in combinations(sorted(eligible), 2)
     }
     analysis = build_cheat_sheet_analysis(entrants, predictions)
+    analysis = replace(analysis, tier_guidance=build_tier_guidance(
+        analysis, entrants, predictions, TierPolicy(), load_format_library(),
+    ))
     rated = tuple(team for team in teams if team.power_score is not None)
     unrated = tuple(team for team in teams if team.power_score is None)
     return CohortSheet(fixture["age_group"], fixture["gender"], rated, unrated, analysis)

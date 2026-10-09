@@ -15,6 +15,7 @@ from src.tournaments.seeding_pack import (
     analyze_pack,
     available_cohorts,
     boundary_analysis_snapshot,
+    carry_pack_decisions,
     cohort_label,
     duplicate_identity_rows,
     make_pack,
@@ -24,6 +25,7 @@ from src.tournaments.seeding_pack import (
     persist_ordering,
     placement_review_fingerprint,
     prediction_request,
+    retain_matching_cohorts,
     roster_fingerprint,
     snapshot_ratings,
     team_ids_by_row,
@@ -102,6 +104,146 @@ def test_cohorts_have_separate_age_gender_labels_and_numeric_order():
     assert cohort_label("u14|Male") == "U14 Boys"
 
 
+def test_format_preferences_preserve_unrelated_reviews_and_survive_rebuild():
+    from src.tournaments.seeding_freshness import snapshot_identity
+
+    pack = _pack(("u12|Male", "u14|Male"))
+    before = analyze_pack(pack, ROWS, RESOLVED, {})
+    old_id = snapshot_identity(pack)
+    fingerprints = {key: placement_review_fingerprint(pack, "|".join(key), value)
+                    for key, value in before.items()}
+    pack["cohort_format_preferences"] = {"u12|Male": {"minimum_games": 4}}
+    after = analyze_pack(pack, ROWS, RESOLVED, {})
+    assert snapshot_identity(pack) != old_id
+    assert placement_review_fingerprint(pack, "u12|Male", after[("u12", "Male")]) != fingerprints[("u12", "Male")]
+    assert placement_review_fingerprint(pack, "u14|Male", after[("u14", "Male")]) == fingerprints[("u14", "Male")]
+    pack["format_preferences"] = {"repeat_opponents": "prohibited"}
+    pack["operator_notes"] = {"u12|Male": "Director note"}
+    pack["tier_names"] = {"u12|Male": ["Gold"]}
+    reopened = json.loads(json.dumps(pack))
+    rebuilt = _pack(("u12|Male", "u14|Male"))
+    carry_pack_decisions(reopened, rebuilt)
+    for key in ("format_preferences", "cohort_format_preferences", "operator_notes", "tier_names"):
+        assert rebuilt[key] == pack[key]
+
+
+def test_legacy_upgrade_keeps_original_format_catalog():
+    from src.tournaments.seeding_format_library import LEGACY_LIBRARY_PATH
+
+    pack = _pack()
+    pack["schema_version"] = 6
+    pack["analysis_schema_version"] = 9
+    legacy = json.loads(LEGACY_LIBRARY_PATH.read_text())
+    pack["format_library"] = legacy
+    upgraded = upgrade_pack_analysis(pack, ROWS, RESOLVED, {}, ["u12|Male"], predictor_sha256="a" * 64)
+    assert upgraded["format_library"] == legacy
+    del pack["format_library"]
+    assert upgrade_pack_analysis(pack, ROWS, RESOLVED, {}, ["u12|Male"],
+                                 predictor_sha256="a" * 64)["format_library"] == legacy
+
+
+@pytest.mark.parametrize("schema", [6, 7])
+def test_unrelated_identity_edit_preserves_completed_cohort_snapshot(schema):
+    pack = _pack(("u12|Male", "u14|Male"))
+    pack["schema_version"] = schema
+    if schema == 6:
+        pack["analysis_schema_version"] = 9
+    pack["operator_notes"] = {"u14|Male": "Keep this note."}
+    changed = {4: {"not_found": True}}
+    before = deepcopy(pack)
+    retained = retain_matching_cohorts(pack, ROWS, RESOLVED, changed)
+    assert pack == before
+    assert retained["selected_cohorts"] == ["u12|Male"]
+    assert retained["operator_notes"] == pack["operator_notes"]
+    if schema == 6:
+        retained = upgrade_pack_analysis(retained, ROWS, RESOLVED, changed, ["u12|Male"],
+                                         predictor_sha256="a" * 64)
+    assert pack_matches(retained, ROWS, RESOLVED, changed, ["u12|Male"])
+    assert analyze_pack(retained, ROWS, RESOLVED, changed)[("u12", "Male")]
+
+
+@pytest.mark.parametrize("change", ["ranking_rule", "opponents", "preference"])
+def test_format_context_invalidates_review_and_export_even_when_display_is_unchanged(change):
+    from src.tournaments.seeding_content import build_director_cohort, export_fingerprint
+
+    rows = parse_roster("Male U12\n" + "\n".join(f"Club {i}\tTeam {i}\tTX" for i in range(4))).rows
+    resolved = tuple(ResolvedTeam(i, "gotsport_id", team_id_master=IDS[i]) for i in range(4))
+    pack = _pack(rows=rows, resolved=resolved)
+
+    def evidence():
+        analysis = analyze_pack(pack, rows, resolved, {})
+        sheets = build_cohort_sheets(rows, resolved, {}, snapshot_ratings(pack, team_ids_by_row(rows, resolved, {})),
+                                    tier_analyses=analysis)
+        fingerprint = export_fingerprint("Event", sheets, generated_on="2026-10-08", ranking_run="saved",
+                                         operator_notes={}, analysis_version=10, policy=pack["policy"])
+        review = placement_review_fingerprint(pack, "u12|Male", analysis[("u12", "Male")])
+        return review, fingerprint, [build_director_cohort(sheet) for sheet in sheets]
+
+    before = evidence()
+    if change == "preference":
+        pack["cohort_format_preferences"] = {"u12|Male": {"maximum_games": 100}}
+    else:
+        template = next(t for t in pack["format_library"]["templates"] if t["template_id"] == "mb-expanded-4-final-v2")
+        if change == "ranking_rule":
+            template["playing_structure"]["stages"][0]["ranking_rule"] = "Points, then drawing lots."
+        else:
+            template["playing_structure"]["stages"][-1]["inputs"] = ["table:1", "table:3"]
+    after = evidence()
+    assert after[0] != before[0]
+    assert after[1] != before[1]
+    assert after[2] == before[2]
+
+
+def test_narrowing_then_widening_restores_only_valid_manual_orders_after_restart():
+    pack = _pack(("u12|Male", "u14|Male"))
+    decision = {"seeded": ["1", "0"], "held": []}
+    pack["manual_seed_orders"] = {"u12|Male": decision}
+    narrowed = _pack(("u14|Male",))
+    carry_pack_decisions(pack, narrowed)
+    assert narrowed["manual_seed_orders"] == {}
+    reopened = json.loads(json.dumps(narrowed))
+    widened = _pack(("u12|Male", "u14|Male"))
+    carry_pack_decisions(reopened, widened)
+    assert widened["manual_seed_orders"] == {"u12|Male": decision}
+    assert analyze_pack(widened, ROWS, RESOLVED, {})[("u12", "Male")].ordered_ids == ("1", "0")
+    changed = _pack(("u12|Male", "u14|Male"), overrides={0: {"not_found": True}})
+    carry_pack_decisions(reopened, changed)
+    assert changed["manual_seed_orders"] == {}
+    assert changed["saved_manual_decisions"]["u12|Male"]["order"] == decision
+
+
+def test_rebuilding_an_unrelated_cohort_does_not_validate_archived_stale_orders():
+    pack = _pack(("u12|Male", "u14|Male"))
+    pack["manual_seed_orders"] = {"u12|Male": {"seeded": ["1", "0"], "held": []}}
+    overrides = {0: {"not_found": True}}
+    retained = retain_matching_cohorts(pack, ROWS, RESOLVED, overrides)
+    narrowed = _pack(("u14|Male",), overrides=overrides)
+    carry_pack_decisions(retained, narrowed)
+    widened = _pack(("u12|Male", "u14|Male"), overrides=overrides)
+    assert narrowed["roster_fingerprint"] == widened["roster_fingerprint"]
+    carry_pack_decisions(narrowed, widened)
+    assert widened["manual_seed_orders"] == {}
+
+
+def test_nullable_rating_status_is_provisional_through_the_saved_pack_adapter():
+    rows = parse_roster("Male U12\n" + "\n".join(f"Club {i}\tTeam {i}\tTX" for i in range(4))).rows
+    resolved = tuple(ResolvedTeam(i, "gotsport_id", team_id_master=IDS[i]) for i in range(4))
+    batch = _batch(prediction_request(rows, resolved, {}, ["u12|Male"]))
+    for team in batch.teams["u12|Male"].values():
+        team["status"] = "Active"
+    batch.teams["u12|Male"]["0"]["status"] = None
+    batch.predictions["u12|Male"] = {
+        pair: replace(value, expected_margin=.2 if pair[0] < pair[1] else -.2,
+                      expected_absolute_goal_difference=.8, blowout_4plus_probability=.02)
+        for pair, value in batch.predictions["u12|Male"].items()
+    }
+    pack = make_pack(rows, resolved, {}, ["u12|Male"], batch, {})
+    analysis = analyze_pack(pack, rows, resolved, {})[("u12", "Male")]
+    assert [item["size"] for item in analysis.tier_guidance["divisions"]] == [4]
+    assert any("unknown playing history" in text for text in analysis.tier_guidance["warnings"])
+    assert needs_placement_review(pack, "u12|Male", analysis)
+
+
 @pytest.mark.parametrize("old_version", [1, 2, 3, 4, 5, 6, 7])
 def test_saved_analysis_upgrade_preserves_prediction_and_operator_choices_without_mutation(old_version):
     old = _pack()
@@ -128,8 +270,8 @@ def test_saved_analysis_upgrade_preserves_prediction_and_operator_choices_withou
     before = deepcopy(old)
     upgraded = upgrade_pack_analysis(old, ROWS, RESOLVED, {}, ["u12|Male"], predictor_sha256="a" * 64)
     assert old == before
-    assert upgraded["schema_version"] == 5
-    assert upgraded["analysis_schema_version"] == 8
+    assert upgraded["schema_version"] == 7
+    assert upgraded["analysis_schema_version"] == 10
     assert upgraded["policy"] == json.loads(json.dumps(asdict(TierPolicy(max_expected_margin=1.75))))
     assert upgraded["manual_seed_orders"] == old["manual_seed_orders"]
     assert upgraded["ordering"]
@@ -157,8 +299,8 @@ def test_schema_three_pack_upgrades_with_reproducible_separate_orders():
         old, ROWS, RESOLVED, {}, ["u12|Male"], predictor_sha256="a" * 64,
     )
 
-    assert upgraded["schema_version"] == 5
-    assert upgraded["analysis_schema_version"] == 8
+    assert upgraded["schema_version"] == 7
+    assert upgraded["analysis_schema_version"] == 10
     assert upgraded["manual_seed_orders"] == {}
     ordering = upgraded["ordering"]["u12|Male"]
     assert ordering["baseline_order"]
@@ -338,7 +480,7 @@ def test_upgrade_rejects_invalid_snapshot_without_replacing_old_pack(corruption)
     elif corruption == "notes":
         old["operator_notes"] = ["not", "a", "mapping"]
     elif corruption == "roster":
-        old["roster_fingerprint"] = "stale"
+        old["cohort_fingerprints"]["u12|Male"] = "stale"
     else:
         old["schema_version"] = 2
     before = deepcopy(old)
@@ -347,11 +489,12 @@ def test_upgrade_rejects_invalid_snapshot_without_replacing_old_pack(corruption)
     assert old == before
 
 
-def test_upgrade_requires_matching_prediction_version_and_selected_cohorts():
+def test_upgrade_preserves_old_prediction_version_but_requires_selected_cohorts():
     old = _pack()
     old["analysis_schema_version"] = 1
-    with pytest.raises(ValueError, match="predictor has changed"):
-        upgrade_pack_analysis(old, ROWS, RESOLVED, {}, ["u12|Male"], predictor_sha256="b" * 64)
+    upgraded = upgrade_pack_analysis(old, ROWS, RESOLVED, {}, ["u12|Male"], predictor_sha256="b" * 64)
+    assert upgraded["predictor_sha256"] == "a" * 64
+    assert upgraded["predictions"] == old["predictions"]
     with pytest.raises(ValueError, match="selection changed"):
         upgrade_pack_analysis(old, ROWS, RESOLVED, {}, ["u12|Female"], predictor_sha256="a" * 64)
 
@@ -684,10 +827,10 @@ def test_placement_review_is_bound_to_evidence_order_and_notes_not_rebuild_times
         assert needs_placement_review(altered, key, analysis)
 
 
-def test_clean_cohort_does_not_require_placement_acknowledgment():
+def test_unsupported_small_cohort_requires_placement_acknowledgment():
     pack = _pack()
     analysis = analyze_pack(pack, ROWS, RESOLVED, {})[("u12", "Male")]
-    assert not needs_placement_review(pack, "u12|Male", analysis)
+    assert needs_placement_review(pack, "u12|Male", analysis)
 
 
 def test_forecast_reversal_alone_requires_placement_acknowledgment():

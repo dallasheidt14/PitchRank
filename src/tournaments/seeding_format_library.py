@@ -9,14 +9,17 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
 
-FORMAT_LIBRARY_SCHEMA_VERSION = 1
+from src.tournaments.seeding_format_mechanics import calculate_format_games
+
+FORMAT_LIBRARY_SCHEMA_VERSION = 2
 DEFAULT_LIBRARY_PATH = (
     Path(__file__).resolve().parents[2] / "config" / "matchbalance_format_library.json"
 )
+LEGACY_LIBRARY_PATH = DEFAULT_LIBRARY_PATH.with_name("matchbalance_format_library_v1.json")
 
 ENABLED = "enabled"
 REFERENCE_ONLY = "reference_only"
@@ -29,10 +32,12 @@ PRELIMINARY_PLAY_TYPES = frozenset(
         "crossover",
         "mixed_round_robin",
         "mixed_round_robin_and_crossover",
+        "double_round_robin", "partial_round_robin", "partial_crossover",
+        "league_phase", "knockout",
     }
 )
 CHAMPIONSHIP_TYPES = frozenset(
-    {"final", "semifinals_final", "standings_only"}
+    {"final", "semifinals_final", "standings_only", "knockout"}
 )
 
 
@@ -78,6 +83,10 @@ class FormatTemplate:
     provenance_status: str
     availability_status: str
     blocked_reason: str | None
+    display_name: str = ""
+    playing_structure: Mapping[str, Any] | None = None
+    total_matches: int | None = None
+    maximum_pair_meetings: int | None = None
 
 
 @dataclass(frozen=True)
@@ -105,6 +114,12 @@ class FormatProfile:
     provenance_status: str
     source_note: str
     unresolved_assumptions: tuple[str, ...]
+    required_maximum_games_per_team: int | None = None
+    repeat_opponents: str = "allowed"
+    playoffs: str = "any"
+    format_selection: str = "legacy_preference"
+    exact_search_enabled: bool = False
+    maximum_search_states: int = 1000000
 
 
 @dataclass(frozen=True)
@@ -145,6 +160,7 @@ class FormatLibrary:
     profiles: tuple[FormatProfile, ...]
     source_path: Path
     source_sha256: str
+    source_coverage: tuple[Mapping[str, Any], ...] = field(default_factory=tuple)
 
     @property
     def templates_by_id(self) -> dict[str, FormatTemplate]:
@@ -201,6 +217,10 @@ def _load_template(payload: Mapping[str, Any]) -> FormatTemplate:
             if payload.get("blocked_reason") is not None
             else None
         ),
+        display_name=str(payload.get("display_name", "")),
+        playing_structure=payload.get("playing_structure"),
+        total_matches=_optional_int(payload.get("total_matches")),
+        maximum_pair_meetings=_optional_int(payload.get("maximum_pair_meetings")),
     )
 
 
@@ -231,6 +251,12 @@ def _load_profile(payload: Mapping[str, Any]) -> FormatProfile:
         provenance_status=str(payload["provenance_status"]),
         source_note=str(payload["source_note"]),
         unresolved_assumptions=_tuple_of_text(payload.get("unresolved_assumptions")),
+        required_maximum_games_per_team=_optional_int(payload.get("required_maximum_games_per_team")),
+        repeat_opponents=str(payload.get("repeat_opponents", "allowed")),
+        playoffs=str(payload.get("playoffs", "any")),
+        format_selection=str(payload.get("format_selection", "legacy_preference")),
+        exact_search_enabled=bool(payload.get("exact_search_enabled", False)),
+        maximum_search_states=int(payload.get("maximum_search_states", 1000000)),
     )
 
 
@@ -239,6 +265,16 @@ def load_format_library(path: Path | None = None) -> FormatLibrary:
     source_path = (path or DEFAULT_LIBRARY_PATH).resolve()
     source_bytes = source_path.read_bytes()
     payload = json.loads(source_bytes.decode("utf-8"))
+    return parse_format_library(payload, source_path=source_path, source_bytes=source_bytes)
+
+
+def parse_format_library(
+    payload: Mapping[str, Any], *, source_path: Path = DEFAULT_LIBRARY_PATH,
+    source_bytes: bytes | None = None,
+) -> FormatLibrary:
+    """Validate a frozen library using the same contract as the checked-in source."""
+    if source_bytes is None:
+        source_bytes = json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()
     library = FormatLibrary(
         schema_version=int(payload["schema_version"]),
         library_id=str(payload["library_id"]),
@@ -262,6 +298,7 @@ def load_format_library(path: Path | None = None) -> FormatLibrary:
         profiles=tuple(_load_profile(item) for item in payload["profiles"]),
         source_path=source_path,
         source_sha256=hashlib.sha256(source_bytes).hexdigest(),
+        source_coverage=tuple(payload.get("source_coverage", ())),
     )
     validation = validate_format_library(library)
     if not validation.valid:
@@ -318,6 +355,21 @@ def _validate_template(
         errors.append("Maximum possible games cannot be negative.")
     if minimum is not None and maximum is not None and minimum > maximum:
         errors.append("Minimum guaranteed games exceed maximum possible games.")
+    if template.availability_status == ENABLED and template.version >= 2 and template.playing_structure is None:
+        errors.append("Enabled v2 templates require an explicit playing structure.")
+    if template.playing_structure is not None:
+        try:
+            calculated = calculate_format_games(template.team_count, template.playing_structure)
+            expected = (calculated.minimum_games, calculated.maximum_games,
+                        calculated.total_matches, calculated.maximum_pair_meetings)
+            declared = (minimum, maximum, template.total_matches, template.maximum_pair_meetings)
+            if expected != declared:
+                errors.append("Game counts disagree with the playing structure: "
+                              f"calculated {expected}, declared {declared}.")
+            if calculated.has_playoffs != (template.championship_type != "standings_only"):
+                errors.append("Playoff declaration disagrees with the playing structure.")
+        except (ValueError, TypeError, KeyError) as exc:
+            errors.append(f"Invalid playing structure: {exc}")
     if template.source_id not in source_ids:
         errors.append(f"Unknown source document {template.source_id!r}.")
     if template.availability_status not in AVAILABILITY_STATUSES:
@@ -347,7 +399,7 @@ def _validate_template(
 def validate_format_library(library: FormatLibrary) -> FormatLibraryValidation:
     """Validate counts, exact mechanics, references, profiles, and defaults."""
     library_errors: list[str] = []
-    if library.schema_version != FORMAT_LIBRARY_SCHEMA_VERSION:
+    if library.schema_version not in {1, FORMAT_LIBRARY_SCHEMA_VERSION}:
         library_errors.append(
             f"Unsupported schema version {library.schema_version}; expected "
             f"{FORMAT_LIBRARY_SCHEMA_VERSION}."
@@ -410,6 +462,17 @@ def validate_format_library(library: FormatLibrary) -> FormatLibraryValidation:
             )
         if profile.max_candidate_structures < 1:
             errors.append("Candidate-structure limit must be positive.")
+        if profile.maximum_search_states < 1:
+            errors.append("Exact-search state limit must be positive.")
+        if profile.repeat_opponents not in {"allowed", "prohibited"}:
+            errors.append("Repeat-opponent preference must be allowed or prohibited.")
+        if profile.playoffs not in {"any", "required", "excluded"}:
+            errors.append("Playoff preference must be any, required or excluded.")
+        if profile.format_selection not in {"practical_default", "legacy_preference"}:
+            errors.append("Unknown format-selection policy.")
+        for value in (profile.required_minimum_games_per_team, profile.required_maximum_games_per_team):
+            if value is not None and (isinstance(value, bool) or not isinstance(value, int) or value < 1):
+                errors.append("Game preferences must be positive integers or unspecified.")
         for team_count, template_id in (
             profile.preferred_template_ids_by_team_count.items()
         ):
@@ -505,6 +568,7 @@ def format_library_payload(
         "templates": [asdict(item) for item in library.templates],
         "source_issues": [asdict(item) for item in library.source_issues],
         "profiles": [asdict(item) for item in library.profiles],
+        "source_coverage": list(library.source_coverage),
     }
     if validation is not None:
         result["validation"] = asdict(validation)

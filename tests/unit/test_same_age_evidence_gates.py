@@ -9,9 +9,9 @@ from src.rankings.calculator import (
     _compute_same_age_evidence_metrics,
     _play_up_bonus,
     _positive_ml_evidence_scale,
-    _same_age_raw_shrink,
-    _same_age_publish_penalty,
     _publication_cap_rank,
+    _same_age_publish_penalty,
+    _same_age_raw_shrink,
     _validate_publication_caps,
 )
 
@@ -540,6 +540,7 @@ def test_publication_cap_rank_soft_caps_connectivity_constrained_team():
         {
             "age_num": 16,
             "same_age_top100_opp_count": 5,
+            "same_age_top100_non_loss_opp_count": 1,
             "same_age_top500_opp_count": 8,
             "same_age_avg_opp_power_adj": 0.54,
             "repeat_opponent_share": 0.36,

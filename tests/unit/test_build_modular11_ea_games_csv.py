@@ -154,7 +154,8 @@ class _Db:
         return _Table(self, name)
 
 
-def test_impact_counts_crossing_provisional_threshold():
+def test_impact_counts_crossing_provisional_threshold(monkeypatch):
+    monkeypatch.setattr(build, "PROVISIONAL_GAMES", 12)
     games = [_game(match_no=str(i), home="7155", away="7156") for i in range(3)]
     rows, _ = build.build_rows(games, TEAMS, LINKS)
     db = _Db({("home_team_master_id", "M1"): 6, ("away_team_master_id", "M1"): 4, ("home_team_master_id", "M2"): 13})

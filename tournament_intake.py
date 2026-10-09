@@ -119,6 +119,7 @@ from src.tournaments.seeding_pack import (
     available_cohorts,
     cohort_key,
     duplicate_identity_rows,
+    retain_matching_cohorts,
     snapshot_matches_roster,
     team_ids_by_row,
 )
@@ -4633,7 +4634,7 @@ def _render_seeding_override(
                 st.session_state["_seeding_assessment"] = metadata
                 st.session_state["_seeding_resolution_failed"] = True
                 st.session_state["_seeding_pending_review_team"] = row.source_index
-                st.session_state.pop("_seeding_pack", None)
+                _retain_seeding_cohort_work()
                 invalidate_seeding_exports(st.session_state)
                 _autosave_seeding_run()
                 st.rerun()
@@ -4698,7 +4699,7 @@ def _render_seeding_override(
             st.session_state["_seeding_resolution_failed"] = bool(
                 unresolved - set(metadata["completed"])
             )
-            st.session_state.pop("_seeding_pack", None)
+            _retain_seeding_cohort_work()
             invalidate_seeding_exports(st.session_state)
             _autosave_seeding_run()
             st.rerun()
@@ -4756,7 +4757,7 @@ def _render_seeding_override(
             # for a Backtest-view override would autosave nothing real and mean
             # nothing here.
             if keys is _SEEDING_KEYS:
-                st.session_state.pop("_seeding_pack", None)
+                _retain_seeding_cohort_work()
                 invalidate_seeding_exports(st.session_state)
                 _autosave_seeding_run()
             st.rerun()
@@ -4784,6 +4785,16 @@ def _render_seeding_notices() -> None:
         st.session_state.pop("_seeding_notices", None)
 
 
+def _retain_seeding_cohort_work() -> None:
+    result = st.session_state.get("_seeding_result")
+    if result and st.session_state.get("_seeding_pack"):
+        effective = effective_roster(result[0], st.session_state.get("_seeding_cohort_decisions", {}))
+        st.session_state["_seeding_pack"] = retain_matching_cohorts(
+            st.session_state["_seeding_pack"], effective.rows, result[1],
+            st.session_state.get("_seeding_overrides", {}),
+        )
+
+
 def _active_seeding_run_snapshot(*, name_override: str | None = None) -> SeedingRun | None:
     """Return the complete active run when it is safe to compare or save."""
     name = name_override if name_override is not None else _seeding_run_name()
@@ -4798,8 +4809,7 @@ def _active_seeding_run_snapshot(*, name_override: str | None = None) -> Seeding
     overrides = dict(st.session_state.get("_seeding_overrides") or {})
     effective = package_roster(effective_roster(parsed, decisions))
     pack = st.session_state.get("_seeding_pack")
-    if not snapshot_matches_roster(pack, effective.rows, resolved, overrides):
-        pack = None
+    pack = retain_matching_cohorts(pack, effective.rows, resolved, overrides)
     return SeedingRun(
         name=name,
         rows=parsed.rows,
@@ -5356,12 +5366,9 @@ def _park_seeding_result(pair: Any, *, event_id: str | None, keys: _WalkKeys = _
     st.session_state[keys.result] = pair
     st.session_state[keys.result_event_id] = event_id if pair else None
     if keys == _SEEDING_KEYS:
-        effective = (
-            package_roster(effective_roster(pair[0], st.session_state.get("_seeding_cohort_decisions", {})))
-            if pair else None
-        )
-        if not pair or not snapshot_matches_roster(st.session_state.get("_seeding_pack"), effective.rows, pair[1],
-                                                  st.session_state.get("_seeding_overrides", {})):
+        if pair:
+            _retain_seeding_cohort_work()
+        else:
             st.session_state.pop("_seeding_pack", None)
             st.session_state.pop("_seeding_pack_unsaved", None)
         invalidate_seeding_exports(st.session_state)
@@ -5619,13 +5626,15 @@ def _render_seeding_workflow_progress(
             coverage=metadata.get("coverage", "unknown"),
             completed=metadata.get("completed"),
         )
-        attention = len(assessment.attention)
+        from src.tournaments.seeding_assessment import scoped_attention
+        selected = _selected_seeding_cohorts(package_roster(parsed))
+        attention = len(scoped_attention(parsed, assessment, selected)) if selected else 1
         matched = assessment.matched
         not_found_indices = assessment.not_found
         not_found = len(not_found_indices)
         eligible = package_roster(parsed)
         pack_ready = snapshot_matches_roster(
-            st.session_state.get("_seeding_pack"), eligible.rows, resolved, overrides
+            st.session_state.get("_seeding_pack"), eligible.rows, resolved, overrides, selected
         )
         export_ready = pack_ready and bool(st.session_state.get("_seeding_sheet_html"))
         available = 2 if attention else 4 if export_ready else 3
@@ -5852,6 +5861,11 @@ def _render_seeding_workspace(supabase_client: Any) -> None:
         progress_parsed = effective_roster(
             result[0], st.session_state.get("_seeding_cohort_decisions", {})
         )
+    if progress_parsed is not None:
+        from src.tournaments.seeding_intake_ui import _selected_cohorts
+        st.session_state["_seeding_selected_for_workflow"] = _selected_cohorts(
+            package_roster(progress_parsed), st.session_state.get("_seeding_pack"),
+        )
     active_step = _render_seeding_workflow_progress(
         progress_parsed,
         result[1] if result else (),
@@ -5919,6 +5933,7 @@ def _render_seeding_workspace(supabase_client: Any) -> None:
     metadata = st.session_state.get("_seeding_assessment", {})
     source_label = metadata.get("source_url") or metadata.get("source_kind") or "Saved roster"
     if active_step == 2:
+        from src.tournaments.seeding_assessment import scoped_attention, source_fingerprint
         with st.container(border=True):
             st.markdown("### 2. Match teams to PitchRank")
             st.caption(
@@ -5949,6 +5964,19 @@ def _render_seeding_workspace(supabase_client: Any) -> None:
                 st.warning(f"{len(duplicates)} registration rows share a PitchRank team in the same cohort. "
                            "Review each flagged match.")
             _render_seeding_save()
+            selected = _selected_seeding_cohorts(package_roster(parsed))
+            if metadata.get("coverage") != "complete" and selected:
+                if st.checkbox("I verified every accepted team in the selected cohorts", key="_seed_verify_selected"):
+                    if st.button("Confirm selected-cohort roster"):
+                        confirmations = dict(metadata.get("cohort_coverage", {}))
+                        for key in selected:
+                            confirmations[key] = source_fingerprint([
+                                row for row in parsed.rows
+                                if cohort_key(row.section_age_group, row.section_gender) == key
+                            ])
+                        st.session_state["_seeding_assessment"] = {**metadata, "cohort_coverage": confirmations}
+                        _autosave_seeding_run()
+                        st.rerun()
             if metadata.get("coverage", "unknown") == "unknown":
                 if st.checkbox(
                     "I verified this roster includes every accepted U10+ team",
@@ -5996,8 +6024,9 @@ def _render_seeding_workspace(supabase_client: Any) -> None:
             _render_seeding_step_navigation(
                 back=("Back to import", 1),
                 next_step=("Continue to seed order", 3),
-                next_disabled=bool(assessment.attention),
-                next_help="Resolve every team that needs attention before continuing.",
+                next_disabled=bool(scoped_attention(parsed, assessment, selected))
+                or not _selected_seeding_cohorts(package_roster(parsed)),
+                next_help="Resolve selected-cohort teams and relevant cohort questions before continuing.",
             )
         return
 
@@ -6027,7 +6056,7 @@ def _render_seeding_workspace(supabase_client: Any) -> None:
             )
             _render_seeding_sheet(eligible, resolved, supabase_client, view="build")
             pack_ready = snapshot_matches_roster(
-                st.session_state.get("_seeding_pack"), eligible.rows, resolved, overrides
+                st.session_state.get("_seeding_pack"), eligible.rows, resolved, overrides, selected_cohorts
             )
             export_ready = pack_ready and bool(st.session_state.get("_seeding_sheet_html"))
             _render_seeding_step_navigation(

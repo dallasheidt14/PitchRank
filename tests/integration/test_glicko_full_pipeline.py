@@ -133,9 +133,13 @@ class TestGlickoFullPipeline:
 
         mu_map = dict(zip(teams['team_id'], teams['mu']))
 
-        # Compute average opponent mu for each team
+        # The synthetic schedule extends beyond `today`; SOS must describe the
+        # selected games, not opponents from future fixtures or discarded games.
+        games_used = result['games_used']
+        assert games_used['date'].max() <= today
+        assert len(games_used) < len(games_df)
         avg_opp_mu = (
-            games_df.assign(opp_mu=games_df['opp_id'].map(mu_map))
+            games_used.assign(opp_mu=games_used['opp_id'].map(mu_map))
             .groupby('team_id')['opp_mu']
             .mean()
             .rename('avg_opp_mu')
@@ -147,8 +151,8 @@ class TestGlickoFullPipeline:
 
     def test_isolated_bubble_team_ranks_below_connected_team(self):
         """A team dominating an isolated bubble should rank lower than a connected
-        team with similar win rate against diverse opponents."""
-        cfg = GlickoConfig()
+        team with similar win rate when legacy SCF dampening is enabled."""
+        cfg = GlickoConfig(SCF_ENABLED=True)
         today = pd.Timestamp('2026-03-31')
         np.random.seed(123)
 

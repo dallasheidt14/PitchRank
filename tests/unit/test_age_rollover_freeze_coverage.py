@@ -32,6 +32,7 @@ AGE_DERIVING_SCRIPTS = (
     "discover_teams_from_opponents.py",
     # Writes teams with the age Modular11 labels them for this season; only with --execute.
     "link_modular11_ea_teams.py",
+    "import_yssl.py",
 )
 
 # Scripts with no safe default: they write unless a flag opts OUT, or they exist
@@ -123,6 +124,7 @@ def test_the_scan_finds_the_known_writing_steps():
     workflows = {w for w, _, _ in found}
     assert "data-hygiene-weekly.yml" in workflows
     assert "auto-merge-queue.yml" in workflows
+    assert "yssl-scraper.yml" in workflows
 
 
 def test_every_exemption_still_exists():
