@@ -17,6 +17,7 @@ TOOLS = Path(__file__).resolve().parents[2] / ".claude/skills/reconcile-gotsport
 sys.path.insert(0, str(TOOLS))
 triage = importlib.import_module("triage_reconcile")
 fields = importlib.import_module("apply_team_fields")
+archive = importlib.import_module("archive_split")
 
 DORMANT = ("hold", "no games since Aug 1; likely dormant, stored age kept")
 STORED = ("hold", "this season's opponents back the stored age")
@@ -295,3 +296,103 @@ def test_read_rows_accepts_an_excel_bom_and_refuses_bad_values(tmp_path):
     path.write_text("team_id_master,team_name,field,old_value,new_value\na,X,age_group,u11,u10\n", encoding="utf-8")
     with pytest.raises(SystemExit):
         fields.read_rows(path)
+
+
+# ------------------------------------------------------------------------ archive_split
+
+
+def test_archive_identity_names_the_season_that_ended():
+    assert archive.season_label("2026-08-01") == "2025-26"
+    assert archive.archive_identity("RSL Arizona South", "252020", "2016 Clay", "2026-08-01") == {
+        "archive_name": "2016 Clay (2025-26 archive)",
+        "archive_provider_team_id": "archive_rsl_arizona_south_252020_2025_26",
+    }
+
+
+def _triage_row(cls, name="2016 Clay", stored="u11", theirs="u10"):
+    return {"class": cls, "team_id_master": "a", "provider_team_id": "252020", "team_name": name,
+            "club_name": "RSL Arizona South", "gender": "Male", "state_code": "AZ",
+            "stored_age_group": stored, "gotsport_team_name": "U10B Wagner", "gotsport_age_group": theirs}
+
+
+def test_plan_rows_take_reused_records_only_and_archive_at_the_stored_age():
+    rows = archive.plan_rows([_triage_row("reused_id"), _triage_row("relabel"), _triage_row("hold")], "2026-08-01")
+    assert len(rows) == 1
+    assert (rows[0]["archive_age_group"], rows[0]["gotsport_age_group"]) == ("u11", "u10")
+
+
+def test_plan_round_trips_and_refuses_a_live_provider_id(tmp_path):
+    path = tmp_path / "plan.csv"
+    rows = archive.plan_rows([_triage_row("reused_id", name="=2016 Clay")], "2026-08-01")
+    archive.write_plan(rows, path)
+    assert next(csv.DictReader(path.open(encoding="utf-8")))["our_name"] == "'=2016 Clay"
+    assert archive.read_plan(path)[0]["our_name"] == "=2016 Clay"
+    rows[0]["archive_provider_team_id"] = "252020"
+    archive.write_plan(rows, path)
+    with pytest.raises(SystemExit):
+        archive.read_plan(path)
+
+
+class _ArchiveDb:
+    """Teams keyed by id; applies .eq and .is_ filters; records inserts at execute()."""
+
+    def __init__(self, *teams):
+        self.teams = [dict(t) for t in teams]
+        self.inserts = []
+
+    def table(self, name):
+        assert name == "teams"
+        return _ArchiveQuery(self)
+
+
+class _ArchiveQuery:
+    def __init__(self, db):
+        self.db, self.filters, self.columns, self.row = db, [], None, None
+
+    def select(self, columns):
+        self.columns = [c.strip() for c in columns.split(",")]
+        return self
+
+    def eq(self, column, value):
+        self.filters.append((column, value))
+        return self
+
+    def is_(self, column, value):
+        self.filters.append((column, None if value == "null" else value))
+        return self
+
+    def insert(self, row):
+        self.row = row
+        return self
+
+    def execute(self):
+        if self.row is not None:
+            self.db.inserts.append(self.row)
+            self.db.teams.append(dict(self.row))
+            return _Result([self.row])
+        rows = [t for t in self.db.teams if all(t.get(c) == v for c, v in self.filters)]
+        return _Result([{c: t.get(c) for c in self.columns} for t in rows])
+
+
+LIVE = {"team_id_master": "a", "team_name": "2016 Clay", "age_group": "u11", "gender": "Male",
+        "state_code": "AZ", "club_name": "RSL Arizona South", "is_deprecated": False,
+        "provider_team_id": "252020", "provider_id": "gotsport-uuid"}
+
+
+def test_dry_run_creates_nothing():
+    db = _ArchiveDb(LIVE)
+    rows = archive.plan_rows([_triage_row("reused_id")], "2026-08-01")
+    archive.apply(db, rows, execute=False, stamp="t")
+    assert db.inserts == []
+
+
+def test_ensure_archive_creates_once_with_no_provider():
+    db = _ArchiveDb(LIVE)
+    row = archive.plan_rows([_triage_row("reused_id")], "2026-08-01")[0]
+    first = archive.ensure_archive(db, row, LIVE, execute=True)
+    second = archive.ensure_archive(db, row, LIVE, execute=True)
+    assert first == second
+    assert len(db.inserts) == 1
+    made = db.inserts[0]
+    assert (made["provider_id"], made["provider_team_id"], made["age_group"], made["team_name"]) == (
+        None, "archive_rsl_arizona_south_252020_2025_26", "u11", "2016 Clay (2025-26 archive)")

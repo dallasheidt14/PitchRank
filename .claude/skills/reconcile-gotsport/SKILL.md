@@ -110,6 +110,14 @@ that season up first and work down the chain, oldest squad first. Where the old 
 no PitchRank row yet, hold the reused team: the row is created when that record's games are
 imported, and the split waits for it. Where nothing turns it up, ask the owner for the id.
 
+When nobody can say where the old squad went (the owner on RSL Arizona South, 2026-10-09: "I dont
+think theres a rhyme or a reason"), offer the archive route instead: the record's games before
+the season start go to a new archive team named for the old squad and season, with no provider
+link, in the record's stored age group. Both squads' records stay honest, the archive leaves the
+boards as its games pass the ranking window, and a chain needs no order because each record is
+handled alone. When the old squad's record turns up later, merge the archive into it with the
+`merging-duplicate-teams` skill.
+
 ## Step 5: Ask the owner
 
 Output the triage counts, then use `AskUserQuestion`: one question each for the gender fixes, the
@@ -136,7 +144,21 @@ python .claude/skills/reconcile-gotsport/scripts/apply_team_fields.py --plan dat
 
 Then re-run Step 2: a team that changes gender changes board, and its age is judged there.
 
-**b. Split each reused record's games** (reused rows only):
+**b. Split each reused record's games** (reused rows only). For records going to archive teams,
+one command does steps b to d:
+
+```bash
+python .claude/skills/reconcile-gotsport/scripts/archive_split.py plan --triage data/exports/<triage>.csv
+python .claude/skills/reconcile-gotsport/scripts/archive_split.py apply --plan data/exports/<plan>.csv --names "<pilot>" "<pilot>"
+```
+
+`plan` writes one row per reused record; edit it to the approved records, and set
+`archive_age_group` to the old squad's cohort on any record already relabelled. `apply` creates
+each archive team, moves the games, renames and relabels the record, and writes a run log naming
+each step's log. Pilot a few with `--names`, verify them, then run the rest. Each step is
+idempotent, so re-running finishes a stopped run.
+
+For a record whose old squad's new record is known, move the games directly:
 
 ```bash
 python scripts/reassign_games_between_teams.py --from <reused team id> --to <old squad team id> --before <season start, YYYY-08-01>
