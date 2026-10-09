@@ -716,7 +716,7 @@ a generic club word such as `Avalanche` (stored only in Virginia) sent Utah team
 
 ### `AGE_ROLLOVER_FREEZE` (currently LIFTED)
 
-**Status: `'false'` in all twelve workflows since the Aug 2026 rollover completed.**
+**Status: `'false'` in all thirteen workflows since the Aug 2026 rollover completed.**
 Everything it gated is running normally, with one permanent exception: the
 `fix_team_age_groups.py` step carries a second, independent flag,
 `AGE_DERIVATION_ENABLED: 'false'`, in both `data-hygiene-weekly.yml` and
@@ -736,13 +736,13 @@ permanently. The game importers count: they create unmatched teams through the
 provider matchers using an age `EnhancedETLPipeline` derives at import time, so
 the derivation is invisible at the call site.
 
-**To re-arm for the next rollover**, set it to `'true'` in all twelve:
+**To re-arm for the next rollover**, set it to `'true'` in all thirteen:
 `data-hygiene-weekly.yml`, `unknown-opponent-hygiene-weekly.yml`,
 `auto-merge-queue.yml`, `fix-age-year-discrepancies.yml`,
 `tgs-event-scrape-import.yml`, `modular11-weekly-scrape.yml`,
 `modular11-events-weekly-scrape.yml`,
 `playmetrics-tournament-scrape-import.yml`, `wa-scraper.yml`, `or-scraper.yml`,
-`ut-scraper.yml`, `yssl-scraper.yml`. Do it
+`ut-scraper.yml`, `yssl-scraper.yml`, `ea-scraper.yml`. Do it
 before Aug 1;
 lift it again only once the relabel migration is applied and the boards verified.
 

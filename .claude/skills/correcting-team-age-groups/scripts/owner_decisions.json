@@ -410,5 +410,14 @@
     "stored": "u16"
    }
   ]
+ },
+ "ea_cleanup_2026_10_07": {
+  "decided": "2026-10-07, Modular11 EA U17 cleanup: \"Leave as U19\" (June-July games vs 2009 teams; may be last season's 2009 squad)",
+  "teams": [
+   {
+    "team_id": "2de1e478-2df7-40df-8162-48627eaac963",
+    "name": "EA2 U17"
+   }
+  ]
  }
 }

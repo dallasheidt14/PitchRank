@@ -30,6 +30,8 @@ AGE_DERIVING_SCRIPTS = (
     "find_queue_matches.py",
     "auto_match_unknown_opponents.py",
     "discover_teams_from_opponents.py",
+    # Writes teams with the age Modular11 labels them for this season; only with --execute.
+    "link_modular11_ea_teams.py",
     "import_yssl.py",
 )
 
