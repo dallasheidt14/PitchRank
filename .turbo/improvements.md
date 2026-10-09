@@ -2002,3 +2002,13 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: The triage decides a record holds another squad when the name's birth years miss GotSport's cohort; the applier holds a relabel when the name's years miss the target cohort. They use different year readers and fold U18 differently: `cohort_years(19)` holds 2009, while `name_contradiction` allows only 2008 and 2007 for u19. A name can pass one stage and be held by the next.
 - **Noted**: 2026-10-09
 
+### Stop Tuesday's opponent discovery creating thousands of teams with no identity
+
+- **ID**: IMP-307
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `scripts/discover_teams_from_opponents.py` `_build_team_metadata` (state defaults to `""`, age from `unknown_age_group_used`) and `create_team_and_alias`; `scripts/auto_match_unknown_opponents.py` `UnknownProfile` / `build_unknown_profile`
+- **Why**: Verified by SQL 2026-10-09: on 2026-10-06 discovery created 2,507 GotSport teams — 1,375 `unknown_<id>` placeholders, 2,143 with no `state_code`, 1,507 with no `club_name` (675 teams on 2026-09-29). That is the largest weekly inflow of work for the club, state and age cleanups at once (source fix #1 in the cleanup orchestrator plan). When the GotSport lookup returns nothing, don't create the team, or create it without an inherited cohort or state, and count lookup failures so a run that resolves nothing is not green. Fold in IMP-148 (provenance on a derived cohort) and IMP-149 (aged-out U21 teams). Cause unverified: the volume fits GotSport refusing bare requests since 2026-10-01, but a review reported the run log showing 0 errors and 0 skips — confirm from the run before building.
+- **Noted**: 2026-10-09
+
