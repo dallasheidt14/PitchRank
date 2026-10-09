@@ -13,14 +13,17 @@ gated by the per-team blur, so coverage is roughly 2× and scores are clean.
 
 SincSports blocks plain HTTP clients, so ``--from-bundle`` reads a capture
 made in a real browser by ``scripts/sincsports_capture_bundle.js`` instead of
-fetching live. That is also how league seasons are imported.
+fetching live. That is also how league seasons are imported. A bundle's teams are
+linked first with ``scripts/discover_sincsports_via_tournament.py --from-bundle``;
+this script then holds back games whose team has no alias unless told
+``--no-check-aliases``.
 
 Example:
     python scripts/scrape_sincsports_tournament_schedule.py --tid TZ2565
     python scripts/scrape_sincsports_tournament_schedule.py --tid TZ2565 --auto-import
     python scripts/scrape_sincsports_tournament_schedule.py --tid TZ2565 --year 2025 --dry-run
     python scripts/scrape_sincsports_tournament_schedule.py --from-bundle data/raw/x/divisions.json \
-        --since 2026-08-01 --check-aliases --dry-run
+        --since 2026-08-01 --dry-run
 """
 
 from __future__ import annotations
@@ -48,6 +51,11 @@ _SUB_U10_CODE_RE = re.compile(r"^U0[89]", re.IGNORECASE)
 _EXCLUDED_PLAY_RE = re.compile(
     r"\b(rec|recreation|recreational|small[\s-]*sided|adults?|[3-6]\s*v\s*[3-6])\b", re.IGNORECASE
 )
+# Page titles wrap the event's name: "Schedules - Carolina Champions League - Spring" on the old
+# layout, "Velocity Super Cup 2026 Schedules - NC | Youth Soccer" or "Carolina Cup 2026
+# Schedule - Columbia, SC | Youth Soccer" on the new one.
+_TITLE_PREFIX_RE = re.compile(r"^Schedules?\s*-\s*", re.IGNORECASE)
+_TITLE_SUFFIX_RE = re.compile(r"\s+(?:Schedules?|Team List)\s+-\s+[^|]*\|.*$", re.IGNORECASE)
 
 sys.path.append(str(Path(__file__).parent.parent))
 
@@ -88,6 +96,11 @@ def parse_date_iso(mdy: Optional[str]) -> Optional[str]:
         return None
 
 
+def clean_event_name(title: Optional[str]) -> str:
+    """``"Velocity Super Cup 2026 Schedules - NC | Youth Soccer"`` -> ``"Velocity Super Cup 2026"``."""
+    return _TITLE_SUFFIX_RE.sub("", _TITLE_PREFIX_RE.sub("", (title or "").strip())).strip()
+
+
 def perspective_record(g: TournamentGame, *, perspective: str) -> dict:
     """Build the dict shape that ``import_games_enhanced.py`` expects.
 
@@ -124,7 +137,8 @@ def perspective_record(g: TournamentGame, *, perspective: str) -> dict:
         "goals_for": goals_for,
         "goals_against": goals_against,
         "result": result,
-        "competition": (g.division_name or g.division_code or "").strip(),
+        "competition": (g.event_name or g.division_name or g.division_code or "").strip(),
+        "division_name": g.division_code if g.event_name else None,
         "venue": g.venue,
         "club_name": "",
         "opponent_club_name": "",
@@ -151,7 +165,7 @@ def load_bundle(path: Path) -> Tuple[List[TournamentGame], List[str]]:
     bundle = json.loads(path.read_text(encoding="utf-8"))
     if bundle.get("mode") != "divisions":
         return [], [f"{path.name} is a {bundle.get('mode')!r} capture; --from-bundle needs a 'divisions' capture"]
-    event_names = {e["tid"]: e.get("name") or e["tid"] for e in bundle.get("events", [])}
+    event_names = {e["tid"]: clean_event_name(e.get("name")) or e["tid"] for e in bundle.get("events", [])}
     problems = [f"{e['tid']} {e['div']} page {e['page']}: {e['error']}" for e in bundle.get("errors", [])]
 
     pages_by_division: Dict[Tuple[str, str], Dict[int, str]] = defaultdict(dict)
@@ -174,7 +188,8 @@ def load_bundle(path: Path) -> Tuple[List[TournamentGame], List[str]]:
         if empty:
             problems.append(f"{tid} {div}: pages {empty} hold no games (a challenge or error page was captured)")
         for g in division_games:
-            g.division_name = f"{event_names.get(tid, tid)} - {div}"
+            g.event_name = event_names.get(tid, tid)
+            g.division_name = f"{g.event_name} - {div}"
             games.append(g)
     return games, problems
 
@@ -241,8 +256,12 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument(
         "--check-aliases",
-        action="store_true",
-        help="Hold back games whose team has no approved team_alias_map row and list those teams (read-only)",
+        action=argparse.BooleanOptionalAction,
+        help=(
+            "Hold back games whose team has no approved team_alias_map row and list those teams (read-only). "
+            "On by default with --from-bundle: link the event's teams first with "
+            "discover_sincsports_via_tournament.py --from-bundle"
+        ),
     )
     p.add_argument(
         "--include-cancelled",
@@ -336,7 +355,8 @@ def main() -> int:
 
     unlinked: set = set()
     held: List[TournamentGame] = []
-    if args.check_aliases and keep:
+    check_aliases = args.check_aliases if args.check_aliases is not None else bool(args.from_bundle)
+    if check_aliases and keep:
         unlinked = find_unlinked_team_ids(sorted({g.home_id for g in keep} | {g.away_id for g in keep}))
         held = [g for g in keep if g.home_id in unlinked or g.away_id in unlinked]
         keep = [g for g in keep if g.home_id not in unlinked and g.away_id not in unlinked]

@@ -92,6 +92,7 @@ class TournamentGame:
     away_score: Optional[int]
     status: str  # "Played" | "Cancelled" | "Scheduled"
     venue: Optional[str]
+    event_name: Optional[str] = None
 
 
 def _parse_team_block(team_div: Optional[Tag]) -> tuple[Optional[str], Optional[str]]:

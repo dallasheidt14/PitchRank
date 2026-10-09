@@ -82,6 +82,9 @@ _SINCSPORTS_GENDER_TOKEN_RE = re.compile(
 # Parenthesised age like "(12U)" that appears mid-name
 _PAREN_AGE_RE = re.compile(r"\(\d{1,2}U\)", re.IGNORECASE)
 
+# Two ASCII capitals only: the value is interpolated into a PostgREST or_ filter.
+_STATE_CODE_RE = re.compile(r"[A-Z]{2}")
+
 
 class SincSportsGameMatcher(GameHistoryMatcher):
     """
@@ -358,31 +361,29 @@ class SincSportsGameMatcher(GameHistoryMatcher):
                 provider_variant = provider_distinctions.get("coach_name")
 
             # --- Gated candidate retrieval ---
-            club_filtered = False
-            result = None
-            if club_name:
-                result = (
-                    self.db.table("teams")
-                    .select("team_id_master, team_name, club_name, age_group, gender, state_code")
-                    .eq("age_group", age_group_normalized)
-                    .eq("gender", gender)
-                    .ilike("club_name", club_name)
-                    .limit(100)
-                    .execute()
-                )
-                if result and result.data:
-                    club_filtered = True
+            # A known state keeps candidates to that state or to rows with none stored.
+            state = (state_code or "").strip().upper()
+            state_filter = f"state_code.eq.{state},state_code.is.null" if _STATE_CODE_RE.fullmatch(state) else None
 
-            # Broad fallback only when club extraction failed
-            if not club_filtered:
-                result = (
+            def pool(club: Optional[str] = None):
+                query = (
                     self.db.table("teams")
                     .select("team_id_master, team_name, club_name, age_group, gender, state_code")
                     .eq("age_group", age_group_normalized)
                     .eq("gender", gender)
-                    .limit(2000)
-                    .execute()
                 )
+                if club:
+                    query = query.ilike("club_name", club)
+                if state_filter:
+                    query = query.or_(state_filter)
+                if club:
+                    return query.limit(100).execute()
+                return query.order("team_id_master").limit(2000).execute()
+
+            # The club's own rows are scored first. The broad pool follows whenever they hold
+            # no match, since rows a run has just created for the club's other teams would
+            # otherwise hide the club's existing team and duplicate it.
+            pools = (pool(club) for club in ([club_name] if club_name else []) + [None])
 
             best_match = None
             best_score = 0.0
@@ -395,67 +396,71 @@ class SincSportsGameMatcher(GameHistoryMatcher):
                 "state_code": state_code,
             }
 
-            for team in result.data if result else []:
-                cand_name = team.get("team_name", "")
+            for candidates in pools:
+                for team in candidates.data if candidates else []:
+                    cand_name = team.get("team_name", "")
 
-                # --- Gate: distinction-based hard rejection ---
-                if HAVE_TEAM_NAME_UTILS and provider_distinctions is not None:
-                    cand_distinctions = extract_distinctions(cand_name)
-                    if provider_distinctions["colors"] != cand_distinctions["colors"]:
-                        continue
-                    if provider_distinctions["directions"] != cand_distinctions["directions"]:
-                        continue
-                    if provider_distinctions["programs"] != cand_distinctions["programs"]:
-                        continue
-                    if provider_distinctions["team_number"] != cand_distinctions["team_number"]:
-                        continue
-                    if provider_distinctions["location_codes"] != cand_distinctions["location_codes"]:
-                        continue
-                    if provider_distinctions["squad_words"] != cand_distinctions["squad_words"]:
-                        continue
-                    cand_coach = cand_distinctions.get("coach_name")
-                    if (
-                        provider_distinctions.get("coach_name")
-                        and cand_coach
-                        and provider_distinctions["coach_name"] != cand_coach
-                    ):
-                        continue
-                    cand_variant = cand_coach
-                else:
-                    cand_variant = None
-
-                candidate = {
-                    "team_name": cand_name,
-                    "club_name": team.get("club_name"),
-                    "age_group": team.get("age_group", ""),
-                    "state_code": team.get("state_code"),
-                }
-
-                score = self._calculate_match_score(provider_team, candidate)
-
-                # --- Deterministic tie-breaking ---
-                variant_match = (
-                    provider_variant is not None and cand_variant is not None and provider_variant == cand_variant
-                )
-                cand_club = team.get("club_name", "")
-                club_sim = 0.0
-                if club_name and cand_club:
-                    if HAVE_CLUB_NORMALIZER:
-                        club_sim = club_similarity_score(club_name, cand_club)
+                    # --- Gate: distinction-based hard rejection ---
+                    if HAVE_TEAM_NAME_UTILS and provider_distinctions is not None:
+                        cand_distinctions = extract_distinctions(cand_name)
+                        if provider_distinctions["colors"] != cand_distinctions["colors"]:
+                            continue
+                        if provider_distinctions["directions"] != cand_distinctions["directions"]:
+                            continue
+                        if provider_distinctions["programs"] != cand_distinctions["programs"]:
+                            continue
+                        if provider_distinctions["team_number"] != cand_distinctions["team_number"]:
+                            continue
+                        if provider_distinctions["location_codes"] != cand_distinctions["location_codes"]:
+                            continue
+                        if provider_distinctions["squad_words"] != cand_distinctions["squad_words"]:
+                            continue
+                        cand_coach = cand_distinctions.get("coach_name")
+                        if (
+                            provider_distinctions.get("coach_name")
+                            and cand_coach
+                            and provider_distinctions["coach_name"] != cand_coach
+                        ):
+                            continue
+                        cand_variant = cand_coach
                     else:
-                        club_sim = self._calculate_similarity(club_name, cand_club)
+                        cand_variant = None
 
-                tiebreak = (variant_match, club_sim)
+                    candidate = {
+                        "team_name": cand_name,
+                        "club_name": team.get("club_name"),
+                        "age_group": team.get("age_group", ""),
+                        "state_code": team.get("state_code"),
+                    }
 
-                if score >= self.fuzzy_threshold:
-                    if score > best_score + 0.001 or (abs(score - best_score) <= 0.001 and tiebreak > best_tiebreak):
-                        best_score = score
-                        best_tiebreak = tiebreak
-                        best_match = {
-                            "team_id": team["team_id_master"],
-                            "team_name": team["team_name"],
-                            "confidence": round(score, 3),
-                        }
+                    score = self._calculate_match_score(provider_team, candidate)
+
+                    # --- Deterministic tie-breaking ---
+                    variant_match = (
+                        provider_variant is not None and cand_variant is not None and provider_variant == cand_variant
+                    )
+                    cand_club = team.get("club_name", "")
+                    club_sim = 0.0
+                    if club_name and cand_club:
+                        if HAVE_CLUB_NORMALIZER:
+                            club_sim = club_similarity_score(club_name, cand_club)
+                        else:
+                            club_sim = self._calculate_similarity(club_name, cand_club)
+
+                    tiebreak = (variant_match, club_sim)
+
+                    if score >= self.fuzzy_threshold:
+                        tied = abs(score - best_score) <= 0.001
+                        if score > best_score + 0.001 or (tied and tiebreak > best_tiebreak):
+                            best_score = score
+                            best_tiebreak = tiebreak
+                            best_match = {
+                                "team_id": team["team_id_master"],
+                                "team_name": team["team_name"],
+                                "confidence": round(score, 3),
+                            }
+                if best_match:
+                    break
 
             if best_match:
                 logger.debug(

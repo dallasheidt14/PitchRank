@@ -338,12 +338,13 @@ class TestStateCodeCascade:
         Keeps the ``.return_value...`` ladder off of a single line so ruff E501
         doesn't flag the mock setup. ``clubbed=True`` mirrors the club-filtered
         gated-funnel query (``.ilike("club_name", ...)``); ``clubbed=False`` is
-        the broad fallback (no ``ilike``).
+        the broad fallback (no ``ilike``, ordered). Both carry the state filter
+        (``.or_``), since every caller here passes a state.
         """
         chain = mock_db.table.return_value.select.return_value.eq.return_value.eq.return_value
         if clubbed:
-            chain = chain.ilike.return_value
-        return chain.limit.return_value.execute
+            return chain.ilike.return_value.or_.return_value.limit.return_value.execute
+        return chain.or_.return_value.order.return_value.limit.return_value.execute
 
     def test_state_code_reaches_fuzzy_match(self):
         """Subclass ``_fuzzy_match_team`` receives ``state_code`` and passes into scoring dict."""
@@ -417,6 +418,92 @@ class TestStateCodeCascade:
             assert fuzzy_call.kwargs.get("state_code") == "AZ"
             # Create helper receives state_code.
             assert mock_create.call_args.kwargs["state_code"] == "AZ"
+
+
+class _RecordingQuery:
+    """A ``teams`` query that records its filters when executed, never when built."""
+
+    def __init__(self, executed: list, rows: list):
+        self.executed, self.rows, self.calls = executed, rows, []
+
+    def __getattr__(self, method):
+        def record(*args):
+            self.calls.append((method, args))
+            return self
+
+        return record
+
+    def execute(self):
+        self.executed.append(self.calls)
+        return MagicMock(data=self.rows)
+
+
+class _RecordingDb:
+    def __init__(self, rows_per_query: list):
+        self.rows_per_query, self.executed = list(rows_per_query), []
+
+    def table(self, name):
+        assert name == "teams"
+        return _RecordingQuery(self.executed, self.rows_per_query.pop(0))
+
+
+class TestStateScopedCandidates:
+    """A known state keeps both candidate queries to that state or to rows storing none."""
+
+    def _run(self, state_code, rows_per_query, club_name="Sample"):
+        m = _make_matcher(supabase=_RecordingDb(rows_per_query))
+        m._fuzzy_match_team("Sample FC", "u12", "Male", club_name, state_code=state_code)
+        return m.db.executed
+
+    def test_club_query_is_scoped_to_the_state(self):
+        (club_query,) = self._run("NC", [[{"team_id_master": "t", "team_name": "Sample FC"}]])
+        assert ("ilike", ("club_name", "Sample")) in club_query
+        assert ("or_", ("state_code.eq.NC,state_code.is.null",)) in club_query
+
+    def test_fallback_is_scoped_and_ordered(self):
+        club_query, fallback = self._run("nc", [[], []])
+        assert ("or_", ("state_code.eq.NC,state_code.is.null",)) in fallback
+        assert ("order", ("team_id_master",)) in fallback
+        assert not any(method == "ilike" for method, _ in fallback)
+
+    @pytest.mark.parametrize("state_code", [None, "", "N", "NCX", "N,C", "A Z", "١٢"])
+    def test_unusable_state_adds_no_filter(self, state_code):
+        columns = ("team_id_master, team_name, club_name, age_group, gender, state_code",)
+        assert self._run(state_code, [[], []]) == [
+            [("select", columns), ("eq", ("age_group", "u12")), ("eq", ("gender", "Male")),
+             ("ilike", ("club_name", "Sample")), ("limit", (100,))],
+            [("select", columns), ("eq", ("age_group", "u12")), ("eq", ("gender", "Male")),
+             ("order", ("team_id_master",)), ("limit", (2000,))],
+        ]
+
+
+class TestClubRowsWithoutAMatch:
+    """Carolina Cup 2026: a run created the club's other teams, whose rows then filled the
+    club query, and "CESA U14B USYS NLSC" was duplicated instead of linked."""
+
+    def _team(self, team_id, name, club):
+        return {"team_id_master": team_id, "team_name": name, "club_name": club, "age_group": "u14", "state_code": "SC"}
+
+    def test_broad_pool_is_searched_when_the_club_rows_hold_no_match(self):
+        sibling = self._team("new", "CESA U14B USYS Select 3", "Carolina Elite SA (CESA)")
+        existing = self._team("old", "CESA 2013B USYS NLSC", "Carolina Elite Soccer Academy")
+        db = _RecordingDb([[sibling], [sibling, existing]])
+        m = _make_matcher(supabase=db)
+
+        match = m._fuzzy_match_team("CESA U14B USYS NLSC", "u14", "Male", "Carolina Elite SA (CESA)", state_code="SC")
+
+        assert match["team_id"] == "old"
+        assert [any(method == "ilike" for method, _ in query) for query in db.executed] == [True, False]
+
+    def test_a_match_in_the_club_rows_skips_the_broad_pool(self):
+        existing = self._team("old", "CESA U14B USYS NLSC", "Carolina Elite SA (CESA)")
+        db = _RecordingDb([[existing]])
+        m = _make_matcher(supabase=db)
+
+        match = m._fuzzy_match_team("CESA U14B USYS NLSC", "u14", "Male", "Carolina Elite SA (CESA)", state_code="SC")
+
+        assert match["team_id"] == "old"
+        assert len(db.executed) == 1
 
 
 class TestBackwardCompatibility:

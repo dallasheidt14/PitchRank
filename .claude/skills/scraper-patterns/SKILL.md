@@ -405,6 +405,44 @@ real browser with `scripts/sincsports_capture_bundle.js` through the Playwright 
 trailing semicolon after the function, and its `filename` must sit under the checkout root in a
 folder that already exists. Per-team game histories are gated behind SincVIP.
 
+### Tournament teams: link before importing games
+
+Game records carry no club, state or per-team age, so the game import can link a team only by
+its SincSports id; an unlinked team's games would import one-sided. A `divisions` capture also
+saves the event's `teamlist.aspx` and, for every scheduled team that list gives no club and state
+for, the team's own page header. A host can hide the list's Club and State columns or publish no
+list at all; the header names the club and links `sicClub.aspx?id=NC337` or `?id=NCB54`, whose
+first two letters are the state. So link teams first:
+
+1. `python scripts/discover_sincsports_via_tournament.py --from-bundle <bundle> --dry-run`, then
+   again without `--dry-run`. The dry run runs the matcher and reports what it would link, create
+   and hold. Compare the real run's created teams with the dry run's: a team the dry run linked
+   but the real run created is a duplicate to merge, because a real run's own new rows join the
+   candidates for every later team in it while a dry run's never do. Merge one with the
+   `execute_team_merge` RPC, which also repoints its aliases; deleting the duplicate `teams` row
+   instead has timed out. The RPC raises a JSON serialization error even when it commits, so read
+   `"success": true` from the error text as `scripts/apply_vetted_team_merges.py` does.
+2. `python scripts/scrape_sincsports_tournament_schedule.py --from-bundle <bundle> --dry-run`.
+   With a bundle it checks links by default (`--no-check-aliases` turns that off) and lists any
+   team still unlinked instead of importing its games.
+
+A team's age comes from its own name only, on both `--from-bundle` and `--tid`. A bundle reads the
+name against its event's season, taken from the event's game dates; `--tid` has no game dates, so it
+reads the name as this season's. The division it is listed under is never used, because teams play
+up: `13U`, `9UB`, `UN16B` and `Under 12G` are U-ages, and a bare year is a birth year (`16B`,
+`'10`). A U-age wins over a bare year (`14 (12U)` is U12). A name stating no age, two conflicting
+U-ages or bands, or an odd year span is held for review rather than created. The SincSports team id does not
+settle an age either: its digits track the age a team registered under, not its birth year.
+
+Games already imported for the same event under a longer competition name are renamed in place
+with a plain update of `competition`: `prevent_game_updates` lets a locked game change any column
+other than its date, teams, scores, `game_uid`, `provider_id` and `is_immutable`.
+
+The SincSports spellings (`UN16B`, `13U`, `'10`) are applied by `respell_ages` before the shared
+age reader (both in `scripts/import_athletes2events_event.py`), and only SincSports calls it. Before moving any name-reading rule into the shared
+reader, count per provider how many stored teams it would read differently: Affinity OR's `14B`
+teams sit on u12, where the SincSports reading puts them on u13.
+
 ### Layouts and paging
 
 - `schedule.aspx` renders either the old `div.form-row.game-row` layout or the newer `sched2`
@@ -465,10 +503,10 @@ Past events with results are on `usarankevents.aspx`:
   where an earlier session allowed up to 120 s. Each row's `schedule.aspx?tid=` link gives the tid,
   beside the event name, start date and state.
 - Most listed events are not run on SincSports: their root has no divisions, and their results
-  are SincVIP-gated (see Access). Of 252 uncaptured events from Aug 1 to Sep 15, 2026, 242 had no
-  divisions and the other 10 were girls or adult only. Pass the new tids to the capture script's
-  `divisions` mode: it reads each root's division links and `<select>` options and captures only
-  boys divisions, so an event with none costs one request and yields nothing.
+  are SincVIP-gated (see Access). Pass the new tids to the capture script's `divisions` mode: it
+  reads each root's division links and `<select>` options and captures the genders in its
+  `GENDERS` setting (boys and girls by default), so an event with no divisions costs one request
+  and yields nothing.
 - New tournaments are the listed tids missing from earlier captures under `data/raw/sincsports_*`.
   Re-capturing a recent event is safe: games already stored are skipped and a late score comes in
   as a new game, but a corrected score does not replace the stored one.

@@ -15,9 +15,14 @@
 //                       Date advances to the latest start date seen until a
 //                       search adds nothing new, that date stops advancing,
 //                       or 20 searches have run.
-//   MODE = "divisions"  for each tid in TIDS, captures every boys division's
-//                       games list (&mode=schedule) and every one of its
-//                       pages (&gpage=N, 50 games each), in either layout.
+//   MODE = "divisions"  for each tid in TIDS, captures every division's games
+//                       list (&mode=schedule) and every one of its pages
+//                       (&gpage=N, 50 games each), in either layout, for the
+//                       genders in GENDERS (M boys, F girls). It also captures
+//                       the event's team list (teamlist.aspx), which carries
+//                       each team's club and state, under `teamlists`, and,
+//                       for each scheduled team the list does not give a club
+//                       and state for, its team page header under `teampages`.
 //
 // Rec, small-sided and adult play is never captured. The leagues search runs
 // with Recreation and Small Sided unticked, which drops only leagues SincSports
@@ -26,7 +31,8 @@
 // Excluded leagues and divisions are listed in the output under `excluded`.
 //
 // The divisions bundle is the input to
-//   python scripts/scrape_sincsports_tournament_schedule.py --from-bundle <path>
+//   python scripts/discover_sincsports_via_tournament.py --from-bundle <path>   (link teams)
+//   python scripts/scrape_sincsports_tournament_schedule.py --from-bundle <path> (games)
 //
 // Requests run one at a time with a random 0.6-1.5 s gap. Keep them sequential:
 // overlapping requests to SincSports cancel each other.
@@ -34,6 +40,7 @@ async () => {
   const MODE = "leagues";
   const FROM = "08/01/2026";
   const TIDS = [];
+  const GENDERS = "MF";
   // 7v7 and 9v9 are the standard U9-U12 formats, so only 3v3-6v6 counts as small-sided.
   const EXCLUDED_PLAY = /\b(rec|recreation|recreational|small[\s-]*sided|adults?|[3-6]\s*v\s*[3-6])\b/i;
 
@@ -112,7 +119,10 @@ async () => {
   if (MODE === "divisions") {
     const events = [];
     const divisions = [];
+    const teamlists = [];
+    const teampages = [];
     const errors = [];
+    const divisionCode = new RegExp(`^U(0[89]|1\\d)[${GENDERS}][A-Z0-9]*$`);
     const excluded = [];
     for (const tid of TIDS) {
       let rootDoc;
@@ -133,7 +143,7 @@ async () => {
       const labels = new Map();
       for (const option of rootDoc.querySelectorAll("select option")) {
         const code = option.value.toUpperCase();
-        if (/^U\d{2}M/.test(code) && !labels.has(code)) labels.set(code, option.textContent.replace(/\s+/g, " ").trim());
+        if (/^U\d{2}[MF]/.test(code) && !labels.has(code)) labels.set(code, option.textContent.replace(/\s+/g, " ").trim());
       }
       // Old-layout pages also link team names with div= in the URL, so only picker cards name a division.
       for (const a of rootDoc.querySelectorAll("a.sched2-divcard[href*='div='], .sched2-divcard a[href*='div=']")) {
@@ -147,7 +157,7 @@ async () => {
       }
       const codes = [];
       for (const [code, label] of [...labels.entries()].sort()) {
-        if (!/^U(0[89]|1\d)M[A-Z0-9]*$/.test(code)) continue;
+        if (!divisionCode.test(code)) continue;
         if (EXCLUDED_PLAY.test(label)) excluded.push({ tid, div: code, label });
         else codes.push(code);
       }
@@ -171,8 +181,39 @@ async () => {
           }
         }
       }
+      // Teams the list gives a club and state for, in a Team | Club | State table.
+      const listed = new Set();
+      try {
+        const { html, doc } = await getDoc(`/teamlist.aspx?tid=${tid}&tab=6&sub=0`);
+        teamlists.push({ tid, html });
+        for (const table of doc.querySelectorAll("table")) {
+          const header = [...(table.querySelector("tr")?.children || [])].map((c) => c.textContent.trim());
+          if (header.join("|") !== "Team|Club|State") continue;
+          for (const m of table.innerHTML.matchAll(/cpTeamSummary',\s*'([A-Za-z0-9]+)'|teamid=([A-Za-z0-9]+)/g)) {
+            listed.add((m[1] || m[2]).toUpperCase());
+          }
+        }
+      } catch (error) {
+        errors.push({ tid, div: "(team list)", page: 1, error: String(error) });
+      }
+      // A host can hide the list's Club and State columns or not publish the list at all;
+      // each other scheduled team's own page names its club, whose id starts with the state.
+      const scheduled = new Set();
+      for (const { html } of divisions.filter((d) => d.tid === tid)) {
+        for (const m of html.matchAll(/teamid=([A-Za-z0-9]+)/gi)) scheduled.add(m[1].toUpperCase());
+      }
+      for (const teamid of [...scheduled].filter((id) => !listed.has(id)).sort()) {
+        try {
+          const { doc } = await getDoc(`/team/team.aspx?teamid=${teamid}&sinc=N&tid=${tid}`);
+          const header = doc.querySelector('[id$="teamHeader_pnlTeamHeader"]');
+          if (header) teampages.push({ tid, teamid, html: header.outerHTML });
+          else errors.push({ tid, div: `(team ${teamid})`, page: 1, error: "no team header" });
+        } catch (error) {
+          errors.push({ tid, div: `(team ${teamid})`, page: 1, error: String(error) });
+        }
+      }
     }
-    return { captured_at: new Date().toISOString(), mode: MODE, events, divisions, errors, excluded };
+    return { captured_at: new Date().toISOString(), mode: MODE, events, divisions, teamlists, teampages, errors, excluded };
   }
 
   throw new Error(`Unknown MODE ${MODE}`);

@@ -14,8 +14,9 @@ clubs search is missing 99% of teams registered for this one tournament.
 **Wire format** — a regular HTML page, not the EO callback envelope the
 clubs search uses. The ``provider_team_id`` is embedded in the anchor's
 ``onclick="eo_Callback('cpTeamSummary', 'ILF17086'); return false;"``
-attribute (second callback argument). Age + gender come from the division
-heading text immediately preceding each table:
+attribute (second callback argument), or, in the newer ``tl-div-card``
+layout, in its ``href`` (``/team/team.aspx?tid=X&teamid=NCM1300A73``). Age +
+gender come from the division heading text immediately preceding each table:
 
 - ``"Under 14 Girls First Division"`` → ``u14``, ``"Female"``
 - ``"Under 18 Boys Second Division"`` → ``u19``, ``"Male"``  *(u18 merges
@@ -34,6 +35,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from src.scrapers.sincsports_clubs import SincSportsClubsScraper, TeamRecord
+from src.utils.us_states import STATE_CODE_TO_NAME
 
 logger = logging.getLogger(__name__)
 
@@ -45,15 +47,27 @@ _TEAMID_RE = re.compile(
     r"eo_Callback\(\s*['\"]cpTeamSummary['\"]\s*,\s*['\"]([A-Z0-9]+)['\"]",
     re.IGNORECASE,
 )
+# `href='/team/team.aspx?tid=VELOSC&year=2026&teamid=NCM1300A73'` → "NCM1300A73"
+_TEAMID_HREF_RE = re.compile(r"[?&]teamid=([A-Z0-9]+)", re.IGNORECASE)
 
-# "Under 14 Girls First Division" → (14, "Girls"). Also matches the compact
+# "Under 14 Girls First Division" → (14, None, "Girls"). Also matches the compact
 # birth-year form some tournaments use, e.g. "2016 - U10 Girls Mendota 7v7"
-# (RWISC) → (10, "Girls"). Handles dual-age "Under 9/10" / "U9/10" by taking the
-# lower age (younger primary cohort, matches SincSports convention).
+# (RWISC) → (10, None, "Girls"). A dual-age "Under 9/10" / "U9/10" division holds
+# both ages; ``age_group`` takes the lower one (younger primary cohort, matches
+# SincSports convention) and ``division_ages`` keeps both.
 _DIV_HEADING_RE = re.compile(
-    r"\bU(?:nder)?\s*(\d{1,2})(?:/\d{1,2})?\s+(Boys|Girls)\b",
+    r"\bU(?:nder)?\s*(\d{1,2})(?:/(\d{1,2}))?\s+(Boys|Girls)\b",
     re.IGNORECASE,
 )
+
+# A team page header: its age reads "09U BOYS" or "U10 GIRLS", and its club links to
+# sicClub.aspx?id=NC337 or ?id=NCB54, whose first two letters are the club's state.
+_TEAM_PAGE_AGE_RE = re.compile(r"(?:(\d{1,2})U|U(\d{1,2}))\s+(BOYS|GIRLS)\b", re.IGNORECASE)
+_CLUB_ID_RE = re.compile(r"sicClub\.aspx\?id=([A-Z]{2})[A-Z]?\d", re.IGNORECASE)
+
+
+def _team_page_field(name: str) -> re.Pattern:
+    return re.compile(rf"teamHeader_{name}$")
 
 # Canonical PitchRank age groups — `config/settings.py::AGE_GROUPS` keyset.
 # Kept inline to avoid dragging the rankings stack into the scraper import chain
@@ -153,7 +167,8 @@ class SincSportsEventsScraper:
             age_key = _normalize_age(age_int)
             if age_key is None or age_key not in effective_ages:
                 continue
-            gender = "Male" if heading_match.group(2).lower().startswith("b") else "Female"
+            older_age = int(heading_match.group(2) or age_int)
+            gender = "Male" if heading_match.group(3).lower().startswith("b") else "Female"
 
             for tr in table.find_all("tr")[1:]:
                 cells = tr.find_all(["th", "td"])
@@ -166,7 +181,7 @@ class SincSportsEventsScraper:
                 if not team_name:
                     continue
                 onclick = anchor.get("onclick", "") or ""
-                id_match = _TEAMID_RE.search(onclick)
+                id_match = _TEAMID_RE.search(onclick) or _TEAMID_HREF_RE.search(anchor.get("href", "") or "")
                 if not id_match:
                     continue
                 provider_team_id = id_match.group(1).upper()
@@ -181,6 +196,35 @@ class SincSportsEventsScraper:
                     age_group=age_key,
                     gender=gender,
                     state_code=state_code,
+                    division_ages=(age_int, older_age),
                 )
 
         return list(seen.values())
+
+    @staticmethod
+    def parse_team_page(teamid: str, html: str) -> Optional[TeamRecord]:
+        """Parse a team page's header (team.aspx) into a ``TeamRecord``, else None.
+
+        The header names the club and links it as ``sicClub.aspx?id=NC337``; a club
+        id starts with its state code. ``age_group`` is the age the team registered
+        under, and ``division_ages`` is empty: the page names no division.
+        """
+        soup = BeautifulSoup(html, "html.parser")
+        name_el = soup.find(id=_team_page_field("lnkTeamName"))
+        club_el = soup.find(id=_team_page_field("lnkClub"))
+        age_el = soup.find(id=_team_page_field("lblAge"))
+        team_name = name_el.get_text(" ", strip=True) if name_el else ""
+        age_match = _TEAM_PAGE_AGE_RE.search(age_el.get_text(" ", strip=True) if age_el else "")
+        age_group = _normalize_age(int(age_match.group(1) or age_match.group(2))) if age_match else None
+        if not team_name or not age_group:
+            return None
+        club_id = _CLUB_ID_RE.search(club_el.get("href", "") if club_el else "")
+        state_code = club_id.group(1).upper() if club_id else None
+        return TeamRecord(
+            provider_team_id=teamid.upper(),
+            team_name=team_name,
+            club_name=" ".join(club_el.get_text(" ", strip=True).split()) if club_el else None,
+            age_group=age_group,
+            gender="Male" if age_match.group(3).upper() == "BOYS" else "Female",
+            state_code=state_code if state_code in STATE_CODE_TO_NAME else None,
+        )

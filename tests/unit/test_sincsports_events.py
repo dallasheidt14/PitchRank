@@ -8,10 +8,13 @@ covered by the narrow operator dry-run noted in the plan.
 
 from __future__ import annotations
 
+import json
+import re
 from pathlib import Path
 
 import pytest
 
+from src.scrapers.sincsports_clubs import TeamRecord
 from src.scrapers.sincsports_events import (
     CANONICAL_AGE_GROUPS,
     SincSportsEventsScraper,
@@ -19,11 +22,17 @@ from src.scrapers.sincsports_events import (
 )
 
 FIXTURE = Path(__file__).parent.parent / "fixtures" / "sincsports_events" / "teamlist_puri.html"
+VELOSC_FIXTURE = FIXTURE.with_name("teamlist_velosc.html")
 
 
 @pytest.fixture
 def puri_html() -> str:
     return FIXTURE.read_text(encoding="utf-8")
+
+
+@pytest.fixture
+def velosc_html() -> str:
+    return VELOSC_FIXTURE.read_text(encoding="utf-8")
 
 
 class TestNormalizeAge:
@@ -192,6 +201,26 @@ class TestParseTeamlist:
         assert records[0].age_group == "u9"
         assert records[0].gender == "Female"
 
+    def test_card_layout_reads_every_team_with_club_and_state(self, velosc_html):
+        """The tl-div-card layout links teams by href; every listed team carries club and state."""
+        wide = frozenset({"u8", "u9", *CANONICAL_AGE_GROUPS})
+        records = SincSportsEventsScraper.parse_teamlist(velosc_html, include_ages=wide)
+        assert len(records) == 119
+        assert {r.gender for r in records} == {"Male", "Female"}
+        assert all(r.club_name and r.state_code for r in records)
+
+    def test_card_layout_team_record(self, velosc_html):
+        records = SincSportsEventsScraper.parse_teamlist(velosc_html)
+        (r,) = [r for r in records if r.provider_team_id == "NCM1300A73"]
+        assert (r.team_name, r.club_name, r.state_code) == ("CVFC U14B NAL", "Carolina Velocity FC", "NC")
+        assert (r.age_group, r.gender, r.division_ages) == ("u14", "Male", (14, 14))
+
+    def test_dual_age_division_keeps_both_ages(self, velosc_html):
+        """`Under 14/15 Boys Platinum Division` files the team at u14 and records (14, 15)."""
+        records = SincSportsEventsScraper.parse_teamlist(velosc_html)
+        (r,) = [r for r in records if r.provider_team_id == "NCM1200B59"]
+        assert (r.age_group, r.division_ages) == ("u14", (14, 15))
+
     def test_heading_without_gender_token_not_classified(self):
         """The broadened `U<age>` regex still requires a Boys/Girls token: a
         `U12 Coed` heading must NOT classify its Team|Club|State table as a division."""
@@ -204,3 +233,42 @@ class TestParseTeamlist:
             "</table>"
         )
         assert SincSportsEventsScraper.parse_teamlist(html) == []
+
+
+class TestParseTeamPage:
+    """A team page header, captured where an event's team list hides club and state."""
+
+    @pytest.fixture
+    def pages(self) -> dict:
+        captured = json.loads(FIXTURE.with_name("teampages_sample.json").read_text(encoding="utf-8"))
+        return {page["teamid"]: page["html"] for page in captured}
+
+    @pytest.mark.parametrize(
+        "teamid, name, club, state, age, gender",
+        [
+            ("NCM18002CD", "PISA Hurricanes 9UB", "Pleasure Island Soccer Assn (PISA)", "NC", "u9", "Male"),
+            # Club ids GAA89 and NCB54 carry a third letter before the number.
+            ("GAF150028F", "Bulls Rush Girls U12 Blue", "Bulls Rush FC (GA)", "GA", "u12", "Female"),
+            ("NCF12006BE", "TFA 11 (U15) Black G", "TOR Futbol Academy", "NC", "u15", "Female"),
+        ],
+    )
+    def test_header_gives_club_and_state(self, pages, teamid, name, club, state, age, gender):
+        record = SincSportsEventsScraper.parse_team_page(teamid.lower(), pages[teamid])
+        assert record == TeamRecord(teamid, name, club, age, gender, state)
+
+    def test_club_id_without_a_state_gives_no_state(self, pages):
+        html = pages["NCM18002CD"].replace("sicClub.aspx?id=NC337", "sicClub.aspx?id=ZZ337")
+        assert SincSportsEventsScraper.parse_team_page("NCM18002CD", html).state_code is None
+
+    def test_age_written_before_the_number(self, pages):
+        html = pages["NCM18002CD"].replace("09U  BOYS", "U10 GIRLS")
+        record = SincSportsEventsScraper.parse_team_page("NCM18002CD", html)
+        assert (record.age_group, record.gender) == ("u10", "Female")
+
+    def test_page_without_a_club_link_gives_no_club_or_state(self, pages):
+        html = re.sub(r"<a[^>]*lnkClub[^>]*>.*?</a>", "", pages["NCM18002CD"], flags=re.S)
+        record = SincSportsEventsScraper.parse_team_page("NCM18002CD", html)
+        assert (record.team_name, record.club_name, record.state_code) == ("PISA Hurricanes 9UB", None, None)
+
+    def test_page_without_a_header_gives_nothing(self):
+        assert SincSportsEventsScraper.parse_team_page("NCM18002CD", "<div>Team not found</div>") is None
