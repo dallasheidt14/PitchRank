@@ -607,6 +607,26 @@ else:
     # Insert new
 ```
 
+### Compare-and-Set Update
+```python
+moved = client.table('teams').update({'club_name': new}) \
+    .eq('team_id_master', team_id) \
+    .eq('club_name', old) \
+    .eq('is_deprecated', False) \
+    .execute().data
+```
+
+An empty `moved` means one of two things. Another writer changed or merged the row after it was
+read, which is a correct skip; or the key cannot write: a key that holds the UPDATE grant but no
+UPDATE policy matches nothing and gets an empty 200 with no error (without the grant it raises).
+Re-read the row to tell them apart: a live row still holding `old` means the write did not take,
+so count it and exit non-zero rather than reporting a skip. The write loop in
+`scripts/apply_vetted_club_names.py` `main` is the reference.
+
+`.data` carries the updated rows only under `update()`'s default `returning='representation'`;
+with `returning='minimal'` every write comes back empty, so leave the default here. When `old`
+can be NULL, filter with `.is_(column, "null")`: `.eq(column, None)` matches nothing.
+
 ### Transaction-like Pattern
 ```python
 # Supabase doesn't have transactions in Python SDK

@@ -1118,3 +1118,21 @@ def test_a_sustained_block_aborts():
     for _ in range(10):
         streak = next_failure_streak(streak, "failed")
     assert streak == 10
+
+
+
+def test_main_writes_its_log_to_the_exports_dir_it_is_given(monkeypatch, tmp_path):
+    default, store = tmp_path / "default", tmp_path / "store"
+    default.mkdir()
+    teams = [_team(team_id_master=f"t{i:02d}") for i in range(2)]
+
+    _run_main(
+        monkeypatch,
+        default,
+        ["--state", "AZ", "--limit", "0", "--dry-run", "--exports-dir", str(store)],
+        teams,
+        {PID: _resolved()},
+    )
+
+    assert [p.name.startswith("reconcile_teams_with_gotsport_") for p in store.iterdir()] == [True]
+    assert list(default.iterdir()) == []

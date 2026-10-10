@@ -13,7 +13,9 @@ reviewed before the file is written, never inferred here -- a rule that reads th
 club out of a team name is exactly what created the defect.
 
 Dry run by default. ``--execute`` writes and logs every change to a CSV that
-``--revert`` replays backwards.
+``--revert`` replays backwards. Each write carries the club it replaces and requires a live
+team, so a team whose club changed or that was merged after it was read is skipped and left
+out of the log.
 
 Usage:
     python scripts/apply_vetted_club_names.py --file vetted.json
@@ -174,27 +176,40 @@ def main() -> int:
     # after the loop loses the record of everything already committed when a later
     # update raises, and --revert then cannot tell which subset was applied.
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    written = []
+    written, refused = [], []
     with log_path.open("x", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=LOG_COLUMNS)
         writer.writeheader()
         f.flush()
         for entry in apply_now:
-            supabase.table("teams").update({"club_name": entry["to_club"]}).eq(
-                "team_id_master", entry["team_id_master"]
-            ).execute()
+            team_id = entry["team_id_master"]
+            moved = (
+                supabase.table("teams")
+                .update({"club_name": entry["to_club"]})
+                .eq("team_id_master", team_id)
+                .eq("club_name", entry["from_club"])
+                .eq("is_deprecated", False)
+                .execute()
+                .data
+            )
+            if not moved:
+                # A write that matched nothing lost a race only if the row has since moved on.
+                # A live row still holding from_club was refused outright: a key RLS lets read but
+                # not update matches nothing and is answered with an empty 200.
+                now = current_clubs(supabase, [team_id]).get(team_id)
+                if now and not now["is_deprecated"] and now["club_name"] == entry["from_club"]:
+                    refused.append(team_id)
+                else:
+                    console.print(f"  [yellow]skipped {team_id}: changed or merged after it was read[/yellow]")
+                continue
             row = {c: entry.get(c, "") for c in LOG_COLUMNS}
             writer.writerow(row)
             f.flush()
             written.append(row)
 
-    after = current_clubs(supabase, [e["team_id_master"] for e in apply_now])
-    wrong = [
-        e["team_id_master"] for e in apply_now if after.get(e["team_id_master"], {}).get("club_name") != e["to_club"]
-    ]
-    console.print(f"\nMoved {len(written) - len(wrong)} of {len(written)}; log: {log_path}")
-    if wrong:
-        console.print(f"[red]{len(wrong)} did not take: {wrong}[/red]")
+    console.print(f"\nMoved {len(written)} of {len(apply_now)}; log: {log_path}")
+    if refused:
+        console.print(f"[red]{len(refused)} did not take: {refused}[/red]")
         return 1
     return 0
 

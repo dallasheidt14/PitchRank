@@ -385,3 +385,86 @@ def test_an_interrupted_execute_marks_its_rows_unconfirmed(exports, tmp_path):
 
     _, log = _log_rows(exports)
     assert [r["result"] for r in log] == [fbc.UNCONFIRMED]
+
+
+def test_an_exports_dir_outside_the_repo_takes_the_apply_log_and_the_default_gets_nothing(exports, tmp_path, capsys):
+    store = tmp_path / "store with space" / "exports"
+    row = _plan_row()
+    db = _Db([_team_row(row)])
+
+    _apply(db, _write_plan(tmp_path / "plan.csv", [row]), exports_dir=store, actor="team-cleanup:run-1")
+
+    assert list(exports.iterdir()) == []
+    log_path, log = _log_rows(store)
+    assert [(r["result"], r["actor"]) for r in log] == [("updated", "team-cleanup:run-1")]
+    assert f'--revert "{log_path}" --execute' in capsys.readouterr().out
+
+
+def test_an_apply_log_records_the_operator_when_no_actor_is_given(exports, tmp_path):
+    row = _plan_row()
+    _apply(_Db([_team_row(row)]), _write_plan(tmp_path / "plan.csv", [row]))
+
+    _, log = _log_rows(exports)
+    assert [r["actor"] for r in log] == ["pitchrank-operator"]
+
+
+def test_the_dry_run_reads_reconcile_logs_from_the_exports_dir_it_is_given(exports, tmp_path):
+    store = tmp_path / "store" / "exports"
+    store.mkdir(parents=True)
+    audit = {
+        "run_mode": "execute",
+        "team_id_master": "a",
+        "stored_age_group": "u14",
+        "gotsport_age_group": "u13",
+        "gotsport_team_name": "Rush 2013/2014 Red",
+        "stored_team_name": "Rush 2013 Red",
+    }
+    with (store / "reconcile_teams_with_gotsport_20261001_000000.csv").open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=list(audit))
+        writer.writeheader()
+        writer.writerow(audit)
+
+    assert [c["team_id_master"] for c in fbc.derive_candidates(store)] == ["a"]
+    assert fbc.derive_candidates() == []
+
+
+def test_main_passes_the_exports_dir_and_actor_to_the_apply(monkeypatch, tmp_path):
+    seen = {}
+    monkeypatch.setattr(fbc, "load_env", lambda: None)
+    monkeypatch.setattr(fbc, "get_supabase", lambda: object())
+    monkeypatch.setattr(fbc, "apply_plan", lambda sb, path, execute, *a: seen.update(rest=a))
+    store = tmp_path / "store"
+    monkeypatch.setattr(
+        "sys.argv",
+        ["fix_band_cohorts.py", "--apply", str(tmp_path / "plan.csv"), "--exports-dir", str(store),
+         "--actor", "team-cleanup:run-1"],
+    )
+
+    fbc.main()
+
+    assert seen["rest"][-2:] == (store, "team-cleanup:run-1")
+
+
+def test_main_builds_the_plan_from_and_into_the_exports_dir_given(exports, monkeypatch, tmp_path):
+    store = tmp_path / "store" / "exports"
+    store.mkdir(parents=True)
+    audit = {
+        "run_mode": "execute", "team_id_master": "a", "stored_age_group": "u14", "gotsport_age_group": "u13",
+        "gotsport_team_name": "Rush 2013/2014 Red", "stored_team_name": "Rush 2013 Red",
+    }
+    with (store / "reconcile_teams_with_gotsport_20261001_000000.csv").open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=list(audit))
+        writer.writeheader()
+        writer.writerow(audit)
+    monkeypatch.setattr(fbc, "load_env", lambda: None)
+    monkeypatch.setattr(fbc, "get_supabase", lambda: object())
+    monkeypatch.setattr(fbc, "fetch_live", lambda sb, ids: {})
+    monkeypatch.setattr(fbc, "attach_fixture_evidence", lambda sb, rows: None)
+    monkeypatch.setattr(fbc, "fetch_all_live_teams", lambda sb: [])
+    monkeypatch.setattr("sys.argv", ["fix_band_cohorts.py", "--exports-dir", str(store)])
+
+    fbc.main()
+
+    [plan] = sorted(store.glob("fix_band_cohorts_plan_*.csv"))
+    assert [(r["team_id_master"], r["action"]) for r in fbc.read_our_csv(plan)] == [("a", "skipped_missing")]
+    assert list(exports.iterdir()) == []

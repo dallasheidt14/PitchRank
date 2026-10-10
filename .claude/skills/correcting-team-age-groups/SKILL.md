@@ -36,7 +36,8 @@ place the held rows and their reasons appear, and Step 5 writes.
 
 Nothing is written at this stage, so there is nothing to undo. Neither this cleanup nor the
 club-name one keeps a database ledger — an apply log CSV in a gitignored directory is the
-whole record, and it lives in the checkout that ran the batch.
+whole record, and it lives where the run wrote it: the folder `--exports-dir` named, else the
+checkout that ran the batch.
 
 ## What each source is worth
 
@@ -181,10 +182,9 @@ python .claude/skills/correcting-team-age-groups/scripts/review_age_labels.py wr
 python scripts/fix_band_cohorts.py --apply <plan> --skip-name-contradictions
 ```
 
-Run both from the checkout that holds `data/exports`. `fix_band_cohorts.py` takes no
-`--exports-dir` and reads and writes whichever checkout it sits in, so a worktree run finds
-no reconcile logs and leaves its apply log where removing the worktree destroys it. Leave
-off
+`write-plan` writes its plan beside the review CSV. Run `fix_band_cohorts.py` from the checkout
+that holds `data/exports`, or pass it `--exports-dir` pointing there: otherwise a worktree run
+leaves its apply log, the only way back, where removing the worktree destroys it. Leave off
 `--strong-only`: it keeps only band rows and would drop the approved U-label and birth-year
 groups. The dry run prints only counts; the held rows and their `hold_reason` are in the apply log
 it names (`fix_band_cohorts_apply_<time>.csv`). Read every `held_name_contradicts` row there. Apply
@@ -217,15 +217,15 @@ files one group old never reaches it; the audit above is how those get fixed.
 
 ### Step 1: Preflight
 
-Run from the checkout that holds `data/exports`. Both scripts are tracked under `scripts/`,
-so every checkout has them — but their candidates and their plan, apply and revert logs live
-under `data/exports/`, which is gitignored, so a worktree has neither and a log exists only
-in the checkout that wrote it.
+Run from the checkout that holds `data/exports`, or pass both scripts `--exports-dir` pointing
+there. Both are tracked under `scripts/`, so every checkout has them — but their candidates and
+logs live under `data/exports/`, which is gitignored, so a worktree run without the flag finds no
+candidates and leaves its logs where removing the worktree destroys them.
 
 Credentials come from root `.env` (`.env.local` overrides it); a missing key surfaces as
 `Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY` before any read.
 
-Candidates come from `data/exports/reconcile_teams_with_gotsport_*.csv` — the most recent
+Candidates come from `reconcile_teams_with_gotsport_*.csv` in that folder — the most recent
 execute-mode row per team. A team never reconciled cannot appear, and on a machine without
 those logs the tool reports zero candidates rather than failing. Widen the population by
 running `scripts/reconcile_teams_with_gotsport.py` first.

@@ -10,8 +10,8 @@ column otherwise, reads gender from team names, and compares the squad word in o
 with the one in GotSport's name.
 
 Read-only: writes a triage CSV, two age plans in scripts/fix_band_cohorts.py's format
-and a gender plan in the bundled apply_team_fields.py's format to data/exports, and
-nothing to the database.
+and a gender plan in the bundled apply_team_fields.py's format to data/exports, or the
+folder --exports-dir names, and nothing to the database.
 
 Classes:
   gender_fix  GotSport's gender differs from ours, our own name or the names of the
@@ -527,7 +527,7 @@ def write_triage(rows: List[Dict], path: Path) -> None:
         writer.writerows({k: csv_safe(v) if isinstance(v, str) else v for k, v in r.items()} for r in rows)
 
 
-def write_plans(out: List[Dict], stamp: str) -> Dict[str, Tuple[Path, int]]:
+def write_plans(out: List[Dict], stamp: str, exports_dir: Optional[Path] = None) -> Dict[str, Tuple[Path, int]]:
     def age_plan_row(r: Dict) -> Dict:
         return {
             "state_code": r["state_code"],
@@ -552,7 +552,7 @@ def write_plans(out: List[Dict], stamp: str) -> Dict[str, Tuple[Path, int]]:
     plans: Dict[str, Tuple[Path, int]] = {}
     for cls in ("relabel", "reused_id"):
         rows = [age_plan_row(r) for r in out if r["class"] == cls]
-        path = EXPORTS / f"reconcile_triage_{cls}_age_plan_{stamp}.csv"
+        path = (exports_dir or EXPORTS) / f"reconcile_triage_{cls}_age_plan_{stamp}.csv"
         write_age_plan(rows, path, PLAN_FIELDS)
         plans[cls] = (path, len(rows))
 
@@ -567,7 +567,7 @@ def write_plans(out: List[Dict], stamp: str) -> Dict[str, Tuple[Path, int]]:
         for r in out
         if r["class"] == "gender_fix"
     ]
-    path = EXPORTS / f"reconcile_triage_gender_plan_{stamp}.csv"
+    path = (exports_dir or EXPORTS) / f"reconcile_triage_gender_plan_{stamp}.csv"
     write_field_plan(genders, path, list(FIELD_PLAN_COLUMNS))
     plans["gender"] = (path, len(genders))
     return plans
@@ -586,6 +586,9 @@ def main() -> None:
         "--probe-gotsport",
         action="store_true",
         help=f"For reused_id rows, read GotSport ids within {ADJACENT_SPAN} of the record to find the old squad",
+    )
+    parser.add_argument(
+        "--exports-dir", type=Path, help="Folder to write the triage and plans to (default: <repo>/data/exports)"
     )
     args = parser.parse_args()
 
@@ -644,9 +647,9 @@ def main() -> None:
     order = {"gender_fix": 0, "reused_id": 1, "relabel": 2, "hold": 3}
     out.sort(key=lambda r: (order[r["class"]], r["club_name"], r["team_name"]))
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    triage_path = EXPORTS / f"reconcile_triage_{stamp}.csv"
+    triage_path = (args.exports_dir or EXPORTS) / f"reconcile_triage_{stamp}.csv"
     write_triage(out, triage_path)
-    plans = write_plans(out, stamp)
+    plans = write_plans(out, stamp, args.exports_dir)
 
     print("\n=== Triage ===")
     for cls in order:

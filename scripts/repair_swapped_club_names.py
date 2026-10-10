@@ -32,7 +32,7 @@ tagged with its source:
   state still holding the lowered spelling. A rename that re-cased some other word
   holding a capital ("SoCal" -> "Socal") is proposed too, listed but not approved.
 
-The dry run writes a snapshot CSV to data/exports and changes nothing. Read it, set
+The dry run writes a snapshot CSV to data/exports (or --exports-dir) and changes nothing. Read it, set
 ``approved`` to true on any listed row you accept, then replay it with --execute:
 nothing is recomputed, and an approved row is written only while its team still
 holds the club the snapshot read, a change of case aside. Every write is logged to
@@ -104,6 +104,7 @@ SNAPSHOT_FIELDS = (
 )
 # Untrusted text, defanged in the CSV so a spreadsheet shows it as text.
 SNAPSHOT_TEXT_FIELDS = ("team_name", "stored_club", "proposed_club", "state_note")
+# Columns --revert requires of a log. Omits `actor`, which older logs lack.
 LOG_FIELDS = ("team_id_master", "run_mode", "action", "source", "tier", "before", "after")
 
 # The first age or level token ends the club part of a team name. ASCII-bounded,
@@ -145,6 +146,7 @@ _UUID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4
 MAX_NAME_LENGTH = 200
 
 EXPORTS_DIR = Path("data/exports")
+DEFAULT_ACTOR = "pitchrank-operator"
 PAGE_SIZE = 1000
 IN_BATCH = 100
 DIVISION_DELAY_SEC = 0.3
@@ -681,7 +683,7 @@ def apply_club(supabase, team_id: str, expected: str, value: str) -> bool:
     return bool(result.data)
 
 
-def log_row(entry: Dict, run_mode: str) -> Dict:
+def log_row(entry: Dict, run_mode: str, actor: str = DEFAULT_ACTOR) -> Dict:
     return {
         "team_id_master": entry["team_id_master"],
         "run_mode": run_mode,
@@ -690,6 +692,7 @@ def log_row(entry: Dict, run_mode: str) -> Dict:
         "tier": entry["tier"],
         "before": csv_safe(entry["before"]),
         "after": csv_safe(entry["after"]),
+        "actor": actor,
     }
 
 
@@ -751,10 +754,12 @@ def revert(supabase, log_path: Path, execute: bool) -> Dict[str, int]:
 # --- entry point -------------------------------------------------------------------
 
 
-def replay_snapshot(snapshot_path: Path, execute: bool) -> int:
+def replay_snapshot(
+    snapshot_path: Path, execute: bool, exports_dir: Optional[Path] = None, actor: str = DEFAULT_ACTOR
+) -> int:
     rows = load_snapshot(snapshot_path)
     run_mode = "execute" if execute else "dry-run"
-    log_path = EXPORTS_DIR / f"repair_swapped_club_names_log_{timestamp()}.csv"
+    log_path = (exports_dir or EXPORTS_DIR) / f"repair_swapped_club_names_log_{timestamp()}.csv"
     if log_path.exists():
         raise ValueError(f"{log_path} already exists and is the only undo record for that run.")
 
@@ -766,7 +771,7 @@ def replay_snapshot(snapshot_path: Path, execute: bool) -> int:
 
     # The log lands before the first write and again after the last, so a run that
     # dies mid-loop still leaves every applied row on disk.
-    write_log([log_row(e, run_mode) for e in entries], log_path)
+    write_log([log_row(e, run_mode, actor) for e in entries], log_path)
     try:
         run_replay(supabase, entries, execute)
     finally:
@@ -777,7 +782,7 @@ def replay_snapshot(snapshot_path: Path, execute: bool) -> int:
                 if e["action"] == "updated" and not e.get("attempted"):
                     e["action"] = "not_attempted"
         try:
-            write_log([log_row(e, run_mode) for e in entries], log_path)
+            write_log([log_row(e, run_mode, actor) for e in entries], log_path)
         except OSError as e:
             # Never let the rewrite mask an in-flight exception or destroy the copy
             # already on disk; on Windows this fails while the CSV is open in Excel.
@@ -791,7 +796,7 @@ def replay_snapshot(snapshot_path: Path, execute: bool) -> int:
     if entries:
         print(f"Log: {log_path}")
     if execute and counts.get("updated"):
-        print(f"Undo with: python scripts/repair_swapped_club_names.py --revert {log_path} --execute")
+        print(f'Undo with: python scripts/repair_swapped_club_names.py --revert "{log_path}" --execute')
     return 0
 
 
@@ -818,6 +823,10 @@ def main() -> int:
         f"(default: {', '.join(DEFAULT_ABBREVIATION_RUNS)})",
     )
     parser.add_argument("--revert", type=Path, help="Undo a previous --execute from its CSV log")
+    parser.add_argument(
+        "--exports-dir", type=Path, help="Folder to write the snapshot and log to (default: data/exports)"
+    )
+    parser.add_argument("--actor", default=DEFAULT_ACTOR, help="Who ran this; recorded on every log row")
     args = parser.parse_args()
     execute = resolve_execute(args.execute is not None, args.dry_run)
 
@@ -845,7 +854,7 @@ def main() -> int:
             parser.error(f"{snapshot_path} does not exist. Run the dry run first and review its snapshot.")
         load_env()
         try:
-            return replay_snapshot(snapshot_path, execute)
+            return replay_snapshot(snapshot_path, execute, args.exports_dir, args.actor)
         except ValueError as e:
             parser.error(str(e))
 
@@ -855,7 +864,7 @@ def main() -> int:
         validate_run_ids(run_ids)
     except ValueError as e:
         parser.error(str(e))
-    snapshot_path = EXPORTS_DIR / f"repair_swapped_club_names_{timestamp()}.csv"
+    snapshot_path = (args.exports_dir or EXPORTS_DIR) / f"repair_swapped_club_names_{timestamp()}.csv"
     if snapshot_path.exists():
         parser.error(f"{snapshot_path} already exists and may hold a reviewed list. Re-run in a moment.")
 
@@ -874,7 +883,7 @@ def main() -> int:
         return 0
     print(f"\nDRY RUN -- nothing written to the database. Snapshot: {snapshot_path}")
     print("Set approved to true on any listed row you accept, then re-run with:")
-    print(f"  python scripts/repair_swapped_club_names.py --execute {snapshot_path}")
+    print(f'  python scripts/repair_swapped_club_names.py --execute "{snapshot_path}"')
     return 0
 
 
