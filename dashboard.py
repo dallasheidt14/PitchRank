@@ -1126,7 +1126,7 @@ elif section == "📈 Database Import Stats":
                         f"{not_enough_count:,}",
                         help=f"{not_enough_pct:.1f}% of all teams"
                     )
-                    st.caption("Teams with <5 ranked games")
+                    st.caption("Teams with <10 ranked games")
 
                 with col3:
                     inactive_pct = (inactive_count / total_teams * 100) if total_teams > 0 else 0
@@ -1135,7 +1135,7 @@ elif section == "📈 Database Import Stats":
                         f"{inactive_count:,}",
                         help=f"{inactive_pct:.1f}% of all teams"
                     )
-                    st.caption("No games in last 180 days")
+                    st.caption("No games in last 155 days")
 
                 with col4:
                     st.metric(

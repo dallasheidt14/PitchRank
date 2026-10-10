@@ -1428,8 +1428,22 @@ class TestComputeRankingsV2:
         rank1 = result["teams"][result["teams"]["national_rank"] == 1.0]
         assert rank1.iloc[0]["team_id"] == teams.iloc[0]["team_id"]
 
+    def test_inactive_cutoff_is_155_days(self):
+        cfg = GlickoConfig(MIN_GAMES_PROVISIONAL=1)
+        # Production passes the run instant, so a game dated on the cutoff day is already past it.
+        today = pd.Timestamp("2026-10-10 12:30")
+        played_154_days_ago = compute_rankings_v2(
+            pd.DataFrame(make_game("A", "B", 2, 1, "2026-05-09")), today=today, cfg=cfg
+        )["teams"]
+        played_155_days_ago = compute_rankings_v2(
+            pd.DataFrame(make_game("A", "B", 2, 1, "2026-05-08")), today=today, cfg=cfg
+        )["teams"]
+
+        assert set(played_154_days_ago["status"]) == {"Active"}
+        assert set(played_155_days_ago["status"]) == {"Inactive"}
+
     def test_inactive_team_not_ranked(self):
-        """Team with no games in 180 days should be Inactive."""
+        """Team whose last game is past the inactivity cutoff should be Inactive and unranked."""
         rows = make_game("A", "B", 2, 1, "2025-01-01")  # old game
         games = pd.DataFrame(rows)
         result = compute_rankings_v2(games, today=pd.Timestamp("2026-03-31"))
