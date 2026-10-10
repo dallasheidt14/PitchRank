@@ -828,7 +828,7 @@ def test_a_survivor_holding_fewer_games_is_flagged_for_the_reviewer():
     assert record["survivor_holds_fewer_games"] is True
 
 
-def _scan_double(teams, games=(), aliases=(), merges=()):
+def _scan_double(teams, games=(), aliases=(), merges=(), decisions=()):
     return _Supabase(
         {
             "providers": [
@@ -842,9 +842,25 @@ def _scan_double(teams, games=(), aliases=(), merges=()):
                 {**a, "id": f"al{i}", "review_status": "approved"} for i, a in enumerate(aliases)
             ],
             "team_merge_map": list(merges),
+            "team_cleanup_decisions": [{**d, "id": f"d{i}"} for i, d in enumerate(decisions)],
         },
         cap=1000,
     )
+
+
+def keep_separate(team_id, other_team_id, *, decided_at="2026-09-25T06:37:42+00:00", superseded_at=None):
+    """A team_cleanup_decisions row as the table stores it."""
+    return {
+        "stage": "merges",
+        "subject_key": "|".join(sorted((team_id, other_team_id))),
+        "team_id_master": team_id,
+        "other_team_id": other_team_id,
+        "decision": "keep_separate",
+        "note": None,
+        "decided_at": decided_at,
+        "source": "carried:page",
+        "superseded_at": superseded_at,
+    }
 
 
 def _args(**overrides):
@@ -926,6 +942,103 @@ def test_scan_fetches_the_games_of_a_candidate_that_is_itself_merged_away():
     assert (records[0]["gs_games"], records[0]["ot_games"]) == (5, 1)
     assert records[0]["direction"] == "gotsport_survives"
     assert (records[0]["merge_id"], records[0]["keep_id"]) == ("ot", "gs")
+
+
+def _westy_red_pair():
+    teams = [
+        team("gs", name="2012 Boys Red", club="Westy SC", provider=GS),
+        team("ot", name="2012 Boys Red", club="Westy SC", provider=TGS),
+    ]
+    games = [game("g1", "gs", "opp-a", "2026-09-05"), game("g2", "ot", "opp-b", "2026-09-12")]
+    return teams, games
+
+
+def test_scan_refuses_a_pair_the_owner_kept_separate():
+    teams, games = _westy_red_pair()
+
+    records, rejected = fcpd.scan(_scan_double(teams, games, decisions=[keep_separate("ot", "gs")]), _args())
+
+    assert [(r["tier"], r["rejected_reason"]) for r in records] == [
+        (fcpd.REJECTED_TIER, "the owner chose Keep separate on 2026-09-25")
+    ]
+    assert rejected == {"the owner chose Keep separate on 2026-09-25": 1}
+
+
+def test_the_owners_decision_outranks_a_game_screen():
+    """The owner's reason replaces the screen's, so a reviewer reading the CSV sees the pair was
+    already decided."""
+    teams, _ = _westy_red_pair()
+    games = [game("g1", "gs", "opp-a", "2026-09-05"), game("g2", "ot", "opp-b", "2026-09-05")]
+
+    records, rejected = fcpd.scan(_scan_double(teams, games, decisions=[keep_separate("gs", "ot")]), _args())
+
+    assert records[0]["rejected_reason"] == "the owner chose Keep separate on 2026-09-25"
+    assert rejected == {"the owner chose Keep separate on 2026-09-25": 1}
+
+
+def test_scan_still_refuses_a_kept_apart_pair_after_one_row_was_merged_away():
+    """The owner judged the squad, not the row: a decision on (gs-old, ot) holds for (gs, ot)
+    once gs-old is merged into gs."""
+    teams, games = _westy_red_pair()
+    merges = [{"id": "m1", "deprecated_team_id": "gs-old", "canonical_team_id": "gs"}]
+
+    records, _ = fcpd.scan(
+        _scan_double(teams, games, merges=merges, decisions=[keep_separate("gs-old", "ot")]), _args()
+    )
+
+    assert records[0]["tier"] == fcpd.REJECTED_TIER
+
+
+def test_scan_refuses_a_kept_apart_pair_whose_scanned_row_is_itself_merged_away():
+    """A live row can still carry a team_merge_map entry, and the decision names its survivor,
+    so the scanned row has to be resolved before it is looked up."""
+    teams, games = _westy_red_pair()
+    merges = [{"id": "m1", "deprecated_team_id": "gs", "canonical_team_id": "gs-new"}]
+
+    records, _ = fcpd.scan(
+        _scan_double(teams, games, merges=merges, decisions=[keep_separate("gs-new", "ot")]), _args()
+    )
+
+    assert records[0]["rejected_reason"] == "the owner chose Keep separate on 2026-09-25"
+
+
+def test_scan_proposes_a_pair_whose_keep_separate_was_superseded():
+    teams, games = _westy_red_pair()
+    superseded = keep_separate("gs", "ot", superseded_at="2026-10-01T00:00:00+00:00")
+
+    records, _ = fcpd.scan(_scan_double(teams, games, decisions=[superseded]), _args())
+
+    assert records[0]["tier"] == "2_both_have_games"
+
+
+def test_load_keep_separate_reads_only_keep_separate_decisions():
+    other = {**keep_separate("gs", "ot"), "decision": "apply"}
+
+    loaded = fcpd.load_keep_separate(_scan_double([], decisions=[other, keep_separate("a", "b")]))
+
+    assert [(d.team_id, d.other_team_id) for d in loaded] == [("a", "b")]
+
+
+def test_scan_refuses_to_run_when_the_owners_decisions_cannot_be_read():
+    """An empty answer would propose again every pair the owner kept apart."""
+    teams, games = _westy_red_pair()
+    double = _scan_double(teams, games)
+    del double._tables["team_cleanup_decisions"]
+
+    with pytest.raises(fcpd.DecisionsUnavailable):
+        fcpd.scan(double, _args())
+
+
+def test_main_exits_naming_the_freeze_when_the_owners_decisions_cannot_be_read(tmp_path, monkeypatch):
+    double = _scan_double([], [])
+    del double._tables["team_cleanup_decisions"]
+    monkeypatch.setattr(fcpd, "get_client", lambda: double)
+    monkeypatch.setattr(sys, "argv", ["prog", "--out-dir", str(tmp_path)])
+
+    with pytest.raises(SystemExit, match="Duplicate scans stay off"):
+        fcpd.main()
+
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_main_keeps_refused_pairs_out_of_the_file_that_feeds_the_applier(tmp_path, monkeypatch):

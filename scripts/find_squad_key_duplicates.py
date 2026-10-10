@@ -31,7 +31,9 @@ A live row that already resolves to another through team_merge_map is left out: 
 in effect, and pairing it would propose merges into a row that is going away.
 
 Screens, each decisive: opposite genders in the registered names, a head-to-head game, a
-shared game date, a self-play row. A row pairing cleanly with more than one other row is held
+shared game date, a self-play row, and the owner having chosen Keep separate for the pair
+(team_cleanup_decisions, both ids resolved through team_merge_map) -- the scan refuses to run
+at all when those decisions cannot be read. A row pairing cleanly with more than one other row is held
 rather than guessed at, and so is a pair neither of whose names fits the stored age group.
 The survivor is the row whose name states a band or a U-age, even one the stored cohort
 contradicts, then a bare birth year, then no age, and last a bare birth year the stored cohort
@@ -76,6 +78,7 @@ from scripts.find_cross_provider_duplicates import (  # noqa: E402
     fetch_games,
     fetch_teams,
     get_client,
+    load_keep_separate,
     load_merge_map,
     merged_into,
     normalize,
@@ -85,6 +88,12 @@ from scripts.find_cross_provider_duplicates import (  # noqa: E402
 )
 from scripts.find_queue_matches import has_protected_division  # noqa: E402
 from scripts.fix_band_cohorts import csv_safe  # noqa: E402
+from scripts.team_cleanup.decisions import (  # noqa: E402
+    SCANS_WAIT_FOR_DECISIONS,
+    DecisionsUnavailable,
+    keep_separate_index,
+    kept_apart_reason,
+)
 from src.utils.team_name_utils import _FORMAT_TOKEN, _UAGE_TOKEN, NOISE_WORDS  # noqa: E402
 from src.utils.team_utils import CURRENT_YEAR  # noqa: E402
 
@@ -439,6 +448,7 @@ def write_csv(path, records) -> None:
 
 
 def scan(sb, args):
+    keep_separate = load_keep_separate(sb)
     providers = {p["id"]: p["code"] for p in sb.table("providers").select("id,code").execute().data}
 
     print("teams...", flush=True)
@@ -453,7 +463,13 @@ def scan(sb, args):
     print(f"  {len(already_merged):,} live rows left out because they already resolve to another")
 
     admitted, refused = build_pairs(teams, providers)
-    print(f"  {len(admitted):,} pairs the names admit, {len(refused):,} they refuse")
+    owner_index = keep_separate_index(keep_separate, canonical)
+    for pair in admitted + refused:
+        a_id, b_id = pair["a"]["team_id_master"], pair["b"]["team_id_master"]
+        pair["reason"] = kept_apart_reason(owner_index, canonical, a_id, b_id) or pair["reason"]
+    refused = [p for p in admitted + refused if p["reason"]]
+    admitted = [p for p in admitted if not p["reason"]]
+    print(f"  {len(admitted):,} pairs the names admit, {len(refused):,} they or the owner refuse")
     records = [to_record(p, p["a"], p["b"], providers, REJECTED, p["reason"]) for p in refused]
     if not admitted:
         return records
@@ -492,7 +508,10 @@ def main() -> int:
         out_dir = ROOT / out_dir
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    records = scan(get_client(), args)
+    try:
+        records = scan(get_client(), args)
+    except DecisionsUnavailable as exc:
+        raise SystemExit(f"{exc}\n{SCANS_WAIT_FOR_DECISIONS}") from exc
 
     proposed = [r for r in records if r["status"] == PROPOSED]
     stem = f"squad_key_duplicates_{args.state.lower()}"

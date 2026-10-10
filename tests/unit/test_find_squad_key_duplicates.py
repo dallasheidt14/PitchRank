@@ -17,7 +17,7 @@ import pytest
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from scripts import find_squad_key_duplicates as fsk  # noqa: E402
-from tests.unit.test_find_cross_provider_duplicates import _Supabase  # noqa: E402
+from tests.unit.test_find_cross_provider_duplicates import _Supabase, keep_separate  # noqa: E402
 
 GS, TGS, PM, M11 = "prov-gotsport", "prov-tgs", "prov-playmetrics", "prov-modular11"
 PROVIDERS = {GS: "gotsport", TGS: "tgs", PM: "playmetrics", M11: "modular11"}
@@ -396,20 +396,21 @@ def test_each_name_screen_refuses_on_its_own(a_name, b_name, reason):
 # --- scan --------------------------------------------------------------------------------
 
 
-def _double(teams, games=(), merges=()):
+def _double(teams, games=(), merges=(), decisions=()):
     return _Supabase(
         {
             "providers": [{"id": k, "code": v} for k, v in PROVIDERS.items()],
             "teams": [{**t, "is_deprecated": False} for t in teams],
             "games": list(games),
             "team_merge_map": [{**m, "id": f"m{i}"} for i, m in enumerate(merges)],
+            "team_cleanup_decisions": [{**d, "id": f"d{i}"} for i, d in enumerate(decisions)],
         },
         cap=1000,
     )
 
 
-def _scan(teams, games=(), merges=()):
-    return fsk.scan(_double(teams, games, merges), SimpleNamespace(state=None, age_group=None))
+def _scan(teams, games=(), merges=(), decisions=()):
+    return fsk.scan(_double(teams, games, merges, decisions), SimpleNamespace(state=None, age_group=None))
 
 
 def _only(records, status):
@@ -527,6 +528,41 @@ def test_scan_keeps_the_u_age_name_where_only_it_is_stale(stale_first):
     assert rec["keep_id"] == "a"
 
 
+def test_scan_refuses_a_pair_the_owner_kept_separate():
+    rec = _only(_scan(_purple_pair(), decisions=[keep_separate("tgs", "gs")]), fsk.REJECTED)
+    assert rec["reason"] == "the owner chose Keep separate on 2026-09-25"
+
+
+def test_scan_still_refuses_a_kept_apart_pair_after_one_row_was_merged_away():
+    """The owner judged the squad, not the row."""
+    merges = [{"deprecated_team_id": "old", "canonical_team_id": "gs"}]
+    records = _scan(_purple_pair(), merges=merges, decisions=[keep_separate("old", "tgs")])
+    assert _only(records, fsk.REJECTED)["reason"] == "the owner chose Keep separate on 2026-09-25"
+
+
+def test_the_owners_decision_outranks_a_name_screen():
+    """The owner's reason replaces the screen's, so a reviewer reading the CSV sees the pair was
+    already decided."""
+    teams = [team("a", "EDGE U12B Purple ECNL"), team("b", "EDGE U12B Purple ECNL RL", provider=TGS)]
+    rec = _only(_scan(teams, decisions=[keep_separate("a", "b")]), fsk.REJECTED)
+    assert rec["reason"] == "the owner chose Keep separate on 2026-09-25"
+
+
+def test_a_kept_apart_pair_does_not_hold_its_rows_other_pairs():
+    """The owner settled two of the three pairs, so the third is a clean pair of two."""
+    teams = [*_purple_pair(), team("pm", "U12B Purple", club="Colorado EDGE", provider=PM)]
+    decisions = [keep_separate("gs", "pm"), keep_separate("tgs", "pm")]
+    rec = _only(_scan(teams, decisions=decisions), fsk.PROPOSED)
+    assert {rec["keep_id"], rec["merge_id"]} == {"gs", "tgs"}
+
+
+def test_scan_refuses_to_run_when_the_owners_decisions_cannot_be_read():
+    double = _double(_purple_pair())
+    del double._tables["team_cleanup_decisions"]
+    with pytest.raises(fsk.DecisionsUnavailable):
+        fsk.scan(double, SimpleNamespace(state=None, age_group=None))
+
+
 # --- output ------------------------------------------------------------------------------
 
 
@@ -553,6 +589,16 @@ def test_main_names_an_age_group_run_s_files_after_the_age_group(tmp_path, monke
     assert sorted(p.name for p in tmp_path.iterdir()) == [
         "squad_key_duplicates_co_u12.csv", "squad_key_duplicates_co_u12.json"
     ]
+
+
+def test_main_exits_naming_the_freeze_when_the_owners_decisions_cannot_be_read(tmp_path, monkeypatch):
+    double = _double(_purple_pair())
+    del double._tables["team_cleanup_decisions"]
+    monkeypatch.setattr(fsk, "get_client", lambda: double)
+    monkeypatch.setattr(sys, "argv", ["prog", "--state", "CO", "--out-dir", str(tmp_path)])
+    with pytest.raises(SystemExit, match="Duplicate scans stay off"):
+        fsk.main()
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_main_writes_only_proposals_to_the_json(tmp_path, monkeypatch):
