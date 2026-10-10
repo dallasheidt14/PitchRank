@@ -207,6 +207,29 @@ _BAND = re.compile(
 _U_AGE = re.compile(r"(?<![A-Za-z0-9])E?[BG]?-?U-?(\d{1,2})(?:/U?(\d{1,2}))?(?=[A-Z]?\b)", re.IGNORECASE)
 # A single birth year: B16, G15, B2015, 2013.
 _BARE_YEAR = re.compile(r"(?<![A-Za-z0-9])(?:[BG]\s*(?:20)?(\d{2})|20(\d{2}))(?![\d/-])", re.IGNORECASE)
+# Spellings the readers below miss, rewritten to ones they read, in this order: a band
+# typed with an extra zero "G20013/14" -> "G2013/14"; a glued one-year band "B1314" ->
+# "B13/14"; "Under 12G" / "UN16B" / "U-15" / "GU 12" -> "U12G" /
+# "U16B" / "U15" / "GU12"; "14 (12U)" / "13U" / "9UB" -> "U12" / "U13" / "U9B"; "16B" -> "B16" (a birth
+# year); and a lone two-digit year -- "'10", "PR-12", "Lexington SA 14 Red" -- -> "2010".
+# The U-ages are joined up before the last rule so it cannot read their number as a year,
+# and a U-age outranks a bare year, so the "14" beside "(U12)" stays unread.
+_AGE_RESPELLINGS = (
+    (re.compile(r"(?<![A-Za-z0-9])([BG]?)200(\d{2})(?=\s*[/-]\s*\d)", re.IGNORECASE), r"\g<1>20\2"),
+    (
+        re.compile(r"(?<![A-Za-z0-9])([BG])(\d)(\d)(\d)(\d)(?![A-Za-z0-9])", re.IGNORECASE),
+        lambda m: (
+            f"{m.group(1)}{m.group(2)}{m.group(3)}/{m.group(4)}{m.group(5)}"
+            if abs(int(m.group(2) + m.group(3)) - int(m.group(4) + m.group(5))) == 1
+            else m.group(0)
+        ),
+    ),
+    (re.compile(r"\bUn(?:der)?[\s-]*(\d{1,2})(?!\d)", re.IGNORECASE), r"U\1"),
+    (re.compile(r"(?<![A-Za-z0-9])([BG]?)U[\s-]+(\d{1,2})(?!\d)", re.IGNORECASE), r"\1U\2"),
+    (re.compile(r"(?<![A-Za-z0-9])(\d{1,2})U(?=[BG]?(?![A-Za-z0-9]))", re.IGNORECASE), r"U\1"),
+    (re.compile(r"(?<![A-Za-z0-9/-])(0[5-9]|1\d)([BG])(?![A-Za-z0-9])", re.IGNORECASE), r"\2\1"),
+    (re.compile(r"(?<![A-Za-z0-9/])['’]?(0[5-9]|1\d)(?![A-Za-z0-9/-])"), r"20\1"),
+)
 # An age written before the club: "U11/U12 Nido Aguila Zaldivar".
 _LEADING_AGE = re.compile(r"^(?:U\d{1,2}(?:/U?\d{1,2})?\s+)+", re.IGNORECASE)
 # Where the club part of a name ends: an age/gender token, a tier word, or a comma.
@@ -511,13 +534,32 @@ def parse_team_page(html: str) -> Tuple[str, str]:
 # ── Age and club ───────────────────────────────────────────────────────────────
 
 
-def age_from_name(team_name: str, division_birth_year: int, event_season: int) -> Tuple[Optional[int], str]:
+NO_AGE_IN_NAME = "no age in name, tournament division used"
+ODD_YEAR_SPAN = "odd year span, tournament division used"
+
+
+def respell_ages(team_name: str) -> str:
+    """``team_name`` with the age spellings ``age_from_name`` misses put in a form it reads.
+
+    Opt-in per provider: on SincSports a bare "14B" is a 2014 squad, but Affinity OR's
+    "14B" teams sit on u12 rather than the u13 this reading gives, so it must not call this.
+    """
+    for pattern, replacement in _AGE_RESPELLINGS:
+        team_name = pattern.sub(replacement, team_name)
+    return team_name
+
+
+def age_from_name(
+    team_name: str, division_birth_year: Optional[int], event_season: int
+) -> Tuple[Optional[int], str]:
     """The birth year a team's own name states, with how it was read.
 
     The division only bounds it: a team plays up and never down, so the name's
     band may be younger than the division's but never older. Labels are read
     against the event's own season, since that is the season they were written in.
-    Returns ``(None, reason)`` when the name names more than one cohort.
+    Returns ``(None, reason)`` when the name names more than one cohort. With no
+    division (``None``) nothing bounds the name, a bare year is the birth year, and
+    a name the division would have settled returns ``(None, reason)``.
     """
     text = team_name
     stated: Set[int] = set()
@@ -531,7 +573,7 @@ def age_from_name(team_name: str, division_birth_year: int, event_season: int) -
             stated.add(max(pair))
             text = text.replace(match.group(0), " ", 1)
         elif len(pair) == 2 and max(pair) - min(pair) > 1:
-            return division_birth_year, "odd year span, tournament division used"
+            return division_birth_year, ODD_YEAR_SPAN
     for match in _U_AGE.finditer(text):
         if match.group(2):
             return None, "two U-ages, left out"
@@ -541,11 +583,13 @@ def age_from_name(team_name: str, division_birth_year: int, event_season: int) -
         if len(stated) > 1:
             return None, f"name gives several ages {sorted(stated)}"
         birth_year = stated.pop()
-        if birth_year < division_birth_year:
+        if division_birth_year is not None and birth_year < division_birth_year:
             return None, f"name is older than its U{event_season - division_birth_year + 1} division"
         return birth_year, "name"
     found = _BARE_YEAR.findall(text)
     years = [2000 + int(y1 or y2) for y1, y2 in found]
+    if len(years) == 1 and division_birth_year is None:
+        return years[0], f"birth year {years[0]}"
     if len(years) == 1:
         # A single birth year sits in two bands: as a band's younger year, and as
         # the older year of the band above it.
@@ -563,7 +607,7 @@ def age_from_name(team_name: str, division_birth_year: int, event_season: int) -
             return as_age, f"B{years[0] - 2000:02d} read as U{years[0] - 2000}"
         readings = fits or options
         return None, f"birth year {years[0]} could be {' or '.join(str(y) for y in readings)}"
-    return division_birth_year, "no age in name, tournament division used"
+    return division_birth_year, NO_AGE_IN_NAME
 
 
 def board_cohort(birth_year: int, board_season: int) -> Optional[str]:

@@ -627,6 +627,38 @@ class TestWriteUnlinkedTeamsCsv:
         )
 
 
+class TestCleanEventName:
+    @pytest.mark.parametrize(
+        "title, expected",
+        [
+            ("Velocity Super Cup 2026 Schedules - NC | Youth Soccer", "Velocity Super Cup 2026"),
+            ("Velocity Super Cup 2026 Team List - NC | Youth Soccer", "Velocity Super Cup 2026"),
+            ("Carolina Cup 2026 Schedule - Columbia, SC | Youth Soccer", "Carolina Cup 2026"),
+            ("Schedules - Carolina Champions League - Spring", "Carolina Champions League - Spring"),
+            ("Carolina Champions League - Spring", "Carolina Champions League - Spring"),
+            ("", ""),
+            (None, ""),
+        ],
+    )
+    def test_page_title_reduces_to_the_event_name(self, title, expected):
+        assert driver.clean_event_name(title) == expected
+
+    def test_bundle_games_carry_the_event_name_and_division_code(self, tmp_path):
+        path = _bundle(tmp_path, *_fixtures(*CARCHLES_U12))
+        bundle = json.loads(path.read_text(encoding="utf-8"))
+        bundle["events"][0]["name"] = "Carolina Champions League - Spring Schedules - NC | Youth Soccer"
+        path.write_text(json.dumps(bundle), encoding="utf-8")
+        games, _ = driver.load_bundle(path)
+        record = driver.perspective_record(games[0], perspective="H")
+        assert (record["competition"], record["division_name"]) == ("Carolina Champions League - Spring", "U12M01")
+
+    def test_live_games_keep_the_division_label(self):
+        game = parse_division(_sched2_page(_sched2_day("SAT", "Aug 22", _sched2_game())), "T", "U12M01")[0]
+        game.division_name = "Under 12 Boys"
+        record = driver.perspective_record(game, perspective="H")
+        assert (record["competition"], record["division_name"]) == ("Under 12 Boys", None)
+
+
 class TestDriverFromBundle:
     def _run(self, monkeypatch, tmp_path, *argv: str) -> int:
         monkeypatch.setattr(driver, "RAW_DIR", tmp_path / "raw")
@@ -639,11 +671,21 @@ class TestDriverFromBundle:
 
     def test_since_keeps_games_on_that_day(self, monkeypatch, tmp_path):
         path = _bundle(tmp_path, *_fixtures(*CARCHLES_U12))
-        assert self._run(monkeypatch, tmp_path, "--from-bundle", str(path), "--since", "2026-04-11") == 0
+        argv = ("--from-bundle", str(path), "--since", "2026-04-11", "--no-check-aliases")
+        assert self._run(monkeypatch, tmp_path, *argv) == 0
         rows = self._rows(tmp_path)
         assert len(rows) == 20
         assert min(r["game_date"] for r in rows) == "2026-04-11"
-        assert {r["competition"] for r in rows} == {"Carolina Champions League - Spring - U12M01"}
+        assert {(r["competition"], r["division_name"]) for r in rows} == {
+            ("Carolina Champions League - Spring", "U12M01")
+        }
+
+    def test_bundle_checks_aliases_unless_told_not_to(self, monkeypatch, tmp_path):
+        path = _bundle(tmp_path, *_fixtures(*CARCHLES_U12))
+        requested = self._only_unlinked(monkeypatch, "SCM14075")
+        assert self._run(monkeypatch, tmp_path, "--from-bundle", str(path)) == 0
+        assert len(requested) == 1
+        assert len(self._rows(tmp_path)) == 41
 
     def test_incomplete_bundle_writes_nothing(self, monkeypatch, tmp_path):
         path = _bundle(tmp_path, _fixture(CARCHLES_U12[0]))

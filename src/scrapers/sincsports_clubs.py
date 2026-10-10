@@ -100,6 +100,9 @@ class TeamRecord:
     age_group: str  # "u10".."u19"
     gender: str  # "Male" | "Female"
     state_code: Optional[str]
+    # Both U-ages of the tournament division a team was listed under: (13, 14) for
+    # "Under 13/14", (14, 14) for "Under 14". Empty where no division applies.
+    division_ages: Tuple[int, ...] = ()
 
 
 class CaptchaOrBlockError(Exception):
