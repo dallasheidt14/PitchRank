@@ -1321,6 +1321,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Category**: refactor
 - **Where**: admin `formatDate`/`formatRelative`/`KpiCard` in `frontend/app/mission-control/leads/page.tsx` and `subscriptions/page.tsx`; `formatSupabaseError` in `frontend/lib/admin/matchbalance-leads.ts` and `subscription-metrics.ts`; `bad`/`maskIp`/`isStringWithLen` in `frontend/app/api/matchbalance-inquiry/route.ts` and `app/api/feedback/route.ts`; `escapeHtml` in `frontend/lib/email/matchbalance-inquiry.ts`, `lib/email/feedback.ts` and `app/api/stripe/webhook/route.ts`; the hero stripe band and FAQ `<details>` markup in `frontend/app/matchbalance/page.tsx` and `app/report-card/page.tsx`; `_executable` in six `tests/unit/test_*` migration guards and `_newest_statement` in two of them
 - **Why**: Copies already disagree: the Stripe webhook's `escapeHtml` escapes only `&`, `<` and `>` (enough for its Telegram messages, not for an HTML attribute), and `test_team_page_views_migration.py`'s `_executable` strips only `--` comments, so a block-commented REVOKE passes that guard; only the `test_scrape_requests_rls_migration.py` and `test_matchbalance_leads_migration.py` copies also strip `/* */` comments (helper bodies read 2026-09-17). A fix to date rendering or escaping otherwise has to find every copy. Deferred by the owner on 2026-09-17 to keep the MatchBalance change scoped.
+- **Update (2026-10-10)**: `_executable` now has nine copies in `tests/unit`. Six strip only `--` comments (`test_backfill_total_game_stats_migration.py`, `test_scrape_activity_predicate.py`, `test_team_cleanup_decisions_migration.py`, `test_team_page_views_migration.py`, `test_team_ranking_exclusions_migration.py`, `test_team_state_provenance_migration.py`); `test_matchbalance_leads_migration.py`, `test_scrape_requests_rls_migration.py` and `test_team_cleanup_runs_migration.py` also strip `/* */` (bodies read 2026-10-10).
 - **Noted**: 2026-09-17
 
 ### Bound the email check and require JSON on the other public POST routes
@@ -2052,4 +2053,14 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Category**: refactor
 - **Where**: `scripts/fix_band_cohorts.py` `derive_candidates`, `.claude/skills/reconcile-gotsport/scripts/triage_reconcile.py` `latest_rows`, `.claude/skills/correcting-team-age-groups/scripts/review_age_labels.py` (its reconcile-log glob), `scripts/weekly_age_recheck.py`; `EXPORTS_DIR` in `reassign_games_between_teams.py`, `reconcile_teams_with_gotsport.py`, `repair_swapped_club_names.py`
 - **Why**: Four scripts each re-implement "latest execute-mode reconcile row per team", so a change to the log format has four places to land. The default folder also resolves two ways: three scripts use `Path("data/exports")` relative to the current directory, while `fix_band_cohorts.py`, `apply_team_fields.py` and `triage_reconcile.py` use the repo root, so a run started outside the repo root writes its log somewhere the next step does not look.
+- **Noted**: 2026-10-10
+
+### Derive the documented CI commands from ci.yml instead of a hand-written list
+
+- **ID**: IMP-312
+- **Status**: open
+- **Type**: direct
+- **Category**: testing
+- **Where**: `tests/unit/test_agent_doc_references.py` `test_documented_ci_commands_match_the_workflow`
+- **Why**: It checks three hand-picked command fragments, so a pytest line added to CLAUDE.md's gate block or to `.github/workflows/ci.yml` (the team-cleanup run-store line in the Windows job, say) can drift from the other with no test failing. Derive the commands from ci.yml's `run:` steps, as CLAUDE.md's "derive the guarded list" rule asks.
 - **Noted**: 2026-10-10

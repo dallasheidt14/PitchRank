@@ -207,6 +207,12 @@ select list pass every test while production raises `KeyError`, or reads `None` 
 The frontend's `filteringClientMock` (`frontend/test/supabase-mock.ts`) applies the filters it
 models but does not project columns either, so do not treat it as covering this.
 
+Check every column a filter names when the double builds the query, `.or_()` terms included, as
+`_Query` in `tests/unit/test_team_cleanup_run_store.py` does: PostgREST refuses an unknown filter
+column before reading any row. A check made while evaluating rows at `execute()` is skipped when
+`any()` short-circuits on an earlier term or no row reaches it, and a `row.get(column)` lookup reads
+the misspelled column as NULL, so `typo.is.null` matches every row.
+
 **A zero-row `.single()` raises; it does not come back empty.** PostgREST answers
 `APIError({"code": "PGRST116", ...})`, and that is the *normal* path for an existence check on a
 row that does not exist yet — which is why a provider matcher wraps its pre-create lookup in a
@@ -626,6 +632,17 @@ so count it and exit non-zero rather than reporting a skip. The write loop in
 `.data` carries the updated rows only under `update()`'s default `returning='representation'`;
 with `returning='minimal'` every write comes back empty, so leave the default here. When `old`
 can be NULL, filter with `.is_(column, "null")`: `.eq(column, None)` matches nothing.
+
+**An `APIError` whose `code` is an int was raised by postgrest-py, not sent by PostgREST.** It
+raises one, with `code` set to the HTTP status and `message` "JSON could not be generated", for any
+response it cannot read: an error body that is not PostgREST's own (a gateway's 502/504 page, a 401
+`{"message": "Invalid API key"}`), and also a 2xx whose JSON object has a `message` key, which is how
+every successful `execute_team_merge` below arrives. `details` holds the raw body as a bytes repr
+(`b'...'`), not parsed JSON. PostgREST's own errors carry a string code (`PGRST…` or a
+five-character SQLSTATE) and commit nothing. An int-coded error can follow a write that committed,
+so treat it as an unknown outcome: re-check or undo, never report it as a refusal. In
+`scripts/team_cleanup/run_store.py`, `_take_lease` passes such an error through and
+`acquire_apply_lock` undoes the lease.
 
 ### Transaction-like Pattern
 ```python
