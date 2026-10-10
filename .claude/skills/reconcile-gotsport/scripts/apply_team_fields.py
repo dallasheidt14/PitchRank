@@ -12,12 +12,14 @@ Gender moves a team between ranking boards, so only Male and Female are accepted
 Names are provider text and these files are opened in a spreadsheet, so text values are
 escaped on write and unescaped on read, as scripts/fix_band_cohorts.py does.
 
-Dry run by default. Every run writes a log to data/exports that --revert replays
-backwards, again only where the row still holds the value this run wrote.
+Dry run by default. Every --plan run writes a log, to data/exports or the folder --exports-dir
+names, that --revert replays backwards, again only where the row still holds the value this
+run wrote. Each log row records the run's --actor.
 
 Usage:
     python .claude/skills/reconcile-gotsport/scripts/apply_team_fields.py --plan <plan.csv>
     python .claude/skills/reconcile-gotsport/scripts/apply_team_fields.py --plan <plan.csv> --execute
+    python .claude/skills/reconcile-gotsport/scripts/apply_team_fields.py --plan <plan.csv> --execute --limit 25
     python .claude/skills/reconcile-gotsport/scripts/apply_team_fields.py --revert <log.csv> --execute
 """
 
@@ -30,7 +32,7 @@ import sys
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(ROOT))
@@ -39,8 +41,9 @@ from scripts.fix_band_cohorts import csv_safe, csv_unsafe, load_env  # noqa: E40
 from supabase import create_client  # noqa: E402
 
 EXPORTS = ROOT / "data" / "exports"
+DEFAULT_ACTOR = "pitchrank-operator"
 PLAN_COLUMNS = ("team_id_master", "team_name", "field", "old_value", "new_value")
-LOG_COLUMNS = [*PLAN_COLUMNS, "result"]
+LOG_COLUMNS = [*PLAN_COLUMNS, "result", "actor"]
 TEXT_COLUMNS = ("team_name", "old_value", "new_value")
 GENDERS = ("Male", "Female")
 WRITABLE = ("team_name", "gender")
@@ -122,11 +125,22 @@ def revert(sb, log_path: Path, execute: bool) -> Counter:
     return outcome
 
 
-def apply(sb, plan_path: Path, execute: bool) -> Path:
+def apply(
+    sb,
+    plan_path: Path,
+    execute: bool,
+    exports_dir: Optional[Path] = None,
+    limit: Optional[int] = None,
+    actor: str = DEFAULT_ACTOR,
+) -> Path:
     rows = [r for r in read_rows(plan_path) if r["new_value"].strip() and r["new_value"] != r["old_value"]]
+    if limit is not None:
+        # Not `if limit:` -- 0 is a request for no rows, not for the whole plan.
+        rows = rows[:limit]
     for r in rows:
         r["result"] = "planned_not_applied" if execute else "would_update"
-    log_path = EXPORTS / f"apply_team_fields_{datetime.now():%Y%m%d_%H%M%S_%f}.csv"
+        r["actor"] = actor
+    log_path = (exports_dir or EXPORTS) / f"apply_team_fields_{datetime.now():%Y%m%d_%H%M%S_%f}.csv"
     write_rows(rows, log_path, LOG_COLUMNS)  # lands before the first write: the log is the way back
 
     print(f"=== Apply {plan_path.name} ({'EXECUTE' if execute else 'DRY RUN'}) : {len(rows)} rows ===")
@@ -149,9 +163,14 @@ def main() -> None:
     parser.add_argument("--plan", type=Path, help="CSV of team_id_master, team_name, field, old_value, new_value")
     parser.add_argument("--revert", type=Path, help="Undo a previous run from its log")
     parser.add_argument("--execute", action="store_true", help="Write to the database (default is a dry run)")
+    parser.add_argument("--limit", type=int, help="Apply only the first N rows that change a value; 0 applies none")
+    parser.add_argument("--exports-dir", type=Path, help="Folder to write the log to (default: <repo>/data/exports)")
+    parser.add_argument("--actor", default=DEFAULT_ACTOR, help="Who ran this; recorded on every log row")
     args = parser.parse_args()
     if bool(args.plan) == bool(args.revert):
         parser.error("give exactly one of --plan or --revert")
+    if args.limit is not None and (args.limit < 0 or args.revert):
+        parser.error("--limit takes a count of 0 or more, and only with --plan")
 
     load_env()
     sb = get_supabase(args.execute)
@@ -161,10 +180,10 @@ def main() -> None:
             print(f"  {k:22s} {n:>5}")
         return
 
-    log_path = apply(sb, args.plan, args.execute)
+    log_path = apply(sb, args.plan, args.execute, args.exports_dir, args.limit, args.actor)
     print(f"\nLog: {log_path}")
     if args.execute:
-        print(f"Undo with --revert {log_path} --execute")
+        print(f'Undo with --revert "{log_path}" --execute')
 
 
 if __name__ == "__main__":

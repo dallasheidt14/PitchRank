@@ -1248,3 +1248,61 @@ def test_the_script_runs_the_way_the_operator_runs_it():
         timeout=120,
     )
     assert result.returncode == 0, result.stderr[-2000:]
+
+
+
+# --- where it writes, and who ran it --------------------------------------------------------
+
+
+def test_the_dry_run_snapshot_lands_in_the_exports_dir_given(monkeypatch, tmp_path):
+    db = _db(_team(1, "Oregon Surf GU11 PreECNL", "SURF", provider=M11, state="OR"))
+    store = tmp_path / "store"
+
+    assert _run_main(monkeypatch, tmp_path, ["--exports-dir", str(store)], db)[0] == 0
+
+    assert [p.name for p in store.iterdir()] == [SNAPSHOT_NAME]
+    assert not (tmp_path / "exports").exists()
+
+
+def test_a_replay_log_records_its_actor_and_lands_in_the_exports_dir_given(monkeypatch, tmp_path):
+    db = _db(_team(1, "Oregon Surf GU11", "SURF"))
+    store = tmp_path / "store"
+    monkeypatch.setattr(repair, "get_supabase", lambda require_service_role=False: db)
+    monkeypatch.setattr(repair, "EXPORTS_DIR", tmp_path / "exports")
+    monkeypatch.setattr(repair, "timestamp", lambda: "20260918_120000")
+
+    repair.replay_snapshot(_write_snapshot(tmp_path, _row(1, "SURF", "Oregon Surf")), True, store, "team-cleanup:run-1")
+
+    log_path = store / "repair_swapped_club_names_log_20260918_120000.csv"
+    rows = list(csv.DictReader(log_path.open(encoding="utf-8-sig", newline="")))
+    assert [(r["action"], r["actor"]) for r in rows] == [("updated", "team-cleanup:run-1")]
+    assert not (tmp_path / "exports").exists()
+
+
+def test_a_log_written_before_logs_carried_an_actor_still_reverts(tmp_path):
+    db = _db(_team(1, "Oregon Surf GU11", "Oregon Surf"))
+    log_path = tmp_path / "old_log.csv"
+    write_log(
+        [{"team_id_master": _uuid(1), "run_mode": "execute", "action": "updated", "source": "team_name",
+          "tier": "swap", "before": "SURF", "after": "Oregon Surf"}],
+        log_path,
+    )
+
+    assert repair.revert(db, log_path, True)["reverted"] == 1
+    assert _club(db, 1) == "SURF"
+
+
+def test_execute_through_main_logs_to_the_exports_dir_with_the_actor_given(monkeypatch, tmp_path, capsys):
+    db = _db(_team(1, "Oregon Surf GU11", "SURF"))
+    snapshot = _write_snapshot(tmp_path, _row(1, "SURF", "Oregon Surf"))
+    store = tmp_path / "store with space"
+
+    _run_main(monkeypatch, tmp_path, ["--execute", str(snapshot), "--exports-dir", str(store),
+                                      "--actor", "team-cleanup:run-1"], db)
+
+    log_path = store / "repair_swapped_club_names_log_20260918_120000.csv"
+    assert [r["actor"] for r in csv.DictReader(log_path.open(encoding="utf-8-sig", newline=""))] == [
+        "team-cleanup:run-1"
+    ]
+    assert not (tmp_path / "exports").exists()
+    assert f'--revert "{log_path}" --execute' in capsys.readouterr().out

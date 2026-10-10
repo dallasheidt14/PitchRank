@@ -149,6 +149,17 @@ if errors:
     raise ValueError(f"Validation failed: {errors}")
 ```
 
+### Assert Why a Script Exited
+`pytest.raises(SystemExit)` also passes when the script exits later for an unrelated reason, such
+as missing credentials, or a stubbed client's exception that `main` turns into `sys.exit(1)`, so a
+refusal test can stay green with the refusal deleted. Assert the message, or a code no other exit
+path shares:
+```python
+with pytest.raises(SystemExit) as refused:
+    main()
+assert refused.value.code == 2  # parser.error exits 2, as does any bad argv; SystemExit("msg") carries "msg"
+```
+
 ## File Organization
 
 ```

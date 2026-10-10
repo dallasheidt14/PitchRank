@@ -215,13 +215,24 @@ def retry(call):
             time.sleep(3)
 
 
+def credential_roots(exports: Path) -> list[Path]:
+    """This checkout, then the checkout `exports` belongs to when it is that checkout's data/exports.
+
+    Two levels above any other folder is unrelated (a home folder can hold its own .env.local),
+    so it supplies no credentials.
+    """
+    other = exports.parent.parent
+    names_a_checkout = (exports.parent.name, exports.name) == ("data", "exports") and (other / ".git").exists()
+    return [REPO, other] if names_a_checkout else [REPO]
+
+
 def review(args) -> None:
     from dotenv import load_dotenv
 
     from supabase import create_client
 
     exports = Path(args.exports_dir)
-    for root in (REPO, exports.parent.parent):
+    for root in credential_roots(exports):
         load_dotenv(root / ".env")
         load_dotenv(root / ".env.local", override=True)
     sb = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_ROLE_KEY"])

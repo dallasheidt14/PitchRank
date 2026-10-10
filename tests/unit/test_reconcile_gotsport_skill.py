@@ -396,3 +396,125 @@ def test_ensure_archive_creates_once_with_no_provider():
     made = db.inserts[0]
     assert (made["provider_id"], made["provider_team_id"], made["age_group"], made["team_name"]) == (
         None, "archive_rsl_arizona_south_252020_2025_26", "u11", "2016 Clay (2025-26 archive)")
+
+
+def _gender_plan(path, team_ids):
+    rows = [
+        {"team_id_master": t, "team_name": "U10B Saxelby", "field": "gender", "old_value": "Female", "new_value": "Male"}
+        for t in team_ids
+    ]
+    fields.write_rows(rows, path, list(fields.PLAN_COLUMNS))
+    return path
+
+
+def test_apply_with_a_limit_writes_exactly_that_many_and_logs_them_where_told(tmp_path, monkeypatch):
+    default, store = tmp_path / "default", tmp_path / "store"
+    monkeypatch.setattr(fields, "EXPORTS", default)
+    db = _Db(*(_team(t) for t in "abcd"))
+
+    log = fields.apply(db, _gender_plan(tmp_path / "plan.csv", "abcd"), True, store, 2, "team-cleanup:run-1")
+
+    assert [t for t in "abcd" if db.teams[t]["gender"] == "Male"] == ["a", "b"]
+    assert log.parent == store and not default.exists()
+    rows = list(csv.DictReader(log.open(encoding="utf-8")))
+    assert [(r["team_id_master"], r["result"], r["actor"]) for r in rows] == [
+        ("a", "updated", "team-cleanup:run-1"),
+        ("b", "updated", "team-cleanup:run-1"),
+    ]
+
+
+def test_apply_with_a_limit_of_zero_writes_nothing(tmp_path, monkeypatch):
+    monkeypatch.setattr(fields, "EXPORTS", tmp_path / "default")
+    db = _Db(_team("a"))
+
+    fields.apply(db, _gender_plan(tmp_path / "plan.csv", "a"), True, tmp_path / "store", 0)
+
+    assert db.writes == []
+
+
+def test_apply_records_the_operator_when_no_actor_is_given(tmp_path, monkeypatch):
+    monkeypatch.setattr(fields, "EXPORTS", tmp_path / "default")
+    log = fields.apply(_Db(_team("a")), _gender_plan(tmp_path / "plan.csv", "a"), False)
+    assert [r["actor"] for r in csv.DictReader(log.open(encoding="utf-8"))] == ["pitchrank-operator"]
+
+
+@pytest.mark.parametrize("argv", [["--plan", "p.csv", "--limit", "-1"], ["--revert", "l.csv", "--limit", "2"]])
+def test_a_negative_limit_or_a_limit_on_a_revert_is_refused(argv, monkeypatch):
+    monkeypatch.setattr(sys, "argv", ["apply_team_fields.py", *argv])
+    with pytest.raises(SystemExit) as refused:
+        fields.main()
+    assert refused.value.code == 2  # argparse's usage error, not a later failure for want of credentials
+
+
+def test_triage_plans_land_in_the_exports_dir_given(tmp_path, monkeypatch):
+    default, store = tmp_path / "default", tmp_path / "store"
+    monkeypatch.setattr(triage, "EXPORTS", default)
+
+    plans = triage.write_plans([], "20261010_000000", store)
+
+    assert {path.parent for path, _ in plans.values()} == {store}
+    assert not default.exists()
+
+
+def _run_fields_main(monkeypatch, tmp_path, db, *argv):
+    monkeypatch.setattr(fields, "load_env", lambda: None)
+    monkeypatch.setattr(fields, "get_supabase", lambda execute: db)
+    monkeypatch.setattr(fields, "EXPORTS", tmp_path / "default")
+    monkeypatch.setattr(sys, "argv", ["apply_team_fields.py", *argv])
+    fields.main()
+
+
+def test_main_applies_a_limited_pilot_after_dropping_no_op_rows_and_logs_it_where_told(tmp_path, monkeypatch, capsys):
+    plan = tmp_path / "plan.csv"
+    rows = [{"team_id_master": "z", "team_name": "No-op", "field": "gender", "old_value": "Female", "new_value": "Female"}]
+    rows += [
+        {"team_id_master": t, "team_name": "U10B Saxelby", "field": "gender", "old_value": "Female", "new_value": "Male"}
+        for t in "abc"
+    ]
+    fields.write_rows(rows, plan, list(fields.PLAN_COLUMNS))
+    db, store = _Db(*(_team(t) for t in "zabc")), tmp_path / "store with space"
+
+    _run_fields_main(monkeypatch, tmp_path, db, "--plan", str(plan), "--execute", "--limit", "2",
+                     "--exports-dir", str(store), "--actor", "team-cleanup:run-1")
+
+    assert [t for t in "abc" if db.teams[t]["gender"] == "Male"] == ["a", "b"]
+    [log] = list(store.iterdir())
+    assert {r["actor"] for r in csv.DictReader(log.open(encoding="utf-8"))} == {"team-cleanup:run-1"}
+    assert not (tmp_path / "default").exists()
+    assert f'Undo with --revert "{log}" --execute' in capsys.readouterr().out
+
+
+def test_main_accepts_a_limit_of_zero_and_writes_nothing(tmp_path, monkeypatch):
+    db = _Db(_team("a"))
+    _run_fields_main(monkeypatch, tmp_path, db, "--plan", str(_gender_plan(tmp_path / "plan.csv", "a")), "--execute",
+                     "--limit", "0")
+    assert db.writes == []
+
+
+def test_a_log_written_before_logs_carried_an_actor_still_reverts(tmp_path):
+    log = tmp_path / "apply_team_fields_20261009_113731.csv"
+    log.write_text("team_id_master,team_name,field,old_value,new_value,result\na,U10B Saxelby,gender,Female,Male,updated\n",
+                   encoding="utf-8")
+    db = _Db(_team("a", gender="Male"))
+
+    assert fields.revert(db, log, execute=True) == {"updated": 1}
+    assert db.teams["a"]["gender"] == "Female"
+
+
+def test_triage_main_writes_the_triage_and_every_plan_to_the_exports_dir_given(tmp_path, monkeypatch):
+    store = tmp_path / "store"
+    monkeypatch.setattr(triage, "EXPORTS", tmp_path / "default")
+    monkeypatch.setattr(triage, "load_env", lambda: None)
+    monkeypatch.setattr(triage, "get_supabase", lambda: object())
+    monkeypatch.setattr(triage, "kept_as_stored", lambda: set())
+    monkeypatch.setattr(triage, "latest_rows", lambda logs: [])
+    monkeypatch.setattr(triage, "fetch_in", lambda *a, **k: [])
+    monkeypatch.setattr(triage, "mark_collisions", lambda sb, out: None)
+    monkeypatch.setattr(sys, "argv", ["triage_reconcile.py", "--log", str(tmp_path / "log.csv"), "--exports-dir", str(store)])
+
+    triage.main()
+
+    names = sorted(p.name.rsplit("_", 2)[0] for p in store.iterdir())
+    assert names == ["reconcile_triage", "reconcile_triage_gender_plan", "reconcile_triage_relabel_age_plan",
+                     "reconcile_triage_reused_id_age_plan"]
+    assert not (tmp_path / "default").exists()

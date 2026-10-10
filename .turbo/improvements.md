@@ -2014,3 +2014,42 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: Verified by SQL 2026-10-09: on 2026-10-06 discovery created 2,507 GotSport teams — 1,375 `unknown_<id>` placeholders, 2,143 with no `state_code`, 1,507 with no `club_name` (675 teams on 2026-09-29). That is the largest weekly inflow of work for the club, state and age cleanups at once (source fix #1 in the cleanup orchestrator plan). When the GotSport lookup returns nothing, don't create the team, or create it without an inherited cohort or state, and count lookup failures so a run that resolves nothing is not green. Fold in IMP-148 (provenance on a derived cohort) and IMP-149 (aged-out U21 teams). Cause unverified: the volume fits GotSport refusing bare requests since 2026-10-01, but a review reported the run log showing 0 errors and 0 skips — confirm from the run before building.
 - **Noted**: 2026-10-09
 
+### Let the weekly age re-check read reconcile logs from a run store
+
+- **ID**: IMP-308
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `scripts/weekly_age_recheck.py` `EXPORTS` and the glob over `reconcile_teams_with_gotsport_*.csv` that builds its candidates
+- **Why**: The reconcile, triage and age-fix scripts take `--exports-dir`, so the cleanup loop can write their logs outside the repo, but this script still reads only `<repo>/data/exports` and has no such option. A reconcile run logged elsewhere never reaches the weekly re-check. Add `--exports-dir` the way `fix_band_cohorts.py` takes it, default unchanged.
+- **Noted**: 2026-10-10
+
+### Pass `--exports-dir` and `--actor` through the archive split
+
+- **ID**: IMP-309
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `.claude/skills/reconcile-gotsport/scripts/archive_split.py` `run_tool` and its three calls, to `reassign_games_between_teams.py`, `apply_team_fields.py` and `scripts/fix_band_cohorts.py --apply`
+- **Why**: All three now take `--exports-dir`, and `apply_team_fields.py` and `fix_band_cohorts.py` also take `--actor`, but the split passes none of them, so a split run always logs to `data/exports` under the default actor, outside the run store the cleanup loop reads.
+- **Noted**: 2026-10-10
+
+### Print the undo command after a run that wrote, naming its own log
+
+- **ID**: IMP-310
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `scripts/reconcile_teams_with_gotsport.py` `main` (the `Undo with --revert` print) and `scripts/reassign_games_between_teams.py` `main`
+- **Why**: Both print `Undo with --revert "<log>" --execute` only on a dry run, naming the dry-run log. Reconcile's `revert` raises on a dry-run log, so the printed command always fails; reassign's `revert` does not check and would replay rows that were never written. After an execute run, which is when an undo is needed, neither prints the command. Predates the exports-dir change.
+- **Noted**: 2026-10-10
+
+### One reader of the latest reconcile row per team, and one default log folder
+
+- **ID**: IMP-311
+- **Status**: open
+- **Type**: plan
+- **Category**: refactor
+- **Where**: `scripts/fix_band_cohorts.py` `derive_candidates`, `.claude/skills/reconcile-gotsport/scripts/triage_reconcile.py` `latest_rows`, `.claude/skills/correcting-team-age-groups/scripts/review_age_labels.py` (its reconcile-log glob), `scripts/weekly_age_recheck.py`; `EXPORTS_DIR` in `reassign_games_between_teams.py`, `reconcile_teams_with_gotsport.py`, `repair_swapped_club_names.py`
+- **Why**: Four scripts each re-implement "latest execute-mode reconcile row per team", so a change to the log format has four places to land. The default folder also resolves two ways: three scripts use `Path("data/exports")` relative to the current directory, while `fix_band_cohorts.py`, `apply_team_fields.py` and `triage_reconcile.py` use the repo root, so a run started outside the repo root writes its log somewhere the next step does not look.
+- **Noted**: 2026-10-10

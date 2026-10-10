@@ -750,6 +750,7 @@ def main() -> int:
         help="Stop after this many consecutive failed lookups (a 404 is an answer and clears the streak)",
     )
     parser.add_argument("--revert", type=Path, help="Undo a previous run from its CSV log")
+    parser.add_argument("--exports-dir", type=Path, help="Folder to write the log to (default: data/exports)")
     args = parser.parse_args()
     execute = resolve_execute(args.execute, args.dry_run)
 
@@ -820,7 +821,7 @@ def main() -> int:
             break
 
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_path = EXPORTS_DIR / f"reconcile_teams_with_gotsport_{stamp}.csv"
+    log_path = (args.exports_dir or EXPORTS_DIR) / f"reconcile_teams_with_gotsport_{stamp}.csv"
     planned, collisions = plan_writes(decisions, slice_name_counts(all_matching))
     # The log lands before the first write and again after the last, so a run that
     # dies mid-loop still leaves every applied row on disk.
@@ -862,7 +863,7 @@ def main() -> int:
     if blocked_states:
         print(f"{blocked_states} state fills skipped: an operator already reverted that state away.")
     if not execute and counts.get("updated"):
-        print(f"Re-run with --execute to apply. Undo with --revert {log_path} --execute")
+        print(f'Re-run with --execute to apply. Undo with --revert "{log_path}" --execute')
 
     return exit_code(aborted)
 

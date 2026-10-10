@@ -5,6 +5,8 @@ vetted list has to still describe the database when it is applied, and the log h
 to survive, because ``--revert`` reads it and it is the only way back.
 """
 
+import csv
+import json
 from datetime import datetime
 
 import pytest
@@ -79,3 +81,105 @@ class TestPlan:
 
         assert apply_now == []
         assert {"t1", "t2"} == {reason.split(":")[0] for reason in stale}
+
+
+class _Result:
+    def __init__(self, data):
+        self.data = data
+
+
+class _Query:
+    """Applies every .eq and .in_ filter at execute(), where a write is recorded."""
+
+    def __init__(self, db, columns=None, payload=None):
+        self._db, self._columns, self._payload, self._eq, self._in = db, columns, payload, [], []
+
+    def eq(self, column, value):
+        self._eq.append((column, value))
+        return self
+
+    def in_(self, column, values):
+        self._in.append((column, list(values)))
+        return self
+
+    def execute(self):
+        rows = [
+            t for t in self._db.teams.values()
+            if all(t.get(c) == v for c, v in self._eq) and all(t.get(c) in v for c, v in self._in)
+        ]
+        if self._payload is None:
+            self._db.reads += 1
+            answer = [{c: t[c] for c in self._columns} for t in rows]
+            if self._db.reads == 1 and self._db.after_first_read:
+                self._db.after_first_read(self._db)
+            return _Result(answer)
+        if self._db.refuse_writes:
+            return _Result([])
+        for t in rows:
+            t.update(self._payload)
+        self._db.writes.append((list(self._eq), dict(self._payload)))
+        return _Result([dict(t) for t in rows])
+
+
+class _Db:
+    """`after_first_read` stands in for another writer acting between the read and the write;
+    `refuse_writes` for a key RLS lets read but not write, which PostgREST answers with no rows."""
+
+    def __init__(self, *teams, after_first_read=None, refuse_writes=False):
+        self.teams = {t["team_id_master"]: dict(t) for t in teams}
+        self.writes, self.reads, self.after_first_read = [], 0, after_first_read
+        self.refuse_writes = refuse_writes
+
+    def table(self, name):
+        assert name == "teams"
+        db = self
+
+        class _T:
+            def select(self, columns):
+                return _Query(db, columns=[c.strip() for c in columns.split(",")])
+
+            def update(self, payload):
+                return _Query(db, payload=payload)
+
+        return _T()
+
+
+def _run_main(monkeypatch, tmp_path, db, entries):
+    import scripts.apply_vetted_club_names as script
+
+    vetted = tmp_path / "vetted.json"
+    vetted.write_text(json.dumps(entries), encoding="utf-8")
+    log = tmp_path / "moves.csv"
+    monkeypatch.setenv("SUPABASE_URL", "http://db.invalid")
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "service-role")
+    monkeypatch.setattr(script, "create_client", lambda url, key: db)
+    monkeypatch.setattr(script.sys, "argv", ["apply_vetted_club_names.py", "--file", str(vetted), "--execute",
+                                            "--log", str(log)])
+    return script.main(), log
+
+
+@pytest.mark.parametrize("change", [{"club_name": "Some Other Club"}, {"is_deprecated": True}],
+                         ids=["club-changed", "merged"])
+def test_a_team_changed_or_merged_after_it_was_read_is_not_overwritten(monkeypatch, tmp_path, capsys, change):
+    def another_writer(db):
+        db.teams["t1"].update(change)
+
+    db = _Db(_row("t1"), _row("t2"), after_first_read=another_writer)
+
+    code, log = _run_main(monkeypatch, tmp_path, db, [_entry("t1"), _entry("t2")])
+
+    assert code == 0
+    assert db.teams["t1"]["club_name"] == change.get("club_name", "Crossfire Select Soccer Club")
+    assert db.teams["t2"]["club_name"] == "Bellevue United FC"
+    assert [r["team_id_master"] for r in csv.DictReader(log.open(encoding="utf-8"))] == ["t2"]
+    assert "skipped t1" in capsys.readouterr().out
+
+
+def test_writes_that_match_nothing_while_the_row_is_unchanged_fail_the_run(monkeypatch, tmp_path, capsys):
+    db = _Db(_row("t1"), refuse_writes=True)
+
+    code, log = _run_main(monkeypatch, tmp_path, db, [_entry("t1")])
+
+    assert code == 1
+    assert "1 did not take" in capsys.readouterr().out
+    assert list(csv.DictReader(log.open(encoding="utf-8"))) == []

@@ -238,6 +238,7 @@ def main() -> None:
         ),
     )
     parser.add_argument("--revert", type=Path, help="Undo a previous run from its CSV log")
+    parser.add_argument("--exports-dir", type=Path, help="Folder to write the log to (default: data/exports)")
     args = parser.parse_args()
     # Fail safe: asking for both means the caller wants the preview.
     execute = args.execute and not args.dry_run
@@ -316,7 +317,7 @@ def main() -> None:
         planned = planned[: args.limit]
 
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_path = EXPORTS_DIR / f"reassign_games_between_teams_{stamp}.csv"
+    log_path = (args.exports_dir or EXPORTS_DIR) / f"reassign_games_between_teams_{stamp}.csv"
     # The log is the only way back, so it lands before the first write and again after
     # the last. A run that dies mid-loop still leaves every applied row on disk.
     write_log(log_rows, log_path)
@@ -344,7 +345,7 @@ def main() -> None:
         print(f"{action}: {sum(1 for r in log_rows if r['action'] == action)}")
     print(f"\nLog: {log_path}")
     if not execute and planned:
-        print(f"Re-run with --execute to apply. Undo with --revert {log_path} --execute")
+        print(f'Re-run with --execute to apply. Undo with --revert "{log_path}" --execute')
 
 
 if __name__ == "__main__":

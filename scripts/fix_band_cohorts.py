@@ -30,7 +30,8 @@ Three modes, so what gets reviewed is exactly what gets written:
                                 the value this tool wrote.
 
 Tracked under scripts/ so CI imports it; its plan and apply logs stay in data/exports/
-(gitignored), because the revert path has to outlive the session that ran it.
+(gitignored), because the revert path has to outlive the session that ran it. --exports-dir
+moves all of it: the reconcile logs the dry run reads, the plan, and the apply log.
 """
 
 from __future__ import annotations
@@ -57,6 +58,7 @@ from src.utils.team_utils import _soccer_season_year  # noqa: E402
 from supabase import create_client  # noqa: E402
 
 EXPORTS = ROOT / "data" / "exports"
+DEFAULT_ACTOR = "pitchrank-operator"
 IN_BATCH = 100
 PAGE = 1000
 SEASON_START = f"{_soccer_season_year()}-08-01"
@@ -188,10 +190,10 @@ def read_our_csv(path: Path) -> List[Dict]:
 # --------------------------------------------------------------------------- plan
 
 
-def derive_candidates() -> List[Dict]:
+def derive_candidates(exports_dir: Optional[Path] = None) -> List[Dict]:
     """Latest execute-mode audit row per team, filtered to band-confirmed too-old labels."""
     latest: Dict[str, Dict] = {}
-    for path in sorted(EXPORTS.glob("reconcile_teams_with_gotsport_*.csv")):
+    for path in sorted((exports_dir or EXPORTS).glob("reconcile_teams_with_gotsport_*.csv")):
         try:
             for row in read_csv(path):
                 if (row.get("run_mode") or "").lower() == "execute":
@@ -367,8 +369,8 @@ def attach_fixture_evidence(sb, rows: List[Dict]) -> None:
             row["fixture_verdict"] = "mixed"
 
 
-def build_plan(sb) -> Path:
-    candidates = derive_candidates()
+def build_plan(sb, exports_dir: Optional[Path] = None) -> Path:
+    candidates = derive_candidates(exports_dir)
     live = fetch_live(sb, [c["team_id_master"] for c in candidates])
 
     plan: List[Dict] = []
@@ -433,7 +435,7 @@ def build_plan(sb) -> Path:
             r["collision_with"] = ";".join(sorted(others)[:3])
 
     plan.sort(key=lambda r: (r.get("state_code") or "", r.get("new_age_group") or "", r.get("team_name") or ""))
-    path = EXPORTS / f"fix_band_cohorts_plan_{datetime.now():%Y%m%d_%H%M%S}.csv"
+    path = (exports_dir or EXPORTS) / f"fix_band_cohorts_plan_{datetime.now():%Y%m%d_%H%M%S}.csv"
     write_csv(plan, path, PLAN_FIELDS)
 
     counts = Counter(r["action"] for r in plan)
@@ -529,6 +531,8 @@ def apply_plan(
     exclude: frozenset = frozenset(),
     gotsport_only: bool = False,
     skip_name_contradictions: bool = False,
+    exports_dir: Optional[Path] = None,
+    actor: str = DEFAULT_ACTOR,
 ) -> None:
     if boarded_only and unboarded_only:
         raise SystemExit("--boarded-only and --unboarded-only select disjoint sets; pass one")
@@ -558,9 +562,10 @@ def apply_plan(
         writable = writable[:limit]
     todo = writable + ([] if limit is not None else sorted(held, key=lambda r: r["team_id_master"]))
 
-    log_path = EXPORTS / f"fix_band_cohorts_apply_{datetime.now():%Y%m%d_%H%M%S}.csv"
-    fields = PLAN_FIELDS + ["result", "hold_reason"]
+    log_path = (exports_dir or EXPORTS) / f"fix_band_cohorts_apply_{datetime.now():%Y%m%d_%H%M%S}.csv"
+    fields = PLAN_FIELDS + ["result", "hold_reason", "actor"]
     for r in todo:
+        r["actor"] = actor
         if r["hold_reason"]:
             r["result"] = "held_name_contradicts"
         else:
@@ -603,7 +608,8 @@ def apply_plan(
         print(f"  {result:22s} {n:>6,}")
     print(f"\nLog: {log_path}")
     if execute:
-        print(f"Undo with: python {Path(__file__).relative_to(ROOT)} --revert {log_path.relative_to(ROOT)} --execute")
+        shown = log_path.relative_to(ROOT) if log_path.is_relative_to(ROOT) else log_path
+        print(f'Undo with: python {Path(__file__).relative_to(ROOT)} --revert "{shown}" --execute')
 
 
 def revert(sb, log_path: Path, execute: bool) -> None:
@@ -663,6 +669,12 @@ def main() -> None:
     parser.add_argument(
         "--skip-name-contradictions", action="store_true", help="Hold rows whose own name states a different age"
     )
+    parser.add_argument(
+        "--exports-dir",
+        type=Path,
+        help="Folder to read reconcile logs from and write the plan and apply log to (default: <repo>/data/exports)",
+    )
+    parser.add_argument("--actor", default=DEFAULT_ACTOR, help="Who ran this; recorded on every apply log row")
     args = parser.parse_args()
     if args.limit is not None and args.limit < 0:
         raise SystemExit("--limit cannot be negative; it would apply all but the last rows")
@@ -685,11 +697,13 @@ def main() -> None:
             frozenset(x.strip() for x in args.exclude.split(",") if x.strip()),
             args.gotsport_only,
             args.skip_name_contradictions,
+            args.exports_dir,
+            args.actor,
         )
     else:
         if args.execute:
             print("--execute without --apply does nothing: take a dry run, review the plan, then --apply it.")
-        build_plan(sb)
+        build_plan(sb, args.exports_dir)
 
 
 if __name__ == "__main__":
