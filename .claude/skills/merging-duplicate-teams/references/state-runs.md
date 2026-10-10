@@ -21,9 +21,11 @@ without losing track of a pair.
 python scripts/find_squad_key_duplicates.py --state <XX> --out-dir <dir>
 ```
 
-From its CSV, take three inputs: the `proposed` rows, the `held` rows, and the `rejected` rows
-whose reason is `both played a game on the same day` (Step 4's four-step test applies to those
-unchanged).
+Its `_all.json` groups every pair by status. Take three inputs from it: the `proposed` list, the
+`held` list, and the `rejected` rows whose reason is `both played a game on the same day`
+(Step 4's four-step test applies to those unchanged). Take them from the JSON rather than the CSV:
+each JSON record also carries `merge_as_vetted` and `keep_as_vetted`, both rows' age group,
+gender, state and club as scanned, and the applier refuses a merge without them.
 
 - **Proposals:** 30 to 40 pairs per reviewer, so each one reads its slice pair by pair.
 - **Held pairs:** group by club, `age_group` and `gender` before slicing, so every pair of one
@@ -62,14 +64,16 @@ hold back the apply; a cohort difference between the pair's two rows still decid
 ## Check every verdict file against its input
 
 Before combining anything, compare each output file with its input line by line on those four
-fields, and count the lines, leaving the `extra` objects out of both. Check each extra on its own:
-both rows are live and in the same club, age group and gender. A reviewer that writes its verdicts from a separate script can
+fields, and count the lines, leaving the `extra` objects out of both. An extra has no input line,
+so it carries no recorded values: send it to the owner page rather than applying it. A reviewer
+that writes its verdicts from a separate script can
 attach one pair's verdict to its neighbour: in Oklahoma a line meant for the owner was applied
 as a merge because its verdict and reason sat on the next pair's line. The check finds that
 before anything is written.
 
-Then combine: orient each merge by its `swap`, drop exact repeats, and look for any row
-retired into two survivors or any survivor that is itself retired (a chain). Send every cluster
+Then combine: give each merge the `merge_as_vetted` and `keep_as_vetted` of its input line,
+orient it by its `swap` (swapping those two along with the ids), drop exact repeats, and look for
+any row retired into two survivors or any survivor that is itself retired (a chain). Send every cluster
 that check catches to the owner page instead of applying it.
 
 ## Re-check the flags from the other side
@@ -107,7 +111,10 @@ the same survivor; the batch has already joined them.
 When the collector refuses with "these merges disagree about which team survives" because the
 owner chose Merge on every card of a cluster, the owner has said the rows are one squad. Keep one
 survivor for the whole cluster, chosen by Step 6's order with the owner's name choice first, and
-merge the rest into it.
+merge the rest into it. Give each of those merges its two teams' recorded values from the
+manifest: a team's values are the `merge_as_vetted` or `keep_as_vetted` of any card that names it,
+by the side it sits on there. Run with `--execute`, the collector records the page's Keep separate
+choices before it refuses the merges, so those need no second run.
 
 ## After applying
 

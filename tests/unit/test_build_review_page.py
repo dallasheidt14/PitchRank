@@ -21,6 +21,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.append(str(ROOT))
 
 from tests.unit.test_find_cross_provider_duplicates import _Supabase  # noqa: E402
+from tests.unit.test_team_cleanup_carry_forward import _Writable  # noqa: E402
 
 SKILL = ROOT / ".claude" / "skills" / "merging-duplicate-teams"
 
@@ -45,8 +46,12 @@ OLD = "cccccccc-0000-4000-8000-000000000004"
 def team(tid, name, *, age="u12", gender="Male", deprecated=False, provider="prov-gs"):
     return {
         "team_id_master": tid, "team_name": name, "team_name_original": None, "club_name": "Colorado EDGE",
-        "age_group": age, "gender": gender, "provider_id": provider, "is_deprecated": deprecated,
+        "age_group": age, "gender": gender, "state_code": "CO", "provider_id": provider, "is_deprecated": deprecated,
     }
+
+
+def vetted(age="u12", gender="Male", state="CO", club="Colorado EDGE"):
+    return {"age_group": age, "gender": gender, "state_code": state, "club_name": club}
 
 
 def game(gid, home, away, date, *, is_excluded=False):
@@ -200,10 +205,14 @@ def test_the_page_writes_the_fields_the_collector_reads():
     assert "save(p.id, {decision:" in template and "save(p.id, {swap:" in template and "save(p.id, {note:" in template
 
 
-def test_the_manifest_records_each_pair_s_direction():
+def test_the_manifest_records_each_pair_s_direction_and_both_teams_as_shown():
     rows = [{"team_id": A, "name": "Gone"}, {"team_id": B, "name": "Stays"}]
-    m = brp.manifest([{"id": f"{RUN}_{A}_{B}", "rows": rows}], "Review", RUN)
-    assert m["pairs"] == {f"{RUN}_{A}_{B}": {"merge_id": A, "keep_id": B, "merge_name": "Gone", "keep_name": "Stays"}}
+    teams = {A: team(A, "Gone", age="u13"), B: {**team(B, "Stays"), "state_code": "WY", "club_name": "Edge"}}
+    m = brp.manifest([{"id": f"{RUN}_{A}_{B}", "rows": rows}], teams, "Review", RUN)
+    assert m["pairs"] == {f"{RUN}_{A}_{B}": {
+        "merge_id": A, "keep_id": B, "merge_name": "Gone", "keep_name": "Stays",
+        "merge_as_vetted": vetted(age="u13"), "keep_as_vetted": vetted(state="WY", club="Edge"),
+    }}
 
 
 def test_main_writes_the_page_and_its_manifest_from_the_database(tmp_path, monkeypatch):
@@ -225,6 +234,7 @@ def test_main_writes_the_page_and_its_manifest_from_the_database(tmp_path, monke
     manifest = json.loads((tmp_path / "review.html.manifest.json").read_text())
     assert list(manifest["pairs"]) == [records[0]["id"]] and records[0]["id"].startswith(manifest["run"] + "_")
     assert manifest["pairs"][records[0]["id"]]["keep_id"] == B
+    assert manifest["pairs"][records[0]["id"]]["keep_as_vetted"] == vetted()
 
 
 # --- collecting the owner's choices --------------------------------------------------------
@@ -261,6 +271,14 @@ def test_merges_that_disagree_about_the_survivor_fail_the_run(choices):
         crd.collect(_manifest(), choices)
 
 
+def test_a_swap_carries_each_team_s_vetted_values_with_it():
+    manifest = _manifest()
+    manifest["pairs"][P1].update(merge_as_vetted=vetted(age="u13"), keep_as_vetted=vetted(age="u12"))
+    [merge] = crd.collect(manifest, {P1: {"decision": "merge", "swap": True}})["merges"]
+    assert (merge["merge_id"], merge["merge_as_vetted"]) == (B, vetted(age="u12"))
+    assert (merge["keep_id"], merge["keep_as_vetted"]) == (A, vetted(age="u13"))
+
+
 def test_ids_written_into_a_saved_choice_are_ignored():
     planted = {"decision": "merge", "merge_id": "attacker-1", "keep_id": "attacker-2"}
     assert crd.collect(_manifest(), {P1: planted})["merges"] == [
@@ -275,7 +293,8 @@ def test_a_choice_for_a_pair_not_on_this_page_fails_the_run(pair_id):
 
 
 @pytest.mark.parametrize("bad", [{"decision": "unmerge"}, {"decision": "Merge"}, {"decision": "merge", "swap": []},
-                                 {"decision": "merge", "swap": "true"}])
+                                 {"decision": "merge", "swap": "true"}, {"decision": "separate", "note": 5},
+                                 {"decision": "separate", "note": "different" + chr(0) + "squad"}])
 def test_a_decision_or_swap_the_page_never_writes_fails_the_run(bad):
     with pytest.raises(SystemExit):
         crd.collect(_manifest(), {P1: bad})
@@ -335,7 +354,7 @@ def test_a_saved_file_claiming_another_pair_s_id_fails(tmp_path):
         crd.load_choices(tmp_path, RUN)
 
 
-def test_the_collector_writes_the_list_apply_vetted_team_merges_reads(tmp_path, monkeypatch):
+def test_a_page_built_before_manifests_recorded_values_still_writes_its_merges(tmp_path, monkeypatch):
     manifest = tmp_path / "m.json"
     manifest.write_text(json.dumps(_manifest()))
     _saved(tmp_path / "out" / f"decisions-{RUN}", P1, {"id": P1, "data": {"decision": "merge"}})
@@ -344,3 +363,131 @@ def test_the_collector_writes_the_list_apply_vetted_team_merges_reads(tmp_path, 
     monkeypatch.setattr(sys, "argv", argv)
     assert crd.main() == 0
     assert json.loads(out.read_text()) == [{"merge_id": A, "keep_id": B, "merge_name": "A", "keep_name": "B"}]
+
+
+# --- recording Keep separate ---------------------------------------------------------------
+
+
+def _run_collector(tmp_path, monkeypatch, choices, *flags, db=None, service_key="service-role", manifest=None):
+    manifest_path = tmp_path / "m.json"
+    manifest_path.write_text(json.dumps(manifest or _manifest()))
+    folder = tmp_path / "out" / f"decisions-{RUN}"
+    for pair_id, data in choices.items():
+        _saved(folder, pair_id, {"id": pair_id, "data": data})
+
+    def client():
+        if db is None:
+            raise AssertionError("a dry run must not open the database")
+        return db
+
+    monkeypatch.setattr(crd, "get_client", client)
+    if service_key:
+        monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", service_key)
+    else:
+        monkeypatch.delenv("SUPABASE_SERVICE_ROLE_KEY", raising=False)
+    out = tmp_path / "vetted.json"
+    argv = ["prog", "--manifest", str(manifest_path), "--decisions", str(tmp_path / "out"), "--out", str(out), *flags]
+    monkeypatch.setattr(sys, "argv", argv)
+    return crd.main()
+
+
+CHOICES = {P1: {"decision": "separate", "note": " different squad "}, P2: {"decision": "merge"},
+           P3: {"decision": "unsure"}}
+
+
+@pytest.mark.parametrize("flags", [(), ("--execute", "--dry-run")])
+def test_a_dry_run_records_nothing(tmp_path, monkeypatch, capsys, flags):
+    assert _run_collector(tmp_path, monkeypatch, CHOICES, *flags) == 0
+    assert "DRY RUN -- 1 Keep separate choice(s) not recorded" in capsys.readouterr().out
+
+
+def test_execute_records_each_keep_separate_and_nothing_else(tmp_path, monkeypatch, capsys):
+    db = _Writable({"team_cleanup_decisions": []})
+    assert _run_collector(tmp_path, monkeypatch, CHOICES, "--execute", db=db) == 0
+    assert db.inserted == [("team_cleanup_decisions", [{
+        "stage": "merges", "subject_key": f"{A}|{B}", "team_id_master": A, "other_team_id": B,
+        "decision": "keep_separate", "note": "different squad", "decided_at": "2026-09-24T00:00:00+00:00",
+        "source": f"page:{RUN}",
+    }])]
+    assert (f"Undo: UPDATE team_cleanup_decisions SET superseded_at = now() WHERE source = 'page:{RUN}' "
+            "AND superseded_at IS NULL;") in capsys.readouterr().out
+
+
+def test_execute_leaves_a_pair_that_already_holds_a_decision(tmp_path, monkeypatch):
+    standing = {"id": "d1", "stage": "merges", "subject_key": f"{A}|{B}", "superseded_at": None}
+    db = _Writable({"team_cleanup_decisions": [standing]})
+    assert _run_collector(tmp_path, monkeypatch, CHOICES, "--execute", db=db) == 0
+    assert db.inserted == []
+
+
+def test_execute_records_over_a_superseded_decision(tmp_path, monkeypatch):
+    retired = {"id": "d1", "stage": "merges", "subject_key": f"{A}|{B}", "superseded_at": "2026-10-01T00:00:00+00:00"}
+    db = _Writable({"team_cleanup_decisions": [retired]})
+    assert _run_collector(tmp_path, monkeypatch, CHOICES, "--execute", db=db) == 0
+    assert [row["subject_key"] for _, rows in db.inserted for row in rows] == [f"{A}|{B}"]
+
+
+def test_execute_refuses_until_the_table_exists(tmp_path, monkeypatch):
+    with pytest.raises(SystemExit, match="Apply the team_cleanup_decisions migration"):
+        _run_collector(tmp_path, monkeypatch, CHOICES, "--execute", db=_Writable({}))
+
+
+def test_execute_needs_the_service_role_key(tmp_path, monkeypatch):
+    db = _Writable({"team_cleanup_decisions": []})
+    with pytest.raises(SystemExit, match="SUPABASE_SERVICE_ROLE_KEY"):
+        _run_collector(tmp_path, monkeypatch, CHOICES, "--execute", db=db, service_key=None)
+
+
+def test_merges_from_a_page_that_recorded_no_team_values_are_flagged(tmp_path, monkeypatch, capsys):
+    assert _run_collector(tmp_path, monkeypatch, {P2: {"decision": "merge"}}) == 0
+    assert "1 merge(s) carry no record of the teams as the page showed them" in capsys.readouterr().out
+
+
+def test_a_merge_from_a_page_that_recorded_its_teams_carries_them_into_the_list(tmp_path, monkeypatch, capsys):
+    manifest = _manifest()
+    manifest["pairs"][P2].update(merge_as_vetted=vetted(age="u13"), keep_as_vetted=vetted())
+    assert _run_collector(tmp_path, monkeypatch, {P2: {"decision": "merge"}}, manifest=manifest) == 0
+    [merge] = json.loads((tmp_path / "vetted.json").read_text())
+    assert (merge["merge_as_vetted"], merge["keep_as_vetted"]) == (vetted(age="u13"), vetted())
+    assert "carry no record" not in capsys.readouterr().out
+
+
+def test_execute_with_no_keep_separate_choice_opens_no_database(tmp_path, monkeypatch):
+    assert _run_collector(tmp_path, monkeypatch, {P2: {"decision": "merge"}}, "--execute") == 0
+
+
+def _triangle():
+    """One page pairing A with C, B with C, and A with B, so merging both into C would join A and B."""
+    return {"run": RUN, "pairs": {
+        P1: {"merge_id": A, "keep_id": C, "merge_name": "A", "keep_name": "C"},
+        P2: {"merge_id": B, "keep_id": C, "merge_name": "B", "keep_name": "C"},
+        P3: {"merge_id": A, "keep_id": B, "merge_name": "A", "keep_name": "B"},
+    }}
+
+
+def test_merges_that_would_join_a_pair_the_page_keeps_separate_fail_the_run():
+    choices = {P1: {"decision": "merge"}, P2: {"decision": "merge"}, P3: {"decision": "separate"}}
+    with pytest.raises(SystemExit, match="would join teams the page keeps separate"):
+        crd.collect(_triangle(), choices)
+
+
+def test_a_page_keeping_apart_two_teams_that_only_one_merge_touches_passes():
+    choices = {P1: {"decision": "merge"}, P2: {"decision": "unsure"}, P3: {"decision": "separate"}}
+    assert [(m["merge_id"], m["keep_id"]) for m in crd.collect(_triangle(), choices)["merges"]] == [(A, C)]
+
+
+def test_a_page_whose_merges_are_refused_still_records_its_keep_separate_choices(tmp_path, monkeypatch):
+    db = _Writable({"team_cleanup_decisions": []})
+    choices = {P1: {"decision": "merge", "swap": True}, P2: {"decision": "merge", "swap": True},
+               P3: {"decision": "separate"}}
+    with pytest.raises(SystemExit, match="disagree about which team survives"):
+        _run_collector(tmp_path, monkeypatch, choices, "--execute", db=db)
+    assert [row["subject_key"] for _, rows in db.inserted for row in rows] == ["|".join(sorted((OLD, B)))]
+    assert not (tmp_path / "vetted.json").exists()
+
+
+def test_a_note_is_printed_escaped(tmp_path, monkeypatch, capsys):
+    hidden = chr(27) + "[1A" + chr(27) + "[2K"
+    assert _run_collector(tmp_path, monkeypatch, {P1: {"decision": "separate", "note": hidden + "fine"}}) == 0
+    out = capsys.readouterr().out
+    assert chr(27) not in out and repr(hidden + "fine") in out

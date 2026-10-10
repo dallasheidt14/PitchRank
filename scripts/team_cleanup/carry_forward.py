@@ -36,7 +36,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
 import sys
 from collections import Counter, defaultdict
 from dataclasses import dataclass
@@ -46,23 +45,19 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from scripts.find_cross_provider_duplicates import batched, get_client, page  # noqa: E402
+from scripts.find_cross_provider_duplicates import active_subjects, batched, get_client  # noqa: E402
 from scripts.team_cleanup.decisions import (  # noqa: E402
     DECISIONS_TABLE,
-    KEEP_SEPARATE,
-    MERGES,
     DecisionsUnavailable,
+    keep_separate_row,
+    page_built_at,
     pair_subject,
+    resolve_execute,
 )
 
 SEPARATE, MERGE, UNSURE = "separate", "merge", "unsure"
 PAGE_DECISIONS = frozenset({SEPARATE, MERGE, UNSURE})
 INSERT_BATCH = 500
-# A pair key is two ids long, so a lookup holds half as many as an id batch to stay inside the
-# same URL length.
-SUBJECT_BATCH = 50
-
-_RUN = re.compile(r"^(?:decisions-)?(\d{8}T\d{6}Z)-")
 
 
 @dataclass(frozen=True)
@@ -78,19 +73,6 @@ class Choice:
     @property
     def subject(self) -> str:
         return pair_subject(self.merge_id, self.keep_id)
-
-
-def resolve_execute(execute_flag: bool, dry_run_flag: bool) -> bool:
-    """Fail safe: asking for both means the caller wants the preview."""
-    return execute_flag and not dry_run_flag
-
-
-def page_built_at(manifest: dict) -> str:
-    stamp = manifest.get("run") or manifest.get("collection")
-    match = _RUN.match(stamp or "")
-    if not match:
-        raise ValueError(f"the manifest carries no build time (run or collection {stamp!r})")
-    return datetime.strptime(match.group(1), "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc).isoformat()
 
 
 def read_index(pages_dir: Path) -> list[tuple[str, str, str]]:
@@ -150,37 +132,10 @@ def newest_choices(choices: list[Choice]) -> tuple[dict[str, Choice], list[str]]
 
 def keep_separate_rows(newest: dict[str, Choice]) -> list[dict]:
     return [
-        {
-            "stage": MERGES,
-            "subject_key": choice.subject,
-            "team_id_master": choice.merge_id,
-            "other_team_id": choice.keep_id,
-            "decision": KEEP_SEPARATE,
-            "note": choice.note or None,
-            "decided_at": choice.decided_at,
-            "source": f"carried:{choice.page_id}",
-        }
+        keep_separate_row(choice.merge_id, choice.keep_id, choice.note, choice.decided_at, f"carried:{choice.page_id}")
         for choice in sorted(newest.values(), key=lambda c: c.subject)
         if choice.decision == SEPARATE
     ]
-
-
-def active_subjects(sb, subjects: list[str]) -> set[str]:
-    """The merge subjects that already hold an active decision of any kind."""
-    found = set()
-    try:
-        for batch in batched(subjects, SUBJECT_BATCH):
-            rows = page(
-                lambda b=batch: sb.table(DECISIONS_TABLE)
-                .select("id,subject_key,superseded_at")
-                .eq("stage", MERGES)
-                .in_("subject_key", b),
-                "id",
-            )
-            found |= {r["subject_key"] for r in rows if r["superseded_at"] is None}
-    except Exception as exc:
-        raise DecisionsUnavailable(f"could not read {DECISIONS_TABLE}: {exc}") from exc
-    return found
 
 
 def parse_built_at(values: list[str]) -> dict[str, str]:

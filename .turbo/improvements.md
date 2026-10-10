@@ -1489,6 +1489,8 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 
 - **ID**: IMP-260
 - **Status**: open
+- **Update (2026-10-09)**: `scripts/apply_vetted_team_merges.py` no longer carries its own copy;
+  it imports `resolver` and the ordered `load_merge_map` from `find_cross_provider_duplicates.py`.
 - **Type**: plan
 - **Category**: refactor
 - **Where**: chain-following copies in `scripts/apply_vetted_team_merges.py`, `decide_team_merges.py`, `enqueue_stranded_merge_fixtures.py`, `exclude_merge_duplicate_games.py`, `find_regid_duplicate_merges.py`, `find_cross_provider_duplicates.py`; single-hop in `src/utils/merge_resolver.py` (`MergeResolver.resolve`) and `scripts/enqueue_helpers.py` (`resolve_merges`)

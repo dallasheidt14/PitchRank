@@ -48,10 +48,12 @@ rebranded, or that files a branch as the club on one provider and inside the tea
 other, never shares a group. And stripping club initials also strips a branch code that
 happens to be one (`CR` for a Castle Rock branch of Colorado Rapids).
 
-Read-only: writes a CSV of every pair it considered and a JSON of the proposals, and never
-touches the database. The proposals are candidates, not a safe list: the skill's refusal
-review, adversarial review and apply steps still apply, and the vetted JSON goes straight to
-scripts/apply_vetted_team_merges.py.
+Read-only: writes a CSV of every pair it considered, a JSON of the proposals, and `_all.json`,
+every pair keyed by status -- a dict, so the applier refuses it if passed by mistake -- and never
+touches the database. Both JSON files record each pair's two rows' age group, gender, state and
+club as scanned, which scripts/apply_vetted_team_merges.py checks before merging. The proposals
+are candidates, not a safe list: the skill's refusal review, adversarial review and apply steps
+still apply, and the vetted JSON goes straight to the applier.
 
 Usage:
     python scripts/find_squad_key_duplicates.py --state CO --out-dir data/exports
@@ -94,6 +96,7 @@ from scripts.team_cleanup.decisions import (  # noqa: E402
     keep_separate_index,
     kept_apart_reason,
 )
+from scripts.team_cleanup.vetted import stamp  # noqa: E402
 from src.utils.team_name_utils import _FORMAT_TOKEN, _UAGE_TOKEN, NOISE_WORDS  # noqa: E402
 from src.utils.team_utils import CURRENT_YEAR  # noqa: E402
 
@@ -436,12 +439,13 @@ def to_record(pair, keep, merge, provider_code, status, reason="", games=(None, 
         "keep_id": keep["team_id_master"],
         "merge_name": merge["team_name"],
         "keep_name": keep["team_name"],
+        **stamp(merge, keep),
     }
 
 
 def write_csv(path, records) -> None:
     with path.open("w", newline="", encoding="utf-8") as fh:
-        writer = csv.DictWriter(fh, fieldnames=list(RECORD_FIELDS))
+        writer = csv.DictWriter(fh, fieldnames=list(RECORD_FIELDS), extrasaction="ignore")
         writer.writeheader()
         for record in records:
             writer.writerow({k: csv_safe(v) if k in PROVIDER_TEXT_FIELDS else v for k, v in record.items()})
@@ -517,15 +521,18 @@ def main() -> int:
     stem = f"squad_key_duplicates_{args.state.lower()}"
     if args.age_group:
         stem += f"_{args.age_group.lower()}"
-    csv_path, json_path = out_dir / f"{stem}.csv", out_dir / f"{stem}.json"
+    csv_path, json_path, all_path = out_dir / f"{stem}.csv", out_dir / f"{stem}.json", out_dir / f"{stem}_all.json"
     write_csv(csv_path, records)
     json_path.write_text(json.dumps(proposed, indent=1), encoding="utf-8")
+    by_status = {status: [r for r in records if r["status"] == status] for status in (PROPOSED, HELD, REJECTED)}
+    all_path.write_text(json.dumps(by_status, indent=1), encoding="utf-8")
 
     print("\n=== Funnel ===")
     for (status, reason), n in sorted(Counter((r["status"], r["reason"]) for r in records).items()):
         print(f"  {status:<9} {reason:<58} {n:,}")
     print(f"\nwrote {csv_path}  (every pair considered)")
     print(f"wrote {json_path}  (proposals only)")
+    print(f"wrote {all_path}  (every pair by status, with both teams as scanned)")
     print("These are proposals. Steps 4-6 of merging-duplicate-teams still apply before any merge.")
     return 0
 

@@ -4,7 +4,8 @@ Reads a JSON list of pairs, each carrying `merge_id` and `keep_id`, from either 
 `status` and `reason` (the squad-key scan), or `tier` and `rejected_reason` (the cross-provider
 scan). It reads both teams and their merge-resolved games from Supabase and writes two files: a
 self-contained page from assets/review-page.html, and beside it `<out>.manifest.json`, which
-records exactly which pairs the page showed, in which direction.
+records exactly which pairs the page showed, in which direction, and each team's age group,
+gender, state and club as the page read them, so the applier can refuse a pair that has changed.
 
 Publish the page as an Artifact with the db capability. The owner's choices land in the page's
 own collection, `decisions-<run>`. A saved choice holds the decision, the swap, a note and a
@@ -42,9 +43,12 @@ from scripts.find_cross_provider_duplicates import (  # noqa: E402
     merged_into,
     resolver,
 )
+from scripts.team_cleanup.vetted import stamp  # noqa: E402
 
 TEMPLATE = Path(__file__).resolve().parent.parent / "assets" / "review-page.html"
-TEAM_COLS = "team_id_master,team_name,team_name_original,club_name,age_group,gender,provider_id,is_deprecated"
+TEAM_COLS = (
+    "team_id_master,team_name,team_name_original,club_name,age_group,gender,state_code,provider_id,is_deprecated"
+)
 STATUSES = ("held", "rejected", "proposed")
 _PLACEHOLDER = re.compile("__TITLE__|__DATA__|__RUN__")
 
@@ -128,7 +132,7 @@ def render(records, title, run) -> str:
     return _PLACEHOLDER.sub(lambda m: values[m.group(0)], TEMPLATE.read_text(encoding="utf-8"))
 
 
-def manifest(records, title, run) -> dict:
+def manifest(records, teams, title, run) -> dict:
     return {
         "run": run,
         "title": title,
@@ -138,6 +142,7 @@ def manifest(records, title, run) -> dict:
                 "keep_id": r["rows"][1]["team_id"],
                 "merge_name": r["rows"][0]["name"],
                 "keep_name": r["rows"][1]["name"],
+                **stamp(teams[r["rows"][0]["team_id"]], teams[r["rows"][1]["team_id"]]),
             }
             for r in records
         },
@@ -165,7 +170,7 @@ def main() -> int:
     out = Path(args.out)
     out.write_text(render(records, args.title, run), encoding="utf-8")
     manifest_path = out.with_name(out.name + ".manifest.json")
-    manifest_path.write_text(json.dumps(manifest(records, args.title, run), indent=1), encoding="utf-8")
+    manifest_path.write_text(json.dumps(manifest(records, teams, args.title, run), indent=1), encoding="utf-8")
     print(f"wrote {out}: {len(records)} pairs, run {run}")
     print(f"wrote {manifest_path}")
     for line in skipped:

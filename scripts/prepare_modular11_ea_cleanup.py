@@ -6,8 +6,9 @@ age's ``teams.csv`` and live PitchRank teams it writes, in ``data/modular11_ea/<
 
 - ``candidate_pool.csv``: every live team of the age whose club is an EA club or a branch of one.
 - ``duplicate_pairs.json``: rows of one EA club and tier that look like copies of one squad, in
-  the ``apply_vetted_team_merges.py`` shape plus an ``evidence`` object. Only proposals: the
-  ``merging-duplicate-teams`` skill reviews them before anything merges.
+  the ``apply_vetted_team_merges.py`` shape, with both rows' age group, gender, state and club as
+  read, plus an ``evidence`` object. Only proposals: the ``merging-duplicate-teams`` skill reviews
+  them before anything merges.
 - ``stateless.csv``: pool teams with no state, for the ``assigning-team-states`` skill.
 - ``state_pool.json`` (with ``--state-snapshot``): that skill's dry-run snapshot cut down to the
   pool, in the snapshot's own shape.
@@ -54,6 +55,7 @@ from scripts.match_modular11_ea_teams import (  # noqa: E402
     tier_marker,
 )
 from scripts.scrape_modular11_ea import season_bounds  # noqa: E402
+from scripts.team_cleanup.vetted import stamp  # noqa: E402
 from supabase import create_client  # noqa: E402
 
 POOL_COLUMNS = [
@@ -125,6 +127,7 @@ def propose_pairs(pool: list[dict], ea_rows: list[dict], ev, season_start: str) 
                     "keep_id": k,
                     "merge_name": merge["team_name"],
                     "keep_name": keep["team_name"],
+                    **stamp(merge, keep),
                     "evidence": {
                         "ea_club": club,
                         "tier": tier,

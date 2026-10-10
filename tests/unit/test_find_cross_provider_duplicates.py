@@ -1112,3 +1112,23 @@ def test_main_refuses_a_threshold_that_switches_its_screen_off(flag, tmp_path, m
         fcpd.main()
 
     assert exc.value.code == 2
+
+
+def test_main_records_both_teams_as_proposed_beside_each_proposal(tmp_path, monkeypatch):
+    teams = [
+        team("gs", name="2012 Boys Red", club="Westy SC", provider=GS),
+        team("ot", name="2012 Boys Red", club="WESTY SC", provider=TGS),
+    ]
+    games = [game("g1", "gs", "opp-a", "2026-09-05"), game("g2", "ot", "opp-b", "2026-09-12")]
+    monkeypatch.setattr(fcpd, "get_client", lambda: _scan_double(teams, games))
+    monkeypatch.setattr(sys, "argv", ["prog", "--out-dir", str(tmp_path)])
+
+    assert fcpd.main() == 0
+
+    [proposal] = json.loads((tmp_path / "cross_provider_duplicates.json").read_text(encoding="utf-8"))
+    as_proposed = {"age_group": "u14", "gender": "Male", "state_code": "TX"}
+    assert proposal["merge_id"] == "ot"
+    assert proposal["merge_as_vetted"] == {**as_proposed, "club_name": "WESTY SC"}
+    assert proposal["keep_as_vetted"] == {**as_proposed, "club_name": "Westy SC"}
+    with (tmp_path / "cross_provider_duplicates.csv").open(encoding="utf-8") as fh:
+        assert next(csv.reader(fh)) == list(fcpd.RECORD_FIELDS)
