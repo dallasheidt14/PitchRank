@@ -20,6 +20,8 @@ Screens, each decisive:
   - the two registered names state opposite genders, reading a B/G affix as well as the word
   - the rows played each other, shared a game date, or either carries a self-play row
   - opponent Jaccard above --jaccard-max, opponents resolved through team_merge_map
+  - the owner chose Keep separate for the pair (team_cleanup_decisions, both ids resolved
+    through team_merge_map); the scan refuses to run at all when those cannot be read
 
 Club equality decides who may pair; `are_same_club` decides only who competes, at a threshold
 deliberately lower than the matchers' gates because a false competitor costs a review where a
@@ -72,6 +74,17 @@ from scripts.fix_gender_from_registered_name import (  # noqa: E402
     WORD_B,
     WORD_G,
     spelled_gender,
+)
+from scripts.team_cleanup.decisions import (  # noqa: E402
+    DECISIONS_TABLE,
+    KEEP_SEPARATE,
+    KEEP_SEPARATE_COLS,
+    SCANS_WAIT_FOR_DECISIONS,
+    DecisionsUnavailable,
+    KeepSeparate,
+    active_keep_separate,
+    keep_separate_index,
+    kept_apart_reason,
 )
 from src.utils.club_normalizer import are_same_club  # noqa: E402
 from src.utils.provider_ids import is_blank_provider_id  # noqa: E402
@@ -199,6 +212,18 @@ def load_merge_map(sb) -> dict[str, str]:
         m["deprecated_team_id"]: m["canonical_team_id"]
         for m in page(lambda: sb.table("team_merge_map").select("deprecated_team_id,canonical_team_id"), "id")
     }
+
+
+def load_keep_separate(sb) -> list[KeepSeparate]:
+    """The owner's active Keep-separate decisions on merges.
+
+    Any failure to read raises: an empty answer would re-propose every pair the owner kept apart.
+    """
+    try:
+        rows = page(lambda: sb.table(DECISIONS_TABLE).select(KEEP_SEPARATE_COLS).eq("decision", KEEP_SEPARATE), "id")
+    except Exception as exc:
+        raise DecisionsUnavailable(f"could not read {DECISIONS_TABLE}: {exc}") from exc
+    return active_keep_separate(rows)
 
 
 def merged_into(team_ids, merge_map, canonical) -> set:
@@ -484,6 +509,7 @@ def fetch_aliases(sb, team_ids):
 
 
 def scan(sb, args):
+    keep_separate = load_keep_separate(sb)
     providers = {p["id"]: p["code"] for p in sb.table("providers").select("id,code").execute().data}
     secondary_codes = {args.provider} if args.provider else set(SECONDARY_PROVIDERS)
 
@@ -514,10 +540,13 @@ def scan(sb, args):
     alias_rows = fetch_aliases(sb, sorted(cluster))
     print(f"  {len(game_rows):,} games, {len(alias_rows):,} alias rows")
     ev = build_evidence(game_rows, alias_rows, canonical, candidates)
+    owner_index = keep_separate_index(keep_separate, canonical)
 
     records, rejected = [], Counter()
     for pair in pairs:
         reason, jaccard = screen(pair, ev, canonical, jaccard_max=args.jaccard_max)
+        gs_id, ot_id = pair["gs"]["team_id_master"], pair["ot"]["team_id_master"]
+        reason = kept_apart_reason(owner_index, canonical, gs_id, ot_id) or reason
         if reason:
             rejected[reason] += 1
             records.append(to_record(pair, ev, canonical, REJECTED_TIER, jaccard, reason))
@@ -554,7 +583,10 @@ def main() -> int:
         out_dir = ROOT / out_dir
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    records, rejected = scan(get_client(), args)
+    try:
+        records, rejected = scan(get_client(), args)
+    except DecisionsUnavailable as exc:
+        raise SystemExit(f"{exc}\n{SCANS_WAIT_FOR_DECISIONS}") from exc
 
     proposed = [r for r in records if r["tier"] != REJECTED_TIER]
     csv_path = out_dir / "cross_provider_duplicates.csv"

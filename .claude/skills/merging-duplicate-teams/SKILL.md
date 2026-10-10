@@ -87,6 +87,12 @@ one the applier records and a default-argument revert matches nothing and report
 There are four independent ways to nominate a pair, A to D below, and their blind spots differ, so
 no one of them stands in for the others.
 
+Doorways C and D refuse any pair holding an active Keep-separate decision in
+`team_cleanup_decisions`, and exit rather than scan when that table cannot be read, since a scan
+that saw no decisions would propose every kept-apart pair again. Doorways A and B do not read it.
+A Keep separate chosen on a review page counts only once it is recorded in that table; the
+collector in Step 5 does not record it.
+
 **Doorway A — name similarity.** `scripts/find_fuzzy_duplicate_teams.py`, called in-process by
 `decide_team_merges.py`. This is the recall ceiling for everything in Step 3: a pair it cannot
 propose is never judged, never reviewed, and never merged. It proposes a pair only when the two
@@ -663,7 +669,8 @@ python .claude/skills/merging-duplicate-teams/scripts/build_review_page.py \
 
 `--pairs` is the list of pairs Step 5 left undecided, each with `merge_id` and `keep_id`. The
 scanners' JSON files hold only their proposals, so build it from the review's held and rejected
-rows, or from a scanner's CSV. Either record shape works: `status` and `reason` as the squad-key
+rows, or from a scanner's CSV, leaving out any row refused because the owner chose Keep separate:
+the owner has already answered it. Either record shape works: `status` and `reason` as the squad-key
 scan writes them, or `tier` and `rejected_reason` as the cross-provider scan does. The builder
 leaves out any pair whose row is no longer live, and any pair listed twice. It writes
 `<page>.manifest.json` beside the page; keep it, because the owner's choices mean nothing
