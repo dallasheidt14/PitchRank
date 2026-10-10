@@ -27,9 +27,10 @@ Because the snapshot is complete and games are untouched, a merge is genuinely r
 
 ## The RPC reports failure on success
 
-PostgREST cannot serialise the RPC's JSONB return and raises `JSON could not be generated`
-even when the merge has committed. The real payload, containing `"success": true`, sits inside
-the exception text.
+The RPC's success payload carries a `message` key, and supabase-py's client (postgrest-py) reads
+any response whose data holds `message` as an API error. So a committed merge raises `APIError`
+with the message `JSON could not be generated`; the real payload, containing `"success": true`,
+sits in the exception's `details` and so in its text.
 
 `scripts/run_all_merges.py` and `scripts/apply_vetted_team_merges.py` both parse it out. Any
 new caller must do the same. The danger is not the misreport but the log: a run that records

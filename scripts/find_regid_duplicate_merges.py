@@ -27,8 +27,9 @@ Only GotSport rankings-ID targets can win, and placeholder-to-placeholder pairs 
 the rest of its known blind spots. Tier A on the 2026-08-27 corpus is exhausted; what remains
 is the held tiers, which need a rule change or a person rather than a rerun.
 
-Read-only: writes JSON, never touches the database. Feed the Tier A file to
-scripts/apply_vetted_team_merges.py, which is where the writes happen.
+Read-only: writes JSON, never touches the database. Each record carries both rows' age group,
+gender, state and club as read. Feed the Tier A file to scripts/apply_vetted_team_merges.py,
+which is where the writes happen.
 
 Usage:
     python scripts/find_regid_duplicate_merges.py --out-dir data/exports
@@ -51,6 +52,7 @@ sys.path.insert(0, str(ROOT))
 load_dotenv(ROOT / ".env")
 load_dotenv(ROOT / ".env.local", override=True)
 
+from scripts.team_cleanup.vetted import stamp  # noqa: E402
 from supabase import create_client  # noqa: E402
 
 REG_ID_FLOOR = 3_000_000
@@ -65,11 +67,12 @@ def get_client():
     return create_client(url, key)
 
 
-def page(build):
-    """Drain a PostgREST query past the 1000-row cap."""
+def page(build, order_col):
+    """Drain a query 1000 rows at a time, ordered by `order_col`, which must be unique so pages
+    neither skip nor repeat rows."""
     rows, off = [], 0
     while True:
-        chunk = build().range(off, off + 999).execute().data or []
+        chunk = build().order(order_col).range(off, off + 999).execute().data or []
         rows.extend(chunk)
         if len(chunk) < 1000:
             return rows
@@ -84,7 +87,7 @@ def batched(seq, n=100):
 
 def load_merge_map(sb):
     raw = {}
-    for r in page(lambda: sb.table("team_merge_map").select("deprecated_team_id,canonical_team_id")):
+    for r in page(lambda: sb.table("team_merge_map").select("deprecated_team_id,canonical_team_id"), "id"):
         raw[r["deprecated_team_id"]] = r["canonical_team_id"]
 
     def canon(tid):
@@ -101,10 +104,11 @@ def load_placeholders(sb, gotsport):
     placeholders = {}
     for r in page(
         lambda: sb.table("teams")
-        .select("team_id_master,team_name,provider_team_id,age_group,gender")
+        .select("team_id_master,team_name,provider_team_id,club_name,age_group,gender,state_code")
         .like("team_name", "unknown\\_%")
         .eq("provider_id", gotsport)
-        .eq("is_deprecated", False)
+        .eq("is_deprecated", False),
+        "team_id_master",
     ):
         pid = str(r.get("provider_team_id") or "")
         if not pid.isdigit() or int(pid) < REG_ID_FLOOR:
@@ -120,7 +124,7 @@ def fetch_games_for(sb, ids):
     ids = [i for i in ids if i]
     for side in ("home_team_master_id", "away_team_master_id"):
         for batch in batched(ids):
-            for g in page(lambda b=batch, s=side: sb.table("games").select(GAME_COLS).in_(s, b)):
+            for g in page(lambda b=batch, s=side: sb.table("games").select(GAME_COLS).in_(s, b), "id"):
                 out[g["id"]] = g
     return out
 
@@ -179,7 +183,7 @@ def build_tiers(sb, canon, placeholders, min_games):
     for batch in batched({c for m in support.values() for c in m if c}):
         rows = (
             sb.table("teams")
-            .select("team_id_master,team_name,provider_team_id,club_name,age_group,gender,is_deprecated")
+            .select("team_id_master,team_name,provider_team_id,club_name,age_group,gender,state_code,is_deprecated")
             .in_("team_id_master", batch)
             .execute()
             .data
@@ -226,6 +230,7 @@ def build_tiers(sb, canon, placeholders, min_games):
             "gender": ph_row["gender"],
             "matched_games": n,
             "placeholder_total_games": total,
+            **stamp(ph_row, meta[target]),
         }
         # `eligible` already required total >= min_games, so n == total implies n >= min_games.
         tiers["A" if n == total else "partial"].append(rec)

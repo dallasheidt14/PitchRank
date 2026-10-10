@@ -11,6 +11,13 @@ teams.is_deprecated = TRUE -- plus a full snapshot in team_merge_audit. Game row
 rewritten; they resolve to the surviving team at read time through team_merge_map. That makes
 a merge reversible via scripts/revert_fuzzy_auto_merges.py.
 
+It refuses a pair the owner chose Keep separate, read from team_cleanup_decisions with both
+teams resolved through team_merge_map and through the merges this run plans before it, and will
+not run at all while that table cannot be read.
+It also refuses a pair whose age group, gender, state or club no longer matches what the list
+recorded when it was built, or that does not record them in full, checking again immediately
+before each merge.
+
 Usage:
     python scripts/apply_vetted_team_merges.py --file merges.json            # dry run
     python scripts/apply_vetted_team_merges.py --file merges.json --execute
@@ -29,17 +36,32 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
 
-# Scripts here are run from the repo root and from GitHub Actions; .env.local holds the
-# service-role key locally while CI supplies the environment directly. A bare load_dotenv()
-# finds .env and comes back empty, so the path is explicit.
-load_dotenv(Path(__file__).resolve().parent.parent / ".env.local")
+# Root .env holds the keys on a local checkout and .env.local overrides it where one exists; CI
+# supplies the environment directly.
+load_dotenv(ROOT / ".env")
+load_dotenv(ROOT / ".env.local", override=True)
 
+from scripts.find_cross_provider_duplicates import (  # noqa: E402
+    batched,
+    load_keep_separate,
+    load_merge_map,
+    resolver,
+)
+from scripts.team_cleanup.decisions import (  # noqa: E402
+    MERGES_WAIT_FOR_DECISIONS,
+    DecisionsUnavailable,
+    keep_separate_index,
+    kept_apart_reason,
+)
+from scripts.team_cleanup.vetted import IDENTITY_FIELDS, changed_since_vetted  # noqa: E402
 from supabase import create_client  # noqa: E402
 
 MERGED_BY = "pitchrank-operator"
 MERGE_REASON = "Vetted duplicate: same birth year, schedules consistent with one squad"
+LIVE_COLS = ",".join(("team_id_master", "is_deprecated", "team_name", *IDENTITY_FIELDS))
 
 
 def get_client():
@@ -79,37 +101,16 @@ def order_for_cascades(pairs: list[dict]) -> list[dict]:
     return ordered
 
 
-def resolve_through_merge_map(sb, pairs: list[dict]) -> list[dict]:
+def resolve_through_merge_map(pairs: list[dict], canonical) -> list[dict]:
     """Rewrite both sides of every pair to their current canonical team.
 
     A vetted list ages: between vetting and applying, an operator may merge one of the named
     teams somewhere else. Following team_merge_map first means a pair still points at whatever
     that team has become, instead of failing on a row that is now deprecated. This is the same
-    rule the rest of the codebase follows via MergeResolver.
+    rule the rest of the codebase follows via MergeResolver. A redirected side is then checked
+    against the row it now names, so the pair is refused unless that row carries the age group,
+    gender, state and club the list recorded for the team it replaced.
     """
-    mapping: dict[str, str] = {}
-    page = 0
-    while True:
-        res = (
-            sb.table("team_merge_map")
-            .select("deprecated_team_id,canonical_team_id")
-            .range(page * 1000, page * 1000 + 999)
-            .execute()
-        )
-        rows = res.data or []
-        for r in rows:
-            mapping[r["deprecated_team_id"]] = r["canonical_team_id"]
-        if len(rows) < 1000:
-            break
-        page += 1
-
-    def canonical(tid: str) -> str:
-        seen = set()
-        while tid in mapping and tid not in seen:
-            seen.add(tid)
-            tid = mapping[tid]
-        return tid
-
     out = []
     for p in pairs:
         q = dict(p)
@@ -140,20 +141,74 @@ def drop_conflicting(pairs: list[dict]) -> tuple[list[dict], list[dict]]:
     return keep, dropped
 
 
+def without_kept_apart(pairs: list[dict], keep_separate, merge_map: dict[str, str]):
+    """Split the pairs, in order, into those that can merge and those, each with a reason, that
+    would join two teams the owner kept apart.
+
+    Each merge let through is added to a copy of the merge map before the next pair is checked, so two
+    merges that would together put a kept-apart pair on one row -- A and C both into B, or A into
+    B and B into C -- are caught at the second.
+    """
+    planned = dict(merge_map)
+    allowed, refused = [], []
+    for p in pairs:
+        canonical = resolver(planned)
+        index = keep_separate_index(keep_separate, canonical)
+        reason = kept_apart_reason(index, canonical, p["merge_id"], p["keep_id"])
+        if reason:
+            refused.append((p, reason))
+            continue
+        planned[p["merge_id"]] = p["keep_id"]
+        allowed.append(p)
+    return allowed, refused
+
+
+def fetch_live(sb, ids: list[str]) -> dict[str, dict]:
+    live = {}
+    for batch in batched(ids):
+        for t in sb.table("teams").select(LIVE_COLS).in_("team_id_master", batch).execute().data or []:
+            live[t["team_id_master"]] = t
+    return live
+
+
+def missing_or_deprecated(pair: dict, live: dict[str, dict]) -> bool:
+    rows = (live.get(pair["merge_id"]), live.get(pair["keep_id"]))
+    return any(row is None or row["is_deprecated"] for row in rows)
+
+
+def refusal(pair: dict, live: dict[str, dict]) -> str | None:
+    """Why a pair must not merge, read against its two rows as they stand now."""
+    if missing_or_deprecated(pair, live):
+        return "a row is missing or already deprecated"
+    return changed_since_vetted(pair, live[pair["merge_id"]], live[pair["keep_id"]])
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--file", required=True, help="JSON array with merge_id, keep_id, merge_name, keep_name")
+    ap.add_argument(
+        "--file",
+        required=True,
+        help="JSON array with merge_id, keep_id, merge_name, keep_name, merge_as_vetted, keep_as_vetted",
+    )
     ap.add_argument("--execute", action="store_true", help="apply the merges (default is a dry run)")
     ap.add_argument("--limit", type=int, default=None, help="apply at most N merges")
     ap.add_argument("--out", default=None, help="where to write the result log (default alongside --file)")
     args = ap.parse_args()
 
     pairs = json.loads(Path(args.file).read_text(encoding="utf-8"))
+    if not isinstance(pairs, list):
+        raise SystemExit(f"{args.file} holds no list of pairs; pass a list such as a scan's proposals JSON")
     print(f"loaded {len(pairs)} pairs from {args.file}")
 
     sb = get_client()
+    merge_map = load_merge_map(sb)
+    canonical = resolver(merge_map)
+    try:
+        keep_separate = load_keep_separate(sb)
+    except DecisionsUnavailable as exc:
+        raise SystemExit(f"{exc}\n{MERGES_WAIT_FOR_DECISIONS}") from exc
 
-    pairs = resolve_through_merge_map(sb, pairs)
+    pairs = resolve_through_merge_map(pairs, canonical)
     redirected = [p for p in pairs if p.get("_redirected")]
     for p in redirected:
         print(f"  redirected through an existing merge: {p['merge_name']!r} -> {p['keep_name']!r}")
@@ -164,17 +219,19 @@ def main() -> int:
     for p in already:
         print(f"  already merged, skipping: {p['merge_name']!r} -> {p['keep_name']!r}")
 
-    # Redirection can collapse two pairs onto one; keep a single copy.
-    seen_pairs: set[tuple[str, str]] = set()
-    deduped = []
+    # Redirection can collapse two pairs onto one; keep a single copy, preferring one that was not
+    # redirected, since only its recorded values describe the rows it names.
+    deduped: dict[tuple[str, str], dict] = {}
     for p in pairs:
         key = (p["merge_id"], p["keep_id"])
-        if key in seen_pairs:
-            print(f"  duplicate of another pair, skipping: {p['merge_name']!r} -> {p['keep_name']!r}")
+        if key not in deduped:
+            deduped[key] = p
             continue
-        seen_pairs.add(key)
-        deduped.append(p)
-    pairs = deduped
+        dropped = p
+        if deduped[key].get("_redirected") and not p.get("_redirected"):
+            dropped, deduped[key] = deduped[key], p
+        print(f"  duplicate of another pair, skipping: {dropped['merge_name']!r} -> {dropped['keep_name']!r}")
+    pairs = list(deduped.values())
 
     pairs, conflicting = drop_conflicting(pairs)
     for p in conflicting:
@@ -182,31 +239,32 @@ def main() -> int:
     if conflicting:
         print(f"  dropped {len(conflicting)} conflicting pairs\n")
 
-    pairs = order_for_cascades(pairs)
+    pairs, kept_apart = without_kept_apart(order_for_cascades(pairs), keep_separate, merge_map)
+    for p, reason in kept_apart:
+        print(f"  SKIP ({reason}): {p['merge_name']!r} -> {p['keep_name']!r}")
+
     if args.limit:
         pairs = pairs[: args.limit]
 
     # Refuse to run against a list that has gone stale since it was vetted.
     ids = sorted({p["merge_id"] for p in pairs} | {p["keep_id"] for p in pairs})
-    live = {}
-    for i in range(0, len(ids), 100):
-        res = (
-            sb.table("teams")
-            .select("team_id_master,is_deprecated,team_name")
-            .in_("team_id_master", ids[i : i + 100])
-            .execute()
-        )
-        for t in res.data or []:
-            live[t["team_id_master"]] = t
-    stale = [p for p in pairs
-             if p["merge_id"] not in live or p["keep_id"] not in live
-             or live[p["merge_id"]]["is_deprecated"] or live[p["keep_id"]]["is_deprecated"]]
+    live = fetch_live(sb, ids)
+    stale = [p for p in pairs if missing_or_deprecated(p, live)]
     if stale:
         print(f"REFUSING: {len(stale)} pairs are stale (row missing or already deprecated).")
         for p in stale[:10]:
             print(f"   {p['merge_name']!r} -> {p['keep_name']!r}")
         print("Re-vet the list against current data before applying.")
         return 1
+
+    unchanged = []
+    for p in pairs:
+        reason = refusal(p, live)
+        if reason:
+            print(f"  SKIP ({reason}): {p['merge_name']!r} -> {p['keep_name']!r}")
+        else:
+            unchanged.append(p)
+    pairs = unchanged
 
     if not args.execute:
         print(f"\nDRY RUN — would merge {len(pairs)} pairs. Nothing was written.")
@@ -218,8 +276,16 @@ def main() -> int:
         return 0
 
     print(f"\nApplying {len(pairs)} merges...")
-    log, ok, failed = [], 0, 0
+    log, ok, failed, refused = [], 0, 0, 0
     for i, p in enumerate(pairs, 1):
+        try:
+            reason = refusal(p, fetch_live(sb, [p["merge_id"], p["keep_id"]]))
+        except Exception as exc:  # noqa: BLE001
+            reason = f"its rows could not be read again: {str(exc)[:110]}"
+        if reason:
+            refused += 1
+            print(f"  SKIP ({reason}): {p['merge_name'][:40]!r} -> {p['keep_name'][:40]!r}")
+            continue
         try:
             res = sb.rpc("execute_team_merge", {
                 "p_deprecated_team_id": p["merge_id"],
@@ -229,14 +295,14 @@ def main() -> int:
             }).execute()
             data = res.data if isinstance(res.data, dict) else {"success": bool(res.data)}
         except Exception as exc:  # noqa: BLE001
-            # PostgREST cannot serialise this RPC's JSONB return and raises
-            # "JSON could not be generated" even when the merge committed -- the real
-            # payload is embedded in the exception text. run_all_merges.execute_merge
+            # The RPC's success payload carries a `message` key, which postgrest-py reads
+            # as an API error, so a committed merge raises "JSON could not be generated"
+            # with the real payload in the exception text. run_all_merges.execute_merge
             # carries the same workaround; treating the exception as a failure reports
             # every successful merge as failed and leaves the log unusable for a revert.
             text = str(exc)
             if '"success": true' in text or "'success': True" in text:
-                data = {"success": True, "note": "recovered from PostgREST serialisation error"}
+                data = {"success": True, "note": "recovered from postgrest-py's message-key error"}
             else:
                 data = {"success": False, "error": text[:300]}
 
@@ -252,8 +318,8 @@ def main() -> int:
     out = Path(args.out) if args.out else Path(args.file).with_name(
         f"merge_results_{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}.json")
     out.write_text(json.dumps(log, indent=1), encoding="utf-8")
-    print(f"\nDone: {ok} merged, {failed} failed. Log: {out}")
-    print("To undo: scripts/revert_fuzzy_auto_merges.py --dry-run --since <today>")
+    print(f"\nDone: {ok} merged, {failed} failed, {refused} refused by the check before each merge. Log: {out}")
+    print(f"To undo: scripts/revert_fuzzy_auto_merges.py --dry-run --since <today> --merged-by {MERGED_BY}")
     return 0 if failed == 0 else 1
 
 

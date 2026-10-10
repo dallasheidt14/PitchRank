@@ -181,6 +181,9 @@ def test_run_writes_the_pool_pairs_and_stateless_list(tmp_path):
     assert [r["team_id_master"] for r in pool] == ["g1", "g2", "g3"]
     pairs = json.loads((out / "duplicate_pairs.json").read_text(encoding="utf-8"))
     assert [(p["merge_id"], p["keep_id"]) for p in pairs] == [("g2", "g1"), ("g3", "g1")]
+    as_read = {"age_group": "u17", "gender": "Male", "club_name": "California Football Academy"}
+    assert pairs[1]["merge_as_vetted"] == {**as_read, "state_code": None}
+    assert pairs[1]["keep_as_vetted"] == {**as_read, "state_code": "CA"}
     stateless = list(csv.DictReader((out / "stateless.csv").open(encoding="utf-8")))
     assert [r["team_id_master"] for r in stateless] == ["g3"]
 

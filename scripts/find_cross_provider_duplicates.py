@@ -79,6 +79,7 @@ from scripts.team_cleanup.decisions import (  # noqa: E402
     DECISIONS_TABLE,
     KEEP_SEPARATE,
     KEEP_SEPARATE_COLS,
+    MERGES,
     SCANS_WAIT_FOR_DECISIONS,
     DecisionsUnavailable,
     KeepSeparate,
@@ -86,6 +87,7 @@ from scripts.team_cleanup.decisions import (  # noqa: E402
     keep_separate_index,
     kept_apart_reason,
 )
+from scripts.team_cleanup.vetted import stamp  # noqa: E402
 from src.utils.club_normalizer import are_same_club  # noqa: E402
 from src.utils.provider_ids import is_blank_provider_id  # noqa: E402
 from supabase import create_client  # noqa: E402
@@ -224,6 +226,29 @@ def load_keep_separate(sb) -> list[KeepSeparate]:
     except Exception as exc:
         raise DecisionsUnavailable(f"could not read {DECISIONS_TABLE}: {exc}") from exc
     return active_keep_separate(rows)
+
+
+# A pair key is two ids long, so a lookup holds half as many as an id batch to stay inside the
+# same URL length.
+SUBJECT_BATCH = 50
+
+
+def active_subjects(sb, subjects: list[str]) -> set[str]:
+    """The merge subjects that already hold an active decision of any kind."""
+    found = set()
+    try:
+        for batch in batched(subjects, SUBJECT_BATCH):
+            rows = page(
+                lambda b=batch: sb.table(DECISIONS_TABLE)
+                .select("id,subject_key,superseded_at")
+                .eq("stage", MERGES)
+                .in_("subject_key", b),
+                "id",
+            )
+            found |= {r["subject_key"] for r in rows if r["superseded_at"] is None}
+    except Exception as exc:
+        raise DecisionsUnavailable(f"could not read {DECISIONS_TABLE}: {exc}") from exc
+    return found
 
 
 def merged_into(team_ids, merge_map, canonical) -> set:
@@ -466,7 +491,7 @@ def write_csv(path, records) -> None:
     earlier, wider one.
     """
     with path.open("w", newline="", encoding="utf-8") as fh:
-        writer = csv.DictWriter(fh, fieldnames=list(RECORD_FIELDS))
+        writer = csv.DictWriter(fh, fieldnames=list(RECORD_FIELDS), extrasaction="ignore")
         writer.writeheader()
         for record in records:
             writer.writerow({k: csv_safe(v) if k in PROVIDER_TEXT_FIELDS else v for k, v in record.items()})
@@ -551,7 +576,9 @@ def scan(sb, args):
             rejected[reason] += 1
             records.append(to_record(pair, ev, canonical, REJECTED_TIER, jaccard, reason))
             continue
-        records.append(to_record(pair, ev, canonical, tier_for(pair, ev, canonical), jaccard))
+        record = to_record(pair, ev, canonical, tier_for(pair, ev, canonical), jaccard)
+        rows = {row["team_id_master"]: row for row in (pair["gs"], pair["ot"])}
+        records.append({**record, **stamp(rows[record["merge_id"]], rows[record["keep_id"]])})
     records.sort(key=lambda r: (r["tier"], r["provider"], -r["gs_games"] - r["ot_games"], r["club"] or ""))
     return records, rejected
 

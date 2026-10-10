@@ -587,7 +587,7 @@ def test_main_names_an_age_group_run_s_files_after_the_age_group(tmp_path, monke
     monkeypatch.setattr(sys, "argv", ["prog", "--state", "CO", "--age-group", "U12", "--out-dir", str(tmp_path)])
     assert fsk.main() == 0
     assert sorted(p.name for p in tmp_path.iterdir()) == [
-        "squad_key_duplicates_co_u12.csv", "squad_key_duplicates_co_u12.json"
+        "squad_key_duplicates_co_u12.csv", "squad_key_duplicates_co_u12.json", "squad_key_duplicates_co_u12_all.json"
     ]
 
 
@@ -611,3 +611,32 @@ def test_main_writes_only_proposals_to_the_json(tmp_path, monkeypatch):
     csv_lines = (tmp_path / "squad_key_duplicates_co.csv").read_text(encoding="utf-8").splitlines()
     assert csv_lines[0].split(",") == list(fsk.RECORD_FIELDS)
     assert len(csv_lines) == 3
+
+
+def test_main_records_both_teams_as_proposed_beside_each_proposal(tmp_path, monkeypatch):
+    teams = [team("gs", "EDGE U12B Purple"), team("tgs", f"ESC- {born(12)} Purple", provider=TGS, club="COLORADO EDGE")]
+    monkeypatch.setattr(fsk, "get_client", lambda: _double(teams))
+    monkeypatch.setattr(sys, "argv", ["prog", "--state", "CO", "--out-dir", str(tmp_path)])
+    assert fsk.main() == 0
+    [proposal] = json.loads((tmp_path / "squad_key_duplicates_co.json").read_text(encoding="utf-8"))
+    as_proposed = {"age_group": "u12", "gender": "Male", "state_code": "CO"}
+    assert proposal["merge_id"] == "tgs"
+    assert proposal["merge_as_vetted"] == {**as_proposed, "club_name": "COLORADO EDGE"}
+    assert proposal["keep_as_vetted"] == {**as_proposed, "club_name": "Colorado EDGE"}
+
+
+def test_main_records_both_teams_beside_every_pair_in_the_all_file(tmp_path, monkeypatch):
+    teams = [*_purple_pair(), team("x", "EDGE U12B Gold ECNL"), team("y", "EDGE U12B Gold ECNL RL", provider=TGS,
+                                                                     club="COLORADO EDGE")]
+    monkeypatch.setattr(fsk, "get_client", lambda: _double(teams))
+    monkeypatch.setattr(sys, "argv", ["prog", "--state", "CO", "--out-dir", str(tmp_path)])
+    assert fsk.main() == 0
+    by_status = json.loads((tmp_path / "squad_key_duplicates_co_all.json").read_text(encoding="utf-8"))
+    assert {status: len(rows) for status, rows in by_status.items()} == {"proposed": 1, "held": 0, "rejected": 1}
+    [rejected] = by_status["rejected"]
+    by_side = {rejected["merge_id"]: rejected["merge_as_vetted"], rejected["keep_id"]: rejected["keep_as_vetted"]}
+    as_scanned = {"age_group": "u12", "gender": "Male", "state_code": "CO"}
+    assert by_side == {
+        "x": {**as_scanned, "club_name": "Colorado EDGE"},
+        "y": {**as_scanned, "club_name": "COLORADO EDGE"},
+    }

@@ -100,7 +100,7 @@ def get_client():
     if not url or not key:
         raise SystemExit(
             "SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set. Note that "
-            "decide_team_merges.py and apply_vetted_team_merges.py read .env.local, which "
+            "decide_team_merges.py reads .env.local, which "
             "does not exist here -- the keys live in root .env."
         )
     return create_client(url, key)

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 DECISIONS_TABLE = "team_cleanup_decisions"
 MERGES = "merges"
@@ -16,6 +18,12 @@ SCANS_WAIT_FOR_DECISIONS = (
     "Duplicate scans stay off until the owner's Keep-separate decisions can be read, "
     "so no pair the owner kept apart is proposed again."
 )
+MERGES_WAIT_FOR_DECISIONS = (
+    "Merges wait until the owner's Keep-separate decisions can be read, "
+    "so no pair the owner kept apart is merged."
+)
+
+_RUN = re.compile(r"^(?:decisions-)?(\d{8}T\d{6}Z)-")
 
 
 class DecisionsUnavailable(RuntimeError):
@@ -35,6 +43,33 @@ class KeepSeparate:
 
 def pair_subject(team_id: str, other_team_id: str) -> str:
     return "|".join(sorted((team_id, other_team_id)))
+
+
+def resolve_execute(execute_flag: bool, dry_run_flag: bool) -> bool:
+    """Fail safe: asking for both means the caller wants the preview."""
+    return execute_flag and not dry_run_flag
+
+
+def page_built_at(manifest: dict) -> str:
+    """A review page's build time, read from its run id, in UTC."""
+    stamp = manifest.get("run") or manifest.get("collection")
+    match = _RUN.match(stamp or "")
+    if not match:
+        raise ValueError(f"the manifest carries no build time (run or collection {stamp!r})")
+    return datetime.strptime(match.group(1), "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc).isoformat()
+
+
+def keep_separate_row(merge_id: str, keep_id: str, note: str, decided_at: str, source: str) -> dict:
+    return {
+        "stage": MERGES,
+        "subject_key": pair_subject(merge_id, keep_id),
+        "team_id_master": merge_id,
+        "other_team_id": keep_id,
+        "decision": KEEP_SEPARATE,
+        "note": note or None,
+        "decided_at": decided_at,
+        "source": source,
+    }
 
 
 def active_keep_separate(rows) -> list[KeepSeparate]:
