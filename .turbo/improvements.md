@@ -2085,3 +2085,13 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `scripts/fix_band_cohorts.py` `name_contradiction` (its `_NAME_UAGE` check)
 - **Why**: The check holds a move when the name's U-age is two or more from the target (`abs(age - n) >= 2`), so a team named U17 moving to u19 is held as "2 away". There is no u18 board: u17 and u19 are neighbouring groups here, and the same move from U16 to U17 passes. Whether a U17-named team may move to u19 is an owner question; the answer decides whether the check should measure distance in boards rather than in years. Found while planning the age-skill fixes (team-cleanup plan step 8), 2026-10-11.
 - **Noted**: 2026-10-11
+
+### Escape the age plan's provider text the way its reader expects
+
+- **ID**: IMP-315
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `.claude/skills/correcting-team-age-groups/scripts/review_age_labels.py` `write_plan`; `scripts/fix_band_cohorts.py` `read_our_csv`; `scripts/team_cleanup/propose_week.py` `age_proposals`
+- **Why**: `write_plan` writes the plan with a plain `csv.DictWriter` and never applies `csv_safe` to `team_name`, `club_name` or `gotsport_team_name`, so a provider name starting with a formula character (=, +, -, @, or a tab or line break) is a live formula when the plan, or the weekly loop's ages `vetted.csv` (a verbatim copy), is opened in a spreadsheet. `read_our_csv` meanwhile runs `csv_unsafe` on those same fields, so a real name that opens with a quote followed by such a character or another quote loses the quote on read. No database write is affected: apply and revert set only `age_group`. Escape the three fields in `write_plan` with `fix_band_cohorts.csv_safe`, and unescape `team_name` in `propose_week.age_proposals` with `csv_unsafe` as `club_proposals` does, or the weekly age page shows the escaped name. Owner, 2026-10-11: handle it with the age-skill PRs (team-cleanup plan step 8a). Found by the security review of the cleanup loop's review pages.
+- **Noted**: 2026-10-11

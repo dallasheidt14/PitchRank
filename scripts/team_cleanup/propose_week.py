@@ -86,6 +86,9 @@ HEALTH = "scripts/team_cleanup/health.py"
 SELF_CHECKS = {STATES: ["scripts/check_state_skill_assumptions.py", "--code-only"]}
 ABBREVIATION_LOGS = Path("inputs") / "abbreviation_logs"
 SCOPED_CLUBS = "repair_swapped_club_names.csv"
+SCOPED_STATES = "snapshot.json"
+AGE_PLAN = "plan.csv"
+APPLIER_INPUTS = {CLUBS: SCOPED_CLUBS, STATES: SCOPED_STATES, AGES: AGE_PLAN}
 AGE_GROUPS_TO_APPLY = "1,2,3"
 STATE_CHANGES = ("apply", "queue")
 STEP_TIMEOUT_SECONDS = 4 * 60 * 60
@@ -147,7 +150,7 @@ def stage_commands(stage: str, folder: Path, states: list[str], store: Path) -> 
             "--out",
             str(review),
         ],
-        [AGE_REVIEW, "write-plan", str(review), "--groups", AGE_GROUPS_TO_APPLY, "--out", str(folder / "plan.csv")],
+        [AGE_REVIEW, "write-plan", str(review), "--groups", AGE_GROUPS_TO_APPLY, "--out", str(folder / AGE_PLAN)],
     ]
 
 
@@ -242,9 +245,9 @@ def scoped_proposals(stage: str, folder: Path, states: list[str]) -> list[dict]:
         return proposals
     if stage == STATES:
         scoped, proposals = state_proposals(read_json(folder / "national_snapshot.json"), states)
-        write_json(folder / "snapshot.json", scoped, indent=1)
+        write_json(folder / SCOPED_STATES, scoped, indent=1)
         return proposals
-    return age_proposals(_read_csv(folder / "plan.csv"))
+    return age_proposals(_read_csv(folder / AGE_PLAN))
 
 
 def preflight(stage: str, folder: Path) -> str | None:

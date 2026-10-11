@@ -1,0 +1,253 @@
+<title>__TITLE__</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700&display=swap">
+<style>
+:root{
+  --bg:#f3f6f4; --surface:#ffffff; --sunk:#eef3f1; --ink:#15231f; --muted:#5b6b66; --line:#d8e1dd;
+  --pitch:#0b5345; --pitch-soft:#e3efeb;
+  --go:#1f7a4d; --go-bg:#e2f3ea; --stop:#b3261e; --stop-bg:#fbe6e4; --maybe:#8a6a00; --maybe-bg:#fdf3d0;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#0e1614; --surface:#16211e; --sunk:#111a18; --ink:#e6eeeb; --muted:#9aaba5; --line:#2a3833;
+    --pitch:#5fc2a8; --pitch-soft:#1b2d28;
+    --go:#6fd49c; --go-bg:#173326; --stop:#ff8a80; --stop-bg:#3a1b19; --maybe:#f0cf5a; --maybe-bg:#352c10;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#0e1614; --surface:#16211e; --sunk:#111a18; --ink:#e6eeeb; --muted:#9aaba5; --line:#2a3833;
+  --pitch:#5fc2a8; --pitch-soft:#1b2d28;
+  --go:#6fd49c; --go-bg:#173326; --stop:#ff8a80; --stop-bg:#3a1b19; --maybe:#f0cf5a; --maybe-bg:#352c10;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:"DM Sans",system-ui,sans-serif;font-size:15px;line-height:1.45}
+.wrap{max-width:900px;margin:0 auto;padding-inline:16px;padding-block:20px 60px;display:flex;flex-direction:column;gap:16px}
+h1{font-family:Oswald,"Arial Narrow",sans-serif;font-weight:600;font-size:28px;margin:0;text-wrap:balance}
+h2{font-family:Oswald,"Arial Narrow",sans-serif;font-weight:500;font-size:19px;margin:0}
+.intro{color:var(--muted);margin:0;max-width:68ch}
+.bar{position:sticky;top:env(safe-area-inset-top,0px);z-index:2;background:var(--bg);padding-block:10px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;border-bottom:1px solid var(--line)}
+.bar select{font:inherit;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--ink)}
+.tally{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;font-size:13px;font-variant-numeric:tabular-nums}
+.tally span{padding:3px 8px;border-radius:999px}
+.t-go{background:var(--go-bg);color:var(--go)} .t-stop{background:var(--stop-bg);color:var(--stop)} .t-maybe{background:var(--maybe-bg);color:var(--maybe)} .t-left{background:var(--pitch-soft);color:var(--pitch)}
+.status{font-size:13px;color:var(--muted)}
+.group{display:flex;flex-direction:column;gap:10px}
+.group[hidden],.card[hidden]{display:none}
+.ghead{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding-top:6px}
+.ghead .count{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+.card{background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--line);border-radius:8px;padding:14px;display:grid;gap:10px}
+.card[data-d="apply"]{border-left-color:var(--go)} .card[data-d="dont_apply"]{border-left-color:var(--stop)} .card[data-d="unsure"]{border-left-color:var(--maybe)}
+.head{display:flex;flex-wrap:wrap;gap:8px;align-items:baseline}
+.num{font-family:Oswald,"Arial Narrow",sans-serif;font-weight:500;font-size:13px;color:var(--muted);letter-spacing:.04em}
+.name{font-weight:700;overflow-wrap:anywhere}
+.chip{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;padding:2px 7px;border-radius:4px;background:var(--pitch-soft);color:var(--pitch)}
+.chip.follow{background:var(--maybe-bg);color:var(--maybe)}
+.facts{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.change{background:var(--sunk);border-radius:6px;padding:10px;font-size:15px;overflow-wrap:anywhere}
+.change .field{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);display:block}
+.change .old{text-decoration:line-through;color:var(--muted)}
+.change .new{font-weight:700}
+.why{font-size:14px;border-left:3px solid var(--line);padding-left:10px;margin:0}
+.why b{font-weight:700}
+.acts{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+button{font:inherit;font-size:13px;font-weight:500;padding:7px 12px;border-radius:6px;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer}
+button:focus-visible,.bar select:focus-visible,textarea:focus-visible{outline:2px solid var(--pitch);outline-offset:2px}
+.acts button[aria-pressed="true"].b-apply{background:var(--go-bg);color:var(--go);border-color:var(--go)}
+.acts button[aria-pressed="true"].b-dont{background:var(--stop-bg);color:var(--stop);border-color:var(--stop)}
+.acts button[aria-pressed="true"].b-unsure{background:var(--maybe-bg);color:var(--maybe);border-color:var(--maybe)}
+button:disabled{opacity:.5;cursor:default}
+.b-all{border-color:var(--go);color:var(--go)}
+textarea{font:inherit;font-size:14px;width:100%;min-height:38px;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--ink);resize:vertical}
+</style>
+<div class="wrap">
+  <h1>__TITLE__</h1>
+  <p class="intro" id="intro"></p>
+  <div class="bar">
+    <label for="show">Show</label>
+    <select id="show"></select>
+    <div class="tally"><span class="t-go" id="n-apply"></span><span class="t-stop" id="n-dont"></span><span class="t-maybe" id="n-unsure"></span><span class="t-left" id="n-left"></span></div>
+  </div>
+  <div class="status" id="status">Loading saved choices…</div>
+  <div id="list"></div>
+</div>
+<script>
+const CARDS = __DATA__;
+// One collection per build, so choices made on an earlier build of this page never mix in.
+const COLLECTION = "decisions-__RUN__";
+const LABEL = {apply:"Apply", dont_apply:"Don't apply", unsure:"Not sure"};
+const FIELD = {club_name:"Club", state_code:"State", age_group:"Age group"};
+const GENDER = {Male:"boys", Female:"girls"};
+const TERMINAL = new Set(["invalid_argument","revoked","quota_exceeded","not_granted","capability_disabled","capability_removed","transform_error"]);
+const failed = {};         // cards whose last write failed: their queued writes are dropped
+const $ = s => document.querySelector(s);
+
+let db = null, loaded = false, canWrite = true;
+let saved = {};            // choices as the store last reported them
+let local = {};            // choices as this page shows them, ahead of the store while a write is in flight
+const queue = {};          // one write at a time per card
+const pending = {};        // writes queued or running per card
+const cards = new Map();
+const groups = new Map();
+
+function el(tag, cls, text){ const e=document.createElement(tag); if(cls) e.className=cls; if(text!=null) e.textContent=text; return e; }
+function month(d){ return d ? d.slice(0,7) : "—"; }
+function choice(id){ return local[id] || saved[id] || {}; }
+function shown(v){ return v == null || v === "" ? "(none)" : v; }
+
+function buildCard(c){
+  const t = c.team, card = el("div","card");
+  const head = el("div","head");
+  head.append(el("span","num", "#" + c.n), el("span","name", t.name || "(no name)"));
+  if (c.interest) head.append(el("span","chip follow","Followed"));
+  const facts = [t.age || "?", GENDER[t.gender] || t.gender || "?", t.state || "no state", t.club || "no club", t.provider || "?"];
+  let line = facts.join(" · ") + ` · ${t.games} game${t.games==1?"":"s"}`;
+  if (t.games) line += ` · ${month(t.first)} to ${month(t.last)}`;
+  if (t.excluded) line += ` · ${t.excluded} excluded`;
+  card.append(head);
+  if (t.original && t.original !== t.name) card.append(el("div","facts", "Registered as: " + t.original));
+  card.append(el("div","facts", line));
+  const ch = el("div","change");
+  ch.append(el("span","field", FIELD[c.change.field] || c.change.field), el("span","old", shown(c.change.old)),
+    document.createTextNode(" → "), el("span","new", shown(c.change.new)));
+  card.append(ch);
+  if (c.why){ const why=el("p","why"); why.append(el("b",null,"Why: "), document.createTextNode(c.why)); card.append(why); }
+  const acts = el("div","acts"), buttons = {};
+  for (const [key,cls] of [["apply","b-apply"],["dont_apply","b-dont"],["unsure","b-unsure"]]){
+    const b = el("button",cls,LABEL[key]); b.type="button";
+    b.addEventListener("click", () => save(c.id, {decision: choice(c.id).decision===key ? null : key}));
+    buttons[key] = b; acts.append(b);
+  }
+  const ta = document.createElement("textarea"); ta.placeholder = "Note (optional)"; ta.setAttribute("aria-label", "Note");
+  ta.addEventListener("change", () => save(c.id, {note: ta.value.trim()}));
+  card.append(acts, ta);
+  cards.set(c.id, {card, buttons, ta});
+  return card;
+}
+
+function buildPage(){
+  const show = $("#show");
+  for (const c of CARDS){
+    if (!groups.has(c.group)){
+      const section = el("section","group"), head = el("div","ghead"), count = el("span","count");
+      head.append(el("h2",null,"Tier " + c.group), count);
+      let all = null;
+      if (c.whole){
+        all = el("button","b-all","Apply every undecided card here"); all.type = "button";
+        // One card at a time: the store refuses a burst of writes from one viewer.
+        all.addEventListener("click", async () => {
+          const g = groups.get(c.group);
+          g.running = true; paint();
+          for (const x of g.cards){
+            if (!loaded || !canWrite) break;
+            if (!choice(x.id).decision) await save(x.id, {decision: "apply"});
+          }
+          g.running = false; paint();
+        });
+        head.append(all);
+      }
+      section.append(head);
+      $("#list").append(section);
+      groups.set(c.group, {section, count, all, cards: [], running: false});
+    }
+    const g = groups.get(c.group);
+    g.cards.push(c);
+    g.section.append(buildCard(c));
+  }
+  for (const [value, text] of [["","All"],["open","Not decided"], ...[...groups.keys()].map(k => ["g:" + k, "Tier " + k])]){
+    const o = document.createElement("option"); o.value = value; o.textContent = text; show.append(o);
+  }
+  $("#intro").textContent = `${CARDS.length} proposed change${CARDS.length==1?"":"s"}. For each one, choose Apply, Don't apply or Not sure, and add a note if you know something the data doesn't. Don't apply is remembered, so the same change is not proposed again. Where the rules are already trusted, a group has a button to apply every card you haven't decided. Everything saves as you go, and Claude reads it back. Nothing changes until you run the apply afterwards.`;
+  const storeKey = "review-show:" + COLLECTION;
+  try { const v = localStorage.getItem(storeKey); if (v != null) show.value = v; } catch(e){}
+  show.addEventListener("change", () => { try { localStorage.setItem(storeKey, show.value); } catch(e){} paint(); });
+}
+
+// Updates the existing cards in place: rebuilding them would swallow a click landing on a
+// button that was replaced mid-press, and wipe a note being typed.
+function paint(){
+  const show = $("#show").value, editable = loaded && canWrite;
+  for (const [name, g] of groups){
+    let visible = 0, open = 0;
+    for (const c of g.cards){
+      const v = cards.get(c.id), s = choice(c.id);
+      v.card.hidden = (show==="open" && !!s.decision) || (show.startsWith("g:") && show !== "g:" + name);
+      if (!v.card.hidden) visible += 1;
+      if (!s.decision) open += 1;
+      if (s.decision) v.card.dataset.d = s.decision; else delete v.card.dataset.d;
+      for (const [key,b] of Object.entries(v.buttons)){ b.setAttribute("aria-pressed", s.decision===key ? "true" : "false"); b.disabled = !editable; }
+      v.ta.disabled = !editable;
+      if (document.activeElement !== v.ta) v.ta.value = s.note || "";
+    }
+    g.section.hidden = !visible;
+    g.count.textContent = `${g.cards.length} card${g.cards.length==1?"":"s"}, ${open} undecided`;
+    if (g.all) g.all.disabled = !editable || !open || g.running;
+  }
+  const n = {apply: 0, dont_apply: 0, unsure: 0};
+  for (const c of CARDS){ const d = choice(c.id).decision; if (d) n[d] += 1; }
+  $("#n-apply").textContent = n.apply + " apply";
+  $("#n-dont").textContent = n.dont_apply + " don't apply";
+  $("#n-unsure").textContent = n.unsure + " unsure";
+  $("#n-left").textContent = (CARDS.length - n.apply - n.dont_apply - n.unsure) + " left";
+}
+
+function save(id, patch){
+  local[id] = {...choice(id), ...patch};
+  paint();
+  pending[id] = (pending[id] || 0) + 1;
+  queue[id] = (queue[id] || Promise.resolve()).then(() => write(id, patch)).finally(() => {
+    pending[id] -= 1;
+    if (!pending[id]) delete failed[id];
+  });
+  return queue[id];
+}
+
+// Writes only the fields that changed, and creates a document only after the store says it
+// does not exist, so a snapshot running behind cannot replace a saved choice with a whole one.
+async function write(id, patch, retried){
+  if (failed[id]) return;   // the card has reverted to the stored choice; a queued edit is no longer on screen
+  const ref = db.collection(COLLECTION).doc(id);
+  const body = {...patch, saved_at: new Date().toISOString()};
+  try {
+    try { await ref.update(body); }
+    catch(e){
+      if (!(e && e.code === "invalid_argument") || (await ref.get()).exists) throw e;
+      await ref.set({decision: null, note: "", ...choice(id), ...body});
+    }
+  } catch(e){
+    const code = e && e.code;
+    if (!TERMINAL.has(code) && !retried){
+      await new Promise(r => setTimeout(r, 400 + Math.random() * 600));
+      return write(id, patch, true);
+    }
+    failed[id] = true;
+    delete local[id];
+    if (TERMINAL.has(code)){ canWrite = false; $("#status").textContent = "Changes can't be saved in this view, so the buttons are off."; }
+    else $("#status").textContent = "That choice did not save. Try again in a moment.";
+    paint();
+  }
+}
+
+buildPage();
+paint();
+(async () => {
+  db = window.claude ? await window.claude.use("db") : null;
+  if (!db){ $("#status").textContent = "Saved choices are unavailable in this view, so the buttons are off."; paint(); return; }
+  db.collection(COLLECTION).onSnapshot(snap => {
+    const next = {};
+    for (const d of snap.docs){ const x = d.data(); if (x) next[d.id] = {decision: x.decision || null, note: x.note || ""}; }
+    saved = next;
+    for (const id of Object.keys(local)) if (!pending[id]) delete local[id];
+    // A first delivery from cache may not hold choices already saved elsewhere.
+    if (!loaded && !(snap.metadata && snap.metadata.fromCache)){ loaded = true; $("#status").textContent = "Choices save automatically."; }
+    paint();
+  }, () => {
+    // Choices saved elsewhere no longer reach this page, so editing would work from a stale view.
+    loaded = false;
+    $("#status").textContent = "Lost the connection to saved choices, so the buttons are off. Reload the page.";
+    paint();
+  });
+})();
+</script>
