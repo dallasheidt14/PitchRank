@@ -344,6 +344,8 @@ class _ArchiveDb:
         self.inserts = []
 
     def table(self, name):
+        if name == "team_merge_map":
+            return _NoMerges().table(name)
         assert name == "teams"
         return _ArchiveQuery(self)
 
@@ -387,6 +389,21 @@ def test_dry_run_creates_nothing():
     rows = archive.plan_rows([_triage_row("reused_id")], "2026-08-01")
     archive.apply(db, rows, execute=False, stamp="t")
     assert db.inserts == []
+
+
+def test_a_record_the_owner_decided_on_is_skipped_before_any_step(tmp_path, monkeypatch):
+    """The plan's id is upper-cased, as a hand-edited plan could carry it."""
+    decided = "bbbb3333-3333-4333-8333-3333bbbb3333"
+    path = tmp_path / "owner_decisions.json"
+    path.write_text(json.dumps({"left_held": {"decided": "2026-10-11", "teams": [{"team_id": decided}]}}), encoding="utf-8")
+    monkeypatch.setattr(fbc, "OWNER_DECISIONS", path)
+    ran = []
+    monkeypatch.setattr(archive, "run_tool", lambda args: ran.append(args) or "")
+    db = _ArchiveDb({**LIVE, "team_id_master": decided.upper()})
+    rows = archive.plan_rows([{**_triage_row("reused_id"), "team_id_master": decided.upper()}], "2026-08-01")
+
+    assert archive.apply(db, rows, execute=True, stamp="t") == []
+    assert db.inserts == [] and ran == []
 
 
 def test_ensure_archive_creates_once_with_no_provider():

@@ -703,7 +703,8 @@ def revert(sb, log_path: Path, execute: bool) -> None:
     print(f"=== Revert {log_path.name} ({'EXECUTE' if execute else 'DRY RUN'}) : {len(rows):,} rows ===")
     outcome = Counter()
     for r in rows:
-        # A decision recorded since the batch ran wins over undoing it: the owner said to leave that team.
+        # Apply holds decided teams, so a decided team in a log was moved before its decision, and
+        # undoing that move would take it off the age the owner chose to keep.
         if r["team_id_master"].lower() in decided:
             outcome["held_owner_decision"] += 1
             continue

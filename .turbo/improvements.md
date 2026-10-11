@@ -2082,7 +2082,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Type**: direct
 - **Category**: reliability
 - **Where**: `.claude/skills/reconcile-gotsport/scripts/archive_split.py` `apply`, the `relabel:` print after `run_tool([... "fix_band_cohorts.py", "--apply", ...])`
-- **Why**: It prints `relabel: <log>` whatever the apply did, so the per-record line and the run log's `relabel_log` read as a relabel even when the apply held the row (`held_owner_decision`, for a decision recorded after the triage) or its guarded write matched nothing. By then the games have moved and the record is renamed, so a held relabel leaves a half-finished split that reads as complete. Read the result from the apply log, or print the apply's updated and held counts.
+- **Why**: It prints `relabel: <log>` whatever the apply did, so the per-record line and the run log's `relabel_log` read as a relabel even when the apply's guarded write matched nothing (the team moved since the plan, say). By then the games have moved and the record is renamed, so an unwritten relabel leaves a half-finished split that reads as complete. (A record the owner decided on is skipped before any step.) Read the result from the apply log, or print the apply's updated and held counts.
 - **Noted**: 2026-10-11
 
 ### Log held rows in a pilot apply too
