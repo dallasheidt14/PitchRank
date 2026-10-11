@@ -118,6 +118,7 @@ truststore.inject_into_ssl()
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from scripts.backfill_state_from_team_name import affiliate_contradicts, state_from_name  # noqa: E402
+from src.utils.canadian_provinces import CANADIAN_PROVINCES  # noqa: E402
 from src.utils.club_state_registry import home_state, requires_review  # noqa: E402
 from src.utils.placeholder_clubs import is_placeholder_club  # noqa: E402
 from src.utils.team_association_map import (  # noqa: E402
@@ -177,12 +178,6 @@ LOCALITY_MIN_SHARE = 0.90
 # carrying the word -- one in Michigan, two in New Jersey -- disagreed, and Dunellen FC of
 # New Jersey was filled as Massachusetts on the strength of it.
 LOCALITY_MIN_CLUB_SHARE = 0.75
-
-# A stored province is legitimate data. No tier corrects it, and it is never counted as
-# malformed -- 1,412 teams are Canadian.
-CANADIAN_PROVINCES = frozenset(
-    {"AB", "BC", "MB", "NB", "NL", "NS", "NT", "NU", "ON", "PE", "QC", "SK", "YT"}
-)
 
 # The state Tier A proposes when GotSport has no association on file, which is also the
 # state it proposes when the association really is Alabama. R8b in ``decide`` is what the

@@ -33,7 +33,7 @@ team_name         TEXT              -- Display name
 club_name         TEXT              -- Parent club
 age_group         TEXT              -- stored lowercase u-form: "u12". Normalize before comparing
 gender            TEXT              -- "Male" or "Female"
-state_code        TEXT              -- 2-letter state code
+state_code        CHAR(2)           -- a 1-char value reads back 'G '; strip in Python (SQL = ignores the pad)
 provider_id       UUID              -- FK to providers(id); there is no provider_code column
 league            TEXT              -- guessed by a manual backfill; NOT current membership
 is_deprecated     BOOLEAN           -- TRUE if merged into another team
@@ -212,6 +212,12 @@ Check every column a filter names when the double builds the query, `.or_()` ter
 column before reading any row. A check made while evaluating rows at `execute()` is skipped when
 `any()` short-circuits on an earlier term or no row reaches it, and a `row.get(column)` lookup reads
 the misspelled column as NULL, so `typo.is.null` matches every row.
+
+Cap the rows `execute()` answers at a small max-rows, so a read that does not page comes back
+short, and refuse a `range()` or `limit()` with no `order()`. Store fixture rows out of id order,
+so a scan ordered by anything but its cursor skips or repeats rows. `_Query` in
+`tests/unit/test_team_cleanup_health.py` does all three; `_Supabase` in
+`tests/unit/test_find_cross_provider_duplicates.py` caps reads and refuses an unordered `range()`.
 
 **A zero-row `.single()` raises; it does not come back empty.** PostgREST answers
 `APIError({"code": "PGRST116", ...})`, and that is the *normal* path for an existence check on a
