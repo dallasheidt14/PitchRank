@@ -73,6 +73,9 @@ jobs:
           tests/unit/test_seeding_predictions.py
           tests/unit/test_seeding_pdf.py
           tests/unit/test_compare_predictor_bridge.py
+      # The team-cleanup applier runs on Windows, where the apply lock is msvcrt's.
+      - name: Test the team-cleanup run store on Windows
+        run: pytest tests/unit/test_team_cleanup_run_store.py
 
   # The repository ruleset already requires the "Python Tests" context. Keep
   # that stable while making the focused Windows regression part of the gate;
@@ -96,7 +99,7 @@ jobs:
             exit 1
           fi
           if [ "$WINDOWS_RESULT" != "success" ]; then
-            echo "::error::MatchBalance Windows export suite finished with $WINDOWS_RESULT"
+            echo "::error::Windows job (MatchBalance export suite, team-cleanup run store) finished with $WINDOWS_RESULT"
             exit 1
           fi
 

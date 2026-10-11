@@ -587,13 +587,16 @@ about `ci.yml` and must stay copy-pasteable from here.
 
 `ci.yml` is the only merge gate: seven required status contexts, all of which run here.
 The required **Python Tests** context is an aggregate: it passes only after both the full
-Linux suite and the focused Windows/Python 3.13 MatchBalance export suite pass. The jobs
-run in parallel; the whole set takes roughly six minutes on a warm checkout.
+Linux suite and a focused Windows/Python 3.13 job pass. The Windows job covers code that runs
+on Windows in production through a branch Linux CI never reaches, such as the team-cleanup
+apply lock (`msvcrt` there, `fcntl` elsewhere). The jobs run in parallel; the whole set takes
+roughly six minutes on a warm checkout.
 
 ```bash
 python -m ruff check src/ scripts/ config/ tournament_intake.py dashboard.py
 python -m pytest tests/ --ignore=tests/test_enhanced_pipeline.py
 python -m pytest tests/unit/test_temp_workspace.py tests/unit/test_seeding_predictions.py tests/unit/test_seeding_pdf.py tests/unit/test_compare_predictor_bridge.py
+python -m pytest tests/unit/test_team_cleanup_run_store.py
 
 cd frontend
 npx eslint .
@@ -603,7 +606,7 @@ npm run test
 npm run generate-llms && git diff --exit-code public/llms.txt
 ```
 
-The two pytest lines jointly feed the required **Python Tests** context; every other line
+The pytest lines jointly feed the required **Python Tests** context; every other line
 maps 1:1 to a required check. A non-zero exit is therefore a red PR. Nothing else blocks a
 merge — the Codex bot's review is advisory, and `claude-review` no longer runs on PRs at
 all. Its `pull_request` trigger is commented out (IMP-104) because it failed on every PR
