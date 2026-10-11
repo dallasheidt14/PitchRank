@@ -1,10 +1,14 @@
 name: EA Scraper
 
 # Modular11 Elite Academy League (tournament 27), separate from the MLS NEXT workflows.
-# One age group per manual run. Without `execute` it writes CSVs to an artifact and nothing
-# to the database; with it, it links/creates the age's teams and imports its played games.
+# A manual run takes one age group. Without `execute` it writes CSVs to an artifact and
+# nothing to the database; with it, it links/creates the age's teams and imports its played
+# games. The weekly run executes every age whose teams have been through the first-import
+# cleanup; u19 joins the list once it has had one.
 
 on:
+  schedule:
+    - cron: '0 5 * * 1'  # Sunday 10 PM Arizona (UTC-7, no DST)
   workflow_dispatch:
     inputs:
       age:
@@ -34,6 +38,13 @@ jobs:
   scrape-ea:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        age: ${{ fromJSON(github.event_name == 'schedule' && '["u11","u12","u13","u14","u15","u16","u17"]' || format('["{0}"]', inputs.age)) }}
+    env:
+      EXECUTE: ${{ github.event_name == 'schedule' || inputs.execute }}
 
     steps:
       - name: Checkout repository
@@ -53,7 +64,7 @@ jobs:
       - name: Scrape EA roster and games
         env:
           PYTHONPATH: ${{ github.workspace }}
-          AGE: ${{ inputs.age }}
+          AGE: ${{ matrix.age }}
         run: |
           set -euo pipefail
           python scripts/scrape_modular11_ea.py --age "$AGE" | tee scrape_counts.txt
@@ -63,53 +74,53 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           PYTHONPATH: ${{ github.workspace }}
-          AGE: ${{ inputs.age }}
+          AGE: ${{ matrix.age }}
         run: |
           set -euo pipefail
           python scripts/match_modular11_ea_teams.py --age "$AGE" | tee match_counts.txt
 
       - name: Plan EA import (dry run)
-        if: ${{ !inputs.execute }}
+        if: ${{ env.EXECUTE != 'true' }}
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           PYTHONPATH: ${{ github.workspace }}
-          AGE: ${{ inputs.age }}
+          AGE: ${{ matrix.age }}
         run: |
           set -euo pipefail
           python scripts/link_modular11_ea_teams.py --age "$AGE" | tee link_counts.txt
           python scripts/build_modular11_ea_games_csv.py --age "$AGE" --planned | tee impact.txt
 
       - name: Link EA teams
-        if: ${{ inputs.execute && env.AGE_ROLLOVER_FREEZE == 'false' }}
+        if: ${{ env.EXECUTE == 'true' && env.AGE_ROLLOVER_FREEZE == 'false' }}
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           PYTHONPATH: ${{ github.workspace }}
-          AGE: ${{ inputs.age }}
+          AGE: ${{ matrix.age }}
         run: |
           set -euo pipefail
           python scripts/link_modular11_ea_teams.py --age "$AGE" --execute | tee link_counts.txt
 
       - name: Build EA import CSV
-        if: ${{ inputs.execute && env.AGE_ROLLOVER_FREEZE == 'false' }}
+        if: ${{ env.EXECUTE == 'true' && env.AGE_ROLLOVER_FREEZE == 'false' }}
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           PYTHONPATH: ${{ github.workspace }}
-          AGE: ${{ inputs.age }}
+          AGE: ${{ matrix.age }}
         run: |
           set -euo pipefail
           python scripts/build_modular11_ea_games_csv.py --age "$AGE" | tee impact.txt
 
       - name: Import EA games
-        if: ${{ inputs.execute && env.AGE_ROLLOVER_FREEZE == 'false' }}
+        if: ${{ env.EXECUTE == 'true' && env.AGE_ROLLOVER_FREEZE == 'false' }}
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           PYTHONPATH: ${{ github.workspace }}
-          AGE: ${{ inputs.age }}
+          AGE: ${{ matrix.age }}
         run: |
           set -euo pipefail
           python scripts/import_games_enhanced.py "data/modular11_ea/$AGE/import.csv" modular11_ea
@@ -118,15 +129,15 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v5
         with:
-          name: ea-scraper-${{ inputs.age }}-${{ github.run_id }}
-          path: data/modular11_ea/${{ inputs.age }}/
+          name: ea-scraper-${{ matrix.age }}-${{ github.run_id }}
+          path: data/modular11_ea/${{ matrix.age }}/
           retention-days: 30
           if-no-files-found: warn
 
       - name: Summary
         if: always()
         env:
-          AGE: ${{ inputs.age }}
+          AGE: ${{ matrix.age }}
         run: |
           {
             echo "## EA Scraper — ${AGE}"
