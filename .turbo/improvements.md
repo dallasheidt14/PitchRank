@@ -2064,3 +2064,13 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `tests/unit/test_agent_doc_references.py` `test_documented_ci_commands_match_the_workflow`
 - **Why**: It checks three hand-picked command fragments, so a pytest line added to CLAUDE.md's gate block or to `.github/workflows/ci.yml` (the team-cleanup run-store line in the Windows job, say) can drift from the other with no test failing. Derive the commands from ci.yml's `run:` steps, as CLAUDE.md's "derive the guarded list" rule asks.
 - **Noted**: 2026-10-10
+
+### Rename the association-code CANADIAN_PROVINCES so it is not mistaken for the state-code set
+
+- **ID**: IMP-313
+- **Status**: open
+- **Type**: direct
+- **Category**: readability
+- **Where**: `src/utils/team_association_map.py` `CANADIAN_PROVINCES`; `src/utils/canadian_provinces.py` `CANADIAN_PROVINCES`
+- **Why**: Two constants share one name but describe different fields. The `team_association_map` set holds GotSport association codes: it includes `CND`, has no NT, NU or YT, and its own comment says nothing consults it. The `canadian_provinces` set holds `teams.state_code` values (13 provinces and territories) and is what `assign_team_states.py` and the team-cleanup health report read. Renaming the first (say, `CANADIAN_ASSOCIATION_CODES`) stops anyone merging the two by name, or importing the wrong one and filing a territory as malformed.
+- **Noted**: 2026-10-10
