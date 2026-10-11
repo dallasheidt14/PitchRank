@@ -69,6 +69,17 @@ jobs:
           set -euo pipefail
           python scripts/scrape_modular11_ea.py --age "$AGE" | tee scrape_counts.txt
 
+      # Matching reads the age below's teams.csv to follow a squad up from last season, and
+      # each run starts on a fresh runner, so scrape that age here too.
+      - name: Scrape the age below for lineage
+        if: ${{ matrix.age != 'u11' && matrix.age != 'u19' }}
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+          AGE: ${{ matrix.age }}
+        run: |
+          set -euo pipefail
+          python scripts/scrape_modular11_ea.py --age "u$(( ${AGE#u} - 1 ))"
+
       - name: Build match report
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
