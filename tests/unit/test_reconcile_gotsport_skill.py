@@ -8,10 +8,13 @@ girls squad that plays boys, and the dormant teams the owner left as stored.
 
 import csv
 import importlib
+import json
 import sys
 from pathlib import Path
 
 import pytest
+
+from scripts import fix_band_cohorts as fbc
 
 TOOLS = Path(__file__).resolve().parents[2] / ".claude/skills/reconcile-gotsport/scripts"
 sys.path.insert(0, str(TOOLS))
@@ -506,7 +509,7 @@ def test_triage_main_writes_the_triage_and_every_plan_to_the_exports_dir_given(t
     monkeypatch.setattr(triage, "EXPORTS", tmp_path / "default")
     monkeypatch.setattr(triage, "load_env", lambda: None)
     monkeypatch.setattr(triage, "get_supabase", lambda: object())
-    monkeypatch.setattr(triage, "kept_as_stored", lambda: set())
+    monkeypatch.setattr(triage, "load_owner_decisions", lambda sb: {})
     monkeypatch.setattr(triage, "latest_rows", lambda logs: [])
     monkeypatch.setattr(triage, "fetch_in", lambda *a, **k: [])
     monkeypatch.setattr(triage, "mark_collisions", lambda sb, out: None)
@@ -518,3 +521,66 @@ def test_triage_main_writes_the_triage_and_every_plan_to_the_exports_dir_given(t
     assert names == ["reconcile_triage", "reconcile_triage_gender_plan", "reconcile_triage_relabel_age_plan",
                      "reconcile_triage_reused_id_age_plan"]
     assert not (tmp_path / "default").exists()
+
+
+class _NoMerges:
+    """Answers the decisions loader's merge-map read with no merges, and refuses anything else."""
+
+    def table(self, name):
+        assert name == "team_merge_map", f"the triage queried {name!r} before its own reads"
+        query = type("Q", (), {})()
+        query.select = lambda columns: query
+        query.in_ = lambda column, values: query
+        query.execute = lambda: type("R", (), {"data": []})()
+        return query
+
+
+def _triage_with_decisions(tmp_path, monkeypatch, decisions, rows):
+    monkeypatch.setattr(triage, "EXPORTS", tmp_path / "default")
+    monkeypatch.setattr(triage, "load_env", lambda: None)
+    monkeypatch.setattr(triage, "get_supabase", lambda: _NoMerges())
+    monkeypatch.setattr(triage, "latest_rows", lambda logs: rows)
+    monkeypatch.setattr(triage, "fetch_in", lambda *a, **k: [])
+    monkeypatch.setattr(triage, "mark_collisions", lambda sb, out: None)
+    monkeypatch.setattr(fbc, "OWNER_DECISIONS", decisions)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["triage_reconcile.py", "--log", str(tmp_path / "log.csv"), "--exports-dir", str(tmp_path / "store")],
+    )
+    triage.main()
+
+
+def test_the_triage_leaves_out_a_team_from_every_section_of_the_owner_s_decisions(tmp_path, monkeypatch, capsys):
+    sections = {
+        "kept_as_stored": "11111111-1111-4111-8111-111111111111",
+        "left_held": "22222222-2222-4222-8222-222222222222",
+        "ea_cleanup_2026_10_07": "33333333-3333-4333-8333-333333333333",
+    }
+    decisions = tmp_path / "owner_decisions.json"
+    decisions.write_text(
+        json.dumps({name: {"decided": "2026-10-01", "teams": [{"team_id": tid}]} for name, tid in sections.items()}),
+        encoding="utf-8",
+    )
+    rows = [
+        {
+            "team_id_master": tid,
+            "stored_age_group": "u14",
+            "gotsport_age_group": "u13",
+            "stored_gender": "Male",
+            "gotsport_gender": "Male",
+        }
+        for tid in [*sections.values(), "44444444-4444-4444-8444-444444444444"]
+    ]
+
+    _triage_with_decisions(tmp_path, monkeypatch, decisions, rows)
+
+    out = capsys.readouterr().out
+    assert "1 teams where GotSport's age or gender differs from ours" in out
+    assert "3 more whose age differs, left out: the owner decided to leave their age" in out
+
+
+def test_the_triage_stops_when_the_owner_s_decisions_cannot_be_read(tmp_path, monkeypatch):
+    with pytest.raises(SystemExit, match="Cannot read the owner's age decisions"):
+        _triage_with_decisions(tmp_path, monkeypatch, tmp_path / "missing.json", [])
+    assert not (tmp_path / "store").exists()

@@ -1503,3 +1503,15 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Noted**: 2026-09-04
 - **Update (2026-10-07)**: Dropped with the feature. The owner had the Unpaid Invoices section removed from `/mission-control/subscriptions`, and the open-invoice fetch and `buildUnpaidInvoices` went with it, so there is no unbounded fetch left to bound.
 - **Refs**: branch `feat/subscriptions-last-month-conversion`
+
+### Let the weekly age re-check read reconcile logs from a run store
+
+- **ID**: IMP-308
+- **Status**: done
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `scripts/weekly_age_recheck.py` `EXPORTS` and the glob over `reconcile_teams_with_gotsport_*.csv` that builds its candidates
+- **Why**: The reconcile, triage and age-fix scripts take `--exports-dir`, so the cleanup loop can write their logs outside the repo, but this script still reads only `<repo>/data/exports` and has no such option. A reconcile run logged elsewhere never reaches the weekly re-check. Add `--exports-dir` the way `fix_band_cohorts.py` takes it, default unchanged.
+- **Noted**: 2026-10-10
+- **Update (2026-10-11)**: `weekly_age_recheck.py` takes `--exports-dir` (default unchanged): it reads the reconcile logs from that folder, writes its report, plan, history and last-run log there, and the apply command it prints carries the folder.
+- **Refs**: branch `feat/age-owner-decisions-everywhere`

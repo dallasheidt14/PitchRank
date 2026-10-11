@@ -2015,16 +2015,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: Verified by SQL 2026-10-09: on 2026-10-06 discovery created 2,507 GotSport teams — 1,375 `unknown_<id>` placeholders, 2,143 with no `state_code`, 1,507 with no `club_name` (675 teams on 2026-09-29). That is the largest weekly inflow of work for the club, state and age cleanups at once (source fix #1 in the cleanup orchestrator plan). When the GotSport lookup returns nothing, don't create the team, or create it without an inherited cohort or state, and count lookup failures so a run that resolves nothing is not green. Fold in IMP-148 (provenance on a derived cohort) and IMP-149 (aged-out U21 teams). Cause unverified: the volume fits GotSport refusing bare requests since 2026-10-01, but a review reported the run log showing 0 errors and 0 skips — confirm from the run before building.
 - **Noted**: 2026-10-09
 
-### Let the weekly age re-check read reconcile logs from a run store
-
-- **ID**: IMP-308
-- **Status**: open
-- **Type**: direct
-- **Category**: reliability
-- **Where**: `scripts/weekly_age_recheck.py` `EXPORTS` and the glob over `reconcile_teams_with_gotsport_*.csv` that builds its candidates
-- **Why**: The reconcile, triage and age-fix scripts take `--exports-dir`, so the cleanup loop can write their logs outside the repo, but this script still reads only `<repo>/data/exports` and has no such option. A reconcile run logged elsewhere never reaches the weekly re-check. Add `--exports-dir` the way `fix_band_cohorts.py` takes it, default unchanged.
-- **Noted**: 2026-10-10
-
 ### Pass `--exports-dir` and `--actor` through the archive split
 
 - **ID**: IMP-309
@@ -2074,3 +2064,33 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `src/utils/team_association_map.py` `CANADIAN_PROVINCES`; `src/utils/canadian_provinces.py` `CANADIAN_PROVINCES`
 - **Why**: Two constants share one name but describe different fields. The `team_association_map` set holds GotSport association codes: it includes `CND`, has no NT, NU or YT, and its own comment says nothing consults it. The `canadian_provinces` set holds `teams.state_code` values (13 provinces and territories) and is what `assign_team_states.py` and the team-cleanup health report read. Renaming the first (say, `CANADIAN_ASSOCIATION_CODES`) stops anyone merging the two by name, or importing the wrong one and filing a territory as malformed.
 - **Noted**: 2026-10-10
+
+### Read the reconcile logs once for the age planner and the weekly re-check
+
+- **ID**: IMP-316
+- **Status**: open
+- **Type**: direct
+- **Category**: refactor
+- **Where**: `scripts/weekly_age_recheck.py` `pending_population`; `scripts/fix_band_cohorts.py` `derive_candidates`; `.claude/skills/correcting-team-age-groups/scripts/review_age_labels.py` `review` (the `gotsport` loop)
+- **Why**: All three glob `reconcile_teams_with_gotsport_*.csv`, keep `run_mode == execute` rows and let the last row per team win; the first two print the same message for an unreadable log, the review skips it silently. A change to how the logs are read (a new run mode, a different policy for a half-written log) has to land three times, and the copies can then disagree on which teams are pending, candidates or reviewed. One helper in `fix_band_cohorts.py` (say `latest_execute_rows(exports_dir)`) would serve all three.
+- **Noted**: 2026-10-11
+
+### Make the archive split's relabel line report what the apply did
+
+- **ID**: IMP-317
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `.claude/skills/reconcile-gotsport/scripts/archive_split.py` `apply`, the `relabel:` print after `run_tool([... "fix_band_cohorts.py", "--apply", ...])`
+- **Why**: It prints `relabel: <log>` whatever the apply did, so the per-record line and the run log's `relabel_log` read as a relabel even when the apply held the row (`held_owner_decision`, for a decision recorded after the triage) or its guarded write matched nothing. By then the games have moved and the record is renamed, so a held relabel leaves a half-finished split that reads as complete. Read the result from the apply log, or print the apply's updated and held counts.
+- **Noted**: 2026-10-11
+
+### Log held rows in a pilot apply too
+
+- **ID**: IMP-318
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `scripts/fix_band_cohorts.py` `apply_plan`, `todo = writable + ([] if limit is not None else sorted(held, ...))`
+- **Why**: With `--limit`, every held row (owner decisions and name contradictions alike) is left out of the apply log, so a pilot's log cannot show which teams were held or why. The full run logs them; a pilot should too, without counting them against the limit.
+- **Noted**: 2026-10-11

@@ -11,6 +11,8 @@ been removed, which is the defect these tests exist to catch.
 """
 
 import csv
+import json
+import re
 
 import pytest
 
@@ -58,8 +60,9 @@ def _write_plan(path, rows):
 
 
 class _Query:
-    def __init__(self, db, columns=None, payload=None):
+    def __init__(self, db, columns=None, payload=None, table="teams"):
         self._db = db
+        self._table = table
         self._columns = columns
         self._payload = payload
         self._filters = {}
@@ -68,12 +71,21 @@ class _Query:
         self._filters[column] = value
         return self
 
+    def in_(self, column, values):
+        values = list(values)
+        assert len(values) <= 100, "an id list this long overflows the URL"
+        self._filters[column] = _AnyOf(values)
+        return self
+
     def _matches(self, team):
-        return all(team.get(column) == value for column, value in self._filters.items())
+        return all(
+            team.get(column) in value if isinstance(value, _AnyOf) else team.get(column) == value
+            for column, value in self._filters.items()
+        )
 
     def execute(self):
         if self._payload is None:
-            rows = [t for t in self._db.teams.values() if self._matches(t)]
+            rows = [t for t in self._source() if self._matches(t)]
             projected = [{c: t.get(c) for c in self._columns} for t in rows]
             self._db.executed.append(("select", dict(self._filters)))
             return _Result(projected)
@@ -87,32 +99,42 @@ class _Query:
         return _Result(updated)
 
 
+    def _source(self):
+        return self._db.merges if self._table == "team_merge_map" else self._db.teams.values()
+
+
+class _AnyOf(tuple):
+    pass
+
+
 class _Result:
     def __init__(self, data):
         self.data = data
 
 
 class _Table:
-    def __init__(self, db):
-        self._db = db
+    def __init__(self, db, name):
+        self._db, self._name = db, name
 
     def select(self, columns):
-        return _Query(self._db, columns=[c.strip() for c in columns.split(",")])
+        return _Query(self._db, columns=[c.strip() for c in columns.split(",")], table=self._name)
 
     def update(self, payload):
+        assert self._name == "teams", "nothing writes team_merge_map"
         return _Query(self._db, payload=payload)
 
 
 class _Db:
-    """Holds ``teams`` rows and applies every filter a caller chains onto a write."""
+    """Holds ``teams`` and ``team_merge_map`` rows and applies every filter a caller chains on."""
 
-    def __init__(self, teams):
+    def __init__(self, teams, merges=()):
         self.teams = {t["team_id_master"]: dict(t) for t in teams}
+        self.merges = [dict(m) for m in merges]
         self.executed = []
 
     def table(self, name):
-        assert name == "teams", f"unexpected table {name!r}"
-        return _Table(self)
+        assert name in ("teams", "team_merge_map"), f"unexpected table {name!r}"
+        return _Table(self, name)
 
     @property
     def writes(self):
@@ -135,7 +157,28 @@ def exports(tmp_path, monkeypatch):
     monkeypatch.setattr(fbc, "ROOT", root)
     monkeypatch.setattr(fbc, "EXPORTS", exports_dir)
     monkeypatch.setattr(fbc, "__file__", str(root / "scripts" / "fix_band_cohorts.py"))
+    _decisions(monkeypatch, tmp_path, {})
     return exports_dir
+
+
+def _decisions(monkeypatch, tmp_path, sections):
+    """``sections`` maps a section name to its team ids; each section's ``decided`` is '2026-10-01, <name>'."""
+    path = tmp_path / "owner_decisions.json"
+    body = {
+        name: {"decided": f"2026-10-01, {name}", "teams": [{"team_id": t} for t in ids]}
+        for name, ids in sections.items()
+    }
+    path.write_text(json.dumps(body), encoding="utf-8")
+    monkeypatch.setattr(fbc, "OWNER_DECISIONS", path)
+    return path
+
+
+def _write_reconcile(exports_dir, rows):
+    path = exports_dir / "reconcile_teams_with_gotsport_20261001_000000.csv"
+    with path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows(rows)
 
 
 def _apply(db, plan_path, **kwargs):
@@ -419,10 +462,7 @@ def test_the_dry_run_reads_reconcile_logs_from_the_exports_dir_it_is_given(expor
         "gotsport_team_name": "Rush 2013/2014 Red",
         "stored_team_name": "Rush 2013 Red",
     }
-    with (store / "reconcile_teams_with_gotsport_20261001_000000.csv").open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=list(audit))
-        writer.writeheader()
-        writer.writerow(audit)
+    _write_reconcile(store, [audit])
 
     assert [c["team_id_master"] for c in fbc.derive_candidates(store)] == ["a"]
     assert fbc.derive_candidates() == []
@@ -452,10 +492,7 @@ def test_main_builds_the_plan_from_and_into_the_exports_dir_given(exports, monke
         "run_mode": "execute", "team_id_master": "a", "stored_age_group": "u14", "gotsport_age_group": "u13",
         "gotsport_team_name": "Rush 2013/2014 Red", "stored_team_name": "Rush 2013 Red",
     }
-    with (store / "reconcile_teams_with_gotsport_20261001_000000.csv").open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=list(audit))
-        writer.writeheader()
-        writer.writerow(audit)
+    _write_reconcile(store, [audit])
     monkeypatch.setattr(fbc, "load_env", lambda: None)
     monkeypatch.setattr(fbc, "get_supabase", lambda: object())
     monkeypatch.setattr(fbc, "fetch_live", lambda sb, ids: {})
@@ -468,3 +505,217 @@ def test_main_builds_the_plan_from_and_into_the_exports_dir_given(exports, monke
     [plan] = sorted(store.glob("fix_band_cohorts_plan_*.csv"))
     assert [(r["team_id_master"], r["action"]) for r in fbc.read_our_csv(plan)] == [("a", "skipped_missing")]
     assert list(exports.iterdir()) == []
+
+
+DECIDED = "33333333-3333-4333-8333-333333333333"
+
+
+def test_apply_holds_a_team_the_owner_decided_and_says_which_decision(exports, tmp_path, monkeypatch):
+    _decisions(monkeypatch, tmp_path, {"left_held": [DECIDED]})
+    rows = [_plan_row(), _plan_row(team_id_master=DECIDED, team_name="Queen City 2013/14 Girls")]
+    db = _Db([_team_row(r) for r in rows])
+    plan = _write_plan(tmp_path / "plan.csv", rows)
+
+    _apply(db, plan)
+
+    assert db.age_group(DECIDED) == "u14" and db.age_group(PLAN_ROW["team_id_master"]) == "u13"
+    _, logged = _log_rows(exports)
+    held = next(r for r in logged if r["team_id_master"] == DECIDED)
+    assert held["result"] == "held_owner_decision"
+    assert held["hold_reason"] == "owner decision left_held: 2026-10-01, left_held"
+
+
+def test_a_held_owner_decision_is_not_reverted(exports, tmp_path, monkeypatch):
+    _decisions(monkeypatch, tmp_path, {"kept_as_stored": [DECIDED]})
+    row = _plan_row(team_id_master=DECIDED)
+    db = _Db([_team_row(row)])
+    _apply(db, _write_plan(tmp_path / "plan.csv", [row]))
+    log, _ = _log_rows(exports)
+    db.teams[DECIDED]["age_group"] = "u13"  # someone else moved it since
+
+    fbc.revert(db, log, execute=True)
+
+    assert db.age_group(DECIDED) == "u13"
+
+
+@pytest.mark.parametrize("execute", [True, False], ids=["execute", "dry-run"])
+def test_an_undo_leaves_a_team_the_owner_decided_on_since_the_batch(exports, tmp_path, monkeypatch, capsys, execute):
+    """The log's id is upper-cased, as a hand-edited plan could carry it: Postgres would still match it."""
+    decided = "bbbb3333-3333-4333-8333-3333bbbb3333"
+    rows = [_plan_row(), _plan_row(team_id_master=decided.upper())]
+    db = _Db([_team_row(r) for r in rows])
+    _apply(db, _write_plan(tmp_path / "plan.csv", rows))
+    log, _ = _log_rows(exports)
+    _decisions(monkeypatch, tmp_path, {"kept_as_stored": [decided]})
+    capsys.readouterr()
+
+    fbc.revert(db, log, execute=execute)
+
+    assert db.age_group(decided.upper()) == "u13"
+    assert db.age_group(PLAN_ROW["team_id_master"]) == ("u14" if execute else "u13")
+    assert re.search(r"held_owner_decision +1\b", capsys.readouterr().out)
+
+
+def test_a_decision_on_a_merged_away_team_holds_its_survivor(exports, tmp_path, monkeypatch):
+    """Merge chains are followed: the decided row was merged twice before this plan."""
+    survivor = "44444444-4444-4444-8444-444444444444"
+    middle = "55555555-5555-4555-8555-555555555555"
+    _decisions(monkeypatch, tmp_path, {"ea_cleanup_2026_10_07": [DECIDED]})
+    row = _plan_row(team_id_master=survivor)
+    merges = [
+        {"deprecated_team_id": DECIDED, "canonical_team_id": middle},
+        {"deprecated_team_id": middle, "canonical_team_id": survivor},
+    ]
+    db = _Db([_team_row(row)], merges)
+
+    _apply(db, _write_plan(tmp_path / "plan.csv", [row]))
+
+    assert db.writes == [] and db.age_group(survivor) == "u14"
+    assert _log_rows(exports)[1][0]["result"] == "held_owner_decision"
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        None,
+        "{not json",
+        json.dumps({"left_held": {"decided": "x"}}),
+        json.dumps({"left_held": {"teams": [{}]}}),
+        json.dumps(["left_held"]),
+        json.dumps({"left_held": {"decided": "x", "teams": ["a"]}}),
+        json.dumps({"left_held": {"decided": "x", "teams": ""}}),
+        json.dumps({"left_held": {"decided": "x", "teams": {}}}),
+        json.dumps({"left_held": {"decided": "x", "teams": [{"team_id": "k"}]}}),
+        json.dumps({"left_held": {"decided": "x", "teams": [{"team_id": None}]}}),
+        '{"left_held": {"decided": "a", "teams": []}, "left_held": {"decided": "b", "teams": []}}',
+    ],
+    ids=[
+        "missing",
+        "not-json",
+        "no-teams",
+        "team-without-id",
+        "not-an-object",
+        "team-not-an-object",
+        "teams-a-string",
+        "teams-an-object",
+        "id-not-a-team-id",
+        "id-null",
+        "section-repeated",
+    ],
+)
+def test_an_unreadable_decisions_file_stops_the_apply_before_anything_is_written(
+    exports, tmp_path, monkeypatch, content
+):
+    path = tmp_path / "broken.json"
+    if content is not None:
+        path.write_text(content, encoding="utf-8")
+    monkeypatch.setattr(fbc, "OWNER_DECISIONS", path)
+    db = _Db([_team_row(PLAN_ROW)])
+
+    with pytest.raises(SystemExit, match="Cannot read the owner's age decisions"):
+        _apply(db, _write_plan(tmp_path / "plan.csv", [PLAN_ROW]))
+    assert db.writes == [] and list(exports.glob("fix_band_cohorts_apply_*.csv")) == []
+
+
+def test_the_plan_skips_every_decided_team_first(exports, tmp_path, monkeypatch):
+    """One team per section, each also a candidate the rules would move, beside one that is not decided."""
+    kept, held, ea, free = (f"{c * 8}-{c * 4}-4{c * 3}-8{c * 3}-{c * 12}" for c in "abcd")
+    _decisions(monkeypatch, tmp_path, {"kept_as_stored": [kept], "left_held": [held], "ea_cleanup_2026_10_07": [ea]})
+    store = tmp_path / "store"
+    store.mkdir()
+    audits = [
+        {
+            "run_mode": "execute",
+            "team_id_master": tid,
+            "stored_age_group": "u14",
+            "gotsport_age_group": "u13",
+            "gotsport_team_name": "Rush 2013/2014 Red",
+            "stored_team_name": "Rush 2013 Red",
+        }
+        for tid in (kept, held, ea, free)
+    ]
+    _write_reconcile(store, audits)
+    live = {
+        a["team_id_master"]: {
+            "team_id_master": a["team_id_master"],
+            "team_name": f"Rush 2013/2014 {colour}",
+            "age_group": "u14",
+            "gender": "Male",
+            "is_deprecated": False,
+        }
+        for a, colour in zip(audits, ("Red", "White", "Blue", "Black"))
+    }
+
+    def evidence(sb, rows):
+        for r in rows:
+            r.update(fixture_verdict="backs_move", opp_games_proposed=5, opp_games_current=0)
+
+    monkeypatch.setattr(fbc, "fetch_live", lambda sb, wanted: {t: live[t] for t in wanted})
+    monkeypatch.setattr(fbc, "attach_fixture_evidence", evidence)
+    monkeypatch.setattr(fbc, "fetch_all_live_teams", lambda sb: [])
+
+    plan = fbc.build_plan(_Db([]), store)
+
+    actions = {r["team_id_master"]: r["action"] for r in fbc.read_our_csv(plan)}
+    assert actions == {
+        kept: "skipped_owner_decision",
+        held: "skipped_owner_decision",
+        ea: "skipped_owner_decision",
+        free: "would_update",
+    }
+
+
+def test_decided_ids_match_whatever_their_letter_case(exports, tmp_path, monkeypatch):
+    merged_away = "aaaa3333-3333-4333-8333-3333aaaa3333"
+    survivor = "44444444-4444-4444-8444-444444444444"
+    other = "6666aaaa-6666-4666-8666-66666666aaaa"
+    _decisions(monkeypatch, tmp_path, {"left_held": [merged_away.upper()], "kept_as_stored": [other]})
+    merges = [{"deprecated_team_id": merged_away, "canonical_team_id": survivor}]
+    rows = [_plan_row(team_id_master=survivor), _plan_row(team_id_master=other.upper())]
+    db = _Db([_team_row(r) for r in rows], merges)
+
+    _apply(db, _write_plan(tmp_path / "plan.csv", rows))
+
+    assert db.writes == []
+    assert [r["result"] for r in _log_rows(exports)[1]] == ["held_owner_decision", "held_owner_decision"]
+
+
+def test_decisions_past_one_batch_of_ids_still_follow_their_merges(exports, tmp_path, monkeypatch):
+    decided = [f"{n:08x}-0000-4000-8000-000000000000" for n in range(101)]
+    survivor = "44444444-4444-4444-8444-444444444444"
+    _decisions(monkeypatch, tmp_path, {"left_held": decided})
+    row = _plan_row(team_id_master=survivor)
+    db = _Db([_team_row(row)], [{"deprecated_team_id": decided[-1], "canonical_team_id": survivor}])
+
+    _apply(db, _write_plan(tmp_path / "plan.csv", [row]))
+
+    assert db.writes == []
+    assert _log_rows(exports)[1][0]["result"] == "held_owner_decision"
+
+
+def test_a_dry_run_apply_reports_a_decided_team_as_held(exports, tmp_path, monkeypatch):
+    _decisions(monkeypatch, tmp_path, {"left_held": [DECIDED]})
+    rows = [_plan_row(), _plan_row(team_id_master=DECIDED)]
+    db = _Db([_team_row(r) for r in rows])
+
+    _apply(db, _write_plan(tmp_path / "plan.csv", rows), execute=False)
+
+    assert db.writes == []
+    assert {r["team_id_master"]: r["result"] for r in _log_rows(exports)[1]} == {
+        PLAN_ROW["team_id_master"]: "would_update",
+        DECIDED: "held_owner_decision",
+    }
+
+
+def test_a_decisions_file_saved_with_a_byte_order_mark_still_loads(tmp_path, monkeypatch):
+    path = tmp_path / "owner_decisions.json"
+    path.write_text(json.dumps({"left_held": {"decided": "x", "teams": [{"team_id": DECIDED}]}}), encoding="utf-8-sig")
+    monkeypatch.setattr(fbc, "OWNER_DECISIONS", path)
+
+    assert fbc.load_owner_decisions(_Db([])) == {DECIDED: ("left_held", "x")}
+
+
+def test_the_owner_s_decisions_file_in_the_repo_loads():
+    decided = fbc.load_owner_decisions(_Db([]))
+
+    assert {"kept_as_stored", "left_held", "ea_cleanup_2026_10_07"} <= {section for section, _ in decided.values()}
