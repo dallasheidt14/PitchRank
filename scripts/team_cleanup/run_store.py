@@ -53,7 +53,11 @@ PERMISSION_DENIED = "42501"
 
 STAGES = ("reconcile", "clubs", "states", "ages", MERGES)
 OPEN_STATUSES = ("proposing", "reviewing", "applying", "second_lap")
-STATUSES = (*OPEN_STATUSES, "done", "abandoned")
+DONE, ABANDONED = "done", "abandoned"
+STATUSES = (*OPEN_STATUSES, DONE, ABANDONED)
+# Prefixes of run.json's note on a stage that has nothing to apply this week. A `failed:` note is not one: the
+# stage is kept open to be retried.
+SKIPPED_STAGE_NOTES = ("not run:", "skill_stale:")
 
 # A review copies these from each proposal it judges, so a reviewer that skipped, reordered or
 # invented a row is caught before its verdicts reach a page.
@@ -249,22 +253,32 @@ def _lease_refused(run_id: str, exc: APIError) -> str:
     return f"could not lease run {run_id}: {exc.message}"
 
 
-def _take_lease(sb, run_id: str, holder: str) -> None:
+def update_free_open_run(sb, run_id: str, payload: dict) -> tuple[list[dict], dict | None]:
+    """Apply ``payload`` to the run while it is open and no applier holds a live lease on it. Returns
+    the rows it changed, and when it changed none, the run's status and lease as they now stand (None
+    when there is no such run), re-read to say which guard held."""
     now = datetime.now(timezone.utc)
+    moved = (
+        sb.table(RUNS_TABLE)
+        .update(payload)
+        .eq("run_id", run_id)
+        .in_("status", list(OPEN_STATUSES))
+        .or_(f"lease_holder.is.null,lease_expires_at.lt.{_utc_stamp(now)}")
+        .execute()
+        .data
+    )
+    if moved:
+        return moved, None
+    rows = sb.table(RUNS_TABLE).select("status,lease_holder,lease_expires_at").eq("run_id", run_id).execute().data
+    return [], rows[0] if rows else None
+
+
+def _take_lease(sb, run_id: str, holder: str) -> None:
+    expires = _utc_stamp(datetime.now(timezone.utc) + timedelta(hours=LEASE_HOURS))
     try:
-        taken = (
-            sb.table(RUNS_TABLE)
-            .update({"lease_holder": holder, "lease_expires_at": _utc_stamp(now + timedelta(hours=LEASE_HOURS))})
-            .eq("run_id", run_id)
-            .in_("status", list(OPEN_STATUSES))
-            .or_(f"lease_holder.is.null,lease_expires_at.lt.{_utc_stamp(now)}")
-            .execute()
-            .data
-        )
+        taken, row = update_free_open_run(sb, run_id, {"lease_holder": holder, "lease_expires_at": expires})
         if taken:
             return
-        # The guarded update matched nothing; re-read to say which guard held.
-        rows = sb.table(RUNS_TABLE).select("status,lease_holder,lease_expires_at").eq("run_id", run_id).execute().data
     except APIError as exc:
         # PostgREST's own errors carry a string code and roll back. Anything else answered for it
         # (a gateway's 502, an unreadable body) may follow a committed update, so it passes through
@@ -272,9 +286,8 @@ def _take_lease(sb, run_id: str, holder: str) -> None:
         if not isinstance(exc.code, str):
             raise
         raise ApplyLockError(_lease_refused(run_id, exc)) from exc
-    if not rows:
+    if row is None:
         raise ApplyLockError(f"no run {run_id} in {RUNS_TABLE}")
-    row = rows[0]
     if row["status"] not in OPEN_STATUSES:
         raise ApplyLockError(f"run {run_id} is {row['status']}, so nothing may apply to it")
     if row["lease_holder"]:
