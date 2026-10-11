@@ -41,6 +41,7 @@ a CSV that --revert replays backwards.
 Usage:
     python scripts/repair_swapped_club_names.py
     python scripts/repair_swapped_club_names.py --abbreviation-run 34866235667 --abbreviation-run <later run>
+    python scripts/repair_swapped_club_names.py --abbreviation-log <saved copy of a run's log>
     python scripts/repair_swapped_club_names.py --execute data/exports/repair_swapped_club_names_<ts>.csv
     python scripts/repair_swapped_club_names.py --revert data/exports/repair_swapped_club_names_log_<ts>.csv
     python scripts/repair_swapped_club_names.py --revert data/exports/repair_swapped_club_names_log_<ts>.csv --execute
@@ -342,6 +343,25 @@ def read_run_log(run_id: str) -> str:
     validate_run_ids([run_id])
     result = subprocess.run(["gh", "run", "view", run_id, "--log"], capture_output=True, encoding="utf-8", check=True)
     return result.stdout
+
+
+def read_saved_log(path: Path) -> str:
+    """A saved copy of a cleanup run's log, refused unless it is UTF-8 holding a rename line.
+
+    PowerShell decodes gh's output in the console code page, mangling the ``✅`` and ``→`` the
+    rename lines are found by. Windows PowerShell's ``>`` then writes UTF-16, refused here as not
+    UTF-8; a copy re-encoded as UTF-8 would otherwise read as a log that renamed nothing.
+    """
+    try:
+        text = path.read_text(encoding="utf-8-sig")
+    except UnicodeDecodeError as e:
+        raise ValueError(f"{path} is not UTF-8 ({e.reason}); save gh's output from Git Bash") from None
+    if not any(FIX_LINE.search(line) for line in text.splitlines()):
+        raise ValueError(
+            f"{path} holds no cleanup rename lines: check it is the log of a run that renamed clubs, and "
+            "save gh's output from Git Bash"
+        )
+    return text
 
 
 # --- deciding ----------------------------------------------------------------------
@@ -820,7 +840,14 @@ def main() -> int:
         "--abbreviation-run",
         action="append",
         help="Run id of update-missing-club-and-state.yml whose log to read; repeatable "
-        f"(default: {', '.join(DEFAULT_ABBREVIATION_RUNS)})",
+        f"(default: {', '.join(DEFAULT_ABBREVIATION_RUNS)}, unless --abbreviation-log is given)",
+    )
+    parser.add_argument(
+        "--abbreviation-log",
+        action="append",
+        type=Path,
+        help="A saved copy of such a run's log (gh run view <run> --log, saved from Git Bash), read beside "
+        "any --abbreviation-run; repeatable. GitHub keeps a run's log for 90 days.",
     )
     parser.add_argument("--revert", type=Path, help="Undo a previous --execute from its CSV log")
     parser.add_argument(
@@ -858,10 +885,18 @@ def main() -> int:
         except ValueError as e:
             parser.error(str(e))
 
-    run_ids = args.abbreviation_run or list(DEFAULT_ABBREVIATION_RUNS)
+    saved_logs = args.abbreviation_log or []
+    run_ids = args.abbreviation_run or ([] if saved_logs else list(DEFAULT_ABBREVIATION_RUNS))
     try:
         leagues = parse_league_urls(args.league_url or DEFAULT_LEAGUE_URLS)
         validate_run_ids(run_ids)
+    except ValueError as e:
+        parser.error(str(e))
+    missing = [str(path) for path in saved_logs if not path.is_file()]
+    if missing:
+        parser.error(f"no saved run log at {', '.join(missing)}")
+    try:
+        saved = [read_saved_log(path) for path in saved_logs]
     except ValueError as e:
         parser.error(str(e))
     snapshot_path = (args.exports_dir or EXPORTS_DIR) / f"repair_swapped_club_names_{timestamp()}.csv"
@@ -873,7 +908,7 @@ def main() -> int:
     print("=== Repair swapped club names (DRY-RUN) ===")
     clubs = fetch_playmetrics_clubs(leagues)
     print(f"PlayMetrics teams listed by {len(leagues)} league(s): {len(clubs)}")
-    logs = [read_run_log(run_id) for run_id in run_ids]
+    logs = saved + [read_run_log(run_id) for run_id in run_ids]
     rows, stats = build_snapshot(supabase, clubs, logs)
 
     write_log([snapshot_csv_row(r) for r in rows], snapshot_path)

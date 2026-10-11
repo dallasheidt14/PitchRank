@@ -1389,6 +1389,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `scripts/normalize_team_names.py` `_resolve_band` / `_BAND_RE`; `src/utils/team_utils.py` `extract_band_birth_year`
 - **Why**: The normalizer's band reader disagrees with the shared one. Verified 2026-09-18: `_resolve_band` reads a spaced three-year list by its first pair (`"CSC 2014 / 2015 / 2016 Boys"` -> `"CSC U12 / 2016 Boys"`), which the shared helper declines; reads nothing from a band touching a hyphen or word (`"FC Academy-2013/2014 Boys"`, `"Eternal 2012/2013Black"`, `"Club 2013/2014-Red"`), which the shared helper reads; and files the aged-out 2007/06 band as U19 through `calculate_age_group_from_birth_year`'s age-20 fold (`"Team 2007/2006"` -> `"Team U19"`), where the shared path assigns no cohort. The normalizer rewrites stored team names weekly, so converging changes stored names: take a dry-run rename diff before shipping.
 - **Noted**: 2026-09-18
+- **Update (2026-10-11)**: Still present: `_resolve_band` converts `max(first, second)` with `calculate_age_group_from_birth_year`. Re-found while planning the age-skill fixes (team-cleanup plan step 8); the apostrophe-band fix there (IMP-240) touches the same `_BAND_RE`, so the two belong in one PR with one rename diff.
 
 ### Club-name override entries that name a U-age go stale every Aug 1
 
@@ -2074,3 +2075,13 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `src/utils/team_association_map.py` `CANADIAN_PROVINCES`; `src/utils/canadian_provinces.py` `CANADIAN_PROVINCES`
 - **Why**: Two constants share one name but describe different fields. The `team_association_map` set holds GotSport association codes: it includes `CND`, has no NT, NU or YT, and its own comment says nothing consults it. The `canadian_provinces` set holds `teams.state_code` values (13 provinces and territories) and is what `assign_team_states.py` and the team-cleanup health report read. Renaming the first (say, `CANADIAN_ASSOCIATION_CODES`) stops anyone merging the two by name, or importing the wrong one and filing a territory as malformed.
 - **Noted**: 2026-10-10
+
+### Decide whether a U17 name moving to u19 counts as two groups away
+
+- **ID**: IMP-314
+- **Status**: open
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `scripts/fix_band_cohorts.py` `name_contradiction` (its `_NAME_UAGE` check)
+- **Why**: The check holds a move when the name's U-age is two or more from the target (`abs(age - n) >= 2`), so a team named U17 moving to u19 is held as "2 away". There is no u18 board: u17 and u19 are neighbouring groups here, and the same move from U16 to U17 passes. Whether a U17-named team may move to u19 is an owner question; the answer decides whether the check should measure distance in boards rather than in years. Found while planning the age-skill fixes (team-cleanup plan step 8), 2026-10-11.
+- **Noted**: 2026-10-11
