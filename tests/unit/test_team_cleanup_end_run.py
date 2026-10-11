@@ -125,8 +125,9 @@ def test_a_stage_that_failed_to_propose_is_not_finished(tmp_path, monkeypatch, c
     assert db.updates == []
 
 
-def test_done_closes_a_run_whose_stages_are_applied_or_have_nothing_to_apply(tmp_path, monkeypatch, capsys):
-    store = _store(tmp_path, applied=("clubs", "ages"), notes={"states": "skill_stale: check exited 1"})
+@pytest.mark.parametrize("note", ["skill_stale: check exited 1", "skill_stale"], ids=["with-reason", "bare"])
+def test_done_closes_a_run_whose_stages_are_applied_or_have_nothing_to_apply(tmp_path, monkeypatch, capsys, note):
+    store = _store(tmp_path, applied=("clubs", "ages"), notes={"states": note})
     db = _Db(_row(status="applying"))
 
     code, _ = _main(monkeypatch, capsys, store, db, "--done", "--execute")

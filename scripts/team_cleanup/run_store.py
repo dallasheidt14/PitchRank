@@ -57,7 +57,7 @@ DONE, ABANDONED = "done", "abandoned"
 STATUSES = (*OPEN_STATUSES, DONE, ABANDONED)
 # Prefixes of run.json's note on a stage that has nothing to apply this week. A `failed:` note is not one: the
 # stage is kept open to be retried.
-SKIPPED_STAGE_NOTES = ("not run:", "skill_stale:")
+SKIPPED_STAGE_NOTES = ("not run", "skill_stale")
 
 # A review copies these from each proposal it judges, so a reviewer that skipped, reordered or
 # invented a row is caught before its verdicts reach a page.
