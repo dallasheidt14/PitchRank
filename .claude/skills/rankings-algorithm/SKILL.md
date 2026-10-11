@@ -137,7 +137,7 @@ All normalizations are per-cohort (age, gender). Preserves natural gaps unlike p
 | `GLICKO2_SCALE` | 173.7178 | Scale conversion factor (module constant in `glicko_engine.py`, not a config field) |
 | `MAX_GAMES` | 30 | Newest valid games per team for rating, OFF/DEF, SOS and ML |
 | `WINDOW_DAYS` | 365 | Historical window |
-| `INACTIVE_DAYS` | 180 | Inactive threshold |
+| `INACTIVE_DAYS` | 155 | Inactive threshold |
 | `RECENCY_LAMBDA` | 1.0 | Exponential decay rate |
 | `MAX_GD` | 6 | Max goal difference per game |
 | `CONVERGENCE_THRESHOLD` | 1.0 | Mean |delta_mu| to stop (max 30 Jacobi iterations) |
@@ -151,6 +151,7 @@ All normalizations are per-cohort (age, gender). Preserves natural gaps unlike p
 - **Cross-age**: `opp_mu + (opp_anchor − team_anchor)·400`; Pass 2 rates cross-age opponents at RD 350 so g(φ) discounts them
 - **SOS adjustment**: mu's distance from 1500 scaled down up to 16% when `sos_norm < 0.45`, up at most 3% when `sos_norm > 0.60`
 - **Provisional / status**: `provisional_mult = 1 − (RD/350)²`; Inactive after `INACTIVE_DAYS`; "Not Enough Ranked Games" below 10
+- **Who is Active moves other teams' scores**: the same-age evidence gates (`_compute_same_age_evidence_metrics` top-100/500/1000 opponent counts and quality weights), the publication-cap cutoff (`_score_cutoff_for_rank`) and the cap band (`_apply_publication_cap_band`) all work over Active teams only. Changing `INACTIVE_DAYS` or `MIN_GAMES_PROVISIONAL` therefore moves `power_score_true` for teams that stay Active, not just the status of teams that cross; `powerscore_core` / `_adj` / `_ml` do not read status. `EVIDENCE_GATE_FROZEN_REF` does not isolate such a change: it only swaps surviving opponents' ranks for last week's, and non-Active opponents still drop out. Each team below a newly non-Active one gains a place, which `rank_change_7d` / `rank_change_state_7d` show for one run and the 30d columns for about four
 
 ### Feature flags currently OFF
 

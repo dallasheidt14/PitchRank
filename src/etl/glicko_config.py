@@ -27,7 +27,7 @@ class GlickoConfig:
     WINDOW_DAYS: int = 365
     # Production policy: newest 30 games in a strict 365-day window.
     WINDOW_GRACE_DAYS: int = 0
-    INACTIVE_DAYS: int = 180
+    INACTIVE_DAYS: int = 155
     # Retain the old selector only for explicit historical comparisons.
     BALANCED_SELECTION_ENABLED: bool = False
     BALANCED_SELECTION_RECENT_GAMES: int = 20
