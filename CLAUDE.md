@@ -642,6 +642,7 @@ two-line edit in `.github/workflows/claude-code-review.yml`.
 | `or-scraper.yml` | Mon 6:30 + 7:30 AM UTC | Affinity OR (OYSA) league scrape + import — keeps unplayed fixtures |
 | `ut-scraper.yml` | Mon 5:30 + 6:30 AM UTC | Affinity UT (UYSA) league scrape + import — keeps unplayed fixtures |
 | `yssl-scraper.yml` | Mon 8:15 AM UTC | YSSL scrape, roster pass and import — scored games only; red when a team has no decided club-map row, a team's link errored or conflicted, a played game could not be read (rainouts excepted), or an in-season run read no scored games |
+| `ea-scraper.yml` | Mon 5:00 AM UTC | Modular11 Elite Academy League scrape + import, u11–u17 one after another (u19 manual until its first-import cleanup); links confident teams, creates no-match teams, holds review teams and their games. Manual runs take one age |
 | `playmetrics-scrape-import.yml` | Mon 6:30 AM UTC | PlayMetrics league scrape + import (deliberately ungated by `AGE_ROLLOVER_FREEZE`) |
 | `update-missing-club-and-state.yml` | Mon 10:00 AM UTC | Backfill missing `club_name` and standardize existing spellings — **every `state_code` step is `if: false`** (see below) |
 | `fill-team-states-weekly.yml` | Wed 9:37 AM UTC | Fill missing `state_code` from ranked evidence — fills only, never corrections |
