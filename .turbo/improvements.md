@@ -1382,6 +1382,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `scripts/normalize_team_names.py` `_resolve_band` / `_BAND_RE`; `src/utils/team_utils.py` `extract_band_birth_year`
 - **Why**: The normalizer's band reader disagrees with the shared one. Verified 2026-09-18: `_resolve_band` reads a spaced three-year list by its first pair (`"CSC 2014 / 2015 / 2016 Boys"` -> `"CSC U12 / 2016 Boys"`), which the shared helper declines; reads nothing from a band touching a hyphen or word (`"FC Academy-2013/2014 Boys"`, `"Eternal 2012/2013Black"`, `"Club 2013/2014-Red"`), which the shared helper reads; and files the aged-out 2007/06 band as U19 through `calculate_age_group_from_birth_year`'s age-20 fold (`"Team 2007/2006"` -> `"Team U19"`), where the shared path assigns no cohort. The normalizer rewrites stored team names weekly, so converging changes stored names: take a dry-run rename diff before shipping.
 - **Noted**: 2026-09-18
+- **Update (2026-10-11)**: Still present: `_resolve_band` converts `max(first, second)` with `calculate_age_group_from_birth_year`. Re-found while planning the age-skill fixes (team-cleanup plan step 8); the apostrophe-band fix there (IMP-240) touches the same `_BAND_RE`, so the two belong in one PR with one rename diff.
 
 ### Club-name override entries that name a U-age go stale every Aug 1
 
@@ -1998,16 +1999,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: Verified by SQL 2026-10-09: on 2026-10-06 discovery created 2,507 GotSport teams — 1,375 `unknown_<id>` placeholders, 2,143 with no `state_code`, 1,507 with no `club_name` (675 teams on 2026-09-29). That is the largest weekly inflow of work for the club, state and age cleanups at once (source fix #1 in the cleanup orchestrator plan). When the GotSport lookup returns nothing, don't create the team, or create it without an inherited cohort or state, and count lookup failures so a run that resolves nothing is not green. Fold in IMP-148 (provenance on a derived cohort) and IMP-149 (aged-out U21 teams). Cause unverified: the volume fits GotSport refusing bare requests since 2026-10-01, but a review reported the run log showing 0 errors and 0 skips — confirm from the run before building.
 - **Noted**: 2026-10-09
 
-### Let the weekly age re-check read reconcile logs from a run store
-
-- **ID**: IMP-308
-- **Status**: open
-- **Type**: direct
-- **Category**: reliability
-- **Where**: `scripts/weekly_age_recheck.py` `EXPORTS` and the glob over `reconcile_teams_with_gotsport_*.csv` that builds its candidates
-- **Why**: The reconcile, triage and age-fix scripts take `--exports-dir`, so the cleanup loop can write their logs outside the repo, but this script still reads only `<repo>/data/exports` and has no such option. A reconcile run logged elsewhere never reaches the weekly re-check. Add `--exports-dir` the way `fix_band_cohorts.py` takes it, default unchanged.
-- **Noted**: 2026-10-10
-
 ### Pass `--exports-dir` and `--actor` through the archive split
 
 - **ID**: IMP-309
@@ -2117,6 +2108,56 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `frontend/components/GameHistoryTable.tsx` (`GameHistoryTable`, the `isLoading`, `isError` and empty-games early returns)
 - **Why**: Verified 2026-10-12: the three early returns each carry the same ~20-line `CardHeader` (title, description, `MissingGamesForm`, admin-gated `MergeTeamsDialogWrapper`), so the admin gate had to be added three times. The loaded-games header differs (display-font title, `LastUpdated`, no merge button), so decide whether it shares the component or stays separate.
 - **Noted**: 2026-10-12
+
+### Decide whether a U17 name moving to u19 counts as two groups away
+
+- **ID**: IMP-323
+- **Status**: open
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `scripts/fix_band_cohorts.py` `name_contradiction` (its `_NAME_UAGE` check)
+- **Why**: The check holds a move when the name's U-age is two or more from the target (`abs(age - n) >= 2`), so a team named U17 moving to u19 is held as "2 away". There is no u18 board: u17 and u19 are neighbouring groups here, and the same move from U16 to U17 passes. Whether a U17-named team may move to u19 is an owner question; the answer decides whether the check should measure distance in boards rather than in years. Found while planning the age-skill fixes (team-cleanup plan step 8), 2026-10-11.
+- **Noted**: 2026-10-11
+
+### Escape the age plan's provider text the way its reader expects
+
+- **ID**: IMP-324
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `.claude/skills/correcting-team-age-groups/scripts/review_age_labels.py` `write_plan`; `scripts/fix_band_cohorts.py` `read_our_csv`; `scripts/team_cleanup/propose_week.py` `age_proposals`
+- **Why**: `write_plan` writes the plan with a plain `csv.DictWriter` and never applies `csv_safe` to `team_name`, `club_name` or `gotsport_team_name`, so a provider name starting with a formula character (=, +, -, @, or a tab or line break) is a live formula when the plan, or the weekly loop's ages `vetted.csv` (a verbatim copy), is opened in a spreadsheet. `read_our_csv` meanwhile runs `csv_unsafe` on those same fields, so a real name that opens with a quote followed by such a character or another quote loses the quote on read. No database write is affected: apply and revert set only `age_group`. Escape the three fields in `write_plan` with `fix_band_cohorts.csv_safe`, and unescape `team_name` in `propose_week.age_proposals` with `csv_unsafe` as `club_proposals` does, or the weekly age page shows the escaped name. Owner, 2026-10-11: handle it with the age-skill PRs (team-cleanup plan step 8a). Found by the security review of the cleanup loop's review pages.
+- **Noted**: 2026-10-11
+
+### Read the reconcile logs once for the age planner and the weekly re-check
+
+- **ID**: IMP-325
+- **Status**: open
+- **Type**: direct
+- **Category**: refactor
+- **Where**: `scripts/weekly_age_recheck.py` `pending_population`; `scripts/fix_band_cohorts.py` `derive_candidates`; `.claude/skills/correcting-team-age-groups/scripts/review_age_labels.py` `review` (the `gotsport` loop)
+- **Why**: All three glob `reconcile_teams_with_gotsport_*.csv`, keep `run_mode == execute` rows and let the last row per team win; the first two print the same message for an unreadable log, the review skips it silently. A change to how the logs are read (a new run mode, a different policy for a half-written log) has to land three times, and the copies can then disagree on which teams are pending, candidates or reviewed. One helper in `fix_band_cohorts.py` (say `latest_execute_rows(exports_dir)`) would serve all three.
+- **Noted**: 2026-10-11
+
+### Make the archive split's relabel line report what the apply did
+
+- **ID**: IMP-326
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `.claude/skills/reconcile-gotsport/scripts/archive_split.py` `apply`, the `relabel:` print after `run_tool([... "fix_band_cohorts.py", "--apply", ...])`
+- **Why**: It prints `relabel: <log>` whatever the apply did, so the per-record line and the run log's `relabel_log` read as a relabel even when the apply's guarded write matched nothing (the team moved since the plan, say). By then the games have moved and the record is renamed, so an unwritten relabel leaves a half-finished split that reads as complete. (A record the owner decided on is skipped before any step.) Read the result from the apply log, or print the apply's updated and held counts.
+- **Noted**: 2026-10-11
+
+### Log held rows in a pilot apply too
+
+- **ID**: IMP-327
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `scripts/fix_band_cohorts.py` `apply_plan`, `todo = writable + ([] if limit is not None else sorted(held, ...))`
+- **Why**: With `--limit`, every held row (owner decisions and name contradictions alike) is left out of the apply log, so a pilot's log cannot show which teams were held or why. The full run logs them; a pilot should too, without counting them against the limit.
+- **Noted**: 2026-10-11
 
 ### Let the name normalizer accept a birth year in either of its two age groups
 

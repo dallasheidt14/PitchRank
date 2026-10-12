@@ -21,13 +21,8 @@ Read-only: it never writes to the database.
 from __future__ import annotations
 
 import argparse
-import hashlib
-import html
 import json
-import re
-import secrets
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[4]
@@ -35,7 +30,6 @@ sys.path.insert(0, str(ROOT))
 
 from scripts.find_cross_provider_duplicates import (  # noqa: E402
     REJECTED_TIER,
-    batched,
     build_evidence,
     fetch_games,
     get_client,
@@ -43,14 +37,13 @@ from scripts.find_cross_provider_duplicates import (  # noqa: E402
     merged_into,
     resolver,
 )
+from scripts.team_cleanup import review_page  # noqa: E402
+from scripts.team_cleanup.decisions import new_page_run  # noqa: E402
+from scripts.team_cleanup.review_page import fetch_teams  # noqa: E402
 from scripts.team_cleanup.vetted import stamp  # noqa: E402
 
 TEMPLATE = Path(__file__).resolve().parent.parent / "assets" / "review-page.html"
-TEAM_COLS = (
-    "team_id_master,team_name,team_name_original,club_name,age_group,gender,state_code,provider_id,is_deprecated"
-)
 STATUSES = ("held", "rejected", "proposed")
-_PLACEHOLDER = re.compile("__TITLE__|__DATA__|__RUN__")
 
 
 def normalise(pair: dict) -> dict:
@@ -62,14 +55,6 @@ def normalise(pair: dict) -> dict:
         raise SystemExit(f"unknown status {status!r} for {pair['merge_id']} -> {pair['keep_id']}")
     reason = pair.get("reason") or pair.get("rejected_reason") or ""
     return {"merge_id": pair["merge_id"], "keep_id": pair["keep_id"], "status": status, "reason": reason}
-
-
-def fetch_teams(sb, ids) -> dict[str, dict]:
-    teams = {}
-    for batch in batched(ids):
-        for t in sb.table("teams").select(TEAM_COLS).in_("team_id_master", batch).execute().data:
-            teams[t["team_id_master"]] = t
-    return teams
 
 
 def side(tid, teams, ev, providers) -> dict:
@@ -110,7 +95,7 @@ def build_records(pairs, teams, canonical, ev, providers, run) -> tuple[list[dic
             continue
         seen.add(frozenset(ids))
         records.append({
-            "id": f"{run}_{hashlib.sha256(f'{ids[0]}_{ids[1]}'.encode()).hexdigest()[:16]}",
+            "id": review_page.card_id(run, f"{ids[0]}_{ids[1]}"),
             "status": p["status"],
             "reason": p["reason"],
             "rows": [side(ids[0], teams, ev, providers), side(ids[1], teams, ev, providers)],
@@ -122,14 +107,7 @@ def build_records(pairs, teams, canonical, ev, providers, run) -> tuple[list[dic
 
 
 def render(records, title, run) -> str:
-    # Every `<` is escaped so no provider-typed name can open or close a tag inside the script,
-    # and all placeholders fill in one pass so a filled value is never read as a placeholder.
-    values = {
-        "__TITLE__": html.escape(title),
-        "__DATA__": json.dumps(records, ensure_ascii=False).replace("<", "\\u003c"),
-        "__RUN__": run,
-    }
-    return _PLACEHOLDER.sub(lambda m: values[m.group(0)], TEMPLATE.read_text(encoding="utf-8"))
+    return review_page.render(TEMPLATE, records, title, run)
 
 
 def manifest(records, teams, title, run) -> dict:
@@ -165,7 +143,7 @@ def main() -> int:
     canonical = resolver(merge_map)
     ev = build_evidence(fetch_games(sb, sorted(merged_into(ids, merge_map, canonical))), [], canonical, ids)
 
-    run = f"{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}-{secrets.token_hex(3)}"
+    run = new_page_run()
     records, skipped = build_records(pairs, teams, canonical, ev, providers, run)
     out = Path(args.out)
     out.write_text(render(records, args.title, run), encoding="utf-8")

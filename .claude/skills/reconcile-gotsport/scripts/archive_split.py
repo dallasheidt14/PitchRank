@@ -50,6 +50,7 @@ from scripts.fix_band_cohorts import (  # noqa: E402
     csv_unsafe,
     get_supabase,
     load_env,
+    load_owner_decisions,
     read_csv,
 )
 from scripts.fix_band_cohorts import write_csv as write_age_plan  # noqa: E402
@@ -187,9 +188,16 @@ def ensure_archive(sb, r: Dict, live: Dict, execute: bool) -> Optional[str]:
 
 def apply(sb, rows: List[Dict], execute: bool, stamp: str) -> List[Dict]:
     start = season_start()
+    # A decision recorded after the triage would otherwise meet only the relabel's hold, after the
+    # games had moved and the record was renamed, so a decided record is skipped before any step.
+    decided = load_owner_decisions(sb)
     log: List[Dict] = []
     for r in rows:
         tid = r["team_id_master"]
+        owner = decided.get(tid.lower())
+        if owner:
+            print(f"  skip {r['our_name']!r}: the owner decided to leave its age ({owner[0]}: {owner[1]})")
+            continue
         live = (
             sb.table("teams")
             .select("team_name,age_group,gender,state_code,club_name,is_deprecated")

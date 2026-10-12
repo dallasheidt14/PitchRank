@@ -215,6 +215,11 @@ paint();
     // A first delivery from cache may not hold choices already saved elsewhere.
     if (!loaded && !(snap.metadata && snap.metadata.fromCache)){ loaded = true; $("#status").textContent = "Choices save automatically."; }
     paint();
-  }, () => { $("#status").textContent = "Lost the connection to saved choices. Reload the page."; });
+  }, () => {
+    // Choices saved elsewhere no longer reach this page, so editing would work from a stale view.
+    loaded = false;
+    $("#status").textContent = "Lost the connection to saved choices, so the buttons are off. Reload the page.";
+    paint();
+  });
 })();
 </script>

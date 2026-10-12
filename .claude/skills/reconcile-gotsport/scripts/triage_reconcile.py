@@ -36,7 +36,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import json
 import re
 import statistics
 import sys
@@ -62,6 +61,7 @@ from scripts.fix_band_cohorts import (  # noqa: E402
     csv_unsafe,
     get_supabase,
     load_env,
+    load_owner_decisions,
     norm_name,
     read_csv,
     single_band,
@@ -73,7 +73,6 @@ from src.utils.team_name_utils import _UAGE_TOKEN, birth_years  # noqa: E402
 from src.utils.team_utils import _soccer_season_year  # noqa: E402
 
 EXPORTS = ROOT / "data" / "exports"
-OWNER_DECISIONS = ROOT / ".claude" / "skills" / "correcting-team-age-groups" / "scripts" / "owner_decisions.json"
 IN_BATCH = 100
 PAGE = 1000
 # Fewer fall games with a readable opponent age than this cannot show which cohort a
@@ -268,15 +267,6 @@ def latest_rows(logs: List[Path]) -> List[Dict]:
     return list(latest.values())
 
 
-def kept_as_stored() -> set:
-    """Teams the owner already decided to leave at their stored age."""
-    try:
-        data = json.loads(OWNER_DECISIONS.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return set()
-    return {t["team_id"] for t in data.get("kept_as_stored", {}).get("teams", []) if t.get("team_id")}
-
-
 def fetch_in(sb, table: str, cols: str, column: str, values: List[str]) -> List[Dict]:
     out: List[Dict] = []
     for i in range(0, len(values), IN_BATCH):
@@ -336,7 +326,7 @@ def other_side(game: Dict, ids: List[str]) -> Optional[str]:
     return game["away_team_master_id"] if game["home_team_master_id"] in ids else game["home_team_master_id"]
 
 
-def assess(sb, row: Dict, team: Dict, ids: List[str], season_start: str, since: str, declined: set) -> Optional[Dict]:
+def assess(sb, row: Dict, team: Dict, ids: List[str], season_start: str, since: str, declined: Dict) -> Optional[Dict]:
     """One triage row for one flagged team, or None when the live values already agree."""
     tid = team["team_id_master"]
     stored, theirs = group_number(team["age_group"]), group_number(row["gotsport_age_group"])
@@ -588,18 +578,23 @@ def main() -> None:
 
     load_env()
     sb = get_supabase()
-    declined = kept_as_stored()
+    # Left out here as well as held at apply: a reused_id team's games are split before its age plan
+    # is applied, so a hold at apply comes too late.
+    declined = load_owner_decisions(sb)
 
-    flagged = []
+    flagged, owner_left = [], 0
     for row in latest_rows(args.log):
         ours, theirs = group_number(row.get("stored_age_group")), group_number(row.get("gotsport_age_group"))
-        ages_differ = bool(ours and theirs and ours != theirs) and row["team_id_master"] not in declined
+        ages_differ = bool(ours and theirs and ours != theirs)
         genders_differ = bool(row.get("gotsport_gender") and row.get("stored_gender")) and (
             row["gotsport_gender"] != row["stored_gender"]
         )
-        if ages_differ or genders_differ:
+        if (ages_differ and row["team_id_master"] not in declined) or genders_differ:
             flagged.append(row)
+        elif ages_differ:
+            owner_left += 1
     print(f"{len(flagged)} teams where GotSport's age or gender differs from ours")
+    print(f"{owner_left} more whose age differs, left out: the owner decided to leave their age")
 
     team_ids = [r["team_id_master"] for r in flagged]
     team_cols = (

@@ -8,6 +8,8 @@ A double that recorded nothing at ``execute()`` could not tell the two apart.
 """
 
 import csv
+import json
+import re
 
 import pytest
 
@@ -61,9 +63,17 @@ def exports(tmp_path, monkeypatch):
     root = tmp_path / "repo"
     exports_dir = root / "data" / "exports"
     exports_dir.mkdir(parents=True)
-    monkeypatch.setattr(war, "ROOT", root)
+    monkeypatch.setattr(fbc, "ROOT", root)
     monkeypatch.setattr(war, "EXPORTS", exports_dir)
+    _decisions(monkeypatch, tmp_path, [])
     return exports_dir
+
+
+def _decisions(monkeypatch, tmp_path, team_ids):
+    path = tmp_path / "owner_decisions.json"
+    body = {"left_held": {"decided": "2026-09-19", "teams": [{"team_id": t} for t in team_ids]}}
+    path.write_text(json.dumps(body), encoding="utf-8")
+    monkeypatch.setattr(fbc, "OWNER_DECISIONS", path)
 
 
 def _write_reconcile(exports_dir, rows, name="reconcile_teams_with_gotsport_20260915.csv"):
@@ -78,7 +88,8 @@ def _write_reconcile(exports_dir, rows, name="reconcile_teams_with_gotsport_2026
 def _population(monkeypatch, exports_dir, reconcile_rows, live_rows):
     _write_reconcile(exports_dir, reconcile_rows)
     monkeypatch.setattr(fbc, "fetch_live", lambda sb, ids: {t["team_id_master"]: t for t in live_rows})
-    return war.pending_population(_Db())
+    rows, _ = war.pending_population(_Db(), exports_dir, {})
+    return rows
 
 
 def test_a_team_gotsport_files_younger_is_pending(exports, monkeypatch):
@@ -144,7 +155,7 @@ def test_the_latest_reconcile_row_per_team_wins(exports, monkeypatch):
     _write_reconcile(exports, [later], "reconcile_teams_with_gotsport_20260916.csv")
     monkeypatch.setattr(fbc, "fetch_live", lambda sb, ids: {row["team_id_master"]: _live(row)})
 
-    assert war.pending_population(_Db()) == []
+    assert war.pending_population(_Db(), exports, {}) == ([], 0)
 
 
 def test_the_run_writes_no_database_rows(exports, monkeypatch, capsys):
@@ -223,3 +234,94 @@ def test_a_name_whose_birth_year_misses_the_new_group_is_held(exports, monkeypat
     report = sorted(exports.glob("weekly_age_recheck_2*.md"))[-1].read_text(encoding="utf-8")
     assert "**0 teams now qualify**" in report
     assert "| Held — our name states a different age | 1 |" in report
+def _qualifies(monkeypatch, db):
+    monkeypatch.setattr(fbc, "load_env", lambda: None)
+    monkeypatch.setattr(fbc, "get_supabase", lambda: db)
+    monkeypatch.setattr(fbc, "fetch_all_live_teams", lambda sb: [])
+
+    def _evidence(sb, rows):
+        for r in rows:
+            r.update(fixture_verdict="backs_move", opp_games_proposed=6, opp_games_current=0)
+
+    monkeypatch.setattr(fbc, "attach_fixture_evidence", _evidence)
+
+
+class _MergeDb(_Db):
+    """Answers the decisions loader's merge-map read and refuses every other table."""
+
+    def table(self, name):
+        if name != "team_merge_map":
+            return super().table(name)
+        db = self
+
+        class _Q:
+            def select(self, columns):
+                return self
+
+            def in_(self, column, values):
+                return self
+
+            def execute(self):
+                db.executed.append(("select", name))
+                return type("R", (), {"data": []})()
+
+        return _Q()
+
+
+def test_a_team_the_owner_decided_is_left_out_before_the_live_read_and_counted(exports, tmp_path, monkeypatch, capsys):
+    decided_id = "55555555-5555-4555-8555-555555555555"
+    decided, free = _reconcile_row(team_id_master=decided_id), _reconcile_row()
+    _write_reconcile(exports, [decided, free])
+    _decisions(monkeypatch, tmp_path, [decided_id])
+    read = []
+    monkeypatch.setattr(fbc, "fetch_live", lambda sb, ids: read.extend(ids) or {free["team_id_master"]: _live(free)})
+    db = _MergeDb()
+    _qualifies(monkeypatch, db)
+
+    war.main(exports)
+
+    assert read == [free["team_id_master"]]
+    assert db.writes == []
+    report = sorted(exports.glob("weekly_age_recheck_2*.md"))[-1].read_text(encoding="utf-8")
+    assert "| Left out — the owner decided to leave their age | 1 |" in report
+    assert "**1 teams now qualify**" in report
+
+
+def test_the_exports_dir_given_is_read_and_written_and_the_default_gets_nothing(exports, tmp_path, monkeypatch):
+    store = tmp_path / "store with space" / "exports"
+    store.mkdir(parents=True)
+    row = _reconcile_row()
+    _write_reconcile(store, [row])
+    monkeypatch.setattr(fbc, "fetch_live", lambda sb, ids: {row["team_id_master"]: _live(row)})
+    _qualifies(monkeypatch, _Db())
+
+    war.cli(["--exports-dir", str(store)])
+
+    written = sorted(re.sub(r"_[0-9]{8}(?=\.)", "", p.name) for p in store.iterdir())
+    assert written == [
+        "reconcile_teams_with_gotsport.csv",
+        "weekly_age_recheck.md",
+        "weekly_age_recheck_history.csv",
+        "weekly_age_recheck_last_run.log",
+        "weekly_age_recheck_plan.csv",
+    ]
+    assert list(exports.iterdir()) == []
+    report = sorted(store.glob("weekly_age_recheck_2*.md"))[-1].read_text(encoding="utf-8")
+    assert "**1 teams now qualify**" in report
+    assert f'--exports-dir "{store}" --execute' in report
+
+
+def test_a_run_that_fails_in_a_fresh_exports_dir_still_records_why(exports, tmp_path, monkeypatch):
+    store = tmp_path / "new store" / "exports"
+    monkeypatch.setattr(fbc, "load_env", lambda: None)
+
+    def _no_database():
+        raise RuntimeError("database unreachable")
+
+    monkeypatch.setattr(fbc, "get_supabase", _no_database)
+
+    with pytest.raises(RuntimeError):
+        war.cli(["--exports-dir", str(store)])
+
+    log = (store / "weekly_age_recheck_last_run.log").read_text(encoding="utf-8")
+    assert " FAILED\n" in log and "database unreachable" in log
