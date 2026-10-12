@@ -56,6 +56,7 @@ from scripts.fix_band_cohorts import (  # noqa: E402
     _NAME_UAGE,
     PLAN_FIELDS,
     band_of,
+    cohort_years,
     csv_safe,
     csv_unsafe,
     get_supabase,
@@ -132,13 +133,6 @@ def opponent_age(name: str, column: Optional[str]) -> Tuple[Optional[int], str]:
         return band, "band"
     n = group_number(column)
     return (n, "column") if n else (None, "")
-
-
-def cohort_years(age: int, season: Optional[int] = None) -> set:
-    """Birth years a cohort holds this season; u19 also holds the U18 band filed into it."""
-    younger = (season or _soccer_season_year()) - age + 1
-    years = {younger, younger - 1}
-    return years | {younger + 1} if age == 19 else years
 
 
 def majority_gender(names: Iterable[Optional[str]]) -> Tuple[str, Counter]:

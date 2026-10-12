@@ -142,6 +142,10 @@ def test_cohort_years_2026_27():
     assert triage.cohort_years(19, season=2026) == {2008, 2007, 2009}
 
 
+def test_the_triage_reads_cohorts_with_the_applier_s_function():
+    assert triage.cohort_years is fbc.cohort_years
+
+
 def test_squad_words():
     assert triage.squad_words("16B Wagner", "RSL Arizona South") == {"wagner"}
     assert triage.squad_words("U10B Etgar", "RSL Arizona South") == {"etgar"}
