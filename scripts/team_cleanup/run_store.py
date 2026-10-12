@@ -3,18 +3,32 @@
 The store sits outside the repo, so removing a worktree takes no undo log with it:
 
   <store>/exports/                 every applier's plans and logs (their --exports-dir)
+  <store>/inputs/abbreviation_logs/<GitHub run id>.log
+                                   saved logs of update-missing-club-and-state.yml runs, which the
+                                   club scan reads
+  <store>/propose.lock             held while a week is being proposed
   <store>/runs/<run_id>/run.json   scope, budgets, status, stage overrides, timestamps
-  <store>/runs/<run_id>/<stage>/   that stage's files, with one marker per finished step
+  <store>/runs/<run_id>/write_guard.json
+                                   how many teams changed while the stages proposed, and each
+                                   stage's stale count; written once each stage has proposed or is
+                                   skill_stale, and until then write_guard_before.json holds the
+                                   opening snapshot
+  <store>/runs/<run_id>/<stage>/   that stage's files and logs/, with one marker per finished step
   <store>/health/                  weekly reports
 
 A stage's progress is read back from its markers rather than stored, so a run killed mid-stage
 resumes at the first step whose marker is missing:
 
   preflight.json   the stage's skill self-check passed
-  propose_done     its proposals are written
+  propose_done     its proposals.json is written, one row per proposed change. stale.json is
+                   written beside it when write_guard.json is, listing the proposals whose
+                   proposed field or liveness something else changed meanwhile
   review/          every <name>.json there has a <name>_review.json that copies it
-  page.json        the owner's review page is built
-  collected.json   the owner's choices are collected into the stage applier's input
+  page.json        the owner's review page is built: page.html, and page.manifest.json, which
+                   names the proposal behind each card
+  collected.json   the owner's choices are collected into the stage applier's input: vetted.csv or
+                   vetted.json (absent when nothing was chosen to apply), and decisions.json,
+                   every decided card for the applier to record
   RECORD.md        the apply ran and was verified
 
 The owner acts twice: deciding on the page, before collected.json, and triggering the apply,
@@ -24,6 +38,7 @@ before RECORD.md.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import logging
 import os
 import re
@@ -70,14 +85,22 @@ class Step:
     next_action: str
 
 
+PREFLIGHT_MARKER = "preflight.json"
+PROPOSE_MARKER = "propose_done"
+PROPOSALS_FILE = "proposals.json"
+STALE_FILE = "stale.json"
+PAGE_MARKER = "page.json"
+MANIFEST_FILE = "page.manifest.json"
+COLLECTED_MARKER = "collected.json"
+APPLY_MARKER = "RECORD.md"
 REVIEW = Step("review", None, "review the queued proposals")
 STEPS = (
-    Step("preflight", "preflight.json", "run the stage's skill self-check"),
-    Step("propose", "propose_done", "write the stage's proposals"),
+    Step("preflight", PREFLIGHT_MARKER, "run the stage's skill self-check"),
+    Step("propose", PROPOSE_MARKER, "write the stage's proposals"),
     REVIEW,
-    Step("page", "page.json", "build the owner's review page"),
-    Step("collect", "collected.json", "the owner decides on the page, then collect the choices"),
-    Step("apply", "RECORD.md", "the owner runs the apply"),
+    Step("page", PAGE_MARKER, "build the owner's review page"),
+    Step("collect", COLLECTED_MARKER, "the owner decides on the page, then collect the choices"),
+    Step("apply", APPLY_MARKER, "the owner runs the apply"),
 )
 
 
@@ -235,6 +258,27 @@ def stage_progress(store: Path, run_id: str, stage: str) -> StageProgress:
         elif not (folder / step.marker).exists():
             return StageProgress(stage, step, set_aside=set_aside)
     return StageProgress(stage, None, set_aside=set_aside)
+
+
+def stage_due(store: Path, run: dict, stage: str, steps: tuple[str, ...]) -> Path:
+    """The stage's folder, once its run is in review and the stage's next step is one of ``steps``."""
+    if run["status"] != "reviewing":
+        raise ValueError(f"run {run['run_id']} is {run['status']}; pages are built and collected while it is reviewing")
+    override = (run.get("stages") or {}).get(stage)
+    if override:
+        raise ValueError(f"{stage} has no proposals this run: {override}")
+    step = stage_progress(store, run["run_id"], stage).next_step
+    if step is None:
+        raise ValueError(f"{stage} is already applied")
+    if step.name not in steps:
+        raise ValueError(f"{stage} is not ready for this: next, {step.next_action}")
+    return stage_dir(store, run["run_id"], stage)
+
+
+def file_hash(path: Path) -> str | None:
+    """None for a file that is not there, as the clubs stage's scoped CSV is when its scan found
+    nothing in the scope."""
+    return hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else None
 
 
 def default_holder() -> str:
