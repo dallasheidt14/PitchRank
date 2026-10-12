@@ -526,7 +526,7 @@ def check_triage(r: Result) -> None:
         (f"Club {(season - 12) % 100:02d}B Blue", "u13"),
         (f"Club {season - 13}/{(season - 12) % 100:02d} Elite", "u13"),
         (f"Club {(season - 18) % 100:02d}/{(season - 17) % 100:02d} Boys", "u19"),
-        # U-ages, not birth years: the applier strips them before reading years.
+        # U-ages, not birth years: both tools blank them before reading years.
         ("Town-G09A-Coach", "u10"),
         ("Club U/10B Blue", "u10"),
     ]

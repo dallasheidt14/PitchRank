@@ -1,9 +1,8 @@
 # ruff: noqa: E501 -- expected reasons are literal strings, kept whole so a test reads as the rule it pins
 """Decision rules and guarded writes of the reconcile-gotsport skill's scripts.
 
-The fixtures are teams from the 2026-10-09 Arizona run: Bala FC and RSL Arizona South's
-reused records, 15B OMolina's relabel, Brazas FC 2016 Black's colour match, Utah Royals'
-girls squad that plays boys, and the dormant teams the owner left as stored.
+Fixtures are real teams, named beside each case (most from the 2026-10-09 Arizona run); the
+assess fixtures are synthetic.
 """
 
 import csv
@@ -37,7 +36,7 @@ STORED = ("hold", "this season's opponents back the stored age")
         ((11, 12, True, 11.0, 12.0, 0, 0, None), DORMANT),  # GotSport older, dormant
         ((13, 12, True, 13.0, 12.0, 1, 1, 13), ("hold", "the band in our own name backs the stored age")),
         ((11, 13, True, 11.0, 13.0, 8, 8, 12), ("hold", "the band in our own name says U12, neither ours nor GotSport's")),
-        ((11, 10, True, 11.0, 10.0, 4, 2, None), ("hold", "only 2 game(s) this season with a readable opponent age")),
+        ((11, 10, True, 11.0, 10.0, 4, 2, None), ("relabel", "only 2 game(s) this season with a readable opponent age; GotSport's age stands")),
         ((11, 10, True, 11.0, 11.5, 5, 5, None), STORED),
         ((11, 10, True, 11.0, 11.5001, 5, 5, None), ("hold", "this season's opponents sit at U11.5001, neither ours nor GotSport's")),
         # 15B OMolina: same squad, did not age up
@@ -55,27 +54,171 @@ def test_classify(args, expected):
     assert triage.classify(*args) == expected
 
 
-NAMES_DECIDE = ("relabel", "the names state GotSport's age; this season's opponents cannot decide")
+OLDER = ("relabel", "GotSport says older and this season's opponents do not back the stored age")
+THIN_1 = "only 1 game(s) this season with a readable opponent age"
+SPLIT = "this season's opponents split evenly between our age and GotSport's"
+SPLIT_GOTSPORT = ("relabel", f"{SPLIT}; GotSport's age stands")
+NAMES_OURS = ("hold", "this season's opponents cannot decide, and the names state our age")
+NO_SQUAD_WORD = ("hold", "a name carries no squad word to compare; decide from the club's other teams")
+NAMES_THEIRS = ("relabel", "the names state GotSport's age and this season's opponents do not back the stored age")
+NEITHER_13 = ("hold", "this season's opponents sit at U13.0, neither ours nor GotSport's")
+
+
+@pytest.mark.parametrize(
+    "args,expected",
+    [
+        # stored, theirs, same_squad, pre, fall, fall_games, fall_read, band, named, bands_conflict
+        # Coppell CYSA Black Jaguars: stored u14, ten games at U15, GotSport u17
+        ((14, 17, True, 14.0, 15.0, 10, 10, None), OLDER),
+        ((17, 19, True, 17.0, 19.0, 5, 5, None), OLDER),  # U18 files into u19
+        ((11, 13, True, 11.0, 12.0, 10, 10, None), OLDER),  # every opponent at the group between
+        # Boys U9 Orange: eleven games against U9 teams, GotSport u10 (owner, 2026-10-12)
+        ((9, 10, True, 11.0, 9.0, 11, 11, None), STORED),
+        ((9, 10, True, 9.0, 9.0, 3, 3, None), STORED),  # three readable games are enough
+        ((11, 12, None, None, 11.0, 5, 5, None), STORED),
+        ((11, 12, True, None, None, 1, 0, None), ("relabel", "only 0 game(s) this season with a readable opponent age; GotSport's age stands")),
+        # the owner's rules do not take GotSport's age for these
+        ((11, 12, None, None, 12.0, 5, 5, None), NO_SQUAD_WORD),
+        ((11, 12, False, 10.0, 13.0, 6, 6, None), NEITHER_13),
+        ((12, 13, True, 12.0, 14.0, 4, 4, None, frozenset(), True), ("hold", "this season's opponents sit at U14.0, neither ours nor GotSport's")),
+        ((19, 21, True, 19.0, 17.0, 6, 6, None), ("hold", "this season's opponents sit at U17.0, neither ours nor GotSport's")),
+        ((11, 12, True, 11.0, 12.0, 6, 6, 11), ("hold", "the band in our own name backs the stored age")),
+        ((11, 12, True, 11.0, 12.0, 0, 0, None), DORMANT),
+    ],
+)
+def test_classify_takes_gotsports_older_age_for_a_team_that_has_played(args, expected):
+    assert triage.classify(*args) == expected
 
 
 @pytest.mark.parametrize(
     "args,expected",
     [
         # Next Level "Southeast U10 Boys Black": stored u11, GotSport u10, four games split 2-2
-        ((11, 10, True, None, 10.5, 4, 4, None, frozenset({10})), NAMES_DECIDE),
-        ((11, 10, True, None, 10.5, 4, 4, None, frozenset()), ("hold", "this season's opponents split evenly between our age and GotSport's")),
-        # thin opponents, but the name states GotSport's age
-        ((11, 9, True, None, 9.0, 1, 1, None, frozenset({9})), NAMES_DECIDE),
-        # a name stating our age keeps the hold
-        ((11, 10, True, None, 10.5, 4, 4, None, frozenset({10, 11})), ("hold", "this season's opponents split evenly between our age and GotSport's")),
-        # a reused record is not relabelled on names
-        ((11, 10, False, None, 10.5, 4, 4, None, frozenset({10})), ("hold", "this season's opponents split evenly between our age and GotSport's")),
-        # opponents that do decide still win over the names
+        ((11, 10, True, None, 10.5, 4, 4, None, frozenset({10})), SPLIT_GOTSPORT),
+        ((11, 10, True, None, 10.5, 4, 4, None, frozenset()), SPLIT_GOTSPORT),
+        ((11, 10, True, None, 10.5, 4, 4, None, frozenset({10, 11})), SPLIT_GOTSPORT),
+        ((17, 19, True, None, 18.0, 4, 4, None), SPLIT_GOTSPORT),  # u17 and u19 are neighbours
+        ((11, 9, True, None, 9.0, 1, 1, None, frozenset({9})), ("relabel", f"{THIN_1}; GotSport's age stands")),
+        # names that state our age and not GotSport's keep the hold, either direction
+        ((11, 10, True, None, 10.5, 4, 4, None, frozenset({11})), NAMES_OURS),
+        ((11, 10, True, None, None, 2, 1, None, frozenset({11})), NAMES_OURS),
+        ((11, 12, True, None, None, 2, 1, None, frozenset({11})), NAMES_OURS),
+        ((11, 12, True, None, 11.5, 4, 4, None, frozenset({11})), NAMES_OURS),
+        # the owner's rules do not take GotSport's age for these
+        ((11, 10, False, None, 10.5, 4, 4, None, frozenset({10})), ("hold", f"GotSport's name is another squad, and {SPLIT}")),
+        ((11, 10, False, None, None, 2, 1, None), ("hold", f"GotSport's name is another squad, and {THIN_1}")),
+        ((11, 10, None, None, None, 2, 1, None), ("hold", f"a name carries no squad word to compare, and {THIN_1}")),
+        ((13, 14, True, None, None, 2, 1, None, frozenset(), True), ("hold", f"our current and original names carry different bands, and {THIN_1}")),
+        ((14, 4, True, None, None, 2, 1, None), ("hold", f"GotSport's U4 is outside the youth groups, and {THIN_1}")),
+        ((19, 21, True, None, None, 2, 1, None), ("hold", f"GotSport's U21 is outside the youth groups, and {THIN_1}")),
+        # opponents that do decide still win
         ((11, 10, True, None, 11.0, 5, 5, None, frozenset({10})), STORED),
+        ((11, 10, True, 11.0, 11.0, 3, 3, None), STORED),
+        # only neighbouring groups split evenly; two apart, a midway median reads as the group between
+        ((13, 11, True, 13.0, 12.0, 10, 10, None), ("hold", "this season's opponents sit at U12.0, neither ours nor GotSport's")),
     ],
 )
-def test_classify_lets_names_decide_only_when_opponents_cannot(args, expected):
+def test_classify_lets_gotsport_decide_when_opponents_cannot(args, expected):
     assert triage.classify(*args) == expected
+
+
+@pytest.mark.parametrize(
+    "args,expected",
+    [
+        # Players U10 Girls Academy: one name on both sides, no squad word left, it says U10 (owner, 2026-10-12)
+        ((11, 10, None, None, 10.5, 8, 8, None, frozenset({10})), SPLIT_GOTSPORT),
+        ((11, 10, None, None, None, 2, 1, None, frozenset({10})), ("relabel", f"{THIN_1}; GotSport's age stands")),
+        ((11, 10, None, None, 10.0, 5, 5, None, frozenset({10})), NAMES_THEIRS),
+        # Dynamos STXCL EC BU12: stored u14, GotSport u12, eighteen games against U13 teams
+        ((14, 12, True, None, 13.0, 18, 18, None, frozenset({12})), NAMES_THEIRS),
+        # the names do not overrule opponents at our age, a record handed to another squad, or two
+        # different bands in our names; with no name age, a missing squad word still holds
+        ((11, 10, None, None, 11.0, 5, 5, None, frozenset({10})), STORED),
+        ((11, 10, False, None, 10.0, 5, 5, None, frozenset({10})), ("hold", "GotSport's name is another squad but last season does not show the old cohort")),
+        ((14, 12, True, None, 13.0, 18, 18, None, frozenset({12}), True), ("hold", "this season's opponents sit at U13.0, neither ours nor GotSport's")),
+        ((11, 10, None, None, 10.0, 5, 5, None), NO_SQUAD_WORD),
+    ],
+)
+def test_classify_takes_gotsports_age_when_the_names_state_it(args, expected):
+    assert triage.classify(*args) == expected
+
+
+US = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+RIVAL = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+OTHER = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+
+
+class _GamesDb:
+    """The triage's two reads: one team's games, and teams by id."""
+
+    def __init__(self, games, teams):
+        self.games, self.teams = games, {t["team_id_master"]: t for t in teams}
+
+    def table(self, name):
+        assert name in ("games", "teams"), f"the triage read {name!r}"
+        db, ids = self, []
+
+        class _Read:
+            def select(self, columns):
+                return self
+
+            def in_(self, column, values):
+                ids.extend(values)
+                return self
+
+            def or_(self, clause):
+                return self
+
+            gte = eq = order = range = lambda self, *args: self
+
+            def execute(self):
+                rows = db.games if name == "games" else [db.teams[i] for i in ids if i in db.teams]
+                return _Result(rows)
+
+        return _Read()
+
+
+def _assess(name, original=None, last_season=False):
+    """A u11 team GotSport files at u10, with two games since Aug 1: one opponent's age readable."""
+    games = [
+        {"id": 1, "game_date": "2026-09-05", "home_team_master_id": US, "away_team_master_id": RIVAL},
+        {"id": 2, "game_date": "2026-09-12", "home_team_master_id": OTHER, "away_team_master_id": US},
+    ]
+    if last_season:
+        games.append({"id": 3, "game_date": "2026-03-07", "home_team_master_id": US, "away_team_master_id": OTHER})
+    opponents = [
+        {"team_id_master": RIVAL, "team_name": "Rival FC Black", "team_name_original": None, "age_group": "u10"},
+        {"team_id_master": OTHER, "team_name": "Other SC Red", "team_name_original": None, "age_group": None},
+    ]
+    team = {"team_id_master": US, "team_name": name, "team_name_original": original, "age_group": "u11",
+            "gender": "Male", "club_name": "Southeast"}
+    row = {"gotsport_age_group": "u10", "gotsport_gender": "Male", "gotsport_team_name": "Southeast Boys Black"}
+    return triage.assess(_GamesDb(games, opponents), row, team, [US], "2026-08-01", "2025-08-01", {})
+
+
+def test_assess_holds_a_new_team_whose_own_name_states_the_stored_age():
+    out = _assess("Southeast U11 Boys Black")
+    assert (out["class"], out["reason"]) == NAMES_OURS
+
+
+def test_assess_lets_gotsport_decide_once_the_name_may_be_last_season_s():
+    out = _assess("Southeast U11 Boys Black", last_season=True)
+    assert (out["class"], out["reason"]) == ("relabel", f"{THIN_1}; GotSport's age stands")
+
+
+@pytest.mark.parametrize(
+    "name,original",
+    [("Southeast Boys Black", "Southeast-B09A-Black"), ("Southeast-B09A-Black", None), ("Southeast Boys Black", "U/10B Southeast Black")],
+)
+def test_assess_reads_no_birth_year_in_a_u_age_in_either_name(name, original):
+    out = _assess(name, original)
+    assert out["stated_birth_years"] == "" and out["class"] == "relabel"
+
+
+def test_assess_holds_when_our_two_names_carry_different_bands():
+    season = fbc._soccer_season_year()
+    out = _assess(f"Southeast {season - 10}/{season - 9} Boys Black", f"Southeast {season - 11}/{season - 10} Boys Black")
+    assert (out["class"], out["reason"]) == ("hold", f"our current and original names carry different bands, and {THIN_1}")
 
 
 def test_name_ages():
@@ -89,8 +232,8 @@ def test_name_ages():
 def test_classify_counts_dormancy_by_games_not_readable_opponents():
     # Three fall games against opponents whose age nothing states: active, not dormant.
     assert triage.classify(11, 10, True, 11.0, None, 3, 0, None) == (
-        "hold",
-        "only 0 game(s) this season with a readable opponent age",
+        "relabel",
+        "only 0 game(s) this season with a readable opponent age; GotSport's age stands",
     )
 
 

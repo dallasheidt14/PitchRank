@@ -120,16 +120,6 @@ def _edit_module(monkeypatch, path, edit):
     monkeypatch.setattr(checker, "_module", edited)
 
 
-def _triage_reads_names_as_the_applier(monkeypatch):
-    """The triage once its birth_years ignores a hyphen-wrapped B/G age and "U/10B", as the applier's
-    name_years already does."""
-
-    def strip(read):
-        return lambda name: read(fbc._HYPHEN_AGE.sub(" ", fbc._UAGE_SLASH.sub(" ", name or "")))
-
-    _edit_module(monkeypatch, checker.TRIAGE, lambda m: setattr(m, "birth_years", strip(m.birth_years)))
-
-
 def _main(monkeypatch, capsys, *checks):
     monkeypatch.setattr(checker, "CHECKS", list(checks))
     monkeypatch.setattr(sys, "argv", ["check_age_skill_assumptions.py", "--code-only"])
@@ -457,8 +447,6 @@ def test_the_recheck_fails_when_it_skips_its_live_read(monkeypatch):
 
 
 def test_the_triage_check_fails_when_the_triage_skips_its_live_read(monkeypatch):
-    _triage_reads_names_as_the_applier(monkeypatch)
-
     def reads_elsewhere(triage):
         fetch_in = triage.fetch_in
         triage.fetch_in = lambda sb, table, *args: fetch_in(checker._Recorder(), table, *args)
@@ -467,13 +455,11 @@ def test_the_triage_check_fails_when_the_triage_skips_its_live_read(monkeypatch)
     assert _failed(checker.check_triage) == ["the triage reads a pending team live"]
 
 
-def test_the_triage_check_holds_once_the_triage_reads_names_as_the_applier(monkeypatch):
-    _triage_reads_names_as_the_applier(monkeypatch)
+def test_the_triage_check_holds_when_the_triage_reads_names_as_the_applier():
     assert _failed(checker.check_triage) == []
 
 
 def test_the_triage_run_writes_only_to_its_temp_folder(monkeypatch, tmp_path):
-    _triage_reads_names_as_the_applier(monkeypatch)
     _edit_module(monkeypatch, checker.TRIAGE, lambda m: setattr(m, "EXPORTS", tmp_path))
     assert _failed(checker.check_triage) == []
     assert list(tmp_path.iterdir()) == []
@@ -487,13 +473,12 @@ def test_the_triage_run_writes_only_to_its_temp_folder(monkeypatch, tmp_path):
     ],
 )
 def test_the_left_out_count_fails_when_its_line_is_not_found(monkeypatch, check, pattern, claim):
-    _triage_reads_names_as_the_applier(monkeypatch)
     monkeypatch.setattr(checker, pattern, re.compile(r"(?!)"))
     assert _failed(check) == [claim]
 
 
-def test_the_triage_check_reports_the_u_ages_the_triage_still_reads_as_birth_years():
-    """Known failure: flips once the triage reads these as last season's U-ages; then drop this test."""
+def test_the_triage_check_fails_when_the_triage_reads_u_ages_as_birth_years(monkeypatch):
+    _edit_module(monkeypatch, checker.TRIAGE, lambda m: setattr(m, "without_u_ages", lambda name: name or ""))
     failures = _failures(checker.check_triage)
     assert [f["name"] for f in failures] == [AGREEMENT]
     assert (
@@ -512,8 +497,6 @@ def test_the_triage_check_fails_when_the_triage_objects_to_any_stated_year(monke
 
 
 def test_the_triage_check_fails_when_a_decided_team_is_assessed(monkeypatch):
-    _triage_reads_names_as_the_applier(monkeypatch)
-
     def ignore_decisions(triage):
         assess = triage.assess
         triage.assess = lambda sb, row, team, ids, start, since, declined: assess(sb, row, team, ids, start, since, {})
@@ -523,7 +506,6 @@ def test_the_triage_check_fails_when_a_decided_team_is_assessed(monkeypatch):
 
 
 def test_the_triage_check_fails_when_its_run_ignores_the_decisions(monkeypatch):
-    _triage_reads_names_as_the_applier(monkeypatch)
     _edit_module(monkeypatch, checker.TRIAGE, lambda m: setattr(m, "load_owner_decisions", lambda sb: {}))
     assert _failed(checker.check_triage) == [
         "the triage leaves a decided team out of its live read",
@@ -532,7 +514,6 @@ def test_the_triage_check_fails_when_its_run_ignores_the_decisions(monkeypatch):
 
 
 def test_the_triage_check_fails_when_the_triage_keeps_its_own_cohort_years(monkeypatch):
-    _triage_reads_names_as_the_applier(monkeypatch)
     _edit_module(
         monkeypatch, checker.TRIAGE, lambda m: setattr(m, "cohort_years", lambda *a, **k: fbc.cohort_years(*a, **k))
     )

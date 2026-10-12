@@ -429,6 +429,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `scripts/backfill_unknown_team_names.py:27-29` vs `scripts/discover_teams_from_opponents.py:_build_team_metadata`
 - **Why**: The backfill states as a deliberate decision that `display_age_group` is the registered event cohort rather than the birth-year cohort, that the two disagree across the Aug 1 rollover, and that it therefore never writes `age_group`. Discovery now treats the same field as its highest-precedence cohort source, and due diligence compares it against stored rows. Live sampling on 2026-08-30 found them agreeing, but that is one point in the season — the claimed divergence is a rollover effect. One position is wrong; whichever loses, the other's comment should be corrected in the same change so the contradiction does not outlive it. Same hazard class as the TGS U-age labels in CLAUDE.md.
 - **Noted**: 2026-08-30
+- **Update (2026-10-12)**: The owner decided GotSport's cohort may decide an age in set cases, through the reconcile-gotsport triage only (rules recorded in CLAUDE.md's age section); every other reader keeps a provider cohort as a veto. The backfill-versus-discovery contradiction this entry is about stays open.
 
 ### Repair the 2,937 teams stored outside the boarded cohorts
 
