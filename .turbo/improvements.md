@@ -2085,3 +2085,13 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `scripts/find_queue_matches.py` `analyze_queue` (the `last_analyzed_at` update loop) and `main`
 - **Why**: `analyze_queue` stamps `last_analyzed_at` on every pending row it scored, and `main` calls it before choosing between `--execute` and the default dry run (`--dry-run` is never read). So a dry run writes, and since the default query skips rows stamped in the last 7 days, the rows it touched drop out of the next week of runs unless `--force`. `auto-merge-queue.yml` calls it without `--force`, so a dry dispatch hides those rows from its next execute run for 7 days. Confirmed 2026-10-11. Wanted: pass `dry_run` into `analyze_queue` and skip the stamp when dry.
 - **Noted**: 2026-10-11
+
+### Refuse a U-age range whose U prefix is separated from the years by a space
+
+- **ID**: IMP-322
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `src/utils/team_utils.py` `_BAND_RUN_RE`; `scripts/normalize_team_names.py` `_BAND_RE`
+- **Why**: Both band readers check only the character right before a run, so a space defeats the U-age guard: on main "Club GU 18/19 Red" reads as a 2018/19 band (U8) and "Club U 13/14" as U13. The apostrophe forms ("Club GU '18/'19 Red") read the same way as their bare twins (raised in review, 2026-10-12). Two saved names have a spaced U before a band ("BU 16/15", read U11). Wanted: refuse a run after a U prefix plus optional spaces or a hyphen, in both readers; measure the live renames and band changes first.
+- **Noted**: 2026-10-12
