@@ -5,7 +5,7 @@ import { ChartSkeleton } from '@/components/ui/skeletons';
 import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
 import { useTeamGames } from '@/lib/hooks';
 import { useMemo, useState, useEffect, useRef } from 'react';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { InfoButton, InfoTooltip } from '@/components/ui/info-tooltip';
 import type { GameWithTeams } from '@/lib/types';
 import { trackChartViewed } from '@/lib/events';
 
@@ -233,30 +233,19 @@ export function MomentumMeter({ teamId }: MomentumMeterProps) {
             <CardTitle className="font-display uppercase tracking-wide">Recent Momentum</CardTitle>
             <CardDescription>Performance trend over last {totalGames} games</CardDescription>
           </div>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                className="text-xs text-muted-foreground cursor-help focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary rounded"
-                aria-label="Momentum calculation information"
-              >
-                ℹ️
-              </button>
-            </TooltipTrigger>
-            <TooltipContent className="max-w-xs">
-              <p className="font-semibold mb-1">How Momentum is Calculated:</p>
-              <p className="text-xs mb-2">
-                Blends recent results (wins, losses, draws) with how the team performed relative to expectations.
+          <InfoTooltip trigger={<InfoButton label="Momentum calculation information" iconClassName="h-4 w-4" />}>
+            <p className="font-semibold mb-1">How Momentum is Calculated:</p>
+            <p className="text-xs mb-2">
+              Blends recent results (wins, losses, draws) with how the team performed relative to expectations.
+            </p>
+            <div className="text-xs space-y-1">
+              <p>Wins push momentum up, losses pull it down.</p>
+              <p>
+                <span className="text-green-600 font-semibold">Dominant</span> wins boost it further;{' '}
+                <span className="text-red-600 font-semibold">close</span> wins still count positively.
               </p>
-              <div className="text-xs space-y-1">
-                <p>Wins push momentum up, losses pull it down.</p>
-                <p>
-                  <span className="text-green-600 font-semibold">Dominant</span> wins boost it further;{' '}
-                  <span className="text-red-600 font-semibold">close</span> wins still count positively.
-                </p>
-              </div>
-            </TooltipContent>
-          </Tooltip>
+            </div>
+          </InfoTooltip>
         </div>
       </CardHeader>
       <CardContent>

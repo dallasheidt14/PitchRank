@@ -1,3 +1,4 @@
+import { useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './api';
 import type { MatchPredictionResponse } from './matchPredictionService';
@@ -131,20 +132,20 @@ export function useRankHistory(id: string) {
   });
 }
 
-/**
- * Helper hook to prefetch team data
- * Useful for prefetching when hovering over team links
- */
+/** Returns a stable callback that prefetches a team, so memoised rows can take it as a prop. */
 export function usePrefetchTeam() {
   const queryClient = useQueryClient();
 
-  return (id: string) => {
-    queryClient.prefetchQuery({
-      queryKey: ['team', id],
-      queryFn: () => api.getTeam(id),
-      staleTime: 10 * 60 * 1000,
-    });
-  };
+  return useCallback(
+    (id: string) => {
+      queryClient.prefetchQuery({
+        queryKey: ['team', id],
+        queryFn: () => api.getTeam(id),
+        staleTime: 10 * 60 * 1000,
+      });
+    },
+    [queryClient]
+  );
 }
 
 /**

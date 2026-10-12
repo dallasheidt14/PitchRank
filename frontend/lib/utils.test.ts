@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { composeTeamDisplay, composeTeamMeta, formatDistinction, formatLeague, teamDisplayName } from './utils';
+import {
+  backToRankingsPath,
+  composeTeamDisplay,
+  composeTeamMeta,
+  formatDistinction,
+  formatLeague,
+  teamDisplayName,
+} from './utils';
 
 describe('composeTeamDisplay', () => {
   it('composes club + league + distinction for clean data', () => {
@@ -228,5 +235,42 @@ describe('formatDistinction', () => {
   });
   it('returns null for empty input', () => {
     expect(formatDistinction(null)).toBeNull();
+  });
+});
+
+describe('backToRankingsPath', () => {
+  const girlsTeam = { state: 'AZ', age: 13, gender: 'F' };
+  const noQuery = { region: null, ageGroup: null, gender: null };
+
+  it('returns to the board the rankings row linked from', () => {
+    expect(backToRankingsPath({ region: 'national', ageGroup: 'u13', gender: 'female' }, girlsTeam)).toBe(
+      '/rankings/national/u13/female'
+    );
+  });
+  it('reads the single-letter gender older rankings links carried', () => {
+    expect(backToRankingsPath({ region: 'az', ageGroup: 'u13', gender: 'f' }, undefined)).toBe(
+      '/rankings/az/u13/female'
+    );
+  });
+  it("falls back to the team's own state board without a query", () => {
+    expect(backToRankingsPath(noQuery, girlsTeam)).toBe('/rankings/az/u13/female');
+  });
+  it('falls back to the team when the query names no real board', () => {
+    expect(backToRankingsPath({ region: 'zz', ageGroup: 'u13', gender: 'female' }, girlsTeam)).toBe(
+      '/rankings/az/u13/female'
+    );
+    expect(backToRankingsPath({ region: 'az', ageGroup: 'u9', gender: 'female' }, girlsTeam)).toBe(
+      '/rankings/az/u13/female'
+    );
+  });
+  it('uses the national board when the team has no known state', () => {
+    expect(backToRankingsPath(noQuery, { state: null, age: 13, gender: 'M' })).toBe('/rankings/national/u13/male');
+  });
+  it('files a u18 team on the u19 board', () => {
+    expect(backToRankingsPath(noQuery, { state: 'AZ', age: 18, gender: 'M' })).toBe('/rankings/az/u19/male');
+  });
+  it('opens the rankings home when the team has no board', () => {
+    expect(backToRankingsPath(noQuery, { state: 'AZ', age: 9, gender: 'M' })).toBe('/rankings');
+    expect(backToRankingsPath(noQuery, undefined)).toBe('/rankings');
   });
 });
