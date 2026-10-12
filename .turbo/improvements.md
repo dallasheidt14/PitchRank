@@ -27,6 +27,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `frontend/components/GlobalSearch.tsx:19-49`, `TeamSelector.tsx:23-52`, `UnknownOpponentLink.tsx:51-80`, `ScopedTeamSelector.tsx:26-50`
 - **Why**: `escapeRegex` and `highlightMatch` are copy-pasted into all four search components. Three copies are verbatim and use `bg-yellow-200 px-1`; ScopedTeamSelector uses `bg-[#F4D03F]/40 px-0.5` — Electric Yellow, the accent CLAUDE.md names as the design-system token. So the one brand-correct copy is precisely the one nobody editing the others will find, and search highlighting looks different depending on which box you are in. Extracting a single `highlightMatch` into `lib/` collapses the 4-way fork and forces the color question to be answered once.
 - **Noted**: 2026-08-18
+- **Update (2026-10-12)**: `escapeRegex` is now exported from `frontend/lib/utils.ts` (the search route uses it); the four component copies remain.
 
 ### Converge MergeTeamsDialog's team metadata line onto composeTeamMeta
 
@@ -48,6 +49,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: The only rendering logic in the three-dropdown family no test exercises. Its subtitle is not a copy of the other two — it prefixes a highlighted `club_name` and uses a three-armed `{team.club_name && meta ? ' • ' : ''}` separator, so `GlobalSearch.test.tsx` cannot reach it. Three reviewers flagged it, and both genuine defects found in the 2026-08-18 review (a literal `U0`, a double bullet) lived in this file. ~70 lines on the `ComparePanel.test.tsx` pattern: mock `@/hooks/useTeamSearch`, `useQueryClient`, and `ui/dialog`+`select` as passthroughs; two fixtures (club_name + state:null + age:0 → no trailing bullet; club_name:null + populated meta → no leading bullet). Reviewers explicitly agreed `TeamSelector` does NOT need its own test — its row is behaviourally identical to GlobalSearch's.
 - **Noted**: 2026-08-18
 - **Update (2026-09-08)**: Verified — no `UnknownOpponentLink.test.tsx` exists. But the subtitle logic this guarded moved into shared `TeamRowSubtitle.tsx` (used at `UnknownOpponentLink.tsx:551,676`), which `GlobalSearch.test.tsx:60,137-170` and `TeamSelector.test.tsx` now exercise. The remaining gap is narrower than written: nothing tests UnknownOpponentLink's own opponent-resolution flow.
+- **Update (2026-10-12)**: `frontend/components/UnknownOpponentLink.test.tsx` covers the search box: the hook call (`{ limit: 10, excludeId }`), the "Showing close matches" label, arrow-key scrolling, and no new-team offer for a one-letter query. Linking to or creating the opponent is still untested.
 
 ### Give TeamSelector and UnknownOpponentLink the combobox roles GlobalSearch has
 
@@ -57,16 +59,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Category**: refactor
 - **Where**: `frontend/components/TeamSelector.tsx:234-248`, `frontend/components/UnknownOpponentLink.tsx:537-557`; reference in `frontend/components/GlobalSearch.tsx:236-247`
 - **Why**: GlobalSearch implements the full combobox pattern (`role="combobox"` + `aria-controls` on the input, `role="listbox"` on the container, `role="option"` + `aria-selected` per row). The other two carry `aria-autocomplete="list"` and `aria-expanded` with no `role="combobox"` to make those valid, and their rows have no role and no `aria-selected` despite tracking the same `selectedIndex` and painting the same `bg-accent` highlight. After the 2026-08-18 label/subtitle unification the three row bodies are otherwise near-identical, so this now reads as drift. Concrete cost: `GlobalSearch.test.tsx` selects rows via `querySelectorAll('[role="option"]')`, so anyone copying it to cover TeamSelector gets zero matches — a vacuously green test, worse than a red one.
-- **Noted**: 2026-08-18
-
-### Test useTeamSearch — it silently feeds every search subtitle
-
-- **ID**: IMP-084
-- **Status**: open
-- **Type**: direct
-- **Category**: testing
-- **Where**: `frontend/hooks/useTeamSearch.ts` (select list ~:60, transforms ~:83 and :139-142), new `frontend/hooks/useTeamSearch.test.ts`
-- **Why**: Sole producer of the three fields every dropdown subtitle reads — `state` ← `state_code`, `age` ← `normalizeAgeGroup(age_group) ?? 0`, `gender` ← a `'Male'|'Female'` → `'M'|'F'` coercion that silently defaults to `'M'`. Zero tests, and `GlobalSearch.test.tsx` mocks it away with fixtures hardcoding all three. If someone trimmed the `.select()` column list — the obvious move against the known full-table-download cost — `composeTeamMeta` would return `''` and every subtitle would render blank with the whole suite still green. ~40 lines mocking `@/lib/supabase/client`, capturing the `.select()` argument and asserting it contains `state_code`, `age_group`, `gender`, plus one row-transform assertion pinning `age: ageInt ?? 0` and the gender coercion.
 - **Noted**: 2026-08-18
 
 ### Make the e2e search test fail when zero results render
@@ -276,6 +268,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `frontend/test/`, `frontend/components/{GlobalSearch,ComparePanel,RecentMovers}.test.tsx`, `frontend/components/insights/DeltaIndicator.test.tsx`
 - **Why**: Four files hand-roll the same createElement/createRoot/`act(unmount)`/remove lifecycle, so a React `act` semantics change needs four fixes — `ComparePanel.test.tsx` still imports `act` from the removed `react-dom/test-utils` path while the newer files import it from `react`. `frontend/test/` now exists (fixtures.ts, setup.ts, supabase-mock.ts) as a home for a `mountComponent()`/`cleanup()` pair.
 - **Noted**: 2026-08-24
+- **Update (2026-10-12)**: Four more hand-rolled harnesses: `frontend/hooks/useTeamSearch.test.tsx` and `frontend/components/{UnknownOpponentLink,MergeTeamsDialog,ScopedTeamSelector}.test.tsx`.
 
 ### Remove `has_modular11_alias` end-to-end
 
@@ -286,6 +279,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `frontend/hooks/useTeamSearch.ts` (`fetchModular11TeamIds` :23-46, field at :139), `frontend/lib/api.ts:301-314,536`, `frontend/lib/matchPredictionService.ts:249-262`, `frontend/lib/types.ts:60`, `frontend/types/RankingRow.ts:14`, plus fixtures in four test files
 - **Why**: After `teamDisplayName` (branch `show-team-name-in-rankings`) the flag's only reader is `utils.ts:192` inside `composeTeamDisplay`, reachable only when `team_name` is blank or `unknown_`-prefixed. Production count of teams meeting both conditions was 0 on 2026-08-27; only a newly scraped modular11 team makes it nonzero, and in that window it is actively harmful — it forces `return team.team_name`, rendering the literal `unknown_12345` instead of the club-composed label. Supersedes IMP-034. Not urgent: `useTeamSearch` has a module-level 10-minute cache, so its ~3 serial PostgREST round-trips cost once per session, not per search. Remove all three writers together — deleting only the `useTeamSearch` fetch leaves the field populated on some paths and not others.
 - **Noted**: 2026-08-27
+- **Update (2026-10-12)**: `useTeamSearch` no longer writes the flag, so `fetchModular11TeamIds` and the cost behind "Not urgent" are gone. That leaves the split the Why warns about (search rows never carry the flag; `frontend/lib/api.ts` and `frontend/lib/matchPredictionService.ts` still set it, and the rankings RPCs keep it on `RankingRow`), but in the harmless direction, since the flag only ever forced the raw `unknown_` name.
 
 ### No tests anywhere under components/infographics/
 
@@ -307,6 +301,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `frontend/components/ScopedTeamSelector.tsx:120,207-212,222-223`, `frontend/components/TeamSelector.tsx`, `frontend/app/api/teams/search/route.ts:33`, `frontend/hooks/useTeamSearch.ts:90`, `frontend/CLAUDE.md` pitfall 10
 - **Why**: `ScopedTeamSelector` is a near-clone of `TeamSelector` — same `highlightMatch`, same `selectedIndex` keyboard model, same markup — but hand-rolls its row label three different ways and has no `aria-label` at all, where its three siblings do. Pitfall 10 lists only the three `useTeamSearch` consumers, so this fourth surface is missed by exactly the grep the pitfall tells you to run; it fetches `/api/teams/search`, whose select list returns neither `league` nor `distinction`.
 - **Noted**: 2026-08-27
+- **Update (2026-10-12)**: Re-anchored: `/api/teams/search` calls the `search_teams` RPC, which returns `league`, `distinction` and `is_ranked`, so the `route.ts:33` select list and `useTeamSearch.ts:90` no longer exist; the row label is now `ScopedTeamSelector.tsx:123,214-219,230-231`. Pitfall 10 names this component and `MergeTeamsDialog`, which also fetches the route itself with its own row type and, unlike this one, has no guard against an older response landing last. `useTeamSearch` cannot replace either as it stands: it takes only `{ limit, excludeId }` and caches by query and limit, while both send `ageGroup`, `gender` and `stateCode`.
 
 ### Clamp the Top10 infographic preview so it matches the canvas export
 
@@ -317,17 +312,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `frontend/components/infographics/Top10Infographic.tsx:254-266`, compare `frontend/components/infographics/StateChampionsPreview.tsx:181-186`
 - **Why**: The name div sets `lineHeight: 1.2` with no `whiteSpace: 'nowrap'` and no line clamp, while its sibling preview clamps at 2 lines and the canvas export truncates by measured width. Registered names are materially longer than the club labels they replaced (see IMP-030), so a long name wraps and grows the row in the preview while the exported PNG ellipsizes it — the operator approves one image and ships another. Split out of IMP-122 so it does not close with that entry's test work.
 - **Noted**: 2026-08-27
-
-### Correct the searchable_name comment in useTeamSearch
-
-- **ID**: IMP-125
-- **Status**: open
-- **Type**: direct
-- **Category**: docs
-- **Where**: `frontend/hooks/useTeamSearch.ts:89-91`
-- **Why**: The comment says the `searchable_name` tokens exist "so users can search using the same string they see in the rankings table". The rankings table now renders `teamDisplayName` over club + state, so U{age}, league and distinction appear in no visible row — they are index-only, feeding the hidden filter string at `RankingsTable.tsx:201`. State what the index actually widens past. Split out of IMP-123, which is a component refactor this does not depend on.
-- **Noted**: 2026-08-27
-- **Update (2026-10-11)**: Re-anchored: the rankings search haystack cited as `RankingsTable.tsx:201` is now `RankingsTable.tsx:331`.
 
 ### Give the unknown_ placeholder predicate one definition
 
@@ -1352,6 +1336,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `get_client` (10 files under `scripts/`, e.g. `exclude_english_teams.py`, `exclude_none_opponent_games.py`, `apply_vetted_team_merges.py`); `_paged` (3, incl. the `order("id")` variant in `enqueue_helpers.py`); the `_Query`/`_DB` PostgREST double (8 files under `tests/unit/`); `_executable` and friends in the migration guards (7 files under `tests/unit/`)
 - **Why**: Counts verified by grep on 2026-09-17, and the guard-helper spread is wider than it looks -- 7 files define `_executable` while only 3 define `_tree`, so the copies have already drifted. CLAUDE.md requires a test double to refuse what production refuses; that rule now has 8 homes, and a fix to how the double pages or rejects a call has to reach every one, with any copy left behind still passing for the wrong reason. The same holds for the guards' comment-stripping: correcting it in one leaves the others matching commented-out SQL. Pre-existing duplication that the English-team exclusion work extended by one copy of each rather than introduced.
 - **Noted**: 2026-09-17
+- **Update (2026-10-12)**: `tests/unit/test_server_side_team_search_migration.py` adds another `_executable` and newest-function-by-name helper.
 
 ### Catch English-league teams that arrive after the exclusion list was built
 
@@ -2126,4 +2111,34 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Category**: refactor
 - **Where**: `frontend/components/GameHistoryTable.tsx` (`GameHistoryTable`, the `isLoading`, `isError` and empty-games early returns)
 - **Why**: Verified 2026-10-12: the three early returns each carry the same ~20-line `CardHeader` (title, description, `MissingGamesForm`, admin-gated `MergeTeamsDialogWrapper`), so the admin gate had to be added three times. The loaded-games header differs (display-font title, `LastUpdated`, no merge button), so decide whether it shares the component or stays separate.
+- **Noted**: 2026-10-12
+
+### Remove fuse.js with the next MatchBalance sample refresh
+
+- **ID**: IMP-329
+- **Status**: open
+- **Type**: direct
+- **Category**: dx
+- **Where**: `frontend/package.json` (`fuse.js`), `frontend/package-lock.json`, `scripts/matchbalance_sample_manifest.json`
+- **Why**: Nothing under `frontend/` imports `fuse.js` (verified 2026-10-12). It stays listed only because `frontend/package-lock.json` is a fingerprinted MatchBalance renderer input, so changing it fails `test_matchbalance_sample_artifacts` until `python scripts/regenerate_matchbalance_samples.py` re-renders the samples. Drop the dependency in the same PR as the next refresh rather than paying for a refresh on its own.
+- **Noted**: 2026-10-12
+
+### Give the phone header search one clear button and a wider dropdown
+
+- **ID**: IMP-330
+- **Status**: open
+- **Type**: direct
+- **Category**: feature
+- **Where**: `frontend/components/GlobalSearch.tsx` (`GlobalSearch`: the `Input type="search"`, its custom clear button, and the results `Card`)
+- **Why**: A 375 px phone smoke test (2026-10-12) showed two clear controls side by side: the browser's own for `type="search"` and the custom X. The results `Card` is `absolute w-full` inside the input's wrapper, so it is only as wide as the input and team names truncate to a few words ("FLYTE SC B..."). Both predate server-side search.
+- **Noted**: 2026-10-12
+
+### Correct three team-search comments that contradict the code
+
+- **ID**: IMP-331
+- **Status**: open
+- **Type**: direct
+- **Category**: docs
+- **Where**: `supabase/migrations/20261012120000_server_side_team_search.sql` (`COMMENT ON FUNCTION search_teams`), `frontend/components/GlobalSearch.tsx` (`GlobalSearch`, the `selectedIndex` reset comment), `frontend/components/ScopedTeamSelector.tsx` (the U19 cohort-merge comment in the fetch effect)
+- **Why**: The function comment says "ranked teams first", but the order is earliest match (exact) or most similar (similar, relaxed), with ranked teams only breaking ties; fix it with a new `COMMENT ON FUNCTION` in the next migration that touches `search_teams`, since the applied file must keep matching what ran. GlobalSearch's comment points at a `handleSearchChange` that does not exist, and ScopedTeamSelector's says u18 teams keep `age_group='u18'`, while CLAUDE.md records that no u18 teams exist.
 - **Noted**: 2026-10-12

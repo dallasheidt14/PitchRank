@@ -16,7 +16,7 @@
 | **Auth**       | Supabase Auth (SSR cookies)             |
 | **Payments**   | Stripe (checkout + portal)              |
 | **Charts**     | Recharts v3                             |
-| **Search**     | Fuse.js (client-side fuzzy)             |
+| **Search**     | Server-side, Postgres pg_trgm           |
 | **Unit Tests** | Vitest (happy-dom)                      |
 | **E2E Tests**  | Playwright v1.58                        |
 | **Path alias** | `@/*` → project root                    |
@@ -110,7 +110,7 @@ frontend/
 
 - `GET /api/rankings/national?age=12&gender=M&limit=1000&offset=0`
 - `GET /api/rankings/state?state=CA&age=12&gender=M&limit=1000&offset=0`
-- `GET /api/teams/search?q=FC%20Dallas`
+- `GET /api/teams/search?q=FC%20Dallas` (rate limited: 120 req/min per IP)
 
 ### Auth
 
@@ -215,10 +215,11 @@ retry: network errors 3x, others 1x (exponential backoff)
 ['rank-history', id]
 ```
 
-`useTeamSearch` is not a React Query hook — it keeps a module-level cache with a 10-minute
-TTL, so the nav search doesn't pull React Query into the anonymous bundle. The
-`['team-search']` invalidations in `UnknownOpponentLink` match no registered query and do
-nothing; call the hook's own refetch instead.
+`useTeamSearch` is not a React Query hook, so the nav search doesn't pull React Query into
+the anonymous bundle. It keeps each response in a module-level cache until a full reload, and
+nothing evicts one: `refetch` only retries a failed search. `/api/teams/search` calls the
+`search_teams` RPC, which is granted to `service_role` only so the rate-limited route stays
+its one door; a grant to `anon` would let anyone holding the public key skip the limit.
 
 ### Custom Hooks
 
@@ -226,7 +227,7 @@ nothing; call the hook's own refetch instead.
 | ----------------- | ----------------------------------------------------- |
 | `useUser()`       | Auth state, profile, session, `hasPremiumAccess()`    |
 | `useRankings()`   | Paginated rankings via API routes                     |
-| `useTeamSearch()` | All teams with searchable_name field                  |
+| `useTeamSearch()` | Server-side team search as the user types             |
 | `useWebVitals()`  | Core Web Vitals reporting (`hooks/usePerformance.ts`) |
 
 ### Component Patterns
@@ -449,7 +450,7 @@ RESEND_API_KEY
 7. **Premium gating** — Check `hasPremiumAccess()` before rendering premium features
 8. **ISR revalidation** — Team pages cache for 1 hour; don't expect instant updates
 9. **Age 0 and null state are real** — `teams.age_group` includes the literal `'u0'`, and thousands of teams have `state_code = NULL`. `useTeamSearch` maps an unresolved cohort to `age: 0`, so guard on truthiness; `age != null` renders "U0"
-10. **Search rows share `TeamRowSubtitle`** — `GlobalSearch`, `TeamSelector`, and `UnknownOpponentLink` all consume `useTeamSearch` and render their club/state/cohort line through `components/TeamRowSubtitle.tsx`, paired with `spokenTeamMeta` for the `aria-label`. Change the row's second line there, not in a component. The name line and `highlightMatch` are still copied per component, so those do need the grep — as does `ScopedTeamSelector`, a fourth near-clone that does not use `useTeamSearch` (IMP-123)
+10. **Search rows share `TeamRowSubtitle`** — `GlobalSearch`, `TeamSelector`, and `UnknownOpponentLink` all consume `useTeamSearch` and render their club/state/cohort line through `components/TeamRowSubtitle.tsx`, paired with `spokenTeamMeta` for the `aria-label`. Change the row's second line there, not in a component. The name line, `highlightMatch` and the "Showing close matches" label are still copied per component, so those do need the grep. Two more callers fetch `/api/teams/search` themselves and copy the label too: `ScopedTeamSelector`, a fourth near-clone (IMP-123), and `MergeTeamsDialog`
 11. **Never redeem an emailed one-time token on GET** — mail scanners fetch every link before the recipient sees it, so a GET that calls `verifyOtp`/`exchangeCodeForSession` spends the token and locks the customer out. Redeem behind a POST (`/auth/confirm`). Next also aliases `HEAD` to the `GET` handler unless `HEAD` is exported, so any route handler with side effects needs its own `HEAD`.
 12. **Credential-bearing URLs must be in `SECRET_QUERY_PATHS`** — a page that renders with `token_hash`, `session_id`, or similar in its URL leaks it to analytics: gtag and fbevents read `document.location` for the document's lifetime. Add the path to `SECRET_QUERY_PATHS` (tags skip it) and the param to `SECRET_QUERY_PARAMS` (both in `lib/constants.ts`).
 13. **Display a team with `teamDisplayName`, not `composeTeamDisplay`** — the registered `team_name` is what tells a club's squads apart, and most ranked teams record no league, so composing from `club_name` renders a whole cohort of one club identically. `composeTeamDisplay` is no rescue for an `unknown_<provider_team_id>` name either: each of its guards returns the raw `team_name`, which is why `teamDisplayName` skips them and composes from the club itself. Pair it with `composeTeamMeta` where the cohort matters, and never append `U{age}` to a registered name yourself. A test fixture must therefore distinguish rows by `team_name`, not `club_name`.

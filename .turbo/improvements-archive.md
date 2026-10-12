@@ -1515,3 +1515,28 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Noted**: 2026-08-27
 - **Update (2026-10-11)**: The virtualizer is gone: the table renders its rows as page content (top 100 plus "Show more"), and `frontend/components/RankingsTable.test.tsx` now asserts all four `teamDisplayName` call sites against an `unknown_<id>` placeholder: the visible cell, the row's aria-label, the Team sort and the Schema.org payload.
 - **Refs**: branch `fix/mobile-rankings-ux`
+
+### Test useTeamSearch — it silently feeds every search subtitle
+
+- **ID**: IMP-084
+- **Status**: done
+- **Type**: direct
+- **Category**: testing
+- **Where**: `frontend/hooks/useTeamSearch.ts` (select list ~:60, transforms ~:83 and :139-142), new `frontend/hooks/useTeamSearch.test.ts`
+- **Why**: Sole producer of the three fields every dropdown subtitle reads — `state` ← `state_code`, `age` ← `normalizeAgeGroup(age_group) ?? 0`, `gender` ← a `'Male'|'Female'` → `'M'|'F'` coercion that silently defaults to `'M'`. Zero tests, and `GlobalSearch.test.tsx` mocks it away with fixtures hardcoding all three. If someone trimmed the `.select()` column list — the obvious move against the known full-table-download cost — `composeTeamMeta` would return `''` and every subtitle would render blank with the whole suite still green. ~40 lines mocking `@/lib/supabase/client`, capturing the `.select()` argument and asserting it contains `state_code`, `age_group`, `gender`, plus one row-transform assertion pinning `age: ageInt ?? 0` and the gender coercion.
+- **Noted**: 2026-08-18
+- **Update (2026-10-12)**: The hook no longer selects columns or reads Supabase: it maps the search route's rows, and `frontend/hooks/useTeamSearch.test.tsx` pins that mapping (`state` from `state_code`, `age` through `normalizeAgeGroup` with U18 folded to 19, gender `M` and `F`).
+- **Refs**: branch `feat/server-side-team-search`
+
+### Correct the searchable_name comment in useTeamSearch
+
+- **ID**: IMP-125
+- **Status**: dropped
+- **Type**: direct
+- **Category**: docs
+- **Where**: `frontend/hooks/useTeamSearch.ts:89-91`
+- **Why**: The comment says the `searchable_name` tokens exist "so users can search using the same string they see in the rankings table". The rankings table now renders `teamDisplayName` over club + state, so U{age}, league and distinction appear in no visible row — they are index-only, feeding the hidden filter string at `RankingsTable.tsx:201`. State what the index actually widens past. Split out of IMP-123, which is a component refactor this does not depend on.
+- **Noted**: 2026-08-27
+- **Update (2026-10-11)**: Re-anchored: the rankings search haystack cited as `RankingsTable.tsx:201` is now `RankingsTable.tsx:331`.
+- **Update (2026-10-12)**: Moot: `searchable_name` and the comment describing it are gone; search runs server-side over `team_search_text`.
+- **Refs**: branch `feat/server-side-team-search` deleted `searchable_name` and the comment, so nothing was left to correct

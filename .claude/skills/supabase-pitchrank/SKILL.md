@@ -710,6 +710,23 @@ Before recommending a push, compare `mcp__supabase__list_migrations` with
 the unlisted files create exist live. To ship one migration, run its SQL in the SQL editor,
 then record it with `supabase migration repair --status applied <version>`.
 
+The editor shows only the last statement that returned rows, so a file with a helper `SELECT`
+partway through (one that loads an extension's library, say) ends by displaying that row even
+when every statement ran. Tell the owner beforehand what the editor will show, then confirm from the catalog
+rather than the pasted output: `pg_proc` (`proconfig`, `prosecdef`, `proacl`) for a function, and
+`pg_index` (`indisvalid`) for an index.
+
+`migration repair` must run in a checkout that is both linked and holds the migration file. The
+link lives in the gitignored supabase/.temp directory, which `supabase link` writes and a new
+worktree lacks, while a new migration exists only on its branch: from an unlinked worktree the
+repair fails with "Cannot find project ref", and from a checkout on another branch with "file does
+not exist". Copy a linked checkout's supabase/.temp into the worktree's supabase directory and run
+the repair there.
+
+To search a function body, use `strpos(p.prosrc, 'x')`. `pg_catalog.position('x' in p.prosrc)` is
+a syntax error (42601) in any client, migrations included: only the bare keyword takes the `IN`
+form.
+
 ## Environment Variables
 
 | Variable | Purpose |

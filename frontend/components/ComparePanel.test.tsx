@@ -54,9 +54,13 @@ vi.mock('./TeamSelector', async () => {
   return {
     TeamSelector: ({
       label,
+      value,
+      selectedTeam,
       onChange,
     }: {
       label: string;
+      value: string | null;
+      selectedTeam?: { team_name: string } | null;
       onChange: (id: string | null, team: { team_name: string }) => void;
     }) => {
       ReactModule.useEffect(() => {
@@ -67,7 +71,11 @@ vi.mock('./TeamSelector', async () => {
         }
       }, []);
 
-      return ReactModule.createElement('div', null, label);
+      return ReactModule.createElement(
+        'div',
+        { 'data-testid': `selector-${label}` },
+        `${label}: ${value} ${selectedTeam?.team_name ?? 'none'}`
+      );
     },
   };
 });
@@ -266,5 +274,21 @@ describe('ComparePanel', () => {
 
     expect(container?.textContent).toContain('Unable to analyze this matchup right now.');
     expect(container?.textContent).toContain('Route unavailable');
+  });
+
+  it('hands each selector its own selected team, and exchanges them on Swap', async () => {
+    await flushRender(root!);
+
+    const selector = (label: string) => container!.querySelector(`[data-testid="selector-${label}"]`)?.textContent;
+    expect(selector('Team 1')).toBe('Team 1: team-a Alpha FC');
+    expect(selector('Team 2')).toBe('Team 2: team-b Beta FC');
+
+    const swap = container!.querySelector('button[aria-label="Swap teams"]') as HTMLButtonElement;
+    await act(async () => {
+      swap.click();
+    });
+
+    expect(selector('Team 1')).toBe('Team 1: team-b Beta FC');
+    expect(selector('Team 2')).toBe('Team 2: team-a Alpha FC');
   });
 });

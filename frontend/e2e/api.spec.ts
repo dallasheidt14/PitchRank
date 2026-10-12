@@ -72,7 +72,7 @@ test.describe('Team Search API @api', () => {
   });
 
   test('sanitizes PostgREST injection characters', async ({ request }) => {
-    // These characters should be stripped: %_(),.*\
+    // The query parser turns these into spaces before anything reaches the database: %().*\
     const response = await fetchWithRetry(request, '/api/teams/search?q=%25_().*\\test');
     expect(response.status()).toBe(200);
 
