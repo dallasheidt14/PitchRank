@@ -2107,3 +2107,23 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `frontend/components/RankingsFilter.tsx` (the phone grid on `CardContent`, `grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)]`)
 - **Why**: At a 300px viewport (seen 2026-10-11 in a smoke-test screenshot) the gender trigger truncates to "Boy" and the "AGE GROUP" label wraps to two lines, pushing that dropdown below its neighbours. Phones this narrow are rare (Galaxy Fold, zoomed Android), so a shorter label or a two-row fallback below ~340px would do.
 - **Noted**: 2026-10-11
+
+### Record the signed-in admin as the merger instead of a request field
+
+- **ID**: IMP-318
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `frontend/app/api/team-merge/route.ts` (`POST`, `mergedBy` passed as `p_merged_by`), `frontend/components/MergeTeamsDialog.tsx` (request body)
+- **Why**: Verified 2026-10-12: the POST reads `mergedBy` from the JSON body and writes it to the merge record, and the dialog fills it with `user.email`. `requireAdmin` runs first, so only an admin gets that far, but any admin can put any name on the audit trail. Take the email from the `requireAdmin` result and drop the body field.
+- **Noted**: 2026-10-12
+
+### Share one header across GameHistoryTable's loading, error and empty states
+
+- **ID**: IMP-319
+- **Status**: open
+- **Type**: direct
+- **Category**: refactor
+- **Where**: `frontend/components/GameHistoryTable.tsx` (`GameHistoryTable`, the `isLoading`, `isError` and empty-games early returns)
+- **Why**: Verified 2026-10-12: the three early returns each carry the same ~20-line `CardHeader` (title, description, `MissingGamesForm`, admin-gated `MergeTeamsDialogWrapper`), so the admin gate had to be added three times. The loaded-games header differs (display-font title, `LastUpdated`, no merge button), so decide whether it shares the component or stays separate.
+- **Noted**: 2026-10-12

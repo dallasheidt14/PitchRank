@@ -122,7 +122,13 @@ frontend/
 
 - `GET /api/watchlist` / `POST /api/watchlist/add` / `POST /api/watchlist/remove`
 - `GET /api/insights/[teamId]`
-- `POST /api/stripe/checkout` / `POST /api/stripe/portal` / `POST /api/stripe/webhook`
+- `POST /api/scrape-missing-game`
+
+### Billing
+
+- `POST /api/stripe/checkout` (optionalAuth: signed-out visitors can check out before they have an account)
+- `POST /api/stripe/portal` (requireAuth)
+- `POST /api/stripe/webhook` (Stripe signature, no user auth)
 
 ### Admin (requireAdmin)
 
@@ -134,7 +140,7 @@ frontend/
 
 - `POST /api/link-opponent` / `POST /api/unlink-opponent`
 - `POST /api/create-team`
-- `POST /api/scrape-missing-game` / `GET /api/process-missing-games` (CRON_SECRET)
+- `GET /api/process-missing-games` (CRON_SECRET)
 
 ### Public
 
@@ -449,10 +455,10 @@ RESEND_API_KEY
 13. **Display a team with `teamDisplayName`, not `composeTeamDisplay`** — the registered `team_name` is what tells a club's squads apart, and most ranked teams record no league, so composing from `club_name` renders a whole cohort of one club identically. `composeTeamDisplay` is no rescue for an `unknown_<provider_team_id>` name either: each of its guards returns the raw `team_name`, which is why `teamDisplayName` skips them and composes from the club itself. Pair it with `composeTeamMeta` where the cohort matters, and never append `U{age}` to a registered name yourself. A test fixture must therefore distinguish rows by `team_name`, not `club_name`.
 14. **`headers()` in `next.config.ts` is last-wins** — every matching rule applies, so a per-route override of a key the catch-all `/(.*)` also sets must be listed _after_ it or the catch-all silently wins.
 15. **The rankings list's place on Back lives on the history entry, not in storage** — `hooks/useRankingsViewState.ts` writes the shown count, sort and scroll position into `history.state`, so Back/Forward restore them and a fresh visit (a new entry) starts at the top 100. It writes only when Next's `__NA` marker is present: Back to an entry without it makes the App Router hard-reload. Back from a team page remounts the rankings layout, and a fresh query client would show a skeleton or only the server seed, too short a page to scroll back into, which is why the rankings layout uses `RankingsDataProviders` (a browser-session query client) instead of `DataProviders` — keep user-scoped keys like `['watchlist']` out of it: the client outlives a sign-out, which navigates client-side. WebKit then restores the scroll itself; Chromium and Firefox do not, so the hook's frame callback scrolls to the saved position, and that callback is the restore path in most browsers, not a backstop. While Back is still loading, the outgoing board stays mounted under the destination's URL, so every write checks that the URL is still the board's own. The team page's Back to Rankings button can only reach that saved place by going back to the same entry (`router.push` makes a new one), so a row click notes its link (only while the board owns the address: during a pending Back the push would follow the other page), the team page marks its own entry when it matches, and the button calls `router.back()` only on a marked entry; anything else opens the board fresh. Every team page mount also stamps its entry and never marks a stamped one: a Ctrl/Cmd-click or an interrupted navigation leaves a note pending, and a Back into an older entry at the same URL must not claim it. A `popstate` listener cannot do this job, because React renders the restored page and runs its mount effects inside Next's own `popstate` handler, before any listener added later. The button ignores taps while its `router.back()` is pending and clears that on `popstate`/`pageshow` once the marked entry is current again. A filter change on the board rewrites that entry with `router.replace`, so Back, a filter change, then Forward to a marked team page returns to the board as last shown, as the browser's Back would; that is intended.
-16. **`dark:` classes fire on a light-only site** — Tailwind v4's `dark:` variant follows the OS
-    `prefers-color-scheme`, and `globals.css` defines no dark theme or `@custom-variant dark`, so a
-    `dark:` class renders for visitors in OS dark mode on the white page (light text on white).
-    Don't add `dark:` classes until a real theme and class-based variant exist.
+16. **`dark:` classes are inert on this light-only site** — Tailwind v4's default `dark:` variant
+    follows the OS `prefers-color-scheme`, which would put light text on the white page for visitors in
+    OS dark mode. `globals.css` redefines it with `@custom-variant dark` to apply only under a
+    `.dark` class, and nothing sets one. Don't remove that line without shipping a dark theme.
 17. **`@layer base` loses to every utility class** — a floor written in `@layer base` (such as the
     16px input size that stops iOS zooming) is overridden by any `text-*` utility on the element.
     A rule that must win goes outside the layers, as the input-size rule in `globals.css` does.

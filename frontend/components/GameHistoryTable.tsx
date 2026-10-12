@@ -13,6 +13,7 @@ import { formatGameDate, formatShortDate } from '@/lib/dateUtils';
 import { explainGameBreakdown } from '@/lib/gameExplainer';
 import Link from 'next/link';
 import { usePrefetchTeam } from '@/lib/hooks';
+import { useUser, hasAdminAccess } from '@/hooks/useUser';
 import type { GameWithTeams } from '@/lib/types';
 import { MissingGamesForm } from '@/components/MissingGamesForm';
 import { UnknownOpponentLink } from '@/components/UnknownOpponentLink';
@@ -152,6 +153,8 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
   const { data, isLoading, isError, error, refetch } = useTeamGames(teamId, gamesLimit);
   const prefetchTeam = usePrefetchTeam();
   const { data: team } = useTeam(teamId);
+  const { profile, isLoading: userLoading } = useUser();
+  const isAdmin = !userLoading && hasAdminAccess(profile);
   const displayTeamName = teamName || team?.team_name || 'this team';
 
   type TeamGamesData = { games: GameWithTeams[]; lastScrapedAt: string | null };
@@ -242,7 +245,7 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
             </div>
             <div className="flex flex-wrap items-center gap-2 sm:flex-col sm:items-end">
               <MissingGamesForm teamId={teamId} teamName={displayTeamName} />
-              {teamId && (
+              {teamId && isAdmin && (
                 <MergeTeamsDialogWrapper
                   currentTeamId={teamId}
                   currentTeamName={displayTeamName}
@@ -272,7 +275,7 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
             </div>
             <div className="flex flex-wrap items-center gap-2 sm:flex-col sm:items-end">
               <MissingGamesForm teamId={teamId} teamName={displayTeamName} />
-              {teamId && (
+              {teamId && isAdmin && (
                 <MergeTeamsDialogWrapper
                   currentTeamId={teamId}
                   currentTeamName={displayTeamName}
@@ -310,7 +313,7 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
             </div>
             <div className="flex flex-wrap items-center gap-2 sm:flex-col sm:items-end">
               <MissingGamesForm teamId={teamId} teamName={displayTeamName} />
-              {teamId && (
+              {teamId && isAdmin && (
                 <MergeTeamsDialogWrapper
                   currentTeamId={teamId}
                   currentTeamName={displayTeamName}
@@ -400,12 +403,14 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
                                   (Team linked)
                                 </Link>
                               )}
-                              <UnlinkOpponentButton
-                                game={game}
-                                currentTeamId={teamId}
-                                opponentName={opponent}
-                                onUnlinked={() => refetch()}
-                              />
+                              {isAdmin && (
+                                <UnlinkOpponentButton
+                                  game={game}
+                                  currentTeamId={teamId}
+                                  opponentName={opponent}
+                                  onUnlinked={() => refetch()}
+                                />
+                              )}
                             </div>
                             {opponentClub && (
                               <span className="text-xs text-muted-foreground mt-0.5 truncate sm:whitespace-normal">
@@ -413,7 +418,7 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
                               </span>
                             )}
                           </div>
-                        ) : opponentProviderId ? (
+                        ) : opponentProviderId && isAdmin ? (
                           <UnknownOpponentLink
                             game={game}
                             currentTeamId={teamId}

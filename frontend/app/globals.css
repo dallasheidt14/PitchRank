@@ -1,6 +1,10 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
 
+/* The site has no dark theme. By default `dark:` follows the OS setting and puts light text on the
+   white page, so it applies only under a `.dark` class, which nothing sets. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
