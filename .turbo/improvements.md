@@ -2225,3 +2225,13 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `tests/unit/test_age_rollover_freeze_coverage.py` `_has_top_level_or`, `test_gate_is_not_bypassable_by_an_or`
 - **Why**: `_has_top_level_or` refuses only a `||` outside every bracket, so `(env.AGE_ROLLOVER_FREEZE == 'false' || github.event_name == 'workflow_dispatch') && ...` passes while a manual dispatch runs the writing step during a freeze (checked 2026-10-12: not refused, gate text present). `scripts/check_age_skill_assumptions.py` `_gated_on_the_flag` already requires the comparison to be one of the top-level `&&` terms with no top-level `||`. Wanted: the same rule for the freeze gate, ideally one shared parser.
 - **Noted**: 2026-10-12
+
+### Let next/font build its size-matched fallback fonts
+
+- **ID**: IMP-337
+- **Status**: open
+- **Type**: plan
+- **Category**: performance
+- **Where**: `frontend/app/layout.tsx` (the `Oswald`, `DM_Sans` and `JetBrains_Mono` calls, each passing `fallback`), `frontend/app/globals.css` (`@theme inline` font tokens)
+- **Why**: With `fallback` set, the production (Turbopack) build emits no size-adjusted "… Fallback" face, so text swaps from the system font to the web font with no metric match and can reflow on a slow first visit; the local `next dev --webpack` build does emit the fallback faces, so a local check hides this (two reviewers, 2026-10-12, against production CSS and a scratch Next 16.2.6 app). Dropping `fallback` and moving `system-ui, sans-serif` into the theme tokens lets next/font generate the adjusted faces; measure CLS before and after, since five throttled phone runs showed no difference from the body-font fix alone.
+- **Noted**: 2026-10-12
