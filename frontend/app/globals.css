@@ -1,6 +1,10 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
 
+/* The site has no dark theme. By default `dark:` follows the OS setting and puts light text on the
+   white page, so it applies only under a `.dark` class, which nothing sets. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -92,6 +96,17 @@
   --sidebar-accent-foreground: oklch(0.22 0.05 163);
   --sidebar-border: oklch(0.92 0.015 163);
   --sidebar-ring: oklch(0.38 0.1 163);
+  /* Navigation's height without its 1px bottom border: h-16 + .safe-top padding */
+  --site-header-height: calc(4rem + max(1rem, env(safe-area-inset-top, 0px)));
+  /* Where the rankings search bar sticks: under Navigation's border and, on phones, under
+     RankingsStickyFilters (h-9 + 1px border), which sits at --site-header-height. */
+  --rankings-sticky-top: calc(var(--site-header-height) + 2.25rem + 1px);
+}
+
+@media (min-width: 640px) {
+  :root {
+    --rankings-sticky-top: calc(var(--site-header-height) + 1px);
+  }
 }
 
 @layer base {
@@ -179,13 +194,6 @@
     }
   }
 
-  /* Prevent iOS zoom on input focus - ensure inputs are at least 16px */
-  input,
-  select,
-  textarea {
-    font-size: 16px; /* Prevents iOS zoom on focus */
-  }
-
   @media (min-width: 640px) {
     input,
     select,
@@ -263,6 +271,18 @@
 
   .blog-content blockquote {
     @apply border-l-4 border-primary pl-4 italic my-4 text-muted-foreground;
+  }
+}
+
+/* Prevent iOS zoom on input focus - inputs must be at least 16px on narrow screens and on devices
+   whose primary input is touch (landscape phones and tablets are wider than 639px). The touch query
+   is the same as TOUCH_MEDIA_QUERY in components/ui/info-tooltip.tsx.
+   Unlayered on purpose: inside @layer base, every text-sm utility on an input wins. */
+@media (max-width: 639px), (hover: none) and (pointer: coarse) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
   }
 }
 

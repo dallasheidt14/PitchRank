@@ -17,7 +17,7 @@ import {
 } from 'recharts';
 import { useTeamTrajectory } from '@/lib/hooks';
 import { useMemo, useEffect, useRef } from 'react';
-import { InfoTooltip } from '@/components/ui/info-tooltip';
+import { InfoButton, InfoTooltip } from '@/components/ui/info-tooltip';
 import { TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { trackChartViewed } from '@/lib/events';
 import { formatShortDate } from '@/lib/dateUtils';
@@ -196,18 +196,7 @@ export function TeamTrajectoryChart({ teamId }: TeamTrajectoryChartProps) {
               </div>
             )}
           </div>
-          <InfoTooltip
-            className="max-w-xs"
-            trigger={
-              <button
-                type="button"
-                className="text-xs text-muted-foreground cursor-help focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary rounded"
-                aria-label="Trajectory chart information"
-              >
-                ℹ️
-              </button>
-            }
-          >
+          <InfoTooltip trigger={<InfoButton label="Trajectory chart information" iconClassName="h-4 w-4" />}>
             <p className="font-semibold mb-1">Goal Differential</p>
             <p className="text-xs">Shows average goal margin (goals for - goals against) per period.</p>
             <p className="text-xs mt-1">Positive values = winning by that margin on average.</p>
