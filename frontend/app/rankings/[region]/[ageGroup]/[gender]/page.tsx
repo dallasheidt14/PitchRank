@@ -178,66 +178,79 @@ export default async function RankingsPage({ params }: RankingsPageProps) {
       <BreadcrumbSchema items={breadcrumbItems} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLd }} />
 
-      {/* Server-rendered SEO content — H1 and intro visible, team list hidden (duplicates interactive table) */}
-      <section className="container mx-auto px-4 pt-8 pb-4">
-        <h1 className="font-display text-3xl font-bold uppercase tracking-wide mb-2">
-          {locationText} {formattedAgeGroup} {formattedGender} Soccer Rankings
-        </h1>
-        <p className="text-muted-foreground text-sm mb-4">
-          {isNational
-            ? `National ${formattedAgeGroup} ${formattedGender} youth soccer rankings, updated weekly from real game results. Browse PowerScores for top clubs across all 50 states. Rankings are calculated using PitchRank's 13-layer algorithm that weighs strength of schedule, margin of victory, and opponent quality.`
-            : `${locationText} ${formattedAgeGroup} ${formattedGender} youth soccer rankings, updated weekly from real game results. See where ${locationText} clubs stand by PowerScore — a 0-to-1 rating built from strength of schedule, game outcomes, and opponent quality. Rankings update every Monday.`}
-        </p>
-      </section>
+      {/* On phones, CSS order lifts the filters and table to just under the intro; the DOM (what crawlers read) keeps the SEO copy first */}
+      <div className="flex flex-col">
+        {/* Server-rendered SEO content — H1 and intro visible, team list hidden (duplicates interactive table) */}
+        <section className="container mx-auto px-4 pt-8 pb-4">
+          <h1 className="font-display text-3xl font-bold uppercase tracking-wide mb-2">
+            {locationText} {formattedAgeGroup} {formattedGender} Soccer Rankings
+          </h1>
+          <p className="text-muted-foreground text-sm mb-4">
+            {isNational
+              ? `National ${formattedAgeGroup} ${formattedGender} youth soccer rankings, updated weekly from real game results. Browse PowerScores for top clubs across all 50 states. Rankings are calculated using PitchRank's 13-layer algorithm that weighs strength of schedule, margin of victory, and opponent quality.`
+              : `${locationText} ${formattedAgeGroup} ${formattedGender} youth soccer rankings, updated weekly from real game results. See where ${locationText} clubs stand by PowerScore — a 0-to-1 rating built from strength of schedule, game outcomes, and opponent quality. Rankings update every Monday.`}
+          </p>
+        </section>
 
-      {/* Programmatic SEO content modules — visible, unique per page */}
-      {cohortData && <CohortSEOContent data={cohortData} />}
+        {/* Programmatic SEO content modules — visible, unique per page */}
+        {cohortData && (
+          <div className="order-2 sm:order-none">
+            <CohortSEOContent data={cohortData} />
+          </div>
+        )}
 
-      {/* Related Guide — links ranking page to matching state pillar blog */}
-      {(() => {
-        const guide = !isNational ? getRelatedGuide(region) : null;
-        return guide ? (
-          <section className="container mx-auto px-4 pb-4">
-            <p className="text-sm text-muted-foreground">
-              Read our complete guide:{' '}
-              <a
-                href={`/blog/${guide.slug}`}
-                className="font-medium text-primary underline underline-offset-2 hover:text-primary/80"
-              >
-                {guide.title} &rarr;
-              </a>
-            </p>
-          </section>
-        ) : null;
-      })()}
+        {/* Related Guide — links ranking page to matching state pillar blog */}
+        {(() => {
+          const guide = !isNational ? getRelatedGuide(region) : null;
+          return guide ? (
+            <section className="container mx-auto px-4 pb-4 order-2 sm:order-none">
+              <p className="text-sm text-muted-foreground">
+                Read our complete guide:{' '}
+                <a
+                  href={`/blog/${guide.slug}`}
+                  className="font-medium text-primary underline underline-offset-2 hover:text-primary/80"
+                >
+                  {guide.title} &rarr;
+                </a>
+              </p>
+            </section>
+          ) : null;
+        })()}
 
-      {/* Top teams in DOM for Googlebot but visually hidden — the interactive table shows the same data */}
-      {topTeams.length > 0 && (
-        <div className="sr-only">
-          <h2>
-            Top {locationText} {formattedAgeGroup} {formattedGender} Teams
-          </h2>
-          <ol>
-            {topTeams.map((team, idx) => (
-              <li key={team.team_id_master}>
-                {idx + 1}. {team.team_name}
-                {team.club_name && ` (${team.club_name})`} — {formatPowerScore(team.power_score_final)}
-              </li>
-            ))}
-          </ol>
+        {/* Top teams in DOM for Googlebot but visually hidden — the interactive table shows the same data */}
+        {topTeams.length > 0 && (
+          <div className="sr-only">
+            <h2>
+              Top {locationText} {formattedAgeGroup} {formattedGender} Teams
+            </h2>
+            <ol>
+              {topTeams.map((team, idx) => (
+                <li key={team.team_id_master}>
+                  {idx + 1}. {team.team_name}
+                  {team.club_name && ` (${team.club_name})`} — {formatPowerScore(team.power_score_final)}
+                </li>
+              ))}
+            </ol>
+          </div>
+        )}
+
+        <div className="order-1 sm:order-none">
+          <RankingsPageContent
+            key={routeKey}
+            region={region}
+            ageGroup={ageGroup}
+            gender={gender}
+            initialRankings={allTeams}
+          />
         </div>
-      )}
 
-      <RankingsPageContent
-        key={routeKey}
-        region={region}
-        ageGroup={ageGroup}
-        gender={gender}
-        initialRankings={allTeams}
-      />
-
-      {/* FAQ below the interactive table — JSON-LD tells Google it exists regardless of position */}
-      {cohortData && <CohortFAQ data={cohortData} />}
+        {/* FAQ below the interactive table — JSON-LD tells Google it exists regardless of position */}
+        {cohortData && (
+          <div className="order-3 sm:order-none">
+            <CohortFAQ data={cohortData} />
+          </div>
+        )}
+      </div>
     </>
   );
 }
