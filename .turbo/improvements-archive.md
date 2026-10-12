@@ -1503,3 +1503,15 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Noted**: 2026-09-04
 - **Update (2026-10-07)**: Dropped with the feature. The owner had the Unpaid Invoices section removed from `/mission-control/subscriptions`, and the open-invoice fetch and `buildUnpaidInvoices` went with it, so there is no unbounded fetch left to bound.
 - **Refs**: branch `feat/subscriptions-last-month-conversion`
+
+### Read a name's birth years against a cohort one way in the triage and the age applier
+
+- **ID**: IMP-306
+- **Status**: done
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `.claude/skills/reconcile-gotsport/scripts/triage_reconcile.py` `cohort_years` (with `birth_years`); `scripts/fix_band_cohorts.py` `name_contradiction`
+- **Why**: The triage decides a record holds another squad when the name's birth years miss GotSport's cohort; the applier holds a relabel when the name's years miss the target cohort. They use different year readers and fold U18 differently: `cohort_years(19)` holds 2009, while `name_contradiction` allows only 2008 and 2007 for u19. A name can pass one stage and be held by the next.
+- **Noted**: 2026-10-09
+- **Update (2026-10-11)**: `cohort_years` moved to `fix_band_cohorts.py` (u19 holds 2009, 2008 and 2007) and the triage imports it, so both stages fold U18 one way; the applier's U-age check now folds it too. `name_contradiction` and `evidence_tier` read years with `name_years`, which reads every year `birth_years` does and more. The triage keeps `birth_years` and its overlap test on purpose: the owner holds a move whenever the name states any year outside the new group ("Hold every span"), a stricter question than the triage's "is this another squad". So a name can still pass the triage and be held at apply, never the reverse, and a held row is left unwritten.
+- **Refs**: branch `feat/age-one-birth-year-reader`

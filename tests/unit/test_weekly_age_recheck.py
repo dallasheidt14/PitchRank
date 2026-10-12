@@ -198,3 +198,28 @@ def test_a_team_without_enough_opponent_games_does_not_qualify(exports, monkeypa
     assert plans, "no plan written"
     with plans[-1].open(encoding="utf-8-sig", newline="") as f:
         assert list(csv.DictReader(f)) == []
+
+
+def test_a_name_whose_birth_year_misses_the_new_group_is_held(exports, monkeypatch):
+    """ "14B" is a 2014 birth year (U13 this season), so a move to U15 is held though opponents back it."""
+    row = _reconcile_row(stored_age_group="u16", gotsport_age_group="u15")
+    _write_reconcile(exports, [row])
+    monkeypatch.setattr(fbc, "_soccer_season_year", lambda: 2026)
+    monkeypatch.setattr(fbc, "load_env", lambda: None)
+    monkeypatch.setattr(fbc, "get_supabase", lambda: _Db())
+    monkeypatch.setattr(
+        fbc, "fetch_live", lambda sb, ids: {row["team_id_master"]: _live(row, team_name="Club 14B Blue")}
+    )
+    monkeypatch.setattr(fbc, "fetch_all_live_teams", lambda sb: [])
+
+    def _backed(sb, rows):
+        for r in rows:
+            r.update(fixture_verdict="backs_move", opp_games_proposed=6, opp_games_current=0)
+
+    monkeypatch.setattr(fbc, "attach_fixture_evidence", _backed)
+
+    war.main()
+
+    report = sorted(exports.glob("weekly_age_recheck_2*.md"))[-1].read_text(encoding="utf-8")
+    assert "**0 teams now qualify**" in report
+    assert "| Held — our name states a different age | 1 |" in report

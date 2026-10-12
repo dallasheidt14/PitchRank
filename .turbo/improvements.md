@@ -1995,16 +1995,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: Both read one vote per distinct opponent from its name and require a strict majority, written out twice. A change to the tie or majority rule in one leaves the two tools judging the same team differently. Skipped in the 2026-10-09 review to keep the skill PR off the tracked script.
 - **Noted**: 2026-10-09
 
-### Read a name's birth years against a cohort one way in the triage and the age applier
-
-- **ID**: IMP-306
-- **Status**: open
-- **Type**: plan
-- **Category**: reliability
-- **Where**: `.claude/skills/reconcile-gotsport/scripts/triage_reconcile.py` `cohort_years` (with `birth_years`); `scripts/fix_band_cohorts.py` `name_contradiction`
-- **Why**: The triage decides a record holds another squad when the name's birth years miss GotSport's cohort; the applier holds a relabel when the name's years miss the target cohort. They use different year readers and fold U18 differently: `cohort_years(19)` holds 2009, while `name_contradiction` allows only 2008 and 2007 for u19. A name can pass one stage and be held by the next.
-- **Noted**: 2026-10-09
-
 ### Stop Tuesday's opponent discovery creating thousands of teams with no identity
 
 - **ID**: IMP-307
@@ -2074,3 +2064,13 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `src/utils/team_association_map.py` `CANADIAN_PROVINCES`; `src/utils/canadian_provinces.py` `CANADIAN_PROVINCES`
 - **Why**: Two constants share one name but describe different fields. The `team_association_map` set holds GotSport association codes: it includes `CND`, has no NT, NU or YT, and its own comment says nothing consults it. The `canadian_provinces` set holds `teams.state_code` values (13 provinces and territories) and is what `assign_team_states.py` and the team-cleanup health report read. Renaming the first (say, `CANADIAN_ASSOCIATION_CODES`) stops anyone merging the two by name, or importing the wrong one and filing a territory as malformed.
 - **Noted**: 2026-10-10
+
+### Let the name normalizer accept a birth year in either of its two age groups
+
+- **ID**: IMP-319
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `scripts/normalize_team_names.py` `_column_contradicted`; `scripts/audit_name_age_disagreements.py` (the same `calculate_age_group_from_birth_year` reading)
+- **Why**: Each name year becomes one group through `calculate_age_group_from_birth_year`, the older of the two it sits in, while `fix_band_cohorts.cohort_years` and `YEAR_FITS` in `.claude/skills/correcting-team-age-groups/scripts/review_age_labels.py` accept both (2026-27: 2009 fits u17 and u19; 2014 fits u12 and u13). So for a team stored u17, "Club 2009 U16 Boys" reads as contradicted and keeps its stale U16, while "Club 2010 U16 Boys" is re-rendered as U17. The audit's `_token_cohort` reads a name year the same way, so its verdicts and opponent witnesses carry the same one-group error. Fix both together by testing the year against both groups.
+- **Noted**: 2026-10-11

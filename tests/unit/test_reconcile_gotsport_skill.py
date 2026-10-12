@@ -13,6 +13,8 @@ from pathlib import Path
 
 import pytest
 
+from scripts import fix_band_cohorts as fbc
+
 TOOLS = Path(__file__).resolve().parents[2] / ".claude/skills/reconcile-gotsport/scripts"
 sys.path.insert(0, str(TOOLS))
 triage = importlib.import_module("triage_reconcile")
@@ -137,6 +139,10 @@ def test_cohort_years_2026_27():
     assert triage.cohort_years(17, season=2026) == {2010, 2009}
     # u19 holds the U18 band PitchRank files into it, and nothing younger
     assert triage.cohort_years(19, season=2026) == {2008, 2007, 2009}
+
+
+def test_the_triage_reads_cohorts_with_the_applier_s_function():
+    assert triage.cohort_years is fbc.cohort_years
 
 
 def test_squad_words():

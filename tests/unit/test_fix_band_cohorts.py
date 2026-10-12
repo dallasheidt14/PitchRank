@@ -11,10 +11,12 @@ been removed, which is the defect these tests exist to catch.
 """
 
 import csv
+import functools
 
 import pytest
 
 from scripts import fix_band_cohorts as fbc
+from scripts import normalize_team_names
 
 PLAN_ROW = {
     "state_code": "NC",
@@ -468,3 +470,157 @@ def test_main_builds_the_plan_from_and_into_the_exports_dir_given(exports, monke
     [plan] = sorted(store.glob("fix_band_cohorts_plan_*.csv"))
     assert [(r["team_id_master"], r["action"]) for r in fbc.read_our_csv(plan)] == [("a", "skipped_missing")]
     assert list(exports.iterdir()) == []
+
+
+@pytest.fixture
+def season_2026(monkeypatch):
+    """The season for fbc's readers, and for band_of, whose band reader took the year at import
+    (calculate_age_group_from_birth_year's current_year default)."""
+    monkeypatch.setattr(fbc, "_soccer_season_year", lambda: 2026)
+    calculate = normalize_team_names.calculate_age_group_from_birth_year
+    monkeypatch.setattr(
+        normalize_team_names, "calculate_age_group_from_birth_year", functools.partial(calculate, current_year=2026)
+    )
+
+
+@pytest.mark.parametrize(
+    ("name", "target"),
+    [
+        ("Club 2009 Boys", "u19"),
+        ("Club U19 2009", "u19"),
+        ("Club 08/09 Boys", "u19"),
+        ("BRAUSA '11/'12 Blue", "u15"),
+        ("Club U16 Red", "u15"),
+        # Last season's U-age is one group from u19, since U18 files into it.
+        ("Club U17 Boys", "u19"),
+        # No two numbers step by one, so none is a birth year.
+        ("FC 10/12/14 Elite", "u13"),
+        # 12 and 13 step by one; 15 does not, so it is not read.
+        ("Club 12/13/15 Elite", "u14"),
+        # Years after 2020 are season labels, inside a run too.
+        ("Lions 2020/21/22", "u7"),
+        # U-ages, ranges and "U/10" included, are labels, not years.
+        ("Club U12/13/14 Elite", "u13"),
+        ("Club U-13/14/15", "u14"),
+        ("Club U/10B White", "u10"),
+        # A hyphen-wrapped number is last season's U-age (owner, 2026-10-11): U9 is one group from u10.
+        ("Town-G09A-Coach", "u10"),
+    ],
+)
+def test_a_name_whose_years_fit_the_new_group_is_not_held(season_2026, name, target):
+    assert fbc.name_contradiction(name, target) == ""
+
+
+@pytest.mark.parametrize(
+    ("name", "target", "reason"),
+    [
+        ("Club 14B Blue", "u15", "name has birth year 2014, outside U15 (2012/2011)"),
+        ("13 WUSC Revolution Blue", "u11", "name has birth year 2013, outside U11 (2016/2015)"),
+        ("Club 09 Girls", "u15", "name has birth year 2009, outside U15 (2012/2011)"),
+        ("Club 2013/14 Elite", "u14", "name has birth year 2014, outside U14 (2013/2012)"),
+        ("Club 2010 Boys", "u19", "name has birth year 2010, outside U19 (2009/2008/2007)"),
+        ("Club U12 Red", "u15", "name says U12, 3 away from U15"),
+        ("Club U16 Red", "u19", "name says U16, 2 away from U19"),
+        ("Club U18 Red", "u15", "name says U18, 3 away from U15"),
+        ("Club U15 Red", "u17", "name says U15, 2 away from U17"),
+        ("Club U17 Red", "u15", "name says U17, 2 away from U15"),
+        ("Town-G09A-Coach", "u12", "name says U9, 3 away from U12"),
+        ("Club 2004 Boys", "u19", "name has birth year 2004, outside U19 (2009/2008/2007)"),
+        ("Club '04 Blue", "u19", "name has birth year 2004, outside U19 (2009/2008/2007)"),
+        ("Club '11 Blue", "u13", "name has birth year 2011, outside U13 (2014/2013)"),
+        # Bands beside a word or an M/F letter, which birth_years does not read.
+        ("Club 11/12M Blue", "u12", "name has birth year 2011, outside U12 (2015/2014)"),
+        ("Club 07/08F", "u17", "name has birth year 2007, outside U17 (2010/2009)"),
+        ("Club Knights13/14B", "u12", "name has birth year 2013, outside U12 (2015/2014)"),
+        # Spans are held whenever any year misses the new group (owner, 2026-10-11).
+        ("Storm FC G2012/13/14", "u14", "name has birth year 2014, outside U14 (2013/2012)"),
+        ("Club B2012/13/14 Elite", "u14", "name has birth year 2014, outside U14 (2013/2012)"),
+        ("Club 2012 / 13 / 14 Elite", "u14", "name has birth year 2014, outside U14 (2013/2012)"),
+        ("Club 2012-13-14 Elite", "u14", "name has birth year 2014, outside U14 (2013/2012)"),
+        ("Club 2012/2013/14", "u14", "name has birth year 2014, outside U14 (2013/2012)"),
+        ("Club 12/2013/2014", "u13", "name has birth year 2012, outside U13 (2014/2013)"),
+        ("Club 14/13/12 Elite", "u13", "name has birth year 2012, outside U13 (2014/2013)"),
+        ("Club B2014/15/16navy", "u12", "name has birth year 2016, outside U12 (2015/2014)"),
+        ("Club 06/07/08 Boys", "u19", "name has birth year 2006, outside U19 (2009/2008/2007)"),
+        ("3RSC B16-18 Dev", "u10", "name has birth year 2018, outside U10 (2017/2016)"),
+    ],
+)
+def test_a_name_stating_another_squad_is_held(season_2026, name, target, reason):
+    assert fbc.name_contradiction(name, target) == reason
+
+
+@pytest.mark.parametrize(
+    ("name", "target", "tier"),
+    [
+        ("Club 2009 Boys", "u19", "C_bare_year_fits"),
+        ("Club 13/14 Boys", "u13", "A_own_name_band"),
+        ("2025 Club Elite", "u13", "B_gotsport_name_only"),
+        ("Club 14B Blue", "u15", "D_name_contradicts"),
+        ("Storm FC G2012/13/14", "u14", "D_name_contradicts"),
+        # A stray year outweighs a band that agrees: the hold would stop the move.
+        ("Club 2012/13 Blue 14B", "u14", "D_name_contradicts"),
+        ("Club 2006/07 Boys", "u19", "D_name_contradicts"),
+    ],
+)
+def test_evidence_tier_reads_a_name_s_years_the_way_the_hold_does(season_2026, name, target, tier):
+    assert fbc.evidence_tier(name, target) == tier
+
+
+@pytest.mark.parametrize(("season", "years"), [(2026, set()), (2030, {2021})])
+def test_the_season_label_cut_moves_with_the_season(monkeypatch, season, years):
+    monkeypatch.setattr(fbc, "_soccer_season_year", lambda: season)
+
+    assert fbc.name_years("Club 2021 Boys") == years
+
+
+def test_the_plan_holds_a_name_that_states_another_squad(tmp_path, monkeypatch, season_2026):
+    """The planner's own hold, driven through build_plan rather than evidence_tier alone."""
+    rows = {
+        "a": ("Club 2011/2012 Boys", "u16", "u15", "Club 14B Blue"),
+        "b": ("Club 2008/2009 Boys", "u17", "u19", "Club 2009 Boys"),
+        "c": ("Club 2013/2014 Boys", "u14", "u13", "2025 Club Elite"),
+    }
+    candidates = [
+        {"team_id_master": t, "gotsport_team_name": gs, "audit_age_group": old, "new_age_group": new}
+        for t, (gs, old, new, _) in rows.items()
+    ]
+    live = {
+        t: {"team_id_master": t, "team_name": ours, "age_group": old, "gender": "Male", "is_deprecated": False}
+        for t, (_, old, _new, ours) in rows.items()
+    }
+
+    def backed(sb, plan_rows):
+        for r in plan_rows:
+            r.update(fixture_verdict="backs_move", opp_games_proposed=5, opp_games_current=0)
+
+    monkeypatch.setattr(fbc, "derive_candidates", lambda exports_dir=None: candidates)
+    monkeypatch.setattr(fbc, "fetch_live", lambda sb, ids: {t: live[t] for t in ids})
+    monkeypatch.setattr(fbc, "attach_fixture_evidence", backed)
+    monkeypatch.setattr(fbc, "fetch_all_live_teams", lambda sb: [])
+
+    plan = fbc.build_plan(_Db([]), tmp_path)
+
+    got = {r["team_id_master"]: (r["action"], r["evidence_tier"]) for r in fbc.read_our_csv(plan)}
+    assert got == {
+        "a": ("held_name_contradicts", "D_name_contradicts"),
+        "b": ("would_update", "C_bare_year_fits"),
+        "c": ("would_update", "B_gotsport_name_only"),
+    }
+
+
+def test_apply_writes_a_2009_team_into_u19_and_holds_a_2010_one(exports, tmp_path, season_2026):
+    fits = _plan_row(team_name="Club 2009 Boys", old_age_group="u17", new_age_group="u19")
+    misses = _plan_row(
+        team_id_master="22222222-2222-4222-8222-222222222222",
+        team_name="Club 2010 Boys",
+        old_age_group="u17",
+        new_age_group="u19",
+    )
+    db = _Db([_team_row(fits), _team_row(misses)])
+
+    _apply(db, _write_plan(tmp_path / "plan.csv", [fits, misses]), skip_name_contradictions=True)
+
+    assert db.age_group(fits["team_id_master"]) == "u19"
+    assert db.age_group(misses["team_id_master"]) == "u17"
+    held = {r["team_id_master"]: r["result"] for r in _log_rows(exports)[1]}
+    assert held[misses["team_id_master"]] == "held_name_contradicts"
