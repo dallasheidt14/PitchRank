@@ -106,6 +106,11 @@ describe('parseTeamSearchQuery', () => {
     expect(parse('FC México').terms).toEqual(['fc', 'méxico']);
   });
 
+  it('composes a pasted accent written as a separate mark, as stored team names are', () => {
+    const decomposed = `Me${String.fromCharCode(0x301)}xico`;
+    expect(parse(decomposed).terms).toEqual([`m${String.fromCharCode(0xe9)}xico`]);
+  });
+
   it('reads a lone letter split off by punctuation as an initial, not a gender', () => {
     expect(parse('Trident F.C.')).toEqual({
       terms: ['trident'],

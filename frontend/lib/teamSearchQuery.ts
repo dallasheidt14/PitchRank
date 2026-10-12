@@ -97,12 +97,14 @@ interface Token {
 
 /**
  * Split on whitespace, lowercase, and turn ASCII punctuation other than - / _ | ' into
- * spaces. Typographic quotes and dashes become their ASCII forms first; any other
- * non-ASCII character stays inside its word.
+ * spaces. Text is first composed to NFC, the form team names are stored in, so a pasted
+ * accent written as a separate mark still matches; typographic quotes and dashes then become
+ * their ASCII forms. Any other non-ASCII character stays inside its word.
  */
 function tokenize(raw: string): Token[] {
   const tokens: Token[] = [];
   const folded = raw
+    .normalize('NFC')
     .replace(/[\u2018\u2019]/g, "'")
     .replace(/[\u201C\u201D]/g, '"')
     .replace(/[\u2013\u2014]/g, '-');
