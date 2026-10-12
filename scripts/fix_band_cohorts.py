@@ -724,7 +724,7 @@ def apply_plan(
         print(f"  {result:22s} {n:>6,}")
     print(f"\nLog: {log_path}")
     if execute:
-        print(f'Undo with: python {Path(__file__).relative_to(ROOT)} --revert "{shown(log_path)}" --execute')
+        print(f'Undo with: python {Path(__file__).resolve().relative_to(ROOT)} --revert "{shown(log_path)}" --execute')
 
 
 def revert(sb, log_path: Path, execute: bool) -> None:

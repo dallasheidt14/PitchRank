@@ -536,6 +536,7 @@ def _expected(store):
             "--out",
             str(folder / "states" / "national_snapshot.json"),
         ],
+        "age_check": ["scripts/check_age_skill_assumptions.py", "--code-only"],
         "age_review": [
             age_review,
             "review",
@@ -676,6 +677,7 @@ def test_no_step_writes_teams_or_spends_paid_probes(monkeypatch, capsys, tmp_pat
         "repair_swapped_club_names.py",
         "check_state_skill_assumptions.py",
         "assign_team_states.py",
+        "check_age_skill_assumptions.py",
         "review_age_labels.py",
         "health.py",
     }

@@ -2190,3 +2190,23 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `src/utils/team_utils.py` `_BAND_RUN_RE`; `scripts/normalize_team_names.py` `_BAND_RE`
 - **Why**: Both band readers check only the character right before a run, so a space defeats the U-age guard: on main "Club GU 18/19 Red" reads as a 2018/19 band (U8) and "Club U 13/14" as U13. The apostrophe forms ("Club GU '18/'19 Red") read the same way as their bare twins (raised in review, 2026-10-12). Two saved names have a spaced U before a band ("BU 16/15", read U11). Wanted: refuse a run after a U prefix plus optional spaces or a hyphen, in both readers; measure the live renames and band changes first.
 - **Noted**: 2026-10-12
+
+### Read the workflow flags in the merge check the way the age check reads them
+
+- **ID**: IMP-332
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `scripts/check_merge_skill_assumptions.py` `check_workflow_flags`
+- **Why**: For each of `FUZZY_AUTO_MERGE_ENABLED`, `AGE_DERIVATION_ENABLED` and `AGE_ROLLOVER_FREEZE`, it takes the first single-quoted `FLAG: '...'` line in `data-hygiene-weekly.yml`, so a job- or step-level `'true'` below the top-level `'false'` still reads as off. `scripts/check_age_skill_assumptions.py` `check_derivation_off` reads workflow, job and step env and fails on the same file, so the two skill checks disagree about `AGE_DERIVATION_ENABLED`. Nothing else checks `FUZZY_AUTO_MERGE_ENABLED`, where that gap would let Step 3 auto-merge while this check reports it off. Wanted: resolve each flag per step across workflow, job and step env by parsing the YAML, which also stops an unquoted `false` reading as missing. Dropping the derivation row instead settles the disagreement but leaves the other two flags read first-match.
+- **Noted**: 2026-10-12
+
+### Refuse a freeze gate whose comparison sits inside a bracketed `||`
+
+- **ID**: IMP-333
+- **Status**: open
+- **Type**: direct
+- **Category**: testing
+- **Where**: `tests/unit/test_age_rollover_freeze_coverage.py` `_has_top_level_or`, `test_gate_is_not_bypassable_by_an_or`
+- **Why**: `_has_top_level_or` refuses only a `||` outside every bracket, so `(env.AGE_ROLLOVER_FREEZE == 'false' || github.event_name == 'workflow_dispatch') && ...` passes while a manual dispatch runs the writing step during a freeze (checked 2026-10-12: not refused, gate text present). `scripts/check_age_skill_assumptions.py` `_gated_on_the_flag` already requires the comparison to be one of the top-level `&&` terms with no top-level `||`. Wanted: the same rule for the freeze gate, ideally one shared parser.
+- **Noted**: 2026-10-12

@@ -82,8 +82,12 @@ SWAPPED_CLUBS = "scripts/repair_swapped_club_names.py"
 ASSIGN_STATES = "scripts/assign_team_states.py"
 AGE_REVIEW = ".claude/skills/correcting-team-age-groups/scripts/review_age_labels.py"
 HEALTH = "scripts/team_cleanup/health.py"
-# --code-only: the self-check's database half only measures, so it can crash the check but never fail it.
-SELF_CHECKS = {STATES: ["scripts/check_state_skill_assumptions.py", "--code-only"]}
+# --code-only: the state check's database half only measures, so it can crash the check but never fail it;
+# the age check reads no database and takes the flag for symmetry.
+SELF_CHECKS = {
+    STATES: ["scripts/check_state_skill_assumptions.py", "--code-only"],
+    AGES: ["scripts/check_age_skill_assumptions.py", "--code-only"],
+}
 ABBREVIATION_LOGS = Path("inputs") / "abbreviation_logs"
 SCOPED_CLUBS = "repair_swapped_club_names.csv"
 SCOPED_STATES = "snapshot.json"
