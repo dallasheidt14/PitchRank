@@ -22,6 +22,7 @@ from pathlib import Path
 
 import pytest
 
+from scripts.check_age_skill_assumptions import AGE_ROW, age_section_lines, label_key_examples
 from scripts.normalize_team_names import _resolve_band
 from scripts.team_name_normalizer import parse_age_gender
 from src.utils.team_utils import calculate_age_group_from_birth_year
@@ -280,20 +281,9 @@ def test_documented_ci_commands_match_the_workflow() -> None:
 # Check 3: the age-group table and label key equal what the code returns
 # --------------------------------------------------------------------------- #
 
-AGE_ROW = re.compile(r"^\|\s*(\d{4})\s*/\s*(\d{4})\s*\|\s*U\d+\s*\|\s*\*{0,2}(u\d+)\*{0,2}")
-
 
 def _age_section_lines() -> list[tuple[int, str]]:
-    lines, in_section = [], False
-    for lineno, line in enumerate(CLAUDE_MD.read_text(encoding="utf-8").splitlines(), 1):
-        if line.startswith("### Age Groups"):
-            in_section = True
-            continue
-        if in_section and line.startswith("###"):
-            break
-        if in_section:
-            lines.append((lineno, line))
-    return lines
+    return age_section_lines(CLAUDE_MD.read_text(encoding="utf-8"))
 
 
 def _age_table_rows() -> list[tuple[int, str, str]]:
@@ -329,17 +319,8 @@ def test_age_table_shorthand_examples_hold() -> None:
     assert calculate_age_group_from_birth_year(2016).lower() == "u11"
 
 
-LABEL_KEY_CLAUSE = re.compile(r"((?:`[^`]+`(?:,\s*|\s+and\s+))+`[^`]+`)\s+are all\s+\*\*(U\d+)\*\*")
-
-
 def _label_key_examples() -> list[tuple[str, str]]:
-    """(spelling, stated age group) for each "`a`, `b` and `c` are all **U13**" clause."""
-    text = " ".join(line.strip() for _, line in _age_section_lines())
-    return [
-        (spelling, stated)
-        for spellings, stated in LABEL_KEY_CLAUSE.findall(text)
-        for spelling in re.findall(r"`([^`]+)`", spellings)
-    ]
+    return label_key_examples("\n".join(line for _, line in _age_section_lines()))
 
 
 def test_age_label_key_matches_the_parser() -> None:
