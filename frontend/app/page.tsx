@@ -117,13 +117,13 @@ export default async function Home() {
       <div className="container mx-auto py-8 sm:py-12 px-4 sm:px-6">
         <div className="grid gap-6 lg:grid-cols-3">
           {/* Main Column - How We Rank (takes 2 columns) */}
-          <div className="lg:col-span-2 space-y-6">
+          <div className="lg:col-span-2 space-y-6 min-w-0">
             <HowWeRank />
             <FeatureShowcase />
           </div>
 
           {/* Sidebar Column */}
-          <div className="space-y-6">
+          <div className="space-y-6 min-w-0">
             <RecentMovers initialMovers7d={movers7d} initialMovers30d={movers30d} cohortLabel={MOVERS_COHORT_LABEL} />
           </div>
         </div>

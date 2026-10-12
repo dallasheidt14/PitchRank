@@ -2246,3 +2246,13 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `frontend/components/Navigation.tsx` (`Navigation`: the `nav-signin` Link wrapping a `Button`, and any other Link-wrapped Button)
 - **Why**: Two nested interactive elements give keyboard users two Tab stops for one action (confirmed in a 2026-10-12 smoke test) and are invalid HTML; `<Button asChild><Link /></Button>` renders one.
 - **Noted**: 2026-10-12
+
+### Let next/font build its size-matched fallback fonts
+
+- **ID**: IMP-337
+- **Status**: open
+- **Type**: plan
+- **Category**: performance
+- **Where**: `frontend/app/layout.tsx` (the `Oswald`, `DM_Sans` and `JetBrains_Mono` calls, each passing `fallback`), `frontend/app/globals.css` (`@theme inline` font tokens)
+- **Why**: With `fallback` set, the production (Turbopack) build emits no size-adjusted "… Fallback" face, so text swaps from the system font to the web font with no metric match and can reflow on a slow first visit; the local `next dev --webpack` build does emit the fallback faces, so a local check hides this (two reviewers, 2026-10-12, against production CSS and a scratch Next 16.2.6 app). Dropping `fallback` and moving `system-ui, sans-serif` into the theme tokens lets next/font generate the adjusted faces; measure CLS before and after, since five throttled phone runs showed no difference from the body-font fix alone.
+- **Noted**: 2026-10-12
