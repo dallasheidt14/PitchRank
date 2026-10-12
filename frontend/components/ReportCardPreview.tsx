@@ -9,7 +9,7 @@ export function ReportCardPreview() {
   return (
     <div className="relative">
       {/* Floating "preview" tag */}
-      <div className="absolute -top-3 -right-3 z-10 rotate-3 bg-[#F4D03F] text-[#0B5345] text-xs font-bold uppercase tracking-wider px-3 py-1 rounded-full shadow-md font-oswald">
+      <div className="absolute -top-3 -right-3 z-10 rotate-3 bg-[#F4D03F] text-[#0B5345] text-xs font-bold uppercase tracking-wider px-3 py-1 rounded-full shadow-md font-display">
         Sample
       </div>
 
@@ -17,21 +17,25 @@ export function ReportCardPreview() {
       <div className="bg-white rounded-lg shadow-2xl border border-gray-200 overflow-hidden">
         {/* Header strip — forest green with team name */}
         <div className="bg-[#0B5345] text-white p-5">
-          <p className="text-[10px] uppercase tracking-widest text-[#F4D03F] font-oswald">Team Report Card</p>
-          <h3 className="font-oswald text-2xl font-bold tracking-wide mt-1">Phoenix Rising FC 2014B</h3>
+          <p className="text-[10px] uppercase tracking-widest text-[#F4D03F] font-display font-semibold">
+            Team Report Card
+          </p>
+          <h3 className="font-display text-2xl font-bold tracking-wide mt-1">Phoenix Rising FC 2014B</h3>
           <p className="text-white/80 text-sm">Phoenix, AZ · U12 Boys · 2026 Season</p>
         </div>
 
         {/* PowerScore + rank block */}
         <div className="grid grid-cols-2 gap-4 p-5 border-b border-gray-200">
           <div>
-            <p className="text-[10px] uppercase tracking-wider text-gray-500 font-oswald">PowerScore</p>
-            <p className="font-oswald text-4xl font-bold text-[#0B5345]">0.847</p>
+            <p className="text-[10px] uppercase tracking-wider text-gray-500 font-display font-semibold">PowerScore</p>
+            <p className="font-display text-4xl font-bold text-[#0B5345]">0.847</p>
             <p className="text-xs text-gray-500 mt-1">Top 4% nationally</p>
           </div>
           <div>
-            <p className="text-[10px] uppercase tracking-wider text-gray-500 font-oswald">National Rank</p>
-            <p className="font-oswald text-4xl font-bold text-[#0B5345]">
+            <p className="text-[10px] uppercase tracking-wider text-gray-500 font-display font-semibold">
+              National Rank
+            </p>
+            <p className="font-display text-4xl font-bold text-[#0B5345]">
               #47 <span className="text-base text-green-600 font-bold">▲ 12</span>
             </p>
             <p className="text-xs text-gray-500 mt-1">#3 in Arizona</p>
@@ -41,12 +45,12 @@ export function ReportCardPreview() {
         {/* Record + form */}
         <div className="grid grid-cols-2 gap-4 p-5 border-b border-gray-200">
           <div>
-            <p className="text-[10px] uppercase tracking-wider text-gray-500 font-oswald mb-1">Record</p>
+            <p className="text-[10px] uppercase tracking-wider text-gray-500 font-display font-semibold mb-1">Record</p>
             <p className="font-mono text-2xl font-bold">14-2-3</p>
             <p className="text-xs text-gray-500">Win pct .763</p>
           </div>
           <div>
-            <p className="text-[10px] uppercase tracking-wider text-gray-500 font-oswald mb-1">Last 5</p>
+            <p className="text-[10px] uppercase tracking-wider text-gray-500 font-display font-semibold mb-1">Last 5</p>
             <div className="flex gap-1">
               {['W', 'W', 'L', 'W', 'W'].map((r, i) => (
                 <span
@@ -64,7 +68,9 @@ export function ReportCardPreview() {
 
         {/* Recent games table */}
         <div className="p-5">
-          <p className="text-[10px] uppercase tracking-wider text-gray-500 font-oswald mb-2">Recent results</p>
+          <p className="text-[10px] uppercase tracking-wider text-gray-500 font-display font-semibold mb-2">
+            Recent results
+          </p>
           <table className="w-full text-xs">
             <tbody className="divide-y divide-gray-100">
               {[
@@ -91,7 +97,7 @@ export function ReportCardPreview() {
 
         {/* Footer */}
         <div className="bg-gray-50 px-5 py-3 flex items-center justify-between text-[10px] text-gray-500 border-t border-gray-200">
-          <span className="font-oswald uppercase tracking-wider">PitchRank.io</span>
+          <span className="font-display font-semibold uppercase tracking-wider">PitchRank.io</span>
           <span>Updated weekly</span>
         </div>
       </div>

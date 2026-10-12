@@ -1576,3 +1576,14 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Update (2026-10-11)**: Re-anchored: the rankings search haystack cited as `RankingsTable.tsx:201` is now `RankingsTable.tsx:331`.
 - **Update (2026-10-12)**: Moot: `searchable_name` and the comment describing it are gone; search runs server-side over `team_search_text`.
 - **Refs**: branch `feat/server-side-team-search` deleted `searchable_name` and the comment, so nothing was left to correct
+
+### Give the phone header search one clear button and a wider dropdown
+
+- **ID**: IMP-330
+- **Status**: done
+- **Type**: direct
+- **Category**: feature
+- **Where**: `frontend/components/GlobalSearch.tsx` (`GlobalSearch`: the `Input type="search"`, its custom clear button, and the results `Card`)
+- **Why**: A 375 px phone smoke test (2026-10-12) showed two clear controls side by side: the browser's own for `type="search"` and the custom X. The results `Card` is `absolute w-full` inside the input's wrapper, so it is only as wide as the input and team names truncate to a few words ("FLYTE SC B..."). Both predate server-side search.
+- **Noted**: 2026-10-12
+- **Refs**: PR #1289 (branch `fix/search-box-and-polish`)

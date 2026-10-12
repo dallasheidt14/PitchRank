@@ -94,7 +94,7 @@ export function MatchBalanceInquiryForm() {
       <Card className="shadow-xl border-0">
         <CardContent className="p-8 text-center">
           <CheckCircle2 className="w-12 h-12 text-[#0B5345] mx-auto mb-3" />
-          <h2 className="font-oswald text-2xl font-bold mb-2 tracking-wide">Request received</h2>
+          <h2 className="font-display text-2xl font-bold mb-2 tracking-wide">Request received</h2>
           <p className="text-muted-foreground">
             Thanks. We&apos;ll reply within one business day. If you have the accepted-team list already, reply to the
             confirmation email with it attached.
