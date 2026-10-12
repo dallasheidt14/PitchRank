@@ -173,11 +173,11 @@ def _cohort_label(age_group) -> "str | None":
 # band: "07/08/09/10" is a rec-league team spanning four birth years, and taking
 # its first pair would name it U19 and leave "/09/10" trailing.
 # The gender letter is optional on BOTH sides of BOTH years: clubs write
-# "B14/15", "13/14B", "2014G -2015G" and "B07/B08" interchangeably.
-_BAND_RE = re.compile(
-    r"(?<![\w'/–-])[BbGgMmFf]?(\d{2}|\d{4})[BbGgMmFf]?\s*[/\-–]\s*"
-    r"[BbGgMmFf]?(\d{2}|\d{4})[BbGgMmFf]?(?![\w'/–-])"
-)
+# "B14/15", "13/14B", "2014G -2015G" and "B07/B08" interchangeably. A two-digit year
+# may carry an apostrophe, straight or curly ("'11/'12", "2014/'15", "‘14–‘15"); one
+# after the band ("11/12'") is refused.
+_BAND_SIDE = r"[BbGgMmFf]?(?:['‘’](?=\d{2}(?!\d)))?(\d{2}|\d{4})[BbGgMmFf]?"
+_BAND_RE = re.compile(rf"(?<![\w'‘’/–-]){_BAND_SIDE}\s*[/\-–]\s*{_BAND_SIDE}(?![\w'‘’/–-])")
 
 
 # A four-digit birth year standing on its own in the name.

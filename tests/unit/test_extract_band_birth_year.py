@@ -64,6 +64,23 @@ def test_a_gender_letter_on_both_years_is_still_a_band():
 
 
 @pytest.mark.parametrize(
+    ("name", "younger"),
+    [
+        ("BRAUSA '11/'12 Blue", 2012),
+        ("Club '11/12 Red", 2012),
+        ("Club 11/'12 Red", 2012),
+        ("Club '14/'15", 2015),
+        ("Club 2014/'15 Red", 2015),
+        ("Club B'11/B'12 Red", 2012),
+        ("Club ‘11/‘12 Red", 2012),  # left curly quote
+        ("Club ’14–’15", 2015),  # right curly quote
+    ],
+)
+def test_an_apostrophe_before_a_two_digit_year_is_still_a_band(name, younger):
+    assert extract_band_birth_year(name) == younger
+
+
+@pytest.mark.parametrize(
     "name",
     [
         # A run of three or more years names no single band, and a word touching its
@@ -73,10 +90,12 @@ def test_a_gender_letter_on_both_years_is_still_a_band():
         "B2014/B2015/B2016U",  # cut back to two years, "/B2016U" would not refuse it
         "CSC 2014/2015/2016",
         "07/08/09/10",
+        "Club '11/'12/'13",  # three apostrophe years
         # Numbers that are not two consecutive years are not a band.
         "Club 2012/2015 Girls",
         "1570 FC - 1570",
         "10-3 Red",
+        "Club '14 Red",  # an apostrophe year alone
         # Each edge that would extend a number run, one condition per row.
         "12013/14",  # a digit before
         "13/145",  # a digit after
@@ -84,8 +103,11 @@ def test_a_gender_letter_on_both_years_is_still_a_band():
         "U13-14-15",  # ...just after "digit, hyphen"
         "U13–14–15",  # ...just after "digit, en dash"
         "U13 / 14 / 15",  # ...and after the separator's spaces
-        "'11/12 Red",  # an apostrophe before
         "11/12' Red",  # an apostrophe after
+        "11/12’ Red",  # ...a right curly quote after
+        "Club '2014/15",  # an apostrophe before a four-digit year
+        "Club ‘2014/15",  # ...a left curly quote before one
+        "Club 2014/'2015",  # ...or before the second year
         # Each edge that makes it a U-age range.
         "U13/14",
         "13/14U",
@@ -93,6 +115,13 @@ def test_a_gender_letter_on_both_years_is_still_a_band():
         "Erie FC Under 14/15 Girls",
         "ERIE FC UNDER 14/15 GIRLS",
         "GU18/19",
+        # ...and the same U-age ranges written with apostrophes.
+        "U'13/'14",
+        "'13/'14U",
+        "U-'13/'14",
+        "Club Under '14/'15",
+        "GU'18/'19",
+        "U‘13/‘14",  # left curly quotes
         "",
     ],
 )
@@ -102,6 +131,7 @@ def test_not_a_band(name):
 
 def test_a_season_written_into_a_name_is_passed_over_for_a_later_band():
     assert extract_band_birth_year("Club 2025-26 Boys") is None
+    assert extract_band_birth_year("Club '24/'25") is None
     assert extract_band_birth_year("Orange County B08 FC 22/23") is None
     assert extract_band_birth_year("Club 2025-26 Boys 2013/14") == 2014
 

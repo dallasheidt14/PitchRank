@@ -1503,3 +1503,15 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Noted**: 2026-09-04
 - **Update (2026-10-07)**: Dropped with the feature. The owner had the Unpaid Invoices section removed from `/mission-control/subscriptions`, and the open-invoice fetch and `buildUnpaidInvoices` went with it, so there is no unbounded fetch left to bound.
 - **Refs**: branch `feat/subscriptions-last-month-conversion`
+
+### Read a two-year band written with apostrophes
+
+- **ID**: IMP-240
+- **Status**: done
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `scripts/normalize_team_names.py` `_resolve_band` (its two-digit alternation); `src/utils/team_utils.py` `_BAND_RUN_RE`
+- **Why**: Verified against `main` 2026-09-16: `_resolve_band("BRAUSA '11/'12 Blue")` returns `None` while `_resolve_band("BRAUSA 11/12 Blue")` returns `U15`, and a single leading apostrophe (`"Club '11/12 Blue"`) is enough to lose it. A band is the one season-independent cohort fact in a name, so a name that carries one reads as carrying no cohort and no year at all. That silence is what let a wrong cohort write through on 2026-09-15: `BRAUSA '11/'12 Blue` was moved u16 -> u12 on GotSport's `U12 Girls (2014/15)` record, which is a different squad; it was caught by hand and reverted. `extract_band_birth_year` refuses both apostrophe forms the same way, so the queue matcher, TGS and PlayMetrics lose the band too. Accepting `'` before either year in both patterns is the whole fix.
+- **Noted**: 2026-09-16
+- **Update (2026-10-11)**: Both readers take a straight or curly apostrophe before a two-digit year; the accepted and refused spellings are pinned in `test_extract_band_birth_year.py` and `test_normalize_team_name_age_tokens.py`. Over the saved exports 442 names newly read a band (436 under `_resolve_band`) and one stopped (IMP-320). Once `data-hygiene-weekly.yml` runs again, `normalize_team_names.py` would rename 335 live teams, 8 of them `'06/'07` names whose U19 IMP-258 corrects first; the owner approved the list on 2026-10-11, curly quotes included. `fix_band_cohorts.py` gains 75 candidates and loses 2 that their own band now refuses, BRAUSA '11/'12 Blue among them.
+- **Refs**: branch `feat/age-apostrophe-bands`
