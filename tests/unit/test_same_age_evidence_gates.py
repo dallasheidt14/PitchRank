@@ -1445,6 +1445,49 @@ def test_compute_publication_cap_scores_uses_pre_cap_base_scale():
     assert pd.isna(cap_scores.loc[3])
 
 
+def test_publication_cap_cutoffs_are_independent_for_boys_and_girls():
+    teams = pd.DataFrame(
+        {
+            "team_id": ["b1", "g1", "b2", "g2", "inactive-girl"],
+            "age_num": [10] * 5,
+            "gender": ["Male", "Female", "Male", "Female", "Female"],
+            "status": ["Active"] * 4 + ["Inactive"],
+            "publication_cap_rank": [2, 2, 2, 2, 2],
+        },
+        index=[9, 4, 17, 2, 31],
+    )
+    base = pd.Series([.9, .7, .8, .6, .99], index=teams.index)
+    original = teams.copy(deep=True)
+    actual = _compute_publication_cap_scores(teams, base)
+    expected = pd.Series([.799999, .599999, .799999, .599999, .599999],
+                         index=teams.index, dtype="Float64")
+    pd.testing.assert_series_equal(actual, expected)
+    pd.testing.assert_frame_equal(teams, original)
+
+    # Scores and even the number of teams on the other board must be irrelevant.
+    girls = teams.gender.eq("Female")
+    changed = base.copy()
+    changed.loc[~girls] = [.1, .2]
+    pd.testing.assert_series_equal(
+        _compute_publication_cap_scores(teams, changed).loc[girls], actual.loc[girls]
+    )
+    pd.testing.assert_series_equal(
+        _compute_publication_cap_scores(teams.loc[girls], base.loc[girls]), actual.loc[girls]
+    )
+
+
+def test_small_board_cap_uses_its_own_last_active_team():
+    teams = pd.DataFrame({
+        "team_id": ["boy", "girl", "uncapped-girl", "inactive-boy"],
+        "gender": ["Male", "Female", "Female", "Male"],
+        "status": ["Active", "Active", "Active", "Inactive"],
+        "publication_cap_rank": [400, 400, None, 400],
+    })
+    actual = _compute_publication_cap_scores(teams, pd.Series([.8, .6, .4, .1]))
+    expected = pd.Series([.799999, .399999, pd.NA, .799999], dtype="Float64")
+    pd.testing.assert_series_equal(actual, expected)
+
+
 def test_apply_publication_cap_band_leaves_uncapped_and_below_cap_scores_alone():
     base_scores = pd.Series([0.7800, 0.7100, 0.6900], index=[1, 2, 3], dtype=float)
     teams_age = pd.DataFrame(

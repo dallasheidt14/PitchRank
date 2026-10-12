@@ -495,7 +495,8 @@ def _compute_publication_cap_scores(teams_age: pd.DataFrame, base_scores: pd.Ser
     """Translate cap ranks onto the pre-cap final-score scale.
 
     Publication caps should be derived from the same score domain that drives the
-    published ranking, not raw powerscore_adj.
+    published ranking, not raw powerscore_adj. Each gender has its own ranking
+    within this age, so the reference scores must stay on that board too.
     """
     result = pd.Series(pd.NA, index=teams_age.index, dtype="Float64")
     if "publication_cap_rank" not in teams_age.columns:
@@ -510,15 +511,14 @@ def _compute_publication_cap_scores(teams_age: pd.DataFrame, base_scores: pd.Ser
         pre_cap_df["status"] = teams_age["status"]
     pre_cap_df["pre_cap_base"] = pd.to_numeric(base_scores, errors="coerce")
 
-    age_cap_lookup: dict[int, float] = {}
-
-    def _cap_for_rank(val: float) -> float:
-        rank = int(val)
-        if rank not in age_cap_lookup:
-            age_cap_lookup[rank] = _score_cutoff_for_rank(pre_cap_df, "pre_cap_base", rank)
-        return age_cap_lookup[rank]
-
-    result.loc[cap_rank_series.notna()] = cap_rank_series.loc[cap_rank_series.notna()].map(_cap_for_rank)
+    boards = teams_age.groupby("gender", dropna=False) if "gender" in teams_age.columns else [(None, teams_age)]
+    for _, board in boards:
+        board_caps = cap_rank_series.loc[board.index].dropna().astype(int)
+        reference = pre_cap_df.loc[board.index]
+        cap_lookup = {
+            rank: _score_cutoff_for_rank(reference, "pre_cap_base", rank) for rank in board_caps.unique()
+        }
+        result.loc[board_caps.index] = board_caps.map(cap_lookup)
     return result
 
 
