@@ -249,6 +249,21 @@ def test_a_row_the_table_no_longer_holds_is_not_written(exports, tmp_path):
     assert [r["result"] for r in log] == ["skipped_missing"]
 
 
+def test_the_undo_command_prints_when_the_script_is_reached_through_a_link(exports, tmp_path, monkeypatch, capsys):
+    """A symlink, an 8.3 short name or a subst drive names the script by a path outside ROOT's text."""
+    alias = tmp_path / "alias"
+    try:
+        alias.symlink_to(fbc.ROOT, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlinks are unavailable here")
+    monkeypatch.setattr(fbc, "__file__", str(alias / "scripts" / "fix_band_cohorts.py"))
+    row = _plan_row()
+
+    _apply(_Db([_team_row(row)]), _write_plan(tmp_path / "plan.csv", [row]))
+
+    assert "Undo with: python scripts" in capsys.readouterr().out
+
+
 def test_a_dry_run_executes_no_write(exports, tmp_path):
     row = _plan_row()
     db = _Db([_team_row(row)])
