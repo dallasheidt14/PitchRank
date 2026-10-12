@@ -346,11 +346,15 @@ birth years, so it cannot go stale, and the owner decided on 2026-09-18 that the
 not overrule it — "it doesn't matter that they play up we need to get their actual age group
 correct." A band-named team that plays a year up is filed by its band.
 
-That asymmetry is what makes a provider cohort safely usable as a **veto** while it
-stays unusable as a **value**: withholding a write on a disagreement costs a skipped
-update when it is wrong, whereas writing on one costs a mislabelled team on the wrong
-ranking board. IMP-145 bars the second; the first is what any tool reading a
-provider's cohort should do with a disagreement.
+A provider cohort is usable as a **veto** everywhere: withholding a write on a disagreement
+costs a skipped update when it is wrong. As a **value** it is limited to GotSport, through the
+reconcile-gotsport triage, by the owner's rules (2026-10-11, refined 2026-10-12): GotSport's
+age is written when GotSport says older and this season's opponents do not back ours ("Older
+wins unless games say ours"), when this season's opponents cannot decide ("Gotsport literally
+tells us what age group the team is"), or when the names state GotSport's age and not ours.
+Never against a two-year band in the team's own name, a record GotSport handed to another
+squad, or an age outside u7-u19, and always through the age fixer's apply-time holds. Every
+other provider cohort stays a veto only (IMP-145).
 
 - `14B` = 2014 birth year, Boys = **U13 Male** (NOT U14!)
 - `U14B` = U14 age group, Boys = **U14 Male**
