@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useRef, useEffect, useDeferredValue } from 'react';
+import { useState, useRef, useEffect, useDeferredValue } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -19,7 +19,6 @@ import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
 import { Search, AlertCircle, CheckCircle2, Users, Plus, ArrowLeft } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import type Fuse from 'fuse.js';
 import type { RankingRow } from '@/types/RankingRow';
 import type { GameWithTeams } from '@/lib/types';
 import { formatGameDate } from '@/lib/dateUtils';
@@ -154,7 +153,6 @@ export function UnknownOpponentLink({
   const [selectedTeam, setSelectedTeam] = useState<RankingRow | null>(null);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [FuseClass, setFuseClass] = useState<typeof Fuse | null>(null);
   const [isLinking, setIsLinking] = useState(false);
   const [linkError, setLinkError] = useState<string | null>(null);
   const [linkSuccess, setLinkSuccess] = useState(false);
@@ -185,16 +183,14 @@ export function UnknownOpponentLink({
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const isSearchPending = searchQuery !== deferredSearchQuery;
 
-  const { data: allTeams, isLoading: isLoadingTeams, isError, error, refetch } = useTeamSearch();
-
-  // Load Fuse.js dynamically
-  useEffect(() => {
-    if (!FuseClass) {
-      import('fuse.js').then((module) => {
-        setFuseClass(() => module.default);
-      });
-    }
-  }, [FuseClass]);
+  const {
+    results: filteredTeams,
+    match,
+    isLoading: isLoadingTeams,
+    isError,
+    error,
+    refetch,
+  } = useTeamSearch(deferredSearchQuery, { limit: 10, excludeId: currentTeamId });
 
   // Format game date (using timezone-safe utility)
   const gameDate = formatGameDate(game.game_date);
@@ -204,36 +200,6 @@ export function UnknownOpponentLink({
   const teamScore = isHome ? game.home_score : game.away_score;
   const opponentScore = isHome ? game.away_score : game.home_score;
   const scoreText = teamScore !== null && opponentScore !== null ? `${teamScore} - ${opponentScore}` : 'No score';
-
-  // Search teams using word-based matching
-  const filteredTeams = useMemo(() => {
-    if (!deferredSearchQuery || !allTeams || deferredSearchQuery.length < 2) return [];
-
-    const queryWords = deferredSearchQuery
-      .toLowerCase()
-      .split(/\s+/)
-      .filter((w) => w.length > 0);
-
-    // Exclude the current team
-    const teamsToSearch = allTeams.filter((team) => team.team_id_master !== currentTeamId);
-
-    // Filter teams where ALL query words appear
-    const matchingTeams = teamsToSearch.filter((team) => {
-      const searchText = ((team.searchable_name || team.team_name) + ' ' + (team.club_name || '')).toLowerCase();
-      return queryWords.every((word) => searchText.includes(word));
-    });
-
-    // Sort by relevance
-    matchingTeams.sort((a, b) => {
-      const aText = ((a.searchable_name || a.team_name) + ' ' + (a.club_name || '')).toLowerCase();
-      const bText = ((b.searchable_name || b.team_name) + ' ' + (b.club_name || '')).toLowerCase();
-      const aIndex = Math.min(...queryWords.map((w) => aText.indexOf(w)));
-      const bIndex = Math.min(...queryWords.map((w) => bText.indexOf(w)));
-      return aIndex - bIndex;
-    });
-
-    return matchingTeams.slice(0, 10);
-  }, [deferredSearchQuery, allTeams, currentTeamId]);
 
   // Reset selected index when results change
   useEffect(() => {
@@ -338,9 +304,6 @@ export function UnknownOpponentLink({
         type: 'active',
       });
 
-      // Also invalidate the team search cache in case a new team was somehow involved
-      queryClient.invalidateQueries({ queryKey: ['team-search'] });
-
       // Close modal after short delay and call onLinked callback
       setTimeout(() => {
         setIsOpen(false);
@@ -396,9 +359,6 @@ export function UnknownOpponentLink({
         queryKey: ['team-games', currentTeamId],
         type: 'active',
       });
-
-      // Invalidate team search cache so the new team appears in searches
-      queryClient.invalidateQueries({ queryKey: ['team-search'] });
 
       // Close modal after short delay and call onLinked callback
       setTimeout(() => {
@@ -507,9 +467,9 @@ export function UnknownOpponentLink({
                 />
 
                 {/* Search Results Dropdown */}
-                {isSearchOpen && searchQuery.length >= 2 && (
+                {isSearchOpen && searchQuery.trim().length >= 2 && (
                   <Card className="absolute z-50 w-full mt-1 max-h-60 overflow-y-auto shadow-lg">
-                    <CardContent className="p-2" ref={listRef}>
+                    <CardContent className="p-2">
                       {isLoadingTeams || isSearchPending ? (
                         <InlineLoader text="Searching teams..." />
                       ) : isError ? (
@@ -534,29 +494,34 @@ export function UnknownOpponentLink({
                           </Button>
                         </div>
                       ) : (
-                        <div className="space-y-1">
-                          {filteredTeams.map((team, index) => {
-                            const displayName = teamDisplayName(team);
-                            const spokenMeta = spokenTeamMeta(team);
-                            return (
-                              <button
-                                key={team.team_id_master}
-                                onClick={() => handleSelectTeam(team)}
-                                className={`w-full text-left p-2 rounded-md transition-colors duration-200 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary ${
-                                  index === selectedIndex ? 'bg-accent font-semibold' : 'hover:bg-accent/50'
-                                }`}
-                                aria-label={`Select ${displayName}${spokenMeta ? ` ${spokenMeta}` : ''}`}
-                              >
-                                <div className="font-medium">{highlightMatch(displayName, deferredSearchQuery)}</div>
-                                <TeamRowSubtitle
-                                  team={team}
-                                  highlight={(text) => highlightMatch(text, deferredSearchQuery)}
-                                  className="text-xs text-muted-foreground truncate"
-                                />
-                              </button>
-                            );
-                          })}
-                        </div>
+                        <>
+                          {match !== 'exact' && (
+                            <div className="px-3 pb-1 text-xs text-muted-foreground">Showing close matches</div>
+                          )}
+                          <div className="space-y-1" ref={listRef}>
+                            {filteredTeams.map((team, index) => {
+                              const displayName = teamDisplayName(team);
+                              const spokenMeta = spokenTeamMeta(team);
+                              return (
+                                <button
+                                  key={team.team_id_master}
+                                  onClick={() => handleSelectTeam(team)}
+                                  className={`w-full text-left p-2 rounded-md transition-colors duration-200 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary ${
+                                    index === selectedIndex ? 'bg-accent font-semibold' : 'hover:bg-accent/50'
+                                  }`}
+                                  aria-label={`Select ${displayName}${spokenMeta ? ` ${spokenMeta}` : ''}`}
+                                >
+                                  <div className="font-medium">{highlightMatch(displayName, deferredSearchQuery)}</div>
+                                  <TeamRowSubtitle
+                                    team={team}
+                                    highlight={(text) => highlightMatch(text, deferredSearchQuery)}
+                                    className="text-xs text-muted-foreground truncate"
+                                  />
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </>
                       )}
                     </CardContent>
                   </Card>

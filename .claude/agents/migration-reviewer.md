@@ -1,6 +1,6 @@
 ---
 name: migration-reviewer
-description: Read-only reviewer for changed supabase/migrations/*.sql files. Flags function-overload traps from CREATE OR REPLACE with a changed argument list, missing ACL re-issue after DROP FUNCTION, missing idempotency guards, and hand-applied migrations that need the ledger repaired. Returns SHIP/HOLD with file:line findings. Use on any PR touching supabase/migrations/.
+description: Read-only reviewer for changed supabase/migrations/*.sql files. Flags function-overload traps from CREATE OR REPLACE with a changed argument list, missing ACL re-issue after DROP FUNCTION, missing idempotency guards, hand-applied migrations that need the ledger repaired, and function SET clauses that name an extension parameter before its library is loaded. Returns SHIP/HOLD with file:line findings. Use on any PR touching supabase/migrations/.
 tools: Read, Grep, Glob, Bash
 ---
 
@@ -54,6 +54,14 @@ in the `AGE_ROLLOVER_FREEZE` section. If they and this list ever disagree,
    (or `--status reverted` after a committed rollback). Otherwise the next
    `db push` re-applies or skips it. Remind on any migration described as
    hand-applied.
+5. **Extension parameters in a SET clause.** A `CREATE [OR REPLACE] FUNCTION`
+   with `SET <extension>.<parameter> = ...` (for example a `pg_trgm` threshold)
+   needs the extension's library loaded in the session before the CREATE, or a
+   non-superuser gets `permission denied to set parameter`. A first run often
+   passes because an earlier statement (an index build) loaded the library; a
+   re-run skips that statement under `IF NOT EXISTS` and fails. Require a call
+   to one of the extension's functions before the `CREATE FUNCTION`, otherwise
+   HOLD.
 
 ## Verdict
 

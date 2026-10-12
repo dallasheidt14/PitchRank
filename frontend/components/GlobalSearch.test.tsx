@@ -10,8 +10,12 @@ vi.mock('@/hooks/useTeamSearch', () => ({
   useTeamSearch: mockUseTeamSearch,
 }));
 
+const { mockTrackSearchUsed } = vi.hoisted(() => ({
+  mockTrackSearchUsed: vi.fn(),
+}));
+
 vi.mock('@/lib/events', () => ({
-  trackSearchUsed: vi.fn(),
+  trackSearchUsed: mockTrackSearchUsed,
   trackSearchResultClicked: vi.fn(),
 }));
 
@@ -21,11 +25,10 @@ vi.mock('next/navigation', () => ({
 
 import { GlobalSearch } from './GlobalSearch';
 
-// useTeamSearch builds every row from the raw teams table, so rank_in_cohort_final is always 0.
+// useTeamSearch builds every row from the search route's teams, so rank_in_cohort_final is always 0.
 const dynamosU10 = {
   team_id_master: 'team-u10',
   team_name: 'Dynamos SC - Dynamos SC 2017 SC',
-  searchable_name: 'Dynamos SC - Dynamos SC 2017 SC Dynamos SC U10 17',
   club_name: 'Dynamos SC',
   league: null,
   distinction: null,
@@ -53,7 +56,6 @@ const dynamosU14 = {
   ...dynamosU10,
   team_id_master: 'team-u14',
   team_name: 'Dynamos SC 2013 SC',
-  searchable_name: 'Dynamos SC 2013 SC Dynamos SC U14 13',
   age: 14,
 };
 
@@ -62,7 +64,6 @@ const dynamosRanked = {
   ...dynamosU10,
   team_id_master: 'team-ranked',
   team_name: 'Dynamos SC 2012 SC',
-  searchable_name: 'Dynamos SC 2012 SC Dynamos SC U15 12',
   state: null,
   age: 15,
   rank_in_cohort_final: 7,
@@ -100,7 +101,8 @@ describe('GlobalSearch result rows', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockUseTeamSearch.mockReturnValue({
-      data: [dynamosU10, dynamosU14, dynamosRanked],
+      results: [dynamosU10, dynamosU14, dynamosRanked],
+      match: 'exact',
       isLoading: false,
       isError: false,
       error: null,
@@ -151,12 +153,12 @@ describe('GlobalSearch result rows', () => {
   // typed. textContent flattens the <mark> away, so the highlight needs its own assertion.
   it('shows and highlights the club when the query matched it rather than the team name', async () => {
     mockUseTeamSearch.mockReturnValue({
-      data: [
+      match: 'exact',
+      results: [
         {
           ...dynamosU10,
           team_name: '2014/15G Copper',
           club_name: 'Colorado United',
-          searchable_name: '2014/15G Copper Colorado United U10 14',
         },
       ],
       isLoading: false,
@@ -170,5 +172,137 @@ describe('GlobalSearch result rows', () => {
     const option = container!.querySelector('[role="option"]');
     expect(option!.textContent).toBe('2014/15G CopperColorado United • AZ • U10 Boys');
     expect(option!.querySelector('mark')!.textContent).toBe('Colorado');
+  });
+
+  it('passes the typed query and the nav limit to the hook', async () => {
+    await flushRender(root!);
+    await typeQuery(container!, 'dynamos');
+
+    expect(mockUseTeamSearch).toHaveBeenLastCalledWith('dynamos', { limit: 8 });
+  });
+
+  // The label sits outside the listbox: the keyboard scroll indexes the listbox's children
+  // by the highlighted row.
+  it.each(['similar', 'relaxed'])('labels %s results as close matches, outside the listbox', async (match) => {
+    mockUseTeamSearch.mockReturnValue({
+      results: [dynamosU10, dynamosU14],
+      match,
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+    await flushRender(root!);
+    await typeQuery(container!, 'dynamso');
+
+    expect(container!.textContent).toContain('Showing close matches');
+    const options = [...container!.querySelector('#global-search-results')!.children];
+    expect(options.map((child) => child.getAttribute('role'))).toEqual(['option', 'option']);
+  });
+
+  it('keeps the dropdown shut for a single letter followed by a space', async () => {
+    mockUseTeamSearch.mockReturnValue({
+      results: [],
+      match: 'exact',
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+    await flushRender(root!);
+    await typeQuery(container!, 'a ');
+    await flushRender(root!);
+
+    expect(container!.textContent).not.toContain('No teams found');
+    expect(mockTrackSearchUsed).not.toHaveBeenCalled();
+  });
+
+  it('does not label exact results', async () => {
+    mockUseTeamSearch.mockReturnValue({
+      results: [dynamosU10],
+      match: 'exact',
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+    await flushRender(root!);
+    await typeQuery(container!, 'dynamos');
+
+    expect(container!.textContent).toContain('Dynamos SC');
+    expect(container!.textContent).not.toContain('Showing close matches');
+  });
+
+  it('records nothing for a failed search, then records the retry that succeeds', async () => {
+    const failed = {
+      results: [],
+      match: 'exact',
+      isLoading: false,
+      isError: true,
+      error: new Error('Search failed (429)'),
+      refetch: vi.fn(),
+    };
+    mockUseTeamSearch.mockReturnValue(failed);
+    await flushRender(root!);
+    await typeQuery(container!, 'dynamos');
+    await flushRender(root!);
+
+    expect(mockTrackSearchUsed).not.toHaveBeenCalled();
+
+    mockUseTeamSearch.mockReturnValue({ ...failed, results: [dynamosU10], isError: false, error: null });
+    await flushRender(root!);
+
+    expect(mockTrackSearchUsed).toHaveBeenCalledTimes(1);
+    expect(mockTrackSearchUsed).toHaveBeenCalledWith({ query: 'dynamos', results_count: 1 });
+  });
+
+  // The fetch is asynchronous, so the event must wait for the query's own results:
+  // recording on the keystroke would send the previous query's count.
+  it('records a search once, after its results arrive, with their count', async () => {
+    const loading = {
+      results: [],
+      match: 'exact',
+      isLoading: true,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    };
+    mockUseTeamSearch.mockReturnValue(loading);
+    await flushRender(root!);
+    await typeQuery(container!, 'dynamos');
+
+    expect(mockTrackSearchUsed).not.toHaveBeenCalled();
+
+    mockUseTeamSearch.mockReturnValue({
+      ...loading,
+      results: [dynamosU10, dynamosU14],
+      isLoading: false,
+    });
+    await flushRender(root!);
+    await flushRender(root!);
+
+    expect(mockTrackSearchUsed).toHaveBeenCalledTimes(1);
+    expect(mockTrackSearchUsed).toHaveBeenCalledWith({ query: 'dynamos', results_count: 2 });
+  });
+
+  it('records a search that finds nothing once it has finished', async () => {
+    const loading = {
+      results: [],
+      match: 'exact',
+      isLoading: true,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    };
+    mockUseTeamSearch.mockReturnValue(loading);
+    await flushRender(root!);
+    await typeQuery(container!, 'zzzz');
+
+    mockUseTeamSearch.mockReturnValue({ ...loading, isLoading: false });
+    await flushRender(root!);
+    await flushRender(root!);
+
+    expect(mockTrackSearchUsed).toHaveBeenCalledTimes(1);
+    expect(mockTrackSearchUsed).toHaveBeenCalledWith({ query: 'zzzz', results_count: 0 });
   });
 });

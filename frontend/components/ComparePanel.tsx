@@ -249,6 +249,7 @@ export function ComparePanel() {
             <TeamSelector
               label="Team 1"
               value={team1Id}
+              selectedTeam={team1Data}
               onChange={handleTeam1Change}
               excludeTeamId={team2Id || undefined}
             />
@@ -262,6 +263,7 @@ export function ComparePanel() {
             <TeamSelector
               label="Team 2"
               value={team2Id}
+              selectedTeam={team2Data}
               onChange={handleTeam2Change}
               excludeTeamId={team1Id || undefined}
             />

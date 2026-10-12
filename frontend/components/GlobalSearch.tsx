@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useRef, useEffect, useDeferredValue } from 'react';
+import { useState, useRef, useEffect, useDeferredValue } from 'react';
 import { useRouter } from 'next/navigation';
 
 import { Input } from '@/components/ui/input';
@@ -50,8 +50,7 @@ function highlightMatch(text: string, query: string): React.ReactNode {
 }
 
 /**
- * GlobalSearch component - fuzzy search for teams across the entire site
- * Lazy loads Fuse.js library for better initial bundle size
+ * GlobalSearch component - search for teams across the entire site
  */
 export function GlobalSearch() {
   const [searchQuery, setSearchQuery] = useState('');
@@ -67,49 +66,30 @@ export function GlobalSearch() {
   // Track if search is pending (deferred value hasn't caught up)
   const isSearchPending = searchQuery !== deferredSearchQuery;
 
-  const { data: allTeams, isLoading, isError, error, refetch } = useTeamSearch();
-
-  // Perform search using word-based matching for better multi-word queries
-  // "rebels san diego romero" will match if ALL words appear in searchable_name or club_name
-  const searchResults = useMemo(() => {
-    if (!deferredSearchQuery || !allTeams || deferredSearchQuery.length < 2) return [];
-
-    const queryWords = deferredSearchQuery
-      .toLowerCase()
-      .split(/\s+/)
-      .filter((w) => w.length > 0);
-
-    // Filter teams where ALL query words appear in searchable_name or club_name
-    const matchingTeams = allTeams.filter((team) => {
-      const searchText = ((team.searchable_name || team.team_name) + ' ' + (team.club_name || '')).toLowerCase();
-      return queryWords.every((word) => searchText.includes(word));
-    });
-
-    // Sort by how early the first match appears (better relevance)
-    matchingTeams.sort((a, b) => {
-      const aText = ((a.searchable_name || a.team_name) + ' ' + (a.club_name || '')).toLowerCase();
-      const bText = ((b.searchable_name || b.team_name) + ' ' + (b.club_name || '')).toLowerCase();
-      const aIndex = Math.min(...queryWords.map((w) => aText.indexOf(w)));
-      const bIndex = Math.min(...queryWords.map((w) => bText.indexOf(w)));
-      return aIndex - bIndex;
-    });
-
-    return matchingTeams.slice(0, 8);
-  }, [deferredSearchQuery, allTeams]);
+  const {
+    results: searchResults,
+    match,
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useTeamSearch(deferredSearchQuery, { limit: 8 });
 
   // selectedIndex is reset to 0 when search query changes (in handleSearchChange below)
 
-  // Track search query after a debounce period (when user stops typing)
+  // Track a query once its own results have arrived (the hook loads until they do), so the
+  // count belongs to it
   const lastTrackedQuery = useRef<string>('');
+  const currentQuery = deferredSearchQuery.trim();
   useEffect(() => {
-    if (deferredSearchQuery.length >= 2 && deferredSearchQuery !== lastTrackedQuery.current) {
-      lastTrackedQuery.current = deferredSearchQuery;
+    if (currentQuery.length >= 2 && !isLoading && !isError && currentQuery !== lastTrackedQuery.current) {
+      lastTrackedQuery.current = currentQuery;
       trackSearchUsed({
-        query: deferredSearchQuery,
+        query: currentQuery,
         results_count: searchResults.length,
       });
     }
-  }, [deferredSearchQuery, searchResults.length]);
+  }, [currentQuery, isLoading, isError, searchResults.length]);
 
   const handleSelect = (team: RankingRow) => {
     // Track search result click
@@ -222,7 +202,7 @@ export function GlobalSearch() {
         )}
       </div>
 
-      {isOpen && searchQuery.length >= 2 && (
+      {isOpen && searchQuery.trim().length >= 2 && (
         <Card className="absolute z-50 w-full mt-1 max-h-80 overflow-y-auto shadow-lg">
           <CardContent className="p-2">
             {isLoading || isSearchPending ? (
@@ -234,31 +214,36 @@ export function GlobalSearch() {
                 No teams found matching &quot;{searchQuery}&quot;
               </div>
             ) : (
-              <div id="global-search-results" role="listbox" className="space-y-1" ref={listRef}>
-                {searchResults.map((team, index) => {
-                  const displayName = teamDisplayName(team);
-                  const spokenMeta = spokenTeamMeta(team);
-                  return (
-                    <button
-                      key={team.team_id_master}
-                      role="option"
-                      aria-selected={index === selectedIndex}
-                      onClick={() => handleSelect(team)}
-                      className={`w-full text-left p-3 rounded-md transition-colors duration-200 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary min-h-[44px] ${
-                        index === selectedIndex ? 'bg-accent font-semibold' : 'hover:bg-accent/50'
-                      }`}
-                      aria-label={`Select ${displayName}${spokenMeta ? ` ${spokenMeta}` : ''}`}
-                    >
-                      <div className="font-medium truncate">{highlightMatch(displayName, deferredSearchQuery)}</div>
-                      <TeamRowSubtitle
-                        team={team}
-                        highlight={(text) => highlightMatch(text, deferredSearchQuery)}
-                        className="text-xs text-muted-foreground mt-1 truncate"
-                      />
-                    </button>
-                  );
-                })}
-              </div>
+              <>
+                {match !== 'exact' && (
+                  <div className="px-3 pb-1 text-xs text-muted-foreground">Showing close matches</div>
+                )}
+                <div id="global-search-results" role="listbox" className="space-y-1" ref={listRef}>
+                  {searchResults.map((team, index) => {
+                    const displayName = teamDisplayName(team);
+                    const spokenMeta = spokenTeamMeta(team);
+                    return (
+                      <button
+                        key={team.team_id_master}
+                        role="option"
+                        aria-selected={index === selectedIndex}
+                        onClick={() => handleSelect(team)}
+                        className={`w-full text-left p-3 rounded-md transition-colors duration-200 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary min-h-[44px] ${
+                          index === selectedIndex ? 'bg-accent font-semibold' : 'hover:bg-accent/50'
+                        }`}
+                        aria-label={`Select ${displayName}${spokenMeta ? ` ${spokenMeta}` : ''}`}
+                      >
+                        <div className="font-medium truncate">{highlightMatch(displayName, deferredSearchQuery)}</div>
+                        <TeamRowSubtitle
+                          team={team}
+                          highlight={(text) => highlightMatch(text, deferredSearchQuery)}
+                          className="text-xs text-muted-foreground mt-1 truncate"
+                        />
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
             )}
           </CardContent>
         </Card>

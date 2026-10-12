@@ -1007,7 +1007,7 @@ All routes under `/api` are excluded from middleware auth (the negative lookahea
 - Use App Router conventions (server components by default, `"use client"` when needed)
 - Import paths use `@/` alias (e.g., `@/lib/api`, `@/components/ui/button`)
 - Supabase client: `createClientSupabase()` from `lib/supabase/client.ts` in client components (a singleton — never construct your own), `createServerSupabase()` from `lib/supabase/server.ts` in API routes and server components
-- Data fetching via React Query hooks (`useRankings`, `useTeamSearch`, etc.)
+- Data fetching via React Query hooks (`useRankings`, `useTeam`, etc.); `useTeamSearch` is a plain fetch-as-you-type hook
 - Styling: Tailwind utility classes, no CSS modules
 - UI components: shadcn/ui pattern (Radix + Tailwind)
 

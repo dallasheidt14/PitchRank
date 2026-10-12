@@ -7,7 +7,6 @@
 export interface RankingRow {
   team_id_master: string;
   team_name: string;
-  searchable_name?: string; // Computed field for search (team_name + club_name + year variations)
   club_name: string | null;
   league: string | null; // National league code (ECNL, ECNL_RL, MLS_NEXT_HD, ...). NULL = unaffiliated.
   distinction: string | null; // Lowercase pipe-delimited squad distinguisher (e.g. "white|2", "black", "smith"). NULL = single squad in cohort.

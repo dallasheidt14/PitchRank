@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useDeferredValue } from 'react';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { InlineLoader } from '@/components/ui/LoadingStates';
+import type { TeamSearchMatch } from '@/lib/teamSearchQuery';
 
 interface ScopedTeam {
   team_id_master: string;
@@ -55,6 +56,7 @@ export function ScopedTeamSelector({ ageGroup, gender, stateCode, value, onChang
   const [isOpen, setIsOpen] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [results, setResults] = useState<ScopedTeam[]>([]);
+  const [match, setMatch] = useState<TeamSearchMatch>('exact');
   const [isLoading, setIsLoading] = useState(false);
   const [selectedTeam, setSelectedTeam] = useState<ScopedTeam | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -102,6 +104,7 @@ export function ScopedTeamSelector({ ageGroup, gender, stateCode, value, onChang
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`Search failed (${r.status})`))))
       .then((data) => {
         setResults(data.teams || []);
+        setMatch(data.match ?? 'exact');
         setSelectedIndex(0);
       })
       .catch((err) => {
@@ -186,7 +189,7 @@ export function ScopedTeamSelector({ ageGroup, gender, stateCode, value, onChang
       />
       {isOpen && allFiltersSet && searchQuery.length >= 2 && (
         <Card className="absolute z-50 w-full mt-1 max-h-60 overflow-y-auto shadow-lg">
-          <CardContent className="p-2" ref={listRef}>
+          <CardContent className="p-2">
             {isLoading || isSearchPending ? (
               <InlineLoader text="Searching your group..." />
             ) : results.length === 0 ? (
@@ -194,25 +197,30 @@ export function ScopedTeamSelector({ ageGroup, gender, stateCode, value, onChang
                 No teams matching &quot;{searchQuery}&quot; in this group. Check the spelling or widen your filters.
               </div>
             ) : (
-              <div className="space-y-1">
-                {results.map((team, index) => (
-                  <button
-                    key={team.team_id_master}
-                    type="button"
-                    onClick={() => handleSelect(team)}
-                    className={`w-full text-left p-2 rounded-md transition-colors focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary ${
-                      index === selectedIndex ? 'bg-accent font-semibold' : 'hover:bg-accent/50'
-                    }`}
-                  >
-                    <div className="font-medium">{highlightMatch(team.team_name, deferredQuery)}</div>
-                    {team.club_name && (
-                      <div className="text-xs text-muted-foreground">
-                        {highlightMatch(team.club_name, deferredQuery)}
-                      </div>
-                    )}
-                  </button>
-                ))}
-              </div>
+              <>
+                {match !== 'exact' && (
+                  <div className="px-3 pb-1 text-xs text-muted-foreground">Showing close matches</div>
+                )}
+                <div className="space-y-1" ref={listRef}>
+                  {results.map((team, index) => (
+                    <button
+                      key={team.team_id_master}
+                      type="button"
+                      onClick={() => handleSelect(team)}
+                      className={`w-full text-left p-2 rounded-md transition-colors focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary ${
+                        index === selectedIndex ? 'bg-accent font-semibold' : 'hover:bg-accent/50'
+                      }`}
+                    >
+                      <div className="font-medium">{highlightMatch(team.team_name, deferredQuery)}</div>
+                      {team.club_name && (
+                        <div className="text-xs text-muted-foreground">
+                          {highlightMatch(team.club_name, deferredQuery)}
+                        </div>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </>
             )}
           </CardContent>
         </Card>
