@@ -54,14 +54,6 @@ US_STATES = set(
     "AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM "
     "NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY".split()
 )
-# Teams the owner decided to leave as stored; the review never proposes them. Add to the file,
-# with the date and the owner's answer, whenever the owner declines a team or a held group.
-OWNER_DECISIONS = Path(__file__).with_name("owner_decisions.json")
-OWNER_LEFT = {
-    t["team_id"]
-    for section in json.loads(OWNER_DECISIONS.read_text(encoding="utf-8")).values()
-    for t in section["teams"]
-}
 SEASON_START = f"{CHART_SEASON}-08-01"
 SIDES = (("home_team_master_id", "away_team_master_id"), ("away_team_master_id", "home_team_master_id"))
 TOKEN_SPLIT = re.compile(r"[\s\-_/|(),.\[\]']+")
@@ -229,6 +221,7 @@ def credential_roots(exports: Path) -> list[Path]:
 def review(args) -> None:
     from dotenv import load_dotenv
 
+    from scripts.fix_band_cohorts import load_owner_decisions
     from supabase import create_client
 
     exports = Path(args.exports_dir)
@@ -246,7 +239,9 @@ def review(args) -> None:
     prov = {p["id"]: p["code"] for p in sb.table("providers").select("id,code").execute().data}
     excluded = {r["team_id_master"] for r in fetch_all(sb, "team_ranking_exclusions", "team_id_master")}
     # A listed team merged away later is the surviving row now; skip the survivor too.
-    excluded, owner_left = with_merge_survivors(sb, excluded), with_merge_survivors(sb, OWNER_LEFT)
+    excluded = with_merge_survivors(sb, excluded)
+    # The review never proposes a team the owner decided to leave.
+    owner_left = set(load_owner_decisions(sb))
     by_id = {t["team_id_master"]: t for t in teams}
     index = defaultdict(list)
     for t in teams:

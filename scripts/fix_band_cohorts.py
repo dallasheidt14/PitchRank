@@ -38,13 +38,14 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import os
 import re
 import sys
 from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -54,16 +55,20 @@ from dotenv import load_dotenv  # noqa: E402
 from config.settings import AGE_GROUPS  # noqa: E402
 from scripts.normalize_team_names import _resolve_band  # noqa: E402
 from src.utils.age_group import normalize_age_group  # noqa: E402
+from src.utils.team_name_utils import _FORMAT_TOKEN, _UAGE_TOKEN, birth_years  # noqa: E402
 from src.utils.team_utils import _soccer_season_year  # noqa: E402
 from supabase import create_client  # noqa: E402
 
 EXPORTS = ROOT / "data" / "exports"
+# Teams the owner decided to leave at their stored age. Whenever the owner declines a team or a held
+# group, add it here, with the date and the owner's answer in its section's `decided`.
+OWNER_DECISIONS = ROOT / ".claude" / "skills" / "correcting-team-age-groups" / "scripts" / "owner_decisions.json"
 DEFAULT_ACTOR = "pitchrank-operator"
 IN_BATCH = 100
 PAGE = 1000
 SEASON_START = f"{_soccer_season_year()}-08-01"
 _COHORT = re.compile(r"^u([0-9]{1,2})$")
-_YEAR = re.compile(r"(?<![0-9])(20[0-2][0-9])(?![0-9])")
+_TEAM_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 
 # An apply row whose outcome the run never confirmed. It is not "not written": the
 # write may have landed and the reply been lost, so the undo has to consider it.
@@ -113,6 +118,48 @@ def age_num(cohort: str) -> int:
     return int(match.group(1))
 
 
+def cohort_years(age: int, season: Optional[int] = None) -> set:
+    """Birth years a cohort holds this season; u19 also holds the U18 band filed into it."""
+    younger = (season or _soccer_season_year()) - age + 1
+    years = {younger, younger - 1}
+    return years | {younger + 1} if age == 19 else years
+
+
+# Years joined by "/" or "-", each written with two or four digits, read wherever they sit. birth_years
+# refuses a band beside a word or an M/F letter ("Knights13/14B", "11/12M") and can stop partway along
+# a run ("2012/13/14" reads as 2012 and 2013); name_years reads both years of every consecutive pair in
+# it, because the owner holds a move whenever the name states any year outside the new group
+# (2026-10-11: "Hold every span").
+_YEAR_SEQ = re.compile(r"(?<![0-9])'?(?:20)?[0-9]{2}(?:\s*[/-]\s*'?(?:20)?[0-9]{2})+(?![0-9])")
+_YEAR_4 = re.compile(r"(?<![0-9])20[0-9]{2}(?![0-9])")
+_YEAR_APOS = re.compile(r"'([0-9]{2})(?![0-9])")
+# "U/10B" is a U-age whose slash _UAGE_TOKEN does not expect; left in, birth_years reads "10B" as 2010.
+_UAGE_SLASH = re.compile(r"(?<![0-9A-Za-z])[BGMF]?U/[0-9]{1,2}[BGMF]?(?![0-9A-Za-z])", re.I)
+# "Town-G09A-Coach": a B/G age wrapped in hyphens is last season's U-age, not a birth year (owner,
+# 2026-10-11).
+_HYPHEN_AGE = re.compile(r"(?<=-)[BG]([0-9]{2})[A-Z]?(?=-)", re.I)
+
+
+def name_years(name: Optional[str]) -> set:
+    """birth_years, plus each year of every consecutive pair in a run, every four-digit year and
+    every apostrophe year, read on the same text birth_years reads (U-ages and game formats removed).
+
+    A year older than the oldest group is kept, since it names another squad; the forms only
+    birth_years reads ("04B", "04 Girls") stop at its 2005 floor. A year after the youngest a season
+    can hold (the season less six: U7's younger year) is a season label ("2025-26", "Fall 2026")."""
+    name = _HYPHEN_AGE.sub(" ", _UAGE_SLASH.sub(" ", name or ""))
+    text = _UAGE_TOKEN.sub(" ", _FORMAT_TOKEN.sub(" ", name))
+    years = birth_years(name) | {int(y) for y in _YEAR_4.findall(text)}
+    years |= {2000 + int(y) for y in _YEAR_APOS.findall(text)}
+    for match in _YEAR_SEQ.finditer(text):
+        run = [int(part[-2:]) for part in re.findall(r"[0-9]+", match.group(0))]
+        for a, b in zip(run, run[1:]):
+            if abs(a - b) == 1:
+                years |= {2000 + a, 2000 + b}
+    youngest = _soccer_season_year() - 6
+    return {y for y in years if y <= youngest}
+
+
 def band_of(name: Optional[str]) -> Optional[str]:
     if not name:
         return None
@@ -152,6 +199,11 @@ def csv_unsafe(value: Optional[str]) -> str:
     if len(text) >= 2 and text[0] == "'" and (text[1] in _FORMULA_PREFIXES or text[1] == "'"):
         return text[1:]
     return text
+
+
+def shown(path: Path) -> Path:
+    """For printed commands."""
+    return path.relative_to(ROOT) if path.is_relative_to(ROOT) else path
 
 
 def write_csv(rows: List[Dict], path: Path, fields: List[str]) -> None:
@@ -255,16 +307,17 @@ def evidence_tier(our_name: Optional[str], target: str) -> str:
 
     A band found only in GotSport's name is GotSport agreeing with itself, and a bare
     year in ours ("2014") fits both of the cohorts it straddles, so neither decides.
-    A bare year OUTSIDE the target's two birth years means our record and GotSport's
-    describe different squads -- a wrong alias or a fused row, not a label to move.
+    A year OUTSIDE the target's birth years means our record and GotSport's describe
+    different squads -- a wrong alias or a fused row, not a label to move -- even beside a
+    band that agrees. Years are checked before the band so this tier agrees with
+    name_contradiction's year check; name_contradiction's U-age check has no counterpart here.
     """
+    years = name_years(our_name)
+    if years - cohort_years(age_num(target)):
+        return "D_name_contradicts"
     if band_of(our_name) == target:
         return "A_own_name_band"
-    years = {int(y) for y in _YEAR.findall(our_name or "")}
-    if not years:
-        return "B_gotsport_name_only"
-    younger = _soccer_season_year() - age_num(target) + 1
-    return "C_bare_year_fits" if years <= {younger, younger - 1} else "D_name_contradicts"
+    return "C_bare_year_fits" if years else "B_gotsport_name_only"
 
 
 def merged_away_ids(sb, ids: List[str]) -> Dict[str, str]:
@@ -369,8 +422,67 @@ def attach_fixture_evidence(sb, rows: List[Dict]) -> None:
             row["fixture_verdict"] = "mixed"
 
 
+def _no_repeated_keys(pairs: List[Tuple[str, object]]) -> Dict[str, object]:
+    # json keeps the last of two equal keys, so a second "left_held" block would silently drop the first.
+    keys = [key for key, _ in pairs]
+    repeated = sorted({key for key in keys if keys.count(key) > 1})
+    if repeated:
+        raise ValueError(f"the key {repeated[0]!r} appears twice")
+    return dict(pairs)
+
+
+def _decided_team_id(team: Dict) -> str:
+    # Lowercased because Postgres compares uuids case-insensitively and returns them lowercase, and
+    # matched in full so only a well-formed uuid reaches the PostgREST in_ filter.
+    team_id = team["team_id"].lower()
+    if not _TEAM_ID.fullmatch(team_id):
+        raise ValueError(f"{team['team_id']!r} is not a team id")
+    return team_id
+
+
+def load_owner_decisions(sb) -> Dict[str, Tuple[str, str]]:
+    """{team id: (section, when and why)} for every team the owner decided to leave at its stored
+    age, in every section of owner_decisions.json, and for each row those teams were merged into
+    since: a decision outlives a merge.
+
+    A missing or malformed file stops the run, since reading it as empty would move teams the owner
+    decided to leave."""
+    try:
+        data = json.loads(OWNER_DECISIONS.read_text(encoding="utf-8-sig"), object_pairs_hook=_no_repeated_keys)
+        decided = {}
+        for section, body in data.items():
+            if not isinstance(body["teams"], list):
+                raise TypeError(f"the teams of {section!r} are not a list")
+            for team in body["teams"]:
+                decided[_decided_team_id(team)] = (section, body["decided"])
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
+        raise SystemExit(
+            f"Cannot read the owner's age decisions in {OWNER_DECISIONS} ({type(exc).__name__}: {exc}). Fix it "
+            "and run again: read as empty, it would move teams the owner decided to leave."
+        ) from None
+    frontier = list(decided)
+    while frontier:
+        found = []
+        for i in range(0, len(frontier), IN_BATCH):
+            rows = (
+                sb.table("team_merge_map")
+                .select("deprecated_team_id,canonical_team_id")
+                .in_("deprecated_team_id", frontier[i : i + IN_BATCH])
+                .execute()
+                .data
+                or []
+            )
+            for row in rows:
+                if row["canonical_team_id"] not in decided:
+                    decided[row["canonical_team_id"]] = decided[row["deprecated_team_id"]]
+                    found.append(row["canonical_team_id"])
+        frontier = found
+    return decided
+
+
 def build_plan(sb, exports_dir: Optional[Path] = None) -> Path:
     candidates = derive_candidates(exports_dir)
+    decided = load_owner_decisions(sb)
     live = fetch_live(sb, [c["team_id_master"] for c in candidates])
 
     plan: List[Dict] = []
@@ -383,6 +495,9 @@ def build_plan(sb, exports_dir: Optional[Path] = None) -> Path:
             "new_age_group": c["new_age_group"],
             "collision_with": "",
         }
+        if tid in decided:
+            plan.append({**row, "action": "skipped_owner_decision"})
+            continue
         if not team:
             plan.append({**row, "action": "skipped_missing"})
             continue
@@ -481,42 +596,36 @@ def is_strong(row: Dict) -> bool:
     return row.get("evidence_tier", "").startswith("A_") or row.get("fixture_verdict") == "backs_move"
 
 
-# A year this recent in a youth team's name is a season label ("2025 Fairfield FC", "(24/25)").
-_SEASON_FROM = 2022
-_NAME_YEAR4 = re.compile(r"(?<![0-9])(20[0-2][0-9])(?![0-9])")
-# Two-digit pairs, apostrophes allowed ("'11/'12", "16/17"); not a U-age pair ("U09/10", "11/12uB").
-_NAME_PAIR2 = re.compile(r"(?i)(?<![0-9u])'?([0-2][0-9])\s*[/-]\s*'?([0-2][0-9])(?![0-9])(?!\s*u)")
-_NAME_APOS = re.compile(r"'([0-2][0-9])(?![0-9/])")
 _NAME_UAGE = re.compile(r"(?i)(?<![a-z0-9])[bg]?u-?([0-9]{1,2})(?![0-9])|(?<![0-9])([0-9]{1,2})u(?=[bg]?(?![a-z0-9]))")
 
 
 def name_contradiction(name: Optional[str], target: str) -> str:
     """Why OUR name plainly describes a different age than the move, or "" if it does not.
 
-    Deliberately narrow, because the user's rule is that GotSport's two-year band is
-    trusted: this only catches a name stating another squad outright. A U-age one away
-    passes -- names keep last season's U-age after the Aug 1 roll -- and recent years
-    are season labels, not birth years. _resolve_band misses the apostrophe and
-    two-digit forms, which is how "BRAUSA '11/'12" slipped through the first batch.
+    Reads only OUR name, because the owner's rule is that GotSport's two-year band is trusted.
+    Any year name_years finds outside the new group holds the move, a span overlapping it
+    included (owner, 2026-10-11: "Hold every span"). A U-age one group away in either direction
+    passes: names keep last season's U-age after the Aug 1 roll, and squads play a year up.
     """
     name = name or ""
     n = age_num(target)
-    younger = _soccer_season_year() - n + 1
-    allowed = {younger, younger - 1}
-    years = {int(y) for y in _NAME_YEAR4.findall(name) if int(y) < _SEASON_FROM}
-    for a, b in _NAME_PAIR2.findall(name):
-        a, b = int(a), int(b)
-        if abs(a - b) == 1 and 2000 + max(a, b) < _SEASON_FROM:
-            years |= {2000 + a, 2000 + b}
-    years |= {2000 + int(a) for a in _NAME_APOS.findall(name) if 2000 + int(a) < _SEASON_FROM}
-    stray = sorted(years - allowed)
+    allowed = cohort_years(n)
+    stray = sorted(name_years(name) - allowed)
     if stray:
-        return f"name has birth year {stray[0]}, outside {target.upper()} ({younger}/{younger - 1})"
-    for match in _NAME_UAGE.finditer(name):
-        age = int(match.group(1) or match.group(2))
-        if 5 <= age <= 19 and abs(age - n) >= 2:
-            return f"name says U{age}, {abs(age - n)} away from {target.upper()}"
+        shown_years = "/".join(str(y) for y in sorted(allowed, reverse=True))
+        return f"name has birth year {stray[0]}, outside {target.upper()} ({shown_years})"
+    ages = [int(m.group(1) or m.group(2)) for m in _NAME_UAGE.finditer(name)]
+    for age in ages + [int(m.group(1)) for m in _HYPHEN_AGE.finditer(name)]:
+        steps = _group_steps(age, n)
+        if 5 <= age <= 19 and steps >= 2:
+            return f"name says U{age}, {steps} away from {target.upper()}"
     return ""
+
+
+def _group_steps(a: int, b: int) -> int:
+    """Steps from one U-age's group to another's, with U18 filed into u19: U17 to U19 is one step."""
+    lo, hi = sorted(19 if age == 18 else age for age in (a, b))
+    return hi - lo - (1 if lo <= 17 < hi else 0)
 
 
 def apply_plan(
@@ -549,11 +658,20 @@ def apply_plan(
         and (not boarded_only or r["new_age_group"] in AGE_GROUPS)
         and (not unboarded_only or r["new_age_group"] not in AGE_GROUPS)
     ]
+    # Every producer's plan passes here, and a decision can postdate the plan, so the owner's
+    # decisions are read again at apply time.
+    decided = load_owner_decisions(sb)
     held, writable = [], []
     for r in selected:
-        reason = name_contradiction(r["team_name"], r["new_age_group"]) if skip_name_contradictions else ""
-        r["hold_reason"] = reason
-        (held if reason else writable).append(r)
+        owner = decided.get(r["team_id_master"].lower())
+        if owner:
+            r["hold_reason"], r["result"] = f"owner decision {owner[0]}: {owner[1]}", "held_owner_decision"
+        else:
+            reason = name_contradiction(r["team_name"], r["new_age_group"]) if skip_name_contradictions else ""
+            r["hold_reason"] = reason
+            if reason:
+                r["result"] = "held_name_contradicts"
+        (held if r["hold_reason"] else writable).append(r)
     # Apply in id order: effectively a random spread, so a --limit pilot samples every state.
     writable.sort(key=lambda r: r["team_id_master"])
     if limit is not None:
@@ -566,9 +684,7 @@ def apply_plan(
     fields = PLAN_FIELDS + ["result", "hold_reason", "actor"]
     for r in todo:
         r["actor"] = actor
-        if r["hold_reason"]:
-            r["result"] = "held_name_contradicts"
-        else:
+        if not r["hold_reason"]:
             r["result"] = "planned_not_applied" if execute else "would_update"
     write_csv(todo, log_path, fields)  # lands before the first write: the log is the way back
 
@@ -608,8 +724,7 @@ def apply_plan(
         print(f"  {result:22s} {n:>6,}")
     print(f"\nLog: {log_path}")
     if execute:
-        shown = log_path.relative_to(ROOT) if log_path.is_relative_to(ROOT) else log_path
-        print(f'Undo with: python {Path(__file__).relative_to(ROOT)} --revert "{shown}" --execute')
+        print(f'Undo with: python {Path(__file__).relative_to(ROOT)} --revert "{shown(log_path)}" --execute')
 
 
 def revert(sb, log_path: Path, execute: bool) -> None:
@@ -621,9 +736,15 @@ def revert(sb, log_path: Path, execute: bool) -> None:
     moved matches nothing.
     """
     rows = [r for r in read_our_csv(log_path) if r.get("result") in REVERTABLE]
+    decided = load_owner_decisions(sb)
     print(f"=== Revert {log_path.name} ({'EXECUTE' if execute else 'DRY RUN'}) : {len(rows):,} rows ===")
     outcome = Counter()
     for r in rows:
+        # Apply holds decided teams, so a decided team in a log was moved before its decision, and
+        # undoing that move would take it off the age the owner chose to keep.
+        if r["team_id_master"].lower() in decided:
+            outcome["held_owner_decision"] += 1
+            continue
         if not execute:
             outcome["would_revert"] += 1
             continue

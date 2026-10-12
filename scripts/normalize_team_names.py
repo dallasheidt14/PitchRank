@@ -173,11 +173,11 @@ def _cohort_label(age_group) -> "str | None":
 # band: "07/08/09/10" is a rec-league team spanning four birth years, and taking
 # its first pair would name it U19 and leave "/09/10" trailing.
 # The gender letter is optional on BOTH sides of BOTH years: clubs write
-# "B14/15", "13/14B", "2014G -2015G" and "B07/B08" interchangeably.
-_BAND_RE = re.compile(
-    r"(?<![\w'/–-])[BbGgMmFf]?(\d{2}|\d{4})[BbGgMmFf]?\s*[/\-–]\s*"
-    r"[BbGgMmFf]?(\d{2}|\d{4})[BbGgMmFf]?(?![\w'/–-])"
-)
+# "B14/15", "13/14B", "2014G -2015G" and "B07/B08" interchangeably. A two-digit year
+# may carry an apostrophe, straight or curly ("'11/'12", "2014/'15", "‘14–‘15"); one
+# after the band ("11/12'") is refused.
+_BAND_SIDE = r"[BbGgMmFf]?(?:['‘’](?=\d{2}(?!\d)))?(\d{2}|\d{4})[BbGgMmFf]?"
+_BAND_RE = re.compile(rf"(?<![\w'‘’/–-]){_BAND_SIDE}\s*[/\-–]\s*{_BAND_SIDE}(?![\w'‘’/–-])")
 
 
 # A four-digit birth year standing on its own in the name.
@@ -413,7 +413,7 @@ def normalize_team_name(
         # one -- should_skip_pair then refuses the pair outright, ahead of the
         # birth-year guard that would have accepted it. frontend/lib/teamAge.ts is
         # worse: its standalone two-digit pattern matches "14" inside "14/15" and
-        # derives U13 for a U14 team. Preserving bands needs those parsers taught
+        # reads the team one group too old. Preserving bands needs those parsers taught
         # first. The aged-out band is kept anyway (see _resolve_band), and
         # _team_distinction then reads it by spelling: U19 from a four-digit year or a
         # gender-lettered two-digit one ("2006/2007", "B07/06" in 2026-27), no age from

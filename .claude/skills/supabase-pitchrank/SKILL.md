@@ -650,6 +650,12 @@ so treat it as an unknown outcome: re-check or undo, never report it as a refusa
 `scripts/team_cleanup/run_store.py`, `_take_lease` passes such an error through and
 `acquire_apply_lock` undoes the lease.
 
+A transport failure is not an `APIError` at all. postgrest-py sends the request before the `try`
+that raises `APIError`, so a read timeout or a reset connection surfaces as an `httpx` error
+(`httpx.ReadTimeout`, say), and it too can follow a committed write. Catch `httpx.HTTPError` beside
+`APIError` and treat it as the same unknown outcome, as `open_run` and `close_run` in
+`scripts/team_cleanup/propose_week.py` do, through `_refused`.
+
 ### Transaction-like Pattern
 ```python
 # Supabase doesn't have transactions in Python SDK

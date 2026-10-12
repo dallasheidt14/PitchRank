@@ -79,6 +79,20 @@ class TestBandForms:
     def test_separators_spacing_and_gender_letters(self, name, expected):
         assert normalize_team_name(name, None, "u9") == expected
 
+    @pytest.mark.parametrize(
+        "name,expected",
+        [
+            ("BRAUSA '11/'12 Blue", "BRAUSA U15 Blue"),
+            ("Club '11/12 Red", "Club U15 Red"),
+            ("Club 2014/'15 Red", "Club U12 Red"),
+            ("Club B'11/B'12 Red", "Club U15 Red"),
+            ("Club ‘11/‘12 Red", "Club U15 Red"),  # left curly quote
+            ("Club ’14–’15", "Club U12"),  # right curly quote
+        ],
+    )
+    def test_an_apostrophe_before_a_two_digit_year(self, name, expected):
+        assert _resolve_band(name)[0] == expected
+
     def test_every_band_in_the_name_is_collapsed(self):
         # Leaving a trailing band means the next run finds it and the name moves
         # again. See "Cape Coral Soccer - 2007/2008 Cyclone RL B07/08".
@@ -104,6 +118,7 @@ class TestBandForms:
             ("Club (06/07) Red", "Club 06/07 Red"),  # brackets drop, as they do around any token
             ("Club 2006-07g, Red", "Club 2006-07g, Red"),  # punctuation and a lowercase letter attached
             ("Club 06/07 Red 2006/2007", "Club 06/07 Red 2006/2007"),  # two aged-out bands
+            ("OKC Crew '06/'07 19B", "OKC Crew '06/'07 19B"),  # apostrophes, and a later age token
         ],
     )
     def test_the_tidy_up_leaves_an_aged_out_band_as_written(self, name, expected, age_group):
@@ -124,10 +139,24 @@ class TestNotBands:
             "Club 10-3 Red",  # a score, not consecutive years
             "1570 FC - 1570 FC G",  # equal years
             "Chaffee County United 07/08/09/10",  # four birth years, not a band
+            "Club 11/12' Red",  # an apostrophe after the band
+            "Club 11/12’ Red",  # ...a right curly quote after it
+            "Club '2014/15",  # an apostrophe before a four-digit year
+            "Club ‘2014/15",  # ...a left curly quote before one
+            "Club '11/'12/'13",  # three apostrophe years
+            "Club '24/'25",  # a season
+            # A U-age range, with and without apostrophes.
+            "Club U13/14 Red",
+            "Club 13/14U Red",
+            "Club U-13/14 Red",
+            "Club U'13/'14 Red",
+            "Club '13/'14U Red",
+            "Club GU'18/'19 Red",
+            "Club U‘13/‘14 Red",  # left curly quotes
         ],
     )
     def test_left_alone(self, name):
-        assert _resolve_band(name)[1] is None
+        assert _resolve_band(name) == (name, None)
 
 
 class TestColumnDrivesOnlyStaleUAges:
@@ -178,6 +207,8 @@ class TestIdempotence:
             ("U08B Cook Inlet SC Navy 2019", "u15"),
             ("Worthington United 94 2018 Boys Red", "u11"),
             ("BUSA 06/07 Red", "u19"),
+            ("BRAUSA '11/'12 Blue", "u14"),
+            ("OKC Crew '06/'07 19B", "u20"),
         ],
     )
     def test_second_pass_changes_nothing(self, name, age_group):
