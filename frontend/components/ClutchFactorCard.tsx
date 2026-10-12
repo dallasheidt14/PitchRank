@@ -3,12 +3,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { ChartSkeleton } from '@/components/ui/skeletons';
-import { Flame, Lock, Info } from 'lucide-react';
+import { Flame, Lock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useUser, hasPremiumAccess } from '@/hooks/useUser';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { InfoButton, InfoTooltip } from '@/components/ui/info-tooltip';
 import { trackPaywallImpression, trackPaywallUpgradeClicked } from '@/lib/events';
 
 interface ClutchFactorCardProps {
@@ -221,18 +221,17 @@ export function ClutchFactorCard({ teamId }: ClutchFactorCardProps) {
         <CardTitle className="font-display uppercase tracking-wide text-base flex items-center gap-2">
           <Flame className="h-4 w-4 text-primary" />
           Clutch Factor (last 30 games)
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
-            </TooltipTrigger>
-            <TooltipContent side="right" className="max-w-[280px]">
-              <p className="font-semibold mb-1">Clutch Factor</p>
-              <p className="text-xs">
-                Wins and losses split by goal differential. Draws are excluded. A strong record in 1-goal games suggests
-                a team that closes out tight matches; a weak one suggests they fade when it matters.
-              </p>
-            </TooltipContent>
-          </Tooltip>
+          <InfoTooltip
+            side="right"
+            className="max-w-[min(280px,var(--radix-popper-available-width))]"
+            trigger={<InfoButton label="About Clutch Factor" />}
+          >
+            <p className="font-semibold mb-1">Clutch Factor</p>
+            <p className="text-xs">
+              Wins and losses split by goal differential. Draws are excluded. A strong record in 1-goal games suggests a
+              team that closes out tight matches; a weak one suggests they fade when it matters.
+            </p>
+          </InfoTooltip>
         </CardTitle>
         <CardDescription>Record in close vs. blowout games</CardDescription>
       </CardHeader>

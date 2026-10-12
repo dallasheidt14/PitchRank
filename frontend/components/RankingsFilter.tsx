@@ -123,13 +123,15 @@ export function RankingsFilter({ onFilterChange }: RankingsFilterProps) {
   }, [region, ageGroup, gender, router, pathname, onFilterChange]);
 
   return (
-    <Card data-testid="rankings-filter" className="w-full border-l-4 border-l-accent shadow-md">
-      <CardContent className="flex flex-col sm:flex-row items-end justify-start gap-4 sm:gap-6 py-5">
+    <Card data-testid="rankings-filter" className="w-full border-l-4 border-l-accent shadow-md py-0 sm:py-6">
+      <CardContent className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)] gap-2 px-3 py-3 sm:flex sm:flex-row sm:items-end sm:justify-start sm:gap-6 sm:px-6 sm:py-5">
         {/* Region */}
-        <div className="flex flex-col w-full sm:w-auto min-w-[200px]">
-          <label className="text-sm font-semibold text-foreground uppercase tracking-wide mb-2">Region</label>
+        <div className="flex flex-col min-w-0 sm:w-auto sm:min-w-[200px]">
+          <label className="text-xs sm:text-sm font-semibold text-foreground uppercase tracking-wide mb-1 sm:mb-2">
+            Region
+          </label>
           <Select value={region} onValueChange={handleRegionChange}>
-            <SelectTrigger className="w-full h-11 font-medium">
+            <SelectTrigger className="w-full h-11 px-2 sm:px-3 font-medium">
               <SelectValue placeholder="Select region" />
             </SelectTrigger>
             <SelectContent>
@@ -144,10 +146,12 @@ export function RankingsFilter({ onFilterChange }: RankingsFilterProps) {
         </div>
 
         {/* Age Group */}
-        <div className="flex flex-col w-full sm:w-auto min-w-[160px]">
-          <label className="text-sm font-semibold text-foreground uppercase tracking-wide mb-2">Age Group</label>
+        <div className="flex flex-col min-w-0 sm:w-auto sm:min-w-[160px]">
+          <label className="text-xs sm:text-sm font-semibold text-foreground uppercase tracking-wide mb-1 sm:mb-2">
+            Age Group
+          </label>
           <Select value={ageGroup} onValueChange={handleAgeGroupChange}>
-            <SelectTrigger className="w-full h-11 font-medium">
+            <SelectTrigger className="w-full h-11 px-2 sm:px-3 font-medium">
               <SelectValue placeholder="Select age group" />
             </SelectTrigger>
             <SelectContent>
@@ -165,10 +169,12 @@ export function RankingsFilter({ onFilterChange }: RankingsFilterProps) {
         </div>
 
         {/* Gender */}
-        <div className="flex flex-col w-full sm:w-auto min-w-[160px]">
-          <label className="text-sm font-semibold text-foreground uppercase tracking-wide mb-2">Gender</label>
+        <div className="flex flex-col min-w-0 sm:w-auto sm:min-w-[160px]">
+          <label className="text-xs sm:text-sm font-semibold text-foreground uppercase tracking-wide mb-1 sm:mb-2">
+            Gender
+          </label>
           <Select value={gender} onValueChange={handleGenderChange}>
-            <SelectTrigger className="w-full h-11 font-medium">
+            <SelectTrigger className="w-full h-11 px-2 sm:px-3 font-medium">
               <SelectValue placeholder="Select gender" />
             </SelectTrigger>
             <SelectContent>

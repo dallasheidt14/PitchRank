@@ -164,11 +164,25 @@ export function formatGender(gender: string): string {
   return GENDER_LABELS[gender] ?? GENDER_SLUG_LABELS[gender.toLowerCase()] ?? 'Unknown';
 }
 
+/** Map a gender code or slug, in any case, to its rankings URL slug. */
+export function genderSlug(gender: string | null | undefined): 'male' | 'female' | null {
+  if (!gender) return null;
+  const label = GENDER_LABELS[gender.toUpperCase()] ?? GENDER_SLUG_LABELS[gender.toLowerCase()];
+  if (label === 'Boys') return 'male';
+  if (label === 'Girls') return 'female';
+  return null;
+}
+
 /** Gender options for select dropdowns. */
 export const GENDER_OPTIONS = [
   { value: 'M' as const, label: 'Boys' },
   { value: 'F' as const, label: 'Girls' },
 ];
+
+// --- Rankings copy ---
+
+export const POWERSCORE_DEFINITION =
+  'A machine-learning-enhanced ranking score that measures overall team strength based on offense, defense, schedule difficulty, and predictive performance patterns.';
 
 /**
  * Bearer credentials that ride in a URL, and the pages that render carrying one.

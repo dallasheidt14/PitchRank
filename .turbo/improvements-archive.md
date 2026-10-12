@@ -1504,6 +1504,18 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Update (2026-10-07)**: Dropped with the feature. The owner had the Unpaid Invoices section removed from `/mission-control/subscriptions`, and the open-invoice fetch and `buildUnpaidInvoices` went with it, so there is no unbounded fetch left to bound.
 - **Refs**: branch `feat/subscriptions-last-month-conversion`
 
+### Get RankingsTable under unit test despite the virtualizer
+
+- **ID**: IMP-120
+- **Status**: done
+- **Type**: plan
+- **Category**: testing
+- **Where**: `frontend/components/RankingsTable.tsx` (648 lines, no test file), `frontend/vitest.config.ts`
+- **Why**: The rankings table is the primary surface of the team-name display change and has zero unit coverage — a revert of any of its four `teamDisplayName` call sites (visible cell :582, sort comparator :148-149, aria-label :525, Schema.org payload :337) would ship with all seven required `ci.yml` checks green. `e2e/rankings.spec.ts` does not gate: `vitest.config.ts:9` excludes `e2e/**` and Playwright is not a required check. The obvious test is not writable as-is — a scratch probe reusing this repo's harness showed `useVirtualizer` renders **zero** rows under happy-dom (the scroll element measures zero height), so everything inside `virtualItems.map` never executes. Either mock `@tanstack/react-virtual` (no precedent here) or scope the test to the Schema.org payload and sort comparator, both of which sit outside the virtual list.
+- **Noted**: 2026-08-27
+- **Update (2026-10-11)**: The virtualizer is gone: the table renders its rows as page content (top 100 plus "Show more"), and `frontend/components/RankingsTable.test.tsx` now asserts all four `teamDisplayName` call sites against an `unknown_<id>` placeholder: the visible cell, the row's aria-label, the Team sort and the Schema.org payload.
+- **Refs**: branch `fix/mobile-rankings-ux`
+
 ### Let the weekly age re-check read reconcile logs from a run store
 
 - **ID**: IMP-308

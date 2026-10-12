@@ -292,17 +292,17 @@ export function ComparePanel() {
                 <h3 className="font-display text-lg font-bold uppercase tracking-wide text-primary mb-4">
                   Head-to-Head Comparison
                 </h3>
-                <div className="overflow-x-auto -mx-4 sm:mx-0 touch-pan-x">
-                  <table className="w-full min-w-[600px]">
+                <div className="overflow-x-auto -mx-4 sm:mx-0">
+                  <table className="w-full">
                     <thead>
                       <tr className="border-b">
                         <th className="text-left py-3 px-3 sm:px-4 text-xs sm:text-sm font-medium text-muted-foreground">
                           Metric
                         </th>
-                        <th className="text-center py-3 px-2 sm:px-3 text-xs sm:text-sm font-medium truncate max-w-[150px]">
+                        <th className="text-center py-3 px-2 sm:px-3 text-xs sm:text-sm font-medium wrap-anywhere">
                           {teamDisplayName(team1Details)}
                         </th>
-                        <th className="text-center py-3 px-2 sm:px-3 text-xs sm:text-sm font-medium truncate max-w-[150px]">
+                        <th className="text-center py-3 px-2 sm:px-3 text-xs sm:text-sm font-medium wrap-anywhere">
                           {teamDisplayName(team2Details)}
                         </th>
                       </tr>

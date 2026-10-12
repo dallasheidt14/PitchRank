@@ -89,6 +89,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: An adversarial pass counted 66 occurrences of the U+2022 glyph across frontend `.ts`/`.tsx` (excluding node_modules/.next). The same "club • state • age • gender" concept is independently reimplemented in at least six places with differing field order, raw-vs-display values, and separator handling. This is the real finding underneath a narrower proposal rejected 2026-08-18: exporting a `TEAM_META_SEPARATOR` constant threaded through 2 of 66 sites was rejected because it would leave the stated failure mode intact while falsely implying centralization. The genuine fix is converging these call sites on `composeTeamMeta`, normalizing each component's data shape at its own fetch boundary the way `hooks/useTeamSearch.ts` already does. A narrower sibling entry covers MergeTeamsDialog specifically.
 - **Noted**: 2026-08-18
 - **Update (2026-09-08)**: Re-anchored. Converged since noted: UnknownOpponentLink now goes through `TeamRowSubtitle`→`composeTeamMeta`. Still independent: `MergeTeamsDialog.tsx:265-266`, `RankingsTable.tsx:264`, `RankingsStickyFilters.tsx:45`, and both `app/api/infographic/{movers,spotlight}/route.tsx`. The `TeamHeader.tsx:354` citation is stale — that join is gone.
+- **Update (2026-10-11)**: Re-anchored: the rankings-table join cited as `RankingsTable.tsx:264` is now `RankingsTable.tsx:443` (`parts.join(' • ')` in `description`), after the table rewrite on `fix/mobile-rankings-ux`.
 
 ### Emailed auth tokens are not bound to the recipient (session fixation)
 
@@ -261,9 +262,10 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Status**: open
 - **Type**: plan
 - **Category**: refactor
-- **Where**: `components/RecentMovers.tsx`, `components/RankingsTable.tsx:549-570`, `components/CohortSEOContent.tsx:86-125`, `components/insights/InsightModal.tsx` (`DeltaIndicator`)
+- **Where**: `components/RecentMovers.tsx`, `components/RankingsTable.tsx:151-171` (`RankingsRow`), `components/CohortSEOContent.tsx:86-125`, `components/insights/InsightModal.tsx` (`DeltaIndicator`)
 - **Why**: Four implementations of icon + abs(change) + green/red each pick their own sign semantics — the watchlist shipped inverted colors because of it (fixed 2026-08-24). Move `DeltaIndicator` out of InsightModal, add a filled-badge variant, and make it the single home for direction semantics.
 - **Noted**: 2026-08-24
+- **Update (2026-10-11)**: Re-anchored: the rank-change badge cited as `RankingsTable.tsx:549-570` now lives in `RankingsRow`, `components/RankingsTable.tsx:151-171`.
 
 ### Extract the React mount/unmount test harness into frontend/test/
 
@@ -283,16 +285,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Category**: refactor
 - **Where**: `frontend/hooks/useTeamSearch.ts` (`fetchModular11TeamIds` :23-46, field at :139), `frontend/lib/api.ts:301-314,536`, `frontend/lib/matchPredictionService.ts:249-262`, `frontend/lib/types.ts:60`, `frontend/types/RankingRow.ts:14`, plus fixtures in four test files
 - **Why**: After `teamDisplayName` (branch `show-team-name-in-rankings`) the flag's only reader is `utils.ts:192` inside `composeTeamDisplay`, reachable only when `team_name` is blank or `unknown_`-prefixed. Production count of teams meeting both conditions was 0 on 2026-08-27; only a newly scraped modular11 team makes it nonzero, and in that window it is actively harmful — it forces `return team.team_name`, rendering the literal `unknown_12345` instead of the club-composed label. Supersedes IMP-034. Not urgent: `useTeamSearch` has a module-level 10-minute cache, so its ~3 serial PostgREST round-trips cost once per session, not per search. Remove all three writers together — deleting only the `useTeamSearch` fetch leaves the field populated on some paths and not others.
-- **Noted**: 2026-08-27
-
-### Get RankingsTable under unit test despite the virtualizer
-
-- **ID**: IMP-120
-- **Status**: open
-- **Type**: plan
-- **Category**: testing
-- **Where**: `frontend/components/RankingsTable.tsx` (648 lines, no test file), `frontend/vitest.config.ts`
-- **Why**: The rankings table is the primary surface of the team-name display change and has zero unit coverage — a revert of any of its four `teamDisplayName` call sites (visible cell :582, sort comparator :148-149, aria-label :525, Schema.org payload :337) would ship with all seven required `ci.yml` checks green. `e2e/rankings.spec.ts` does not gate: `vitest.config.ts:9` excludes `e2e/**` and Playwright is not a required check. The obvious test is not writable as-is — a scratch probe reusing this repo's harness showed `useVirtualizer` renders **zero** rows under happy-dom (the scroll element measures zero height), so everything inside `virtualItems.map` never executes. Either mock `@tanstack/react-virtual` (no precedent here) or scope the test to the Schema.org payload and sort comparator, both of which sit outside the virtual list.
 - **Noted**: 2026-08-27
 
 ### No tests anywhere under components/infographics/
@@ -335,6 +327,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `frontend/hooks/useTeamSearch.ts:89-91`
 - **Why**: The comment says the `searchable_name` tokens exist "so users can search using the same string they see in the rankings table". The rankings table now renders `teamDisplayName` over club + state, so U{age}, league and distinction appear in no visible row — they are index-only, feeding the hidden filter string at `RankingsTable.tsx:201`. State what the index actually widens past. Split out of IMP-123, which is a component refactor this does not depend on.
 - **Noted**: 2026-08-27
+- **Update (2026-10-11)**: Re-anchored: the rankings search haystack cited as `RankingsTable.tsx:201` is now `RankingsTable.tsx:331`.
 
 ### Give the unknown_ placeholder predicate one definition
 
@@ -2065,9 +2058,69 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: Two constants share one name but describe different fields. The `team_association_map` set holds GotSport association codes: it includes `CND`, has no NT, NU or YT, and its own comment says nothing consults it. The `canadian_provinces` set holds `teams.state_code` values (13 provinces and territories) and is what `assign_team_states.py` and the team-cleanup health report read. Renaming the first (say, `CANADIAN_ASSOCIATION_CODES`) stops anyone merging the two by name, or importing the wrong one and filing a territory as malformed.
 - **Noted**: 2026-10-10
 
-### Read the reconcile logs once for the age planner and the weekly re-check
+### Remove the unused @tanstack/react-virtual dependency
+
+- **ID**: IMP-314
+- **Status**: open
+- **Type**: direct
+- **Category**: refactor
+- **Where**: `frontend/package.json` (`dependencies["@tanstack/react-virtual"]`), `frontend/package-lock.json`
+- **Why**: `RankingsTable` stopped using `useVirtualizer` on `fix/mobile-rankings-ux` (rows now render as page content, top 100 plus "Show more"), and a grep of `frontend/` finds no other importer; only `package.json` and the lockfile still name it. It was left in place so that change carried no lockfile churn. Removing it drops a dead install and stops `package.json` implying the table still virtualizes.
+- **Noted**: 2026-10-11
+
+### Fix the five rankings e2e tests that fail against every target
+
+- **ID**: IMP-315
+- **Status**: open
+- **Type**: direct
+- **Category**: testing
+- **Where**: `frontend/e2e/helpers.ts` (`waitForFirstRankingsRow`), `frontend/e2e/rankings.spec.ts` (`page has correct metadata title`)
+- **Why**: Run on 2026-10-11 against both www.pitchrank.io and a local dev server, the same five tests fail. Four go through `waitForFirstRankingsRow`, directly or from the Sort block's `beforeEach`: it waits for `a[href*="/teams/"]` *inside* `rankings-row-0`, but the row element is itself the link, so the descendant query never matches. The fifth expects a title matching `/Ranks.*PitchRank|Youth Soccer Teams.*PitchRank/`, while the rankings layout title is "2026 Youth Soccer Rankings by State & Age Group". Because e2e is not a CI gate, these read as noise and hide real regressions in the same file.
+- **Noted**: 2026-10-11
+
+### Route the hand-written gender labels through formatGender
 
 - **ID**: IMP-316
+- **Status**: open
+- **Type**: direct
+- **Category**: refactor
+- **Where**: `frontend/components/RankingsTable.tsx` (`description`), `frontend/components/TeamHeader.tsx` (gender `Badge`, `ShareButtons` title), `frontend/lib/constants.ts` (`formatGender`)
+- **Why**: Three places map M/F/B/G to Boys/Girls with their own ternaries (the share title treats anything that is not M/B as Girls) instead of `formatGender`. `formatGender` also looks `GENDER_LABELS` up case-sensitively, so `formatGender('m')` is "Unknown", while `genderSlug` beside it accepts any case. Unknown values would change from echoed raw to "Unknown" when the ternaries go, so check callers' expectations.
+- **Noted**: 2026-10-11
+
+### Keep the phone filter row readable at 320px and narrower
+
+- **ID**: IMP-317
+- **Status**: open
+- **Type**: direct
+- **Category**: feature
+- **Where**: `frontend/components/RankingsFilter.tsx` (the phone grid on `CardContent`, `grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)]`)
+- **Why**: At a 300px viewport (seen 2026-10-11 in a smoke-test screenshot) the gender trigger truncates to "Boy" and the "AGE GROUP" label wraps to two lines, pushing that dropdown below its neighbours. Phones this narrow are rare (Galaxy Fold, zoomed Android), so a shorter label or a two-row fallback below ~340px would do.
+- **Noted**: 2026-10-11
+
+### Record the signed-in admin as the merger instead of a request field
+
+- **ID**: IMP-318
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `frontend/app/api/team-merge/route.ts` (`POST`, `mergedBy` passed as `p_merged_by`), `frontend/components/MergeTeamsDialog.tsx` (request body)
+- **Why**: Verified 2026-10-12: the POST reads `mergedBy` from the JSON body and writes it to the merge record, and the dialog fills it with `user.email`. `requireAdmin` runs first, so only an admin gets that far, but any admin can put any name on the audit trail. Take the email from the `requireAdmin` result and drop the body field.
+- **Noted**: 2026-10-12
+
+### Share one header across GameHistoryTable's loading, error and empty states
+
+- **ID**: IMP-319
+- **Status**: open
+- **Type**: direct
+- **Category**: refactor
+- **Where**: `frontend/components/GameHistoryTable.tsx` (`GameHistoryTable`, the `isLoading`, `isError` and empty-games early returns)
+- **Why**: Verified 2026-10-12: the three early returns each carry the same ~20-line `CardHeader` (title, description, `MissingGamesForm`, admin-gated `MergeTeamsDialogWrapper`), so the admin gate had to be added three times. The loaded-games header differs (display-font title, `LastUpdated`, no merge button), so decide whether it shares the component or stays separate.
+- **Noted**: 2026-10-12
+
+### Read the reconcile logs once for the age planner and the weekly re-check
+
+- **ID**: IMP-325
 - **Status**: open
 - **Type**: direct
 - **Category**: refactor
@@ -2077,7 +2130,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 
 ### Make the archive split's relabel line report what the apply did
 
-- **ID**: IMP-317
+- **ID**: IMP-326
 - **Status**: open
 - **Type**: direct
 - **Category**: reliability
@@ -2087,7 +2140,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 
 ### Log held rows in a pilot apply too
 
-- **ID**: IMP-318
+- **ID**: IMP-327
 - **Status**: open
 - **Type**: direct
 - **Category**: reliability
