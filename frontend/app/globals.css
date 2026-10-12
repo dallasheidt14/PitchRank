@@ -270,9 +270,11 @@
   }
 }
 
-/* Prevent iOS zoom on input focus - inputs must be at least 16px on phones.
+/* Prevent iOS zoom on input focus - inputs must be at least 16px on narrow screens and on devices
+   whose primary input is touch (landscape phones and tablets are wider than 639px). The touch query
+   is the same as TOUCH_MEDIA_QUERY in components/ui/info-tooltip.tsx.
    Unlayered on purpose: inside @layer base, every text-sm utility on an input wins. */
-@media (max-width: 639px) {
+@media (max-width: 639px), (hover: none) and (pointer: coarse) {
   input,
   select,
   textarea {

@@ -25,6 +25,7 @@ vi.mock('@/lib/events', () => ({
 
 import { RankingsTable } from './RankingsTable';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { markIfOpenedFromRankings } from '@/hooks/useRankingsViewState';
 
 const COHORT = 'national|u13|M';
 
@@ -155,6 +156,7 @@ afterEach(async () => {
   vi.restoreAllMocks();
   vi.useRealTimers();
   window.history.replaceState(null, '');
+  markIfOpenedFromRankings();
   setScrollY(0);
 });
 
@@ -328,6 +330,41 @@ describe('RankingsTable', () => {
         await act(async () => showMoreButton()!.click());
 
         expect(savedView()).toBeUndefined();
+      } finally {
+        window.history.replaceState({ __NA: true }, '', boardUrl);
+      }
+    });
+  });
+
+  describe('marking the team page a row opens', () => {
+    it('lets the team page a row opens mark itself, so its Back to Rankings returns to this entry', async () => {
+      await renderTable(cohort(10));
+      const row = rows()[5];
+      const boardUrl = window.location.pathname + window.location.search;
+
+      await clickRowWithoutNavigating(row);
+      window.history.replaceState({ __NA: true }, '', row.getAttribute('href'));
+      try {
+        markIfOpenedFromRankings();
+
+        expect(window.history.state).toEqual({ __NA: true, __pitchrankFromRankings: true, __pitchrankTeamSeen: true });
+      } finally {
+        window.history.replaceState({ __NA: true }, '', boardUrl);
+      }
+    });
+
+    it('notes nothing for a row tapped while a Back is loading another page under the board', async () => {
+      await renderTable(cohort(10));
+      const row = rows()[5];
+      const boardUrl = window.location.pathname + window.location.search;
+
+      window.history.replaceState({ __NA: true }, '', '/teams/earlier?region=national&ageGroup=u13&gender=male');
+      try {
+        await clickRowWithoutNavigating(row);
+        window.history.replaceState({ __NA: true }, '', row.getAttribute('href'));
+        markIfOpenedFromRankings();
+
+        expect(window.history.state).toEqual({ __NA: true, __pitchrankTeamSeen: true });
       } finally {
         window.history.replaceState({ __NA: true }, '', boardUrl);
       }

@@ -5,7 +5,9 @@ export const RANKINGS_SORT_FIELDS = ['rank', 'team', 'powerScore', 'sosRank'] as
 export type RankingsSortField = (typeof RANKINGS_SORT_FIELDS)[number];
 export type SortDirection = 'asc' | 'desc';
 
-const HISTORY_KEY = '__pitchrankRankingsView';
+const VIEW_KEY = '__pitchrankRankingsView';
+const FROM_RANKINGS_KEY = '__pitchrankFromRankings';
+const TEAM_SEEN_KEY = '__pitchrankTeamSeen';
 const MAX_SAVED_COUNT = 50_000;
 
 export interface RankingsView {
@@ -22,7 +24,7 @@ export interface SavedRankingsView extends RankingsView {
 }
 
 export function readSavedView(state: unknown, cohort: string): SavedRankingsView | null {
-  const saved = (state as Record<string, unknown> | null)?.[HISTORY_KEY] as Partial<SavedRankingsView> | undefined;
+  const saved = (state as Record<string, unknown> | null)?.[VIEW_KEY] as Partial<SavedRankingsView> | undefined;
   if (!saved || saved.version !== 1 || saved.cohort !== cohort) return null;
   const { count, sortField, sortDirection, scrollY } = saved;
   if (!Number.isInteger(count) || count! < RANKINGS_PAGE_SIZE || count! > MAX_SAVED_COUNT) return null;
@@ -33,30 +35,66 @@ export function readSavedView(state: unknown, cohort: string): SavedRankingsView
 }
 
 /**
- * Stores the view on the current history entry, so Back/Forward restore it and a fresh visit
- * (a new entry) does not. Skipped for entries Next.js did not create: Back to an entry without
- * `__NA` makes the App Router hard-reload the page.
+ * Sets `values` on the current history entry beside Next.js's own state. Skipped for entries
+ * Next.js did not create: Back to an entry without `__NA` makes the App Router hard-reload the page.
  */
-export function writeSavedView(view: SavedRankingsView): void {
+function setOnHistoryEntry(values: Record<string, unknown>): void {
   const current = window.history.state as Record<string, unknown> | null;
   if (!current?.__NA) return;
   try {
-    window.history.replaceState({ ...current, [HISTORY_KEY]: view }, '');
+    window.history.replaceState({ ...current, ...values }, '');
   } catch {
-    // Safari throttles replaceState; the next scroll saves again.
+    // Safari throttles replaceState. A missed view is saved again on the next scroll; a missed
+    // mark leaves Back to Rankings opening the board fresh.
   }
+}
+
+/**
+ * Stores the view on the current history entry, so Back/Forward restore it and a fresh visit
+ * (a new entry) does not.
+ */
+export function writeSavedView(view: SavedRankingsView): void {
+  setOnHistoryEntry({ [VIEW_KEY]: view });
 }
 
 function currentUrl(): string {
   return window.location.pathname + window.location.search;
 }
 
+let openingTeamUrl: string | null = null;
+
+/** Records that a rankings row link to `href` was clicked while the board owned the address. */
+export function noteTeamOpenedFromRankings(href: string): void {
+  const url = new URL(href, window.location.origin);
+  openingTeamUrl = url.pathname + url.search;
+}
+
+/**
+ * Marks the team page's history entry when a rankings row's push just opened it, so Back to
+ * Rankings can return to the entry before it, where the list's place is saved. Every team page
+ * mount consumes the note and stamps its entry. A push starts from Next.js's clean state, while
+ * Back/Forward and a reload keep the stamp, so a note left by a Ctrl/Cmd-click or an interrupted
+ * navigation cannot mark an older entry at the same URL. React can run this mount inside Next's
+ * popstate handler, before any listener added later, so the stamp is the guard, not a listener.
+ */
+export function markIfOpenedFromRankings(): void {
+  const expectedUrl = openingTeamUrl;
+  openingTeamUrl = null;
+  if ((window.history.state as Record<string, unknown> | null)?.[TEAM_SEEN_KEY]) return;
+  setOnHistoryEntry({ [TEAM_SEEN_KEY]: true, ...(expectedUrl === currentUrl() && { [FROM_RANKINGS_KEY]: true }) });
+}
+
+export function wasOpenedFromRankings(): boolean {
+  return (window.history.state as Record<string, unknown> | null)?.[FROM_RANKINGS_KEY] === true;
+}
+
 const INTERACTION_EVENTS = ['wheel', 'touchstart', 'keydown', 'pointerdown'] as const;
 
 /**
  * Keeps the rankings list's expanded count, sort and scroll position on its history entry and
- * restores them on Back/Forward. Returns `persistView`, which saves now; pass any field the same
- * handler just set as an override, since the hook still holds the previous render's view.
+ * restores them on Back/Forward. Returns `persistView`, which saves now and reports whether the
+ * board still owns the address; pass any field the same handler just set as an override, since
+ * the hook still holds the previous render's view.
  *
  * Count and sort are restored in a layout effect, so the list is full-height in the commit that
  * handles popstate. WebKit then restores the scroll itself; Chromium and Firefox did not in
@@ -91,8 +129,8 @@ export function useRankingsViewState({
   const ownUrlRef = useRef<string | null>(null);
 
   const persistView = useCallback(
-    (overrides?: Partial<RankingsView>) => {
-      if (currentUrl() !== ownUrlRef.current) return;
+    (overrides?: Partial<RankingsView>): boolean => {
+      if (currentUrl() !== ownUrlRef.current) return false;
       const latest = latestRef.current;
       const scrollY = Math.round(window.scrollY);
       // A search is not restored, so keep one page and no position deeper than the list top.
@@ -105,6 +143,7 @@ export function useRankingsViewState({
         cohort,
         scrollY: listTop === null ? scrollY : Math.min(scrollY, listTop),
       });
+      return true;
     },
     [cohort]
   );

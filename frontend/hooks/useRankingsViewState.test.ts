@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { readSavedView, writeSavedView, type SavedRankingsView } from './useRankingsViewState';
+import {
+  markIfOpenedFromRankings,
+  noteTeamOpenedFromRankings,
+  readSavedView,
+  wasOpenedFromRankings,
+  writeSavedView,
+  type SavedRankingsView,
+} from './useRankingsViewState';
 
 const COHORT = 'national|u13|M';
 
@@ -71,5 +78,68 @@ describe('writeSavedView / readSavedView', () => {
   it('returns null for an entry with no saved view', () => {
     expect(readSavedView(null, COHORT)).toBeNull();
     expect(readSavedView({ __NA: true }, COHORT)).toBeNull();
+  });
+});
+
+describe('marking a team page opened from the rankings', () => {
+  const TEAM_URL = '/teams/t1?region=national&ageGroup=u13&gender=male';
+  const startUrl = window.location.href;
+
+  afterEach(() => {
+    window.history.replaceState(null, '', startUrl);
+    markIfOpenedFromRankings();
+  });
+
+  it('marks the entry a row link just opened and keeps Next.js state beside the mark', () => {
+    noteTeamOpenedFromRankings(TEAM_URL);
+    window.history.replaceState({ __NA: true, other: 'kept' }, '', TEAM_URL);
+
+    markIfOpenedFromRankings();
+
+    expect(window.history.state).toEqual({
+      __NA: true,
+      other: 'kept',
+      __pitchrankFromRankings: true,
+      __pitchrankTeamSeen: true,
+    });
+    expect(wasOpenedFromRankings()).toBe(true);
+  });
+
+  it('stamps a team page entry the first time it shows, without marking it, when no row opened it', () => {
+    window.history.replaceState({ __NA: true }, '', '/teams/t1');
+
+    markIfOpenedFromRankings();
+
+    expect(window.history.state).toEqual({ __NA: true, __pitchrankTeamSeen: true });
+  });
+
+  it('marks nothing when the link landed on another page, and drops the note', () => {
+    noteTeamOpenedFromRankings(TEAM_URL);
+    window.history.replaceState({ __NA: true }, '', '/teams/t1');
+
+    markIfOpenedFromRankings();
+    expect(wasOpenedFromRankings()).toBe(false);
+
+    window.history.replaceState({ __NA: true }, '', TEAM_URL);
+    markIfOpenedFromRankings();
+    expect(wasOpenedFromRankings()).toBe(false);
+  });
+
+  it('does not mark an entry Back/Forward or a reload returns to, even when a ctrl-clicked row left a note for it', () => {
+    noteTeamOpenedFromRankings(TEAM_URL);
+    window.history.replaceState({ __NA: true, __pitchrankTeamSeen: true }, '', TEAM_URL);
+
+    markIfOpenedFromRankings();
+
+    expect(window.history.state).toEqual({ __NA: true, __pitchrankTeamSeen: true });
+  });
+
+  it('does not mark an entry Next.js did not create', () => {
+    noteTeamOpenedFromRankings(TEAM_URL);
+    window.history.replaceState({ other: 'kept' }, '', TEAM_URL);
+
+    markIfOpenedFromRankings();
+
+    expect(window.history.state).toEqual({ other: 'kept' });
   });
 });

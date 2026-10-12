@@ -7,6 +7,7 @@ import { Info } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 
+// globals.css repeats this query for the 16px input size that stops iOS zooming; change both.
 const TOUCH_MEDIA_QUERY = '(hover: none) and (pointer: coarse)';
 
 // Radix sizes the panel's wrapper to max-content, so an uncapped panel is one line of text

@@ -10,6 +10,7 @@ import { Suspense, useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { SectionErrorBoundary } from '@/components/ui/SectionErrorBoundary';
+import { markIfOpenedFromRankings, wasOpenedFromRankings } from '@/hooks/useRankingsViewState';
 import { useTeam } from '@/lib/hooks';
 import { backToRankingsPath } from '@/lib/utils';
 import { ArrowLeft } from 'lucide-react';
@@ -48,8 +49,30 @@ function BackToRankingsButtonContent({ teamId }: { teamId: string }) {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { data: team } = useTeam(teamId);
+  const goingBackRef = useRef(false);
+
+  // Forward before the board renders, or a back/forward-cache restore, brings this same page back.
+  useEffect(() => {
+    const releaseOnReturn = () => {
+      if (wasOpenedFromRankings()) goingBackRef.current = false;
+    };
+    window.addEventListener('popstate', releaseOnReturn);
+    window.addEventListener('pageshow', releaseOnReturn);
+    return () => {
+      window.removeEventListener('popstate', releaseOnReturn);
+      window.removeEventListener('pageshow', releaseOnReturn);
+    };
+  }, []);
 
   const handleBackToRankings = () => {
+    // history.back() is asynchronous: a second tap before it lands would go back twice, and one
+    // after it lands, while this page is still up, would read the board's entry and push.
+    if (goingBackRef.current) return;
+    if (wasOpenedFromRankings()) {
+      goingBackRef.current = true;
+      router.back();
+      return;
+    }
     const target = backToRankingsPath(
       {
         region: searchParams.get('region'),
@@ -101,6 +124,11 @@ export function TeamPageShell({ id }: TeamPageShellProps) {
     }
     previousIdRef.current = id;
   }, [id, queryClient]);
+
+  // A rankings row's push lands here; mark the entry so Back to Rankings can return to the board.
+  useEffect(() => {
+    markIfOpenedFromRankings();
+  }, [id]);
 
   return (
     <>

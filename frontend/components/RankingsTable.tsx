@@ -7,6 +7,7 @@ import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
 import { useRankings } from '@/hooks/useRankings';
 import {
   RANKINGS_PAGE_SIZE,
+  noteTeamOpenedFromRankings,
   useRankingsViewState,
   type RankingsSortField as SortField,
   type SortDirection,
@@ -109,7 +110,8 @@ const RankingsRow = memo(
     sosRank: number | null | undefined;
     totalTeams: number;
     onPrefetch: (teamId: string) => void;
-    onLeave: () => void;
+    /** Saves the board's view; false when the board no longer owns the address. */
+    onLeave: () => boolean;
   }) => {
     const borderClass = getRankBorderClass(rank);
     const isTop3 = rank != null && rank <= 3;
@@ -133,7 +135,9 @@ const RankingsRow = memo(
             rank_in_cohort_final: team.rank_in_cohort_final,
             rank_in_state_final: team.rank_in_state_final ?? undefined,
           });
-          onLeave();
+          // During a pending Back the board is still on screen under another page's address, and
+          // this push would follow that page, not the board.
+          if (onLeave()) noteTeamOpenedFromRankings(href);
         }}
         aria-label={`View ${teamDisplayName(team)} team details`}
         className={`

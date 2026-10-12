@@ -300,9 +300,9 @@ function isRankingsAgeGroup(ageGroup: string): boolean {
 }
 
 /**
- * The board a team page's "Back to Rankings" opens: the one named in the query the rankings
- * row linked with, otherwise the team's own state (or national) board, or the rankings home
- * when the team has no board.
+ * The board a team page's "Back to Rankings" opens when it cannot go back to the rankings entry
+ * it came from: the one named in the query the rankings row linked with, otherwise the team's own
+ * state (or national) board, or the rankings home when the team has no board.
  */
 export function backToRankingsPath(
   query: { region: string | null; ageGroup: string | null; gender: string | null },
