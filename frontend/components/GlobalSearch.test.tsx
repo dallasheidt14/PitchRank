@@ -233,6 +233,36 @@ describe('GlobalSearch result rows', () => {
     expect(container!.textContent).not.toContain('Showing close matches');
   });
 
+  // The browser's clear button is hidden, so the X stands in for it and must keep the cursor
+  // in the box the way the native one does.
+  it('clears the search with the X and keeps the cursor in the box', async () => {
+    await flushRender(root!);
+    await typeQuery(container!, 'dynamos');
+    const input = container!.querySelector('input') as HTMLInputElement;
+
+    await act(async () => {
+      (container!.querySelector('button[aria-label="Clear search"]') as HTMLButtonElement).click();
+    });
+
+    expect(input.value).toBe('');
+    expect(document.activeElement).toBe(input);
+    expect(container!.querySelectorAll('[role="option"]')).toHaveLength(0);
+  });
+
+  it('clears the search on Escape while results are showing', async () => {
+    await flushRender(root!);
+    await typeQuery(container!, 'dynamos');
+    const input = container!.querySelector('input') as HTMLInputElement;
+    expect(container!.querySelectorAll('[role="option"]').length).toBeGreaterThan(0);
+
+    await act(async () => {
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+
+    expect(input.value).toBe('');
+    expect(container!.querySelectorAll('[role="option"]')).toHaveLength(0);
+  });
+
   it('records nothing for a failed search, then records the retry that succeeds', async () => {
     const failed = {
       results: [],

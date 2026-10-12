@@ -181,7 +181,7 @@ export function GlobalSearch() {
             }
           }}
           onKeyDown={handleKeyDown}
-          className="pl-8 sm:pl-10 pr-8 sm:pr-10 w-full text-sm h-10 sm:h-11"
+          className="pl-8 sm:pl-10 pr-8 sm:pr-10 w-full text-sm h-10 sm:h-11 [&::-webkit-search-cancel-button]:hidden"
           role="combobox"
           aria-label="Search for teams"
           aria-autocomplete="list"
@@ -193,6 +193,7 @@ export function GlobalSearch() {
             onClick={() => {
               setSearchQuery('');
               setIsOpen(false);
+              inputRef.current?.focus();
             }}
             className="absolute right-2 sm:right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center -mr-2"
             aria-label="Clear search"
@@ -203,7 +204,10 @@ export function GlobalSearch() {
       </div>
 
       {isOpen && searchQuery.trim().length >= 2 && (
-        <Card className="absolute z-50 w-full mt-1 max-h-80 overflow-y-auto shadow-lg">
+        // The box is too narrow to show team names: below lg it shares the header row with the
+        // logo and menu, and from lg the nav links squeeze it. So the results get their own width:
+        // a centred panel under the header below lg, and at least 24rem under the box from lg.
+        <Card className="absolute z-50 w-full mt-1 max-h-80 overflow-y-auto shadow-lg max-lg:fixed max-lg:inset-x-2 max-lg:top-[var(--site-header-height)] max-lg:mx-auto max-lg:w-auto max-lg:max-w-xl lg:left-1/2 lg:w-[max(100%,24rem)] lg:-translate-x-1/2">
           <CardContent className="p-2">
             {isLoading || isSearchPending ? (
               <InlineLoader text="Searching teams..." />

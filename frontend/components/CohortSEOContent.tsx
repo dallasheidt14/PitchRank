@@ -38,7 +38,7 @@ export function CohortSEOContent({ data }: CohortSEOContentProps) {
 
   return (
     <section className="container mx-auto px-4 pb-6">
-      <Card variant="accent" className="py-0 gap-0 hover:scale-100">
+      <Card variant="accent" className="py-0 gap-0">
         {/* Header: title + summary */}
         <CardHeader className="pb-0 pt-5">
           <CardTitle>

@@ -89,10 +89,10 @@ export default async function ReportCardPage() {
           aria-hidden="true"
         />
         <div className="max-w-4xl mx-auto text-center relative">
-          <p className="font-oswald text-xs md:text-sm uppercase tracking-widest text-[#F4D03F] font-bold mb-4">
+          <p className="font-display text-xs md:text-sm uppercase tracking-widest text-[#F4D03F] font-bold mb-4">
             Free Team Report Card
           </p>
-          <h1 className="font-oswald text-4xl md:text-6xl font-bold text-white tracking-wide mb-5 leading-tight">
+          <h1 className="font-display text-4xl md:text-6xl font-bold text-white tracking-wide mb-5 leading-tight">
             Stop guessing where your team really stands.
           </h1>
           <p className="text-white/90 text-lg md:text-xl max-w-2xl mx-auto">
@@ -104,8 +104,8 @@ export default async function ReportCardPage() {
           <div className="flex items-center justify-center gap-8 md:gap-14 mt-10">
             {stats.map((stat) => (
               <div key={stat.label} className="text-center">
-                <div className="font-oswald text-2xl md:text-3xl font-bold text-[#F4D03F]">{stat.value}</div>
-                <div className="text-[10px] md:text-xs uppercase tracking-wider text-white/70 font-oswald mt-1">
+                <div className="font-display text-2xl md:text-3xl font-bold text-[#F4D03F]">{stat.value}</div>
+                <div className="text-[10px] md:text-xs uppercase tracking-wider text-white/70 font-display font-semibold mt-1">
                   {stat.label}
                 </div>
               </div>
@@ -122,7 +122,7 @@ export default async function ReportCardPage() {
           </div>
           <div className="order-1 lg:order-2">
             <div className="lg:sticky lg:top-8">
-              <p className="font-oswald text-xs uppercase tracking-widest text-muted-foreground font-bold mb-3 hidden lg:block">
+              <p className="font-display text-xs uppercase tracking-widest text-muted-foreground font-bold mb-3 hidden lg:block">
                 Here&apos;s what you&apos;ll get
               </p>
               <ReportCardPreview />
@@ -134,7 +134,7 @@ export default async function ReportCardPage() {
       {/* FAQ */}
       <section className="bg-muted/30 px-4 py-14 md:py-16">
         <div className="max-w-2xl mx-auto">
-          <h2 className="font-oswald text-3xl md:text-4xl font-bold text-center tracking-wide mb-8">
+          <h2 className="font-display text-3xl md:text-4xl font-bold text-center tracking-wide mb-8">
             Frequently asked
           </h2>
           <div className="space-y-5">

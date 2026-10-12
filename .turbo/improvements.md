@@ -2205,3 +2205,33 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `supabase/migrations/20261012120000_server_side_team_search.sql` (`COMMENT ON FUNCTION search_teams`), `frontend/components/GlobalSearch.tsx` (`GlobalSearch`, the `selectedIndex` reset comment), `frontend/components/ScopedTeamSelector.tsx` (the U19 cohort-merge comment in the fetch effect)
 - **Why**: The function comment says "ranked teams first", but the order is earliest match (exact) or most similar (similar, relaxed), with ranked teams only breaking ties; fix it with a new `COMMENT ON FUNCTION` in the next migration that touches `search_teams`, since the applied file must keep matching what ran. GlobalSearch's comment points at a `handleSearchChange` that does not exist, and ScopedTeamSelector's says u18 teams keep `age_group='u18'`, while CLAUDE.md records that no u18 teams exist.
 - **Noted**: 2026-10-12
+
+### Show one header search box at tablet widths
+
+- **ID**: IMP-334
+- **Status**: open
+- **Type**: direct
+- **Category**: feature
+- **Where**: `frontend/components/Navigation.tsx` (`Navigation`: the desktop slot `hidden md:flex` and the phone row `flex lg:hidden`, each holding a `GlobalSearch`)
+- **Why**: From 768 to 1023 px both slots render, so the header shows two search boxes side by side (191 px and 241 px wide, measured 2026-10-12). One breakpoint should own the box.
+- **Noted**: 2026-10-12
+
+### Give clickable cards one hover style
+
+- **ID**: IMP-335
+- **Status**: open
+- **Type**: plan
+- **Category**: readability
+- **Where**: `frontend/components/ui/card.tsx` (`interactive` variant), `frontend/components/BlogCard.tsx` (`BlogCard`), `frontend/app/watchlist/page.tsx` (team cards), `frontend/app/upgrade/page.tsx` (plan cards)
+- **Why**: Feature tiles zoom to 102% over 300 ms with a press effect, blog cards zoom to 102% over 200 ms, watchlist cards lift 4 px, and the plan cards only deepen their shadow, so a change to clickable-card feedback has to be made in four places. The 2026-10-11 audit suggested the `interactive` variant for all of them.
+- **Noted**: 2026-10-12
+
+### Make "Sign in" one control instead of a button inside a link
+
+- **ID**: IMP-336
+- **Status**: open
+- **Type**: direct
+- **Category**: feature
+- **Where**: `frontend/components/Navigation.tsx` (`Navigation`: the `nav-signin` Link wrapping a `Button`, and any other Link-wrapped Button)
+- **Why**: Two nested interactive elements give keyboard users two Tab stops for one action (confirmed in a 2026-10-12 smoke test) and are invalid HTML; `<Button asChild><Link /></Button>` renders one.
+- **Noted**: 2026-10-12
