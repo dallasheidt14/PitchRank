@@ -29,7 +29,7 @@ export const RankingsStickyFilters = forwardRef<HTMLDivElement, RankingsStickyFi
         ref={ref}
         data-testid="rankings-sticky-filters"
         aria-hidden={!visible}
-        style={{ top: 'calc(4rem + max(1rem, env(safe-area-inset-top, 0px)))' }}
+        style={{ top: 'var(--site-header-height)' }}
         className={`sm:hidden fixed left-0 right-0 z-30 bg-background border-b transition-transform duration-150 ${
           visible ? 'translate-y-0' : '-translate-y-full'
         }`}

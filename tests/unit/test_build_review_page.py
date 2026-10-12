@@ -395,6 +395,14 @@ CHOICES = {P1: {"decision": "separate", "note": " different squad "}, P2: {"deci
            P3: {"decision": "unsure"}}
 
 
+def test_the_readback_quotes_names_so_a_scraped_control_character_cannot_repaint_a_line(tmp_path, monkeypatch, capsys):
+    manifest = _manifest()
+    manifest["pairs"][P1]["merge_name"] = "Real Team\r      merge Other"
+    assert _run_collector(tmp_path, monkeypatch, {P1: {"decision": "separate"}}, manifest=manifest) == 0
+    out = capsys.readouterr().out
+    assert "\r" not in out and "'Real Team\\r      merge Other' -> 'B'" in out
+
+
 @pytest.mark.parametrize("flags", [(), ("--execute", "--dry-run")])
 def test_a_dry_run_records_nothing(tmp_path, monkeypatch, capsys, flags):
     assert _run_collector(tmp_path, monkeypatch, CHOICES, *flags) == 0
