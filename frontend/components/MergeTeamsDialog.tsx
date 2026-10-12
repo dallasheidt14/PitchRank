@@ -17,6 +17,7 @@ import { Label } from '@/components/ui/label';
 import { useUser } from '@/hooks/useUser';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
+import type { TeamSearchMatch } from '@/lib/teamSearchQuery';
 
 interface Team {
   team_id_master: string;
@@ -46,6 +47,7 @@ export function MergeTeamsDialog({
   const [open, setOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Team[]>([]);
+  const [match, setMatch] = useState<TeamSearchMatch>('exact');
   const [isSearching, setIsSearching] = useState(false);
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
   const [isMerging, setIsMerging] = useState(false);
@@ -87,6 +89,7 @@ export function MergeTeamsDialog({
         // Filter out the current team from results
         const filtered = (data.teams || []).filter((team: Team) => team.team_id_master !== currentTeamId);
         setSearchResults(filtered);
+        setMatch(data.match ?? 'exact');
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Search failed');
         setSearchResults([]);
@@ -246,6 +249,7 @@ export function MergeTeamsDialog({
               {searchResults.length > 0 && (
                 <div className="space-y-2">
                   <Label>Select a team:</Label>
+                  {match !== 'exact' && <p className="text-xs text-muted-foreground">Showing close matches</p>}
                   <div className="border rounded-md max-h-60 overflow-y-auto">
                     {searchResults.map((team) => (
                       <button

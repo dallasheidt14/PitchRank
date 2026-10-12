@@ -1,12 +1,11 @@
 'use client';
 
-import { useState, useMemo, useRef, useEffect, useDeferredValue } from 'react';
+import { useState, useRef, useEffect, useDeferredValue } from 'react';
 import { Input } from '@/components/ui/input';
 import { useTeamSearch } from '@/hooks/useTeamSearch';
 import { Card, CardContent } from '@/components/ui/card';
 import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
 import { InlineLoader } from '@/components/ui/LoadingStates';
-import type Fuse from 'fuse.js';
 import type { RankingRow } from '@/types/RankingRow';
 import { teamDisplayName, spokenTeamMeta } from '@/lib/utils';
 import { TeamRowSubtitle } from '@/components/TeamRowSubtitle';
@@ -15,6 +14,8 @@ interface TeamSelectorProps {
   label: string;
   value: string | null;
   onChange: (teamId: string | null, team: RankingRow | null) => void;
+  /** The row for `value`, owned by the parent so a swap moves it with the id. */
+  selectedTeam?: RankingRow | null;
   excludeTeamId?: string;
 }
 
@@ -55,11 +56,10 @@ function highlightMatch(text: string, query: string): React.ReactNode {
 /**
  * TeamSelector component - enhanced autocomplete team selector with keyboard navigation
  */
-export function TeamSelector({ label, value, onChange, excludeTeamId }: TeamSelectorProps) {
+export function TeamSelector({ label, value, onChange, selectedTeam = null, excludeTeamId }: TeamSelectorProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [isOpen, setIsOpen] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [FuseClass, setFuseClass] = useState<typeof Fuse | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -67,85 +67,20 @@ export function TeamSelector({ label, value, onChange, excludeTeamId }: TeamSele
   const deferredSearchQuery = useDeferredValue(searchQuery);
   const isSearchPending = searchQuery !== deferredSearchQuery;
 
-  // Fetch all teams for autocomplete (not just ranked teams)
-  const { data: allTeams, isLoading, isError, error, refetch } = useTeamSearch();
+  const {
+    results: filteredTeams,
+    match,
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useTeamSearch(deferredSearchQuery, { limit: 10, excludeId: excludeTeamId });
 
-  // Dynamically load Fuse.js only when needed
-  useEffect(() => {
-    if (!FuseClass) {
-      import('fuse.js').then((module) => {
-        setFuseClass(() => module.default);
-      });
-    }
-  }, [FuseClass]);
-
-  const selectedTeam = useMemo(() => {
-    if (!value || !allTeams) return null;
-    return allTeams.find((r) => r.team_id_master === value) || null;
-  }, [value, allTeams]);
+  const shownTeam = value && selectedTeam?.team_id_master === value ? selectedTeam : null;
 
   // Registered names carry no cohort and repeat across age groups, and nothing else on
   // /compare shows one, so the confirmation must.
-  const selectedTeamMeta = selectedTeam ? spokenTeamMeta(selectedTeam) : '';
-
-  // Configure Fuse.js for fuzzy search with optimized settings
-  const fuse = useMemo(() => {
-    if (!allTeams || !FuseClass) return null;
-
-    // Filter out excluded team before creating Fuse instance
-    const teamsToSearch = excludeTeamId ? allTeams.filter((team) => team.team_id_master !== excludeTeamId) : allTeams;
-
-    return new FuseClass(teamsToSearch, {
-      keys: [
-        { name: 'searchable_name', weight: 0.5 },
-        { name: 'club_name', weight: 0.4 },
-        { name: 'state', weight: 0.1 },
-      ],
-      threshold: 0.4, // Tighter threshold for faster, more accurate results
-      ignoreLocation: true,
-      findAllMatches: false, // Stop at first match for better performance
-      includeScore: true,
-      minMatchCharLength: 2,
-      shouldSort: true,
-      useExtendedSearch: false,
-      isCaseSensitive: false,
-    });
-  }, [allTeams, FuseClass, excludeTeamId]);
-
-  // Perform search using word-based matching for better multi-word queries
-  const filteredTeams = useMemo(() => {
-    if (!deferredSearchQuery || !allTeams || deferredSearchQuery.length < 2) return [];
-
-    const queryWords = deferredSearchQuery
-      .toLowerCase()
-      .split(/\s+/)
-      .filter((w) => w.length > 0);
-
-    // Get teams to search (excluding the excluded team)
-    const teamsToSearch = excludeTeamId ? allTeams.filter((team) => team.team_id_master !== excludeTeamId) : allTeams;
-
-    // Filter teams where ALL query words appear in searchable_name or club_name
-    const matchingTeams = teamsToSearch.filter((team) => {
-      const searchText = ((team.searchable_name || team.team_name) + ' ' + (team.club_name || '')).toLowerCase();
-      return queryWords.every((word) => searchText.includes(word));
-    });
-
-    // Sort by how early the first match appears (better relevance)
-    matchingTeams.sort((a, b) => {
-      const aText = ((a.searchable_name || a.team_name) + ' ' + (a.club_name || '')).toLowerCase();
-      const bText = ((b.searchable_name || b.team_name) + ' ' + (b.club_name || '')).toLowerCase();
-      const aIndex = Math.min(...queryWords.map((w) => aText.indexOf(w)));
-      const bIndex = Math.min(...queryWords.map((w) => bText.indexOf(w)));
-      return aIndex - bIndex;
-    });
-
-    return matchingTeams.slice(0, 10);
-  }, [deferredSearchQuery, allTeams, excludeTeamId]);
-
-  // Reset selected index when filtered teams change
-  useEffect(() => {
-    setSelectedIndex(0);
-  }, [filteredTeams.length]);
+  const selectedTeamMeta = shownTeam ? spokenTeamMeta(shownTeam) : '';
 
   const handleSelect = (team: RankingRow) => {
     onChange(team.team_id_master, team);
@@ -156,12 +91,9 @@ export function TeamSelector({ label, value, onChange, excludeTeamId }: TeamSele
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (!isOpen || filteredTeams.length === 0) {
-      // Allow Enter to search even if dropdown isn't open
-      if (e.key === 'Enter' && searchQuery.length >= 2 && fuse) {
-        const results = fuse.search(searchQuery);
-        if (results && results.length > 0) {
-          handleSelect(results[0].item);
-        }
+      // Enter with the dropdown closed picks the top match
+      if (e.key === 'Enter' && searchQuery.length >= 2 && filteredTeams.length > 0) {
+        handleSelect(filteredTeams[0]);
       }
       return;
     }
@@ -213,6 +145,7 @@ export function TeamSelector({ label, value, onChange, excludeTeamId }: TeamSele
           value={searchQuery}
           onChange={(e) => {
             setSearchQuery(e.target.value);
+            setSelectedIndex(0);
             setIsOpen(true);
           }}
           onFocus={() => setIsOpen(true)}
@@ -223,9 +156,9 @@ export function TeamSelector({ label, value, onChange, excludeTeamId }: TeamSele
           aria-autocomplete="list"
           aria-expanded={isOpen && filteredTeams.length > 0}
         />
-        {isOpen && searchQuery && (
+        {isOpen && searchQuery.trim().length >= 2 && (
           <Card className="absolute z-50 w-full mt-1 max-h-60 overflow-y-auto shadow-lg">
-            <CardContent className="p-2" ref={listRef}>
+            <CardContent className="p-2">
               {isLoading || isSearchPending ? (
                 <InlineLoader text="Searching teams..." />
               ) : isError ? (
@@ -235,37 +168,42 @@ export function TeamSelector({ label, value, onChange, excludeTeamId }: TeamSele
                   No teams found matching &quot;{searchQuery}&quot;
                 </div>
               ) : (
-                <div className="space-y-1">
-                  {filteredTeams.map((team, index) => {
-                    const displayName = teamDisplayName(team);
-                    const spokenMeta = spokenTeamMeta(team);
-                    return (
-                      <button
-                        key={team.team_id_master}
-                        onClick={() => handleSelect(team)}
-                        className={`w-full text-left p-2 rounded-md transition-colors duration-200 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary ${
-                          index === selectedIndex ? 'bg-accent font-semibold' : 'hover:bg-accent/50'
-                        }`}
-                        aria-label={`Select ${displayName}${spokenMeta ? ` ${spokenMeta}` : ''}`}
-                      >
-                        <div className="font-medium">{highlightMatch(displayName, deferredSearchQuery)}</div>
-                        <TeamRowSubtitle
-                          team={team}
-                          highlight={(text) => highlightMatch(text, deferredSearchQuery)}
-                          className="text-xs text-muted-foreground truncate"
-                        />
-                      </button>
-                    );
-                  })}
-                </div>
+                <>
+                  {match !== 'exact' && (
+                    <div className="px-3 pb-1 text-xs text-muted-foreground">Showing close matches</div>
+                  )}
+                  <div className="space-y-1" ref={listRef}>
+                    {filteredTeams.map((team, index) => {
+                      const displayName = teamDisplayName(team);
+                      const spokenMeta = spokenTeamMeta(team);
+                      return (
+                        <button
+                          key={team.team_id_master}
+                          onClick={() => handleSelect(team)}
+                          className={`w-full text-left p-2 rounded-md transition-colors duration-200 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary ${
+                            index === selectedIndex ? 'bg-accent font-semibold' : 'hover:bg-accent/50'
+                          }`}
+                          aria-label={`Select ${displayName}${spokenMeta ? ` ${spokenMeta}` : ''}`}
+                        >
+                          <div className="font-medium">{highlightMatch(displayName, deferredSearchQuery)}</div>
+                          <TeamRowSubtitle
+                            team={team}
+                            highlight={(text) => highlightMatch(text, deferredSearchQuery)}
+                            className="text-xs text-muted-foreground truncate"
+                          />
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
               )}
             </CardContent>
           </Card>
         )}
       </div>
-      {selectedTeam && (
+      {shownTeam && (
         <div className="mt-2 text-sm text-muted-foreground">
-          Selected: <span className="font-medium">{teamDisplayName(selectedTeam)}</span>
+          Selected: <span className="font-medium">{teamDisplayName(shownTeam)}</span>
           {selectedTeamMeta && <span> — {selectedTeamMeta}</span>}
         </div>
       )}
