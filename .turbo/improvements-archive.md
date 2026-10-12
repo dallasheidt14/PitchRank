@@ -1516,6 +1516,30 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Update (2026-10-11)**: The virtualizer is gone: the table renders its rows as page content (top 100 plus "Show more"), and `frontend/components/RankingsTable.test.tsx` now asserts all four `teamDisplayName` call sites against an `unknown_<id>` placeholder: the visible cell, the row's aria-label, the Team sort and the Schema.org payload.
 - **Refs**: branch `fix/mobile-rankings-ux`
 
+### Let the weekly age re-check read reconcile logs from a run store
+
+- **ID**: IMP-308
+- **Status**: done
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `scripts/weekly_age_recheck.py` `EXPORTS` and the glob over `reconcile_teams_with_gotsport_*.csv` that builds its candidates
+- **Why**: The reconcile, triage and age-fix scripts take `--exports-dir`, so the cleanup loop can write their logs outside the repo, but this script still reads only `<repo>/data/exports` and has no such option. A reconcile run logged elsewhere never reaches the weekly re-check. Add `--exports-dir` the way `fix_band_cohorts.py` takes it, default unchanged.
+- **Noted**: 2026-10-10
+- **Update (2026-10-11)**: `weekly_age_recheck.py` takes `--exports-dir` (default unchanged): it reads the reconcile logs from that folder, writes its report, plan, history and last-run log there, and the apply command it prints carries the folder.
+- **Refs**: branch `feat/age-owner-decisions-everywhere`
+
+### Read a name's birth years against a cohort one way in the triage and the age applier
+
+- **ID**: IMP-306
+- **Status**: done
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `.claude/skills/reconcile-gotsport/scripts/triage_reconcile.py` `cohort_years` (with `birth_years`); `scripts/fix_band_cohorts.py` `name_contradiction`
+- **Why**: The triage decides a record holds another squad when the name's birth years miss GotSport's cohort; the applier holds a relabel when the name's years miss the target cohort. They use different year readers and fold U18 differently: `cohort_years(19)` holds 2009, while `name_contradiction` allows only 2008 and 2007 for u19. A name can pass one stage and be held by the next.
+- **Noted**: 2026-10-09
+- **Update (2026-10-11)**: `cohort_years` moved to `fix_band_cohorts.py` (u19 holds 2009, 2008 and 2007) and the triage imports it, so both stages fold U18 one way; the applier's U-age check now folds it too. `name_contradiction` and `evidence_tier` read years with `name_years`, which reads every year `birth_years` does and more. The triage keeps `birth_years` and its overlap test on purpose: the owner holds a move whenever the name states any year outside the new group ("Hold every span"), a stricter question than the triage's "is this another squad". So a name can still pass the triage and be held at apply, never the reverse, and a held row is left unwritten.
+- **Refs**: branch `feat/age-one-birth-year-reader`
+
 ### Read a two-year band written with apostrophes
 
 - **ID**: IMP-240

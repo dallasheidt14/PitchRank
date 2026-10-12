@@ -47,6 +47,7 @@ from scripts.team_cleanup.decisions import (  # noqa: E402
     page_built_at,
     resolve_execute,
 )
+from scripts.team_cleanup.review_page import load_choices  # noqa: E402
 from scripts.team_cleanup.vetted import KEEP_AS_VETTED, MERGE_AS_VETTED, records_teams  # noqa: E402
 
 DECISIONS = ("merge", "separate", "unsure")
@@ -58,29 +59,6 @@ SWAPPED = {
     MERGE_AS_VETTED: KEEP_AS_VETTED,
     KEEP_AS_VETTED: MERGE_AS_VETTED,
 }
-
-
-def _fields(doc_id: str, content: dict) -> dict:
-    if "data" in content:
-        if content.get("id", doc_id) != doc_id:
-            raise SystemExit(f"document {doc_id} claims to be {content['id']}")
-        content = content["data"]
-    return {k: v for k, v in content.items() if k != "id"}
-
-
-def load_choices(path: Path, run: str) -> dict[str, dict]:
-    """In a folder the filename is a document's id, and nothing inside the file can change it;
-    in a listing an id may appear once."""
-    if path.is_dir():
-        folder = path / f"decisions-{run}" if (path / f"decisions-{run}").is_dir() else path
-        files = sorted(folder.glob("*.json"))
-        return {f.stem: _fields(f.stem, json.loads(f.read_text(encoding="utf-8"))) for f in files}
-    choices = {}
-    for doc in json.loads(path.read_text(encoding="utf-8")):
-        if doc["id"] in choices:
-            raise SystemExit(f"document {doc['id']} is listed twice")
-        choices[doc["id"]] = _fields(doc["id"], doc)
-    return choices
 
 
 def collect(manifest: dict, choices: dict[str, dict], *, check: bool = True) -> dict:
@@ -205,7 +183,7 @@ def main() -> int:
     pairs = manifest["pairs"]
 
     def names(pair_id):
-        return f"{pairs[pair_id]['merge_name']} -> {pairs[pair_id]['keep_name']}"
+        return f"{pairs[pair_id]['merge_name']!r} -> {pairs[pair_id]['keep_name']!r}"
 
     for decision, ids in result["by_decision"].items():
         print(f"  {decision:<10} {len(ids)}")
