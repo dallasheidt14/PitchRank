@@ -6,22 +6,21 @@
 
 ## Quick Reference
 
-| Item               | Value                                   |
-| ------------------ | --------------------------------------- |
-| **Framework**      | Next.js 16.2.6 (App Router)             |
-| **React**          | 19.2.1 (Server Components by default)   |
-| **TypeScript**     | 5.9.3 (strict mode)                     |
-| **Styling**        | Tailwind CSS v4, shadcn/ui (Radix), CVA |
-| **State**          | TanStack React Query v5                 |
-| **Auth**           | Supabase Auth (SSR cookies)             |
-| **Payments**       | Stripe (checkout + portal)              |
-| **Charts**         | Recharts v3                             |
-| **Search**         | Fuse.js (client-side fuzzy)             |
-| **Virtualization** | @tanstack/react-virtual                 |
-| **Unit Tests**     | Vitest (happy-dom)                      |
-| **E2E Tests**      | Playwright v1.58                        |
-| **Path alias**     | `@/*` → project root                    |
-| **Domain**         | www.pitchrank.io                        |
+| Item           | Value                                   |
+| -------------- | --------------------------------------- |
+| **Framework**  | Next.js 16.2.6 (App Router)             |
+| **React**      | 19.2.1 (Server Components by default)   |
+| **TypeScript** | 5.9.3 (strict mode)                     |
+| **Styling**    | Tailwind CSS v4, shadcn/ui (Radix), CVA |
+| **State**      | TanStack React Query v5                 |
+| **Auth**       | Supabase Auth (SSR cookies)             |
+| **Payments**   | Stripe (checkout + portal)              |
+| **Charts**     | Recharts v3                             |
+| **Search**     | Fuse.js (client-side fuzzy)             |
+| **Unit Tests** | Vitest (happy-dom)                      |
+| **E2E Tests**  | Playwright v1.58                        |
+| **Path alias** | `@/*` → project root                    |
+| **Domain**     | www.pitchrank.io                        |
 
 ---
 
@@ -60,7 +59,7 @@ frontend/
 ├── app/                    # App Router pages
 │   ├── layout.tsx          # Root layout (Providers, Nav, Footer)
 │   ├── providers.tsx       # SiteProviders: Tooltip provider + global rejection handler
-│   ├── data-providers.tsx  # DataProviders: React Query client, mounted per-section
+│   ├── data-providers.tsx  # DataProviders (per section) + RankingsDataProviders (one per browser session)
 │   ├── page.tsx            # Home page
 │   ├── rankings/           # Rankings routes
 │   │   ├── page.tsx        # National rankings
@@ -190,8 +189,9 @@ A public POST route has two gaps the helpers above do not close. `request.json()
 
 ```typescript
 // Default config (app/data-providers.tsx — `DataProviders`; providers.tsx holds the
-// Tooltip provider only). Mounted per section by the rankings, teams/[id], compare,
-// watchlist, infographics and (internal)/analytics layouts, not by the root layout.
+// Tooltip provider only). Mounted per section by the teams/[id], compare, watchlist,
+// infographics and (internal)/analytics layouts, not by the root layout. The rankings
+// layout uses `RankingsDataProviders` instead: one client for the browser session (pitfall 15).
 staleTime: 5 * 60 * 1000    // 5 min (rankings update weekly)
 gcTime: 10 * 60 * 1000      // 10 min
 refetchOnWindowFocus: false
@@ -234,11 +234,11 @@ import { Button } from '@/components/ui/button'
 // shadcn/ui with CVA variants
 <Button variant="default" size="sm">Click</Button>
 
-// Memoize expensive components
-export default memo(RankingsTable)
+// Memoize components rendered many times (the rows in RankingsTable)
+const RankingsRow = memo(({ team, onPrefetch, onLeave }) => ...)
 
-// Virtual scrolling for large lists
-import { useVirtualizer } from '@tanstack/react-virtual'
+// Long lists render a page at a time with "Show more" (RankingsTable: 100 per page) and
+// scroll the window, not an inner box: the Back restore saves window.scrollY (pitfall 15)
 ```
 
 ### Error Handling
@@ -373,7 +373,8 @@ The script (`scripts/generate-llms-txt.ts`) reuses `getAllBlogPosts()` from `lib
 ## Performance
 
 - ISR for team pages (revalidate: 3600s)
-- Virtual scrolling for rankings table
+- Rankings table renders 100 rows per "Show more"; on `/rankings/[region]/[ageGroup]/[gender]` the top 100
+  arrive in the server HTML (the `/rankings` landing fetches client-side)
 - `React.memo()` on expensive components
 - Optimized imports: recharts, lucide-react, date-fns
 - Brand icons (Twitter, Facebook, Instagram, LinkedIn): use `components/ui/brand-icons.tsx` (removed from lucide-react v1)
@@ -426,6 +427,8 @@ RESEND_API_KEY
 - Selectors: prefer `data-testid` attributes
 - Retry helper for transient network failures
 - Projects: chromium (desktop), mobile-chrome (Pixel 5), api (request-only)
+- Against `next dev`, pass `--workers=1`: parallel workers time out on dev compiles and report
+  failures that pass when run one at a time
 
 ---
 
@@ -445,4 +448,11 @@ RESEND_API_KEY
 12. **Credential-bearing URLs must be in `SECRET_QUERY_PATHS`** — a page that renders with `token_hash`, `session_id`, or similar in its URL leaks it to analytics: gtag and fbevents read `document.location` for the document's lifetime. Add the path to `SECRET_QUERY_PATHS` (tags skip it) and the param to `SECRET_QUERY_PARAMS` (both in `lib/constants.ts`).
 13. **Display a team with `teamDisplayName`, not `composeTeamDisplay`** — the registered `team_name` is what tells a club's squads apart, and most ranked teams record no league, so composing from `club_name` renders a whole cohort of one club identically. `composeTeamDisplay` is no rescue for an `unknown_<provider_team_id>` name either: each of its guards returns the raw `team_name`, which is why `teamDisplayName` skips them and composes from the club itself. Pair it with `composeTeamMeta` where the cohort matters, and never append `U{age}` to a registered name yourself. A test fixture must therefore distinguish rows by `team_name`, not `club_name`.
 14. **`headers()` in `next.config.ts` is last-wins** — every matching rule applies, so a per-route override of a key the catch-all `/(.*)` also sets must be listed _after_ it or the catch-all silently wins.
-15. **A virtualized list renders zero rows under happy-dom** — `useVirtualizer` measures the scroll container, happy-dom reports every element as zero-height, and the virtual window comes back empty. Nothing inside `virtualItems.map` ever executes, so a Vitest test asserting on `RankingsTable`'s rendered rows, its `aria-label`s, or `measureElement` passes vacuously or finds nothing. Assert on what is built outside the virtual list (the Schema.org payload, the sort comparator), or mock `@tanstack/react-virtual` — no test in this repo does that yet.
+15. **The rankings list's place on Back lives on the history entry, not in storage** — `hooks/useRankingsViewState.ts` writes the shown count, sort and scroll position into `history.state`, so Back/Forward restore them and a fresh visit (a new entry) starts at the top 100. It writes only when Next's `__NA` marker is present: Back to an entry without it makes the App Router hard-reload. Back from a team page remounts the rankings layout, and a fresh query client would show a skeleton or only the server seed, too short a page to scroll back into, which is why the rankings layout uses `RankingsDataProviders` (a browser-session query client) instead of `DataProviders` — keep user-scoped keys like `['watchlist']` out of it: the client outlives a sign-out, which navigates client-side. WebKit then restores the scroll itself; Chromium and Firefox do not, so the hook's frame callback scrolls to the saved position, and that callback is the restore path in most browsers, not a backstop. While Back is still loading, the outgoing board stays mounted under the destination's URL, so every write checks that the URL is still the board's own. The team page's Back to Rankings button can only reach that saved place by going back to the same entry (`router.push` makes a new one), so a row click notes its link (only while the board owns the address: during a pending Back the push would follow the other page), the team page marks its own entry when it matches, and the button calls `router.back()` only on a marked entry; anything else opens the board fresh. Every team page mount also stamps its entry and never marks a stamped one: a Ctrl/Cmd-click or an interrupted navigation leaves a note pending, and a Back into an older entry at the same URL must not claim it. A `popstate` listener cannot do this job, because React renders the restored page and runs its mount effects inside Next's own `popstate` handler, before any listener added later. The button ignores taps while its `router.back()` is pending and clears that on `popstate`/`pageshow` once the marked entry is current again. A filter change on the board rewrites that entry with `router.replace`, so Back, a filter change, then Forward to a marked team page returns to the board as last shown, as the browser's Back would; that is intended.
+16. **`dark:` classes fire on a light-only site** — Tailwind v4's `dark:` variant follows the OS
+    `prefers-color-scheme`, and `globals.css` defines no dark theme or `@custom-variant dark`, so a
+    `dark:` class renders for visitors in OS dark mode on the white page (light text on white).
+    Don't add `dark:` classes until a real theme and class-based variant exist.
+17. **`@layer base` loses to every utility class** — a floor written in `@layer base` (such as the
+    16px input size that stops iOS zooming) is overridden by any `text-*` utility on the element.
+    A rule that must win goes outside the layers, as the input-size rule in `globals.css` does.

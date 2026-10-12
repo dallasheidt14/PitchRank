@@ -6,7 +6,8 @@ import { TableSkeleton } from '@/components/ui/skeletons';
 import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
 import { LastUpdated } from '@/components/ui/LastUpdated';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { TooltipProvider } from '@/components/ui/tooltip';
+import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { useGameExplainability, useTeamGames, useTeam } from '@/lib/hooks';
 import { formatGameDate, formatShortDate } from '@/lib/dateUtils';
 import { explainGameBreakdown } from '@/lib/gameExplainer';
@@ -143,6 +144,9 @@ interface GameHistoryTableProps {
   teamName?: string;
 }
 
+const OVERPERFORMED_COLORS = 'bg-yellow-100 text-yellow-900 dark:bg-yellow-900/30 dark:text-yellow-100';
+const UNDERPERFORMED_COLORS = 'bg-red-100 text-red-900 dark:bg-red-900/30 dark:text-red-100';
+
 export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTableProps) {
   const gamesLimit = limit ?? 100;
   const { data, isLoading, isError, error, refetch } = useTeamGames(teamId, gamesLimit);
@@ -183,10 +187,8 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
 
   const scoreColor = useCallback((mlOverperformance: number | null): string => {
     if (mlOverperformance !== null && mlOverperformance !== undefined) {
-      if (mlOverperformance >= 2)
-        return 'bg-yellow-100 text-yellow-900 dark:bg-yellow-900/30 dark:text-yellow-100 px-2 py-1 rounded font-bold';
-      if (mlOverperformance <= -2)
-        return 'bg-red-100 text-red-900 dark:bg-red-900/30 dark:text-red-100 px-2 py-1 rounded font-bold';
+      if (mlOverperformance >= 2) return `${OVERPERFORMED_COLORS} px-2 py-1 rounded font-bold`;
+      if (mlOverperformance <= -2) return `${UNDERPERFORMED_COLORS} px-2 py-1 rounded font-bold`;
     }
     return '';
   }, []);
@@ -430,22 +432,24 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
                       <TableCell className="text-right font-mono">
                         {score.team !== null && score.opponent !== null ? (
                           isTooltipGame ? (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span className={scoreColor(residual)}>
+                            <InfoTooltip
+                              side="top"
+                              sideOffset={6}
+                              className="rounded-lg p-3"
+                              trigger={
+                                <button type="button" className={`${scoreColor(residual)} cursor-help`}>
                                   {score.team}-{score.opponent}
-                                </span>
-                              </TooltipTrigger>
-                              <TooltipContent side="top" sideOffset={6} className="max-w-[320px] rounded-lg p-3">
-                                <div className="space-y-1.5">
-                                  {explanation.highlightReason && (
-                                    <p className="text-[11px] font-semibold leading-4">{explanation.highlightReason}</p>
-                                  )}
-                                  <p className="text-[11px] leading-4 opacity-90">{explanation.expectationLine}</p>
-                                  <p className="text-[11px] leading-4 opacity-90">{explanation.actualLine}</p>
-                                </div>
-                              </TooltipContent>
-                            </Tooltip>
+                                </button>
+                              }
+                            >
+                              <div className="space-y-1.5">
+                                {explanation.highlightReason && (
+                                  <p className="text-[11px] font-semibold leading-4">{explanation.highlightReason}</p>
+                                )}
+                                <p className="text-[11px] leading-4 opacity-90">{explanation.expectationLine}</p>
+                                <p className="text-[11px] leading-4 opacity-90">{explanation.actualLine}</p>
+                              </div>
+                            </InfoTooltip>
                           ) : (
                             <span className={scoreColor(residual)}>
                               {score.team}-{score.opponent}
@@ -467,6 +471,16 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
               })}
             </TableBody>
           </Table>
+          {highlightedGameIds.length > 0 && (
+            <p className="px-4 pt-3 text-xs text-muted-foreground sm:px-0">
+              <span className={`${OVERPERFORMED_COLORS} rounded px-1.5 py-0.5 font-semibold`}>Yellow</span> = 2+ goals
+              better than PitchRank expected ·{' '}
+              <span className={`${UNDERPERFORMED_COLORS} rounded px-1.5 py-0.5 font-semibold`}>Red</span> = 2+ goals
+              worse.
+              {highlightedGameIds.some((id) => explainabilityByGameId.has(id)) &&
+                ' Tap or hover a highlighted score for details.'}
+            </p>
+          )}
         </TooltipProvider>
       </CardContent>
     </Card>

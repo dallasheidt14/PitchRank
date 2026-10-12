@@ -42,7 +42,7 @@ export function RankingsPageContent({ region, ageGroup, gender, initialRankings 
   };
 
   return (
-    <div className="container mx-auto py-8 px-4">
+    <div className="container mx-auto pt-2 pb-8 sm:pt-8 px-4">
       <Breadcrumbs />
 
       <RankingsStickyFilters

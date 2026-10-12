@@ -6,10 +6,10 @@ import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
 import { useTeam } from '@/lib/hooks';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { Star, ChevronDown, Loader2 } from 'lucide-react';
+import { Star, ChevronDown, Loader2, Info } from 'lucide-react';
 import {
   addToWatchlist,
   removeFromWatchlist,
@@ -18,7 +18,8 @@ import {
   removeFromSupabaseWatchlist,
 } from '@/lib/watchlist';
 import type { WatchlistResponse } from '@/app/api/watchlist/route';
-import { formatPowerScore } from '@/lib/utils';
+import { cn, formatPowerScore } from '@/lib/utils';
+import { POWERSCORE_DEFINITION } from '@/lib/constants';
 import { useUser, hasPremiumAccess, hasAdminAccess } from '@/hooks/useUser';
 import { ShareButtons } from '@/components/ShareButtons';
 import { NotificationBell } from '@/components/NotificationBell';
@@ -42,6 +43,15 @@ interface TeamAlias {
 
 interface TeamHeaderProps {
   teamId: string;
+}
+
+/** Makes the whole stat the InfoTooltip trigger, as a button so it can be tapped and focused. */
+function InfoTrigger({ className, ...props }: React.ComponentProps<'button'>) {
+  return <button type="button" className={cn('block w-full cursor-help text-left', className)} {...props} />;
+}
+
+function InfoHint() {
+  return <Info className="ml-1 inline h-3 w-3 align-[-1px] opacity-60" />;
 }
 
 /**
@@ -403,22 +413,21 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
               <NotificationBell />
             </div>
             <div className="text-left sm:text-right">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div>
-                    <div className="font-mono text-2xl sm:text-3xl font-bold text-accent">
+              <InfoTooltip
+                trigger={
+                  <InfoTrigger className="sm:text-right">
+                    <span className="block font-mono text-2xl sm:text-3xl font-bold text-accent">
                       {formatPowerScore(teamRanking?.power_score_final)}
-                    </div>
-                    <div className="text-xs sm:text-sm text-primary-foreground/80">PowerScore</div>
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>
-                    A machine-learning-enhanced ranking score that measures overall team strength based on offense,
-                    defense, schedule difficulty, and predictive performance patterns.
-                  </p>
-                </TooltipContent>
-              </Tooltip>
+                    </span>
+                    <span className="block text-xs sm:text-sm text-primary-foreground/80">
+                      PowerScore
+                      <InfoHint />
+                    </span>
+                  </InfoTrigger>
+                }
+              >
+                <p>{POWERSCORE_DEFINITION}</p>
+              </InfoTooltip>
             </div>
           </div>
         </div>
@@ -460,30 +469,36 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
                 </div>
               </div>
               <div>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <div>
-                      <div className="text-xs sm:text-sm text-muted-foreground mb-1">Games Played</div>
-                      <div className="text-xl sm:text-2xl font-semibold">{teamRanking?.total_games_played ?? 0}</div>
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>Total completed games across all time</p>
-                  </TooltipContent>
-                </Tooltip>
+                <InfoTooltip
+                  trigger={
+                    <InfoTrigger>
+                      <span className="block text-xs sm:text-sm text-muted-foreground mb-1">
+                        Games Played
+                        <InfoHint />
+                      </span>
+                      <span className="block text-xl sm:text-2xl font-semibold">
+                        {teamRanking?.total_games_played ?? 0}
+                      </span>
+                    </InfoTrigger>
+                  }
+                >
+                  <p>Total completed games across all time</p>
+                </InfoTooltip>
               </div>
               <div>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <div>
-                      <div className="text-xs sm:text-sm text-muted-foreground mb-1">Ranked Games</div>
-                      <div className="text-xl sm:text-2xl font-semibold">{teamRanking?.games_played ?? 0}</div>
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>Recent games used in PowerScore calculation (last 365 days, max 30)</p>
-                  </TooltipContent>
-                </Tooltip>
+                <InfoTooltip
+                  trigger={
+                    <InfoTrigger>
+                      <span className="block text-xs sm:text-sm text-muted-foreground mb-1">
+                        Ranked Games
+                        <InfoHint />
+                      </span>
+                      <span className="block text-xl sm:text-2xl font-semibold">{teamRanking?.games_played ?? 0}</span>
+                    </InfoTrigger>
+                  }
+                >
+                  <p>Recent games used in PowerScore calculation (last 365 days, max 30)</p>
+                </InfoTooltip>
               </div>
               <div>
                 <div className="text-xs sm:text-sm text-muted-foreground mb-1">Win %</div>
@@ -504,25 +519,27 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
                           const pct = Math.round(teamRanking.offense_norm * 100);
                           const color = pct >= 70 ? 'bg-green-500' : pct >= 40 ? 'bg-yellow-500' : 'bg-red-500';
                           return (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <div>
-                                  <div className="flex justify-between text-xs sm:text-sm mb-1">
-                                    <span className="text-muted-foreground">Offense</span>
+                            <InfoTooltip
+                              trigger={
+                                <InfoTrigger>
+                                  <span className="flex justify-between text-xs sm:text-sm mb-1">
+                                    <span className="text-muted-foreground">
+                                      Offense
+                                      <InfoHint />
+                                    </span>
                                     <span className="font-semibold">{pct}th %ile</span>
-                                  </div>
-                                  <div className="h-2.5 bg-muted rounded-full overflow-hidden">
-                                    <div
-                                      className={`h-full ${color} rounded-full transition-all duration-500`}
+                                  </span>
+                                  <span className="block h-2.5 bg-muted rounded-full overflow-hidden">
+                                    <span
+                                      className={`block h-full ${color} rounded-full transition-all duration-500`}
                                       style={{ width: `${pct}%` }}
                                     />
-                                  </div>
-                                </div>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p>Offensive strength: better than {pct}% of teams in this age group</p>
-                              </TooltipContent>
-                            </Tooltip>
+                                  </span>
+                                </InfoTrigger>
+                              }
+                            >
+                              <p>Offensive strength: better than {pct}% of teams in this age group</p>
+                            </InfoTooltip>
                           );
                         })()}
                       {teamRanking.defense_norm != null &&
@@ -530,25 +547,27 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
                           const pct = Math.round(teamRanking.defense_norm * 100);
                           const color = pct >= 70 ? 'bg-green-500' : pct >= 40 ? 'bg-yellow-500' : 'bg-red-500';
                           return (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <div>
-                                  <div className="flex justify-between text-xs sm:text-sm mb-1">
-                                    <span className="text-muted-foreground">Defense</span>
+                            <InfoTooltip
+                              trigger={
+                                <InfoTrigger>
+                                  <span className="flex justify-between text-xs sm:text-sm mb-1">
+                                    <span className="text-muted-foreground">
+                                      Defense
+                                      <InfoHint />
+                                    </span>
                                     <span className="font-semibold">{pct}th %ile</span>
-                                  </div>
-                                  <div className="h-2.5 bg-muted rounded-full overflow-hidden">
-                                    <div
-                                      className={`h-full ${color} rounded-full transition-all duration-500`}
+                                  </span>
+                                  <span className="block h-2.5 bg-muted rounded-full overflow-hidden">
+                                    <span
+                                      className={`block h-full ${color} rounded-full transition-all duration-500`}
                                       style={{ width: `${pct}%` }}
                                     />
-                                  </div>
-                                </div>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p>Defensive strength: better than {pct}% of teams in this age group</p>
-                              </TooltipContent>
-                            </Tooltip>
+                                  </span>
+                                </InfoTrigger>
+                              }
+                            >
+                              <p>Defensive strength: better than {pct}% of teams in this age group</p>
+                            </InfoTooltip>
                           );
                         })()}
                     </div>
@@ -565,44 +584,44 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
                       </span>
                     </div>
                     <div>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span>
+                      <InfoTooltip
+                        trigger={
+                          <InfoTrigger>
                             <span className="text-muted-foreground">State SOS: </span>
                             <span className="font-medium">
                               {teamRanking.sos_rank_state
                                 ? `#${teamRanking.sos_rank_state} in ${team.state || 'state'}`
                                 : '—'}
                             </span>
-                          </span>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <p>
-                            {teamRanking.sos_rank_state
-                              ? `Strength of Schedule — #${teamRanking.sos_rank_state} toughest schedule in ${team.state || 'state'} for this age group. Lower = harder opponents faced.`
-                              : 'Not enough games to calculate SOS rank.'}
-                          </p>
-                        </TooltipContent>
-                      </Tooltip>
+                            <InfoHint />
+                          </InfoTrigger>
+                        }
+                      >
+                        <p>
+                          {teamRanking.sos_rank_state
+                            ? `Strength of Schedule — #${teamRanking.sos_rank_state} toughest schedule in ${team.state || 'state'} for this age group. Lower = harder opponents faced.`
+                            : 'Not enough games to calculate SOS rank.'}
+                        </p>
+                      </InfoTooltip>
                     </div>
                     <div>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span>
+                      <InfoTooltip
+                        trigger={
+                          <InfoTrigger>
                             <span className="text-muted-foreground">National SOS: </span>
                             <span className="font-medium">
                               {teamRanking.sos_rank_national ? `#${teamRanking.sos_rank_national}` : '—'}
                             </span>
-                          </span>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <p>
-                            {teamRanking.sos_rank_national
-                              ? `#${teamRanking.sos_rank_national} toughest schedule nationally for this age group. Lower = harder opponents faced.`
-                              : 'Not enough games to calculate SOS rank.'}
-                          </p>
-                        </TooltipContent>
-                      </Tooltip>
+                            <InfoHint />
+                          </InfoTrigger>
+                        }
+                      >
+                        <p>
+                          {teamRanking.sos_rank_national
+                            ? `#${teamRanking.sos_rank_national} toughest schedule nationally for this age group. Lower = harder opponents faced.`
+                            : 'Not enough games to calculate SOS rank.'}
+                        </p>
+                      </InfoTooltip>
                     </div>
                   </div>
                 </div>
