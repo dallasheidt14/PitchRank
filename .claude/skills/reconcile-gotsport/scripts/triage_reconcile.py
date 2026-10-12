@@ -24,7 +24,17 @@ Classes:
   relabel     A squad word shared by both names, and this season's opponents sit at
               GotSport's age. Only our age label is wrong. Last season's opponents look
               the same as for a reused record -- a squad that stayed in its group two
-              seasons running shows the same drop -- so the squad word decides.
+              seasons running shows the same drop -- so the squad word decides. Also, by
+              the owner's rules, for a team that has played since Aug 1, GotSport's age when:
+                - this season's opponents cannot decide, and the names do not state our
+                  age alone;
+                - the names state GotSport's age and not ours, and this season's
+                  opponents do not back ours; or
+                - GotSport says older, and this season's opponents do not back ours.
+              None of these applies when a band in our own name says otherwise,
+              GotSport's name is another squad, there is no squad word to compare and the
+              names do not state GotSport's age, our two names carry different bands, or
+              GotSport's age is outside u7-u19.
   hold        Anything else; the reason says which.
 
 Usage:
@@ -55,6 +65,7 @@ from apply_team_fields import write_rows as write_field_plan  # noqa: E402
 from scripts.fix_band_cohorts import (  # noqa: E402
     _NAME_UAGE,
     PLAN_FIELDS,
+    _group_steps,
     band_of,
     cohort_years,
     csv_safe,
@@ -64,7 +75,7 @@ from scripts.fix_band_cohorts import (  # noqa: E402
     load_owner_decisions,
     norm_name,
     read_csv,
-    single_band,
+    without_u_ages,
 )
 from scripts.fix_band_cohorts import write_csv as write_age_plan  # noqa: E402
 from scripts.fix_gender_from_registered_name import any_gender, spelled_gender  # noqa: E402
@@ -177,6 +188,26 @@ def name_ages(our_name: Optional[str], gotsport_name: Optional[str], has_last_se
     return ages
 
 
+def gotsport_age_refused(
+    theirs: int, same_squad: Optional[bool], bands_conflict: bool, names_say_theirs: bool
+) -> Optional[str]:
+    """Why the owner's GotSport rules cannot take GotSport's age, or None when they can.
+
+    A record GotSport may have handed to another squad goes to the split or to a hand decision,
+    not a relabel (owner, 2026-10-12: "Hold them too"). A name with no squad word to compare
+    passes only when the names state GotSport's age and not ours (owner, 2026-10-12, of "Players
+    U10 Girls Academy": "it literally says u10")."""
+    if same_squad is False:
+        return "GotSport's name is another squad"
+    if same_squad is None and not names_say_theirs:
+        return "a name carries no squad word to compare"
+    if bands_conflict:
+        return "our current and original names carry different bands"
+    if not 7 <= theirs <= 19:
+        return f"GotSport's U{theirs} is outside the youth groups"
+    return None
+
+
 def classify(
     stored: int,
     theirs: int,
@@ -187,10 +218,12 @@ def classify(
     fall_read: int,
     band: Optional[int] = None,
     named: frozenset = frozenset(),
+    bands_conflict: bool = False,
 ) -> Tuple[str, str]:
     """Age class. ``fall_games`` counts every game since Aug 1; ``fall_read`` those whose
     opponent's age could be read, which is what ``fall`` is the median of. ``named`` is
-    :func:`name_ages`."""
+    :func:`name_ages`; ``bands_conflict`` says our current and original names state different
+    bands."""
     # Owner, 2026-10-09: no games since Aug 1 means we are right and the team is most
     # likely dormant.
     if fall_games == 0:
@@ -200,19 +233,36 @@ def classify(
         return "hold", "the band in our own name backs the stored age"
     if band is not None and band != theirs:
         return "hold", f"the band in our own name says U{band}, neither ours nor GotSport's"
+    names_say_theirs = theirs in named and stored not in named
+    refused = gotsport_age_refused(theirs, same_squad, bands_conflict, names_say_theirs)
     thin = fall_read < MIN_FALL_GAMES or fall is None
-    tied = not thin and abs(fall - stored) == abs(fall - theirs)
-    # Opponents that cannot decide leave it to the names, when they state GotSport's age
-    # and none states ours (Next Level's "Southeast U10 Boys Black", stored u11, GotSport
-    # "Southeast 16/17 Boys Black", four games split two and two).
-    if (thin or tied) and theirs in named and stored not in named and same_squad is not False:
-        return "relabel", "the names state GotSport's age; this season's opponents cannot decide"
-    if thin:
-        return "hold", f"only {fall_read} game(s) this season with a readable opponent age"
-    if tied:
-        return "hold", "this season's opponents split evenly between our age and GotSport's"
+    # Only neighbouring groups split evenly; between groups two apart a midway median reads as the
+    # group between.
+    tied = not thin and _group_steps(stored, theirs) == 1 and abs(fall - stored) == abs(fall - theirs)
+    # Owner, 2026-10-11: opponents that cannot decide leave it to GotSport ("Gotsport literally
+    # tells us what age group the team is"), unless the age is refused or the names state our age
+    # and not GotSport's.
+    if thin or tied:
+        if thin:
+            reason = f"only {fall_read} game(s) this season with a readable opponent age"
+        else:
+            reason = "this season's opponents split evenly between our age and GotSport's"
+        if refused:
+            return "hold", f"{refused}, and {reason}"
+        if stored in named and theirs not in named:
+            return "hold", "this season's opponents cannot decide, and the names state our age"
+        return "relabel", f"{reason}; GotSport's age stands"
     if abs(fall - stored) <= NEAR:
         return "hold", "this season's opponents back the stored age"
+    # Owner, 2026-10-12: a team named for GotSport's age is that age when its opponents do not back
+    # ours and the age is not refused ("Dynamos STXCL EC BU12", stored u14, GotSport u12, every game
+    # against U13 teams).
+    if names_say_theirs and not refused:
+        return "relabel", "the names state GotSport's age and this season's opponents do not back the stored age"
+    # Owner, 2026-10-11 and 2026-10-12: GotSport older and a game since Aug 1 make GotSport's age the
+    # answer, unless this season's opponents back ours (above) or the age is refused.
+    if theirs > stored and not refused:
+        return "relabel", "GotSport says older and this season's opponents do not back the stored age"
     if abs(fall - theirs) > NEAR:
         return "hold", f"this season's opponents sit at U{fall}, neither ours nor GotSport's"
     if same_squad is False and pre is not None and abs(pre - stored) <= NEAR:
@@ -379,11 +429,14 @@ def assess(sb, row: Dict, team: Dict, ids: List[str], season_start: str, since: 
     same_squad = None if not ours_words or not gs_words else bool(ours_words & gs_words)
     # A shared word can be a colour; a birth year in our own name that GotSport's
     # cohort cannot hold says the record now carries another squad
-    # (Brazas FC 2016 Black is now "Brazas FC 2012/2013 Girls Black").
-    stated = birth_years(team["team_name"]) | birth_years(team.get("team_name_original"))
+    # (Brazas FC 2016 Black is now "Brazas FC 2012/2013 Girls Black"). U-ages ("Town-G09A-Coach",
+    # "U/10B") are not birth years.
+    stated = birth_years(without_u_ages(team["team_name"]))
+    stated |= birth_years(without_u_ages(team.get("team_name_original")))
     if stated and not stated & cohort_years(theirs):
         same_squad = False
-    band = group_number(single_band(team["team_name"], team.get("team_name_original")))
+    our_bands = {b for b in (band_of(team["team_name"]), band_of(team.get("team_name_original"))) if b}
+    band = group_number(next(iter(our_bands))) if len(our_bands) == 1 else None
     named = frozenset(name_ages(team["team_name"], row.get("gotsport_team_name"), len(games) > fall_games))
 
     pre_med, fall_med = summarize(pre), summarize(fall)
@@ -392,7 +445,9 @@ def assess(sb, row: Dict, team: Dict, ids: List[str], season_start: str, since: 
         # The age is judged on the next run, once the team sits on the right board.
         cls, reason = classify_gender(team["gender"], gs_gender, spelled, affix, opp_gender, seasons_split, fall_games)
     else:
-        cls, reason = classify(stored, theirs, same_squad, pre_med, fall_med, fall_games, len(fall), band, named)
+        cls, reason = classify(
+            stored, theirs, same_squad, pre_med, fall_med, fall_games, len(fall), band, named, len(our_bands) > 1
+        )
 
     votes = fall_votes if fall_opps else pre_votes
     return {

@@ -140,6 +140,11 @@ _UAGE_SLASH = re.compile(r"(?<![0-9A-Za-z])[BGMF]?U/[0-9]{1,2}[BGMF]?(?![0-9A-Za
 _HYPHEN_AGE = re.compile(r"(?<=-)[BG]([0-9]{2})[A-Z]?(?=-)", re.I)
 
 
+def without_u_ages(name: Optional[str]) -> str:
+    """The name with the U-ages birth_years would read as birth years blanked."""
+    return _HYPHEN_AGE.sub(" ", _UAGE_SLASH.sub(" ", name or ""))
+
+
 def name_years(name: Optional[str]) -> set:
     """birth_years, plus each year of every consecutive pair in a run, every four-digit year and
     every apostrophe year, read on the same text birth_years reads (U-ages and game formats removed).
@@ -147,7 +152,7 @@ def name_years(name: Optional[str]) -> set:
     A year older than the oldest group is kept, since it names another squad; the forms only
     birth_years reads ("04B", "04 Girls") stop at its 2005 floor. A year after the youngest a season
     can hold (the season less six: U7's younger year) is a season label ("2025-26", "Fall 2026")."""
-    name = _HYPHEN_AGE.sub(" ", _UAGE_SLASH.sub(" ", name or ""))
+    name = without_u_ages(name)
     text = _UAGE_TOKEN.sub(" ", _FORMAT_TOKEN.sub(" ", name))
     years = birth_years(name) | {int(y) for y in _YEAR_4.findall(text)}
     years |= {2000 + int(y) for y in _YEAR_APOS.findall(text)}
