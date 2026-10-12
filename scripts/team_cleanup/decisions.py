@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import secrets
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -10,6 +11,10 @@ DECISIONS_TABLE = "team_cleanup_decisions"
 MERGES = "merges"
 KEEP_SEPARATE = "keep_separate"
 KEEP_SEPARATE_COLS = "id,team_id_master,other_team_id,decided_at,superseded_at"
+# A single-team proposal's decisions, as a page saves them and the table records them.
+APPLY, DONT_APPLY, UNSURE = "apply", "dont_apply", "unsure"
+TEAM_DECISIONS = (APPLY, DONT_APPLY, UNSURE)
+DONT_APPLY_COLS = "id,team_id_master,field,proposed_value,decided_at,superseded_at"
 
 # PostgREST's answer when the table is not in its schema cache, i.e. the migration is not applied.
 TABLE_MISSING = "PGRST205"
@@ -48,6 +53,12 @@ def pair_subject(team_id: str, other_team_id: str) -> str:
 def resolve_execute(execute_flag: bool, dry_run_flag: bool) -> bool:
     """Fail safe: asking for both means the caller wants the preview."""
     return execute_flag and not dry_run_flag
+
+
+def new_page_run() -> str:
+    """A review page build's id: its UTC build time, which page_built_at reads back, and a random
+    suffix, since two builds can share a second."""
+    return f"{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}-{secrets.token_hex(3)}"
 
 
 def page_built_at(manifest: dict) -> str:

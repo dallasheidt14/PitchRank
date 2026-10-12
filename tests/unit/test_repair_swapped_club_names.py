@@ -1185,6 +1185,77 @@ def test_every_abbreviation_run_named_is_read(monkeypatch, tmp_path):
     assert seen.runs == ["34866235667", "35000000000"]
 
 
+def test_a_saved_run_log_is_read_instead_of_fetching_the_default_run(monkeypatch, tmp_path):
+    saved = tmp_path / "34866235667.log"
+    saved.write_text(_line("TX", "FC Dallas (TX)", "FC Dallas (tx)") + "\n", encoding="utf-8")
+    db = _db(_team(1, "FC Dallas 2014B", "FC Dallas (tx)", provider=GS))
+
+    _, seen = _run_main(monkeypatch, tmp_path, ["--abbreviation-log", str(saved)], db)
+
+    assert seen.runs == []
+    rows = list(csv.DictReader((tmp_path / "exports" / SNAPSHOT_NAME).open(encoding="utf-8-sig", newline="")))
+    assert [(r["source"], r["stored_club"], r["proposed_club"]) for r in rows] == [
+        ("abbreviation", "FC Dallas (tx)", "FC Dallas (TX)")
+    ]
+
+
+def test_a_missing_saved_run_log_is_refused_before_reading_anything(monkeypatch, tmp_path):
+    with pytest.raises(SystemExit):
+        _run_main(monkeypatch, tmp_path, ["--abbreviation-log", str(tmp_path / "absent.log")], _db())
+
+    assert not (tmp_path / "exports").exists()
+
+
+def test_every_saved_run_log_is_read_beside_any_run_named(monkeypatch, tmp_path):
+    first, second = tmp_path / "34866235667.log", tmp_path / "35100000000.log"
+    first.write_text(_line("TX", "FC Dallas (TX)", "FC Dallas (tx)") + "\n", encoding="utf-8")
+    second.write_text(_line("CA", "JSC Soccer Club", "Jsc Soccer Club") + "\n", encoding="utf-8")
+    db = _db(
+        _team(1, "FC Dallas 2014B", "FC Dallas (tx)", provider=GS),
+        _team(2, "JSC 2014B", "Jsc Soccer Club", provider=GS, state="CA"),
+    )
+    argv = ["--abbreviation-log", str(first), "--abbreviation-log", str(second), "--abbreviation-run", "35000000000"]
+
+    _, seen = _run_main(monkeypatch, tmp_path, argv, db)
+
+    assert seen.runs == ["35000000000"]
+    rows = list(csv.DictReader((tmp_path / "exports" / SNAPSHOT_NAME).open(encoding="utf-8-sig", newline="")))
+    proposed = sorted(r["proposed_club"] for r in rows if r["source"] == "abbreviation")
+    assert proposed == ["FC Dallas (TX)", "JSC Soccer Club"]
+
+
+_RENAME = _line("TX", "FC Dallas (TX)", "FC Dallas (tx)") + "\n"
+
+
+@pytest.mark.parametrize(
+    "content, reason",
+    [
+        (_RENAME.encode("utf-16"), "is not UTF-8"),
+        (_RENAME.encode("utf-8") + b"\xff\n", "is not UTF-8"),
+        (_RENAME.encode("utf-8").decode("cp437").encode("utf-8-sig"), "holds no cleanup rename lines"),
+        (b"", "holds no cleanup rename lines"),
+    ],
+    ids=["powershell-redirect", "stray-byte", "powershell-out-file", "empty"],
+)
+def test_a_saved_log_that_is_not_gh_s_own_output_is_refused_before_anything_runs(
+    monkeypatch, capsys, tmp_path, content, reason
+):
+    saved = tmp_path / "34866235667.log"
+    saved.write_bytes(content)
+    calls = []
+    monkeypatch.setattr(repair, "load_env", lambda: calls.append("load_env"))
+    monkeypatch.setattr(repair, "fetch_playmetrics_clubs", lambda leagues: calls.append("fetch") or {})
+    argv = ["--abbreviation-log", str(saved), "--exports-dir", str(tmp_path / "exports")]
+    monkeypatch.setattr(sys, "argv", ["repair_swapped_club_names.py", *argv])
+
+    with pytest.raises(SystemExit) as stopped:
+        repair.main()
+
+    assert stopped.value.code == 2 and calls == [] and not (tmp_path / "exports").exists()
+    err = capsys.readouterr().err
+    assert reason in err and "save gh's output from Git Bash" in err
+
+
 def test_the_dry_run_refuses_to_overwrite_a_snapshot(monkeypatch, tmp_path):
     (tmp_path / "exports").mkdir()
     (tmp_path / "exports" / SNAPSHOT_NAME).write_text("reviewed", encoding="utf-8")

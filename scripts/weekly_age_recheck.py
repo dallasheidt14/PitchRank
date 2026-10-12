@@ -18,18 +18,23 @@ A team qualifies under exactly the rules the user approved for the 2026-09-15 ba
   * at least 2 games this season against range-named opponents, 3:1 for GotSport's age
   * our own name does not state a clearly different age
   * no identical team (name + gender) already sits in the new age group
+Teams the owner decided to leave at their stored age (owner_decisions.json) are left out, and the
+report counts them.
 
-Outputs, in data/exports/:
+Outputs, in data/exports/ or the folder --exports-dir names (which is also where the reconcile
+logs are read from):
   weekly_age_recheck_<date>.md      the summary to read
   weekly_age_recheck_plan_<date>.csv  qualifying teams, in fix_band_cohorts.py plan format
   weekly_age_recheck_history.csv    one row per run, so progress is visible week to week
 
-Applying is a separate, approved step:
-  python scripts/fix_band_cohorts.py --apply <plan> --skip-name-contradictions --limit 50 --execute
+Applying is a separate, approved step. The report prints the exact commands; pass the same folder,
+so the apply log lands beside its plan:
+  python scripts/fix_band_cohorts.py --apply <plan> --skip-name-contradictions --exports-dir <dir> --limit 50 --execute
 """
 
 from __future__ import annotations
 
+import argparse
 import csv
 import os
 import sys
@@ -49,9 +54,10 @@ EXPORTS = ROOT / "data" / "exports"
 MIN_GAMES = 2
 
 
-def pending_population(sb) -> list[dict]:
+def pending_population(sb, exports: Path, decided: dict) -> tuple[list[dict], int]:
+    """The teams still pending, and how many the owner's decisions left out."""
     latest: dict[str, dict] = {}
-    for path in sorted(EXPORTS.glob("reconcile_teams_with_gotsport_*.csv")):
+    for path in sorted(exports.glob("reconcile_teams_with_gotsport_*.csv")):
         try:
             for row in fbc.read_csv(path):
                 if (row.get("run_mode") or "").lower() == "execute":
@@ -65,6 +71,9 @@ def pending_population(sb) -> list[dict]:
         gs = normalize_age_group(row.get("gotsport_age_group"))
         if ours and gs and fbc.age_num(gs) < fbc.age_num(ours):
             audit[row["team_id_master"]] = row
+    owner_left = [tid for tid in audit if tid in decided]
+    for tid in owner_left:
+        del audit[tid]
 
     live = fbc.fetch_live(sb, list(audit))
     rows = []
@@ -93,15 +102,16 @@ def pending_population(sb) -> list[dict]:
                 "evidence_tier": "W_weekly_recheck",
             }
         )
-    return rows
+    return rows, len(owner_left)
 
 
-def main() -> None:
+def main(exports: Path | None = None) -> None:
+    exports = exports or EXPORTS
     fbc.load_env()
     sb = fbc.get_supabase()
     stamp = datetime.now().strftime("%Y%m%d")
     print("Deriving the pending population...", flush=True)
-    rows = pending_population(sb)
+    rows, owner_left = pending_population(sb, exports, fbc.load_owner_decisions(sb))
     print(f"Pending: {len(rows):,}. Reading this season's fixtures...", flush=True)
     fbc.attach_fixture_evidence(sb, rows)
 
@@ -133,7 +143,7 @@ def main() -> None:
         (r for r in rows if r["action"] == "would_update"),
         key=lambda r: (r["state_code"], r["team_name"]),
     )
-    plan_path = EXPORTS / f"weekly_age_recheck_plan_{stamp}.csv"
+    plan_path = exports / f"weekly_age_recheck_plan_{stamp}.csv"
     fbc.write_csv(qualifying, plan_path, fbc.PLAN_FIELDS)
 
     counts = Counter(r["action"] for r in rows)
@@ -142,7 +152,7 @@ def main() -> None:
     c = sum(r["opp_games_current"] for r in qualifying)
     agreement = f"{100 * p / (p + c):.1f}%" if p + c else "n/a"
 
-    history = EXPORTS / "weekly_age_recheck_history.csv"
+    history = exports / "weekly_age_recheck_history.csv"
     previous = fbc.read_csv(history)[-1] if history.exists() and fbc.read_csv(history) else None
     hist_row = {
         "date": datetime.now().strftime("%Y-%m-%d"),
@@ -173,6 +183,10 @@ def main() -> None:
         for r in qualifying[:: max(1, len(qualifying) // 15)][:15]
     )
     by_state = ", ".join(f"{k} {v:,}" for k, v in Counter(r["state_code"] for r in qualifying).most_common(10))
+    apply = (
+        f'python scripts/fix_band_cohorts.py --apply "{fbc.shown(plan_path)}" --skip-name-contradictions '
+        f'--exports-dir "{fbc.shown(exports)}"'
+    )
     report = f"""# Weekly age-group re-check — {hist_row['date']}
 
 Read-only. Nothing was written to the database.
@@ -188,6 +202,7 @@ Read-only. Nothing was written to the database.
 | Waiting — mixed opponents | {counts.get('waiting_mixed', 0):,} |
 | Held — our name states a different age | {counts.get('held_name_contradicts', 0):,} |
 | Held — identical team already in the new age group | {counts.get('would_update_collision', 0):,} |
+| Left out — the owner decided to leave their age | {owner_left:,} |
 
 Qualifying teams' range-named opponents side with the new age group: **{agreement}**
 ({p:,} v {c:,} games). {off_board:,} of them move to U9 or younger.
@@ -201,28 +216,41 @@ By state: {by_state or 'none'}
 ## To apply (after review)
 
 ```
-python scripts/fix_band_cohorts.py --apply {plan_path.relative_to(ROOT)} --skip-name-contradictions --limit 50 --execute
-python scripts/fix_band_cohorts.py --apply {plan_path.relative_to(ROOT)} --skip-name-contradictions --execute
+{apply} --limit 50 --execute
+{apply} --execute
 ```
 
 Verify in the database afterwards; each apply log carries its own undo command.
 """
-    report_path = EXPORTS / f"weekly_age_recheck_{stamp}.md"
+    report_path = exports / f"weekly_age_recheck_{stamp}.md"
     report_path.write_text(report, encoding="utf-8")
     print(report)
     print(f"Report: {report_path}\nPlan:   {plan_path}")
 
 
-if __name__ == "__main__":
+def cli(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument(
+        "--exports-dir",
+        type=Path,
+        help="Folder to read reconcile logs from and write the report, plan and history to "
+        "(default: <repo>/data/exports; a relative path is read from the repo root)",
+    )
+    exports = parser.parse_args(argv).exports_dir or EXPORTS
+    exports.mkdir(parents=True, exist_ok=True)
     # Run unattended by Task Scheduler, where stdout goes nowhere: record the outcome,
     # so a week with no report is explained rather than silent.
-    last_run = EXPORTS / "weekly_age_recheck_last_run.log"
+    last_run = exports / "weekly_age_recheck_last_run.log"
     started = datetime.now().isoformat(timespec="seconds")
     try:
-        main()
+        main(exports)
         last_run.write_text(f"{started} ok\n", encoding="utf-8")
     except BaseException:
         import traceback
 
         last_run.write_text(f"{started} FAILED\n{traceback.format_exc()}", encoding="utf-8")
         raise
+
+
+if __name__ == "__main__":
+    cli()

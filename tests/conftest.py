@@ -22,6 +22,13 @@ def _reset_gotsport_waf_breaker():
     get_waf_breaker().reset()
 
 
+@pytest.fixture(autouse=True)
+def _cleanup_store_is_temporary(monkeypatch, tmp_path_factory):
+    """Point the team-cleanup run store at a session-wide temporary folder, so a command run without
+    ``--store`` never resolves to the owner's real store in the home folder."""
+    monkeypatch.setenv("PITCHRANK_CLEANUP_DIR", str(tmp_path_factory.getbasetemp() / "default-cleanup-store"))
+
+
 class FakeResponse:
     """Minimal ``requests.Response`` stand-in for tests that exercise the
     gotsport scrape path without network. ``fetch_teams_by_cohort`` reads

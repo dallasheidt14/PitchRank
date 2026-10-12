@@ -71,18 +71,20 @@ def extract_birth_year_from_name(team_name: str) -> Optional[int]:
 # "Academy-2013/2014", "2012/2013Black", "2013 - 2014". The run of joined years is
 # matched whole and possessively, so a longer list ("B2014/B2015/B2016U") is judged
 # as the list it is, never cut back to the band its first two years resemble.
-# The edges refuse only what would extend the run or make it a U-age range: a digit,
-# an apostrophe (the '11/'12 form is not read here), or a U ("U13/14", "13/14U",
-# "U-13/14", "Under 14/15"). A two-digit year may not start just after "digit,
-# separator", so "U13 / 14 / 15" cannot restart at 14; a four-digit one may, which
-# keeps "U14/15 - 2011/2012" and "1-2016/2017" readable.
-_BAND_YEAR = r"[BbGgMmFf]?(?:20[0-9]{2}|[0-9]{2})[BbGgMmFf]?"
+# A two-digit year may carry an apostrophe, straight or curly ("'11/'12", "2014/'15",
+# "‘14–‘15", "’14–’15"). The edges refuse only what would extend the run or make it a
+# U-age range: a digit, an apostrophe the run cannot take ("11/12'", "'2014/15",
+# "U'13/'14"), or a U ("U13/14", "13/14U", "U-13/14", "Under 14/15").
+# A two-digit year may not start just after "digit, separator", so "U13 / 14 / 15"
+# cannot restart at 14; a four-digit one may, which keeps "U14/15 - 2011/2012" and
+# "1-2016/2017" readable.
+_BAND_YEAR = r"[BbGgMmFf]?(?:20[0-9]{2}|['‘’]?[0-9]{2})[BbGgMmFf]?"
 _BAND_RUN_RE = re.compile(
-    r"(?<![0-9'Uu])(?<![Uu]-)(?<!\b[Uu][Nn][Dd][Ee][Rr] )"
+    r"(?<![0-9'‘’Uu])(?<![Uu]-)(?<!\b[Uu][Nn][Dd][Ee][Rr] )"
     r"(?:[BbGgMmFf]?20[0-9]{2}"
-    r"|(?<![0-9][/–-])(?<![0-9][/–-]\s)(?<![0-9]\s[/–-])(?<![0-9]\s[/–-]\s)[BbGgMmFf]?[0-9]{2})"
+    r"|(?<![0-9][/–-])(?<![0-9][/–-]\s)(?<![0-9]\s[/–-])(?<![0-9]\s[/–-]\s)[BbGgMmFf]?['‘’]?[0-9]{2})"
     rf"[BbGgMmFf]?(?:\s*[/\-–]\s*{_BAND_YEAR})++"
-    r"(?![0-9'Uu])"
+    r"(?![0-9'‘’Uu])"
 )
 # Restarts inside a crafted run can each rescan it to the end, so the scan is capped
 # well above the length of any real team or division name.

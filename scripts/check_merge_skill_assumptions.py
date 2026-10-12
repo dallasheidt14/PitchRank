@@ -176,9 +176,15 @@ def check_protected_division(r: Result) -> None:
 def check_normalizer_launders_names(r: Result) -> None:
     """Step 1 of the same weekly job erases the evidence the scan depends on."""
     from scripts.normalize_team_names import normalize_team_name
+    from src.utils.team_utils import CURRENT_YEAR
 
-    older = normalize_team_name("EPIC SC B09/08 Dash", "EPIC SC", "u19")
-    younger = normalize_team_name("EPIC SC B08/07 Dash", "EPIC SC", "u19")
+    # The two bands u19 holds this season (B09/08 and B08/07 in 2026-27): the one above
+    # them has aged out and keeps its text, so the pair moves with the season.
+    def band(younger_year: int) -> str:
+        return f"B{younger_year % 100:02d}/{(younger_year - 1) % 100:02d}"
+
+    older = normalize_team_name(f"EPIC SC {band(CURRENT_YEAR - 17)} Dash", "EPIC SC", "u19")
+    younger = normalize_team_name(f"EPIC SC {band(CURRENT_YEAR - 18)} Dash", "EPIC SC", "u19")
     r.check(
         "two different u19 bands normalize to one identical token",
         older == younger,

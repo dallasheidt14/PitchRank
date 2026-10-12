@@ -275,9 +275,13 @@ wrong. `normalize_team_names._resolve_band` takes the younger year for every
 spelling below, and so does `src/utils/team_utils.extract_band_birth_year`, which the
 queue matcher and the TGS and PlayMetrics parsers share. Convert a band's year with
 `calculate_age_group_from_band`, not `calculate_age_group_from_birth_year`, whose
-age-20 fold files the aged-out 2007/06 band as U19. The one age-group parser that takes
-the older year, `scripts/fix_team_age_groups.extract_birth_year`, is gated off in both
-of its callers by `AGE_DERIVATION_ENABLED` and says so in its own docstring.
+age-20 fold files the aged-out 2007/06 band as U19. `_resolve_band` is the deliberate
+exception: it still returns the fold's U19 as that band's label, because
+`scripts/fix_band_cohorts.single_band` (also used by the reconcile-gotsport triage) reads a
+missing label as "no band" and would stop refusing age moves the name's own band
+contradicts. The one age-group parser that takes the older year,
+`scripts/fix_team_age_groups.extract_birth_year`, is gated off in both of its callers by
+`AGE_DERIVATION_ENABLED` and says so in its own docstring.
 
 **The label key.** Team names write the same band many ways, and every spelling names
 the same table row: `2013/2014`, `2013/14`, `13/14`, `14/13`, `2013-2014` and
@@ -633,7 +637,7 @@ two-line edit in `.github/workflows/claude-code-review.yml`.
 | `calculate-rankings.yml` | Mon 12:30 PM UTC, and after any successful Modular11 league or events run | Recalculate rankings (Glicko-2 + ML). The `workflow_run` trigger does not distinguish a Modular11 dry run, so a test scrape on Actions starts a full ranking run; scrape locally to test |
 | `auto-gotsport-event-scrape.yml` | Manual dispatch | Tournament bracket scraping (cron removed 2026-05-17) |
 | `tgs-event-scrape-import.yml` | Mon 6:30 AM UTC | TGS event scraping |
-| `data-hygiene-weekly.yml` | Mon 11:00 AM UTC | Data cleanup — name normalization, distinction backfill, dupe and queue-match steps (the age step is disabled; see `AGE_DERIVATION_ENABLED`) |
+| `data-hygiene-weekly.yml` | Mon 11:00 AM UTC — **switched off in GitHub since 2026-08-23** | Data cleanup — name normalization, distinction backfill, dupe and queue-match steps (the age step is disabled; see `AGE_DERIVATION_ENABLED`). `gh workflow list --all` shows it `disabled_manually`; the file keeps its cron, so nothing here runs until someone re-enables it, and IMP-258 must be fixed first |
 | `unknown-opponent-hygiene-weekly.yml` | Tue 6:00 PM UTC | Resolve "Unknown" opponents |
 | `auto-merge-queue.yml` | Dispatch / `workflow_call` | Auto-approve low-risk merges |
 | `modular11-weekly-scrape.yml` | Manual dispatch | MLS NEXT league scraping |
@@ -803,7 +807,7 @@ The 2026-09-14 pass was a one-off; its rollback data is in gitignored
 ```
 Continuous → Enqueue jobs fill scrape_requests; process_missing_games drains
              it every 15 min (40 teams/run, ~3,840/day)
-Monday AM  → Data hygiene jobs
+Monday AM  → Data hygiene jobs (switched off in GitHub since 2026-08-23)
 Monday PM  → Calculate rankings (Glicko-2 + ML Layer 13)
 Sunday     → Event scraping, discovery + safety-net enqueue
 As needed  → "Help Clear Queue" (manual) for bulk catch-up

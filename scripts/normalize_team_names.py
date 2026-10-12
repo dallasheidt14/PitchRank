@@ -31,7 +31,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from dotenv import load_dotenv
 from team_name_normalizer import parse_age_gender
 
-from src.utils.team_utils import calculate_age_group_from_birth_year
+from src.utils.team_utils import calculate_age_group_from_band, calculate_age_group_from_birth_year
 
 _env_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 load_dotenv(os.path.join(_env_dir, ".env.local"))
@@ -173,11 +173,11 @@ def _cohort_label(age_group) -> "str | None":
 # band: "07/08/09/10" is a rec-league team spanning four birth years, and taking
 # its first pair would name it U19 and leave "/09/10" trailing.
 # The gender letter is optional on BOTH sides of BOTH years: clubs write
-# "B14/15", "13/14B", "2014G -2015G" and "B07/B08" interchangeably.
-_BAND_RE = re.compile(
-    r"(?<![\w'/–-])[BbGgMmFf]?(\d{2}|\d{4})[BbGgMmFf]?\s*[/\-–]\s*"
-    r"[BbGgMmFf]?(\d{2}|\d{4})[BbGgMmFf]?(?![\w'/–-])"
-)
+# "B14/15", "13/14B", "2014G -2015G" and "B07/B08" interchangeably. A two-digit year
+# may carry an apostrophe, straight or curly ("'11/'12", "2014/'15", "‘14–‘15"); one
+# after the band ("11/12'") is refused.
+_BAND_SIDE = r"[BbGgMmFf]?(?:['‘’](?=\d{2}(?!\d)))?(\d{2}|\d{4})[BbGgMmFf]?"
+_BAND_RE = re.compile(rf"(?<![\w'‘’/–-]){_BAND_SIDE}\s*[/\-–]\s*{_BAND_SIDE}(?![\w'‘’/–-])")
 
 
 # A four-digit birth year standing on its own in the name.
@@ -226,12 +226,42 @@ def _resolve_band(name: str):
     write the band with spaces often enough ("2013 - 2014") that a per-token scan
     sees two separate years and consumes the first one as the age.
 
-    Returns (name, label) with EVERY band replaced, or (name, None) if there is
-    none. Every band, not just the first: "Cape Coral Soccer - 2007/2008 Cyclone
-    RL B07/08" states the cohort twice, and collapsing only the leading one
-    leaves a band behind for the next run to find and the name to change again.
+    Returns (name, label): EVERY current band replaced, and label the cohort of the
+    last band read, or None if the name holds no band. Every band, not just the
+    first: "Cape Coral Soccer - 2007/2008 Cyclone RL B07/08" states the cohort twice,
+    and collapsing only the leading one leaves a band behind for the next run to
+    find and the name to change again.
+
+    A band one group above U19 (2007/06 in 2026-27) has aged out. No board holds
+    it, so it keeps its text rather than gaining a wrong "U19". Its label is still
+    the age-20 fold's U19, not None. None would read as "no band": fix_band_cohorts'
+    single_band would stop refusing moves the name's own band contradicts, and
+    normalize_team_name would let the column rewrite a U-age beside the band.
+    """
+    text, label, kept = _resolve_band_with_placeholders(name)
+    return _restore_kept(text, kept), label
+
+
+_KEPT_RE = re.compile("\x00([0-9]+)\x00")
+
+
+def _restore_kept(text: str, kept: list) -> str:
+    if "\x00" not in text:
+        return text
+    return _KEPT_RE.sub(lambda m: kept[int(m.group(1))], text)
+
+
+def _resolve_band_with_placeholders(name: str):
+    """_resolve_band's (name, label) plus `kept`, with each aged-out band swapped for a placeholder.
+
+    `kept[n]` is the text of the band written as placeholder "\\x00n\\x00".
+    normalize_team_name splits the name on spaces, and a kept band has to reach it
+    as one token: written out, "06 - 07" becomes two numbers its token loop would
+    re-read as birth years. The placeholder is NUL-delimited, which no stored name
+    can contain.
     """
     label_seen = None
+    kept = []
 
     def _replace(match):
         nonlocal label_seen
@@ -240,13 +270,17 @@ def _resolve_band(name: str):
         # or an address — "1570 FC - 1570" and "10-3 Red" are not cohorts.
         if abs(first - second) != 1:
             return match.group(0)
-        label = calculate_age_group_from_birth_year(max(first, second))
+        younger = max(first, second)
+        label = calculate_age_group_from_birth_year(younger)
         if not label:
             return match.group(0)
         label_seen = label
-        return label
+        if calculate_age_group_from_band(younger):
+            return label
+        kept.append(match.group(0))
+        return f"\x00{len(kept) - 1}\x00"
 
-    return _BAND_RE.sub(_replace, name), label_seen
+    return _BAND_RE.sub(_replace, name), label_seen, kept
 
 
 def normalize_team_name(
@@ -284,7 +318,7 @@ def normalize_team_name(
     original = team_name.strip()
     club_skip_tokens = _normalizer_club_tokens(club_name)
     cohort_label = _cohort_label(age_group)
-    original, band_label = _resolve_band(original)
+    original, band_label, kept_bands = _resolve_band_with_placeholders(original)
 
     # The ORIGINAL name is consulted only to VETO the column, never as a source to
     # write from. Collapsing a band destroys the evidence it was there: after
@@ -321,6 +355,14 @@ def normalize_team_name(
         clean_token = token.strip("()[]")
         if not clean_token:
             continue
+
+        # A kept aged-out band fills the age slot where it stands, so a later age
+        # token stays as written.
+        if "\x00" in clean_token:
+            age_found = age_found or band_label
+            result_tokens.append(_restore_kept(clean_token, kept_bands))
+            continue
+
         t_lower = clean_token.lower()
 
         # Skip standalone gender words EVERYWHERE
@@ -360,19 +402,24 @@ def normalize_team_name(
             # A second age token is left exactly as written — rewriting it too
             # would render the same cohort twice into one name.
 
-        # Bands are handled by _resolve_band before tokenizing — a second path
-        # here would see only the slash forms and would disagree with the first
-        # on every spaced band.
+        # Bands are handled by _resolve_band_with_placeholders before tokenizing — a
+        # second path here would see only the slash forms and would disagree with the
+        # first on every spaced band.
         #
-        # The band is NOT preserved as written, tempting though that is. Reading
+        # A current band is NOT preserved as written, tempting though that is. Reading
         # it back needs both years, and the consumers of teams.team_name cannot:
         # _team_distinction tokenizes on "/" and its two-digit pattern requires a
         # leading apostrophe, so "14/15" yields NO age token where "U13" yields
         # one -- should_skip_pair then refuses the pair outright, ahead of the
-        # birth-year guard that would have accepted it. frontend/lib/utils.ts is
+        # birth-year guard that would have accepted it. frontend/lib/teamAge.ts is
         # worse: its standalone two-digit pattern matches "14" inside "14/15" and
-        # derives U13 for a U14 team. Preserving bands needs those parsers taught
-        # first.
+        # reads the team one group too old. Preserving bands needs those parsers taught
+        # first. The aged-out band is kept anyway (see _resolve_band), and
+        # _team_distinction then reads it by spelling: U19 from a four-digit year or a
+        # gender-lettered two-digit one ("2006/2007", "B07/06" in 2026-27), no age from
+        # a bare pair ("06/07"). should_skip_pair can therefore refuse two spellings of
+        # one aged-out squad, which errs toward leaving teams apart. The frontend reads
+        # no age from either.
 
         # Preserve league keywords with proper casing
         if t_lower in LEAGUE_KEYWORDS:

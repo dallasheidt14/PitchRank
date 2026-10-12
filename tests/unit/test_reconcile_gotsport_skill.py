@@ -8,10 +8,13 @@ girls squad that plays boys, and the dormant teams the owner left as stored.
 
 import csv
 import importlib
+import json
 import sys
 from pathlib import Path
 
 import pytest
+
+from scripts import fix_band_cohorts as fbc
 
 TOOLS = Path(__file__).resolve().parents[2] / ".claude/skills/reconcile-gotsport/scripts"
 sys.path.insert(0, str(TOOLS))
@@ -137,6 +140,10 @@ def test_cohort_years_2026_27():
     assert triage.cohort_years(17, season=2026) == {2010, 2009}
     # u19 holds the U18 band PitchRank files into it, and nothing younger
     assert triage.cohort_years(19, season=2026) == {2008, 2007, 2009}
+
+
+def test_the_triage_reads_cohorts_with_the_applier_s_function():
+    assert triage.cohort_years is fbc.cohort_years
 
 
 def test_squad_words():
@@ -341,6 +348,8 @@ class _ArchiveDb:
         self.inserts = []
 
     def table(self, name):
+        if name == "team_merge_map":
+            return _NoMerges().table(name)
         assert name == "teams"
         return _ArchiveQuery(self)
 
@@ -384,6 +393,21 @@ def test_dry_run_creates_nothing():
     rows = archive.plan_rows([_triage_row("reused_id")], "2026-08-01")
     archive.apply(db, rows, execute=False, stamp="t")
     assert db.inserts == []
+
+
+def test_a_record_the_owner_decided_on_is_skipped_before_any_step(tmp_path, monkeypatch):
+    """The plan's id is upper-cased, as a hand-edited plan could carry it."""
+    decided = "bbbb3333-3333-4333-8333-3333bbbb3333"
+    path = tmp_path / "owner_decisions.json"
+    path.write_text(json.dumps({"left_held": {"decided": "2026-10-11", "teams": [{"team_id": decided}]}}), encoding="utf-8")
+    monkeypatch.setattr(fbc, "OWNER_DECISIONS", path)
+    ran = []
+    monkeypatch.setattr(archive, "run_tool", lambda args: ran.append(args) or "")
+    db = _ArchiveDb({**LIVE, "team_id_master": decided.upper()})
+    rows = archive.plan_rows([{**_triage_row("reused_id"), "team_id_master": decided.upper()}], "2026-08-01")
+
+    assert archive.apply(db, rows, execute=True, stamp="t") == []
+    assert db.inserts == [] and ran == []
 
 
 def test_ensure_archive_creates_once_with_no_provider():
@@ -506,7 +530,7 @@ def test_triage_main_writes_the_triage_and_every_plan_to_the_exports_dir_given(t
     monkeypatch.setattr(triage, "EXPORTS", tmp_path / "default")
     monkeypatch.setattr(triage, "load_env", lambda: None)
     monkeypatch.setattr(triage, "get_supabase", lambda: object())
-    monkeypatch.setattr(triage, "kept_as_stored", lambda: set())
+    monkeypatch.setattr(triage, "load_owner_decisions", lambda sb: {})
     monkeypatch.setattr(triage, "latest_rows", lambda logs: [])
     monkeypatch.setattr(triage, "fetch_in", lambda *a, **k: [])
     monkeypatch.setattr(triage, "mark_collisions", lambda sb, out: None)
@@ -518,3 +542,66 @@ def test_triage_main_writes_the_triage_and_every_plan_to_the_exports_dir_given(t
     assert names == ["reconcile_triage", "reconcile_triage_gender_plan", "reconcile_triage_relabel_age_plan",
                      "reconcile_triage_reused_id_age_plan"]
     assert not (tmp_path / "default").exists()
+
+
+class _NoMerges:
+    """Answers the decisions loader's merge-map read with no merges, and refuses anything else."""
+
+    def table(self, name):
+        assert name == "team_merge_map", f"the triage queried {name!r} before its own reads"
+        query = type("Q", (), {})()
+        query.select = lambda columns: query
+        query.in_ = lambda column, values: query
+        query.execute = lambda: type("R", (), {"data": []})()
+        return query
+
+
+def _triage_with_decisions(tmp_path, monkeypatch, decisions, rows):
+    monkeypatch.setattr(triage, "EXPORTS", tmp_path / "default")
+    monkeypatch.setattr(triage, "load_env", lambda: None)
+    monkeypatch.setattr(triage, "get_supabase", lambda: _NoMerges())
+    monkeypatch.setattr(triage, "latest_rows", lambda logs: rows)
+    monkeypatch.setattr(triage, "fetch_in", lambda *a, **k: [])
+    monkeypatch.setattr(triage, "mark_collisions", lambda sb, out: None)
+    monkeypatch.setattr(fbc, "OWNER_DECISIONS", decisions)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["triage_reconcile.py", "--log", str(tmp_path / "log.csv"), "--exports-dir", str(tmp_path / "store")],
+    )
+    triage.main()
+
+
+def test_the_triage_leaves_out_a_team_from_every_section_of_the_owner_s_decisions(tmp_path, monkeypatch, capsys):
+    sections = {
+        "kept_as_stored": "11111111-1111-4111-8111-111111111111",
+        "left_held": "22222222-2222-4222-8222-222222222222",
+        "ea_cleanup_2026_10_07": "33333333-3333-4333-8333-333333333333",
+    }
+    decisions = tmp_path / "owner_decisions.json"
+    decisions.write_text(
+        json.dumps({name: {"decided": "2026-10-01", "teams": [{"team_id": tid}]} for name, tid in sections.items()}),
+        encoding="utf-8",
+    )
+    rows = [
+        {
+            "team_id_master": tid,
+            "stored_age_group": "u14",
+            "gotsport_age_group": "u13",
+            "stored_gender": "Male",
+            "gotsport_gender": "Male",
+        }
+        for tid in [*sections.values(), "44444444-4444-4444-8444-444444444444"]
+    ]
+
+    _triage_with_decisions(tmp_path, monkeypatch, decisions, rows)
+
+    out = capsys.readouterr().out
+    assert "1 teams where GotSport's age or gender differs from ours" in out
+    assert "3 more whose age differs, left out: the owner decided to leave their age" in out
+
+
+def test_the_triage_stops_when_the_owner_s_decisions_cannot_be_read(tmp_path, monkeypatch):
+    with pytest.raises(SystemExit, match="Cannot read the owner's age decisions"):
+        _triage_with_decisions(tmp_path, monkeypatch, tmp_path / "missing.json", [])
+    assert not (tmp_path / "store").exists()
