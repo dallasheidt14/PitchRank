@@ -3,15 +3,26 @@
 The store sits outside the repo, so removing a worktree takes no undo log with it:
 
   <store>/exports/                 every applier's plans and logs (their --exports-dir)
+  <store>/inputs/abbreviation_logs/<GitHub run id>.log
+                                   saved logs of update-missing-club-and-state.yml runs, which the
+                                   club scan reads
+  <store>/propose.lock             held while a week is being proposed
   <store>/runs/<run_id>/run.json   scope, budgets, status, stage overrides, timestamps
-  <store>/runs/<run_id>/<stage>/   that stage's files, with one marker per finished step
+  <store>/runs/<run_id>/write_guard.json
+                                   how many teams changed while the stages proposed, and each
+                                   stage's stale count; written once each stage has proposed or is
+                                   skill_stale, and until then write_guard_before.json holds the
+                                   opening snapshot
+  <store>/runs/<run_id>/<stage>/   that stage's files and logs/, with one marker per finished step
   <store>/health/                  weekly reports
 
 A stage's progress is read back from its markers rather than stored, so a run killed mid-stage
 resumes at the first step whose marker is missing:
 
   preflight.json   the stage's skill self-check passed
-  propose_done     its proposals are written
+  propose_done     its proposals.json is written, one row per proposed change. stale.json is
+                   written beside it when write_guard.json is, listing the proposals whose
+                   proposed field or liveness something else changed meanwhile
   review/          every <name>.json there has a <name>_review.json that copies it
   page.json        the owner's review page is built
   collected.json   the owner's choices are collected into the stage applier's input
@@ -70,10 +81,14 @@ class Step:
     next_action: str
 
 
+PREFLIGHT_MARKER = "preflight.json"
+PROPOSE_MARKER = "propose_done"
+PROPOSALS_FILE = "proposals.json"
+STALE_FILE = "stale.json"
 REVIEW = Step("review", None, "review the queued proposals")
 STEPS = (
-    Step("preflight", "preflight.json", "run the stage's skill self-check"),
-    Step("propose", "propose_done", "write the stage's proposals"),
+    Step("preflight", PREFLIGHT_MARKER, "run the stage's skill self-check"),
+    Step("propose", PROPOSE_MARKER, "write the stage's proposals"),
     REVIEW,
     Step("page", "page.json", "build the owner's review page"),
     Step("collect", "collected.json", "the owner decides on the page, then collect the choices"),
