@@ -84,6 +84,38 @@ class TestBandForms:
         # again. See "Cape Coral Soccer - 2007/2008 Cyclone RL B07/08".
         assert _resolve_band("Cape Coral 2007/2008 Cyclone RL B07/08")[0] == "Cape Coral U19 Cyclone RL U19"
 
+    @pytest.mark.parametrize("name", ["BUSA 06/07", "Team 2007/2006", "Club G06/07 Red", "Club 06/07 Red 2006/2007"])
+    def test_the_aged_out_band_keeps_its_text_and_its_label(self, name):
+        # The band above U19.
+        assert _resolve_band(name) == (name, "U19")
+
+    def test_a_current_band_beside_an_aged_out_one_is_still_collapsed(self):
+        assert _resolve_band("Cape Coral 2006/2007 RL B07/08") == ("Cape Coral 2006/2007 RL U19", "U19")
+        # The last band read gives the label.
+        assert _resolve_band("Rush B14/15 Red 06/07") == ("Rush U12 Red 06/07", "U19")
+
+    @pytest.mark.parametrize("age_group", ["u19", "u20"])
+    @pytest.mark.parametrize(
+        "name,expected",
+        [
+            ("BUSA 06/07 Red", "BUSA 06/07 Red"),
+            ("BUSA 06 - 07 Red", "BUSA 06 - 07 Red"),
+            ("Club G06 - G07", "Club G06 - G07"),
+            ("Club (06/07) Red", "Club 06/07 Red"),  # brackets drop, as they do around any token
+            ("Club 2006-07g, Red", "Club 2006-07g, Red"),  # punctuation and a lowercase letter attached
+            ("Club 06/07 Red 2006/2007", "Club 06/07 Red 2006/2007"),  # two aged-out bands
+        ],
+    )
+    def test_the_tidy_up_leaves_an_aged_out_band_as_written(self, name, expected, age_group):
+        assert normalize_team_name(name, None, age_group) == expected
+
+    def test_an_aged_out_band_takes_the_age_slot_so_a_later_age_stays_as_written(self):
+        assert normalize_team_name("Club Boys 2006/07 19B", None, "u19") == "Club 2006/07 19B"
+        assert normalize_team_name("Club Boys 2007/06 Premier RL B06", None, "u19") == "Club 2007/06 Premier RL B06"
+
+    def test_an_aged_out_band_still_stops_the_column_rewriting_a_u_age(self):
+        assert normalize_team_name("U17 Stingers 06/07", None, "u19") == "U17 Stingers 06/07"
+
 
 class TestNotBands:
     @pytest.mark.parametrize(
@@ -145,6 +177,7 @@ class TestIdempotence:
             ("2014 U12 PRE MLS I", "u13"),
             ("U08B Cook Inlet SC Navy 2019", "u15"),
             ("Worthington United 94 2018 Boys Red", "u11"),
+            ("BUSA 06/07 Red", "u19"),
         ],
     )
     def test_second_pass_changes_nothing(self, name, age_group):
