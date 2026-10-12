@@ -32,6 +32,7 @@ import os
 import re
 import sys
 import tempfile
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
@@ -65,6 +66,10 @@ AGE_ROW = re.compile(r"^\|\s*(\d{4})\s*/\s*(\d{4})\s*\|\s*U\d+\s*\|\s*\*{0,2}(u\
 LABEL_KEY_CLAUSE = re.compile(r"((?:`[^`]+`(?:,\s*|\s+and\s+))+`[^`]+`)\s+are all\s+\*\*(U\d+)\*\*")
 RECHECK_LEFT_OUT = re.compile(r"\| Left out\b[^|]*\| ([0-9,]+) \|")
 TRIAGE_LEFT_OUT = re.compile(r"^([0-9]+) more whose age differs, left out", re.M)
+
+# Distinct teams in each section of the owner's age decisions, recorded 2026-10-12. A section may grow;
+# one that shrinks fails the check until whoever removed a decision lowers its floor here on purpose.
+DECISION_FLOORS = {"kept_as_stored": 14, "left_held": 70, "ea_cleanup_2026_10_07": 1}
 
 LIVE_ID = "aaaaaaaa-0000-4000-8000-000000000001"
 OTHER_LIVE_ID = "aaaaaaaa-0000-4000-8000-000000000002"
@@ -334,6 +339,13 @@ def check_owner_decisions(r: Result) -> None:
         "every decided team loads under its own section",
         in_file and loaded == in_file,
         f"{len(loaded)} loaded, {len(in_file)} in the file",
+    )
+    sizes = Counter(in_file.values())
+    shrunk = {name: (sizes[name], floor) for name, floor in DECISION_FLOORS.items() if sizes[name] < floor}
+    r.check(
+        "no section of the owner's decisions has fewer teams than recorded",
+        not shrunk,
+        f"section: (teams now, recorded floor) {shrunk}",
     )
     with mock.patch.object(fbc, "OWNER_DECISIONS", fbc.OWNER_DECISIONS.with_name("no_such_file.json")):
         try:

@@ -282,7 +282,41 @@ def test_the_owner_decisions_check_fails_on_a_section_without_its_decision(monke
     assert _failed(checker.check_owner_decisions) == [
         "owner_decisions.json is sections of {decided, teams: [{team_id}]}",
         "every decided team loads under its own section",
+        "no section of the owner's decisions has fewer teams than recorded",
     ]
+
+
+def _decisions_copy(tmp_path, edit):
+    """The real decisions file, edited by ``edit`` and written to ``tmp_path``."""
+    sections = json.loads(fbc.OWNER_DECISIONS.read_text(encoding="utf-8-sig"))
+    edit(sections)
+    path = tmp_path / "owner_decisions.json"
+    path.write_text(json.dumps(sections), encoding="utf-8")
+    return path
+
+
+@pytest.mark.parametrize(
+    ("edit", "failed"),
+    [
+        (lambda s: s["left_held"]["teams"].append({"team_id": checker.LIVE_ID}), []),
+        (
+            lambda s: s["left_held"]["teams"].pop(),
+            ["no section of the owner's decisions has fewer teams than recorded"],
+        ),
+        (
+            lambda s: s["left_held"]["teams"].__setitem__(-1, s["left_held"]["teams"][0]),
+            ["no section of the owner's decisions has fewer teams than recorded"],
+        ),
+        (
+            lambda s: s.pop("ea_cleanup_2026_10_07"),
+            ["no section of the owner's decisions has fewer teams than recorded"],
+        ),
+    ],
+    ids=["a decision added", "a decision deleted", "a decision overwritten by a repeat", "a section deleted"],
+)
+def test_the_owner_decisions_check_fails_when_a_section_shrinks(monkeypatch, tmp_path, edit, failed):
+    monkeypatch.setattr(fbc, "OWNER_DECISIONS", _decisions_copy(tmp_path, edit))
+    assert _failed(checker.check_owner_decisions) == failed
 
 
 def test_the_owner_decisions_check_fails_when_a_missing_file_reads_as_empty(monkeypatch):
