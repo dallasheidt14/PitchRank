@@ -74,7 +74,7 @@ export function ReportCardForm() {
       <Card className="shadow-xl border-0">
         <CardContent className="p-8 text-center">
           <CheckCircle2 className="w-12 h-12 text-[#0B5345] mx-auto mb-3" />
-          <h2 className="font-oswald text-2xl font-bold mb-2 tracking-wide">Check your inbox</h2>
+          <h2 className="font-display text-2xl font-bold mb-2 tracking-wide">Check your inbox</h2>
           <p className="text-muted-foreground mb-1">
             Your report card for <span className="font-semibold text-foreground">{selectedTeam?.team_name}</span> is on
             its way.
@@ -105,8 +105,8 @@ export function ReportCardForm() {
           {/* Step 1 — Find your team */}
           <div>
             <div className="flex items-baseline gap-2 mb-3">
-              <span className="font-oswald text-xs uppercase tracking-widest text-[#0B5345] font-bold">Step 1</span>
-              <h3 className="font-oswald text-lg font-bold tracking-wide">Find your team</h3>
+              <span className="font-display text-xs uppercase tracking-widest text-[#0B5345] font-bold">Step 1</span>
+              <h3 className="font-display text-lg font-bold tracking-wide">Find your team</h3>
             </div>
 
             <div className="grid grid-cols-3 gap-2 mb-4">
@@ -183,8 +183,8 @@ export function ReportCardForm() {
             }
           >
             <div className="flex items-baseline gap-2 mb-3">
-              <span className="font-oswald text-xs uppercase tracking-widest text-[#0B5345] font-bold">Step 2</span>
-              <h3 className="font-oswald text-lg font-bold tracking-wide">Where should we send it?</h3>
+              <span className="font-display text-xs uppercase tracking-widest text-[#0B5345] font-bold">Step 2</span>
+              <h3 className="font-display text-lg font-bold tracking-wide">Where should we send it?</h3>
             </div>
 
             <div className="space-y-3">

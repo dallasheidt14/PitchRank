@@ -186,10 +186,10 @@ export default function MatchBalancePage() {
 
         <div className="mx-auto grid max-w-7xl items-center gap-12 lg:grid-cols-[1.08fr_.92fr] lg:gap-16">
           <div>
-            <p className="mb-5 font-oswald text-sm font-bold uppercase tracking-[0.24em] text-[#f4d03f]">
+            <p className="mb-5 font-display text-sm font-bold uppercase tracking-[0.24em] text-[#f4d03f]">
               For tournament directors
             </p>
-            <h1 className="max-w-4xl font-oswald text-5xl font-bold uppercase leading-[0.98] tracking-[-0.025em] text-white sm:text-6xl lg:text-7xl">
+            <h1 className="max-w-4xl font-display text-5xl font-bold uppercase leading-[0.98] tracking-[-0.025em] text-white sm:text-6xl lg:text-7xl">
               Rankings tell you who&apos;s stronger.
               <span className="mt-2 block text-[#f4d03f]">MatchBalance tells you how to seed them.</span>
             </h1>
@@ -227,7 +227,7 @@ export default function MatchBalancePage() {
             <div className="overflow-hidden rounded-2xl border border-white/15 bg-white text-[#14231f] shadow-2xl shadow-black/25">
               <div className="flex items-center justify-between bg-[#062f28] px-5 py-4 text-white sm:px-6">
                 <div>
-                  <p className="font-oswald text-lg font-bold uppercase tracking-wide">Field snapshot</p>
+                  <p className="font-display text-lg font-bold uppercase tracking-wide">Field snapshot</p>
                   <p className="text-xs text-white/60">Illustrative U14 Boys review</p>
                 </div>
                 <span className="rounded-full bg-[#f4d03f] px-3 py-1 text-xs font-bold text-[#083f35]">12 teams</span>
@@ -246,7 +246,7 @@ export default function MatchBalancePage() {
                   key={seed}
                   className="grid grid-cols-[3.25rem_1fr_auto] items-center border-b border-[#e3e8e5] px-5 py-4 sm:px-6"
                 >
-                  <span className="font-oswald text-xl font-bold text-[#0b5345]">{seed}</span>
+                  <span className="font-display text-xl font-bold text-[#0b5345]">{seed}</span>
                   <span className="font-semibold">{team}</span>
                   <span className="font-mono text-sm font-bold">{score}</span>
                 </div>
@@ -265,7 +265,7 @@ export default function MatchBalancePage() {
                   key={seed}
                   className="grid grid-cols-[3.25rem_1fr_auto] items-center border-b border-[#e3e8e5] px-5 py-3.5 last:border-0 sm:px-6"
                 >
-                  <span className="font-oswald text-lg font-bold text-[#0b5345]">{seed}</span>
+                  <span className="font-display text-lg font-bold text-[#0b5345]">{seed}</span>
                   <span className="font-semibold">{team}</span>
                   <span className="font-mono text-sm font-bold">{score}</span>
                 </div>
@@ -283,10 +283,10 @@ export default function MatchBalancePage() {
       <section className="px-4 py-16 md:py-24">
         <div className="mx-auto grid max-w-6xl items-center gap-10 lg:grid-cols-[.9fr_1.1fr] lg:gap-20">
           <div>
-            <p className="font-oswald text-sm font-bold uppercase tracking-[0.2em] text-[#0b5345]">
+            <p className="font-display text-sm font-bold uppercase tracking-[0.2em] text-[#0b5345]">
               More than a rankings sheet
             </p>
-            <h2 className="mt-3 font-oswald text-4xl font-bold uppercase leading-tight tracking-tight text-[#0a332c] md:text-5xl">
+            <h2 className="mt-3 font-display text-4xl font-bold uppercase leading-tight tracking-tight text-[#0a332c] md:text-5xl">
               A ranking tells you 1 through 20.
               <span className="block text-[#0b5345]">MatchBalance explains what those numbers mean.</span>
             </h2>
@@ -307,10 +307,10 @@ export default function MatchBalancePage() {
       <section className="bg-white px-4 py-16 md:py-24">
         <div className="mx-auto max-w-7xl">
           <div className="max-w-3xl">
-            <p className="font-oswald text-sm font-bold uppercase tracking-[0.2em] text-[#0b5345]">
+            <p className="font-display text-sm font-bold uppercase tracking-[0.2em] text-[#0b5345]">
               What MatchBalance does
             </p>
-            <h2 className="mt-3 font-oswald text-4xl font-bold uppercase tracking-tight text-[#0a332c] md:text-5xl">
+            <h2 className="mt-3 font-display text-4xl font-bold uppercase tracking-tight text-[#0a332c] md:text-5xl">
               It turns a list into placement evidence.
             </h2>
           </div>
@@ -321,9 +321,9 @@ export default function MatchBalancePage() {
                   <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#e8f1ed] text-[#0b5345]">
                     <item.icon className="h-6 w-6" aria-hidden="true" />
                   </span>
-                  <span className="font-oswald text-4xl font-bold text-[#e5ebe8]">{item.number}</span>
+                  <span className="font-display text-4xl font-bold text-[#e5ebe8]">{item.number}</span>
                 </div>
-                <h3 className="mt-6 font-oswald text-2xl font-bold uppercase tracking-wide text-[#0a332c]">
+                <h3 className="mt-6 font-display text-2xl font-bold uppercase tracking-wide text-[#0a332c]">
                   {item.title}
                 </h3>
                 <p className="mt-3 leading-relaxed text-[#5b6964]">{item.body}</p>
@@ -340,8 +340,8 @@ export default function MatchBalancePage() {
       <section className="bg-[#0a332c] px-4 py-16 text-white md:py-24">
         <div className="mx-auto max-w-7xl">
           <div className="max-w-3xl">
-            <p className="font-oswald text-sm font-bold uppercase tracking-[0.2em] text-[#f4d03f]">How it works</p>
-            <h2 className="mt-3 font-oswald text-4xl font-bold uppercase tracking-tight md:text-5xl">
+            <p className="font-display text-sm font-bold uppercase tracking-[0.2em] text-[#f4d03f]">How it works</p>
+            <h2 className="mt-3 font-display text-4xl font-bold uppercase tracking-tight md:text-5xl">
               From accepted teams to a director-ready starting point.
             </h2>
           </div>
@@ -351,10 +351,10 @@ export default function MatchBalancePage() {
                 key={step.title}
                 className="relative border-white/15 lg:border-l lg:px-7 lg:first:border-l-0 lg:first:pl-0"
               >
-                <span className="font-oswald text-5xl font-bold text-[#f4d03f]">
+                <span className="font-display text-5xl font-bold text-[#f4d03f]">
                   {String(index + 1).padStart(2, '0')}
                 </span>
-                <h3 className="mt-4 font-oswald text-xl font-bold uppercase tracking-wide">{step.title}</h3>
+                <h3 className="mt-4 font-display text-xl font-bold uppercase tracking-wide">{step.title}</h3>
                 <p className="mt-3 text-sm leading-relaxed text-white/68">{step.body}</p>
               </li>
             ))}
@@ -366,8 +366,8 @@ export default function MatchBalancePage() {
       <section className="px-4 py-16 md:py-24">
         <div className="mx-auto max-w-6xl">
           <div className="mx-auto max-w-3xl text-center">
-            <p className="font-oswald text-sm font-bold uppercase tracking-[0.2em] text-[#0b5345]">The difference</p>
-            <h2 className="mt-3 font-oswald text-4xl font-bold uppercase tracking-tight text-[#0a332c] md:text-5xl">
+            <p className="font-display text-sm font-bold uppercase tracking-[0.2em] text-[#0b5345]">The difference</p>
+            <h2 className="mt-3 font-display text-4xl font-bold uppercase tracking-tight text-[#0a332c] md:text-5xl">
               Rankings are one input. Seeding is the decision.
             </h2>
           </div>
@@ -378,7 +378,7 @@ export default function MatchBalancePage() {
               <div className="mt-6 space-y-3">
                 {['Team A', 'Team B', 'Team C', 'Team D', 'Team E'].map((team, index) => (
                   <div key={team} className="flex items-center gap-4 rounded-lg bg-[#f4f6f5] px-4 py-3">
-                    <span className="font-oswald text-xl font-bold text-[#73817c]">{index + 1}</span>
+                    <span className="font-display text-xl font-bold text-[#73817c]">{index + 1}</span>
                     <span className="font-semibold">{team}</span>
                   </div>
                 ))}
@@ -397,7 +397,7 @@ export default function MatchBalancePage() {
             <div className="overflow-hidden rounded-2xl border border-[#0b5345]/20 bg-white shadow-xl shadow-[#0b5345]/8">
               <div className="bg-[#0b5345] px-7 py-5 text-white">
                 <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#f4d03f]">MatchBalance context</p>
-                <p className="mt-1 font-oswald text-2xl font-bold uppercase">The decisions worth reviewing</p>
+                <p className="mt-1 font-display text-2xl font-bold uppercase">The decisions worth reviewing</p>
               </div>
               <div className="space-y-5 p-7">
                 <div className="rounded-xl border border-[#dce6e1] p-4">
@@ -437,8 +437,8 @@ export default function MatchBalancePage() {
       <section className="border-y border-[#dce3df] bg-white px-4 py-16 md:py-24">
         <div className="mx-auto max-w-7xl">
           <div className="max-w-3xl">
-            <p className="font-oswald text-sm font-bold uppercase tracking-[0.2em] text-[#0b5345]">What you get</p>
-            <h2 className="mt-3 font-oswald text-4xl font-bold uppercase tracking-tight text-[#0a332c] md:text-5xl">
+            <p className="font-display text-sm font-bold uppercase tracking-[0.2em] text-[#0b5345]">What you get</p>
+            <h2 className="mt-3 font-display text-4xl font-bold uppercase tracking-tight text-[#0a332c] md:text-5xl">
               Practical files for the way you already build brackets.
             </h2>
           </div>
@@ -446,7 +446,7 @@ export default function MatchBalancePage() {
             {DELIVERABLES.map((item) => (
               <article key={item.title} className="rounded-2xl border border-[#dfe6e2] bg-[#f8faf9] p-7">
                 <item.icon className="h-8 w-8 text-[#0b5345]" aria-hidden="true" />
-                <h3 className="mt-5 font-oswald text-xl font-bold uppercase tracking-wide text-[#0a332c]">
+                <h3 className="mt-5 font-display text-xl font-bold uppercase tracking-wide text-[#0a332c]">
                   {item.title}
                 </h3>
                 <p className="mt-3 text-sm leading-relaxed text-[#61706a]">{item.body}</p>
@@ -460,8 +460,8 @@ export default function MatchBalancePage() {
       <section className="bg-[#edf2ef] px-4 py-16 md:py-24">
         <div className="mx-auto max-w-5xl">
           <div className="mx-auto max-w-3xl text-center">
-            <p className="font-oswald text-sm font-bold uppercase tracking-[0.2em] text-[#0b5345]">Pricing</p>
-            <h2 className="mt-3 font-oswald text-4xl font-bold uppercase tracking-tight text-[#0a332c] md:text-5xl">
+            <p className="font-display text-sm font-bold uppercase tracking-[0.2em] text-[#0b5345]">Pricing</p>
+            <h2 className="mt-3 font-display text-4xl font-bold uppercase tracking-tight text-[#0a332c] md:text-5xl">
               One clear price for the work you need.
             </h2>
           </div>
@@ -469,7 +469,7 @@ export default function MatchBalancePage() {
             <Card className="overflow-hidden border-[#d3ddd8] shadow-none" variant="flat">
               <CardContent className="p-0">
                 <div className="bg-[#0b5345] px-6 py-5 text-white">
-                  <p className="font-oswald text-2xl font-bold uppercase tracking-wide">Whole tournament</p>
+                  <p className="font-display text-2xl font-bold uppercase tracking-wide">Whole tournament</p>
                   <p className="mt-1 text-sm text-white/65">Every covered age group and gender</p>
                 </div>
                 <Table>
@@ -494,7 +494,7 @@ export default function MatchBalancePage() {
             <Card className="overflow-hidden border-[#d3ddd8] shadow-none" variant="flat">
               <CardContent className="p-0">
                 <div className="bg-[#f4d03f] px-6 py-5 text-[#0a332c]">
-                  <p className="font-oswald text-2xl font-bold uppercase tracking-wide">À la carte</p>
+                  <p className="font-display text-2xl font-bold uppercase tracking-wide">À la carte</p>
                   <p className="mt-1 text-sm text-[#475650]">For part of your tournament</p>
                 </div>
                 <Table>
@@ -534,10 +534,10 @@ export default function MatchBalancePage() {
         <div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-2">
           <div className="rounded-2xl bg-[#f4d03f] p-8 md:p-10">
             <Target className="h-9 w-9 text-[#0b5345]" aria-hidden="true" />
-            <p className="mt-7 font-oswald text-sm font-bold uppercase tracking-[0.2em] text-[#0b5345]">
+            <p className="mt-7 font-display text-sm font-bold uppercase tracking-[0.2em] text-[#0b5345]">
               Why MatchBalance
             </p>
-            <h2 className="mt-3 font-oswald text-3xl font-bold uppercase leading-tight tracking-tight text-[#0a332c] md:text-4xl">
+            <h2 className="mt-3 font-display text-3xl font-bold uppercase leading-tight tracking-tight text-[#0a332c] md:text-4xl">
               The goal isn&apos;t to perfectly rank every team. It&apos;s to create better competitive matchups.
             </h2>
             <p className="mt-5 leading-relaxed text-[#3f4d48]">
@@ -549,10 +549,10 @@ export default function MatchBalancePage() {
 
           <div className="rounded-2xl bg-[#0a332c] p-8 text-white md:p-10">
             <ShieldCheck className="h-9 w-9 text-[#f4d03f]" aria-hidden="true" />
-            <p className="mt-7 font-oswald text-sm font-bold uppercase tracking-[0.2em] text-[#f4d03f]">
+            <p className="mt-7 font-display text-sm font-bold uppercase tracking-[0.2em] text-[#f4d03f]">
               Important context
             </p>
-            <h2 className="mt-3 font-oswald text-3xl font-bold uppercase leading-tight tracking-tight md:text-4xl">
+            <h2 className="mt-3 font-display text-3xl font-bold uppercase leading-tight tracking-tight md:text-4xl">
               MatchBalance assists the director. It doesn&apos;t replace the director.
             </h2>
             <ul className="mt-6 space-y-4">
@@ -574,8 +574,8 @@ export default function MatchBalancePage() {
       <section className="bg-white px-4 py-16 md:py-24">
         <div className="mx-auto max-w-3xl">
           <div className="text-center">
-            <p className="font-oswald text-sm font-bold uppercase tracking-[0.2em] text-[#0b5345]">Questions</p>
-            <h2 className="mt-3 font-oswald text-4xl font-bold uppercase tracking-tight text-[#0a332c] md:text-5xl">
+            <p className="font-display text-sm font-bold uppercase tracking-[0.2em] text-[#0b5345]">Questions</p>
+            <h2 className="mt-3 font-display text-4xl font-bold uppercase tracking-tight text-[#0a332c] md:text-5xl">
               Frequently asked
             </h2>
           </div>
@@ -602,8 +602,8 @@ export default function MatchBalancePage() {
       <section id="sample" className="scroll-mt-16 bg-[#e9efec] px-4 py-16 md:py-24">
         <div className="mx-auto grid max-w-6xl items-center gap-12 lg:grid-cols-[.8fr_1.2fr] lg:gap-16">
           <div>
-            <p className="font-oswald text-sm font-bold uppercase tracking-[0.2em] text-[#0b5345]">Sample sheet</p>
-            <h2 className="mt-3 font-oswald text-4xl font-bold uppercase leading-tight tracking-tight text-[#0a332c] md:text-5xl">
+            <p className="font-display text-sm font-bold uppercase tracking-[0.2em] text-[#0b5345]">Sample sheet</p>
+            <h2 className="mt-3 font-display text-4xl font-bold uppercase leading-tight tracking-tight text-[#0a332c] md:text-5xl">
               See what a MatchBalance sheet actually shows.
             </h2>
             <p className="mt-5 text-lg leading-relaxed text-[#586761]">
@@ -641,8 +641,8 @@ export default function MatchBalancePage() {
       <section id="inquiry" className="scroll-mt-16 bg-white px-4 py-16 md:py-24">
         <div className="mx-auto grid max-w-6xl items-start gap-12 lg:grid-cols-[.8fr_1.2fr] lg:gap-16">
           <div className="lg:sticky lg:top-24">
-            <p className="font-oswald text-sm font-bold uppercase tracking-[0.2em] text-[#0b5345]">Free sample</p>
-            <h2 className="mt-3 font-oswald text-4xl font-bold uppercase leading-tight tracking-tight text-[#0a332c] md:text-5xl">
+            <p className="font-display text-sm font-bold uppercase tracking-[0.2em] text-[#0b5345]">Free sample</p>
+            <h2 className="mt-3 font-display text-4xl font-bold uppercase leading-tight tracking-tight text-[#0a332c] md:text-5xl">
               Give us one age group. See what MatchBalance finds.
             </h2>
             <p className="mt-5 text-lg leading-relaxed text-[#586761]">

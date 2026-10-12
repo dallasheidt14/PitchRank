@@ -2186,16 +2186,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: Nothing under `frontend/` imports `fuse.js` (verified 2026-10-12). It stays listed only because `frontend/package-lock.json` is a fingerprinted MatchBalance renderer input, so changing it fails `test_matchbalance_sample_artifacts` until `python scripts/regenerate_matchbalance_samples.py` re-renders the samples. Drop the dependency in the same PR as the next refresh rather than paying for a refresh on its own.
 - **Noted**: 2026-10-12
 
-### Give the phone header search one clear button and a wider dropdown
-
-- **ID**: IMP-330
-- **Status**: open
-- **Type**: direct
-- **Category**: feature
-- **Where**: `frontend/components/GlobalSearch.tsx` (`GlobalSearch`: the `Input type="search"`, its custom clear button, and the results `Card`)
-- **Why**: A 375 px phone smoke test (2026-10-12) showed two clear controls side by side: the browser's own for `type="search"` and the custom X. The results `Card` is `absolute w-full` inside the input's wrapper, so it is only as wide as the input and team names truncate to a few words ("FLYTE SC B..."). Both predate server-side search.
-- **Noted**: 2026-10-12
-
 ### Correct three team-search comments that contradict the code
 
 - **ID**: IMP-331
@@ -2224,6 +2214,36 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Category**: testing
 - **Where**: `tests/unit/test_age_rollover_freeze_coverage.py` `_has_top_level_or`, `test_gate_is_not_bypassable_by_an_or`
 - **Why**: `_has_top_level_or` refuses only a `||` outside every bracket, so `(env.AGE_ROLLOVER_FREEZE == 'false' || github.event_name == 'workflow_dispatch') && ...` passes while a manual dispatch runs the writing step during a freeze (checked 2026-10-12: not refused, gate text present). `scripts/check_age_skill_assumptions.py` `_gated_on_the_flag` already requires the comparison to be one of the top-level `&&` terms with no top-level `||`. Wanted: the same rule for the freeze gate, ideally one shared parser.
+- **Noted**: 2026-10-12
+
+### Show one header search box at tablet widths
+
+- **ID**: IMP-334
+- **Status**: open
+- **Type**: direct
+- **Category**: feature
+- **Where**: `frontend/components/Navigation.tsx` (`Navigation`: the desktop slot `hidden md:flex` and the phone row `flex lg:hidden`, each holding a `GlobalSearch`)
+- **Why**: From 768 to 1023 px both slots render, so the header shows two search boxes side by side (191 px and 241 px wide, measured 2026-10-12). One breakpoint should own the box.
+- **Noted**: 2026-10-12
+
+### Give clickable cards one hover style
+
+- **ID**: IMP-335
+- **Status**: open
+- **Type**: plan
+- **Category**: readability
+- **Where**: `frontend/components/ui/card.tsx` (`interactive` variant), `frontend/components/BlogCard.tsx` (`BlogCard`), `frontend/app/watchlist/page.tsx` (team cards), `frontend/app/upgrade/page.tsx` (plan cards)
+- **Why**: Feature tiles zoom to 102% over 300 ms with a press effect, blog cards zoom to 102% over 200 ms, watchlist cards lift 4 px, and the plan cards only deepen their shadow, so a change to clickable-card feedback has to be made in four places. The 2026-10-11 audit suggested the `interactive` variant for all of them.
+- **Noted**: 2026-10-12
+
+### Make "Sign in" one control instead of a button inside a link
+
+- **ID**: IMP-336
+- **Status**: open
+- **Type**: direct
+- **Category**: feature
+- **Where**: `frontend/components/Navigation.tsx` (`Navigation`: the `nav-signin` Link wrapping a `Button`, and any other Link-wrapped Button)
+- **Why**: Two nested interactive elements give keyboard users two Tab stops for one action (confirmed in a 2026-10-12 smoke test) and are invalid HTML; `<Button asChild><Link /></Button>` renders one.
 - **Noted**: 2026-10-12
 
 ### Let next/font build its size-matched fallback fonts

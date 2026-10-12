@@ -226,6 +226,7 @@ export function RankingsTable({ region, ageGroup, gender, initialData }: Ranking
   const deferredQuery = useDeferredValue(searchQuery);
   const tableBoxRef = useRef<HTMLDivElement>(null);
   const stickyRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const pendingFocusIndexRef = useRef<number | null>(null);
 
@@ -533,7 +534,7 @@ export function RankingsTable({ region, ageGroup, gender, initialData }: Ranking
         totalTeams={sortedRankings.length}
         lastUpdated={rankings?.[0]?.last_calculated}
       />
-      <Card data-testid="rankings-table-card" className="overflow-clip border-0 shadow-lg hover:scale-100">
+      <Card data-testid="rankings-table-card" className="overflow-clip border-0 shadow-lg">
         <CardHeader className="bg-gradient-to-r from-primary to-[oklch(0.28_0.08_165)] text-primary-foreground relative">
           <div className="absolute right-0 top-0 w-2 h-full bg-accent -skew-x-12" aria-hidden="true" />
           <CardTitle
@@ -581,17 +582,21 @@ export function RankingsTable({ region, ageGroup, gender, initialData }: Ranking
                   <div className="relative px-2 py-2 sm:px-4">
                     <Search className="absolute left-4 sm:left-6 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
                     <input
+                      ref={searchInputRef}
                       type="search"
                       value={searchQuery}
                       onChange={(e) => handleSearchChange(e.target.value)}
                       placeholder="Search your team"
                       aria-label="Search your team"
-                      className="w-full h-9 pl-9 pr-9 rounded-md border border-input bg-background text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                      className="w-full h-9 pl-9 pr-9 rounded-md border border-input bg-background text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary [&::-webkit-search-cancel-button]:hidden"
                     />
                     {searchQuery && (
                       <button
                         type="button"
-                        onClick={() => handleSearchChange('')}
+                        onClick={() => {
+                          handleSearchChange('');
+                          searchInputRef.current?.focus();
+                        }}
                         aria-label="Clear search"
                         className="absolute right-3 sm:right-5 top-1/2 -translate-y-1/2 h-6 w-6 inline-flex items-center justify-center rounded text-muted-foreground hover:text-foreground"
                       >

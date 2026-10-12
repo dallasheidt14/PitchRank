@@ -272,7 +272,11 @@ import { isNetworkError, getErrorMessage } from '@/lib/errors'
 
 ### Fonts
 
-- **Display**: Oswald (athletic headlines)
+- **Display**: Oswald (athletic headlines), applied with `font-display`. There is no `font-oswald` class:
+  Tailwind builds font-family utilities only from `--font-*` theme tokens, and `--font-oswald` is next/font's
+  variable rather than a token, so the class compiles to nothing and non-heading text keeps the body font
+  (h1-h6 get Oswald from a base rule regardless). Only weights 600 and 700 are loaded (`app/layout.tsx`); a
+  lighter weight renders at 600.
 - **Body**: DM Sans
 - **Mono**: JetBrains Mono (stats/data)
 

@@ -172,7 +172,7 @@ function UpgradePageContent() {
           {/* Monthly Plan */}
           <Card
             variant="elevated"
-            className={`relative cursor-pointer transition-all ${
+            className={`relative cursor-pointer transition-all hover:shadow-lg ${
               selectedPlan === 'monthly' ? 'ring-2 ring-primary' : ''
             }`}
             onClick={() => setSelectedPlan('monthly')}
@@ -232,7 +232,7 @@ function UpgradePageContent() {
           {/* Yearly Plan */}
           <Card
             variant="primary"
-            className={`relative cursor-pointer transition-all ${
+            className={`relative cursor-pointer transition-all hover:shadow-lg ${
               selectedPlan === 'yearly' ? 'ring-2 ring-primary' : ''
             }`}
             onClick={() => setSelectedPlan('yearly')}
