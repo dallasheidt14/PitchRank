@@ -275,9 +275,13 @@ wrong. `normalize_team_names._resolve_band` takes the younger year for every
 spelling below, and so does `src/utils/team_utils.extract_band_birth_year`, which the
 queue matcher and the TGS and PlayMetrics parsers share. Convert a band's year with
 `calculate_age_group_from_band`, not `calculate_age_group_from_birth_year`, whose
-age-20 fold files the aged-out 2007/06 band as U19. The one age-group parser that takes
-the older year, `scripts/fix_team_age_groups.extract_birth_year`, is gated off in both
-of its callers by `AGE_DERIVATION_ENABLED` and says so in its own docstring.
+age-20 fold files the aged-out 2007/06 band as U19. `_resolve_band` is the deliberate
+exception: it still returns the fold's U19 as that band's label, because
+`scripts/fix_band_cohorts.single_band` (also used by the reconcile-gotsport triage) reads a
+missing label as "no band" and would stop refusing age moves the name's own band
+contradicts. The one age-group parser that takes the older year,
+`scripts/fix_team_age_groups.extract_birth_year`, is gated off in both of its callers by
+`AGE_DERIVATION_ENABLED` and says so in its own docstring.
 
 **The label key.** Team names write the same band many ways, and every spelling names
 the same table row: `2013/2014`, `2013/14`, `13/14`, `14/13`, `2013-2014` and

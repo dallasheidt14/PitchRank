@@ -512,11 +512,16 @@ def test_main_builds_the_plan_from_and_into_the_exports_dir_given(exports, monke
 @pytest.fixture
 def season_2026(monkeypatch):
     """The season for fbc's readers, and for band_of, whose band reader took the year at import
-    (calculate_age_group_from_birth_year's current_year default)."""
+    (calculate_age_group_from_birth_year's current_year default) and reads it again to tell an
+    aged-out band (calculate_age_group_from_band)."""
     monkeypatch.setattr(fbc, "_soccer_season_year", lambda: 2026)
     calculate = normalize_team_names.calculate_age_group_from_birth_year
     monkeypatch.setattr(
         normalize_team_names, "calculate_age_group_from_birth_year", functools.partial(calculate, current_year=2026)
+    )
+    band = normalize_team_names.calculate_age_group_from_band
+    monkeypatch.setattr(
+        normalize_team_names, "calculate_age_group_from_band", functools.partial(band, current_year=2026)
     )
 
 
