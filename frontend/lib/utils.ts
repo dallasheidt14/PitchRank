@@ -1,7 +1,7 @@
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
-import { formatGender } from './constants';
+import { AGE_GROUPS, formatGender, genderSlug, US_STATES } from './constants';
 import { soccerSeasonYear } from './teamAge';
 
 export { extractAgeFromTeamName } from './teamAge';
@@ -289,4 +289,38 @@ export function normalizeAgeGroup(ageGroup: string | number | null | undefined):
   if (age === 18) age = 19;
 
   return age;
+}
+
+function isRankingsRegion(region: string): boolean {
+  return region === 'national' || US_STATES.some((state) => state.code === region);
+}
+
+function isRankingsAgeGroup(ageGroup: string): boolean {
+  return (AGE_GROUPS as readonly string[]).includes(ageGroup);
+}
+
+/**
+ * The board a team page's "Back to Rankings" opens: the one named in the query the rankings
+ * row linked with, otherwise the team's own state (or national) board, or the rankings home
+ * when the team has no board.
+ */
+export function backToRankingsPath(
+  query: { region: string | null; ageGroup: string | null; gender: string | null },
+  team: { state: string | null; age: number | null; gender: string } | undefined
+): string {
+  const region = query.region?.toLowerCase();
+  const ageGroup = query.ageGroup?.toLowerCase();
+  const gender = genderSlug(query.gender);
+  if (region && ageGroup && gender && isRankingsRegion(region) && isRankingsAgeGroup(ageGroup)) {
+    return `/rankings/${region}/${ageGroup}/${gender}`;
+  }
+
+  const teamAge = normalizeAgeGroup(team?.age);
+  const teamGender = genderSlug(team?.gender);
+  if (!team || teamAge == null || !teamGender || !isRankingsAgeGroup(`u${teamAge}`)) {
+    return '/rankings';
+  }
+  const teamState = team.state?.toLowerCase();
+  const teamRegion = teamState && isRankingsRegion(teamState) ? teamState : 'national';
+  return `/rankings/${teamRegion}/u${teamAge}/${teamGender}`;
 }
