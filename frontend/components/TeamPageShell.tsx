@@ -10,6 +10,9 @@ import { Suspense, useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { SectionErrorBoundary } from '@/components/ui/SectionErrorBoundary';
+import { markIfOpenedFromRankings, wasOpenedFromRankings } from '@/hooks/useRankingsViewState';
+import { useTeam } from '@/lib/hooks';
+import { backToRankingsPath } from '@/lib/utils';
 import { ArrowLeft } from 'lucide-react';
 
 // Lazy-load charts for better performance
@@ -42,30 +45,47 @@ interface TeamPageShellProps {
   id: string;
 }
 
-function BackToRankingsButtonContent() {
+function BackToRankingsButtonContent({ teamId }: { teamId: string }) {
   const searchParams = useSearchParams();
   const router = useRouter();
+  const { data: team } = useTeam(teamId);
+  const goingBackRef = useRef(false);
 
-  // Extract filter parameters from query string, with defaults
-  const region = searchParams.get('region') || 'national';
-  const ageGroup = searchParams.get('ageGroup') || 'u12';
-  const gender = searchParams.get('gender') || 'male';
-
-  // Validate and sanitize parameters
-  const validAgeGroups = ['u10', 'u11', 'u12', 'u13', 'u14', 'u15', 'u16', 'u17', 'u18', 'u19'];
-  const validGenders = ['male', 'female'];
-
-  const sanitizedAgeGroup = validAgeGroups.includes(ageGroup.toLowerCase()) ? ageGroup.toLowerCase() : 'u12';
-  const sanitizedGender = validGenders.includes(gender.toLowerCase()) ? gender.toLowerCase() : 'male';
-  const sanitizedRegion = region.toLowerCase() === 'national' ? 'national' : region.toLowerCase().slice(0, 2); // Ensure state codes are 2 letters
+  // Forward before the board renders, or a back/forward-cache restore, brings this same page back.
+  useEffect(() => {
+    const releaseOnReturn = () => {
+      if (wasOpenedFromRankings()) goingBackRef.current = false;
+    };
+    window.addEventListener('popstate', releaseOnReturn);
+    window.addEventListener('pageshow', releaseOnReturn);
+    return () => {
+      window.removeEventListener('popstate', releaseOnReturn);
+      window.removeEventListener('pageshow', releaseOnReturn);
+    };
+  }, []);
 
   const handleBackToRankings = () => {
+    // history.back() is asynchronous: a second tap before it lands would go back twice, and one
+    // after it lands, while this page is still up, would read the board's entry and push.
+    if (goingBackRef.current) return;
+    if (wasOpenedFromRankings()) {
+      goingBackRef.current = true;
+      router.back();
+      return;
+    }
+    const target = backToRankingsPath(
+      {
+        region: searchParams.get('region'),
+        ageGroup: searchParams.get('ageGroup'),
+        gender: searchParams.get('gender'),
+      },
+      team
+    );
     try {
-      router.push(`/rankings/${sanitizedRegion}/${sanitizedAgeGroup}/${sanitizedGender}`);
+      router.push(target);
     } catch (error) {
       console.error('Error navigating to rankings:', error);
-      // Fallback to default rankings page
-      router.push('/rankings/national/u12/male');
+      router.push('/rankings');
     }
   };
 
@@ -80,10 +100,10 @@ function BackToRankingsButtonContent() {
 }
 
 // Wrapper component that ensures useSearchParams is always in Suspense
-function BackToRankingsButton() {
+function BackToRankingsButton({ teamId }: { teamId: string }) {
   return (
     <Suspense fallback={<div className="mb-4 h-9" />}>
-      <BackToRankingsButtonContent />
+      <BackToRankingsButtonContent teamId={teamId} />
     </Suspense>
   );
 }
@@ -105,6 +125,11 @@ export function TeamPageShell({ id }: TeamPageShellProps) {
     previousIdRef.current = id;
   }, [id, queryClient]);
 
+  // A rankings row's push lands here; mark the entry so Back to Rankings can return to the board.
+  useEffect(() => {
+    markIfOpenedFromRankings();
+  }, [id]);
+
   return (
     <>
       {/* Page Header - Athletic Editorial Style */}
@@ -122,7 +147,7 @@ export function TeamPageShell({ id }: TeamPageShellProps) {
       </div>
 
       <div className="container mx-auto py-6 sm:py-8 px-4 sm:px-6">
-        <BackToRankingsButton />
+        <BackToRankingsButton teamId={id} />
 
         <div className="space-y-6">
           <SectionErrorBoundary fallbackTitle="Failed to load team header.">

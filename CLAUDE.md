@@ -957,7 +957,7 @@ file here carries it (`.env.example` says why).
 ### Key Routes
 
 - `/` — Home page
-- `/rankings` — Main rankings table (virtualized)
+- `/rankings` — Main rankings table (top 100, "Show more" adds 100 at a time)
 - `/rankings/[region]/[ageGroup]/[gender]` — Filtered rankings
 - `/teams/[id]` — Team detail page (premium, ISR)
 - `/compare` — Team comparison (premium)
