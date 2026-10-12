@@ -2186,16 +2186,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: Nothing under `frontend/` imports `fuse.js` (verified 2026-10-12). It stays listed only because `frontend/package-lock.json` is a fingerprinted MatchBalance renderer input, so changing it fails `test_matchbalance_sample_artifacts` until `python scripts/regenerate_matchbalance_samples.py` re-renders the samples. Drop the dependency in the same PR as the next refresh rather than paying for a refresh on its own.
 - **Noted**: 2026-10-12
 
-### Give the phone header search one clear button and a wider dropdown
-
-- **ID**: IMP-330
-- **Status**: open
-- **Type**: direct
-- **Category**: feature
-- **Where**: `frontend/components/GlobalSearch.tsx` (`GlobalSearch`: the `Input type="search"`, its custom clear button, and the results `Card`)
-- **Why**: A 375 px phone smoke test (2026-10-12) showed two clear controls side by side: the browser's own for `type="search"` and the custom X. The results `Card` is `absolute w-full` inside the input's wrapper, so it is only as wide as the input and team names truncate to a few words ("FLYTE SC B..."). Both predate server-side search.
-- **Noted**: 2026-10-12
-
 ### Correct three team-search comments that contradict the code
 
 - **ID**: IMP-331
