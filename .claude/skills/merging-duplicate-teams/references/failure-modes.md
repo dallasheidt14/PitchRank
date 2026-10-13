@@ -82,11 +82,13 @@ branch in the extractor — is closed, and is kept below because the shape recur
 
 **1. A U-label carries no year, and the weekly normalizer creates U-labels.**
 `scripts/normalize_team_names.py --all-teams` is Step 1 of the same Monday job, and it is the
-only hygiene step with no freeze flag. It rewrites a birth-year band into a single U-age:
+only hygiene step with no freeze flag. It rewrites every birth-year band but an aged-out one into
+a single U-age:
 
 ```
 'EPIC SC B09/08 Dash' -> 'EPIC SC U19 Dash'
 'EPIC SC B08/07 Dash' -> 'EPIC SC U19 Dash'      <- two cohorts, identical output
+'EPIC SC B07/06 Dash' -> 'EPIC SC B07/06 Dash'   <- aged out in 2026-27, left as written
 ```
 
 And the guard then reads nothing from either:
