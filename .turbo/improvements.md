@@ -2236,3 +2236,13 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `frontend/components/ClutchFactorCard.tsx` (`ClutchFactorCard`) and `frontend/components/TeamInsightsCard.tsx` (`TeamInsightsCard`): the locked-state overlay (lock icon, message, `Button asChild` around the `/upgrade?source=…&team=` Link that calls `trackPaywallUpgradeClicked`)
 - **Why**: The two overlays are the same block, differing only in the message and the source key, so any change to the paywall button (markup, styling, tracking payload) has to be made twice; the 2026-10-12 `Button asChild` conversion had to edit both by hand. A component taking `feature`, `message` and `teamId` would hold one copy, and `frontend/components/paywall-upgrade-link.test.tsx` already covers both cards.
 - **Noted**: 2026-10-12
+
+### Stop losing scored TGS games that carry no date
+
+- **ID**: IMP-338
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `scripts/scrape_tgs_event.py` (`normalize_api_game`, `is_future_game`), `src/utils/enhanced_validators.py` (`validate_game`: required `game_date`, year >= 2000)
+- **Why**: AthleteOne sends `gameDate` as null or `0001-01-01T00:00:00` for some played games (event 3866 flight 32768: 104 of 104 scored and null-dated; event 3451 match 743276: scored 1-2, dated 0001-01-01). The importer quarantines every one, again on each weekly rescan: 19,462 TGS rows for a missing `game_date` since 2026-04-02 (~730 distinct games by team pair and score) plus 146 dated 0001-01-01, all scored (queried 2026-10-12). Deciding how to date them (the event's own dates for a one-weekend tournament?) or to drop them at the scraper is the open call.
+- **Noted**: 2026-10-12

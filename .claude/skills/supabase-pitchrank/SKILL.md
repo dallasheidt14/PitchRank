@@ -73,7 +73,10 @@ whose home and away are the other way round from the incoming result, swap the s
 
 To correct one stored game, insert a `game_corrections` row (`correction_type` `score`, with
 `original_values` and `corrected_values`) and call the `apply_game_correction(correction_id,
-approver_name)` RPC; the immutability trigger rejects a direct `.update()` on scores. A later score
+approver_name)` RPC; the immutability trigger rejects a direct `.update()` on scores. Put `result`
+in `corrected_values` beside both scores: the RPC writes `result` from it and clears it when
+absent. Keep the side the stored `result` already describes, which its own scores show unless the
+game was a draw; a filled score can describe a different side from its siblings. A later score
 fill leaves `source_url` as it was, so it does not say which team's page supplied the score.
 
 ### `rankings_full`
