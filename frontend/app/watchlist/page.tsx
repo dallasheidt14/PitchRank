@@ -255,9 +255,9 @@ export default function WatchlistPage() {
             </div>
             <h1 className="text-2xl font-display mb-3">Sign In Required</h1>
             <p className="text-muted-foreground mb-6">Please sign in to access your Season Dashboard.</p>
-            <Link href="/login">
-              <Button size="lg">Sign In</Button>
-            </Link>
+            <Button asChild size="lg">
+              <Link href="/login">Sign In</Link>
+            </Button>
           </div>
         </div>
       </div>
@@ -277,12 +277,12 @@ export default function WatchlistPage() {
             <p className="text-muted-foreground mb-6">
               Upgrade to Premium to access your Season Dashboard with persistent watchlists, team insights, and more.
             </p>
-            <Link href="/upgrade">
-              <Button size="lg" className="gap-2">
+            <Button asChild size="lg" className="gap-2">
+              <Link href="/upgrade">
                 <Sparkles className="h-5 w-5" />
                 Upgrade to Premium
-              </Button>
-            </Link>
+              </Link>
+            </Button>
           </div>
         </div>
       </div>
@@ -381,12 +381,12 @@ export default function WatchlistPage() {
               Start building your dashboard by adding teams from the rankings. Track their performance, get insights,
               and never miss a move.
             </p>
-            <Link href="/rankings">
-              <Button size="lg" className="gap-2 font-semibold">
+            <Button asChild size="lg" className="gap-2 font-semibold">
+              <Link href="/rankings">
                 <Sparkles className="h-5 w-5" />
                 Explore Rankings
-              </Button>
-            </Link>
+              </Link>
+            </Button>
           </div>
         ) : (
           <>
@@ -513,7 +513,7 @@ export default function WatchlistPage() {
                   <Card
                     key={team.team_id_master}
                     className={cn(
-                      'group relative overflow-hidden transition-all duration-300 hover:shadow-lg hover:-translate-y-1',
+                      'group relative overflow-hidden',
                       'animate-in fade-in slide-in-from-bottom-4',
                       selectedIds.has(team.team_id_master) && 'ring-2 ring-primary'
                     )}
@@ -641,12 +641,12 @@ export default function WatchlistPage() {
                             <Brain className="h-3.5 w-3.5" />
                             Insights
                           </Button>
-                          <Link href={`/teams/${team.team_id_master}`}>
-                            <Button variant="ghost" size="sm" className="text-xs gap-1">
+                          <Button asChild variant="ghost" size="sm" className="text-xs gap-1">
+                            <Link href={`/teams/${team.team_id_master}`}>
                               View
                               <ChevronRight className="h-3.5 w-3.5" />
-                            </Button>
-                          </Link>
+                            </Link>
+                          </Button>
                         </div>
                       </div>
                     </CardContent>

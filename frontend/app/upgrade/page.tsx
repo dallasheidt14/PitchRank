@@ -172,9 +172,8 @@ function UpgradePageContent() {
           {/* Monthly Plan */}
           <Card
             variant="elevated"
-            className={`relative cursor-pointer transition-all hover:shadow-lg ${
-              selectedPlan === 'monthly' ? 'ring-2 ring-primary' : ''
-            }`}
+            interactive
+            className={`relative ${selectedPlan === 'monthly' ? 'ring-2 ring-primary' : ''}`}
             onClick={() => setSelectedPlan('monthly')}
           >
             <CardHeader>
@@ -232,9 +231,8 @@ function UpgradePageContent() {
           {/* Yearly Plan */}
           <Card
             variant="primary"
-            className={`relative cursor-pointer transition-all hover:shadow-lg ${
-              selectedPlan === 'yearly' ? 'ring-2 ring-primary' : ''
-            }`}
+            interactive
+            className={`relative ${selectedPlan === 'yearly' ? 'ring-2 ring-primary' : ''}`}
             onClick={() => setSelectedPlan('yearly')}
           >
             <div className="absolute -top-3 left-1/2 -translate-x-1/2">

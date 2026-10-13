@@ -93,11 +93,9 @@ export default async function SubscriptionsDashboardPage() {
               })}
             </p>
           </div>
-          <Link href="/mission-control/subscriptions">
-            <Button variant="outline" size="sm">
-              Refresh
-            </Button>
-          </Link>
+          <Button asChild variant="outline" size="sm">
+            <Link href="/mission-control/subscriptions">Refresh</Link>
+          </Button>
         </div>
 
         {metrics.errors.length > 0 && (

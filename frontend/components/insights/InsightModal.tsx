@@ -386,12 +386,12 @@ export function InsightModal({ isOpen, onClose, teamId, teamName }: InsightModal
 
             {/* View Full Profile Link */}
             <div className="pt-2">
-              <Link href={`/teams/${teamId}`}>
-                <Button variant="outline" className="w-full gap-2">
+              <Button asChild variant="outline" className="w-full gap-2">
+                <Link href={`/teams/${teamId}`}>
                   View Full Team Profile
                   <ExternalLink className="h-4 w-4" />
-                </Button>
-              </Link>
+                </Link>
+              </Button>
             </div>
           </div>
         )}

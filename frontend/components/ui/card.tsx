@@ -11,8 +11,10 @@ const cardVariants = cva('bg-card text-card-foreground flex flex-col gap-6 round
       accent: 'shadow-sm border-l-4 border-l-accent',
       primary: 'shadow-sm border-l-4 border-l-primary',
       flat: 'shadow-none',
-      interactive:
-        'shadow-sm transition-all duration-300 hover:shadow-lg hover:scale-[1.02] cursor-pointer active:scale-[0.99]',
+    },
+    // For a card that is itself the click target. A card that only contains buttons stays still.
+    interactive: {
+      true: 'cursor-pointer transition duration-200 hover:-translate-y-0.5 hover:shadow-lg',
     },
   },
   defaultVariants: {
@@ -20,8 +22,13 @@ const cardVariants = cva('bg-card text-card-foreground flex flex-col gap-6 round
   },
 });
 
-function Card({ className, variant, ...props }: React.ComponentProps<'div'> & VariantProps<typeof cardVariants>) {
-  return <div data-slot="card" className={cn(cardVariants({ variant, className }))} {...props} />;
+function Card({
+  className,
+  variant,
+  interactive,
+  ...props
+}: React.ComponentProps<'div'> & VariantProps<typeof cardVariants>) {
+  return <div data-slot="card" className={cn(cardVariants({ variant, interactive, className }))} {...props} />;
 }
 
 function CardHeader({ className, ...props }: React.ComponentProps<'div'>) {

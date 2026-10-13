@@ -32,12 +32,12 @@ export default function Error({ error, reset }: { error: Error & { digest?: stri
             Try again
           </Button>
 
-          <Link href="/">
-            <Button variant="outline" className="gap-2 w-full sm:w-auto">
+          <Button asChild variant="outline" className="gap-2 w-full sm:w-auto">
+            <Link href="/">
               <Home className="h-4 w-4" />
               Go home
-            </Button>
-          </Link>
+            </Link>
+          </Button>
         </div>
       </div>
     </div>

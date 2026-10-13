@@ -40,9 +40,9 @@ export default async function ConfirmPage({
           </CardDescription>
         </CardHeader>
         <CardFooter className="flex justify-center">
-          <Link href="/forgot-password">
-            <Button variant="outline">Request a new link</Button>
-          </Link>
+          <Button asChild variant="outline">
+            <Link href="/forgot-password">Request a new link</Link>
+          </Button>
         </CardFooter>
       </AuthCardShell>
     );

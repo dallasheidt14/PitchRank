@@ -155,21 +155,21 @@ export function TeamInsightsCard({ teamId }: TeamInsightsCardProps) {
             <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/60 backdrop-blur-[1px]">
               <Lock className="h-5 w-5 text-muted-foreground mb-2" />
               <p className="text-xs text-muted-foreground mb-2">Unlock AI-powered team analysis</p>
-              <Link
-                href={`/upgrade?source=team_insights&team=${teamId}`}
-                onClick={() =>
-                  trackPaywallUpgradeClicked({
-                    feature: 'team_insights',
-                    location: 'team_detail_page',
-                    team_id: teamId,
-                  })
-                }
-              >
-                <Button size="sm" className="text-xs">
+              <Button asChild size="sm" className="text-xs">
+                <Link
+                  href={`/upgrade?source=team_insights&team=${teamId}`}
+                  onClick={() =>
+                    trackPaywallUpgradeClicked({
+                      feature: 'team_insights',
+                      location: 'team_detail_page',
+                      team_id: teamId,
+                    })
+                  }
+                >
                   <Lock className="w-3 h-3 mr-1" />
                   Upgrade to Unlock
-                </Button>
-              </Link>
+                </Link>
+              </Button>
             </div>
           </div>
         </CardContent>

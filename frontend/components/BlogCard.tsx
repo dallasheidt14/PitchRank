@@ -10,7 +10,7 @@ interface BlogCardProps {
 export function BlogCard({ post }: BlogCardProps) {
   return (
     <Link href={`/blog/${post.slug}`} className="group">
-      <Card className="h-full transition-all duration-200 hover:shadow-lg hover:scale-[1.02]">
+      <Card interactive className="h-full">
         <CardHeader>
           <CardTitle className="group-hover:text-primary transition-colors">{post.title}</CardTitle>
           <CardDescription>{post.excerpt}</CardDescription>

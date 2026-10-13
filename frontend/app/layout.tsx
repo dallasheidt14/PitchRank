@@ -18,7 +18,6 @@ const oswald = Oswald({
   variable: '--font-oswald',
   subsets: ['latin'],
   weight: ['600', '700'],
-  fallback: ['system-ui', 'sans-serif'],
   display: 'swap',
 });
 
@@ -27,17 +26,18 @@ const dmSans = DM_Sans({
   variable: '--font-dm-sans',
   subsets: ['latin'],
   weight: ['300', '400', '500', '600', '700'],
-  fallback: ['system-ui', 'sans-serif'],
   display: 'swap',
 });
 
-// JetBrains Mono: stat numbers
+// JetBrains Mono: stat numbers. next/font's generated stand-in would be Arial, proportional and a
+// third taller, so it sets an explicit monospace fallback. Under Turbopack only `fallback` stops the
+// generated face; `adjustFontFallback: false` is ignored.
 const jetbrainsMono = JetBrains_Mono({
   variable: '--font-jetbrains-mono',
   subsets: ['latin'],
   weight: ['500', '600', '700'],
-  fallback: ['ui-monospace', 'monospace'],
   display: 'swap',
+  fallback: ['ui-monospace', 'monospace'],
 });
 
 export const metadata: Metadata = {
