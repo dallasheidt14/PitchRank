@@ -14,12 +14,12 @@ export function PageHeader({ title, description, showBackButton = false, backHre
     <div className="mb-6 flex items-start justify-between gap-4">
       <div className="flex-1">
         {showBackButton && (
-          <Link href={backHref}>
-            <Button variant="ghost" size="sm" className="mb-2 -ml-2">
+          <Button asChild variant="ghost" size="sm" className="mb-2 -ml-2">
+            <Link href={backHref}>
               <ArrowLeft className="mr-2 h-4 w-4" />
               Back
-            </Button>
-          </Link>
+            </Link>
+          </Button>
         )}
         <h1 className="font-display text-3xl font-bold uppercase tracking-wide">{title}</h1>
         {description && <p className="mt-2 text-muted-foreground">{description}</p>}

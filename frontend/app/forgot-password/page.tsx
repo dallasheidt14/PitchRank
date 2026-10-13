@@ -68,9 +68,9 @@ export default function ForgotPasswordPage() {
           </p>
         </CardContent>
         <CardFooter className="flex justify-center">
-          <Link href="/login">
-            <Button variant="outline">Back to login</Button>
-          </Link>
+          <Button asChild variant="outline">
+            <Link href="/login">Back to login</Link>
+          </Button>
         </CardFooter>
       </AuthCardShell>
     );

@@ -2217,46 +2217,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: `_has_top_level_or` refuses only a `||` outside every bracket, so `(env.AGE_ROLLOVER_FREEZE == 'false' || github.event_name == 'workflow_dispatch') && ...` passes while a manual dispatch runs the writing step during a freeze (checked 2026-10-12: not refused, gate text present). `scripts/check_age_skill_assumptions.py` `_gated_on_the_flag` already requires the comparison to be one of the top-level `&&` terms with no top-level `||`. Wanted: the same rule for the freeze gate, ideally one shared parser.
 - **Noted**: 2026-10-12
 
-### Show one header search box at tablet widths
-
-- **ID**: IMP-334
-- **Status**: open
-- **Type**: direct
-- **Category**: feature
-- **Where**: `frontend/components/Navigation.tsx` (`Navigation`: the desktop slot `hidden md:flex` and the phone row `flex lg:hidden`, each holding a `GlobalSearch`)
-- **Why**: From 768 to 1023 px both slots render, so the header shows two search boxes side by side (191 px and 241 px wide, measured 2026-10-12). One breakpoint should own the box.
-- **Noted**: 2026-10-12
-
-### Give clickable cards one hover style
-
-- **ID**: IMP-335
-- **Status**: open
-- **Type**: plan
-- **Category**: readability
-- **Where**: `frontend/components/ui/card.tsx` (`interactive` variant), `frontend/components/BlogCard.tsx` (`BlogCard`), `frontend/app/watchlist/page.tsx` (team cards), `frontend/app/upgrade/page.tsx` (plan cards)
-- **Why**: Feature tiles zoom to 102% over 300 ms with a press effect, blog cards zoom to 102% over 200 ms, watchlist cards lift 4 px, and the plan cards only deepen their shadow, so a change to clickable-card feedback has to be made in four places. The 2026-10-11 audit suggested the `interactive` variant for all of them.
-- **Noted**: 2026-10-12
-
-### Make "Sign in" one control instead of a button inside a link
-
-- **ID**: IMP-336
-- **Status**: open
-- **Type**: direct
-- **Category**: feature
-- **Where**: `frontend/components/Navigation.tsx` (`Navigation`: the `nav-signin` Link wrapping a `Button`, and any other Link-wrapped Button)
-- **Why**: Two nested interactive elements give keyboard users two Tab stops for one action (confirmed in a 2026-10-12 smoke test) and are invalid HTML; `<Button asChild><Link /></Button>` renders one.
-- **Noted**: 2026-10-12
-
-### Let next/font build its size-matched fallback fonts
-
-- **ID**: IMP-337
-- **Status**: open
-- **Type**: plan
-- **Category**: performance
-- **Where**: `frontend/app/layout.tsx` (the `Oswald`, `DM_Sans` and `JetBrains_Mono` calls, each passing `fallback`), `frontend/app/globals.css` (`@theme inline` font tokens)
-- **Why**: With `fallback` set, the production (Turbopack) build emits no size-adjusted "… Fallback" face, so text swaps from the system font to the web font with no metric match and can reflow on a slow first visit; the local `next dev --webpack` build does emit the fallback faces, so a local check hides this (two reviewers, 2026-10-12, against production CSS and a scratch Next 16.2.6 app). Dropping `fallback` and moving `system-ui, sans-serif` into the theme tokens lets next/font generate the adjusted faces; measure CLS before and after, since five throttled phone runs showed no difference from the body-font fix alone.
-- **Noted**: 2026-10-12
-
 ### Stop losing scored TGS games that carry no date
 
 - **ID**: IMP-338
@@ -2265,4 +2225,24 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Category**: reliability
 - **Where**: `scripts/scrape_tgs_event.py` (`normalize_api_game`, `is_future_game`), `src/utils/enhanced_validators.py` (`validate_game`: required `game_date`, year >= 2000)
 - **Why**: AthleteOne sends `gameDate` as null or `0001-01-01T00:00:00` for some played games (event 3866 flight 32768: 104 of 104 scored and null-dated; event 3451 match 743276: scored 1-2, dated 0001-01-01). The importer quarantines every one, again on each weekly rescan: 19,462 TGS rows for a missing `game_date` since 2026-04-02 (~730 distinct games by team pair and score) plus 146 dated 0001-01-01, all scored (queried 2026-10-12). Deciding how to date them (the event's own dates for a one-weekend tournament?) or to drop them at the scraper is the open call.
+- **Noted**: 2026-10-12
+
+### Centre the header row like the page content
+
+- **ID**: IMP-339
+- **Status**: open
+- **Type**: direct
+- **Category**: feature
+- **Where**: `frontend/components/Navigation.tsx` (`Navigation`: the header row `<div className="container flex h-16 ...">`)
+- **Why**: The row uses `container` without `mx-auto`, so from 769 to 1279 px it is capped at the breakpoint width (768 or 1,024 px) and sits flush left, while page content uses `container mx-auto` and is centred, so the header's edges and the content's disagree (measured 2026-10-12: at 1,100 px the header row spans 0–1,024 px with 76 px empty on the right).
+- **Noted**: 2026-10-12
+
+### Share one paywall Upgrade block between the team-page insight cards
+
+- **ID**: IMP-340
+- **Status**: open
+- **Type**: plan
+- **Category**: refactor
+- **Where**: `frontend/components/ClutchFactorCard.tsx` (`ClutchFactorCard`) and `frontend/components/TeamInsightsCard.tsx` (`TeamInsightsCard`): the locked-state overlay (lock icon, message, `Button asChild` around the `/upgrade?source=…&team=` Link that calls `trackPaywallUpgradeClicked`)
+- **Why**: The two overlays are the same block, differing only in the message and the source key, so any change to the paywall button (markup, styling, tracking payload) has to be made twice; the 2026-10-12 `Button asChild` conversion had to edit both by hand. A component taking `feature`, `message` and `teamId` would hold one copy, and `frontend/components/paywall-upgrade-link.test.tsx` already covers both cards.
 - **Noted**: 2026-10-12
