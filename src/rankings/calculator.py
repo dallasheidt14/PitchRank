@@ -1748,6 +1748,24 @@ def _publication_cap_rank_with_connectivity(row: pd.Series, diagnostics: pd.Data
 
 
 def _publication_cap_rank(row: pd.Series) -> int | None:
+    evidence_cap = _publication_evidence_cap_rank(row)
+    policy = _same_age_evidence_policy(_safe_int(row.get("age_num")))
+    soft_cap = int(policy["soft_cap_rank"])
+    if evidence_cap is None or evidence_cap <= soft_cap:
+        return evidence_cap
+    # Qualifying older results remain evidence even when connectivity improves.
+    if _has_play_up_support(
+        _safe_float(row.get("play_up_game_share")) or 0.0,
+        _safe_int(row.get("play_up_top500_non_loss_opp_count")),
+        _safe_int(row.get("play_up_top1000_non_loss_opp_count")),
+        _safe_float(row.get("play_up_avg_opp_power_adj")),
+        policy,
+    ):
+        return soft_cap
+    return evidence_cap
+
+
+def _publication_evidence_cap_rank(row: pd.Series) -> int | None:
     age_num = _safe_int(row.get("age_num"))
     policy = _same_age_evidence_policy(age_num)
     top100 = _safe_int(row.get("same_age_top100_opp_count"))
