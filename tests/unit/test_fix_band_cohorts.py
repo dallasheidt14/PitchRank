@@ -592,6 +592,12 @@ def test_a_name_whose_years_fit_the_new_group_is_not_held(season_2026, name, tar
         ("Club 2004 Boys", "u19", "name has birth year 2004, outside U19 (2009/2008/2007)"),
         ("Club '04 Blue", "u19", "name has birth year 2004, outside U19 (2009/2008/2007)"),
         ("Club '11 Blue", "u13", "name has birth year 2011, outside U13 (2014/2013)"),
+        # A curly apostrophe counts like a straight one: alone, on both halves of a band, or on one.
+        ("Club ’11 Blue", "u13", "name has birth year 2011, outside U13 (2014/2013)"),
+        ("Club ‘11 Blue", "u13", "name has birth year 2011, outside U13 (2014/2013)"),
+        ("Club ‘11/‘12 Blue", "u14", "name has birth year 2011, outside U14 (2013/2012)"),
+        ("Club ‘12/‘13 Blue", "u15", "name has birth year 2013, outside U15 (2012/2011)"),
+        ("Club 11/’12 Blue", "u14", "name has birth year 2011, outside U14 (2013/2012)"),
         # Bands beside a word or an M/F letter, which birth_years does not read.
         ("Club 11/12M Blue", "u12", "name has birth year 2011, outside U12 (2015/2014)"),
         ("Club 07/08F", "u17", "name has birth year 2007, outside U17 (2010/2009)"),
@@ -652,6 +658,7 @@ def test_name_u_ages_reads_every_u_age_form(name, ages):
         # A stray year outweighs a band that agrees: the hold would stop the move.
         ("Club 2012/13 Blue 14B", "u14", "D_name_contradicts"),
         ("Club 2006/07 Boys", "u19", "D_name_contradicts"),
+        ("Club ’11 Blue", "u13", "D_name_contradicts"),
     ],
 )
 def test_evidence_tier_reads_a_name_s_years_the_way_the_hold_does(season_2026, name, target, tier):

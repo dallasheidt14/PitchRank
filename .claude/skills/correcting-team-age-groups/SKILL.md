@@ -100,15 +100,14 @@ Each rule below is enforced automatically, by a flag, or not at all. Know which.
 - **Our own name states a different age** — *automatic under a flag*. `--skip-name-contradictions`
   holds a row at apply when our name states any birth year the new group cannot hold, including a
   span that overlaps the group (owner, 2026-10-11: "Hold every span"), or a U-age two or more
-  groups away. It reads every year form: four-digit years, two-digit years after an apostrophe
-  ('11), apostrophe bands ('11/'12), and both years of every consecutive pair in a run
+  groups away. It reads every year form: four-digit years, two-digit years after a straight or
+  curly apostrophe ('11, ’11), apostrophe bands ('11/'12, ‘11/‘12), and both years of every consecutive pair in a run
   (2012/13/14); a season label (2025-26) is not a birth year. U18 files into u19 on both counts:
   u19 holds three birth years (2009 among them in 2026-27), and a `U17` name is one group from
   `u19`. A U-age one group away passes, since names keep last season's label after Aug 1 and
   squads play a year up. Without the flag the applier reads no name, and plans from the review or
-  the triage reach it unchecked, so pass it on every apply. It reads a straight apostrophe only:
-  both band readers also read '11/'12 written with curly quotes, but this hold does not. In a
-  reconcile plan these rows usually mean the GotSport link points at another squad.
+  the triage reach it unchecked, so pass it on every apply. In a reconcile plan these rows usually
+  mean the GotSport link points at another squad.
 - **An identical team already sits in the target cohort** — *automatic*. A reconcile plan holds
   it as `would_update_collision` on name, gender and cohort alone, so the other row can belong to
   another club; the audit review holds it as `held_duplicate_landing` only when club and state
