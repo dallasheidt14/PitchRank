@@ -495,7 +495,8 @@ def _compute_publication_cap_scores(teams_age: pd.DataFrame, base_scores: pd.Ser
     """Translate cap ranks onto the pre-cap final-score scale.
 
     Publication caps should be derived from the same score domain that drives the
-    published ranking, not raw powerscore_adj.
+    published ranking, not raw powerscore_adj. Each gender has its own ranking
+    within this age, so the reference scores must stay on that board too.
     """
     result = pd.Series(pd.NA, index=teams_age.index, dtype="Float64")
     if "publication_cap_rank" not in teams_age.columns:
@@ -510,15 +511,14 @@ def _compute_publication_cap_scores(teams_age: pd.DataFrame, base_scores: pd.Ser
         pre_cap_df["status"] = teams_age["status"]
     pre_cap_df["pre_cap_base"] = pd.to_numeric(base_scores, errors="coerce")
 
-    age_cap_lookup: dict[int, float] = {}
-
-    def _cap_for_rank(val: float) -> float:
-        rank = int(val)
-        if rank not in age_cap_lookup:
-            age_cap_lookup[rank] = _score_cutoff_for_rank(pre_cap_df, "pre_cap_base", rank)
-        return age_cap_lookup[rank]
-
-    result.loc[cap_rank_series.notna()] = cap_rank_series.loc[cap_rank_series.notna()].map(_cap_for_rank)
+    boards = teams_age.groupby("gender", dropna=False) if "gender" in teams_age.columns else [(None, teams_age)]
+    for _, board in boards:
+        board_caps = cap_rank_series.loc[board.index].dropna().astype(int)
+        reference = pre_cap_df.loc[board.index]
+        cap_lookup = {
+            rank: _score_cutoff_for_rank(reference, "pre_cap_base", rank) for rank in board_caps.unique()
+        }
+        result.loc[board_caps.index] = board_caps.map(cap_lookup)
     return result
 
 
@@ -1748,6 +1748,24 @@ def _publication_cap_rank_with_connectivity(row: pd.Series, diagnostics: pd.Data
 
 
 def _publication_cap_rank(row: pd.Series) -> int | None:
+    evidence_cap = _publication_evidence_cap_rank(row)
+    policy = _same_age_evidence_policy(_safe_int(row.get("age_num")))
+    soft_cap = int(policy["soft_cap_rank"])
+    if evidence_cap is None or evidence_cap <= soft_cap:
+        return evidence_cap
+    # Qualifying older results remain evidence even when connectivity improves.
+    if _has_play_up_support(
+        _safe_float(row.get("play_up_game_share")) or 0.0,
+        _safe_int(row.get("play_up_top500_non_loss_opp_count")),
+        _safe_int(row.get("play_up_top1000_non_loss_opp_count")),
+        _safe_float(row.get("play_up_avg_opp_power_adj")),
+        policy,
+    ):
+        return soft_cap
+    return evidence_cap
+
+
+def _publication_evidence_cap_rank(row: pd.Series) -> int | None:
     age_num = _safe_int(row.get("age_num"))
     policy = _same_age_evidence_policy(age_num)
     top100 = _safe_int(row.get("same_age_top100_opp_count"))

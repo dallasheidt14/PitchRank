@@ -265,6 +265,48 @@ async def test_full_composition_keeps_the_winning_cohorts_diagnostics(league, mo
 
 
 @pytest.mark.asyncio
+async def test_full_composition_sets_cap_cutoffs_on_each_gender_board(league, monkeypatch, tmp_path):
+    games, metadata = league
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("SCF_ENABLED", "false")
+    monkeypatch.setenv("ML_LAYER_ENABLED", "false")
+    # Separate the score distributions so pooling the boards cannot pass by symmetry.
+    monkeypatch.setattr(calc, "_same_age_raw_shrink", lambda row: .2 if row.gender == "female" else 0.)
+    monkeypatch.setattr(calc, "_same_age_publish_penalty", lambda row: 0.)
+    monkeypatch.setattr(calc, "_play_up_bonus", lambda row: 0.)
+    monkeypatch.setattr(calc, "_publication_cap_rank", lambda row: 2)
+    captured = []
+    original = calc._compute_publication_cap_scores
+
+    def capture(teams, base):
+        captured.append(teams.assign(pre_cap=base).copy(deep=True))
+        return original(teams, base)
+
+    monkeypatch.setattr(calc, "_compute_publication_cap_scores", capture)
+    client = harness.FrozenClient(metadata, pd.DataFrame(columns=["deprecated_team_id", "canonical_team_id"]))
+    result = await calc.compute_all_cohorts(
+        client, games_df=games, today=pd.Timestamp("2026-08-31"), fetch_from_supabase=False,
+        persist_game_residuals=False, persist_game_explainability=False,
+        calculate_rank_changes_enabled=False, save_snapshot=False, ceiling_connectivity_enabled=True,
+    )
+    assert len(captured) == 1
+    assert set(captured[0].gender) == {"male", "female"}
+    actual = result["teams"].set_index("team_id")
+    expected_cutoffs = {}
+    for gender, board in captured[0].groupby("gender"):
+        ranked = board.loc[board.status.eq("Active")].sort_values(
+            ["pre_cap", "team_id"], ascending=[False, True]
+        )
+        expected_cutoffs[gender] = max(0., float(ranked.iloc[1].pre_cap) - 1e-6)
+        np.testing.assert_allclose(
+            actual.loc[board.team_id, "publication_cap_score"].astype(float), expected_cutoffs[gender],
+            rtol=0, atol=0,
+        )
+        assert (actual.loc[board.team_id, "power_score_true"] <= expected_cutoffs[gender]).all()
+    assert expected_cutoffs["male"] != expected_cutoffs["female"]
+
+
+@pytest.mark.asyncio
 async def test_enabled_mode_refuses_unsafe_or_incompatible_entry(monkeypatch):
     monkeypatch.setenv("SCF_ENABLED", "false")
     with pytest.raises(ValueError, match="requires Glicko"):
