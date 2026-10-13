@@ -713,9 +713,16 @@ def render_seeding_pack(
     pending_upgrade = False
     if restored is not None:
         pack = restored
+    saved_analyses = None
+    if pack_matches(pack, parsed.rows, resolved, overrides, selected):
+        try:
+            saved_analyses = analyze_pack(pack, parsed.rows, resolved, overrides)
+        except (ValueError, TypeError, KeyError, AttributeError):
+            # Required recovery must remain visible even when the roster still matches.
+            pass
     build_requested = False
     if view != "export":
-        if pack_matches(pack, parsed.rows, resolved, overrides, selected):
+        if saved_analyses is not None:
             with st.expander("Rebuild with current team data (optional)", expanded=False):
                 st.caption("Your sheets are already built. Rebuilding preserves director notes and roster decisions.")
                 build_requested = st.button("Build seeding sheets", key="_seeding_build_tiers")
@@ -778,8 +785,8 @@ def render_seeding_pack(
     analysis_error = None
     if current_pack:
         try:
-            analyses = candidate_analyses or analyze_pack(pack, parsed.rows, resolved, overrides)
-        except (ValueError, TypeError, KeyError) as exc:
+            analyses = candidate_analyses or saved_analyses or analyze_pack(pack, parsed.rows, resolved, overrides)
+        except (ValueError, TypeError, KeyError, AttributeError) as exc:
             analysis_error = exc
     metadata = st.session_state.get("_seeding_assessment") or {}
     assessment = assess_roster(parsed, resolved, overrides, coverage=metadata.get("coverage", "unknown"),

@@ -513,21 +513,31 @@ def test_malformed_saved_pack_type_can_be_rebuilt_without_losing_the_build_contr
     assert "Alpha FC" in app.session_state["_seeding_sheet_html"]
 
 
-@pytest.mark.parametrize("missing_field", ["policy", "generated_at"])
-def test_saved_pack_missing_required_field_explains_rebuild_and_keeps_build_control(operator, missing_field):
+@pytest.mark.parametrize("invalid_field", ["policy", "generated_at", "legacy_manual_groups"])
+def test_saved_pack_invalid_field_explains_rebuild_and_keeps_build_control(operator, invalid_field):
     app, calls = operator
     click(app, "Build seeding sheets")
     malformed = deepcopy(app.session_state["_seeding_pack"])
-    del malformed[missing_field]
+    if invalid_field == "legacy_manual_groups":
+        malformed[invalid_field] = []
+    else:
+        del malformed[invalid_field]
     app.session_state["_seeding_pack"] = malformed
     app.run()
     assert not app.exception
     assert any("pack needs rebuilding" in error.value for error in app.error)
     assert app.session_state["_seeding_sheet_html"] is None
+    build = app.button(key="_seeding_build_tiers")
+    assert build.proto.type == "primary"
+    assert not any("Rebuild with current team data (optional)" == item.label for item in app.expander)
     click(app, "Build seeding sheets")
     assert not app.error
     assert len(calls) == 2
     assert "Alpha FC" in app.session_state["_seeding_sheet_html"]
+    app.run()
+    assert app.button(key="_seeding_build_tiers").proto.type == "secondary"
+    optional = next(item for item in app.expander if item.label == "Rebuild with current team data (optional)")
+    assert not optional.proto.expanded
 
 
 def test_failed_save_banner_survives_rerun_and_successful_retry_clears_it(operator):
