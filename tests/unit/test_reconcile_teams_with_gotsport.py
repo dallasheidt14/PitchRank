@@ -260,6 +260,7 @@ U13_YEAR = SEASON - 12  # the younger year of this season's u13 band
         (f"Saints International Academy {U13_YEAR}", "Saints U 11 Boys", False),
         (f"Saints International Academy {U13_YEAR}", "Saints-B11A-Coach", False),
         (f"Saints International Academy {U13_YEAR}", "Saints U/11B", False),
+        (f"Saints International Academy {U13_YEAR}", f"Saints ’{(U13_YEAR - 1) % 100}–’{(U13_YEAR + 1) % 100}", False),
         (f"Saints International Academy {U13_YEAR}", "Saints U11A", False),
         # a band of GotSport's is read as birth years, never as a U-age span
         (f"Saints International Academy {U13_YEAR}", f"Saints {(U13_YEAR - 2) % 100}/{(U13_YEAR - 1) % 100}B", False),

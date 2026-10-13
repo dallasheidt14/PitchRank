@@ -2246,3 +2246,13 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `scripts/fix_band_cohorts.py` (`name_u_ages`, `name_contradiction`, `_group_steps`), `scripts/reconcile_teams_with_gotsport.py` (`read_age_group`), `.claude/skills/reconcile-gotsport/scripts/triage_reconcile.py` (`name_ages`, `group_number`)
 - **Why**: The three callers share one reader but each folds and bounds the ages itself: the sync folds U18 and U20 into u19 through `normalize_age_group` with no bound, the age fixer keeps 5..19 and folds only U18 (so a U20 is dropped), and the triage folds through `group_number` and keeps 7..19. It changes no logged decision today (measured 2026-10-13: one sync rename, where the current behaviour is the better call; no age-fixer hold), but hand-copied folds have drifted before (see `src/utils/age_group.py`). One helper returning folded group numbers would leave each caller only its own range.
 - **Noted**: 2026-10-13
+
+### Spell the year apostrophe once, so the matchers and merge guards read a curly one too
+
+- **ID**: IMP-343
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `src/utils/team_name_utils.py` (`_APOS_2`, `_DUAL_4_2`, `_DUAL_2_2` and the `"'"` test in `birth_years`' lambda for it, `_LEADING_COHORT`, `AGE_PATTERN`, `birth_years`, `birth_years_conflict`), `scripts/_team_distinction.py` (`AGE_PATTERN`), `scripts/decide_team_merges.py` (`_BAND`), `scripts/import_athletes2events_event.py` (`_AGE_RESPELLINGS`); the curly-aware sets in `scripts/normalize_team_names.py`, `src/utils/team_utils.py` and `scripts/fix_band_cohorts.py`
+- **Why**: Each module types its own set of marks that may precede a two-digit year, and they disagree: the band readers and the age fixer take straight and curly, `import_athletes2events` takes straight and right-curly, and `birth_years` takes straight only. So `birth_years_conflict("Club ’11 Blue", "Club ’12 Blue")` is False while the straight-quote pair is True (checked 2026-10-13), and that function is the year guard in the import matchers (`game_matcher`, `modular11_matcher`), the queue matcher, `repair_defective_aliases` and the fuzzy duplicate finder; `decide_team_merges`' `_BAND` likewise misses a curly band. One exported character class would keep them in step; measure how many `birth_years` readings change before switching it, across the conflict guard's callers and the reconcile triage's `stated_birth_years`.
+- **Noted**: 2026-10-13

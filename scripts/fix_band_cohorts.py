@@ -131,9 +131,11 @@ def cohort_years(age: int, season: Optional[int] = None) -> set:
 # a run ("2012/13/14" reads as 2012 and 2013); name_years reads both years of every consecutive pair in
 # it, because the owner holds a move whenever the name states any year outside the new group
 # (2026-10-11: "Hold every span").
-_YEAR_SEQ = re.compile(r"(?<![0-9])'?(?:20)?[0-9]{2}(?:\s*[/-]\s*'?(?:20)?[0-9]{2})+(?![0-9])")
+# A two-digit year's apostrophe may be straight or curly ("’09", "‘11/‘12", "11/’12"), as _resolve_band
+# reads it.
+_YEAR_SEQ = re.compile(r"(?<![0-9])['‘’]?(?:20)?[0-9]{2}(?:\s*[/-]\s*['‘’]?(?:20)?[0-9]{2})+(?![0-9])")
 _YEAR_4 = re.compile(r"(?<![0-9])20[0-9]{2}(?![0-9])")
-_YEAR_APOS = re.compile(r"'([0-9]{2})(?![0-9])")
+_YEAR_APOS = re.compile(r"['‘’]([0-9]{2})(?![0-9])")
 # "U/10B" is a U-age whose slash _UAGE_TOKEN does not expect; left in, birth_years reads "10B" as 2010.
 _UAGE_SLASH = re.compile(r"(?<![0-9A-Za-z])[BGMF]?U/([0-9]{1,2})[BGMF]?(?![0-9A-Za-z])", re.I)
 # "Town-G09A-Coach": a B/G age wrapped in hyphens is last season's U-age, not a birth year (owner,
