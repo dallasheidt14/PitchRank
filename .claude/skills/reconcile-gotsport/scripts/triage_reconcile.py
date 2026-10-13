@@ -63,7 +63,6 @@ from apply_team_fields import PLAN_COLUMNS as FIELD_PLAN_COLUMNS  # noqa: E402
 from apply_team_fields import write_rows as write_field_plan  # noqa: E402
 
 from scripts.fix_band_cohorts import (  # noqa: E402
-    _NAME_UAGE,
     PLAN_FIELDS,
     _group_steps,
     band_of,
@@ -73,6 +72,7 @@ from scripts.fix_band_cohorts import (  # noqa: E402
     get_supabase,
     load_env,
     load_owner_decisions,
+    name_u_ages,
     norm_name,
     read_csv,
     without_u_ages,
@@ -181,8 +181,8 @@ def name_ages(our_name: Optional[str], gotsport_name: Optional[str], has_last_se
     if band:
         ages.add(band)
     if not has_last_season:
-        for m in _NAME_UAGE.finditer(our_name or ""):
-            n = group_number(f"u{m.group(1) or m.group(2)}")
+        for age in name_u_ages(our_name):
+            n = group_number(f"u{age}")
             if n and 7 <= n <= 19:
                 ages.add(n)
     return ages

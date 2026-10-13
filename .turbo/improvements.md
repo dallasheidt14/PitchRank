@@ -2236,3 +2236,23 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `frontend/components/ClutchFactorCard.tsx` (`ClutchFactorCard`) and `frontend/components/TeamInsightsCard.tsx` (`TeamInsightsCard`): the locked-state overlay (lock icon, message, `Button asChild` around the `/upgrade?source=…&team=` Link that calls `trackPaywallUpgradeClicked`)
 - **Why**: The two overlays are the same block, differing only in the message and the source key, so any change to the paywall button (markup, styling, tracking payload) has to be made twice; the 2026-10-12 `Button asChild` conversion had to edit both by hand. A component taking `feature`, `message` and `teamId` would hold one copy, and `frontend/components/paywall-upgrade-link.test.tsx` already covers both cards.
 - **Noted**: 2026-10-12
+
+### Match retired-name markers as words, not substrings ("zz" hits "Azzurri")
+
+- **ID**: IMP-341
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `scripts/reconcile_teams_with_gotsport.py` (`RETIRED_NAME_MARKERS`, `is_retired_registration`)
+- **Why**: The markers match as substrings, so "zz" also hits ordinary words. Over the 469 saved reconcile logs (measured 2026-10-13), 346 distinct stored team names contain "zz" inside a word ("Azzurri Storm 2014 Premier", "Grizzlies", "Blizzard", "Rizzlers"); when GotSport's name carries the same club word the sync blanks it and never takes the rename. It fails safe (no write), but those teams never receive GotSport's name. The same applies in principle to every marker: "archive" would refuse a name like "Archivers U13", though all 830 logged names containing it are archive markers (raised by the Codex review on #1296; the owner chose to fix the markers together). Match each marker as a whole token ("zz" also as a leading marker), and measure on the logs which names change.
+- **Noted**: 2026-10-13
+
+### Fold U-ages into age groups once, for every caller of the shared U-age reader
+
+- **ID**: IMP-342
+- **Status**: open
+- **Type**: plan
+- **Category**: refactor
+- **Where**: `scripts/fix_band_cohorts.py` (`name_u_ages`, `name_contradiction`, `_group_steps`), `scripts/reconcile_teams_with_gotsport.py` (`read_age_group`), `.claude/skills/reconcile-gotsport/scripts/triage_reconcile.py` (`name_ages`, `group_number`)
+- **Why**: The three callers share one reader but each folds and bounds the ages itself: the sync folds U18 and U20 into u19 through `normalize_age_group` with no bound, the age fixer keeps 5..19 and folds only U18 (so a U20 is dropped), and the triage folds through `group_number` and keeps 7..19. It changes no logged decision today (measured 2026-10-13: one sync rename, where the current behaviour is the better call; no age-fixer hold), but hand-copied folds have drifted before (see `src/utils/age_group.py`). One helper returning folded group numbers would leave each caller only its own range.
+- **Noted**: 2026-10-13

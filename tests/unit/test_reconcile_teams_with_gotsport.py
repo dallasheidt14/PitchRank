@@ -55,6 +55,7 @@ from reconcile_teams_with_gotsport import (  # noqa: E402
     write_log,
 )
 from src.utils.gotsport_alias import fetch_gotsport_aliases, is_rankings_space_id  # noqa: E402
+from src.utils.team_utils import _soccer_season_year  # noqa: E402
 
 PID = "742007"
 TEAM_ID = "11111111-1111-1111-1111-111111111111"
@@ -98,7 +99,8 @@ class _Result:
 
 
 class _FakeQuery:
-    """Evaluates its filters, so a wrongly-scoped query matches nothing here too."""
+    """Evaluates its filters and returns only the selected columns, as PostgREST does, so a
+    wrongly-scoped query matches nothing here too and a column left out of a select reads as absent."""
 
     def __init__(self, table, rows, recorder):
         self.table = table
@@ -108,8 +110,10 @@ class _FakeQuery:
         self._payload = None
         self._order = None
         self._range = None
+        self._columns = None
 
-    def select(self, *_):
+    def select(self, columns="*", *_):
+        self._columns = None if columns.strip() == "*" else [c.strip() for c in columns.split(",")]
         return self
 
     def eq(self, column, value):
@@ -159,6 +163,8 @@ class _FakeQuery:
             )
             for row in rows:
                 row.update(self._payload)
+        elif self._columns:
+            rows = [{c: r.get(c) for c in self._columns} for r in rows]
         return _Result(rows)
 
 
@@ -235,8 +241,92 @@ def test_a_name_is_withheld_when_gotsport_files_the_team_under_another_cohort():
 
 def test_a_name_is_taken_when_the_cohorts_agree():
     """The thirteen cohort-matching rows in that same slice all offered a sane name."""
-    decision = _decide(_team(), _resolved(name="14B Antunez", age_group="u14"))
+    decision = _decide(_team(team_name="Crossfire Premier Red"), _resolved(name="14B Antunez", age_group="u14"))
     assert decision.updates == {"team_name": "14B Antunez"}
+
+
+SEASON = _soccer_season_year()
+U13_YEAR = SEASON - 12  # the younger year of this season's u13 band
+
+
+@pytest.mark.parametrize(
+    "ours,theirs,taken",
+    [
+        # Saints International Academy (owner, 2026-10-12): a club's old label replaced the year
+        (f"Saints International Academy {U13_YEAR}", "U11 Boys", False),
+        (f"Saints International Academy {U13_YEAR - 1}/{U13_YEAR}", "U11 Boys", False),
+        (f"Saints International Academy {U13_YEAR}", f"{U13_YEAR - 2}B Saints", False),
+        (f"Saints International Academy {U13_YEAR}", "Saints Black", False),
+        (f"Saints International Academy {U13_YEAR}", "Saints U 11 Boys", False),
+        (f"Saints International Academy {U13_YEAR}", "Saints-B11A-Coach", False),
+        (f"Saints International Academy {U13_YEAR}", "Saints U/11B", False),
+        (f"Saints International Academy {U13_YEAR}", "Saints U11A", False),
+        # a band of GotSport's is read as birth years, never as a U-age span
+        (f"Saints International Academy {U13_YEAR}", f"Saints {(U13_YEAR - 2) % 100}/{(U13_YEAR - 1) % 100}B", False),
+        # GotSport's band must carry every year of ours, not just share one
+        (f"Saints International Academy {U13_YEAR - 1}/{U13_YEAR}", f"Saints {U13_YEAR}/{(U13_YEAR + 1) % 100}", False),
+        # GotSport's name states the age group too, in any form, so it is taken
+        (f"Saints International Academy {U13_YEAR}", f"Saints {U13_YEAR} Boys", True),
+        (f"Saints International Academy {U13_YEAR}", f"Saints {U13_YEAR - 1}/{U13_YEAR % 100:02d}", True),
+        (f"Saints International Academy {U13_YEAR}", "Saints U13 Boys", True),
+        (f"Saints International Academy {U13_YEAR}", "Saints U12/13 Boys", True),
+        # a stale U-age beside a fitting birth year or band: the years state our group
+        (f"Saints International Academy {U13_YEAR}", f"Saints U11 {U13_YEAR - 1}", True),
+        (f"Saints International Academy {U13_YEAR}", f"Saints U12 {U13_YEAR - 1}/{U13_YEAR % 100}", True),
+        # a band holding our year narrows it, and a bare number may be the year written short
+        (f"Saints International Academy {U13_YEAR}", f"Saints {U13_YEAR % 100}/{(U13_YEAR + 1) % 100}B", True),
+        (f"Saints International Academy {U13_YEAR}", f"Saints {U13_YEAR % 100} Blue", True),
+        # our name's birth years are not all inside our group, or it has none (a U-age of ours is not
+        # read: it goes stale every Aug 1): GotSport's name is taken
+        ("Saints Black", "U11 Boys", True),
+        (f"Saints {U13_YEAR + 2}", "U11 Boys", True),
+        ("Saints U13 Boys", "Saints U11", True),
+        (f"Saints {U13_YEAR}/{(U13_YEAR + 1) % 100}", "U11 Boys", True),
+    ],
+)
+def test_a_name_of_ours_stating_our_age_group_is_kept_when_gotsport_s_does_not(ours, theirs, taken):
+    decision = _decide(_team(team_name=ours, age_group="u13"), _resolved(name=theirs, age_group="u13"))
+    assert decision.updates == ({"team_name": theirs} if taken else {})
+    assert decision.blocked == (() if taken else ("team_name",))
+
+
+def test_keeping_our_name_never_blocks_a_club_or_state_fill():
+    team = _team(team_name=f"Saints International Academy {U13_YEAR}", age_group="u13", club_name="", state_code="")
+    decision = _decide(team, _resolved(name="U11 Boys", age_group="u13"))
+    assert set(decision.updates) == {"club_name", "state_code"}
+    assert decision.blocked == ("team_name",)
+
+
+@pytest.mark.parametrize(
+    "age_group,ours,theirs,taken",
+    [
+        # GotSport labels the u19 cohort U18 and U20, both of which name it
+        ("u19", f"Saints {SEASON - 18}", "Saints U18 Boys", True),
+        ("u19", f"Saints {SEASON - 19}", "Saints U20 Boys", True),
+        ("u19", f"Saints {SEASON - 18}", "Saints U17 Boys", False),
+        ("u19", f"Saints {SEASON - 18}", "Saints BU17-19", True),
+        # an aged-out u20 squad keeps its own older year
+        ("u20", f"Saints {SEASON - 20}", "Saints U20 Boys", True),
+        ("u20", f"Saints {SEASON - 20}", "Saints U17 Boys", False),
+    ],
+)
+def test_the_oldest_groups_read_u18_and_u20_as_u19(age_group, ours, theirs, taken):
+    decision = _decide(_team(team_name=ours, age_group=age_group), _resolved(name=theirs, age_group=age_group))
+    assert decision.updates == ({"team_name": theirs} if taken else {})
+
+
+def test_our_name_is_kept_when_gotsport_files_no_cohort():
+    """The rule reads our stored age group, so a record with none still cannot replace the year."""
+    team = _team(team_name=f"Saints International Academy {U13_YEAR}", age_group="u13")
+    decision = _decide(team, _resolved(name="U11 Boys", age_group=""))
+    assert decision.blocked == ("team_name",)
+
+
+@pytest.mark.parametrize("stored", [None, "", "Open", "U13"])
+def test_a_stored_age_group_that_is_not_a_cohort_turns_the_rule_off(stored):
+    team = _team(team_name=f"Saints International Academy {U13_YEAR}", age_group=stored)
+    decision = _decide(team, _resolved(name="U11 Boys", age_group=""))
+    assert decision.updates == {"team_name": "U11 Boys"}
 
 
 def test_a_provider_with_no_cohort_does_not_veto_the_name():
@@ -260,7 +350,17 @@ def test_a_real_name_is_never_replaced_by_a_placeholder():
 
 @pytest.mark.parametrize(
     "name",
-    ["zz old - B13 Black", "ZZ Old B13", "B13 Black - OLD", "do not use 2013", "2013 duplicate", "DELETE 2013"],
+    [
+        "zz old - B13 Black",
+        "ZZ Old B13",
+        "B13 Black - OLD",
+        "do not use 2013",
+        "2013 duplicate",
+        "DELETE 2013",
+        "Z-Sting B14 Joost Archive",
+        "ARCHIVE [SGA 2]",
+        "EMSA Strikers 16B (ARCHIVED)",
+    ],
 )
 def test_a_retired_registration_is_never_taken_as_a_name(name):
     """Clubs park dead squads under these markers; a live WA slice offered
@@ -503,19 +603,19 @@ def test_a_landed_state_survives_a_refused_table_write():
 # --- name collisions within a slice ---------------------------------------------
 
 
-def _rename(team_name, club, new_name, team_id):
-    team = _team(team_id_master=team_id, team_name=team_name, club_name=club)
-    return _decide(team, _resolved(name=new_name))
+def _rename(team_name, club, new_name, team_id, age_group="u14"):
+    team = _team(team_id_master=team_id, team_name=team_name, club_name=club, age_group=age_group)
+    return _decide(team, _resolved(name=new_name, age_group=age_group))
 
 
 def test_a_name_two_teams_would_share_is_given_to_neither():
     """Replays a live AZ u13 run: four teams from four different clubs were all
     renamed to `U13G DPL`, each from a name that had said which club it was."""
     decisions = [
-        _rename("AZ Arsenal 2014 Teal VN", "Arizona Arsenal Soccer Club", "U13G DPL", "t1"),
-        _rename("Arizona Soccer Club 2014 Pre-DPL", "Arizona Soccer Club", "U13G DPL", "t2"),
-        _rename("Excel Soccer Academy 2014 G", "Excel Soccer Academy", "U13G DPL", "t3"),
-        _rename("PRFC West Valley 2014 Pre-Elite", "Phoenix Rising FC", "U13G DPL", "t4"),
+        _rename("AZ Arsenal 2014 Teal VN", "Arizona Arsenal Soccer Club", "U13G DPL", "t1", age_group="u13"),
+        _rename("Arizona Soccer Club 2014 Pre-DPL", "Arizona Soccer Club", "U13G DPL", "t2", age_group="u13"),
+        _rename("Excel Soccer Academy 2014 G", "Excel Soccer Academy", "U13G DPL", "t3", age_group="u13"),
+        _rename("PRFC West Valley 2014 Pre-Elite", "Phoenix Rising FC", "U13G DPL", "t4", age_group="u13"),
     ]
     assert all(d.updates == {"team_name": "U13G DPL"} for d in decisions)
 
@@ -570,7 +670,7 @@ def test_a_name_held_elsewhere_in_the_cohort_is_withheld_in_this_window():
     """--limit walks a cohort in batches. Counting only the current window would let
     every batch in turn accept the same generic name and defeat the check across the
     run, which is the shape a 705-team cohort in 25-team batches produces."""
-    decisions = [_rename("2012 1", "Chicago Rush", "U15 B 1", "t1")]
+    decisions = [_rename("2012 1", "Chicago Rush", "U15 B 1", "t1", age_group="u15")]
     outside = {"u15 b 1": 1}
 
     assert drop_colliding_renames(decisions, outside) == 1
@@ -595,7 +695,7 @@ def test_slice_name_counts_reads_the_whole_slice():
 
 def test_the_write_list_judges_collisions_against_the_whole_slice():
     """plan_writes has to hand the slice counts on, not just accept them."""
-    decisions = [_rename("2012 1", "Chicago Rush", "U15 B 1", "t1")]
+    decisions = [_rename("2012 1", "Chicago Rush", "U15 B 1", "t1", age_group="u15")]
 
     planned, collisions = plan_writes(decisions, {"u15 b 1": 1})
 
@@ -606,8 +706,8 @@ def test_the_write_list_cannot_be_obtained_without_the_collision_pass():
     """The guard runs where `planned` is computed, so skipping it is not a silent
     omission — a caller would have to rebuild the filter to bypass it."""
     decisions = [
-        _rename("AZ Arsenal 2014 Teal VN", "Arizona Arsenal Soccer Club", "U13G DPL", "t1"),
-        _rename("Excel Soccer Academy 2014 G", "Excel Soccer Academy", "U13G DPL", "t2"),
+        _rename("AZ Arsenal 2014 Teal VN", "Arizona Arsenal Soccer Club", "U13G DPL", "t1", age_group="u13"),
+        _rename("Excel Soccer Academy 2014 G", "Excel Soccer Academy", "U13G DPL", "t2", age_group="u13"),
         _rename("2014 Hinds", "RSL Arizona South", "14B Hinds", "t3"),
     ]
     planned, collisions = plan_writes(decisions)
@@ -673,6 +773,13 @@ def test_the_slice_is_the_first_n_of_the_whole_cohort_not_of_the_first_page():
 
     assert len(all_rows) == 1500
     assert [t["team_id_master"] for t in teams] == [f"{i:040d}" for i in range(5)]
+
+
+def test_a_fetched_team_carries_the_age_group_the_name_rule_reads():
+    """The rule switches off on a blank stored age, so the slice's query has to select it."""
+    row = {**_teams_table(1)[0], "team_name": f"Saints International Academy {U13_YEAR}", "age_group": "u13"}
+    teams, _ = fetch_target_teams(_FakeSupabase({"teams": [row]}), ["u13"], [], None)
+    assert _decide(teams[0], _resolved(name="U11 Boys", age_group="u13")).blocked == ("team_name",)
 
 
 def test_an_offset_advances_past_a_batch_already_done():
