@@ -124,44 +124,55 @@ def test_an_undated_game_does_not_date_the_event():
     assert u_label_season(["0001-01-01", "2026-09-12", "2026-10-04"]) == 2026
 
 
-def test_a_flight_holding_an_undated_game_is_still_scraped(monkeypatch):
-    """TGS sends '0001-01-01T00:00:00', so the raw value covers the cut to the bare date."""
+def _flight_game(game_date, home_score, away_score):
+    return {
+        "gameDate": game_date,
+        "hometeamID": 132187,
+        "homeTeam": "Beach Futbol Club (CA) ECNL B2013/14",
+        "awayteamID": 132457,
+        "awayTeam": "San Diego Surf ECNL B2013/14",
+        "hometeamscore": home_score,
+        "awayteamscore": away_score,
+    }
+
+
+def _scrape_bu13_flight(monkeypatch, games):
     monkeypatch.setattr(
         tgs,
         "get_flight_division",
         lambda flight_id: {"divisionName": "BU13", "flightID": flight_id, "divisionGender": "m"},
     )
-    monkeypatch.setattr(
-        tgs,
-        "get_games_for_flight",
-        lambda event_id, flight_id: [
-            {
-                "gameDate": "0001-01-01T00:00:00",
-                "hometeamID": 134467,
-                "homeTeam": "Sporting California USA ECNL B2013/14",
-                "awayteamID": 126632,
-                "awayTeam": "Pateadores Soccer Club ECNL B2013/14",
-                "hometeamscore": None,
-                "awayteamscore": None,
-            },
-            {
-                "gameDate": "2026-09-12T09:00:00",
-                "hometeamID": 132187,
-                "homeTeam": "Beach Futbol Club (CA) ECNL B2013/14",
-                "awayteamID": 132457,
-                "awayTeam": "San Diego Surf ECNL B2013/14",
-                "hometeamscore": 0,
-                "awayteamscore": 7,
-            },
-        ],
+    monkeypatch.setattr(tgs, "get_games_for_flight", lambda event_id, flight_id: games)
+    return tgs.process_single_flight(
+        {"flightID": 41622, "flightName": "ECNL"}, 4287, "ECNL Boys Southwest 2026-27", "BU13"
     )
 
-    records, _ = tgs.process_single_flight(
-        {"flightID": 41622, "flightName": "ECNL"}, 4287, "ECNL Boys Southwest 2026-27", "BU13"
+
+def test_a_flight_holding_an_undated_game_is_still_scraped(monkeypatch):
+    """TGS sends '0001-01-01T00:00:00', so the raw value covers the cut to the bare date."""
+    records, _ = _scrape_bu13_flight(
+        monkeypatch,
+        [_flight_game("0001-01-01T00:00:00", None, None), _flight_game("2026-09-12T09:00:00", 0, 7)],
     )
 
     played = [r for r in records if r["game_date"] == "2026-09-12"]
     assert [(r["team_id"], r["age_group"]) for r in played] == [("132187", "u13"), ("132457", "u13")]
+
+
+def test_games_with_no_date_are_left_out_and_counted(monkeypatch):
+    """TGS leaves some played games undated, and the importer quarantines every one of them."""
+    records, status = _scrape_bu13_flight(
+        monkeypatch,
+        [
+            _flight_game("0001-01-01T00:00:00", 3, 0),
+            _flight_game(None, 1, 2),
+            _flight_game("2099-06-01T09:00:00", None, None),
+            _flight_game("2026-09-12T09:00:00", 0, 7),
+        ],
+    )
+
+    assert [r["game_date"] for r in records] == ["2026-09-12", "2026-09-12"]
+    assert status == "✅ BU13 - ECNL: 1 games (+1 future skipped, +2 undated skipped)"
 
 
 def test_an_operator_opting_in_gets_the_cutover_season_not_the_run_year(monkeypatch):

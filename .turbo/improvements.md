@@ -2217,16 +2217,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: `_has_top_level_or` refuses only a `||` outside every bracket, so `(env.AGE_ROLLOVER_FREEZE == 'false' || github.event_name == 'workflow_dispatch') && ...` passes while a manual dispatch runs the writing step during a freeze (checked 2026-10-12: not refused, gate text present). `scripts/check_age_skill_assumptions.py` `_gated_on_the_flag` already requires the comparison to be one of the top-level `&&` terms with no top-level `||`. Wanted: the same rule for the freeze gate, ideally one shared parser.
 - **Noted**: 2026-10-12
 
-### Stop losing scored TGS games that carry no date
-
-- **ID**: IMP-338
-- **Status**: open
-- **Type**: plan
-- **Category**: reliability
-- **Where**: `scripts/scrape_tgs_event.py` (`normalize_api_game`, `is_future_game`), `src/utils/enhanced_validators.py` (`validate_game`: required `game_date`, year >= 2000)
-- **Why**: AthleteOne sends `gameDate` as null or `0001-01-01T00:00:00` for some played games (event 3866 flight 32768: 104 of 104 scored and null-dated; event 3451 match 743276: scored 1-2, dated 0001-01-01). The importer quarantines every one, again on each weekly rescan: 19,462 TGS rows for a missing `game_date` since 2026-04-02 (~730 distinct games by team pair and score) plus 146 dated 0001-01-01, all scored (queried 2026-10-12). Deciding how to date them (the event's own dates for a one-weekend tournament?) or to drop them at the scraper is the open call.
-- **Noted**: 2026-10-12
-
 ### Centre the header row like the page content
 
 - **ID**: IMP-339

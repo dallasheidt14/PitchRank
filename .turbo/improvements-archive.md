@@ -1635,3 +1635,15 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Noted**: 2026-10-12
 - **Update (2026-10-12)**: Shipped for Oswald and DM Sans; a Turbopack build carries their size-adjusted faces. CLS was not measured. JetBrains Mono keeps `fallback: ['ui-monospace', 'monospace']`, because its generated stand-in is scaled Arial (proportional, digits a third taller); Turbopack ignores `adjustFontFallback: false`, so `fallback` is the only way to opt out.
 - **Refs**: branch `fix/small-ui-backlog`
+
+### Stop losing scored TGS games that carry no date
+
+- **ID**: IMP-338
+- **Status**: done
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `scripts/scrape_tgs_event.py` (`normalize_api_game`, `is_future_game`), `src/utils/enhanced_validators.py` (`validate_game`: required `game_date`, year >= 2000)
+- **Why**: AthleteOne sends `gameDate` as null or `0001-01-01T00:00:00` for some played games (event 3866 flight 32768: 104 of 104 scored and null-dated; event 3451 match 743276: scored 1-2, dated 0001-01-01). The importer quarantines every one, again on each weekly rescan: 19,462 TGS rows for a missing `game_date` since 2026-04-02 (~730 distinct games by team pair and score) plus 146 dated 0001-01-01, all scored (queried 2026-10-12). Deciding how to date them (the event's own dates for a one-weekend tournament?) or to drop them at the scraper is the open call.
+- **Noted**: 2026-10-12
+- **Update (2026-10-12)**: Owner chose to stop re-sending undated games rather than date them: every undated game measured that day came from five May-July 2025 tournaments, all past the ranking window.
+- **Refs**: PR #1295 (branch `fix/tgs-skip-undated-games`): `process_single_flight` leaves undated games out of the CSV and counts them
