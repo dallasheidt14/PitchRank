@@ -582,6 +582,13 @@ def test_a_name_whose_years_fit_the_new_group_is_not_held(season_2026, name, tar
         ("Club U15 Red", "u17", "name says U15, 2 away from U17"),
         ("Club U17 Red", "u15", "name says U17, 2 away from U15"),
         ("Town-G09A-Coach", "u12", "name says U9, 3 away from U12"),
+        # Every U-age form is read, a span's second age included.
+        ("Club U 10 Boys", "u12", "name says U10, 2 away from U12"),
+        ("Club Under 10", "u12", "name says U10, 2 away from U12"),
+        ("Club U/10B Red", "u12", "name says U10, 2 away from U12"),
+        ("Club U13/14 Elite", "u12", "name says U14, 2 away from U12"),
+        ("Club U11/10 Red", "u12", "name says U10, 2 away from U12"),
+        ("Club U12A Blue", "u15", "name says U12, 3 away from U15"),
         ("Club 2004 Boys", "u19", "name has birth year 2004, outside U19 (2009/2008/2007)"),
         ("Club '04 Blue", "u19", "name has birth year 2004, outside U19 (2009/2008/2007)"),
         ("Club '11 Blue", "u13", "name has birth year 2011, outside U13 (2014/2013)"),
@@ -604,6 +611,34 @@ def test_a_name_whose_years_fit_the_new_group_is_not_held(season_2026, name, tar
 )
 def test_a_name_stating_another_squad_is_held(season_2026, name, target, reason):
     assert fbc.name_contradiction(name, target) == reason
+
+
+@pytest.mark.parametrize(
+    ("name", "ages"),
+    [
+        ("Club U13 Blue", {13}),
+        ("Club 13U Blue", {13}),
+        ("Club U 13 Blue", {13}),
+        ("Club Under 13", {13}),
+        ("Club U/13B", {13}),
+        ("Town-G13A-Coach", {13}),
+        ("Club U12A Blue", {12}),
+        ("Club U13/14", {13, 14}),
+        ("Club U11/10", {10, 11}),
+        ("Club U12/13/14 Elite", {12, 13, 14}),
+        ("T&C Soccer BU17-19 Warriors", {17, 19}),
+        # A longer span stops where it stops stepping by one, and a squad number is not an age.
+        ("Seacoast U12G-14/15 Carolina", {12}),
+        ("Belpre U10-1 F25", {10}),
+        ("Club U14-49", {14}),
+        # A game format is not an age, and a non-ASCII digit is not read.
+        ("Club U12/11 v 11", {12}),
+        ("Club U１２ Boys", set()),
+        ("Club 2013 Blue", set()),
+    ],
+)
+def test_name_u_ages_reads_every_u_age_form(name, ages):
+    assert fbc.name_u_ages(name) == ages
 
 
 @pytest.mark.parametrize(

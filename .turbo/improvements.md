@@ -2217,32 +2217,42 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: `_has_top_level_or` refuses only a `||` outside every bracket, so `(env.AGE_ROLLOVER_FREEZE == 'false' || github.event_name == 'workflow_dispatch') && ...` passes while a manual dispatch runs the writing step during a freeze (checked 2026-10-12: not refused, gate text present). `scripts/check_age_skill_assumptions.py` `_gated_on_the_flag` already requires the comparison to be one of the top-level `&&` terms with no top-level `||`. Wanted: the same rule for the freeze gate, ideally one shared parser.
 - **Noted**: 2026-10-12
 
-### Show one header search box at tablet widths
+### Centre the header row like the page content
 
-- **ID**: IMP-334
+- **ID**: IMP-339
 - **Status**: open
 - **Type**: direct
 - **Category**: feature
-- **Where**: `frontend/components/Navigation.tsx` (`Navigation`: the desktop slot `hidden md:flex` and the phone row `flex lg:hidden`, each holding a `GlobalSearch`)
-- **Why**: From 768 to 1023 px both slots render, so the header shows two search boxes side by side (191 px and 241 px wide, measured 2026-10-12). One breakpoint should own the box.
+- **Where**: `frontend/components/Navigation.tsx` (`Navigation`: the header row `<div className="container flex h-16 ...">`)
+- **Why**: The row uses `container` without `mx-auto`, so from 769 to 1279 px it is capped at the breakpoint width (768 or 1,024 px) and sits flush left, while page content uses `container mx-auto` and is centred, so the header's edges and the content's disagree (measured 2026-10-12: at 1,100 px the header row spans 0–1,024 px with 76 px empty on the right).
 - **Noted**: 2026-10-12
 
-### Give clickable cards one hover style
+### Share one paywall Upgrade block between the team-page insight cards
 
-- **ID**: IMP-335
+- **ID**: IMP-340
 - **Status**: open
 - **Type**: plan
-- **Category**: readability
-- **Where**: `frontend/components/ui/card.tsx` (`interactive` variant), `frontend/components/BlogCard.tsx` (`BlogCard`), `frontend/app/watchlist/page.tsx` (team cards), `frontend/app/upgrade/page.tsx` (plan cards)
-- **Why**: Feature tiles zoom to 102% over 300 ms with a press effect, blog cards zoom to 102% over 200 ms, watchlist cards lift 4 px, and the plan cards only deepen their shadow, so a change to clickable-card feedback has to be made in four places. The 2026-10-11 audit suggested the `interactive` variant for all of them.
+- **Category**: refactor
+- **Where**: `frontend/components/ClutchFactorCard.tsx` (`ClutchFactorCard`) and `frontend/components/TeamInsightsCard.tsx` (`TeamInsightsCard`): the locked-state overlay (lock icon, message, `Button asChild` around the `/upgrade?source=…&team=` Link that calls `trackPaywallUpgradeClicked`)
+- **Why**: The two overlays are the same block, differing only in the message and the source key, so any change to the paywall button (markup, styling, tracking payload) has to be made twice; the 2026-10-12 `Button asChild` conversion had to edit both by hand. A component taking `feature`, `message` and `teamId` would hold one copy, and `frontend/components/paywall-upgrade-link.test.tsx` already covers both cards.
 - **Noted**: 2026-10-12
 
-### Make "Sign in" one control instead of a button inside a link
+### Stop the "zz" retired-name marker matching inside ordinary words
 
-- **ID**: IMP-336
+- **ID**: IMP-341
 - **Status**: open
-- **Type**: direct
-- **Category**: feature
-- **Where**: `frontend/components/Navigation.tsx` (`Navigation`: the `nav-signin` Link wrapping a `Button`, and any other Link-wrapped Button)
-- **Why**: Two nested interactive elements give keyboard users two Tab stops for one action (confirmed in a 2026-10-12 smoke test) and are invalid HTML; `<Button asChild><Link /></Button>` renders one.
-- **Noted**: 2026-10-12
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `scripts/reconcile_teams_with_gotsport.py` (`RETIRED_NAME_MARKERS`, `is_retired_registration`)
+- **Why**: The markers match as substrings, so "zz" also hits ordinary words. Over the 469 saved reconcile logs (measured 2026-10-13), 346 distinct stored team names contain "zz" inside a word ("Azzurri Storm 2014 Premier", "Grizzlies", "Blizzard", "Rizzlers"); when GotSport's name carries the same club word the sync blanks it and never takes the rename. It fails safe (no write), but those teams never receive GotSport's name. Match "zz" only as a leading marker or a whole token, and measure on the logs which of the 346 change.
+- **Noted**: 2026-10-13
+
+### Fold U-ages into age groups once, for every caller of the shared U-age reader
+
+- **ID**: IMP-342
+- **Status**: open
+- **Type**: plan
+- **Category**: refactor
+- **Where**: `scripts/fix_band_cohorts.py` (`name_u_ages`, `name_contradiction`, `_group_steps`), `scripts/reconcile_teams_with_gotsport.py` (`read_age_group`), `.claude/skills/reconcile-gotsport/scripts/triage_reconcile.py` (`name_ages`, `group_number`)
+- **Why**: The three callers share one reader but each folds and bounds the ages itself: the sync folds U18 and U20 into u19 through `normalize_age_group` with no bound, the age fixer keeps 5..19 and folds only U18 (so a U20 is dropped), and the triage folds through `group_number` and keeps 7..19. It changes no logged decision today (measured 2026-10-13: one sync rename, where the current behaviour is the better call; no age-fixer hold), but hand-copied folds have drifted before (see `src/utils/age_group.py`). One helper returning folded group numbers would leave each caller only its own range.
+- **Noted**: 2026-10-13

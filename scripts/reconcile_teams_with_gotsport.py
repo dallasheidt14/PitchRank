@@ -10,9 +10,11 @@ current registration, so this asks it again for a bounded slice.
 What it writes is deliberately narrower than what it reports:
 
 * ``team_name`` is overwritten whenever GotSport differs -- unless GotSport's cohort
-  disagrees with ours, or its name is a retired-registration marker (``zz old - ...``).
-  A record filed under another cohort is not describing this squad as it plays today,
-  and clubs park dead squads under those markers, so neither is a name to take.
+  disagrees with ours, its name is a retired-registration marker (``zz old - ...``),
+  or ours states our cohort by birth year and GotSport's would trade that for another
+  age or a name with no number. A record filed under another cohort is not describing this squad as it
+  plays today, clubs park dead squads under those markers, and a club's U-age label
+  goes stale every Aug 1 where a birth year does not, so none is a name to take.
 * ``club_name`` and ``state_code`` are filled only where ours is absent. Where both
   sides hold a value and they disagree the row is reported, not written:
   ``fill-team-states-weekly`` fills only, and the ``assigning-team-states`` skill
@@ -67,6 +69,7 @@ from supabase import create_client
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
+from scripts.fix_band_cohorts import age_num, cohort_years, name_u_ages, name_years  # noqa: E402
 from src.tournaments.triage import _is_placeholder_team  # noqa: E402
 from src.utils.age_group import normalize_age_group  # noqa: E402
 from src.utils.gotsport_alias import fetch_gotsport_aliases  # noqa: E402
@@ -104,10 +107,20 @@ ACTOR = "reconcile_teams_with_gotsport"
 STATE_SOURCE = "tier_a"
 STATE_CONFIDENCE = 0.95
 
-# GotSport clubs park a dead registration under a marker so it sorts to the bottom;
-# a live WA slice offered "zz old - B13 Black" for a team we call "2013 Black".
+# GotSport clubs mark a dead registration in its name: "zz old - B13 Black" for a team we call
+# "2013 Black", "Z-Sting B14 Joost Archive" for "Sting 2014 Joost".
 # Substrings rather than prefixes because the marker also appears mid-name.
-RETIRED_NAME_MARKERS = ("zz", "do not use", "donotuse", "duplicate", "old -", "- old", "delete", "inactive")
+RETIRED_NAME_MARKERS = (
+    "zz",
+    "do not use",
+    "donotuse",
+    "duplicate",
+    "old -",
+    "- old",
+    "delete",
+    "inactive",
+    "archive",
+)
 
 # Spreadsheet apps read a cell as a formula when it starts with one of these, and
 # every provider value in the log is untrusted text. src/tournaments/reports/
@@ -185,6 +198,38 @@ def is_retired_registration(name: str) -> bool:
     """Whether GotSport's name marks a parked registration rather than naming a team."""
     lowered = name.strip().lower()
     return any(marker in lowered for marker in RETIRED_NAME_MARKERS)
+
+
+def read_age_group(name: str, age_group: str, read_u_age: bool) -> Tuple[bool, bool]:
+    """(states, contradicts): whether the name states the age group -- birth years all inside it,
+    a two-year band included, or, when ``read_u_age``, a U-age naming it -- and whether it states
+    another one in either form. U-ages compare after U18 and U20 file into u19; birth years compare
+    against the stored group's own years, so an aged-out u20 keeps its own older year."""
+    if not re.fullmatch(r"u[0-9]{1,2}", age_group):
+        return False, False
+    group, years = normalize_age_group(age_group), name_years(name)
+    u_ages = {normalize_age_group(f"u{age}") for age in name_u_ages(name)} if read_u_age else set()
+    inside = years & cohort_years(age_num(age_group))
+    states = bool(years and inside == years) or group in u_ages
+    contradicts = bool(years - inside) or bool(u_ages - {group})
+    return states, contradicts
+
+
+def keeps_our_name(ours: str, theirs: str, age_group: str) -> bool:
+    """Whether a name of ours whose birth year or band states our age group outweighs GotSport's:
+    GotSport's states another age and not ours, or has no number at all.
+
+    GotSport's name is taken when it carries every birth year ours does, since a two-year band
+    holding our year only narrows a bare year that sits in two groups, and when its number reads as
+    no age ("PSG 12 Blue Ladies"), since that may be the year written short."""
+    ours_states, _ = read_age_group(ours, age_group, read_u_age=False)
+    theirs_states, theirs_contradicts = read_age_group(theirs, age_group, read_u_age=True)
+    if not ours_states or theirs_states:
+        return False
+    ours_years = name_years(ours)
+    if ours_years and ours_years <= name_years(theirs):
+        return False
+    return theirs_contradicts or not re.search(r"[0-9]", theirs)
 
 
 def load_env() -> None:
@@ -349,8 +394,11 @@ def decide(
     # the IMP-145 moratorium: a wrong veto costs a skipped rename, not a bad row.
     stored_age = str(team.get("age_group") or "").strip()
     cohorts_disagree = bool(provider["age_group"] and stored_age and provider["age_group"] != stored_age)
+    # Owner, 2026-10-12: keep a name of ours that states our age group by its birth year when
+    # GotSport's would replace it with another age or none ("Saints International Academy 2014"
+    # became "U11 Boys" on a u13 team in Sep 2026).
     if provider["team_name"] and provider["team_name"] != raw_name:
-        if cohorts_disagree:
+        if cohorts_disagree or keeps_our_name(raw_name, provider["team_name"], stored_age):
             blocked.append("team_name")
         else:
             updates["team_name"] = provider["team_name"]
@@ -857,7 +905,10 @@ def main() -> int:
     if conflicted:
         print(f"{conflicted} teams disagree with GotSport on a club or state this script will not overwrite.")
     if withheld_names - collisions > 0:
-        print(f"{withheld_names - collisions} renames withheld: GotSport files those teams under a different cohort.")
+        print(
+            f"{withheld_names - collisions} renames withheld: GotSport files those teams under a different "
+            "cohort, or its name would replace a birth year that fits ours with another age or no number."
+        )
     if collisions:
         print(f"{collisions} renames withheld: the name would have been shared with another team in this slice.")
     if blocked_states:

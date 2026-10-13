@@ -227,6 +227,9 @@ def test_name_ages():
     assert triage.name_ages("U10B Saxelby", "U10B Saxelby", True) == set()
     assert triage.name_ages("U10B Saxelby", "U10B Saxelby", False) == {10}
     assert triage.name_ages("2016 Clay", "U10B Wagner", True) == set()
+    # every U-age form of ours is read: both ages of a span, and the spaced form
+    assert triage.name_ages("Club U12/13 Blue", "Club Blue", False) == {12, 13}
+    assert triage.name_ages("Club U 12 Blue", "Club Blue", False) == {12}
 
 
 def test_classify_counts_dormancy_by_games_not_readable_opponents():

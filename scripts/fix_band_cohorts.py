@@ -134,15 +134,44 @@ _YEAR_SEQ = re.compile(r"(?<![0-9])'?(?:20)?[0-9]{2}(?:\s*[/-]\s*'?(?:20)?[0-9]{
 _YEAR_4 = re.compile(r"(?<![0-9])20[0-9]{2}(?![0-9])")
 _YEAR_APOS = re.compile(r"'([0-9]{2})(?![0-9])")
 # "U/10B" is a U-age whose slash _UAGE_TOKEN does not expect; left in, birth_years reads "10B" as 2010.
-_UAGE_SLASH = re.compile(r"(?<![0-9A-Za-z])[BGMF]?U/[0-9]{1,2}[BGMF]?(?![0-9A-Za-z])", re.I)
+_UAGE_SLASH = re.compile(r"(?<![0-9A-Za-z])[BGMF]?U/([0-9]{1,2})[BGMF]?(?![0-9A-Za-z])", re.I)
 # "Town-G09A-Coach": a B/G age wrapped in hyphens is last season's U-age, not a birth year (owner,
 # 2026-10-11).
 _HYPHEN_AGE = re.compile(r"(?<=-)[BG]([0-9]{2})[A-Z]?(?=-)", re.I)
+_NAME_UAGE = re.compile(r"(?i)(?<![a-z0-9])[bg]?u-?([0-9]{1,2})(?![0-9])|(?<![0-9])([0-9]{1,2})u(?=[bg]?(?![a-z0-9]))")
 
 
 def without_u_ages(name: Optional[str]) -> str:
     """The name with the U-ages birth_years would read as birth years blanked."""
     return _HYPHEN_AGE.sub(" ", _UAGE_SLASH.sub(" ", name or ""))
+
+
+def name_u_ages(name: Optional[str]) -> set:
+    """Every U-age the name states: "U13", "13U", "U12A", "U 13", "Under 13", "U/13B", "-G13A-",
+    every age of a span such as "U12/13/14" or "U11/10", and both ends of a rising range such as
+    "BU17-19". A game format ("11 v 11") is not an age, and a reverse span ("13/14U") reads as its
+    last age only.
+
+    A span of three or more numbers counts on only while each is one from the last, so "U12G-14/15"
+    reads as U12 alone; a number that cannot continue the span ("U10-1", "U14-49") is not read."""
+    name = _FORMAT_TOKEN.sub(" ", name or "")
+    ages = {int(m.group(1) or m.group(2)) for m in _NAME_UAGE.finditer(name)}
+    ages |= {int(m.group(1)) for m in _HYPHEN_AGE.finditer(name)}
+    ages |= {int(m.group(1)) for m in _UAGE_SLASH.finditer(name)}
+    for m in _UAGE_TOKEN.finditer(name):
+        # _UAGE_TOKEN's \d also matches non-ASCII digits, which this reads as no age.
+        run = [int(n) for n in re.findall(r"[0-9]{1,2}", m.group(0))]
+        if not run:
+            continue
+        ages.add(run[0])
+        if len(run) == 2 and run[0] < run[1] <= 19:
+            ages.add(run[1])
+            continue
+        for a, b in zip(run, run[1:]):
+            if abs(a - b) != 1:
+                break
+            ages.add(b)
+    return ages
 
 
 def name_years(name: Optional[str]) -> set:
@@ -601,9 +630,6 @@ def is_strong(row: Dict) -> bool:
     return row.get("evidence_tier", "").startswith("A_") or row.get("fixture_verdict") == "backs_move"
 
 
-_NAME_UAGE = re.compile(r"(?i)(?<![a-z0-9])[bg]?u-?([0-9]{1,2})(?![0-9])|(?<![0-9])([0-9]{1,2})u(?=[bg]?(?![a-z0-9]))")
-
-
 def name_contradiction(name: Optional[str], target: str) -> str:
     """Why OUR name plainly describes a different age than the move, or "" if it does not.
 
@@ -619,8 +645,7 @@ def name_contradiction(name: Optional[str], target: str) -> str:
     if stray:
         shown_years = "/".join(str(y) for y in sorted(allowed, reverse=True))
         return f"name has birth year {stray[0]}, outside {target.upper()} ({shown_years})"
-    ages = [int(m.group(1) or m.group(2)) for m in _NAME_UAGE.finditer(name)]
-    for age in ages + [int(m.group(1)) for m in _HYPHEN_AGE.finditer(name)]:
+    for age in sorted(name_u_ages(name)):
         steps = _group_steps(age, n)
         if 5 <= age <= 19 and steps >= 2:
             return f"name says U{age}, {steps} away from {target.upper()}"
