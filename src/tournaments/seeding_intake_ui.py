@@ -707,16 +707,29 @@ def render_seeding_pack(
             else "Go back to step 3 and build a seed order before exporting."
         )
         return
-    if pack and view != "export":
-        st.caption("Rebuilding reads fresh data while preserving director notes and roster decisions.")
-
     freshly_built_identity = None
     candidate_analyses = None
     pending_replacement = restored is not None
     pending_upgrade = False
     if restored is not None:
         pack = restored
-    if view != "export" and st.button("Build seeding sheets", type="primary", key="_seeding_build_tiers"):
+    saved_analyses = None
+    if pack_matches(pack, parsed.rows, resolved, overrides, selected):
+        try:
+            saved_analyses = analyze_pack(pack, parsed.rows, resolved, overrides)
+        except (ValueError, TypeError, KeyError, AttributeError):
+            # Required recovery must remain visible even when the roster still matches.
+            pass
+    build_requested = False
+    if view != "export":
+        if saved_analyses is not None:
+            with st.expander("Rebuild with current team data (optional)", expanded=False):
+                st.caption("Your sheets are already built. Rebuilding preserves director notes and roster decisions.")
+                build_requested = st.button("Build seeding sheets", key="_seeding_build_tiers")
+        else:
+            st.info("Next: Build seeding sheets to see the ranked teams and recommended tier breaks.")
+            build_requested = st.button("Build seeding sheets", type="primary", key="_seeding_build_tiers")
+    if build_requested:
         try:
             with st.spinner("Reading current team data and comparing every matchup..."):
                 request = prediction_request(parsed.rows, resolved, overrides, selected)
@@ -772,8 +785,8 @@ def render_seeding_pack(
     analysis_error = None
     if current_pack:
         try:
-            analyses = candidate_analyses or analyze_pack(pack, parsed.rows, resolved, overrides)
-        except (ValueError, TypeError, KeyError) as exc:
+            analyses = candidate_analyses or saved_analyses or analyze_pack(pack, parsed.rows, resolved, overrides)
+        except (ValueError, TypeError, KeyError, AttributeError) as exc:
             analysis_error = exc
     metadata = st.session_state.get("_seeding_assessment") or {}
     assessment = assess_roster(parsed, resolved, overrides, coverage=metadata.get("coverage", "unknown"),
@@ -798,6 +811,13 @@ def render_seeding_pack(
     draft = not coverage_ready or not snapshot_ready or bool(assessment.attention & selected_indices) or any(
         could_belong(row, *key.split("|", 1)) for row in uncertain for key in selected
     ) or analysis_error is not None or has_data_review or bool(pending_reviews)
+    if current_pack and view != "export":
+        if analysis_error is not None:
+            st.info("Next: Rebuild the sheets to resolve the saved analysis problem shown below.")
+        elif pending_reviews or has_data_review:
+            st.info("Next: Check the flagged placements under Review seed order and director notes below.")
+        else:
+            st.info("Next: Continue to export to preview a draft and see any remaining checks before final delivery.")
     if draft and view != "export":
         st.info("Delivery status: draft. Complete roster and placement checks before sending.")
         if pending_reviews:
