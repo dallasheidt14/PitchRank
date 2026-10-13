@@ -61,12 +61,12 @@ export function Navigation() {
         </Link>
 
         {/* Desktop Search */}
-        <div className="hidden md:flex flex-1 justify-center max-w-md mx-4">
+        <div className="hidden lg:flex flex-1 justify-center max-w-md mx-4">
           <GlobalSearch />
         </div>
 
         {/* Desktop Navigation */}
-        <nav data-testid="desktop-nav" className="hidden lg:flex items-center gap-4 xl:gap-6 flex-shrink-0">
+        <nav data-testid="desktop-nav" className="hidden lg:flex items-center gap-3 xl:gap-6 flex-shrink-0">
           <Link
             href="/"
             className="text-sm font-semibold uppercase tracking-wide transition-colors duration-300 hover:text-accent"
@@ -124,7 +124,10 @@ export function Navigation() {
             <>
               {user ? (
                 <div className="flex items-center gap-3 ml-2 pl-4 border-l">
-                  <span className="text-sm text-muted-foreground truncate max-w-[120px]" title={user.email ?? ''}>
+                  <span
+                    className="hidden xl:block text-sm text-muted-foreground truncate max-w-[120px]"
+                    title={user.email ?? ''}
+                  >
                     {user.email?.split('@')[0]}
                   </span>
                   <Button
@@ -140,12 +143,12 @@ export function Navigation() {
                   </Button>
                 </div>
               ) : (
-                <Link href="/login" data-testid="nav-signin">
-                  <Button variant="outline" size="sm" className="gap-1.5 ml-2">
+                <Button asChild variant="outline" size="sm" className="gap-1.5 ml-2">
+                  <Link href="/login" data-testid="nav-signin" aria-label="Sign in">
                     <LogIn className="h-3.5 w-3.5" />
-                    Sign in
-                  </Button>
-                </Link>
+                    <span className="hidden xl:inline">Sign in</span>
+                  </Link>
+                </Button>
               )}
             </>
           )}

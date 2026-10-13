@@ -73,11 +73,9 @@ export default async function MatchBalanceLeadsPage() {
             <h1 className="font-display text-3xl font-bold tracking-tight">MatchBalance Leads</h1>
             <p className="text-sm text-muted-foreground">Inquiries from tournament directors on /matchbalance</p>
           </div>
-          <Link href="/mission-control/leads">
-            <Button variant="outline" size="sm">
-              Refresh
-            </Button>
-          </Link>
+          <Button asChild variant="outline" size="sm">
+            <Link href="/mission-control/leads">Refresh</Link>
+          </Button>
         </div>
 
         {errors.length > 0 && (

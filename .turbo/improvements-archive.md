@@ -1587,3 +1587,63 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Why**: A 375 px phone smoke test (2026-10-12) showed two clear controls side by side: the browser's own for `type="search"` and the custom X. The results `Card` is `absolute w-full` inside the input's wrapper, so it is only as wide as the input and team names truncate to a few words ("FLYTE SC B..."). Both predate server-side search.
 - **Noted**: 2026-10-12
 - **Refs**: PR #1289 (branch `fix/search-box-and-polish`)
+
+### Show one header search box at tablet widths
+
+- **ID**: IMP-334
+- **Status**: done
+- **Type**: direct
+- **Category**: feature
+- **Where**: `frontend/components/Navigation.tsx` (`Navigation`: the desktop slot `hidden md:flex` and the phone row `flex lg:hidden`, each holding a `GlobalSearch`)
+- **Why**: From 768 to 1023 px both slots render, so the header shows two search boxes side by side (191 px and 241 px wide, measured 2026-10-12). One breakpoint should own the box.
+- **Noted**: 2026-10-12
+- **Update (2026-10-12)**: The desktop slot starts at `lg`, so the phone row's box serves 768–1023 px. From 1024 to 1279 px the header row is capped at 1,024 px and overflowed it by 19 px (more when signed in), so in that range Sign in shows only its icon (as Sign out already did), the signed-in name is hidden, and the nav gap is `gap-3`.
+- **Refs**: branch `fix/small-ui-backlog`
+
+### Give clickable cards one hover style
+
+- **ID**: IMP-335
+- **Status**: done
+- **Type**: plan
+- **Category**: readability
+- **Where**: `frontend/components/ui/card.tsx` (`interactive` variant), `frontend/components/BlogCard.tsx` (`BlogCard`), `frontend/app/watchlist/page.tsx` (team cards), `frontend/app/upgrade/page.tsx` (plan cards)
+- **Why**: Feature tiles zoom to 102% over 300 ms with a press effect, blog cards zoom to 102% over 200 ms, watchlist cards lift 4 px, and the plan cards only deepen their shadow, so a change to clickable-card feedback has to be made in four places. The 2026-10-11 audit suggested the `interactive` variant for all of them.
+- **Noted**: 2026-10-12
+- **Update (2026-10-12)**: Only blog cards and the /upgrade plan cards are clickable as a whole, so only they lift (`<Card interactive>`, a boolean beside `variant`; `variant="interactive"` is gone); the owner chose to stop the feature tiles and watchlist cards moving, since clicking the card itself does nothing there.
+- **Refs**: branch `fix/small-ui-backlog`
+
+### Make "Sign in" one control instead of a button inside a link
+
+- **ID**: IMP-336
+- **Status**: done
+- **Type**: direct
+- **Category**: feature
+- **Where**: `frontend/components/Navigation.tsx` (`Navigation`: the `nav-signin` Link wrapping a `Button`, and any other Link-wrapped Button)
+- **Why**: Two nested interactive elements give keyboard users two Tab stops for one action (confirmed in a 2026-10-12 smoke test) and are invalid HTML; `<Button asChild><Link /></Button>` renders one.
+- **Noted**: 2026-10-12
+- **Update (2026-10-12)**: All 19 Link-wrapped Buttons in `app/` and `components/` render as `<Button asChild><Link>`; `frontend/test/no-nested-link-button.test.ts` fails on a new nesting either way round.
+- **Refs**: branch `fix/small-ui-backlog`
+
+### Let next/font build its size-matched fallback fonts
+
+- **ID**: IMP-337
+- **Status**: done
+- **Type**: plan
+- **Category**: performance
+- **Where**: `frontend/app/layout.tsx` (the `Oswald`, `DM_Sans` and `JetBrains_Mono` calls, each passing `fallback`), `frontend/app/globals.css` (`@theme inline` font tokens)
+- **Why**: With `fallback` set, the production (Turbopack) build emits no size-adjusted "… Fallback" face, so text swaps from the system font to the web font with no metric match and can reflow on a slow first visit; the local `next dev --webpack` build does emit the fallback faces, so a local check hides this (two reviewers, 2026-10-12, against production CSS and a scratch Next 16.2.6 app). Dropping `fallback` and moving `system-ui, sans-serif` into the theme tokens lets next/font generate the adjusted faces; measure CLS before and after, since five throttled phone runs showed no difference from the body-font fix alone.
+- **Noted**: 2026-10-12
+- **Update (2026-10-12)**: Shipped for Oswald and DM Sans; a Turbopack build carries their size-adjusted faces. CLS was not measured. JetBrains Mono keeps `fallback: ['ui-monospace', 'monospace']`, because its generated stand-in is scaled Arial (proportional, digits a third taller); Turbopack ignores `adjustFontFallback: false`, so `fallback` is the only way to opt out.
+- **Refs**: branch `fix/small-ui-backlog`
+
+### Stop losing scored TGS games that carry no date
+
+- **ID**: IMP-338
+- **Status**: done
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `scripts/scrape_tgs_event.py` (`normalize_api_game`, `is_future_game`), `src/utils/enhanced_validators.py` (`validate_game`: required `game_date`, year >= 2000)
+- **Why**: AthleteOne sends `gameDate` as null or `0001-01-01T00:00:00` for some played games (event 3866 flight 32768: 104 of 104 scored and null-dated; event 3451 match 743276: scored 1-2, dated 0001-01-01). The importer quarantines every one, again on each weekly rescan: 19,462 TGS rows for a missing `game_date` since 2026-04-02 (~730 distinct games by team pair and score) plus 146 dated 0001-01-01, all scored (queried 2026-10-12). Deciding how to date them (the event's own dates for a one-weekend tournament?) or to drop them at the scraper is the open call.
+- **Noted**: 2026-10-12
+- **Update (2026-10-12)**: Owner chose to stop re-sending undated games rather than date them: every undated game measured that day came from five May-July 2025 tournaments, all past the ranking window.
+- **Refs**: PR #1295 (branch `fix/tgs-skip-undated-games`): `process_single_flight` leaves undated games out of the CSV and counts them

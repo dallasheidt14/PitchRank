@@ -34,6 +34,11 @@ OUTPUT_DIR = "data/raw/tgs"
 U_FORMAT_CUTOVER_DATE = "2026-08-01"
 U_FORMAT_BEFORE_CUTOVER = False
 
+# TGS sends 0001-01-01 as the date of a game it has no date for, whether the
+# game is unplayed or was played and never dated. It sorts before every real
+# date, so it must not be read as the event's first game.
+UNDATED_GAME_DATE = "0001-01-01"
+
 # Global scrape identifiers (set in main())
 SCRAPE_TS = None
 SCRAPE_RUN_ID = None
@@ -209,9 +214,10 @@ def u_label_season(game_dates: List[str]) -> Optional[int]:
     event 3430 (Apr 2025) files as U13 teams who are u15 now. Opting one in
     reads it as the cutover season rather than whatever year the run happens on.
     """
-    if not game_dates:
+    dated = [date for date in game_dates if not is_undated(date)]
+    if not dated:
         return None
-    first_game = min(game_dates)
+    first_game = min(dated)
     if first_game >= U_FORMAT_CUTOVER_DATE:
         return season_year_of(first_game)
     return season_year_of(U_FORMAT_CUTOVER_DATE) if U_FORMAT_BEFORE_CUTOVER else None
@@ -297,6 +303,14 @@ def compute_result(home_score: Optional[int], away_score: Optional[int]) -> str:
         return "D"
 
 
+def is_undated(game_date_str: str) -> bool:
+    """Whether TGS holds no date for the game.
+
+    Takes the bare YYYY-MM-DD date; the raw '0001-01-01T00:00:00' does not match.
+    """
+    return not game_date_str or game_date_str == UNDATED_GAME_DATE
+
+
 def is_future_game(game_date_str: str) -> bool:
     """
     Check if a game date is in the future (hasn't happened yet).
@@ -308,7 +322,7 @@ def is_future_game(game_date_str: str) -> bool:
         True if the game is in the future, False if it's today or in the past
     """
     if not game_date_str:
-        return False  # No date = can't determine, don't filter
+        return False
 
     try:
         # Parse the date (format: YYYY-MM-DD)
@@ -678,13 +692,21 @@ def process_single_flight(
     # Step 3: Generate records for each game (both home and away perspectives)
     games_added = 0
     games_skipped_future = 0
+    games_skipped_undated = 0
 
     for game in games:
         # Home perspective
         home_record = normalize_api_game(game, event_id, event_name, division_info, "H", SCRAPE_RUN_ID, SCRAPE_TS)
 
+        game_date = home_record.get("game_date", "")
+
+        # Dropped even when scored: the importer would only quarantine them (missing or pre-2000 date)
+        if is_undated(game_date):
+            games_skipped_undated += 1
+            continue
+
         # Skip future games (haven't been played yet)
-        if is_future_game(home_record.get("game_date", "")):
+        if is_future_game(game_date):
             games_skipped_future += 1
             continue
 
@@ -696,12 +718,14 @@ def process_single_flight(
         games_added += 1
 
     # Build status message
+    skipped = []
     if games_skipped_future > 0:
-        status = (
-            f"✅ {division_name_from_api} - {flight_name}: {games_added} games (+{games_skipped_future} future skipped)"
-        )
-    else:
-        status = f"✅ {division_name_from_api} - {flight_name}: {games_added} games"
+        skipped.append(f"+{games_skipped_future} future skipped")
+    if games_skipped_undated > 0:
+        skipped.append(f"+{games_skipped_undated} undated skipped")
+    status = f"✅ {division_name_from_api} - {flight_name}: {games_added} games"
+    if skipped:
+        status += f" ({', '.join(skipped)})"
 
     return records, status
 
@@ -709,8 +733,8 @@ def process_single_flight(
 def scrape_event(event_id: int, config: Dict, records: List[Dict]) -> None:
     """Scrape a single event using parallel flight processing.
 
-    Only includes games that have already been played (game_date <= today).
-    Future scheduled games are skipped.
+    Only includes dated games that have already been played (game_date <= today);
+    future and undated games are skipped.
 
     Uses ThreadPoolExecutor for parallel flight processing (8x speedup typical).
     """
@@ -914,7 +938,7 @@ def main():
         print(f"  📅 Events scraped: {total_events}")
         print(f"  ⏱️  Total time: {scrape_duration:.1f}s")
         print("  💡 Possible reasons: no active flights, all divisions outside U10-U19,")
-        print("     all games are future-dated, or event IDs don't exist")
+        print("     all games are future-dated or undated, or event IDs don't exist")
         print(f"{'=' * 60}")
         return
 

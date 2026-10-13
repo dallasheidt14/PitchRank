@@ -30,7 +30,7 @@ interface RankingsTableProps {
   initialData?: RankingRow[];
 }
 
-const ROW_GRID_COLUMNS = 'grid-cols-[56px_1fr_50px_20px] sm:grid-cols-[70px_2fr_1fr_1fr_100px]';
+const ROW_GRID_COLUMNS = 'grid-cols-[56px_1fr_50px_20px] sm:grid-cols-[120px_2fr_1fr_1fr_100px]';
 
 /**
  * Sort button component - defined outside RankingsTable so memo() works correctly
@@ -150,7 +150,7 @@ const RankingsRow = memo(
           ${borderClass}
         `}
       >
-        <div className="px-1 sm:px-4 py-2 sm:py-3 font-semibold flex flex-col items-start justify-center gap-0.5 sm:flex-row sm:items-center sm:justify-start sm:gap-1 text-xs sm:text-base min-w-0 overflow-hidden">
+        <div className="px-1 sm:px-3 py-2 sm:py-3 font-semibold flex flex-col items-start justify-center gap-0.5 sm:flex-row sm:items-center sm:justify-start sm:gap-1 text-xs sm:text-base min-w-0 overflow-hidden">
           <span>{rank != null ? `#${rank}` : '—'}</span>
           {rankChange != null && rankChange !== 0 && (
             <Tooltip>
@@ -610,7 +610,7 @@ export function RankingsTable({ region, ageGroup, gender, initialData }: Ranking
                   data-testid="rankings-table-header"
                   className={`grid ${ROW_GRID_COLUMNS} border-b-2 border-primary bg-secondary/50`}
                 >
-                  <div className="px-1 sm:px-4 py-2 sm:py-4 font-semibold text-xs sm:text-sm uppercase tracking-wide min-w-0 overflow-hidden">
+                  <div className="px-1 sm:px-3 py-2 sm:py-4 font-semibold text-xs sm:text-sm uppercase tracking-wide min-w-0 overflow-hidden">
                     <SortButton
                       field="rank"
                       label="Rank"

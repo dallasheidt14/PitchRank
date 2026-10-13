@@ -52,8 +52,8 @@ export function FeatureShowcase() {
       {features.map((feature) => (
         <Card
           key={feature.title}
-          variant="interactive"
-          className="group border-l-4 border-l-primary hover:border-l-accent overflow-hidden"
+          variant="primary"
+          className="group hover:border-l-accent transition-colors overflow-hidden"
         >
           <CardContent className="p-4 sm:p-5">
             <div className="flex items-start gap-3 sm:gap-4">
