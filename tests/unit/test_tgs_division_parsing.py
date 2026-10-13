@@ -107,11 +107,61 @@ def test_a_u_label_ages_one_cohort_every_rollover(monkeypatch):
         (["2027-09-02"], 2027),
         (["2026-05-23", "2026-05-25"], None),
         (["2025-04-25"], None),
+        (["0001-01-01"], None),
         ([], None),
     ],
 )
 def test_the_label_season_comes_from_the_event_dates(game_dates, expected):
     assert u_label_season(game_dates) == expected
+
+
+def test_an_undated_game_does_not_date_the_event():
+    """Event 4287 (ECNL Boys Southwest 2026-27) dates a game 0001-01-01.
+
+    Read as the first game, it made BU13 and BU14 look pre-cutover, so both
+    flights were skipped.
+    """
+    assert u_label_season(["0001-01-01", "2026-09-12", "2026-10-04"]) == 2026
+
+
+def test_a_flight_holding_an_undated_game_is_still_scraped(monkeypatch):
+    """TGS sends '0001-01-01T00:00:00', so the raw value covers the cut to the bare date."""
+    monkeypatch.setattr(
+        tgs,
+        "get_flight_division",
+        lambda flight_id: {"divisionName": "BU13", "flightID": flight_id, "divisionGender": "m"},
+    )
+    monkeypatch.setattr(
+        tgs,
+        "get_games_for_flight",
+        lambda event_id, flight_id: [
+            {
+                "gameDate": "0001-01-01T00:00:00",
+                "hometeamID": 134467,
+                "homeTeam": "Sporting California USA ECNL B2013/14",
+                "awayteamID": 126632,
+                "awayTeam": "Pateadores Soccer Club ECNL B2013/14",
+                "hometeamscore": None,
+                "awayteamscore": None,
+            },
+            {
+                "gameDate": "2026-09-12T09:00:00",
+                "hometeamID": 132187,
+                "homeTeam": "Beach Futbol Club (CA) ECNL B2013/14",
+                "awayteamID": 132457,
+                "awayTeam": "San Diego Surf ECNL B2013/14",
+                "hometeamscore": 0,
+                "awayteamscore": 7,
+            },
+        ],
+    )
+
+    records, _ = tgs.process_single_flight(
+        {"flightID": 41622, "flightName": "ECNL"}, 4287, "ECNL Boys Southwest 2026-27", "BU13"
+    )
+
+    played = [r for r in records if r["game_date"] == "2026-09-12"]
+    assert [(r["team_id"], r["age_group"]) for r in played] == [("132187", "u13"), ("132457", "u13")]
 
 
 def test_an_operator_opting_in_gets_the_cutover_season_not_the_run_year(monkeypatch):
