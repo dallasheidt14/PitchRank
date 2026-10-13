@@ -1587,3 +1587,15 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Why**: A 375 px phone smoke test (2026-10-12) showed two clear controls side by side: the browser's own for `type="search"` and the custom X. The results `Card` is `absolute w-full` inside the input's wrapper, so it is only as wide as the input and team names truncate to a few words ("FLYTE SC B..."). Both predate server-side search.
 - **Noted**: 2026-10-12
 - **Refs**: PR #1289 (branch `fix/search-box-and-polish`)
+
+### Stop losing scored TGS games that carry no date
+
+- **ID**: IMP-338
+- **Status**: done
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `scripts/scrape_tgs_event.py` (`normalize_api_game`, `is_future_game`), `src/utils/enhanced_validators.py` (`validate_game`: required `game_date`, year >= 2000)
+- **Why**: AthleteOne sends `gameDate` as null or `0001-01-01T00:00:00` for some played games (event 3866 flight 32768: 104 of 104 scored and null-dated; event 3451 match 743276: scored 1-2, dated 0001-01-01). The importer quarantines every one, again on each weekly rescan: 19,462 TGS rows for a missing `game_date` since 2026-04-02 (~730 distinct games by team pair and score) plus 146 dated 0001-01-01, all scored (queried 2026-10-12). Deciding how to date them (the event's own dates for a one-weekend tournament?) or to drop them at the scraper is the open call.
+- **Noted**: 2026-10-12
+- **Update (2026-10-12)**: Owner chose to stop re-sending undated games rather than date them: every undated game measured that day came from five May-July 2025 tournaments, all past the ranking window.
+- **Refs**: branch `fix/tgs-skip-undated-games` (`process_single_flight` leaves undated games out of the CSV and counts them)

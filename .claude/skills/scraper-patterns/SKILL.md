@@ -404,9 +404,10 @@ has 104 scored, null-dated games; event 3451 match 743276 is scored 1-2 and even
 876619 is a 3-0 forfeit, both dated 0001-01-01). Treat both as "no date", never as a game
 date: taken as its flight's first game, a 0001-01-01 game made a current-season U-age flight
 look pre-cutover and skipped the whole flight, which is why `u_label_season` drops
-`UNDATED_GAME_DATE`. The scheduled import quarantines a scored undated game (missing date,
-or a year before 2000), so its result never reaches `games`; an import run with
-`--skip-validation` would insert a scored 0001-01-01 game.
+`UNDATED_GAME_DATE`. `process_single_flight` leaves undated games out of the CSV and counts
+them in the flight's status line (`+N undated skipped`), so their results never reach `games`.
+The owner chose that over dating them to the event's first day (2026-10-12): the undated
+games found then all came from 2025 tournaments too old to rank.
 
 ## SincSports Schedule Pages
 
