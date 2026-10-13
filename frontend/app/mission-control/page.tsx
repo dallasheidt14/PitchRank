@@ -28,9 +28,9 @@ export default function MissionControlPage() {
           <div className="mx-auto max-w-md text-center">
             <h1 className="mb-3 text-2xl font-display">Page Not Found</h1>
             <p className="mb-6 text-muted-foreground">The page you are looking for does not exist.</p>
-            <Link href="/">
-              <Button size="lg">Go Home</Button>
-            </Link>
+            <Button asChild size="lg">
+              <Link href="/">Go Home</Link>
+            </Button>
           </div>
         </div>
       </div>
@@ -48,16 +48,12 @@ export default function MissionControlPage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <Link href="/mission-control/subscriptions">
-              <Button variant="outline" size="sm">
-                Subscriptions →
-              </Button>
-            </Link>
-            <Link href="/mission-control/leads">
-              <Button variant="outline" size="sm">
-                MatchBalance Leads →
-              </Button>
-            </Link>
+            <Button asChild variant="outline" size="sm">
+              <Link href="/mission-control/subscriptions">Subscriptions →</Link>
+            </Button>
+            <Button asChild variant="outline" size="sm">
+              <Link href="/mission-control/leads">MatchBalance Leads →</Link>
+            </Button>
           </div>
         </div>
 
