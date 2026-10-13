@@ -34,6 +34,11 @@ OUTPUT_DIR = "data/raw/tgs"
 U_FORMAT_CUTOVER_DATE = "2026-08-01"
 U_FORMAT_BEFORE_CUTOVER = False
 
+# TGS sends 0001-01-01 as the date of a game it has no date for, whether the
+# game is unplayed or was played and never dated. It sorts before every real
+# date, so it must not be read as the event's first game.
+UNDATED_GAME_DATE = "0001-01-01"
+
 # Global scrape identifiers (set in main())
 SCRAPE_TS = None
 SCRAPE_RUN_ID = None
@@ -209,9 +214,10 @@ def u_label_season(game_dates: List[str]) -> Optional[int]:
     event 3430 (Apr 2025) files as U13 teams who are u15 now. Opting one in
     reads it as the cutover season rather than whatever year the run happens on.
     """
-    if not game_dates:
+    dated = [date for date in game_dates if date != UNDATED_GAME_DATE]
+    if not dated:
         return None
-    first_game = min(game_dates)
+    first_game = min(dated)
     if first_game >= U_FORMAT_CUTOVER_DATE:
         return season_year_of(first_game)
     return season_year_of(U_FORMAT_CUTOVER_DATE) if U_FORMAT_BEFORE_CUTOVER else None

@@ -391,6 +391,23 @@ events return a province (`ON`, `BC`), not a US state.
 `scrape_tgs_event.get_event_details` already fetches this payload on every event and keeps
 only `name`, so the other fields cost no extra request.
 
+### Flights, games, and undated games
+
+List an event's flights from `{BASE}/Event/get-event-schedule-or-standings/{event_id}`:
+`data.boysDivAndFlightList` and `girlsDivAndFlightList` hold the divisions, each with a
+`flightList`. `get-public-event-nav-settings-by-eventID` returns only the site's menu items.
+A flight's games come from `{BASE}/Event/get-schedules-by-flight/{event_id}/{flight_id}/0`.
+
+A game's `gameDate` is `null` or `"0001-01-01T00:00:00"` when TGS holds no date for it, and
+**played and forfeited games carry both** (verified live 2026-10-12: event 3866 flight 32768
+has 104 scored, null-dated games; event 3451 match 743276 is scored 1-2 and event 3906 match
+876619 is a 3-0 forfeit, both dated 0001-01-01). Treat both as "no date", never as a game
+date: taken as its flight's first game, a 0001-01-01 game made a current-season U-age flight
+look pre-cutover and skipped the whole flight, which is why `u_label_season` drops
+`UNDATED_GAME_DATE`. The scheduled import quarantines a scored undated game (missing date,
+or a year before 2000), so its result never reaches `games`; an import run with
+`--skip-validation` would insert a scored 0001-01-01 game.
+
 ## SincSports Schedule Pages
 
 ### Access
