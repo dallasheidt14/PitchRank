@@ -277,9 +277,9 @@ queue matcher and the TGS and PlayMetrics parsers share. Convert a band's year w
 `calculate_age_group_from_band`, not `calculate_age_group_from_birth_year`, whose
 age-20 fold files the aged-out 2007/06 band as U19. `_resolve_band` is the deliberate
 exception: it still returns the fold's U19 as that band's label, because
-`scripts/fix_band_cohorts.single_band` (also used by the reconcile-gotsport triage) reads a
-missing label as "no band" and would stop refusing age moves the name's own band
-contradicts. The one age-group parser that takes the older year,
+`scripts/fix_band_cohorts.single_band` and the `band_of` it is built on (which the
+reconcile-gotsport triage imports) read a missing label as "no band" and would stop refusing age
+moves the name's own band contradicts. The one age-group parser that takes the older year,
 `scripts/fix_team_age_groups.extract_birth_year`, is gated off in both of its callers by
 `AGE_DERIVATION_ENABLED` and says so in its own docstring.
 

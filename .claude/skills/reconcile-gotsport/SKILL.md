@@ -1,6 +1,6 @@
 ---
 name: reconcile-gotsport
-description: "Reconciles a state and age-group slice of PitchRank teams against GotSport: runs the read-only GotSport reconcile, triages each team whose GotSport age or gender disagrees with ours into gender fix, reused GotSport ID (a record handed to another squad at the Aug 1 rollover), relabel or hold, and on the owner's approval corrects genders, splits a reused record's games by date, renames teams and corrects age groups, every write guarded, logged and reversible. Use when asked to run /reconcile-gotsport, reconcile a state's teams with GotSport, find teams whose GotSport ID now belongs to another squad, split a team whose old and new games belong to two squads, find an old squad's new GotSport id, or fix teams GotSport files under the other gender."
+description: "Reconciles a state and age-group slice of PitchRank teams against GotSport: runs the read-only GotSport reconcile, triages each team whose GotSport age or gender disagrees with ours into gender fix, reused GotSport ID (a record handed to another squad at the Aug 1 rollover), relabel or hold, and on the owner's approval corrects genders, splits a reused record's games by date, renames teams and corrects age groups, every write guarded, logged and reversible. Also runs the bulk lane that corrects age groups GotSport says are younger straight from the reconcile logs, and reviews the Tuesday age-group re-check. Use when asked to run /reconcile-gotsport, reconcile a state's teams with GotSport, reconcile stored cohorts against GotSport, correct cohorts in bulk from the reconcile logs, review this week's age-group re-check, find teams whose GotSport ID now belongs to another squad, split a team whose old and new games belong to two squads, find an old squad's new GotSport id, or fix teams GotSport files under the other gender."
 ---
 
 # Reconcile GotSport
@@ -12,12 +12,34 @@ record is now. A disagreement is one of four things, and only the evidence tells
 |---|---|---|
 | **gender_fix** | GotSport's gender differs from ours, our own name or the names of the teams it played agree with GotSport, and neither backs ours. Whole import batches arrive with the wrong gender, so the column is never a witness | Set the gender first; the next triage judges the age on the right board |
 | **reused_id** | The club handed the GotSport record to another squad, younger (`16B Wagner` is now `U10B Etgar`) or older (`CCV Stars 2016 North Orange` is now `Pre-ECNL G2014/15`). GotSport's name names another squad, last season's opponents sit at our age, this season's at GotSport's | Move the games before the season start to the old squad's new record, then rename and relabel the reused one |
-| **relabel** | Same squad, and it did not age up (the Aug–Jul bands keep part of a birth year in one group two seasons running). GotSport's name keeps the squad word (`15B OMolina` is now `U11B OMolina`). When this season's opponents are too few or split evenly, the names decide: a band in GotSport's name, or a U-age in ours on a team new this season (`Southeast U10 Boys Black`, GotSport `Southeast 16/17 Boys Black`) | Relabel; rename if GotSport's name states the age and ours does not |
-| **hold** | No games since Aug 1 (the team is most likely dormant and our value stands), a two-year band in our own name backs our age or neither age, too few games this season, opponents back our age, no squad word to compare, a gender mismatch no witness settles, or a same-named team already in GotSport's cohort | Leave it, and record the reason |
+| **relabel** | Same squad, and it did not age up (the Aug–Jul bands keep part of a birth year in one group two seasons running). GotSport's name keeps the squad word (`15B OMolina` is now `U11B OMolina`) and this season's opponents sit at GotSport's age. Or one of the owner's rules below takes GotSport's age | Relabel; rename if GotSport's name states the age and ours does not |
+| **hold** | No games since Aug 1 (the team is most likely dormant and our value stands), a two-year band in our own name backs our age or neither age, this season's opponents back our age (or sit at neither age and no rule below applies), opponents that cannot decide beside names that state our age alone, a refusal listed below, a gender mismatch no witness settles, or a same-named team already in GotSport's cohort | Leave it, and record the reason |
 
-GotSport's age is judged the same way whether it is younger or older than ours, and a squad word
-both names share separates relabel from reused_id: a squad that stayed in its group shows the same
-one-group drop at Aug 1 as a reused record.
+For a team that has played since Aug 1, the owner's rules take GotSport's age, younger or older,
+when:
+
+- GotSport says older and this season's opponents do not back ours (2026-10-11, refined
+  2026-10-12: "Older wins unless games say ours");
+- this season's opponents cannot decide, with fewer than three games with a readable opponent age
+  or an even split between neighbouring groups, unless the names state our age and not GotSport's
+  (2026-10-11: "Gotsport literally tells us what age group the team is"); or
+- the names state GotSport's age and not ours, and this season's opponents do not back ours
+  (2026-10-12, of `Players U10 Girls Academy`: "it literally says u10").
+
+The names are a two-year band in GotSport's current name, and a U-age in ours on a team with no
+games last season, whose name was written this season (`Southeast U10 Boys Black`, GotSport
+`Southeast 16/17 Boys Black`). None of the rules applies, and the team is held or goes to
+reused_id, when a two-year band in our own name says otherwise (2026-10-11: "Our band name wins"),
+GotSport's name is another squad, a name carries no squad word to compare and the names do not
+state GotSport's age (2026-10-12: "Hold them too"), our current and original names carry different
+bands, or GotSport's age is outside u7-u19. A squad word both names share separates relabel from
+reused_id: a squad that stayed in its group shows the same one-group drop at Aug 1 as a reused
+record.
+
+Two lanes correct ages from GotSport, kept side by side (decided 2026-10-11, the owner taking the
+recommendation): this
+per-team triage (Steps 1 to 7), and the bulk lane for cohorts GotSport says are younger, with its
+Tuesday re-check (**The bulk lane** and **Reviewing the weekly re-check** below).
 
 ```
 Task Progress:
@@ -48,6 +70,13 @@ are outside a state run.
 
 The log it names (`reconcile_teams_with_gotsport_<time>.csv`) is Step 2's input. A run resumed
 after a WAF stop leaves several logs; pass them all to Step 2, oldest first.
+
+With `--execute` the same script also takes GotSport's name for a team, but not where GotSport files
+the team in another age group, or where our name's birth year fits our group and GotSport's name
+would trade it for another age or no number (owner, 2026-10-12). The log shows each withheld rename
+as `team_name` in `blocked_fields`. A GotSport name that marks a retired or archived registration
+(`zz old`, `do not use`, `inactive`, `archive` and the like) is never taken: it is blanked before
+logging.
 
 ## Step 2: Triage the flagged teams
 
@@ -82,8 +111,10 @@ Check these by hand, because the triage cannot see them:
 
 - **A bare birth year fits two groups.** `2015` is U12 or U11. It does not settle a move either way.
 - **Teams that play up.** The owner, 2026-09-18: "it doesn't matter that they play up we need to
-  get their actual age group correct." Older opponents this season do not make a relabel, and a
-  two-year band in our own name decides the age.
+  get their actual age group correct." Older opponents this season do not make a relabel where
+  GotSport says younger. Where GotSport says older they do not back ours, so the owner's
+  "Older wins unless games say ours" takes GotSport's age. A two-year band in our own name decides
+  the age either way.
 - **MLS NEXT, AD, HD and EA teams** are out of scope. Hold them.
 - **A squad word can match by accident**: a colour shared by two of the club's squads, a coach's
   name, or a club program word such as RSL Arizona South's girls "Royals". A birth year in our name
@@ -98,8 +129,10 @@ Check these by hand, because the triage cannot see them:
   the pair as a merge through the `merging-duplicate-teams` skill.
 - **A hold whose reason is "no squad word to compare"** is often a club with one team per age, and
   the triage cannot catch a reused record there: Bala FC's `Bala FC - 2016` carried no squad word.
-  Decide it from the club's other teams in both cohorts and from GotSport's current name, then
-  move it to relabel or reused by hand. Add a reused one's row to the reused-ID plan.
+  The hold comes only where the names do not state GotSport's age; where they do, the triage
+  relabels the row, so look at those relabels the same way. Decide a held one from the club's other
+  teams in both cohorts and from GotSport's current name, then move it to relabel or reused by hand.
+  Add a reused one's row to the reused-ID plan.
 - **The owner knows clubs the data does not.** "Utah Royals are girls teams", although that
   team's opponents are boys.
 
@@ -108,7 +141,9 @@ Check these by hand, because the triage cannot see them:
 The old games move to the record GotSport now uses for the old squad. Read GotSport's current name
 and age for any record the reconcile looked up from its logs (`gotsport_team_name`, `gotsport_age_group`) before
 looking it up live: a live lookup can hang for minutes while GotSport is throttling a running
-reconcile. Look in this order:
+reconcile. A blank `gotsport_team_name` there can mean GotSport's name marked a retired or archived
+registration, which the reconcile blanks before logging; look that record up live. Look in this
+order:
 
 1. `adjacent_gotsport` in the triage. Clubs register squads in batches, so the old squad is often
    a neighbouring id: Bala FC's reused record was 614082 and its old squad 614084.
@@ -223,3 +258,96 @@ Write `data/exports/<state>_reconcile_gotsport_<date>.md` with: the slice, the c
 applied change with its log and undo command, each hold with its reason, and the follow-ups
 (placeholders needing club or state, reused teams waiting on an old-squad row). The boards
 regroup at Monday's ranking run.
+
+## The bulk lane
+
+Correct a cohort when GotSport says younger **and** something season-proof agrees. Across 12,083
+corrections, 99.3% of games against band-named opponents matched the new cohort.
+
+This path only sees teams GotSport says are **younger** than stored. A band-named team GotSport
+files one group old never reaches it; the audit in the `correcting-team-age-groups` skill is how
+those get fixed.
+
+### Bulk 1: Preflight
+
+Run from the checkout that holds `data/exports`, or pass both scripts
+(`scripts/reconcile_teams_with_gotsport.py` and `scripts/fix_band_cohorts.py`) `--exports-dir`
+pointing there. Both are tracked under `scripts/`, so every checkout has them — but their
+candidates and logs live under `data/exports/`, which is gitignored, so a worktree run without the flag finds no
+candidates and leaves its logs where removing the worktree destroys them.
+
+Credentials come from root `.env` (`.env.local` overrides it); a missing key surfaces as
+`Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY` before any read.
+
+Candidates come from `reconcile_teams_with_gotsport_*.csv` in that folder — the most recent
+execute-mode row per team. Only rows from an `--execute` run count, so Step 1's read-only run adds
+none. A team never reconciled cannot appear, and on a machine without those logs the tool reports
+zero candidates rather than failing. Widen the population by running
+`scripts/reconcile_teams_with_gotsport.py` with `--execute` first; that run also writes the names,
+clubs and states it reports, so ask before it.
+
+### Bulk 2: Plan, and read real rows
+
+`python scripts/fix_band_cohorts.py` with no arguments is a dry run: it re-verifies every
+candidate against the live table, attaches this season's opponent evidence, checks the target
+cohort for a same-named team, and writes a plan CSV. Nothing is written to the database.
+
+Sample the plan by hand before applying. Read the surprising moves — three cohorts at once, a
+club's whole roster — against the team's own name and its opponents.
+
+### Bulk 3: Pilot 50 and verify
+
+```bash
+python scripts/fix_band_cohorts.py --apply <plan> --strong-only --skip-name-contradictions --limit 50 --execute
+```
+
+Then confirm in the database that the 50 hold the new cohort and nothing else on those rows
+changed. Verify from the database, not from the run's own summary.
+
+### Bulk 4: Apply the rest
+
+Re-run the same command without `--limit`; the piloted rows come back as `already_applied`, so
+no slicing is needed. Verify the whole batch the same way. Each write carries the planned old
+value as a predicate, so a team that moved since the plan is skipped and reported rather than
+overwritten.
+
+Undo with `--revert <apply log> --execute`, which touches only rows still holding what the run
+wrote.
+
+**Selecting a subset of a reviewed plan:** `--strong-only` is the set this path's rule
+describes and the default worth applying. `--gotsport-only` selects its complement — rows whose
+only evidence is GotSport's own name — so treat it as a separate judgment rather than a filter.
+`--boarded-only` / `--unboarded-only` split by whether the new cohort is ranked, and
+`--exclude` takes comma-separated team ids. The two pairs are mutually exclusive; passing both
+halves exits. `--include-collisions` **widens** the set into the held duplicates — leave it off.
+`--dry-run` wins over `--execute`.
+
+Ask before writing a batch. The boards regroup at Monday's ranking run; nothing else needs
+repairing afterwards.
+
+### Rows held because this season's opponents back the current label
+
+The plan holds these as `held_fixtures_disagree`, for a look rather than for keeps. It is usually
+a team playing a year up. Sample a few against their schedules, then file by its band each row
+whose band is in our own name (`evidence_tier` `A_own_name_band`), following the owner's
+2026-09-18 play-up decision (Step 3); rows whose band is only in GotSport's name stay held. Copy
+the own-name rows into a plan with `action` set to `would_update` and apply it the usual way.
+
+## Reviewing the weekly re-check
+
+A Windows scheduled task, "PitchRank Weekly Age-Group Recheck", runs
+`scripts/weekly_age_recheck.py` every Tuesday. It re-derives the pending population from
+the reconcile logs, applies the bulk lane's rules, and writes `weekly_age_recheck_<date>.md`, a
+plan CSV, and a row in `weekly_age_recheck_history.csv`. Like the bulk lane it cannot see a
+band-named team GotSport files one group old, so newly imported teams of that kind accumulate
+until an audit catches them.
+
+Most pending teams are waiting for games, not failing a test: only about one game in six is
+against a band-named opponent, so evidence accrues over the season. Read `qualifying` rather
+than `pending` — pending grows whenever fresh reconcile rows land, and a growing total is
+coverage widening, not a fault.
+
+Treat its plan as any other plan: sample, pilot, verify, and apply only with the user's
+approval. `weekly_age_recheck_last_run.log` says `ok` or carries the traceback. The log is written by
+the script itself, so a week with no report *and* no log means the script never started:
+the machine was off, or the task names a path that checkout does not hold.

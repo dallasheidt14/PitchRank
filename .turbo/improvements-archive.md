@@ -1647,3 +1647,15 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Noted**: 2026-10-12
 - **Update (2026-10-12)**: Owner chose to stop re-sending undated games rather than date them: every undated game measured that day came from five May-July 2025 tournaments, all past the ranking window.
 - **Refs**: PR #1295 (branch `fix/tgs-skip-undated-games`): `process_single_flight` leaves undated games out of the CSV and counts them
+
+### Decide whether a U17 name moving to u19 counts as two groups away
+
+- **ID**: IMP-323
+- **Status**: done
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `scripts/fix_band_cohorts.py` `name_contradiction` (its `_NAME_UAGE` check)
+- **Why**: The check holds a move when the name's U-age is two or more from the target (`abs(age - n) >= 2`), so a team named U17 moving to u19 is held as "2 away". There is no u18 board: u17 and u19 are neighbouring groups here, and the same move from U16 to U17 passes. Whether a U17-named team may move to u19 is an owner question; the answer decides whether the check should measure distance in boards rather than in years. Found while planning the age-skill fixes (team-cleanup plan step 8), 2026-10-11.
+- **Noted**: 2026-10-11
+- **Update (2026-10-13)**: `name_contradiction` reads U-ages with the shared `name_u_ages` and measures their distance with `_group_steps`, which files U18 into u19, so U17 is one group from u19 and `name_contradiction("Club U17 Boys", "u19")` returns no hold.
+- **Refs**: #1283

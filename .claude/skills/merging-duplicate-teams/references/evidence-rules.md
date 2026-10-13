@@ -128,9 +128,12 @@ depending on which way the club wrote it. 38 live rows use it, and GotSport emit
 (`src/scrapers/gotsport_tier_parser.py` calls it "Form 5. Reverse-token"). Resolve such a pair
 by hand rather than trusting a `birth years disagree` refusal.
 
-**The label is dated from the games; the name is not.** A row's name is rewritten whenever the
-provider renames the squad, so through the autumn a live row can carry this season's label over
-a schedule that is still last season's, and `cohort_of` dates the label from those games.
+**The label is dated from the games; the name is not.** A row's name takes most of the
+provider's renames (the GotSport reconcile withholds one where GotSport files the team in another
+age group, where our name's birth year fits our group and GotSport's name would trade it for
+another age or no number, and where GotSport's name marks a retired or archived registration), so
+through the autumn a live row can carry this season's label over a schedule that is still last
+season's, and `cohort_of` dates the label from those games.
 `Warriors BU11 Attack`, renamed by GotSport on 2026-09-12 with no game since April, resolved to
 `{2014, 2015}` — its label read against each of the 2024 and 2025 seasons — against
 `Warriors B15/16 Attack`'s stated `{2015, 2016}`. That pair was refused for sharing a game date,
@@ -157,8 +160,9 @@ attributable to either change alone. Separate them before reading the counts as 
 
 So date a label by the season its **name** was written. Two writers set it, and they differ: a
 provider rename carries the club's current label, which may sit over an older schedule, while
-`normalize_team_names.py` rewrites a band into a U-label derived from the row's own band, which
-is current at the time it is written and covers a large population (21,420 live rows carry a
+`normalize_team_names.py` rewrites every band but an aged-out one (2006/07 in 2026-27, left as
+written) into a U-label derived from the row's own band, which is current at the time it is
+written and covers a large population (21,420 live rows carry a
 U-label and no four-digit year). `team_name_original` holds the pre-rewrite name where the row
 has one. Where the season cannot be established, resolve the pair by hand: `decide` has no
 review path for it — it refuses on the disagreement — and its module docstring still describes

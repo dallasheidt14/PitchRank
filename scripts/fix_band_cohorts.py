@@ -14,8 +14,9 @@ The band is the value; GotSport is corroboration. A band names both birth years 
 cohort, so it resolves without knowing which season wrote it -- the project's own rule,
 scripts/normalize_team_names._resolve_band. Measured 2026-09-15 across 50 states: where
 a band decides a GotSport-younger disagreement it backs GotSport 9,149 times and the
-stored label 65. The reverse direction (GotSport older) is out of scope; there the
-stored label is usually the right one.
+stored label 65. The reverse direction (GotSport older) is not planned here: the
+reconcile-gotsport skill's triage decides those per team under the owner's rules
+(CLAUDE.md), and --apply applies the plans it writes.
 
 Three modes, so what gets reviewed is exactly what gets written:
 

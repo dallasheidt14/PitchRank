@@ -1,6 +1,6 @@
 ---
 name: correcting-team-age-groups
-description: "Audits and corrects PitchRank teams' age groups from evidence rather than one source: reviews a state or the whole database against the CLAUDE.md label key, fixes the approved groups in reversible batches, and drives the weekly GotSport re-check. Use when asked to review or audit the age groups in a state or in all teams, fix a team's age group, correct cohorts in bulk, reconcile stored cohorts against GotSport, review this week's age-group re-check, judge whether a provider's cohort should be trusted, or investigate why a team appears on the wrong age board."
+description: "Audits and corrects PitchRank teams' age groups from evidence rather than one source: reviews a state or the whole database against the CLAUDE.md label key and fixes the approved groups in reversible batches. GotSport's reconcile population and the weekly age-group re-check belong to the reconcile-gotsport skill. Use when asked to review or audit the age groups in a state or in all teams against the label key, fix a team's age group, judge whether a provider's cohort should be trusted, or investigate why a team appears on the wrong age board."
 ---
 
 # Correcting Team Age Groups
@@ -13,10 +13,16 @@ re-deriving it. Two facts from it carry most of the weight: a band is named by i
 year whichever way it is spelled (the CLAUDE.md label key shows the common spellings), and the
 boards rank `u10`–`u17` and `u19` only.
 
-To review the age groups of a state or of every team, follow **Auditing against the label key**.
-For GotSport's reconcile population and the Tuesday re-check, follow **Correcting from GotSport's
-reconcile logs**. Both apply through `scripts/fix_band_cohorts.py`. To produce a plan
-without applying it, follow **Propose-only mode**.
+To review the age groups of a state or of every team, follow **Auditing against the label key**;
+it applies through `scripts/fix_band_cohorts.py`. To produce a plan without applying it, follow
+**Propose-only mode**. GotSport's reconcile population, both its per-team triage and its bulk lane,
+and the Tuesday re-check belong to the `reconcile-gotsport` skill.
+
+`scripts/check_age_skill_assumptions.py` turns this skill's claims about the code into assertions
+(the label key against the band readers, the owner's decisions, the applier's guards, the name
+hold) without reading the database. The weekly cleanup loop runs it before proposing age changes
+(`SELF_CHECKS` in `scripts/team_cleanup/propose_week.py`) and parks the ages stage as
+`skill_stale` when it fails.
 
 ## Propose-only mode
 
@@ -41,9 +47,10 @@ checkout that ran the batch.
 
 ## What each source is worth
 
-The band is the value; the provider is corroboration. CLAUDE.md puts it as a veto that is not a
-value, and that holds: a provider cohort withholds a write it disagrees with, and something
-season-proof supplies the cohort actually written.
+The band is the value; the provider is corroboration. In this audit a provider cohort never moves
+a team on its own: it withholds a write it disagrees with, or picks between the two groups a birth
+year in our own name allows. GotSport is the one provider whose age is written as a value, and only
+through the `reconcile-gotsport` triage under the owner's rules that CLAUDE.md records.
 
 | Signal | Weight |
 |---|---|
@@ -54,7 +61,7 @@ season-proof supplies the cohort actually written.
 | A U-label in **our own** name (`U13`, `13U`) | Only as current as the season that wrote it, and often that was last season. Moves a team when a season-proof signal above confirms it, or on the play-up path below. |
 | GotSport's cohort saying **younger** than stored | Usually right where a band can check it (~99%). It cannot show a U-label is current: when GotSport's own name carries the same label, its cohort repeats it. On the play-up path it rules out the label being *ours alone*; the birth-year and division checks are what test the label's age. |
 | GotSport's cohort for a band-named team | GotSport files a band by its **older** year, so it agreeing with a stored value one group too old proves nothing. |
-| GotSport's cohort saying **older** than stored | Usually wrong — about two in three. Leave these alone. |
+| GotSport's cohort saying **older** than stored | Not this audit's to move. The `reconcile-gotsport` triage takes it for a team that has played since Aug 1 unless this season's opponents back ours (owner, 2026-10-12: "Older wins unless games say ours"), and never against a two-year band in our own name. |
 | A single birth year in a name (`2014`) | Fits two groups. Moves a team only when the stored group is outside both. |
 | A multi-year name (`B10-12`, `06-07-08`) | Decides nothing: the squad spans several groups. |
 | Opponents' `age_group` **columns** | Worthless — the paths that mislabelled the team set its opponents too. |
@@ -90,11 +97,18 @@ file and goes back in front of the owner each time.
 
 Each rule below is enforced automatically, by a flag, or not at all. Know which.
 
-- **Our own name states a different age** — *partly automatic*. The plan's `D_name_contradicts`
-  tier reads four-digit years only; apostrophe-prefixed bands, written '11/'12, reach it only under
-  `--skip-name-contradictions`, so pass that flag on every apply. In a reconcile plan these rows
-  usually mean the GotSport link points at another squad. The check does not know U18 files into
-  U19, so it also holds every `08/09` band moving to `u19` — see audit Step 4.
+- **Our own name states a different age** — *automatic under a flag*. `--skip-name-contradictions`
+  holds a row at apply when our name states any birth year the new group cannot hold, including a
+  span that overlaps the group (owner, 2026-10-11: "Hold every span"), or a U-age two or more
+  groups away. It reads every year form: four-digit years, two-digit years after an apostrophe
+  ('11), apostrophe bands ('11/'12), and both years of every consecutive pair in a run
+  (2012/13/14); a season label (2025-26) is not a birth year. U18 files into u19 on both counts:
+  u19 holds three birth years (2009 among them in 2026-27), and a `U17` name is one group from
+  `u19`. A U-age one group away passes, since names keep last season's label after Aug 1 and
+  squads play a year up. Without the flag the applier reads no name, and plans from the review or
+  the triage reach it unchecked, so pass it on every apply. It reads a straight apostrophe only:
+  both band readers also read '11/'12 written with curly quotes, but this hold does not. In a
+  reconcile plan these rows usually mean the GotSport link points at another squad.
 - **An identical team already sits in the target cohort** — *automatic*. A reconcile plan holds
   it as `would_update_collision` on name, gender and cohort alone, so the other row can belong to
   another club; the audit review holds it as `held_duplicate_landing` only when club and state
@@ -102,13 +116,6 @@ Each rule below is enforced automatically, by a flag, or not at all. Know which.
   `merging-duplicate-teams` needs byte-identical `club_name`, a matching `state_code` bucket
   and the same stored age group — this column included — so a reconcile pair may not be
   proposable there.
-- **This season's opponents back the current label** — *automatic*: held as
-  `held_fixtures_disagree`, but held for a look, not kept. It is usually a team playing a year
-  up. Sample a few against their schedules, then file by its band each row whose band is in our
-  own name (`evidence_tier` `A_own_name_band`), following the play-up decision above; rows whose
-  band is only in GotSport's name stay held, because a provider name is a veto and not a value.
-  Copy the own-name rows into a plan with `action` set to `would_update` and apply it the usual
-  way.
 - **Opponents sit two or more groups from the name** — *automatic in the audit*:
   `held_opponents_far_from_name`. Mostly 09/10 teams in U19 leagues, two-year play-ups, and
   numbers that are not birth years (`Columbus United 09/10 Boys` plays U11). Owner's call. This
@@ -188,10 +195,9 @@ leaves its apply log, the only way back, where removing the worktree destroys it
 `--strong-only`: it keeps only band rows and would drop the approved U-label and birth-year
 groups. The dry run prints only counts; the held rows and their `hold_reason` are in the apply log
 it names (`fix_band_cohorts_apply_<time>.csv`). Read every `held_name_contradicts` row there. Apply
-as a separate plan, without the flag, the ones that are false alarms: an `08/09` band going to
-`u19`, and a band whose name also carries a U-label two or three seasons old
-(`Queen City FC U14/15 (2010/2011)`). Keep held a name whose U-label its own birth year
-contradicts (`U14 Travel 2011`).
+as a separate plan, without the flag, the ones that are false alarms: a band whose name also
+carries a U-label two or three seasons old (`Queen City FC U14/15 (2010/2011)`). Keep held a name
+whose U-label its own birth year contradicts (`U14 Travel 2011`).
 
 ### Step 5: Pilot 50, verify, apply the rest, verify
 
@@ -207,86 +213,14 @@ held. Record the owner's answers, plan and apply logs, undo commands, and every 
 reason in `data/exports/<scope>_age_key_review_<date>.md`. The boards regroup at the next ranking
 run.
 
-## Correcting from GotSport's reconcile logs
+## GotSport's reconcile logs and the weekly re-check
 
-Correct a cohort when GotSport says younger **and** something season-proof agrees. Across 12,083
-corrections, 99.3% of games against band-named opponents matched the new cohort.
-
-This path only sees teams GotSport says are **younger** than stored. A band-named team GotSport
-files one group old never reaches it; the audit above is how those get fixed.
-
-### Step 1: Preflight
-
-Run from the checkout that holds `data/exports`, or pass both scripts `--exports-dir` pointing
-there. Both are tracked under `scripts/`, so every checkout has them — but their candidates and
-logs live under `data/exports/`, which is gitignored, so a worktree run without the flag finds no
-candidates and leaves its logs where removing the worktree destroys them.
-
-Credentials come from root `.env` (`.env.local` overrides it); a missing key surfaces as
-`Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY` before any read.
-
-Candidates come from `reconcile_teams_with_gotsport_*.csv` in that folder — the most recent
-execute-mode row per team. A team never reconciled cannot appear, and on a machine without
-those logs the tool reports zero candidates rather than failing. Widen the population by
-running `scripts/reconcile_teams_with_gotsport.py` first.
-
-### Step 2: Plan, and read real rows
-
-`python scripts/fix_band_cohorts.py` with no arguments is a dry run: it re-verifies every
-candidate against the live table, attaches this season's opponent evidence, checks the target
-cohort for a same-named team, and writes a plan CSV. Nothing is written to the database.
-
-Sample the plan by hand before applying. Read the surprising moves — three cohorts at once, a
-club's whole roster — against the team's own name and its opponents.
-
-### Step 3: Pilot 50 and verify
-
-```bash
-python scripts/fix_band_cohorts.py --apply <plan> --strong-only --skip-name-contradictions --limit 50 --execute
-```
-
-Then confirm in the database that the 50 hold the new cohort and nothing else on those rows
-changed. Verify from the database, not from the run's own summary.
-
-### Step 4: Apply the rest
-
-Re-run the same command without `--limit`; the piloted rows come back as `already_applied`, so
-no slicing is needed. Verify the whole batch the same way. Each write carries the planned old
-value as a predicate, so a team that moved since the plan is skipped and reported rather than
-overwritten.
-
-Undo with `--revert <apply log> --execute`, which touches only rows still holding what the run
-wrote.
-
-**Selecting a subset of a reviewed plan:** `--strong-only` is the set this path's rule
-describes and the default worth applying. `--gotsport-only` selects its complement — rows whose
-only evidence is GotSport's own name — so treat it as a separate judgment rather than a filter.
-`--boarded-only` / `--unboarded-only` split by whether the new cohort is ranked, and
-`--exclude` takes comma-separated team ids. The two pairs are mutually exclusive; passing both
-halves exits. `--include-collisions` **widens** the set into the held duplicates — leave it off.
-`--dry-run` wins over `--execute`.
-
-Ask before writing a batch. The boards regroup at Monday's ranking run; nothing else needs
-repairing afterwards.
-
-## Reviewing the weekly re-check
-
-A Windows scheduled task, "PitchRank Weekly Age-Group Recheck", runs
-`scripts/weekly_age_recheck.py` every Tuesday. It re-derives the pending population from
-the reconcile logs, applies the reconcile rules, and writes `weekly_age_recheck_<date>.md`, a plan
-CSV, and a row in `weekly_age_recheck_history.csv`. Like the reconcile path it cannot see a
-band-named team GotSport files one group old, so newly imported teams of that kind accumulate
-until an audit catches them.
-
-Most pending teams are waiting for games, not failing a test: only about one game in six is
-against a band-named opponent, so evidence accrues over the season. Read `qualifying` rather
-than `pending` — pending grows whenever fresh reconcile rows land, and a growing total is
-coverage widening, not a fault.
-
-Treat its plan as any other plan: sample, pilot, verify, and apply only with the user's
-approval. `weekly_age_recheck_last_run.log` says `ok` or carries the traceback. The log is written by
-the script itself, so a week with no report *and* no log means the script never started:
-the machine was off, or the task names a path that checkout does not hold.
+The bulk lane that corrects cohorts GotSport says are younger, straight from the reconcile logs
+through `scripts/fix_band_cohorts.py`, its `held_fixtures_disagree` rows, and the Tuesday re-check
+(`scripts/weekly_age_recheck.py`) are documented in the `reconcile-gotsport` skill, beside its
+per-team triage. Both lanes write through the same applier as this audit, so the apply-time holds
+above guard them too. Neither lane fixes a band-named team that GotSport files one group old;
+this audit is how those get fixed.
 
 ## Reporting a batch
 

@@ -2087,16 +2087,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: Verified 2026-10-12: the three early returns each carry the same ~20-line `CardHeader` (title, description, `MissingGamesForm`, admin-gated `MergeTeamsDialogWrapper`), so the admin gate had to be added three times. The loaded-games header differs (display-font title, `LastUpdated`, no merge button), so decide whether it shares the component or stays separate.
 - **Noted**: 2026-10-12
 
-### Decide whether a U17 name moving to u19 counts as two groups away
-
-- **ID**: IMP-323
-- **Status**: open
-- **Type**: investigate
-- **Category**: reliability
-- **Where**: `scripts/fix_band_cohorts.py` `name_contradiction` (its `_NAME_UAGE` check)
-- **Why**: The check holds a move when the name's U-age is two or more from the target (`abs(age - n) >= 2`), so a team named U17 moving to u19 is held as "2 away". There is no u18 board: u17 and u19 are neighbouring groups here, and the same move from U16 to U17 passes. Whether a U17-named team may move to u19 is an owner question; the answer decides whether the check should measure distance in boards rather than in years. Found while planning the age-skill fixes (team-cleanup plan step 8), 2026-10-11.
-- **Noted**: 2026-10-11
-
 ### Escape the age plan's provider text the way its reader expects
 
 - **ID**: IMP-324
