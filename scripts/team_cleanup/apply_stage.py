@@ -208,6 +208,7 @@ APPLIER_SCRIPTS = (
     "apply_vetted_team_merges.py",
     "merge_teams.py",
     "exclude_merge_duplicate_games.py",
+    "apply_stage.py",
     "normalize_team_names.py",
     "backfill_missing_club_names.py",
     "extract_missing_club_names.py",
@@ -243,12 +244,12 @@ RUNS_ENDPOINT = "repos/{owner}/{repo}/actions/runs"
 # it, nor as runs finish and shift between pages.
 GH_PAGE = 100
 CHECK_TIMEOUT_SECONDS = 120
-# Every Python process with its command line, as JSON: Git Bash's ps misses native Windows processes, and
-# Windows PowerShell writes a redirected stdout in the OEM code page unless told otherwise.
+# Every Python process with its parent and command line, as JSON: Git Bash's ps misses native Windows
+# processes, and Windows PowerShell writes a redirected stdout in the OEM code page unless told otherwise.
 PROCESS_QUERY = (
     "[Console]::OutputEncoding = [Text.Encoding]::UTF8; "
     "Get-CimInstance Win32_Process -Filter \"Name LIKE 'python%'\" | "
-    "Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress"
+    "Select-Object ProcessId,ParentProcessId,CommandLine | ConvertTo-Json -Compress"
 )
 
 
@@ -380,8 +381,20 @@ def gh_runs(status: str) -> list[dict]:
 
 
 def python_processes() -> list[dict]:
-    """Every Python process on this machine, as {"ProcessId", "CommandLine"}."""
+    """Every Python process on this machine, as {"ProcessId", "ParentProcessId", "CommandLine"}."""
     return _listing(["powershell", "-NoProfile", "-Command", PROCESS_QUERY], "the process listing")
+
+
+def own_processes(processes: list[dict]) -> set:
+    """This process and the chain of Python processes in the listing that launched it, such as a venv's
+    python.exe or python -m dotenv run, whose command lines name this script too."""
+    parents = {process.get("ProcessId"): process.get("ParentProcessId") for process in processes}
+    own, pid = {os.getpid()}, parents.get(os.getpid())
+    # Windows reuses process ids, so a parent id can lead back into the chain.
+    while pid in parents and pid not in own:
+        own.add(pid)
+        pid = parents[pid]
+    return own
 
 
 def appliers_in(command_line: str) -> list[str]:
@@ -396,8 +409,9 @@ def appliers_in(command_line: str) -> list[str]:
 
 def pre_apply_problems() -> list[str]:
     """Why another writer may be running: a writer workflow's run that has not completed (any status in
-    UNFINISHED), a Python process on this machine running a team applier, or one whose command line
-    cannot be read. Raises CheckFailed when a check cannot run."""
+    UNFINISHED), a Python process on this machine running a team applier, another apply_stage.py
+    included, or one whose command line cannot be read, this apply and what launched it aside. Raises
+    CheckFailed when a check cannot run."""
     writers = {f"{WORKFLOW_DIR}/{workflow}": workflow for workflow in WRITER_WORKFLOWS}
     problems = [
         f"{writers[run['path']]} run {run.get('id')} is {run.get('status')} ({run.get('event')})"
@@ -405,9 +419,11 @@ def pre_apply_problems() -> list[str]:
         for run in gh_runs(status)
         if run["path"] in writers
     ]
-    for process in python_processes():
+    processes = python_processes()
+    own = own_processes(processes)
+    for process in processes:
         pid, line = process.get("ProcessId"), process.get("CommandLine")
-        if pid == os.getpid():
+        if pid in own:
             continue
         if line is None:
             problems.append(f"Python process {pid}: its command line cannot be read")
@@ -524,8 +540,9 @@ def hold_command(folder: Path) -> list[str]:
     return [HOLD_STATES, str(national), str(folder / SAFE_FILE), str(folder / HELD_FILE)]
 
 
-def revert_command(stage: str, log: str) -> list[str]:
-    return [APPLIERS[stage], "--revert", log, "--execute"]
+def revert_command(stage: str, log: str, execute: bool) -> list[str]:
+    """The applier's own --revert of one batch's log; without --execute it previews, writing nothing."""
+    return [APPLIERS[stage], "--revert", log, *(["--execute"] if execute else [])]
 
 
 def load_progress(folder: Path, marker: dict) -> dict:
@@ -1212,17 +1229,6 @@ def apply_stage(sb, store: Path, run_id: str, stage: str, outside_window: bool, 
 # --- RECORD.md -----------------------------------------------------------------------------------
 
 
-def undo_lines(stage: str, run_id: str, progress: dict) -> list[str]:
-    """Each batch's own undo, newest first. A states batch has none of its own: only the whole-stage
-    revert checks that nothing else wrote in the stage's windows before undoing them."""
-    if stage == STATES:
-        return []
-    return [
-        f"- {label}: `python {subprocess.list2cmdline(revert_command(stage, log))}`"
-        for label, log in revert_logs(stage, progress, run_id)
-    ]
-
-
 def write_record(folder: Path, store: Path, run_id: str, stage: str, marker: dict, rows: list, progress: dict) -> Path:
     names = {row["team_id_master"]: row["team_name"] for row in rows}
     counts = ", ".join(f"{decision} {count}" for decision, count in marker["counts"].items())
@@ -1260,19 +1266,18 @@ def write_record(folder: Path, store: Path, run_id: str, stage: str, marker: dic
         cards = [card for queued in progress["queue"] for card in queued["cards"]]
         settled = [f"- {c['team_name']!r} to {c['state']}, {c['decision']}: {c['outcome']}" for c in cards]
         lines += ["", "## Review queue", "", *(settled or ["No queued card was decided."])]
-    command = [APPLY_SCRIPT, "--run", run_id, "--stage", stage, "--revert", "--execute"]
-    whole = f"python {subprocess.list2cmdline([*command, '--store', str(store)])}"
-    undo = undo_lines(stage, run_id, progress)
-    each_batch = (
-        "Each batch alone, newest first (no window or writer checks, and team_cleanup_changes stays unstamped until "
-        "the whole-stage revert runs):"
-    )
+    # Only the whole-stage revert keeps to the window, waits for other writers and stamps the ledger, so
+    # no batch's own applier revert is offered.
+    command = [APPLY_SCRIPT, "--run", run_id, "--stage", stage, "--revert"]
+    whole = f"python {subprocess.list2cmdline([*command, '--execute', '--store', str(store)])}"
+    preview = f"python {subprocess.list2cmdline([*command, '--store', str(store)])}"
     lines += [
         "",
         "## Undo",
         "",
         f"The whole stage: `{whole}`",
-        *(["", each_batch, *undo] if undo else []),
+        "",
+        f"Its dry run, which writes nothing: `{preview}`",
     ]
     path = folder / APPLY_MARKER
     tmp = path.with_name(path.name + ".tmp")
@@ -1430,7 +1435,7 @@ def revert_stage(sb, store: Path, run_id: str, stage: str, outside_window: bool,
                 for step, (label, log) in enumerate(revert_logs(stage, progress, run_id)):
                     before(step, label)
                     output = folder / LOGS / f"revert_{label}_{Path(log).stem}.log"
-                    code = run_step(revert_command(stage, log), output)
+                    code = run_step(revert_command(stage, log, execute=True), output)
                     lines.append(f"- {label}: {APPLIERS[stage]} --revert {log} exited {code}; see {output}")
                     print(lines[-1][2:])
                     if code != 0:
@@ -1466,7 +1471,7 @@ def dry_run_revert(sb, store: Path, run_id: str, stage: str) -> None:
             print(f"  {label}: revert_team_states('{actor}', '{window[0]}', '{window[1]}', ...)")
     else:
         for label, log in revert_logs(stage, progress, run_id):
-            print(f"  {label}: python {subprocess.list2cmdline(revert_command(stage, log))}")
+            print(f"  {label}: python {subprocess.list2cmdline(revert_command(stage, log, execute=False))}")
     refusal = revert_refusal(sb, store, folder, run_id, stage, progress)
     if refusal:
         print(f"It would refuse. {refusal}")
@@ -1478,7 +1483,7 @@ def dry_run_revert(sb, store: Path, run_id: str, stage: str) -> None:
 # --- the dry run ---------------------------------------------------------------------------------
 
 
-def dry_run(sb, store: Path, run_id: str, stage: str, folder: Path, marker: dict) -> None:
+def dry_run(sb, run_id: str, stage: str, folder: Path, marker: dict) -> None:
     rows = read_json(folder / DECISIONS_FILE)
     check_ledger(sb)
     planned = plan_decisions(sb, stage, rows)
@@ -1499,8 +1504,7 @@ def dry_run(sb, store: Path, run_id: str, stage: str, folder: Path, marker: dict
         if stage == STATES:
             print(f"  python {subprocess.list2cmdline(hold_command(folder))}")
         for name, part in pilot_and_rest(changes):
-            command = applier_command(stage, folder / cut_name(stage, name), store, run_id)
-            print(f"  python {subprocess.list2cmdline(command)}    ({len(part)} rows)")
+            print(f"  {name}: {APPLIERS[stage]} over {folder / cut_name(stage, name)}    ({len(part)} rows)")
         print(f"  each batch verified from the database and ledgered in {CHANGES_TABLE}")
     else:
         print("Nothing to apply: no card was chosen Apply.")
@@ -1558,7 +1562,7 @@ def main() -> int:
         elif execute:
             print(f"Wrote {apply_stage(sb, store, args.run, args.stage, args.outside_window, retry)}")
         else:
-            dry_run(sb, store, args.run, args.stage, folder, marker)
+            dry_run(sb, args.run, args.stage, folder, marker)
     except ApplyLockError as exc:
         raise SystemExit(f"Cannot {what}: {exc}") from None
     except (APIError, httpx.HTTPError) as exc:

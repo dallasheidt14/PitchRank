@@ -1027,9 +1027,22 @@ def test_a_full_page_of_runs_refuses_rather_than_missing_one_past_it(tmp_path, m
         ("python .claude/skills/reconcile-gotsport/scripts/apply_team_fields.py", "4242 runs apply_team_fields.py"),
         ("python -m scripts.fix_band_cohorts --apply p.csv --execute", "4242 runs fix_band_cohorts.py"),
         ("python.exe -mscripts.assign_team_states --execute", "4242 runs assign_team_states.py"),
+        (
+            r"python scripts\team_cleanup\apply_stage.py --run 2026-10-07-nv --stage clubs --revert --execute",
+            "4242 runs apply_stage.py",
+        ),
+        ("python -m scripts.team_cleanup.apply_stage --run 2026-10-14-nv --stage ages", "4242 runs apply_stage.py"),
         (None, "4242: its command line cannot be read"),
     ],
-    ids=["age-applier", "skill-applier", "as-a-module", "as-a-module-unspaced", "unreadable"],
+    ids=[
+        "age-applier",
+        "skill-applier",
+        "as-a-module",
+        "as-a-module-unspaced",
+        "another-apply",
+        "another-apply-as-a-module",
+        "unreadable",
+    ],
 )
 def test_a_python_process_running_an_applier_refuses_the_apply(tmp_path, monkeypatch, capsys, line, refused):
     store, db, _ = _club_week(tmp_path)
@@ -1048,12 +1061,76 @@ def test_a_python_process_running_an_applier_refuses_the_apply(tmp_path, monkeyp
         "python -m pytest tests/unit/test_fix_band_cohorts.py",
         "python -m streamlit run dashboard.py",
         "python -m scripts.fix_band_cohorts_review --out r.csv",
+        "python -m pytest tests/unit/test_team_cleanup_apply_stage.py",
     ],
-    ids=["a-test-of-an-applier", "the-dashboard", "a-module-named-like-an-applier"],
+    ids=["a-test-of-an-applier", "the-dashboard", "a-module-named-like-an-applier", "a-test-of-the-apply"],
 )
 def test_a_python_process_running_no_applier_does_not(tmp_path, monkeypatch, capsys, line):
     store, db, _ = _club_week(tmp_path)
     _wire(monkeypatch, db, _Runner(db), processes=lambda: [{"ProcessId": 4242, "CommandLine": line}])
+
+    assert _main(monkeypatch, capsys, store, "clubs", "--execute")[0] == 0
+
+
+APPLY_LINE = r'"C:\venv\Scripts\python.exe" scripts/team_cleanup/apply_stage.py --run 2026-10-14-nv --stage clubs'
+DOTENV_LINE = "python -m dotenv run -- python scripts/team_cleanup/apply_stage.py --run 2026-10-14-nv --stage clubs"
+
+
+def _selected_listing(processes):
+    """subprocess.run as Windows answers the process listing: each process with only the properties the
+    query's Select-Object names, as ConvertTo-Json writes them."""
+
+    def run(command, **kwargs):
+        assert command[:3] == ["powershell", "-NoProfile", "-Command"] and "Win32_Process" in command[3]
+        names = re.search(r"Select-Object (\S+)", command[3]).group(1).split(",")
+        found = [{name: process.get(name) for name in names} for process in processes]
+        return subprocess.CompletedProcess(command, 0, stdout=json.dumps(found), stderr="")
+
+    return run
+
+
+def _process(pid, parent, line):
+    return {"ProcessId": pid, "ParentProcessId": parent, "CommandLine": line}
+
+
+def _listed(monkeypatch, processes):
+    monkeypatch.setattr(ap, "python_processes", REAL_PYTHON_PROCESSES)
+    monkeypatch.setattr(ap.subprocess, "run", _selected_listing(processes))
+
+
+@pytest.mark.parametrize(
+    "launchers",
+    [[_process(101, 7, APPLY_LINE)], [_process(101, 100, APPLY_LINE), _process(100, 7, DOTENV_LINE)]],
+    ids=["its-venv-launcher", "and-the-dotenv-run-above-that"],
+)
+def test_the_python_processes_that_launched_this_apply_do_not_refuse_it(tmp_path, monkeypatch, capsys, launchers):
+    store, db, _ = _club_week(tmp_path)
+    _wire(monkeypatch, db, _Runner(db))
+    _listed(monkeypatch, [_process(os.getpid(), 101, APPLY_LINE), *launchers])
+
+    assert _main(monkeypatch, capsys, store, "clubs", "--execute")[0] == 0
+
+
+def test_another_apply_its_launcher_also_started_still_refuses(tmp_path, monkeypatch, capsys):
+    store, db, _ = _club_week(tmp_path)
+    runner = _Runner(db)
+    _wire(monkeypatch, db, runner)
+    sibling = r"python scripts\team_cleanup\apply_stage.py --run 2026-10-07-nv --stage clubs --revert --execute"
+    _listed(
+        monkeypatch,
+        [_process(os.getpid(), 101, APPLY_LINE), _process(101, 7, DOTENV_LINE), _process(202, 101, sibling)],
+    )
+
+    message = _refused(monkeypatch, capsys, store, "clubs", "--execute")
+
+    assert message == "Not applying while another writer may be running:\n  Python process 202 runs apply_stage.py"
+    assert _team_writes(db) == [] and runner.commands == []
+
+
+def test_a_parent_id_that_leads_back_into_the_chain_ends_the_walk(tmp_path, monkeypatch, capsys):
+    store, db, _ = _club_week(tmp_path)
+    _wire(monkeypatch, db, _Runner(db))
+    _listed(monkeypatch, [_process(os.getpid(), 101, APPLY_LINE), _process(101, os.getpid(), APPLY_LINE)])
 
     assert _main(monkeypatch, capsys, store, "clubs", "--execute")[0] == 0
 
@@ -1812,10 +1889,8 @@ def test_a_state_dry_run_runs_no_script_at_all(tmp_path, monkeypatch, capsys):
 
     assert code == 0 and runner.commands == []
     hold_line = subprocess.list2cmdline(ap.hold_command(folder))
-    replay_line = subprocess.list2cmdline(
-        ["scripts/assign_team_states.py", "--execute", "--snapshot", str(folder / "pilot.json")]
-    )
-    assert f"  python {hold_line}\n" in out and f"  python {replay_line}    (1 rows)\n" in out
+    assert f"  python {hold_line}\n" in out
+    assert f"  pilot: scripts/assign_team_states.py over {folder / 'pilot.json'}    (1 rows)\n" in out
     assert "split: a pilot of 1:\n" in out
 
 
@@ -2680,19 +2755,23 @@ def _files(store):
     return {str(p): p.stat().st_mtime_ns for p in store.rglob("*") if p.is_file()}
 
 
-@pytest.mark.parametrize("stage", ["clubs", "states", "ages"])
-def test_a_dry_run_writes_nothing_and_runs_nothing(tmp_path, monkeypatch, capsys, stage):
+def _one_change_week(tmp_path, stage):
+    """A stage with one card chosen Apply, and for states a queued card chosen Don't apply."""
     store = _store(tmp_path)
     if stage == "clubs":
         _clubs(tmp_path, store, [_scan_row("t1", "LVSA", "Club t1")], {"t1": "apply"})
-        db = _Db(teams=[_team("t1", club="LVSA")])
-    elif stage == "states":
+        return store, _Db(teams=[_team("t1", club="LVSA")])
+    if stage == "states":
         decisions = [_decision("t1", None, "NV"), _decision("t2", "WA", "NV", action="queue")]
         _states(tmp_path, store, decisions, {"t1": "apply", "t2": "dont_apply"})
-        db = _Db(teams=[_team("t1", state=None), _team("t2", state="WA")])
-    else:
-        _ages(tmp_path, store, [_plan_row("t1", "u13", "u12")], {"t1": "apply"})
-        db = _Db(teams=[_team("t1", age="u13")])
+        return store, _Db(teams=[_team("t1", state=None), _team("t2", state="WA")])
+    _ages(tmp_path, store, [_plan_row("t1", "u13", "u12")], {"t1": "apply"})
+    return store, _Db(teams=[_team("t1", age="u13")])
+
+
+@pytest.mark.parametrize("stage", ["clubs", "states", "ages"])
+def test_a_dry_run_writes_nothing_and_runs_nothing(tmp_path, monkeypatch, capsys, stage):
+    store, db = _one_change_week(tmp_path, stage)
     runner = _Runner(db)
     _wire(monkeypatch, db, runner, now=WEDNESDAY)
     before = _files(store)
@@ -2701,6 +2780,28 @@ def test_a_dry_run_writes_nothing_and_runs_nothing(tmp_path, monkeypatch, capsys
 
     assert code == 0 and out.startswith(f"DRY RUN -- {stage} for run {RUN}")
     assert db.writes() == [] and runner.commands == [] and _files(store) == before
+
+
+@pytest.mark.parametrize(
+    "stage, applier",
+    [
+        ("clubs", "scripts/repair_swapped_club_names.py"),
+        ("states", "scripts/assign_team_states.py"),
+        ("ages", "scripts/fix_band_cohorts.py"),
+    ],
+)
+def test_a_dry_run_names_each_batch_s_applier_but_hands_out_no_command_that_writes(
+    tmp_path, monkeypatch, capsys, stage, applier
+):
+    store, db = _one_change_week(tmp_path, stage)
+    _wire(monkeypatch, db, _Runner(db), now=WEDNESDAY)
+
+    _, out = _main(monkeypatch, capsys, store, stage)
+
+    assert f"  pilot: {applier} over " in out
+    assert [line for line in out.splitlines() if "--execute" in line] == [
+        "Re-run with --execute to apply it, inside the apply window or with --outside-window."
+    ]
 
 
 def test_dry_run_wins_over_execute(tmp_path, monkeypatch, capsys):
@@ -2966,15 +3067,21 @@ def test_a_foreign_write_in_the_rest_window_refuses_the_revert(tmp_path, monkeyp
     assert db.team(_id("other"))["state_code"] == "NV" and _reverts(db) == []
 
 
+def _undo_section(store, stage):
+    """RECORD.md's undo: the whole-stage revert, which keeps to the window and the writer checks, and its
+    dry run."""
+    revert = ["scripts/team_cleanup/apply_stage.py", "--run", RUN, "--stage", stage, "--revert"]
+    whole = subprocess.list2cmdline([*revert, "--execute", "--store", str(store)])
+    preview = subprocess.list2cmdline([*revert, "--store", str(store)])
+    return f"## Undo\n\nThe whole stage: `python {whole}`\n\nIts dry run, which writes nothing: `python {preview}`\n"
+
+
 def test_the_states_record_offers_only_the_whole_stage_revert(tmp_path, monkeypatch, capsys):
     store, _ = _applied_states(tmp_path, monkeypatch, capsys)
 
     record = (stage_dir(store, RUN, "states") / "RECORD.md").read_text(encoding="utf-8")
 
-    whole = ["scripts/team_cleanup/apply_stage.py", "--run", RUN, "--stage", "states", "--revert", "--execute"]
-    assert record[record.index("## Undo") :] == (
-        f"## Undo\n\nThe whole stage: `python {subprocess.list2cmdline([*whole, '--store', str(store)])}`\n"
-    )
+    assert record[record.index("## Undo") :] == _undo_section(store, "states")
 
 
 def test_the_approval_reason_is_the_one_approve_team_state_writes():
@@ -3154,13 +3261,33 @@ def test_a_revert_dry_run_runs_no_applier_and_writes_nothing(tmp_path, monkeypat
 
     code, out = _main(monkeypatch, capsys, store, "clubs", "--revert")
 
-    undo = [["scripts/repair_swapped_club_names.py", "--revert", log, "--execute"] for log in reversed(logs)]
+    undo = [["scripts/repair_swapped_club_names.py", "--revert", log] for log in reversed(logs)]
     assert code == 0 and out.startswith(f"DRY RUN -- would revert clubs for run {RUN}, newest batch first:\n")
     assert (
         f"  rest: python {subprocess.list2cmdline(undo[0])}\n  pilot: python {subprocess.list2cmdline(undo[1])}\n"
         in out
     )
     assert len(runner.commands) == 2 and len(db.writes()) == writes and _files(store) == before
+
+
+@pytest.mark.parametrize(
+    "stage, applier", [("clubs", "scripts/repair_swapped_club_names.py"), ("ages", "scripts/fix_band_cohorts.py")]
+)
+def test_a_revert_dry_run_shows_each_batch_s_preview_and_no_command_that_writes(
+    tmp_path, monkeypatch, capsys, stage, applier
+):
+    if stage == "clubs":
+        store, *_ = _two_club_batches(tmp_path, monkeypatch, capsys)
+    else:
+        store = _applied_ages(tmp_path, monkeypatch, capsys)
+    pilot, rest = (b["logs"][0] for b in read_json(stage_dir(store, RUN, stage) / "apply.json")["batches"])
+
+    code, out = _main(monkeypatch, capsys, store, stage, "--revert")
+
+    assert code == 0
+    assert f"  rest: python {subprocess.list2cmdline([applier, '--revert', rest])}\n" in out
+    assert f"  pilot: python {subprocess.list2cmdline([applier, '--revert', pilot])}\n" in out
+    assert [line for line in out.splitlines() if "--execute" in line] == ["Re-run with --execute to revert it."]
 
 
 def test_a_state_revert_dry_run_writes_nothing(tmp_path, monkeypatch, capsys):
@@ -3230,36 +3357,41 @@ def test_an_ages_revert_replays_the_age_fixer_s_own_revert(tmp_path, monkeypatch
     _wire(monkeypatch, db, runner)
     _main(monkeypatch, capsys, store, "ages", "--execute")
     [log] = read_json(stage_dir(store, RUN, "ages") / "apply.json")["batches"][0]["logs"]
-    record = (stage_dir(store, RUN, "ages") / "RECORD.md").read_text(encoding="utf-8")
 
     code, _ = _main(monkeypatch, capsys, store, "ages", "--revert", "--execute")
 
-    undo = ["scripts/fix_band_cohorts.py", "--revert", log, "--execute"]
-    assert code == 0 and runner.commands[-1] == undo
-    assert f"- pilot: `python {subprocess.list2cmdline(undo)}`" in record
+    assert code == 0 and runner.commands[-1] == ["scripts/fix_band_cohorts.py", "--revert", log, "--execute"]
     assert db.team(_id("g1"))["age_group"] == "u13" and all(r["reverted_at"] for r in _ledger(db))
     assert {r["applier"] for r in _ledger(db)} == {"scripts/fix_band_cohorts.py"}
 
 
-def test_the_record_gives_each_batch_s_own_undo_newest_first(tmp_path, monkeypatch, capsys):
-    store, db, _ = _club_week(tmp_path, n=51)
+def _applied_ages(tmp_path, monkeypatch, capsys, n=51):
+    """An ages stage of ``n`` teams applied, a pilot and a rest when ``n`` passes the pilot's 50."""
+    store = _store(tmp_path)
+    names = [f"g{k:02d}" for k in range(n)]
+    _ages(tmp_path, store, [_plan_row(name, "u13", "u12") for name in names], {name: "apply" for name in names})
+    db = _Db(teams=[_team(name, age="u13") for name in names])
     _wire(monkeypatch, db, _Runner(db))
-    _main(monkeypatch, capsys, store, "clubs", "--execute")
-    folder = stage_dir(store, RUN, "clubs")
-    pilot, rest = (batch["logs"][0] for batch in read_json(folder / "apply.json")["batches"])
+    assert _main(monkeypatch, capsys, store, "ages", "--execute")[0] == 0
+    return store
+
+
+@pytest.mark.parametrize("stage", ["clubs", "ages"])
+def test_the_record_offers_only_the_whole_stage_revert_and_no_batch_s_own(tmp_path, monkeypatch, capsys, stage):
+    if stage == "clubs":
+        store, *_ = _two_club_batches(tmp_path, monkeypatch, capsys)
+    else:
+        store = _applied_ages(tmp_path, monkeypatch, capsys)
+    folder = stage_dir(store, RUN, stage)
+    logs = [batch["logs"][0] for batch in read_json(folder / "apply.json")["batches"]]
 
     record = (folder / "RECORD.md").read_text(encoding="utf-8")
 
-    whole = ["scripts/team_cleanup/apply_stage.py", "--run", RUN, "--stage", "clubs", "--revert", "--execute"]
-    undo = [["scripts/repair_swapped_club_names.py", "--revert", log, "--execute"] for log in (rest, pilot)]
-    assert record[record.index("## Undo") :] == (
-        "## Undo\n\n"
-        f"The whole stage: `python {subprocess.list2cmdline([*whole, '--store', str(store)])}`\n\n"
-        "Each batch alone, newest first (no window or writer checks, and team_cleanup_changes stays unstamped until "
-        "the whole-stage revert runs):\n"
-        f"- rest: `python {subprocess.list2cmdline(undo[0])}`\n"
-        f"- pilot: `python {subprocess.list2cmdline(undo[1])}`\n"
-    )
+    assert record[record.index("## Undo") :] == _undo_section(store, stage)
+    assert [line for line in record.splitlines() if "--execute" in line] == [
+        line for line in _undo_section(store, stage).splitlines() if "--execute" in line
+    ]
+    assert len(logs) == 2 and all(f"  - applier log: {log}\n" in record for log in logs)
 
 
 # --- a run already ended ---------------------------------------------------------------------------
