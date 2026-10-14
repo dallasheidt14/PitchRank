@@ -3382,6 +3382,22 @@ def test_an_ages_revert_replays_the_age_fixer_s_own_revert(tmp_path, monkeypatch
     assert {r["applier"] for r in _ledger(db)} == {"scripts/fix_band_cohorts.py"}
 
 
+def test_an_age_log_written_over_an_older_one_of_the_same_name_is_still_the_batch_s(tmp_path, monkeypatch, capsys):
+    store = _store(tmp_path)
+    _ages(tmp_path, store, [_plan_row("g1", "u13", "u12")], {"g1": "apply"})
+    db = _Db(teams=[_team("g1", age="u13")])
+    _wire(monkeypatch, db, _Runner(db))
+    older = store / "exports" / "fix_band_cohorts_apply_20261017_010001.csv"
+    older.parent.mkdir(parents=True, exist_ok=True)
+    older.write_text("an earlier run's log, same second\n", encoding="utf-8")
+
+    code, _ = _main(monkeypatch, capsys, store, "ages", "--execute")
+
+    assert code == 0 and read_json(stage_dir(store, RUN, "ages") / "apply.json")["batches"][0]["logs"] == [str(older)]
+    assert _main(monkeypatch, capsys, store, "ages", "--revert", "--execute")[0] == 0
+    assert db.team(_id("g1"))["age_group"] == "u13"
+
+
 def _applied_ages(tmp_path, monkeypatch, capsys, n=51):
     """An ages stage of ``n`` teams applied, a pilot and a rest when ``n`` passes the pilot's 50."""
     store = _store(tmp_path)

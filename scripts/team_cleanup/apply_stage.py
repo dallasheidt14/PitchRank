@@ -1112,7 +1112,7 @@ def run_batch(folder: Path, store: Path, run_id: str, stage: str, name: str, cut
     exports = store / "exports"
     exports.mkdir(parents=True, exist_ok=True)
     pattern = APPLIER_LOGS.get(stage)
-    before = set(exports.glob(pattern)) if pattern else set()
+    before = _log_stamps(exports, pattern)
     attempt = sum(1 for b in progress["batches"] if b["batch"] == name) + 1
     output = folder / LOGS / f"apply_{name}_{attempt}.log"
     command = applier_command(stage, cut, store, run_id)
@@ -1122,12 +1122,20 @@ def run_batch(folder: Path, store: Path, run_id: str, stage: str, name: str, cut
     save_progress(folder, progress)
     batch["exit"] = run_step(command, output)
     batch["ended_at"] = utc_now_iso()
-    batch["logs"] = [str(path) for path in sorted(set(exports.glob(pattern)) - before)] if pattern else []
+    after = _log_stamps(exports, pattern)
+    batch["logs"] = [str(path) for path in sorted(after) if before.get(path) != after[path]]
     save_progress(folder, progress)
     # Both CSV appliers name their log by the second: the clubs one refuses a name taken, and the ages
-    # one overwrites it.
+    # one overwrites it, which the stamps above still catch.
     time.sleep(1)
     return batch
+
+
+def _log_stamps(exports: Path, pattern: str | None) -> dict[Path, tuple[int, int]]:
+    """Each applier log's modification time and size, so a log the batch overwrote counts as new."""
+    if not pattern:
+        return {}
+    return {path: (path.stat().st_mtime_ns, path.stat().st_size) for path in exports.glob(pattern)}
 
 
 def apply_batches(
