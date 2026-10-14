@@ -36,7 +36,7 @@ export function ReportCardPreview() {
               National Rank
             </p>
             <p className="font-display text-4xl font-bold text-[#0B5345]">
-              #47 <span className="text-base text-green-600 font-bold">▲ 12</span>
+              #47 <span className="text-base text-green-700 font-bold">▲ 12</span>
             </p>
             <p className="text-xs text-gray-500 mt-1">#3 in Arizona</p>
           </div>
@@ -84,7 +84,7 @@ export function ReportCardPreview() {
                   <td className="py-1.5 font-mono text-right pr-2">{g.score}</td>
                   <td
                     className={`py-1.5 text-right font-bold ${
-                      g.result === 'W' ? 'text-green-600' : g.result === 'L' ? 'text-red-500' : 'text-gray-500'
+                      g.result === 'W' ? 'text-green-700' : g.result === 'L' ? 'text-red-700' : 'text-gray-500'
                     }`}
                   >
                     {g.result}

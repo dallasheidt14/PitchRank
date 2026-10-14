@@ -102,7 +102,7 @@ export function RecentMovers({
                   tabIndex={0}
                 >
                   <div className="flex-1 min-w-0">
-                    <div className="font-semibold text-sm truncate group-hover:text-primary transition-colors">
+                    <div className="font-semibold text-sm line-clamp-2 break-words group-hover:text-primary transition-colors">
                       {displayName}
                     </div>
                     {team.state && <div className="text-xs text-muted-foreground">{team.state}</div>}

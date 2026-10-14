@@ -161,7 +161,7 @@ function UpgradePageContent() {
             }`}
           >
             Yearly
-            <span className="absolute -top-2 -right-2 bg-green-500 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold">
+            <span className="absolute -top-2 -right-2 bg-green-700 text-white text-xs px-1.5 py-0.5 rounded-full font-bold">
               -17%
             </span>
           </button>
@@ -185,7 +185,7 @@ function UpgradePageContent() {
                 <span className="text-4xl font-bold">$6.99</span>
                 <span className="text-muted-foreground">/month</span>
               </div>
-              <p className="text-sm text-green-600 font-medium mb-1">7-day free trial</p>
+              <p className="text-sm text-green-700 font-medium mb-1">7-day free trial</p>
               <p className="text-xs text-muted-foreground mb-4">After trial: $6.99/month. Cancel anytime.</p>
               <ul className="space-y-3">
                 {FEATURES.map((feature, index) => (
@@ -236,7 +236,7 @@ function UpgradePageContent() {
             onClick={() => setSelectedPlan('yearly')}
           >
             <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-              <Badge className="bg-green-600 text-white shadow-lg">Best Value — 2 Months Free</Badge>
+              <Badge className="bg-green-700 text-white shadow-lg">Best Value — 2 Months Free</Badge>
             </div>
             <CardHeader>
               <CardTitle className="text-2xl">Yearly</CardTitle>
@@ -249,13 +249,13 @@ function UpgradePageContent() {
                 <div className="text-sm text-muted-foreground mt-1">
                   That&apos;s just <span className="font-semibold text-foreground">$5.83/mo</span>{' '}
                   <span className="line-through">$83.88</span>
-                  <span className="text-green-600 font-medium ml-1">Save $13.89</span>
+                  <span className="text-green-700 font-medium ml-1">Save $13.89</span>
                 </div>
                 <p className="text-xs text-muted-foreground mt-2 italic">
                   Less than one tournament weekend — for a full year of clarity on a $10,000+ decision.
                 </p>
               </div>
-              <p className="text-sm text-green-600 font-medium mb-1">7-day free trial</p>
+              <p className="text-sm text-green-700 font-medium mb-1">7-day free trial</p>
               <p className="text-xs text-muted-foreground mb-4">After trial: $69.99/year. Cancel anytime.</p>
               <ul className="space-y-3">
                 {FEATURES.map((feature, index) => (
@@ -350,7 +350,7 @@ function UpgradePageContent() {
                 <span>{row.feature}</span>
                 <span className="text-center">
                   {row.free ? (
-                    <Check className="w-4 h-4 text-green-500 mx-auto" />
+                    <Check className="w-4 h-4 text-green-700 mx-auto" />
                   ) : (
                     <span className="text-muted-foreground">-</span>
                   )}

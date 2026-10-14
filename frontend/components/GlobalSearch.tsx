@@ -11,7 +11,7 @@ import { Search, X } from 'lucide-react';
 import { useTeamSearch } from '@/hooks/useTeamSearch';
 import type { RankingRow } from '@/types/RankingRow';
 import { trackSearchUsed, trackSearchResultClicked } from '@/lib/events';
-import { teamDisplayName, spokenTeamMeta } from '@/lib/utils';
+import { teamDisplayName, spokenTeamMeta, scrollBehavior } from '@/lib/utils';
 import { TeamRowSubtitle } from '@/components/TeamRowSubtitle';
 
 /**
@@ -142,7 +142,7 @@ export function GlobalSearch() {
     if (listRef.current && selectedIndex >= 0 && searchResults.length > 0) {
       const selectedElement = listRef.current.children[selectedIndex] as HTMLElement;
       if (selectedElement) {
-        selectedElement.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        selectedElement.scrollIntoView({ block: 'nearest', behavior: scrollBehavior() });
       }
     }
   }, [selectedIndex, searchResults.length]);
@@ -237,7 +237,9 @@ export function GlobalSearch() {
                         }`}
                         aria-label={`Select ${displayName}${spokenMeta ? ` ${spokenMeta}` : ''}`}
                       >
-                        <div className="font-medium truncate">{highlightMatch(displayName, deferredSearchQuery)}</div>
+                        <div className="font-medium line-clamp-2 break-words">
+                          {highlightMatch(displayName, deferredSearchQuery)}
+                        </div>
                         <TeamRowSubtitle
                           team={team}
                           highlight={(text) => highlightMatch(text, deferredSearchQuery)}

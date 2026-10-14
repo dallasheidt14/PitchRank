@@ -77,7 +77,7 @@ export function CohortSEOContent({ data }: CohortSEOContentProps) {
             {/* Rising */}
             {hasRisers && (
               <div className="pt-4 sm:pt-0 sm:px-5 border-t sm:border-t-0 border-border/40">
-                <p className="text-[11px] font-semibold uppercase tracking-widest text-green-600 mb-2">
+                <p className="text-[11px] font-semibold uppercase tracking-widest text-green-700 mb-2">
                   Rising This Week
                 </p>
                 <ul className="text-sm space-y-0">
@@ -86,14 +86,14 @@ export function CohortSEOContent({ data }: CohortSEOContentProps) {
                       key={t.teamId}
                       className="flex items-baseline gap-1.5 py-1.5 border-b border-border/40 last:border-0"
                     >
-                      <span className="text-green-600 text-xs">{'\u25B2'}</span>
+                      <span className="text-green-700 text-xs">{'\u25B2'}</span>
                       <a
                         href={`/teams/${t.teamId}`}
-                        className="underline decoration-border underline-offset-2 hover:decoration-foreground truncate"
+                        className="underline decoration-border underline-offset-2 hover:decoration-foreground line-clamp-2 break-words"
                       >
                         {t.teamName}
                       </a>
-                      <span className="ml-auto text-xs font-medium tabular-nums whitespace-nowrap text-green-600">
+                      <span className="ml-auto text-xs font-medium tabular-nums whitespace-nowrap text-green-700">
                         +{t.change}
                       </span>
                     </li>
@@ -105,7 +105,7 @@ export function CohortSEOContent({ data }: CohortSEOContentProps) {
             {/* Falling */}
             {hasFallers && (
               <div className="pt-4 sm:pt-0 sm:pl-5 border-t sm:border-t-0 border-border/40">
-                <p className="text-[11px] font-semibold uppercase tracking-widest text-red-500 mb-2">
+                <p className="text-[11px] font-semibold uppercase tracking-widest text-red-700 mb-2">
                   Falling This Week
                 </p>
                 <ul className="text-sm space-y-0">
@@ -114,14 +114,14 @@ export function CohortSEOContent({ data }: CohortSEOContentProps) {
                       key={t.teamId}
                       className="flex items-baseline gap-1.5 py-1.5 border-b border-border/40 last:border-0"
                     >
-                      <span className="text-red-500 text-xs">{'\u25BC'}</span>
+                      <span className="text-red-700 text-xs">{'\u25BC'}</span>
                       <a
                         href={`/teams/${t.teamId}`}
-                        className="underline decoration-border underline-offset-2 hover:decoration-foreground truncate"
+                        className="underline decoration-border underline-offset-2 hover:decoration-foreground line-clamp-2 break-words"
                       >
                         {t.teamName}
                       </a>
-                      <span className="ml-auto text-xs font-medium tabular-nums whitespace-nowrap text-red-500">
+                      <span className="ml-auto text-xs font-medium tabular-nums whitespace-nowrap text-red-700">
                         {t.change}
                       </span>
                     </li>

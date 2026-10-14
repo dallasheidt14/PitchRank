@@ -181,14 +181,14 @@ export default async function RankingsPage({ params }: RankingsPageProps) {
       {/* On phones, CSS order lifts the filters and table to just under the intro; the DOM (what crawlers read) keeps the SEO copy first */}
       <div className="flex flex-col">
         {/* Server-rendered SEO content — H1 and intro visible, team list hidden (duplicates interactive table) */}
-        <section className="container mx-auto px-4 pt-8 pb-4">
-          <h1 className="font-display text-3xl font-bold uppercase tracking-wide mb-2">
+        <section className="container mx-auto px-4 pt-4 pb-4 sm:pt-8">
+          <h1 className="font-display text-2xl sm:text-3xl font-bold uppercase tracking-wide mb-2">
             {locationText} {formattedAgeGroup} {formattedGender} Soccer Rankings
           </h1>
-          <p className="text-muted-foreground text-sm mb-4">
+          <p className="text-muted-foreground text-sm mb-4 max-sm:line-clamp-2">
             {isNational
               ? `National ${formattedAgeGroup} ${formattedGender} youth soccer rankings, updated weekly from real game results. Browse PowerScores for top clubs across all 50 states. Rankings are calculated using PitchRank's 13-layer algorithm that weighs strength of schedule, margin of victory, and opponent quality.`
-              : `${locationText} ${formattedAgeGroup} ${formattedGender} youth soccer rankings, updated weekly from real game results. See where ${locationText} clubs stand by PowerScore — a 0-to-1 rating built from strength of schedule, game outcomes, and opponent quality. Rankings update every Monday.`}
+              : `${locationText} ${formattedAgeGroup} ${formattedGender} youth soccer rankings, updated weekly from real game results. See where ${locationText} clubs stand by PowerScore — a 0–100 rating built from strength of schedule, game outcomes, and opponent quality. Rankings update every Monday.`}
           </p>
         </section>
 

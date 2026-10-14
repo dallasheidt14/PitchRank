@@ -121,7 +121,7 @@ export function UpcomingGamesTable({ teamId, limit }: UpcomingGamesTableProps) {
                         <Link
                           href={`/teams/${opp.id}`}
                           onMouseEnter={() => prefetchTeam(opp.id!)}
-                          className="font-medium hover:text-primary transition-colors duration-300 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary rounded cursor-pointer inline-block truncate sm:whitespace-normal sm:overflow-visible"
+                          className="font-medium hover:text-primary transition-colors duration-300 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary rounded cursor-pointer whitespace-normal line-clamp-2 break-words sm:line-clamp-none"
                           aria-label={`View ${opp.name} team details`}
                           title={opp.name}
                         >

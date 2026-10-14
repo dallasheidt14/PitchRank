@@ -560,7 +560,9 @@ export default function WatchlistPage() {
                           <DeltaIndicator value={team.rank_change_7d} />
                         </div>
                         <div className="flex-1 min-w-0">
-                          <h3 className="font-display text-lg leading-tight truncate">{team.team_name}</h3>
+                          <h3 className="font-display text-lg leading-tight line-clamp-2 break-words">
+                            {team.team_name}
+                          </h3>
                           {team.club_name && <p className="text-sm text-muted-foreground truncate">{team.club_name}</p>}
                           <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
                             <span className="flex items-center gap-1">

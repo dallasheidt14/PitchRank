@@ -1,10 +1,11 @@
 'use server';
 
+import { MIN_PASSWORD_LENGTH } from '@/lib/constants';
 import { createServerSupabase } from '@/lib/supabase/server';
 
 export async function updatePassword(password: string): Promise<{ error: string | null }> {
-  if (!password || password.length < 8) {
-    return { error: 'Password must be at least 8 characters long' };
+  if (!password || password.length < MIN_PASSWORD_LENGTH) {
+    return { error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters long` };
   }
 
   const supabase = await createServerSupabase();

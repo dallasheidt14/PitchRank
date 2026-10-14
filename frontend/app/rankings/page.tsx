@@ -73,11 +73,11 @@ export default async function RankingsPage() {
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(rankingsSchema) }} />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(rankingsFaqSchema) }} />
       {/* Server-rendered H1 and intro for SEO — appears before client component */}
-      <section className="container mx-auto px-4 pt-8 pb-4">
-        <h1 className="font-display text-3xl font-bold uppercase tracking-wide mb-2">
+      <section className="container mx-auto px-4 pt-4 pb-4 sm:pt-8">
+        <h1 className="font-display text-2xl sm:text-3xl font-bold uppercase tracking-wide mb-2">
           Youth Soccer Rankings — {teamsLong} Teams Ranked Weekly
         </h1>
-        <p className="text-muted-foreground text-sm mb-6">
+        <p className="text-muted-foreground text-sm mb-6 max-sm:line-clamp-2">
           Where does your team rank? PitchRank rates youth soccer teams across all 50 states using a 13-layer algorithm
           built on real game results. Browse rankings by state and age group, from U10 through U19, for both boys and
           girls. Rankings update every Monday — free, data-driven, no bias.
