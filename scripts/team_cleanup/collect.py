@@ -17,15 +17,15 @@ Into the stage folder it writes:
              clubs   the scoped swap snapshot's rows for them, approved
              states  the scoped snapshot cut to their decisions, keeping its rules stamp and each
                      decision's action: one the rules were unsure of stays `queue`, so the apply
-                     step must queue it and then approve it, as the dashboard's State Review
-                     Queue does
+                     step settles it through its review row instead of replaying it, as the
+                     dashboard's State Review Queue does
              ages    the plan's rows for them
   decisions.json             every decided card's choice and note, for the apply step to record
                              before it writes anything
   collected.json             the collection: the page run, the counts and the files' hashes
 
 It never touches the database. Collecting again, while the run is in review and the stage is not
-applied, replaces all three.
+applied, replaces all three; while an apply holds the run on this machine, it refuses.
 
     python scripts/team_cleanup/collect.py --run 2026-10-14-nv --stage states --decisions <out_dir>
 """
@@ -55,7 +55,9 @@ from scripts.team_cleanup.run_store import (  # noqa: E402
     COLLECTED_MARKER,
     MANIFEST_FILE,
     PAGE_MARKER,
+    ApplyLockError,
     file_hash,
+    hold_apply_file,
     read_run,
     stage_due,
     store_dir,
@@ -123,6 +125,15 @@ def write_vetted(folder: Path, stage: str, approved: set[str]) -> Path | None:
 
 
 def collect(store: Path, run_id: str, stage: str, decisions: Path) -> dict:
+    """Held under the apply lock's file half, so no apply on this machine acts on files a collect is replacing."""
+    try:
+        with hold_apply_file(store, run_id):
+            return _collect(store, run_id, stage, decisions)
+    except ApplyLockError as exc:
+        raise SystemExit(f"Cannot collect the {stage} choices for {run_id}: {exc}") from None
+
+
+def _collect(store: Path, run_id: str, stage: str, decisions: Path) -> dict:
     folder = stage_due(store, read_run(store, run_id), stage, ("collect", "apply"))
     check_unchanged(folder)
     manifest = read_json(folder / MANIFEST_FILE)

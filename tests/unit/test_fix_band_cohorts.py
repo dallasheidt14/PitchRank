@@ -428,8 +428,8 @@ def test_a_held_row_is_not_revertable(tmp_path):
     assert db.age_group(row["team_id_master"]) == "u13"
 
 
-def test_an_interrupted_execute_marks_its_rows_unconfirmed(exports, tmp_path):
-    """A row the loop never reached is unknown, not unwritten, once the run dies."""
+def test_an_interrupted_execute_marks_its_in_flight_row_unconfirmed(exports, tmp_path):
+    """The row being written when the run dies is unknown, not unwritten."""
     row = _plan_row()
     db = _Db([_team_row(row)])
     plan = _write_plan(tmp_path / "plan.csv", [row])
@@ -445,6 +445,50 @@ def test_an_interrupted_execute_marks_its_rows_unconfirmed(exports, tmp_path):
 
     _, log = _log_rows(exports)
     assert [r["result"] for r in log] == [fbc.UNCONFIRMED]
+
+
+class _AnswerLost(_Query):
+    def execute(self):
+        result = super().execute()
+        if len(self._db.writes) == self._db.stop_at:
+            raise self._db.stop
+        return result
+
+
+class _StopsAtWrite(_Db):
+    """Raises ``stop`` once its ``stop_at``-th write has landed, as a dropped connection or a Ctrl-C does."""
+
+    def __init__(self, teams, stop_at, stop):
+        super().__init__(teams)
+        self.stop_at, self.stop = stop_at, stop
+
+    def table(self, name):
+        db = self
+
+        class _StoppingTable(_Table):
+            def update(self, payload):
+                return _AnswerLost(db, payload=payload)
+
+        return _StoppingTable(self, name)
+
+
+@pytest.mark.parametrize(
+    "stop",
+    [ConnectionError("connection reset"), KeyboardInterrupt(), SystemExit("stopped")],
+    ids=["lost-answer", "ctrl-c", "system-exit"],
+)
+def test_a_stopped_apply_marks_only_the_row_in_flight_unconfirmed(exports, tmp_path, stop):
+    """The row whose write was under way may have landed; the rows after it were never sent, and stay
+    planned."""
+    rows = [_plan_row(team_id_master=f"{n}1111111-1111-4111-8111-111111111111") for n in range(1, 7)]
+    db = _StopsAtWrite([_team_row(r) for r in rows], 3, stop)
+
+    with pytest.raises(type(stop)):
+        _apply(db, _write_plan(tmp_path / "plan.csv", rows))
+
+    _, log = _log_rows(exports)
+    assert [r["result"] for r in log] == ["updated", "updated", fbc.UNCONFIRMED] + ["planned_not_applied"] * 3
+    assert len(db.writes) == 3
 
 
 def test_an_exports_dir_outside_the_repo_takes_the_apply_log_and_the_default_gets_nothing(exports, tmp_path, capsys):

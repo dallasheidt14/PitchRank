@@ -2276,3 +2276,23 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: duplicate detection, `.claude/skills/merging-duplicate-teams` Doorways A-D (`scripts/find_fuzzy_duplicate_teams.py` `score_team_pair`, `scripts/find_cross_provider_duplicates.py`, `scripts/find_squad_key_duplicates.py` `pairing_key` and `is_club_initials`)
 - **Why**: TGS issued new team ids for 2026-27, so one squad now holds a last-season row and a this-season row, and no doorway paired the worked example: A refuses it on IMP-344, B needs overlapping fixtures and the two seasons do not overlap, and C requires two providers. D is the near miss. Its `pairing_key` reads `ECNL RL 2013` as `{'ecnl rl'}` through the league fallback, but keeps `{'nth'}` for `NTH NASA ECNL RL B2012/13`, because `is_club_initials` does not take `NTH` as club `NASA Tophat`'s initials; without that token the second name also reads `{'ecnl rl'}`, and `leagues_conflict` finds no conflict (origin/main, checked 2026-10-13). So measure how many candidates D already pairs, and how many more it would with the initials recognised, before building a separate detector. Worked example: TGS 113019 (`ECNL RL 2013`, last game 2026-06-23) and TGS 134187 (`NTH NASA ECNL RL B2012/13`, first game 2026-08-30), merged by hand 2026-10-13 (`1ba2ffdc` into `eacbf4d3`). Scale ceiling, not a duplicate count: 3,956 live TGS rows were created since 2026-08-01, and 1,793 of them share club, age group, gender and state with a TGS row whose last game was before Aug 1. For whatever D still misses, signals to test: same provider, same club and stored cohort, one row's games end before Aug 1 and the other's start after, and a high share of the same league opponents across the two seasons (here the same ECNL RL Southeast clubs) -- the reverse of Doorway C's overlap rule, because the two rows never play concurrently.
 - **Noted**: 2026-10-13
+
+### Stop the age fixer's undo replaying rows it never sent
+
+- **ID**: IMP-347
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `scripts/fix_band_cohorts.py` `REVERTABLE`, `revert`, and `apply_plan`'s `finally`
+- **Why**: Since the apply's `finally` marks only the in-flight row `unconfirmed`, a run stopped by an exception leaves every row it never reached as `planned_not_applied`, and those were never sent. `revert` still replays them (`REVERTABLE` includes `planned_not_applied`) with a compare-and-set on the new age, so it puts back any team another writer had set to that same age. Only a hard kill needs those rows replayed: rows written after the log's last 500-row checkpoint stay `planned_not_applied`. A distinct result for never-sent rows written by the `finally` (e.g. `not_sent`, left out of `REVERTABLE`) would separate the two. The owner kept the fixer's undo as it is on 2026-10-14 when narrowing the `finally`.
+- **Noted**: 2026-10-14
+
+### Let run_store own apply.json's record shapes and the apply lock
+
+- **ID**: IMP-348
+- **Status**: open
+- **Type**: plan
+- **Category**: refactor
+- **Where**: `scripts/team_cleanup/run_store.py` `read_progress`, `hold_apply_file`; `scripts/team_cleanup/end_run.py` (the `_acquire_file_lock(... APPLY_LOCK_FILE ...)` block); `scripts/team_cleanup/apply_stage.py` `load_progress`, `run_batch`, `apply_queue`
+- **Why**: `end_run.py` still takes `apply.lock` by hand with its own `FileLockError` message, beside the `hold_apply_file` helper that collect, the apply and a closed run's revert share. And apply_stage builds the batch, queue-step and card records that `run_store.read_progress` validates, with the tests' builders a third copy, so a field added on one side goes unvalidated on the other. Both were left out of the applier PR as refactors beyond its scope.
+- **Noted**: 2026-10-14
