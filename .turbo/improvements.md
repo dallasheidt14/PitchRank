@@ -2278,3 +2278,33 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `scripts/pr_wait.py` (`main`: the `if args.no_merge` return sits before the `if pending:` report)
 - **Why**: Once the Codex window has closed, the wait loop breaks at once and `--no-merge` returns 0 without listing the checks still running, so a re-run after pushing a fix to an older PR reads as finished while CI is still going (#1294, 2026-10-13: eight checks pending, exit 0; read from `main` on 2026-10-14). Wanted: under `--no-merge`, print the pending checks and return non-zero while any are pending, as the merge path already does.
 - **Noted**: 2026-10-14
+
+### Stop the age fixer's undo replaying rows it never sent
+
+- **ID**: IMP-347
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `scripts/fix_band_cohorts.py` `REVERTABLE`, `revert`, and `apply_plan`'s `finally`
+- **Why**: Since the apply's `finally` marks only the in-flight row `unconfirmed`, a run stopped by an exception leaves every row it never reached as `planned_not_applied`, and those were never sent. `revert` still replays them (`REVERTABLE` includes `planned_not_applied`) with a compare-and-set on the new age, so it puts back any team another writer had set to that same age. Only a hard kill needs those rows replayed: rows written after the log's last 500-row checkpoint stay `planned_not_applied`. A distinct result for never-sent rows written by the `finally` (e.g. `not_sent`, left out of `REVERTABLE`) would separate the two. The owner kept the fixer's undo as it is on 2026-10-14 when narrowing the `finally`.
+- **Noted**: 2026-10-14
+
+### Let run_store own apply.json's record shapes and the apply lock
+
+- **ID**: IMP-348
+- **Status**: open
+- **Type**: plan
+- **Category**: refactor
+- **Where**: `scripts/team_cleanup/run_store.py` `read_progress`, `hold_apply_file`; `scripts/team_cleanup/end_run.py` (the `_acquire_file_lock(... APPLY_LOCK_FILE ...)` block); `scripts/team_cleanup/apply_stage.py` `load_progress`, `run_batch`, `apply_queue`
+- **Why**: `end_run.py` still takes `apply.lock` by hand with its own `FileLockError` message, beside the `hold_apply_file` helper that collect, the apply and a closed run's revert share. And apply_stage builds the batch, queue-step and card records that `run_store.read_progress` validates, with the tests' builders a third copy, so a field added on one side goes unvalidated on the other. Both were left out of the applier PR as refactors beyond its scope.
+- **Noted**: 2026-10-14
+
+### Serialize a closed run's revert with applies on other machines
+
+- **ID**: IMP-349
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `scripts/team_cleanup/apply_stage.py` `revert_stage` (the closed-run branch through `run_store.hold_apply_file`) and `check_other_writers`
+- **Why**: A revert of a done or abandoned run holds only that run's local file lock and no database lease (the owner's choice on 2026-10-14), and `check_other_writers` sees GitHub runs and this machine's Python processes only. So that revert on one machine and another run's apply on a second machine are not serialized and could change the same teams at once. The cleanup runs from one machine by design (the run store is a local folder), so this matters only if the loop ever spans machines; then guard closed-run reverts with a database-side cleanup lock (refusing while any run holds a live lease covers only one direction).
+- **Noted**: 2026-10-14

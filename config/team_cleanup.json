@@ -1,0 +1,6 @@
+{
+  "apply_window": {
+    "start": {"weekday": "Friday", "time": "17:00"},
+    "end": {"weekday": "Saturday", "time": "22:00"}
+  }
+}

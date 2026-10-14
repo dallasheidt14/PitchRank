@@ -50,6 +50,10 @@ def pair_subject(team_id: str, other_team_id: str) -> str:
     return "|".join(sorted((team_id, other_team_id)))
 
 
+def team_subject(team_id: str, field: str) -> str:
+    return f"{team_id}|{field}"
+
+
 def resolve_execute(execute_flag: bool, dry_run_flag: bool) -> bool:
     """Fail safe: asking for both means the caller wants the preview."""
     return execute_flag and not dry_run_flag
@@ -80,6 +84,21 @@ def keep_separate_row(merge_id: str, keep_id: str, note: str, decided_at: str, s
         "note": note or None,
         "decided_at": decided_at,
         "source": source,
+    }
+
+
+def team_decision_row(stage: str, card: dict) -> dict:
+    """A single-team card's decision, from its decisions.json row."""
+    return {
+        "stage": stage,
+        "subject_key": team_subject(card["team_id_master"], card["field"]),
+        "team_id_master": card["team_id_master"],
+        "field": card["field"],
+        "proposed_value": card["new_value"],
+        "decision": card["decision"],
+        "note": card["note"],
+        "decided_at": card["decided_at"],
+        "source": card["source"],
     }
 
 
