@@ -16,6 +16,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useUser } from '@/hooks/useUser';
+import { MAX_FEEDBACK_LENGTH, MIN_FEEDBACK_LENGTH } from '@/lib/constants';
 
 type Category = 'cant-find-team' | 'rankings-wrong' | 'wrong-games' | 'bug' | 'other';
 
@@ -34,9 +35,6 @@ const PLACEHOLDERS: Record<Category, string> = {
   bug: 'What did you click, and what happened vs what you expected?',
   other: "Tell us what's on your mind.",
 };
-
-const MIN_MESSAGE = 10;
-const MAX_MESSAGE = 2000;
 
 const TEXTAREA_CLASSES =
   'flex w-full min-h-[120px] rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50';
@@ -69,7 +67,7 @@ function FeedbackForm({ pathname, hasUser, onClose }: { pathname: string; hasUse
   }, [status, onClose]);
 
   const canSubmit = useMemo(
-    () => category !== '' && message.trim().length >= MIN_MESSAGE && message.length <= MAX_MESSAGE,
+    () => category !== '' && message.trim().length >= MIN_FEEDBACK_LENGTH && message.length <= MAX_FEEDBACK_LENGTH,
     [category, message]
   );
 
@@ -165,10 +163,11 @@ function FeedbackForm({ pathname, hasUser, onClose }: { pathname: string; hasUse
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           rows={5}
-          maxLength={MAX_MESSAGE}
+          maxLength={MAX_FEEDBACK_LENGTH}
         />
         <p className="text-xs text-muted-foreground">
-          {message.trim().length} / {MAX_MESSAGE}
+          {message.trim().length < MIN_FEEDBACK_LENGTH && `At least ${MIN_FEEDBACK_LENGTH} characters · `}
+          {message.trim().length} / {MAX_FEEDBACK_LENGTH}
         </p>
       </div>
 

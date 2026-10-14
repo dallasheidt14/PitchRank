@@ -4,8 +4,9 @@ import { createRoot, type Root } from 'react-dom/client';
 import { makeRankingRow } from '@/test/fixtures';
 import type { RankingRow } from '@/types/RankingRow';
 
-const { mockUseRankings } = vi.hoisted(() => ({
+const { mockUseRankings, mockTrackSortUsed } = vi.hoisted(() => ({
   mockUseRankings: vi.fn(),
+  mockTrackSortUsed: vi.fn(),
 }));
 
 vi.mock('@/hooks/useRankings', () => ({
@@ -19,7 +20,7 @@ vi.mock('@/lib/hooks', () => {
 
 vi.mock('@/lib/events', () => ({
   trackRankingsViewed: vi.fn(),
-  trackSortUsed: vi.fn(),
+  trackSortUsed: mockTrackSortUsed,
   trackTeamRowClicked: vi.fn(),
 }));
 
@@ -153,6 +154,7 @@ afterEach(async () => {
   root = null;
   container = null;
   mockUseRankings.mockReset();
+  mockTrackSortUsed.mockReset();
   vi.restoreAllMocks();
   vi.useRealTimers();
   window.history.replaceState(null, '');
@@ -521,12 +523,66 @@ describe('RankingsTable', () => {
     });
   });
 
-  // happy-dom applies no stylesheet, so these read the phone layout from the unprefixed Tailwind
-  // classes, the ones in force below the sm breakpoint. They check which cells the classes show, not how
-  // the row actually renders.
+  describe('sorting by PowerScore', () => {
+    // Lopsided on purpose: rank order, PowerScore high-to-low and PowerScore low-to-high are three different orders.
+    const BOARD = [
+      makeRankingRow({ team_id_master: 'team-a', team_name: 'Alpha', rank_in_cohort_final: 1, power_score_final: 0.5 }),
+      makeRankingRow({ team_id_master: 'team-b', team_name: 'Bravo', rank_in_cohort_final: 2, power_score_final: 0.9 }),
+      makeRankingRow({
+        team_id_master: 'team-c',
+        team_name: 'Charlie',
+        rank_in_cohort_final: 3,
+        power_score_final: 0.1,
+      }),
+    ];
+
+    /** The PowerScore and SOS buttons are both labelled "Sort by Sort", so find PowerScore by its column. */
+    function powerScoreSortButton(): HTMLButtonElement {
+      const header = container!.querySelector('[data-testid="rankings-table-header"]')!;
+      return header.children[2].querySelector('button')!;
+    }
+
+    it('puts the strongest team first on the first tap, and saves and reports that direction', async () => {
+      await renderTable(BOARD);
+      expect(rows().map(rowName)).toEqual(['Alpha', 'Bravo', 'Charlie']);
+
+      await act(async () => powerScoreSortButton().click());
+
+      expect(rows().map(rowName)).toEqual(['Bravo', 'Alpha', 'Charlie']);
+      expect(savedView()).toMatchObject({ sortField: 'powerScore', sortDirection: 'desc' });
+      expect(mockTrackSortUsed).toHaveBeenCalledWith(
+        expect.objectContaining({ column: 'powerScore', direction: 'desc' })
+      );
+    });
+
+    it('flips to weakest first on the second tap', async () => {
+      await renderTable(BOARD);
+
+      await act(async () => powerScoreSortButton().click());
+      await act(async () => powerScoreSortButton().click());
+
+      expect(rows().map(rowName)).toEqual(['Charlie', 'Alpha', 'Bravo']);
+      expect(savedView()).toMatchObject({ sortField: 'powerScore', sortDirection: 'asc' });
+    });
+
+    it('still starts every other column low to high', async () => {
+      await renderTable(BOARD);
+
+      await act(async () => (container!.querySelector('[aria-label="Sort by Team"]') as HTMLButtonElement).click());
+
+      expect(rows().map(rowName)).toEqual(['Alpha', 'Bravo', 'Charlie']);
+      expect(savedView()).toMatchObject({ sortField: 'team', sortDirection: 'asc' });
+    });
+  });
+
+  // happy-dom applies no stylesheet, so these read the phone layout from the classes in force below sm
+  // (unprefixed and `max-sm:`). They check which elements the classes show, not how the board renders.
   describe('on a phone', () => {
     function phoneClasses(el: Element): string[] {
-      return el.className.split(/\s+/).filter((name) => name !== '' && !name.includes(':'));
+      return el.className
+        .split(/\s+/)
+        .filter(Boolean)
+        .flatMap((name) => (!name.includes(':') ? [name] : name.startsWith('max-sm:') ? [name.slice(7)] : []));
     }
 
     function shownOnPhone(el: Element): boolean {
@@ -566,6 +622,37 @@ describe('RankingsTable', () => {
         expect(shownOnPhone(viewTeam)).toBe(false);
         expect(viewTeam.className.split(/\s+/)).toContain('sm:flex');
       }
+    });
+
+    it('shrinks the card header to the updated date and the PowerScore help, keeping the title for screen readers', async () => {
+      await renderTable([makeRankingRow({ last_calculated: '2026-08-24T12:00:00Z' })]);
+      const card = container!.querySelector('[data-testid="rankings-table-card"]')!;
+      const title = container!.querySelector('[data-testid="rankings-title"]')!;
+      const header = title.parentElement!;
+
+      expect(title.textContent).toContain('Complete Rankings');
+      expect(phoneClasses(title)).toContain('sr-only');
+      expect(shownOnPhone(title)).toBe(true);
+
+      const description = Array.from(header.children).find((child) => child.textContent?.includes('Age: U13'))!;
+      expect(shownOnPhone(description)).toBe(false);
+
+      const updated = Array.from(header.children).find((child) => child.textContent?.startsWith('Updated '))!;
+      expect(updated.textContent).toBe('Updated Aug 24, 2026');
+      expect(shownOnPhone(updated)).toBe(true);
+      expect(updated.className.split(/\s+/)).toContain('sm:hidden');
+
+      expect(Array.from(header.querySelectorAll('button')).some((b) => b.textContent === 'What is PowerScore?')).toBe(
+        true
+      );
+      expect(phoneClasses(card)).toEqual(expect.arrayContaining(['pt-0', 'gap-3']));
+    });
+
+    it('shows no updated date when the board carries no calculation time', async () => {
+      await renderTable([makeRankingRow({ last_calculated: null as unknown as string })]);
+      const header = container!.querySelector('[data-testid="rankings-title"]')!.parentElement!;
+
+      expect(header.textContent).not.toContain('Updated ');
     });
   });
 });

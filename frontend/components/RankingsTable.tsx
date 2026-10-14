@@ -156,13 +156,9 @@ const RankingsRow = memo(
             <Tooltip>
               <TooltipTrigger asChild>
                 <span
-                  className={`inline-flex items-center text-[10px] sm:text-xs font-medium ${rankChange > 0 ? 'text-green-600' : 'text-red-500'}`}
+                  className={`inline-flex items-center text-xs font-medium ${rankChange > 0 ? 'text-green-700' : 'text-red-700'}`}
                 >
-                  {rankChange > 0 ? (
-                    <ArrowUp className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
-                  ) : (
-                    <ArrowDown className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
-                  )}
+                  {rankChange > 0 ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
                   <span>{Math.abs(rankChange)}</span>
                 </span>
               </TooltipTrigger>
@@ -175,7 +171,7 @@ const RankingsRow = memo(
           )}
         </div>
         <div className="px-1 sm:px-4 py-2 sm:py-3 min-w-0 overflow-hidden">
-          <span className="font-medium text-primary group-hover:text-primary/80 transition-colors duration-300 text-xs sm:text-sm truncate block w-full">
+          <span className="font-medium text-primary group-hover:text-primary/80 transition-colors duration-300 text-xs sm:text-sm line-clamp-2 break-words">
             {teamDisplayName(team)}
           </span>
           {(team.club_name || team.state) && (
@@ -386,7 +382,9 @@ export function RankingsTable({ region, ageGroup, gender, initialData }: Ranking
 
   const handleSort = useCallback(
     (field: SortField) => {
-      const newDirection = sortField === field ? (sortDirection === 'asc' ? 'desc' : 'asc') : 'asc';
+      // A first tap on PowerScore shows the strongest teams first.
+      const firstDirection: SortDirection = field === 'powerScore' ? 'desc' : 'asc';
+      const newDirection = sortField === field ? (sortDirection === 'asc' ? 'desc' : 'asc') : firstDirection;
 
       // Track sort event
       trackSortUsed({
@@ -399,12 +397,8 @@ export function RankingsTable({ region, ageGroup, gender, initialData }: Ranking
 
       // Re-sorting the full cohort is non-urgent; keep the tap responsive.
       startTransition(() => {
-        if (sortField === field) {
-          setSortDirection(newDirection);
-        } else {
-          setSortField(field);
-          setSortDirection('asc');
-        }
+        setSortField(field);
+        setSortDirection(newDirection);
       });
       persistView({ sortField: field, sortDirection: newDirection });
       scrollListToTopIfStuck();
@@ -538,12 +532,13 @@ export function RankingsTable({ region, ageGroup, gender, initialData }: Ranking
         totalTeams={sortedRankings.length}
         lastUpdated={rankings?.[0]?.last_calculated}
       />
-      <Card data-testid="rankings-table-card" className="overflow-clip border-0 shadow-lg">
-        <CardHeader className="bg-gradient-to-r from-primary to-[oklch(0.28_0.08_165)] text-primary-foreground relative">
+      {/* On phones the green header shrinks to one line (updated date + PowerScore help) so the list starts higher */}
+      <Card data-testid="rankings-table-card" className="overflow-clip border-0 shadow-lg max-sm:gap-3 max-sm:pt-0">
+        <CardHeader className="bg-gradient-to-r from-primary to-[oklch(0.28_0.08_165)] text-primary-foreground relative max-sm:flex max-sm:items-center max-sm:justify-between max-sm:gap-3 max-sm:px-4 max-sm:py-2.5">
           <div className="absolute right-0 top-0 w-2 h-full bg-accent -skew-x-12" aria-hidden="true" />
           <CardTitle
             data-testid="rankings-title"
-            className="text-2xl sm:text-3xl font-bold uppercase tracking-wide flex items-center gap-2"
+            className="text-3xl font-bold uppercase tracking-wide flex items-center gap-2 max-sm:sr-only"
           >
             Complete Rankings
             {/* Show loading indicator when fetching new data (but not initial load) */}
@@ -554,19 +549,24 @@ export function RankingsTable({ region, ageGroup, gender, initialData }: Ranking
               />
             )}
           </CardTitle>
-          <CardDescription className="text-primary-foreground/90 text-sm sm:text-base">
+          <CardDescription className="text-primary-foreground/90 text-base max-sm:hidden">
             {description}
-            {formattedLastCalculated && (
-              <span className="block sm:inline sm:ml-2 text-xs mt-1 sm:mt-0">
-                • Last updated: {formattedLastCalculated}
-              </span>
-            )}
+            {formattedLastCalculated && <span className="ml-2 text-xs">• Last updated: {formattedLastCalculated}</span>}
           </CardDescription>
+          <span className="sm:hidden inline-flex items-center gap-2 text-xs text-primary-foreground/90">
+            {formattedLastCalculated && `Updated ${formattedLastCalculated}`}
+            {isFetching && !isLoading && (
+              <span
+                className="inline-block w-3 h-3 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin"
+                aria-hidden="true"
+              />
+            )}
+          </span>
           <InfoTooltip
             trigger={
               <button
                 type="button"
-                className="justify-self-start min-h-6 text-xs sm:text-sm text-primary-foreground/90 underline underline-offset-2 cursor-help"
+                className="justify-self-start shrink-0 min-h-6 text-xs sm:text-sm text-primary-foreground/90 underline underline-offset-2 cursor-help"
               >
                 What is PowerScore?
               </button>

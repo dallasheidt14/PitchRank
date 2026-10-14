@@ -179,10 +179,19 @@ export const GENDER_OPTIONS = [
   { value: 'F' as const, label: 'Girls' },
 ];
 
+// --- Auth ---
+
+export const MIN_PASSWORD_LENGTH = 8;
+
+// --- Feedback ---
+
+export const MIN_FEEDBACK_LENGTH = 10;
+export const MAX_FEEDBACK_LENGTH = 2000;
+
 // --- Rankings copy ---
 
 export const POWERSCORE_DEFINITION =
-  'A machine-learning-enhanced ranking score that measures overall team strength based on offense, defense, schedule difficulty, and predictive performance patterns.';
+  'A machine-learning-enhanced ranking score that measures overall team strength based on offense, defense, schedule difficulty, and predictive performance patterns. Shown on a 0–100 scale; higher is stronger.';
 
 /**
  * Bearer credentials that ride in a URL, and the pages that render carrying one.

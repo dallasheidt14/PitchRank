@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { AuthCardShell } from '@/components/auth/AuthCardShell';
 import { Loader2, Lock, CheckCircle2 } from 'lucide-react';
+import { MIN_PASSWORD_LENGTH } from '@/lib/constants';
 import { updatePassword } from './actions';
 
 export default function ResetPasswordPage() {
@@ -28,8 +29,8 @@ export default function ResetPasswordPage() {
       return;
     }
 
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters long.');
+    if (password.length < MIN_PASSWORD_LENGTH) {
+      setError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters long.`);
       return;
     }
 
@@ -92,12 +93,12 @@ export default function ResetPasswordPage() {
               <Input
                 id="password"
                 type="password"
-                placeholder="At least 6 characters"
+                placeholder={`At least ${MIN_PASSWORD_LENGTH} characters`}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="pl-10"
                 required
-                minLength={6}
+                minLength={MIN_PASSWORD_LENGTH}
                 autoComplete="new-password"
               />
             </div>
@@ -115,7 +116,7 @@ export default function ResetPasswordPage() {
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 className="pl-10"
                 required
-                minLength={6}
+                minLength={MIN_PASSWORD_LENGTH}
                 autoComplete="new-password"
               />
             </div>

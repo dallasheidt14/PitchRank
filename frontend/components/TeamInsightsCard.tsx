@@ -147,7 +147,7 @@ export function TeamInsightsCard({ teamId }: TeamInsightsCardProps) {
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm text-muted-foreground">Rank Trend</span>
-                <span className="text-sm font-medium text-green-600">Rising</span>
+                <span className="text-sm font-medium text-green-700">Rising</span>
               </div>
             </div>
 
@@ -379,7 +379,7 @@ export function TeamInsightsCard({ teamId }: TeamInsightsCardProps) {
                 className={cn(
                   'text-sm font-mono font-semibold',
                   consistency.score >= 75
-                    ? 'text-green-600 dark:text-green-400'
+                    ? 'text-green-700 dark:text-green-400'
                     : consistency.score >= 55
                       ? 'text-blue-600 dark:text-blue-400'
                       : consistency.score >= 35
