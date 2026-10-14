@@ -2298,3 +2298,13 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `scripts/team_cleanup/run_store.py` `read_progress`, `hold_apply_file`; `scripts/team_cleanup/end_run.py` (the `_acquire_file_lock(... APPLY_LOCK_FILE ...)` block); `scripts/team_cleanup/apply_stage.py` `load_progress`, `run_batch`, `apply_queue`
 - **Why**: `end_run.py` still takes `apply.lock` by hand with its own `FileLockError` message, beside the `hold_apply_file` helper that collect, the apply and a closed run's revert share. And apply_stage builds the batch, queue-step and card records that `run_store.read_progress` validates, with the tests' builders a third copy, so a field added on one side goes unvalidated on the other. Both were left out of the applier PR as refactors beyond its scope.
 - **Noted**: 2026-10-14
+
+### Serialize a closed run's revert with applies on other machines
+
+- **ID**: IMP-349
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `scripts/team_cleanup/apply_stage.py` `revert_stage` (the closed-run branch through `run_store.hold_apply_file`) and `check_other_writers`
+- **Why**: A revert of a done or abandoned run holds only that run's local file lock and no database lease (the owner's choice on 2026-10-14), and `check_other_writers` sees GitHub runs and this machine's Python processes only. So that revert on one machine and another run's apply on a second machine are not serialized and could change the same teams at once. The cleanup runs from one machine by design (the run store is a local folder), so this matters only if the loop ever spans machines; then guard closed-run reverts with a database-side cleanup lock (refusing while any run holds a live lease covers only one direction).
+- **Noted**: 2026-10-14

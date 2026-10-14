@@ -3339,6 +3339,23 @@ def test_a_revert_passes_over_an_attempt_that_failed_before_writing_its_log(tmp_
     assert code == 0 and all(db.team(_id(n))["club_name"] == "LVSA" for n in names)
 
 
+def test_a_revert_refuses_a_batch_that_finished_with_no_log_found(tmp_path, monkeypatch, capsys):
+    store, db, names = _club_week(tmp_path)
+    runner = _Runner(db)
+    _wire(monkeypatch, db, runner)
+    assert _main(monkeypatch, capsys, store, "clubs", "--execute")[0] == 0
+    progress_file = stage_dir(store, RUN, "clubs") / "apply.json"
+    progress = read_json(progress_file)
+    progress["batches"][0]["logs"] = []
+    write_json(progress_file, progress)
+
+    message = _refused(monkeypatch, capsys, store, "clubs", "--revert", "--execute")
+
+    assert message.startswith("Not reverting: the pilot batch's applier finished but no new log was found for it")
+    assert len(runner.commands) == 1
+    assert [db.team(_id(n))["club_name"] for n in names] == [f"Club {n}" for n in names]
+
+
 def test_a_revert_outside_the_window_with_the_override_reverts_every_batch(tmp_path, monkeypatch, capsys):
     store, db, names, runner, _ = _two_club_batches(tmp_path, monkeypatch, capsys)
     monkeypatch.setattr(ap, "_now", lambda: WEDNESDAY)

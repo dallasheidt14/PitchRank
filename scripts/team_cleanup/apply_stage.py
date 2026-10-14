@@ -1323,6 +1323,15 @@ def revert_refusal(sb, store: Path, folder: Path, run_id: str, stage: str, progr
     if unended:
         return no_recorded_queue_end(folder, unended[0])
     if stage != STATES:
+        # An attempt that failed before writing a log wrote nothing; one that finished wrote its changes.
+        lost = [b for b in progress["batches"] if not b["logs"] and b["exit"] == 0]
+        if lost:
+            return (
+                f"Not reverting: the {lost[0]['batch']} batch's applier finished but no new log was found for it, "
+                f"so its changes cannot be replayed. Find its log in {store / 'exports'} (rows written as "
+                f"{actor_for(run_id)} for this batch's cut), record its path in the batch's logs in "
+                f"{folder / APPLY_PROGRESS_FILE} and re-run; until then this refusal repeats"
+            )
         mixed = [b for b in progress["batches"] if b["logs"] and own_log(stage, b, run_id) is None]
         if mixed:
             return (
