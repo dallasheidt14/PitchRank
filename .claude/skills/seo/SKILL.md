@@ -53,6 +53,18 @@ and Content Generation) — it wins on any disagreement.
    in-window sources and against previously published posts. Never fabricate
    or infer claims (e.g., seeding rules) without a cited source.
 
+4. **Change a recurring fact everywhere in one PR, or leave it.** Before
+   editing a claim the site repeats (the PowerScore scale, a methodology
+   statement), grep all of `frontend/` for every wording of it, including
+   numbers derived from it (score bands, worked examples). Expect hits in
+   `frontend/content/blog-posts.tsx`, `frontend/content/blog/` (Markdown and
+   MDX posts both render), `frontend/lib/blog-faqs.ts` and
+   `frontend/components/FAQSchema.tsx` (both render as JSON-LD that must
+   agree with the page around it), and display code such as
+   `frontend/components/TeamSchema.tsx`. Check `.turbo/improvements.md` for
+   an entry already tracking it. A partial change leaves a page's JSON-LD
+   contradicting its own article.
+
 ## State Guide Posts
 
 A state guide is `frontend/content/blog/<state>-youth-soccer-rankings-guide.mdx`.

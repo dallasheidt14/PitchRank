@@ -178,7 +178,7 @@ export function TeamTrajectoryChart({ teamId }: TeamTrajectoryChartProps) {
               <CardDescription>Average goal margin by 30-day period</CardDescription>
             </div>
             {trend === 'up' && (
-              <div className="flex items-center gap-1 text-green-600">
+              <div className="flex items-center gap-1 text-green-700">
                 <TrendingUp size={20} />
                 <span className="text-sm font-medium">Improving</span>
               </div>
@@ -237,7 +237,7 @@ export function TeamTrajectoryChart({ teamId }: TeamTrajectoryChartProps) {
                   <div className="bg-card border border-border rounded-lg p-3 shadow-lg">
                     <p className="font-semibold mb-2">{label}</p>
                     <div className="space-y-1 text-sm">
-                      <p className={`font-medium ${data.goalDifferential >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      <p className={`font-medium ${data.goalDifferential >= 0 ? 'text-green-700' : 'text-red-700'}`}>
                         Goal Diff: {data.goalDifferential >= 0 ? '+' : ''}
                         {data.goalDifferential.toFixed(2)}
                       </p>

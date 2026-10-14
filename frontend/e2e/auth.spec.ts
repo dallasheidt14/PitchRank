@@ -106,7 +106,7 @@ test.describe('Signup Page', () => {
 
   test('password fields have minimum length requirement', async ({ page }) => {
     const passwordInput = page.getByLabel('Password', { exact: true });
-    await expect(passwordInput).toHaveAttribute('minLength', '6');
+    await expect(passwordInput).toHaveAttribute('minLength', '8');
   });
 
   test('sign in link navigates to login page', async ({ page }) => {

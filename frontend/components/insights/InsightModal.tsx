@@ -84,7 +84,7 @@ export function InsightModal({ isOpen, onClose, teamId, teamName }: InsightModal
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-xl">
             <Brain className="h-5 w-5 text-primary" />

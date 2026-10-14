@@ -7,7 +7,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
 import { InlineLoader } from '@/components/ui/LoadingStates';
 import type { RankingRow } from '@/types/RankingRow';
-import { teamDisplayName, spokenTeamMeta } from '@/lib/utils';
+import { teamDisplayName, spokenTeamMeta, scrollBehavior } from '@/lib/utils';
 import { TeamRowSubtitle } from '@/components/TeamRowSubtitle';
 
 interface TeamSelectorProps {
@@ -124,7 +124,7 @@ export function TeamSelector({ label, value, onChange, selectedTeam = null, excl
     if (listRef.current && selectedIndex >= 0) {
       const selectedElement = listRef.current.children[selectedIndex] as HTMLElement;
       if (selectedElement) {
-        selectedElement.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        selectedElement.scrollIntoView({ block: 'nearest', behavior: scrollBehavior() });
       }
     }
   }, [selectedIndex]);

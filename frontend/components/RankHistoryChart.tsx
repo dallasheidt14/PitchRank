@@ -164,8 +164,8 @@ export function RankHistoryChart({ teamId }: RankHistoryChartProps) {
               <span
                 className={
                   rankDelta > 0
-                    ? 'text-green-600 dark:text-green-400 text-xs'
-                    : 'text-red-600 dark:text-red-400 text-xs'
+                    ? 'text-green-700 dark:text-green-400 text-xs'
+                    : 'text-red-700 dark:text-red-400 text-xs'
                 }
               >
                 {rankDelta > 0 ? `+${rankDelta}` : rankDelta}

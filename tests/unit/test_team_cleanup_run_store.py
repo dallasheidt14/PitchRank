@@ -405,6 +405,8 @@ def _holds(row, kind, column, value):
         return row.get(column) == value
     if kind == "in":
         return row.get(column) in value
+    if kind == "gt":
+        return row.get(column) is not None and datetime.fromisoformat(row[column]) > datetime.fromisoformat(value)
     return any(_holds_term(row, *term.split(".", 2)) for term in column.split(","))
 
 
@@ -417,7 +419,7 @@ def _holds_term(row, column, op, value):
 
 
 class _Query:
-    """Applies eq, in_ and or_ at execute(), where a write is recorded. An update that matches no
+    """Applies eq, in_, gt and or_ at execute(), where a write is recorded. An update that matches no
     row answers an empty list, as PostgREST does; a column the table lacks, or an or_ operator the
     double does not model, is refused when the query is built."""
 
@@ -434,6 +436,11 @@ class _Query:
     def in_(self, column, values):
         assert column in COLUMNS, f"PostgREST refuses an unknown column: {column}"
         self._filters.append(("in", column, list(values)))
+        return self
+
+    def gt(self, column, value):
+        assert column in COLUMNS, f"PostgREST refuses an unknown column: {column}"
+        self._filters.append(("gt", column, value))
         return self
 
     def or_(self, expression):
@@ -516,7 +523,7 @@ def test_a_second_apply_on_this_machine_is_refused_by_the_file_lock(tmp_path):
     store, first, second = _store(tmp_path), _Db(_row()), _Db(_row())
 
     with rs.acquire_apply_lock(first, store, RUN, holder="applier-a"):
-        with pytest.raises(rs.ApplyLockError, match="another apply on this machine holds run"):
+        with pytest.raises(rs.ApplyLockError, match=f"^run {RUN} is in use on this machine"):
             with rs.acquire_apply_lock(second, store, RUN, holder="applier-b"):
                 pass
 
@@ -730,3 +737,222 @@ def test_releasing_leaves_another_run_s_lease_with_the_same_holder(tmp_path):
         pass
 
     assert (db.runs[OTHER]["lease_holder"], db.runs[OTHER]["lease_expires_at"]) == ("applier-a", stale)
+
+
+# --- renewing the lease mid-apply ---------------------------------------------------------------------
+
+
+def test_the_holder_renews_its_lease_for_another_six_hours(tmp_path):
+    store, soon = _store(tmp_path), _stamp(minutes=5)
+    db = _Db(_row(run_id=OTHER, lease_holder="applier-a", lease_expires_at=soon), _row())
+
+    with rs.acquire_apply_lock(db, store, RUN, holder="applier-a"):
+        db.runs[RUN]["lease_expires_at"] = soon
+        assert rs.renew_lease(db, RUN, "applier-a") is True
+        renewed = db.runs[RUN]["lease_expires_at"]
+
+    expected = datetime.now(timezone.utc) + timedelta(hours=6)
+    assert abs(datetime.fromisoformat(renewed) - expected) < timedelta(seconds=5)
+    assert db.runs[OTHER]["lease_expires_at"] == soon
+
+
+@pytest.mark.parametrize(
+    "row",
+    [
+        _row(lease_holder="applier-b", lease_expires_at=_stamp(hours=1)),
+        _row(),
+        _row(status="done", lease_holder="applier-a", lease_expires_at=_stamp(hours=1)),
+        _row(lease_holder="applier-a", lease_expires_at=_stamp(hours=-1)),
+    ],
+    ids=["another-holder", "cleared", "closed-run", "expired"],
+)
+def test_a_lease_that_is_no_longer_the_holder_s_is_not_renewed(row):
+    db = _Db(row)
+    before = dict(db.runs[RUN])
+
+    assert rs.renew_lease(db, RUN, "applier-a") is False
+    assert rs.update_held_run(db, RUN, "applier-a", {"budgets": {"spent": 1}}) == []
+    assert db.runs[RUN] == before
+
+
+# --- a stage an apply stopped part way through -----------------------------------------------------
+
+
+def _progress_file(tmp_path, progress):
+    folder = _stage(_store(tmp_path), "states")
+    _mark(folder, "preflight.json", "propose_done", "page.json", "collected.json")
+    (folder / rs.APPLY_PROGRESS_FILE).write_text(json.dumps(progress), encoding="utf-8")
+    return rs.stage_progress(tmp_path / "store", RUN, "states").next_step
+
+
+def _batch(name, code):
+    """A batch attempt as the apply records it."""
+    return {
+        "batch": name,
+        "cut": f"{name}.json",
+        "command": [],
+        "output": f"apply_{name}_1.log",
+        "started_at": "2026-10-17T01:00:00+00:00",
+        "ended_at": None if code is None else "2026-10-17T01:05:00+00:00",
+        "exit": code,
+        "logs": [],
+    }
+
+
+def _queue_step(ended_at="2026-10-17T01:10:00+00:00"):
+    return {"started_at": "2026-10-17T01:06:00+00:00", "ended_at": ended_at, "cards": [], "reviews": []}
+
+
+def _attempted(tmp_path, batches, queue=()):
+    progress = {"collected": {}, "cuts": {}, "held": [], "batches": batches, "queue": list(queue)}
+    return _progress_file(tmp_path, progress)
+
+
+@pytest.mark.parametrize(
+    "batches, queue, said",
+    [
+        (
+            [_batch("pilot", 0), _batch("rest", 1), _batch("rest", 0)],
+            [],
+            "the owner runs the apply again; 2 batch(es) applied (pilot, rest), so revert before abandoning the run",
+        ),
+        (
+            [_batch("pilot", 0), _batch("rest", 1)],
+            [],
+            "the owner runs the apply again; 1 batch(es) applied (pilot) and a failed rest attempt, so revert "
+            "before abandoning the run",
+        ),
+        (
+            [_batch("pilot", None)],
+            [_queue_step()],
+            "the owner runs the apply again; review-queue cards settled, a batch stopped with no recorded end, to "
+            "record in apply.json, so revert before abandoning the run",
+        ),
+        (
+            [_batch("pilot", 0)],
+            [_queue_step(ended_at=None)],
+            "the owner runs the apply again; 1 batch(es) applied (pilot) and review-queue cards settled, a "
+            "review-queue step stopped with no recorded end, to record in apply.json, so revert before abandoning "
+            "the run",
+        ),
+        ([], [], "the owner runs the apply"),
+    ],
+    ids=["two-batches", "a-failed-rest", "one-stopped-and-the-queue", "a-queue-step-stopped", "cut-files-only"],
+)
+def test_the_apply_step_names_what_an_earlier_attempt_left_applied(tmp_path, batches, queue, said):
+    step = _attempted(tmp_path, batches, queue)
+
+    assert (step.name, step.next_action) == ("apply", said)
+
+
+@pytest.mark.parametrize(
+    "progress, lacks",
+    [
+        ({"collected": {}, "cuts": {}, "held": [], "batches": [_batch("pilot", 0)]}, "lacks queue"),
+        ([], "holds no apply record"),
+        (
+            {"collected": {}, "cuts": {}, "held": [], "batches": [{"batch": "pilot"}], "queue": []},
+            "lacks batches[0].cut, batches[0].command",
+        ),
+        (
+            {"collected": {}, "cuts": {}, "held": [], "batches": [], "queue": [{"cards": []}]},
+            "lacks queue[0].started_at, queue[0].ended_at, queue[0].reviews",
+        ),
+        (
+            {"collected": {}, "cuts": {}, "held": [], "batches": None, "queue": {}},
+            "lacks a list of batches, a list of queue",
+        ),
+        (
+            {"collected": {}, "cuts": {}, "held": [], "batches": [], "queue": [{**_queue_step(), "cards": [{}]}]},
+            "lacks queue[0].cards[0].team_id_master, queue[0].cards[0].team_name, queue[0].cards[0].state, "
+            "queue[0].cards[0].decision, queue[0].cards[0].outcome, queue[0].cards[0].review_id",
+        ),
+        (
+            {"collected": {}, "cuts": {}, "held": [], "batches": [], "queue": [{**_queue_step(), "reviews": 1}]},
+            "lacks a list of queue[0].reviews",
+        ),
+        (
+            {"collected": {}, "cuts": {}, "held": [], "batches": [_batch("pilot", 0)], "queue": [_queue_step("17:30")]},
+            "holds queue[0].ended_at '17:30'; write each as a full ISO time with its offset",
+        ),
+        (
+            {
+                "collected": {},
+                "cuts": {},
+                "held": [],
+                "batches": [{**_batch("pilot", 0), "started_at": None}],
+                "queue": [],
+            },
+            "holds batches[0].started_at None; write each as a full ISO time with its offset",
+        ),
+    ],
+    ids=[
+        "no-queue",
+        "a-list",
+        "a-batch-without-its-keys",
+        "a-queue-step-without-its-keys",
+        "steps-that-are-no-list",
+        "a-card-without-its-keys",
+        "reviews-that-are-no-list",
+        "an-end-with-no-offset",
+        "a-start-that-is-no-time",
+    ],
+)
+def test_a_hand_edited_progress_file_is_named_as_unreadable_rather_than_crashing(tmp_path, progress, lacks):
+    step = _progress_file(tmp_path, progress)
+
+    assert step.name == "apply"
+    assert step.next_action.startswith("the owner runs the apply; its apply.json cannot be read: ")
+    assert lacks in step.next_action
+
+
+def test_an_unreadable_progress_file_is_named_rather_than_read_as_nothing_applied(tmp_path):
+    folder = _stage(_store(tmp_path), "states")
+    _mark(folder, "preflight.json", "propose_done", "page.json", "collected.json")
+    (folder / rs.APPLY_PROGRESS_FILE).write_text("{not json", encoding="utf-8")
+
+    step = rs.stage_progress(tmp_path / "store", RUN, "states").next_step
+
+    assert step.name == "apply"
+    assert step.next_action.startswith("the owner runs the apply; its apply.json cannot be read: ")
+
+
+# --- the shared refusal wording ----------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "exc, said",
+    [
+        (_api_error("PGRST205", "no table"), "Could not x: no table; apply the table's migration first"),
+        (_api_error("42501", "denied"), "Could not x: denied; only the service-role key may do this"),
+        (_api_error("P0001", "moved"), "Could not x: moved"),
+        (
+            APIError({"code": 502, "message": "Bad gateway"}),
+            "Could not x: the database's answer was lost (Bad gateway); re-run to see where it stands: retry",
+        ),
+        (
+            TimeoutError("timed out"),
+            "Could not x: the database's answer was lost (TimeoutError: timed out); re-run to see where it "
+            "stands: retry",
+        ),
+    ],
+    ids=["no-table", "wrong-key", "refused", "gateway", "no-answer"],
+)
+def test_a_refusal_names_a_missing_migration_or_the_wrong_key_and_a_lost_answer_gets_a_retry(exc, said):
+    assert rs.refused("Could not x", exc, "retry") == said
+
+
+def test_the_file_half_of_the_apply_lock_is_refused_while_another_shell_holds_it(tmp_path):
+    store = _store(tmp_path)
+
+    with rs.hold_apply_file(store, RUN):
+        with pytest.raises(rs.ApplyLockError) as caught:
+            with rs.hold_apply_file(store, RUN):
+                pass
+
+    assert str(caught.value) == (
+        f"run {RUN} is in use on this machine (an apply, revert, collect or end_run holds its lock)"
+    )
+
+    with rs.hold_apply_file(store, RUN):
+        pass

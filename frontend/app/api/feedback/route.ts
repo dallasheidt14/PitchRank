@@ -4,6 +4,7 @@ import { checkRateLimit, getClientIp } from '@/lib/api/rateLimit';
 import { createServerSupabase } from '@/lib/supabase/server';
 import { sendFeedbackEmail, type FeedbackCategory, type FeedbackIdentity } from '@/lib/email';
 import { isValidEmail } from '@/lib/validation';
+import { MAX_FEEDBACK_LENGTH, MIN_FEEDBACK_LENGTH } from '@/lib/constants';
 
 const VALID_CATEGORIES: readonly FeedbackCategory[] = [
   'cant-find-team',
@@ -13,8 +14,6 @@ const VALID_CATEGORIES: readonly FeedbackCategory[] = [
   'other',
 ] as const;
 
-const MIN_MESSAGE = 10;
-const MAX_MESSAGE = 2000;
 const MAX_PATHNAME = 512;
 const MAX_TEXT_FIELD = 512;
 const MIN_DWELL_MS = 2000;
@@ -80,8 +79,8 @@ export async function POST(request: NextRequest) {
     // Message
     if (typeof body.message !== 'string') return bad('Message is required');
     const message = body.message.trim();
-    if (message.length < MIN_MESSAGE) return bad(`Message must be at least ${MIN_MESSAGE} characters`);
-    if (message.length > MAX_MESSAGE) return bad(`Message must be at most ${MAX_MESSAGE} characters`);
+    if (message.length < MIN_FEEDBACK_LENGTH) return bad(`Message must be at least ${MIN_FEEDBACK_LENGTH} characters`);
+    if (message.length > MAX_FEEDBACK_LENGTH) return bad(`Message must be at most ${MAX_FEEDBACK_LENGTH} characters`);
 
     // Optional anonymous email
     let anonymousEmail: string | undefined;

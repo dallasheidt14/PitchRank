@@ -31,6 +31,15 @@ resumes at the first step whose marker is missing:
                    every decided card for the applier to record
   RECORD.md        the apply ran and was verified
 
+An apply keeps its own record beside them, since one may stop part way through and its batches
+stay written:
+
+  apply.json       the cut files, the batches run and the review-queue cards settled, which a
+                   re-run resumes from and --revert undoes
+  pilot.*, rest.*  the cut files, in the applier's input format; states also keep the hold
+                   script's safe.json and held.json
+  REVERT.md        each --revert's account, appended
+
 The owner acts twice: deciding on the page, before collected.json, and triggering the apply,
 before RECORD.md.
 """
@@ -97,14 +106,20 @@ PAGE_MARKER = "page.json"
 MANIFEST_FILE = "page.manifest.json"
 COLLECTED_MARKER = "collected.json"
 APPLY_MARKER = "RECORD.md"
+APPLY_PROGRESS_FILE = "apply.json"
+# The keys read_progress requires of each batch attempt, review-queue step and settled card in apply.json.
+BATCH_KEYS = ("batch", "cut", "command", "output", "started_at", "ended_at", "exit", "logs")
+QUEUE_STEP_KEYS = ("started_at", "ended_at", "cards", "reviews")
+CARD_KEYS = ("team_id_master", "team_name", "state", "decision", "outcome", "review_id")
 REVIEW = Step("review", None, "review the queued proposals")
+APPLY = Step("apply", APPLY_MARKER, "the owner runs the apply")
 STEPS = (
     Step("preflight", PREFLIGHT_MARKER, "run the stage's skill self-check"),
     Step("propose", PROPOSE_MARKER, "write the stage's proposals"),
     REVIEW,
     Step("page", PAGE_MARKER, "build the owner's review page"),
     Step("collect", COLLECTED_MARKER, "the owner decides on the page, then collect the choices"),
-    Step("apply", APPLY_MARKER, "the owner runs the apply"),
+    APPLY,
 )
 
 
@@ -121,7 +136,8 @@ class StageProgress:
 
 
 class ApplyLockError(RuntimeError):
-    """Another applier holds the run, or the run cannot be leased."""
+    """The run's apply lock is held (its file on this machine, or another holder's live lease), or the run
+    cannot be leased."""
 
 
 def store_dir(given: Path | None = None) -> Path:
@@ -260,14 +276,95 @@ def stage_progress(store: Path, run_id: str, stage: str) -> StageProgress:
             if queued:
                 return StageProgress(stage, step, queued, set_aside)
         elif not (folder / step.marker).exists():
-            return StageProgress(stage, step, set_aside=set_aside)
+            return StageProgress(stage, _apply_step(folder) if step is APPLY else step, set_aside=set_aside)
     return StageProgress(stage, None, set_aside=set_aside)
+
+
+def _lacks(records, name: str, keys: tuple[str, ...]) -> list[str]:
+    """What a list of records named ``name``, each holding ``keys``, lacks."""
+    if not isinstance(records, list):
+        return [f"a list of {name}"]
+    return [
+        f"{name}[{n}].{key}"
+        for n, record in enumerate(records)
+        for key in keys
+        if not (isinstance(record, dict) and key in record)
+    ]
+
+
+def _has_offset(stamp) -> bool:
+    try:
+        return datetime.fromisoformat(stamp.replace("Z", "+00:00")).tzinfo is not None
+    except (AttributeError, TypeError, ValueError):
+        return False
+
+
+def read_progress(folder: Path) -> dict:
+    """The stage's apply.json, refused naming what it lacks, as a hand edit can leave it, and any step time
+    written without its offset, which no window can be compared with."""
+    path = folder / APPLY_PROGRESS_FILE
+    progress = read_json(path)
+    if not isinstance(progress, dict):
+        raise ValueError(f"{path} holds no apply record")
+    missing = [key for key in ("collected", "cuts", "held", "batches", "queue") if key not in progress]
+    missing += _lacks(progress.get("batches", []), "batches", BATCH_KEYS)
+    missing += _lacks(progress.get("queue", []), "queue", QUEUE_STEP_KEYS)
+    for n, step in enumerate(progress["queue"] if not missing else []):
+        missing += _lacks(step["cards"], f"queue[{n}].cards", CARD_KEYS)
+        missing += _lacks(step["reviews"], f"queue[{n}].reviews", ())
+    if missing:
+        raise ValueError(f"{path} lacks {', '.join(missing)}")
+    untimed = [
+        f"{name}[{n}].{key} {step[key]!r}"
+        for name in ("batches", "queue")
+        for n, step in enumerate(progress[name])
+        for key in ("started_at", "ended_at")
+        if not (_has_offset(step[key]) or (key == "ended_at" and step[key] is None))
+    ]
+    if untimed:
+        raise ValueError(
+            f"{path} holds {', '.join(untimed)}; write each as a full ISO time with its offset, such as "
+            "2026-10-17T18:30:00-07:00"
+        )
+    return progress
+
+
+def _apply_step(folder: Path) -> Step:
+    """The apply step, naming what an earlier attempt at it already wrote, which abandoning the run
+    would leave in place."""
+    try:
+        progress = read_progress(folder)
+    except FileNotFoundError:
+        return APPLY
+    except (OSError, ValueError) as exc:
+        return Step(APPLY.name, APPLY.marker, f"{APPLY.next_action}; its {APPLY_PROGRESS_FILE} cannot be read: {exc}")
+    batches, queue = progress["batches"], progress["queue"]
+    applied = sorted({batch["batch"] for batch in batches if batch["exit"] == 0})
+    failed = sorted({batch["batch"] for batch in batches if batch["exit"] not in (0, None)} - set(applied))
+    written = [f"{len(applied)} batch(es) applied ({', '.join(applied)})"] if applied else []
+    written += [f"a failed {name} attempt" for name in failed]
+    written += ["review-queue cards settled"] if queue else []
+    unended = ["a batch"] if any(b["exit"] is None for b in batches) else []
+    unended += ["a review-queue step"] if any(step["ended_at"] is None for step in queue) else []
+    said = [" and ".join(written)] if written else []
+    if unended:
+        said.append(f"{' and '.join(unended)} stopped with no recorded end, to record in {APPLY_PROGRESS_FILE}")
+    if not said:
+        return APPLY
+    return Step(
+        APPLY.name,
+        APPLY.marker,
+        f"the owner runs the apply again; {', '.join(said)}, so revert before abandoning the run",
+    )
 
 
 def stage_due(store: Path, run: dict, stage: str, steps: tuple[str, ...]) -> Path:
     """The stage's folder, once its run is in review and the stage's next step is one of ``steps``."""
     if run["status"] != "reviewing":
-        raise ValueError(f"run {run['run_id']} is {run['status']}; pages are built and collected while it is reviewing")
+        raise ValueError(
+            f"run {run['run_id']} is {run['status']}; pages are built and collected while it is reviewing, "
+            "and the choices applied then too"
+        )
     override = (run.get("stages") or {}).get(stage)
     if override:
         raise ValueError(f"{stage} has no proposals this run: {override}")
@@ -287,6 +384,25 @@ def file_hash(path: Path) -> str | None:
 
 def default_holder() -> str:
     return f"{socket.gethostname()}:{os.getpid()}"
+
+
+def definite_refusal(exc: Exception) -> bool:
+    """PostgREST's own errors carry a string code and roll back. Anything else answered for it (a
+    gateway's 502, an unreadable body, a dropped connection) may follow a committed write."""
+    return isinstance(exc, APIError) and isinstance(exc.code, str)
+
+
+def refused(action: str, exc: Exception, retry: str) -> str:
+    """Why ``action`` failed: PostgREST's refusal, naming a missing migration or the wrong key, or else
+    that the answer was lost, with the command whose re-run reads where things now stand."""
+    if definite_refusal(exc):
+        if exc.code == TABLE_MISSING:
+            return f"{action}: {exc.message}; apply the table's migration first"
+        if exc.code == PERMISSION_DENIED:
+            return f"{action}: {exc.message}; only the service-role key may do this"
+        return f"{action}: {exc.message}"
+    detail = exc.message if isinstance(exc, APIError) else f"{type(exc).__name__}: {exc}"
+    return f"{action}: the database's answer was lost ({detail}); re-run to see where it stands: {retry}"
 
 
 def _lease_refused(run_id: str, exc: APIError) -> str:
@@ -317,17 +433,38 @@ def update_free_open_run(sb, run_id: str, payload: dict) -> tuple[list[dict], di
     return [], rows[0] if rows else None
 
 
+def update_held_run(sb, run_id: str, holder: str, payload: dict) -> list[dict]:
+    """Apply ``payload`` to the run while it is open and ``holder``'s lease on it is live. Returns the
+    rows it changed: none once the lease expired, was cleared or passed to another holder."""
+    return (
+        sb.table(RUNS_TABLE)
+        .update(payload)
+        .eq("run_id", run_id)
+        .eq("lease_holder", holder)
+        .gt("lease_expires_at", _utc_stamp(datetime.now(timezone.utc)))
+        .in_("status", list(OPEN_STATUSES))
+        .execute()
+        .data
+    )
+
+
+def _lease_expiry() -> str:
+    return _utc_stamp(datetime.now(timezone.utc) + timedelta(hours=LEASE_HOURS))
+
+
+def renew_lease(sb, run_id: str, holder: str) -> bool:
+    """Push ``holder``'s lease out to LEASE_HOURS from now; False when the lease is no longer theirs."""
+    return bool(update_held_run(sb, run_id, holder, {"lease_expires_at": _lease_expiry()}))
+
+
 def _take_lease(sb, run_id: str, holder: str) -> None:
-    expires = _utc_stamp(datetime.now(timezone.utc) + timedelta(hours=LEASE_HOURS))
     try:
-        taken, row = update_free_open_run(sb, run_id, {"lease_holder": holder, "lease_expires_at": expires})
+        taken, row = update_free_open_run(sb, run_id, {"lease_holder": holder, "lease_expires_at": _lease_expiry()})
         if taken:
             return
     except APIError as exc:
-        # PostgREST's own errors carry a string code and roll back. Anything else answered for it
-        # (a gateway's 502, an unreadable body) may follow a committed update, so it passes through
-        # to the caller's release.
-        if not isinstance(exc.code, str):
+        # A lost answer may follow a committed update, so it passes through to the caller's release.
+        if not definite_refusal(exc):
             raise
         raise ApplyLockError(_lease_refused(run_id, exc)) from exc
     if row is None:
@@ -361,10 +498,8 @@ def _release_lease(sb, run_id: str, holder: str, *, quiet: bool = False) -> None
 
 
 @contextlib.contextmanager
-def acquire_apply_lock(sb, store: Path, run_id: str, *, holder: str | None = None) -> Iterator[str]:
-    """Hold the run for one applier: a file lock against other shells on this machine, then the
-    run row's lease against every other machine and session. Yields the holder name."""
-    holder = holder or default_holder()
+def hold_apply_file(store: Path, run_id: str) -> Iterator[None]:
+    """The apply lock's file half: the run's apply.lock, against other shells on this machine."""
     folder = run_dir(store, run_id)
     if not (folder / RUN_FILE).exists():
         raise ApplyLockError(f"no run {run_id} in {store}")
@@ -372,7 +507,18 @@ def acquire_apply_lock(sb, store: Path, run_id: str, *, holder: str | None = Non
         try:
             stack.enter_context(_acquire_file_lock(folder / APPLY_LOCK_FILE, timeout=0.0))
         except FileLockError as exc:
-            raise ApplyLockError(f"another apply on this machine holds run {run_id}") from exc
+            raise ApplyLockError(
+                f"run {run_id} is in use on this machine (an apply, revert, collect or end_run holds its lock)"
+            ) from exc
+        yield
+
+
+@contextlib.contextmanager
+def acquire_apply_lock(sb, store: Path, run_id: str, *, holder: str | None = None) -> Iterator[str]:
+    """Hold the run for one applier: a file lock against other shells on this machine, then the
+    run row's lease against every other machine and session. Yields the holder name."""
+    holder = holder or default_holder()
+    with hold_apply_file(store, run_id):
         try:
             _take_lease(sb, run_id, holder)
         except ApplyLockError:

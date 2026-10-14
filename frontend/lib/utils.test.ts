@@ -1,10 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   backToRankingsPath,
   composeTeamDisplay,
   composeTeamMeta,
   formatDistinction,
   formatLeague,
+  scrollBehavior,
   teamDisplayName,
 } from './utils';
 
@@ -272,5 +273,27 @@ describe('backToRankingsPath', () => {
   it('opens the rankings home when the team has no board', () => {
     expect(backToRankingsPath(noQuery, { state: 'AZ', age: 9, gender: 'M' })).toBe('/rankings');
     expect(backToRankingsPath(noQuery, undefined)).toBe('/rankings');
+  });
+});
+
+describe('scrollBehavior', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function prefersReducedMotion(reduce: boolean) {
+    vi.spyOn(window, 'matchMedia').mockImplementation(
+      (query: string) => ({ matches: reduce && query === '(prefers-reduced-motion: reduce)' }) as MediaQueryList
+    );
+  }
+
+  it('scrolls smoothly by default', () => {
+    prefersReducedMotion(false);
+    expect(scrollBehavior()).toBe('smooth');
+  });
+
+  it('jumps instead when the visitor asked for reduced motion', () => {
+    prefersReducedMotion(true);
+    expect(scrollBehavior()).toBe('auto');
   });
 });
