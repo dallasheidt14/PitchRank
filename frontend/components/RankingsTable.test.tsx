@@ -520,4 +520,52 @@ describe('RankingsTable', () => {
       expect(window.scrollTo).not.toHaveBeenCalled();
     });
   });
+
+  // happy-dom applies no stylesheet, so these read the phone layout from the unprefixed Tailwind
+  // classes, the ones in force below the sm breakpoint. They check which cells the classes show, not how
+  // the row actually renders.
+  describe('on a phone', () => {
+    function phoneClasses(el: Element): string[] {
+      return el.className.split(/\s+/).filter((name) => name !== '' && !name.includes(':'));
+    }
+
+    function shownOnPhone(el: Element): boolean {
+      return !phoneClasses(el).includes('hidden');
+    }
+
+    /** Column count of a bracketed `grid-cols-[...]` class, e.g. `grid-cols-[56px_1fr_50px]` → 3. */
+    function phoneColumnCount(grid: Element): number {
+      const template = phoneClasses(grid).find((name) => name.startsWith('grid-cols-['))!;
+      return template.slice('grid-cols-['.length, -1).split('_').length;
+    }
+
+    it('shows one cell per column in the header and in every row, so none wraps onto a second line', async () => {
+      await renderTable(cohort(3));
+      const header = container!.querySelector('[data-testid="rankings-table-header"]')!;
+
+      for (const grid of [header, ...rows()]) {
+        expect(phoneColumnCount(grid)).toBe(3);
+        expect(Array.from(grid.children).filter(shownOnPhone)).toHaveLength(3);
+      }
+    });
+
+    it('prompts a tap with View under the score, and leaves View Team to wider screens', async () => {
+      await renderTable(cohort(3));
+
+      for (const row of rows()) {
+        const scoreCell = row.children[2];
+        const prompt = scoreCell.lastElementChild!;
+        expect(scoreCell.textContent).toBe('50.00View');
+        expect(prompt.textContent).toBe('View');
+        expect(prompt.querySelector('svg')).not.toBeNull();
+        expect(shownOnPhone(prompt)).toBe(true);
+        expect(prompt.className.split(/\s+/)).toContain('sm:hidden');
+
+        const viewTeam = row.lastElementChild!;
+        expect(viewTeam.textContent).toBe('View Team');
+        expect(shownOnPhone(viewTeam)).toBe(false);
+        expect(viewTeam.className.split(/\s+/)).toContain('sm:flex');
+      }
+    });
+  });
 });

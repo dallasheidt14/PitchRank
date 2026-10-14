@@ -36,10 +36,7 @@ test.describe('Team Detail - Rankings Integration', () => {
     await page.goto('/rankings/national/u12/male');
 
     const firstRow = await waitForFirstRankingsRow(page);
-
-    // Get the team link href
-    const teamLink = firstRow.locator('a[href*="/teams/"]');
-    const href = await teamLink.getAttribute('href');
+    const href = await firstRow.getAttribute('href');
 
     // Should be a valid team URL with query params
     expect(href).toMatch(/\/teams\/[a-zA-Z0-9-]+/);

@@ -44,9 +44,7 @@ test.describe('Rankings Page', () => {
 
     const firstRow = await waitForFirstRankingsRow(page);
 
-    // Row should contain a link to team detail
-    const teamLink = firstRow.locator('a[href*="/teams/"]');
-    await expect(teamLink).toBeVisible();
+    await expect(firstRow).toHaveAttribute('href', /\/teams\//);
   });
 
   test('rankings display rank numbers starting from #1', async ({ page }) => {
@@ -74,7 +72,7 @@ test.describe('Rankings Page', () => {
 
   test('page has correct metadata title', async ({ page }) => {
     await page.goto('/rankings');
-    await expect(page).toHaveTitle(/Ranks.*PitchRank|Youth Soccer Teams.*PitchRank/i);
+    await expect(page).toHaveTitle(/Youth Soccer Rankings.*PitchRank/i);
   });
 });
 
@@ -121,7 +119,6 @@ test.describe('Rankings - Dynamic Routes', () => {
 test.describe('Rankings - Sort', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/rankings/national/u12/male');
-    // Wait for row 0 + team link so the table is fully interactive before sorting
     await waitForFirstRankingsRow(page);
   });
 

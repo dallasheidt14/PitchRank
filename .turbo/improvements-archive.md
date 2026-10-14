@@ -1659,3 +1659,15 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Noted**: 2026-10-11
 - **Update (2026-10-13)**: `name_contradiction` reads U-ages with the shared `name_u_ages` and measures their distance with `_group_steps`, which files U18 into u19, so U17 is one group from u19 and `name_contradiction("Club U17 Boys", "u19")` returns no hold.
 - **Refs**: #1283
+
+### Fix the five rankings e2e tests that fail against every target
+
+- **ID**: IMP-315
+- **Status**: done
+- **Type**: direct
+- **Category**: testing
+- **Where**: `frontend/e2e/helpers.ts` (`waitForFirstRankingsRow`), `frontend/e2e/rankings.spec.ts` (`page has correct metadata title`)
+- **Why**: Run on 2026-10-11 against both www.pitchrank.io and a local dev server, the same five tests fail. Four go through `waitForFirstRankingsRow`, directly or from the Sort block's `beforeEach`: it waits for `a[href*="/teams/"]` *inside* `rankings-row-0`, but the row element is itself the link, so the descendant query never matches. The fifth expects a title matching `/Ranks.*PitchRank|Youth Soccer Teams.*PitchRank/`, while the rankings layout title is "2026 Youth Soccer Rankings by State & Age Group". Because e2e is not a CI gate, these read as noise and hide real regressions in the same file.
+- **Noted**: 2026-10-11
+- **Update (2026-10-14)**: Fixed all five. `waitForFirstRankingsRow` and the two specs that repeated its descendant query now assert the row's own `href`, and the title test matches "Youth Soccer Rankings"; all five pass against www.pitchrank.io on both Playwright projects.
+- **Refs**: branch `fix/rankings-view-prompt`
