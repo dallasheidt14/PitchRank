@@ -1155,9 +1155,9 @@ def apply_batches(
         if unfinished:
             raise SystemExit(no_recorded_end(folder, store, unfinished[0]))
         if not any(b["exit"] == 0 for b in attempts):
-            if name == REST:
-                check_window(outside_window)
-                check_other_writers()
+            # Recording decisions and preparing the cuts take time, so check again before any batch writes.
+            check_window(outside_window)
+            check_other_writers()
             keep_lease(sb, run_id, holder, f"the {name} was not applied", retry)
             attempts.append(run_batch(folder, store, run_id, stage, name, cut, progress))
         # Every attempt is ledgered, and the newest decides whether the apply goes on.

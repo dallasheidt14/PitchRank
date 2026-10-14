@@ -751,6 +751,24 @@ def test_an_apply_outside_the_window_with_the_override_runs_the_rest_too(tmp_pat
     assert code == 0 and len(runner.commands) == 2 and "rest: 1 written, 1 verified" in out
 
 
+def test_a_window_that_closes_while_decisions_are_recorded_stops_the_pilot(tmp_path, monkeypatch, capsys):
+    store, db, names = _club_week(tmp_path)
+    runner = _Runner(db)
+    _wire(monkeypatch, db, runner)
+    record = ap.record_decisions
+
+    def record_then_close(*args, **kwargs):
+        record(*args, **kwargs)
+        monkeypatch.setattr(ap, "_now", lambda: WEDNESDAY)
+
+    monkeypatch.setattr(ap, "record_decisions", record_then_close)
+
+    message = _refused(monkeypatch, capsys, store, "clubs", "--execute")
+
+    assert message.startswith("Outside the apply window") and runner.commands == []
+    assert [db.team(_id(n))["club_name"] for n in names] == ["LVSA", "LVSA", "LVSA"]
+
+
 def test_a_lost_answer_outside_the_window_hands_back_the_override(tmp_path, monkeypatch, capsys):
     store, db, _ = _club_week(tmp_path)
     _wire(monkeypatch, db, _Runner(db), now=WEDNESDAY)
