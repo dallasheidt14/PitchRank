@@ -27,6 +27,7 @@ from src.models.playmetrics_matcher import PlayMetricsGameMatcher
 from src.models.sincsports_matcher import SincSportsGameMatcher
 from src.models.soccereventsgroup_matcher import SoccerEventsGroupGameMatcher
 from src.models.tgs_matcher import TGSGameMatcher
+from src.models.tourneycentral_matcher import TourneyCentralGameMatcher
 from src.models.yssl_matcher import YSSLGameMatcher
 
 AUTOCREATING_MATCHERS = [
@@ -40,6 +41,7 @@ AUTOCREATING_MATCHERS = [
     ("soccereventsgroup", SoccerEventsGroupGameMatcher),
     ("athletes2events", Athletes2EventsGameMatcher),
     ("yssl", YSSLGameMatcher),
+    ("tourneycentral", TourneyCentralGameMatcher),
 ]
 
 
@@ -92,6 +94,7 @@ def test_pipeline_builds_each_providers_own_matcher(provider, cls):
         ("soccereventsgroup", SoccerEventsGroupGameMatcher, "_create_new_soccereventsgroup_team"),
         ("athletes2events", Athletes2EventsGameMatcher, "_create_new_athletes2events_team"),
         ("yssl", YSSLGameMatcher, "_create_new_athletes2events_team"),
+        ("tourneycentral", TourneyCentralGameMatcher, "_create_new_athletes2events_team"),
     ],
 )
 def test_autocreate_writes_nothing_in_dry_run(provider, cls, create):
@@ -145,10 +148,10 @@ class _EmptyDB:
         return _Query(name, self.inserts)
 
 
-# The roster-pass providers (two per-event tournaments, and the YSSL league) create a team only from that pass,
+# The roster-pass providers create a team only from that pass,
 # and only for a team carrying a state. Without both, _match_team returns before any
 # creation and every identity assertion below holds vacuously on None.
-REGISTRATION_MATCHERS = frozenset({"soccereventsgroup", "athletes2events", "yssl"})
+REGISTRATION_MATCHERS = frozenset({"soccereventsgroup", "athletes2events", "yssl", "tourneycentral"})
 
 
 def _match_thrice(cls, provider, db):
