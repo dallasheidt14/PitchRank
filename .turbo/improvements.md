@@ -2256,3 +2256,23 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `src/utils/team_name_utils.py` (`_APOS_2`, `_DUAL_4_2`, `_DUAL_2_2` and the `"'"` test in `birth_years`' lambda for it, `_LEADING_COHORT`, `AGE_PATTERN`, `birth_years`, `birth_years_conflict`), `scripts/_team_distinction.py` (`AGE_PATTERN`), `scripts/decide_team_merges.py` (`_BAND`), `scripts/import_athletes2events_event.py` (`_AGE_RESPELLINGS`); the curly-aware sets in `scripts/normalize_team_names.py`, `src/utils/team_utils.py` and `scripts/fix_band_cohorts.py`
 - **Why**: Each module types its own set of marks that may precede a two-digit year, and they disagree: the band readers and the age fixer take straight and curly, `import_athletes2events` takes straight and right-curly, and `birth_years` takes straight only. So `birth_years_conflict("Club ’11 Blue", "Club ’12 Blue")` is False while the straight-quote pair is True (checked 2026-10-13), and that function is the year guard in the import matchers (`game_matcher`, `modular11_matcher`), the queue matcher, `repair_defective_aliases` and the fuzzy duplicate finder; `decide_team_merges`' `_BAND` likewise misses a curly band. One exported character class would keep them in step; measure how many `birth_years` readings change before switching it, across the conflict guard's callers and the reconcile triage's `stated_birth_years`.
 - **Noted**: 2026-10-13
+
+### The fuzzy duplicate finder reads a band's second year as a squad name, so a band never pairs with a bare year
+
+- **ID**: IMP-344
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `scripts/find_queue_matches.py` `extract_team_variant`, read by `scripts/find_fuzzy_duplicate_teams.py` `score_team_pair` and by the queue matcher in the same file
+- **Why**: `extract_team_variant("NTH NASA ECNL RL B2012/13", "nasa tophat")` returns `"/13"` while `"ECNL RL 2013"` returns None (origin/main, 2026-10-13), so `score_team_pair` returns None and Doorway A never scores a band-named row against a bare-year one -- the shape this season's re-registrations take. 19,495 live team names carry a `YYYY/YY` band. IMP-231 is the same misread in `game_matcher`'s separate copy. Fixing it moves merge proposals, so measure the merges it adds and removes against adjudicated pairs first, as the merging-duplicate-teams skill's Step 3 describes.
+- **Noted**: 2026-10-13
+
+### Measure how many same-provider season re-registrations no doorway pairs, starting with Doorway D's club initials
+
+- **ID**: IMP-345
+- **Status**: open
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: duplicate detection, `.claude/skills/merging-duplicate-teams` Doorways A-D (`scripts/find_fuzzy_duplicate_teams.py` `score_team_pair`, `scripts/find_cross_provider_duplicates.py`, `scripts/find_squad_key_duplicates.py` `pairing_key` and `is_club_initials`)
+- **Why**: TGS issued new team ids for 2026-27, so one squad now holds a last-season row and a this-season row, and no doorway paired the worked example: A refuses it on IMP-344, B needs overlapping fixtures and the two seasons do not overlap, and C requires two providers. D is the near miss. Its `pairing_key` reads `ECNL RL 2013` as `{'ecnl rl'}` through the league fallback, but keeps `{'nth'}` for `NTH NASA ECNL RL B2012/13`, because `is_club_initials` does not take `NTH` as club `NASA Tophat`'s initials; without that token the second name also reads `{'ecnl rl'}`, and `leagues_conflict` finds no conflict (origin/main, checked 2026-10-13). So measure how many candidates D already pairs, and how many more it would with the initials recognised, before building a separate detector. Worked example: TGS 113019 (`ECNL RL 2013`, last game 2026-06-23) and TGS 134187 (`NTH NASA ECNL RL B2012/13`, first game 2026-08-30), merged by hand 2026-10-13 (`1ba2ffdc` into `eacbf4d3`). Scale ceiling, not a duplicate count: 3,956 live TGS rows were created since 2026-08-01, and 1,793 of them share club, age group, gender and state with a TGS row whose last game was before Aug 1. For whatever D still misses, signals to test: same provider, same club and stored cohort, one row's games end before Aug 1 and the other's start after, and a high share of the same league opponents across the two seasons (here the same ECNL RL Southeast clubs) -- the reverse of Doorway C's overlap rule, because the two rows never play concurrently.
+- **Noted**: 2026-10-13
