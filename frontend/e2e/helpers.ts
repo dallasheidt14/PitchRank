@@ -33,9 +33,8 @@ export async function waitForRankingsTable(page: Page) {
 }
 
 /**
- * Wait for the rankings table card, header, first data row, AND a visible
- * team link inside row 0. This ensures the page is fully interactive before
- * tests proceed to click or read row content.
+ * Wait for the rankings table and its first data row, and return that row.
+ * The row is the team link itself, so read its href directly.
  */
 export async function waitForFirstRankingsRow(page: Page) {
   const t0 = Date.now();
@@ -45,11 +44,9 @@ export async function waitForFirstRankingsRow(page: Page) {
   await expect(firstRow).toBeVisible({ timeout: 15_000 });
   console.log(`[rankings-helper] row-0 visible in ${Date.now() - t0}ms`);
 
-  // Ensure the team link inside row 0 is rendered — proves the row is
-  // fully hydrated, not just a skeleton placeholder.
-  const teamLink = firstRow.locator('a[href*="/teams/"]');
-  await expect(teamLink).toBeVisible({ timeout: 10_000 });
-  console.log(`[rankings-helper] row-0 team link visible in ${Date.now() - t0}ms`);
+  // Callers read the team URL off the row itself, so fail here if the row stops being the link.
+  await expect(firstRow).toHaveAttribute('href', /\/teams\//, { timeout: 10_000 });
+  console.log(`[rankings-helper] row-0 team link ready in ${Date.now() - t0}ms`);
 
   return firstRow;
 }
