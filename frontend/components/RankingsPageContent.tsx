@@ -38,7 +38,12 @@ export function RankingsPageContent({ region, ageGroup, gender, initialRankings 
   }, []);
 
   const scrollToFilters = () => {
-    filterCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const card = filterCardRef.current;
+    if (!card) return;
+    // No behavior: the global scroll-behavior rule makes this smooth, or instant under reduced motion.
+    card.scrollIntoView({ block: 'start' });
+    // The Change button hides as the card comes back, so hand focus to the first filter.
+    card.querySelector<HTMLElement>('[role="combobox"]')?.focus({ preventScroll: true });
   };
 
   return (
@@ -54,7 +59,7 @@ export function RankingsPageContent({ region, ageGroup, gender, initialRankings 
       />
 
       <div className="space-y-6">
-        <div ref={filterCardRef}>
+        <div ref={filterCardRef} className="scroll-mt-[calc(var(--site-header-height)+0.5rem)]">
           <RankingsFilter />
         </div>
 

@@ -14,6 +14,11 @@ export function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+/** Smooth unless the visitor asked for reduced motion; an explicit 'smooth' would override the CSS rule that honours it. */
+export function scrollBehavior(): ScrollBehavior {
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
+}
+
 /**
  * Format PowerScore (ML-adjusted) for display
  * Converts from 0.0-1.0 range to 0-100 scale with 2 decimal places

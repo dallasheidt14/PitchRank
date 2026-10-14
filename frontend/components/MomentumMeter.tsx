@@ -241,8 +241,8 @@ export function MomentumMeter({ teamId }: MomentumMeterProps) {
             <div className="text-xs space-y-1">
               <p>Wins push momentum up, losses pull it down.</p>
               <p>
-                <span className="text-green-600 font-semibold">Dominant</span> wins boost it further;{' '}
-                <span className="text-red-600 font-semibold">close</span> wins still count positively.
+                <span className="text-green-700 font-semibold">Dominant</span> wins boost it further;{' '}
+                <span className="text-red-700 font-semibold">close</span> wins still count positively.
               </p>
             </div>
           </InfoTooltip>

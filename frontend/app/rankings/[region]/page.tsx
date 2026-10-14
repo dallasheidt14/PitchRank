@@ -365,7 +365,10 @@ export default async function StateOverviewPage({ params }: StateOverviewPagePro
                       {teams.map((team, idx) => (
                         <li key={team.team_id_master} className="text-sm flex items-center gap-2">
                           <span className="text-muted-foreground w-4">{idx + 1}.</span>
-                          <Link href={`/teams/${team.team_id_master}`} className="hover:text-primary truncate">
+                          <Link
+                            href={`/teams/${team.team_id_master}`}
+                            className="hover:text-primary line-clamp-2 break-words"
+                          >
                             {team.team_name}
                           </Link>
                           <span className="text-xs text-muted-foreground ml-auto">
@@ -402,7 +405,10 @@ export default async function StateOverviewPage({ params }: StateOverviewPagePro
                       {teams.map((team, idx) => (
                         <li key={team.team_id_master} className="text-sm flex items-center gap-2">
                           <span className="text-muted-foreground w-4">{idx + 1}.</span>
-                          <Link href={`/teams/${team.team_id_master}`} className="hover:text-primary truncate">
+                          <Link
+                            href={`/teams/${team.team_id_master}`}
+                            className="hover:text-primary line-clamp-2 break-words"
+                          >
                             {team.team_name}
                           </Link>
                           <span className="text-xs text-muted-foreground ml-auto">

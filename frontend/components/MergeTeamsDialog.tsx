@@ -186,7 +186,7 @@ export function MergeTeamsDialog({
           Merge Dupe Teams
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+      <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>Merge Duplicate Teams</DialogTitle>
           <DialogDescription>

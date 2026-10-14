@@ -34,6 +34,16 @@ describe('updatePassword', () => {
     expect(mockUpdateUser).not.toHaveBeenCalled();
   });
 
+  it('rejects a 7-character password and accepts an 8-character one', async () => {
+    const short = await updatePassword('abcdefg');
+    expect(short.error).toMatch(/8 characters/i);
+    expect(mockUpdateUser).not.toHaveBeenCalled();
+
+    const exact = await updatePassword('abcdefgh');
+    expect(exact).toEqual({ error: null });
+    expect(mockUpdateUser).toHaveBeenCalledWith({ password: 'abcdefgh' });
+  });
+
   it('rejects when the recovery session has expired (no user)', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
 

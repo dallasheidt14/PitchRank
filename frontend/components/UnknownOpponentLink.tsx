@@ -23,7 +23,7 @@ import type { RankingRow } from '@/types/RankingRow';
 import type { GameWithTeams } from '@/lib/types';
 import { formatGameDate } from '@/lib/dateUtils';
 import { AGE_GROUPS_ALL } from '@/lib/constants';
-import { teamDisplayName, spokenTeamMeta } from '@/lib/utils';
+import { teamDisplayName, spokenTeamMeta, scrollBehavior } from '@/lib/utils';
 import { TeamRowSubtitle } from '@/components/TeamRowSubtitle';
 
 interface UnknownOpponentLinkProps {
@@ -242,7 +242,7 @@ export function UnknownOpponentLink({
     if (listRef.current && selectedIndex >= 0 && filteredTeams.length > 0) {
       const selectedElement = listRef.current.children[selectedIndex] as HTMLElement;
       if (selectedElement) {
-        selectedElement.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        selectedElement.scrollIntoView({ block: 'nearest', behavior: scrollBehavior() });
       }
     }
   }, [selectedIndex, filteredTeams.length]);
@@ -466,9 +466,9 @@ export function UnknownOpponentLink({
                   aria-expanded={isSearchOpen && filteredTeams.length > 0}
                 />
 
-                {/* Search Results Dropdown */}
+                {/* Search results sit in the flow so the dialog's own scroll box doesn't clip them */}
                 {isSearchOpen && searchQuery.trim().length >= 2 && (
-                  <Card className="absolute z-50 w-full mt-1 max-h-60 overflow-y-auto shadow-lg">
+                  <Card className="mt-1 max-h-60 overflow-y-auto shadow-lg">
                     <CardContent className="p-2">
                       {isLoadingTeams || isSearchPending ? (
                         <InlineLoader text="Searching teams..." />

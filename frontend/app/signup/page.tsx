@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClientSupabase } from '@/lib/supabase/client';
+import { MIN_PASSWORD_LENGTH } from '@/lib/constants';
 import { suggestEmailCorrection } from '@/lib/validation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -62,8 +63,8 @@ export default function SignupPage() {
     }
 
     // Validate password strength
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters long.');
+    if (password.length < MIN_PASSWORD_LENGTH) {
+      setError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters long.`);
       return;
     }
 
@@ -284,12 +285,12 @@ export default function SignupPage() {
               <Input
                 id="password"
                 type="password"
-                placeholder="At least 6 characters"
+                placeholder={`At least ${MIN_PASSWORD_LENGTH} characters`}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="pl-10"
                 required
-                minLength={6}
+                minLength={MIN_PASSWORD_LENGTH}
                 autoComplete="new-password"
               />
             </div>
@@ -307,7 +308,7 @@ export default function SignupPage() {
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 className="pl-10"
                 required
-                minLength={6}
+                minLength={MIN_PASSWORD_LENGTH}
                 autoComplete="new-password"
               />
             </div>

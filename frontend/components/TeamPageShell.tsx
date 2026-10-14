@@ -154,15 +154,25 @@ export function TeamPageShell({ id }: TeamPageShellProps) {
             <TeamHeader teamId={id} />
           </SectionErrorBoundary>
 
+          {/* Phones get upcoming games ahead of the long game history; md+ keeps them atop the right column.
+              Both copies share one query, and rendering twice keeps the reading order matching the screen. */}
+          <div className="md:hidden">
+            <SectionErrorBoundary fallbackTitle="Failed to load upcoming games.">
+              <UpcomingGamesTable teamId={id} />
+            </SectionErrorBoundary>
+          </div>
+
           <div className="grid grid-cols-1 gap-4 sm:gap-6 md:grid-cols-2">
             <SectionErrorBoundary fallbackTitle="Failed to load game history.">
               <GameHistoryTable teamId={id} />
             </SectionErrorBoundary>
             {/* Right column: Upcoming + Rank History + Momentum + Insights stacked */}
             <div className="flex flex-col gap-4">
-              <SectionErrorBoundary fallbackTitle="Failed to load upcoming games.">
-                <UpcomingGamesTable teamId={id} />
-              </SectionErrorBoundary>
+              <div className="hidden md:block">
+                <SectionErrorBoundary fallbackTitle="Failed to load upcoming games.">
+                  <UpcomingGamesTable teamId={id} />
+                </SectionErrorBoundary>
+              </div>
               <SectionErrorBoundary fallbackTitle="Failed to load ranking history.">
                 <LazyRankHistoryChart teamId={id} />
               </SectionErrorBoundary>

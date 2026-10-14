@@ -1120,6 +1120,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: It reads only the PR's review objects and inline comments. A clean Codex review arrives as a "Codex Review Summary ... Completed" issue comment plus a +1 reaction, with no review object, so the script prints "Codex did not review this PR" and waits out `CODEX_WINDOW_MINUTES` anyway. Seen on #1151 (2026-09-15): summary comment completed two minutes after open, +1 reaction, script reported no review. Findings still arrive as review objects, so this misreports and delays rather than merging past findings.
 - **Noted**: 2026-09-15
 - **Update (2026-09-23)**: Recurred on #1208 and was relayed to the user as "Codex did not review this PR" while the review had completed 5m42s after open with a 👍 and no findings. Two things this narrows for whoever fixes it: `CODEX_LOGIN` is *not* the cause (it carries the `[bot]` suffix REST returns and matches correctly), and the summary comment is created within ~10s of the PR opening but only reaches `Completed` minutes later, so presence of the comment is not the signal -- parse its status cell. The workaround note has now failed to prevent this twice, which is the argument for fixing the script rather than documenting it again.
+- **Update (2026-10-14)**: Recurred on #1294 (2026-10-13), as before.
 
 ### A game import exits 0 when its inserts fail
 
@@ -1815,6 +1816,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
   - **Verified:** `get_state_rankings` returns a pre-adjustment national rank as `rank_in_cohort_final`. The main state tables read `rank_in_state_final` and show the correct state rank, so the mismatched field mostly feeds analytics.
   - **Unverified:** the report card's state rank being always blank, and some pages showing scores on 0–1 instead of 0–100.
 - **Noted**: 2026-10-02
+- **Update (2026-10-14)**: The 0–1 half is verified. Rankings boards and team pages show `formatPowerScore` (×100) and now describe the scale as 0–100, but six display spots print the raw value: `app/rankings/age/[ageGroup]/page.tsx` (`toFixed(1)`, live `/rankings/age/u17` shows 0.7), `app/embed/club/[clubId]/page.tsx`, `components/ReportCardPreview.tsx` (a hardcoded 0.847 sample), `lib/pdf/TeamReportCard.tsx`, `lib/email/report-card.ts` and `components/TeamSchema.tsx` (`ratingValue` 0–1 beside `bestRating` 100). About 63 customer-facing blog statements still say 0–1 with 0.95/0.80 bands: `content/blog-posts.tsx` (the PowerScore guide, the CA/TX "PowerScore Scale (0.0 to 1.0)" boxes, `youth-soccer-rankings-by-state`), six `lib/blog-faqs.ts` state answers (each repeats a sentence from its state's MDX guide word for word, so change both), the two `what-is-powerscore-youth-soccer` answers and the `how-pitchrank-rankings-work` "What is PowerScore?" answer, and 28 of 37 `content/blog/*.mdx` guides. The owner chose a separate PR for the sweep; convert the bands ×100 and regenerate llms.txt.
 
 ### Point TestLayer13BlendFormula at the production blend
 
@@ -2035,16 +2037,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Category**: refactor
 - **Where**: `frontend/package.json` (`dependencies["@tanstack/react-virtual"]`), `frontend/package-lock.json`
 - **Why**: `RankingsTable` stopped using `useVirtualizer` on `fix/mobile-rankings-ux` (rows now render as page content, top 100 plus "Show more"), and a grep of `frontend/` finds no other importer; only `package.json` and the lockfile still name it. It was left in place so that change carried no lockfile churn. Removing it drops a dead install and stops `package.json` implying the table still virtualizes.
-- **Noted**: 2026-10-11
-
-### Fix the five rankings e2e tests that fail against every target
-
-- **ID**: IMP-315
-- **Status**: open
-- **Type**: direct
-- **Category**: testing
-- **Where**: `frontend/e2e/helpers.ts` (`waitForFirstRankingsRow`), `frontend/e2e/rankings.spec.ts` (`page has correct metadata title`)
-- **Why**: Run on 2026-10-11 against both www.pitchrank.io and a local dev server, the same five tests fail. Four go through `waitForFirstRankingsRow`, directly or from the Sort block's `beforeEach`: it waits for `a[href*="/teams/"]` *inside* `rankings-row-0`, but the row element is itself the link, so the descendant query never matches. The fifth expects a title matching `/Ranks.*PitchRank|Youth Soccer Teams.*PitchRank/`, while the rankings layout title is "2026 Youth Soccer Rankings by State & Age Group". Because e2e is not a CI gate, these read as noise and hide real regressions in the same file.
 - **Noted**: 2026-10-11
 
 ### Route the hand-written gender labels through formatGender
@@ -2276,6 +2268,16 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: duplicate detection, `.claude/skills/merging-duplicate-teams` Doorways A-D (`scripts/find_fuzzy_duplicate_teams.py` `score_team_pair`, `scripts/find_cross_provider_duplicates.py`, `scripts/find_squad_key_duplicates.py` `pairing_key` and `is_club_initials`)
 - **Why**: TGS issued new team ids for 2026-27, so one squad now holds a last-season row and a this-season row, and no doorway paired the worked example: A refuses it on IMP-344, B needs overlapping fixtures and the two seasons do not overlap, and C requires two providers. D is the near miss. Its `pairing_key` reads `ECNL RL 2013` as `{'ecnl rl'}` through the league fallback, but keeps `{'nth'}` for `NTH NASA ECNL RL B2012/13`, because `is_club_initials` does not take `NTH` as club `NASA Tophat`'s initials; without that token the second name also reads `{'ecnl rl'}`, and `leagues_conflict` finds no conflict (origin/main, checked 2026-10-13). So measure how many candidates D already pairs, and how many more it would with the initials recognised, before building a separate detector. Worked example: TGS 113019 (`ECNL RL 2013`, last game 2026-06-23) and TGS 134187 (`NTH NASA ECNL RL B2012/13`, first game 2026-08-30), merged by hand 2026-10-13 (`1ba2ffdc` into `eacbf4d3`). Scale ceiling, not a duplicate count: 3,956 live TGS rows were created since 2026-08-01, and 1,793 of them share club, age group, gender and state with a TGS row whose last game was before Aug 1. For whatever D still misses, signals to test: same provider, same club and stored cohort, one row's games end before Aug 1 and the other's start after, and a high share of the same league opponents across the two seasons (here the same ECNL RL Southeast clubs) -- the reverse of Doorway C's overlap rule, because the two rows never play concurrently.
 - **Noted**: 2026-10-13
+
+### Make pr_wait --no-merge report the checks still running
+
+- **ID**: IMP-346
+- **Status**: open
+- **Type**: direct
+- **Category**: dx
+- **Where**: `scripts/pr_wait.py` (`main`: the `if args.no_merge` return sits before the `if pending:` report)
+- **Why**: Once the Codex window has closed, the wait loop breaks at once and `--no-merge` returns 0 without listing the checks still running, so a re-run after pushing a fix to an older PR reads as finished while CI is still going (#1294, 2026-10-13: eight checks pending, exit 0; read from `main` on 2026-10-14). Wanted: under `--no-merge`, print the pending checks and return non-zero while any are pending, as the merge path already does.
+- **Noted**: 2026-10-14
 
 ### Stop the age fixer's undo replaying rows it never sent
 

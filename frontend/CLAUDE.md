@@ -440,6 +440,9 @@ RESEND_API_KEY
 - Projects: chromium (desktop), mobile-chrome (Pixel 5), api (request-only)
 - Against `next dev`, pass `--workers=1`: parallel workers time out on dev compiles and report
   failures that pass when run one at a time
+- Specs are `e2e/*.spec.ts`, so a grep over `*.test.*` misses them when you look for tests pinning a
+  value you are changing. They target the live site, so a spec updated for new behaviour fails until
+  that change deploys
 
 ---
 
@@ -467,3 +470,12 @@ RESEND_API_KEY
 17. **`@layer base` loses to every utility class** — a floor written in `@layer base` (such as the
     16px input size that stops iOS zooming) is overridden by any `text-*` utility on the element.
     A rule that must win goes outside the layers, as the input-size rule in `globals.css` does.
+18. **Dialogs scroll, so nothing inside one may float out of it** — `ui/dialog.tsx` caps
+    `DialogContent` at the viewport height with `overflow-y-auto`, which clips any absolutely
+    positioned child that is not portaled (a search dropdown, a popover built by hand). Render such
+    results in the normal flow, as `UnknownOpponentLink` does, or use a Radix primitive that portals.
+19. **Leave `behavior` off a page scroll; pass `scrollBehavior()` for a list** — `globals.css` makes
+    the page smooth and switches to instant under reduced motion, but an explicit
+    `behavior: 'smooth'` overrides that. So `scrollIntoView` on the page omits `behavior`. Scrolling
+    inside a list box (search results, selectors) gets no smoothness from that rule, so pass
+    `behavior: scrollBehavior()` from `lib/utils.ts`.

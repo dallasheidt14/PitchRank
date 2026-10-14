@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { InlineLoader } from '@/components/ui/LoadingStates';
 import type { TeamSearchMatch } from '@/lib/teamSearchQuery';
+import { scrollBehavior } from '@/lib/utils';
 
 interface ScopedTeam {
   team_id_master: string;
@@ -149,7 +150,7 @@ export function ScopedTeamSelector({ ageGroup, gender, stateCode, value, onChang
   useEffect(() => {
     if (listRef.current && selectedIndex >= 0) {
       const el = listRef.current.children[selectedIndex] as HTMLElement;
-      if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      if (el) el.scrollIntoView({ block: 'nearest', behavior: scrollBehavior() });
     }
   }, [selectedIndex]);
 
