@@ -208,4 +208,10 @@ describe('getTeam status', () => {
   it('reports no status when the team has no ranking row', async () => {
     expect((await api.getTeam(TEAM_ID)).status).toBeNull();
   });
+
+  it('takes the status from rankings_full when the rankings view has no row', async () => {
+    supabaseMock.tableRows.rankings_full = [{ team_id: TEAM_ID, status: 'Not Enough Ranked Games' }];
+
+    expect((await api.getTeam(TEAM_ID)).status).toBe('Not Enough Ranked Games');
+  });
 });
