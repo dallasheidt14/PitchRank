@@ -14,8 +14,6 @@ function formatShortDate(iso: string): string {
 
 /**
  * Server-rendered SEO content modules for ranking pages.
- * Renders between the H1/intro and the interactive table.
- * FAQ renders separately below the table via CohortFAQ.
  */
 export function CohortSEOContent({ data }: CohortSEOContentProps) {
   const {

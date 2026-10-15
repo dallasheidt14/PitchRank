@@ -24,6 +24,8 @@ export function queryBuilder(result: QueryResult = { data: null, error: null }) 
     'eq',
     'in',
     'is',
+    'not',
+    'or',
     'neq',
     'gte',
     'order',

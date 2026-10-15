@@ -70,14 +70,54 @@ describe('RecentMovers', () => {
     expect(badgeSide.textContent).toContain('Now #89');
   });
 
-  it('labels the badge for screen readers', async () => {
+  // The row link's label replaces everything inside it, so the direction is spoken there, not on the badge.
+  it('tells screen readers which way each team moved', async () => {
     await renderMovers([
       makeTeam({ team_id_master: 'up', rank_in_cohort_final: 89, rank_change_7d: 258 }),
       makeTeam({ team_id_master: 'down', rank_in_cohort_final: 400, rank_change_7d: -90 }),
     ]);
 
-    expect(container!.querySelector('[aria-label="Improved 258 spots"]')).not.toBeNull();
-    expect(container!.querySelector('[aria-label="Declined 90 spots"]')).not.toBeNull();
+    const labels = Array.from(container!.querySelectorAll('a[href^="/teams/"]')).map((a) =>
+      a.getAttribute('aria-label')
+    );
+    expect(labels[0]).toContain('Rank 89, up 258 in the last 7 days');
+    expect(labels[1]).toContain('Rank 400, down 90 in the last 7 days');
+  });
+
+  it('reads each row like a rankings row: rank, movement over the window shown, team, state, PowerScore', async () => {
+    await renderMovers(
+      [
+        makeTeam({
+          team_name: 'Week FC',
+          club_name: null,
+          state: 'AZ',
+          rank_in_cohort_final: 89,
+          rank_change_7d: 258,
+          power_score_final: 0.5,
+        }),
+      ],
+      [
+        makeTeam({
+          team_name: 'Month FC',
+          club_name: null,
+          state: 'AZ',
+          rank_in_cohort_final: 400,
+          rank_change_30d: -120,
+          power_score_final: 0.25,
+        }),
+      ]
+    );
+    expect(moverRow().getAttribute('aria-label')).toBe(
+      'Rank 89, up 258 in the last 7 days, Week FC, AZ, PowerScore 50.00'
+    );
+
+    await act(async () => {
+      (container!.querySelector('[aria-label="Show 30-day rank changes"]') as HTMLButtonElement).click();
+      await Promise.resolve();
+    });
+    expect(moverRow().getAttribute('aria-label')).toBe(
+      'Rank 400, down 120 in the last 30 days, Month FC, AZ, PowerScore 25.00'
+    );
   });
 
   it('shows the empty state when there are no movers', async () => {
@@ -103,7 +143,7 @@ describe('RecentMovers', () => {
     expect(container!.textContent).toContain('Month FC');
     expect(container!.textContent).not.toContain('Week FC');
     expect(container!.textContent).toContain('30 days');
-    expect(container!.querySelector('[aria-label="Declined 120 spots"]')).not.toBeNull();
+    expect(moverRow().getAttribute('aria-label')).toContain('down 120 in the last 30 days');
     expect(localStorage.getItem('recentMoversTimeWindow')).toBe('30d');
   });
 

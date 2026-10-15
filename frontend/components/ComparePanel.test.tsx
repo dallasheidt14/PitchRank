@@ -262,6 +262,52 @@ describe('ComparePanel', () => {
     expect(headers).not.toContain('Southbank Athletic');
   });
 
+  it('says "Not ranked yet" in place of the national rank of a team short of games', async () => {
+    mockUseTeam.mockImplementation((id: string) => ({
+      data:
+        id === 'team-a'
+          ? teamA
+          : id === 'team-b'
+            ? { ...teamB, rank_in_cohort_final: null, status: 'Not Enough Ranked Games' }
+            : null,
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    }));
+    await flushRender(root!);
+
+    const row = Array.from(container?.querySelectorAll('tbody tr') ?? []).find(
+      (tr) => tr.firstElementChild?.textContent === 'National Rank'
+    )!;
+    expect(Array.from(row.children).map((cell) => cell.textContent)).toEqual([
+      'National Rank',
+      '#12',
+      'Not ranked yet',
+    ]);
+  });
+
+  it('notes the first team too, and leaves an inactive team at a bare dash', async () => {
+    mockUseTeam.mockImplementation((id: string) => ({
+      data:
+        id === 'team-a'
+          ? { ...teamA, rank_in_cohort_final: null, status: 'Not Enough Ranked Games' }
+          : id === 'team-b'
+            ? { ...teamB, rank_in_cohort_final: null, status: 'Inactive' }
+            : null,
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    }));
+    await flushRender(root!);
+
+    const row = Array.from(container?.querySelectorAll('tbody tr') ?? []).find(
+      (tr) => tr.firstElementChild?.textContent === 'National Rank'
+    )!;
+    expect(Array.from(row.children).map((cell) => cell.textContent)).toEqual(['National Rank', 'Not ranked yet', '—']);
+  });
+
   it('renders an explicit error state when the prediction query fails', async () => {
     mockUseMatchPrediction.mockImplementation((teamAId: string | null, teamBId: string | null) => ({
       data: null,

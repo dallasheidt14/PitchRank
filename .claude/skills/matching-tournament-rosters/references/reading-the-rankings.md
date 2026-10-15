@@ -71,14 +71,14 @@ A `Not Enough Ranked Games` team **is on the rankings page**. Reporting it as "n
 is wrong; it is listed but unranked.
 
 `Inactive` is a recency verdict — no game in the inactivity window — not a sample-size one. An
-Inactive team can have a full slate of games; thousands of them have twelve or more.
+Inactive team can have a full slate of games; thousands of them have ten or more.
 
 A team is absent from `state_rankings_view` for one of three reasons, in decreasing order of
 likelihood: its status is `Inactive`, its `state` is NULL, or it has no scored game in the window at
 all. Check `rankings_view` before concluding which — it carries the Inactive rows the state view
 drops.
 
-The Active boundary is **12 games** in the ranking window (`MIN_GAMES_PROVISIONAL` in
+The Active boundary is **10 games** in the ranking window (`MIN_GAMES_PROVISIONAL` in
 `src/etl/glicko_config.py`). The stale comment in `src/etl/v53e.py` saying six is the legacy
 engine's, not the live value.
 
@@ -172,9 +172,9 @@ it.
 ## games_played is not a career total
 
 `games_played` is windowed, capped at 30, and drawn from a balanced selection — not a career count.
-A meaningful share of `Not Enough Ranked Games` teams have twelve or more scored games all-time.
+A meaningful share of `Not Enough Ranked Games` teams have ten or more scored games all-time.
 
-The correct answer to "my team played twenty games, why does it say Not Enough" is that twelve must
+The correct answer to "my team played twenty games, why does it say Not Enough" is that ten must
 fall inside the window and survive selection. A team that played fifteen games fourteen months ago
 and four recently is unranked. Never explain the status using the site's own `total_games_played`.
 
@@ -185,7 +185,7 @@ at about 384 days. Reproducing the window with 365 alone drops a few percent of 
 enough to push a borderline team across the Active threshold.
 
 The `ranked_games_window` query above reproduces the engine's count closely for an unmerged team,
-and for one it never undercounts — so a result under twelve proves that team cannot be Active. That
+and for one it never undercounts — so a result under ten proves that team cannot be Active. That
 proof holds only because the query resolves through `team_merge_map` first; on a raw ID a merged
 team undercounts severalfold. Above thirty the count stops tracking `games_played`, which the cap
 has flattened.

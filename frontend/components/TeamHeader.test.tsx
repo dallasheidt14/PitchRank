@@ -3,10 +3,11 @@ import React from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { act } from 'react-dom/test-utils';
 
-const { mockUseTeam, mockUseUser, mockTrackTeamPageViewed } = vi.hoisted(() => ({
+const { mockUseTeam, mockUseUser, mockTrackTeamPageViewed, mockHasAdminAccess } = vi.hoisted(() => ({
   mockUseTeam: vi.fn(),
   mockUseUser: vi.fn(),
   mockTrackTeamPageViewed: vi.fn(),
+  mockHasAdminAccess: vi.fn(() => false),
 }));
 
 vi.mock('@/lib/hooks', () => ({ useTeam: mockUseTeam }));
@@ -14,7 +15,7 @@ vi.mock('@/lib/hooks', () => ({ useTeam: mockUseTeam }));
 vi.mock('@/hooks/useUser', () => ({
   useUser: mockUseUser,
   hasPremiumAccess: () => false,
-  hasAdminAccess: () => false,
+  hasAdminAccess: mockHasAdminAccess,
 }));
 
 vi.mock('@tanstack/react-query', () => ({ useQueryClient: () => ({}) }));
@@ -47,7 +48,7 @@ vi.mock('@/components/ui/tooltip', async () => {
   };
 });
 
-import { TeamHeader } from '@/components/TeamHeader';
+import { TeamHeader, teamShareTitle } from '@/components/TeamHeader';
 
 const TEAM_ID = '11111111-1111-1111-1111-111111111111';
 
@@ -87,6 +88,7 @@ beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock);
 
   mockUseUser.mockReturnValue({ profile: null, isLoading: false });
+  mockHasAdminAccess.mockReturnValue(false);
   mockUseTeam.mockReturnValue({
     data: TEAM,
     isLoading: false,
@@ -177,5 +179,96 @@ describe('TeamHeader view beacon', () => {
 
     expect(beaconCalls()).toHaveLength(0);
     expect(mockTrackTeamPageViewed).not.toHaveBeenCalled();
+  });
+});
+
+describe('TeamHeader heading', () => {
+  it('makes the team name the page heading', () => {
+    renderHeader();
+
+    const headings = container.querySelectorAll('h1');
+    expect(headings).toHaveLength(1);
+    expect(headings[0].textContent).toBe('Rush WI 2012 Rush');
+  });
+
+  // An aria-label on the admin's alias toggle would become the heading's spoken name in place of the team's.
+  it('keeps the team name as the heading for an admin, whose heading opens the alias list', () => {
+    mockHasAdminAccess.mockReturnValue(true);
+    renderHeader();
+
+    const heading = container.querySelector('h1')!;
+    expect(heading.textContent).toBe('Rush WI 2012 Rush');
+    expect(heading.querySelector('[aria-label]')).toBeNull();
+    expect(heading.querySelector('button')!.getAttribute('aria-expanded')).toBe('false');
+  });
+});
+
+describe('TeamHeader rank tiles', () => {
+  it('says "Not ranked yet" under the dash for a team short of games', () => {
+    mockUseTeam.mockReturnValue({
+      data: { ...TEAM, rank_in_cohort_final: null, status: 'Not Enough Ranked Games' },
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+    renderHeader();
+
+    expect(container.textContent).toContain('National Rank—Not ranked yet');
+  });
+
+  it('leaves the note off a ranked team', () => {
+    renderHeader();
+
+    expect(container.textContent).not.toContain('Not ranked yet');
+  });
+
+  // An inactive team can have plenty of games; the board's reason (too few games) would be false.
+  it('leaves the note off an inactive team', () => {
+    mockUseTeam.mockReturnValue({
+      data: { ...TEAM, rank_in_cohort_final: null, status: 'Inactive' },
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+    renderHeader();
+
+    expect(container.textContent).toContain('National Rank—');
+    expect(container.textContent).not.toContain('Not ranked yet');
+  });
+});
+
+describe('teamShareTitle', () => {
+  const team = { ...TEAM, age: 13, gender: 'M' as const, rank_in_state_final: 2 };
+
+  it('shares the state rank with its state', () => {
+    expect(teamShareTitle({ ...team, state: 'AZ' } as never)).toBe(
+      '⚽ Rush WI 2012 Rush is ranked #2 in AZ for U13 Boys on PitchRank!'
+    );
+  });
+
+  it('shares the national rank as national when there is no state rank', () => {
+    expect(teamShareTitle({ ...team, state: 'AZ', rank_in_state_final: null } as never)).toBe(
+      '⚽ Rush WI 2012 Rush is ranked #12 nationally for U13 Boys on PitchRank!'
+    );
+  });
+
+  it('makes no rank claim for an unranked team', () => {
+    expect(teamShareTitle({ ...team, rank_in_cohort_final: null, rank_in_state_final: null } as never)).toBe(
+      '⚽ Check out Rush WI 2012 Rush (U13 Boys) on PitchRank!'
+    );
+  });
+
+  it('labels a girls team as girls', () => {
+    expect(teamShareTitle({ ...team, age: 15, gender: 'F', state: 'WI', rank_in_state_final: 3 } as never)).toBe(
+      '⚽ Rush WI 2012 Rush is ranked #3 in WI for U15 Girls on PitchRank!'
+    );
+  });
+
+  it('leaves the age out cleanly when it is unknown', () => {
+    expect(teamShareTitle({ ...team, age: null, gender: 'G', rank_in_state_final: null } as never)).toBe(
+      '⚽ Rush WI 2012 Rush is ranked #12 nationally for Girls on PitchRank!'
+    );
   });
 });

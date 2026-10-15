@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { ChevronRight, Home } from 'lucide-react';
 import { usePathname } from 'next/navigation';
 import { useMemo } from 'react';
-import { BASE_URL } from '@/lib/constants';
+import { BASE_URL, formatGender } from '@/lib/constants';
 import { safeJsonLd } from '@/lib/schema-utils';
 
 interface BreadcrumbItem {
@@ -92,9 +92,15 @@ export function Breadcrumbs({ items, showHomeIcon = true }: BreadcrumbsProps) {
     const paths = pathname.split('/').filter(Boolean);
     const crumbs: BreadcrumbItem[] = [{ label: 'Home', href: '/' }];
 
+    const isAge = (segment: string | undefined) => !!segment && /^u\d+$/i.test(segment);
+    const isGender = (segment: string | undefined) => segment === 'male' || segment === 'female';
+
     let currentPath = '';
-    paths.forEach((path) => {
+    paths.forEach((path, i) => {
       currentPath += `/${path}`;
+
+      // No page lives at /rankings/<region>/<age>, so a board's age joins its gender crumb ("U13 Boys").
+      if (isAge(path) && isGender(paths[i + 1])) return;
 
       // Format label
       let label = path;
@@ -113,13 +119,11 @@ export function Breadcrumbs({ items, showHomeIcon = true }: BreadcrumbsProps) {
         label = 'Age Groups';
       } else if (path === 'national') {
         label = 'National';
-      } else if (path.match(/^u\d+$/i)) {
+      } else if (isAge(path)) {
         // Age groups (u12, u14, etc.)
         label = path.toUpperCase();
-      } else if (path === 'male') {
-        label = 'Boys';
-      } else if (path === 'female') {
-        label = 'Girls';
+      } else if (isGender(path)) {
+        label = isAge(paths[i - 1]) ? `${paths[i - 1].toUpperCase()} ${formatGender(path)}` : formatGender(path);
       } else if (path.length === 2 && STATE_NAMES[lowerPath]) {
         // State codes - show full state name
         label = STATE_NAMES[lowerPath];

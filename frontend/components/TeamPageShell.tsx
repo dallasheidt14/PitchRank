@@ -12,7 +12,9 @@ import { Button } from '@/components/ui/button';
 import { SectionErrorBoundary } from '@/components/ui/SectionErrorBoundary';
 import { markIfOpenedFromRankings, wasOpenedFromRankings } from '@/hooks/useRankingsViewState';
 import { useTeam } from '@/lib/hooks';
-import { backToRankingsPath } from '@/lib/utils';
+import { formatGender, US_STATES } from '@/lib/constants';
+import type { TeamWithRanking } from '@/lib/types';
+import { backToRankingsPath, teamDisplayName } from '@/lib/utils';
 import { ArrowLeft } from 'lucide-react';
 
 // Lazy-load charts for better performance
@@ -108,9 +110,29 @@ function BackToRankingsButton({ teamId }: { teamId: string }) {
   );
 }
 
+/** Home › Rankings › the team's board › the team; the URL alone would end in the team's id. */
+function teamBreadcrumbs(id: string, team: TeamWithRanking | undefined) {
+  const crumbs = [
+    { label: 'Home', href: '/' },
+    { label: 'Rankings', href: '/rankings' },
+  ];
+  // While the team loads, end on a crumb for this page so Rankings never reads as the current page.
+  if (!team) return [...crumbs, { label: 'Team', href: `/teams/${id}` }];
+
+  const board = backToRankingsPath({ region: null, ageGroup: null, gender: null }, team);
+  if (board !== '/rankings') {
+    const [region, ageGroup, gender] = board.split('/').slice(2);
+    const place = region === 'national' ? 'National' : (US_STATES.find((s) => s.code === region)?.name ?? region);
+    crumbs.push({ label: `${place} ${ageGroup.toUpperCase()} ${formatGender(gender)}`, href: board });
+  }
+  crumbs.push({ label: teamDisplayName(team), href: `/teams/${id}` });
+  return crumbs;
+}
+
 export function TeamPageShell({ id }: TeamPageShellProps) {
   const queryClient = useQueryClient();
   const previousIdRef = useRef<string | null>(null);
+  const { data: team } = useTeam(id);
 
   // Invalidate team-related queries when navigating to a different team
   // This ensures fresh data is fetched even if cached data exists
@@ -132,21 +154,8 @@ export function TeamPageShell({ id }: TeamPageShellProps) {
 
   return (
     <>
-      {/* Page Header - Athletic Editorial Style */}
-      <div className="relative bg-secondary/30 border-b-2 border-primary py-8 sm:py-12">
-        <div className="absolute left-0 top-0 w-2 h-full bg-accent -skew-x-12" aria-hidden="true" />
-        <div className="container mx-auto px-4 sm:px-6">
-          <Breadcrumbs />
-          <h1 className="font-display text-3xl sm:text-4xl md:text-5xl font-bold uppercase text-primary mb-2">
-            Team Details
-          </h1>
-          <p className="text-muted-foreground text-base sm:text-lg">
-            View rankings, trajectory, momentum, and full match history
-          </p>
-        </div>
-      </div>
-
       <div className="container mx-auto py-6 sm:py-8 px-4 sm:px-6">
+        <Breadcrumbs items={teamBreadcrumbs(id, team)} />
         <BackToRankingsButton teamId={id} />
 
         <div className="space-y-6">

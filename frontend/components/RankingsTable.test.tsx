@@ -24,6 +24,12 @@ vi.mock('@/lib/events', () => ({
   trackTeamRowClicked: vi.fn(),
 }));
 
+// The divider states the engine's games threshold; 37 is a value no copy would hard-code in its place.
+vi.mock('@/lib/constants', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/constants')>()),
+  MIN_RANKED_GAMES: 37,
+}));
+
 import { RankingsTable } from './RankingsTable';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { markIfOpenedFromRankings } from '@/hooks/useRankingsViewState';
@@ -167,7 +173,7 @@ describe('RankingsTable', () => {
     await renderTable(cohort(250));
 
     expect(rows()).toHaveLength(100);
-    expect(caption()).toBe('Showing 100 of 250 teams');
+    expect(caption()).toBe('Showing 100 of 250 teams · 250 ranked');
     expect(showMoreButton()!.textContent).toBe('Show 100 more');
   });
 
@@ -177,7 +183,7 @@ describe('RankingsTable', () => {
     await act(async () => showMoreButton()!.click());
 
     expect(rows()).toHaveLength(200);
-    expect(caption()).toBe('Showing 200 of 250 teams');
+    expect(caption()).toBe('Showing 200 of 250 teams · 250 ranked');
     expect(showMoreButton()!.textContent).toBe('Show 50 more');
     expect(document.activeElement?.getAttribute('data-testid')).toBe('rankings-row-100');
 
@@ -228,7 +234,8 @@ describe('RankingsTable', () => {
     await renderTable([registered, placeholder]);
 
     expect(rowName(rows()[1])).toBe('Aardvark SC');
-    expect(rows()[1].getAttribute('aria-label')).toBe('View Aardvark SC team details');
+    expect(rows()[1].getAttribute('aria-label')).toContain(', Aardvark SC,');
+    expect(rows()[1].getAttribute('aria-label')).not.toContain('unknown_4482913');
     const schema = Array.from(container!.querySelectorAll('script[type="application/ld+json"]'))
       .map((script) => script.textContent)
       .join('');
@@ -398,7 +405,7 @@ describe('RankingsTable', () => {
       await renderTable(cohort(400));
 
       expect(rows()).toHaveLength(300);
-      expect(caption()).toBe('Showing 300 of 400 teams');
+      expect(caption()).toBe('Showing 300 of 400 teams · 400 ranked');
       expect(rowName(rows()[0])).toBe('Test FC 99');
       runFrames();
       expect(window.scrollTo).toHaveBeenCalledWith({ top: 5000, behavior: 'instant' });
@@ -536,10 +543,8 @@ describe('RankingsTable', () => {
       }),
     ];
 
-    /** The PowerScore and SOS buttons are both labelled "Sort by Sort", so find PowerScore by its column. */
     function powerScoreSortButton(): HTMLButtonElement {
-      const header = container!.querySelector('[data-testid="rankings-table-header"]')!;
-      return header.children[2].querySelector('button')!;
+      return container!.querySelector('[aria-label="Sort by PowerScore"]')!;
     }
 
     it('puts the strongest team first on the first tap, and saves and reports that direction', async () => {
@@ -572,6 +577,130 @@ describe('RankingsTable', () => {
 
       expect(rows().map(rowName)).toEqual(['Alpha', 'Bravo', 'Charlie']);
       expect(savedView()).toMatchObject({ sortField: 'team', sortDirection: 'asc' });
+    });
+  });
+
+  describe('for screen readers', () => {
+    it('reads each row as rank, movement, team, club, state and PowerScore', async () => {
+      await renderTable([
+        makeRankingRow({
+          team_id_master: 'team-a',
+          team_name: 'Phoenix United 2014 Elite',
+          club_name: 'Phoenix United',
+          state: 'AZ',
+          rank_in_cohort_final: 3,
+          rank_change_7d: 2,
+          power_score_final: 0.5812,
+        }),
+        makeRankingRow({
+          team_id_master: 'team-b',
+          team_name: 'Tucson Rush 2014',
+          club_name: 'Tucson Rush',
+          state: 'AZ',
+          rank_in_cohort_final: undefined,
+          rank_change_7d: null,
+          power_score_final: 0.2,
+        }),
+      ]);
+
+      expect(rows()[0].getAttribute('aria-label')).toBe(
+        'Rank 3, up 2 in the last 7 days, Phoenix United 2014 Elite, Phoenix United, AZ, PowerScore 58.12'
+      );
+      expect(rows()[1].getAttribute('aria-label')).toBe(
+        'Not ranked yet, Tucson Rush 2014, Tucson Rush, AZ, PowerScore 20.00'
+      );
+    });
+
+    it('reads a fall, and leaves out a missing club and state', async () => {
+      await renderTable([
+        makeRankingRow({
+          team_id_master: 'team-a',
+          team_name: 'Mesa FC 2014',
+          club_name: null,
+          state: null,
+          rank_in_cohort_final: 5,
+          rank_change_7d: -3,
+          power_score_final: 0.41,
+        }),
+      ]);
+
+      expect(rows()[0].getAttribute('aria-label')).toBe(
+        'Rank 5, down 3 in the last 7 days, Mesa FC 2014, PowerScore 41.00'
+      );
+    });
+
+    it('names every sort button after its column', async () => {
+      await renderTable(cohort(2));
+
+      expect(container!.querySelector('[aria-label="Sort by PowerScore"]')).not.toBeNull();
+      expect(container!.querySelector('[aria-label="Sort by SOS Rank"]')).not.toBeNull();
+      expect(container!.querySelector('[aria-label="Sort by Sort"]')).toBeNull();
+    });
+  });
+
+  describe('teams without a rank yet', () => {
+    const BOARD = [
+      makeRankingRow({ team_id_master: 'team-a', team_name: 'Alpha', rank_in_cohort_final: 1, power_score_final: 0.6 }),
+      makeRankingRow({ team_id_master: 'team-b', team_name: 'Bravo', rank_in_cohort_final: 2, power_score_final: 0.4 }),
+      makeRankingRow({
+        team_id_master: 'team-c',
+        team_name: 'Charlie',
+        rank_in_cohort_final: undefined,
+        rank_change_7d: null,
+        power_score_final: 0.5,
+      }),
+      makeRankingRow({
+        team_id_master: 'team-d',
+        team_name: 'Delta',
+        rank_in_cohort_final: undefined,
+        rank_change_7d: null,
+        power_score_final: 0.1,
+      }),
+    ];
+
+    function dividers(): Element[] {
+      return Array.from(container!.querySelectorAll('[data-testid="rankings-unranked-divider"]'));
+    }
+
+    const before = (a: Element, b: Element) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+
+    it('explains the unranked teams with one line between them and the ranked ones', async () => {
+      await renderTable(BOARD);
+
+      expect(dividers()).toHaveLength(1);
+      expect(dividers()[0].textContent).toBe('Not ranked yet: fewer than 37 games in the last 12 months');
+      expect(before(rows()[1], dividers()[0])).toBe(true);
+      expect(before(dividers()[0], rows()[2])).toBe(true);
+      expect(rows()[2].firstElementChild!.textContent).toBe('—');
+      expect(caption()).toBe('Showing 4 of 4 teams · 2 ranked');
+    });
+
+    it('drops the line when another sort mixes ranked and unranked teams', async () => {
+      await renderTable(BOARD);
+
+      await act(async () =>
+        (container!.querySelector('[aria-label="Sort by PowerScore"]') as HTMLButtonElement).click()
+      );
+
+      expect(rows().map(rowName)).toEqual(['Alpha', 'Charlie', 'Bravo', 'Delta']);
+      expect(dividers()).toHaveLength(0);
+    });
+
+    it('drops the line when rank order is reversed and the unranked teams come first', async () => {
+      await renderTable(BOARD);
+
+      await act(async () => (container!.querySelector('[aria-label="Sort by Rank"]') as HTMLButtonElement).click());
+
+      expect(rows().map(rowName)).toEqual(['Charlie', 'Delta', 'Bravo', 'Alpha']);
+      expect(dividers()).toHaveLength(0);
+    });
+
+    it('heads the list with the line when no team has a rank yet', async () => {
+      await renderTable(BOARD.slice(2));
+
+      expect(dividers()).toHaveLength(1);
+      expect(before(dividers()[0], rows()[0])).toBe(true);
+      expect(caption()).toBe('Showing 2 of 2 teams · 0 ranked');
     });
   });
 

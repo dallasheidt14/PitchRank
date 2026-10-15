@@ -336,3 +336,27 @@ describe('GlobalSearch result rows', () => {
     expect(mockTrackSearchUsed).toHaveBeenCalledWith({ query: 'zzzz', results_count: 0 });
   });
 });
+
+describe('GlobalSearch input', () => {
+  // The hero's "Find your team" button finds the header search by this id.
+  it('puts the id the header assigns on the search input, named by its visible prompt', async () => {
+    mockUseTeamSearch.mockReturnValue({
+      results: [],
+      match: 'exact',
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+    const { container, root } = renderGlobalSearch();
+    await act(async () => root.render(React.createElement(GlobalSearch, { inputId: 'global-search-desktop' })));
+
+    const input = document.getElementById('global-search-desktop')!;
+    expect(input.tagName).toBe('INPUT');
+    expect(input.getAttribute('placeholder')).toBe('Find your team');
+    expect(input.getAttribute('aria-label')).toBe('Find your team');
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+});

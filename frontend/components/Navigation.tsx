@@ -5,7 +5,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Menu, X, Star, User, LogOut, LogIn } from 'lucide-react';
-import { GlobalSearch } from './GlobalSearch';
+import { GlobalSearch, GLOBAL_SEARCH_INPUT_IDS } from './GlobalSearch';
 import { FeedbackTrigger } from './FeedbackTrigger';
 import { Button } from './ui/button';
 import { useUser } from '@/hooks/useUser';
@@ -62,7 +62,7 @@ export function Navigation() {
 
         {/* Desktop Search */}
         <div className="hidden lg:flex flex-1 justify-center max-w-md mx-4">
-          <GlobalSearch />
+          <GlobalSearch inputId={GLOBAL_SEARCH_INPUT_IDS.desktop} />
         </div>
 
         {/* Desktop Navigation */}
@@ -154,12 +154,11 @@ export function Navigation() {
           )}
         </nav>
 
-        {/* Mobile: Search + Feedback + Menu Button */}
+        {/* Mobile: Search + Menu Button (feedback lives in the menu so the search hint fits) */}
         <div className="flex lg:hidden items-center gap-2 sm:gap-3">
           <div className="flex-1 min-w-0">
-            <GlobalSearch />
+            <GlobalSearch inputId={GLOBAL_SEARCH_INPUT_IDS.mobile} />
           </div>
-          <FeedbackTrigger />
           <Button
             variant="ghost"
             size="icon"
@@ -220,6 +219,7 @@ export function Navigation() {
             >
               Blog
             </Link>
+            <FeedbackTrigger variant="menu" />
 
             {/* Mobile Auth Section */}
             <div className="pt-4 mt-4 border-t">

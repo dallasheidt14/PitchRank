@@ -574,6 +574,7 @@ export default function WatchlistPage() {
                                 {team.state}
                               </span>
                             )}
+                            {team.status === 'Not Enough Ranked Games' && <span>Not ranked yet</span>}
                           </div>
                         </div>
                       </div>

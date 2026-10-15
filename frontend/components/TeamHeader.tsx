@@ -19,7 +19,8 @@ import {
 } from '@/lib/watchlist';
 import type { WatchlistResponse } from '@/app/api/watchlist/route';
 import { cn, formatPowerScore } from '@/lib/utils';
-import { POWERSCORE_DEFINITION } from '@/lib/constants';
+import { formatGender, POWERSCORE_DEFINITION } from '@/lib/constants';
+import type { TeamWithRanking } from '@/lib/types';
 import { useUser, hasPremiumAccess, hasAdminAccess } from '@/hooks/useUser';
 import { ShareButtons } from '@/components/ShareButtons';
 import { NotificationBell } from '@/components/NotificationBell';
@@ -52,6 +53,18 @@ function InfoTrigger({ className, ...props }: React.ComponentProps<'button'>) {
 
 function InfoHint() {
   return <Info className="ml-1 inline h-3 w-3 align-[-1px] opacity-60" />;
+}
+
+/** The share message: the state rank with its state, else the national rank, else no rank claim at all. */
+export function teamShareTitle(team: TeamWithRanking): string {
+  const cohort = [team.age ? `U${team.age}` : null, formatGender(team.gender)].filter(Boolean).join(' ');
+  if (team.state && team.rank_in_state_final) {
+    return `⚽ ${team.team_name} is ranked #${team.rank_in_state_final} in ${team.state} for ${cohort} on PitchRank!`;
+  }
+  if (team.rank_in_cohort_final) {
+    return `⚽ ${team.team_name} is ranked #${team.rank_in_cohort_final} nationally for ${cohort} on PitchRank!`;
+  }
+  return `⚽ Check out ${team.team_name} (${cohort}) on PitchRank!`;
 }
 
 /**
@@ -315,23 +328,23 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <div className="relative">
-                {isAdmin ? (
-                  <button
-                    onClick={() => setAliasesOpen(!aliasesOpen)}
-                    className="flex items-center gap-1.5 text-xl sm:text-2xl md:text-3xl font-display font-bold uppercase text-primary-foreground tracking-wide hover:text-accent transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded"
-                    aria-label="View team aliases"
-                    aria-expanded={aliasesOpen}
-                  >
-                    {team.team_name}
-                    <ChevronDown
-                      className={`h-4 w-4 sm:h-5 sm:w-5 opacity-70 transition-transform ${aliasesOpen ? 'rotate-180' : ''}`}
-                    />
-                  </button>
-                ) : (
-                  <div className="text-xl sm:text-2xl md:text-3xl font-display font-bold uppercase text-primary-foreground tracking-wide">
-                    {team.team_name}
-                  </div>
-                )}
+                <h1 className="text-xl sm:text-2xl md:text-3xl font-display font-bold uppercase text-primary-foreground tracking-wide">
+                  {isAdmin ? (
+                    // No aria-label: it would replace the team name as the heading's spoken name.
+                    <button
+                      onClick={() => setAliasesOpen(!aliasesOpen)}
+                      className="flex items-center gap-1.5 uppercase hover:text-accent transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded"
+                      aria-expanded={aliasesOpen}
+                    >
+                      {team.team_name}
+                      <ChevronDown
+                        className={`h-4 w-4 sm:h-5 sm:w-5 opacity-70 transition-transform ${aliasesOpen ? 'rotate-180' : ''}`}
+                      />
+                    </button>
+                  ) : (
+                    team.team_name
+                  )}
+                </h1>
 
                 {/* Aliases Dropdown (admin-only) */}
                 {isAdmin && aliasesOpen && (
@@ -461,6 +474,9 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
                 <div className="text-xl sm:text-2xl font-semibold">
                   {teamRanking?.rank_in_cohort_final ? `#${teamRanking.rank_in_cohort_final}` : '—'}
                 </div>
+                {team.status === 'Not Enough Ranked Games' && (
+                  <div className="text-xs text-muted-foreground">Not ranked yet</div>
+                )}
               </div>
               <div>
                 <div className="text-xs sm:text-sm text-muted-foreground mb-1">State Rank</div>
@@ -631,7 +647,7 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
             {/* Share Buttons */}
             <div className="pt-4 border-t">
               <ShareButtons
-                title={`⚽ ${team.team_name} is ranked #${teamRanking?.rank_in_cohort_final || 'N/A'} ${team.state ? `in ${team.state}` : 'nationally'} for ${team.age ? `U${team.age}` : ''} ${team.gender === 'M' || team.gender === 'B' ? 'Boys' : 'Girls'} on PitchRank!`}
+                title={teamShareTitle(team)}
                 hashtags={['YouthSoccer', 'PitchRank', team.age ? `U${team.age}Soccer` : 'Soccer']}
               />
             </div>

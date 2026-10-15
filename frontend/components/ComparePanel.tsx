@@ -21,8 +21,18 @@ import {
 import { ArrowLeftRight, HelpCircle } from 'lucide-react';
 import { formatPowerScore, teamDisplayName } from '@/lib/utils';
 import type { RankingRow } from '@/types/RankingRow';
+import type { TeamWithRanking } from '@/lib/types';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { trackCompareOpened, trackComparisonGenerated, trackPredictionViewed, trackTeamsSwapped } from '@/lib/events';
+
+/** A team's national rank, or the board's "Not ranked yet" when it is short of games; a bare dash otherwise. */
+function NationalRank({ team }: { team: TeamWithRanking }) {
+  if (team.rank_in_cohort_final) return <>{`#${team.rank_in_cohort_final}`}</>;
+  if (team.status === 'Not Enough Ranked Games') {
+    return <span className="text-xs font-normal text-muted-foreground">Not ranked yet</span>;
+  }
+  return <>—</>;
+}
 
 /**
  * ComparePanel component - enhanced team comparison with all features
@@ -313,10 +323,10 @@ export function ComparePanel() {
                       <tr>
                         <td className="py-3 px-3 sm:px-4 text-xs sm:text-sm text-muted-foreground">National Rank</td>
                         <td className="py-3 px-2 sm:px-3 text-center text-sm sm:text-base font-semibold">
-                          {team1Details.rank_in_cohort_final ? `#${team1Details.rank_in_cohort_final}` : '—'}
+                          <NationalRank team={team1Details} />
                         </td>
                         <td className="py-3 px-2 sm:px-3 text-center text-sm sm:text-base font-semibold">
-                          {team2Details.rank_in_cohort_final ? `#${team2Details.rank_in_cohort_final}` : '—'}
+                          <NationalRank team={team2Details} />
                         </td>
                       </tr>
                       {(team1Details.state && team1Details.rank_in_state_final) ||
