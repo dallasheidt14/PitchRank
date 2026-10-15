@@ -259,6 +259,12 @@ def test_read_answers_takes_valid_two_letter_picks_for_known_clubs_and_undoes_th
     assert prepare.read_answers(path, clubs) == {"Alpha SC": "AZ", "=Odd FC": "NV"}
 
 
+def test_read_answers_reads_a_sheet_saved_by_excel_with_a_byte_order_mark(tmp_path):
+    path = tmp_path / "todo.csv"
+    path.write_bytes("club_name,your_state\r\nAlpha SC,AZ\r\n".encode("utf-8-sig"))
+    assert prepare.read_answers(path, {"Alpha SC"}) == {"Alpha SC": "AZ"}
+
+
 def test_the_todo_sheet_defangs_a_club_name_that_would_run_as_a_formula(tmp_path, monkeypatch):
     _write_squads(tmp_path, [("40", '=HYPERLINK("https://evil.example","x")', "u16", "HD")])
     monkeypatch.setattr(prepare, "create_client", lambda *_a: _db())

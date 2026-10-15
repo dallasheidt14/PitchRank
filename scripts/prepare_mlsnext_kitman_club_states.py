@@ -83,7 +83,7 @@ def read_answers(path: Path, clubs: set[str]) -> dict[str, str]:
 
 
 def _read_csv(path: Path) -> list[dict]:
-    with path.open(encoding="utf-8") as handle:
+    with path.open(encoding="utf-8-sig") as handle:
         return list(csv.DictReader(handle))
 
 
