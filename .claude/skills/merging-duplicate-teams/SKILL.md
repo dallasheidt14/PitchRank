@@ -682,7 +682,10 @@ without it.
 
 Publish the page with the Artifact tool and `capabilities: {"db": {}}`, as a new artifact for each
 build rather than over an earlier one, since the page's database keeps every build's choices and
-caps how many documents it holds. Send the owner the link, not the file, so it opens on any device.
+caps how many documents it holds. Load the `artifact-capabilities` skill first, since the publish
+passes `capabilities`. The Artifact tool picks its target by file path, so copy the page unchanged
+into the scratchpad under a name carrying its `<run>` (the run the builder printed) and publish that
+copy. Send the owner the link, not the file, so it opens on any device.
 
 Read the owner's choices back with the ArtifactData tool (`action: list` on `decisions-<run>`,
 `query.limit` 1000, following `next_cursor` until none is returned) with an `out_dir`, then pass
