@@ -766,9 +766,12 @@ Warrior Fall Classic (`wfc.`) is the event it was built against.
 
 ### Reading a Tourney Central team
 
-- A division code reads `<B|G><U-age>[-<U-age>][<n>v<n>]<flight>`: `B11Gold`, `B107v7Gold` (U10,
-  7v7), `B129v9Red` (U12, 9v9), `G14-15Gold` (U14 and U15 together). Divisions at U9 and below,
-  and small-sided ones, are skipped before they are fetched; a code of another shape is reported.
+- A division code reads `<B|G>[U]<U-age>[-<U-age>][<n>v<n>]<flight>`: `B11Gold`, `B107v7Gold` (U10,
+  7v7), `B129v9Red` (U12, 9v9), `G14-15Gold` (U14 and U15 together). Some tournaments spell it with
+  a U and run a pair together: `BU9Gold`, `GU11Premier`, `BU1415Black`. A run-together pair is read
+  only as consecutive ages not followed by a format (`B1011v11` is U10 11v11), and no age above U19
+  is read, so a birth-year code (`B2015Gold`) is refused. Divisions at U9 and below, and
+  small-sided ones, are skipped before they are fetched; a code of another shape is reported.
 - **The age comes from the team's name alone** — not bounded by the division and never falling
   back to it (owner, 2026-10-08: "it DOESNT matter what Divison they are in in the tournament
   at all"). A name with no age is left out for a person to decide. A single
@@ -776,6 +779,16 @@ Warrior Fall Classic (`wfc.`) is the event it was built against.
   division it entered (`WOU B14`, U13, in a U12 division).
 - The location is `City, ST`, written loosely: `Parkersburg, WV, WV`, `Kettering, OH, QC`,
   `GC Cosmos 2014/2015 white, OH`. Take the one US state code among its comma-separated parts.
+  A location can be wrong in a way no rule sees: CUSC West entered Party on the Pitch from
+  `Fairfield, AL` and `Ohio, AL`, and Fairfield is a city in both states. Taken as written, it
+  would have created five Alabama duplicates of CUSC teams already on the Ohio boards. Read the
+  dry run's created teams outside the tournament's home state, and set a wrong one with
+  `--state <team id>=OH`. Neither a city-named-like-a-state rule (Delaware, Ohio is real) nor a
+  club-majority rule (BSC Premier plays from Batesville, IN under an Ohio club) is safe.
+- A bare two-digit age (`G11`, `B12`) reads as a birth year, which is wrong for some clubs that
+  mean a U-age (`CUSC B12 South Elite` entered U12, read as U15). No rule separates the two without
+  the division, so the operator names such teams with `--leave-out <team id>` for the owner to
+  settle; the team report carries each id.
 - The club field is the club, except `Tournament Only team`, which is a placeholder; the name's
   own leading club stands in for it, as it does for a row with no club line.
 - The club field is often spelled differently from the name's own prefix (`Warrior Soccer Club`

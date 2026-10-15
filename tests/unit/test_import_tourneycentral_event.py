@@ -6,6 +6,7 @@ byte: ISO-8859-1, declared only in each page's ``<meta>``. They are five of its
 divisions; every other division answers with an empty team list and schedule.
 """
 
+import argparse
 import csv
 from datetime import date
 from pathlib import Path
@@ -217,6 +218,13 @@ class TestDivisionCodes:
             ("B129v9Red", ("Male", 12, 12, 9)),
             ("G14-15Gold", ("Female", 14, 15, None)),
             ("G09Red", ("Female", 9, 9, None)),
+            ("BU9Premier", ("Male", 9, 9, None)),
+            ("GU11Premier", ("Female", 11, 11, None)),
+            ("BU1415Black", ("Male", 14, 15, None)),
+            ("GU1415Premier", ("Female", 14, 15, None)),
+            ("B1011v11Gold", ("Male", 10, 10, 11)),
+            ("BU107v7Gold", ("Male", 10, 10, 7)),
+            ("B19Gold", ("Male", 19, 19, None)),
         ],
     )
     def test_a_code_gives_gender_ages_and_format(self, code, expected):
@@ -224,7 +232,10 @@ class TestDivisionCodes:
 
         assert (division.gender, division.young_age, division.old_age, division.players) == expected
 
-    @pytest.mark.parametrize("code", ["BU11", "B2015Gold", "Open", "B15-14Gold", ""])
+    @pytest.mark.parametrize(
+        "code",
+        ["B2015Gold", "B2021Gold", "BU1416Gold", "B20Gold", "BU", "Open", "B15-14Gold", "BU1514Gold", ""],
+    )
     def test_a_code_of_another_shape_is_refused(self, code):
         """A birth-year code read as two digits would be filed as U20."""
         assert tc.parse_division_code(code) is None
@@ -233,6 +244,7 @@ class TestDivisionCodes:
         "code, reason",
         [
             ("B09Red", "U9 and below: no board"),
+            ("BU9Premier", "U9 and below: no board"),
             ("B105v5Gold", "small-sided"),
             ("B11Gold", None),
             ("B107v7Gold", None),
@@ -347,6 +359,22 @@ class TestParseSchedule:
         games, problems = self._parse(_schedule_page(("80", _LINK.format(1), 2, 1, _LINK.format(link_id))))
 
         assert (games, problems) == ([], ["B11Gold game 80: unfilled bracket slot"])
+
+    def test_a_game_the_page_prints_twice_is_read_once(self):
+        """Party on the Pitch's BU10Bronze schedule lists games 37 and 40 twice."""
+        game = ("80", _LINK.format(1), 2, 1, _LINK.format(2))
+
+        games, problems = self._parse(_schedule_page(game, ("81", _LINK.format(3), 0, 0, _LINK.format(4)), game))
+
+        assert ([g.game_no for g in games], problems) == (["80", "81"], [])
+
+    def test_a_game_number_repeated_with_other_details_keeps_the_first_and_is_reported(self):
+        first, repeat = ("80", _LINK.format(1), 2, 1, _LINK.format(2)), ("80", _LINK.format(1), 5, 1, _LINK.format(2))
+
+        games, problems = self._parse(_schedule_page(first, repeat))
+
+        assert [(g.game_no, g.home_score) for g in games] == [("80", 2)]
+        assert problems == ["B11Gold game 80: listed twice with different details"]
 
     def test_an_unscored_game_is_reported_and_held(self):
         games, problems = self._parse(_schedule_page(("80", _LINK.format(1), "", "", _LINK.format(2))))
@@ -499,6 +527,87 @@ class TestBuildRoster:
         _, in_scope, _, _, _, _ = _collect()
 
         assert _by_name(in_scope)["Elite FC U14 Boys Select"].state_code == "OH"
+
+    @staticmethod
+    def _cusc(*teams):
+        division = tc.parse_division_code("BU10Silver")
+        return [(division, _listing(team_id, name, location)) for team_id, name, location in teams]
+
+    def test_the_operator_sets_a_teams_state_where_its_location_is_wrong(self):
+        """CUSC West entered Party on the Pitch from 'Fairfield, AL'; the club is in Ohio."""
+        listings = self._cusc(
+            ("316493", "CUSC BU10 West Yellow", "Fairfield, AL"),
+            ("316490", "CUSC BU10 West Ajax", "Ohio, AL"),
+            ("315900", "CUSC BU10 South Yellow", "Cincinnati, AL"),
+        )
+
+        in_scope, _ = tc.build_roster(listings, _event(), SEASON, states={"316493": "OH", "316490": "OH"})
+
+        assert {row.team_name: row.state_code for row in in_scope} == {
+            "CUSC BU10 West Yellow": "OH",
+            "CUSC BU10 West Ajax": "OH",
+            "CUSC BU10 South Yellow": "AL",
+        }
+
+    def test_a_state_the_operator_sets_brings_in_a_team_whose_location_names_none(self):
+        listings = self._cusc(("1", "CUSC BU10 West Yellow", "Toronto, ON"))
+
+        in_scope, skipped = tc.build_roster(listings, _event(), SEASON, states={"1": "OH"})
+
+        assert ([row.state_code for row in in_scope], skipped) == (["OH"], [])
+
+    def test_a_team_the_operator_leaves_out_is_skipped_though_its_name_reads(self):
+        listings = [
+            (tc.parse_division_code("GU11Gold"), _listing("7", "Ohio Fusion SC G11 Blue")),
+            (tc.parse_division_code("GU11Gold"), _listing("8", "Ohio Fusion SC GU11 Black")),
+        ]
+
+        in_scope, skipped = tc.build_roster(listings, _event(), SEASON, frozenset({"7"}))
+
+        assert [(row.team_name, row.skip_reason) for row in skipped] == [
+            ("Ohio Fusion SC G11 Blue", "left out by the operator")
+        ]
+        assert [row.team_name for row in in_scope] == ["Ohio Fusion SC GU11 Black"]
+
+    def test_collect_event_passes_the_operators_leave_out_list_through(self):
+        _, in_scope, _, _, _, _ = _collect()
+        celina = _by_name(in_scope)["Celina Bulldogs G14/15"].tc_team_id
+
+        _, in_scope, skipped, _, _, _ = tc.collect_event(
+            _PageFetcher(), HOST, "wfc", SEASON, 3650, date(2026, 10, 14), leave_out=frozenset({celina})
+        )
+
+        assert "Celina Bulldogs G14/15" not in _by_name(in_scope)
+        assert _by_name(skipped)["Celina Bulldogs G14/15"].skip_reason == "left out by the operator"
+
+    @pytest.mark.parametrize("value", ["0123", "abc", "", "1" * 11, "١٢"])
+    def test_a_leave_out_value_that_is_not_a_team_id_is_refused(self, value):
+        with pytest.raises(argparse.ArgumentTypeError):
+            tc._leave_out_id(value)
+
+    def test_a_leave_out_team_id_is_accepted(self):
+        assert tc._leave_out_id("319153") == "319153"
+
+    def test_collect_event_passes_the_operators_states_through(self):
+        _, in_scope, _, _, _, _ = _collect()
+        celina = _by_name(in_scope)["Celina Bulldogs G14/15"].tc_team_id
+
+        _, in_scope, _, _, _, _ = tc.collect_event(
+            _PageFetcher(), HOST, "wfc", SEASON, 3650, date(2026, 10, 14), states={celina: "IN"}
+        )
+
+        assert _by_name(in_scope)["Celina Bulldogs G14/15"].state_code == "IN"
+
+    @pytest.mark.parametrize("value, expected", [("316490=OH", ("316490", "OH")), ("316490=oh", ("316490", "OH"))])
+    def test_a_state_option_reads_team_id_and_state(self, value, expected):
+        assert tc._state_for_team(value) == expected
+
+    @pytest.mark.parametrize(
+        "value", ["316490", "316490=ZZ", "316490=Ohio", "0123=OH", "abc=OH", "=OH", "1" * 11 + "=OH"]
+    )
+    def test_a_state_option_that_is_not_team_id_and_state_is_refused(self, value):
+        with pytest.raises(argparse.ArgumentTypeError):
+            tc._state_for_team(value)
 
     def test_a_tournament_only_club_falls_back_to_the_names_own_club(self):
         _, in_scope, _, _, _, _ = _collect()
