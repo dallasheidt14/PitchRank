@@ -372,6 +372,16 @@ def _loopback(address) -> bool:
         return False
 
 
+def _as_text(command):
+    """A recorded command as text: on POSIX the interpreter hands os.system and os.exec* their command as
+    bytes, where Windows passes str."""
+    if isinstance(command, bytes):
+        return os.fsdecode(command)
+    if isinstance(command, (list, tuple)):
+        return type(command)(os.fsdecode(part) if isinstance(part, bytes) else part for part in command)
+    return command
+
+
 def _audit(event: str, args: tuple) -> None:
     """Inside a guard, refuse each process start, its command recorded first, each name lookup, and each
     connection to anything but a loopback address."""
@@ -379,7 +389,7 @@ def _audit(event: str, args: tuple) -> None:
         return
     if event in _PROCESS_STARTS:
         at = _PROCESS_STARTS[event]
-        _OPEN_GUARDS[-1].append(event if at is None else args[at])
+        _OPEN_GUARDS[-1].append(event if at is None else _as_text(args[at]))
         raise Refused(f"a self-check reached a child process at {event}")
     if event in _NAME_LOOKUPS or (event == "socket.connect" and not _loopback(args[1])):
         raise Refused(f"a self-check reached the network at {event}")

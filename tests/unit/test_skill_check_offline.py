@@ -573,6 +573,22 @@ def test_a_process_start_is_recorded_on_the_innermost_guard(monkeypatch):
     assert (outer, inner) == ([], ["echo offline"])
 
 
+@pytest.mark.parametrize(
+    "event, args, recorded",
+    [
+        ("os.system", (b"echo offline",), "echo offline"),
+        ("os.exec", (b"/bin/echo", [b"echo", b"offline"], None), ["echo", "offline"]),
+    ],
+    ids=["os.system-bytes", "os.exec-bytes"],
+)
+def test_a_command_posix_hands_over_as_bytes_is_recorded_as_text(monkeypatch, event, args, recorded):
+    net_under_guards(monkeypatch)
+
+    with guarded() as children, pytest.raises(Refused):
+        sys.audit(event, *args)
+    assert children == [recorded]
+
+
 def test_the_audit_hook_refuses_nothing_outside_every_guard(monkeypatch):
     net_under_guards(monkeypatch)
     with pytest.raises(Refused), guarded():
