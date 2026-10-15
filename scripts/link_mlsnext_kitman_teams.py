@@ -425,6 +425,23 @@ def _new_client():
     return create_client(url, key)
 
 
+# One HTTP/2 connection to Supabase is closed by the server after about 20,000 requests, and a
+# squad costs roughly ten, so a full plan outruns it. A fresh client per chunk stays far below that.
+CHUNK_SIZE = 200
+
+
+def apply_plan_in_chunks(plan: list[LinkAction], log_path: Path) -> tuple[dict[str, int], dict[str, str]]:
+    totals: dict[str, int] = {}
+    created: dict[str, str] = {}
+    for start in range(0, len(plan), CHUNK_SIZE):
+        sb = _new_client()
+        counts, made = apply_plan(sb, _provider_id(sb), plan[start : start + CHUNK_SIZE], log_path)
+        for key, value in counts.items():
+            totals[key] = totals.get(key, 0) + value
+        created.update(made)
+    return totals, created
+
+
 def _provider_id(sb) -> str:
     try:
         return sb.table("providers").select("id").eq("code", PROVIDER_CODE).single().execute().data["id"]
@@ -461,10 +478,9 @@ def main(argv: list[str] | None = None) -> int:
 
     created: dict[str, str] = {}
     if args.execute:
-        sb = _new_client()
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         log_path = args.in_dir / f"link_log_{stamp}.jsonl"
-        counts, created = apply_plan(sb, _provider_id(sb), plan, log_path)
+        counts, created = apply_plan_in_chunks(plan, log_path)
         print(" ".join(f"{k}={v}" for k, v in counts.items()))
         print(f"Undo with: --undo {log_path}")
     else:

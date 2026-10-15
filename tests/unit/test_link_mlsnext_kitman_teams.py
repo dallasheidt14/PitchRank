@@ -460,3 +460,16 @@ def test_main_executes_a_returned_handback_and_undo_reverses_the_run(alias_calls
     log = next(tmp_path.glob("link_log_*.jsonl"))
     assert link.main(["--undo", str(log)]) == 0
     assert db.rows["team_alias_map"] == [] and [t["team_id_master"] for t in db.rows["teams"]] == ["T1"]
+
+
+def test_execute_opens_a_fresh_client_per_chunk_and_sums_the_counts(alias_calls, tmp_path, monkeypatch, capsys):
+    db = _Db(teams=[_live("T1")])
+    db.rows["providers"] = [{"id": PROVIDER, "code": "mlsnext_kitman"}]
+    opened = []
+    monkeypatch.setattr(link, "_new_client", lambda: opened.append(1) or db)
+    monkeypatch.setattr(link, "CHUNK_SIZE", 1)
+    _inputs(tmp_path, [_squad("1"), _squad("2"), _squad("3")], [_row("1"), _row("2"), _row("3")])
+    assert link.main(["--in-dir", str(tmp_path), "--execute"]) == 0
+    assert len(opened) == 3
+    assert "aliases_written=3" in capsys.readouterr().out
+    assert sorted(a["provider_team_id"] for a in db.rows["team_alias_map"]) == ["1:2026", "2:2026", "3:2026"]
