@@ -136,4 +136,42 @@ describe('generateConsistencyScore', () => {
     expect(result.score).toBe(50);
     expect(result.label).toBe('unpredictable');
   });
+
+  it("reads each game from the team's own side, home or away", () => {
+    // Six 2-1 wins, every other one away. Read from one fixed side they alternate W/L.
+    const data = buildInput({
+      recentResultsNewestFirst: Array.from({ length: 6 }, () => ({ teamScore: 2, oppScore: 1 })),
+    });
+    data.games = data.games.map((g, i) =>
+      i % 2 === 0 ? g : { ...g, home_team_master_id: 'opp', away_team_master_id: TEAM_ID, home_score: 1, away_score: 2 }
+    );
+
+    expect(generateConsistencyScore(data).details).toMatchObject({ goalDifferentialStdDev: 0, streakFragmentation: 0 });
+  });
+
+  it('caps a blowout at six goals', () => {
+    // Capped diffs [6, 0, 0] -> stddev 2.83; uncapped [10, 0, 0] -> 4.71.
+    const data = buildInput({
+      recentResultsNewestFirst: [
+        { teamScore: 10, oppScore: 0 },
+        { teamScore: 0, oppScore: 0 },
+        { teamScore: 0, oppScore: 0 },
+      ],
+    });
+
+    expect(generateConsistencyScore(data).details.goalDifferentialStdDev).toBe(2.83);
+  });
+
+  it('reads exactly the 15 newest played games', () => {
+    // Window 15: diffs 10x1 + 5x5 -> stddev 1.89. Window 10 reads only the 1s (0); window 16 adds the capped -6.
+    const recent = [
+      ...Array.from({ length: 10 }, () => ({ teamScore: 2, oppScore: 1 })),
+      ...Array.from({ length: 5 }, () => ({ teamScore: 5, oppScore: 0 })),
+      { teamScore: 0, oppScore: 9 },
+    ];
+
+    expect(
+      generateConsistencyScore(buildInput({ recentResultsNewestFirst: recent })).details.goalDifferentialStdDev
+    ).toBe(1.89);
+  });
 });

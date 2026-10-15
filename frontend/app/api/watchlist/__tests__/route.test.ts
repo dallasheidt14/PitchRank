@@ -101,4 +101,33 @@ describe('GET /api/watchlist activity', () => {
     expect(team(FRESH)).toMatchObject({ new_games_count: 1, last_game_date: '2026-10-10' });
     expect(team(QUIET)).toMatchObject({ new_games_count: 0, last_game_date: '2026-09-05' });
   });
+
+  // Oldest first, each read from the team's own side: Quiet FC won at home, then lost away.
+  it("builds each form strip from that team's own played games", async () => {
+    const body = await (await GET()).json();
+    const team = (id: string) => body.teams.find((t: { team_id_master: string }) => t.team_id_master === id);
+
+    expect(team(FRESH).last_5_results).toEqual(['W']);
+    expect(team(QUIET).last_5_results).toEqual(['W', 'L']);
+  });
+
+  it('caps each form strip at the five newest games, reading a game between two watched teams from both sides', async () => {
+    const played = (home: string, away: string, game_date: string, home_score: number, away_score: number) =>
+      makeGame({ home_team_master_id: home, away_team_master_id: away, game_date, home_score, away_score });
+    filteringDb.tableRows.games = [
+      played(FRESH, OPPONENT, '2026-10-01', 0, 1), // L, seventh newest: outside
+      played(OPPONENT, FRESH, '2026-10-02', 0, 1), // W, sixth newest: outside the window
+      played(FRESH, QUIET, '2026-10-03', 2, 1), // Fresh W, Quiet L
+      played(FRESH, OPPONENT, '2026-10-04', 1, 1), // D
+      played(OPPONENT, FRESH, '2026-10-05', 2, 0), // L
+      played(FRESH, OPPONENT, '2026-10-06', 0, 3), // L
+      played(OPPONENT, FRESH, '2026-10-07', 1, 2), // W
+    ];
+
+    const body = await (await GET()).json();
+    const team = (id: string) => body.teams.find((t: { team_id_master: string }) => t.team_id_master === id);
+
+    expect(team(FRESH).last_5_results).toEqual(['W', 'D', 'L', 'L', 'W']);
+    expect(team(QUIET).last_5_results).toEqual(['L']);
+  });
 });

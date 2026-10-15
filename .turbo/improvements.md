@@ -2266,34 +2266,24 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: The insert is gated on `self.dry_run`, but the `Created review queue entry for ...` info line after it is not, so every review-band team in a roster-pass dry run (Athletes2Events, YSSL, Tourney Central) reads as a write in the log. Log a dry-run form instead.
 - **Noted**: 2026-10-14
 
-### Filter excluded games in the two admin pages that still count them
+### Make the prediction-model trainer skip excluded games, after measuring the effect
 
-- **ID**: IMP-352
+- **ID**: IMP-355
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `fetch_historical_games` in `scripts/backtest_predictor.py` (its REST query and its direct-Postgres SQL)
+- **Why**: Neither path filters `is_excluded`, while `fetch_games_for_rankings` in `src/rankings/data_adapter.py` does and Mission Control's "Trainable scored games" tile now does too, so the tile and the trainer disagree. The same function feeds `scripts/train_point_in_time_match_model.py` and `scripts/cross_validate_predictor.py`, so a filter there moves all three. A review measured 9,570 excluded scored games with both master ids in the PIT window from 2025-06-23, about 0.8% (2026-10-14). Filtering changes what the model trains on, so compare a training run with and without it before changing it.
+- **Noted**: 2026-10-14
+
+### Surface the merge-suggestions route's games read errors instead of scoring zero games
+
+- **ID**: IMP-356
 - **Status**: open
 - **Type**: direct
 - **Category**: reliability
-- **Where**: `GET` in `frontend/app/api/team-merge/suggestions/route.ts` (the opponent-overlap and schedule `games` queries); `fetchScoredGamesCount` in `frontend/app/api/mission-control/model-snapshot/route.ts`
-- **Why**: Every other team-facing `games` read in the frontend filters `is_excluded = false` (the admin link-opponent preview deliberately shows excluded rows too, since linking rewrites them); these two admin-only reads do not, so futsal, merge duplicates and phantom rows feed merge-suggestion scores and the snapshot's scored-games counts. Kept out of the small-site-fixes PR by owner decision (2026-10-14) because the filter changes merge-suggestion scores; measure that change before applying.
-- **Noted**: 2026-10-14
-
-### Make the match predictor's recent form read N played games, or state that it needs them
-
-- **ID**: IMP-353
-- **Status**: open
-- **Type**: plan
-- **Category**: reliability
-- **Where**: `buildRecentProfile` in `frontend/lib/matchPredictor.ts`
-- **Why**: It sorts newest-first and takes `.slice(0, n)` before skipping unscored games, and `sampleWeight = teamGames.length / n` counts those unscored rows: the shape the momentum meter had before IMP-201. Latent today because `predictMatch`'s callers pass scored-only games (`fetchPredictionGames` filters both scores not null). Changing it would move calibrated predictions, so either document the scored-only precondition at the function or measure before walking to N played games.
-- **Noted**: 2026-10-14
-
-### Share one "newest N played results" walk across the insight code
-
-- **ID**: IMP-354
-- **Status**: open
-- **Type**: plan
-- **Category**: refactor
-- **Where**: `calculateMomentum` in `frontend/components/MomentumMeter.tsx`; `generateFormBadge` in `frontend/lib/insights/formBadge.ts`; `extractRecentPlayedResults` in `frontend/lib/insights/consistency.ts`; the recency walk in `frontend/lib/insights/seasonTruth.ts`; the form strip in `frontend/app/api/watchlist/route.ts`
-- **Why**: The same newest-first, skip-unscored, stop-at-N loop is written out by hand in each. The momentum meter's copy drifted (slice first, then skip) until IMP-201, and nothing lists the copies, so the next change to what counts as played has to find them all. One helper yielding the game, side, both scores and the result would let each caller derive its own figure.
+- **Where**: `GET` in `frontend/app/api/team-merge/suggestions/route.ts` (the home and away `games` reads)
+- **Why**: Both reads destructure only `data`, so a failed read silently gives every team no games and drops the opponent-overlap and schedule signals from every pair. The same `.in()` lists can hold up to 200 team ids, close to the URL length limit; batching them would remove that risk too.
 - **Noted**: 2026-10-14
 
 ### Read the state check's workflow gates through the shared step_is_off

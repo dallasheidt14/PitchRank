@@ -12,6 +12,7 @@
  */
 
 import type { InsightInputData, ConsistencyInsight } from './types';
+import { newestPlayedResults, type GameResult } from './recentPlayed';
 
 /**
  * v53e GOAL_DIFF_CAP constant - blowout games beyond ±6 goals
@@ -22,27 +23,14 @@ const GOAL_DIFF_CAP = 6;
 /** Window of most-recent played games used for consistency inputs */
 const RECENCY_WINDOW = 15;
 
-/**
- * Walk newest-first games and collect up to RECENCY_WINDOW played
- * results (those with both scores present), capping goal diff at ±6.
- */
-function extractRecentPlayedResults(
+export function extractRecentPlayedResults(
   games: InsightInputData['games'],
   teamId: string
-): Array<{ goalDiff: number; result: 'W' | 'L' | 'D' }> {
-  const out: Array<{ goalDiff: number; result: 'W' | 'L' | 'D' }> = [];
-  for (const game of games) {
-    if (out.length >= RECENCY_WINDOW) break;
-    const isHome = game.home_team_master_id === teamId;
-    const teamScore = isHome ? game.home_score : game.away_score;
-    const oppScore = isHome ? game.away_score : game.home_score;
-    if (teamScore === null || oppScore === null) continue;
-    const rawDiff = teamScore - oppScore;
-    const goalDiff = Math.max(-GOAL_DIFF_CAP, Math.min(GOAL_DIFF_CAP, rawDiff));
-    const result = teamScore > oppScore ? 'W' : teamScore < oppScore ? 'L' : 'D';
-    out.push({ goalDiff, result });
-  }
-  return out;
+): Array<{ goalDiff: number; result: GameResult }> {
+  return newestPlayedResults(games, teamId, RECENCY_WINDOW).map(({ teamScore, oppScore, result }) => ({
+    goalDiff: Math.max(-GOAL_DIFF_CAP, Math.min(GOAL_DIFF_CAP, teamScore - oppScore)),
+    result,
+  }));
 }
 
 /**
@@ -62,7 +50,7 @@ function calculateGoalDiffStdDev(recent: Array<{ goalDiff: number }>): number {
  * Higher value = more fragmented (more result changes). Returns 0..1.
  * Transition count is order-invariant.
  */
-function calculateStreakFragmentation(recent: Array<{ result: 'W' | 'L' | 'D' }>): number {
+function calculateStreakFragmentation(recent: Array<{ result: GameResult }>): number {
   if (recent.length < 2) return 0;
   let transitions = 0;
   for (let i = 1; i < recent.length; i++) {

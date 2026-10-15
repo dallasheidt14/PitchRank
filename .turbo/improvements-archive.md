@@ -1756,3 +1756,39 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Noted**: 2026-10-12
 - **Update (2026-10-14)**: Fixed: the header row and every other uncentred `container` row (the mobile menu, five on the watchlist page, mission control) gained `mx-auto`. `frontend/test/centred-containers.test.ts` fails on any `container` row without it.
 - **Refs**: branch `fix/small-site-fixes`
+
+### Filter excluded games in the two admin pages that still count them
+
+- **ID**: IMP-352
+- **Status**: done
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `GET` in `frontend/app/api/team-merge/suggestions/route.ts` (the opponent-overlap and schedule `games` queries); `fetchScoredGamesCount` in `frontend/app/api/mission-control/model-snapshot/route.ts`
+- **Why**: Every other team-facing `games` read in the frontend filters `is_excluded = false` (the admin link-opponent preview deliberately shows excluded rows too, since linking rewrites them); these two admin-only reads do not, so futsal, merge duplicates and phantom rows feed merge-suggestion scores and the snapshot's scored-games counts. Kept out of the small-site-fixes PR by owner decision (2026-10-14) because the filter changes merge-suggestion scores; measure that change before applying.
+- **Noted**: 2026-10-14
+- **Update (2026-10-14)**: Fixed: both merge-suggestion `games` queries and `fetchScoredGamesCount` filter `is_excluded = false`. Of the 24,915 excluded games (counted 2026-10-14), about 13K are unscored and 6.4K sit on the same day and side as a real game with a different opponent, so they only added noise to the opponent-overlap and schedule-alignment signals. `frontend/app/api/team-merge/suggestions/__tests__/route.test.ts` pins both queries, and `frontend/app/api/mission-control/model-snapshot/__tests__/route.test.ts` pins the snapshot count.
+- **Refs**: branch `fix/hidden-games-and-played-walk`
+
+### Make the match predictor's recent form read N played games, or state that it needs them
+
+- **ID**: IMP-353
+- **Status**: done
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `buildRecentProfile` in `frontend/lib/matchPredictor.ts`
+- **Why**: It sorts newest-first and takes `.slice(0, n)` before skipping unscored games, and `sampleWeight = teamGames.length / n` counts those unscored rows: the shape the momentum meter had before IMP-201. Latent today because `predictMatch`'s callers pass scored-only games (`fetchPredictionGames` filters both scores not null). Changing it would move calibrated predictions, so either document the scored-only precondition at the function or measure before walking to N played games.
+- **Noted**: 2026-10-14
+- **Update (2026-10-14)**: Documented, by owner choice: `buildRecentProfile` states that `allGames` must hold scored games only and why, and `calculateRecentForm` and `predictMatch` point to it. No prediction changes.
+- **Refs**: branch `fix/hidden-games-and-played-walk`
+
+### Share one "newest N played results" walk across the insight code
+
+- **ID**: IMP-354
+- **Status**: done
+- **Type**: plan
+- **Category**: refactor
+- **Where**: `calculateMomentum` in `frontend/components/MomentumMeter.tsx`; `generateFormBadge` in `frontend/lib/insights/formBadge.ts`; `extractRecentPlayedResults` in `frontend/lib/insights/consistency.ts`; the recency walk in `frontend/lib/insights/seasonTruth.ts`; the form strip in `frontend/app/api/watchlist/route.ts`
+- **Why**: The same newest-first, skip-unscored, stop-at-N loop is written out by hand in each. The momentum meter's copy drifted (slice first, then skip) until IMP-201, and nothing lists the copies, so the next change to what counts as played has to find them all. One helper yielding the game, side, both scores and the result would let each caller derive its own figure.
+- **Noted**: 2026-10-14
+- **Update (2026-10-14)**: Fixed: `newestPlayedResults` in `frontend/lib/insights/recentPlayed.ts` is the one walk, used by `calculateMomentum`, `generateFormBadge`, `extractRecentPlayedResults` (which `analyzeConsistencyPattern` now reuses, so both read one 15-game window and one ±6 cap), `getCurrentStreak` and the watchlist form strip. The exception is `buildRecentProfile` in `frontend/lib/matchPredictor.ts`, kept slice-first on purpose (IMP-353). `frontend/lib/insights/__tests__/recentPlayed.test.ts` pins the walk, and each caller has a test.
+- **Refs**: branch `fix/hidden-games-and-played-walk`
