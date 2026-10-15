@@ -150,9 +150,10 @@ export function RankingsFilter({ onFilterChange }: RankingsFilterProps) {
 
   return (
     <Card data-testid="rankings-filter" className="w-full border-l-4 border-l-accent shadow-md py-0 sm:py-6">
-      <CardContent className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)] gap-2 px-3 py-3 sm:flex sm:flex-row sm:items-end sm:justify-start sm:gap-6 sm:px-6 sm:py-5">
+      {/* Below 340px the three dropdowns no longer fit one row, so Region takes a row of its own. */}
+      <CardContent className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)] max-[340px]:grid-cols-2 gap-2 px-3 py-3 sm:flex sm:flex-row sm:items-end sm:justify-start sm:gap-6 sm:px-6 sm:py-5">
         {/* Region */}
-        <div className="flex flex-col min-w-0 sm:w-auto sm:min-w-[200px]">
+        <div className="flex flex-col min-w-0 max-[340px]:col-span-2 sm:w-auto sm:min-w-[200px]">
           <label
             htmlFor={FILTER_IDS.region}
             className="text-xs sm:text-sm font-semibold text-foreground uppercase tracking-wide mb-1 sm:mb-2"

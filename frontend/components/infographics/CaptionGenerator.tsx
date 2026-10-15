@@ -5,6 +5,7 @@ import { Copy, Check, RefreshCw, Shuffle } from 'lucide-react';
 import { Instagram, Facebook } from '@/components/ui/brand-icons';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { formatGender } from '@/lib/constants';
 
 // X/Twitter icon
 const XIcon = () => (
@@ -312,7 +313,7 @@ export function CaptionGenerator({
     rotatingHashtag: 0,
   });
 
-  const genderLabel = gender === 'M' ? 'Boys' : 'Girls';
+  const genderLabel = formatGender(gender);
   const category = `${ageGroup.toUpperCase()} ${genderLabel}`;
   const stateDisplay = regionName === 'National' ? 'THE NATION' : regionName.toUpperCase();
   const regionPhrase = regionName === 'National' ? 'Nationally' : `in ${regionName}`;

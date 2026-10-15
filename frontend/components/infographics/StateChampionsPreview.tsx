@@ -4,6 +4,7 @@ import React, { forwardRef } from 'react';
 import { InfographicWrapper, Platform, BRAND_COLORS, PLATFORM_DIMENSIONS } from './InfographicWrapper';
 import type { RankingRow } from '@/types/RankingRow';
 import { teamDisplayName } from '@/lib/utils';
+import { formatGender } from '@/lib/constants';
 
 interface StateChampion {
   state: string;
@@ -42,7 +43,7 @@ export const StateChampionsPreview = forwardRef<HTMLDivElement, StateChampionsPr
       return team.power_score_final ? (team.power_score_final * 100).toFixed(1) : 'N/A';
     };
 
-    const genderLabel = gender === 'M' ? 'BOYS' : 'GIRLS';
+    const genderLabel = formatGender(gender).toUpperCase();
 
     // Determine grid layout based on champion count
     const displayChampions = champions.slice(0, 12);

@@ -1,6 +1,7 @@
 import type { RankingRow } from '@/types/RankingRow';
 import { PLATFORM_DIMENSIONS, BRAND_COLORS, Platform } from './InfographicWrapper';
 import { teamDisplayName } from '@/lib/utils';
+import { formatGender } from '@/lib/constants';
 
 interface StateChampionsOptions {
   champions: Array<{ state: string; team: RankingRow }>;
@@ -107,7 +108,7 @@ export async function renderStateChampionsToCanvas(options: StateChampionsOption
   currentY += titleSize * 0.4;
 
   // Subtitle
-  const genderLabel = gender === 'M' ? 'BOYS' : 'GIRLS';
+  const genderLabel = formatGender(gender).toUpperCase();
   ctx.fillStyle = '#AAAAAA';
   ctx.font = `400 ${smallTextSize}px "DM Sans", Arial, sans-serif`;
   ctx.fillText(`${ageGroup.toUpperCase()} ${genderLabel}`, dimensions.width / 2, currentY + smallTextSize);

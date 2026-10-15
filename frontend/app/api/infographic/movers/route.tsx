@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 import { loadBrandFonts, INFOGRAPHIC_CACHE_CONTROL } from '../_shared/assets';
 import { COLORS, platformDims } from '../_shared/theme';
 import { Frame, Header, RankRow, StatBlock } from '../_shared/components';
+import { formatGender } from '@/lib/constants';
 
 export const runtime = 'edge';
 
@@ -107,7 +108,7 @@ export async function GET(request: Request) {
     loadBrandFonts(origin),
   ]);
 
-  const genderLabel = gender === 'female' ? 'GIRLS' : 'BOYS';
+  const genderLabel = gender ? formatGender(gender).toUpperCase() : null;
   const ageLabel = ageGroup?.toUpperCase() || 'ALL AGES';
   const dateStr = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 
@@ -117,7 +118,7 @@ export async function GET(request: Request) {
         origin={origin}
         isStory={isStory}
         title="BIGGEST MOVERS"
-        subtitle={`${ageLabel} ${genderLabel} • Week of ${dateStr}`}
+        subtitle={`${[ageLabel, genderLabel].filter(Boolean).join(' ')} • Week of ${dateStr}`}
       />
       <div
         style={{

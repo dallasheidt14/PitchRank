@@ -764,6 +764,7 @@ describe('RankingsTable', () => {
       expect(shownOnPhone(title)).toBe(true);
 
       const description = Array.from(header.children).find((child) => child.textContent?.includes('Age: U13'))!;
+      expect(description.textContent).toContain('Age: U13 • Boys');
       expect(shownOnPhone(description)).toBe(false);
 
       const updated = Array.from(header.children).find((child) => child.textContent?.startsWith('Updated '))!;

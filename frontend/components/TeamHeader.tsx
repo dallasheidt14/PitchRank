@@ -455,16 +455,7 @@ export function TeamHeader({ teamId }: TeamHeaderProps) {
                 </Badge>
               )}
               <Badge variant="outline">
-                {team.age != null ? `U${team.age}` : 'N/A'}{' '}
-                {team.gender === 'M'
-                  ? 'Boys'
-                  : team.gender === 'F'
-                    ? 'Girls'
-                    : team.gender === 'B'
-                      ? 'Boys'
-                      : team.gender === 'G'
-                        ? 'Girls'
-                        : team.gender}
+                {team.age != null ? `U${team.age}` : 'N/A'} {formatGender(team.gender)}
               </Badge>
             </div>
 

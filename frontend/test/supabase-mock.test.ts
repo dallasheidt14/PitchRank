@@ -50,4 +50,11 @@ describe('filteringClientMock', () => {
 
     expect((data as typeof rows).map((row) => row.id)).toEqual(['1']);
   });
+
+  // In JavaScript null >= 0 is true, so a numeric bound is where a missing NULL check would let the row through.
+  it('drops NULL from gte, as PostgREST does', async () => {
+    const { data } = await client().client.from('games').select('*').gte('score', 0);
+
+    expect((data as typeof rows).map((row) => row.id)).toEqual(['1', '3']);
+  });
 });
