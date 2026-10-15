@@ -63,6 +63,7 @@ _SUBCLASS_PATHS = [
     ("src.models.soccereventsgroup_matcher", "SoccerEventsGroupGameMatcher"),
     ("src.models.athletes2events_matcher", "Athletes2EventsGameMatcher"),
     ("src.models.yssl_matcher", "YSSLGameMatcher"),
+    ("src.models.tourneycentral_matcher", "TourneyCentralGameMatcher"),
 ]
 
 

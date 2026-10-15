@@ -459,7 +459,7 @@ class MatchResult:
 # twice in a day (pool game plus final or consolation). Each gives every match a
 # unique schedule_id; without it in the key, the rematch collapses into the first
 # game and its result is dropped.
-REMATCH_PROVIDERS = frozenset({"playmetrics_tournament", "athletes2events"})
+REMATCH_PROVIDERS = frozenset({"playmetrics_tournament", "athletes2events", "tourneycentral"})
 
 
 # Namespace for dry-run team ids. Fixed so a simulated team keeps one identity

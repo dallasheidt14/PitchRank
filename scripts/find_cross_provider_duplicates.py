@@ -10,8 +10,8 @@ fingerprints, which never match here because the opponents are duplicated too.
 
 Candidate rule, all required:
   - different team-level provider_id: GotSport on one side, a --provider code on the other.
-    modular11 is out of scope by operator decision; soccereventsgroup, athletes2events and
-    playmetrics_tournament are operator-run per event and are not scanned.
+    modular11 is out of scope by operator decision; codes outside SECONDARY_PROVIDERS, including
+    the operator-run per-event providers, are not scanned.
   - same age_group, gender and state_code
   - club_name equal once punctuation and case are stripped
   - team_name identical once punctuation and case are stripped, and at least --min-name-len
