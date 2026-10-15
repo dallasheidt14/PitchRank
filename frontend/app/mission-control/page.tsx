@@ -24,7 +24,7 @@ export default function MissionControlPage() {
   if (!user || !hasAdminAccess(profile)) {
     return (
       <div className="min-h-screen bg-background">
-        <div className="container px-4 py-16">
+        <div className="container mx-auto px-4 py-16">
           <div className="mx-auto max-w-md text-center">
             <h1 className="mb-3 text-2xl font-display">Page Not Found</h1>
             <p className="mb-6 text-muted-foreground">The page you are looking for does not exist.</p>

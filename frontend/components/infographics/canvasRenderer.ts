@@ -1,6 +1,7 @@
 import type { RankingRow } from '@/types/RankingRow';
 import { PLATFORM_DIMENSIONS, BRAND_COLORS, Platform } from './InfographicWrapper';
 import { teamDisplayName } from '@/lib/utils';
+import { formatGender } from '@/lib/constants';
 
 interface RenderOptions {
   teams: RankingRow[];
@@ -102,7 +103,7 @@ export async function renderInfographicToCanvas(options: RenderOptions): Promise
   currentY += titleSize + 16;
 
   // Draw title (TOP 10 U12 BOYS IN FLORIDA)
-  const genderLabel = gender === 'M' ? 'BOYS' : 'GIRLS';
+  const genderLabel = formatGender(gender).toUpperCase();
   const regionLabel = region ? regionName.toUpperCase() : 'NATIONAL';
   const title = region
     ? `TOP 10 ${ageGroup.toUpperCase()} ${genderLabel} IN ${regionLabel}`

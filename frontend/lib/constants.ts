@@ -156,18 +156,15 @@ export const GENDER_SLUG_LABELS: Record<string, string> = {
   girls: 'Girls',
 };
 
-/**
- * Format a gender code or slug to a display label.
- * Handles M/F/B/G, male/female, Male/Female, boys/girls.
- */
+/** Display label for a gender code or slug in any case; anything else is 'Unknown'. */
 export function formatGender(gender: string): string {
-  return GENDER_LABELS[gender] ?? GENDER_SLUG_LABELS[gender.toLowerCase()] ?? 'Unknown';
+  return GENDER_LABELS[gender.toUpperCase()] ?? GENDER_SLUG_LABELS[gender.toLowerCase()] ?? 'Unknown';
 }
 
 /** Map a gender code or slug, in any case, to its rankings URL slug. */
 export function genderSlug(gender: string | null | undefined): 'male' | 'female' | null {
   if (!gender) return null;
-  const label = GENDER_LABELS[gender.toUpperCase()] ?? GENDER_SLUG_LABELS[gender.toLowerCase()];
+  const label = formatGender(gender);
   if (label === 'Boys') return 'male';
   if (label === 'Girls') return 'female';
   return null;

@@ -4,6 +4,7 @@ import { PLATFORM_DIMENSIONS, BRAND_COLORS, Platform } from './InfographicWrappe
 import { predictMatch } from '@/lib/matchPredictor';
 import type { Game } from '@/lib/types';
 import { teamDisplayName } from '@/lib/utils';
+import { formatGender } from '@/lib/constants';
 
 interface HeadToHeadOptions {
   team1: RankingRow & { rank?: number };
@@ -106,7 +107,7 @@ export async function renderHeadToHeadToCanvas(options: HeadToHeadOptions): Prom
   // ===== TITLE =====
   ctx.fillStyle = BRAND_COLORS.electricYellow;
   ctx.font = `700 ${smallTextSize + 4}px Oswald, "Arial Black", sans-serif`;
-  const genderLabel = gender === 'M' ? 'BOYS' : 'GIRLS';
+  const genderLabel = formatGender(gender).toUpperCase();
   ctx.fillText(`HEAD TO HEAD • ${ageGroup.toUpperCase()} ${genderLabel}`, centerX, currentY);
 
   currentY += isVertical ? 60 : isSquare ? 50 : 45;

@@ -191,6 +191,12 @@ describe('TeamHeader heading', () => {
     expect(headings[0].textContent).toBe('Rush WI 2012 Rush');
   });
 
+  it("labels the team's age and gender in words", () => {
+    renderHeader();
+
+    expect(container.textContent).toContain('U15 Girls');
+  });
+
   // An aria-label on the admin's alias toggle would become the heading's spoken name in place of the team's.
   it('keeps the team name as the heading for an admin, whose heading opens the alias list', () => {
     mockHasAdminAccess.mockReturnValue(true);

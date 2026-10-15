@@ -255,11 +255,13 @@ export async function GET() {
         .from('games')
         .select('home_team_master_id, away_team_master_id, game_date')
         .in('home_team_master_id', teamIds)
+        .eq('is_excluded', false)
         .gte('game_date', sevenDaysAgoStr),
       supabase
         .from('games')
         .select('home_team_master_id, away_team_master_id, game_date')
         .in('away_team_master_id', teamIds)
+        .eq('is_excluded', false)
         .gte('game_date', sevenDaysAgoStr),
     ]);
 
@@ -310,12 +312,14 @@ export async function GET() {
           .from('games')
           .select('home_team_master_id, away_team_master_id, game_date')
           .in('home_team_master_id', teamsWithoutRecentGames)
+          .eq('is_excluded', false)
           .order('game_date', { ascending: false })
           .limit(perTeamLimit),
         supabase
           .from('games')
           .select('home_team_master_id, away_team_master_id, game_date')
           .in('away_team_master_id', teamsWithoutRecentGames)
+          .eq('is_excluded', false)
           .order('game_date', { ascending: false })
           .limit(perTeamLimit),
       ]);
@@ -337,11 +341,18 @@ export async function GET() {
           const homeId = game.home_team_master_id;
           const awayId = game.away_team_master_id;
 
-          if (homeId && !lastGameMap.has(homeId)) {
-            lastGameMap.set(homeId, game.game_date);
+          // Home and away rows arrive as two separately sorted lists, so keep the newest date seen, not the first.
+          if (homeId) {
+            const current = lastGameMap.get(homeId);
+            if (!current || game.game_date > current) {
+              lastGameMap.set(homeId, game.game_date);
+            }
           }
-          if (awayId && !lastGameMap.has(awayId)) {
-            lastGameMap.set(awayId, game.game_date);
+          if (awayId) {
+            const current = lastGameMap.get(awayId);
+            if (!current || game.game_date > current) {
+              lastGameMap.set(awayId, game.game_date);
+            }
           }
         }
       }

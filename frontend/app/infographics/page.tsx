@@ -26,7 +26,7 @@ import { renderCoverImageToCanvas, COVER_PLATFORMS } from '@/components/infograp
 import { renderLeagueDistributionToCanvas } from '@/components/infographics/leagueDistributionRenderer';
 import { useRankings } from '@/hooks/useRankings';
 import { useInstagramHandles, collectHandlesForCaption } from '@/hooks/useInstagramHandles';
-import { US_STATES, AGE_GROUP_OPTIONS, GENDER_OPTIONS } from '@/lib/constants';
+import { AGE_GROUP_OPTIONS, formatGender, GENDER_OPTIONS, US_STATES } from '@/lib/constants';
 import type { RankingRow } from '@/types/RankingRow';
 import {
   Download,
@@ -235,7 +235,7 @@ export default function InfographicsPage() {
 
   const getFilename = useCallback(() => {
     const timestamp = new Date().toISOString().split('T')[0];
-    const genderLabel = selectedGender === 'M' ? 'boys' : 'girls';
+    const genderLabel = formatGender(selectedGender).toLowerCase();
     const regionLabel = selectedRegion || 'national';
     const typeLabel = selectedInfographicType === 'covers' ? selectedCoverPlatform : selectedInfographicType;
     const platformLabel = selectedInfographicType === 'covers' ? 'cover' : selectedPlatform;
@@ -436,7 +436,7 @@ export default function InfographicsPage() {
       }
 
       const file = new File([blob], getFilename(), { type: 'image/png' });
-      const genderText = selectedGender === 'M' ? 'Boys' : 'Girls';
+      const genderText = formatGender(selectedGender);
       const shareText = `Check out the ${selectedAgeGroup.toUpperCase()} ${genderText} ${getRegionName()} Soccer Rankings! #YouthSoccer #${selectedAgeGroup.toUpperCase()}Soccer`;
 
       if (canShare && navigator.canShare && navigator.canShare({ files: [file] })) {
@@ -468,7 +468,7 @@ export default function InfographicsPage() {
   }, [isGenerating, generateImage, getFilename, selectedGender, selectedAgeGroup, getRegionName, canShare]);
 
   const dimensions = PLATFORM_DIMENSIONS[selectedPlatform];
-  const genderLabel = selectedGender === 'M' ? 'Boys' : 'Girls';
+  const genderLabel = formatGender(selectedGender);
   const categoryLabel = `${selectedAgeGroup.toUpperCase()} ${genderLabel} - ${getRegionName()}`;
 
   return (
