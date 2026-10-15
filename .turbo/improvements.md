@@ -2288,7 +2288,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 
 ### Read the state check's workflow gates through the shared step_is_off
 
-- **ID**: IMP-355
+- **ID**: IMP-357
 - **Status**: open
 - **Type**: direct
 - **Category**: reliability
