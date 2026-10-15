@@ -83,8 +83,9 @@ ASSIGN_STATES = "scripts/assign_team_states.py"
 AGE_REVIEW = ".claude/skills/correcting-team-age-groups/scripts/review_age_labels.py"
 HEALTH = "scripts/team_cleanup/health.py"
 # --code-only: the state check's database half only measures, so it can crash the check but never fail it;
-# the age check reads no database and takes the flag for symmetry.
+# the club and age checks read no database and take the flag for symmetry.
 SELF_CHECKS = {
+    CLUBS: ["scripts/check_club_skill_assumptions.py", "--code-only"],
     STATES: ["scripts/check_state_skill_assumptions.py", "--code-only"],
     AGES: ["scripts/check_age_skill_assumptions.py", "--code-only"],
 }

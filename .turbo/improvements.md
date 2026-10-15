@@ -155,6 +155,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: The adapter upserts `power_score_true`/`power_score_final`, but no checked-in migration ever adds those columns (only `rank_in_cohort_final` got one); the live DB has them from a hand-applied change. A fresh `supabase db push` from migrations alone would make the ranking save fail. Add an idempotent `ALTER TABLE rankings_full ADD COLUMN IF NOT EXISTS` migration and repair the ledger.
 - **Noted**: 2026-08-23
 - **Update (2026-09-08)**: Verified — `power_score_true` has no `ADD COLUMN` or `CREATE TABLE` anywhere in `supabase/migrations/*.sql`, only a code comment at `20260404000000_add_rank_in_cohort_final.sql:2-3`. The entry overstates by one column: `power_score_final` **does** have provenance (`20250120130000_create_rankings_full.sql:71`). One missing column is still enough to fail a fresh `supabase db push`, because `v53e_to_rankings_full_format` (`src/rankings/data_adapter.py:1063-1064`) is the single adapter for both engines and upserts both unconditionally.
+- **Update (2026-10-14)**: `teams.team_name_original` is a second production column no migration creates, and the reconcile triage and many scripts read it. Add it in the same migration and drop it from `OUTSIDE_MIGRATIONS` in `tests/unit/test_skill_check_offline.py`, whose still-missing test fails once a migration adds it.
 
 ### Make the reviewer agents' fallback diff survive a missing origin/main ref
 
@@ -835,6 +836,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `_executable` and `_flat` in `tests/unit/test_scrape_requests_rls_migration.py`, `test_team_page_views_migration.py`, `test_team_state_provenance_migration.py`, `test_backfill_total_game_stats_migration.py` and `test_scrape_activity_predicate.py`; `_executable_updates` in `test_age_rollover_migration_map.py` solves the same problem a sixth way
 - **Why**: `_executable` (strip SQL comments before asserting, so a commented-out clause cannot satisfy a guard) exists in five files with a near-verbatim docstring, and `_flat` exists in four with **three** different contracts under one name — one strips comments and trims, one does neither, one trims only. Only the newest copy strips `/* */` block comments, which was added after a block-commented REVOKE was shown to satisfy an assertion the server would never execute. Every one of these files exists because CI applies no SQL, so a helper that silently stops comment-stripping turns its whole module green for the wrong reason. Copying between them is the expected path — the newest was seeded from `test_team_page_views_migration.py` — and copying the wrong direction is silent. Lift them into a shared `tests/unit/_migration_sql.py` (or conftest) carrying the strongest contract, and re-verify each module's guards still redden under their own mutations afterwards. Deliberately deferred from the scrape_requests lockdown: touching four unrelated guards inside a security fix makes both harder to review.
 - **Noted**: 2026-09-08
+- **Update (2026-10-14)**: `tests/unit/test_skill_check_offline.py` adds what none of the five copies has: `_schema` folds `ALTER TABLE` add/drop/rename and `DROP TABLE` into each table's final columns, and `_parameters` resolves a function's newest definition by name, honouring a later `DROP FUNCTION`, with one synthetic-migration test exercising each branch. Its `_sql` repeats the scrape_requests `_executable` regexes and it has no `_flat`, so seed the shared module from both.
 
 ### MomentumMeter samples 8 scheduled games, not 8 played ones
 
@@ -1182,6 +1184,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: Five files hand-roll the `table().select().eq()…execute()` chain. Verified 2026-09-15: the dry-run test's double records at `insert()` rather than `execute()` and returns `data=None` from `.single().execute()`, which postgrest never does (it raises `APIError` PGRST116), while parametrizing over every autocreating matcher. Only the PlayMetrics double honours both CLAUDE.md double rules; Affinity OR's yields rows at `execute()` but still logs its filter at `eq()`. A `tests/conftest.py` double that raises on `.single()` with zero rows and records at `execute()` lets the rest adopt it.
 - **Noted**: 2026-09-15
 - **Refs**: review of branch `fix/playmetrics-nc-governing-body`
+- **Update (2026-10-14)**: `scripts/skill_check_offline.py`, shared by the club and reconcile skill self-checks, is a candidate base: its `Database` records at `execute()`, refuses undeclared columns and wrong function arguments, and inside `guarded()` refuses every process start and off-machine connection through an interpreter audit hook as well as at library level. It does not model `.single()`, which this entry needs. `scripts/check_age_skill_assumptions.py` has not moved onto it: it keeps `_offline` (unlike the shared `offline`, it refuses no child process or network and redirects no exports folder), `CREDENTIALS`, `Result`, `render` and `main` (shared: `CREDENTIALS`, `Result`, `render`, `run_checks`), and `_module`, whose twin in `scripts/check_reconcile_skill_assumptions.py` should move into the shared module first.
 
 ### Merge the duplicate teams a cohort correction cannot move
 
@@ -2198,6 +2201,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `tests/unit/test_age_rollover_freeze_coverage.py` `_has_top_level_or`, `test_gate_is_not_bypassable_by_an_or`
 - **Why**: `_has_top_level_or` refuses only a `||` outside every bracket, so `(env.AGE_ROLLOVER_FREEZE == 'false' || github.event_name == 'workflow_dispatch') && ...` passes while a manual dispatch runs the writing step during a freeze (checked 2026-10-12: not refused, gate text present). `scripts/check_age_skill_assumptions.py` `_gated_on_the_flag` already requires the comparison to be one of the top-level `&&` terms with no top-level `||`. Wanted: the same rule for the freeze gate, ideally one shared parser.
 - **Noted**: 2026-10-12
+- **Update (2026-10-14)**: `scripts/skill_check_offline.py` now carries `_top_level` and `_unwrap`, verbatim twins of the age check's in `scripts/check_age_skill_assumptions.py`. Rewriting `_has_top_level_or` as `len(_top_level(expr, "||")) > 1` changes nothing and still passes the bracketed case; the fix is `_gated_on_the_flag`'s rule (the freeze comparison as a top-level `&&` term, no top-level `||`) over the imported helpers, with the age check importing them too.
 
 ### Centre the header row like the page content
 
@@ -2307,4 +2311,14 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Category**: reliability
 - **Where**: `scripts/team_cleanup/apply_stage.py` `revert_stage` (the closed-run branch through `run_store.hold_apply_file`) and `check_other_writers`
 - **Why**: A revert of a done or abandoned run holds only that run's local file lock and no database lease (the owner's choice on 2026-10-14), and `check_other_writers` sees GitHub runs and this machine's Python processes only. So that revert on one machine and another run's apply on a second machine are not serialized and could change the same teams at once. The cleanup runs from one machine by design (the run store is a local folder), so this matters only if the loop ever spans machines; then guard closed-run reverts with a database-side cleanup lock (refusing while any run holds a live lease covers only one direction).
+- **Noted**: 2026-10-14
+
+### Read the state check's workflow gates through the shared step_is_off
+
+- **ID**: IMP-352
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `scripts/check_state_skill_assumptions.py` `check_workflow_retired`; `scripts/skill_check_offline.py` `step_is_off`
+- **Why**: `check_workflow_retired` reads only the first job's steps and counts a step as off only when its step-level `if:` parses as YAML `false` (`value is False`), so `'false'`, `${{ false }}` or a job-level `if: false` reads as on and fails the check while the step stays off. The club self-check reads the same `update-missing-club-and-state.yml` through `step_is_off` (job and step `if:`, every literal-false spelling); the state check should too. The age check's flag gate asks a different question and keeps `_gated_on_the_flag`.
 - **Noted**: 2026-10-14
