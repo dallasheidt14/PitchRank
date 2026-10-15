@@ -360,6 +360,22 @@ class TestParseSchedule:
 
         assert (games, problems) == ([], ["B11Gold game 80: unfilled bracket slot"])
 
+    def test_a_game_the_page_prints_twice_is_read_once(self):
+        """Party on the Pitch's BU10Bronze schedule lists games 37 and 40 twice."""
+        game = ("80", _LINK.format(1), 2, 1, _LINK.format(2))
+
+        games, problems = self._parse(_schedule_page(game, ("81", _LINK.format(3), 0, 0, _LINK.format(4)), game))
+
+        assert ([g.game_no for g in games], problems) == (["80", "81"], [])
+
+    def test_a_game_number_repeated_with_other_details_keeps_the_first_and_is_reported(self):
+        first, repeat = ("80", _LINK.format(1), 2, 1, _LINK.format(2)), ("80", _LINK.format(1), 5, 1, _LINK.format(2))
+
+        games, problems = self._parse(_schedule_page(first, repeat))
+
+        assert [(g.game_no, g.home_score) for g in games] == [("80", 2)]
+        assert problems == ["B11Gold game 80: listed twice with different details"]
+
     def test_an_unscored_game_is_reported_and_held(self):
         games, problems = self._parse(_schedule_page(("80", _LINK.format(1), "", "", _LINK.format(2))))
 

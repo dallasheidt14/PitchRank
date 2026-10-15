@@ -509,10 +509,13 @@ def parse_schedule(html: str, division: Division, source_url: str) -> Tuple[List
     a separator and Type. A team cell's text carries the pool seed ("A2 - ..."), so
     only its link is read; names come from the team list. A page without the
     schedule's header is not a schedule, so it stops the run rather than reading as
-    a division with no games.
+    a division with no games. A page can print a game twice (Party on the Pitch's
+    BU10Bronze lists games 37 and 40 twice); the game number is unique to the
+    tournament, so the repeat is dropped, and reported when its details differ.
     """
     soup = BeautifulSoup(html, "lxml")
     games: List[EventGame] = []
+    by_number: Dict[str, EventGame] = {}
     problems: List[str] = []
     header = next((cell for cell in soup.find_all("td") if _clean_name(cell.get_text(" ")) == "No."), None)
     if header is None:
@@ -542,20 +545,24 @@ def parse_schedule(html: str, division: Division, source_url: str) -> Tuple[List
         if game_date is None:
             problems.append(f"{division.code} game {game_no}: no date")
             continue
-        games.append(
-            EventGame(
-                division_code=division.code,
-                game_no=game_no,
-                game_date=game_date,
-                game_time=_clean_name(cells[3].get_text(" ")),
-                venue=_clean_name(cells[4].get_text(" ")),
-                home_id=home_id,
-                home_score=int(home_score),
-                away_id=away_id,
-                away_score=int(away_score),
-                source_url=source_url,
-            )
+        game = EventGame(
+            division_code=division.code,
+            game_no=game_no,
+            game_date=game_date,
+            game_time=_clean_name(cells[3].get_text(" ")),
+            venue=_clean_name(cells[4].get_text(" ")),
+            home_id=home_id,
+            home_score=int(home_score),
+            away_id=away_id,
+            away_score=int(away_score),
+            source_url=source_url,
         )
+        if game_no in by_number:
+            if game != by_number[game_no]:
+                problems.append(f"{division.code} game {game_no}: listed twice with different details")
+            continue
+        by_number[game_no] = game
+        games.append(game)
     return games, problems
 
 
