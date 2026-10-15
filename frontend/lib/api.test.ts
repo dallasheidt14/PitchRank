@@ -90,6 +90,12 @@ describe('getTeamTrajectory', () => {
     ];
   });
 
+  it('ends every period 30 days after it starts, the last one included', async () => {
+    const trajectory = await api.getTeamTrajectory(TEAM_ID);
+
+    expect(trajectory.map((point) => point.period_end.slice(0, 10))).toEqual(['2026-05-12', '2026-10-06']);
+  });
+
   it('builds one period per block of played games, merged ids included', async () => {
     const trajectory = await api.getTeamTrajectory(TEAM_ID);
 

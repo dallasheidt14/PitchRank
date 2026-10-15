@@ -35,7 +35,7 @@ import {
   publishedRank,
   spokenRankingRow,
 } from '@/lib/utils';
-import { genderSlug, MIN_RANKED_GAMES, POWERSCORE_DEFINITION } from '@/lib/constants';
+import { formatGender, genderSlug, MIN_RANKED_GAMES, POWERSCORE_DEFINITION } from '@/lib/constants';
 import type { RankingRow } from '@/types/RankingRow';
 import { trackRankingsViewed, trackSortUsed, trackTeamRowClicked } from '@/lib/events';
 import { RankingsSchema } from '@/components/RankingsSchema';
@@ -453,17 +453,7 @@ export function RankingsTable({ region, ageGroup, gender, initialData }: Ranking
       parts.push(`Age: ${ageGroup.toUpperCase()}`);
     }
     if (gender) {
-      const genderLabel =
-        gender === 'M'
-          ? 'Boys'
-          : gender === 'F'
-            ? 'Girls'
-            : gender === 'B'
-              ? 'Boys'
-              : gender === 'G'
-                ? 'Girls'
-                : gender;
-      parts.push(genderLabel);
+      parts.push(formatGender(gender));
     }
     return parts.join(' • ');
   }, [region, ageGroup, gender]);

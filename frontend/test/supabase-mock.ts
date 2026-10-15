@@ -81,7 +81,7 @@ const OR_TERM = /^([A-Za-z_][A-Za-z0-9_]*)\.eq\.([0-9a-fA-F-]+)$/;
  * `queryBuilder` above replays a canned result, which suits a route that only
  * needs rows back. It is the wrong tool for a test guarding a filter: the guard
  * passes just as well once the filter is deleted. This builder models PostgREST
- * closely enough to refuse what PostgREST refuses — `.eq` drops NULL, `.not(col,
+ * closely enough to refuse what PostgREST refuses — `.eq` and `.gte` drop NULL, `.not(col,
  * 'is', null)` drops missing values, `.or` honours the column each term names
  * rather than accepting a match on either side, `.single()` errors with PGRST116
  * unless exactly one row survives, and `.maybeSingle()` errors once more than one
@@ -92,6 +92,10 @@ const OR_TERM = /^([A-Za-z_][A-Za-z0-9_]*)\.eq\.([0-9a-fA-F-]+)$/;
  *
  * Rows are recorded per query, not per table, so a second query against the same
  * table is a visible change rather than one that silently retargets an assertion.
+ *
+ * `select(_, { count })` resolves a `count` of the surviving rows and `head: true` drops
+ * `data`, as supabase-js does. PostgREST's exact count ignores `limit`/`range`, but this
+ * one counts after them, so don't combine the two in a test.
  */
 export function filteringClientMock(initialRows: Record<string, MockRow[]> = {}) {
   const tableRows: Record<string, MockRow[]> = { ...initialRows };
@@ -99,6 +103,8 @@ export function filteringClientMock(initialRows: Record<string, MockRow[]> = {})
 
   function createBuilder(table: string) {
     let rows: MockRow[] = [...(tableRows[table] ?? [])];
+    let countRequested = false;
+    let headOnly = false;
 
     const record = () => {
       queries.push({ table, rows });
@@ -106,13 +112,23 @@ export function filteringClientMock(initialRows: Record<string, MockRow[]> = {})
     };
 
     const builder = {
-      select: () => builder,
+      select: (_columns?: string, options?: { count?: string; head?: boolean }) => {
+        countRequested = options?.count !== undefined;
+        headOnly = options?.head === true;
+        return builder;
+      },
       eq: (field: string, value: unknown) => {
         rows = rows.filter((row) => row[field] === value);
         return builder;
       },
       in: (field: string, values: readonly unknown[]) => {
         rows = rows.filter((row) => values.includes(row[field]));
+        return builder;
+      },
+      gte: (field: string, value: string | number) => {
+        rows = rows.filter(
+          (row) => row[field] !== null && row[field] !== undefined && (row[field] as typeof value) >= value
+        );
         return builder;
       },
       not: (field: string, operator: string, value: unknown) => {
@@ -169,7 +185,12 @@ export function filteringClientMock(initialRows: Record<string, MockRow[]> = {})
         return { data: found[0] ?? null, error: null, status: 200 };
       },
       then: (onFulfilled: (value: unknown) => unknown, onRejected?: (reason: unknown) => unknown) =>
-        Promise.resolve({ data: record(), error: null }).then(onFulfilled, onRejected),
+        Promise.resolve(
+          (() => {
+            const found = record();
+            return { data: headOnly ? null : found, error: null, count: countRequested ? found.length : null };
+          })()
+        ).then(onFulfilled, onRejected),
     };
 
     return builder;

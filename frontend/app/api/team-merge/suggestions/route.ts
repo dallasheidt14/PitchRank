@@ -351,13 +351,15 @@ export async function GET(request: NextRequest) {
     const { data: homeGames } = await supabase
       .from('games')
       .select('home_team_master_id, away_team_master_id, game_date, home_score, away_score')
-      .in('home_team_master_id', teamIds);
+      .in('home_team_master_id', teamIds)
+      .eq('is_excluded', false);
 
     // Fetch away games
     const { data: awayGames } = await supabase
       .from('games')
       .select('home_team_master_id, away_team_master_id, game_date, home_score, away_score')
-      .in('away_team_master_id', teamIds);
+      .in('away_team_master_id', teamIds)
+      .eq('is_excluded', false);
 
     // Organize games by team
     for (const game of homeGames || []) {

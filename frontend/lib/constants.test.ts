@@ -1,5 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { genderSlug } from './constants';
+import { formatGender, genderSlug } from './constants';
+
+describe('formatGender', () => {
+  it('labels codes and slugs in any case', () => {
+    expect(formatGender('M')).toBe('Boys');
+    expect(formatGender('m')).toBe('Boys');
+    expect(formatGender('g')).toBe('Girls');
+    expect(formatGender('Female')).toBe('Girls');
+    expect(formatGender('boys')).toBe('Boys');
+  });
+  it('says Unknown for anything else', () => {
+    expect(formatGender('x')).toBe('Unknown');
+  });
+});
 
 describe('genderSlug', () => {
   it('maps codes and slugs in any case to the rankings URL slug', () => {

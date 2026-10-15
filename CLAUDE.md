@@ -81,6 +81,12 @@ PitchRank is a **youth soccer ranking platform** that scrapes game data from mul
   every non-ASCII name; and one with no session-level headers cannot see a credential
   pinned onto the session reach a third-party link. Model what the library does, then
   assert on what the fake recorded: the URL, the headers, the timeout, the bytes.
+- **A harness that promises "no network, no child process" must refuse at the interpreter's
+  audit events, not at patched names.** The skill self-checks' isolation was bypassed twice
+  while it patched library entry points: a `Popen` bound before the guard, `os.system`,
+  `urllib`, `socket.gethostbyname`. `scripts/skill_check_offline.py` now refuses inside a guard
+  through `sys.addaudithook`. Tests that prove such a guard must net below it, so a broken
+  guard fails the test without starting a real process.
 - **A test that reads the thing under test on both sides of its assertion cannot fail.**
   `assert build(...)["params"] == MODULE_CONSTANT` passes for every value of that
   constant, including one that bills ten times the intended rate; a parametrization

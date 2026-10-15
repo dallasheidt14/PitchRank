@@ -84,6 +84,8 @@ async function fetchScoredGamesCount(filters?: { fromDate?: string }): Promise<n
   let query = supabase
     .from('games')
     .select('id', { count: 'exact', head: true })
+    // Excluded games are left out, as the ranking engine leaves them out.
+    .eq('is_excluded', false)
     .not('home_score', 'is', null)
     .not('away_score', 'is', null);
   if (filters?.fromDate) {

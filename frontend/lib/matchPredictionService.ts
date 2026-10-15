@@ -6,6 +6,7 @@ import { explainMatch, type MatchExplanation } from './matchExplainer';
 import { predictMatch, type MatchPrediction, warmMatchPredictorCalibration } from './matchPredictor';
 import type { Game, TeamWithRanking } from './types';
 import { MLS_NEXT_PROVIDER_CODES, normalizeAgeGroup } from './utils';
+import { formatGender } from '@/lib/constants';
 
 export interface MatchPredictionResponse {
   teamA: {
@@ -297,8 +298,7 @@ export async function fetchPredictionTeam(
       conflicts.push(`team record U${age}, calculated ratings U${recordedAge}`);
     }
     if (recordedGender != null && recordedGender !== gender) {
-      const label = (value: string) => (value === 'M' ? 'Boys' : 'Girls');
-      conflicts.push(`team record ${label(gender)}, calculated ratings ${label(recordedGender)}`);
+      conflicts.push(`team record ${formatGender(gender ?? '')}, calculated ratings ${formatGender(recordedGender)}`);
     }
   }
   if (conflicts.length) {

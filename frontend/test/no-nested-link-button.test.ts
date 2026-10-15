@@ -1,17 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { readdirSync, readFileSync } from 'fs';
+import { readFileSync } from 'fs';
 import path from 'path';
 import ts from 'typescript';
+import { componentSources } from '@/test/component-sources';
 
 const ROOT = path.resolve(__dirname, '..');
-const SCAN_DIRS = ['app', 'components'];
 
 function tsxFiles(): string[] {
-  return SCAN_DIRS.flatMap((dir) =>
-    (readdirSync(path.join(ROOT, dir), { recursive: true }) as string[])
-      .filter((f) => f.endsWith('.tsx'))
-      .map((f) => path.join(ROOT, dir, f))
-  );
+  return componentSources().map((rel) => path.join(ROOT, rel));
 }
 
 function tagName(node: ts.Node): string | null {

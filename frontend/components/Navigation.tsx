@@ -41,7 +41,7 @@ export function Navigation() {
       data-testid="main-navigation"
       className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 safe-top"
     >
-      <div className="container flex h-16 items-center justify-between gap-3 sm:gap-4 px-3 sm:px-4">
+      <div className="container mx-auto flex h-16 items-center justify-between gap-3 sm:gap-4 px-3 sm:px-4">
         <Link
           href="/"
           className="flex items-center transition-colors duration-300 hover:opacity-80 flex-shrink-0"
@@ -175,7 +175,7 @@ export function Navigation() {
       {/* Mobile Menu */}
       {mobileMenuOpen && (
         <div className="lg:hidden border-t bg-background" data-testid="mobile-menu">
-          <nav className="container px-4 py-4 space-y-1">
+          <nav className="container mx-auto px-4 py-4 space-y-1">
             <Link
               href="/"
               className="block text-sm font-semibold uppercase tracking-wide transition-colors duration-300 hover:text-accent hover:bg-accent/10 py-3 px-2 rounded-md min-h-[44px] flex items-center"

@@ -155,6 +155,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: The adapter upserts `power_score_true`/`power_score_final`, but no checked-in migration ever adds those columns (only `rank_in_cohort_final` got one); the live DB has them from a hand-applied change. A fresh `supabase db push` from migrations alone would make the ranking save fail. Add an idempotent `ALTER TABLE rankings_full ADD COLUMN IF NOT EXISTS` migration and repair the ledger.
 - **Noted**: 2026-08-23
 - **Update (2026-09-08)**: Verified — `power_score_true` has no `ADD COLUMN` or `CREATE TABLE` anywhere in `supabase/migrations/*.sql`, only a code comment at `20260404000000_add_rank_in_cohort_final.sql:2-3`. The entry overstates by one column: `power_score_final` **does** have provenance (`20250120130000_create_rankings_full.sql:71`). One missing column is still enough to fail a fresh `supabase db push`, because `v53e_to_rankings_full_format` (`src/rankings/data_adapter.py:1063-1064`) is the single adapter for both engines and upserts both unconditionally.
+- **Update (2026-10-14)**: `teams.team_name_original` is a second production column no migration creates, and the reconcile triage and many scripts read it. Add it in the same migration and drop it from `OUTSIDE_MIGRATIONS` in `tests/unit/test_skill_check_offline.py`, whose still-missing test fails once a migration adds it.
 
 ### Make the reviewer agents' fallback diff survive a missing origin/main ref
 
@@ -836,16 +837,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `_executable` and `_flat` in `tests/unit/test_scrape_requests_rls_migration.py`, `test_team_page_views_migration.py`, `test_team_state_provenance_migration.py`, `test_backfill_total_game_stats_migration.py` and `test_scrape_activity_predicate.py`; `_executable_updates` in `test_age_rollover_migration_map.py` solves the same problem a sixth way
 - **Why**: `_executable` (strip SQL comments before asserting, so a commented-out clause cannot satisfy a guard) exists in five files with a near-verbatim docstring, and `_flat` exists in four with **three** different contracts under one name — one strips comments and trims, one does neither, one trims only. Only the newest copy strips `/* */` block comments, which was added after a block-commented REVOKE was shown to satisfy an assertion the server would never execute. Every one of these files exists because CI applies no SQL, so a helper that silently stops comment-stripping turns its whole module green for the wrong reason. Copying between them is the expected path — the newest was seeded from `test_team_page_views_migration.py` — and copying the wrong direction is silent. Lift them into a shared `tests/unit/_migration_sql.py` (or conftest) carrying the strongest contract, and re-verify each module's guards still redden under their own mutations afterwards. Deliberately deferred from the scrape_requests lockdown: touching four unrelated guards inside a security fix makes both harder to review.
 - **Noted**: 2026-09-08
-
-### MomentumMeter samples 8 scheduled games, not 8 played ones
-
-- **ID**: IMP-201
-- **Status**: open
-- **Type**: direct
-- **Category**: reliability
-- **Where**: `calculateMomentum` in `frontend/components/MomentumMeter.tsx`
-- **Why**: It slices the 8 most recent rows and only then skips games with a null score, so a team whose scores have not been scraped yet gets its momentum from whatever is left — 5 games instead of 8. The two sibling generators do the opposite deliberately and say so: `formBadge.ts` and `consistency.ts` both walk newest-first and collect until they hold N *played* results. Verified 2026-09-09 against production: 34,540 of 187,266 teams (18.4%) currently have at least one unscored game among their last 8 played-or-past fixtures. Nothing on screen is false — the card labels the count it actually used — so this is sample quality, not a wrong number. Fix is to mirror the sibling walk. Kept out of the trajectory/insights fix on 2026-09-09 by user decision, because it shifts a headline metric for a fifth of the site.
-- **Noted**: 2026-09-09
+- **Update (2026-10-14)**: `tests/unit/test_skill_check_offline.py` adds what none of the five copies has: `_schema` folds `ALTER TABLE` add/drop/rename and `DROP TABLE` into each table's final columns, and `_parameters` resolves a function's newest definition by name, honouring a later `DROP FUNCTION`, with one synthetic-migration test exercising each branch. Its `_sql` repeats the scrape_requests `_executable` regexes and it has no `_flat`, so seed the shared module from both.
 
 ### getTeamTrajectory hand-rolls the merge resolution its siblings share
 
@@ -865,16 +857,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Category**: refactor
 - **Where**: `.not('home_score', 'is', null)` pairs across 7 files — `lib/api.ts` (`getTeam`, `getTeamTrajectory`, both `getCommonOpponents` queries), `lib/matchPredictionService.ts`, and the `insights`, `watchlist`, `reports/team-card`, `teams/[teamId]/clutch` and `mission-control/model-snapshot` routes
 - **Why**: Counted 11 occurrences across those 7 files on 2026-09-09. If "played" ever gains a status column or forfeit semantics, every site needs the same edit and nothing enumerates them. A `withPlayedScores(query)` helper in `lib/api/` is the obvious extraction; typing a generic PostgREST builder passthrough is the awkward part.
-- **Noted**: 2026-09-09
-
-### Final trajectory period reports period_end as the current time
-
-- **ID**: IMP-205
-- **Status**: open
-- **Type**: direct
-- **Category**: correctness
-- **Where**: the tail-period push in `getTeamTrajectory`, `frontend/lib/api.ts`
-- **Why**: Every other period ends at `periodStart + periodDays`, but the last is pushed with `new Date().toISOString()`, so a team whose last result was months ago gets an eleven-month span described as a 30-day period. Invisible today — `components/TeamTrajectoryChart.tsx` reads only `period_start`, `avg_goals_*`, `games_played` and `win_percentage` — but any consumer that renders the range would print a window the data does not cover.
 - **Noted**: 2026-09-09
 
 ### The Backtest scrape surface still strands its in-progress flag
@@ -956,16 +938,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Category**: reliability
 - **Where**: `parse_sched2` in the local helper `data/exports/sincsports_session_scripts_20260914/bundle_to_jsonl_s1.py`; capture `data/raw/sincsports_schedules_aug_all_states_20260913.json` (both local only)
 - **Why**: That helper read only `.sched2-mark`/`.sched2-typechip` text and never the `.sched2-gstat-off` label, so a game marked Forfeit and one marked Cancelled that both carry a recorded score were emitted as Played (counted from the capture 2026-09-14; one is HFCLAB U13M02, 0-3). Whether both reached `games` is unverified. Games are immutable, so find the rows (provider `sincsports`, competition `"<event> - <div>"`, date, team pair) and quarantine them.
-- **Noted**: 2026-09-14
-
-### Watchlist activity counts games that have been excluded
-
-- **ID**: IMP-220
-- **Status**: open
-- **Type**: direct
-- **Category**: reliability
-- **Where**: `GET` handler in `frontend/app/api/watchlist/route.ts` — the recent-game `homeRecentResult`/`awayRecentResult` queries and the fallback `homeLastResult`/`awayLastResult` queries
-- **Why**: Read on `origin/main` 2026-09-14. Those four `games` queries lack `.eq('is_excluded', false)`, although the same file's other queries (`:355`, `:364`) and `getTeamGames` (`frontend/lib/api.ts:720`) filter it. So `new_games_count` and `last_game_date` still count excluded rows: futsal, merge duplicates, and the ~4,850 phantom games `scripts/exclude_none_opponent_games.py` excludes. Add the filter to all four queries, plus a route test showing an excluded game changes neither field.
 - **Noted**: 2026-09-14
 
 ### A GotSport import dry run still writes aliases and review-queue rows
@@ -1175,6 +1147,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: Five files hand-roll the `table().select().eq()…execute()` chain. Verified 2026-09-15: the dry-run test's double records at `insert()` rather than `execute()` and returns `data=None` from `.single().execute()`, which postgrest never does (it raises `APIError` PGRST116), while parametrizing over every autocreating matcher. Only the PlayMetrics double honours both CLAUDE.md double rules; Affinity OR's yields rows at `execute()` but still logs its filter at `eq()`. A `tests/conftest.py` double that raises on `.single()` with zero rows and records at `execute()` lets the rest adopt it.
 - **Noted**: 2026-09-15
 - **Refs**: review of branch `fix/playmetrics-nc-governing-body`
+- **Update (2026-10-14)**: `scripts/skill_check_offline.py`, shared by the club and reconcile skill self-checks, is a candidate base: its `Database` records at `execute()`, refuses undeclared columns and wrong function arguments, and inside `guarded()` refuses every process start and off-machine connection through an interpreter audit hook as well as at library level. It does not model `.single()`, which this entry needs. `scripts/check_age_skill_assumptions.py` has not moved onto it: it keeps `_offline` (unlike the shared `offline`, it refuses no child process or network and redirects no exports folder), `CREDENTIALS`, `Result`, `render` and `main` (shared: `CREDENTIALS`, `Result`, `render`, `run_checks`), and `_module`, whose twin in `scripts/check_reconcile_skill_assumptions.py` should move into the shared module first.
 
 ### Merge the duplicate teams a cohort correction cannot move
 
@@ -2032,27 +2005,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: `RankingsTable` stopped using `useVirtualizer` on `fix/mobile-rankings-ux` (rows now render as page content, top 100 plus "Show more"), and a grep of `frontend/` finds no other importer; only `package.json` and the lockfile still name it. It was left in place so that change carried no lockfile churn. Removing it drops a dead install and stops `package.json` implying the table still virtualizes.
 - **Noted**: 2026-10-11
 
-### Route the hand-written gender labels through formatGender
-
-- **ID**: IMP-316
-- **Status**: open
-- **Type**: direct
-- **Category**: refactor
-- **Where**: `frontend/components/RankingsTable.tsx` (`description`), `frontend/components/TeamHeader.tsx` (gender `Badge`), `frontend/lib/constants.ts` (`formatGender`)
-- **Why**: Two places map M/F/B/G to Boys/Girls with their own ternaries instead of `formatGender`. `formatGender` also looks `GENDER_LABELS` up case-sensitively, so `formatGender('m')` is "Unknown", while `genderSlug` beside it accepts any case. Unknown values would change from echoed raw to "Unknown" when the ternaries go, so check callers' expectations.
-- **Noted**: 2026-10-11
-- **Update (2026-10-14)**: The share title now goes through `formatGender` (`teamShareTitle` in `TeamHeader.tsx`), leaving two hand-written ternaries: the `RankingsTable` description and the `TeamHeader` gender badge. Until the badge moves too, an unexpected gender value shows raw on the badge but as "Unknown" in the share text.
-
-### Keep the phone filter row readable at 320px and narrower
-
-- **ID**: IMP-317
-- **Status**: open
-- **Type**: direct
-- **Category**: feature
-- **Where**: `frontend/components/RankingsFilter.tsx` (the phone grid on `CardContent`, `grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)]`)
-- **Why**: At a 300px viewport (seen 2026-10-11 in a smoke-test screenshot) the gender trigger truncates to "Boy" and the "AGE GROUP" label wraps to two lines, pushing that dropdown below its neighbours. Phones this narrow are rare (Galaxy Fold, zoomed Android), so a shorter label or a two-row fallback below ~340px would do.
-- **Noted**: 2026-10-11
-
 ### Record the signed-in admin as the merger instead of a request field
 
 - **ID**: IMP-318
@@ -2192,16 +2144,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `tests/unit/test_age_rollover_freeze_coverage.py` `_has_top_level_or`, `test_gate_is_not_bypassable_by_an_or`
 - **Why**: `_has_top_level_or` refuses only a `||` outside every bracket, so `(env.AGE_ROLLOVER_FREEZE == 'false' || github.event_name == 'workflow_dispatch') && ...` passes while a manual dispatch runs the writing step during a freeze (checked 2026-10-12: not refused, gate text present). `scripts/check_age_skill_assumptions.py` `_gated_on_the_flag` already requires the comparison to be one of the top-level `&&` terms with no top-level `||`. Wanted: the same rule for the freeze gate, ideally one shared parser.
 - **Noted**: 2026-10-12
-
-### Centre the header row like the page content
-
-- **ID**: IMP-339
-- **Status**: open
-- **Type**: direct
-- **Category**: feature
-- **Where**: `frontend/components/Navigation.tsx` (`Navigation`: the header row `<div className="container flex h-16 ...">`)
-- **Why**: The row uses `container` without `mx-auto`, so from 769 to 1279 px it is capped at the breakpoint width (768 or 1,024 px) and sits flush left, while page content uses `container mx-auto` and is centred, so the header's edges and the content's disagree (measured 2026-10-12: at 1,100 px the header row spans 0–1,024 px with 76 px empty on the right).
-- **Noted**: 2026-10-12
+- **Update (2026-10-14)**: `scripts/skill_check_offline.py` now carries `_top_level` and `_unwrap`, verbatim twins of the age check's in `scripts/check_age_skill_assumptions.py`. Rewriting `_has_top_level_or` as `len(_top_level(expr, "||")) > 1` changes nothing and still passes the bracketed case; the fix is `_gated_on_the_flag`'s rule (the freeze comparison as a top-level `&&` term, no top-level `||`) over the imported helpers, with the age check importing them too.
 
 ### Share one paywall Upgrade block between the team-page insight cards
 
@@ -2323,9 +2266,39 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: The insert is gated on `self.dry_run`, but the `Created review queue entry for ...` info line after it is not, so every review-band team in a roster-pass dry run (Athletes2Events, YSSL, Tourney Central) reads as a write in the log. Log a dry-run form instead.
 - **Noted**: 2026-10-14
 
+### Make the prediction-model trainer skip excluded games, after measuring the effect
+
+- **ID**: IMP-355
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `fetch_historical_games` in `scripts/backtest_predictor.py` (its REST query and its direct-Postgres SQL)
+- **Why**: Neither path filters `is_excluded`, while `fetch_games_for_rankings` in `src/rankings/data_adapter.py` does and Mission Control's "Trainable scored games" tile now does too, so the tile and the trainer disagree. The same function feeds `scripts/train_point_in_time_match_model.py` and `scripts/cross_validate_predictor.py`, so a filter there moves all three. A review measured 9,570 excluded scored games with both master ids in the PIT window from 2025-06-23, about 0.8% (2026-10-14). Filtering changes what the model trains on, so compare a training run with and without it before changing it.
+- **Noted**: 2026-10-14
+
+### Surface the merge-suggestions route's games read errors instead of scoring zero games
+
+- **ID**: IMP-356
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `GET` in `frontend/app/api/team-merge/suggestions/route.ts` (the home and away `games` reads)
+- **Why**: Both reads destructure only `data`, so a failed read silently gives every team no games and drops the opponent-overlap and schedule signals from every pair. The same `.in()` lists can hold up to 200 team ids, close to the URL length limit; batching them would remove that risk too.
+- **Noted**: 2026-10-14
+
+### Read the state check's workflow gates through the shared step_is_off
+
+- **ID**: IMP-358
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `scripts/check_state_skill_assumptions.py` `check_workflow_retired`; `scripts/skill_check_offline.py` `step_is_off`
+- **Why**: `check_workflow_retired` reads only the first job's steps and counts a step as off only when its step-level `if:` parses as YAML `false` (`value is False`), so `'false'`, `${{ false }}` or a job-level `if: false` reads as on and fails the check while the step stays off. The club self-check reads the same `update-missing-club-and-state.yml` through `step_is_off` (job and step `if:`, every literal-false spelling); the state check should too. The age check's flag gate asks a different question and keeps `_gated_on_the_flag`.
+- **Noted**: 2026-10-14
+
 ### MLS NEXT Kitman importer: follow-ups deferred from review
 
-- **ID**: IMP-352
+- **ID**: IMP-357
 - **Status**: open
 - **Type**: plan
 - **Category**: refactor

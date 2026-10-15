@@ -4,6 +4,7 @@ import React, { forwardRef } from 'react';
 import { InfographicWrapper, Platform, BRAND_COLORS, PLATFORM_DIMENSIONS } from './InfographicWrapper';
 import type { RankingRow } from '@/types/RankingRow';
 import { teamDisplayName } from '@/lib/utils';
+import { formatGender } from '@/lib/constants';
 
 interface Top10InfographicProps {
   teams: RankingRow[];
@@ -43,7 +44,7 @@ export const Top10Infographic = forwardRef<HTMLDivElement, Top10InfographicProps
     };
 
     // Generate dynamic title — use "IN {STATE}" for state rankings, dash for national
-    const genderLabel = gender === 'M' ? 'BOYS' : 'GIRLS';
+    const genderLabel = formatGender(gender).toUpperCase();
     const regionLabel = region ? regionName || region.toUpperCase() : 'NATIONAL';
     const title = region
       ? `TOP 10 ${ageGroup.toUpperCase()} ${genderLabel} IN ${regionLabel}`

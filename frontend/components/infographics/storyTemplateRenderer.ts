@@ -1,4 +1,5 @@
 import { PLATFORM_DIMENSIONS, BRAND_COLORS, Platform } from './InfographicWrapper';
+import { formatGender } from '@/lib/constants';
 
 type StoryType = 'newRankings' | 'comingSoon' | 'teamAnnouncement' | 'weeklyUpdate';
 
@@ -145,7 +146,7 @@ export async function renderStoryTemplateToCanvas(options: StoryTemplateOptions)
 
   // Category tag (if provided)
   if (ageGroup && gender) {
-    const genderLabel = gender === 'M' ? 'BOYS' : 'GIRLS';
+    const genderLabel = formatGender(gender).toUpperCase();
     const categoryText = `${ageGroup.toUpperCase()} ${genderLabel}${regionName ? ` • ${regionName.toUpperCase()}` : ''}`;
 
     ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';

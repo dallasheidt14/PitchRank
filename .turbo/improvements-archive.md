@@ -1683,3 +1683,112 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Noted**: 2026-09-09
 - **Update (2026-10-14)**: Fixed at the `catch`: it calls `unstable_rethrow(error)` before logging, so `notFound()` and the merged-team `redirect()` reach Next again. The zero-games 404 was removed instead of revived, by owner decision on 2026-10-14. It would have sent 25,601 teams that search still lists to a dead end in place of the page's Missing Games form, and the page is members-only and noindex, so the soft-404 reason never applied. The merged-team lookup now reads only the team's own merge row, and a failed lookup renders instead of answering 404. Tests in `frontend/app/teams/[id]/__tests__/page.test.tsx` pin the redirect, the 404s for a malformed id and for a merged team with no survivor, a team with no games rendering, and the page rendering when a query errors or the check throws.
 - **Refs**: branch `fix/ui-audit-leftovers`
+
+### MomentumMeter samples 8 scheduled games, not 8 played ones
+
+- **ID**: IMP-201
+- **Status**: done
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `calculateMomentum` in `frontend/components/MomentumMeter.tsx`
+- **Why**: It slices the 8 most recent rows and only then skips games with a null score, so a team whose scores have not been scraped yet gets its momentum from whatever is left — 5 games instead of 8. The two sibling generators do the opposite deliberately and say so: `formBadge.ts` and `consistency.ts` both walk newest-first and collect until they hold N *played* results. Verified 2026-09-09 against production: 34,540 of 187,266 teams (18.4%) currently have at least one unscored game among their last 8 played-or-past fixtures. Nothing on screen is false — the card labels the count it actually used — so this is sample quality, not a wrong number. Fix is to mirror the sibling walk. Kept out of the trajectory/insights fix on 2026-09-09 by user decision, because it shifts a headline metric for a fifth of the site.
+- **Noted**: 2026-09-09
+- **Update (2026-10-14)**: Fixed: `calculateMomentum` walks the games newest-first and stops once it holds 8 played results, as `formBadge.ts` does. `frontend/components/MomentumMeter.test.tsx` pins it with unscored fixtures ahead of the played ones.
+- **Refs**: branch `fix/small-site-fixes`
+
+### Final trajectory period reports period_end as the current time
+
+- **ID**: IMP-205
+- **Status**: done
+- **Type**: direct
+- **Category**: correctness
+- **Where**: the tail-period push in `getTeamTrajectory`, `frontend/lib/api.ts`
+- **Why**: Every other period ends at `periodStart + periodDays`, but the last is pushed with `new Date().toISOString()`, so a team whose last result was months ago gets an eleven-month span described as a 30-day period. Invisible today — `components/TeamTrajectoryChart.tsx` reads only `period_start`, `avg_goals_*`, `games_played` and `win_percentage` — but any consumer that renders the range would print a window the data does not cover.
+- **Noted**: 2026-09-09
+- **Update (2026-10-14)**: Fixed: every period, the last one included, ends `periodDays` after it starts (`periodEndOf` in `getTeamTrajectory`); pinned in `frontend/lib/api.test.ts`.
+- **Refs**: branch `fix/small-site-fixes`
+
+### Watchlist activity counts games that have been excluded
+
+- **ID**: IMP-220
+- **Status**: done
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `GET` handler in `frontend/app/api/watchlist/route.ts` — the recent-game `homeRecentResult`/`awayRecentResult` queries and the fallback `homeLastResult`/`awayLastResult` queries
+- **Why**: Read on `origin/main` 2026-09-14. Those four `games` queries lack `.eq('is_excluded', false)`, although the same file's other queries (`:355`, `:364`) and `getTeamGames` (`frontend/lib/api.ts:720`) filter it. So `new_games_count` and `last_game_date` still count excluded rows: futsal, merge duplicates, and the ~4,850 phantom games `scripts/exclude_none_opponent_games.py` excludes. Add the filter to all four queries, plus a route test showing an excluded game changes neither field.
+- **Noted**: 2026-09-14
+- **Update (2026-10-14)**: Fixed: the four recent and last-game queries filter `is_excluded = false`, and `last_game_date` keeps the newest of the home and away dates (it kept the first one read, so a newer away game lost to an older home one). `frontend/app/api/watchlist/__tests__/route.test.ts` gives each query its own excluded row through `filteringClientMock`, which gained `.gte`, and its Quiet FC rows pin the newest date.
+- **Refs**: branch `fix/small-site-fixes`
+
+### Route the hand-written gender labels through formatGender
+
+- **ID**: IMP-316
+- **Status**: done
+- **Type**: direct
+- **Category**: refactor
+- **Where**: `frontend/components/RankingsTable.tsx` (`description`), `frontend/components/TeamHeader.tsx` (gender `Badge`), `frontend/lib/constants.ts` (`formatGender`)
+- **Why**: Two places map M/F/B/G to Boys/Girls with their own ternaries instead of `formatGender`. `formatGender` also looks `GENDER_LABELS` up case-sensitively, so `formatGender('m')` is "Unknown", while `genderSlug` beside it accepts any case. Unknown values would change from echoed raw to "Unknown" when the ternaries go, so check callers' expectations.
+- **Noted**: 2026-10-11
+- **Update (2026-10-14)**: The share title now goes through `formatGender` (`teamShareTitle` in `TeamHeader.tsx`), leaving two hand-written ternaries: the `RankingsTable` description and the `TeamHeader` gender badge. Until the badge moves too, an unexpected gender value shows raw on the badge but as "Unknown" in the share text.
+- **Update (2026-10-14)**: Fixed: the `RankingsTable` description and the `TeamHeader` badge call `formatGender`, which now reads single-letter codes in any case, so `'m'` is Boys. The same pass moved the infographic previews, renderers and caption generator, the infographics page, the movers image route, the club embed page (whose own copy echoed unknown values) and the prediction-conflict text onto it. Only Male and Female are stored (checked 2026-10-14), so no stored value reads Unknown; the movers image prints UNKNOWN for an unrecognised `?gender=` value and leaves the gender out when none is given.
+- **Refs**: branch `fix/small-site-fixes`
+
+### Keep the phone filter row readable at 320px and narrower
+
+- **ID**: IMP-317
+- **Status**: done
+- **Type**: direct
+- **Category**: feature
+- **Where**: `frontend/components/RankingsFilter.tsx` (the phone grid on `CardContent`, `grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)]`)
+- **Why**: At a 300px viewport (seen 2026-10-11 in a smoke-test screenshot) the gender trigger truncates to "Boy" and the "AGE GROUP" label wraps to two lines, pushing that dropdown below its neighbours. Phones this narrow are rare (Galaxy Fold, zoomed Android), so a shorter label or a two-row fallback below ~340px would do.
+- **Noted**: 2026-10-11
+- **Update (2026-10-14)**: Fixed: below 340 px the filter card puts Region on its own row, with Age Group and Gender side by side under it. Measured on the live site 2026-10-14: the gender value clipped at 330 px and AGE GROUP wrapped at 320 px; 340 px and wider were already fine and keep one row.
+- **Refs**: branch `fix/small-site-fixes`
+
+### Centre the header row like the page content
+
+- **ID**: IMP-339
+- **Status**: done
+- **Type**: direct
+- **Category**: feature
+- **Where**: `frontend/components/Navigation.tsx` (`Navigation`: the header row `<div className="container flex h-16 ...">`)
+- **Why**: The row uses `container` without `mx-auto`, so from 769 to 1279 px it is capped at the breakpoint width (768 or 1,024 px) and sits flush left, while page content uses `container mx-auto` and is centred, so the header's edges and the content's disagree (measured 2026-10-12: at 1,100 px the header row spans 0–1,024 px with 76 px empty on the right).
+- **Noted**: 2026-10-12
+- **Update (2026-10-14)**: Fixed: the header row and every other uncentred `container` row (the mobile menu, five on the watchlist page, mission control) gained `mx-auto`. `frontend/test/centred-containers.test.ts` fails on any `container` row without it.
+- **Refs**: branch `fix/small-site-fixes`
+
+### Filter excluded games in the two admin pages that still count them
+
+- **ID**: IMP-352
+- **Status**: done
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `GET` in `frontend/app/api/team-merge/suggestions/route.ts` (the opponent-overlap and schedule `games` queries); `fetchScoredGamesCount` in `frontend/app/api/mission-control/model-snapshot/route.ts`
+- **Why**: Every other team-facing `games` read in the frontend filters `is_excluded = false` (the admin link-opponent preview deliberately shows excluded rows too, since linking rewrites them); these two admin-only reads do not, so futsal, merge duplicates and phantom rows feed merge-suggestion scores and the snapshot's scored-games counts. Kept out of the small-site-fixes PR by owner decision (2026-10-14) because the filter changes merge-suggestion scores; measure that change before applying.
+- **Noted**: 2026-10-14
+- **Update (2026-10-14)**: Fixed: both merge-suggestion `games` queries and `fetchScoredGamesCount` filter `is_excluded = false`. Of the 24,915 excluded games (counted 2026-10-14), about 13K are unscored and 6.4K sit on the same day and side as a real game with a different opponent, so they only added noise to the opponent-overlap and schedule-alignment signals. `frontend/app/api/team-merge/suggestions/__tests__/route.test.ts` pins both queries, and `frontend/app/api/mission-control/model-snapshot/__tests__/route.test.ts` pins the snapshot count.
+- **Refs**: branch `fix/hidden-games-and-played-walk`
+
+### Make the match predictor's recent form read N played games, or state that it needs them
+
+- **ID**: IMP-353
+- **Status**: done
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `buildRecentProfile` in `frontend/lib/matchPredictor.ts`
+- **Why**: It sorts newest-first and takes `.slice(0, n)` before skipping unscored games, and `sampleWeight = teamGames.length / n` counts those unscored rows: the shape the momentum meter had before IMP-201. Latent today because `predictMatch`'s callers pass scored-only games (`fetchPredictionGames` filters both scores not null). Changing it would move calibrated predictions, so either document the scored-only precondition at the function or measure before walking to N played games.
+- **Noted**: 2026-10-14
+- **Update (2026-10-14)**: Documented, by owner choice: `buildRecentProfile` states that `allGames` must hold scored games only and why, and `calculateRecentForm` and `predictMatch` point to it. No prediction changes.
+- **Refs**: branch `fix/hidden-games-and-played-walk`
+
+### Share one "newest N played results" walk across the insight code
+
+- **ID**: IMP-354
+- **Status**: done
+- **Type**: plan
+- **Category**: refactor
+- **Where**: `calculateMomentum` in `frontend/components/MomentumMeter.tsx`; `generateFormBadge` in `frontend/lib/insights/formBadge.ts`; `extractRecentPlayedResults` in `frontend/lib/insights/consistency.ts`; the recency walk in `frontend/lib/insights/seasonTruth.ts`; the form strip in `frontend/app/api/watchlist/route.ts`
+- **Why**: The same newest-first, skip-unscored, stop-at-N loop is written out by hand in each. The momentum meter's copy drifted (slice first, then skip) until IMP-201, and nothing lists the copies, so the next change to what counts as played has to find them all. One helper yielding the game, side, both scores and the result would let each caller derive its own figure.
+- **Noted**: 2026-10-14
+- **Update (2026-10-14)**: Fixed: `newestPlayedResults` in `frontend/lib/insights/recentPlayed.ts` is the one walk, used by `calculateMomentum`, `generateFormBadge`, `extractRecentPlayedResults` (which `analyzeConsistencyPattern` now reuses, so both read one 15-game window and one ±6 cap), `getCurrentStreak` and the watchlist form strip. The exception is `buildRecentProfile` in `frontend/lib/matchPredictor.ts`, kept slice-first on purpose (IMP-353). `frontend/lib/insights/__tests__/recentPlayed.test.ts` pins the walk, and each caller has a test.
+- **Refs**: branch `fix/hidden-games-and-played-walk`

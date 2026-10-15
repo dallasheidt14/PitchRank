@@ -1,5 +1,6 @@
 import { requirePremium } from '@/lib/api/requirePremium';
 import { resolveDefaultWatchlist } from '@/lib/api/watchlist';
+import { newestPlayedResults, type GameResult } from '@/lib/insights/recentPlayed';
 import { NextResponse } from 'next/server';
 
 /**
@@ -34,7 +35,7 @@ export interface WatchlistTeam {
   // Recent activity
   new_games_count: number;
   last_game_date: string | null;
-  last_5_results: ('W' | 'L' | 'D')[]; // Oldest-first for left-to-right timeline display
+  last_5_results: GameResult[]; // Oldest-first for left-to-right timeline display
   // Added to watchlist
   watchlist_added_at: string;
 }
@@ -255,11 +256,13 @@ export async function GET() {
         .from('games')
         .select('home_team_master_id, away_team_master_id, game_date')
         .in('home_team_master_id', teamIds)
+        .eq('is_excluded', false)
         .gte('game_date', sevenDaysAgoStr),
       supabase
         .from('games')
         .select('home_team_master_id, away_team_master_id, game_date')
         .in('away_team_master_id', teamIds)
+        .eq('is_excluded', false)
         .gte('game_date', sevenDaysAgoStr),
     ]);
 
@@ -310,12 +313,14 @@ export async function GET() {
           .from('games')
           .select('home_team_master_id, away_team_master_id, game_date')
           .in('home_team_master_id', teamsWithoutRecentGames)
+          .eq('is_excluded', false)
           .order('game_date', { ascending: false })
           .limit(perTeamLimit),
         supabase
           .from('games')
           .select('home_team_master_id, away_team_master_id, game_date')
           .in('away_team_master_id', teamsWithoutRecentGames)
+          .eq('is_excluded', false)
           .order('game_date', { ascending: false })
           .limit(perTeamLimit),
       ]);
@@ -337,11 +342,18 @@ export async function GET() {
           const homeId = game.home_team_master_id;
           const awayId = game.away_team_master_id;
 
-          if (homeId && !lastGameMap.has(homeId)) {
-            lastGameMap.set(homeId, game.game_date);
+          // Home and away rows arrive as two separately sorted lists, so keep the newest date seen, not the first.
+          if (homeId) {
+            const current = lastGameMap.get(homeId);
+            if (!current || game.game_date > current) {
+              lastGameMap.set(homeId, game.game_date);
+            }
           }
-          if (awayId && !lastGameMap.has(awayId)) {
-            lastGameMap.set(awayId, game.game_date);
+          if (awayId) {
+            const current = lastGameMap.get(awayId);
+            if (!current || game.game_date > current) {
+              lastGameMap.set(awayId, game.game_date);
+            }
           }
         }
       }
@@ -382,27 +394,11 @@ export async function GET() {
       })
       .sort((a, b) => (b.game_date > a.game_date ? 1 : b.game_date < a.game_date ? -1 : 0));
 
-    // Walk most-recent-first; take 5 per team; then reverse so the array is oldest-first.
-    const formByTeam = new Map<string, ('W' | 'L' | 'D')[]>();
-    const teamIdSet = new Set(teamIds);
-    for (const game of formGames) {
-      const homeId = game.home_team_master_id;
-      const awayId = game.away_team_master_id;
-      for (const teamId of [homeId, awayId]) {
-        if (!teamId || !teamIdSet.has(teamId)) continue;
-        const list = formByTeam.get(teamId) ?? [];
-        if (list.length >= 5) continue;
-        const isHome = teamId === homeId;
-        const myScore = isHome ? game.home_score : game.away_score;
-        const opScore = isHome ? game.away_score : game.home_score;
-        if (myScore == null || opScore == null) continue;
-        const result: 'W' | 'L' | 'D' = myScore > opScore ? 'W' : myScore < opScore ? 'L' : 'D';
-        list.push(result);
-        formByTeam.set(teamId, list);
-      }
-    }
-    for (const [id, results] of formByTeam) {
-      formByTeam.set(id, results.reverse());
+    const formByTeam = new Map<string, GameResult[]>();
+    for (const teamId of teamIds) {
+      const teamGames = formGames.filter((g) => g.home_team_master_id === teamId || g.away_team_master_id === teamId);
+      const results = newestPlayedResults(teamGames, teamId, 5).map(({ result }) => result);
+      formByTeam.set(teamId, results.reverse());
     }
 
     // Define type for team data from teams table

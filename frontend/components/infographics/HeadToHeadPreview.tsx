@@ -7,6 +7,7 @@ import type { RankingRow } from '@/types/RankingRow';
 import { predictMatch } from '@/lib/matchPredictor';
 import type { Game } from '@/lib/types';
 import { teamDisplayName } from '@/lib/utils';
+import { formatGender } from '@/lib/constants';
 
 interface TeamCardProps {
   team: RankingRow;
@@ -126,7 +127,7 @@ export const HeadToHeadPreview = forwardRef<HTMLDivElement, HeadToHeadPreviewPro
       return team.power_score_final ? (team.power_score_final * 100).toFixed(1) : 'N/A';
     };
 
-    const genderLabel = gender === 'M' ? 'BOYS' : 'GIRLS';
+    const genderLabel = formatGender(gender).toUpperCase();
 
     // Get prediction using the same logic as compare tab
     const matchPrediction = predictMatch(

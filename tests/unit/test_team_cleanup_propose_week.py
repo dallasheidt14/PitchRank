@@ -522,6 +522,7 @@ def _expected(store):
     folder = run_dir(store, RUN)
     age_review = ".claude/skills/correcting-team-age-groups/scripts/review_age_labels.py"
     return {
+        "club_check": ["scripts/check_club_skill_assumptions.py", "--code-only"],
         "clubs": [
             "scripts/repair_swapped_club_names.py",
             "--exports-dir",
@@ -674,6 +675,7 @@ def test_no_step_writes_teams_or_spends_paid_probes(monkeypatch, capsys, tmp_pat
 
     scripts = {Path(command[0]).name for command in runner.commands}
     assert scripts == {
+        "check_club_skill_assumptions.py",
         "repair_swapped_club_names.py",
         "check_state_skill_assumptions.py",
         "assign_team_states.py",
@@ -816,22 +818,30 @@ def test_the_retry_names_every_state_in_the_scope(monkeypatch, capsys, tmp_path)
     assert code == 1 and f"Retry states with: {_retry(store, 'NV,UT')}" in out
 
 
-def test_a_failing_self_check_marks_the_stage_stale_and_the_others_go_on(monkeypatch, capsys, tmp_path):
+@pytest.mark.parametrize(
+    ("stage", "check", "scan", "others"),
+    [
+        ("states", "check_state_skill_assumptions.py", "assign_team_states.py", {"clubs": 0, "ages": 0}),
+        ("clubs", "check_club_skill_assumptions.py", "repair_swapped_club_names.py", {"states": 0, "ages": 0}),
+    ],
+    ids=["states", "clubs"],
+)
+def test_a_failing_self_check_marks_the_stage_stale_and_the_others_go_on(
+    monkeypatch, capsys, tmp_path, stage, check, scan, others
+):
     store, db = _store(tmp_path), _Db(_teams())
-    runner = _Runner(db, codes={"check_state_skill_assumptions.py": [1]})
+    runner = _Runner(db, codes={check: [1]})
 
     code, _ = _week(monkeypatch, capsys, store, db, runner)
 
-    folder = run_dir(store, RUN) / "states"
+    folder = run_dir(store, RUN) / stage
     assert code == 0
-    assert "assign_team_states.py" not in {Path(c[0]).name for c in runner.commands}
+    assert scan not in {Path(c[0]).name for c in runner.commands}
     run = read_run(store, RUN)
     assert run["status"] == "reviewing"
-    assert run["stages"]["states"] == (
-        f"skill_stale: check_state_skill_assumptions.py exited 2; see {folder / 'logs' / 'self_check.log'}"
-    )
+    assert run["stages"][stage] == f"skill_stale: {check} exited 2; see {folder / 'logs' / 'self_check.log'}"
     assert not (folder / "preflight.json").exists() and not (folder / "proposals.json").exists()
-    assert _json(store, "write_guard.json")["stale"] == {"clubs": 0, "ages": 0}
+    assert _json(store, "write_guard.json")["stale"] == others
 
 
 def test_a_failed_health_report_is_retried_alone_without_reading_the_teams_again(monkeypatch, capsys, tmp_path):
