@@ -313,11 +313,17 @@ const _CONFIDENCE_THRESHOLDS = {
  * - 1 game out of 5 needed = 20% weight
  * - 3 games out of 5 needed = 60% weight
  * - 5+ games out of 5 needed = 100% weight
+ *
+ * `allGames` must hold scored games only (see buildRecentProfile).
  */
 export function calculateRecentForm(teamId: string, allGames: Game[], n: number = RECENT_GAMES_COUNT): number {
   return buildRecentProfile(teamId, allGames, n).goalDiff;
 }
 
+/**
+ * `allGames` must hold scored games only. The newest `n` are taken before an unscored game would be skipped, and
+ * `sampleWeight` counts every game taken, so an unscored fixture would shrink the sample and still read as evidence.
+ */
 function buildRecentProfile(teamId: string, allGames: Game[], n: number = 8): RecentProfile {
   const teamGames = allGames
     .filter((g) => g.home_team_master_id === teamId || g.away_team_master_id === teamId)
@@ -1156,6 +1162,8 @@ export interface MatchPrediction {
 /**
  * Predict match outcome with enhanced model using adaptive weights
  * v2.3: Multi-metric mismatch detection for better blowout prediction
+ *
+ * `allGames` must hold scored games only (see buildRecentProfile).
  */
 export function predictMatch(teamA: TeamWithRanking, teamB: TeamWithRanking, allGames: Game[]): MatchPrediction {
   const evidenceReliabilityA = computeEvidenceReliability(teamA);

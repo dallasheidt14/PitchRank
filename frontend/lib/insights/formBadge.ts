@@ -11,6 +11,7 @@
  */
 
 import type { InsightInputData, FormBadgeInsight } from './types';
+import { newestPlayedResults } from './recentPlayed';
 
 const RANK_MOVEMENT_THRESHOLD = 10;
 const MIN_DAY_SPAN = 21;
@@ -40,22 +41,12 @@ export function generateFormBadge(data: InsightInputData): FormBadgeInsight | nu
 
   if (daySpan < MIN_DAY_SPAN) return null;
 
-  // Walk newest-first, collect up to RECENT_GAME_WINDOW played results.
-  let wins = 0,
-    losses = 0,
-    draws = 0;
-  for (const game of games) {
-    if (wins + losses + draws >= RECENT_GAME_WINDOW) break;
-    const isHome = game.home_team_master_id === team.team_id_master;
-    const ts = isHome ? game.home_score : game.away_score;
-    const os = isHome ? game.away_score : game.home_score;
-    if (ts === null || os === null) continue;
-    if (ts > os) wins++;
-    else if (ts < os) losses++;
-    else draws++;
-  }
+  const results = newestPlayedResults(games, team.team_id_master, RECENT_GAME_WINDOW).map(({ result }) => result);
+  const wins = results.filter((result) => result === 'W').length;
+  const losses = results.filter((result) => result === 'L').length;
+  const draws = results.filter((result) => result === 'D').length;
 
-  const total = wins + losses + draws;
+  const total = results.length;
   const recentRecord = draws > 0 ? `${wins}-${losses}-${draws}` : `${wins}-${losses}`;
 
   if (total < RECENT_GAME_WINDOW) return null; // not enough recent games

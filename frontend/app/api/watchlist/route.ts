@@ -1,5 +1,6 @@
 import { requirePremium } from '@/lib/api/requirePremium';
 import { resolveDefaultWatchlist } from '@/lib/api/watchlist';
+import { newestPlayedResults, type GameResult } from '@/lib/insights/recentPlayed';
 import { NextResponse } from 'next/server';
 
 /**
@@ -34,7 +35,7 @@ export interface WatchlistTeam {
   // Recent activity
   new_games_count: number;
   last_game_date: string | null;
-  last_5_results: ('W' | 'L' | 'D')[]; // Oldest-first for left-to-right timeline display
+  last_5_results: GameResult[]; // Oldest-first for left-to-right timeline display
   // Added to watchlist
   watchlist_added_at: string;
 }
@@ -393,27 +394,11 @@ export async function GET() {
       })
       .sort((a, b) => (b.game_date > a.game_date ? 1 : b.game_date < a.game_date ? -1 : 0));
 
-    // Walk most-recent-first; take 5 per team; then reverse so the array is oldest-first.
-    const formByTeam = new Map<string, ('W' | 'L' | 'D')[]>();
-    const teamIdSet = new Set(teamIds);
-    for (const game of formGames) {
-      const homeId = game.home_team_master_id;
-      const awayId = game.away_team_master_id;
-      for (const teamId of [homeId, awayId]) {
-        if (!teamId || !teamIdSet.has(teamId)) continue;
-        const list = formByTeam.get(teamId) ?? [];
-        if (list.length >= 5) continue;
-        const isHome = teamId === homeId;
-        const myScore = isHome ? game.home_score : game.away_score;
-        const opScore = isHome ? game.away_score : game.home_score;
-        if (myScore == null || opScore == null) continue;
-        const result: 'W' | 'L' | 'D' = myScore > opScore ? 'W' : myScore < opScore ? 'L' : 'D';
-        list.push(result);
-        formByTeam.set(teamId, list);
-      }
-    }
-    for (const [id, results] of formByTeam) {
-      formByTeam.set(id, results.reverse());
+    const formByTeam = new Map<string, GameResult[]>();
+    for (const teamId of teamIds) {
+      const teamGames = formGames.filter((g) => g.home_team_master_id === teamId || g.away_team_master_id === teamId);
+      const results = newestPlayedResults(teamGames, teamId, 5).map(({ result }) => result);
+      formByTeam.set(teamId, results.reverse());
     }
 
     // Define type for team data from teams table

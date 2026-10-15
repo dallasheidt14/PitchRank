@@ -8,6 +8,7 @@ import { useMemo, useState, useEffect, useRef } from 'react';
 import { InfoButton, InfoTooltip } from '@/components/ui/info-tooltip';
 import type { GameWithTeams } from '@/lib/types';
 import { trackChartViewed } from '@/lib/events';
+import { newestPlayedResults, type GameResult } from '@/lib/insights/recentPlayed';
 
 interface MomentumMeterProps {
   teamId: string;
@@ -32,7 +33,7 @@ function interpolateMomentumColor(score: number): string {
 // Per-game score lookup: [result][overperformance category]
 // Result drives the sign; overperformance shifts magnitude within it.
 // A win is always net-positive (min +0.2), a loss always net-negative (max -0.2).
-const PER_GAME_SCORE: Record<string, Record<string, number>> = {
+const PER_GAME_SCORE: Record<GameResult, Record<string, number>> = {
   W: { green: 1.0, neutral: 0.5, red: 0.2 },
   D: { green: 0.15, neutral: 0.0, red: -0.15 },
   L: { green: -0.2, neutral: -0.5, red: -1.0 },
@@ -40,19 +41,14 @@ const PER_GAME_SCORE: Record<string, Record<string, number>> = {
 
 /** `games` must be newest-first; unscored games are skipped, not counted toward `numberOfGames`. */
 export function calculateMomentum(teamId: string, games: GameWithTeams[], numberOfGames: number = 8): MomentumResult {
+  const played = newestPlayedResults(games, teamId, numberOfGames);
+
+  if (played.length === 0) {
+    return { score: 50, totalGames: 0 };
+  }
+
   let totalPoints = 0;
-  let counted = 0;
-
-  for (const game of games) {
-    if (counted >= numberOfGames) break;
-    const isHome = game.home_team_master_id === teamId;
-    const teamScore = isHome ? game.home_score : game.away_score;
-    const oppScore = isHome ? game.away_score : game.home_score;
-
-    if (teamScore === null || oppScore === null) continue;
-
-    const result = teamScore > oppScore ? 'W' : teamScore < oppScore ? 'L' : 'D';
-
+  for (const { game, isHome, result } of played) {
     let perfCat = 'neutral';
     if (game.ml_overperformance !== null && game.ml_overperformance !== undefined) {
       const delta = isHome ? game.ml_overperformance : -game.ml_overperformance;
@@ -61,17 +57,12 @@ export function calculateMomentum(teamId: string, games: GameWithTeams[], number
     }
 
     totalPoints += PER_GAME_SCORE[result][perfCat];
-    counted++;
   }
 
-  if (counted === 0) {
-    return { score: 50, totalGames: 0 };
-  }
-
-  const avg = totalPoints / counted;
+  const avg = totalPoints / played.length;
   const score = Math.max(0, Math.min(100, 50 + avg * 50));
 
-  return { score, totalGames: counted };
+  return { score, totalGames: played.length };
 }
 
 /**

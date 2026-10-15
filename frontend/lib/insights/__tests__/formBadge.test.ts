@@ -126,4 +126,19 @@ describe('generateFormBadge', () => {
     data.rankingHistory = [data.rankingHistory[0]];
     expect(generateFormBadge(data)).toBeNull();
   });
+
+  it('reads only the five newest played games, past an unscored fixture', () => {
+    // The two older losses fall outside the window; counting them would withhold Surging.
+    const data = inputWith({
+      recentResults: ['W', 'W', 'W', 'W', 'D', 'L', 'L'],
+      rankNow: 20,
+      rankThen: 45,
+      daysAgo: 30,
+    });
+    data.games.unshift({ ...data.games[0], home_score: null, away_score: null });
+
+    const result = generateFormBadge(data);
+    expect(result?.label).toBe('Surging');
+    expect(result?.recentRecord).toBe('4-0-1');
+  });
 });

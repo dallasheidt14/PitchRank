@@ -23,6 +23,8 @@
 
 import type { InsightInputData, SeasonTruthInsight, FormSignal, RankTrajectory, PlayStyle } from './types';
 import { formatGender } from '@/lib/constants';
+import { extractRecentPlayedResults } from './consistency';
+import { newestPlayedResults } from './recentPlayed';
 
 /**
  * Determines rank trajectory based on recent form (perf_centered)
@@ -100,34 +102,12 @@ function determinePlayStyle(offenseNorm: number | null, defenseNorm: number | nu
  * function does not resolve `team_merge_map`.
  */
 function getCurrentStreak(games: InsightInputData['games'], teamId: string): string | null {
-  if (games.length === 0) return null;
-
-  let streakType: 'W' | 'L' | 'D' | null = null;
+  const results = newestPlayedResults(games, teamId, games.length).map(({ result }) => result);
+  const streakType = results[0];
   let streakCount = 0;
+  while (streakCount < results.length && results[streakCount] === streakType) streakCount++;
 
-  for (const game of games) {
-    const isHome = game.home_team_master_id === teamId;
-    const teamScore = isHome ? game.home_score : game.away_score;
-    const oppScore = isHome ? game.away_score : game.home_score;
-
-    if (teamScore === null || oppScore === null) continue;
-
-    let result: 'W' | 'L' | 'D';
-    if (teamScore > oppScore) result = 'W';
-    else if (teamScore < oppScore) result = 'L';
-    else result = 'D';
-
-    if (streakType === null) {
-      streakType = result;
-      streakCount = 1;
-    } else if (result === streakType) {
-      streakCount++;
-    } else {
-      break;
-    }
-  }
-
-  if (streakType === null || streakCount < 2) return null;
+  if (streakType === undefined || streakCount < 2) return null;
   return `${streakType}${streakCount}`;
 }
 
@@ -199,30 +179,9 @@ function buildCohortContext(
 function analyzeConsistencyPattern(games: InsightInputData['games'], teamId: string): string {
   if (games.length < 3) return 'limited data available';
 
-  const RECENCY_WINDOW = 15;
-  const results: ('W' | 'L' | 'D')[] = [];
-  const goalDiffs: number[] = [];
-
-  // v53e caps goal diff at +/- 6, we should too
-  const GOAL_DIFF_CAP = 6;
-
-  for (const game of games) {
-    if (results.length >= RECENCY_WINDOW) break;
-    const isHome = game.home_team_master_id === teamId;
-    const teamScore = isHome ? game.home_score : game.away_score;
-    const oppScore = isHome ? game.away_score : game.home_score;
-
-    if (teamScore !== null && oppScore !== null) {
-      // Cap goal differential to match v53e
-      const rawDiff = teamScore - oppScore;
-      const cappedDiff = Math.max(-GOAL_DIFF_CAP, Math.min(GOAL_DIFF_CAP, rawDiff));
-      goalDiffs.push(cappedDiff);
-
-      if (teamScore > oppScore) results.push('W');
-      else if (teamScore < oppScore) results.push('L');
-      else results.push('D');
-    }
-  }
+  const recent = extractRecentPlayedResults(games, teamId);
+  const results = recent.map(({ result }) => result);
+  const goalDiffs = recent.map(({ goalDiff }) => goalDiff);
 
   if (results.length < 3) return 'limited game data';
 
