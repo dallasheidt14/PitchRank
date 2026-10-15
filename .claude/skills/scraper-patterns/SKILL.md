@@ -558,6 +558,40 @@ User-Agent, no proxy. `scripts/import_soccereventsgroup_event.py` is the driver.
 - A drawn game (0-0, 1-1) marks neither side; take the result from the scores, not the classes.
   Import a 0-0 as a draw rather than skipping it.
 
+## MLS NEXT via Kitman
+
+From 2026-27 MLS NEXT Homegrown (HD) and Academy (AD) schedules and results are public JSON files on
+Kitman Labs' host, one GET each, no proxy or login. To find next season's files, log the XHR requests
+of `mlssoccer.com/mlsnext/schedule/homegrown-division/` and `/schedule/academy_division/` in a headless
+browser. The main `/mlsnext/schedule/` page still embeds the Modular11 frame, which returns no HD data
+and only placeholder AD fixtures this season.
+
+- Files: `https://mls-assist.theintelligenceplatform.com/data/schedule/<stem>-26-27.json` with stem
+  `mls-next-league` (HD), `mls-next-flex` (HD Flex) or `mls-next-2-academy-division` (AD); standings at
+  `/data/standings/mls-next-league-26-27.json`.
+- An unknown file name (last season's `-25-26`) answers HTTP 200 with the site's HTML. Parse the bytes as
+  JSON and check `linked_competition_seasons[].key` rather than trusting the status.
+- Shape `{events, linked_competition_seasons, synced_at}`. An event has `id`, `start_time` (UTC) with
+  `local_timezone`, `home_squad_id` and `away_squad_id`, and likewise `_squad_name` (`U16` for HD, `U16 AD`
+  for AD; oddities `U17B`, `U16 AD*`), `_organisation {id, name}` and `_score`, then `completed` and
+  `competition {name}`. No gender
+  (boys only) and no state. Take the date in `local_timezone`, not UTC.
+- A squad id is one club at one age in one division, and a club has different ids for HD and AD. The same
+  club can carry a different name per division, so key on the squad id.
+- Club ids are unrelated to Modular11's academy ids. The bridge to existing teams is the exact normalised
+  club name + age + division: a `modular11` alias (`{club}_U{age}_{HD|AD}`) marks a team as MLS NEXT and
+  gives its division, while age and club come from the team row (u19 teams carry both `_U18_` and
+  `_U19_` aliases). Near spellings include different clubs (Los Angeles Sports Club vs Soccer Club, GFI Academy
+  North/South), so they go to review.
+- Some rows are `completed` with scores but dated weeks ahead (28 on 2026-10-14);
+  `build_mlsnext_kitman_games_csv.py` holds them until their date, and also holds a game whose two squads
+  are on different boards.
+- Pipeline, weekly through `mlsnext-kitman-scraper.yml`: `scripts/scrape_mlsnext_kitman.py`,
+  `match_mlsnext_kitman_teams.py`, `link_mlsnext_kitman_teams.py`, `build_mlsnext_kitman_games_csv.py`, then
+  `import_games_enhanced.py <csv> mlsnext_kitman`. An operator runs `prepare_mlsnext_kitman_club_states.py`
+  first to fill the club-to-state table, because the linker holds a new team for a club with no state.
+  Provider code `mlsnext_kitman`, alias keys `<squad id>:<season>`.
+
 ## Athletes2Events Pages
 
 Athletes2Events is a white-label tournament platform: each host club runs its events on its own
@@ -987,10 +1021,11 @@ matchers override `_match_by_provider_id` without the check, and so does
   playing a correctly assigned U11 opponent — that pair passes cleanly, and `build_csv_rows` then
   stamps the **home** team's age (`:648`) and gender (`:649`) onto both importer rows, inserting
   the away side half-matched on either axis. A provider that must hold cross-age games back needs a
-  second, game-level check comparing both teams' boards before either row is emitted. The only
-  prior art is `src/models/modular11_matcher.py`, and it is a loose fit: it rejects the whole game
-  rather than holding it, and only once `abs(home_age - away_age) >= 2` (`:1875`), so the U10/U11
-  pair above passes that too. A one-year gap is caught nowhere.
+  second, game-level check comparing both teams' boards before either row is emitted. Prior
+  art: `hold_reason` in `scripts/build_mlsnext_kitman_games_csv.py` holds any game whose two squads are on
+  different boards, a one-year gap included. `src/models/modular11_matcher.py` is a loose fit: it rejects
+  the whole game rather than holding it, and only once `abs(home_age - away_age) >= 2` (`:1875`), so the
+  U10/U11 pair above passes that.
 - To repair a stored one, re-point the alias to the team on the right board, then re-run the
   import with a `--days-back` that covers the game's date. The composite duplicate check
   (provider, both provider ids, date, both scores) finds the stored row, and

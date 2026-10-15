@@ -258,6 +258,9 @@ def test_real_cli_uses_the_shared_compare_service_against_local_read_only_http_f
                 if expression.startswith("eq."):
                     value = expression[3:]
                     rows = [row for row in rows if str(row.get(field)).lower() == value.lower()]
+                elif expression.startswith("in.(") and expression.endswith(")"):
+                    values = {value.lower() for value in expression[4:-1].split(",")}
+                    rows = [row for row in rows if str(row.get(field)).lower() in values]
                 elif expression == "not.is.null":
                     rows = [row for row in rows if row.get(field) is not None]
                 elif expression.startswith("gte."):

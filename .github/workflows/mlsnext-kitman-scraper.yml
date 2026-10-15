@@ -1,0 +1,132 @@
+name: MLS NEXT Kitman Scraper
+
+# MLS NEXT (Homegrown and Academy Divisions) publishes through Kitman Labs from 2026-27; the
+# Modular11 MLS NEXT workflows no longer find its games. Without `execute` a manual run writes
+# CSVs to an artifact and nothing to the database; with it, it links/creates teams and imports
+# played games since Aug 1. The weekly run executes. A squad that would be created but
+# whose club has no state in config/mlsnext_kitman_club_states.json is held, counted in the summary and
+# listed in the artifact's handback.csv.
+
+on:
+  schedule:
+    - cron: '45 5 * * 1'  # Sunday 10:45 PM Arizona (UTC-7, no DST); after ea-scraper.yml, before calculate-rankings.yml
+  workflow_dispatch:
+    inputs:
+      execute:
+        description: 'Write links, new teams and games to PitchRank'
+        type: boolean
+        required: false
+        default: false
+
+env:
+  # Freezes team-creating imports across the Aug 1 age-group rollover; set to 'false'
+  # to lift, once the rollover is applied and verified. Gates test == 'false' (not != 'true')
+  # so a renamed or deleted flag leaves the step skipped. See CLAUDE.md.
+  AGE_ROLLOVER_FREEZE: 'false'
+
+concurrency:
+  group: mlsnext-kitman-scraper
+  cancel-in-progress: false
+
+jobs:
+  scrape-mlsnext-kitman:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      EXECUTE: ${{ github.event_name == 'schedule' || inputs.execute }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.lock
+
+      - name: Scrape Kitman schedules
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          python scripts/scrape_mlsnext_kitman.py | tee scrape_counts.txt
+
+      - name: Build match report
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          python scripts/match_mlsnext_kitman_teams.py | tee match_counts.txt
+
+      - name: Plan MLS NEXT import (dry run)
+        if: ${{ env.EXECUTE != 'true' }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          python scripts/link_mlsnext_kitman_teams.py | tee link_counts.txt
+          python scripts/build_mlsnext_kitman_games_csv.py --planned | tee impact.txt
+
+      - name: Link MLS NEXT teams
+        if: ${{ env.EXECUTE == 'true' && env.AGE_ROLLOVER_FREEZE == 'false' }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          python scripts/link_mlsnext_kitman_teams.py --execute | tee link_counts.txt
+
+      - name: Build MLS NEXT import CSV
+        if: ${{ env.EXECUTE == 'true' && env.AGE_ROLLOVER_FREEZE == 'false' }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          python scripts/build_mlsnext_kitman_games_csv.py | tee impact.txt
+
+      - name: Import MLS NEXT games
+        if: ${{ env.EXECUTE == 'true' && env.AGE_ROLLOVER_FREEZE == 'false' }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          python scripts/import_games_enhanced.py data/mlsnext_kitman/import.csv mlsnext_kitman
+
+      - name: Upload MLS NEXT output
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: mlsnext-kitman-scraper-${{ github.run_id }}
+          path: data/mlsnext_kitman/
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## MLS NEXT Kitman Scraper"
+            echo "- Scrape: $(cat scrape_counts.txt 2>/dev/null || echo 'did not finish')"
+            echo "- Match report: $(cat match_counts.txt 2>/dev/null || echo 'did not finish')"
+            echo "- Links: $(cat link_counts.txt 2>/dev/null || echo 'not run')"
+            echo "- Import impact: $(cat impact.txt 2>/dev/null || echo 'not run')"
+            if [ -f data/mlsnext_kitman/handback.csv ]; then
+              echo "- Squads held for a missing club state: $(grep -c ',needs state,' data/mlsnext_kitman/handback.csv || true)"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

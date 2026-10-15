@@ -5,7 +5,7 @@ import { AppError } from './errors';
 import { explainMatch, type MatchExplanation } from './matchExplainer';
 import { predictMatch, type MatchPrediction, warmMatchPredictorCalibration } from './matchPredictor';
 import type { Game, TeamWithRanking } from './types';
-import { normalizeAgeGroup } from './utils';
+import { MLS_NEXT_PROVIDER_CODES, normalizeAgeGroup } from './utils';
 
 export interface MatchPredictionResponse {
   teamA: {
@@ -316,13 +316,13 @@ export async function fetchPredictionTeam(
     rankingData?.games_played ?? stateRankingData?.games_played ?? rankingsFullData?.games_played ?? 0;
   const computedWinPercentage = gamesPlayed > 0 ? ((wins + draws * 0.5) / gamesPlayed) * 100 : null;
 
-  const modular11AliasResult = await supabase
+  const mlsNextAliasResult = await supabase
     .from('team_alias_map')
     .select('id, providers!inner(code)')
     .eq('team_id_master', teamData.team_id_master)
-    .eq('providers.code', 'modular11')
+    .in('providers.code', MLS_NEXT_PROVIDER_CODES)
     .limit(1);
-  if (options.strict && modular11AliasResult.error) throw modular11AliasResult.error;
+  if (options.strict && mlsNextAliasResult.error) throw mlsNextAliasResult.error;
 
   const team: PredictionTeam = {
     ratings_as_of: rankingsFullData?.last_calculated ?? null,
@@ -334,7 +334,7 @@ export async function fetchPredictionTeam(
     club_name: teamData.club_name,
     league: teamData.league ?? null,
     distinction: teamData.distinction ?? null,
-    has_modular11_alias: (modular11AliasResult.data?.length ?? 0) > 0,
+    has_modular11_alias: (mlsNextAliasResult.data?.length ?? 0) > 0,
     state: teamData.state ?? teamData.state_code,
     age,
     gender,

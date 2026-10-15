@@ -23,7 +23,7 @@ const supabase = new Proxy({} as SupabaseClient, {
     return value;
   },
 });
-import { normalizeAgeGroup } from './utils';
+import { MLS_NEXT_PROVIDER_CODES, normalizeAgeGroup } from './utils';
 import type {
   Team,
   Game,
@@ -298,9 +298,9 @@ export const api = {
     // `rankings_full` is load-bearing: a fallback source when `state_rankings_view`
     // times out (its ROW_NUMBER window scans all rows). See the deprecated-team
     // skip + RPC fallback below at lines ~290.
-    // `modular11AliasResult` is a HEAD count-only query — only the boolean
+    // `mlsNextAliasResult` is a HEAD count-only query — only the boolean
     // `count > 0` is used for `has_modular11_alias`.
-    const [teamResult, rankingResult, stateRankResult, mergeResult, rankingsFullResult, modular11AliasResult] =
+    const [teamResult, rankingResult, stateRankResult, mergeResult, rankingsFullResult, mlsNextAliasResult] =
       await Promise.all([
         supabase.from('teams').select('*').eq('team_id_master', id).maybeSingle(),
         supabase.from('rankings_view').select('*').eq('team_id_master', id).maybeSingle(),
@@ -311,7 +311,7 @@ export const api = {
           .from('team_alias_map')
           .select('id, providers!inner(code)', { count: 'exact', head: true })
           .eq('team_id_master', id)
-          .eq('providers.code', 'modular11'),
+          .in('providers.code', MLS_NEXT_PROVIDER_CODES),
       ]);
 
     const { data: teamData, error: teamError } = teamResult;
@@ -533,7 +533,7 @@ export const api = {
       club_name: team.club_name,
       league: team.league,
       distinction: team.distinction,
-      has_modular11_alias: (modular11AliasResult.count ?? 0) > 0,
+      has_modular11_alias: (mlsNextAliasResult.count ?? 0) > 0,
       state: rankingData?.state ?? team.state_code,
       age: age,
       gender: gender,

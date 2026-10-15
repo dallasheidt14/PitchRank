@@ -29,6 +29,9 @@ type QueryState = {
   orFilter?: string;
 };
 
+// The provider code of the one alias the fixture teams hold; null for none.
+let aliasProviderCode: string | null = null;
+
 function createMockSupabase() {
   const resolveQuery = (state: QueryState) => {
     switch (state.table) {
@@ -120,9 +123,11 @@ function createMockSupabase() {
       case 'rankings_full':
       case 'team_predictive_view':
         return { data: null, error: null };
-      case 'team_alias_map':
-        // No modular11 alias for the test fixtures.
-        return { data: [], error: null };
+      case 'team_alias_map': {
+        const codes = state.filters['providers.code'];
+        const asked = Array.isArray(codes) && aliasProviderCode !== null && codes.includes(aliasProviderCode);
+        return { data: asked ? [{ id: 'alias-1' }] : [], error: null };
+      }
       case 'games':
         return {
           data: [
@@ -158,6 +163,10 @@ function createMockSupabase() {
         state.filters[field] = value;
         return builder;
       }),
+      in: vi.fn((field: string, values: readonly unknown[]) => {
+        state.filters[field] = values;
+        return builder;
+      }),
       gte: vi.fn((field: string, value: unknown) => {
         state.filters[field] = value;
         return builder;
@@ -186,6 +195,7 @@ function createMockSupabase() {
 describe('buildMatchPrediction', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    aliasProviderCode = null;
     mockWarmMatchPredictorCalibration.mockResolvedValue(undefined);
     mockPredictMatch.mockReturnValue({
       predictedWinner: 'team_a',
@@ -245,6 +255,19 @@ describe('buildMatchPrediction', () => {
         }),
       ])
     );
+  });
+
+  it.each([
+    ['modular11', true],
+    ['mlsnext_kitman', true],
+    ['gotsport', false],
+  ])('marks a team holding a %s alias as MLS NEXT: %s', async (code, expected) => {
+    aliasProviderCode = code;
+
+    await buildMatchPrediction(createMockSupabase() as never, TEAM_A_ID, TEAM_B_ID);
+
+    const [teamA] = mockPredictMatch.mock.calls[0];
+    expect(teamA.has_modular11_alias).toBe(expected);
   });
 
   it('rejects teams that resolve to the same canonical identity', async () => {

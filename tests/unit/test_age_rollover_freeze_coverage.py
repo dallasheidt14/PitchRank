@@ -32,6 +32,8 @@ AGE_DERIVING_SCRIPTS = (
     "discover_teams_from_opponents.py",
     # Writes teams with the age Modular11 labels them for this season; only with --execute.
     "link_modular11_ea_teams.py",
+    # Writes teams with the age Kitman labels them for this season; only with --execute.
+    "link_mlsnext_kitman_teams.py",
     "import_yssl.py",
 )
 

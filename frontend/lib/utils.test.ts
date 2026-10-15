@@ -5,9 +5,16 @@ import {
   composeTeamMeta,
   formatDistinction,
   formatLeague,
+  MLS_NEXT_PROVIDER_CODES,
   scrollBehavior,
   teamDisplayName,
 } from './utils';
+
+describe('MLS_NEXT_PROVIDER_CODES', () => {
+  it('names both providers that mark a team as MLS NEXT', () => {
+    expect([...MLS_NEXT_PROVIDER_CODES]).toEqual(['modular11', 'mlsnext_kitman']);
+  });
+});
 
 describe('composeTeamDisplay', () => {
   it('composes club + league + distinction for clean data', () => {
