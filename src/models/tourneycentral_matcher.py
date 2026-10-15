@@ -7,14 +7,13 @@ same matching: the club gate (the driver passes the team list's club as ``club_n
 and the club as the team name writes it as ``written_club``), the squad and tier gates,
 state scoping, and review for ties. So this reuses that matcher whole.
 
-Three things differ, all because each team list prints the club in a field of its
+Two things differ, both because each team list prints the club in a field of its
 own, often spelled differently from the name's own prefix ("Warrior Soccer Club"
 beside "Warrior SC B15/16 White"). Candidates are gated on that field and, when it
-matches none, on the club as the name writes it. The written club is cut back before
-any squad mark, since the gates strip it from the name. And the team name is the
-team's full registered name: the Athletes2Events habit of cutting the club off the
-front of a created team's name would store "U11B Green" for "Club Ohio Dayton U11B
-Green", so a created Tourney Central team keeps its full name.
+matches none, on the club as the name writes it. And the team name is the team's
+full registered name: the Athletes2Events habit of cutting the club off the front of
+a created team's name would store "U11B Green" for "Club Ohio Dayton U11B Green", so a
+created Tourney Central team keeps its full name.
 """
 
 from typing import Dict, Optional, Tuple
@@ -28,12 +27,13 @@ from src.utils.us_states import STATE_CODE_TO_NAME
 def club_before_squad_marks(written_club: Optional[str]) -> Optional[str]:
     """``written_club`` cut back until no squad mark is left in it.
 
-    The squad gates strip the written club from the team's name, so a written club
-    that runs on past the club ("Lakota FC Pre", "Ohio Premier North", "Worthington
-    United Navy 1") strips a tier, direction, color or squad number with it, and a
-    stored row without that mark then matches. Cutting back strips the club only. A
-    club whose own name carries a mark word ("Blue Fire") is cut short too, which
-    leaves that word in the name and costs at most a duplicate, never a wrong link.
+    For a written club guessed from the words before the age, not for a club field
+    that opens the name. The squad gates strip the written club from the team's name,
+    so a guess that runs on past the club ("Lakota FC Pre", "Ohio Premier North",
+    "Worthington United Navy 1") strips a tier, direction, color or squad number with
+    it, and a stored row without that mark then matches. A club field is the club
+    itself, and its own words ("Elite FC", "Dayton Futbol Academy") are not marks:
+    cutting it would leave them in the name and miss the club's stored squads.
     """
     words = (written_club or "").split()
     while words and any(_squad_marks(" ".join(words)).values()):
@@ -43,28 +43,6 @@ def club_before_squad_marks(written_club: Optional[str]) -> Optional[str]:
 
 class TourneyCentralGameMatcher(Athletes2EventsGameMatcher):
     """Athletes2Events matching; a created team keeps the name its team list gives it."""
-
-    def _match_team(
-        self,
-        provider_id: str,
-        provider_team_id: Optional[str],
-        team_name: Optional[str],
-        age_group: Optional[str],
-        gender: Optional[str],
-        club_name: Optional[str] = None,
-        state_code: Optional[str] = None,
-        written_club: Optional[str] = None,
-    ) -> Dict:
-        return super()._match_team(
-            provider_id,
-            provider_team_id,
-            team_name,
-            age_group,
-            gender,
-            club_name,
-            state_code=state_code,
-            written_club=club_before_squad_marks(written_club),
-        )
 
     def _fuzzy_match_team(
         self,

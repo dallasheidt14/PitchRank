@@ -1,6 +1,6 @@
 """Unit tests for the Tourney Central matcher.
 
-It is the Athletes2Events matcher with three overrides, so the database double is that
+It is the Athletes2Events matcher with two overrides, so the database double is that
 matcher's: it records at ``execute()``, applies the state filter, raises
 ``APIError(PGRST116)`` on a zero-row ``.single()`` as postgrest does, and refuses
 review rows the table's CHECK refuses. ``_KeepingDB`` also keeps what it inserts, so a
@@ -9,6 +9,7 @@ later lookup in the same run sees an earlier team, as the database would.
 
 import pytest
 
+from scripts import import_tourneycentral_event as tc
 from src.models.tourneycentral_matcher import TourneyCentralGameMatcher, club_before_squad_marks
 from tests.unit.test_athletes2events_matcher import _DB, PROVIDER, _candidate
 
@@ -51,6 +52,12 @@ def _register(
         state_code="OH",
         written_club=written or club,
     )
+
+
+def _register_as_listed(db, name, club_field, age_group, gender="Male"):
+    """Register a team as the driver does, with its club and written club read from its team-list row."""
+    club, written = tc.club_for(club_field, name, "wfc.tourneycentral.com")
+    return _register(_matcher(db), name=name, club=club, written=written, age_group=age_group, gender=gender)
 
 
 class TestCreatedTeams:
@@ -180,54 +187,63 @@ class TestWrittenClubGate:
         assert result["team_id"] == "by-field"
 
     @pytest.mark.parametrize(
-        "name, club_field, written, stored, gender, age_group",
+        "name, club_field, stored, gender, age_group",
         [
-            (
-                "Worthington United Navy 1 U14",
-                "Worthington United SC",
-                "Worthington United Navy 1",
-                "Worthington United U14 Girls",
-                "Female",
-                "u14",
-            ),
-            (
-                "Lakota FC Pre-ECNL U13 Boys",
-                "Lakota Futbol Club",
-                "Lakota FC Pre",
-                "Lakota FC ECNL U13 Boys",
-                "Male",
-                "u13",
-            ),
-            ("Ohio Premier North B2014", "Ohio Premier SC", "Ohio Premier North", "Ohio Premier B2014", "Male", "u13"),
+            ("Worthington United Navy 1 U14", "Worthington United SC", "Worthington United U14 Girls", "Female", "u14"),
+            ("Lakota FC Pre-ECNL U13 Boys", "Lakota Futbol Club", "Lakota FC ECNL U13 Boys", "Male", "u13"),
+            ("Ohio Premier North B2014", "Ohio Premier SC", "Ohio Premier B2014", "Male", "u13"),
         ],
     )
-    def test_a_written_club_running_into_the_squad_marks_never_links_another_squad(
-        self, name, club_field, written, stored, gender, age_group
+    def test_a_guessed_club_running_into_the_squad_marks_never_links_another_squad(
+        self, name, club_field, stored, gender, age_group
     ):
-        """The club field does not open the name here, so the written club ran on past the club."""
+        """The club field does not open the name, so the club is guessed from the words before the age."""
         db = _DB([_candidate("other", stored, club_field, age_group=age_group, state_code="OH", gender=gender)])
 
-        result = _register(
-            _matcher(db), name=name, club=club_field, written=written, age_group=age_group, gender=gender
-        )
+        result = _register_as_listed(db, name, club_field, age_group, gender)
 
         assert result["team_id"] != "other"
-        assert db.writes("team_alias_map") == [] or db.writes("team_alias_map")[0]["team_id_master"] != "other"
+        assert [a["team_id_master"] for a in db.writes("team_alias_map")] != ["other"]
 
-    def test_the_same_squad_still_links_when_the_written_club_ran_on(self):
+    def test_the_same_squad_still_links_when_the_club_is_guessed(self):
         db = _DB(
             [_candidate("same", "Lakota FC Pre-ECNL U13 Boys", "Lakota Futbol Club", age_group="u13", state_code="OH")]
         )
 
-        result = _register(
-            _matcher(db),
-            name="Lakota FC Pre-ECNL U13 Boys",
-            club="Lakota Futbol Club",
-            written="Lakota FC Pre",
-            age_group="u13",
-        )
+        result = _register_as_listed(db, "Lakota FC Pre-ECNL U13 Boys", "Lakota Futbol Club", "u13")
 
         assert (result["matched"], result["team_id"]) == (True, "same")
+
+    @pytest.mark.parametrize(
+        "name, club_field, stored, stored_club, gender, age_group",
+        [
+            (
+                "U11 Elite FC Pre-ECNL - Black",
+                "Elite FC (Oh)",
+                "Elite FC Pre-ECNL B2015/16 Black",
+                "Elite FC",
+                "Male",
+                "u11",
+            ),
+            (
+                "Dayton Futbol Academy DFA 2012/2013G Premier",
+                "Dayton Futbol Academy",
+                "DFA 2012/2013G Premier",
+                "Dayton Futbol Academy",
+                "Female",
+                "u14",
+            ),
+        ],
+    )
+    def test_a_club_field_opening_the_name_is_stripped_whole_and_links_its_stored_squad(
+        self, name, club_field, stored, stored_club, gender, age_group
+    ):
+        """ "Elite" and "Academy" are squad words, but here they are the club's own name."""
+        db = _DB([_candidate("stored", stored, stored_club, age_group=age_group, state_code="OH", gender=gender)])
+
+        result = _register_as_listed(db, name, club_field, age_group, gender)
+
+        assert (result["matched"], result["team_id"]) == (True, "stored")
 
     def test_a_squad_mark_left_in_the_name_keeps_a_markless_row_out(self):
         """With only the club stripped, "Navy 1" is a mark the stored row lacks, so no link."""

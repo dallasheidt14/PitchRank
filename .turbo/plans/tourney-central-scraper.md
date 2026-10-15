@@ -170,9 +170,8 @@ age and club helpers, packaged. Write a fetch helper of its own that reads the `
      columns written are those of A2E :380-391: `team_id_master`, `team_name`, `club_name`,
      `age_group`, `gender`, `state_code`, `state`, `provider_id`, `provider_team_id` and
      `distinction` (`resolve_distinction`).
-   - Write a module docstring explaining why it subclasses, and the three things that differ.
-   - Override `_match_team` to pass `club_before_squad_marks(written_club)`, and
-     `_fuzzy_match_team` to gate on the club field and, when that matches none, on the written
+   - Write a module docstring explaining why it subclasses, and the two things that differ.
+   - Override `_fuzzy_match_team` to gate on the club field and, when that matches none, on the written
      club (added in review: `VASC B12/13`, club field `Valentis`, was about to duplicate a
      stored `VASC B12/13`).
 
@@ -272,9 +271,10 @@ age and club helpers, packaged. Write a fetch helper of its own that reads the `
        unless it is blank or starts with `tournament only` (case-insensitive), in which case it
        is the name's own club. `written` is the prefix the club field matches when the field
        opens the name; otherwise `split_club(respell_ages(name), host)[1]`, cut at the first
-       bare band (`13/14`). `TourneyCentralGameMatcher._match_team` then cuts the written club
-       back before its first squad mark (`club_before_squad_marks`), since words before the age
-       can still be marks (`Lakota FC Pre-ECNL`, `Ohio Premier North`). Both were added in review.
+       bare band (`13/14`) and then cut back before its first squad mark
+       (`club_before_squad_marks`), since words before the age can still be marks (`Lakota FC
+       Pre-ECNL`, `Ohio Premier North`). A club-field prefix stays whole: cutting it took the
+       club's own words (`Elite FC`, `Dayton Futbol Academy`) and duplicated two WFC teams.
      - `label_season_mismatch(listings, event_season) -> Optional[str]`, judged **per
        event**:
        - For every team name carrying a two-year band (`B15/16`, `2016/2017`, `B13/14`), take the

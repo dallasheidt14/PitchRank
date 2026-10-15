@@ -108,11 +108,9 @@ Data quirks seen at WFC, which the parser must survive:
    which the parent's `_match_team` calls by name), keeping the team's full name as written
    rather than cutting the club off the front, still gated on `dry_run`. It also overrides
    `_fuzzy_match_team` to gate on the team list's club and, when that matches no candidate, on
-   the club as the name writes it, and `_match_team` to cut the written club back before its
-   first squad mark (`club_before_squad_marks`), since the words before the age can be marks
-   (`Lakota FC Pre-ECNL U13`). Both were added during implementation: the live preview showed
+   the club as the name writes it. Added during implementation: the live preview showed
    `VASC B12/13` (club field `Valentis`) about to duplicate a stored `VASC B12/13` filed under a
-   third club name, and review found the second.
+   third club name. The written club itself is the driver's job (see the club rule below).
 4. **Pipeline branch.** `EnhancedETLPipeline._ensure_initialized` gains a `tourneycentral`
    branch that constructs the matcher with `dry_run`. Without it, the fallback matcher would
    write during a dry run.

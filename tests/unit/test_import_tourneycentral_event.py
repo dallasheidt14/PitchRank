@@ -408,6 +408,13 @@ class TestClubFor:
             ("Worthington United", "Worthington United Navy 1 U14", ("Worthington United", "Worthington United")),
             ("Elite FC (Oh)", "U11 Elite FC Pre-ECNL - Black", ("Elite FC (Oh)", "Elite FC")),
             ("Valentis", "VASC B12/13", ("Valentis", "VASC")),
+            ("Lakota Futbol Club", "Lakota FC Pre-ECNL U13 Boys", ("Lakota Futbol Club", "Lakota FC")),
+            ("Worthington United SC", "Worthington United Navy 1 U14", ("Worthington United SC", "Worthington United")),
+            (
+                "Dayton Futbol Academy",
+                "Dayton Futbol Academy DFA 2012/2013G Premier",
+                ("Dayton Futbol Academy", "Dayton Futbol Academy"),
+            ),
         ],
     )
     def test_the_club_field_is_the_club_and_the_name_gives_the_written_form(self, club_cell, name, expected):

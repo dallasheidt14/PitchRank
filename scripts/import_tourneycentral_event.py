@@ -94,7 +94,7 @@ from scripts.import_athletes2events_event import (  # noqa: E402
     respell_ages,
     split_club,
 )
-from src.models.tourneycentral_matcher import TourneyCentralGameMatcher  # noqa: E402
+from src.models.tourneycentral_matcher import TourneyCentralGameMatcher, club_before_squad_marks  # noqa: E402
 from src.tournaments.reports.render_csv import csv_safe  # noqa: E402
 from src.utils.provider_ids import clean_provider_id  # noqa: E402
 from src.utils.team_utils import _soccer_season_year  # noqa: E402
@@ -595,21 +595,22 @@ def club_for(club_cell: str, team_name: str, host: str) -> Tuple[Optional[str], 
     The written club is what the squad gates strip from both names, so taking too
     much of the name strips the squad marks with it: "Worthington United Navy 1 U14"
     must lose "Worthington United", not "Navy 1". Where the club field opens the name,
-    that prefix is the written club; otherwise it is the words before the first age token,
-    league tag or comma, a bare band such as "13/14" included.
+    that prefix is the written club, whole. Otherwise it is guessed: the words before the
+    first age token, league tag or comma, a bare band such as "13/14" included, then cut
+    back before any squad mark.
     """
-    _, written = split_club(respell_ages(team_name), host)
-    band = _BAND.search(written or "")
+    _, guessed = split_club(respell_ages(team_name), host)
+    band = _BAND.search(guessed or "")
     if band:
-        written = _clean_name(written[: band.start()]).strip(" -,") or None
+        guessed = _clean_name(guessed[: band.start()]).strip(" -,") or None
     club = _clean_name(club_cell)
     if not club or _NO_CLUB.match(club):
-        return written, written
+        return guessed, club_before_squad_marks(guessed)
     body = _LEADING_AGE.sub("", team_name)
     for spelling in (club, _clean_name(_PARENTHETICAL.sub(" ", club))):
         if spelling and re.match(rf"{re.escape(spelling)}(?![A-Za-z0-9])", body, re.IGNORECASE):
             return club, body[: len(spelling)]
-    return club, written
+    return club, club_before_squad_marks(guessed)
 
 
 def state_from_location(location: str) -> Optional[str]:

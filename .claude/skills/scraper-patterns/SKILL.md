@@ -784,11 +784,11 @@ Warrior Fall Classic (`wfc.`) is the event it was built against.
   club field when it opens the name (`Worthington United Navy 1 U14` strips `Worthington
   United`, not `Navy 1`), else the words before the first age, a bare band such as `13/14`
   included. Taking too much strips a color or squad number with the club, and a markless stored
-  row then links in its place. Even so, the words before the age can still hold marks
-  (`Lakota FC Pre-ECNL U13`, `Ohio Premier North B2014`), so `TourneyCentralGameMatcher` cuts
-  every written club back before its first squad mark
-  (`club_before_squad_marks`). A club whose own name carries a mark word (`Blue Fire`, `Elite FC`,
-  `Ohio Premier`) is cut short by that, which can cost a duplicate but never a wrong link. The
+  row then links in its place. A guessed club can still hold marks (`Lakota FC Pre-ECNL U13`,
+  `Ohio Premier North B2014`), so the driver cuts it back before its first squad mark
+  (`club_before_squad_marks`). A club field that opens the name is the club itself and stays
+  whole: its own words are not marks (`Elite FC`, `Dayton Futbol Academy`), and cutting them
+  leaves them in the name, so the club's stored squads read as other squads and duplicate. The
   matcher gates candidates on the club field and, when that matches none, on the written club.
 
 ## Provider Matcher Name Parsing
