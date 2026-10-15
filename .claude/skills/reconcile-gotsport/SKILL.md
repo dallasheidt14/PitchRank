@@ -53,7 +53,36 @@ Task Progress:
 ```
 
 Run every command from the main checkout: logs land in `data/exports/`, which is gitignored, and
-the revert path for every write is in those logs. Credentials come from root `.env`.
+the revert path for every write is in those logs. Credentials come from root `.env`; a
+`.env.local` beside it overrides the keys it sets, and `.env` still supplies the rest. The
+exception is a hand run of `scripts/reassign_games_between_teams.py` (Step 6b, its `--resume`
+and its `--revert`), which reads `.env.local` alone when that file exists.
+
+**Prove this skill is still true.** Run the self-check before trusting the rest:
+
+```bash
+python scripts/check_reconcile_skill_assumptions.py --code-only
+```
+
+`scripts/check_reconcile_skill_assumptions.py` turns this skill's claims about the code into
+assertions (what Step 1 reads and leaves alone, its pacing and its stop, how GotSport's answer
+is decided, what the triage reads and writes, and the guards, logs and undo commands of the
+Step 6 tools and the bulk lane) without reading the database or calling GotSport. **A failure
+means this skill is now wrong, not that the codebase is broken** — fix the prose, then continue.
+Its NOT VERIFIED lines are claims no code settles, such as how long a lookup takes; they never
+fail the run. The weekly team-cleanup loop runs neither this check nor the reconcile, and records
+the reconcile stage as `not run: reconcile is run by hand`.
+
+## Propose-only mode
+
+Take Steps 1 and 2 and stop there. The reconcile without `--execute` and the triage both
+**write nothing to the database**. The reconcile leaves its log
+(`reconcile_teams_with_gotsport_<time>.csv`) and the triage its CSV and three plans in the
+exports folder. Both still call GotSport: the reconcile once per team that has a GotSport id,
+the triage only with `--probe-gotsport`. Resume at Step 3 to read real rows, or hand the triage
+on as it stands.
+
+Nothing is written at this stage, so there is nothing to undo.
 
 ## Step 1: Run the reconcile (read-only)
 
@@ -61,12 +90,19 @@ the revert path for every write is in those logs. Credentials come from root `.e
 python scripts/reconcile_teams_with_gotsport.py --age-group u10,u11 --state AZ --limit 0
 ```
 
-Leave off `--execute`: this step only reads. The script calls GotSport once per team at 3 seconds
-each, so a slice of a few hundred teams takes tens of minutes. Run it in the background and wait
-for it to exit. Its stdout is block-buffered, so an empty output file means it is still running,
-not that it failed. If it stops on consecutive failed lookups, GotSport's WAF is blocking: wait it
-out and re-run with a larger `--delay`. `--state` matches the stored state, so teams with no state
-are outside a state run.
+Leave off `--execute`: this step only reads. For each team with a GotSport id the script
+pauses `--delay` (3 seconds unless set), then sends one request with a 15-second timeout and no
+retry. Over a long walk, budget about `delay + 0.35 s` per lookup, the rate the scraper-patterns
+skill measured across every state. Time before the first lookup comes on top: one 15-team run on
+2026-10-09 took 169 s from start to finish. The script's own `Estimated runtime` line counts only
+the pauses. Run it in the background and wait for it to exit. Its stdout is block-buffered, so an
+empty output file means it is still running, not that it failed. `--state` matches the stored
+state, so teams with no state are outside a state run.
+
+After ten failed lookups in a row (`--abort-after`; a 404 is an answer and clears the count) it
+stops, writes its log for the teams it reached, and exits with code 75 rather than 0. That
+usually means GotSport's WAF is blocking, but a local network outage looks the same: tell them
+apart and respond as the scraper-patterns skill describes.
 
 The log it names (`reconcile_teams_with_gotsport_<time>.csv`) is Step 2's input. A run resumed
 after a WAF stop leaves several logs; pass them all to Step 2, oldest first.
@@ -84,8 +120,11 @@ logging.
 python .claude/skills/reconcile-gotsport/scripts/triage_reconcile.py --log data/exports/<reconcile log>.csv
 ```
 
-Read-only. It examines every team whose live age or gender differs from GotSport's, skipping an age
-the owner kept as stored, and writes to the exports folder:
+Read-only. It examines every team whose live age or gender differs from GotSport's. It leaves out
+the age of every team the owner decided to leave, in any section of
+`.claude/skills/correcting-team-age-groups/scripts/owner_decisions.json` and on any row such a
+team was merged into since, and prints how many it left out; a gender difference on such a team is still triaged. A missing or malformed decisions file
+stops the run. It writes to the exports folder:
 
 - the triage CSV (`reconcile_triage_<time>.csv`), one row per team with its class and reason and the
   evidence behind them. `stated_birth_years` shows when a year in our name forced `same_squad` to
@@ -174,13 +213,25 @@ record. Phrase it as outcomes ("move 21 games to U11B Moyer, set this team to U1
 
 Add each declined relabel to `kept_as_stored.teams` in
 `.claude/skills/correcting-team-age-groups/scripts/owner_decisions.json` as
-`{"team_id": ..., "name": ...}`, the shape its entries already have. The triage and the age review
-both skip those teams. Record the date and the owner's answer in Step 7's record.
+`{"team_id": ..., "name": ...}`, the shape its entries already have. The triage then leaves out
+their age, and the age review skips them. Record the date and the owner's answer in Step 7's record.
 
 ## Step 6: Apply: genders, split, rename, relabel
 
-Dry-run each command first and read its output. Then run it with `--execute`. Every one of them
-logs before its first write and prints its undo command.
+Dry-run each command first and read its output. Then run it with `--execute`. Each tool but
+`archive_split.py` writes its log before its first write, and they differ in the undo they print:
+
+- `apply_team_fields.py` and `scripts/fix_band_cohorts.py` print their undo
+  (`--revert <log> --execute`) after a run with `--execute`.
+- `scripts/reassign_games_between_teams.py` prints its undo only on the dry run. After a run with
+  `--execute` it prints only the `Log:` path; undo with `--revert <that log> --execute`.
+- `archive_split.py apply --execute` creates each record's archive team before it runs that
+  record's tools. Only after the last record does it write its run log
+  (`archive_split_run_<time>.csv`), which names each step's log, and print a template of the
+  undo: each tool's `--revert <log>`, last step first, without `--execute`, so as printed each
+  one only previews. A stopped run leaves neither, only the logs of the tools that ran. Nothing
+  undoes the archive team: once its games are reverted it stays as a team with no games, and a
+  re-run reuses it.
 
 **a. Genders.** Apply the gender plan, filtered to the approved rows:
 
@@ -276,8 +327,12 @@ pointing there. Both are tracked under `scripts/`, so every checkout has them �
 candidates and logs live under `data/exports/`, which is gitignored, so a worktree run without the flag finds no
 candidates and leaves its logs where removing the worktree destroys them.
 
-Credentials come from root `.env` (`.env.local` overrides it); a missing key surfaces as
-`Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY` before any read.
+Both scripts read root `.env` with `.env.local` layered over it, as the top of this skill says.
+A key missing from both stops either script before any read. `scripts/fix_band_cohorts.py` says
+`Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY`, and the reconcile says
+`Missing Supabase credentials. Need SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY/SUPABASE_SERVICE_KEY/SUPABASE_KEY.`
+With `--execute` the reconcile also refuses to run unless `SUPABASE_SERVICE_ROLE_KEY` or
+`SUPABASE_SERVICE_KEY` is set.
 
 Candidates come from `reconcile_teams_with_gotsport_*.csv` in that folder — the most recent
 execute-mode row per team. Only rows from an `--execute` run count, so Step 1's read-only run adds

@@ -20,7 +20,7 @@ and the Tuesday re-check belong to the `reconcile-gotsport` skill.
 
 `scripts/check_age_skill_assumptions.py` turns this skill's claims about the code into assertions
 (the label key against the band readers, the owner's decisions, the applier's guards, the name
-hold) without reading the database. The weekly cleanup loop runs it before proposing age changes
+hold) without reading the database. The weekly team-cleanup loop runs it before proposing age changes
 (`SELF_CHECKS` in `scripts/team_cleanup/propose_week.py`) and parks the ages stage as
 `skill_stale` when it fails.
 
@@ -40,10 +40,11 @@ environment directly and raises a bare `KeyError` without it.
 Resume at **Step 4's second command**, the applier's dry run: its apply log is the only
 place the held rows and their reasons appear, and Step 5 writes.
 
-Nothing is written at this stage, so there is nothing to undo. Neither this cleanup nor the
-club-name one keeps a database ledger — an apply log CSV in a gitignored directory is the
-whole record, and it lives where the run wrote it: the folder `--exports-dir` named, else the
-checkout that ran the batch.
+Nothing is written at this stage, so there is nothing to undo. A hand run of this cleanup keeps
+no database ledger — an apply log CSV in a gitignored directory is the whole record, and it lives
+where the run wrote it: the folder `--exports-dir` named, else the checkout that ran the batch.
+Under the weekly team-cleanup loop the apply also writes a `team_cleanup_changes` row for every
+change that log records and the database holds.
 
 ## What each source is worth
 
@@ -204,6 +205,12 @@ Run the plan with `--limit 50 --execute`, confirm in the database that the 50 ho
 with name, gender and state unchanged, then re-run without `--limit` and verify the whole batch
 the same way. Each write carries the planned old value as a predicate, so a team that moved since
 the plan is skipped rather than overwritten. Undo with `--revert <apply log> --execute`.
+
+Under the weekly team-cleanup loop the apply (`scripts/team_cleanup/apply_stage.py`) writes the
+rows the owner chose into two cut files, a pilot of the first 50 by team id and a rest, and runs
+the fixer with `--apply <cut> --execute --skip-name-contradictions` over each in turn, reading
+each batch back from the database and stopping before the rest when a write it expected is
+missing. The `--limit 50` pilot above is for a hand run.
 
 ### Step 6: Re-run the review and record
 
