@@ -94,10 +94,12 @@ cluster to the owner rather than choosing between them.
 ## Apply, then build the owner page
 
 Before starting or restarting an apply for a state, list the running Python processes. Git
-Bash's `ps` does not show native Windows processes, so from the Bash tool run:
+Bash's `ps` does not show native Windows processes, so from the Bash tool run the query the
+team-cleanup apply runs before it writes (`PROCESS_QUERY` in
+`scripts/team_cleanup/apply_stage.py`):
 
 ```bash
-powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | Select-Object ProcessId,CommandLine"
+powershell -NoProfile -Command "[Console]::OutputEncoding = [Text.Encoding]::UTF8; Get-CimInstance Win32_Process -Filter \"Name LIKE 'python%'\" | Select-Object ProcessId,ParentProcessId,CommandLine | ConvertTo-Json -Compress"
 ```
 
 An apply that looks dead may still be running; a second one races it, and with the same `--out`

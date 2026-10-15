@@ -131,15 +131,16 @@ FUNCTIONS = {
 
 UNVERIFIED = [
     (
-        "Step 1: the reconcile calls GotSport once per team at 3 seconds each",
+        "Step 1: a long walk costs about --delay + 0.35 s per lookup",
         "The code pauses --delay (3 s unless set) before each lookup and then waits on one request with a "
-        "15 s timeout and no retry, which is asserted; how long GotSport takes to answer is not code. A run "
-        "measured about 11 s a team on 2026-10-09. Time a run before quoting a duration.",
+        "15 s timeout and no retry, which is asserted; how long GotSport takes to answer is not code. The "
+        "scraper-patterns skill measured the rate across every state in September 2026. Time a run before "
+        "quoting a duration.",
     ),
     (
-        "Step 1: a stop on consecutive failed lookups means GotSport's WAF is blocking",
-        "The stop itself is asserted (exit code 75 after --abort-after failed lookups in a row); why GotSport "
-        "refused is GotSport's to say.",
+        "Step 1: a stop on consecutive failed lookups usually means GotSport's WAF is blocking",
+        "The stop itself is asserted (exit code 75 after --abort-after failed lookups in a row); whether "
+        "GotSport refused or the network failed is not code.",
     ),
     (
         'Reviewing the weekly re-check: the Windows task "PitchRank Weekly Age-Group Recheck" runs every Tuesday',

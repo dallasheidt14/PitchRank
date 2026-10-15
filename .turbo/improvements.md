@@ -1383,14 +1383,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: For a name that resolves to no registered club, `club_id` comes from the suffix-stripped `normalize_club_name`, so "Tyler FC" and "Tyler SA" (or "Charlotte SC" and "Charlotte Soccer Academy") share a `club_id` and `group_by_club` puts them in one group, while `are_same_club` keeps them apart. No live matcher is affected: `_calculate_match_score` in the base, SincSports and TGS matchers compares `club_id` only when both names are registered. `group_by_club` has no production caller, but the matching-tournament-rosters skill reference points agents at it.
 - **Noted**: 2026-09-18
 
-### Decide the future of the pitchrank-alias-normalizer skill
-
-- **Type**: plan
-- **Category**: docs
-- **Where**: `.claude/skills/pitchrank-alias-normalizer/SKILL.md`
-- **Why**: 24 lines, one commit, last touched 2026-01-30 — the only project skill never revised. It predates the club-normalizer rewrite and every data-hygiene skill, and its stated job (raw name to canonical club_id plus extracted birth year, gender, tier and branch) now overlaps `normalizing-club-names` on the club half and `correcting-team-age-groups` on the age half. It describes a CSV-producing workflow with no driver script in the repo, so a session it triggers gets guidance written against a codebase that has moved. Retire it, narrow it to what nothing else covers, or bring it current.
-- **Noted**: 2026-09-20
-
 ### Split the merging-duplicate-teams skill body into its references
 
 - **Type**: plan
@@ -2295,3 +2287,23 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `scripts/check_state_skill_assumptions.py` `check_workflow_retired`; `scripts/skill_check_offline.py` `step_is_off`
 - **Why**: `check_workflow_retired` reads only the first job's steps and counts a step as off only when its step-level `if:` parses as YAML `false` (`value is False`), so `'false'`, `${{ false }}` or a job-level `if: false` reads as on and fails the check while the step stays off. The club self-check reads the same `update-missing-club-and-state.yml` through `step_is_off` (job and step `if:`, every literal-false spelling); the state check should too. The age check's flag gate asks a different question and keeps `_gated_on_the_flag`.
 - **Noted**: 2026-10-14
+
+### Guard the nine cleanup-skill facts no test or self-check pins
+
+- **ID**: IMP-360
+- **Status**: open
+- **Type**: direct
+- **Category**: testing
+- **Where**: `scripts/check_reconcile_skill_assumptions.py` `check_archive_split`, `check_step_one`, `check_triage`; `tests/unit/test_apply_vetted_club_names.py` `_run_main`; the applier-refusal parametrization in `tests/unit/test_team_cleanup_apply_stage.py`; `tests/unit/test_repair_swapped_club_names.py` `test_the_log_is_on_disk_before_the_first_write` and the two dies-mid tests
+- **Why**: A coverage review (2026-10-15) changed each of these on a scratch copy and the full suite and every self-check stayed green: (1) `archive_split.py apply` prints its per-tool `--revert` without `--execute` (`check_archive_split` runs the apply and discards its output); (2) `reconcile_teams_with_gotsport.py --execute` refuses to run unless a service-role variable is set (`get_supabase(require_service_role=execute)`; `check_step_one`'s `--execute` runs go through `offline()`, which stubs `get_supabase`, and `run_with_anon_key` covers only `apply_team_fields`); (3) `apply_vetted_club_names.py` is a dry run by default and `--dry-run` wins (`_run_main` always passes `--execute`); (4) the triage still triages a gender difference on an owner-decided team (every fixture's genders match); (5) `reassign_games_between_teams.py` prints no undo after `--execute` (the self-check fills `printed` and never asserts it; IMP-310 would change this); (6) `apply_vetted_club_names.py` in `APPLIER_SCRIPTS`; (7) the triage's `--probe-gotsport` gate (`check_triage`'s fixture has no reused row); (8) the club replay's pre-write log marks every due row `updated` (the test asserts only that the file exists), which is what the loop and `--revert` read after a hard kill; (9) a Ctrl+C mid-replay still reaches `finally` and logs unreached rows `not_attempted` (both dies-mid tests raise `RuntimeError`). The first three are write or undo paths, where a stale skill sentence would lead an operator to write.
+- **Noted**: 2026-10-15
+
+### Decide the future of the agent_skills/pitchrank-club-normalizer package
+
+- **ID**: IMP-361
+- **Status**: open
+- **Type**: plan
+- **Category**: docs
+- **Where**: `agent_skills/pitchrank-club-normalizer/` (`run.py` `normalize_club`, `TIER_WORDS`; `run.sh`)
+- **Why**: It is the standalone twin of the retired `pitchrank-alias-normalizer` skill (IMP-359): added in the same commit (`3f0744305`, 2026-01-30), with the same `club_id`/`confidence`/`action` CSV workflow and tag list. `run.sh` calls `agent_skills/pitchrank-club-normalizer/review_queue.py`, which does not exist, so the package cannot run end to end. `.turbo/plans/decommission-openclaw.md` kept it as "a real domain skill", and nothing else in the tree references it. Retire it, or bring it current against `normalizing-club-names`.
+- **Noted**: 2026-10-15

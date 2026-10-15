@@ -56,7 +56,9 @@ refresh its own record, and that a state predating this tool is still correctabl
 means
 this skill is now wrong, not that the codebase is broken** — fix the prose, then continue. The
 measurements below the assertions never fail; they warn when a count this document quotes has
-drifted more than 20%.
+drifted more than 20%. The weekly team-cleanup loop runs it with `--code-only` before proposing
+state changes (`SELF_CHECKS` in `scripts/team_cleanup/propose_week.py`) and parks the states
+stage as `skill_stale` when it fails.
 
 ## Propose-only mode
 
@@ -323,6 +325,14 @@ Read them as a person would: does the club name or the team name place it where 
 it? Gettysburg to PA and Mankato to MN are right for reasons no tier states. If one looks
 wrong, it probably is — see [references/failure-modes.md](references/failure-modes.md) before
 applying the rest.
+
+**Under the weekly team-cleanup loop** the apply (`scripts/team_cleanup/apply_stage.py`) runs
+this step and Step 5 itself. It runs the hold script over the run's whole national snapshot,
+writes the applies the owner chose, less those it held, into two cut files, a pilot of the first
+50 by team id and a rest, and runs `assign_team_states.py --execute --snapshot <cut>` over each
+in turn, reading each batch back from the database and stopping before the rest when a write it
+expected is missing. Cards the rules only queued go through the review queue instead. The
+`--limit 50` above is for a hand run.
 
 ## Step 5: Apply the rest from the same snapshot
 

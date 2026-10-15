@@ -1792,3 +1792,15 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Noted**: 2026-10-14
 - **Update (2026-10-14)**: Fixed: `newestPlayedResults` in `frontend/lib/insights/recentPlayed.ts` is the one walk, used by `calculateMomentum`, `generateFormBadge`, `extractRecentPlayedResults` (which `analyzeConsistencyPattern` now reuses, so both read one 15-game window and one ±6 cap), `getCurrentStreak` and the watchlist form strip. The exception is `buildRecentProfile` in `frontend/lib/matchPredictor.ts`, kept slice-first on purpose (IMP-353). `frontend/lib/insights/__tests__/recentPlayed.test.ts` pins the walk, and each caller has a test.
 - **Refs**: branch `fix/hidden-games-and-played-walk`
+
+### Decide the future of the pitchrank-alias-normalizer skill
+
+- **ID**: IMP-359
+- **Status**: done
+- **Type**: plan
+- **Category**: docs
+- **Where**: `.claude/skills/pitchrank-alias-normalizer/SKILL.md`
+- **Why**: 24 lines, one commit, last touched 2026-01-30 — the only project skill never revised. It predates the club-normalizer rewrite and every data-hygiene skill, and its stated job (raw name to canonical club_id plus extracted birth year, gender, tier and branch) now overlaps `normalizing-club-names` on the club half and `correcting-team-age-groups` on the age half. It describes a CSV-producing workflow with no driver script in the repo, so a session it triggers gets guidance written against a codebase that has moved. Retire it, narrow it to what nothing else covers, or bring it current.
+- **Noted**: 2026-09-20
+- **Update (2026-10-15)**: Retired: the skill folder is deleted. Its club half is `normalizing-club-names` and its age half `correcting-team-age-groups`; its one merge rule (never auto-merge when the gender conflicts or birth years differ by more than one, unless the evidence is strong) was looser than the cohort and tier rules `merging-duplicate-teams` enforces. Of its competition tags, all but USYS are named in `pitchrank-domain` or the `matching-tournament-rosters` name-decomposition reference.
+- **Refs**: branch `docs/skill-corrections-step-8`

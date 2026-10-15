@@ -17,13 +17,15 @@ it at any threshold — fixing a name here is what makes that pair proposable.
 
 `scripts/repair_swapped_club_names.py` does the work. Run it from the repo root: its
 exports directory and its `.env.local` lookup are both relative to the working directory,
-so a run from elsewhere puts the snapshot and its only undo record somewhere else.
+so a run from elsewhere puts the snapshot and its only undo record somewhere else. A list of
+club moves a person has already decided team by team goes through
+`scripts/apply_vetted_club_names.py` instead (**Applying a hand-vetted list** below).
 
 Copy this checklist and check off items as you complete them:
 
 ```
 Task Progress:
-- [ ] Step 1: Preflight — credentials, and the run logs the abbreviation source reads
+- [ ] Step 1: Preflight — the self-check, credentials, and the run logs the abbreviation source reads
 - [ ] Step 2: Take a snapshot with a dry run
 - [ ] Step 3: Read the evidence before approving anything
 - [ ] Step 4: Rehearse the replay, then apply it and verify against the database
@@ -82,6 +84,22 @@ No measured yield exists for these tiers yet. Record one the first time a batch 
 
 ## Step 1: Preflight
 
+**Prove this skill is still true.** Run the self-check before trusting the rest:
+
+```bash
+python scripts/check_club_skill_assumptions.py --code-only
+```
+
+`scripts/check_club_skill_assumptions.py` turns this skill's claims about the code into
+assertions (the tier table under **What each source is worth** against the scan, the saved-log
+reader, the replay's and the undo's guards, the service-key refusal, and the club steps of
+`update-missing-club-and-state.yml`) without reading the database, the network or `gh`. **A failure means this skill is
+now wrong, not that the codebase is broken** — fix the prose, then continue. It parses the tier
+table, so a change to that table has to match the code in the same commit. The weekly
+team-cleanup loop runs it before proposing club changes (`SELF_CHECKS` in
+`scripts/team_cleanup/propose_week.py`) and parks the clubs stage as `skill_stale` when it
+fails.
+
 **Credentials.** `.env.local` *replaces* root `.env` rather than layering over it — when
 that file exists it is the only one loaded, so one holding just frontend variables leaves
 no Supabase credentials at all. `--execute` needs `SUPABASE_SERVICE_ROLE_KEY` or
@@ -89,13 +107,22 @@ no Supabase credentials at all. `--execute` needs `SUPABASE_SERVICE_ROLE_KEY` or
 UPDATE policy, so RLS filters the write to zero rows and PostgREST answers 200 with an
 empty body — a run that reports success and changes nothing.
 
-**The abbreviation source reads GitHub logs.** It parses the rename lines out of
-`gh run view <run> --log` for the weekly cleanup's runs, so `gh` has to be authenticated.
-A dry run of that cleanup logs no renames, so only an executed run's id is worth passing.
+**The abbreviation source reads the run logs of `update-missing-club-and-state.yml`.** It parses
+the rename lines out of each run's log; a dry run of that workflow logs no renames, so only an executed run is
+worth reading. Given a run id (`--abbreviation-run`) the scan fetches the log with
+`gh run view <run> --log`, so `gh` has to be authenticated. Given a saved copy
+(`--abbreviation-log <file>`) it reads the file and never calls `gh`. Save the copy from Git
+Bash (`gh run view <run> --log > <file>`): PowerShell mangles the `✅` and `→` the rename lines
+are found by, and Windows PowerShell's `>` writes UTF-16. The scan refuses a copy that is not
+UTF-8 or holds no rename line rather than read it as a run that renamed nothing. The weekly
+team-cleanup loop reads saved copies only, from `<store>/inputs/abbreviation_logs/`. Until that
+folder holds the damage run's log (the default below) as `<run id>.log`, it fails its clubs
+stage with the `gh run view` command that saves it.
 
-**Passing either repeatable flag replaces its defaults.** `--abbreviation-run` and
-`--league-url` each fall back to a default list only when absent, so naming a later cleanup
-run alone drops the original damage run, and naming one league alone drops the other
+**Passing a repeatable flag replaces its defaults.** `--abbreviation-run` and
+`--abbreviation-log` share one default, the original damage run, and passing either one alone
+drops it; a saved copy of the damage run's log counts as passing it. `--league-url` falls back
+to the two default leagues only when absent, so naming one league alone drops the other
 league's proposals. Re-pass the defaults alongside any addition.
 
 ## Step 2: Take a snapshot with a dry run
@@ -126,6 +153,11 @@ that happens to read like one.
 this one applies exactly the rows marked approved. The pilot is therefore a choice about
 rows: approve a handful of a tier, apply, verify, then approve the rest of it.
 
+Under the weekly team-cleanup loop the apply (`scripts/team_cleanup/apply_stage.py`) writes the
+rows the owner chose into two cut files, a pilot of the first 50 by team id and a rest, and
+replays each in turn, reading each batch back from the database and stopping before the rest
+when a write it expected is missing.
+
 ## Step 4: Rehearse the replay, then apply it and verify against the database
 
 Rehearse first — `--dry-run` wins over `--execute`, so this prints every due write and
@@ -145,8 +177,12 @@ Two guards stand between the snapshot and the write, and they report differently
 whose club no longer matches the snapshot is `skipped_changed_since_snapshot`, case aside.
 A team that moves between that check and the write itself is `skipped_changed_since_read`,
 because the write carries the freshly-read value as its predicate rather than the
-snapshot's. A run interrupted mid-write leaves `not_attempted` rows, which are the only
-ones whose outcome is unknown — those are what the verification below is for.
+snapshot's. A run stopped by an error or Ctrl+C logs every row it never reached as
+`not_attempted`: those were never sent, and a re-run of the same snapshot writes them. The one
+row whose write was under way stays logged as `updated`, and it is the only one whose outcome is
+unknown — check it in the verification below. A run killed outright (a closed window,
+`taskkill /F`, the loop's step timeout) leaves the log written before the first write, with
+every due row `updated`, so check them all.
 
 Verify from the database rather than from the run's summary: read a sample of the written
 teams back and check the club reads as a club, not as a squad label or a truncated name.
@@ -167,16 +203,47 @@ Note the snapshot and log paths and the undo command. Then record the rows left 
 with the reason — a listed row with no stated reason is re-listed and re-argued on the next
 run, and a conflict left undecided stays a conflict.
 
-There is no database ledger for this column, so those logs are the whole record. They live
-under `data/exports`, which is gitignored, so they exist only in the checkout that ran the
-batch. A record that has to outlive it goes somewhere tracked.
+A hand run keeps no database ledger for this column, so its logs are the whole record. They
+live under `data/exports`, which is gitignored, or in the folder `--exports-dir` named, so they
+exist only where the batch ran. A record that has to outlive it goes somewhere tracked. Under
+the weekly team-cleanup loop the apply (`scripts/team_cleanup/apply_stage.py`) also reads each
+batch's log back and writes a `team_cleanup_changes` row for every change the log records as
+written and the database holds; those logs land in the loop's store, under `<store>/exports`.
+
+## Applying a hand-vetted list
+
+`scripts/apply_vetted_club_names.py` writes `club_name` from a list a person has already
+decided: a JSON array with one entry per team, each carrying `team_id_master`, `from_club`,
+`to_club` and the `evidence` that decided it. It decides nothing itself. Use it for moves none of
+the sources above proposes, such as a team filed under the host club whose code a provider put
+in front of its name (`XL - BUFC B17 Blue`, a Bellevue United team at a Crossfire event). The
+branch rule under **Hold rather than write** applies to every entry.
+
+```bash
+python scripts/apply_vetted_club_names.py --file <vetted.json>
+python scripts/apply_vetted_club_names.py --file <vetted.json> --execute --log <log.csv>
+python scripts/apply_vetted_club_names.py --revert <log.csv> --execute
+```
+
+It is a dry run unless given `--execute`, and `--dry-run` wins. Each write carries `from_club`
+and requires a live team, so a team whose club changed or that was merged since it was read is
+skipped and left out of the log. The log records each move as it lands, in
+`data/logs/club_name_changes_<time>.csv` unless `--log` names another file, and the script
+refuses a log file that already exists. `--revert` replays a log backwards under the same
+guard. It needs `SUPABASE_SERVICE_ROLE_KEY` even for a dry run, read from `.env.local` in the
+working directory when that file exists, else from `.env` there. The weekly team-cleanup loop
+does not run it, but its apply refuses to start while it is running.
 
 ## Keeping the weekly cleanup in agreement
 
-`update-missing-club-and-state.yml` runs every Monday and its club steps are live: two of
-them fill a blank `club_name` and never overwrite, and the third standardizes spellings
-through `scripts/full_club_analysis.py`, which carries its own canonical overrides and
-casing rules.
+`update-missing-club-and-state.yml` runs every Monday and its club steps are live. Two of
+them fill a blank `club_name`: `scripts/backfill_missing_club_names.py` from GotSport and
+`scripts/extract_missing_club_names.py` from the team's own name. They choose only teams whose
+club is blank, but each write filters on the team id alone, so a club another writer sets
+between that read and the write is overwritten. Both write by default: they take `--dry-run`
+and have no `--execute`, so pass `--dry-run` when running either by hand (the workflow passes
+it only on a dispatch with `dry_run` set). The third step standardizes spellings through
+`scripts/full_club_analysis.py`, which carries its own canonical overrides and casing rules.
 
 So a naming rule decided here belongs in that script. A rule applied to rows alone is
 re-derived away the following Monday, and the only visible symptom is the same repair
