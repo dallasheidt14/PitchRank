@@ -308,7 +308,7 @@
   }
 
   /* Rankings row hover dimming — non-hovered rows fade when any row is hovered */
-  .rankings-body:hover .rankings-row-link:not(:hover) {
+  .rankings-body:has(.rankings-row-link:hover) .rankings-row-link:not(:hover) {
     opacity: 0.75;
   }
 

@@ -537,6 +537,7 @@ export const api = {
       state: rankingData?.state ?? team.state_code,
       age: age,
       gender: gender,
+      status: rankingData?.status ?? rankingsFullData?.status ?? null,
       power_score_final: powerScoreFinal,
       glicko_rating: glickoRating,
       glicko_rd: glickoRd,
@@ -620,6 +621,7 @@ export const api = {
 
     let periodStart = new Date(sortedGames[0].game_date);
     let periodGames: Game[] = [];
+    const periodEndOf = (start: Date) => new Date(start.getTime() + periodDays * 24 * 60 * 60 * 1000).toISOString();
 
     for (const game of sortedGames) {
       const gameDate = new Date(game.game_date);
@@ -631,7 +633,7 @@ export const api = {
         trajectory.push({
           team_id: id,
           period_start: periodStart.toISOString(),
-          period_end: new Date(periodStart.getTime() + periodDays * 24 * 60 * 60 * 1000).toISOString(),
+          period_end: periodEndOf(periodStart),
           ...metrics,
         });
 
@@ -649,7 +651,7 @@ export const api = {
       trajectory.push({
         team_id: id,
         period_start: periodStart.toISOString(),
-        period_end: new Date().toISOString(),
+        period_end: periodEndOf(periodStart),
         ...metrics,
       });
     }

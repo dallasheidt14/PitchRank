@@ -1,4 +1,5 @@
 import { BRAND_COLORS } from './InfographicWrapper';
+import { formatGender } from '@/lib/constants';
 
 type CoverPlatform = 'twitter' | 'facebook' | 'linkedin';
 
@@ -115,7 +116,7 @@ export async function renderCoverImageToCanvas(options: CoverImageOptions): Prom
 
   // ===== CATEGORY TAG (if provided) =====
   if (ageGroup && gender) {
-    const genderLabel = gender === 'M' ? 'BOYS' : 'GIRLS';
+    const genderLabel = formatGender(gender).toUpperCase();
     let categoryText = `${ageGroup.toUpperCase()} ${genderLabel}`;
     if (regionName) {
       categoryText += ` | ${regionName.toUpperCase()}`;

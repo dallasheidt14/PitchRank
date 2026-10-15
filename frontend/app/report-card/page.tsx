@@ -76,7 +76,7 @@ export default async function ReportCardPage() {
   ];
 
   return (
-    <main className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background">
       {/* Hero */}
       <section className="bg-[#0B5345] py-14 md:py-20 px-4 relative overflow-hidden">
         {/* Diagonal stripe motif */}
@@ -155,6 +155,6 @@ export default async function ReportCardPage() {
           </div>
         </div>
       </section>
-    </main>
+    </div>
   );
 }

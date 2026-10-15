@@ -23,6 +23,8 @@ vi.mock('@/components/GoogleAds', () => ({ GoogleAds: () => null }));
 vi.mock('@/components/WebVitalsReporter', () => ({ WebVitalsReporter: () => null }));
 
 import RootLayout from './layout';
+import { SkipLink } from '@/components/SkipLink';
+import { flatten } from '@/test/flatten';
 
 function themeBlock(): string {
   const css = readFileSync(path.join(__dirname, 'globals.css'), 'utf-8');
@@ -64,5 +66,17 @@ describe('RootLayout fonts', () => {
       '--font-mono': 'var(--font-jetbrains-mono), ui-monospace, monospace',
       '--font-display': 'var(--font-oswald), system-ui, sans-serif',
     });
+  });
+});
+
+describe('RootLayout skip link', () => {
+  it('opens <body> with the skip link, aimed at a main landmark that is not focusable on its own', () => {
+    const tree = flatten(RootLayout({ children: null }));
+    const body = tree.find((el) => el.type === 'body') as ReactElement<{ children: ReactElement[] }>;
+
+    expect([body.props.children].flat()[0].type).toBe(SkipLink);
+    const main = tree.find((el) => el.type === 'main') as ReactElement<{ id?: string; tabIndex?: number }>;
+    expect(main.props.id).toBe('main');
+    expect(main.props.tabIndex).toBeUndefined();
   });
 });

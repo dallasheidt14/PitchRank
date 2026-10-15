@@ -156,18 +156,15 @@ export const GENDER_SLUG_LABELS: Record<string, string> = {
   girls: 'Girls',
 };
 
-/**
- * Format a gender code or slug to a display label.
- * Handles M/F/B/G, male/female, Male/Female, boys/girls.
- */
+/** Display label for a gender code or slug in any case; anything else is 'Unknown'. */
 export function formatGender(gender: string): string {
-  return GENDER_LABELS[gender] ?? GENDER_SLUG_LABELS[gender.toLowerCase()] ?? 'Unknown';
+  return GENDER_LABELS[gender.toUpperCase()] ?? GENDER_SLUG_LABELS[gender.toLowerCase()] ?? 'Unknown';
 }
 
 /** Map a gender code or slug, in any case, to its rankings URL slug. */
 export function genderSlug(gender: string | null | undefined): 'male' | 'female' | null {
   if (!gender) return null;
-  const label = GENDER_LABELS[gender.toUpperCase()] ?? GENDER_SLUG_LABELS[gender.toLowerCase()];
+  const label = formatGender(gender);
   if (label === 'Boys') return 'male';
   if (label === 'Girls') return 'female';
   return null;
@@ -192,6 +189,9 @@ export const MAX_FEEDBACK_LENGTH = 2000;
 
 export const POWERSCORE_DEFINITION =
   'A machine-learning-enhanced ranking score that measures overall team strength based on offense, defense, schedule difficulty, and predictive performance patterns. Shown on a 0–100 scale; higher is stronger.';
+
+/** Games in the last 12 months a team needs for a rank; mirrors MIN_GAMES_PROVISIONAL in src/etl/glicko_config.py. */
+export const MIN_RANKED_GAMES = 10;
 
 /**
  * Bearer credentials that ride in a URL, and the pages that render carrying one.

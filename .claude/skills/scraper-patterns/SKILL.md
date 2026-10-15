@@ -457,7 +457,8 @@ with a plain update of `competition`: `prevent_game_updates` lets a locked game 
 other than its date, teams, scores, `game_uid`, `provider_id` and `is_immutable`.
 
 The SincSports spellings (`UN16B`, `13U`, `'10`) are applied by `respell_ages` before the shared
-age reader (both in `scripts/import_athletes2events_event.py`), and only SincSports calls it. Before moving any name-reading rule into the shared
+age reader (both in `scripts/import_athletes2events_event.py`). SincSports and Tourney Central call
+it; Tourney Central does because its registrants write ages as `12u` and `13U`. Before moving any name-reading rule into the shared
 reader, count per provider how many stored teams it would read differently: Affinity OR's `14B`
 teams sit on u12, where the SincSports reading puts them on u13.
 
@@ -652,11 +653,12 @@ The gates in Provider Matcher Name Parsing below apply. This platform glues squa
   bare `GameHistoryMatcher`, constructed without `dry_run`, and a dry run still wrote aliases and
   review rows. Write the team aliases first so every game's teams resolve by id, and import only
   games whose two teams are both settled.
-- The importer validates both teams against one age group per game, so a game between teams of
-  different stored ages — a team playing up — inserts half-matched (see Repairing a half-matched
-  game below). The driver holds those back and writes them to its own `*_cross_age.csv`, since
-  `off_board_links` compares each team only against its own division and never the two to each
-  other.
+- A game between teams of different stored ages — a team playing up — is **imported**, and also
+  listed in the driver's own `*_cross_age.csv`, because the age stamped on the importer's row is
+  the home team's. `Athletes2EventsGameMatcher._match_by_provider_id` skips the base class's age
+  re-check, so each side resolves through its own alias and the game does not insert
+  half-matched; the ranking engine reads each team's cohort from its own row. Tourney Central
+  inherits the same matcher and does the same.
 
 ## YSSL Pages
 
@@ -719,6 +721,88 @@ Reading a team:
   with a blank name or `decided_by` is undecided, never "no club". A team no decided row fits is left out, and the run exits 1, as it does for any team
   whose link errored or conflicted and for any played game it could not read. A rained-out game
   (its date cell reads "rainout" once the struck dates are dropped) is listed but does not fail the run.
+
+## Tourney Central Pages
+
+Tourney Central (Rivershark Inc.) hosts about fifty tournaments, mostly Ohio and Michigan, each on
+its own subdomain (`wfc.`, `buckeyecup.`, `copadetroit.`); `https://tourneycentral.com/tournament-calendar`
+links them. Every site runs the same CGI and answers `requests` sent with a browser User-Agent, no
+proxy and no bot challenge. `scripts/import_tourneycentral_event.py` is the driver; it takes
+`--event-url` (any page of the tournament) and reads the host from it. A site shows only its
+current year, so a finished tournament has to be imported before the site rolls over. The 2026
+Warrior Fall Classic (`wfc.`) is the event it was built against.
+
+### Pages and ids
+
+- `games.html` lists the division codes as the options of the first `select name=t_div`, and the
+  play dates as `<option value="YYYY-MM-DD">`. Date the season from those, not the wall clock.
+- `cgi-bin/teams.cgi?fnc=adiv&t_div=<code>` is a division's team list. The name cell reads
+  `<b>name</b> [<a>+</a>] <br> <i>club</i> <br> City, ST`: the `[+]` website link appears on some
+  rows, and some rows have no club line at all. The coach is the next cell; the team id is the
+  `input name=t` of the row's form.
+- `cgi-bin/teams.cgi?fnc=sked&sny=Y&t_div=<code>` is a division's schedule: a bold day heading
+  (`Saturday, Oct 10, 2026`) in a one-cell row, then one row per game — blank, `No.`, Div, Time,
+  Field, Home, home score, away score, Away, a separator, Type (`FINAL` on a final). A team cell's
+  text carries its pool seed (`Warrior SC B15/16 White - A4`, `A2 - Olimpia ...`), so read the
+  team id from its `fnc=sked&t=<id>` link and the name from the team list.
+- GET and the forms' POST return the same pages.
+- Pages send a bare text/html content type and declare their charset only in `<meta>`, which
+  `requests` never reads, so read it from the page. The declared ISO-8859-1 is read as
+  windows-1252, as browsers read it: the registration form submits a curly apostrophe or dash as
+  its windows-1252 byte, which strict ISO-8859-1 turns into a control character.
+- A page that answers 200 without its table (a team list without its "Team/Location" header, a
+  schedule without its `No.` header) stops the run before anything is registered, as a failed
+  fetch does: it is not a division with no teams or no games.
+- The game number is unique across the tournament, and a tournament carries same-day rematches
+  (a pool game and the final between the same two teams), so it is the game's `schedule_id` and
+  the provider is in `REMATCH_PROVIDERS`. That keeps the two games' uids apart, but a final whose
+  orientation and score repeat its pool game's still collides with it on the composite key and is
+  lost. Once the pool game is stored, a later run's master-id check also drops a final that
+  repeats each team's score with home and away swapped, so import a tournament once, after it
+  finishes (IMP-213). `--days-back` defaults to 14, so a tournament older than two weeks needs a
+  larger window or imports no games.
+- Team ids are one platform-wide sequence, but a team gets a new id for every tournament it enters,
+  so matching runs on name, club and state every time.
+
+### Reading a Tourney Central team
+
+- A division code reads `<B|G>[U]<U-age>[-<U-age>][<n>v<n>]<flight>`: `B11Gold`, `B107v7Gold` (U10,
+  7v7), `B129v9Red` (U12, 9v9), `G14-15Gold` (U14 and U15 together). Some tournaments spell it with
+  a U and run a pair together: `BU9Gold`, `GU11Premier`, `BU1415Black`. A run-together pair is read
+  only as consecutive ages not followed by a format (`B1011v11` is U10 11v11), and no age above U19
+  is read, so a birth-year code (`B2015Gold`) is refused. Divisions at U9 and below, and
+  small-sided ones, are skipped before they are fetched; a code of another shape is reported.
+- **The age comes from the team's name alone** — not bounded by the division and never falling
+  back to it (owner, 2026-10-08: "it DOESNT matter what Divison they are in in the tournament
+  at all"). A name with no age is left out for a person to decide. A single
+  birth year reads as a band's younger year (`G2016` is U11), which can put a team older than the
+  division it entered (`WOU B14`, U13, in a U12 division).
+- The location is `City, ST`, written loosely: `Parkersburg, WV, WV`, `Kettering, OH, QC`,
+  `GC Cosmos 2014/2015 white, OH`. Take the one US state code among its comma-separated parts.
+  A location can be wrong in a way no rule sees: CUSC West entered Party on the Pitch from
+  `Fairfield, AL` and `Ohio, AL`, and Fairfield is a city in both states. Taken as written, it
+  would have created five Alabama duplicates of CUSC teams already on the Ohio boards. Read the
+  dry run's created teams outside the tournament's home state, and set a wrong one with
+  `--state <team id>=OH`. Neither a city-named-like-a-state rule (Delaware, Ohio is real) nor a
+  club-majority rule (BSC Premier plays from Batesville, IN under an Ohio club) is safe.
+- A bare two-digit age (`G11`, `B12`) reads as a birth year, which is wrong for some clubs that
+  mean a U-age (`CUSC B12 South Elite` entered U12, read as U15). No rule separates the two without
+  the division, so the operator names such teams with `--leave-out <team id>` for the owner to
+  settle; the team report carries each id.
+- The club field is the club, except `Tournament Only team`, which is a placeholder; the name's
+  own leading club stands in for it, as it does for a row with no club line.
+- The club field is often spelled differently from the name's own prefix (`Warrior Soccer Club`
+  beside `Warrior SC B15/16 White`, `Valentis` beside `VASC B12/13`). The squad gates strip the
+  club **as the name writes it**, so that written club must stop before the squad marks: take the
+  club field when it opens the name (`Worthington United Navy 1 U14` strips `Worthington
+  United`, not `Navy 1`), else the words before the first age, a bare band such as `13/14`
+  included. Taking too much strips a color or squad number with the club, and a markless stored
+  row then links in its place. A guessed club can still hold marks (`Lakota FC Pre-ECNL U13`,
+  `Ohio Premier North B2014`), so the driver cuts it back before its first squad mark
+  (`club_before_squad_marks`). A club field that opens the name is the club itself and stays
+  whole: its own words are not marks (`Elite FC`, `Dayton Futbol Academy`), and cutting them
+  leaves them in the name, so the club's stored squads read as other squads and duplicate. The
+  matcher gates candidates on the club field and, when that matches none, on the written club.
 
 ## Provider Matcher Name Parsing
 
@@ -890,7 +974,8 @@ the two places the season is consumed.
 In a Soccer Events Group game import, the base `GameHistoryMatcher._validate_team_age_group`
 refuses a link whose team's stored age group or gender no longer matches the game, and the
 game inserts with that side NULL. Other providers differ: the TGS, SincSports and PlayMetrics
-matchers override `_match_by_provider_id` without the check.
+matchers override `_match_by_provider_id` without the check, and so does
+`Athletes2EventsGameMatcher`, which the YSSL and Tourney Central matchers inherit.
 
 - Hold such games back before the import (`import_soccereventsgroup_event.off_board_links`).
   **Read what that check actually covers.** It compares each *linked* team's stored age group and
@@ -972,6 +1057,20 @@ cannot fail when this regresses.
 
 The same default drives the JSON-body trap under ZenRows Batch API above, where the remedy is to
 parse `response.content` instead.
+
+**`requests` never reads a charset declared only in the page's `<meta>`**, so such a page also
+decodes as ISO-8859-1. Take the header's charset first, then a `<meta charset>` read from the first
+bytes, and fall back to the UTF-8 above only when neither exists. For a declared label:
+
+- Decode a declared ISO-8859-1 or ASCII as windows-1252 with `errors="replace"`, as browsers do. A
+  registration form on such a page submits curly quotes and dashes as their windows-1252 bytes
+  (0x80-0x9F), which strict ISO-8859-1 turns into control characters inside a team's name, and
+  Python's windows-1252 leaves five of those bytes undefined.
+- Probe the label with `b" ".decode(name, errors="replace")` inside the `try`, not `b""`. Python
+  returns `''` for empty input without consulting the codec, so `b"".decode("hex")` succeeds while
+  one byte raises `LookupError`.
+
+`_encoding` and `_fetch` in `scripts/import_tourneycentral_event.py` carry the shipped form.
 
 ### Retry Semantics
 
@@ -1246,8 +1345,22 @@ created or matched, since their age group came from the division, and compare
 against the board the division maps to this season rather than its printed label.
 Raise the doubt with the operator when that sample disagrees.
 
-**Once a division's cohort is resolved, a team's name can only veto it.** A U-age
-in the name that differs from the division's, read against the event's own
-season, sends a not-yet-linked team to the review queue instead of linking or
-creating it. The name never sets the team's age
+**In the Soccer Events Group driver, the division sets the cohort and a team's name can
+only veto it.** A U-age in the name that differs from the division's, read against the
+event's own season, sends a not-yet-linked team to the review queue instead of linking or
+creating it. The name never sets that driver's ages
 (`import_soccereventsgroup_event.name_age_mismatch`).
+
+**Read a new driver's ages from the team's own name; the division sets nothing.** Call
+`age_from_name(name, None, season)` from `scripts/import_athletes2events_event.py`. Passing `None`
+makes the division neither a bound nor a fallback, and a name with no age, an odd year span or two
+U-ages returns no birth year: leave that team out for a person to decide (owner, 2026-10-08: "it
+DOESNT matter what Divison they are in in the tournament at all"). Map `NO_AGE_IN_NAME` and
+`ODD_YEAR_SPAN` to your own wording, as `import_tourneycentral_event.NAME_WITHOUT_AN_AGE` does:
+both say a division was used. Run `respell_ages` first only when the provider writes `12u`,
+`UN16B` or `'10`, since it also reads a bare `05`-`19` such as `Elite 11`, and `14B`, as a birth
+year; check the provider's names for squad numbers before opting in.
+`scripts/import_tourneycentral_event.py` and `discover_sincsports_via_tournament.resolve_team_age`
+follow this. The Athletes2Events driver (division as bound and fallback) and the Soccer Events
+Group driver keep their own rules; leave those drivers as they are and copy neither rule into a new
+one.

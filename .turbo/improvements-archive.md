@@ -1671,3 +1671,88 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Noted**: 2026-10-11
 - **Update (2026-10-14)**: Fixed all five. `waitForFirstRankingsRow` and the two specs that repeated its descendant query now assert the row's own `href`, and the title test matches "Youth Soccer Rankings"; all five pass against www.pitchrank.io on both Playwright projects.
 - **Refs**: branch `fix/rankings-view-prompt`
+
+### Team page swallows notFound(), so a bad URL reaches the queries
+
+- **ID**: IMP-202
+- **Status**: done
+- **Type**: plan
+- **Category**: reliability
+- **Where**: the `try`/`catch` wrapping `notFound()` in `frontend/app/teams/[id]/page.tsx`; `getTeamTrajectory` in `frontend/lib/api.ts`
+- **Why**: Verified 2026-09-09 by reading the file: four `notFound()` calls (lines 118, 132, 146, 168) sit inside a `try` opened at 113 whose `catch` at 171 logs and continues, and `unstable_rethrow` appears nowhere in `frontend/`. Next's `notFound()` throws an ordinary Error, so a malformed id falls through to `TeamPageShell` and is interpolated into the PostgREST `.or()` expression with no `isValidUuid` guard — unlike the sibling insights route, which validates first. Exposure is bounded: `games_anon_select` already grants `anon` SELECT `USING (true)`, and supabase-js percent-encodes the expression, so a crafted link spoofs which team's games are shown rather than reaching private data. The same swallowed `notFound()` also disables the deprecated-team `redirect()` and the zero-games 404, which is why the fix belongs at the `catch` and not as a per-query guard. Logged rather than patched by user decision on 2026-09-09: a single-query guard would read as fixed while the page's other queries kept the gap.
+- **Noted**: 2026-09-09
+- **Update (2026-10-14)**: Fixed at the `catch`: it calls `unstable_rethrow(error)` before logging, so `notFound()` and the merged-team `redirect()` reach Next again. The zero-games 404 was removed instead of revived, by owner decision on 2026-10-14. It would have sent 25,601 teams that search still lists to a dead end in place of the page's Missing Games form, and the page is members-only and noindex, so the soft-404 reason never applied. The merged-team lookup now reads only the team's own merge row, and a failed lookup renders instead of answering 404. Tests in `frontend/app/teams/[id]/__tests__/page.test.tsx` pin the redirect, the 404s for a malformed id and for a merged team with no survivor, a team with no games rendering, and the page rendering when a query errors or the check throws.
+- **Refs**: branch `fix/ui-audit-leftovers`
+
+### MomentumMeter samples 8 scheduled games, not 8 played ones
+
+- **ID**: IMP-201
+- **Status**: done
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `calculateMomentum` in `frontend/components/MomentumMeter.tsx`
+- **Why**: It slices the 8 most recent rows and only then skips games with a null score, so a team whose scores have not been scraped yet gets its momentum from whatever is left — 5 games instead of 8. The two sibling generators do the opposite deliberately and say so: `formBadge.ts` and `consistency.ts` both walk newest-first and collect until they hold N *played* results. Verified 2026-09-09 against production: 34,540 of 187,266 teams (18.4%) currently have at least one unscored game among their last 8 played-or-past fixtures. Nothing on screen is false — the card labels the count it actually used — so this is sample quality, not a wrong number. Fix is to mirror the sibling walk. Kept out of the trajectory/insights fix on 2026-09-09 by user decision, because it shifts a headline metric for a fifth of the site.
+- **Noted**: 2026-09-09
+- **Update (2026-10-14)**: Fixed: `calculateMomentum` walks the games newest-first and stops once it holds 8 played results, as `formBadge.ts` does. `frontend/components/MomentumMeter.test.tsx` pins it with unscored fixtures ahead of the played ones.
+- **Refs**: branch `fix/small-site-fixes`
+
+### Final trajectory period reports period_end as the current time
+
+- **ID**: IMP-205
+- **Status**: done
+- **Type**: direct
+- **Category**: correctness
+- **Where**: the tail-period push in `getTeamTrajectory`, `frontend/lib/api.ts`
+- **Why**: Every other period ends at `periodStart + periodDays`, but the last is pushed with `new Date().toISOString()`, so a team whose last result was months ago gets an eleven-month span described as a 30-day period. Invisible today — `components/TeamTrajectoryChart.tsx` reads only `period_start`, `avg_goals_*`, `games_played` and `win_percentage` — but any consumer that renders the range would print a window the data does not cover.
+- **Noted**: 2026-09-09
+- **Update (2026-10-14)**: Fixed: every period, the last one included, ends `periodDays` after it starts (`periodEndOf` in `getTeamTrajectory`); pinned in `frontend/lib/api.test.ts`.
+- **Refs**: branch `fix/small-site-fixes`
+
+### Watchlist activity counts games that have been excluded
+
+- **ID**: IMP-220
+- **Status**: done
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `GET` handler in `frontend/app/api/watchlist/route.ts` — the recent-game `homeRecentResult`/`awayRecentResult` queries and the fallback `homeLastResult`/`awayLastResult` queries
+- **Why**: Read on `origin/main` 2026-09-14. Those four `games` queries lack `.eq('is_excluded', false)`, although the same file's other queries (`:355`, `:364`) and `getTeamGames` (`frontend/lib/api.ts:720`) filter it. So `new_games_count` and `last_game_date` still count excluded rows: futsal, merge duplicates, and the ~4,850 phantom games `scripts/exclude_none_opponent_games.py` excludes. Add the filter to all four queries, plus a route test showing an excluded game changes neither field.
+- **Noted**: 2026-09-14
+- **Update (2026-10-14)**: Fixed: the four recent and last-game queries filter `is_excluded = false`, and `last_game_date` keeps the newest of the home and away dates (it kept the first one read, so a newer away game lost to an older home one). `frontend/app/api/watchlist/__tests__/route.test.ts` gives each query its own excluded row through `filteringClientMock`, which gained `.gte`, and its Quiet FC rows pin the newest date.
+- **Refs**: branch `fix/small-site-fixes`
+
+### Route the hand-written gender labels through formatGender
+
+- **ID**: IMP-316
+- **Status**: done
+- **Type**: direct
+- **Category**: refactor
+- **Where**: `frontend/components/RankingsTable.tsx` (`description`), `frontend/components/TeamHeader.tsx` (gender `Badge`), `frontend/lib/constants.ts` (`formatGender`)
+- **Why**: Two places map M/F/B/G to Boys/Girls with their own ternaries instead of `formatGender`. `formatGender` also looks `GENDER_LABELS` up case-sensitively, so `formatGender('m')` is "Unknown", while `genderSlug` beside it accepts any case. Unknown values would change from echoed raw to "Unknown" when the ternaries go, so check callers' expectations.
+- **Noted**: 2026-10-11
+- **Update (2026-10-14)**: The share title now goes through `formatGender` (`teamShareTitle` in `TeamHeader.tsx`), leaving two hand-written ternaries: the `RankingsTable` description and the `TeamHeader` gender badge. Until the badge moves too, an unexpected gender value shows raw on the badge but as "Unknown" in the share text.
+- **Update (2026-10-14)**: Fixed: the `RankingsTable` description and the `TeamHeader` badge call `formatGender`, which now reads single-letter codes in any case, so `'m'` is Boys. The same pass moved the infographic previews, renderers and caption generator, the infographics page, the movers image route, the club embed page (whose own copy echoed unknown values) and the prediction-conflict text onto it. Only Male and Female are stored (checked 2026-10-14), so no stored value reads Unknown; the movers image prints UNKNOWN for an unrecognised `?gender=` value and leaves the gender out when none is given.
+- **Refs**: branch `fix/small-site-fixes`
+
+### Keep the phone filter row readable at 320px and narrower
+
+- **ID**: IMP-317
+- **Status**: done
+- **Type**: direct
+- **Category**: feature
+- **Where**: `frontend/components/RankingsFilter.tsx` (the phone grid on `CardContent`, `grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)]`)
+- **Why**: At a 300px viewport (seen 2026-10-11 in a smoke-test screenshot) the gender trigger truncates to "Boy" and the "AGE GROUP" label wraps to two lines, pushing that dropdown below its neighbours. Phones this narrow are rare (Galaxy Fold, zoomed Android), so a shorter label or a two-row fallback below ~340px would do.
+- **Noted**: 2026-10-11
+- **Update (2026-10-14)**: Fixed: below 340 px the filter card puts Region on its own row, with Age Group and Gender side by side under it. Measured on the live site 2026-10-14: the gender value clipped at 330 px and AGE GROUP wrapped at 320 px; 340 px and wider were already fine and keep one row.
+- **Refs**: branch `fix/small-site-fixes`
+
+### Centre the header row like the page content
+
+- **ID**: IMP-339
+- **Status**: done
+- **Type**: direct
+- **Category**: feature
+- **Where**: `frontend/components/Navigation.tsx` (`Navigation`: the header row `<div className="container flex h-16 ...">`)
+- **Why**: The row uses `container` without `mx-auto`, so from 769 to 1279 px it is capped at the breakpoint width (768 or 1,024 px) and sits flush left, while page content uses `container mx-auto` and is centred, so the header's edges and the content's disagree (measured 2026-10-12: at 1,100 px the header row spans 0–1,024 px with 76 px empty on the right).
+- **Noted**: 2026-10-12
+- **Update (2026-10-14)**: Fixed: the header row and every other uncentred `container` row (the mobile menu, five on the watchlist page, mission control) gained `mx-auto`. `frontend/test/centred-containers.test.ts` fails on any `container` row without it.
+- **Refs**: branch `fix/small-site-fixes`

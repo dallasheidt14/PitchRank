@@ -64,6 +64,7 @@ export interface TeamWithRanking {
   // Correct Ranking Fields (backend contract)
   rank_in_cohort_final: number | null; // National rank within age/gender cohort
   rank_in_state_final?: number | null; // State rank - may not exist from rankings_view
+  status?: string | null; // 'Active' | 'Inactive' | 'Not Enough Ranked Games': why a rank is missing; null when unknown
   power_score_final: number | null; // Published Glicko-derived score
   glicko_rating?: number | null; // Underlying Glicko rating (mu)
   glicko_rd?: number | null; // Glicko rating deviation / uncertainty

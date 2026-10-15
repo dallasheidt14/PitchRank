@@ -38,17 +38,13 @@ const PER_GAME_SCORE: Record<string, Record<string, number>> = {
   L: { green: -0.2, neutral: -0.5, red: -1.0 },
 };
 
-function calculateMomentum(teamId: string, games: GameWithTeams[], numberOfGames: number = 8): MomentumResult {
-  const recentGames = games.slice(0, numberOfGames);
-
-  if (recentGames.length === 0) {
-    return { score: 50, totalGames: 0 };
-  }
-
+/** `games` must be newest-first; unscored games are skipped, not counted toward `numberOfGames`. */
+export function calculateMomentum(teamId: string, games: GameWithTeams[], numberOfGames: number = 8): MomentumResult {
   let totalPoints = 0;
   let counted = 0;
 
-  for (const game of recentGames) {
+  for (const game of games) {
+    if (counted >= numberOfGames) break;
     const isHome = game.home_team_master_id === teamId;
     const teamScore = isHome ? game.home_score : game.away_score;
     const oppScore = isHome ? game.away_score : game.home_score;
@@ -83,7 +79,7 @@ function calculateMomentum(teamId: string, games: GameWithTeams[], numberOfGames
  */
 export function MomentumMeter({ teamId }: MomentumMeterProps) {
   // Use same limit as GameHistoryTable (100) so React Query serves from shared cache
-  // instead of firing a separate Supabase request. MomentumMeter only reads the first 8 games.
+  // instead of firing a separate Supabase request. MomentumMeter only reads the 8 newest played games.
   const {
     data: gamesData,
     isLoading: gamesLoading,

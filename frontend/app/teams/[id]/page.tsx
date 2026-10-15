@@ -2,7 +2,7 @@ import { TeamPageShell } from '@/components/TeamPageShell';
 import { TeamPageSkeleton } from '@/components/skeletons/TeamPageSkeleton';
 import { createClient } from '@supabase/supabase-js';
 import { Suspense } from 'react';
-import { notFound, redirect } from 'next/navigation';
+import { notFound, redirect, unstable_rethrow } from 'next/navigation';
 import type { Metadata } from 'next';
 import { BASE_URL } from '@/lib/constants';
 import { isValidUuid } from '@/lib/validation';
@@ -105,7 +105,8 @@ export default async function Page({ params }: TeamPageProps) {
   // In Next.js 16, params is a Promise - await it
   const resolvedParams = await params;
 
-  // Check if team exists before rendering
+  // 404 only a team that is missing or merged away with no survivor. A team with no games keeps its page:
+  // search lists it, and the page is where a member reports missing games.
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
@@ -130,45 +131,26 @@ export default async function Page({ params }: TeamPageProps) {
       } else if (!team) {
         // Team doesn't exist - show 404 page
         notFound();
-      } else {
-        // Single query for all merge relationships involving this team
-        const { data: mergeRows } = await supabase
+      } else if (team.is_deprecated) {
+        // Team is deprecated - redirect to the team it was merged into
+        const { data: merge, error: mergeError } = await supabase
           .from('team_merge_map')
-          .select('deprecated_team_id, canonical_team_id')
-          .or(`deprecated_team_id.eq.${resolvedParams.id},canonical_team_id.eq.${resolvedParams.id}`);
+          .select('canonical_team_id')
+          .eq('deprecated_team_id', resolvedParams.id)
+          .maybeSingle();
 
-        if (team.is_deprecated) {
-          // Team is deprecated - find canonical redirect
-          const canonicalRow = mergeRows?.find((r) => r.deprecated_team_id === resolvedParams.id);
-          if (canonicalRow?.canonical_team_id) {
-            redirect(`/teams/${canonicalRow.canonical_team_id}`);
-          }
-          notFound();
-        }
-
-        // Check if team has any non-excluded games (include merged team games)
-        const teamIdsToCheck = [resolvedParams.id];
-        mergeRows?.forEach((merge) => {
-          if (merge.deprecated_team_id && merge.deprecated_team_id !== resolvedParams.id) {
-            teamIdsToCheck.push(merge.deprecated_team_id);
-          }
-        });
-
-        const orConditions = teamIdsToCheck
-          .map((tid) => `home_team_master_id.eq.${tid},away_team_master_id.eq.${tid}`)
-          .join(',');
-
-        const { count: gameCount, error: gameError } = await supabase
-          .from('games')
-          .select('id', { count: 'exact', head: true })
-          .or(orConditions)
-          .eq('is_excluded', false);
-
-        if (!gameError && gameCount === 0) {
+        if (mergeError) {
+          console.error('Error looking up merged team:', mergeError);
+          // Fail open: render this team's page rather than 404 on a lookup error
+        } else if (merge?.canonical_team_id) {
+          redirect(`/teams/${merge.canonical_team_id}`);
+        } else {
           notFound();
         }
       }
     } catch (error) {
+      // notFound() and redirect() work by throwing; let them through, or the 404s and merge redirect above never happen.
+      unstable_rethrow(error);
       console.error('Error in team existence check:', error);
       // Don't 404 on error, let client-side handle it
     }

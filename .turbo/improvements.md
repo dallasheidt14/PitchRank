@@ -270,6 +270,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: Four files hand-roll the same createElement/createRoot/`act(unmount)`/remove lifecycle, so a React `act` semantics change needs four fixes — `ComparePanel.test.tsx` still imports `act` from the removed `react-dom/test-utils` path while the newer files import it from `react`. `frontend/test/` now exists (fixtures.ts, setup.ts, supabase-mock.ts) as a home for a `mountComponent()`/`cleanup()` pair.
 - **Noted**: 2026-08-24
 - **Update (2026-10-12)**: Four more hand-rolled harnesses: `frontend/hooks/useTeamSearch.test.tsx` and `frontend/components/{UnknownOpponentLink,MergeTeamsDialog,ScopedTeamSelector}.test.tsx`.
+- **Update (2026-10-14)**: Eight more: `frontend/app/watchlist/__tests__/page.test.tsx`, `frontend/test/ranked-games-copy.test.tsx` and `frontend/components/{Breadcrumbs,FindYourTeamButton,Navigation,RankingsFilter,RankingsFilter.focus,SkipLink}.test.tsx`.
 
 ### Remove `has_modular11_alias` end-to-end
 
@@ -838,26 +839,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Noted**: 2026-09-08
 - **Update (2026-10-14)**: `tests/unit/test_skill_check_offline.py` adds what none of the five copies has: `_schema` folds `ALTER TABLE` add/drop/rename and `DROP TABLE` into each table's final columns, and `_parameters` resolves a function's newest definition by name, honouring a later `DROP FUNCTION`, with one synthetic-migration test exercising each branch. Its `_sql` repeats the scrape_requests `_executable` regexes and it has no `_flat`, so seed the shared module from both.
 
-### MomentumMeter samples 8 scheduled games, not 8 played ones
-
-- **ID**: IMP-201
-- **Status**: open
-- **Type**: direct
-- **Category**: reliability
-- **Where**: `calculateMomentum` in `frontend/components/MomentumMeter.tsx`
-- **Why**: It slices the 8 most recent rows and only then skips games with a null score, so a team whose scores have not been scraped yet gets its momentum from whatever is left — 5 games instead of 8. The two sibling generators do the opposite deliberately and say so: `formBadge.ts` and `consistency.ts` both walk newest-first and collect until they hold N *played* results. Verified 2026-09-09 against production: 34,540 of 187,266 teams (18.4%) currently have at least one unscored game among their last 8 played-or-past fixtures. Nothing on screen is false — the card labels the count it actually used — so this is sample quality, not a wrong number. Fix is to mirror the sibling walk. Kept out of the trajectory/insights fix on 2026-09-09 by user decision, because it shifts a headline metric for a fifth of the site.
-- **Noted**: 2026-09-09
-
-### Team page swallows notFound(), so a bad URL reaches the queries
-
-- **ID**: IMP-202
-- **Status**: open
-- **Type**: plan
-- **Category**: reliability
-- **Where**: the `try`/`catch` wrapping `notFound()` in `frontend/app/teams/[id]/page.tsx`; `getTeamTrajectory` in `frontend/lib/api.ts`
-- **Why**: Verified 2026-09-09 by reading the file: four `notFound()` calls (lines 118, 132, 146, 168) sit inside a `try` opened at 113 whose `catch` at 171 logs and continues, and `unstable_rethrow` appears nowhere in `frontend/`. Next's `notFound()` throws an ordinary Error, so a malformed id falls through to `TeamPageShell` and is interpolated into the PostgREST `.or()` expression with no `isValidUuid` guard — unlike the sibling insights route, which validates first. Exposure is bounded: `games_anon_select` already grants `anon` SELECT `USING (true)`, and supabase-js percent-encodes the expression, so a crafted link spoofs which team's games are shown rather than reaching private data. The same swallowed `notFound()` also disables the deprecated-team `redirect()` and the zero-games 404, which is why the fix belongs at the `catch` and not as a per-query guard. Logged rather than patched by user decision on 2026-09-09: a single-query guard would read as fixed while the page's other queries kept the gap.
-- **Noted**: 2026-09-09
-
 ### getTeamTrajectory hand-rolls the merge resolution its siblings share
 
 - **ID**: IMP-203
@@ -876,16 +857,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Category**: refactor
 - **Where**: `.not('home_score', 'is', null)` pairs across 7 files — `lib/api.ts` (`getTeam`, `getTeamTrajectory`, both `getCommonOpponents` queries), `lib/matchPredictionService.ts`, and the `insights`, `watchlist`, `reports/team-card`, `teams/[teamId]/clutch` and `mission-control/model-snapshot` routes
 - **Why**: Counted 11 occurrences across those 7 files on 2026-09-09. If "played" ever gains a status column or forfeit semantics, every site needs the same edit and nothing enumerates them. A `withPlayedScores(query)` helper in `lib/api/` is the obvious extraction; typing a generic PostgREST builder passthrough is the awkward part.
-- **Noted**: 2026-09-09
-
-### Final trajectory period reports period_end as the current time
-
-- **ID**: IMP-205
-- **Status**: open
-- **Type**: direct
-- **Category**: correctness
-- **Where**: the tail-period push in `getTeamTrajectory`, `frontend/lib/api.ts`
-- **Why**: Every other period ends at `periodStart + periodDays`, but the last is pushed with `new Date().toISOString()`, so a team whose last result was months ago gets an eleven-month span described as a 30-day period. Invisible today — `components/TeamTrajectoryChart.tsx` reads only `period_start`, `avg_goals_*`, `games_played` and `win_percentage` — but any consumer that renders the range would print a window the data does not cover.
 - **Noted**: 2026-09-09
 
 ### The Backtest scrape surface still strands its in-progress flag
@@ -947,6 +918,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `_make_composite_key` and the `schedule_id` branch of `_validate_and_dedup` in `src/etl/enhanced_pipeline.py`
 - **Why**: The composite key mirrors the DB constraint — provider, both team ids, date, and the two scores — and only `playmetrics_tournament` folds `schedule_id` in. Two meetings of the same pair on one date therefore collapse to one row for every other provider, and while both are unplayed their scores are equal too, so the scores in the key do not separate them either. No live instance: 437 games across four OYSA cohorts on 2026-09-12 had zero same-date repeat pairings, because a round-robin league does not schedule them. It becomes real the moment a tournament-shaped event is imported under a league provider — which is exactly why the `playmetrics_tournament` carve-out exists. Raised by Codex on PR #1133 against `affinity_or`; left alone there because the fix belongs in the shared dedup path, not in one provider.
 - **Noted**: 2026-09-12
+- **Update (2026-10-14)**: `athletes2events` and `tourneycentral` now fold `schedule_id` in too, through `REMATCH_PROVIDERS`, so they keep a same-day rematch whose scores differ. The composite constraint and the orientation-blind master-id check in `_check_duplicates_by_master_ids` still drop a final that repeats its pool game's score.
 
 ### SincSports live tournament scrape imports a partial event
 
@@ -966,16 +938,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Category**: reliability
 - **Where**: `parse_sched2` in the local helper `data/exports/sincsports_session_scripts_20260914/bundle_to_jsonl_s1.py`; capture `data/raw/sincsports_schedules_aug_all_states_20260913.json` (both local only)
 - **Why**: That helper read only `.sched2-mark`/`.sched2-typechip` text and never the `.sched2-gstat-off` label, so a game marked Forfeit and one marked Cancelled that both carry a recorded score were emitted as Played (counted from the capture 2026-09-14; one is HFCLAB U13M02, 0-3). Whether both reached `games` is unverified. Games are immutable, so find the rows (provider `sincsports`, competition `"<event> - <div>"`, date, team pair) and quarantine them.
-- **Noted**: 2026-09-14
-
-### Watchlist activity counts games that have been excluded
-
-- **ID**: IMP-220
-- **Status**: open
-- **Type**: direct
-- **Category**: reliability
-- **Where**: `GET` handler in `frontend/app/api/watchlist/route.ts` — the recent-game `homeRecentResult`/`awayRecentResult` queries and the fallback `homeLastResult`/`awayLastResult` queries
-- **Why**: Read on `origin/main` 2026-09-14. Those four `games` queries lack `.eq('is_excluded', false)`, although the same file's other queries (`:355`, `:364`) and `getTeamGames` (`frontend/lib/api.ts:720`) filter it. So `new_games_count` and `last_game_date` still count excluded rows: futsal, merge duplicates, and the ~4,850 phantom games `scripts/exclude_none_opponent_games.py` excludes. Add the filter to all four queries, plus a route test showing an excluded game changes neither field.
 - **Noted**: 2026-09-14
 
 ### A GotSport import dry run still writes aliases and review-queue rows
@@ -1101,6 +1063,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: What `scripts/import_games_enhanced.py` reads is restated in five scripts, so a column added or renamed there drifts per scraper and fails only at import time for whichever copy was missed. The alias pre-check has three near-identical copies. One shared module for the column list, result computation and the alias lookup removes the drift.
 - **Noted**: 2026-09-14
 - **Update (2026-10-08)**: The roster-pass safety checks now have three copies: `existing_aliases`, `register_teams`, `unsaved_links`, `pending_reviews`, `unsaved_reviews`, `shared_links`, `off_board_links`, `teams_by_id`, `make_session` and `_get` exist in `scripts/import_soccereventsgroup_event.py`, `scripts/import_athletes2events_event.py` and `scripts/import_yssl.py`, differing only in the row's id attribute, the provider code and one message label, except that the Soccer Events Group `register_teams` also queues `review_reason` rows for review and passes no club arguments. An extraction takes the id attribute and provider code as parameters, plus a hook for that pre-queue step. Separately, `YSSLGameMatcher._create_new_athletes2events_team` copies the parent's insert to change only the stored name; a `_stored_team_name` hook on `Athletes2EventsGameMatcher` would let it override two lines instead.
+- **Update (2026-10-14)**: Now four copies of the roster-pass checks: `scripts/import_tourneycentral_event.py` copies `existing_aliases`, `register_teams`, `unsaved_links`, `pending_reviews`, `unsaved_reviews`, `shared_links`, `off_board_links`, `teams_by_id`, `make_session`, `_compute_result` and `write_csv` from the Athletes2Events driver with the id attribute renamed. A review measured them identical in behaviour, so nothing has drifted yet. `TourneyCentralGameMatcher._create_new_athletes2events_team` is a third copy of the parent's insert, again only to keep the full stored name. The `_stored_team_name` hook above would remove both subclass copies.
 
 ### The backlog sweep silently drops a repeated field label
 
@@ -2042,26 +2005,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: `RankingsTable` stopped using `useVirtualizer` on `fix/mobile-rankings-ux` (rows now render as page content, top 100 plus "Show more"), and a grep of `frontend/` finds no other importer; only `package.json` and the lockfile still name it. It was left in place so that change carried no lockfile churn. Removing it drops a dead install and stops `package.json` implying the table still virtualizes.
 - **Noted**: 2026-10-11
 
-### Route the hand-written gender labels through formatGender
-
-- **ID**: IMP-316
-- **Status**: open
-- **Type**: direct
-- **Category**: refactor
-- **Where**: `frontend/components/RankingsTable.tsx` (`description`), `frontend/components/TeamHeader.tsx` (gender `Badge`, `ShareButtons` title), `frontend/lib/constants.ts` (`formatGender`)
-- **Why**: Three places map M/F/B/G to Boys/Girls with their own ternaries (the share title treats anything that is not M/B as Girls) instead of `formatGender`. `formatGender` also looks `GENDER_LABELS` up case-sensitively, so `formatGender('m')` is "Unknown", while `genderSlug` beside it accepts any case. Unknown values would change from echoed raw to "Unknown" when the ternaries go, so check callers' expectations.
-- **Noted**: 2026-10-11
-
-### Keep the phone filter row readable at 320px and narrower
-
-- **ID**: IMP-317
-- **Status**: open
-- **Type**: direct
-- **Category**: feature
-- **Where**: `frontend/components/RankingsFilter.tsx` (the phone grid on `CardContent`, `grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)]`)
-- **Why**: At a 300px viewport (seen 2026-10-11 in a smoke-test screenshot) the gender trigger truncates to "Boy" and the "AGE GROUP" label wraps to two lines, pushing that dropdown below its neighbours. Phones this narrow are rare (Galaxy Fold, zoomed Android), so a shorter label or a two-row fallback below ~340px would do.
-- **Noted**: 2026-10-11
-
 ### Record the signed-in admin as the merger instead of a request field
 
 - **ID**: IMP-318
@@ -2203,16 +2146,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Noted**: 2026-10-12
 - **Update (2026-10-14)**: `scripts/skill_check_offline.py` now carries `_top_level` and `_unwrap`, verbatim twins of the age check's in `scripts/check_age_skill_assumptions.py`. Rewriting `_has_top_level_or` as `len(_top_level(expr, "||")) > 1` changes nothing and still passes the bracketed case; the fix is `_gated_on_the_flag`'s rule (the freeze comparison as a top-level `&&` term, no top-level `||`) over the imported helpers, with the age check importing them too.
 
-### Centre the header row like the page content
-
-- **ID**: IMP-339
-- **Status**: open
-- **Type**: direct
-- **Category**: feature
-- **Where**: `frontend/components/Navigation.tsx` (`Navigation`: the header row `<div className="container flex h-16 ...">`)
-- **Why**: The row uses `container` without `mx-auto`, so from 769 to 1279 px it is capped at the breakpoint width (768 or 1,024 px) and sits flush left, while page content uses `container mx-auto` and is centred, so the header's edges and the content's disagree (measured 2026-10-12: at 1,100 px the header row spans 0–1,024 px with 76 px empty on the right).
-- **Noted**: 2026-10-12
-
 ### Share one paywall Upgrade block between the team-page insight cards
 
 - **ID**: IMP-340
@@ -2313,9 +2246,59 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: A revert of a done or abandoned run holds only that run's local file lock and no database lease (the owner's choice on 2026-10-14), and `check_other_writers` sees GitHub runs and this machine's Python processes only. So that revert on one machine and another run's apply on a second machine are not serialized and could change the same teams at once. The cleanup runs from one machine by design (the run store is a local folder), so this matters only if the loop ever spans machines; then guard closed-run reverts with a database-side cleanup lock (refusing while any run holds a live lease covers only one direction).
 - **Noted**: 2026-10-14
 
-### Read the state check's workflow gates through the shared step_is_off
+### Roster-pass team creation reads every lookup failure as "no team has this id"
+
+- **ID**: IMP-350
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `Athletes2EventsGameMatcher._create_new_athletes2events_team` in `src/models/athletes2events_matcher.py`, and its overrides in `src/models/yssl_matcher.py` and `src/models/tourneycentral_matcher.py`
+- **Why**: The existing-team check runs `.single()` inside a bare `except Exception`, so a timeout, 5xx or auth error is treated like the zero-row PGRST116 it is meant to absorb. A dry run then previews a relink as a create, and `--execute` fails on `UNIQUE(provider_id, provider_team_id)` with a misleading error. `.maybe_single()` returns None only when the result has 0 rows and raises otherwise (read in the installed postgrest's `SyncMaybeSingleRequestBuilder.execute`, 2026-10-14); the matcher test doubles would need to model it.
+- **Noted**: 2026-10-14
+
+### A dry run logs review-queue writes that it never makes
+
+- **ID**: IMP-351
+- **Status**: open
+- **Type**: direct
+- **Category**: dx
+- **Where**: `GameHistoryMatcher._create_review_queue_entry` in `src/models/game_matcher.py`
+- **Why**: The insert is gated on `self.dry_run`, but the `Created review queue entry for ...` info line after it is not, so every review-band team in a roster-pass dry run (Athletes2Events, YSSL, Tourney Central) reads as a write in the log. Log a dry-run form instead.
+- **Noted**: 2026-10-14
+
+### Filter excluded games in the two admin pages that still count them
 
 - **ID**: IMP-352
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `GET` in `frontend/app/api/team-merge/suggestions/route.ts` (the opponent-overlap and schedule `games` queries); `fetchScoredGamesCount` in `frontend/app/api/mission-control/model-snapshot/route.ts`
+- **Why**: Every other team-facing `games` read in the frontend filters `is_excluded = false` (the admin link-opponent preview deliberately shows excluded rows too, since linking rewrites them); these two admin-only reads do not, so futsal, merge duplicates and phantom rows feed merge-suggestion scores and the snapshot's scored-games counts. Kept out of the small-site-fixes PR by owner decision (2026-10-14) because the filter changes merge-suggestion scores; measure that change before applying.
+- **Noted**: 2026-10-14
+
+### Make the match predictor's recent form read N played games, or state that it needs them
+
+- **ID**: IMP-353
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `buildRecentProfile` in `frontend/lib/matchPredictor.ts`
+- **Why**: It sorts newest-first and takes `.slice(0, n)` before skipping unscored games, and `sampleWeight = teamGames.length / n` counts those unscored rows: the shape the momentum meter had before IMP-201. Latent today because `predictMatch`'s callers pass scored-only games (`fetchPredictionGames` filters both scores not null). Changing it would move calibrated predictions, so either document the scored-only precondition at the function or measure before walking to N played games.
+- **Noted**: 2026-10-14
+
+### Share one "newest N played results" walk across the insight code
+
+- **ID**: IMP-354
+- **Status**: open
+- **Type**: plan
+- **Category**: refactor
+- **Where**: `calculateMomentum` in `frontend/components/MomentumMeter.tsx`; `generateFormBadge` in `frontend/lib/insights/formBadge.ts`; `extractRecentPlayedResults` in `frontend/lib/insights/consistency.ts`; the recency walk in `frontend/lib/insights/seasonTruth.ts`; the form strip in `frontend/app/api/watchlist/route.ts`
+- **Why**: The same newest-first, skip-unscored, stop-at-N loop is written out by hand in each. The momentum meter's copy drifted (slice first, then skip) until IMP-201, and nothing lists the copies, so the next change to what counts as played has to find them all. One helper yielding the game, side, both scores and the result would let each caller derive its own figure.
+- **Noted**: 2026-10-14
+
+### Read the state check's workflow gates through the shared step_is_off
+
+- **ID**: IMP-355
 - **Status**: open
 - **Type**: direct
 - **Category**: reliability

@@ -24,6 +24,8 @@ export function queryBuilder(result: QueryResult = { data: null, error: null }) 
     'eq',
     'in',
     'is',
+    'not',
+    'or',
     'neq',
     'gte',
     'order',
@@ -79,7 +81,7 @@ const OR_TERM = /^([A-Za-z_][A-Za-z0-9_]*)\.eq\.([0-9a-fA-F-]+)$/;
  * `queryBuilder` above replays a canned result, which suits a route that only
  * needs rows back. It is the wrong tool for a test guarding a filter: the guard
  * passes just as well once the filter is deleted. This builder models PostgREST
- * closely enough to refuse what PostgREST refuses — `.eq` drops NULL, `.not(col,
+ * closely enough to refuse what PostgREST refuses — `.eq` and `.gte` drop NULL, `.not(col,
  * 'is', null)` drops missing values, `.or` honours the column each term names
  * rather than accepting a match on either side, `.single()` errors with PGRST116
  * unless exactly one row survives, and `.maybeSingle()` errors once more than one
@@ -111,6 +113,12 @@ export function filteringClientMock(initialRows: Record<string, MockRow[]> = {})
       },
       in: (field: string, values: readonly unknown[]) => {
         rows = rows.filter((row) => values.includes(row[field]));
+        return builder;
+      },
+      gte: (field: string, value: string | number) => {
+        rows = rows.filter(
+          (row) => row[field] !== null && row[field] !== undefined && (row[field] as typeof value) >= value
+        );
         return builder;
       },
       not: (field: string, operator: string, value: unknown) => {

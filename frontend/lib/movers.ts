@@ -2,6 +2,8 @@ import type { RankingRow } from '@/types/RankingRow';
 
 export type MoversWindow = '7d' | '30d';
 
+export const MOVERS_WINDOW_DAYS: Record<MoversWindow, number> = { '7d': 7, '30d': 30 };
+
 /**
  * Movers must start and end inside this band: past it, power scores are dense
  * enough that ordinary results swing teams thousands of places, which reads as
@@ -23,7 +25,7 @@ function startOfUtcDay(ms: number): number {
  */
 export function selectTopMovers(rankings: RankingRow[], timeWindow: MoversWindow, maxItems: number): RankingRow[] {
   const field = timeWindow === '7d' ? 'rank_change_7d' : 'rank_change_30d';
-  const windowDays = timeWindow === '7d' ? 7 : 30;
+  const windowDays = MOVERS_WINDOW_DAYS[timeWindow];
   // One reference for the whole dataset, anchored to when the changes were
   // computed, so the pick is stable all week and identical across rows.
   // Truncated to the UTC day because game dates are date-only (midnight UTC).

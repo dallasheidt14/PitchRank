@@ -1,7 +1,8 @@
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import Link from 'next/link';
-import { Swords, Star, MapPin, LineChart, ChevronRight } from 'lucide-react';
+import { Swords, Star, MapPin, FileText, ChevronRight } from 'lucide-react';
 
 interface FeatureCard {
   icon: React.ReactNode;
@@ -9,6 +10,7 @@ interface FeatureCard {
   description: string;
   href: string;
   cta: string;
+  premium?: boolean;
 }
 
 const features: FeatureCard[] = [
@@ -18,6 +20,7 @@ const features: FeatureCard[] = [
     description: 'Head-to-head stats, win probabilities, and match predictions powered by ML.',
     href: '/compare',
     cta: 'Compare Teams',
+    premium: true,
   },
   {
     icon: <Star className="h-6 w-6" />,
@@ -25,6 +28,7 @@ const features: FeatureCard[] = [
     description: 'Track your favorite teams and monitor their ranking changes over time.',
     href: '/watchlist',
     cta: 'Start Tracking',
+    premium: true,
   },
   {
     icon: <MapPin className="h-6 w-6" />,
@@ -34,17 +38,16 @@ const features: FeatureCard[] = [
     cta: 'Explore States',
   },
   {
-    icon: <LineChart className="h-6 w-6" />,
-    title: 'Team Details',
-    description: 'Complete game history, performance trends, and momentum analysis for every team.',
-    href: '/rankings',
-    cta: 'Browse Teams',
+    icon: <FileText className="h-6 w-6" />,
+    title: 'Free Team Report Card',
+    description: "Your team's national and state rank, PowerScore, record and last 5 games, as a free PDF.",
+    href: '/report-card',
+    cta: 'Get the Report Card',
   },
 ];
 
 /**
  * FeatureShowcase component - Grid of feature cards highlighting key platform capabilities
- * Shows: Compare & Predict, Watchlist, State Rankings, Team Details
  */
 export function FeatureShowcase() {
   return (
@@ -64,9 +67,12 @@ export function FeatureShowcase() {
 
               {/* Content */}
               <div className="flex-1 min-w-0">
-                <h3 className="font-display font-bold text-sm sm:text-base uppercase tracking-wide text-foreground mb-1 group-hover:text-primary transition-colors">
-                  {feature.title}
-                </h3>
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-1">
+                  <h3 className="font-display font-bold text-sm sm:text-base uppercase tracking-wide text-foreground group-hover:text-primary transition-colors">
+                    {feature.title}
+                  </h3>
+                  {feature.premium && <Badge variant="secondary">PitchRank+</Badge>}
+                </div>
                 <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed mb-3">{feature.description}</p>
                 <Button
                   variant="outline"

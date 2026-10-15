@@ -1,4 +1,5 @@
 import type { RankingRow } from '@/types/RankingRow';
+import { MIN_RANKED_GAMES } from '@/lib/constants';
 
 export interface CohortModuleData {
   totalTeams: number;
@@ -164,7 +165,7 @@ export function buildCohortFAQ(data: CohortModuleData): Array<{ question: string
     },
     {
       question: `How often do ${isNational ? 'national' : locationText} ${ageGroupDisplay} ${genderLabel} rankings update?`,
-      answer: 'Weekly every Monday as new game results come in. Rankings stabilize after 8\u201310 games.',
+      answer: `Weekly every Monday as new game results come in. A team needs ${MIN_RANKED_GAMES} games in the last 12 months to get a rank.`,
     },
     {
       question: `Which leagues are tracked for ${isNational ? 'national' : locationText} ${ageGroupDisplay} ${genderLabel} rankings?`,

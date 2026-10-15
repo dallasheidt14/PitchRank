@@ -230,7 +230,7 @@ export default function WatchlistPage() {
   if (userLoading) {
     return (
       <div className="min-h-screen bg-background">
-        <div className="container px-4 py-12">
+        <div className="container mx-auto px-4 py-12">
           <div className="animate-pulse space-y-8">
             <div className="h-32 bg-muted rounded-xl" />
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -248,7 +248,7 @@ export default function WatchlistPage() {
   if (!user) {
     return (
       <div className="min-h-screen bg-background">
-        <div className="container px-4 py-16">
+        <div className="container mx-auto px-4 py-16">
           <div className="text-center max-w-md mx-auto">
             <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-muted mb-6">
               <Crown className="h-10 w-10 text-muted-foreground" />
@@ -268,7 +268,7 @@ export default function WatchlistPage() {
   if (!isPremium) {
     return (
       <div className="min-h-screen bg-background">
-        <div className="container px-4 py-16">
+        <div className="container mx-auto px-4 py-16">
           <div className="text-center max-w-md mx-auto">
             <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 mb-6">
               <Crown className="h-10 w-10 text-white" />
@@ -302,7 +302,7 @@ export default function WatchlistPage() {
           style={{ clipPath: 'polygon(0 0, 100% 0, 100% 100%, 20% 100%)' }}
         />
 
-        <div className="container relative px-4">
+        <div className="container mx-auto relative px-4">
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-3">
               <div className="p-3 bg-accent rounded-xl">
@@ -352,7 +352,7 @@ export default function WatchlistPage() {
         </div>
       </section>
 
-      <div className="container px-4 py-8">
+      <div className="container mx-auto px-4 py-8">
         {watchlistLoading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {[...Array(6)].map((_, i) => (
@@ -574,6 +574,7 @@ export default function WatchlistPage() {
                                 {team.state}
                               </span>
                             )}
+                            {team.status === 'Not Enough Ranked Games' && <span>Not ranked yet</span>}
                           </div>
                         </div>
                       </div>

@@ -1,6 +1,16 @@
 'use client';
 
-import { useDeferredValue, useMemo, useState, useRef, memo, useCallback, useEffect, startTransition } from 'react';
+import {
+  Fragment,
+  useDeferredValue,
+  useMemo,
+  useState,
+  useRef,
+  memo,
+  useCallback,
+  useEffect,
+  startTransition,
+} from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { RankingsTableSkeleton } from '@/components/skeletons/RankingsTableSkeleton';
 import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
@@ -17,8 +27,15 @@ import Link from 'next/link';
 import { ArrowUp, ArrowDown, ArrowUpDown, ChevronRight, Search, X } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
-import { formatPowerScore, teamDisplayName, formatLeague, formatDistinction } from '@/lib/utils';
-import { genderSlug, POWERSCORE_DEFINITION } from '@/lib/constants';
+import {
+  formatPowerScore,
+  teamDisplayName,
+  formatLeague,
+  formatDistinction,
+  publishedRank,
+  spokenRankingRow,
+} from '@/lib/utils';
+import { formatGender, genderSlug, MIN_RANKED_GAMES, POWERSCORE_DEFINITION } from '@/lib/constants';
 import type { RankingRow } from '@/types/RankingRow';
 import { trackRankingsViewed, trackSortUsed, trackTeamRowClicked } from '@/lib/events';
 import { RankingsSchema } from '@/components/RankingsSchema';
@@ -39,23 +56,25 @@ const SortButton = memo(
   ({
     field,
     label,
+    srLabel,
     sortField,
     sortDirection,
     onSort,
   }: {
     field: SortField;
-    label: string | React.ReactNode;
+    label: React.ReactNode;
+    /** The column's spoken name; `label` can be markup that differs by width. */
+    srLabel: string;
     sortField: SortField;
     sortDirection: SortDirection;
     onSort: (field: SortField) => void;
   }) => {
     const isActive = sortField === field;
-    const labelText = typeof label === 'string' ? label : 'Sort';
     return (
       <button
         onClick={() => onSort(field)}
         className="flex items-center gap-1 hover:text-primary transition-colors duration-300 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary rounded"
-        aria-label={`Sort by ${labelText}`}
+        aria-label={`Sort by ${srLabel}`}
       >
         {label}
         {isActive ? (
@@ -88,7 +107,7 @@ function getRankBorderClass(rank: number | null | undefined): string {
 }
 
 /**
- * One ranked team - memoised so "Show more" and search keystrokes only render rows that changed
+ * One board row - memoised so "Show more" and search keystrokes only render rows that changed
  */
 const RankingsRow = memo(
   ({
@@ -139,7 +158,7 @@ const RankingsRow = memo(
           // this push would follow that page, not the board.
           if (onLeave()) noteTeamOpenedFromRankings(href);
         }}
-        aria-label={`View ${teamDisplayName(team)} team details`}
+        aria-label={spokenRankingRow(team, rank, rankChange)}
         className={`
           rankings-row-link touch-auto relative min-h-[60px]
           grid ${ROW_GRID_COLUMNS} border-b group
@@ -252,13 +271,7 @@ export function RankingsTable({ region, ageGroup, gender, initialData }: Ranking
     }
   }, [rankings, region, ageGroup, gender]);
 
-  // Use published ranks from the backend contract.
-  const getDisplayRank = useCallback(
-    (team: RankingRow): number | null | undefined => {
-      return region ? (team.rank_in_state_final ?? null) : (team.rank_in_cohort_final ?? null);
-    },
-    [region]
-  );
+  const getDisplayRank = useCallback((team: RankingRow) => publishedRank(team, region), [region]);
 
   const getDisplaySosRank = useCallback(
     (team: RankingRow): number | null | undefined => {
@@ -342,6 +355,15 @@ export function RankingsTable({ region, ageGroup, gender, initialData }: Ranking
 
   const searchActive = deferredQuery.trim() !== '';
   const shownRankings = visibleRankings.slice(0, displayCount);
+  const rankedCount = useMemo(
+    () => sortedRankings.filter((team) => getDisplayRank(team) != null).length,
+    [sortedRankings, getDisplayRank]
+  );
+  // Rank order puts every unranked team after the ranked ones, so one divider can explain the "—" below it.
+  const firstUnrankedIndex =
+    sortField === 'rank' && sortDirection === 'asc'
+      ? shownRankings.findIndex((team) => getDisplayRank(team) == null)
+      : -1;
 
   const listTopScrollY = useCallback((): number | null => {
     const box = tableBoxRef.current;
@@ -431,17 +453,7 @@ export function RankingsTable({ region, ageGroup, gender, initialData }: Ranking
       parts.push(`Age: ${ageGroup.toUpperCase()}`);
     }
     if (gender) {
-      const genderLabel =
-        gender === 'M'
-          ? 'Boys'
-          : gender === 'F'
-            ? 'Girls'
-            : gender === 'B'
-              ? 'Boys'
-              : gender === 'G'
-                ? 'Girls'
-                : gender;
-      parts.push(genderLabel);
+      parts.push(formatGender(gender));
     }
     return parts.join(' • ');
   }, [region, ageGroup, gender]);
@@ -618,6 +630,7 @@ export function RankingsTable({ region, ageGroup, gender, initialData }: Ranking
                     <SortButton
                       field="rank"
                       label="Rank"
+                      srLabel="Rank"
                       sortField={sortField}
                       sortDirection={sortDirection}
                       onSort={handleSort}
@@ -627,6 +640,7 @@ export function RankingsTable({ region, ageGroup, gender, initialData }: Ranking
                     <SortButton
                       field="team"
                       label="Team"
+                      srLabel="Team"
                       sortField={sortField}
                       sortDirection={sortDirection}
                       onSort={handleSort}
@@ -638,6 +652,7 @@ export function RankingsTable({ region, ageGroup, gender, initialData }: Ranking
                         <div className="min-w-0 overflow-hidden">
                           <SortButton
                             field="powerScore"
+                            srLabel="PowerScore"
                             label={
                               <>
                                 <span className="hidden sm:inline">PowerScore (ML Adjusted)</span>
@@ -661,6 +676,7 @@ export function RankingsTable({ region, ageGroup, gender, initialData }: Ranking
                         <div className="min-w-0 overflow-hidden">
                           <SortButton
                             field="sosRank"
+                            srLabel="SOS Rank"
                             label={
                               <>
                                 <span className="hidden sm:inline">SOS Rank</span>
@@ -685,20 +701,32 @@ export function RankingsTable({ region, ageGroup, gender, initialData }: Ranking
               </div>
 
               <div ref={listRef} className="rankings-body">
-                {shownRankings.map((team, index) => (
-                  <RankingsRow
-                    key={team.team_id_master}
-                    team={team}
-                    index={index}
-                    href={`/teams/${team.team_id_master}?${rowQuery}`}
-                    rank={getDisplayRank(team) ?? null}
-                    rankChange={region ? (team.rank_change_state_7d ?? team.rank_change_7d) : team.rank_change_7d}
-                    sosRank={getDisplaySosRank(team)}
-                    totalTeams={sortedRankings.length}
-                    onPrefetch={prefetchTeam}
-                    onLeave={persistView}
-                  />
-                ))}
+                {shownRankings.map((team, index) => {
+                  const rank = getDisplayRank(team) ?? null;
+                  return (
+                    <Fragment key={team.team_id_master}>
+                      {index === firstUnrankedIndex && (
+                        <div
+                          data-testid="rankings-unranked-divider"
+                          className="bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground"
+                        >
+                          Not ranked yet: fewer than {MIN_RANKED_GAMES} games in the last 12 months
+                        </div>
+                      )}
+                      <RankingsRow
+                        team={team}
+                        index={index}
+                        href={`/teams/${team.team_id_master}?${rowQuery}`}
+                        rank={rank}
+                        rankChange={region ? (team.rank_change_state_7d ?? team.rank_change_7d) : team.rank_change_7d}
+                        sosRank={getDisplaySosRank(team)}
+                        totalTeams={sortedRankings.length}
+                        onPrefetch={prefetchTeam}
+                        onLeave={persistView}
+                      />
+                    </Fragment>
+                  );
+                })}
                 {searchActive && visibleRankings.length === 0 && (
                   <div className="px-4 py-8 text-center text-sm text-muted-foreground">
                     No teams match &ldquo;{deferredQuery.trim()}&rdquo; in this cohort.
@@ -723,6 +751,7 @@ export function RankingsTable({ region, ageGroup, gender, initialData }: Ranking
                   >
                     Showing {shownRankings.length.toLocaleString('en-US')} of{' '}
                     {visibleRankings.length.toLocaleString('en-US')} {searchActive ? 'matches' : 'teams'}
+                    {!searchActive && ` · ${rankedCount.toLocaleString('en-US')} ranked`}
                   </p>
                   {remainingCount > 0 && (
                     <button

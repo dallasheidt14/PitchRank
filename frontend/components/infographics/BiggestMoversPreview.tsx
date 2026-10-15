@@ -4,6 +4,7 @@ import React, { forwardRef } from 'react';
 import { InfographicWrapper, Platform, BRAND_COLORS, PLATFORM_DIMENSIONS } from './InfographicWrapper';
 import type { RankingRow } from '@/types/RankingRow';
 import { teamDisplayName } from '@/lib/utils';
+import { formatGender } from '@/lib/constants';
 
 interface MoverTeam extends RankingRow {
   change: number;
@@ -41,7 +42,7 @@ export const BiggestMoversPreview = forwardRef<HTMLDivElement, BiggestMoversPrev
       return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
     };
 
-    const genderLabel = gender === 'M' ? 'BOYS' : 'GIRLS';
+    const genderLabel = formatGender(gender).toUpperCase();
 
     const MoverRow = ({ team, isClimber }: { team: MoverTeam; isClimber: boolean }) => (
       <div

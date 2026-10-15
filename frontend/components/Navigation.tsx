@@ -5,7 +5,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Menu, X, Star, User, LogOut, LogIn } from 'lucide-react';
-import { GlobalSearch } from './GlobalSearch';
+import { GlobalSearch, GLOBAL_SEARCH_INPUT_IDS } from './GlobalSearch';
 import { FeedbackTrigger } from './FeedbackTrigger';
 import { Button } from './ui/button';
 import { useUser } from '@/hooks/useUser';
@@ -41,7 +41,7 @@ export function Navigation() {
       data-testid="main-navigation"
       className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 safe-top"
     >
-      <div className="container flex h-16 items-center justify-between gap-3 sm:gap-4 px-3 sm:px-4">
+      <div className="container mx-auto flex h-16 items-center justify-between gap-3 sm:gap-4 px-3 sm:px-4">
         <Link
           href="/"
           className="flex items-center transition-colors duration-300 hover:opacity-80 flex-shrink-0"
@@ -62,7 +62,7 @@ export function Navigation() {
 
         {/* Desktop Search */}
         <div className="hidden lg:flex flex-1 justify-center max-w-md mx-4">
-          <GlobalSearch />
+          <GlobalSearch inputId={GLOBAL_SEARCH_INPUT_IDS.desktop} />
         </div>
 
         {/* Desktop Navigation */}
@@ -154,12 +154,11 @@ export function Navigation() {
           )}
         </nav>
 
-        {/* Mobile: Search + Feedback + Menu Button */}
+        {/* Mobile: Search + Menu Button (feedback lives in the menu so the search hint fits) */}
         <div className="flex lg:hidden items-center gap-2 sm:gap-3">
           <div className="flex-1 min-w-0">
-            <GlobalSearch />
+            <GlobalSearch inputId={GLOBAL_SEARCH_INPUT_IDS.mobile} />
           </div>
-          <FeedbackTrigger />
           <Button
             variant="ghost"
             size="icon"
@@ -176,7 +175,7 @@ export function Navigation() {
       {/* Mobile Menu */}
       {mobileMenuOpen && (
         <div className="lg:hidden border-t bg-background" data-testid="mobile-menu">
-          <nav className="container px-4 py-4 space-y-1">
+          <nav className="container mx-auto px-4 py-4 space-y-1">
             <Link
               href="/"
               className="block text-sm font-semibold uppercase tracking-wide transition-colors duration-300 hover:text-accent hover:bg-accent/10 py-3 px-2 rounded-md min-h-[44px] flex items-center"
@@ -220,6 +219,7 @@ export function Navigation() {
             >
               Blog
             </Link>
+            <FeedbackTrigger variant="menu" />
 
             {/* Mobile Auth Section */}
             <div className="pt-4 mt-4 border-t">

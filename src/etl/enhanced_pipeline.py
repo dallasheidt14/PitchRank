@@ -338,6 +338,17 @@ class EnhancedETLPipeline:
                 alias_cache=self.alias_cache,
                 dry_run=self.dry_run,
             )
+        elif self.provider_code.lower() == "tourneycentral":
+            from src.models.tourneycentral_matcher import TourneyCentralGameMatcher
+
+            # No registration_mode: only the roster pass in import_tourneycentral_event.py creates teams.
+            logger.info("Using TourneyCentralGameMatcher (alias-only; teams come from the roster pass)")
+            self.matcher = TourneyCentralGameMatcher(
+                self.supabase,
+                provider_id=self.provider_id,
+                alias_cache=self.alias_cache,
+                dry_run=self.dry_run,
+            )
         elif self.provider_code.lower() == "playmetrics":
             from src.models.playmetrics_matcher import PlayMetricsGameMatcher
 

@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { createClient } from '@supabase/supabase-js';
+import { formatGender } from '@/lib/constants';
 
 // Revalidate every hour
 export const revalidate = 3600;
@@ -65,12 +66,6 @@ export default async function ClubEmbedPage({ params }: ClubEmbedPageProps) {
   } catch (error) {
     console.error('Error fetching club teams:', error);
   }
-
-  const formatGender = (g: string) => {
-    if (g === 'M' || g === 'B') return 'Boys';
-    if (g === 'F' || g === 'G') return 'Girls';
-    return g;
-  };
 
   return (
     <div style={{ padding: '16px' }}>

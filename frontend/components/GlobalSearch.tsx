@@ -49,10 +49,13 @@ function highlightMatch(text: string, query: string): React.ReactNode {
   }
 }
 
+/** The header renders one GlobalSearch below lg and another from lg up; each input gets its own id. */
+export const GLOBAL_SEARCH_INPUT_IDS = { mobile: 'global-search-mobile', desktop: 'global-search-desktop' } as const;
+
 /**
  * GlobalSearch component - search for teams across the entire site
  */
-export function GlobalSearch() {
+export function GlobalSearch({ inputId }: { inputId?: string }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [isOpen, setIsOpen] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -165,10 +168,11 @@ export function GlobalSearch() {
         <Search className="absolute left-2 sm:left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
         <Input
           ref={inputRef}
+          id={inputId}
           type="search"
           inputMode="search"
           autoComplete="off"
-          placeholder="Search teams..."
+          placeholder="Find your team"
           value={searchQuery}
           onChange={(e) => {
             setSearchQuery(e.target.value);
@@ -183,7 +187,7 @@ export function GlobalSearch() {
           onKeyDown={handleKeyDown}
           className="pl-8 sm:pl-10 pr-8 sm:pr-10 w-full text-sm h-10 sm:h-11 [&::-webkit-search-cancel-button]:hidden"
           role="combobox"
-          aria-label="Search for teams"
+          aria-label="Find your team"
           aria-autocomplete="list"
           aria-expanded={isOpen && searchResults.length > 0}
           aria-controls="global-search-results"

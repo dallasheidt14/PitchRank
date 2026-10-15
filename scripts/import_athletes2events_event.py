@@ -809,12 +809,13 @@ def shared_links(outcomes: Dict[str, Outcome]) -> Dict[str, str]:
 
 
 def off_board_links(roster: List[TeamRow], outcomes: Dict[str, Outcome], teams: Dict[str, Dict]) -> Dict[str, str]:
-    """Linked teams the importer will refuse: no team row, or a stored age group or gender not the roster's.
+    """Linked teams whose stored row disagrees with this team: no row, another board or another gender.
 
-    The importer re-checks every link against its game's age group and gender with
-    ``GameHistoryMatcher._validate_team_age_group`` and leaves a refused side blank,
-    so the game would insert half-matched. A linked team's stored board can differ
-    from the board this team's name puts it on; a team this run creates takes it.
+    The game import does not re-check a link's age or gender (``_match_by_provider_id``
+    on this provider skips both), so the check happens here: a linked team whose stored board differs
+    from the board this team's name puts it on is a link to the wrong squad, or a
+    stored age the name contradicts, and either way its games wait for a person. A
+    team this run creates takes the name's board.
     """
     refused: Dict[str, str] = {}
     for row in roster:

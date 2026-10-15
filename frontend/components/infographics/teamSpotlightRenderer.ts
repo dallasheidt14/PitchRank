@@ -1,6 +1,7 @@
 import type { RankingRow } from '@/types/RankingRow';
 import { PLATFORM_DIMENSIONS, BRAND_COLORS, Platform } from './InfographicWrapper';
 import { teamDisplayName } from '@/lib/utils';
+import { formatGender } from '@/lib/constants';
 
 interface TeamSpotlightOptions {
   team: RankingRow & { rank?: number };
@@ -187,7 +188,7 @@ export async function renderTeamSpotlightToCanvas(options: TeamSpotlightOptions)
   currentY += (statBoxHeight + statGap) * 2 + (isVertical ? 50 : 40);
 
   // ===== CATEGORY TAG =====
-  const genderLabel = gender === 'M' ? 'BOYS' : 'GIRLS';
+  const genderLabel = formatGender(gender).toUpperCase();
   const categoryText = `${ageGroup.toUpperCase()} ${genderLabel} • ${regionName.toUpperCase()}`;
 
   ctx.fillStyle = BRAND_COLORS.electricYellow;

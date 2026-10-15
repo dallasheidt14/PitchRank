@@ -90,6 +90,12 @@ describe('getTeamTrajectory', () => {
     ];
   });
 
+  it('ends every period 30 days after it starts, the last one included', async () => {
+    const trajectory = await api.getTeamTrajectory(TEAM_ID);
+
+    expect(trajectory.map((point) => point.period_end.slice(0, 10))).toEqual(['2026-05-12', '2026-10-06']);
+  });
+
   it('builds one period per block of played games, merged ids included', async () => {
     const trajectory = await api.getTeamTrajectory(TEAM_ID);
 
@@ -168,5 +174,50 @@ describe('getCommonOpponents', () => {
     expect(common.game_date).toBe('2026-05-01');
     expect(common.team1_result).toBe('W');
     expect(common.team1_score).toBe(3);
+  });
+});
+
+// The members' pages say "Not ranked yet" only for a team short of games, so getTeam must carry the status.
+describe('getTeam status', () => {
+  beforeEach(() => {
+    supabaseMock.reset();
+    supabaseMock.tableRows.teams = [
+      {
+        team_id_master: TEAM_ID,
+        team_name: 'Fresh FC',
+        is_deprecated: false,
+        state_code: 'AZ',
+        age_group: 'u13',
+        gender: 'Male',
+      },
+    ];
+    // A state row keeps getTeam off the state-rank RPC, which this double does not model.
+    supabaseMock.tableRows.state_rankings_view = [{ team_id_master: TEAM_ID }];
+  });
+
+  it("carries the ranking's status, so a team short of games can be told apart", async () => {
+    supabaseMock.tableRows.rankings_view = [
+      { team_id_master: TEAM_ID, rank_in_cohort_final: null, status: 'Not Enough Ranked Games' },
+    ];
+
+    expect((await api.getTeam(TEAM_ID)).status).toBe('Not Enough Ranked Games');
+  });
+
+  it('carries an inactive status too', async () => {
+    supabaseMock.tableRows.rankings_view = [
+      { team_id_master: TEAM_ID, rank_in_cohort_final: null, status: 'Inactive' },
+    ];
+
+    expect((await api.getTeam(TEAM_ID)).status).toBe('Inactive');
+  });
+
+  it('reports no status when the team has no ranking row', async () => {
+    expect((await api.getTeam(TEAM_ID)).status).toBeNull();
+  });
+
+  it('takes the status from rankings_full when the rankings view has no row', async () => {
+    supabaseMock.tableRows.rankings_full = [{ team_id: TEAM_ID, status: 'Not Enough Ranked Games' }];
+
+    expect((await api.getTeam(TEAM_ID)).status).toBe('Not Enough Ranked Games');
   });
 });
