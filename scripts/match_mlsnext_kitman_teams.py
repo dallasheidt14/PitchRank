@@ -99,8 +99,11 @@ def classify(
     for squad in squads:
         key, state = squad["key"], club_state_or_blank(squad["club_name"])
         if key in links:
-            linked = team_by_id.get(links[key], {"team_id_master": links[key]})
-            tagged[key] = ("linked", [linked], "already linked")
+            if links[key] not in team_by_id:
+                # A merged-away or removed target is not live: the builder would hold this squad's games every week.
+                tagged[key] = ("review", [{"team_id_master": links[key]}], "its linked team is no longer live")
+                continue
+            tagged[key] = ("linked", [team_by_id[links[key]]], "already linked")
             continue
         season = split_kitman_key(key)[1]
         pool = [t for t in bridge if t["age_group"] == squad["age_group"] and squad["division"] in t["divisions"]]

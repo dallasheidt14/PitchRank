@@ -158,7 +158,7 @@ def _plan(squads, report, decisions=None):
 
 def test_buckets_become_actions():
     squads = [_squad("1"), _squad("2"), _squad("3"), _squad("4"), _squad("5")]
-    report = [_row("1", "confident"), _row("2", "new", ""), _row("3", "review"), _row("4", "linked"), _row("5", "confident")]
+    report = [_row("1", "confident"), _row("2", "new", ""), _row("3", "review"), _row("4", "linked", "T4"), _row("5", "confident")]
     plan = _plan(squads[:4], report[:4])
     assert [(a.action, a.reason, a.match_method) for a in plan] == [
         ("link", "confident", "fuzzy_auto"),
@@ -483,3 +483,9 @@ def test_two_squads_picking_the_same_team_are_both_held():
     assert (by_id["1"].action, by_id["2"].action) == ("hold", "hold")
     assert by_id["1"].reason == "another squad links to the same team"
     assert (by_id["3"].action, by_id["3"].team_id_master) == ("link", "T2")
+
+
+def test_a_pick_for_a_team_another_squad_keeps_is_held_and_the_kept_squad_stays():
+    squads, report = [_squad("1"), _squad("2")], [_row("1", "linked", "T1"), _row("2", "review", "T1")]
+    plan = _plan(squads, report, {"2": "T1"})
+    assert [(a.action, a.reason) for a in plan] == [("keep", "already linked"), ("hold", "another squad links to the same team")]

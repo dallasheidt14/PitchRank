@@ -158,3 +158,9 @@ def test_the_state_comes_from_the_club_table_or_is_blank(monkeypatch):
 def test_a_placeholder_club_has_no_state(monkeypatch):
     monkeypatch.setitem(keys.CLUB_STATES, "No Club Selection", "AZ")
     assert match.club_state_or_blank("No Club Selection") == ""
+
+
+def test_a_squad_linked_to_a_team_no_longer_in_the_live_bridge_goes_to_review():
+    verdict, rows = _one([_squad("10")], [_team()], links={"10:2026": "MERGED"})
+    assert verdict == [("review", "its linked team is no longer live")]
+    assert rows[0].candidates[0]["team_id_master"] == "MERGED"

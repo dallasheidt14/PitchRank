@@ -120,7 +120,7 @@ def _hold_shared_targets(plan: list[LinkAction]) -> list[LinkAction]:
     """A team is one squad, so two squads picking the same team means at least one pick is wrong."""
     squads_of_team: dict[str, set[str]] = {}
     for a in plan:
-        if a.action == "link":
+        if a.action in ("link", "keep"):
             squads_of_team.setdefault(a.team_id_master, set()).add(a.provider_team_id)
     return [
         replace(a, action="hold", team_id_master="", match_method="", reason="another squad links to the same team")
