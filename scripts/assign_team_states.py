@@ -434,6 +434,11 @@ def fetch_approved_states(sb) -> Set[Tuple[str, str]]:
         offset += PAGE_SIZE
 
 
+def queue_key(row: Dict) -> Tuple[str, str]:
+    """A queue row's ``(team, proposed state)`` -- R24's suppression key."""
+    return (row["team_id_master"], (row.get("proposed_state_code") or "").strip())
+
+
 def fetch_queue_rows(sb) -> Dict[Tuple[str, str], Dict]:
     """The newest queue row per ``(team, proposed state)`` -- R24's suppression key."""
     rows_by_key: Dict[Tuple[str, str], Dict] = {}
@@ -448,8 +453,7 @@ def fetch_queue_rows(sb) -> Dict[Tuple[str, str], Dict]:
         )
         rows = page.data or []
         for row in rows:
-            key = (row["team_id_master"], (row.get("proposed_state_code") or "").strip())
-            rows_by_key[key] = row
+            rows_by_key[queue_key(row)] = row
         if len(rows) < PAGE_SIZE:
             return rows_by_key
         offset += PAGE_SIZE
@@ -1659,6 +1663,18 @@ def apply_decision(sb, decision: Dict, reason: str, actor: str = ACTOR) -> bool:
     return bool(result.data)
 
 
+def queue_payload(decision: Dict) -> Dict:
+    """The review-queue row a queued decision files."""
+    return {
+        "team_id_master": decision["team_id"],
+        "current_state_code": decision["pre_image"],
+        "proposed_state_code": decision["proposed"],
+        "tier": decision["tier"],
+        "confidence": decision["confidence"],
+        "reason": decision["reason"],
+    }
+
+
 def queue_decision(sb, decision: Dict, existing: Dict[Tuple[str, str], Dict]) -> str:
     """Raise or refresh one review-queue row. Returns what it did.
 
@@ -1669,14 +1685,7 @@ def queue_decision(sb, decision: Dict, existing: Dict[Tuple[str, str], Dict]) ->
     """
     key = (decision["team_id"], decision["proposed"])
     row = existing.get(key)
-    payload = {
-        "team_id_master": decision["team_id"],
-        "current_state_code": decision["pre_image"],
-        "proposed_state_code": decision["proposed"],
-        "tier": decision["tier"],
-        "confidence": decision["confidence"],
-        "reason": decision["reason"],
-    }
+    payload = queue_payload(decision)
 
     if row is None:
         sb.table("team_state_review_queue").insert(payload).execute()
@@ -1736,6 +1745,11 @@ def mirror_rankings(sb, applied: List[Dict]) -> int:
             )
             mirrored += len(result.data or [])
     return mirrored
+
+
+def snapshot_reason(created_at: str) -> str:
+    """The audit reason a snapshot's replay writes under, which is how its writes are found again."""
+    return f"snapshot {created_at}"
 
 
 def apply_snapshot(
@@ -1811,7 +1825,7 @@ def apply_snapshot(
         )
     to_apply = kept
 
-    reason = f"snapshot {snapshot['created_at']}"
+    reason = snapshot_reason(snapshot["created_at"])
     applied: List[Dict] = []
     moved: List[Dict] = []
     for decision in to_apply:

@@ -397,6 +397,7 @@ import, so a process running across Aug 1 keeps last season's map until restart.
 | Soccer Events Group | `soccereventsgroup` | JSON API + bracket HTML | Tournament brackets only (pool play is unpublished); operator-run per event via `scripts/import_soccereventsgroup_event.py` |
 | Athletes2Events | `athletes2events` | HTML scraping | White-label tournament sites, one subdomain per host club; operator-run per event via `scripts/import_athletes2events_event.py`, which takes the event URL and reads the host from it |
 | YSSL | `yssl` | HTML scraping | Chicago-area boys league (Young Sportsmen's), walked club by club; teams take their club's state from the club map (IL, plus four NW Indiana clubs as IN), scored games only, weekly via `yssl-scraper.yml`. Clubs translate through the reviewed `config/yssl_club_map.csv` |
+| Tourney Central | `tourneycentral` | HTML scraping | Ohio/Michigan tournament host, one subdomain per tournament, current year only; operator-run per tournament via `scripts/import_tourneycentral_event.py`, which takes any page of the tournament and reads the host from it |
 
 #### TGS U-age divisions are only resolvable from 2026-08-01
 
@@ -1040,6 +1041,7 @@ All routes under `/api` are excluded from middleware auth (the negative lookahea
 
 - Add a dry-run guard (`--dry-run` / `dry_run` param) to any new data-mutating method or script.
 - A dry run is only as good as its weakest writer. `EnhancedETLPipeline` must pass `dry_run` to every provider matcher it constructs, and each matcher subclass must gate its own autocreate writes — a subclass that skips either makes the base class's guards inert and the run writes while reporting "no changes were made". Verify a new provider's dry run against the database, not its summary output.
+- A command a script prints for the owner to run next (a retry after a lost answer, an undo line in a record) is a code path too. Build it from the invocation's own mode, so a dry run never prints `--execute`. Point it at the tool's own guarded command, never at raw SQL; where it offers a lower-level command instead, say which of the tool's checks that command skips.
 - Run `python -m ruff check src/ scripts/ config/ tournament_intake.py dashboard.py` before committing Python changes — that path list is the python-lint CI job, and `ruff` is not on PATH on a stock Windows checkout. A Codex review bot also checks PRs (flags missing dry-run guards, lint, race conditions).
 - Do NOT run `ruff format` over a whole file. Repo-wide format enforcement is deliberately deferred (`.pre-commit-config.yaml` is lint-only), so formatting a file rewrites unrelated code and buries the real diff. Check `ruff format --diff` first and keep the reformatting to lines the change already touches.
 

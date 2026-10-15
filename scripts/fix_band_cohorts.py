@@ -94,6 +94,7 @@ PLAN_FIELDS = [
     "opp_games_proposed",
     "opp_games_current",
 ]
+APPLY_LOG_FIELDS = PLAN_FIELDS + ["result", "hold_reason", "actor"]
 
 
 def load_env() -> None:
@@ -714,7 +715,7 @@ def apply_plan(
     todo = writable + ([] if limit is not None else sorted(held, key=lambda r: r["team_id_master"]))
 
     log_path = (exports_dir or EXPORTS) / f"fix_band_cohorts_apply_{datetime.now():%Y%m%d_%H%M%S}.csv"
-    fields = PLAN_FIELDS + ["result", "hold_reason", "actor"]
+    fields = APPLY_LOG_FIELDS
     for r in todo:
         r["actor"] = actor
         if not r["hold_reason"]:
@@ -744,11 +745,12 @@ def apply_plan(
                 print(f"  {i:,} / {len(todo):,}")
                 write_csv(todo, log_path, fields)
     finally:
-        # A row whose PATCH may have committed without us seeing the reply, and every row
-        # a kill left behind, is unknown rather than unwritten. revert() replays those
-        # against the live value instead of trusting this file.
+        # The row whose PATCH may have committed without us seeing the reply is unknown
+        # rather than unwritten. A row the loop never reached was never sent and stays
+        # planned_not_applied. revert() replays both against the live value instead of
+        # trusting this file.
         for r in todo:
-            if r["result"] in (IN_FLIGHT, "planned_not_applied") and execute and not r["hold_reason"]:
+            if r["result"] == IN_FLIGHT and execute and not r["hold_reason"]:
                 r["result"] = UNCONFIRMED
         write_csv(todo, log_path, fields)
 
@@ -763,10 +765,11 @@ def apply_plan(
 def revert(sb, log_path: Path, execute: bool) -> None:
     """Replay an apply log backwards, restoring only rows still holding what it wrote.
 
-    Unconfirmed rows are replayed too. Their write may have committed with the reply
-    lost, or the run may have been killed before the log caught up, so the live value is
-    the only thing that settles it -- and the predicate below means a row that never
-    moved matches nothing.
+    Unconfirmed and planned_not_applied rows are replayed too: an unconfirmed write may
+    have committed with the reply lost, and a hard kill leaves rows written after the
+    log's last checkpoint as planned_not_applied, so the live value is the only thing
+    that settles it -- and the predicate below means a row that never moved matches
+    nothing.
     """
     rows = [r for r in read_our_csv(log_path) if r.get("result") in REVERTABLE]
     decided = load_owner_decisions(sb)

@@ -168,8 +168,8 @@ rule 6 — not the rest.** Read the numbered list below as the doorway's definit
 script's coverage. Unimplemented, and still a hand-built query: the rebrand-bridge branch of
 rule 3, the containment tiers of rule 4, rule 6's sibling-cohort game-count outlier, and any
 pair not anchored on GotSport (a TGS row duplicated on SincSports). It also skips
-`soccereventsgroup`, `athletes2events` and `playmetrics_tournament`, which are operator-run
-per event. IMP-259 tracks the containment work.
+`soccereventsgroup`, `athletes2events`, `tourneycentral` and `playmetrics_tournament`, which are
+operator-run per event. IMP-259 tracks the containment work.
 
 **Do not route its output through `decide_team_merges.py`** — not for the reason that bars
 Doorway B, whose raw-string club compare does not bite here. It has no tiers and computes no

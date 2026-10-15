@@ -936,6 +936,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `_make_composite_key` and the `schedule_id` branch of `_validate_and_dedup` in `src/etl/enhanced_pipeline.py`
 - **Why**: The composite key mirrors the DB constraint — provider, both team ids, date, and the two scores — and only `playmetrics_tournament` folds `schedule_id` in. Two meetings of the same pair on one date therefore collapse to one row for every other provider, and while both are unplayed their scores are equal too, so the scores in the key do not separate them either. No live instance: 437 games across four OYSA cohorts on 2026-09-12 had zero same-date repeat pairings, because a round-robin league does not schedule them. It becomes real the moment a tournament-shaped event is imported under a league provider — which is exactly why the `playmetrics_tournament` carve-out exists. Raised by Codex on PR #1133 against `affinity_or`; left alone there because the fix belongs in the shared dedup path, not in one provider.
 - **Noted**: 2026-09-12
+- **Update (2026-10-14)**: `athletes2events` and `tourneycentral` now fold `schedule_id` in too, through `REMATCH_PROVIDERS`, so they keep a same-day rematch whose scores differ. The composite constraint and the orientation-blind master-id check in `_check_duplicates_by_master_ids` still drop a final that repeats its pool game's score.
 
 ### SincSports live tournament scrape imports a partial event
 
@@ -1090,6 +1091,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: What `scripts/import_games_enhanced.py` reads is restated in five scripts, so a column added or renamed there drifts per scraper and fails only at import time for whichever copy was missed. The alias pre-check has three near-identical copies. One shared module for the column list, result computation and the alias lookup removes the drift.
 - **Noted**: 2026-09-14
 - **Update (2026-10-08)**: The roster-pass safety checks now have three copies: `existing_aliases`, `register_teams`, `unsaved_links`, `pending_reviews`, `unsaved_reviews`, `shared_links`, `off_board_links`, `teams_by_id`, `make_session` and `_get` exist in `scripts/import_soccereventsgroup_event.py`, `scripts/import_athletes2events_event.py` and `scripts/import_yssl.py`, differing only in the row's id attribute, the provider code and one message label, except that the Soccer Events Group `register_teams` also queues `review_reason` rows for review and passes no club arguments. An extraction takes the id attribute and provider code as parameters, plus a hook for that pre-queue step. Separately, `YSSLGameMatcher._create_new_athletes2events_team` copies the parent's insert to change only the stored name; a `_stored_team_name` hook on `Athletes2EventsGameMatcher` would let it override two lines instead.
+- **Update (2026-10-14)**: Now four copies of the roster-pass checks: `scripts/import_tourneycentral_event.py` copies `existing_aliases`, `register_teams`, `unsaved_links`, `pending_reviews`, `unsaved_reviews`, `shared_links`, `off_board_links`, `teams_by_id`, `make_session`, `_compute_result` and `write_csv` from the Athletes2Events driver with the id attribute renamed. A review measured them identical in behaviour, so nothing has drifted yet. `TourneyCentralGameMatcher._create_new_athletes2events_team` is a third copy of the parent's insert, again only to keep the full stored name. The `_stored_team_name` hook above would remove both subclass copies.
 
 ### The backlog sweep silently drops a repeated field label
 
@@ -2269,4 +2271,54 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Category**: dx
 - **Where**: `scripts/pr_wait.py` (`main`: the `if args.no_merge` return sits before the `if pending:` report)
 - **Why**: Once the Codex window has closed, the wait loop breaks at once and `--no-merge` returns 0 without listing the checks still running, so a re-run after pushing a fix to an older PR reads as finished while CI is still going (#1294, 2026-10-13: eight checks pending, exit 0; read from `main` on 2026-10-14). Wanted: under `--no-merge`, print the pending checks and return non-zero while any are pending, as the merge path already does.
+- **Noted**: 2026-10-14
+
+### Stop the age fixer's undo replaying rows it never sent
+
+- **ID**: IMP-347
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `scripts/fix_band_cohorts.py` `REVERTABLE`, `revert`, and `apply_plan`'s `finally`
+- **Why**: Since the apply's `finally` marks only the in-flight row `unconfirmed`, a run stopped by an exception leaves every row it never reached as `planned_not_applied`, and those were never sent. `revert` still replays them (`REVERTABLE` includes `planned_not_applied`) with a compare-and-set on the new age, so it puts back any team another writer had set to that same age. Only a hard kill needs those rows replayed: rows written after the log's last 500-row checkpoint stay `planned_not_applied`. A distinct result for never-sent rows written by the `finally` (e.g. `not_sent`, left out of `REVERTABLE`) would separate the two. The owner kept the fixer's undo as it is on 2026-10-14 when narrowing the `finally`.
+- **Noted**: 2026-10-14
+
+### Let run_store own apply.json's record shapes and the apply lock
+
+- **ID**: IMP-348
+- **Status**: open
+- **Type**: plan
+- **Category**: refactor
+- **Where**: `scripts/team_cleanup/run_store.py` `read_progress`, `hold_apply_file`; `scripts/team_cleanup/end_run.py` (the `_acquire_file_lock(... APPLY_LOCK_FILE ...)` block); `scripts/team_cleanup/apply_stage.py` `load_progress`, `run_batch`, `apply_queue`
+- **Why**: `end_run.py` still takes `apply.lock` by hand with its own `FileLockError` message, beside the `hold_apply_file` helper that collect, the apply and a closed run's revert share. And apply_stage builds the batch, queue-step and card records that `run_store.read_progress` validates, with the tests' builders a third copy, so a field added on one side goes unvalidated on the other. Both were left out of the applier PR as refactors beyond its scope.
+- **Noted**: 2026-10-14
+
+### Serialize a closed run's revert with applies on other machines
+
+- **ID**: IMP-349
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `scripts/team_cleanup/apply_stage.py` `revert_stage` (the closed-run branch through `run_store.hold_apply_file`) and `check_other_writers`
+- **Why**: A revert of a done or abandoned run holds only that run's local file lock and no database lease (the owner's choice on 2026-10-14), and `check_other_writers` sees GitHub runs and this machine's Python processes only. So that revert on one machine and another run's apply on a second machine are not serialized and could change the same teams at once. The cleanup runs from one machine by design (the run store is a local folder), so this matters only if the loop ever spans machines; then guard closed-run reverts with a database-side cleanup lock (refusing while any run holds a live lease covers only one direction).
+- **Noted**: 2026-10-14
+
+### Roster-pass team creation reads every lookup failure as "no team has this id"
+
+- **ID**: IMP-350
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `Athletes2EventsGameMatcher._create_new_athletes2events_team` in `src/models/athletes2events_matcher.py`, and its overrides in `src/models/yssl_matcher.py` and `src/models/tourneycentral_matcher.py`
+- **Why**: The existing-team check runs `.single()` inside a bare `except Exception`, so a timeout, 5xx or auth error is treated like the zero-row PGRST116 it is meant to absorb. A dry run then previews a relink as a create, and `--execute` fails on `UNIQUE(provider_id, provider_team_id)` with a misleading error. `.maybe_single()` returns None only when the result has 0 rows and raises otherwise (read in the installed postgrest's `SyncMaybeSingleRequestBuilder.execute`, 2026-10-14); the matcher test doubles would need to model it.
+- **Noted**: 2026-10-14
+
+### A dry run logs review-queue writes that it never makes
+
+- **ID**: IMP-351
+- **Status**: open
+- **Type**: direct
+- **Category**: dx
+- **Where**: `GameHistoryMatcher._create_review_queue_entry` in `src/models/game_matcher.py`
+- **Why**: The insert is gated on `self.dry_run`, but the `Created review queue entry for ...` info line after it is not, so every review-band team in a roster-pass dry run (Athletes2Events, YSSL, Tourney Central) reads as a write in the log. Log a dry-run form instead.
 - **Noted**: 2026-10-14
