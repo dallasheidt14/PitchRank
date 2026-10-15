@@ -26,7 +26,7 @@ import json
 import os
 import sys
 import uuid
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -113,7 +113,21 @@ def plan_links(squads: list[dict], report: list[dict], decisions: dict[str, str]
         plan.append(
             LinkAction(**base, action=action, team_id_master=team_id_master, match_method=match_method, reason=reason)
         )
-    return plan
+    return _hold_shared_targets(plan)
+
+
+def _hold_shared_targets(plan: list[LinkAction]) -> list[LinkAction]:
+    """A team is one squad, so two squads picking the same team means at least one pick is wrong."""
+    squads_of_team: dict[str, set[str]] = {}
+    for a in plan:
+        if a.action == "link":
+            squads_of_team.setdefault(a.team_id_master, set()).add(a.provider_team_id)
+    return [
+        replace(a, action="hold", team_id_master="", match_method="", reason="another squad links to the same team")
+        if a.action == "link" and len(squads_of_team[a.team_id_master]) > 1
+        else a
+        for a in plan
+    ]
 
 
 def _existing_team(sb, provider_id: str, provider_team_id: str) -> str | None:

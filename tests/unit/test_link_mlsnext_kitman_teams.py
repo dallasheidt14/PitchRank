@@ -463,13 +463,23 @@ def test_main_executes_a_returned_handback_and_undo_reverses_the_run(alias_calls
 
 
 def test_execute_opens_a_fresh_client_per_chunk_and_sums_the_counts(alias_calls, tmp_path, monkeypatch, capsys):
-    db = _Db(teams=[_live("T1")])
+    db = _Db(teams=[_live("T1"), _live("T2"), _live("T3")])
     db.rows["providers"] = [{"id": PROVIDER, "code": "mlsnext_kitman"}]
     opened = []
     monkeypatch.setattr(link, "_new_client", lambda: opened.append(1) or db)
     monkeypatch.setattr(link, "CHUNK_SIZE", 1)
-    _inputs(tmp_path, [_squad("1"), _squad("2"), _squad("3")], [_row("1"), _row("2"), _row("3")])
+    _inputs(tmp_path, [_squad("1"), _squad("2"), _squad("3")], [_row("1", candidates="T1"), _row("2", candidates="T2"), _row("3", candidates="T3")])
     assert link.main(["--in-dir", str(tmp_path), "--execute"]) == 0
     assert len(opened) == 3
     assert "aliases_written=3" in capsys.readouterr().out
     assert sorted(a["provider_team_id"] for a in db.rows["team_alias_map"]) == ["1:2026", "2:2026", "3:2026"]
+
+
+def test_two_squads_picking_the_same_team_are_both_held():
+    squads = [_squad("1"), _squad("2"), _squad("3")]
+    report = [_row("1", "review", "T1"), _row("2", "review", "T1"), _row("3", "review", "T2")]
+    plan = link.plan_links(squads, report, {"1": "T1", "2": "T1", "3": "T2"})
+    by_id = {a.provider_team_id: a for a in plan}
+    assert (by_id["1"].action, by_id["2"].action) == ("hold", "hold")
+    assert by_id["1"].reason == "another squad links to the same team"
+    assert (by_id["3"].action, by_id["3"].team_id_master) == ("link", "T2")
