@@ -327,6 +327,16 @@ class EnhancedETLPipeline:
                 alias_cache=self.alias_cache,
                 dry_run=self.dry_run,
             )
+        elif self.provider_code.lower() == "mlsnext_kitman":
+            from src.models.mlsnext_kitman_matcher import MlsNextKitmanGameMatcher
+
+            logger.info("Using MlsNextKitmanGameMatcher (alias-only; teams come from link_mlsnext_kitman_teams.py)")
+            self.matcher = MlsNextKitmanGameMatcher(
+                self.supabase,
+                provider_id=self.provider_id,
+                alias_cache=self.alias_cache,
+                dry_run=self.dry_run,
+            )
         elif self.provider_code.lower() == "yssl":
             from src.models.yssl_matcher import YSSLGameMatcher
 

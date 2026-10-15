@@ -2288,6 +2288,16 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: `check_workflow_retired` reads only the first job's steps and counts a step as off only when its step-level `if:` parses as YAML `false` (`value is False`), so `'false'`, `${{ false }}` or a job-level `if: false` reads as on and fails the check while the step stays off. The club self-check reads the same `update-missing-club-and-state.yml` through `step_is_off` (job and step `if:`, every literal-false spelling); the state check should too. The age check's flag gate asks a different question and keeps `_gated_on_the_flag`.
 - **Noted**: 2026-10-14
 
+### MLS NEXT Kitman importer: follow-ups deferred from review
+
+- **ID**: IMP-362
+- **Status**: open
+- **Type**: plan
+- **Category**: refactor
+- **Where**: `undo`, `_usable_target`, `_existing_team`, `_linked_team`, `_game_count`, `_read_csv` and `_new_client` in `scripts/link_mlsnext_kitman_teams.py` and `scripts/link_modular11_ea_teams.py`; `Modular11EaGameMatcher` and `MlsNextKitmanGameMatcher._match_team`; `hold_reason` in `scripts/build_mlsnext_kitman_games_csv.py`; `OUT_OF_SCOPE_PROVIDERS` in `scripts/find_squad_key_duplicates.py`; `fetch_db_teams` in `scripts/match_modular11_ea_teams.py`
+- **Why**: (1) The two linkers hold seven function bodies that an AST comparison finds identical, and the two alias-only matchers are the same `_match_team`; the safety-critical parts (undo, the importer's age/gender/deprecated acceptance test) now have to be fixed twice, and a shared module means editing the Modular11 EA files, which are out of scope by the owner's standing decision. (2) A game Kitman marks completed with scores but dates in the future is held only until its listed date and then imports under it; remembering such games needs persisted state (event ids seen early), a product decision. (3) Two Python guards that keep MLS NEXT out of matching test the provider code `modular11` alone, so teams created from Kitman rely on their HD/AD names to stay protected.
+- **Noted**: 2026-10-15
+
 ### Guard the nine cleanup-skill facts no test or self-check pins
 
 - **ID**: IMP-360

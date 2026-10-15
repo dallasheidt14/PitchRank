@@ -172,6 +172,9 @@ function distinctionHasLeakage(distinction?: string | null): boolean {
   });
 }
 
+/** Provider codes whose alias marks a team as MLS NEXT; the raw registered name is kept for these. */
+export const MLS_NEXT_PROVIDER_CODES = ['modular11', 'mlsnext_kitman'] as const;
+
 export interface TeamNameFields {
   team_name: string;
   club_name: string | null;
