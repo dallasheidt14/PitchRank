@@ -10,24 +10,10 @@ vi.mock('@/lib/supabase/server', () => ({ createServerSupabase: mockCreateServer
 vi.mock('next/navigation', () => ({ redirect: vi.fn() }));
 
 import ConfirmPage from '../page';
+import { flatten } from '@/test/flatten';
 
 function render(params: Record<string, string>) {
   return ConfirmPage({ searchParams: Promise.resolve(params) });
-}
-
-/** Collect every node in the returned element tree so we can assert on props. */
-function flatten(node: unknown, out: ReactElement[] = []): ReactElement[] {
-  if (Array.isArray(node)) {
-    node.forEach((child) => flatten(child, out));
-    return out;
-  }
-  if (!node || typeof node !== 'object' || !('props' in node)) {
-    return out;
-  }
-  const element = node as ReactElement<{ children?: unknown }>;
-  out.push(element);
-  flatten(element.props?.children, out);
-  return out;
 }
 
 function hiddenInputs(tree: ReactElement[]): Record<string, unknown> {

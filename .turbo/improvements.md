@@ -269,6 +269,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: Four files hand-roll the same createElement/createRoot/`act(unmount)`/remove lifecycle, so a React `act` semantics change needs four fixes — `ComparePanel.test.tsx` still imports `act` from the removed `react-dom/test-utils` path while the newer files import it from `react`. `frontend/test/` now exists (fixtures.ts, setup.ts, supabase-mock.ts) as a home for a `mountComponent()`/`cleanup()` pair.
 - **Noted**: 2026-08-24
 - **Update (2026-10-12)**: Four more hand-rolled harnesses: `frontend/hooks/useTeamSearch.test.tsx` and `frontend/components/{UnknownOpponentLink,MergeTeamsDialog,ScopedTeamSelector}.test.tsx`.
+- **Update (2026-10-14)**: Eight more: `frontend/app/watchlist/__tests__/page.test.tsx`, `frontend/test/ranked-games-copy.test.tsx` and `frontend/components/{Breadcrumbs,FindYourTeamButton,Navigation,RankingsFilter,RankingsFilter.focus,SkipLink}.test.tsx`.
 
 ### Remove `has_modular11_alias` end-to-end
 
@@ -844,16 +845,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Category**: reliability
 - **Where**: `calculateMomentum` in `frontend/components/MomentumMeter.tsx`
 - **Why**: It slices the 8 most recent rows and only then skips games with a null score, so a team whose scores have not been scraped yet gets its momentum from whatever is left — 5 games instead of 8. The two sibling generators do the opposite deliberately and say so: `formBadge.ts` and `consistency.ts` both walk newest-first and collect until they hold N *played* results. Verified 2026-09-09 against production: 34,540 of 187,266 teams (18.4%) currently have at least one unscored game among their last 8 played-or-past fixtures. Nothing on screen is false — the card labels the count it actually used — so this is sample quality, not a wrong number. Fix is to mirror the sibling walk. Kept out of the trajectory/insights fix on 2026-09-09 by user decision, because it shifts a headline metric for a fifth of the site.
-- **Noted**: 2026-09-09
-
-### Team page swallows notFound(), so a bad URL reaches the queries
-
-- **ID**: IMP-202
-- **Status**: open
-- **Type**: plan
-- **Category**: reliability
-- **Where**: the `try`/`catch` wrapping `notFound()` in `frontend/app/teams/[id]/page.tsx`; `getTeamTrajectory` in `frontend/lib/api.ts`
-- **Why**: Verified 2026-09-09 by reading the file: four `notFound()` calls (lines 118, 132, 146, 168) sit inside a `try` opened at 113 whose `catch` at 171 logs and continues, and `unstable_rethrow` appears nowhere in `frontend/`. Next's `notFound()` throws an ordinary Error, so a malformed id falls through to `TeamPageShell` and is interpolated into the PostgREST `.or()` expression with no `isValidUuid` guard — unlike the sibling insights route, which validates first. Exposure is bounded: `games_anon_select` already grants `anon` SELECT `USING (true)`, and supabase-js percent-encodes the expression, so a crafted link spoofs which team's games are shown rather than reaching private data. The same swallowed `notFound()` also disables the deprecated-team `redirect()` and the zero-games 404, which is why the fix belongs at the `catch` and not as a per-query guard. Logged rather than patched by user decision on 2026-09-09: a single-query guard would read as fixed while the page's other queries kept the gap.
 - **Noted**: 2026-09-09
 
 ### getTeamTrajectory hand-rolls the merge resolution its siblings share
@@ -2045,9 +2036,10 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Status**: open
 - **Type**: direct
 - **Category**: refactor
-- **Where**: `frontend/components/RankingsTable.tsx` (`description`), `frontend/components/TeamHeader.tsx` (gender `Badge`, `ShareButtons` title), `frontend/lib/constants.ts` (`formatGender`)
-- **Why**: Three places map M/F/B/G to Boys/Girls with their own ternaries (the share title treats anything that is not M/B as Girls) instead of `formatGender`. `formatGender` also looks `GENDER_LABELS` up case-sensitively, so `formatGender('m')` is "Unknown", while `genderSlug` beside it accepts any case. Unknown values would change from echoed raw to "Unknown" when the ternaries go, so check callers' expectations.
+- **Where**: `frontend/components/RankingsTable.tsx` (`description`), `frontend/components/TeamHeader.tsx` (gender `Badge`), `frontend/lib/constants.ts` (`formatGender`)
+- **Why**: Two places map M/F/B/G to Boys/Girls with their own ternaries instead of `formatGender`. `formatGender` also looks `GENDER_LABELS` up case-sensitively, so `formatGender('m')` is "Unknown", while `genderSlug` beside it accepts any case. Unknown values would change from echoed raw to "Unknown" when the ternaries go, so check callers' expectations.
 - **Noted**: 2026-10-11
+- **Update (2026-10-14)**: The share title now goes through `formatGender` (`teamShareTitle` in `TeamHeader.tsx`), leaving two hand-written ternaries: the `RankingsTable` description and the `TeamHeader` gender badge. Until the badge moves too, an unexpected gender value shows raw on the badge but as "Unknown" in the share text.
 
 ### Keep the phone filter row readable at 320px and narrower
 

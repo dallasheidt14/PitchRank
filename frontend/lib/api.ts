@@ -537,6 +537,7 @@ export const api = {
       state: rankingData?.state ?? team.state_code,
       age: age,
       gender: gender,
+      status: rankingData?.status ?? null,
       power_score_final: powerScoreFinal,
       glicko_rating: glickoRating,
       glicko_rd: glickoRd,

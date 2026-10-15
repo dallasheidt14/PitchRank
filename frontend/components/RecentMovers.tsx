@@ -5,9 +5,9 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ArrowUp, ArrowDown, TrendingUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { teamDisplayName } from '@/lib/utils';
+import { spokenRankingRow, teamDisplayName } from '@/lib/utils';
 import type { RankingRow } from '@/types/RankingRow';
-import type { MoversWindow } from '@/lib/movers';
+import { MOVERS_WINDOW_DAYS, type MoversWindow } from '@/lib/movers';
 
 interface RecentMoversProps {
   /** Top movers for the 7-day window, computed server-side. */
@@ -53,7 +53,7 @@ export function RecentMovers({
               Recent Movers (Nationally)
             </CardTitle>
             <CardDescription className="text-sm">
-              {cohortLabel} • {timeWindow === '7d' ? '7 days' : '30 days'}
+              {cohortLabel} • {MOVERS_WINDOW_DAYS[timeWindow]} days
             </CardDescription>
           </div>
           <div className="flex gap-1 flex-shrink-0">
@@ -83,7 +83,7 @@ export function RecentMovers({
       <CardContent>
         {recentMovers.length === 0 ? (
           <p className="text-sm text-muted-foreground text-center py-6">
-            No significant rank changes in the past {timeWindow === '7d' ? '7 days' : '30 days'}
+            No significant rank changes in the past {MOVERS_WINDOW_DAYS[timeWindow]} days
           </p>
         ) : (
           <div className="space-y-1">
@@ -98,7 +98,7 @@ export function RecentMovers({
                   key={team.team_id_master}
                   href={`/teams/${team.team_id_master}`}
                   className="flex items-center justify-between p-3 rounded-md hover:bg-secondary/50 border border-transparent hover:border-border transition-all duration-300 group"
-                  aria-label={`View ${displayName} - moved ${Math.abs(rankChange)} positions ${isImprovement ? 'up' : 'down'}`}
+                  aria-label={spokenRankingRow(team, currentRank, rankChange, MOVERS_WINDOW_DAYS[timeWindow])}
                   tabIndex={0}
                 >
                   <div className="flex-1 min-w-0">
@@ -112,7 +112,6 @@ export function RecentMovers({
                       className={`flex items-center gap-1.5 text-sm font-bold px-2 py-1 rounded ${
                         isImprovement ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
                       }`}
-                      aria-label={`${isImprovement ? 'Improved' : 'Declined'} ${Math.abs(rankChange)} spots`}
                     >
                       {isImprovement ? (
                         <ArrowUp className="h-3.5 w-3.5" aria-hidden="true" />

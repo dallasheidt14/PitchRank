@@ -26,7 +26,7 @@ allowed-tools:
 | llms.txt | `frontend/scripts/generate-llms-txt.ts` → `frontend/public/llms.txt` | Generated file — never hand-edit the output |
 | Blog posts | MDX frontmatter + TSX `BlogPost` objects | Field shape: `BlogPost` in `frontend/lib/blog.tsx`; date rules: `frontend/CLAUDE.md` → Content Authoring |
 | Topic backlog | `brand/blog-topics.json` | Pre-vetted topics with target keyword, tags, and FAQ pairs |
-| Structured data | `RankingsSchema`, `TeamSchema`, `BlogPostSchema`, `FAQSchema`, `BreadcrumbSchema` components | JSON-LD, rendered per page |
+| Structured data | `RankingsSchema`, `TeamSchema`, `BlogPostSchema`, `BlogFAQSchema`, `BreadcrumbSchema` components | JSON-LD, rendered per page; the visible `Breadcrumbs` emits its own BreadcrumbList, so don't pair it with `BreadcrumbSchema` |
 | Sitemap | `frontend/app/sitemap.ts` | Dynamic; no manual sitemap files |
 
 ## Hard Rules
@@ -58,9 +58,9 @@ and Content Generation) — it wins on any disagreement.
    statement), grep all of `frontend/` for every wording of it, including
    numbers derived from it (score bands, worked examples). Expect hits in
    `frontend/content/blog-posts.tsx`, `frontend/content/blog/` (Markdown and
-   MDX posts both render), `frontend/lib/blog-faqs.ts` and
-   `frontend/components/FAQSchema.tsx` (both render as JSON-LD that must
-   agree with the page around it), and display code such as
+   MDX posts both render), `frontend/lib/blog-faqs.ts` (rendered as JSON-LD
+   that must agree with the post around it), `frontend/lib/methodology-faqs.ts`
+   (the Methodology FAQ, shown and marked up from that one list), and display code such as
    `frontend/components/TeamSchema.tsx`. Check `.turbo/improvements.md` for
    an entry already tracking it. A partial change leaves a page's JSON-LD
    contradicting its own article.

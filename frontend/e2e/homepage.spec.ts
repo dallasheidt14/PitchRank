@@ -24,9 +24,15 @@ test.describe('Homepage', () => {
     await expect(viewRankings).toBeVisible();
     await expect(viewRankings).toHaveAttribute('href', '/rankings');
 
-    const methodology = page.locator('[data-testid="cta-methodology"]');
-    await expect(methodology).toBeVisible();
-    await expect(methodology).toHaveAttribute('href', '/methodology');
+    const reportCard = page.locator('[data-testid="cta-report-card"]');
+    await expect(reportCard).toBeVisible();
+    await expect(reportCard).toHaveAttribute('href', '/report-card');
+  });
+
+  test('"Find your team" CTA puts the cursor in the header search', async ({ page }) => {
+    await page.locator('[data-testid="cta-find-team"]').click();
+    const isDesktop = (page.viewportSize()?.width ?? 0) >= 1024;
+    await expect(page.locator(isDesktop ? '#global-search-desktop' : '#global-search-mobile')).toBeFocused();
   });
 
   test('"View Rankings" CTA navigates to rankings page', async ({ page }) => {
@@ -86,6 +92,6 @@ test.describe('Homepage - Mobile', () => {
   test('CTA buttons are visible on mobile', async ({ page }) => {
     await page.goto('/');
     await expect(page.locator('[data-testid="cta-rankings"]')).toBeVisible();
-    await expect(page.locator('[data-testid="cta-methodology"]')).toBeVisible();
+    await expect(page.locator('[data-testid="cta-find-team"]')).toBeVisible();
   });
 });

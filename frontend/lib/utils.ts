@@ -246,6 +246,30 @@ export function spokenTeamMeta(team: {
   return [team.club_name, composeTeamMeta(team)].filter(Boolean).join(' • ');
 }
 
+/** The rank a board publishes: state rank on a state board, national rank otherwise; null for an unranked team. */
+export function publishedRank(
+  team: { rank_in_state_final?: number | null; rank_in_cohort_final?: number | null },
+  region: string | null
+): number | null {
+  return (region ? team.rank_in_state_final : team.rank_in_cohort_final) ?? null;
+}
+
+/** What a screen reader says for a ranking row link, whose `aria-label` replaces everything inside it. */
+export function spokenRankingRow(
+  team: TeamNameFields & { state?: string | null; power_score_final?: number | null },
+  rank: number | null | undefined,
+  rankChange: number | null | undefined,
+  days = 7
+): string {
+  const parts = [rank != null ? `Rank ${rank}` : 'Not ranked yet'];
+  if (rankChange) parts.push(`${rankChange > 0 ? 'up' : 'down'} ${Math.abs(rankChange)} in the last ${days} days`);
+  parts.push(teamDisplayName(team));
+  if (team.club_name) parts.push(team.club_name);
+  if (team.state) parts.push(team.state.toUpperCase());
+  parts.push(`PowerScore ${formatPowerScore(team.power_score_final)}`);
+  return parts.join(', ');
+}
+
 /**
  * Joins "{state} • U{age} {gender}", omitting whatever is unknown.
  *

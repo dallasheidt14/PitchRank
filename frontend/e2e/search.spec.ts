@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 
 function visibleSearchInput(page: Page) {
-  return page.locator('input[aria-label="Search for teams"]:visible').first();
+  return page.locator('input[aria-label="Find your team"]:visible').first();
 }
 
 test.describe('Team Search - Global Search', () => {

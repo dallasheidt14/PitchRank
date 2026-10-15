@@ -15,6 +15,8 @@ export interface WatchlistTeam {
   // Rankings
   rank_in_cohort_final: number | null;
   rank_in_state_final: number | null;
+  /** Null when the ranking row is missing or its fetch failed, so the page can't say why there is no rank. */
+  status: 'Active' | 'Not Enough Ranked Games' | null;
   power_score_final: number | null;
   sos_norm: number | null;
   sos_rank_state: number | null;
@@ -113,6 +115,7 @@ export async function GET() {
       age: number | null;
       gender: string;
       rank_in_cohort_final: number | null;
+      status: 'Active' | 'Not Enough Ranked Games';
       power_score_final: number | null;
       sos_norm: number | null;
       sos_rank_state: number | null;
@@ -204,7 +207,7 @@ export async function GET() {
     }
 
     // Fetch ranking data from rankings_view (may not have all teams)
-    // Filter by status to match rankings pages (only active teams)
+    // Filter by status to match rankings pages (ranked teams and teams short of games)
     const { data: rankingsData, error: rankingsError } = await supabase
       .from('rankings_view')
       .select('*')
@@ -450,6 +453,7 @@ export async function GET() {
         // Ranking data (may be null if team has no rankings yet)
         rank_in_cohort_final: ranking?.rank_in_cohort_final ?? null,
         rank_in_state_final: stateRankMap.get(team.team_id_master) ?? null,
+        status: ranking?.status ?? null,
         power_score_final: ranking?.power_score_final ?? null,
         sos_norm: ranking?.sos_norm ?? null,
         sos_rank_state: sosRankStateMap.get(team.team_id_master) ?? ranking?.sos_rank_state ?? null,

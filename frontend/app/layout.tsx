@@ -10,6 +10,7 @@ import { GoogleAnalytics } from '@/components/GoogleAnalytics';
 import { MetaPixel } from '@/components/MetaPixel';
 import { GoogleAds } from '@/components/GoogleAds';
 import { WebVitalsReporter } from '@/components/WebVitalsReporter';
+import { SkipLink } from '@/components/SkipLink';
 import { BASE_URL_WWW } from '@/lib/constants';
 
 // Athletic Editorial Typography
@@ -155,10 +156,17 @@ export default function RootLayout({
         <GoogleAds conversionId={process.env.NEXT_PUBLIC_GOOGLE_ADS_CONVERSION_ID} />
       </head>
       <body className="antialiased flex flex-col min-h-screen">
+        <SkipLink />
         <SiteProviders>
           <WebVitalsReporter />
           <Navigation />
-          <main className="flex-1 bg-background text-foreground">{children}</main>
+          {/* The skip link focuses this; the page-wide focus ring would otherwise outline the whole page. */}
+          <main
+            id="main"
+            className="flex-1 bg-background text-foreground focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0"
+          >
+            {children}
+          </main>
           <Footer />
           <Toaster />
         </SiteProviders>

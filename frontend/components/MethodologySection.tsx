@@ -1,5 +1,7 @@
 import { Card, CardContent, CardDescription, CardHeader } from '@/components/ui/card';
-import { FAQSchema } from '@/components/FAQSchema';
+import { BlogFAQSchema } from '@/components/BlogFAQSchema';
+import { MIN_RANKED_GAMES } from '@/lib/constants';
+import { METHODOLOGY_FAQS } from '@/lib/methodology-faqs';
 import {
   Star,
   Brain,
@@ -30,7 +32,7 @@ import {
 export function MethodologySection() {
   return (
     <>
-      <FAQSchema />
+      <BlogFAQSchema faqs={METHODOLOGY_FAQS} />
       <div className="space-y-8">
         {/* Section 1 — Hero */}
         <Card variant="primary">
@@ -347,8 +349,8 @@ export function MethodologySection() {
                     Minimum Games Threshold
                   </h4>
                   <p className="text-sm text-muted-foreground">
-                    Teams need a minimum number of verified games before appearing in official rankings. This prevents a
-                    single fluky result from producing a misleading placement.
+                    Teams need at least {MIN_RANKED_GAMES} verified games in the last 12 months before appearing in
+                    official rankings. This prevents a single fluky result from producing a misleading placement.
                   </p>
                 </div>
               </div>
@@ -509,83 +511,12 @@ export function MethodologySection() {
             </h2>
           </CardHeader>
           <CardContent className="space-y-6">
-            <div>
-              <h4 className="font-display font-semibold uppercase tracking-wide text-sm mb-2">
-                Is this easy to manipulate?
-              </h4>
-              <p className="text-sm text-muted-foreground">
-                No. Schedule strength, consistency patterns, and ML comparisons prevent &quot;gaming the system.&quot;
-              </p>
-            </div>
-
-            <div>
-              <h4 className="font-display font-semibold uppercase tracking-wide text-sm mb-2">
-                Does winning by a lot help?
-              </h4>
-              <p className="text-sm text-muted-foreground">Only when the opponent is strong. Context is everything.</p>
-            </div>
-
-            <div>
-              <h4 className="font-display font-semibold uppercase tracking-wide text-sm mb-2">
-                Why doesn&apos;t one game swing our ranking?
-              </h4>
-              <p className="text-sm text-muted-foreground">
-                Because long-term patterns matter more than isolated results.
-              </p>
-            </div>
-
-            <div>
-              <h4 className="font-display font-semibold uppercase tracking-wide text-sm mb-2">
-                Can we report missing games?
-              </h4>
-              <p className="text-sm text-muted-foreground">
-                Yes — tap the Missing Games button and we&apos;ll automatically find and add them.
-              </p>
-            </div>
-
-            <div>
-              <h4 className="font-display font-semibold uppercase tracking-wide text-sm mb-2">
-                How does PitchRank compare teams across different leagues?
-              </h4>
-              <p className="text-sm text-muted-foreground">
-                Our system calibrates league strength automatically. When teams from different leagues meet at
-                tournaments, those head-to-head results anchor cross-league comparisons. The more inter-league games
-                played, the more accurate these comparisons become.
-              </p>
-            </div>
-
-            <div>
-              <h4 className="font-display font-semibold uppercase tracking-wide text-sm mb-2">
-                How accurate are rankings for teams that have only played a few games?
-              </h4>
-              <p className="text-sm text-muted-foreground">
-                Rankings for newer teams carry wider uncertainty. We require a minimum number of verified games before a
-                team appears in official rankings, and even then, their rating stabilizes further with each additional
-                game. Early-season rankings should be treated as directional, not definitive.
-              </p>
-            </div>
-
-            <div>
-              <h4 className="font-display font-semibold uppercase tracking-wide text-sm mb-2">
-                Where does PitchRank get its game data?
-              </h4>
-              <p className="text-sm text-muted-foreground">
-                We collect verified game results from tournaments, leagues, showcases, and cross-state events across all
-                50 states. Our data pipeline pulls from multiple sources — we are not locked to any single tournament
-                platform, which gives us broader coverage than platform-specific ranking systems.
-              </p>
-            </div>
-
-            <div>
-              <h4 className="font-display font-semibold uppercase tracking-wide text-sm mb-2">
-                Can teams from different states be compared fairly?
-              </h4>
-              <p className="text-sm text-muted-foreground">
-                Yes. Cross-state tournaments and national events create direct connections between state ecosystems. A
-                team from Arizona that plays in a California tournament creates a bridge that links both states&apos;
-                rankings. The more cross-state play, the more accurate interstate comparisons become.
-              </p>
-            </div>
+            {METHODOLOGY_FAQS.map(({ question, answer }) => (
+              <div key={question}>
+                <h4 className="font-display font-semibold uppercase tracking-wide text-sm mb-2">{question}</h4>
+                <p className="text-sm text-muted-foreground">{answer}</p>
+              </div>
+            ))}
           </CardContent>
         </Card>
 

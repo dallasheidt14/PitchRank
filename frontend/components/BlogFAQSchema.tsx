@@ -1,6 +1,6 @@
 /**
- * Blog-specific FAQ Schema (Structured Data)
- * Renders FAQPage JSON-LD for blog posts that have state-specific Q&A.
+ * FAQ Schema (Structured Data)
+ * Renders FAQPage JSON-LD for the Q&A a page shows; pass it the same list the page renders.
  * Helps Google display FAQ rich results in search.
  */
 

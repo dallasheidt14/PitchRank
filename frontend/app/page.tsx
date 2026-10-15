@@ -2,6 +2,7 @@ import { HowWeRank } from '@/components/HowWeRank';
 import { FeatureShowcase } from '@/components/FeatureShowcase';
 import { RecentMovers } from '@/components/RecentMovers';
 import { HomeStats } from '@/components/HomeStats';
+import { FindYourTeamButton } from '@/components/FindYourTeamButton';
 import { SeasonRolloverNotice } from '@/components/SeasonRolloverNotice';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
@@ -77,6 +78,7 @@ export default async function Home() {
             <HomeStats totalGames={totalGames} totalTeams={totalTeams} />
 
             <div className="flex flex-wrap gap-3">
+              <FindYourTeamButton />
               <Button
                 data-testid="cta-rankings"
                 size="lg"
@@ -89,19 +91,11 @@ export default async function Home() {
               <Button
                 data-testid="cta-report-card"
                 size="lg"
-                asChild
-                className="font-semibold uppercase tracking-wide bg-accent text-primary hover:bg-accent/90"
-              >
-                <Link href="/report-card">Free Team Report Card</Link>
-              </Button>
-              <Button
-                data-testid="cta-methodology"
-                size="lg"
                 variant="outline"
                 asChild
                 className="font-semibold uppercase tracking-wide bg-transparent border-primary-foreground text-primary-foreground hover:bg-primary-foreground hover:text-primary"
               >
-                <Link href="/methodology">Our Methodology</Link>
+                <Link href="/report-card">Free Team Report Card</Link>
               </Button>
             </div>
           </div>

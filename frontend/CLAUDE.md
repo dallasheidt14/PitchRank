@@ -350,7 +350,8 @@ already works. That is a hosted setting, not code.
 ## SEO
 
 - Dynamic OG images: `opengraph-image.tsx`, `twitter-image.tsx`
-- Structured data components: `RankingsSchema`, `TeamSchema`, `BlogPostSchema`, `FAQSchema`, `BreadcrumbSchema`
+- Structured data components: `RankingsSchema`, `TeamSchema`, `BlogPostSchema`, `BlogFAQSchema`, `BreadcrumbSchema`.
+  The visible `Breadcrumbs` emits its own BreadcrumbList, so a page that renders it must not add `BreadcrumbSchema` too
 - Dynamic sitemap: `app/sitemap.ts`
 - Canonical URLs in page metadata
 - `robots.noindex` for auth-gated pages
@@ -425,10 +426,14 @@ RESEND_API_KEY
 ### Unit Tests (Vitest)
 
 - Config: `vitest.config.ts` (happy-dom environment, `@` path alias)
-- Test location: `*.test.ts(x)` colocated beside the module under test (`lib/movers.test.ts`, `components/RecentMovers.test.tsx`); API route tests live in a `__tests__/` dir beside the route (`app/api/stripe/webhook/__tests__/route.test.ts`)
-- Shared fixtures, setup, and mocks live in `test/` (`test/fixtures.ts`, `test/setup.ts`, `test/supabase-mock.ts`)
+- Test location: `*.test.ts(x)` colocated beside the module under test (`lib/movers.test.ts`, `components/RecentMovers.test.tsx`); API route and page tests live in a `__tests__/` dir beside the route or page (`app/api/stripe/webhook/__tests__/route.test.ts`, `app/teams/[id]/__tests__/page.test.tsx`)
+- Shared fixtures, setup, and mocks live in `test/` (`test/fixtures.ts`, `test/setup.ts`, `test/supabase-mock.ts`,
+  and `test/flatten.ts` for walking a server component's returned element tree), as do checks that span many files
+  (`test/single-main-landmark.test.ts`)
 - `test/supabase-mock.ts` exports two Supabase doubles and they are not interchangeable. `queryBuilder`/`serviceClientMock` replay a canned result and ignore the filters they are handed, which suits a route that just needs rows back. A test guarding a filter needs `filteringClientMock`, which applies `.eq`/`.in`/`.not`/`.or`, drops NULL on `.eq` and honours the column each `.or` term names, returns PGRST116 from `.single()` unless exactly one row survives and from `.maybeSingle()` when more than one does, and throws on a `.not()` operator or `.or()` term it does not model. Written against the canned builder, a filter guard keeps passing after the filter is deleted
 - Mock Stripe/Supabase with `vi.mock()` and `vi.hoisted()` for hoisted mock refs
+- `flatten` lists the elements a server component returns, but it never calls a child component, so whatever a child renders is invisible to it. A guard about output a child could emit (JSON-LD from a `*Schema` component, say) has to call those children itself; see the board page test
+- Read JSON-LD from the element's raw `dangerouslySetInnerHTML.__html`, not from a rendered `<script>`'s `textContent`: happy-dom decodes HTML entities there, which crawlers never do, so an entity-escaped answer would compare equal
 - CI: `frontend-test` job in `.github/workflows/ci.yml`
 
 ### E2E Tests (Playwright)

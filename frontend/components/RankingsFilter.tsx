@@ -11,9 +11,31 @@ interface RankingsFilterProps {
   onFilterChange?: (region: string, ageGroup: string, gender: string) => void;
 }
 
+const FILTER_IDS = {
+  region: 'rankings-filter-region',
+  ageGroup: 'rankings-filter-age',
+  gender: 'rankings-filter-gender',
+} as const;
+
+// A filter change loads another board, which remounts this card; the changed dropdown's id waits here to get
+// focus back, so keyboard and screen-reader users aren't dropped at the top of the page.
+let pendingFocus: { id: string; path: string } | null = null;
+
 export function RankingsFilter({ onFilterChange }: RankingsFilterProps) {
   const router = useRouter();
   const pathname = usePathname();
+  const lastChangedIdRef = useRef<string>(FILTER_IDS.region);
+
+  useEffect(() => {
+    const note = pendingFocus;
+    pendingFocus = null;
+    if (note?.path === pathname) document.getElementById(note.id)?.focus({ preventScroll: true });
+    // Next writes the new URL before this card unmounts, so leaving for any other address (Back, a link) means the
+    // filter change was abandoned and its note must not wait for a later visit to that board.
+    return () => {
+      if (pendingFocus && window.location.pathname !== pendingFocus.path) pendingFocus = null;
+    };
+  }, [pathname]);
 
   // Track if we're navigating internally to prevent infinite loops
   const isNavigatingRef = useRef(false);
@@ -35,18 +57,21 @@ export function RankingsFilter({ onFilterChange }: RankingsFilterProps) {
   // Handlers that track filter changes
   const handleRegionChange = (newRegion: string) => {
     hasUserInteractedRef.current = true;
+    lastChangedIdRef.current = FILTER_IDS.region;
     setRegion(newRegion);
     trackFilterApplied({ region: newRegion, age_group: ageGroup, gender });
   };
 
   const handleAgeGroupChange = (newAgeGroup: string) => {
     hasUserInteractedRef.current = true;
+    lastChangedIdRef.current = FILTER_IDS.ageGroup;
     setAgeGroup(newAgeGroup);
     trackFilterApplied({ region, age_group: newAgeGroup, gender });
   };
 
   const handleGenderChange = (newGender: string) => {
     hasUserInteractedRef.current = true;
+    lastChangedIdRef.current = FILTER_IDS.gender;
     setGender(newGender);
     trackFilterApplied({ region, age_group: ageGroup, gender: newGender });
   };
@@ -116,6 +141,7 @@ export function RankingsFilter({ onFilterChange }: RankingsFilterProps) {
     // Mark that we're navigating internally and set target
     isNavigatingRef.current = true;
     targetPathRef.current = targetPath;
+    pendingFocus = { id: lastChangedIdRef.current, path: targetPath };
 
     // scroll: false keeps the user's scroll position on the filter card.
     // Without it, App Router jumps to the top of the page on every filter change.
@@ -127,11 +153,14 @@ export function RankingsFilter({ onFilterChange }: RankingsFilterProps) {
       <CardContent className="grid grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)] gap-2 px-3 py-3 sm:flex sm:flex-row sm:items-end sm:justify-start sm:gap-6 sm:px-6 sm:py-5">
         {/* Region */}
         <div className="flex flex-col min-w-0 sm:w-auto sm:min-w-[200px]">
-          <label className="text-xs sm:text-sm font-semibold text-foreground uppercase tracking-wide mb-1 sm:mb-2">
+          <label
+            htmlFor={FILTER_IDS.region}
+            className="text-xs sm:text-sm font-semibold text-foreground uppercase tracking-wide mb-1 sm:mb-2"
+          >
             Region
           </label>
           <Select value={region} onValueChange={handleRegionChange}>
-            <SelectTrigger className="w-full h-11 px-2 sm:px-3 font-medium">
+            <SelectTrigger id={FILTER_IDS.region} className="w-full h-11 px-2 sm:px-3 font-medium">
               <SelectValue placeholder="Select region" />
             </SelectTrigger>
             <SelectContent>
@@ -147,11 +176,14 @@ export function RankingsFilter({ onFilterChange }: RankingsFilterProps) {
 
         {/* Age Group */}
         <div className="flex flex-col min-w-0 sm:w-auto sm:min-w-[160px]">
-          <label className="text-xs sm:text-sm font-semibold text-foreground uppercase tracking-wide mb-1 sm:mb-2">
+          <label
+            htmlFor={FILTER_IDS.ageGroup}
+            className="text-xs sm:text-sm font-semibold text-foreground uppercase tracking-wide mb-1 sm:mb-2"
+          >
             Age Group
           </label>
           <Select value={ageGroup} onValueChange={handleAgeGroupChange}>
-            <SelectTrigger className="w-full h-11 px-2 sm:px-3 font-medium">
+            <SelectTrigger id={FILTER_IDS.ageGroup} className="w-full h-11 px-2 sm:px-3 font-medium">
               <SelectValue placeholder="Select age group" />
             </SelectTrigger>
             <SelectContent>
@@ -170,11 +202,14 @@ export function RankingsFilter({ onFilterChange }: RankingsFilterProps) {
 
         {/* Gender */}
         <div className="flex flex-col min-w-0 sm:w-auto sm:min-w-[160px]">
-          <label className="text-xs sm:text-sm font-semibold text-foreground uppercase tracking-wide mb-1 sm:mb-2">
+          <label
+            htmlFor={FILTER_IDS.gender}
+            className="text-xs sm:text-sm font-semibold text-foreground uppercase tracking-wide mb-1 sm:mb-2"
+          >
             Gender
           </label>
           <Select value={gender} onValueChange={handleGenderChange}>
-            <SelectTrigger className="w-full h-11 px-2 sm:px-3 font-medium">
+            <SelectTrigger id={FILTER_IDS.gender} className="w-full h-11 px-2 sm:px-3 font-medium">
               <SelectValue placeholder="Select gender" />
             </SelectTrigger>
             <SelectContent>

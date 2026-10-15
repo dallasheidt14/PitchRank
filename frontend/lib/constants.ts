@@ -193,6 +193,9 @@ export const MAX_FEEDBACK_LENGTH = 2000;
 export const POWERSCORE_DEFINITION =
   'A machine-learning-enhanced ranking score that measures overall team strength based on offense, defense, schedule difficulty, and predictive performance patterns. Shown on a 0–100 scale; higher is stronger.';
 
+/** Games in the last 12 months a team needs for a rank; mirrors MIN_GAMES_PROVISIONAL in src/etl/glicko_config.py. */
+export const MIN_RANKED_GAMES = 10;
+
 /**
  * Bearer credentials that ride in a URL, and the pages that render carrying one.
  *

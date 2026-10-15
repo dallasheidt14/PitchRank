@@ -1671,3 +1671,15 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Noted**: 2026-10-11
 - **Update (2026-10-14)**: Fixed all five. `waitForFirstRankingsRow` and the two specs that repeated its descendant query now assert the row's own `href`, and the title test matches "Youth Soccer Rankings"; all five pass against www.pitchrank.io on both Playwright projects.
 - **Refs**: branch `fix/rankings-view-prompt`
+
+### Team page swallows notFound(), so a bad URL reaches the queries
+
+- **ID**: IMP-202
+- **Status**: done
+- **Type**: plan
+- **Category**: reliability
+- **Where**: the `try`/`catch` wrapping `notFound()` in `frontend/app/teams/[id]/page.tsx`; `getTeamTrajectory` in `frontend/lib/api.ts`
+- **Why**: Verified 2026-09-09 by reading the file: four `notFound()` calls (lines 118, 132, 146, 168) sit inside a `try` opened at 113 whose `catch` at 171 logs and continues, and `unstable_rethrow` appears nowhere in `frontend/`. Next's `notFound()` throws an ordinary Error, so a malformed id falls through to `TeamPageShell` and is interpolated into the PostgREST `.or()` expression with no `isValidUuid` guard — unlike the sibling insights route, which validates first. Exposure is bounded: `games_anon_select` already grants `anon` SELECT `USING (true)`, and supabase-js percent-encodes the expression, so a crafted link spoofs which team's games are shown rather than reaching private data. The same swallowed `notFound()` also disables the deprecated-team `redirect()` and the zero-games 404, which is why the fix belongs at the `catch` and not as a per-query guard. Logged rather than patched by user decision on 2026-09-09: a single-query guard would read as fixed while the page's other queries kept the gap.
+- **Noted**: 2026-09-09
+- **Update (2026-10-14)**: Fixed at the `catch`: it calls `unstable_rethrow(error)` before logging, so `notFound()` and the merged-team `redirect()` reach Next again. The zero-games 404 was removed instead of revived, by owner decision on 2026-10-14. It would have sent 25,601 teams that search still lists to a dead end in place of the page's Missing Games form, and the page is members-only and noindex, so the soft-404 reason never applied. The merged-team lookup now reads only the team's own merge row, and a failed lookup renders instead of answering 404. Tests in `frontend/app/teams/[id]/__tests__/page.test.tsx` pin the redirect, the 404s for a malformed id and for a merged team with no survivor, a team with no games rendering, and the page rendering when a query errors or the check throws.
+- **Refs**: branch `fix/ui-audit-leftovers`
