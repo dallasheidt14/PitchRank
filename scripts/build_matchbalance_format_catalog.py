@@ -25,7 +25,7 @@ SOURCE_ID = "format-field-guide-2026-10"
 def build_catalog() -> dict:
     legacy = json.loads((ROOT / "config/matchbalance_format_library_v1.json").read_text())
     catalog = deepcopy(legacy)
-    catalog.update(schema_version=2, library_version="2.0.0")
+    catalog.update(schema_version=2, library_version="2.1.0")
     catalog["source_documents"].append(
         {
             "source_id": SOURCE_ID,
@@ -472,7 +472,26 @@ def build_catalog() -> dict:
         exact_search_enabled=True,
         maximum_search_states=1000000,
     )
+    expanded["is_default"] = False
     catalog["profiles"].append(expanded)
+    practical_policy = deepcopy(catalog["recommendation_policies"][0])
+    practical_policy.update(
+        policy_id="matchbalance-practical-within-policy-v2",
+        version=2,
+        description="Prefer divisions of at least four teams when a complete arrangement passes all limits; "
+        "retain smaller divisions as an explained fallback. Pool sizes do not determine strength-tier sizes.",
+        preferred_minimum_division_size=4,
+    )
+    practical_policy["selection_steps"].insert(
+        1, "If any passing arrangement uses only divisions of at least four teams, select among those arrangements."
+    )
+    catalog["recommendation_policies"].append(practical_policy)
+    practical_profile = deepcopy(expanded)
+    practical_profile.update(
+        profile_id="matchbalance-expanded-v3", version=3, is_default=True,
+        recommendation_policy_id=practical_policy["policy_id"],
+    )
+    catalog["profiles"].append(practical_profile)
     catalog["source_coverage"] = coverage
     return catalog
 

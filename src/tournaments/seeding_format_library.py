@@ -61,6 +61,7 @@ class MatchBalanceRecommendationPolicy:
     numerical_tie_relative_tolerance: float
     numerical_tie_absolute_tolerance: float
     provenance_status: str
+    preferred_minimum_division_size: int | None = None
 
 
 @dataclass(frozen=True)
@@ -419,6 +420,13 @@ def validate_format_library(library: FormatLibrary) -> FormatLibraryValidation:
         if duplicates:
             library_errors.append(
                 f"Duplicate {label} ID(s): {', '.join(duplicates)}."
+            )
+
+    for policy in library.recommendation_policies:
+        minimum = policy.preferred_minimum_division_size
+        if minimum is not None and (isinstance(minimum, bool) or not isinstance(minimum, int) or minimum < 3):
+            library_errors.append(
+                "Preferred minimum division size must be an integer of at least three or unspecified."
             )
 
     templates = {item.template_id: item for item in library.templates}

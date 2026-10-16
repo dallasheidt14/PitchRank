@@ -411,17 +411,44 @@ def _render_cohort_review(
 
 
 def _render_placement_checks(key, analysis, pack, roster_rows, save) -> None:
-    if (not analysis.limited_history and not analysis.placement_checks
+    if (not analysis.ordering_evidence and not analysis.limited_history and not analysis.placement_checks
             and not analysis.tier_guidance.get("review_required")):
         return
     pending = needs_placement_review(pack, key, analysis)
     with st.expander("Placement checks — internal", expanded=pending):
         st.caption(
+            "Review the preview recommendation using the saved results below. "
+            "Larger moves are allowed; limited evidence remains flagged."
+            if analysis.ordering_evidence else
             "Review these placements using team identity, recent results or club context. "
             "PowerScore remains the frozen baseline. Fully supported local consensus can change only the "
             "separate MatchBalance order, within the configured movement cap. "
             "Add any delivery guidance to Director notes above."
         )
+        if analysis.ordering_evidence:
+            st.warning("Preview: historical prediction improvement has not yet been established.")
+            result_options = {}
+            for entrant, detail in analysis.ordering_evidence.get("teams", {}).items():
+                st.text(f"{roster_rows[entrant].registered_name} — {detail['reason']}")
+                if detail.get("cautions"):
+                    st.caption("; ".join(detail["cautions"]))
+                results = detail.get("results", {})
+                if results.get("influentialGames"):
+                    result_options[entrant] = results["influentialGames"]
+                span = analysis.ordering_evidence.get("game_sensitivity", {}).get("seed_ranges", {}).get(entrant)
+                if span and span[0] != span[1]:
+                    st.caption(f"Result stress checks: seeds {span[0]}–{span[1]}.")
+            if result_options:
+                team = st.selectbox("Show the results behind a team", options=list(result_options),
+                                    format_func=lambda value: roster_rows[value].registered_name,
+                                    key=f"_seeding_result_evidence_{key}")
+                st.dataframe(result_options[team], hide_index=True)
+            comparison = analysis.ordering_evidence.get("pairwise_comparison", {})
+            if comparison:
+                st.caption("Regularized pairwise diagnostic: " + (
+                    "same order as expected points." if comparison.get("agrees_with_expected_points")
+                    else "differs from expected points; inspect this close decision."
+                ) + (" Solver did not converge." if not comparison.get("converged") else ""))
         seed_by_id = {entrant: seed for seed, entrant in enumerate(analysis.baseline_order, 1)}
         for entrant in analysis.limited_history:
             st.write(
@@ -467,6 +494,8 @@ def _render_placement_checks(key, analysis, pack, roster_rows, save) -> None:
                 team = roster_rows[item.entrant_id].registered_name
                 direction = "up" if item.suggested_seed < item.original_seed else "down"
                 reason = (
+                    analysis.ordering_evidence["teams"][item.entrant_id]["reason"]
+                    if analysis.ordering_evidence else
                     "displaced only because another supported team moved past it"
                     if item.displaced_only else
                     f"supported by {len(item.relationships_causing_move)} applied relationship(s)"
@@ -508,6 +537,9 @@ def _render_analysis_details(
 ) -> None:
     names_by_id = {str(row.source_index): row.registered_name for row in rows}
     st.caption(
+        "Preview ordering compares the whole cohort. There is no fixed movement cap; "
+        "uncertain placements require review. Competitive limits remain unchanged."
+        if pack.get("ordering_method", "legacy") != "legacy" else
         "Every adjacent MatchBalance boundary is evaluated from nearby Compare matchups; "
         "PowerScore is supporting context and never gates the classification. "
         f"Competitive enough means no more than {pack['policy']['max_expected_margin']:.2f} "
@@ -617,11 +649,14 @@ def _render_freshness(pack, parsed, resolved, overrides, selected, save):
     from src.tournaments.seeding_freshness import acknowledge_freshness, check_freshness, snapshot_identity
     with st.expander("Snapshot freshness and acknowledgment", expanded=False):
         st.caption("Check current inputs without changing this saved seed order or its predictions.")
+        for change in (pack.get("freshness_check") or {}).get("changes", []):
+            st.caption(change)
         if st.button("Check snapshot freshness", key="_seeding_check_freshness"):
             try:
                 batch = load_seeding_predictions(
                     prediction_request(parsed.rows, resolved, overrides, selected),
                     supabase_url=SUPABASE_URL, supabase_key=SUPABASE_SERVICE_ROLE_KEY,
+                    model=pack.get("prediction_model", "legacy"),
                 )
                 pack["freshness_check"] = check_freshness(pack, batch)
                 st.session_state["_seeding_verified_identity"] = snapshot_identity(pack)
@@ -662,8 +697,8 @@ def render_seeding_pack(
     if view != "export":
         st.markdown("### 3. Review the seed order" if view == "build" else "### 3. Build and review the seed order")
         st.caption(
-            "PowerScore sets the starting order. Compare predictions then flag placements that need your review; "
-            "supported evidence can make conservative adjustments before practical tier breaks are assessed."
+            "Build the recommended order and strength tiers, then review flagged placements. "
+            "PowerScore, the MatchBalance recommendation, and your manual placements remain separate."
         )
     else:
         st.markdown("### 4. Export the director pack")
@@ -721,7 +756,17 @@ def render_seeding_pack(
             # Required recovery must remain visible even when the roster still matches.
             pass
     build_requested = False
+    prediction_model = (pack or {}).get("prediction_model", "legacy")
+    if prediction_model not in {"legacy", "cohort", "results"}:
+        prediction_model = "legacy"
     if view != "export":
+        with st.expander("Recommendation method (optional)", expanded=False):
+            labels = {"legacy": "Current method", "cohort": "Whole-cohort comparison — preview",
+                      "results": "Opponent-adjusted recent results — preview"}
+            prediction_model = st.selectbox("Build method", list(labels),
+                index=list(labels).index(prediction_model), format_func=labels.get, key="_seeding_prediction_model")
+            st.caption("Preview methods can make larger evidence-based moves. They retain PowerScore as a reference "
+                       "and require placement review. Saved sheets change only when you build again.")
         if saved_analyses is not None:
             with st.expander("Rebuild with current team data (optional)", expanded=False):
                 st.caption("Your sheets are already built. Rebuilding preserves director notes and roster decisions.")
@@ -735,6 +780,7 @@ def render_seeding_pack(
                 request = prediction_request(parsed.rows, resolved, overrides, selected)
                 batch = load_seeding_predictions(
                     request, supabase_url=SUPABASE_URL, supabase_key=SUPABASE_SERVICE_ROLE_KEY,
+                    model=prediction_model,
                 )
                 ids = [team_id for teams in request.values() for team_id in teams.values()]
                 ratings = make_ratings_lookup(supabase_client)(ids)
@@ -764,8 +810,8 @@ def render_seeding_pack(
 
     if (
         isinstance(pack, dict)
-        and pack.get("schema_version") in (3, 4, 5, 6, 7)
-        and pack.get("analysis_schema_version") in (1, 2, 3, 4, 5, 6, 7, 8, 9)
+        and pack.get("schema_version") in (3, 4, 5, 6, 7, 8)
+        and pack.get("analysis_schema_version") in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
     ):
         try:
             pack = upgrade_pack_analysis(

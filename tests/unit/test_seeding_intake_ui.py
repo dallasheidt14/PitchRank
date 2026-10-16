@@ -306,7 +306,7 @@ def test_legacy_analysis_reuses_predictions_and_preserves_notes(operator):
     app.run()
     assert not app.exception and not app.error
     upgraded = app.session_state["_seeding_pack"]
-    assert upgraded["analysis_schema_version"] == 10
+    assert upgraded["analysis_schema_version"] == 11
     assert upgraded["predictions"] == pack["predictions"]
     assert upgraded["generated_at"] == pack["generated_at"]
     assert upgraded["operator_notes"] == pack["operator_notes"]
@@ -422,7 +422,7 @@ def test_rebuild_materializes_new_policy_defaults_from_a_version_three_pack(oper
     click(app, "Build seeding sheets")
 
     rebuilt = app.session_state["_seeding_pack"]
-    assert rebuilt["analysis_schema_version"] == 10
+    assert rebuilt["analysis_schema_version"] == 11
     assert rebuilt["policy"]["blowout_cost_weight"] == 2.0
     assert rebuilt["policy"]["very_close_expected_goal_difference"] == 1.0
     assert rebuilt["policy"]["material_reversal_expected_goal_difference"] == 1.0
@@ -687,7 +687,7 @@ def test_unsupported_saved_note_remains_editable_after_export_failure(operator, 
     click(app, "Save director notes")
     assert not app.error
     assert app.session_state["_seeding_pack"]["operator_notes"]["u14|Male"] == "Corrected note"
-    assert app.session_state["_seeding_pack"]["analysis_schema_version"] == 10
+    assert app.session_state["_seeding_pack"]["analysis_schema_version"] == 11
     assert "Corrected note" in app.session_state["_seeding_sheet_html"]
     assert "_seeding_xlsx" in app.session_state and len(calls) == 1
 
@@ -946,7 +946,8 @@ render_assessment(parsed, resolved, {})
 
 
 
-def test_saved_catalog_update_keeps_the_frozen_evidence_and_operator_choices(operator):
+@pytest.mark.parametrize("old_version", ["1.0.0", "2.0.0"])
+def test_saved_catalog_update_keeps_the_frozen_evidence_and_operator_choices(operator, old_version):
     import json
 
     from src.tournaments.seeding_format_library import LEGACY_LIBRARY_PATH
@@ -954,16 +955,28 @@ def test_saved_catalog_update_keeps_the_frozen_evidence_and_operator_choices(ope
     app, calls = operator
     click(app, "Build seeding sheets")
     pack = deepcopy(app.session_state["_seeding_pack"])
-    pack["format_library"] = json.loads(LEGACY_LIBRARY_PATH.read_text())
+    if old_version == "1.0.0":
+        pack["format_library"] = json.loads(LEGACY_LIBRARY_PATH.read_text())
+    else:
+        library = pack["format_library"]
+        library["library_version"] = "2.0.0"
+        library["profiles"] = [p for p in library["profiles"] if p["profile_id"] != "matchbalance-expanded-v3"]
+        library["recommendation_policies"] = [p for p in library["recommendation_policies"]
+                                             if p["policy_id"] != "matchbalance-practical-within-policy-v2"]
+        for profile in library["profiles"]:
+            profile["is_default"] = profile["profile_id"] == "matchbalance-expanded-v2"
     pack["operator_notes"] = {"u14|Male": "Preserve this director note"}
     pack["tier_names"] = {"u14|Male": ["Gold"]}
     pack["manual_seed_orders"] = {"u14|Male": {"seeded": ["1", "0"], "held": []}}
     app.session_state["_seeding_pack"] = pack
     app.run()
-    assert app.session_state["_seeding_pack"]["format_library"]["schema_version"] == 1
-    click(app, "Use expanded formats for this saved analysis")
+    assert app.session_state["_seeding_pack"]["format_library"]["library_version"] == old_version
+    click(app, "Use current formats and tier guidance")
     updated = app.session_state["_seeding_pack"]
-    assert updated["format_library"]["schema_version"] == 2
+    assert updated["format_library"]["library_version"] == "2.1.0"
+    app.run()
+    assert not app.exception
+    assert not any(b.label == "Use current formats and tier guidance" for b in app.button)
     for field in ("teams", "predictions", "generated_at", "operator_notes", "tier_names", "manual_seed_orders"):
         assert updated[field] == pack[field]
     assert len(calls) == 1
@@ -1362,3 +1375,34 @@ def test_the_seeding_app_does_not_warn_when_restore_sets_the_pickers():
 
     config = tomllib.loads((Path(__file__).resolve().parents[2] / ".streamlit" / "config.toml").read_text("utf-8"))
     assert config["global"]["disableWidgetStateDuplicationWarning"] is True
+
+
+def test_preview_choice_is_explicit_and_rebuild_preserves_manual_choices(operator, monkeypatch):
+    import hashlib
+    import json
+    app, _calls = operator
+    original_loader = ui.load_seeding_predictions
+    requested_models = []
+
+    def preview(cohorts, **kwargs):
+        requested_models.append(kwargs.get("model", "legacy"))
+        batch = original_loader(cohorts)
+        model = kwargs.get("model", "legacy")
+        evidence = {key: {"canonical_json": json.dumps({"model": model, "teams": batch.teams[key]})}
+                    for key in cohorts}
+        return replace(batch, model=model, evidence=evidence, input_digests={
+            key: hashlib.sha256(item["canonical_json"].encode()).hexdigest() for key, item in evidence.items()})
+
+    monkeypatch.setattr(ui, "load_seeding_predictions", preview)
+    click(app, "Build seeding sheets")
+    before = deepcopy(app.session_state["_seeding_pack"])
+    app.selectbox(key="_seeding_prediction_model").select("cohort").run()
+    assert app.session_state["_seeding_pack"] == before
+    click(app, "Build seeding sheets")
+    pack = app.session_state["_seeding_pack"]
+    assert pack["ordering_method"] == "cohort_expected_points_v1"
+    assert requested_models == ["legacy", "cohort"]
+    assert "Preview recommendation" in app.session_state["_seeding_sheet_html"]
+    app.run()
+    assert not app.exception
+    assert app.session_state["_seeding_pack"] == pack

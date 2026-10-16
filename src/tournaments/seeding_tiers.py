@@ -1,4 +1,4 @@
-"""Explainable tournament tiers from the canonical Compare matchup predictions.
+"""Explainable tournament tiers from frozen matchup predictions.
 
 Limits here are an operator's placement policy, not fitted accuracy claims.
 Every pair in an automatic tier must pass both limits. Outcome confidence is
@@ -332,6 +332,7 @@ class CheatSheetAnalysis:
     movements: tuple[TeamMovement, ...] = ()
     ordering_conflicts: tuple[OrderingConflict, ...] = ()
     tier_guidance: Mapping = field(default_factory=dict)
+    ordering_evidence: Mapping = field(default_factory=dict)
 
     @property
     def supported_boundaries(self) -> tuple[BoundaryAssessment, ...]:
@@ -1083,6 +1084,7 @@ def build_cheat_sheet_analysis(
     legacy: TierAnalysis | None = None,
     manual_order: Sequence[str] | None = None,
     manual_holds: Sequence[str] = (),
+    ordering_method: str = "legacy",
 ) -> CheatSheetAnalysis:
     """Build a recommendation without altering PowerScore or publishing a ranking."""
     by_id: dict[str, TierEntrant] = {}
@@ -1113,28 +1115,38 @@ def build_cheat_sheet_analysis(
     statuses = {key: SEEDED for key in baseline_order}
     statuses.update({key: by_id[key].review_status for key in review})
 
-    placement_checks = tuple(
-        PlacementCheck(upper + 1, lower + 1, -_margin(pairs, baseline_order[upper], baseline_order[lower]))
-        for upper in range(len(baseline_order)) for lower in range(upper + 1, len(baseline_order))
-        if (
-            _margin(pairs, baseline_order[upper], baseline_order[lower])
-            <= -policy.material_reversal_expected_goal_difference
+    ordering_evidence = {}
+    if ordering_method == "cohort_expected_points_v1":
+        from src.tournaments.seeding_cohort_order import cohort_expected_points_order
+        order_result, ordering_evidence = cohort_expected_points_order(
+            baseline_order, predictions, limited_history=[key for key in baseline_order if by_id[key].limited_history],
         )
-    )
-    consensus_checks = _local_consensus_checks(
-        baseline_order, by_id, pairs, placement_checks, policy,
-    )
-    supported_relationships = tuple(
-        (item.entrant_id, item.compared_with_id)
-        for item in consensus_checks
-        if item.supported
-    )
-    order_result = resolve_suggested_order(
-        baseline_order,
-        supported_relationships,
-        immovable_ids=(key for key in baseline_order if by_id[key].limited_history),
-        max_movement=policy.max_automatic_seed_movement,
-    )
+        placement_checks, consensus_checks = (), ()
+    elif ordering_method == "legacy":
+        placement_checks = tuple(
+            PlacementCheck(upper + 1, lower + 1, -_margin(pairs, baseline_order[upper], baseline_order[lower]))
+            for upper in range(len(baseline_order)) for lower in range(upper + 1, len(baseline_order))
+            if (
+                _margin(pairs, baseline_order[upper], baseline_order[lower])
+                <= -policy.material_reversal_expected_goal_difference
+            )
+        )
+        consensus_checks = _local_consensus_checks(
+            baseline_order, by_id, pairs, placement_checks, policy,
+        )
+        supported_relationships = tuple(
+            (item.entrant_id, item.compared_with_id)
+            for item in consensus_checks
+            if item.supported
+        )
+        order_result = resolve_suggested_order(
+            baseline_order,
+            supported_relationships,
+            immovable_ids=(key for key in baseline_order if by_id[key].limited_history),
+            max_movement=policy.max_automatic_seed_movement,
+        )
+    else:
+        raise ValueError("Unknown MatchBalance ordering method")
     suggested_order = order_result.order
     ordered = suggested_order
 
@@ -1291,4 +1303,5 @@ def build_cheat_sheet_analysis(
         manual_holds=holds,
         movements=order_result.movements,
         ordering_conflicts=order_result.conflicts,
+        ordering_evidence=ordering_evidence,
     )

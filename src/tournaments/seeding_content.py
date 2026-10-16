@@ -13,7 +13,7 @@ from src.utils.us_states import STATE_CODE_TO_NAME, state_name_to_code
 if TYPE_CHECKING:
     from src.tournaments.seeding_sheet import CohortSheet, SheetTeam
 
-CONTENT_VERSION = 7
+CONTENT_VERSION = 8
 DIRECTOR_LEGEND = (
     "Start with the numbered MatchBalance Seed order. PowerScore remains the original published-strength "
     "baseline; bars use the same 0-100 scale. Competitive Breaks mark boundaries where nearby projected "
@@ -218,6 +218,37 @@ def build_director_cohort(sheet: CohortSheet, operator_note: str = "") -> Direct
             notes.append(qualifier + ": " + "; ".join(tier_notes)
                          + ". Pool memberships remain the director's decision.")
     notes.extend(guidance.get("warnings", []))
+    ordering = getattr(analysis, "ordering_evidence", {}) if analysis else {}
+    if ordering:
+        guidance_summary = "Preview — " + guidance_summary
+        notes.append("Preview recommendation: compares every assessed team with the whole cohort. "
+                     "Prediction improvement has not yet been demonstrated on held-out events.")
+        sensitivity = ordering.get("game_sensitivity", {})
+        if sensitivity.get("games_checked"):
+            notes.append("Influential-result check: tier membership changes in "
+                         f"{sensitivity['changed_tier_memberships']} "
+                         f"of {sensitivity['games_checked']} game-removal checks. This is not a confidence interval.")
+        elif ordering.get("prediction_model") == "results":
+            notes.append("No influential-result sensitivity checks were available; placement stability is untested.")
+        if sensitivity.get("cluster_samples"):
+            notes.append(f"Related-result stress check: tier membership changes in "
+                         f"{sensitivity['cluster_changed_tier_memberships']} of {sensitivity['cluster_samples']} "
+                         "team/event cluster samples. These are stress checks, not confidence intervals.")
+        for entrant, detail in ordering.get("teams", {}).items():
+            original, suggested = baseline_seeds.get(entrant), matchbalance_seeds.get(entrant)
+            consequential = original is not None and suggested is not None and abs(original - suggested) >= 3
+            unstable = sensitivity.get("seed_ranges", {}).get(entrant, [suggested, suggested])
+            field_range = detail.get("field_sensitivity_seeds", [suggested, suggested])
+            if (consequential or detail.get("limited_history") or detail.get("results", {}).get("limited")
+                    or (field_range[0] is not None and field_range[1] - field_range[0] >= 2)
+                    or (unstable[0] is not None and unstable[1] - unstable[0] >= 2)):
+                name = by_id[entrant].team_name
+                cautions = list(detail.get("cautions", []))
+                if unstable[0] is not None and unstable[0] != unstable[1]:
+                    cautions.append(f"Result stress checks place it between seeds {unstable[0]} and {unstable[1]}")
+                notes.append(f"{name}: PowerScore #{original} to MatchBalance #{suggested}. "
+                             + detail["reason"]
+                             + (" " + "; ".join(cautions) + "." if cautions else ""))
     if guidance.get("alternative_sizes"):
         alternative = guidance.get("alternative") or {}
         tradeoffs = []

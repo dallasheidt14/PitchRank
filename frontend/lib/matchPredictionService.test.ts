@@ -35,14 +35,19 @@ let aliasProviderCode: string | null = null;
 function createMockSupabase() {
   const resolveQuery = (state: QueryState) => {
     switch (state.table) {
-      case 'team_merge_map':
-        if (state.filters.deprecated_team_id === TEAM_A_DEPRECATED) {
-          return { data: { canonical_team_id: TEAM_A_ID }, error: null };
-        }
-        if (state.filters.canonical_team_id === TEAM_A_ID) {
-          return { data: [{ deprecated_team_id: TEAM_A_DEPRECATED }], error: null };
-        }
-        return { data: [], error: null };
+      case 'team_merge_map': {
+        const rows = [{ deprecated_team_id: TEAM_A_DEPRECATED, canonical_team_id: TEAM_A_ID }];
+        return {
+          data: rows.filter((row) =>
+            Object.entries(state.filters).every(([key, value]) =>
+              Array.isArray(value)
+                ? value.includes(row[key as keyof typeof row])
+                : value === row[key as keyof typeof row]
+            )
+          ),
+          error: null,
+        };
+      }
       case 'teams':
         if (state.filters.team_id_master === TEAM_A_ID) {
           return {
@@ -171,6 +176,7 @@ function createMockSupabase() {
         state.filters[field] = value;
         return builder;
       }),
+      lte: vi.fn().mockReturnThis(),
       not: vi.fn().mockReturnThis(),
       or: vi.fn((value: string) => {
         state.orFilter = value;
@@ -248,7 +254,8 @@ describe('buildMatchPrediction', () => {
     expect(predictionGames).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          home_team_master_id: TEAM_A_DEPRECATED,
+          home_team_master_id: TEAM_A_ID,
+          original_home_team_id: TEAM_A_DEPRECATED,
           away_team_master_id: TEAM_B_ID,
           home_score: 3,
           away_score: 1,

@@ -9,7 +9,7 @@ from functools import lru_cache
 from typing import Any, Mapping, Sequence
 
 from src.tournaments.compare_predictor_bridge import ComparePrediction
-from src.tournaments.seeding_flight_suggestions import suggest_automatic_flights
+from src.tournaments.seeding_flight_suggestions import small_division_fallback_note, suggest_automatic_flights
 from src.tournaments.seeding_format_library import FormatLibrary, parse_format_library, resolve_format_profile
 from src.tournaments.seeding_format_preferences import apply_preferences, format_summary
 from src.tournaments.seeding_group_assessment import GroupTeam
@@ -155,6 +155,9 @@ def _calculate_guidance(order, natural, review, entrants, predictions, policy, l
                                 + "; ".join(preferences) + ". No restrictions were relaxed.")
     risks = []
     if chosen is not None:
+        size_note = small_division_fallback_note(chosen, result.recommendation_policy)
+        if size_note:
+            warnings.append(size_note)
         for flight in chosen.flights:
             evidence = flight.group.evidence_coverage
             if evidence.limited_history_teams or evidence.unknown_history_teams:

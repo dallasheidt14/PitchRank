@@ -5,6 +5,7 @@ import { AppError } from '@/lib/errors';
 import { buildMatchPredictionWithShadowContext } from '@/lib/matchPredictionService';
 import { maybeLogMatchPredictionShadow } from '@/lib/matchPredictionShadow';
 import { isValidUuid } from '@/lib/validation';
+import { createServiceSupabase } from '@/lib/supabase/service';
 import { NextRequest, NextResponse } from 'next/server';
 
 interface MatchPredictionRequest {
@@ -43,7 +44,13 @@ export async function POST(request: NextRequest) {
       return auth.error;
     }
 
-    const result = await buildMatchPredictionWithShadowContext(auth.supabase, teamAId, teamBId);
+    // Exclusions are service-only; ordinary team and game reads retain the user's client.
+    const result = await buildMatchPredictionWithShadowContext(
+      auth.supabase,
+      teamAId,
+      teamBId,
+      createServiceSupabase()
+    );
     void maybeLogMatchPredictionShadow({
       userId: auth.user.id,
       requestIp: ip,

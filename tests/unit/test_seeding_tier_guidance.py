@@ -3,6 +3,8 @@
 from dataclasses import replace
 from itertools import combinations
 
+import pytest
+
 from src.tournaments.compare_predictor_bridge import ComparePrediction
 from src.tournaments.seeding_format_library import load_format_library, resolve_format_profile
 from src.tournaments.seeding_flight_suggestions import generate_candidate_structures
@@ -116,7 +118,8 @@ def test_alternative_keeps_the_higher_worst_matchup_tradeoff_on_the_director_she
     pairs[("0", "4")] = prediction(.2, 1.7, .02)
     pairs[("3", "7")] = prediction(.2, 1.8, .02)
     pairs[("0", "7")] = prediction(.2, 2.4, .35)
-    guidance = build_tier_guidance(analysis, entrants, pairs, TierPolicy(), load_format_library())
+    guidance = build_tier_guidance(analysis, entrants, pairs, TierPolicy(), load_format_library(),
+                                   profile_id="matchbalance-expanded-v2")
     assert guidance["alternative_sizes"] == [5, 3]
     assert guidance["alternative"]["worst_matchup_cost_delta"] > 0
     assert guidance["alternative"]["pair_weighted_average_matchup_cost_delta"] < 0
@@ -159,3 +162,56 @@ def test_incomplete_search_never_promotes_evaluated_candidate():
     assert not result["search_complete"]
     assert result["cuts"] == []
     assert result["review_required"]
+
+
+@pytest.mark.parametrize("exact", [False, True])
+def test_small_cost_improvement_does_not_create_three_six_three(exact):
+    entrants, pairs, analysis = cohort(12, lambda a, b: prediction(
+        .2, 1.6 if a < 3 <= b or a < 9 <= b else .8, .02))
+    pairs[("0", "5")] = prediction(3, 3.2, .4)
+    pairs[("7", "11")] = prediction(3, 3.2, .4)
+    library = load_format_library()
+    profiles = tuple(replace(profile, template_ids=tuple(
+        key for key in profile.template_ids if library.templates_by_id[key].team_count in {3, 4, 6}
+    ), max_candidate_structures=1 if exact else 10000) for profile in library.profiles
+                     if profile.profile_id.startswith("matchbalance-expanded"))
+    library = replace(library, profiles=profiles)
+    legacy = build_tier_guidance(analysis, entrants, pairs, TierPolicy(), library,
+                                profile_id="matchbalance-expanded-v2")
+    current = build_tier_guidance(analysis, entrants, pairs, TierPolicy(), library)
+    assert [d["size"] for d in legacy["divisions"]] == [3, 6, 3]
+    assert [d["size"] for d in current["divisions"]] == [4, 4, 4]
+    assert current["search_complete"]
+    assert not current["risky_pairings"]
+    assert all(min(alt["flight_sizes"]) >= 4 for alt in current["alternatives"])
+    assert current["format_context_digest"] != legacy["format_context_digest"]
+    assert not any("Small-division fallback" in note for note in current["warnings"])
+
+
+@pytest.mark.parametrize("elite", [3, 6])
+@pytest.mark.parametrize("exact", [False, True])
+def test_genuine_separation_keeps_elite_teams_together_and_explains_small_fallback(elite, exact):
+    entrants, pairs, analysis = cohort(12, lambda a, b: prediction(3, 4.2, .6)
+                                     if a < elite <= b else prediction())
+    library = load_format_library()
+    if exact:
+        library = replace(library, profiles=tuple(replace(p, max_candidate_structures=1) for p in library.profiles))
+    result = build_tier_guidance(analysis, entrants, pairs, TierPolicy(), library)
+    assert [d["size"] for d in result["divisions"]] == [elite, 12 - elite]
+    assert result["search_complete"]
+    assert not result["risky_pairings"]
+    notes = [note for note in result["warnings"] if "Small-division fallback" in note]
+    if elite == 3:
+        assert len(notes) == 1
+        assert "fully assessed" in notes[0] and "competitive limits" in notes[0]
+    else:
+        assert not notes
+        assert [3, 3] in [f["pool_sizes"] for f in result["divisions"][0]["compatible_formats"]]
+        assert result["divisions"][0]["pool_sizes"] == [3, 3]
+
+
+def test_three_entrants_remain_supported_with_explained_fallback():
+    entrants, pairs, analysis = cohort(3, lambda a, b: prediction())
+    result = build_tier_guidance(analysis, entrants, pairs, TierPolicy(), load_format_library())
+    assert [d["size"] for d in result["divisions"]] == [3]
+    assert any("Small-division fallback" in note for note in result["warnings"])

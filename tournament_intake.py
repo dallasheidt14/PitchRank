@@ -575,6 +575,7 @@ def _default_snapshot(event_start_date: str | None) -> date:
 
 _SEEDING_KEPT_WIDGETS = (
     "seeding_event_name", "seeding_event_url", "seeding_roster_text", "_seeding_source", "_seeding_paste_complete",
+    "seeding_add_cohort_text", "_seeding_add_complete",
 )
 
 
@@ -3707,10 +3708,58 @@ def _run_seeding_resolve(text: str, supabase_client: Any) -> bool:
         "coverage": "complete" if st.session_state.get("_seeding_paste_complete") else "unknown",
         "source_kind": "Paste team list", "source_url": "", "completed": [],
         "fingerprint": source_fingerprint(parsed.rows),
+        "imported_paste_sha256": hashlib.sha256(text.strip().encode()).hexdigest(),
     }
     st.session_state["_seeding_transition"] = {
         "raw": parsed, "resolved": resolved, "metadata": metadata, "event_id": None,
         "decisions": {}, "overrides": {}, "resolution_failed": True,
+    }
+    _apply_seeding_transition()
+    _autosave_seeding_run()
+    _run_seeding_name_lookup(parsed, resolved, supabase_client)
+    return True
+
+
+def _append_seeding_cohorts(text: str, supabase_client: Any) -> bool:
+    incoming = parse_roster(text)
+    current = st.session_state.get("_seeding_result")
+    if not current or not incoming.rows:
+        st.error("Open an existing run and paste the new age groups first.")
+        return False
+    if not st.session_state.get("_seeding_add_complete"):
+        st.error("Confirm the pasted list contains every accepted team in the new age groups.")
+        return False
+    decisions = st.session_state.get("_seeding_cohort_decisions", {})
+    effective = effective_roster(current[0], decisions)
+    if any(not row.section_age_group or not row.section_gender or row.intake_issue
+           for row in (*effective.rows, *incoming.rows)):
+        st.error("Resolve unclear roster entries first. Each new block needs an age and gender heading "
+                 "and tab-separated Club, Team, State rows.")
+        return False
+    existing = {cohort_key(row.section_age_group, row.section_gender) for row in effective.rows}
+    added = {cohort_key(row.section_age_group, row.section_gender) for row in incoming.rows}
+    if existing & added:
+        st.error("This list includes an age group already in the run. Use replace/refresh to change that cohort.")
+        return False
+    if not _autosave_seeding_run():
+        st.error("Save this run successfully before adding age groups. Your pasted list is still here.")
+        return False
+    next_index = max(row.source_index for row in current[0].rows) + 1
+    rows = tuple(replace(row, source_index=next_index + index) for index, row in enumerate(incoming.rows))
+    parsed = ParsedRoster((*current[0].rows, *rows), (*current[0].warnings, *incoming.warnings))
+    resolved = (*current[1], *(ResolvedTeam(row.source_index, "unresolved") for row in rows))
+    metadata = dict(st.session_state.get("_seeding_assessment", {}))
+    confirmations = dict(metadata.get("cohort_coverage", {}))
+    for key in added:
+        confirmations[key] = source_fingerprint([
+            row for row in rows if cohort_key(row.section_age_group, row.section_gender) == key
+        ])
+    metadata.update(fingerprint=source_fingerprint(parsed.rows), cohort_coverage=confirmations,
+                    appended_paste_sha256=hashlib.sha256(text.strip().encode()).hexdigest())
+    st.session_state["_seeding_transition"] = {
+        "raw": parsed, "resolved": resolved, "metadata": metadata, "event_id": metadata.get("event_id"),
+        "decisions": dict(decisions), "overrides": dict(st.session_state.get("_seeding_overrides", {})),
+        "resolution_failed": True,
     }
     _apply_seeding_transition()
     _autosave_seeding_run()
@@ -5038,10 +5087,52 @@ def _apply_pending_seeding_widgets() -> None:
         "source_kind", "GotSport event"
     )
     st.session_state["seeding_roster_text"] = ""
+    st.session_state["seeding_add_cohort_text"] = ""
+    st.session_state["_seeding_add_complete"] = False
     for key in ("_seeding_pack_scope", "_seeding_pack_cohorts", "_seeding_margin_limit", "_seeding_risk_limit"):
         st.session_state.pop(key, None)
     st.session_state.pop("_seeding_pending_name", None)
     st.session_state.pop("_seeding_pending_event_url", None)
+
+
+def _has_unimported_seeding_paste() -> bool:
+    metadata = st.session_state.get("_seeding_assessment", {})
+    for widget, field in (("seeding_roster_text", "imported_paste_sha256"),
+                          ("seeding_add_cohort_text", "appended_paste_sha256")):
+        text = str(st.session_state.get(widget, "")).strip()
+        if text and hashlib.sha256(text.encode()).hexdigest() != metadata.get(field):
+            return True
+    return False
+
+
+def _request_new_seeding_run() -> bool:
+    """Save before queuing a reset; failed saves leave every active field intact."""
+    if _has_unimported_seeding_paste():
+        st.error("Import and save the pasted roster before starting another tournament, or clear the unused text.")
+        return False
+    if st.session_state.get("_seeding_result"):
+        if not _persisted_seeding_run_matches_active() and not _autosave_seeding_run():
+            st.error("Name and save this run successfully before starting a new tournament. Your work is still here.")
+            return False
+    from uuid import uuid4
+    st.session_state["_seeding_new_run_pending"] = "New tournament " + uuid4().hex[:8]
+    return True
+
+
+def _apply_new_seeding_run() -> None:
+    name = st.session_state.get("_seeding_new_run_pending")
+    if not name:
+        return
+    # Run before widget creation. Keep the pending marker until installation is
+    # complete so an interrupted rerun can safely repeat this session-only reset.
+    for key in list(st.session_state):
+        if key != "_seeding_new_run_pending" and key.startswith(("_seeding_", "seeding_", "_seed_")):
+            st.session_state.pop(key, None)
+    st.session_state.update(seeding_event_name=name, seeding_resume_choice=None,
+                            seeding_event_url="", seeding_roster_text="",
+                            _seeding_source="Paste team list", _seeding_overrides={},
+                            _seeding_active_step=1)
+    st.session_state.pop("_seeding_new_run_pending", None)
 
 
 def _render_seeding_run_controls(client: Any = None) -> None:
@@ -5069,6 +5160,9 @@ def _render_seeding_run_controls(client: Any = None) -> None:
             key="seeding_resume_choice",
         )
         if chosen and chosen != st.session_state.get("_seeding_loaded_slug"):
+            if _has_unimported_seeding_paste():
+                st.error("Import the pasted draft or clear its unused text before opening another run.")
+                return
             if (
                 st.session_state.get("_seeding_result")
                 and not _persisted_seeding_run_matches_active()
@@ -5900,7 +5994,11 @@ def _render_seeding_tab(supabase_client: Any) -> None:
 def _render_seeding_workspace(supabase_client: Any) -> None:
     from src.tournaments.seeding_review_ui import render_review
 
+    _apply_new_seeding_run()
     _apply_seeding_transition()
+    if st.button("Start a new tournament", key="_seeding_start_new"):
+        if _request_new_seeding_run():
+            st.rerun()
     update = st.session_state.get("_seeding_review_update")
     if update:
         # Keep the whole edit pending until every legacy field is installed. A
@@ -5946,6 +6044,19 @@ def _render_seeding_workspace(supabase_client: Any) -> None:
                     f"{len(result[0].rows)} teams are imported. "
                     "Open the controls below only to replace or refresh them."
                 )
+                with st.expander("Add age groups to this run", expanded=False):
+                    st.caption("Paste a tab-separated Club, Team, State list with headings such as Girls U12. "
+                               "Include only new age groups. Existing teams and decisions stay saved.")
+                    additional = st.text_area("New age groups", key="seeding_add_cohort_text", height=180,
+                                              placeholder=_SEEDING_PLACEHOLDER)
+                    if st.session_state.get("_seeding_add_draft") != additional:
+                        st.session_state["_seeding_add_complete"] = False
+                        st.session_state["_seeding_add_draft"] = additional
+                    st.checkbox("This includes every accepted team in these new age groups",
+                                key="_seeding_add_complete")
+                    if st.button("Add and match age groups", disabled=not additional.strip()):
+                        if _append_seeding_cohorts(additional, supabase_client):
+                            st.rerun()
             with st.expander("Import or refresh teams", expanded=not result):
                 source = st.radio(
                     "Roster source", ["GotSport event", "Paste team list"], horizontal=True, key="_seeding_source"

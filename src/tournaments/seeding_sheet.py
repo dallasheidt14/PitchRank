@@ -4,9 +4,9 @@ Every accepted entrant appears once, including teams needing placement review.
 Cohorts begin on fresh Letter pages; long tables repeat their headings.
 The same standalone, offline-ready HTML powers the preview and PDF export.
 
-The published ``power_score_final`` freezes the baseline. MatchBalance may
-produce a separate conservative suggested order from fully supported local
-consensus; neither that order nor a manual override changes PowerScore.
+The published ``power_score_final`` freezes the baseline. MatchBalance suggestions
+use the selected recommendation method; neither suggestions nor manual overrides
+change PowerScore.
 
 A team with a valid current PowerScore can be seeded even when PitchRank has not
 published a numeric rank for it. An Inactive team does not qualify: it keeps only
@@ -568,7 +568,9 @@ def _cheat_sheet_tables(sheet: CohortSheet) -> tuple[str, str]:
         cohort_label=cohort,
         subtitle=(
             "Operator-adjusted from the MatchBalance suggestion."
-            if manual else "PowerScore baseline with conservative, evidence-supported adjustments."
+            if manual else "Preview: whole-cohort evidence order; review uncertain placements."
+            if sheet.tier_analysis and getattr(sheet.tier_analysis, "ordering_evidence", None) else
+            "PowerScore baseline with conservative, evidence-supported adjustments."
         ),
         placement_notes={
             row.team.entrant_id: " · ".join(
@@ -622,7 +624,7 @@ def _sheet_html(
   <p class="method">{html.escape(explanation)}</p>
   <div class="guide-grid">
    <div class="guide-step"><strong>MatchBalance Seed</strong>
-    <span>Start with this conservative recommendation, then use tournament judgement for final placement.</span></div>
+    <span>Start with this recommendation, then use tournament judgement for final placement.</span></div>
    <div class="guide-step"><strong>Limited history</strong>
     <span>{html.escape(LIMITED_HISTORY_LEGEND)}</span></div>
   </div>

@@ -70,13 +70,14 @@ def render_format_preferences(pack, save, invalidate, *, cohort=None):
             invalidate()
             st.session_state["_seeding_pack_unsaved"] = not save()
             st.rerun()
-        if not cohort and pack.get("format_library", {}).get("schema_version", 1) < 2:
+        current_library = json.loads(DEFAULT_LIBRARY_PATH.read_text(encoding="utf-8")) if not cohort else None
+        if current_library is not None and pack.get("format_library", {}) != current_library:
             st.caption(
-                "This saved analysis keeps its original formats. "
-                "Updating formats keeps its saved ratings and predictions."
+                "This saved analysis keeps its original formats and tier-selection policy. "
+                "Updating keeps its saved ratings, predictions, and operator decisions."
             )
-            if st.button("Use expanded formats for this saved analysis", key=f"{prefix}_update"):
-                pack["format_library"] = json.loads(DEFAULT_LIBRARY_PATH.read_text(encoding="utf-8"))
+            if st.button("Use current formats and tier guidance", key=f"{prefix}_update"):
+                pack["format_library"] = current_library
                 pack.pop("format_profile_id", None)
                 st.session_state["_seeding_pack"] = pack
                 invalidate()

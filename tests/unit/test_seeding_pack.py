@@ -142,12 +142,12 @@ def test_legacy_upgrade_keeps_original_format_catalog():
                                  predictor_sha256="a" * 64)["format_library"] == legacy
 
 
-@pytest.mark.parametrize("schema", [6, 7])
+@pytest.mark.parametrize("schema", [6, 7, 8])
 def test_unrelated_identity_edit_preserves_completed_cohort_snapshot(schema):
     pack = _pack(("u12|Male", "u14|Male"))
     pack["schema_version"] = schema
-    if schema == 6:
-        pack["analysis_schema_version"] = 9
+    if schema < 8:
+        pack["analysis_schema_version"] = 9 if schema == 6 else 10
     pack["operator_notes"] = {"u14|Male": "Keep this note."}
     changed = {4: {"not_found": True}}
     before = deepcopy(pack)
@@ -155,7 +155,7 @@ def test_unrelated_identity_edit_preserves_completed_cohort_snapshot(schema):
     assert pack == before
     assert retained["selected_cohorts"] == ["u12|Male"]
     assert retained["operator_notes"] == pack["operator_notes"]
-    if schema == 6:
+    if schema < 8:
         retained = upgrade_pack_analysis(retained, ROWS, RESOLVED, changed, ["u12|Male"],
                                          predictor_sha256="a" * 64)
     assert pack_matches(retained, ROWS, RESOLVED, changed, ["u12|Male"])
@@ -270,8 +270,8 @@ def test_saved_analysis_upgrade_preserves_prediction_and_operator_choices_withou
     before = deepcopy(old)
     upgraded = upgrade_pack_analysis(old, ROWS, RESOLVED, {}, ["u12|Male"], predictor_sha256="a" * 64)
     assert old == before
-    assert upgraded["schema_version"] == 7
-    assert upgraded["analysis_schema_version"] == 10
+    assert upgraded["schema_version"] == 8
+    assert upgraded["analysis_schema_version"] == 11
     assert upgraded["policy"] == json.loads(json.dumps(asdict(TierPolicy(max_expected_margin=1.75))))
     assert upgraded["manual_seed_orders"] == old["manual_seed_orders"]
     assert upgraded["ordering"]
@@ -299,8 +299,8 @@ def test_schema_three_pack_upgrades_with_reproducible_separate_orders():
         old, ROWS, RESOLVED, {}, ["u12|Male"], predictor_sha256="a" * 64,
     )
 
-    assert upgraded["schema_version"] == 7
-    assert upgraded["analysis_schema_version"] == 10
+    assert upgraded["schema_version"] == 8
+    assert upgraded["analysis_schema_version"] == 11
     assert upgraded["manual_seed_orders"] == {}
     ordering = upgraded["ordering"]["u12|Male"]
     assert ordering["baseline_order"]

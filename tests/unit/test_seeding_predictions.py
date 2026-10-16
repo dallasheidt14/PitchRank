@@ -19,6 +19,25 @@ B = "22222222-2222-2222-2222-222222222222"
 COHORTS = {"u14:Male": {"6": A, "7": B}, "u12:Female": {"8": A}}
 
 
+@pytest.mark.parametrize("source", sorted({
+    *Path(bridge.__file__).parent.glob("seeding_*order.py"),
+    Path(bridge.__file__).with_name("seeding_pack.py"),
+    Path(bridge.__file__).with_name("seeding_tiers.py"),
+}))
+def test_model_identity_changes_when_seed_order_implementation_changes(monkeypatch, source):
+    baseline = bridge.seeding_predictor_sha256()
+    original_read = Path.read_bytes
+
+    def changed_read(path):
+        contents = original_read(path)
+        return contents + b"\n# changed ordering implementation\n" if path == source else contents
+
+    with monkeypatch.context() as changed:
+        changed.setattr(Path, "read_bytes", changed_read)
+        assert bridge.seeding_predictor_sha256() != baseline
+    assert bridge.seeding_predictor_sha256() == baseline
+
+
 def _result():
     forward = {
         "entrant_a": "6",

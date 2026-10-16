@@ -363,12 +363,34 @@ def _strictly_lower(
     return first < second and not _isclose(first, second, policy)
 
 
+def _prefer_practical_division_sizes(
+    plans: Sequence[FlightPlanAssessment], policy: MatchBalanceRecommendationPolicy,
+) -> tuple[FlightPlanAssessment, ...]:
+    """Apply the soft size preference only to complete, passing arrangements."""
+    candidates = tuple(plans)
+    minimum = policy.preferred_minimum_division_size
+    preferred = tuple(item for item in candidates if minimum is not None and min(item.flight_sizes) >= minimum)
+    return preferred or candidates
+
+
+def small_division_fallback_note(plan: FlightPlanAssessment, policy: MatchBalanceRecommendationPolicy) -> str | None:
+    """Explain smaller strength divisions without mistaking their pools for tiers."""
+    minimum = policy.preferred_minimum_division_size
+    if minimum is None or min(plan.flight_sizes) >= minimum:
+        return None
+    return (
+        f"Small-division fallback: no complete, fully assessed arrangement with every strength division "
+        f"at least {minimum} teams passes the competitive limits and format restrictions. "
+        "Smaller pools inside a larger strength division are still allowed."
+    )
+
+
 def _select_by_default_policy(
     plans: Sequence[FlightPlanAssessment],
     policy: MatchBalanceRecommendationPolicy,
     options_by_size: Mapping[int, SizeTemplateOptions],
 ) -> FlightPlanAssessment | None:
-    candidates = tuple(plans)
+    candidates = _prefer_practical_division_sizes(plans, policy)
     if not candidates:
         return None
     minimum_flights = min(len(item.flights) for item in candidates)
@@ -491,7 +513,7 @@ def _useful_alternatives(
     result = []
     primary_worst = _metric(primary, "worst_matchup_cost")
     primary_average = _metric(primary, "pair_weighted_average_matchup_cost")
-    for plan in eligible:
+    for plan in _prefer_practical_division_sizes(eligible, policy):
         if plan.plan_id == primary.plan_id:
             continue
         plan_worst = _metric(plan, "worst_matchup_cost")
@@ -709,6 +731,13 @@ def suggest_automatic_flights(
             or best_evaluated.evidence_limitations
             else ESTABLISHED_EVIDENCE
         )
+        size_note = ""
+        minimum = recommendation_policy.preferred_minimum_division_size
+        if minimum is not None:
+            size_note = (
+                small_division_fallback_note(best_evaluated, recommendation_policy)
+                or f"Prefer strength divisions of at least {minimum} teams when a complete arrangement passes."
+            ) + " "
         subset_note = ""
         if not coverage.full_accepted_field_coverage:
             subset_note = (
@@ -726,7 +755,8 @@ def suggest_automatic_flights(
             primary_evidence_status=evidence_status,
             selection_reason=(
                 "Selected under the MatchBalance default recommendation policy: "
-                "complete predictions, no projected matchup violations, then fewest "
+                "complete predictions, no projected matchup violations. "
+                + size_note + "Then fewest "
                 "competitive flights, lower worst matchup cost, lower pair-weighted "
                 "average matchup cost, and deterministic ties."
                 + subset_note

@@ -4,13 +4,22 @@ import { createHash } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { AppError } from './errors';
 import {
-  fetchPredictionGames,
+  fetchPredictionEvidence,
   fetchPredictionTeam,
   resolvePredictionTeamIds,
   type PredictionTeam,
 } from './matchPredictionService';
 import { predictMatch, warmMatchPredictorCalibration, type MatchPrediction } from './matchPredictor';
 import type { Game } from './types';
+import {
+  buildResultEvidence,
+  predictCohortResult,
+  COHORT_RESULT_MODEL,
+  withoutResultGame,
+  resampleResultEvidence,
+  type ResultEvidence,
+} from './cohortResultModel';
+export type SeedingModel = 'legacy' | 'cohort' | 'results';
 
 export type SeedingCohorts = Record<string, Record<string, string>>;
 type ResolvedTeam = Awaited<ReturnType<typeof resolvePredictionTeamIds>>;
@@ -52,6 +61,8 @@ export interface SeedingPredictionResult {
   generated_at: string;
   ratings_as_of: string | null;
   input_digests: Record<string, string>;
+  model: SeedingModel;
+  evidence: Record<string, unknown>;
   cohorts: Record<
     string,
     {
@@ -59,6 +70,11 @@ export interface SeedingPredictionResult {
       unavailable: Record<string, string>;
       unavailable_codes: Record<string, SeedingUnavailableCode>;
       predictions: SeedingPairPrediction[];
+      sensitivity?: Array<{
+        omitted_game_id: string;
+        kind: 'game_removal' | 'cluster_resample';
+        predictions: SeedingPairPrediction[];
+      }>;
     }
   >;
 }
@@ -67,7 +83,7 @@ function includesTeam(game: Game, ids: Set<string>): boolean {
   return ids.has(game.home_team_master_id ?? '') || ids.has(game.away_team_master_id ?? '');
 }
 
-function predictionRow(
+export function predictionRow(
   entrantA: string,
   entrantB: string,
   prediction: MatchPrediction,
@@ -115,11 +131,14 @@ function assertPrediction(prediction: MatchPrediction): void {
   }
 }
 
-/** Read the exact Compare inputs once, then evaluate every pair without shadow writes. */
+/** Freeze the selected model's inputs, then evaluate every pair without shadow writes. */
 export async function buildSeedingPredictions(
   supabase: SupabaseClient,
-  cohorts: SeedingCohorts
+  cohorts: SeedingCohorts,
+  options: { model?: SeedingModel; asOf?: string } = {}
 ): Promise<SeedingPredictionResult> {
+  const model = options.model ?? 'legacy';
+  if (!['legacy', 'cohort', 'results'].includes(model)) throw new Error('Unknown seeding model');
   await warmMatchPredictorCalibration();
   const resolvedByRequested = new Map<string, ResolvedTeam>();
   const teamByCanonical = new Map<string, PredictionTeam>();
@@ -173,10 +192,36 @@ export async function buildSeedingPredictions(
   const allIds = [...resolvedByRequested.values()]
     .filter((item) => teamByCanonical.has(item.canonicalTeamId))
     .flatMap((item) => item.allTeamIds);
-  const games = await fetchPredictionGames(supabase, allIds);
+  const evidence = await fetchPredictionEvidence(supabase, allIds, options.asOf);
+  const games = evidence.games;
+  const opponentTeams = new Map(teamByCanonical);
+  const unknownOpponents: Record<string, string> = {};
+  if (model === 'results') {
+    const opponents = [...new Set(games.flatMap((g) => [g.home_team_master_id, g.away_team_master_id]))]
+      .filter((id): id is string => !!id && !opponentTeams.has(id))
+      .sort();
+    for (let start = 0; start < opponents.length; start += 8) {
+      await Promise.all(
+        opponents.slice(start, start + 8).map(async (id) => {
+          try {
+            opponentTeams.set(id, await fetchPredictionTeam(supabase, id, { strict: true, allowEmptyHistory: true }));
+          } catch (error) {
+            if (
+              error instanceof AppError &&
+              ['team_not_found', 'prediction_unavailable', 'prediction_metadata_conflict'].includes(error.code ?? '')
+            ) {
+              unknownOpponents[id] = error.code!;
+            } else throw error;
+          }
+        })
+      );
+    }
+  }
   const ratingDates = [...teamByCanonical.values()].map((team) => team.ratings_as_of);
   const result: SeedingPredictionResult = {
     schema_version: 1,
+    model,
+    evidence: {},
     generated_at: new Date().toISOString(),
     // A global newest timestamp would make older cohort ratings look fresh.
     ratings_as_of: ratingDates.length && ratingDates.every(Boolean) ? (ratingDates.sort()[0] ?? null) : null,
@@ -211,14 +256,26 @@ export async function buildSeedingPredictions(
         });
         continue;
       }
+      if (evidence.excluded_team_ids.includes(resolved.canonicalTeamId)) {
+        markUnavailable(entrantId, {
+          code: 'metadata_conflict',
+          reason: 'This canonical team is excluded from ranking evidence. Resolve its identity before seeding.',
+        });
+        continue;
+      }
+      if (evidence.review_team_ids.includes(resolved.canonicalTeamId)) {
+        markUnavailable(entrantId, {
+          code: 'metadata_conflict',
+          reason: 'Possible duplicate game records need source review. The records remain in the saved evidence.',
+        });
+        continue;
+      }
       const team = teamByCanonical.get(resolved.canonicalTeamId);
       if (!team) {
         markUnavailable(entrantId, unavailableByCanonical.get(resolved.canonicalTeamId)!);
         continue;
       }
-      // Compare currently builds recent profiles from the canonical ID only.
-      // Merged-ID history remains in the exact pair input, but must not inflate
-      // our evidence count or make an old canonical profile look recently played.
+      // Canonicalized fixtures include merged history under this single ID.
       const ids = new Set([resolved.canonicalTeamId]);
       const teamGames = games.filter((game) => includesTeam(game, ids));
       output.teams[entrantId] = {
@@ -229,21 +286,46 @@ export async function buildSeedingPredictions(
     }
     const available = entrantIds.filter((entrantId) => entrantId in output.teams);
     const cohortIds = new Set(Object.values(entrants).flatMap((id) => resolvedByRequested.get(id)!.allTeamIds));
-    // Hash the actual loader inputs, including merged history and unavailable identities.
-    // Generation time is deliberately excluded; Python binds the model/code identity.
-    result.input_digests[cohortKey] = createHash('sha256')
-      .update(
-        JSON.stringify({
-          entrants: entrantIds.map((id) => {
-            const resolved = resolvedByRequested.get(entrants[id])!;
-            return [id, entrants[id], { ...resolved, allTeamIds: [...new Set(resolved.allTeamIds)].sort() }];
-          }),
-          teams: output.teams,
-          unavailable: output.unavailable_codes,
-          games: games.filter((game) => includesTeam(game, cohortIds)),
-        })
-      )
-      .digest('hex');
+    const cohortGames = games.filter((game) => includesTeam(game, cohortIds));
+    const involved = new Set(cohortGames.flatMap((g) => [g.home_team_master_id, g.away_team_master_id]));
+    const frozenTeams = Object.fromEntries(
+      [...opponentTeams].filter(([id]) => involved.has(id) || canonicalCounts.has(id)).sort()
+    );
+    const resultEvidence = model === 'results' ? buildResultEvidence(frozenTeams, cohortGames, evidence.as_of) : {};
+    for (const team of Object.values(output.teams)) {
+      const profile = resultEvidence[team.team_id_master];
+      if (profile) Object.assign(team, { result_evidence: profile });
+    }
+    const scopedOmissions = evidence.omitted.filter((item) => item.team_ids.some((id) => cohortIds.has(id)));
+    const rawIds = new Set([
+      ...cohortGames.flatMap((g) => [g.original_home_team_id, g.original_away_team_id]),
+      ...scopedOmissions.flatMap((item) => [item.record.home_team_master_id, item.record.away_team_master_id]),
+    ]);
+    const snapshot = {
+      schema_version: 1,
+      as_of: evidence.as_of,
+      window_start: evidence.window_start,
+      model,
+      model_parameters: model === 'results' ? COHORT_RESULT_MODEL : null,
+      aliases: Object.fromEntries(
+        Object.entries(evidence.aliases)
+          .filter(([id, canonical]) => rawIds.has(id) || cohortIds.has(canonical))
+          .sort()
+      ),
+      entrants: entrantIds.map((id) => [id, entrants[id], resolvedByRequested.get(entrants[id])]),
+      teams: output.teams,
+      opponents: model === 'results' ? frozenTeams : {},
+      unknown_opponents: Object.fromEntries(
+        Object.entries(unknownOpponents)
+          .filter(([id]) => involved.has(id))
+          .sort()
+      ),
+      unavailable: output.unavailable_codes,
+      games: cohortGames,
+      omitted: scopedOmissions,
+    };
+    result.evidence[cohortKey] = { canonical_json: stableJson(snapshot) };
+    result.input_digests[cohortKey] = createHash('sha256').update(stableJson(snapshot)).digest('hex');
     for (let left = 0; left < available.length; left += 1) {
       for (let right = left + 1; right < available.length; right += 1) {
         const a = available[left];
@@ -254,11 +336,67 @@ export async function buildSeedingPredictions(
         ]);
         // Filtering preserves the same stable game order returned to Compare.
         const pairGames = games.filter((game) => includesTeam(game, ids));
-        const prediction = predictMatch(output.teams[a], output.teams[b], pairGames);
+        const prediction =
+          model === 'results'
+            ? predictCohortResult(output.teams[a], output.teams[b], resultEvidence)
+            : predictMatch(output.teams[a], output.teams[b], pairGames);
         assertPrediction(prediction);
         output.predictions.push(predictionRow(a, b, prediction), predictionRow(b, a, prediction, true));
       }
     }
+    if (model === 'results') {
+      output.sensitivity = [];
+      const gameIds = [
+        ...new Set(
+          available
+            .map((id) => resultEvidence[output.teams[id].team_id_master]?.influentialGames[0]?.game_id)
+            .filter((id): id is string => !!id)
+        ),
+      ].sort();
+      const appendVariant = (gameId: string, kind: 'game_removal' | 'cluster_resample', variant: ResultEvidence) => {
+        const predictions: SeedingPairPrediction[] = [];
+        for (let left = 0; left < available.length; left++)
+          for (let right = left + 1; right < available.length; right++) {
+            const a = available[left],
+              b = available[right];
+            const ta = output.teams[a],
+              tb = output.teams[b];
+            if (
+              variant[ta.team_id_master] === resultEvidence[ta.team_id_master] &&
+              variant[tb.team_id_master] === resultEvidence[tb.team_id_master]
+            )
+              continue;
+            const prediction = predictCohortResult(ta, tb, variant);
+            assertPrediction(prediction);
+            predictions.push(predictionRow(a, b, prediction), predictionRow(b, a, prediction, true));
+          }
+        if (predictions.length) output.sensitivity!.push({ omitted_game_id: gameId, kind, predictions });
+      };
+      for (const gameId of gameIds) {
+        appendVariant(gameId, 'game_removal', withoutResultGame(resultEvidence, gameId));
+      }
+      if (gameIds.length && available.length > 1) {
+        for (let sample = 0; sample < COHORT_RESULT_MODEL.clusterSamples; sample++) {
+          appendVariant(`cluster-${sample}`, 'cluster_resample', resampleResultEvidence(resultEvidence, sample));
+        }
+      }
+    }
   }
   return result;
+}
+
+/** Canonical serialization prevents object insertion order from masquerading as new evidence. */
+export function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return '[' + value.map(stableJson).join(',') + ']';
+  if (value !== null && typeof value === 'object')
+    return (
+      '{' +
+      Object.entries(value)
+        .filter(([, item]) => item !== undefined)
+        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+        .map(([key, item]) => JSON.stringify(key) + ':' + stableJson(item))
+        .join(',') +
+      '}'
+    );
+  return JSON.stringify(value) ?? 'null';
 }
