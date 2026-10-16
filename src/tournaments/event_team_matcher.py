@@ -23,6 +23,7 @@ from scripts.find_queue_matches import (
     normalize_team_name,
 )
 from src.tournaments.seeding_optimizer import normalize_age_group, normalize_gender_label
+from src.utils.team_name_utils import u19_shared_year_ambiguous
 
 logger = logging.getLogger(__name__)
 
@@ -298,6 +299,10 @@ def rank_db_candidates(
         if normalized_name_exact:
             score = max(score, 0.995)
             score_reason = "normalized_name_exact"
+        if score_reason != "provider_team_id" and u19_shared_year_ambiguous(
+            event_team_name, candidate_name, candidate.get("age_group")
+        ):
+            score_reason = "u19_shared_year"
 
         candidate_age_group = normalize_age_group(candidate.get("age_group"))
         age_match_kind = _age_match_kind(
@@ -360,6 +365,15 @@ def rank_db_candidates(
 
 
 def classify_match_result(matches: list[EventTeamMatch]) -> tuple[str, float | None, float | None, float | None]:
+    status, best_score, second_score, score_gap = _classify_by_score(matches)
+    # A u19 name stating only the shared year fits either squad, so a link it would have
+    # earned goes to a person instead; a weaker result keeps the status its score earned.
+    if status in ("strict_exact", "high_confidence") and matches[0].score_reason == "u19_shared_year":
+        status = "review"
+    return status, best_score, second_score, score_gap
+
+
+def _classify_by_score(matches: list[EventTeamMatch]) -> tuple[str, float | None, float | None, float | None]:
     if not matches:
         return "none", None, None, None
 

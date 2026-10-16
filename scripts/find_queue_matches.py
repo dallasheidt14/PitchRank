@@ -32,7 +32,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from _team_distinction import should_skip_pair  # noqa: E402
 
 from src.utils import team_utils  # noqa: E402
-from src.utils.team_name_utils import birth_years_conflict  # noqa: E402
+from src.utils.team_name_utils import age_token_span, birth_years_conflict, u19_shared_year_ambiguous  # noqa: E402
 
 # Load .env.local if it exists, otherwise fall back to .env
 env_path = Path(__file__).parent.parent / ".env.local"
@@ -179,8 +179,8 @@ def extract_club_from_name(provider_team_name):
     earliest_pos = len(name)
     for pattern in age_patterns:
         match = re.search(pattern, name, re.IGNORECASE)
-        if match and match.start() < earliest_pos:
-            earliest_pos = match.start()
+        if match:
+            earliest_pos = min(earliest_pos, age_token_span(name, match.start(), match.end())[0])
 
     # Extract club name before the age pattern
     if earliest_pos < len(name):
@@ -258,9 +258,9 @@ TEAM_DIRECTIONS = {"north", "south", "east", "west", "central"}
 # variant/coach/program tables. Must include `'*` so markers like "Blue*" /
 # "Bolts'" don't leak into the variant and cause a phantom mismatch against an
 # otherwise-identical sibling, and `.,` so coach names like "Riedell," parse
-# correctly. Mirrors `_tokenize` in find_fuzzy_duplicate_teams.py and the
-# matching constants in src/utils/team_name_utils.py and
-# src/models/game_matcher.py — keep all four in sync.
+# correctly. Matches the strip sets of the extract_team_variant copies in
+# src/utils/team_name_utils.py and src/models/game_matcher.py — keep the three
+# in sync.
 _VARIANT_STRIP_CHARS = "-()[]'*.,"
 
 
@@ -558,15 +558,16 @@ def extract_team_variant(name, club_name: str = ""):
             break
 
     if age_match:
+        age_start, age_end = age_token_span(name, age_match.start(), age_match.end())
         # Look AFTER the age token first (most common position for coach/squad)
-        after_age = name[age_match.end() :].strip()
+        after_age = name[age_end:].strip()
         after_age_clean = re.sub(r"\s*\([^)]+\)\s*$", "", after_age).strip()
         candidate = _extract_candidate(after_age_clean)
         if candidate:
             return candidate
 
         # Look BEFORE the age token (handles "Arsenal 2014" word order)
-        before_age = name[: age_match.start()].strip()
+        before_age = name[:age_start].strip()
         # Strip known club-name words that appear before the age
         # Only consider the last 1-2 words before the age (coach/squad names
         # sit adjacent to the age, not at the start of the name)
@@ -805,8 +806,8 @@ def extract_program_tier(name):
     age_end = 0
     for pattern in age_patterns:
         match = re.search(pattern, name, re.IGNORECASE)
-        if match and match.end() > age_end:
-            age_end = match.end()
+        if match:
+            age_end = max(age_end, age_token_span(name, match.start(), match.end())[1])
 
     if age_end > 0:
         after_age = name[age_end:].strip(" -")
@@ -992,6 +993,8 @@ def resolve_via_stored_candidates(queue_entry):
     # _extract_birth_year_token returned a single year and so read a dual-year band
     # as a conflict — "B08/07" against "2008" is one team written from one end.
     if birth_years_conflict(provider_name, best.get("team_name")):
+        return None, 0.0, None
+    if u19_shared_year_ambiguous(provider_name, best.get("team_name"), best.get("age_group")):
         return None, 0.0, None
 
     def _winner(rule):
@@ -1281,8 +1284,10 @@ def find_best_match(queue_entry, supabase, teams_cache):
         team_variant = extract_team_variant(team["team_name"])
         team_program = extract_program_tier(team["team_name"])
 
-        # CRITICAL: Variants must match EXACTLY
-        if queue_variant != team_variant:
+        # CRITICAL: Variants must match EXACTLY. A stored name often omits the club its row
+        # carries ("G14/15 CP" under "Athletic SC"), so the queue name is also read without
+        # that club's words, or its club is taken for the squad label.
+        if queue_variant != team_variant and extract_team_variant(name, team.get("club_name") or "") != team_variant:
             continue
 
         # CRITICAL: Program/tier must match if either side has one
@@ -1304,6 +1309,8 @@ def find_best_match(queue_entry, supabase, teams_cache):
         # "Surf SC Elite '09" and "...'08" both yield age_tokens=('u19',).
         # continue, not return: a wrong-year candidate must not block a right-year one.
         if birth_years_conflict(name, team["team_name"]):
+            continue
+        if u19_shared_year_ambiguous(name, team["team_name"], team["age_group"]):
             continue
 
         # Calculate similarity

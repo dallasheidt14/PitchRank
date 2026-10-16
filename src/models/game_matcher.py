@@ -11,6 +11,7 @@ from difflib import SequenceMatcher
 from typing import Any, Dict, Optional, Tuple
 
 from config.settings import MATCHING_CONFIG
+from src.tournaments.alias_writer import REVIEW_QUEUE_CLAMP
 from src.utils.placeholder_clubs import is_placeholder_club
 from src.utils.provider_ids import clean_provider_id, is_blank_provider_id
 from supabase import Client
@@ -39,12 +40,14 @@ except ImportError:
 # Import structured team-name utilities for distinction-based matching
 try:
     from src.utils.team_name_utils import (
+        age_token_span,
         birth_years_conflict,
         extract_distinctions,
         has_ecnl_only,
         has_ecnl_rl,
         normalize_club_for_comparison,
         normalize_name_for_matching,
+        u19_shared_year_ambiguous,
     )
     from src.utils.team_name_utils import (
         extract_club_from_team_name as extract_club_structured,
@@ -67,6 +70,14 @@ except ImportError:
             "src.utils.team_name_utils unavailable — birth-year matching guard is INERT"
         )
         return False
+
+    def u19_shared_year_ambiguous(name_a, name_b, age_group, season=None):  # type: ignore[misc]
+        """Fallback for the U19 shared-year guard; fails open for the same reason as above."""
+        return False
+
+    def age_token_span(name, start, end):  # type: ignore[misc]
+        """Fallback for the band-aware age span; fails open for the same reason as above."""
+        return start, end
 
 
 logger = logging.getLogger(__name__)
@@ -324,7 +335,7 @@ def extract_team_variant(name: str) -> Optional[str]:
     for pattern in _AGE_PATTERNS:
         match = re.search(pattern, name, re.IGNORECASE)
         if match:
-            age_end_pos = match.end()
+            age_end_pos = age_token_span(name, match.start(), match.end())[1]
             break
 
     if age_end_pos > 0:
@@ -401,8 +412,8 @@ def extract_club_from_team_name(provider_team_name: str) -> Optional[str]:
     earliest_pos = len(name)
     for pattern in _AGE_PATTERNS:
         match = re.search(pattern, name, re.IGNORECASE)
-        if match and match.start() < earliest_pos:
-            earliest_pos = match.start()
+        if match:
+            earliest_pos = min(earliest_pos, age_token_span(name, match.start(), match.end())[0])
 
     # Extract club name before the age pattern
     club_name = name[:earliest_pos].strip() if earliest_pos < len(name) else name
@@ -894,6 +905,12 @@ class GameHistoryMatcher:
                         "Birth-year conflict, routing to review instead of alias: "
                         f"{team_name!r} vs {fuzzy_match.get('team_name')!r} (confidence {confidence:.2f})"
                     )
+                elif u19_shared_year_ambiguous(team_name, fuzzy_match.get("team_name"), age_group):
+                    year_conflict = True
+                    logger.info(
+                        "U19 name states only the year both U19 squads share, routing to review instead of alias: "
+                        f"{team_name!r} vs {fuzzy_match.get('team_name')!r} (confidence {confidence:.2f})"
+                    )
 
                 # Auto-approve high confidence matches (0.9+)
                 if confidence >= self.auto_approve_threshold and not year_conflict:
@@ -916,7 +933,7 @@ class GameHistoryMatcher:
                         "confidence": confidence,
                     }
 
-                # Flag for review if between 0.75-0.9, or when the years disagree
+                # Flag for review if between 0.75-0.9, or when a birth-year guard held it back
                 elif confidence >= self.review_threshold or year_conflict:
                     # Insert into review queue instead of creating alias
                     self._create_review_queue_entry(
@@ -1676,7 +1693,9 @@ class GameHistoryMatcher:
                 "provider_team_id": str(provider_team_id) if provider_team_id else None,
                 "provider_team_name": provider_team_name,
                 "suggested_master_team_id": suggested_master_team_id,
-                "confidence_score": float(confidence_score),
+                # A match demoted by a guard keeps its high score, which the table's
+                # confidence_range CHECK refuses -- dropping the row it was demoted into.
+                "confidence_score": min(float(confidence_score), float(REVIEW_QUEUE_CLAMP)),
                 "match_details": match_details,
                 "status": "pending",
             }

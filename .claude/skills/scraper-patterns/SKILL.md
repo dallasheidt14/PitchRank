@@ -844,7 +844,7 @@ Rules for a provider matcher that gates fuzzy candidates on the team name
 (`src/models/soccereventsgroup_matcher.py` follows them):
 
 - Avoid `game_matcher.extract_team_variant` and `extract_distinctions()["coach_name"]` as a
-  squad gate. Both read tier and band tokens ("ECNL-RL", the "/13" of "G2012/13") as a coach,
+  squad gate. Both read a hyphenated tier after the age ("ECNL-RL", "Pre-ECNL") as a coach,
   so two spellings of one squad are rejected and a duplicate team is created.
 - Gate squads on `colors`, `directions` and `team_number` from `extract_distinctions`, squad
   codes (N1, S2), and tiers via `squad_name_gates.extract_tier_tokens` / `tiers_conflict`,
@@ -855,14 +855,15 @@ Rules for a provider matcher that gates fuzzy candidates on the team name
   ("Blue Fire", "Blue Star") read as colors.
 - Extract the club yourself before calling `extract_club_from_team_name`. Normalize a glued age
   and gender ("U15G", "14uG", "BU07") to `U<n>`, strip a leading U-age, and cut the name at a
-  two-digit band ("14/15", "15/16B") or a Boys/Girls word. Left in, a glued form or band stays
+  bare two-digit band ("14/15") or a Boys/Girls word. Left in, a glued form or a bare band stays
   in the club, and a leading `U12` yields no club at all. Collapse dotted initials too:
   `extract_distinctions` reads the "S" of "S.C." as the direction South.
 - Break equal scores on an exact name match, then a same-state candidate over a stateless one;
   send a remaining tie to review rather than taking the first candidate.
-- Cap review-queue confidence with `src/tournaments/alias_writer.REVIEW_QUEUE_CLAMP` (0.89).
-  `team_match_review_queue` requires 0.75 <= confidence < 0.90, the clamp covers only the
-  upper bound, and the base `_create_review_queue_entry` logs a refused insert and drops the row.
+- Leave review-queue confidence to the base `_create_review_queue_entry`, which caps it at
+  `src/tournaments/alias_writer.REVIEW_QUEUE_CLAMP` (0.89); an override that calls `super()` needs
+  no clamp of its own. `team_match_review_queue` requires 0.75 <= confidence < 0.90 and the clamp
+  covers only the upper bound, so a score below 0.75 is refused, logged and dropped.
 - When two teams registered in one event link to the same PitchRank team, they are two squads:
   hold each new fuzzy link to it as a conflict, and keep a link that was already approved or
   whose team row carries the provider team id (`import_soccereventsgroup_event.shared_links`).
@@ -927,9 +928,9 @@ anchor into that file went stale in the same commit.
 - **Never clamp `_calculate_match_score`.** That override adds `club_variant_match_boost` and
   caps at `min(1.0, ...)`. `REVIEW_QUEUE_CLAMP` is 0.89 while `auto_approve_threshold` is 0.90
   (`config/settings.py`, enforced in `GameHistoryMatcher._match_team`), so clamping ordinary
-  scores makes `fuzzy_auto` unreachable and turns every auto-link into a review. The clamp
-  belongs in `_create_review_queue_entry` and on the equal-rank tie path inside
-  `_fuzzy_match_team`, nowhere else.
+  scores makes `fuzzy_auto` unreachable and turns every auto-link into a review. The base
+  `_create_review_queue_entry` caps review rows; a subclass's only clamp is the equal-rank tie
+  demotion inside `_fuzzy_match_team`.
 - **The shared name helpers live in `src/models/tournament_name_gates.py`**, which Soccer
   Events Group and Athletes2Events both import: `canonical_team_name`, `club_from_team_name`,
   `without_club`, `tier_tokens`, `is_boys`, `squad_marks` and `squads_conflict`. Two hooks keep

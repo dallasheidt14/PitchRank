@@ -1804,3 +1804,15 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Noted**: 2026-09-20
 - **Update (2026-10-15)**: Retired: the skill folder is deleted. Its club half is `normalizing-club-names` and its age half `correcting-team-age-groups`; its one merge rule (never auto-merge when the gender conflicts or birth years differ by more than one, unless the evidence is strong) was looser than the cohort and tier rules `merging-duplicate-teams` enforces. Of its competition tags, all but USYS are named in `pitchrank-domain` or the `matching-tournament-rosters` name-decomposition reference.
 - **Refs**: branch `docs/skill-corrections-step-8`
+
+### The fuzzy duplicate finder reads a band's second year as a squad name, so a band never pairs with a bare year
+
+- **ID**: IMP-344
+- **Status**: done
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `scripts/find_queue_matches.py` `extract_team_variant`, read by `scripts/find_fuzzy_duplicate_teams.py` `score_team_pair` and by the queue matcher in the same file
+- **Why**: `extract_team_variant("NTH NASA ECNL RL B2012/13", "nasa tophat")` returns `"/13"` while `"ECNL RL 2013"` returns None (origin/main, 2026-10-13), so `score_team_pair` returns None and Doorway A never scores a band-named row against a bare-year one -- the shape this season's re-registrations take. 19,495 live team names carry a `YYYY/YY` band. IMP-231 is the same misread in `game_matcher`'s separate copy. Fixing it moves merge proposals, so measure the merges it adds and removes against adjudicated pairs first, as the merging-duplicate-teams skill's Step 3 describes.
+- **Noted**: 2026-10-13
+- **Update (2026-10-15)**: All three `extract_team_variant` copies now widen their age token through `team_name_utils.age_token_span`, built on `team_utils._BAND_RUN_RE` and a U-age run pattern, so a band or U-age range is one token and the label after it is read. Measured with the shipped code over the 212,732 unique live team names (2026-10-15): 17,822-18,571 names per copy read a `/NN` label before and 69-72 after, every changed reading on a name carrying a band or range; in Doorway A the fix adds 465 pairs over 0.90 (405 on u19) and removes 5, and `decide_team_merges` sends none of the u19 bare-versus-band additions to MERGE. The u19 board holds two squads sharing a birth year, so `u19_shared_year_ambiguous` holds a bare 2008 against a band back from an automatic link in the base importer, the queue matcher, the event-team matcher and the unknown-opponent auto-match, leaving it for review (owner, 2026-10-14: "Send it to review"), and the base review insert now clamps its confidence below the table's 0.90 CHECK so a demoted match is not dropped. The three club extractors and the queue matcher's `extract_program_tier` widen their age token the same way (owner, 2026-10-15: "Fix it now"): each extractor reads a different club for 4,669 of the unique live names, and clubs ending in `/` fall from 4,560 to 74. A U-age written "Under 13B" or "13/14U" is one token too.
+- **Refs**: branch `fix/band-variant-reader`

@@ -9,8 +9,8 @@ those are hooks rather than copies: ``pre`` splits a platform's own spellings
 before anything is read from a name, and ``extra`` / ``tier_extra`` add the tiers
 the shared tier set does not carry.
 
-``extract_team_variant`` is not used here: its coach-name fallback reads "ECNL-RL"
-and the "/13" of "G2012/13" as coach names.
+``extract_team_variant`` is not used here: its coach-name fallback reads a
+hyphenated tier such as "ECNL-RL" as a coach name.
 """
 
 import re
