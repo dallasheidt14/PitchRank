@@ -613,8 +613,8 @@ def test_club_choices_become_approved_snapshot_rows_the_club_applier_reads_back(
         store,
         [
             _scan_row("c1", "-LVSA", "Las Vegas Sports Academy"),
-            _scan_row("c2", "Henderson", "=Henderson FC", tier="capital"),
-            _scan_row("c3", "Reno", "Reno United", tier="recased"),
+            _scan_row("c2", "Henderson", "=Henderson FC", tier="word", needs_review=True),
+            _scan_row("c3", "Reno", "Reno United"),
         ],
         tmp_path,
     )
@@ -858,6 +858,48 @@ def test_a_club_that_gained_a_space_since_it_was_proposed_is_left_off(tmp_path, 
 
     left_out = _read(store, "clubs", MANIFEST_FILE)["left_out"]
     assert [(p["team_id_master"], p["why"]) for p in left_out] == [("c1", "club_name is now 'Sparks ', not 'Sparks'")]
+
+
+def test_a_club_guess_the_scan_lists_without_approving_gets_no_card(tmp_path, monkeypatch, capsys):
+    """The skill writes a recased, unclear or capital row only when a person opts it in, so the page
+    leaves them off. A conflict row from a trusted tier, held back for a person, keeps its card."""
+    store = tmp_path / "store"
+    _reviewing(store)
+    _clubs(
+        store,
+        [
+            _scan_row("swap", "LVSA", "Las Vegas Sports Academy"),
+            {**_scan_row("provider", "SPARKS", "Sparks United", tier="provider"), "approved": True},
+            {**_scan_row("bracket", "Elko [EYS]", "Elko [eys]", tier="bracket"), "approved": True},
+            _scan_row("conflict", "Reno", "Reno United", tier="word", needs_review=True),
+            _scan_row("recased", "RSL Arizona", "RSL-AZ - North", tier="recased"),
+            _scan_row("unclear", "RSL Arizona", "07", tier="unclear", needs_review=True),
+            _scan_row("capital", "Henderson", "=Henderson FC", tier="capital"),
+        ],
+        tmp_path,
+    )
+    teams = [
+        _team("swap", club="LVSA"),
+        _team("provider", club="SPARKS"),
+        _team("bracket", club="Elko [EYS]"),
+        _team("conflict", club="Reno"),
+        _team("recased", club="RSL Arizona"),
+        _team("unclear", club="RSL Arizona"),
+        _team("capital", club="Henderson"),
+    ]
+
+    code, out = _build(monkeypatch, capsys, store, _Db(teams=teams), "clubs")
+
+    manifest = _read(store, "clubs", MANIFEST_FILE)
+    assert code == 0
+    cards = sorted(p["team_id_master"] for p in manifest["cards"].values())
+    assert cards == ["bracket", "conflict", "provider", "swap"]
+    assert [(p["team_id_master"], p["why"]) for p in manifest["left_out"]] == [
+        ("recased", "the scan lists recased guesses without approving them"),
+        ("unclear", "the scan lists unclear guesses without approving them"),
+        ("capital", "the scan lists capital guesses without approving them"),
+    ]
+    assert "4 cards" in out and "left off 3, past the cap 0" in out
 
 
 @pytest.mark.parametrize(

@@ -69,7 +69,9 @@ put a line or two from it in your first message to the owner.
 - **No open run.** Read its `the latest is <run> (<status>)` line: this week's run may already be
   closed. Otherwise this week's propose has not run, and nothing schedules it. Ask the owner which
   states the week covers, dry-run the propose, then hand them the real one to start in a terminal
-  of their own (it can take hours, too long for `!`):
+  window of their own: it runs for several minutes, and a `!` command holds the session until it
+  ends. Its output reaches a redirected log only when it exits, so follow its progress with
+  `status.py`:
 
   ```bash
   python scripts/team_cleanup/propose_week.py --states NV --dry-run
@@ -112,9 +114,10 @@ It reads the stage's proposals and the owner's earlier decisions (it needs the s
 those, and writes nothing to the database), and writes the stage's `page.html` beside its manifest.
 It prints the page's path, the card count and the **page run** id (`YYYYMMDDTHHMMSSZ-<6 hex>`); the
 owner's choices land under the page run, not the run id. It leaves off cards whose team is gone,
-merged or moved since the propose, and ones the owner already declined;
-`<stage>/page.manifest.json` lists each with its reason. Past 150 cards the rest wait for a later
-run, with teams users follow first.
+merged or moved since the propose, ones the owner already declined, and for clubs the guesses the
+scan lists without approving (the `Listed` tiers in `normalizing-club-names`), which that skill
+writes only when a person opts one in; `<stage>/page.manifest.json` lists each with its reason.
+Past 150 cards the rest wait for a later run, with teams users follow first.
 
 Build every proposed stage, even one with nothing to propose: a 0-card stage still has to be
 collected and applied before the run can close. A rebuild is allowed until the choices are
@@ -139,11 +142,13 @@ still needs its quick apply in the window.
 
 When the owner says a page is done, read its choices with the ArtifactData tool: `action: list`,
 the page's artifact `url`, collection `decisions-<page run>`, `query.limit` 1000 and an `out_dir`
-under the scratchpad, passing any returned `next_cursor` back as `query.cursor` until none comes.
+under the scratchpad spelled in full (the tool refuses an 8.3 short path, one holding `~` and a
+digit),
+passing any returned `next_cursor` back as `query.cursor` until none comes.
 Pass only that `out_dir` to the collector:
 
 ```bash
-python scripts/team_cleanup/collect.py --run 2026-10-14-nv --stage clubs --decisions <out_dir>
+python scripts/team_cleanup/collect.py --run 2026-10-14-nv --stage clubs --decisions "<out_dir>"
 ```
 
 It writes no database row, and it refuses rather than guesses. "No saved choices were found" means
@@ -156,14 +161,21 @@ on a later run. For a 0-card stage pass any empty folder; it is not read.
 Then read the Apply rows (`<stage>/vetted.csv`, or `<stage>/vetted.json` for states) against the
 checks the stage skill leaves to a person, which no script enforces: for clubs the branch rule
 under **Hold rather than write** in `normalizing-club-names`, for states reading each as a person
-would (`assigning-team-states` Step 4). Ask the owner about any that fail; they change that card
-on the same page and you collect again. Collecting again is safe only before `<stage>/apply.json`
-exists: `collect.py` does not stop a later one, but the apply then refuses that stage for the rest
-of the run.
+would (`assigning-team-states` Step 4). For a state Apply the names do not plainly settle, read
+who the team played (its opponents' stored states), where its club-mates sit, and a recent
+`mapped` GotSport answer in `team_state_probe_log` other than the unset default `AL`; together
+they caught four wrong changes in one Nevada run. Each is a reason to ask the owner about a card,
+never a state to propose: opponents agreeing with a stored state prove nothing inside a
+mislabelled cluster, and club-mates are what proposed a Tier B correction. Ask the owner about any
+that fail; they change that card on the same page and you collect again. Collecting again is safe
+only before `<stage>/apply.json` exists: `collect.py` does not stop a later one, but the apply then
+refuses that stage for the rest of the run.
 
 ## Step 5: In the apply window, dry-run each stage's apply and hand it over
 
-Run the dry run yourself and read all of it:
+Run the dry run yourself and read all of it. When Claude Code's permission check refuses it, as it
+can even though the dry run writes nothing, hand it to the owner with `!` and read what it prints;
+the write waits for that reading either way:
 
 ```bash
 python scripts/team_cleanup/apply_stage.py --run 2026-10-14-nv --stage clubs

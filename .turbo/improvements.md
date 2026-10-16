@@ -2318,9 +2318,19 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: It is the standalone twin of the retired `pitchrank-alias-normalizer` skill (IMP-359): added in the same commit (`3f0744305`, 2026-01-30), with the same `club_id`/`confidence`/`action` CSV workflow and tag list. `run.sh` calls `agent_skills/pitchrank-club-normalizer/review_queue.py`, which does not exist, so the package cannot run end to end. `.turbo/plans/decommission-openclaw.md` kept it as "a real domain skill", and nothing else in the tree references it. Retire it, or bring it current against `normalizing-club-names`.
 - **Noted**: 2026-10-15
 
-### Resolve two SincSports DCSC-named teams filed under the wrong club, and the DC-vs-MD question behind them
+### Keep a trusted club-name proposal when sources disagree, so the weekly page can still show it
 
 - **ID**: IMP-363
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `scripts/repair_swapped_club_names.py` (`merge_proposals`, called from `build_snapshot`); `scripts/team_cleanup/pages.py` (`sort_out`)
+- **Why**: When two sources propose different clubs for one team, `merge_proposals` keeps `proposals[0]` in source order (provider, then team_name, then abbreviation) and marks it `needs_review`. A `recased` or `unclear` team-name guess can therefore win the row over a trusted `word` or `bracket` abbreviation fix, which then exists only in the scan's printed CONFLICT line, and the weekly club page leaves the row off because its tier is a listed guess. Keep the trusted-tier proposal on a conflict (or carry both offers) so the row keeps its card. Reach on 2026-10-15: 0 CONFLICT lines in the national scan (2,018 rows). Raised in review of #1315.
+- **Noted**: 2026-10-15
+
+### Resolve two SincSports DCSC-named teams filed under the wrong club, and the DC-vs-MD question behind them
+
+- **ID**: IMP-364
 - **Status**: open
 - **Type**: investigate
 - **Category**: reliability
