@@ -116,8 +116,11 @@ It prints the page's path, the card count and the **page run** id (`YYYYMMDDTHHM
 owner's choices land under the page run, not the run id. It leaves off cards whose team is gone,
 merged or moved since the propose, ones the owner already declined, and for clubs the guesses the
 scan lists without approving (the `Listed` tiers in `normalizing-club-names`), which that skill
-writes only when a person opts one in; `<stage>/page.manifest.json` lists each with its reason.
-Past 150 cards the rest wait for a later run, with teams users follow first.
+writes only when a person opts one in. For states it also leaves off each change that a recent
+`mapped` GotSport answer other than the unset default `AL`, or the team's name or club name as
+`assigning-team-states` Step 6's name pass reads it, already answers with the state the team
+holds. `<stage>/page.manifest.json` lists each with its reason. Past 150 cards the rest wait for a
+later run, with teams users follow first.
 
 Build every proposed stage, even one with nothing to propose: a 0-card stage still has to be
 collected and applied before the run can close. A rebuild is allowed until the choices are
@@ -161,15 +164,17 @@ on a later run. For a 0-card stage pass any empty folder; it is not read.
 Then read the Apply rows (`<stage>/vetted.csv`, or `<stage>/vetted.json` for states) against the
 checks the stage skill leaves to a person, which no script enforces: for clubs the branch rule
 under **Hold rather than write** in `normalizing-club-names`, for states reading each as a person
-would (`assigning-team-states` Step 4). For a state Apply the names do not plainly settle, read
-who the team played (its opponents' stored states), where its club-mates sit, and a recent
-`mapped` GotSport answer in `team_state_probe_log` other than the unset default `AL`; together
-they caught four wrong changes in one Nevada run. Each is a reason to ask the owner about a card,
-never a state to propose: opponents agreeing with a stored state prove nothing inside a
-mislabelled cluster, and club-mates are what proposed a Tier B correction. Ask the owner about any
-that fail; they change that card on the same page and you collect again. Collecting again is safe
-only before `<stage>/apply.json` exists: `collect.py` does not stop a later one, but the apply then
-refuses that stage for the rest of the run.
+would (`assigning-team-states` Step 4). The page has already left off each change a recent
+GotSport answer or the name pass answers with the held state. For a state Apply still on it whose
+name does not plainly back the change, read who the team played (its opponents' stored states),
+where its club-mates sit, and a recent `mapped` GotSport answer in `team_state_probe_log` that
+names a third state, never the unset default `AL`; together they caught four wrong changes in one
+Nevada run. Each is a reason to ask the owner about a card, never a state to propose: opponents
+agreeing with a stored state prove nothing inside a mislabelled cluster, and club-mates are what
+proposed a Tier B correction. Ask the owner about any that fail; they change that card on the same
+page and you collect again.
+Collecting again is safe only before `<stage>/apply.json` exists: `collect.py` does not stop a
+later one, but the apply then refuses that stage for the rest of the run.
 
 ## Step 5: In the apply window, dry-run each stage's apply and hand it over
 
