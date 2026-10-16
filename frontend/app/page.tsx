@@ -78,16 +78,15 @@ export default async function Home() {
             <HomeStats totalGames={totalGames} totalTeams={totalTeams} />
 
             <div className="flex flex-wrap gap-3">
-              <FindYourTeamButton />
               <Button
                 data-testid="cta-rankings"
                 size="lg"
-                variant="secondary"
                 asChild
-                className="font-semibold uppercase tracking-wide"
+                className="font-semibold uppercase tracking-wide bg-accent text-primary hover:bg-accent/90"
               >
                 <Link href="/rankings">View Rankings</Link>
               </Button>
+              <FindYourTeamButton />
               <Button
                 data-testid="cta-report-card"
                 size="lg"
