@@ -2318,12 +2318,12 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: It is the standalone twin of the retired `pitchrank-alias-normalizer` skill (IMP-359): added in the same commit (`3f0744305`, 2026-01-30), with the same `club_id`/`confidence`/`action` CSV workflow and tag list. `run.sh` calls `agent_skills/pitchrank-club-normalizer/review_queue.py`, which does not exist, so the package cannot run end to end. `.turbo/plans/decommission-openclaw.md` kept it as "a real domain skill", and nothing else in the tree references it. Retire it, or bring it current against `normalizing-club-names`.
 - **Noted**: 2026-10-15
 
-### Resolve three SincSports DCSC-named teams filed under the wrong club, and the DC-vs-MD question behind them
+### Resolve two SincSports DCSC-named teams filed under the wrong club, and the DC-vs-MD question behind them
 
 - **ID**: IMP-363
 - **Status**: open
 - **Type**: investigate
 - **Category**: reliability
-- **Where**: `teams.club_name` for SincSports ids `CAM117BA` and `CAM12716` ("Dcsc Red Metros B11/B12", filed under Cal Legends and Bakersfield Select, stored CA) and `CAM165FC` ("DCSC Apple Valley Vann 2016", under Apple Valley SC)
-- **Why**: All three have zero games, so no board is wrong today. The provider's club could not be read on 2026-10-15: `soccer.sincsports.com/team/default.aspx` answered 403 "Just a moment..." to a plain request and to `SincSportsScraper.session`. Read the club off each team page in a browser, then fix `club_name` via `normalizing-club-names`. "Metros" is the DC Soccer Club brand and the owner calls that club DC, but `assign_team_states.py` (R8) treats DC as MD by design and stores DC Soccer Club (114) and Washington Capital United (27) as MD, so whether DC clubs should show as DC is a separate owner decision.
+- **Where**: `teams.club_name` for SincSports ids `CAM117BA` and `CAM12716` ("Dcsc Red Metros B11/B12", filed under Cal Legends and Bakersfield Select, stored CA)
+- **Why**: Both have zero games, so no board is wrong today. The provider's club could not be read on 2026-10-15: `soccer.sincsports.com/team/default.aspx` answered 403 "Just a moment..." to a plain request and to `SincSportsScraper.session`. Read the club off each team page in a browser, then fix `club_name` via `normalizing-club-names`. "Metros" is the DC Soccer Club brand and the owner calls that club DC, but DC Soccer Club (114 teams) and Washington Capital United (27) are stored MD, which matches the provider's association; `assign_team_states.py` R8 only queues any change away from a stored `DC` and does not explain the MD rows, so which writer filed them MD is untraced. Whether DC clubs should show as DC is an owner decision. `CAM165FC` ("DCSC Apple Valley Vann 2016", under Apple Valley SC) was dropped from this item: a reviewer reports SincSports lists it under Apple Valley SC (unverified here), so it is likely correct as filed.
 - **Noted**: 2026-10-15
