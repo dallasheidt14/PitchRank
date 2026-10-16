@@ -26,10 +26,14 @@ class _Corrections:
         self._op = op
         self._payload = payload
         self._match = None
+        self._status = None
 
     def eq(self, field, value):
-        assert field == "id", field
-        self._match = value
+        assert field in ("id", "status"), field
+        if field == "id":
+            self._match = value
+        else:
+            self._status = value
         return self
 
     def execute(self):
@@ -37,9 +41,12 @@ class _Corrections:
             row = {"id": f"corr-{len(self._db.corrections) + 1}", "status": "pending", **self._payload}
             self._db.corrections.append(row)
             return SimpleNamespace(data=[row])
-        [row] = [c for c in self._db.corrections if c["id"] == self._match]
-        row.update(self._payload)
-        return SimpleNamespace(data=[row])
+        rows = [
+            c for c in self._db.corrections if c["id"] == self._match and self._status in (None, c["status"])
+        ]
+        for row in rows:
+            row.update(self._payload)
+        return SimpleNamespace(data=rows)
 
 
 class _ApplyCorrection:
@@ -60,6 +67,8 @@ class _ApplyCorrection:
         game["away_score"] = row["corrected_values"]["away_score"]
         game["result"] = row["corrected_values"]["result"]
         row["status"] = "approved"
+        if self._db.error_after_apply:
+            raise self._db.error_after_apply
         return SimpleNamespace(data=None)
 
 
@@ -68,6 +77,7 @@ class _CorrectionsDB(_DB):
         super().__init__(games)
         self.corrections = []
         self.apply_error = None
+        self.error_after_apply = None
 
     def table(self, name):
         if name == "game_corrections":
@@ -173,6 +183,18 @@ def test_a_correction_that_fails_to_apply_is_rejected_and_counted(monkeypatch):
     assert correction["status"] == "rejected"
     assert (game["home_score"], game["away_score"]) == (0, 0)
     assert (pipeline.metrics.scores_corrected, pipeline.metrics.scores_correct_failed) == (0, 1)
+
+
+def test_a_correction_applied_before_the_client_saw_an_error_stays_approved(monkeypatch):
+    game = _stored(GREMIO, AFC, 0, 0)
+    db = _CorrectionsDB([game])
+    db.error_after_apply = TimeoutError("response lost")
+
+    _import_pipeline(monkeypatch, db, [_incoming(GREMIO, AFC, 3, 1)], uid_check=True)
+
+    [correction] = db.corrections
+    assert correction["status"] == "approved"
+    assert (game["home_score"], game["away_score"]) == (3, 1)
 
 
 def test_a_changed_score_without_a_result_is_counted_and_not_written(monkeypatch):

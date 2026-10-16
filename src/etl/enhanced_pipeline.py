@@ -1874,7 +1874,7 @@ class EnhancedETLPipeline:
                     try:
                         self.supabase.table("game_corrections").update({"status": "rejected"}).eq(
                             "id", correction_id
-                        ).execute()
+                        ).eq("status", "pending").execute()
                     except Exception as reject_error:
                         logger.warning(f"[Pipeline] Could not reject correction {correction_id}: {reject_error}")
 
