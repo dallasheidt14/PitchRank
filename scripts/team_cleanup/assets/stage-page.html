@@ -89,7 +89,7 @@ const $ = s => document.querySelector(s);
 let db = null, loaded = false, canWrite = true;
 let saved = {};            // choices as the store last reported them
 let local = {};            // choices as this page shows them, ahead of the store while a write is in flight
-const queue = {};          // one write at a time per card
+let queue = Promise.resolve();  // one write at a time for the whole page: the store refuses a burst from one viewer
 const pending = {};        // writes queued or running per card
 const cards = new Map();
 const groups = new Map();
@@ -211,9 +211,8 @@ function paint(){
   $("#n-left").textContent = (CARDS.length - n.apply - n.dont_apply - n.unsure) + " left";
 }
 
-// One card at a time, and one bulk decision at a time: the store refuses a burst of writes from
-// one viewer. A card already decided when its turn comes, here or in a snapshot from elsewhere,
-// keeps its choice.
+// One bulk decision at a time. A card already decided when its turn comes, here or in a snapshot
+// from elsewhere, keeps its choice.
 async function decideOpen(list, decision){
   bulk = true; paint();
   for (const x of list){
@@ -227,11 +226,11 @@ function save(id, patch){
   local[id] = {...choice(id), ...patch};
   paint();
   pending[id] = (pending[id] || 0) + 1;
-  queue[id] = (queue[id] || Promise.resolve()).then(() => write(id, patch)).finally(() => {
+  queue = queue.then(() => write(id, patch)).finally(() => {
     pending[id] -= 1;
     if (!pending[id]) delete failed[id];
   });
-  return queue[id];
+  return queue;
 }
 
 // Writes only the fields that changed, and creates a document only after the store says it

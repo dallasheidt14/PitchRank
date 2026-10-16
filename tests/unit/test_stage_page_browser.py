@@ -290,6 +290,27 @@ def test_one_bulk_decision_writes_at_a_time(open_alike, alike_built):
     assert not errors
 
 
+def test_a_hand_choice_or_note_during_a_bulk_decision_waits_its_turn(open_alike, alike_built):
+    """Every write on the page takes its turn, so a card decided by hand or a note saved while a bulk
+    decision runs never reaches the store at the same moment as one of its writes."""
+    page, errors = open_alike()
+    _live(page)
+
+    page.evaluate(
+        "const card = t => [...document.querySelectorAll('.card')].find(c => c.textContent.includes('Team ' + t));"
+        "card('a').querySelector('.alike [data-d=dont_apply]').click();"
+        "card('n').querySelector('button.b-apply').click();"
+        "const ta = card('q').querySelector('textarea'); ta.value = 'plays up'; ta.dispatchEvent(new Event('change'));"
+    )
+    _settle(page)
+
+    stored = _stored(page, alike_built)
+    assert [stored[team]["decision"] for team in ("a", "b", "c", "n")] == ["dont_apply"] * 3 + ["apply"]
+    assert (stored["q"]["decision"], stored["q"]["note"]) == (None, "plays up")
+    assert page.evaluate("window.__maxInflight") == 1
+    assert not errors
+
+
 def test_losing_the_connection_turns_the_look_alike_buttons_off(open_alike):
     page, _ = open_alike()
     _live(page)
