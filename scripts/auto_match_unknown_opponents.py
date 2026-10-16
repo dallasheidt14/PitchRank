@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import csv
 import os
+import re
 import sys
 import time
 from dataclasses import dataclass
@@ -41,6 +42,7 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 # Reuse existing queue/step-3 matching logic
 from find_fuzzy_duplicate_teams import score_team_pair
 from find_queue_matches import (
+    PROGRAM_TIERS,
     UNMATCHABLE_AGE_GROUP,
     extract_age_group,
     extract_gender,
@@ -49,7 +51,12 @@ from find_queue_matches import (
 
 from src.utils.age_group import normalize_age_group
 from src.utils.team_association_map import to_state_code
-from src.utils.team_name_utils import u19_shared_year_ambiguous
+from src.utils.team_name_utils import AGE_PATTERN, NOISE_WORDS, US_STATES, birth_years, u19_shared_year_ambiguous
+
+_PARENTHESISED = re.compile(r"\([^)]*\)")
+# A state code beside a squad ("Walden AZ") is where the team plays, unless it also spells a
+# program: GA is Girls Academy.
+_NON_SQUAD_WORDS = NOISE_WORDS | (US_STATES - set(PROGRAM_TIERS))
 
 
 def _execute_with_retry(query_func, max_retries: int = 3, base_delay: float = 1.0):
@@ -268,6 +275,42 @@ def fetch_candidates(
     return candidates
 
 
+def _read_squad(name: str) -> Optional[Tuple[set, List[str]]]:
+    """The words before a name's first birth-year token and the squad words after it."""
+    words = name.split()
+    for i, word in enumerate(words):
+        if birth_years(word):
+            return set(_squad_words(" ".join(words[:i]))), _squad_words(" ".join(words[i + 1 :]))
+    return None
+
+
+def _squad_words(text: str) -> List[str]:
+    # A year goes as the whole token it was written as, so "G2014/15" leaves no "15" behind.
+    words = [w for w in _PARENTHESISED.sub(" ", text).split() if not birth_years(w)]
+    return [
+        w
+        for w in re.split(r"[^0-9a-z]+", " ".join(words).lower())
+        if w and w not in _NON_SQUAD_WORDS and not AGE_PATTERN.fullmatch(w)
+    ]
+
+
+def squad_labels_differ(name_a: str, name_b: str) -> bool:
+    """True when two names each name a squad after their birth year, and not the same one:
+    "Cincy SC B18-19 Elite" and "Cincy SC B18-19 Premier".
+
+    The scorer compares a single variant word, so a squad number, a tier word or a second
+    word after the year ("Gold" against "Gold II") scores a perfect match. A word either
+    name writes before its year is the club's, not the squad's, wherever the other puts it.
+    """
+    squad_a, squad_b = _read_squad(name_a), _read_squad(name_b)
+    if not squad_a or not squad_b:
+        return False
+    club_words = squad_a[0] | squad_b[0]
+    label_a = sorted(w for w in squad_a[1] if w not in club_words)
+    label_b = sorted(w for w in squad_b[1] if w not in club_words)
+    return bool(label_a) and bool(label_b) and label_a != label_b
+
+
 def match_row(
     row: Dict[str, str],
     supabase,
@@ -302,6 +345,10 @@ def match_row(
     unknown_team = {"team_name": profile.team_name, "club_name": profile.club_name}
 
     for candidate in candidates:
+        # continue, not demote: another squad of the club must not block this squad's own row,
+        # and with none left the row is a no-match, which discovery turns into its own team.
+        if squad_labels_differ(profile.team_name, candidate["team_name"]):
+            continue
         score = score_team_pair(unknown_team, candidate)
         if score is None:
             continue

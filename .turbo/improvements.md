@@ -2363,16 +2363,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: A club number joined to a year reads as a band, so 13 live names lose part of their club that they kept before the band fix: "CF10 - 2013 White" and "T11 - 2014B" give no club, "SSE90 - 2017" gives "SSE" (also R45, R64, "Extreme Touch 90 - 2012", "Team LA 59-62 - 2008"). Two rules were replayed over the 212,732 unique live names and rejected on 2026-10-15: consecutive-years-only reverts about 187 real combined cohorts ("B2007/09" reads "/09" again), and "non-consecutive and glued to a letter or holding a year outside 2005-2020" also turns "T11 - 16/17B" into club "T11 - 16/", because the true band sits inside the rejected run. A fix has to recover the band inside a rejected run.
 - **Noted**: 2026-10-15
 
-### Compare the squad words after a band in Doorway A's pair scorer
-
-- **ID**: IMP-368
-- **Status**: open
-- **Type**: investigate
-- **Category**: reliability
-- **Where**: `scripts/find_fuzzy_duplicate_teams.py` `score_team_pair`, also called by `scripts/auto_match_unknown_opponents.py` `match_row` and `src/tournaments/event_team_matcher.py` `rank_db_candidates`
-- **Why**: Replaying the 2026-10-13 unknown-opponent aggregate with the band fix, three different squads still score 1.0 and auto-link: "PDA White PRE-ECNL G2014/15 Mon" to "... One ll" (GotSport 755882), "SEFPL B2015/16 PBG DEV SWOOSH" to "... PBG PRE ECNL SWOOSH" (821995), "Connecticut FC United Pre ECNL G2015/16 1" to "... 2" (755087). A read-only check reported all three applied by the 2026-10-13 Tuesday run. A squad number, a DEV/PRE ECNL tier and a coach-like word after the band are not compared. The scorer is Doorway A's, part of the frozen duplicate tooling, so a change is the owner's call.
-- **Noted**: 2026-10-15
-
 ### Stop the queue matcher proposing another club's squad under a generic club word
 
 - **ID**: IMP-369
@@ -2411,4 +2401,14 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Category**: reliability
 - **Where**: `scripts/decide_team_merges.py` `decide` and its `_BAND` regex, against `cohort_of`, which reads years through `birth_years`
 - **Why**: `decide` sends "a two-year band on one side only" to review with `_BAND`, which misses an en dash ("B08–09"), a four-digit second year ("09/2008") and a four-digit pair ("2009/2008"). `fix/band-variant-reader` taught `birth_years` the first two spellings: `birth_years("Club B08–09 Red")` is now {2008, 2009}, where it was {2008} (checked 2026-10-16). So on u19 such a name against "Club U19 Red" can skip both review branches and reach MERGE. A review of that branch reproduced MERGE for all three spellings with a fake evidence object (not re-run). Owner, 2026-10-16: "Note it, fix before unfreezing." This is latent today: scans are frozen, proposals are reviewed by hand, and none of the 465 pairs the branch newly adds to Doorway A took this path. Widening `_BAND` alone changes band detection for 84 unique live names, but it also lets one band spelled two ways ("B08–09" against "B08/09") reach MERGE. Read the band through `birth_years` instead, and measure the result against approved merges.
+- **Noted**: 2026-10-16
+
+### Gate the event-team matcher's perfect scores on the squad words after a band
+
+- **ID**: IMP-373
+- **Status**: open
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `src/tournaments/event_team_matcher.py` `rank_db_candidates`
+- **Why**: `rank_db_candidates` applies the distinction gate (`_should_skip_pair`) only to a same-club pair scoring below 0.99, and `score_team_pair` scores two squads of one band at 1.0 when they differ only after the year ("Cincy SC B18-19 Elite" against "... Premier", a squad number against another, "Gold" against "Gold II"), so such a pair reaches the event matcher's top statuses. The unknown-opponent auto-match refuses it through `squad_labels_differ` (IMP-368); the gate here is the event matcher's own call. Measure against saved event intakes before changing it.
 - **Noted**: 2026-10-16
