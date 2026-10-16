@@ -141,8 +141,9 @@ def _import(monkeypatch, db, game, dry_run=False, provider="gotsport"):
     return _import_pipeline(monkeypatch, db, [game], dry_run, provider)[0]
 
 
-def _import_pipeline(monkeypatch, db, games, dry_run=False, provider="gotsport", uid_check=False):
+def _import_pipeline(monkeypatch, db, games, dry_run=False, provider="gotsport", uid_check=False, provider_id=None):
     pipeline = EnhancedETLPipeline(db, provider, dry_run=dry_run)
+    pipeline.provider_id = provider_id
     pipeline.matcher = _Matcher()
     inserted = []
     stats = {"duplicates_skipped": 0, "skipped_empty_scores": 0, "date_mismatches": 0}

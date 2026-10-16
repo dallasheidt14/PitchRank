@@ -23,7 +23,7 @@ from src.etl.bulk_ops import (  # noqa: E402
 )
 from src.models.game_matcher import REMATCH_PROVIDERS, GameHistoryMatcher  # noqa: E402
 from src.utils.enhanced_validators import EnhancedDataValidator, parse_game_date  # noqa: E402
-from src.utils.provider_ids import clean_provider_id, is_blank_provider_id  # noqa: E402
+from src.utils.provider_ids import PROVIDER_ID_GAME_UID, clean_provider_id, is_blank_provider_id  # noqa: E402
 from supabase import Client, create_client  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -919,6 +919,14 @@ class EnhancedETLPipeline:
             if fixture_score_updates:
                 game_records = [g for g in game_records if "_fixture_score_update" not in g]
                 await self._backfill_scores(fixture_score_updates, {}, batch_metrics)
+            row_corrections = [g["_scored_row_correction"] for g in game_records if "_scored_row_correction" in g]
+            if row_corrections:
+                game_records = [g for g in game_records if "_scored_row_correction" not in g]
+                await self._correct_changed_scores(
+                    [update for update, _ in row_corrections],
+                    {update["game_uid"]: existing for update, existing in row_corrections},
+                    batch_metrics,
+                )
             if master_dedup_removed > 0:
                 pre_count = len(game_records)
                 master_dupes_list = [g for g in game_records if g.get("_master_dedup_skip")]
@@ -1601,7 +1609,9 @@ class EnhancedETLPipeline:
         Marks duplicates with '_master_dedup_skip' = True for filtering by caller. A scored result
         whose pair has one unscored fixture and no other game that day is tagged
         '_fixture_score_update' instead, for the caller to write as a score backfill; it is not
-        counted as a duplicate.
+        counted as a duplicate. A result that disagrees on score with the pair's one scored row,
+        saved under a provider-id uid, is tagged '_scored_row_correction' for the caller to
+        apply as a score correction.
 
         Returns:
             Number of duplicates found
@@ -1687,6 +1697,7 @@ class EnhancedETLPipeline:
                 # Per sorted pair: count of scored rows, and unscored fixtures as (game_uid, home is sorted-first)
                 scored_pairs: Dict[tuple, int] = {}
                 unscored_fixtures: Dict[tuple, List[tuple]] = {}
+                scored_rows: Dict[tuple, List[Dict]] = {}
                 for row in rows_by_id.values():
                     h_master = row.get("home_team_master_id")
                     a_master = row.get("away_team_master_id")
@@ -1707,12 +1718,25 @@ class EnhancedETLPipeline:
                             # One of possibly several same-day games for the pair: never a fill target,
                             # and its presence makes the pair's day ambiguous
                             scored_pairs[sorted_ids] = scored_pairs.get(sorted_ids, 0) + 1
+                            scored_rows.setdefault(sorted_ids, []).append(row)
                         elif h_score is None and a_score is None:
                             unscored_fixtures.setdefault(sorted_ids, []).append(
                                 (row.get("game_uid"), sorted_ids[0] == h_master)
                             )
                         elif h_score is not None and a_score is not None:
                             scored_pairs[sorted_ids] = scored_pairs.get(sorted_ids, 0) + 1
+                            scored_rows.setdefault(sorted_ids, []).append(row)
+
+                # The distinct results reported for each pair in this batch: more than one means
+                # the pair met twice, so none of them can be read as a changed score
+                reported_results: Dict[tuple, set] = {}
+                for game in incoming_games:
+                    pair = tuple(sorted([game["home_team_master_id"], game["away_team_master_id"]]))
+                    first_home = pair[0] == game["home_team_master_id"]
+                    home_score, away_score = _safe_int(game.get("home_score")), _safe_int(game.get("away_score"))
+                    reported_results.setdefault(pair, set()).add(
+                        (home_score, away_score) if first_home else (away_score, home_score)
+                    )
 
                 # Check incoming games against existing master-level keys
                 for game in incoming_games:
@@ -1771,6 +1795,49 @@ class EnhancedETLPipeline:
                         existing_master_keys.add(key)
                         logger.info(
                             f"[Pipeline] Result fills fixture {fixture_uid} on {game_date} "
+                            f"instead of inserting game_uid={game.get('game_uid')}"
+                        )
+                        continue
+
+                    # A scored row saved under a provider-id uid whose score has since changed: the
+                    # result under the master-id uid is the same game, and inserting it would store
+                    # the game twice. Only when it is the pair's single game that day and the batch
+                    # reports it once.
+                    pair_rows = scored_rows.get(sorted_ids, [])
+                    if (
+                        not fills_disabled
+                        and self.provider_code
+                        and self.provider_code.lower() in SCORE_CORRECTION_PROVIDERS
+                        and h_score is not None
+                        and a_score is not None
+                        and len(pair_rows) == 1
+                        and not unscored_fixtures.get(sorted_ids)
+                        and len(reported_results.get(sorted_ids, ())) == 1
+                        and pair_rows[0].get("provider_id") == self.provider_id
+                        and PROVIDER_ID_GAME_UID.match(pair_rows[0].get("game_uid") or "")
+                    ):
+                        row = pair_rows[0]
+                        row_home_first = sorted_ids[0] == row["home_team_master_id"]
+                        same_orientation = row_home_first == (sorted_ids[0] == h_master)
+                        game["_scored_row_correction"] = (
+                            {
+                                **game,
+                                "game_uid": row["game_uid"],
+                                "home_team_master_id": row["home_team_master_id"],
+                                "away_team_master_id": row["away_team_master_id"],
+                                "home_score": h_score if same_orientation else a_score,
+                                "away_score": a_score if same_orientation else h_score,
+                            },
+                            {
+                                "home_team_master_id": row["home_team_master_id"],
+                                "away_team_master_id": row["away_team_master_id"],
+                                "home_score": row["home_score"],
+                                "away_score": row["away_score"],
+                            },
+                        )
+                        existing_master_keys.add(key)
+                        logger.info(
+                            f"[Pipeline] Result corrects the score of {row['game_uid']} on {game_date} "
                             f"instead of inserting game_uid={game.get('game_uid')}"
                         )
 
