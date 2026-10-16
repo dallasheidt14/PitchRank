@@ -2283,6 +2283,16 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: `check_workflow_retired` reads only the first job's steps and counts a step as off only when its step-level `if:` parses as YAML `false` (`value is False`), so `'false'`, `${{ false }}` or a job-level `if: false` reads as on and fails the check while the step stays off. The club self-check reads the same `update-missing-club-and-state.yml` through `step_is_off` (job and step `if:`, every literal-false spelling); the state check should too. The age check's flag gate asks a different question and keeps `_gated_on_the_flag`.
 - **Noted**: 2026-10-14
 
+### MLS NEXT Kitman importer: follow-ups deferred from review
+
+- **ID**: IMP-362
+- **Status**: open
+- **Type**: plan
+- **Category**: refactor
+- **Where**: `undo`, `_usable_target`, `_existing_team`, `_linked_team`, `_game_count`, `_read_csv` and `_new_client` in `scripts/link_mlsnext_kitman_teams.py` and `scripts/link_modular11_ea_teams.py`; `Modular11EaGameMatcher` and `MlsNextKitmanGameMatcher._match_team`; `hold_reason` in `scripts/build_mlsnext_kitman_games_csv.py`; `OUT_OF_SCOPE_PROVIDERS` in `scripts/find_squad_key_duplicates.py`; `fetch_db_teams` in `scripts/match_modular11_ea_teams.py`
+- **Why**: (1) The two linkers hold seven function bodies that an AST comparison finds identical, and the two alias-only matchers are the same `_match_team`; the safety-critical parts (undo, the importer's age/gender/deprecated acceptance test) now have to be fixed twice, and a shared module means editing the Modular11 EA files, which are out of scope by the owner's standing decision. (2) A game Kitman marks completed with scores but dates in the future is held only until its listed date and then imports under it; remembering such games needs persisted state (event ids seen early), a product decision. (3) Two Python guards that keep MLS NEXT out of matching test the provider code `modular11` alone, so teams created from Kitman rely on their HD/AD names to stay protected.
+- **Noted**: 2026-10-15
+
 ### Guard the nine cleanup-skill facts no test or self-check pins
 
 - **ID**: IMP-360
@@ -2301,6 +2311,26 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Category**: docs
 - **Where**: `agent_skills/pitchrank-club-normalizer/` (`run.py` `normalize_club`, `TIER_WORDS`; `run.sh`)
 - **Why**: It is the standalone twin of the retired `pitchrank-alias-normalizer` skill (IMP-359): added in the same commit (`3f0744305`, 2026-01-30), with the same `club_id`/`confidence`/`action` CSV workflow and tag list. `run.sh` calls `agent_skills/pitchrank-club-normalizer/review_queue.py`, which does not exist, so the package cannot run end to end. `.turbo/plans/decommission-openclaw.md` kept it as "a real domain skill", and nothing else in the tree references it. Retire it, or bring it current against `normalizing-club-names`.
+- **Noted**: 2026-10-15
+
+### Keep a trusted club-name proposal when sources disagree, so the weekly page can still show it
+
+- **ID**: IMP-363
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `scripts/repair_swapped_club_names.py` (`merge_proposals`, called from `build_snapshot`); `scripts/team_cleanup/pages.py` (`sort_out`)
+- **Why**: When two sources propose different clubs for one team, `merge_proposals` keeps `proposals[0]` in source order (provider, then team_name, then abbreviation) and marks it `needs_review`. A `recased` or `unclear` team-name guess can therefore win the row over a trusted `word` or `bracket` abbreviation fix, which then exists only in the scan's printed CONFLICT line, and the weekly club page leaves the row off because its tier is a listed guess. Keep the trusted-tier proposal on a conflict (or carry both offers) so the row keeps its card. Reach on 2026-10-15: 0 CONFLICT lines in the national scan (2,018 rows). Raised in review of #1315.
+- **Noted**: 2026-10-15
+
+### Resolve two SincSports DCSC-named teams filed under the wrong club, and the DC-vs-MD question behind them
+
+- **ID**: IMP-364
+- **Status**: open
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `teams.club_name` for SincSports ids `CAM117BA` and `CAM12716` ("Dcsc Red Metros B11/B12", filed under Cal Legends and Bakersfield Select, stored CA)
+- **Why**: Both have zero games, so no board is wrong today. The provider's club could not be read on 2026-10-15: `soccer.sincsports.com/team/default.aspx` answered 403 "Just a moment..." to a plain request and to `SincSportsScraper.session`. Read the club off each team page in a browser, then fix `club_name` via `normalizing-club-names`. "Metros" is the DC Soccer Club brand and the owner calls that club DC, but DC Soccer Club (114 teams) and Washington Capital United (27) are stored MD, which matches the provider's association; `assign_team_states.py` R8 only queues any change away from a stored `DC` and does not explain the MD rows, so which writer filed them MD is untraced. Whether DC clubs should show as DC is an owner decision. `CAM165FC` ("DCSC Apple Valley Vann 2016", under Apple Valley SC) was dropped from this item: a reviewer reports SincSports lists it under Apple Valley SC (unverified here), so it is likely correct as filed.
 - **Noted**: 2026-10-15
 
 ### Stop reading a club's NTH or STH abbreviation as a compass direction

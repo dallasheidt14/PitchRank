@@ -47,8 +47,13 @@ function database(
       select: () => builder,
       eq: (field: string, value: unknown) => {
         query.filters[field] = value;
-        // Alias provider join fixtures contain no rows in these tests.
         rows = rows.filter((row) => row[field] === value);
+        return builder;
+      },
+      in: (field: string, values: readonly unknown[]) => {
+        query.filters[field] = values;
+        // Alias provider join fixtures contain no rows in these tests.
+        rows = rows.filter((row) => values.includes(row[field]));
         return builder;
       },
       gte: (field: string, value: string) => {

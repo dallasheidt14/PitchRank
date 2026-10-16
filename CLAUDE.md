@@ -393,7 +393,8 @@ import, so a process running across Aug 1 keeps last season's map until restart.
 |----------|------|--------|-------|
 | GotSport | `gotsport` | REST API | 25K+ teams (primary) |
 | TGS | `tgs` | Event scraping | Tournament data |
-| Modular11 | `modular11` | Scrapy spider | MLS NEXT/HD leagues |
+| Modular11 | `modular11` | Scrapy spider | MLS NEXT/HD leagues through 2025-26; Kitman squads find their existing teams through these aliases, so keep them |
+| MLS NEXT (Kitman) | `mlsnext_kitman` | JSON files | MLS NEXT Homegrown (HD) + Academy (AD) Divisions from 2026-27; ids are `<squad id>:<season>` because a squad id is not known to carry over between seasons; weekly via `mlsnext-kitman-scraper.yml` |
 | SincSports | `sincsports` | HTML scraping | Supplementary |
 | AthleteOne | `athleteone` | API client | Conference schedules |
 | PlayMetrics | `playmetrics` | League JSON API | SECL + state leagues (events use `playmetrics_tournament`) |
@@ -651,17 +652,19 @@ two-line edit in `.github/workflows/claude-code-review.yml`.
 | `data-hygiene-weekly.yml` | Mon 11:00 AM UTC — **switched off in GitHub since 2026-08-23** | Data cleanup — name normalization, distinction backfill, dupe and queue-match steps (the age step is disabled; see `AGE_DERIVATION_ENABLED`). `gh workflow list --all` shows it `disabled_manually`; the file keeps its cron, so nothing here runs until someone re-enables it, and IMP-258 must be fixed first |
 | `unknown-opponent-hygiene-weekly.yml` | Tue 6:00 PM UTC | Resolve "Unknown" opponents |
 | `auto-merge-queue.yml` | Dispatch / `workflow_call` | Auto-approve low-risk merges |
-| `modular11-weekly-scrape.yml` | Manual dispatch | MLS NEXT league scraping |
+| `modular11-weekly-scrape.yml` | Manual dispatch | MLS NEXT league scraping through 2025-26 (2026-27 onward: `mlsnext-kitman-scraper.yml`) |
 | `backfill-unknown-team-names.yml` | Every 15 min | Resolve `unknown_<provider_team_id>` placeholder names |
 | `wa-scraper.yml` | Mon 6:00 + 7:00 AM UTC | Affinity WA tournament scrape + import |
 | `or-scraper.yml` | Mon 6:30 + 7:30 AM UTC | Affinity OR (OYSA) league scrape + import — keeps unplayed fixtures |
 | `ut-scraper.yml` | Mon 5:30 + 6:30 AM UTC | Affinity UT (UYSA) league scrape + import — keeps unplayed fixtures |
 | `yssl-scraper.yml` | Mon 8:15 AM UTC | YSSL scrape, roster pass and import — scored games only; red when a team has no decided club-map row, a team's link errored or conflicted, a played game could not be read (rainouts excepted), or an in-season run read no scored games |
+| `mlsnext-kitman-scraper.yml` | Mon 5:45 AM UTC | MLS NEXT (Homegrown (HD) + Academy (AD)) scrape + import from Kitman's public schedule files; links exact-club teams, creates teams for clubs with a state in `config/mlsnext_kitman_club_states.json`, holds review squads, and new squads whose club has no state. Manual runs write nothing unless `execute` is set |
 | `ea-scraper.yml` | Mon 5:00 AM UTC | Modular11 Elite Academy League scrape + import, u11–u17 one after another (u19 manual until its first-import cleanup); links confident teams, creates no-match teams, holds review teams and their games. Manual runs take one age |
 | `playmetrics-scrape-import.yml` | Mon 6:30 AM UTC | PlayMetrics league scrape + import (deliberately ungated by `AGE_ROLLOVER_FREEZE`) |
 | `update-missing-club-and-state.yml` | Mon 10:00 AM UTC | Backfill missing `club_name` and standardize existing spellings — **every `state_code` step is `if: false`** (see below) |
 | `fill-team-states-weekly.yml` | Wed 9:37 AM UTC | Fill missing `state_code` from ranked evidence — fills only, never corrections |
 | `contradiction-report-weekly.yml` | Thu 8:17 AM UTC | Count the teams whose state contradicts a provider-confirmed club-mate. Reports only: `--probe-limit 0` spends nothing and no `--execute`, so it writes nothing |
+| `double-stored-games-report-weekly.yml` | Thu 9:47 AM UTC | Count GotSport games stored twice (same teams, same day, two active scored rows). Reports only, writes nothing; a pair can be a real rematch, so check each against GotSport before excluding a row |
 | `weekly-prospective-settle-evaluate.yml` | Mon 4:00 PM UTC | Settle and score last week's prospective match predictions |
 | `weekly-prospective-refresh.yml` | Manual dispatch | Scrape upcoming GotSport events, prepare new prospective predictions (cron paused 2026-09-07 — see below) |
 | `smoke-infographics.yml` | Daily 1:17 PM UTC | Smoke-test the infographic OG routes |
@@ -735,7 +738,7 @@ a generic club word such as `Avalanche` (stored only in Virginia) sent Utah team
 
 ### `AGE_ROLLOVER_FREEZE` (currently LIFTED)
 
-**Status: `'false'` in all thirteen workflows since the Aug 2026 rollover completed.**
+**Status: `'false'` in every workflow listed below, lifted after the Aug 2026 rollover completed.**
 Everything it gated is running normally, with one permanent exception: the
 `fix_team_age_groups.py` step carries a second, independent flag,
 `AGE_DERIVATION_ENABLED: 'false'`, in both `data-hygiene-weekly.yml` and
@@ -747,7 +750,7 @@ when lifting or re-arming `AGE_ROLLOVER_FREEZE`.**
 The rollover flag stays in place because this recurs every Aug 1 — re-arm it
 rather than rebuilding it.
 
-The flag holds the thirteen steps that write a team's age group, because those
+The flag holds every step that writes a team's age group, because those
 derive a cohort from the wall clock while the stored labels only move when
 someone hand-applies a migration. Between the two, a derived cohort and a stored
 label differ by one, and writing on that difference merges or duplicates teams
@@ -755,13 +758,13 @@ permanently. The game importers count: they create unmatched teams through the
 provider matchers using an age `EnhancedETLPipeline` derives at import time, so
 the derivation is invisible at the call site.
 
-**To re-arm for the next rollover**, set it to `'true'` in all thirteen:
+**To re-arm for the next rollover**, set it to `'true'` in each of:
 `data-hygiene-weekly.yml`, `unknown-opponent-hygiene-weekly.yml`,
 `auto-merge-queue.yml`, `fix-age-year-discrepancies.yml`,
 `tgs-event-scrape-import.yml`, `modular11-weekly-scrape.yml`,
 `modular11-events-weekly-scrape.yml`,
 `playmetrics-tournament-scrape-import.yml`, `wa-scraper.yml`, `or-scraper.yml`,
-`ut-scraper.yml`, `yssl-scraper.yml`, `ea-scraper.yml`. Do it
+`ut-scraper.yml`, `yssl-scraper.yml`, `ea-scraper.yml`, `mlsnext-kitman-scraper.yml`. Do it
 before Aug 1;
 lift it again only once the relabel migration is applied and the boards verified.
 

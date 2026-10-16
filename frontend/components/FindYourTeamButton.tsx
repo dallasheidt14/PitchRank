@@ -16,8 +16,9 @@ export function FindYourTeamButton() {
       type="button"
       data-testid="cta-find-team"
       size="lg"
+      variant="secondary"
       onClick={focusSearch}
-      className="font-semibold uppercase tracking-wide bg-accent text-primary hover:bg-accent/90"
+      className="font-semibold uppercase tracking-wide"
     >
       <Search aria-hidden="true" />
       Find your team

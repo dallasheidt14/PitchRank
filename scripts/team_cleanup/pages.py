@@ -3,10 +3,12 @@
 
 Reads the stage's proposals.json and stale.json from the run store and leaves off every proposal
 the owner already declined (an active dont_apply in team_cleanup_decisions naming the same new
-value), every one the write guard listed as stale, and every one whose team is gone or whose field
-has moved since. Teams users follow (watchlisted, report-card or missing-game teams) are kept
-inside the cap first and lead their group; past the cap the rest are listed and left for next
-week's scan, which proposes them again. It writes three files into the stage folder:
+value), every one the write guard listed as stale, every one whose team is gone or whose field
+has moved since, every club change from a tier the scan lists without approving, and every state
+change that a recent GotSport answer or the team's name or club name already answers with the state
+the team holds. Teams users follow (watchlisted, report-card or missing-game teams) are kept inside the
+cap first and lead their group; past the cap the rest are listed and left for next week's scan,
+which proposes them again. It writes three files into the stage folder:
 
   page.html            a self-contained page from assets/stage-page.html, one card per proposal
   page.manifest.json   which proposal each card shows, and what was left off and why
@@ -32,6 +34,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
+from scripts.assign_team_states import build_locality_index, fetch_live_teams  # noqa: E402
 from scripts.enqueue_user_interest_teams import (  # noqa: E402
     collect_report_card_teams,
     collect_user_requested_teams,
@@ -46,6 +49,7 @@ from scripts.find_cross_provider_duplicates import (  # noqa: E402
     page,
     resolver,
 )
+from scripts.review_state_queue_by_name import classify, provider_states  # noqa: E402
 from scripts.team_cleanup.decisions import (  # noqa: E402
     DECISIONS_TABLE,
     DONT_APPLY,
@@ -73,6 +77,7 @@ PAGE_FILE = "page.html"
 CARD_CAP = 150
 TITLES = {CLUBS: "Club names", STATES: "States", AGES: "Age groups"}
 # The tiers trusted to apply whole. Every age-plan row (review groups 1-3) is, so ages has no entry.
+# A club proposal from any other tier is a guess the scan lists unapproved, and gets no card.
 WHOLE_TIERS = {
     CLUBS: {"provider", "swap", "word", "bracket"},
     STATES: {"B fill"},
@@ -130,6 +135,34 @@ def load_interest(sb, canonical) -> set[str]:
     return {canonical(t) for t in teams}
 
 
+def load_answered(sb, stage: str, proposals) -> dict[str, str]:
+    """{team: why} for each state change the states skill's own evidence already answers with the
+    state the team holds: a recent GotSport answer, or the team's name or club name as its name
+    pass reads it. A proposal that keeps the held state changes nothing and is never answered."""
+    if stage != STATES:
+        return {}
+    changes = [(p, (p["old_value"] or "").strip() or None) for p in proposals]
+    changes = [(p, held) for p, held in changes if p["new_value"] != held]
+    if not changes:
+        return {}
+    answers = provider_states(sb)
+    live = fetch_live_teams(sb)
+    by_id = {t["team_id_master"]: t for t in live}
+    locality_index = build_locality_index(live)
+    answered = {}
+    for p, held in changes:
+        tid = p["team_id_master"]
+        answer = answers.get(tid)
+        if answer and answer == held:
+            answered[tid] = f"GotSport's record says {held}"
+            continue
+        row = {"current_state_code": held, "proposed_state_code": p["new_value"]}
+        # The approved and reverted ledgers are left out: classify rejects before it reads them.
+        if classify(row, by_id.get(tid), locality_index, answer)[0] == "reject":
+            answered[tid] = f"its name or club name places it in {held}"
+    return answered
+
+
 def unmoved(field: str, now, then) -> bool:
     """Each applier's own test of a team's value against the one proposed from: the club applier
     ignores case, and state_code is CHAR(2), so a state reads back padded."""
@@ -140,7 +173,7 @@ def unmoved(field: str, now, then) -> bool:
     return now == then
 
 
-def sort_out(stage, proposals, stale, declined, teams, canonical, interest):
+def sort_out(stage, proposals, stale, declined, answered, teams, canonical, interest):
     """The proposals due a card, interest teams first so the cap keeps them, and each one left off
     with why."""
     stale_keys = {(s["team_id_master"], s["field"]): s["changed"] for s in stale}
@@ -149,7 +182,9 @@ def sort_out(stage, proposals, stale, declined, teams, canonical, interest):
         tid, field = p["team_id_master"], p["field"]
         team = teams.get(tid)
         why = None
-        if (tid, field) in stale_keys:
+        if stage == CLUBS and p["tier"] not in WHOLE_TIERS[CLUBS]:
+            why = f"the scan lists {p['tier']} guesses without approving them"
+        elif (tid, field) in stale_keys:
             why = f"changed while the week was proposed: {stale_keys[tid, field]}"
         elif team is None or team["is_deprecated"] or canonical(tid) != tid:
             why = "no longer a live team"
@@ -157,6 +192,8 @@ def sort_out(stage, proposals, stale, declined, teams, canonical, interest):
             why = f"{field} is now {team[field]!r}, not {p['old_value']!r}"
         elif (tid, field, p["new_value"]) in declined:
             why = f"declined on {declined[tid, field, p['new_value']][:10]}"
+        elif tid in answered:
+            why = answered[tid]
         if why:
             left_out.append({**p, "why": why})
         else:
@@ -202,8 +239,9 @@ def build(sb, store: Path, run_id: str, stage: str) -> dict:
     canonical = resolver(merge_map)
     declined = load_declined(sb, stage, canonical)
     interest = load_interest(sb, canonical)
+    answered = load_answered(sb, stage, proposals)
     teams = fetch_teams(sb, ids)
-    shown, left_out = sort_out(stage, proposals, stale, declined, teams, canonical, interest)
+    shown, left_out = sort_out(stage, proposals, stale, declined, answered, teams, canonical, interest)
     shown, overflow = shown[:CARD_CAP], shown[CARD_CAP:]
     shown.sort(key=lambda p: (group_rank(stage, p), p["team_id_master"] not in interest, name_key(p)))
 

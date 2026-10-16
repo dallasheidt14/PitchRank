@@ -1,0 +1,59 @@
+name: Double-Stored Games Report Weekly
+
+on:
+  schedule:
+    # Thursday 09:47 UTC, after Monday's hygiene and ranking runs and clear of the other
+    # Thursday read (the contradiction report at 08:17). Minute 47 rather than 0, GitHub's
+    # most contended slot.
+    - cron: '47 9 * * 4'
+  workflow_dispatch:
+
+concurrency:
+  group: double-stored-games-report
+  cancel-in-progress: false
+
+# No AGE_ROLLOVER_FREEZE gate: this writes nothing at all.
+env:
+  SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+  SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+  SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+  SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+  PYTHONUNBUFFERED: '1'
+
+jobs:
+  double-stored-games-report:
+    name: Count games stored twice
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          # Four packages, not requirements.txt: the report only reads games and imports
+          # one standard-library-only module from src.
+          pip install supabase python-dotenv truststore rich
+          echo "✅ Dependencies installed"
+
+      - name: Verify Supabase secrets
+        run: |
+          echo "SUPABASE_URL is set: $([ -n "$SUPABASE_URL" ] && echo yes || echo no)"
+          echo "SUPABASE_KEY is set: $([ -n "$SUPABASE_KEY" ] && echo yes || echo no)"
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_KEY" ]; then
+            echo "::error::Missing secrets. In repo Settings → Secrets and variables → Actions, add SUPABASE_URL and SUPABASE_SERVICE_KEY."
+            exit 1
+          fi
+
+      - name: Report games stored twice
+        run: python scripts/report_double_stored_games.py --summary-file "$GITHUB_STEP_SUMMARY"
