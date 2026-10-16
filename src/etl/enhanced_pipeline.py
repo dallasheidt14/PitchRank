@@ -29,6 +29,11 @@ from supabase import Client, create_client  # noqa: E402
 logger = logging.getLogger(__name__)
 
 
+# Providers whose re-scraped score replaces a different stored one. GotSport edits scores after
+# posting them (placeholders, mid-tournament entries, later fixes); the others are not verified.
+SCORE_CORRECTION_PROVIDERS = frozenset({"gotsport"})
+
+
 @dataclass
 class ImportMetrics:
     """Track detailed metrics for build logs"""
@@ -62,6 +67,8 @@ class ImportMetrics:
     # non-zero value is a signal to investigate, not a definitive error, and
     # should trend toward ~0 in steady state post-deploy.
     scores_backfill_failed: int = 0
+    scores_corrected: int = 0  # Scored games whose stored score was replaced by a changed score from the provider
+    scores_correct_failed: int = 0  # Changed scores that could not be applied
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert metrics to dictionary for JSONB storage"""
@@ -89,6 +96,8 @@ class ImportMetrics:
             "duplicate_links_backfilled": self.duplicate_links_backfilled,
             "scores_backfilled": self.scores_backfilled,
             "scores_backfill_failed": self.scores_backfill_failed,
+            "scores_corrected": self.scores_corrected,
+            "scores_correct_failed": self.scores_correct_failed,
         }
 
 
@@ -847,6 +856,15 @@ class EnhancedETLPipeline:
                     if null_score_updates:
                         await self._backfill_scores(null_score_updates, regen_uid_master_ids, batch_metrics)
 
+                    if self.provider_code and self.provider_code.lower() in SCORE_CORRECTION_PROVIDERS:
+                        changed_score_updates = [
+                            g for g in true_dupes if self._stored_score_differs(g, regen_uid_master_ids[g["game_uid"]])
+                        ]
+                        if changed_score_updates:
+                            await self._correct_changed_scores(
+                                changed_score_updates, regen_uid_master_ids, batch_metrics
+                            )
+
                     regen_dupes = len(true_dupes)
                     if regen_dupes > 0:
                         batch_metrics.duplicates_found = getattr(batch_metrics, "duplicates_found", 0) + regen_dupes
@@ -1156,6 +1174,8 @@ class EnhancedETLPipeline:
                     f"  Links backfilled:{self.metrics.duplicate_links_backfilled:,} healed\n"
                     f"  Scores backfilled:{self.metrics.scores_backfilled:,} "
                     f"({self.metrics.scores_backfill_failed:,} failed)\n"
+                    f"  Scores corrected:{self.metrics.scores_corrected:,} "
+                    f"({self.metrics.scores_correct_failed:,} failed)\n"
                     f"  Perspective dup: {self.metrics.duplicates_skipped:,} skipped\n"
                     f"  Processing rate: {games_per_sec:.1f} games/sec\n"
                     f"  Elapsed time:    {elapsed_time / 60:.1f} minutes\n"
@@ -1771,6 +1791,100 @@ class EnhancedETLPipeline:
         self.metrics.scores_backfilled += score_bf
         self.metrics.scores_backfill_failed += failed
 
+    @staticmethod
+    def _scores_on_stored_sides(game: Dict, existing: Dict) -> Optional[Tuple[int, int]]:
+        """The incoming scores as (home, away) of the stored row, or None when they are not integers.
+
+        A master-id game_uid sorts the two teams, so it also matches a row saved with home and away
+        the other way round; the scores then belong on the opposite sides.
+        """
+        try:
+            home_score = int(float(game.get("home_score")))
+            away_score = int(float(game.get("away_score")))
+        except (ValueError, TypeError):
+            return None
+        if (
+            existing.get("home_team_master_id") == game.get("away_team_master_id")
+            and existing.get("away_team_master_id") == game.get("home_team_master_id")
+            and game.get("home_team_master_id") != game.get("away_team_master_id")
+        ):
+            return away_score, home_score
+        return home_score, away_score
+
+    def _stored_score_differs(self, game: Dict, existing: Dict) -> bool:
+        """True when the incoming scores, read on the stored row's sides, differ from the stored ones."""
+        sides = self._scores_on_stored_sides(game, existing)
+        return sides is not None and sides != (existing["home_score"], existing["away_score"])
+
+    async def _correct_changed_scores(
+        self, games: List[Dict], game_uid_to_master_ids: Dict[str, Dict], batch_metrics: ImportMetrics
+    ) -> None:
+        """Replace the stored score of already-scored games with the provider's changed one.
+
+        Goes through game_corrections + apply_game_correction, the sanctioned write to an immutable
+        row, which leaves the old and new values on record. A raw ``.update()`` is rejected by the
+        prevent_game_updates trigger.
+        """
+        if self.dry_run:
+            logger.info(f"[Pipeline] Dry run: would correct the score on {len(games)} games")
+            return
+
+        corrected = failed = 0
+        for game in games:
+            game_uid = game["game_uid"]
+            existing = game_uid_to_master_ids[game_uid]
+            home_score, away_score = self._scores_on_stored_sides(game, existing)
+            if not game.get("result"):
+                failed += 1
+                continue
+
+            correction_id = None
+            try:
+                correction = (
+                    self.supabase.table("game_corrections")
+                    .insert(
+                        {
+                            "original_game_uid": game_uid,
+                            "correction_type": "score",
+                            "original_values": {
+                                "home_score": existing["home_score"],
+                                "away_score": existing["away_score"],
+                            },
+                            "corrected_values": {
+                                "home_score": home_score,
+                                "away_score": away_score,
+                                "result": game["result"],
+                            },
+                            "reason": f"{self.provider_code} re-scrape reports a different score",
+                            "submitted_by": "enhanced_pipeline",
+                        }
+                    )
+                    .execute()
+                )
+                correction_id = correction.data[0]["id"]
+                self.supabase.rpc(
+                    "apply_game_correction", {"correction_id": correction_id, "approver_name": "enhanced_pipeline"}
+                ).execute()
+                corrected += 1
+            except Exception as e:
+                failed += 1
+                logger.warning(f"[Pipeline] Could not correct the score on {game_uid}: {e}")
+                if correction_id:
+                    # apply_game_correction only takes pending rows; do not leave one to pile up per re-scrape
+                    try:
+                        self.supabase.table("game_corrections").update({"status": "rejected"}).eq(
+                            "id", correction_id
+                        ).execute()
+                    except Exception as reject_error:
+                        logger.warning(f"[Pipeline] Could not reject correction {correction_id}: {reject_error}")
+
+        batch_metrics.scores_corrected += corrected
+        batch_metrics.scores_correct_failed += failed
+        self.metrics.scores_corrected += corrected
+        self.metrics.scores_correct_failed += failed
+        if corrected:
+            logger.info(f"[Pipeline] Corrected the score on {corrected} games from a changed provider score")
+
     async def _update_null_score_games(
         self, games_to_update: List[Dict], game_uid_to_master_ids: Dict[str, Dict]
     ) -> int:
@@ -1798,21 +1912,10 @@ class EnhancedETLPipeline:
             if not game_uid or home_score is None or away_score is None:
                 continue
 
-            try:
-                home_score_int = int(float(home_score))
-                away_score_int = int(float(away_score))
-            except (ValueError, TypeError):
+            sides = self._scores_on_stored_sides(game, game_uid_to_master_ids.get(game_uid, {}))
+            if sides is None:
                 continue
-
-            # A master-id game_uid sorts the two teams, so it also matches a row saved with home
-            # and away the other way round; the scores then belong on the opposite sides
-            existing = game_uid_to_master_ids.get(game_uid, {})
-            if (
-                existing.get("home_team_master_id") == game.get("away_team_master_id")
-                and existing.get("away_team_master_id") == game.get("home_team_master_id")
-                and game.get("home_team_master_id") != game.get("away_team_master_id")
-            ):
-                home_score_int, away_score_int = away_score_int, home_score_int
+            home_score_int, away_score_int = sides
 
             payload.append(
                 {
