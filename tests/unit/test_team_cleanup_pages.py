@@ -300,6 +300,12 @@ def _read(store, stage, name):
     return json.loads((stage_dir(store, RUN, stage) / name).read_text(encoding="utf-8"))
 
 
+def _cards(store, stage):
+    """The card records the built page carries in its script."""
+    html = (stage_dir(store, RUN, stage) / pages.PAGE_FILE).read_text(encoding="utf-8")
+    return json.loads(html.split("const CARDS = ", 1)[1].split(";\n", 1)[0])
+
+
 def _sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -394,8 +400,7 @@ def test_the_page_shows_each_live_unchanged_undeclined_change_and_lists_the_rest
 def test_each_card_shows_the_team_as_it_stands_with_its_merged_predecessors_games(tmp_path, monkeypatch, capsys):
     store = _built(tmp_path, monkeypatch, capsys)
 
-    html = (stage_dir(store, RUN, "states") / pages.PAGE_FILE).read_text(encoding="utf-8")
-    data = json.loads(html.split("const CARDS = ", 1)[1].split(";\n", 1)[0])
+    data = _cards(store, "states")
     fill = data[0]
     assert {k: fill[k] for k in ("n", "group", "whole", "interest", "change", "why")} == {
         "n": 1,
@@ -419,6 +424,35 @@ def test_each_card_shows_the_team_as_it_stands_with_its_merged_predecessors_game
         "last": "2026-09-12",
     }
     assert [(c["group"], c["whole"]) for c in data[1:]] == [("B fill", True), ("B correction (rules unsure)", False)]
+
+
+def test_cards_in_one_group_from_one_club_with_the_same_change_share_a_key(tmp_path, monkeypatch, capsys):
+    """A placeholder or blank club shares nothing, and a card the rules only queued sits in another
+    group, so it is never decided together with a confident card."""
+    store = tmp_path / "store"
+    _reviewing(store)
+    targets = {"a": (None, "NV"), "b": (None, "NV"), "c": ("WA", "NV"), "d": (None, "NV"), "e": (None, "NV")}
+    decisions = [_decision(t, old, new) for t, (old, new) in targets.items()]
+    _states(store, decisions + [_decision("q", None, "NV", "queue")])
+    teams = [
+        _team("a", state=None, club="Reno United"),
+        _team("b", state=None, club=" reno united "),
+        _team("c", state="WA", club="Reno United"),
+        _team("d", state=None, club="No Club Selection"),
+        _team("e", state=None, club=None),
+        _team("q", state=None, club="Reno United"),
+    ]
+
+    _build(monkeypatch, capsys, store, _Db(teams=teams))
+
+    assert {c["team"]["name"]: c["alike"] for c in _cards(store, "states")} == {
+        "Team a": '["reno united", "B fill", "state_code", null, "NV"]',
+        "Team b": '["reno united", "B fill", "state_code", null, "NV"]',
+        "Team c": '["reno united", "B correction", "state_code", "WA", "NV"]',
+        "Team d": None,
+        "Team e": None,
+        "Team q": '["reno united", "B fill (rules unsure)", "state_code", null, "NV"]',
+    }
 
 
 def test_a_card_id_carries_the_page_run_and_the_change_it_decides(tmp_path, monkeypatch, capsys):
@@ -1024,4 +1058,5 @@ def test_the_page_writes_the_fields_the_collector_reads():
     template = pages.TEMPLATE.read_text(encoding="utf-8")
     assert 'await ref.set({decision: null, note: "", ...choice(id), ...body});' in template
     assert "save(c.id, {decision:" in template and "save(c.id, {note:" in template
-    assert 'await save(x.id, {decision: "apply"});' in template
+    assert "await save(x.id, {decision});" in template
+    assert 'decideOpen(groups.get(c.group).cards, "apply")' in template

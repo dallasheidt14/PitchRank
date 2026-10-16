@@ -35,7 +35,7 @@ h2{font-family:Oswald,"Arial Narrow",sans-serif;font-weight:500;font-size:19px;m
 .t-go{background:var(--go-bg);color:var(--go)} .t-stop{background:var(--stop-bg);color:var(--stop)} .t-maybe{background:var(--maybe-bg);color:var(--maybe)} .t-left{background:var(--pitch-soft);color:var(--pitch)}
 .status{font-size:13px;color:var(--muted)}
 .group{display:flex;flex-direction:column;gap:10px}
-.group[hidden],.card[hidden]{display:none}
+.group[hidden],.card[hidden],.alike[hidden]{display:none}
 .ghead{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding-top:6px}
 .ghead .count{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
 .card{background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--line);border-radius:8px;padding:14px;display:grid;gap:10px}
@@ -60,6 +60,8 @@ button:focus-visible,.bar select:focus-visible,textarea:focus-visible{outline:2p
 .acts button[aria-pressed="true"].b-unsure{background:var(--maybe-bg);color:var(--maybe);border-color:var(--maybe)}
 button:disabled{opacity:.5;cursor:default}
 .b-all{border-color:var(--go);color:var(--go)}
+.alike{display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:13px;color:var(--muted)}
+.alike button{border-style:dashed}
 textarea{font:inherit;font-size:14px;width:100%;min-height:38px;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--ink);resize:vertical}
 </style>
 <div class="wrap">
@@ -91,6 +93,8 @@ const queue = {};          // one write at a time per card
 const pending = {};        // writes queued or running per card
 const cards = new Map();
 const groups = new Map();
+const alike = new Map();   // cards in one group from one club proposing the same change, by their shared key
+let bulk = false;          // a whole-group or look-alike decision is still writing
 
 function el(tag, cls, text){ const e=document.createElement(tag); if(cls) e.className=cls; if(text!=null) e.textContent=text; return e; }
 function month(d){ return d ? d.slice(0,7) : "—"; }
@@ -120,15 +124,32 @@ function buildCard(c){
     b.addEventListener("click", () => save(c.id, {decision: choice(c.id).decision===key ? null : key}));
     buttons[key] = b; acts.append(b);
   }
+  card.append(acts);
+  let row = null;
+  if (c.alike && alike.get(c.alike).length > 1){
+    row = {box: el("div","alike"), label: el("span"), buttons: []};
+    row.box.append(row.label);
+    for (const key of ["apply","dont_apply","unsure"]){
+      const b = el("button","b-alike", LABEL[key]); b.type = "button"; b.dataset.d = key;
+      b.addEventListener("click", () => decideOpen(alike.get(c.alike), key));
+      row.buttons.push(b); row.box.append(b);
+    }
+    card.append(row.box);
+  }
   const ta = document.createElement("textarea"); ta.placeholder = "Note (optional)"; ta.setAttribute("aria-label", "Note");
   ta.addEventListener("change", () => save(c.id, {note: ta.value.trim()}));
-  card.append(acts, ta);
-  cards.set(c.id, {card, buttons, ta});
+  card.append(ta);
+  cards.set(c.id, {card, buttons, ta, row});
   return card;
 }
 
 function buildPage(){
   const show = $("#show");
+  for (const c of CARDS){
+    if (!c.alike) continue;
+    if (!alike.has(c.alike)) alike.set(c.alike, []);
+    alike.get(c.alike).push(c);
+  }
   for (const c of CARDS){
     if (!groups.has(c.group)){
       const section = el("section","group"), head = el("div","ghead"), count = el("span","count");
@@ -136,21 +157,12 @@ function buildPage(){
       let all = null;
       if (c.whole){
         all = el("button","b-all","Apply every undecided card here"); all.type = "button";
-        // One card at a time: the store refuses a burst of writes from one viewer.
-        all.addEventListener("click", async () => {
-          const g = groups.get(c.group);
-          g.running = true; paint();
-          for (const x of g.cards){
-            if (!loaded || !canWrite) break;
-            if (!choice(x.id).decision) await save(x.id, {decision: "apply"});
-          }
-          g.running = false; paint();
-        });
+        all.addEventListener("click", () => decideOpen(groups.get(c.group).cards, "apply"));
         head.append(all);
       }
       section.append(head);
       $("#list").append(section);
-      groups.set(c.group, {section, count, all, cards: [], running: false});
+      groups.set(c.group, {section, count, all, cards: []});
     }
     const g = groups.get(c.group);
     g.cards.push(c);
@@ -159,7 +171,7 @@ function buildPage(){
   for (const [value, text] of [["","All"],["open","Not decided"], ...[...groups.keys()].map(k => ["g:" + k, "Tier " + k])]){
     const o = document.createElement("option"); o.value = value; o.textContent = text; show.append(o);
   }
-  $("#intro").textContent = `${CARDS.length} proposed change${CARDS.length==1?"":"s"}. For each one, choose Apply, Don't apply or Not sure, and add a note if you know something the data doesn't. Don't apply is remembered, so the same change is not proposed again. Where the rules are already trusted, a group has a button to apply every card you haven't decided. Everything saves as you go, and Claude reads it back. Nothing changes until you run the apply afterwards.`;
+  $("#intro").textContent = `${CARDS.length} proposed change${CARDS.length==1?"":"s"}. For each one, choose Apply, Don't apply or Not sure, and add a note if you know something the data doesn't. Don't apply is remembered, so the same change is not proposed again. Where the rules are already trusted, a group has a button to apply every card you haven't decided. Where two or more cards in a group come from one club with the same change, each of them has buttons that decide, in one click, all of those you haven't decided yet. Everything saves as you go, and Claude reads it back. Nothing changes until you run the apply afterwards.`;
   const storeKey = "review-show:" + COLLECTION;
   try { const v = localStorage.getItem(storeKey); if (v != null) show.value = v; } catch(e){}
   show.addEventListener("change", () => { try { localStorage.setItem(storeKey, show.value); } catch(e){} paint(); });
@@ -180,10 +192,16 @@ function paint(){
       for (const [key,b] of Object.entries(v.buttons)){ b.setAttribute("aria-pressed", s.decision===key ? "true" : "false"); b.disabled = !editable; }
       v.ta.disabled = !editable;
       if (document.activeElement !== v.ta) v.ta.value = s.note || "";
+      if (v.row){
+        const undecided = alike.get(c.alike).filter(x => !choice(x.id).decision).length;
+        v.row.box.hidden = undecided < 2;
+        v.row.label.textContent = `All ${undecided} undecided like this (same club, same change):`;
+        for (const b of v.row.buttons) b.disabled = !editable || bulk;
+      }
     }
     g.section.hidden = !visible;
     g.count.textContent = `${g.cards.length} card${g.cards.length==1?"":"s"}, ${open} undecided`;
-    if (g.all) g.all.disabled = !editable || !open || g.running;
+    if (g.all) g.all.disabled = !editable || !open || bulk;
   }
   const n = {apply: 0, dont_apply: 0, unsure: 0};
   for (const c of CARDS){ const d = choice(c.id).decision; if (d) n[d] += 1; }
@@ -191,6 +209,18 @@ function paint(){
   $("#n-dont").textContent = n.dont_apply + " don't apply";
   $("#n-unsure").textContent = n.unsure + " unsure";
   $("#n-left").textContent = (CARDS.length - n.apply - n.dont_apply - n.unsure) + " left";
+}
+
+// One card at a time, and one bulk decision at a time: the store refuses a burst of writes from
+// one viewer. A card already decided when its turn comes, here or in a snapshot from elsewhere,
+// keeps its choice.
+async function decideOpen(list, decision){
+  bulk = true; paint();
+  for (const x of list){
+    if (!loaded || !canWrite) break;
+    if (!choice(x.id).decision) await save(x.id, {decision});
+  }
+  bulk = false; paint();
 }
 
 function save(id, patch){
