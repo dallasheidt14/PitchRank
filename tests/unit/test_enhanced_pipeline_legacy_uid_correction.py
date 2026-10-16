@@ -6,6 +6,7 @@ duplicate check compares scores, so the changed score read as a different game a
 was stored twice.
 """
 
+from src.etl.enhanced_pipeline import EnhancedETLPipeline
 from tests.unit.test_enhanced_pipeline_changed_score import _CorrectionsDB
 from tests.unit.test_enhanced_pipeline_fixture_score_fill import (
     AFC,
@@ -102,6 +103,29 @@ def test_a_pair_that_also_has_an_unscored_fixture_is_not_corrected(monkeypatch):
 
     assert db.corrections == []
     assert (stored["home_score"], stored["away_score"]) == (13, 0)
+
+
+def test_a_first_meeting_filtered_out_as_a_duplicate_still_counts_as_a_second_result(monkeypatch):
+    pool_game = _row(FIXTURE_UID, GREMIO, AFC, 2, 1)
+    db = _CorrectionsDB([pool_game])
+    pool_copy, final = _incoming(GREMIO, AFC, 2, 1), _incoming(GREMIO, AFC, 3, 0)
+    pool_key = EnhancedETLPipeline._make_composite_key(object(), pool_copy)
+
+    inserted, _ = _import(monkeypatch, db, [pool_copy, final], composite_hits={pool_key})
+
+    assert db.corrections == []
+    assert (pool_game["home_score"], pool_game["away_score"]) == (2, 1)
+    assert [(g["home_score"], g["away_score"]) for g in inserted] == [(3, 0)]
+
+
+def test_a_correction_needs_the_provider_id_to_be_known(monkeypatch):
+    stored = _row(FIXTURE_UID, GREMIO, AFC, 13, 0, provider=None)
+    db = _CorrectionsDB([stored])
+
+    inserted, _ = _import_pipeline(monkeypatch, db, [_incoming(GREMIO, AFC, 8, 0)], provider_id=None)
+
+    assert db.corrections == []
+    assert len(inserted) == 1
 
 
 def test_a_provider_outside_the_correction_list_is_not_corrected(monkeypatch):

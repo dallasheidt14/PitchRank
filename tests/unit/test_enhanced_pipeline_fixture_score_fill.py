@@ -141,7 +141,9 @@ def _import(monkeypatch, db, game, dry_run=False, provider="gotsport"):
     return _import_pipeline(monkeypatch, db, [game], dry_run, provider)[0]
 
 
-def _import_pipeline(monkeypatch, db, games, dry_run=False, provider="gotsport", uid_check=False, provider_id=None):
+def _import_pipeline(
+    monkeypatch, db, games, dry_run=False, provider="gotsport", uid_check=False, provider_id=None, composite_hits=()
+):
     pipeline = EnhancedETLPipeline(db, provider, dry_run=dry_run)
     pipeline.provider_id = provider_id
     pipeline.matcher = _Matcher()
@@ -155,7 +157,7 @@ def _import_pipeline(monkeypatch, db, games, dry_run=False, provider="gotsport",
         return set(), {}
 
     async def no_composite_hits(_games):
-        return set()
+        return set(composite_hits)
 
     async def record_insert(records):
         inserted.extend(records)

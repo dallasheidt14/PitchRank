@@ -702,6 +702,9 @@ class EnhancedETLPipeline:
                 f"(matched: {matched_count}, partial: {partial_count}, failed: {failed_count})"
             )
 
+            # Every game the batch reported, before the duplicate filters below drop any of them
+            reported_games = list(game_records)
+
             # Step 3b: Check for duplicates using composite key (after team matching)
             # For Modular11: game_uid now includes age_group and division, so it's more specific than composite key.
             # If game_uid doesn't exist, trust it (even if composite key matches,
@@ -914,7 +917,7 @@ class EnhancedETLPipeline:
             # game_uid and composite key both use provider_team_ids, they miss these.
             # After team matching resolves master IDs, check for existing games with
             # the same (game_date, master team pair, scores) regardless of provider IDs.
-            master_dedup_removed = await self._check_duplicates_by_master_ids(game_records)
+            master_dedup_removed = await self._check_duplicates_by_master_ids(game_records, reported_games)
             fixture_score_updates = [g["_fixture_score_update"] for g in game_records if "_fixture_score_update" in g]
             if fixture_score_updates:
                 game_records = [g for g in game_records if "_fixture_score_update" not in g]
@@ -1593,7 +1596,9 @@ class EnhancedETLPipeline:
 
         return existing_composite_keys
 
-    async def _check_duplicates_by_master_ids(self, game_records: List[Dict]) -> int:
+    async def _check_duplicates_by_master_ids(
+        self, game_records: List[Dict], reported_games: Optional[List[Dict]] = None
+    ) -> int:
         """
         Catch cross-scraper duplicates using master team IDs instead of provider IDs.
 
@@ -1611,7 +1616,9 @@ class EnhancedETLPipeline:
         '_fixture_score_update' instead, for the caller to write as a score backfill; it is not
         counted as a duplicate. A result that disagrees on score with the pair's one scored row,
         saved under a provider-id uid, is tagged '_scored_row_correction' for the caller to
-        apply as a score correction.
+        apply as a score correction. ``reported_games`` is the whole batch before earlier duplicate
+        filters dropped any of it: a pair's first meeting can be filtered out of ``game_records``
+        and must still count when judging whether the pair met once.
 
         Returns:
             Number of duplicates found
@@ -1647,6 +1654,11 @@ class EnhancedETLPipeline:
 
         if not games_by_date:
             return 0
+
+        reported_by_date: Dict[str, List[Dict]] = {}
+        for game in reported_games if reported_games is not None else game_records:
+            if game.get("game_date") and game.get("home_team_master_id") and game.get("away_team_master_id"):
+                reported_by_date.setdefault(game["game_date"], []).append(game)
 
         fills_disabled = bool(self.provider_code and self.provider_code.lower() in REMATCH_PROVIDERS)
         rematch_provider_ids = set()
@@ -1730,7 +1742,7 @@ class EnhancedETLPipeline:
                 # The distinct results reported for each pair in this batch: more than one means
                 # the pair met twice, so none of them can be read as a changed score
                 reported_results: Dict[tuple, set] = {}
-                for game in incoming_games:
+                for game in reported_by_date.get(game_date, []):
                     pair = tuple(sorted([game["home_team_master_id"], game["away_team_master_id"]]))
                     first_home = pair[0] == game["home_team_master_id"]
                     home_score, away_score = _safe_int(game.get("home_score")), _safe_int(game.get("away_score"))
@@ -1813,6 +1825,7 @@ class EnhancedETLPipeline:
                         and len(pair_rows) == 1
                         and not unscored_fixtures.get(sorted_ids)
                         and len(reported_results.get(sorted_ids, ())) == 1
+                        and self.provider_id
                         and pair_rows[0].get("provider_id") == self.provider_id
                         and PROVIDER_ID_GAME_UID.match(pair_rows[0].get("game_uid") or "")
                     ):
