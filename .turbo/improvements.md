@@ -2353,16 +2353,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: Both still cut "Texas Premier SC 13/14B" inside its band (checked 2026-10-15): the weekly missing-club backfill (`update-missing-club-and-state.yml` Step 2) reads "Texas Premier SC 13/" and fills nothing, for 48 live club-less teams with a bare `NN/NN[BG]` band, 40 of them with a state; the swapped-club classifier proposes "Texas Premier SC 13". Widening `club_part` through `team_name_utils.age_token_span` changes it on 4,540 unique live names (prototype replay), so the team-cleanup proposals need their own review; the owner chose to keep that loop untouched on the band branch. `extract_club_name` is in `_NOT_YET_WIDENED` in `tests/unit/test_age_token_span.py`, which fails once it is widened; `club_part` uses `LEVEL_TOKEN`, a shape that guard does not detect.
 - **Noted**: 2026-10-15
 
-### Stop the band-aware club extractors reading a club's own number as a band year
-
-- **ID**: IMP-367
-- **Status**: open
-- **Type**: investigate
-- **Category**: reliability
-- **Where**: `src/utils/team_name_utils.py` `age_token_span` (over `team_utils._BAND_RUN_RE`), shared by `find_queue_matches.extract_club_from_name`, `game_matcher.extract_club_from_team_name` and `team_name_utils.extract_club_from_team_name`
-- **Why**: A club number joined to a year reads as a band, so 13 live names lose part of their club that they kept before the band fix: "CF10 - 2013 White" and "T11 - 2014B" give no club, "SSE90 - 2017" gives "SSE" (also R45, R64, "Extreme Touch 90 - 2012", "Team LA 59-62 - 2008"). Two rules were replayed over the 212,732 unique live names and rejected on 2026-10-15: consecutive-years-only reverts about 187 real combined cohorts ("B2007/09" reads "/09" again), and "non-consecutive and glued to a letter or holding a year outside 2005-2020" also turns "T11 - 16/17B" into club "T11 - 16/", because the true band sits inside the rejected run. A fix has to recover the band inside a rejected run.
-- **Noted**: 2026-10-15
-
 ### Stop the queue matcher proposing another club's squad under a generic club word
 
 - **ID**: IMP-369
