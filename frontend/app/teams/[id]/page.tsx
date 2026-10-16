@@ -46,6 +46,9 @@ export async function generateMetadata({ params }: TeamPageProps): Promise<Metad
     }
 
     const teamUrl = `${BASE_URL}/teams/${resolvedParams.id}`;
+    // Absolute, and a PNG: every major unfurler rejects SVG, and /api is the one prefix
+    // middleware.ts lets through unauthenticated, so a scraper can actually fetch it.
+    const ogImage = `${BASE_URL}/api/infographic/team?id=${resolvedParams.id}`;
     const title = `${team.team_name}${team.state_code ? ` (${team.state_code})` : ''} | PitchRank`;
     const description = `View rankings, trajectory, momentum, and full profile for ${team.team_name}${team.club_name ? ` from ${team.club_name}` : ''}.`;
 
@@ -81,7 +84,7 @@ export async function generateMetadata({ params }: TeamPageProps): Promise<Metad
         type: 'website',
         images: [
           {
-            url: '/logos/pitchrank-wordmark.svg',
+            url: ogImage,
             width: 1200,
             height: 630,
             alt: `${team.team_name} - PitchRank`,
@@ -92,7 +95,7 @@ export async function generateMetadata({ params }: TeamPageProps): Promise<Metad
         card: 'summary_large_image',
         title: `${team.team_name} | PitchRank`,
         description: `View rankings and performance metrics for ${team.team_name}.`,
-        images: ['/logos/pitchrank-wordmark.svg'],
+        images: [ogImage],
       },
     };
   } catch (error) {
