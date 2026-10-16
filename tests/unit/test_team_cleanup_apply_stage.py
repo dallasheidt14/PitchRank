@@ -842,6 +842,7 @@ NOT_A_WRITER = {
     "claude-code-review.yml": "reviews pull requests, with no database secrets",
     "claude.yml": "answers issue and pull request comments, with no database secrets",
     "contradiction-report-weekly.yml": "runs assign_team_states.py without --execute, so it writes nothing",
+    "double-stored-games-report-weekly.yml": "reads games and writes nothing",
     "enqueue-active-teams.yml": "writes scrape_requests",
     "enqueue-discovery.yml": "writes scrape_requests",
     "enqueue-safety-net.yml": "writes scrape_requests",

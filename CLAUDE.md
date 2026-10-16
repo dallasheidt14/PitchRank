@@ -664,6 +664,7 @@ two-line edit in `.github/workflows/claude-code-review.yml`.
 | `update-missing-club-and-state.yml` | Mon 10:00 AM UTC | Backfill missing `club_name` and standardize existing spellings — **every `state_code` step is `if: false`** (see below) |
 | `fill-team-states-weekly.yml` | Wed 9:37 AM UTC | Fill missing `state_code` from ranked evidence — fills only, never corrections |
 | `contradiction-report-weekly.yml` | Thu 8:17 AM UTC | Count the teams whose state contradicts a provider-confirmed club-mate. Reports only: `--probe-limit 0` spends nothing and no `--execute`, so it writes nothing |
+| `double-stored-games-report-weekly.yml` | Thu 9:47 AM UTC | Count GotSport games stored twice (same teams, same day, two active scored rows). Reports only, writes nothing; a pair can be a real rematch, so check each against GotSport before excluding a row |
 | `weekly-prospective-settle-evaluate.yml` | Mon 4:00 PM UTC | Settle and score last week's prospective match predictions |
 | `weekly-prospective-refresh.yml` | Manual dispatch | Scrape upcoming GotSport events, prepare new prospective predictions (cron paused 2026-09-07 — see below) |
 | `smoke-infographics.yml` | Daily 1:17 PM UTC | Smoke-test the infographic OG routes |

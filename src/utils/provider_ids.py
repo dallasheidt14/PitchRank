@@ -10,7 +10,12 @@ then rated against a phantom.
 
 from __future__ import annotations
 
+import re
+
 BLANK_PROVIDER_IDS = frozenset({"", "none", "null"})
+
+# A game saved while its teams were only partly matched keeps a uid built from provider team ids
+PROVIDER_ID_GAME_UID = re.compile(r"^[a-z0-9_]+:[0-9]{4}-[0-9]{2}-[0-9]{2}:[0-9]+:[0-9]+$")
 
 
 def is_blank_provider_id(value: object) -> bool:
