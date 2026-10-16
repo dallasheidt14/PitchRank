@@ -3,10 +3,11 @@
 
 Reads the stage's proposals.json and stale.json from the run store and leaves off every proposal
 the owner already declined (an active dont_apply in team_cleanup_decisions naming the same new
-value), every one the write guard listed as stale, and every one whose team is gone or whose field
-has moved since. Teams users follow (watchlisted, report-card or missing-game teams) are kept
-inside the cap first and lead their group; past the cap the rest are listed and left for next
-week's scan, which proposes them again. It writes three files into the stage folder:
+value), every one the write guard listed as stale, every one whose team is gone or whose field
+has moved since, and every club change from a tier the scan lists without approving. Teams users
+follow (watchlisted, report-card or missing-game teams) are kept inside the cap first and lead
+their group; past the cap the rest are listed and left for next week's scan, which proposes them
+again. It writes three files into the stage folder:
 
   page.html            a self-contained page from assets/stage-page.html, one card per proposal
   page.manifest.json   which proposal each card shows, and what was left off and why
@@ -73,6 +74,7 @@ PAGE_FILE = "page.html"
 CARD_CAP = 150
 TITLES = {CLUBS: "Club names", STATES: "States", AGES: "Age groups"}
 # The tiers trusted to apply whole. Every age-plan row (review groups 1-3) is, so ages has no entry.
+# A club proposal from any other tier is a guess the scan lists unapproved, and gets no card.
 WHOLE_TIERS = {
     CLUBS: {"provider", "swap", "word", "bracket"},
     STATES: {"B fill"},
@@ -149,7 +151,9 @@ def sort_out(stage, proposals, stale, declined, teams, canonical, interest):
         tid, field = p["team_id_master"], p["field"]
         team = teams.get(tid)
         why = None
-        if (tid, field) in stale_keys:
+        if stage == CLUBS and p["tier"] not in WHOLE_TIERS[CLUBS]:
+            why = f"the scan lists {p['tier']} guesses without approving them"
+        elif (tid, field) in stale_keys:
             why = f"changed while the week was proposed: {stale_keys[tid, field]}"
         elif team is None or team["is_deprecated"] or canonical(tid) != tid:
             why = "no longer a live team"

@@ -291,7 +291,8 @@ def check_scan(r: Result) -> None:
 
 
 def check_tiers(r: Result, skill: Path = SKILL) -> None:
-    """The tiers the scan approves are the skill's deciding tiers and the review page's whole tiers."""
+    """The tiers the scan approves are the skill's deciding tiers, and the only club tiers the review
+    page shows a card for and applies whole."""
     from scripts.repair_swapped_club_names import is_approved
     from scripts.team_cleanup.pages import WHOLE_TIERS
     from scripts.team_cleanup.propose_week import CLUBS
@@ -317,7 +318,7 @@ def check_tiers(r: Result, skill: Path = SKILL) -> None:
         f"the scan lists {sorted(listed)}; the skill's Listed rows name {sorted(weights['Listed'])}",
     )
     r.check(
-        "the review page applies whole exactly the tiers the scan approves",
+        "the review page shows and applies whole exactly the tiers the scan approves",
         WHOLE_TIERS[CLUBS] == approved,
         f"WHOLE_TIERS[{CLUBS!r}] = {sorted(WHOLE_TIERS[CLUBS])}; the scan approves {sorted(approved)}",
     )
