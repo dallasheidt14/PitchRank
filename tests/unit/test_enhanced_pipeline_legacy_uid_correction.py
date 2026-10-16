@@ -15,6 +15,7 @@ from tests.unit.test_enhanced_pipeline_fixture_score_fill import (
     GOTSPORT_ID,
     GREMIO,
     PM_TOURNAMENT_ID,
+    RESULT_UID,
     _import_pipeline,
     _incoming,
     _row,
@@ -118,6 +119,55 @@ def test_a_first_meeting_filtered_out_as_a_duplicate_still_counts_as_a_second_re
     assert [(g["home_score"], g["away_score"]) for g in inserted] == [(3, 0)]
 
 
+class _MasterMatcher:
+    """Resolves both provider ids to masters and keeps the uid a real match would build."""
+
+    MASTERS = {"471854": GREMIO, "483752": AFC}
+
+    def match_game_history(self, game):
+        return {
+            **game,
+            "home_team_master_id": self.MASTERS[game["home_team_id"]],
+            "away_team_master_id": self.MASTERS[game["away_team_id"]],
+            "game_uid": RESULT_UID,
+            "match_status": "matched",
+        }
+
+
+def _perspective(goals_for, goals_against):
+    return {
+        "team_id": "471854",
+        "opponent_id": "483752",
+        "home_away": "H",
+        "goals_for": goals_for,
+        "goals_against": goals_against,
+        "game_date": DATE,
+        "provider": "gotsport",
+        "result": "W" if goals_for > goals_against else "L",
+    }
+
+
+def test_a_second_meeting_dropped_by_validation_blocks_the_correction(monkeypatch):
+    stored = _row(FIXTURE_UID, GREMIO, AFC, 2, 1)
+    db = _CorrectionsDB([stored])
+
+    _import(monkeypatch, db, [_perspective(3, 0), _perspective(2, 1)], real_validation=True, matcher=_MasterMatcher())
+
+    assert db.corrections == []
+    assert (stored["home_score"], stored["away_score"]) == (2, 1)
+
+
+def test_one_result_that_changed_still_corrects_through_real_validation(monkeypatch):
+    stored = _row(FIXTURE_UID, GREMIO, AFC, 13, 0)
+    db = _CorrectionsDB([stored])
+
+    inserted, pipeline = _import(monkeypatch, db, [_perspective(8, 0)], real_validation=True, matcher=_MasterMatcher())
+
+    assert inserted == []
+    assert (stored["home_score"], stored["away_score"]) == (8, 0)
+    assert pipeline.metrics.scores_corrected == 1
+
+
 def test_a_correction_needs_the_provider_id_to_be_known(monkeypatch):
     stored = _row(FIXTURE_UID, GREMIO, AFC, 13, 0, provider=None)
     db = _CorrectionsDB([stored])
@@ -180,4 +230,3 @@ def test_a_dry_run_changes_nothing(monkeypatch):
     assert inserted == []
     assert db.corrections == []
     assert (stored["home_score"], stored["away_score"]) == (13, 0)
-

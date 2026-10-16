@@ -142,15 +142,26 @@ def _import(monkeypatch, db, game, dry_run=False, provider="gotsport"):
 
 
 def _import_pipeline(
-    monkeypatch, db, games, dry_run=False, provider="gotsport", uid_check=False, provider_id=None, composite_hits=()
+    monkeypatch,
+    db,
+    games,
+    dry_run=False,
+    provider="gotsport",
+    uid_check=False,
+    provider_id=None,
+    composite_hits=(),
+    real_validation=False,
+    matcher=None,
 ):
     pipeline = EnhancedETLPipeline(db, provider, dry_run=dry_run)
     pipeline.provider_id = provider_id
-    pipeline.matcher = _Matcher()
+    pipeline.matcher = matcher or _Matcher()
     inserted = []
     stats = {"duplicates_skipped": 0, "skipped_empty_scores": 0, "date_mismatches": 0}
 
     async def validate(games):
+        if real_validation:
+            return await pipeline._validate_and_dedup(games, run_validation=False)
         return games, [], stats
 
     async def no_uid_hits(_games):

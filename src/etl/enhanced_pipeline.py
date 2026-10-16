@@ -560,6 +560,7 @@ class EnhancedETLPipeline:
             # Games with the same game_uid but different scores should proceed to team matching,
             # where the composite key check (which includes scores) will catch true duplicates.
             existing_uids, game_uid_to_master_ids = await self._check_duplicates(valid_games)
+            result_conflicts = val_stats.get("result_conflicts", frozenset())
 
             # Step 3: Match teams and prepare game records
             # We match ALL games, not just "new" ones, because game_uid check doesn't account for scores
@@ -917,7 +918,9 @@ class EnhancedETLPipeline:
             # game_uid and composite key both use provider_team_ids, they miss these.
             # After team matching resolves master IDs, check for existing games with
             # the same (game_date, master team pair, scores) regardless of provider IDs.
-            master_dedup_removed = await self._check_duplicates_by_master_ids(game_records, reported_games)
+            master_dedup_removed = await self._check_duplicates_by_master_ids(
+                game_records, reported_games, result_conflicts
+            )
             fixture_score_updates = [g["_fixture_score_update"] for g in game_records if "_fixture_score_update" in g]
             if fixture_score_updates:
                 game_records = [g for g in game_records if "_fixture_score_update" not in g]
@@ -1260,6 +1263,7 @@ class EnhancedETLPipeline:
         valid: List[Dict] = []
         invalid: List[Dict] = []
         seen_games: Dict[str, Dict] = {}
+        result_conflicts: set = set()
         duplicates_skipped = 0
         date_mismatches = 0
         skipped_empty_scores = 0
@@ -1336,6 +1340,8 @@ class EnhancedETLPipeline:
                         f"Date mismatch for game {game_key}: existing={existing_date}, current={game_date_normalized}"
                     )
                     date_mismatches += 1
+                if self._skipped_score_differs(game, seen_games[game_key]):
+                    result_conflicts.add((game_date_normalized, frozenset(sorted_teams)))
                 duplicates_skipped += 1
                 logger.debug(f"Skipping duplicate game: {game_key}")
                 continue
@@ -1366,6 +1372,7 @@ class EnhancedETLPipeline:
             "duplicates_skipped": duplicates_skipped,
             "skipped_empty_scores": skipped_empty_scores,
             "date_mismatches": date_mismatches,
+            "result_conflicts": result_conflicts,
         }
 
         if date_mismatches > 0:
@@ -1382,6 +1389,18 @@ class EnhancedETLPipeline:
         )
 
         return valid, invalid, stats
+
+    @staticmethod
+    def _skipped_score_differs(skipped: Dict, kept: Dict) -> bool:
+        """True when a perspective dropped as a duplicate reports its team's score differently from the game kept."""
+        kept_scores = {
+            kept.get("home_provider_id"): kept.get("home_score"),
+            kept.get("away_provider_id"): kept.get("away_score"),
+        }
+        try:
+            return kept_scores.get(clean_provider_id(skipped.get("team_id"))) != int(float(skipped.get("goals_for")))
+        except (ValueError, TypeError):
+            return False
 
     def _transform_game_perspective(self, game: Dict) -> Dict:
         """
@@ -1597,7 +1616,10 @@ class EnhancedETLPipeline:
         return existing_composite_keys
 
     async def _check_duplicates_by_master_ids(
-        self, game_records: List[Dict], reported_games: Optional[List[Dict]] = None
+        self,
+        game_records: List[Dict],
+        reported_games: Optional[List[Dict]] = None,
+        result_conflicts: frozenset = frozenset(),
     ) -> int:
         """
         Catch cross-scraper duplicates using master team IDs instead of provider IDs.
@@ -1618,7 +1640,9 @@ class EnhancedETLPipeline:
         saved under a provider-id uid, is tagged '_scored_row_correction' for the caller to
         apply as a score correction. ``reported_games`` is the whole batch before earlier duplicate
         filters dropped any of it: a pair's first meeting can be filtered out of ``game_records``
-        and must still count when judging whether the pair met once.
+        and must still count when judging whether the pair met once. ``result_conflicts`` names the
+        (date, provider team ids) pairs where validation dropped a perspective reporting a different
+        score, so a second meeting dropped there counts as well.
 
         Returns:
             Number of duplicates found
@@ -1749,6 +1773,9 @@ class EnhancedETLPipeline:
                     reported_results.setdefault(pair, set()).add(
                         (home_score, away_score) if first_home else (away_score, home_score)
                     )
+                    teams = frozenset((game.get("home_provider_id"), game.get("away_provider_id")))
+                    if (game_date, teams) in result_conflicts:
+                        reported_results[pair].add("dropped perspective with another score")
 
                 # Check incoming games against existing master-level keys
                 for game in incoming_games:
