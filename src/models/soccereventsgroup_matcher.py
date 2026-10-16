@@ -15,8 +15,8 @@ no alias, so its games are held back upstream rather than matched here.
 - Squads of one club are told apart by colour, direction, squad number, squad
   code (N1, S2) and tier, read from the name with its club removed where the
   name carries it.
-  ``extract_team_variant`` is not used: its coach-name fallback reads "ECNL-RL"
-  and the "/13" of "G2012/13" as coach names.
+  ``extract_team_variant`` is not used: its coach-name fallback reads a
+  hyphenated tier such as "ECNL-RL" as a coach name.
 """
 
 import logging
@@ -58,8 +58,8 @@ class SoccerEventsGroupGameMatcher(GameHistoryMatcher):
     """Gated fuzzy matching scoped to SEG's registered state; creates teams only when registering.
 
     In ``registration_mode`` a team with no candidate is created under its SEG id,
-    while a 0.75-0.90 candidate (or a birth-year conflict) keeps its review row and
-    creates nothing.
+    while a 0.75-0.90 candidate (or a match a birth-year guard held back) keeps its
+    review row and creates nothing.
     """
 
     def __init__(
@@ -86,11 +86,7 @@ class SoccerEventsGroupGameMatcher(GameHistoryMatcher):
         confidence_score: float,
         match_details: Dict,
     ):
-        """Skip the review row for a team the roster pass is about to create, and clamp the rest.
-
-        The queue's CHECK refuses a confidence of 0.90 or more, and a birth-year
-        conflict is queued at whatever the match scored.
-        """
+        """Skip the review row for a team the roster pass is about to create."""
         if self.registration_mode and match_details.get("match_method") in _REVIEW_SUPPRESSED_METHODS:
             return None
         return super()._create_review_queue_entry(
@@ -98,7 +94,7 @@ class SoccerEventsGroupGameMatcher(GameHistoryMatcher):
             provider_team_id=provider_team_id,
             provider_team_name=provider_team_name,
             suggested_master_team_id=suggested_master_team_id,
-            confidence_score=min(confidence_score, float(REVIEW_QUEUE_CLAMP)),
+            confidence_score=confidence_score,
             match_details=match_details,
         )
 

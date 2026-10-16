@@ -44,6 +44,20 @@ ROOT = Path(__file__).resolve().parents[2]
         ("2013/14", {2013, 2014}),
         ("B2016/17", {2016, 2017}),
         ("Team 08/07 Girls", {2007, 2008}),
+        # ...joined by an en dash, or written with mixed widths.
+        ("Club B08–09", {2008, 2009}),
+        ("Club 2008–09", {2008, 2009}),
+        ("Club 09/2008", {2008, 2009}),
+        ("17/2018 Girls Grey", {2017, 2018}),
+        # A mixed-width pair follows the two-digit rule: an unmarked leading number
+        # beside a year it is not consecutive with is a squad number...
+        ("Elite 11 - 2015", {2015}),
+        # ...and one a B/G, an apostrophe or Boys/Girls marks is still a year.
+        ("Club B07/2009", {2007, 2009}),
+        ("Club '07/2009", {2007, 2009}),
+        ("Club Girls 11/2015", {2011, 2015}),
+        # A run of three keeps every year.
+        ("Club 09/08/2007", {2007, 2008, 2009}),
         # An adjacent Boys/Girls marks a two-digit number as a year, either order.
         ("Club 12 Boys", {2012}),
         ("Club Boys 12", {2012}),
@@ -150,7 +164,12 @@ def test_birth_years_notation(name, expected):
         # Subset, not equality: the same team written from one end of its band.
         ("Dallas Texans ECNL B08/07", "Dallas Texans ECNL 2008", False),
         ("2013/14 Lobos Rush Gold", "2013 Lobos Rush Gold", False),
+        ("Club B08–09", "Club 2009", False),
+        ("Club ECNL 2013", "Club ECNL 13/2014", False),
+        ("Club 09/08/2007", "Club 2009", False),
         # Bands that merely OVERLAP are still distinct teams sharing one year.
+        ("Club Girls 11/2015", "Club Girls 12/2015", True),
+        ("Club B08–09", "Club 2007/08", True),
         ("club 08/07", "club 06/07", True),
         # A club whose own name carries a year supplies a shared year for free;
         # subset still separates these, which is why overlap is not the test.

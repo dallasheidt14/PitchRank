@@ -21,7 +21,8 @@ from __future__ import annotations
 import re
 from typing import Dict, List, Optional
 
-from src.utils.team_utils import CURRENT_YEAR, calculate_age_group_from_birth_year
+from src.utils.age_group import normalize_age_group
+from src.utils.team_utils import _BAND_RUN_RE, _BAND_SCAN_LIMIT, CURRENT_YEAR, calculate_age_group_from_birth_year
 
 # ═══════════════════════════════════════════════════════════════
 # Constants
@@ -420,6 +421,37 @@ _VARIANT_AGE_PATTERNS = [
     r"\b\d{1,2}[Uu]\b",
 ]
 
+# A U-age and every age joined to it, with or without a repeated U: "U14", "U14/15",
+# "U14/U15/16", "15U/16U", "GU18/19", "Under 14G/15", and "13/14U", whose U comes only
+# at the end. _UAGE_TOKEN stops at a repeated U, so a range written that way would
+# leave its tail behind as the squad label.
+_UAGE_RUN = re.compile(
+    r"(?<![A-Za-z0-9])"
+    r"(?:[BGMF]?U-?\d{1,2}|\d{1,2}U|(?:under|u)\s+\d{1,2}|\d{1,2}(?=(?:\s*[/-]\s*\d{1,2})+U))[BGMF]?"
+    r"(?:\s*[/-]\s*(?:[BGMF]?U-?)?\d{1,2}U?[BGMF]?)*"
+    r"(?![\dA-Za-z])",
+    re.I,
+)
+
+
+def age_token_span(name: str, start: int, end: int) -> tuple[int, int]:
+    """Widen an age token to the whole band or U-age run it sits in.
+
+    The readers' age patterns match one year of a band, so without this "B2012/13"
+    matches as "B2012" and its "/13" is read as the squad label, "2013/2014 Riedell"
+    reads "/2014" instead of the coach, and a club cut at "14B" of "Texas Premier SC
+    13/14B" keeps its "13/". The span a reader already
+    chose is widened rather than re-picked, so a name with no band or range keeps it.
+    """
+    if len(name) > _BAND_SCAN_LIMIT:
+        return start, end
+    for pattern in (_BAND_RUN_RE, _UAGE_RUN):
+        for run in pattern.finditer(name):
+            if run.start() < end and start < run.end():
+                start, end = min(start, run.start()), max(end, run.end())
+    return start, end
+
+
 # Age/year regex applied to the raw name string
 # The optional gender letter before the U is load-bearing: "GU12" and "BU08" are
 # ages, but a bare \b before [Uu] cannot see them because the U is preceded by a
@@ -459,9 +491,11 @@ _UAGE_TOKEN = re.compile(
 # team. Stripped before the U-age, not after: "U13/11 v 11" would otherwise lose
 # "U13/11" to the U-age pass and leave a "v 11" this can no longer recognise.
 _FORMAT_TOKEN = re.compile(r"(?<![A-Za-z0-9])\d{1,2}\s*v\s*\d{1,2}(?![\dA-Za-z])", re.I)
-_DUAL_4_4 = re.compile(r"(?<!\d)(20\d{2})\s*[/-]\s*(20\d{2})(?!\d)")
-_DUAL_4_2 = re.compile(r"(?<!\d)(20\d{2})\s*[/-]\s*'?(\d{2})(?!\d)")
-_DUAL_2_2 = re.compile(r"(?<![\dA-Za-z])'?([BG])?(\d{2})\s*[/-]\s*'?(\d{2})([BG])?(?![\dA-Za-z])", re.I)
+# A band's years are joined by a slash, a hyphen or an en dash ("B08–09").
+_DUAL_4_4 = re.compile(r"(?<!\d)(20\d{2})\s*[/–-]\s*(20\d{2})(?!\d)")
+_DUAL_4_2 = re.compile(r"(?<!\d)(20\d{2})\s*[/–-]\s*'?(\d{2})(?!\d)")
+_DUAL_2_4 = re.compile(r"(?<![\dA-Za-z])'?([BG])?(\d{2})\s*[/–-]\s*(20\d{2})(?!\d)", re.I)
+_DUAL_2_2 = re.compile(r"(?<![\dA-Za-z])'?([BG])?(\d{2})\s*[/–-]\s*'?(\d{2})([BG])?(?![\dA-Za-z])", re.I)
 _YEAR_4 = re.compile(r"(?<!\d)(20\d{2})(?!\d)")
 _APOS_2 = re.compile(r"'(\d{2})(?!\d)")
 # A bare two-digit number is a squad number until a B/G affix or an adjacent
@@ -486,7 +520,7 @@ _GENDER_WORD = re.compile(r"(?<!\d)(\d{2})\s+(?:boys|girls)\b|\b(?:boys|girls)\s
 # United 94 U13 Boys"). A season that does lead ("25 BAC Shooting Stars") falls
 # outside _BIRTH_YEAR_MIN.._BIRTH_YEAR_MAX and is dropped by the range check.
 #
-# A leading PAIR is a band and belongs to _DUAL_2_2, so a following digit, slash
+# A leading PAIR is a band and belongs to the _DUAL_ passes, so a following digit, slash
 # or hyphen ends the match rather than starting one.
 _LEADING_COHORT = re.compile(r"^\s*'?(\d{2})(?![\d/-])(?=[\s(])")
 
@@ -524,8 +558,10 @@ def birth_years(team_name: str | None) -> set[int]:
                 chars[i] = " "
         return "".join(chars)
 
-    def _harvest(pattern, to_years) -> None:
+    def _harvest(pattern, to_years, when=None) -> None:
         for m in pattern.finditer(_blanked()):
+            if when is not None and not when(m):
+                continue
             spans.append((m.start(), m.end()))
             for year in to_years(m):
                 if year is not None and _BIRTH_YEAR_MIN <= year <= _BIRTH_YEAR_MAX:
@@ -534,12 +570,22 @@ def birth_years(team_name: str | None) -> set[int]:
     _harvest(_DUAL_4_4, lambda m: (int(m.group(1)), int(m.group(2))))
     _harvest(_DUAL_4_2, lambda m: (int(m.group(1)), _four_digit_year(m.group(2))))
     # An unmarked two-digit pair is a band only when the years are consecutive
-    # ("08/07"); "6/7 Grinch Unit" is not a cohort.
+    # ("08/07"); "6/7 Grinch Unit" is not a cohort. Read before the mixed widths,
+    # or "09/08/2007" loses its 2009 to them.
     _harvest(
         _DUAL_2_2,
         lambda m: (_four_digit_year(m.group(2)), _four_digit_year(m.group(3)))
         if (m.group(1) or m.group(4) or "'" in m.group(0) or abs(int(m.group(2)) - int(m.group(3))) == 1)
         else (),
+    )
+    # Mixed widths ("09/2008") are a band only when the years are consecutive. Any other
+    # pair is left to the passes below, which read the four-digit year and keep the
+    # two-digit one only where a B/G, an apostrophe or Boys/Girls marks it: the "11" of
+    # "Elite 11 - 2015" is a squad number, the "11" of "Girls 11/2015" a birth year.
+    _harvest(
+        _DUAL_2_4,
+        lambda m: (_four_digit_year(m.group(2)), int(m.group(3))),
+        when=lambda m: abs(_four_digit_year(m.group(2)) - int(m.group(3))) == 1,
     )
     _harvest(_YEAR_4, lambda m: (int(m.group(1)),))
     _harvest(_APOS_2, lambda m: (_four_digit_year(m.group(1)),))
@@ -563,6 +609,44 @@ def birth_years_conflict(name_a: str | None, name_b: str | None) -> bool:
     if not years_a or not years_b:
         return False
     return not (years_a <= years_b or years_b <= years_a)
+
+
+def u19_shared_year_ambiguous(
+    name_a: str | None, name_b: str | None, age_group: str | None, season: int | None = None
+) -> bool:
+    """True when, on the u19 board, one name states only the year both u19 squads share
+    and the other a band that holds it.
+
+    U19 holds two squads sharing a birth year (2009/08 and 2008/07 in 2026-27), so a name
+    stating only that year fits either one, and birth_years_conflict's subset rule accepts
+    it against both bands. The two squads also share a stored age group, so nothing else
+    on the row tells them apart, and the pairing needs a person rather than an automatic link.
+    """
+    if normalize_age_group(age_group) != "u19":
+        return False
+    shared = (CURRENT_YEAR if season is None else season) - 18
+    years_a, years_b = _stated_years(name_a), _stated_years(name_b)
+    return any(
+        bare == {shared} and len(band) > 1 and shared in band for bare, band in ((years_a, years_b), (years_b, years_a))
+    )
+
+
+def _stated_years(name: str | None) -> set[int]:
+    """birth_years, plus the years of a band birth_years leaves unread because it is glued
+    to a letter ("M08/09", "07/08F", "08B/09"), as the band grammar reads them."""
+    years = birth_years(name)
+    if name and len(name) <= _BAND_SCAN_LIMIT:
+        # Scan what birth_years reads: the "18/19" of "U 18/19" is a U-age range, not a band.
+        text = _UAGE_TOKEN.sub(" ", _FORMAT_TOKEN.sub(" ", name))
+        for run in _BAND_RUN_RE.finditer(text):
+            run_years = [
+                int(d) if len(d) == 4 else _four_digit_year(d) for d in re.findall(r"20[0-9]{2}|[0-9]{2}", run.group(0))
+            ]
+            # Only consecutive years are a band: "Elite 11 - 2008" is a squad number beside
+            # a year, and the "18/" a reverse U-age range ("18/19U") leaves behind is not one.
+            if all(abs(a - b) == 1 for a, b in zip(run_years, run_years[1:])):
+                years.update(y for y in run_years if _BIRTH_YEAR_MIN <= y <= _BIRTH_YEAR_MAX)
+    return years
 
 
 # Pre-compiled patterns for _canonicalize_age_token — this helper runs per token
@@ -749,7 +833,7 @@ def extract_team_variant(name: str) -> Optional[str]:
     for pattern in _VARIANT_AGE_PATTERNS:
         match = re.search(pattern, name, re.IGNORECASE)
         if match:
-            age_end_pos = match.end()
+            age_end_pos = age_token_span(name, match.start(), match.end())[1]
             break
 
     if age_end_pos > 0:
@@ -1122,9 +1206,9 @@ def resolve_distinction(
     parts: List[str] = []
 
     coach = d.get("coach_name")
-    # Coach detector occasionally returns non-alpha tokens (e.g., "/07" from
-    # masked age spans). Distinction values must be alphanumeric tokens, so
-    # require coach to be alpha-only.
+    # Coach detector occasionally returns non-alpha tokens (e.g., "ecnl-rl"
+    # from a hyphenated tier). Distinction values must be alphanumeric tokens,
+    # so require coach to be alpha-only.
     if coach and coach.isalpha():
         parts.append(coach.lower())
 
@@ -1366,8 +1450,8 @@ def extract_club_from_team_name(team_name: str) -> Optional[str]:
     earliest_pos = len(name)
     for pattern in _AGE_SPLIT_PATTERNS:
         match = re.search(pattern, name, re.IGNORECASE)
-        if match and match.start() < earliest_pos:
-            earliest_pos = match.start()
+        if match:
+            earliest_pos = min(earliest_pos, age_token_span(name, match.start(), match.end())[0])
 
     club = name[:earliest_pos].strip() if earliest_pos < len(name) else name
 

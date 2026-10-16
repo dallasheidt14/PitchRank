@@ -49,6 +49,7 @@ from find_queue_matches import (
 
 from src.utils.age_group import normalize_age_group
 from src.utils.team_association_map import to_state_code
+from src.utils.team_name_utils import u19_shared_year_ambiguous
 
 
 def _execute_with_retry(query_func, max_retries: int = 3, base_delay: float = 1.0):
@@ -316,6 +317,9 @@ def match_row(
         action = "review"
     else:
         action = "no_match"
+
+    if action == "auto_link" and u19_shared_year_ambiguous(profile.team_name, best["team_name"], best["age_group"]):
+        action = "review"
 
     return {
         "action": action,

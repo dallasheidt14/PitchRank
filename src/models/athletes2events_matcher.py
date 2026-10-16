@@ -87,8 +87,8 @@ class Athletes2EventsGameMatcher(GameHistoryMatcher):
     """Gated fuzzy matching scoped to the team page's state; creates teams only when registering.
 
     In ``registration_mode`` a team with no candidate is created under its
-    Athletes2Events id, while a 0.75-0.90 candidate (or a birth-year conflict)
-    keeps its review row and creates nothing.
+    Athletes2Events id, while a 0.75-0.90 candidate (or a match a birth-year guard
+    held back) keeps its review row and creates nothing.
     """
 
     def __init__(
@@ -119,11 +119,7 @@ class Athletes2EventsGameMatcher(GameHistoryMatcher):
         confidence_score: float,
         match_details: Dict,
     ):
-        """Skip the review row for a team the roster pass is about to create, and clamp the rest.
-
-        The queue's CHECK refuses a confidence of 0.90 or more, and a birth-year
-        conflict is queued at whatever the match scored.
-        """
+        """Skip the review row for a team the roster pass is about to create."""
         if self.registration_mode and match_details.get("match_method") in _REVIEW_SUPPRESSED_METHODS:
             return None
         return super()._create_review_queue_entry(
@@ -131,7 +127,7 @@ class Athletes2EventsGameMatcher(GameHistoryMatcher):
             provider_team_id=provider_team_id,
             provider_team_name=provider_team_name,
             suggested_master_team_id=suggested_master_team_id,
-            confidence_score=min(confidence_score, float(REVIEW_QUEUE_CLAMP)),
+            confidence_score=confidence_score,
             match_details=match_details,
         )
 

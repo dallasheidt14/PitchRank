@@ -1042,6 +1042,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `src/models/game_matcher.py` `GameHistoryMatcher._create_review_queue_entry` and `_create_alias`
 - **Why**: `_create_review_queue_entry` inserts `confidence_score` unclamped, so a birth-year-demoted match scoring 0.90 or more violates the `team_match_review_queue` CHECK (0.75 <= score < 0.90); the `except` logs one error and the row is gone. The first Soccer Events Group execute on 2026-09-14 lost two rows this way until that matcher clamped to `src/tournaments/alias_writer.REVIEW_QUEUE_CLAMP`; every other provider still sends the raw score. Its dry run also logs "Created review queue entry" having written nothing, and `_create_alias` swallows its own write failure while the caller reports the team linked. Clamp and surface failures in the base class once rather than per provider.
 - **Noted**: 2026-09-14
+- **Update (2026-10-15)**: The clamp half is done on branch `fix/band-variant-reader`: the base `_create_review_queue_entry` caps `confidence_score` at `REVIEW_QUEUE_CLAMP`, and the Athletes2Events and Soccer Events Group overrides no longer clamp on their own. Still open: a dry run still logs "Created review queue entry" without writing, a score below 0.75 is still refused and dropped, and `_create_alias` still swallows its own write failure.
 
 ### Oregon and WA matchers reject same-squad names and pick equal-score candidates arbitrarily
 
@@ -1052,6 +1053,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `src/models/game_matcher.py` `extract_team_variant`; `src/models/affinity_or_matcher.py` and `src/models/affinity_wa_matcher.py` `_fuzzy_match_team`; `tests/unit/test_provider_matcher_dry_run.py` create-helper parametrization
 - **Why**: Building the Soccer Events Group matcher on 2026-09-14 showed `extract_team_variant` reading tier and band tokens such as "ECNL-RL" or the "/13" of "G2012/13" as a coach name, so two spellings of one squad fail the variant gate and a duplicate team is created; SEG replaced the gate with `extract_distinctions` colours, directions and squad number plus tier tokens. Both matchers also take the first of several equal-score candidates in iteration order, where SEG now sends a tie to review. Separately, the dry-run test's create-helper list covers sincsports, affinity_wa and soccereventsgroup but not `_create_new_affinity_or_team`.
 - **Noted**: 2026-09-14
+- **Update (2026-10-15)**: The band half is fixed on branch `fix/band-variant-reader`: every `extract_team_variant` copy reads a band as one age token through `team_name_utils.age_token_span`. Still open: a hyphenated tier after the age ("Club G2012 ECNL-RL") is read as a coach by the `game_matcher` and `team_name_utils` copies, the equal-score tie-break, and the dry-run create-helper list.
 
 ### Event scrapers each carry their own copy of the game-import CSV contract
 
@@ -2177,16 +2179,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `src/utils/team_name_utils.py` (`_APOS_2`, `_DUAL_4_2`, `_DUAL_2_2` and the `"'"` test in `birth_years`' lambda for it, `_LEADING_COHORT`, `AGE_PATTERN`, `birth_years`, `birth_years_conflict`), `scripts/_team_distinction.py` (`AGE_PATTERN`), `scripts/decide_team_merges.py` (`_BAND`), `scripts/import_athletes2events_event.py` (`_AGE_RESPELLINGS`); the curly-aware sets in `scripts/normalize_team_names.py`, `src/utils/team_utils.py` and `scripts/fix_band_cohorts.py`
 - **Why**: Each module types its own set of marks that may precede a two-digit year, and they disagree: the band readers and the age fixer take straight and curly, `import_athletes2events` takes straight and right-curly, and `birth_years` takes straight only. So `birth_years_conflict("Club ’11 Blue", "Club ’12 Blue")` is False while the straight-quote pair is True (checked 2026-10-13), and that function is the year guard in the import matchers (`game_matcher`, `modular11_matcher`), the queue matcher, `repair_defective_aliases` and the fuzzy duplicate finder; `decide_team_merges`' `_BAND` likewise misses a curly band. One exported character class would keep them in step; measure how many `birth_years` readings change before switching it, across the conflict guard's callers and the reconcile triage's `stated_birth_years`.
 - **Noted**: 2026-10-13
-
-### The fuzzy duplicate finder reads a band's second year as a squad name, so a band never pairs with a bare year
-
-- **ID**: IMP-344
-- **Status**: open
-- **Type**: plan
-- **Category**: reliability
-- **Where**: `scripts/find_queue_matches.py` `extract_team_variant`, read by `scripts/find_fuzzy_duplicate_teams.py` `score_team_pair` and by the queue matcher in the same file
-- **Why**: `extract_team_variant("NTH NASA ECNL RL B2012/13", "nasa tophat")` returns `"/13"` while `"ECNL RL 2013"` returns None (origin/main, 2026-10-13), so `score_team_pair` returns None and Doorway A never scores a band-named row against a bare-year one -- the shape this season's re-registrations take. 19,495 live team names carry a `YYYY/YY` band. IMP-231 is the same misread in `game_matcher`'s separate copy. Fixing it moves merge proposals, so measure the merges it adds and removes against adjudicated pairs first, as the merging-duplicate-teams skill's Step 3 describes.
-- **Noted**: 2026-10-13
+- **Update (2026-10-16)**: Branch `fix/band-variant-reader` adds `_DUAL_2_4` (mixed widths, "09/2008") to `birth_years`, also straight-apostrophe only: `birth_years("Club '11/2015")` is {2011, 2015} and the curly spelling {2015}. That branch also leaves `decide_team_merges`' `_BAND` behind on the en dash and mixed widths `birth_years` now reads, which is a merge-safety gap tracked as IMP-372.
 
 ### Measure how many same-provider season re-registrations no doorway pairs, starting with Doorway D's club initials
 
@@ -2197,6 +2190,8 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: duplicate detection, `.claude/skills/merging-duplicate-teams` Doorways A-D (`scripts/find_fuzzy_duplicate_teams.py` `score_team_pair`, `scripts/find_cross_provider_duplicates.py`, `scripts/find_squad_key_duplicates.py` `pairing_key` and `is_club_initials`)
 - **Why**: TGS issued new team ids for 2026-27, so one squad now holds a last-season row and a this-season row, and no doorway paired the worked example: A refuses it on IMP-344, B needs overlapping fixtures and the two seasons do not overlap, and C requires two providers. D is the near miss. Its `pairing_key` reads `ECNL RL 2013` as `{'ecnl rl'}` through the league fallback, but keeps `{'nth'}` for `NTH NASA ECNL RL B2012/13`, because `is_club_initials` does not take `NTH` as club `NASA Tophat`'s initials; without that token the second name also reads `{'ecnl rl'}`, and `leagues_conflict` finds no conflict (origin/main, checked 2026-10-13). So measure how many candidates D already pairs, and how many more it would with the initials recognised, before building a separate detector. Worked example: TGS 113019 (`ECNL RL 2013`, last game 2026-06-23) and TGS 134187 (`NTH NASA ECNL RL B2012/13`, first game 2026-08-30), merged by hand 2026-10-13 (`1ba2ffdc` into `eacbf4d3`). Scale ceiling, not a duplicate count: 3,956 live TGS rows were created since 2026-08-01, and 1,793 of them share club, age group, gender and state with a TGS row whose last game was before Aug 1. For whatever D still misses, signals to test: same provider, same club and stored cohort, one row's games end before Aug 1 and the other's start after, and a high share of the same league opponents across the two seasons (here the same ECNL RL Southeast clubs) -- the reverse of Doorway C's overlap rule, because the two rows never play concurrently.
 - **Noted**: 2026-10-13
+- **Update (2026-10-14)**: Measured offline with Doorway D's own pairing and screens over every state (no scan run, nothing written): D already pairs 711 same-provider last-season/this-season pairs, 378 proposed and 256 held, on GotSport (262 proposed) as well as TGS (113). Stripping club-frequent tokens such as `nth` adds about 3 proposals and shifts about 490 unrelated pairings, so neither the initials fix nor a new detector is warranted. Of 30 sampled TGS new-season rows D does not pair, few were clear duplicates; most moved programme (Pre-ECNL to ECNL) or merged two birth years into one band, which is an owner decision rather than a rule. Those 378 wait on the duplicate-scan freeze; the list is kept outside the repo in the owner's merge-runs folder.
+- **Update (2026-10-16)**: IMP-344 is fixed and archived, but Doorway A still refuses the worked example, for other reasons (checked on branch `fix/band-variant-reader`). The shared distinction gate reads `B2012/13` by its first-written year as u15 against `2013`'s u14, `NTH` reads as the direction north (IMP-365), and `score_team_pair` scores the pair 0.73, or 0.93 with `NTH` removed. The gate's leading-year reading is IMP-370.
 
 ### Make pr_wait --no-merge report the checks still running
 
@@ -2307,3 +2302,83 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `agent_skills/pitchrank-club-normalizer/` (`run.py` `normalize_club`, `TIER_WORDS`; `run.sh`)
 - **Why**: It is the standalone twin of the retired `pitchrank-alias-normalizer` skill (IMP-359): added in the same commit (`3f0744305`, 2026-01-30), with the same `club_id`/`confidence`/`action` CSV workflow and tag list. `run.sh` calls `agent_skills/pitchrank-club-normalizer/review_queue.py`, which does not exist, so the package cannot run end to end. `.turbo/plans/decommission-openclaw.md` kept it as "a real domain skill", and nothing else in the tree references it. Retire it, or bring it current against `normalizing-club-names`.
 - **Noted**: 2026-10-15
+
+### Stop reading a club's NTH or STH abbreviation as a compass direction
+
+- **ID**: IMP-365
+- **Status**: open
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `src/utils/team_name_utils.py` `DIRECTION_CANONICAL`, read by `extract_team_variant` and `extract_distinctions`
+- **Why**: The map turns `nth` and `sth` into north and south, so NASA Tophat's prefix `NTH` reads as a direction: `extract_team_variant("NTH NASA ECNL RL B2012/13")` returns `'north'` and `extract_distinctions` gives it directions `{'north'}`, while `"ECNL RL 2013"` gives none (checked 2026-10-15). The base importer's distinction gate requires directions to match, so every NTH-prefixed row reads as a different squad from the club's unprefixed one. Measure how many live names carry `nth`/`sth` as a club token rather than a direction before changing the map.
+- **Noted**: 2026-10-15
+
+### Widen the two club readers the band fix left cutting inside a band
+
+- **ID**: IMP-366
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `scripts/extract_missing_club_names.py` `extract_club_name`; `scripts/repair_swapped_club_names.py` `club_part` (read by `classify_team_name` and the team-cleanup collect/propose/apply stages)
+- **Why**: Both still cut "Texas Premier SC 13/14B" inside its band (checked 2026-10-15): the weekly missing-club backfill (`update-missing-club-and-state.yml` Step 2) reads "Texas Premier SC 13/" and fills nothing, for 48 live club-less teams with a bare `NN/NN[BG]` band, 40 of them with a state; the swapped-club classifier proposes "Texas Premier SC 13". Widening `club_part` through `team_name_utils.age_token_span` changes it on 4,540 unique live names (prototype replay), so the team-cleanup proposals need their own review; the owner chose to keep that loop untouched on the band branch. `extract_club_name` is in `_NOT_YET_WIDENED` in `tests/unit/test_age_token_span.py`, which fails once it is widened; `club_part` uses `LEVEL_TOKEN`, a shape that guard does not detect.
+- **Noted**: 2026-10-15
+
+### Stop the band-aware club extractors reading a club's own number as a band year
+
+- **ID**: IMP-367
+- **Status**: open
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `src/utils/team_name_utils.py` `age_token_span` (over `team_utils._BAND_RUN_RE`), shared by `find_queue_matches.extract_club_from_name`, `game_matcher.extract_club_from_team_name` and `team_name_utils.extract_club_from_team_name`
+- **Why**: A club number joined to a year reads as a band, so 13 live names lose part of their club that they kept before the band fix: "CF10 - 2013 White" and "T11 - 2014B" give no club, "SSE90 - 2017" gives "SSE" (also R45, R64, "Extreme Touch 90 - 2012", "Team LA 59-62 - 2008"). Two rules were replayed over the 212,732 unique live names and rejected on 2026-10-15: consecutive-years-only reverts about 187 real combined cohorts ("B2007/09" reads "/09" again), and "non-consecutive and glued to a letter or holding a year outside 2005-2020" also turns "T11 - 16/17B" into club "T11 - 16/", because the true band sits inside the rejected run. A fix has to recover the band inside a rejected run.
+- **Noted**: 2026-10-15
+
+### Compare the squad words after a band in Doorway A's pair scorer
+
+- **ID**: IMP-368
+- **Status**: open
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `scripts/find_fuzzy_duplicate_teams.py` `score_team_pair`, also called by `scripts/auto_match_unknown_opponents.py` `match_row` and `src/tournaments/event_team_matcher.py` `rank_db_candidates`
+- **Why**: Replaying the 2026-10-13 unknown-opponent aggregate with the band fix, three different squads still score 1.0 and auto-link: "PDA White PRE-ECNL G2014/15 Mon" to "... One ll" (GotSport 755882), "SEFPL B2015/16 PBG DEV SWOOSH" to "... PBG PRE ECNL SWOOSH" (821995), "Connecticut FC United Pre ECNL G2015/16 1" to "... 2" (755087). A read-only check reported all three applied by the 2026-10-13 Tuesday run. A squad number, a DEV/PRE ECNL tier and a coach-like word after the band are not compared. The scorer is Doorway A's, part of the frozen duplicate tooling, so a change is the owner's call.
+- **Noted**: 2026-10-15
+
+### Stop the queue matcher proposing another club's squad under a generic club word
+
+- **ID**: IMP-369
+- **Status**: open
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `scripts/find_queue_matches.py` `find_best_match`, its re-derived-club lookup (`fuzzy_re_derived_club`)
+- **Why**: With a band read whole, YSSL entries for Force Football Club (Illinois) read their club as "FORCE" rather than "FORCE 15/", and the re-derived lookup proposes other clubs' squads: "FORCE 15/16B ELITE" goes to De Anza Force "Force 16B Elite" at 0.914 (bucket high, labelled "Likely safe"), and two Premier entries go to San Diego Force FC at 0.727 (guarded replay of 677 pending queue rows, 2026-10-15). The entry's stored club is never compared with the candidate's. Nothing merges these today: `auto-merge-queue.yml` and `data-hygiene-weekly.yml` are disabled, and neither passes `--include-high`.
+- **Noted**: 2026-10-15
+
+### Make the shared distinction gate name a band by its younger year
+
+- **ID**: IMP-370
+- **Status**: open
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `scripts/_team_distinction.py` `extract_distinctions` and its copy in `src/utils/team_name_utils.py`, read by `should_skip_pair` in Doorway A (`find_fuzzy_duplicate_teams.py`), the queue matcher and the event-team matcher
+- **Why**: The gate splits a band on "/" and takes the first-written year as the age token, so "NTH NASA ECNL RL B2012/13" reads ('u15',) against "ECNL RL 2013"'s ('u14',) and `should_skip_pair` refuses the pair, which is IMP-345's worked example (checked 2026-10-16). `team_utils.extract_band_birth_year` and `normalize_team_names._resolve_band` name a band by its younger year, as CLAUDE.md requires. A review of that branch reports that of 38,734 unique live names carrying a two-year band, the gate's token matches the band's cohort for 8,705 and names a different cohort for 18,345 (not re-run). Doorway A is frozen tooling, so a change is the owner's call.
+- **Noted**: 2026-10-16
+
+### Recover the same-squad queue matches the club handling still loses
+
+- **ID**: IMP-371
+- **Status**: open
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `scripts/find_queue_matches.py` `find_best_match`: its club-aware variant comparison and its cohort fallback
+- **Why**: The club-aware variant read added on `fix/band-variant-reader` works one way only: queue "B13/14" (club Futuro) against stored "Futuro - B13/14" under "Futuro" is still refused, because one name reads no label and the other reads "futuro" (checked 2026-10-16). Reading both names past the candidate's club would fix it but widens acceptance ("Rush 2014" against "Rush Union 2014"), so replay pending queue rows first. None of 677 targeted pending rows replayed on 2026-10-15 hit this case. That replay did show "Impact City FC Daybreak 14/15B Blue" losing a 0.957 cohort-fallback match: its club, now read cleanly, returns candidates scoring below 0.7, and any candidate at all skips the fallback (diagnosis not re-checked).
+- **Noted**: 2026-10-16
+
+### Make the merge decider see every band birth_years reads, before duplicate scans resume
+
+- **ID**: IMP-372
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `scripts/decide_team_merges.py` `decide` and its `_BAND` regex, against `cohort_of`, which reads years through `birth_years`
+- **Why**: `decide` sends "a two-year band on one side only" to review with `_BAND`, which misses an en dash ("B08–09"), a four-digit second year ("09/2008") and a four-digit pair ("2009/2008"). `fix/band-variant-reader` taught `birth_years` the first two spellings: `birth_years("Club B08–09 Red")` is now {2008, 2009}, where it was {2008} (checked 2026-10-16). So on u19 such a name against "Club U19 Red" can skip both review branches and reach MERGE. A review of that branch reproduced MERGE for all three spellings with a fake evidence object (not re-run). Owner, 2026-10-16: "Note it, fix before unfreezing." This is latent today: scans are frozen, proposals are reviewed by hand, and none of the 465 pairs the branch newly adds to Doorway A took this path. Widening `_BAND` alone changes band detection for 84 unique live names, but it also lets one band spelled two ways ("B08–09" against "B08/09") reach MERGE. Read the band through `birth_years` instead, and measure the result against approved merges.
+- **Noted**: 2026-10-16
