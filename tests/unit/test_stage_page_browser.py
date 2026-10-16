@@ -18,7 +18,15 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 from scripts.team_cleanup import pages  # noqa: E402
 from scripts.team_cleanup.run_store import MANIFEST_FILE, stage_dir  # noqa: E402
 from tests.unit.test_build_review_page import brp  # noqa: E402
-from tests.unit.test_team_cleanup_pages import RUN, _state_week  # noqa: E402
+from tests.unit.test_team_cleanup_pages import (  # noqa: E402
+    RUN,
+    _Db,
+    _decision,
+    _reviewing,
+    _state_week,
+    _states,
+    _team,
+)
 
 FAKE_STORE = r"""
 (() => {
@@ -71,11 +79,8 @@ def _live(page):
     page.wait_for_function(LIVE)
 
 
-@pytest.fixture(scope="module")
-def built(tmp_path_factory):
-    """A real states page for the fixture week: a "B fill" group of two cards (fill, other) that the
-    page can apply whole, then one unsure correction (unsure)."""
-    store, db = _state_week(tmp_path_factory.mktemp("week"))
+def _page(store, db):
+    """Build the states page and return it with each team's card id and the page's collection."""
     pages.build(db, store, RUN, "states")
     folder = stage_dir(store, RUN, "states")
     manifest = json.loads((folder / MANIFEST_FILE).read_text(encoding="utf-8"))
@@ -83,6 +88,26 @@ def built(tmp_path_factory):
     page_file.write_text("<!doctype html><meta charset=utf-8>" + (folder / pages.PAGE_FILE).read_text("utf-8"), "utf-8")
     ids = {p["team_id_master"]: card for card, p in manifest["cards"].items()}
     return page_file, ids, f"decisions-{manifest['run']}"
+
+
+@pytest.fixture(scope="module")
+def built(tmp_path_factory):
+    """A real states page for the fixture week: a "B fill" group of two cards (fill, other) that the
+    page can apply whole, then one unsure correction (unsure). All three share one club, and fill
+    and other are look-alikes."""
+    return _page(*_state_week(tmp_path_factory.mktemp("week")))
+
+
+@pytest.fixture(scope="module")
+def alike_built(tmp_path_factory):
+    """A states page whose "B fill" group holds three look-alike fills from one club (a, b, c) and a
+    fill from a blank club (n), beside a fill from the same club that the rules only queued (q),
+    alone in its own group."""
+    store = tmp_path_factory.mktemp("alike") / "store"
+    _reviewing(store)
+    _states(store, [_decision(t, None, "NV") for t in "abcn"] + [_decision("q", None, "NV", "queue")])
+    teams = [_team(t, state=None, club="Reno United") for t in "abcq"] + [_team("n", state=None, club=None)]
+    return _page(store, _Db(teams=teams))
 
 
 @pytest.fixture(scope="module")
@@ -96,10 +121,8 @@ def browser():
         chromium.close()
 
 
-@pytest.fixture
-def open_page(browser, built):
+def _opener(browser, built, contexts):
     page_file, ids, _ = built
-    contexts = []
 
     def opener(preload=None, mode="ok"):
         ctx = browser.new_context()
@@ -112,7 +135,21 @@ def open_page(browser, built):
         page.goto(page_file.as_uri())
         return page, errors
 
-    yield opener
+    return opener
+
+
+@pytest.fixture
+def open_page(browser, built):
+    contexts = []
+    yield _opener(browser, built, contexts)
+    for ctx in contexts:
+        ctx.close()
+
+
+@pytest.fixture
+def open_alike(browser, alike_built):
+    contexts = []
+    yield _opener(browser, alike_built, contexts)
     for ctx in contexts:
         ctx.close()
 
@@ -186,6 +223,101 @@ def test_a_note_typed_before_a_click_is_saved_and_a_second_click_clears_the_choi
     _settle(page)
     assert _stored(page, built)["unsure"]["decision"] is None
     assert not errors
+
+
+def _card(page, team):
+    return page.locator(".card", has_text=f"Team {team}")
+
+
+def test_all_like_this_decides_every_undecided_look_alike_one_write_at_a_time(open_alike, alike_built):
+    page, errors = open_alike()
+    _live(page)
+    row = _card(page, "a").locator(".alike")
+
+    assert row.text_content().startswith("All 3 undecided like this")
+    assert _card(page, "n").locator(".alike").count() == 0 and _card(page, "q").locator(".alike").count() == 0
+    row.locator("[data-d=dont_apply]").click()
+    _settle(page)
+
+    stored = _stored(page, alike_built)
+    decided = {team: (doc or {}).get("decision") for team, doc in stored.items()}
+    assert decided == {"a": "dont_apply", "b": "dont_apply", "c": "dont_apply", "n": None, "q": None}
+    assert page.evaluate("window.__maxInflight") == 1
+    assert row.is_hidden()
+    assert not errors
+
+
+def test_all_like_this_works_in_the_not_decided_view(open_alike, alike_built):
+    page, errors = open_alike()
+    _live(page)
+    page.select_option("#show", "open")
+
+    _card(page, "b").locator(".alike button[data-d=apply]").click()
+    _settle(page)
+
+    stored = _stored(page, alike_built)
+    assert [stored[team]["decision"] for team in ("a", "b", "c")] == ["apply", "apply", "apply"]
+    assert not errors
+
+
+def test_all_like_this_leaves_a_look_alike_already_decided_alone(open_alike, alike_built):
+    page, errors = open_alike({"b": {"decision": "apply", "note": "own call"}})
+    _live(page)
+    row = _card(page, "a").locator(".alike")
+
+    assert row.text_content().startswith("All 2 undecided like this")
+    row.locator("[data-d=dont_apply]").click()
+    _settle(page)
+
+    stored = _stored(page, alike_built)
+    assert stored["b"] == {"decision": "apply", "note": "own call"}
+    assert (stored["a"]["decision"], stored["c"]["decision"]) == ("dont_apply", "dont_apply")
+    assert not errors
+
+
+def test_one_bulk_decision_writes_at_a_time(open_alike, alike_built):
+    """Either bulk button turns both off while it writes, so a click on the other does nothing."""
+    page, errors = open_alike()
+    _live(page)
+
+    both = "document.querySelector('.b-all').click(); document.querySelector('.alike [data-d=dont_apply]').click()"
+    page.evaluate(both)
+    _settle(page)
+
+    stored = _stored(page, alike_built)
+    assert [stored[team]["decision"] for team in ("a", "b", "c", "n")] == ["apply"] * 4
+    assert page.evaluate("window.__maxInflight") == 1
+    assert not errors
+
+
+def test_a_hand_choice_or_note_during_a_bulk_decision_waits_its_turn(open_alike, alike_built):
+    """Every write on the page takes its turn, so a card decided by hand or a note saved while a bulk
+    decision runs never reaches the store at the same moment as one of its writes."""
+    page, errors = open_alike()
+    _live(page)
+
+    page.evaluate(
+        "const card = t => [...document.querySelectorAll('.card')].find(c => c.textContent.includes('Team ' + t));"
+        "card('a').querySelector('.alike [data-d=dont_apply]').click();"
+        "card('n').querySelector('button.b-apply').click();"
+        "const ta = card('q').querySelector('textarea'); ta.value = 'plays up'; ta.dispatchEvent(new Event('change'));"
+    )
+    _settle(page)
+
+    stored = _stored(page, alike_built)
+    assert [stored[team]["decision"] for team in ("a", "b", "c", "n")] == ["dont_apply"] * 3 + ["apply"]
+    assert (stored["q"]["decision"], stored["q"]["note"]) == (None, "plays up")
+    assert page.evaluate("window.__maxInflight") == 1
+    assert not errors
+
+
+def test_losing_the_connection_turns_the_look_alike_buttons_off(open_alike):
+    page, _ = open_alike()
+    _live(page)
+    page.evaluate("window.__drop()")
+
+    page.wait_for_function("document.querySelector('#status').textContent.startsWith('Lost the connection')")
+    assert _card(page, "a").locator(".alike button[data-d=apply]").is_disabled()
 
 
 def test_losing_the_connection_turns_editing_off(open_page):

@@ -28,13 +28,14 @@ Read-only: it never writes to the database.
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from scripts.assign_team_states import build_locality_index, fetch_live_teams  # noqa: E402
+from scripts.assign_team_states import build_locality_index, club_key, fetch_live_teams  # noqa: E402
 from scripts.enqueue_user_interest_teams import (  # noqa: E402
     collect_report_card_teams,
     collect_user_requested_teams,
@@ -202,6 +203,15 @@ def sort_out(stage, proposals, stale, declined, answered, teams, canonical, inte
     return shown, left_out
 
 
+def alike_key(group: str, p, team) -> str | None:
+    """Cards in one group from one club proposing the same change share this key, so the page can
+    decide them together. A placeholder club joins unrelated teams, so it shares nothing."""
+    club = club_key(team["club_name"])
+    if not club:
+        return None
+    return json.dumps([club, group, p["field"], p["old_value"], p["new_value"]])
+
+
 def card(stage, run, p, team, ev, providers, interest) -> dict:
     tid = p["team_id_master"]
     dates = ev.dates[tid]
@@ -210,6 +220,7 @@ def card(stage, run, p, team, ev, providers, interest) -> dict:
         "id": card_id(run, f"{tid}|{p['field']}|{p['new_value']}"),
         "group": group,
         "whole": whole(stage, group),
+        "alike": alike_key(group, p, team),
         "interest": tid in interest,
         "change": {"field": p["field"], "old": p["old_value"], "new": p["new_value"]},
         "why": p.get("reason") or "",
