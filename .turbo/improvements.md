@@ -2327,3 +2327,13 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `scripts/repair_swapped_club_names.py` (`merge_proposals`, called from `build_snapshot`); `scripts/team_cleanup/pages.py` (`sort_out`)
 - **Why**: When two sources propose different clubs for one team, `merge_proposals` keeps `proposals[0]` in source order (provider, then team_name, then abbreviation) and marks it `needs_review`. A `recased` or `unclear` team-name guess can therefore win the row over a trusted `word` or `bracket` abbreviation fix, which then exists only in the scan's printed CONFLICT line, and the weekly club page leaves the row off because its tier is a listed guess. Keep the trusted-tier proposal on a conflict (or carry both offers) so the row keeps its card. Reach on 2026-10-15: 0 CONFLICT lines in the national scan (2,018 rows). Raised in review of #1315.
 - **Noted**: 2026-10-15
+
+### Resolve two SincSports DCSC-named teams filed under the wrong club, and the DC-vs-MD question behind them
+
+- **ID**: IMP-364
+- **Status**: open
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `teams.club_name` for SincSports ids `CAM117BA` and `CAM12716` ("Dcsc Red Metros B11/B12", filed under Cal Legends and Bakersfield Select, stored CA)
+- **Why**: Both have zero games, so no board is wrong today. The provider's club could not be read on 2026-10-15: `soccer.sincsports.com/team/default.aspx` answered 403 "Just a moment..." to a plain request and to `SincSportsScraper.session`. Read the club off each team page in a browser, then fix `club_name` via `normalizing-club-names`. "Metros" is the DC Soccer Club brand and the owner calls that club DC, but DC Soccer Club (114 teams) and Washington Capital United (27) are stored MD, which matches the provider's association; `assign_team_states.py` R8 only queues any change away from a stored `DC` and does not explain the MD rows, so which writer filed them MD is untraced. Whether DC clubs should show as DC is an owner decision. `CAM165FC` ("DCSC Apple Valley Vann 2016", under Apple Valley SC) was dropped from this item: a reviewer reports SincSports lists it under Apple Valley SC (unverified here), so it is likely correct as filed.
+- **Noted**: 2026-10-15
