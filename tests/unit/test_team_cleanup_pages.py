@@ -4,7 +4,7 @@ import hashlib
 import json
 import os
 import sys
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 from postgrest.exceptions import APIError
@@ -39,10 +39,13 @@ COLUMNS = {
         "age_group",
         "gender",
         "state_code",
+        "state",
+        "state_source",
         "provider_id",
         "is_deprecated",
     },
     "team_merge_map": {"id", "deprecated_team_id", "canonical_team_id"},
+    "team_state_probe_log": {"id", "team_id_master", "outcome", "reported_state_code", "probed_at"},
     "team_cleanup_decisions": {
         "id",
         "stage",
@@ -141,8 +144,21 @@ def _team(tid, *, state="NV", club="Las Vegas Sports Academy", age="u12", deprec
         "age_group": age,
         "gender": "Male",
         "state_code": state,
+        "state": None,
+        "state_source": None,
         "provider_id": 1,
         "is_deprecated": deprecated,
+    }
+
+
+def _probe(tid, state, *, outcome="mapped", days_ago=1, n=1):
+    probed = datetime.now(timezone.utc) - timedelta(days=days_ago)
+    return {
+        "id": n,
+        "team_id_master": tid,
+        "outcome": outcome,
+        "reported_state_code": state,
+        "probed_at": probed.isoformat(),
     }
 
 
@@ -888,10 +904,15 @@ def test_a_club_guess_the_scan_lists_without_approving_gets_no_card(tmp_path, mo
         _team("capital", club="Henderson"),
     ]
 
-    code, out = _build(monkeypatch, capsys, store, _Db(teams=teams), "clubs")
+    db = _Db(teams=teams)
+    # A clubs page has no use for GotSport's state answers, so it must not fail when they cannot be read.
+    db.broken["team_state_probe_log"] = APIError({"code": "PGRST205", "message": "not found"})
+
+    code, out = _build(monkeypatch, capsys, store, db, "clubs")
 
     manifest = _read(store, "clubs", MANIFEST_FILE)
     assert code == 0
+    assert "team_state_probe_log" not in db.executes
     cards = sorted(p["team_id_master"] for p in manifest["cards"].values())
     assert cards == ["bracket", "conflict", "provider", "swap"]
     assert [(p["team_id_master"], p["why"]) for p in manifest["left_out"]] == [
@@ -900,6 +921,75 @@ def test_a_club_guess_the_scan_lists_without_approving_gets_no_card(tmp_path, mo
         ("capital", "the scan lists capital guesses without approving them"),
     ]
     assert "4 cards" in out and "left off 3, past the cap 0" in out
+
+
+def test_a_state_change_a_recent_gotsport_answer_contradicts_gets_no_card(tmp_path, monkeypatch, capsys):
+    """Only a recent, mapped answer counts, as in the states skill's name pass: the unset default
+    AL, a transient failure and an answer past the re-probe window say nothing about the team."""
+    store = tmp_path / "store"
+    _reviewing(store)
+    ids = ("kept", "agree", "transient", "stale", "lock")
+    decisions = [_decision(t, "NV", "NV" if t == "lock" else "UT") for t in ids]
+    _states(store, decisions + [_decision("default", "AL", "NV"), _decision("fill", None, "NV")])
+    probes = [
+        _probe("kept", "NV", n=1),
+        _probe("agree", "UT", n=2),
+        _probe("default", "AL", n=3),
+        _probe("transient", "NV", outcome="http 403", n=4),
+        _probe("stale", "NV", days_ago=120, n=5),
+        _probe("lock", "NV", n=6),
+    ]
+    teams = [_team(t) for t in ids] + [_team("default", state="AL"), _team("fill", state=None)]
+
+    code, out = _build(monkeypatch, capsys, store, _Db(teams=teams, team_state_probe_log=probes))
+
+    manifest = _read(store, "states", MANIFEST_FILE)
+    assert code == 0
+    cards = sorted(p["team_id_master"] for p in manifest["cards"].values())
+    assert cards == ["agree", "default", "fill", "lock", "stale", "transient"]
+    assert [(p["team_id_master"], p["why"]) for p in manifest["left_out"]] == [("kept", "GotSport's record says NV")]
+    assert "6 cards" in out and "left off 1, past the cap 0" in out
+
+
+def test_a_state_change_the_name_already_answers_gets_no_card(tmp_path, monkeypatch, capsys):
+    """The name pass answers a change its name contradicts. A change the name backs keeps its card,
+    and so does one whose name points at a third state, or one GotSport backs against the name."""
+    store = tmp_path / "store"
+    _reviewing(store)
+    targets = {"nevada": "CA", "utah": "UT", "third": "UT", "gotsport": "UT", "plain": "UT"}
+    _states(store, [_decision(t, "NV", new) for t, new in targets.items()])
+    teams = [
+        _team("nevada", name="Northern Nevada 2012 Boys"),
+        _team("utah", name="Utah Royals FC 2012"),
+        _team("third", name="California Storm 2012"),
+        _team("gotsport", name="Northern Nevada 2012 Girls"),
+        _team("plain"),
+    ]
+
+    code, out = _build(monkeypatch, capsys, store, _Db(teams=teams, team_state_probe_log=[_probe("gotsport", "UT")]))
+
+    manifest = _read(store, "states", MANIFEST_FILE)
+    assert code == 0
+    assert sorted(p["team_id_master"] for p in manifest["cards"].values()) == ["gotsport", "plain", "third", "utah"]
+    assert [(p["team_id_master"], p["why"]) for p in manifest["left_out"]] == [
+        ("nevada", "its name or club name places it in NV"),
+    ]
+
+
+def test_a_states_page_with_no_change_to_answer_reads_no_evidence(tmp_path, monkeypatch, capsys):
+    """A page of lock cards has no change to answer, so it skips the evidence reads, the first of which
+    is GotSport's answers; the name pass's read of every team in the country comes after it."""
+    store = tmp_path / "store"
+    _reviewing(store)
+    _states(store, [_decision("lock", "NV", "NV")])
+    db = _Db(teams=[_team("lock")])
+    db.broken["team_state_probe_log"] = APIError({"code": "PGRST205", "message": "not found"})
+
+    code, _ = _build(monkeypatch, capsys, store, db)
+
+    assert code == 0
+    assert "team_state_probe_log" not in db.executes
+    assert [p["team_id_master"] for p in _read(store, "states", MANIFEST_FILE)["cards"].values()] == ["lock"]
 
 
 @pytest.mark.parametrize(
