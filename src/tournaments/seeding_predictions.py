@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from src.tournaments.compare_predictor_bridge import (
+    PREDICTOR_IDENTITY_FILES,
     ComparePrediction,
     _parse_prediction,
     canonical_predictor_sha256,
@@ -51,6 +52,10 @@ class SeedingPredictionBatch:
     predictor_sha256: str
     unavailable_codes: dict[str, dict[str, str]] = field(default_factory=dict)
     input_digests: dict[str, str] = field(default_factory=dict)
+    model: str = "legacy"
+    evidence: dict[str, dict] = field(default_factory=dict)
+    calibration_inputs: dict = field(default_factory=dict)
+    sensitivity: dict = field(default_factory=dict)
 
 
 def seeding_predictor_sha256() -> str:
@@ -59,6 +64,8 @@ def seeding_predictor_sha256() -> str:
     for path in (
         _FRONTEND_DIR / "lib" / "matchPredictionService.ts",
         _FRONTEND_DIR / "lib" / "seedingPredictions.ts",
+        _FRONTEND_DIR / "lib" / "predictionIdentity.ts",
+        _FRONTEND_DIR / "lib" / "cohortResultModel.ts",
         _SCRIPT,
         _SHIM,
         Path(__file__),
@@ -100,6 +107,22 @@ def _parse_batch(
     if not isinstance(result, dict) or result.get("schema_version") != 1:
         raise ValueError("Invalid Seeding Compare result schema")
     _validate_finite(result)
+    model = result.get("model", "legacy")
+    if model not in {"legacy", "cohort", "results"}:
+        raise ValueError("Unknown Seeding prediction model")
+    evidence = result.get("evidence", {})
+    if not isinstance(evidence, dict) or (evidence and set(evidence) != set(cohorts)):
+        raise ValueError("Incomplete frozen input evidence")
+    for key, item in evidence.items():
+        if not isinstance(item, dict) or not isinstance(item.get("canonical_json"), str):
+            raise ValueError("Invalid frozen input evidence")
+        if hashlib.sha256(item["canonical_json"].encode()).hexdigest() != result.get("input_digests", {}).get(key):
+            raise ValueError("Frozen input evidence digest mismatch")
+        frozen = json.loads(item["canonical_json"])
+        if frozen.get("model") != model:
+            raise ValueError("Frozen input model mismatch")
+    if model != "legacy" and not evidence:
+        raise ValueError("Experimental predictions require frozen inputs")
     outputs = result.get("cohorts")
     if not isinstance(outputs, dict) or set(outputs) != set(cohorts):
         raise ValueError("Seeding Compare result has incomplete cohort coverage")
@@ -200,7 +223,10 @@ def _parse_batch(
         ratings_as_of=ratings_as_of,
         predictor_sha256=predictor_sha256,
         unavailable_codes=unavailable_codes,
-        input_digests=input_digests,
+        input_digests=input_digests, model=model, evidence=evidence,
+        sensitivity={key: output.get("sensitivity", []) for key, output in outputs.items()},
+        calibration_inputs={path.name: json.loads(path.read_text(encoding="utf-8"))
+                            for path in PREDICTOR_IDENTITY_FILES if path.suffix == ".json"},
     )
 
 
@@ -210,9 +236,12 @@ def load_seeding_predictions(
     supabase_url: str,
     supabase_key: str,
     timeout_seconds: int = 300,
+    model: str = "legacy",
 ) -> SeedingPredictionBatch:
     """Fetch current Compare inputs and every pair for the selected cohorts."""
     _validate_cohorts(cohorts)
+    if model not in {"legacy", "cohort", "results"}:
+        raise ValueError("Unknown Seeding prediction model")
     if not supabase_url or not supabase_key:
         raise ValueError("Supabase credentials are required for Seeding predictions")
     node = shutil.which("node")
@@ -224,7 +253,8 @@ def load_seeding_predictions(
     with temporary_workspace("matchbalance-seeding-") as directory:
         input_path = directory / "input.json"
         output_path = directory / "output.json"
-        input_path.write_text(json.dumps({"schema_version": 1, "cohorts": cohorts}, allow_nan=False), encoding="utf-8")
+        input_path.write_text(
+            json.dumps({"schema_version": 1, "cohorts": cohorts, "model": model}, allow_nan=False), encoding="utf-8")
         command = [node, str(_TSX_CLI), "-r", str(_SHIM), str(_SCRIPT), str(input_path), str(output_path)]
         try:
             completed = subprocess.run(

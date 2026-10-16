@@ -1,10 +1,15 @@
+import json
 from copy import deepcopy
 from types import SimpleNamespace
 
 import pytest
 
 from src.tournaments.seeding_freshness import (
-    acknowledge_freshness, check_freshness, freshness_note, freshness_ready, snapshot_identity,
+    acknowledge_freshness,
+    check_freshness,
+    freshness_note,
+    freshness_ready,
+    snapshot_identity,
 )
 
 
@@ -49,3 +54,18 @@ def test_acknowledgment_requires_reason_survives_restart_and_expires_on_changes(
     assert "Reviewed with the director" in freshness_note(saved)
     saved["manual_seed_orders"] = {"u14|Male": {"seeded": ["2", "1"], "held": []}}
     assert not freshness_ready(saved)
+
+
+def test_changed_digest_explains_rating_fields_and_game_changes_without_replacing_snapshot():
+    saved = pack()
+    saved["input_evidence"] = {"u14|Male": {"canonical_json": json.dumps({
+        "teams": {"a": {"power_score_final": 0.5}}, "games": [{"id": "one", "home_score": 1}]})}}
+    before = deepcopy(saved)
+    batch = SimpleNamespace(input_digests={"u14|Male": "c"*64}, predictor_sha256="a"*64,
+        evidence={"u14|Male": {"canonical_json": json.dumps({
+            "teams": {"a": {"power_score_final": 0.6}}, "games": [{"id": "one", "home_score": 2}, {"id": "two"}]})}})
+    check = check_freshness(saved, batch)
+    assert check["status"] == "newer_inputs_available"
+    assert any("power_score_final" in item for item in check["changes"])
+    assert any("1 added, 0 removed, 1 changed" in item for item in check["changes"])
+    assert saved == before

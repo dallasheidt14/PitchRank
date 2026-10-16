@@ -4,7 +4,14 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('server-only', () => ({}));
 
 import { buildSeedingPredictions } from './seedingPredictions';
-import { buildMatchPrediction, fetchPredictionGames, fetchPredictionTeam } from './matchPredictionService';
+import {
+  buildMatchPrediction,
+  buildMatchPredictionWithShadowContext,
+  fetchPredictionGames,
+  fetchPredictionTeam,
+  resolvePredictionTeamIds,
+  fetchPredictionEvidence,
+} from './matchPredictionService';
 import { predictMatch, warmMatchPredictorCalibration } from './matchPredictor';
 
 const A = '11111111-1111-1111-1111-111111111111';
@@ -58,6 +65,10 @@ function database(
       },
       gte: (field: string, value: string) => {
         rows = rows.filter((row) => String(row[field]) >= value);
+        return builder;
+      },
+      lte: (field: string, value: string) => {
+        rows = rows.filter((row) => String(row[field]) <= value);
         return builder;
       },
       not: (field: string, operator: string, value: unknown) => {
@@ -136,7 +147,7 @@ function fixtures(): Record<string, Row[]> {
     games: [
       game('game-z', A, B),
       game('game-a', A, C, { home_score: 5, away_score: 0 }),
-      game('game-merged', OLD_A, B),
+      game('game-merged', OLD_A, B, { home_score: 3 }),
       game('game-b', B, C),
       game('game-unrelated', 'unrelated-1', 'unrelated-2'),
     ],
@@ -245,7 +256,7 @@ describe('Seeding canonical Compare bridge', () => {
     const row = output.predictions.find((prediction) => prediction.entrant_a === '6' && prediction.entrant_b === '7')!;
     expect(output.predictions).toHaveLength(6);
     expect(output.teams['6'].team_id_master).toBe(A);
-    expect(output.teams['6'].prediction_game_count).toBe(2);
+    expect(output.teams['6'].prediction_game_count).toBe(3);
     expect(output.teams['6'].ratings_as_of).toBe('2026-09-07T01:00:00Z');
     expect(result.ratings_as_of).toBe('2026-09-07T01:00:00Z');
     expect(db.queries.filter((query) => query.table === 'teams')).toHaveLength(3);
@@ -338,12 +349,12 @@ describe('Seeding canonical Compare bridge', () => {
     expect(result.cohorts.cohort.predictions).toEqual([]);
   });
 
-  it('does not count merged-only history that Compare does not consume in its team profile', async () => {
+  it('counts merged history consumed by both Compare and Seeding', async () => {
     const data = fixtures();
     data.games = Array.from({ length: 4 }, (_, index) => game(`merged-only-${index}`, OLD_A, B));
     const result = await buildSeedingPredictions(database(data).client, { cohort: { a: A, b: B } });
     expect(result.cohorts.cohort.unavailable).toEqual({});
-    expect(result.cohorts.cohort.teams.a.prediction_game_count).toBe(0);
+    expect(result.cohorts.cohort.teams.a.prediction_game_count).toBe(4);
     expect(result.cohorts.cohort.teams.b.prediction_game_count).toBe(4);
     expect(result.cohorts.cohort.predictions).toHaveLength(2);
   });
@@ -399,14 +410,16 @@ describe('Seeding canonical Compare bridge', () => {
     expect(games).toHaveLength(1002);
     expect(games[0].id).toBe('valid-0000');
     expect(games[1001].id).toBe('valid-1001');
-    expect(db.queries.map((query) => query.range)).toEqual([
+    expect(db.queries.filter((query) => query.table === 'games').map((query) => query.range)).toEqual([
       [0, 999],
       [1000, 1999],
       [0, 999],
       [0, 999],
       [1000, 1999],
     ]);
-    const distinctFilters = [...new Set(db.queries.map((query) => query.or))];
+    const distinctFilters = [
+      ...new Set(db.queries.filter((query) => query.table === 'games').map((query) => query.or)),
+    ];
     expect(distinctFilters).toHaveLength(3);
     expect(
       distinctFilters.map((filter) =>
@@ -417,4 +430,166 @@ describe('Seeding canonical Compare bridge', () => {
       )
     ).toEqual([100, 100, 2]);
   });
+});
+
+describe('canonical input safeguards', () => {
+  it('follows multi-hop aliases on both sides and excludes canonicalized excluded teams', async () => {
+    const data = fixtures();
+    const older = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+    const oldB = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
+    data.team_merge_map.push(
+      { deprecated_team_id: older, canonical_team_id: OLD_A },
+      { deprecated_team_id: oldB, canonical_team_id: B }
+    );
+    data.games = [game('merged', older, oldB), game('future', A, C, { game_date: '2099-01-01' })];
+    const db = database(data);
+    expect((await resolvePredictionTeamIds(db.client, older)).allTeamIds.sort()).toEqual([A, OLD_A, older].sort());
+    const evidence = await fetchPredictionEvidence(db.client, [A, OLD_A, older]);
+    expect(evidence.games).toHaveLength(1);
+    expect(evidence.games[0]).toMatchObject({
+      home_team_master_id: A,
+      away_team_master_id: B,
+      original_home_team_id: older,
+      original_away_team_id: oldB,
+    });
+    data.team_ranking_exclusions = [{ team_id_master: oldB }];
+    expect((await fetchPredictionEvidence(database(data).client, [A, OLD_A, older])).games).toEqual([]);
+  });
+  it('fails closed on cyclic merges or exclusion lookup failures', async () => {
+    const data = fixtures();
+    data.team_merge_map.push({ deprecated_team_id: A, canonical_team_id: OLD_A });
+    await expect(resolvePredictionTeamIds(database(data).client, A)).rejects.toThrow('Cyclic');
+    await expect(fetchPredictionGames(database(fixtures(), 'team_ranking_exclusions').client, [A])).rejects.toThrow();
+  });
+  it('freezes preview inputs, keeps cohort digests independent, and uses each opponent once', async () => {
+    const one = await buildSeedingPredictions(
+      database(fixtures()).client,
+      { one: { a: A, b: B } },
+      { model: 'results' }
+    );
+    const two = await buildSeedingPredictions(
+      database(fixtures()).client,
+      { two: { c: C }, one: { b: B, a: A } },
+      { model: 'results' }
+    );
+    expect(one.input_digests.one).toBe(two.input_digests.one);
+    expect(one.cohorts.one.predictions).toHaveLength(2);
+    const saved = one.evidence.one as { canonical_json: string };
+    expect(JSON.parse(saved.canonical_json)).toMatchObject({
+      model: 'results',
+      model_parameters: { status: 'preview_unvalidated' },
+    });
+  });
+});
+
+it('uses the privileged client only for exclusion reads on authenticated Compare', async () => {
+  const user = database(fixtures(), 'team_ranking_exclusions', new Error('permission denied'));
+  const service = database({ team_ranking_exclusions: [] });
+  await buildMatchPredictionWithShadowContext(user.client, A, B, service.client);
+  expect(service.queries.map((q) => q.table)).toEqual(['team_ranking_exclusions']);
+  expect(user.queries.some((q) => q.table === 'games')).toBe(true);
+});
+
+it('normalizes uppercase deprecated UUIDs before merge traversal', async () => {
+  const tables = fixtures();
+  tables.team_merge_map = [{ deprecated_team_id: OLD_A, canonical_team_id: A }];
+  const result = await resolvePredictionTeamIds(database(tables).client, OLD_A.toUpperCase());
+  expect(result.canonicalTeamId).toBe(A);
+  expect(result.allTeamIds).toContain(OLD_A);
+});
+
+it('preserves same-provider reversed-home-away rematches', async () => {
+  const tables = fixtures();
+  tables.games = [
+    game('first', A, B, { event_name: 'Cup', provider_id: 'one' }),
+    game('second', B, A, { home_score: 1, away_score: 2, event_name: 'Cup', provider_id: 'one' }),
+  ];
+  const result = await fetchPredictionEvidence(database(tables).client, [A, B]);
+  expect(result.games.map((g) => g.id)).toEqual(['first', 'second']);
+  expect(result.omitted).toEqual([]);
+});
+
+it.each([
+  ['https://example.test/match/101', 'https://example.test/match/102'],
+  ['https://example.test/matches/101', 'https://example.test/matches/102'],
+  ['https://example.test/game/101', 'https://example.test/game/102'],
+  ['https://example.test/games/101', 'https://example.test/games/102'],
+  ['https://example.test/fixture/101', 'https://example.test/fixture/102'],
+  ['https://example.test/fixtures/101', 'https://example.test/fixtures/102'],
+  ['https://example.test/results?match_id=101', 'https://example.test/results?match_id=102'],
+])('retains distinct source fixtures across merged identities: %s', async (first, second) => {
+  const tables = fixtures();
+  tables.games = [
+    game('first', A, B, { event_name: 'Cup', provider_id: 'one', source_url: first }),
+    game('second', OLD_A, B, { event_name: 'Cup', provider_id: 'one', source_url: second }),
+  ];
+  const result = await fetchPredictionEvidence(database(tables).client, [A, OLD_A, B]);
+  expect(result.games.map((g) => g.id)).toEqual(['first', 'second']);
+  expect(result.review_team_ids).toEqual([]);
+});
+
+it('does not mistake different team-history pages for proof of separate fixtures', async () => {
+  const tables = fixtures();
+  tables.games = [
+    game('first', A, B, {
+      event_name: 'Cup',
+      provider_id: 'one',
+      source_url: 'https://example.test/teams/101/game-history',
+    }),
+    game('second', OLD_A, B, {
+      event_name: 'Cup',
+      provider_id: 'one',
+      source_url: 'https://example.test/teams/102/game-history',
+    }),
+  ];
+  const result = await fetchPredictionEvidence(database(tables).client, [A, OLD_A, B]);
+  expect(result.games).toEqual([]);
+  expect(result.review_team_ids).toEqual([A, B]);
+  expect(result.omitted.map((row) => row.record.id)).toEqual(['first', 'second']);
+});
+
+it('quarantines ambiguous copies without discarding a known distinct fixture', async () => {
+  const tables = fixtures();
+  tables.games = [
+    game('a-original', A, B, { event_name: 'Cup', provider_id: 'one', source_url: 'https://example.test/matches/101' }),
+    game('b-copy', OLD_A, B, { event_name: 'Cup', provider_id: 'one', source_url: 'https://example.test/matches/101' }),
+    game('c-distinct', OLD_A, B, {
+      event_name: 'Cup',
+      provider_id: 'one',
+      source_url: 'https://example.test/matches/102',
+    }),
+  ];
+  const result = await fetchPredictionEvidence(database(tables).client, [A, OLD_A, B]);
+  expect(result.games.map((g) => g.id)).toEqual(['c-distinct']);
+  expect(result.omitted.map((row) => row.record.id)).toEqual(['a-original', 'b-copy']);
+});
+
+it('keeps a one-assessed-team preview usable and generates real cluster trials for a full field', async () => {
+  const tables = fixtures();
+  tables.games = [game('history', A, C)];
+  const one = await buildSeedingPredictions(database(tables).client, { 'u14|Male': { '0': A } }, { model: 'results' });
+  expect(one.cohorts['u14|Male'].sensitivity).toEqual([]);
+  const two = await buildSeedingPredictions(
+    database(tables).client,
+    { 'u14|Male': { '0': A, '1': B } },
+    { model: 'results' }
+  );
+  const variants = two.cohorts['u14|Male'].sensitivity!;
+  expect(variants.filter((row) => row.kind === 'cluster_resample')).toHaveLength(12);
+  expect(variants.every((row) => row.predictions.length === 2)).toBe(true);
+});
+
+it('preserves ambiguous cross-provider records for review without recommending their affected teams', async () => {
+  const tables = fixtures();
+  tables.games = [
+    game('one', A, B, { event_name: 'Cup', provider_id: 'first' }),
+    game('two', A, B, { event_name: 'Cup', provider_id: 'second' }),
+  ];
+  const evidence = await fetchPredictionEvidence(database(tables).client, [A, B]);
+  expect(evidence.games).toHaveLength(0);
+  expect(evidence.omitted.map((row) => row.record.id)).toEqual(['one', 'two']);
+  expect(evidence.review_team_ids).toEqual([A, B]);
+  const batch = await buildSeedingPredictions(database(tables).client, { 'u14|Male': { '0': A, '1': B } });
+  expect(batch.cohorts['u14|Male'].unavailable_codes).toEqual({ '0': 'metadata_conflict', '1': 'metadata_conflict' });
+  expect(batch.cohorts['u14|Male'].predictions).toEqual([]);
 });

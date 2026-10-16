@@ -29,9 +29,9 @@ from src.tournaments.seeding_tiers import (
     build_tiers,
 )
 
-PACK_SCHEMA_VERSION = 7
-ANALYSIS_SCHEMA_VERSION = 10
-_UPGRADABLE_PACK_SCHEMAS = frozenset({3, 4, 5, 6, 7})
+PACK_SCHEMA_VERSION = 8
+ANALYSIS_SCHEMA_VERSION = 11
+_UPGRADABLE_PACK_SCHEMAS = frozenset({3, 4, 5, 6, 7, 8})
 _AGE_GROUP = re.compile(r"^u[1-9][0-9]?$")
 _LEGACY_UNAVAILABLE_REASONS = {
     "Two roster entries resolve to the same team; verify the matches.": (
@@ -176,7 +176,7 @@ def retain_matching_cohorts(pack: Any, rows, resolved, overrides) -> Any:
     When no cohort matches, keep the dated pack only as a rebuild source. The
     analysis/export guard still rejects its stale roster fingerprint.
     """
-    if not isinstance(pack, dict) or pack.get("schema_version") not in {6, PACK_SCHEMA_VERSION}:
+    if not isinstance(pack, dict) or pack.get("schema_version") not in {6, 7, PACK_SCHEMA_VERSION}:
         return pack
     fingerprints = cohort_fingerprints(rows, resolved, overrides)
     saved = pack.get("cohort_fingerprints", {})
@@ -189,7 +189,8 @@ def retain_matching_cohorts(pack: Any, rows, resolved, overrides) -> Any:
     retained["saved_manual_decisions"] = _saved_manual_decisions(pack)
     retained["selected_cohorts"] = selected
     for field in ("cohort_fingerprints", "teams", "unavailable", "unavailable_codes", "input_digests",
-                  "predictions", "manual_groups", "manual_seed_orders", "ordering", "boundary_analysis"):
+                  "predictions", "manual_groups", "manual_seed_orders", "ordering", "boundary_analysis",
+                  "input_evidence", "sensitivity_predictions"):
         retained[field] = {key: value for key, value in pack.get(field, {}).items() if key in selected}
     return retained
 
@@ -241,6 +242,11 @@ def make_pack(
         "ratings_as_of": batch.ratings_as_of,
         "predictor_sha256": batch.predictor_sha256,
         "input_digests": getattr(batch, "input_digests", {}),
+        "prediction_model": getattr(batch, "model", "legacy"),
+        "ordering_method": "cohort_expected_points_v1" if getattr(batch, "model", "legacy") != "legacy" else "legacy",
+        "input_evidence": getattr(batch, "evidence", {}),
+        "sensitivity_predictions": getattr(batch, "sensitivity", {}),
+        "calibration_inputs": getattr(batch, "calibration_inputs", {}),
         "teams": batch.teams,
         "unavailable": batch.unavailable,
         "unavailable_codes": batch.unavailable_codes,
@@ -300,7 +306,7 @@ def snapshot_matches_roster(
     matches = (
         isinstance(pack.get("cohort_fingerprints"), dict)
         and all(pack["cohort_fingerprints"].get(key) == fingerprints.get(key) for key in saved_selection)
-        if pack.get("schema_version") in (6, PACK_SCHEMA_VERSION) else
+        if pack.get("schema_version") in (6, 7, PACK_SCHEMA_VERSION) else
         pack.get("roster_fingerprint") == roster_fingerprint(rows, resolved, overrides)
     )
     return (
@@ -351,6 +357,8 @@ def _snapshot_predictions(
             "generated_at": pack.get("generated_at"),
             "ratings_as_of": pack.get("ratings_as_of"),
             "input_digests": pack.get("input_digests", {}),
+            "model": pack.get("prediction_model", "legacy"),
+            "evidence": pack.get("input_evidence", {}),
             "cohorts": {
                 key: {
                     **{section: pack[section][key] for section in ("teams", "unavailable", "predictions")},
@@ -491,12 +499,43 @@ def analyze_pack(
             legacy=legacy,
             manual_order=manual["seeded"] if manual is not None else None,
             manual_holds=manual["held"] if manual is not None else (),
+            ordering_method=pack.get("ordering_method", "legacy"),
         )
+        if analysis.ordering_evidence:
+            evidence = dict(analysis.ordering_evidence)
+            evidence["prediction_model"] = pack.get("prediction_model", "legacy")
+            evidence["input_digest"] = pack.get("input_digests", {}).get(key)
+            evidence["status"] = "preview_unvalidated"
+            for entrant, detail in evidence["teams"].items():
+                results = pack["teams"][key].get(entrant, {}).get("result_evidence")
+                if results:
+                    detail["results"] = results
+                    adjustment = results["correction"]
+                    detail["reason"] += (
+                        f" Recent opponent-adjusted results shift its goal estimate by {adjustment:+.2f}.")
+                    if results.get("unknownOpponentGames"):
+                        detail["cautions"].append(
+                            f"{results['unknownOpponentGames']} game(s) lack usable opponent ratings.")
+                    if results.get("limited") and not detail["limited_history"]:
+                        detail["cautions"].append("Limited recent opponent evidence; placement needs review.")
+            analysis = replace(analysis, ordering_evidence=evidence)
         analyses[tuple(key.split("|", 1))] = replace(analysis, tier_guidance=build_tier_guidance(
             analysis, entrants, snapshot_predictions[key], policy, library,
             profile_id=pack.get("format_profile_id"), tier_names=pack.get("tier_names", {}).get(key, ()),
             format_preferences=effective_preferences(pack, key),
         ))
+        if pack.get("prediction_model") == "results":
+            from src.tournaments.seeding_sensitivity import assess_game_sensitivity
+            final = analyses[tuple(key.split("|", 1))]
+            sensitivity = assess_game_sensitivity(
+                final, entrants, snapshot_predictions[key], pack.get("sensitivity_predictions", {}).get(key, []),
+                policy, library, teams=pack["teams"][key], generated_at=pack["generated_at"],
+                profile_id=pack.get("format_profile_id"), tier_names=pack.get("tier_names", {}).get(key, ()),
+                format_preferences=effective_preferences(pack, key),
+            )
+            evidence = dict(final.ordering_evidence)
+            evidence["game_sensitivity"] = sensitivity
+            analyses[tuple(key.split("|", 1))] = replace(final, ordering_evidence=evidence)
     if pack.get("ordering") and pack["ordering"] != ordering_snapshot(analyses):
         raise ValueError("Seeding snapshot has inconsistent saved ordering evidence.")
     if (
@@ -520,6 +559,8 @@ def ordering_snapshot(
                 asdict(item) for item in analysis.local_consensus_checks
             ],
             "conflicts": [asdict(item) for item in analysis.ordering_conflicts],
+            **({"cohort_evidence": {key: value for key, value in analysis.ordering_evidence.items()
+                                    if key != "game_sensitivity"}} if analysis.ordering_evidence else {}),
         }
         for key, analysis in analyses.items()
     }
@@ -573,7 +614,7 @@ def upgrade_pack_analysis(
     """
     if (
         pack.get("schema_version") not in _UPGRADABLE_PACK_SCHEMAS
-        or pack.get("analysis_schema_version") not in (1, 2, 3, 4, 5, 6, 7, 8, 9)
+        or pack.get("analysis_schema_version") not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
     ):
         raise ValueError("This saved pack requires a fresh build.")
     if not snapshot_matches_roster(pack, rows, resolved, overrides, selected):
@@ -610,12 +651,15 @@ def placement_review_fingerprint(pack: dict[str, Any], key: str, analysis: Cheat
         "predictor": pack["predictor_sha256"], "teams": pack["teams"][key],
         "predictions": pack["predictions"][key], "analysis": asdict(analysis),
         "notes": pack.get("operator_notes", {}).get(key, ""),
+        "input_digest": pack.get("input_digests", {}).get(key),
+        "prediction_model": pack.get("prediction_model", "legacy"),
     }
     return hashlib.sha256(json.dumps(payload, sort_keys=True, allow_nan=False).encode()).hexdigest()
 
 
 def needs_placement_review(pack: dict[str, Any], key: str, analysis: CheatSheetAnalysis) -> bool:
-    unresolved_reversal = any(not item.supported for item in analysis.local_consensus_checks)
+    unresolved_reversal = bool(analysis.ordering_evidence) or any(
+        not item.supported for item in analysis.local_consensus_checks)
     if (not analysis.limited_history and not unresolved_reversal and not analysis.ordering_conflicts
             and not analysis.tier_guidance.get("review_required")):
         return False

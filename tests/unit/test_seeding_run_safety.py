@@ -530,6 +530,23 @@ def test_a_loaded_runs_name_wins_over_the_kept_one(switcher):
     assert app.text_input(key="seeding_event_name").value == "Loaded Cup"
 
 
+def test_add_cohort_draft_and_confirmation_survive_hidden_widgets(switcher):
+    app = switcher
+    parsed = parse_roster(EVENT_ROWS)
+    app.session_state["_seeding_result"] = (parsed, _unresolved(parsed))
+    app.session_state["_seeding_active_step"] = 1
+    app.run()
+    text = "Girls U13\nNew Club\tNew Team\tVA"
+    app.text_area(key="seeding_add_cohort_text").input(text).run()
+    app.checkbox(key="_seeding_add_complete").check().run()
+    _switch_away_and_back(app)
+    assert app.text_area(key="seeding_add_cohort_text").value == text
+    assert app.checkbox(key="_seeding_add_complete").value is True
+    next(button for button in app.button if button.label == "Start a new tournament").click().run()
+    assert app.text_area(key="seeding_add_cohort_text").value == text
+    assert any("pasted" in error.value.lower() for error in app.error)
+
+
 def test_a_loaded_run_clears_a_paste_box_that_was_hidden(switcher):
     app = switcher
     app.radio(key="_seeding_source").set_value("Paste team list").run()
@@ -567,3 +584,63 @@ def test_the_tab_shows_a_waiting_notice_once(switcher):
     assert [item.value for item in app.warning] == ["Carried across the rerun"]
     app.run()
     assert not app.warning
+
+
+def test_new_run_save_failure_keeps_active_session_and_backtest(monkeypatch):
+    fake = _FakeSt()
+    monkeypatch.setattr(intake, "st", fake)
+    fake.session_state.update(_seeding_result=("roster", "matches"), seeding_event_name="Unsaved", backtest="keep")
+    monkeypatch.setattr(intake, "_persisted_seeding_run_matches_active", lambda: False)
+    monkeypatch.setattr(intake, "_autosave_seeding_run", lambda: False)
+    before = dict(fake.session_state)
+    assert intake._request_new_seeding_run() is False
+    assert dict(fake.session_state) == before
+
+
+def test_new_run_saves_then_resets_only_seeding_session(monkeypatch):
+    fake = _FakeSt()
+    monkeypatch.setattr(intake, "st", fake)
+    fake.session_state.update(_seeding_result=("roster", "matches"), seeding_event_name="Original",
+                              _seeding_pack={"notes": "saved"}, _seed_name_0="Old", backtest="keep")
+    saves = []
+    monkeypatch.setattr(intake, "_persisted_seeding_run_matches_active", lambda: False)
+    monkeypatch.setattr(intake, "_autosave_seeding_run", lambda: saves.append(dict(fake.session_state)) or True)
+    assert intake._request_new_seeding_run()
+    intake._apply_new_seeding_run()
+    assert saves[0]["_seeding_pack"] == {"notes": "saved"}
+    assert "_seeding_result" not in fake.session_state
+    assert "_seeding_pack" not in fake.session_state
+    assert "_seed_name_0" not in fake.session_state
+    assert fake.session_state.backtest == "keep"
+    assert fake.session_state.seeding_event_name.startswith("New tournament ")
+    assert fake.session_state._seeding_source == "Paste team list"
+    assert fake.session_state._seeding_active_step == 1
+
+
+def test_new_run_preserves_unimported_replacement_after_an_existing_run(monkeypatch):
+    fake = _FakeSt()
+    monkeypatch.setattr(intake, "st", fake)
+    fake.session_state.update(_seeding_result=("saved roster", "matches"), seeding_roster_text=PASTE_ROWS)
+    monkeypatch.setattr(intake, "_persisted_seeding_run_matches_active", lambda: True)
+    assert not intake._request_new_seeding_run()
+    assert fake.session_state.seeding_roster_text == PASTE_ROWS
+    assert "_seeding_new_run_pending" not in fake.session_state
+
+
+def test_append_new_cohort_preserves_existing_identity_decisions_and_saves(store, monkeypatch):
+    fake = _FakeSt()
+    monkeypatch.setattr(intake, "st", fake)
+    _open_event_run(fake, store)
+    fake.session_state._seeding_add_complete = True
+    fake.session_state._seeding_overrides = {0: {"not_found": True}}
+    monkeypatch.setattr(intake, "_run_seeding_name_lookup", lambda *a, **k: None)
+    assert intake._append_seeding_cohorts("Girls U13\nNew Club\tNew Team\tVA", None)
+    run = load_run("cup-a", base_dir=store)
+    assert [row.team_name_raw for row in run.rows[:2]] == ["Event Team A", "Event Team B"]
+    assert run.rows[-1].source_index == 2
+    assert run.overrides[0]["not_found"]
+    assert run.assessment["coverage"] == "complete"
+    assert "u13|Female" in run.assessment["cohort_coverage"]
+    before = (store / "cup-a" / "seeding_run.json").read_bytes()
+    assert not intake._append_seeding_cohorts("Girls U13\nNew Club\tDuplicate\tVA", None)
+    assert (store / "cup-a" / "seeding_run.json").read_bytes() == before

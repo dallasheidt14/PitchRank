@@ -7,6 +7,7 @@ import { predictMatch, type MatchPrediction, warmMatchPredictorCalibration } fro
 import type { Game, TeamWithRanking } from './types';
 import { MLS_NEXT_PROVIDER_CODES, normalizeAgeGroup } from './utils';
 import { formatGender } from '@/lib/constants';
+import { canonicalPredictionIds, predictionIdentityClosure } from './predictionIdentity';
 
 export interface MatchPredictionResponse {
   teamA: {
@@ -38,7 +39,7 @@ interface MatchPredictionBuildResult {
   shadowContext: MatchPredictionShadowContext;
 }
 
-export const MATCH_PREDICTION_VERSION = 'heuristic_v6_neutral_selection_prior';
+export const MATCH_PREDICTION_VERSION = 'heuristic_v6_canonical_evidence_v1';
 
 type TeamRow = {
   team_id_master: string;
@@ -108,10 +109,6 @@ type PredictiveRow = {
   exp_goals_against?: number | null;
 };
 
-type MergeRow = {
-  deprecated_team_id: string;
-};
-
 const BASE_RANKINGS_FULL_FIELDS =
   'age_group, gender, rank_in_cohort_final, power_score_final, glicko_rating, glicko_rd, glicko_volatility, sos_norm, off_norm, def_norm, wins, losses, draws, games_played, last_calculated, status';
 const OPTIONAL_RANKINGS_FULL_PREDICTION_FIELDS =
@@ -160,46 +157,7 @@ function normalizeGenderCode(rawGender: string | null | undefined): 'M' | 'F' | 
   return null;
 }
 
-async function resolveCanonicalTeamId(supabase: SupabaseClient, teamId: string): Promise<string> {
-  const { data, error } = await supabase
-    .from('team_merge_map')
-    .select('canonical_team_id')
-    .eq('deprecated_team_id', teamId)
-    .maybeSingle();
-
-  if (error) {
-    throw error;
-  }
-
-  return data?.canonical_team_id ?? teamId;
-}
-
-export async function resolvePredictionTeamIds(
-  supabase: SupabaseClient,
-  teamId: string
-): Promise<{ canonicalTeamId: string; allTeamIds: string[] }> {
-  const canonicalTeamId = await resolveCanonicalTeamId(supabase, teamId);
-  const { data, error } = await supabase
-    .from('team_merge_map')
-    .select('deprecated_team_id')
-    .eq('canonical_team_id', canonicalTeamId);
-
-  if (error) {
-    throw error;
-  }
-
-  const allTeamIds = [canonicalTeamId];
-  (data as MergeRow[] | null)?.forEach((row) => {
-    if (row.deprecated_team_id) {
-      allTeamIds.push(row.deprecated_team_id);
-    }
-  });
-
-  return {
-    canonicalTeamId,
-    allTeamIds: [...new Set(allTeamIds)],
-  };
-}
+export const resolvePredictionTeamIds = predictionIdentityClosure;
 
 export type PredictionTeam = TeamWithRanking & {
   ratings_as_of: string | null;
@@ -394,9 +352,16 @@ export async function fetchPredictionTeam(
   return team;
 }
 
-export async function fetchPredictionGames(supabase: SupabaseClient, teamIds: string[]): Promise<Game[]> {
-  const cutoffDate = new Date();
-  cutoffDate.setDate(cutoffDate.getDate() - 365);
+export async function fetchPredictionEvidence(
+  supabase: SupabaseClient,
+  teamIds: string[],
+  asOf = new Date().toISOString().slice(0, 10),
+  exclusionsClient: SupabaseClient = supabase
+) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(asOf) || !Number.isFinite(Date.parse(asOf)))
+    throw new Error('Invalid prediction date');
+  const cutoffDate = new Date(asOf + 'T00:00:00Z');
+  cutoffDate.setUTCDate(cutoffDate.getUTCDate() - 365);
 
   // Both Compare and Seeding use this stable order, including same-day games.
   // Page below the local PostgREST cap and keep the complete filter below its
@@ -411,9 +376,10 @@ export async function fetchPredictionGames(supabase: SupabaseClient, teamIds: st
       const { data, error } = await supabase
         .from('games')
         .select(
-          'id, game_date, home_team_master_id, away_team_master_id, home_score, away_score, competition, division_name, event_name, ml_overperformance'
+          'id, game_date, home_team_master_id, away_team_master_id, home_score, away_score, competition, division_name, event_name, ml_overperformance, provider_id, source_url, scraped_at'
         )
         .gte('game_date', cutoffDate.toISOString().split('T')[0])
+        .lte('game_date', asOf)
         .not('home_score', 'is', null)
         .not('away_score', 'is', null)
         .or(`home_team_master_id.in.(${batch.join(',')}),away_team_master_id.in.(${batch.join(',')})`)
@@ -428,22 +394,153 @@ export async function fetchPredictionGames(supabase: SupabaseClient, teamIds: st
     }
   }
 
-  return [...games.values()].sort(comparePredictionGames).map((game) => ({
-    ...game,
-    result: game.result ?? null,
-    competition: game.competition ?? null,
-    division_name: game.division_name ?? null,
-    event_name: game.event_name ?? null,
-    venue: game.venue ?? null,
-    provider_id: game.provider_id ?? null,
-    source_url: game.source_url ?? null,
-    scraped_at: game.scraped_at ?? null,
-    created_at: game.created_at ?? '',
-    ml_overperformance: game.ml_overperformance ?? null,
-    is_excluded: game.is_excluded ?? false,
-    home_provider_id: game.home_provider_id ?? '',
-    away_provider_id: game.away_provider_id ?? '',
-  }));
+  const excludedIds: string[] = [];
+  for (let offset = 0; ; offset += 1000) {
+    const { data, error } = await exclusionsClient
+      .from('team_ranking_exclusions')
+      .select('team_id_master')
+      .order('team_id_master', { ascending: true })
+      .range(offset, offset + 999);
+    if (error) throw error;
+    excludedIds.push(...(data ?? []).map((row) => row.team_id_master));
+    if ((data?.length ?? 0) < 1000) break;
+  }
+  const identities = await canonicalPredictionIds(supabase, [
+    ...teamIds,
+    ...excludedIds,
+    ...[...games.values()]
+      .flatMap((game) => [game.home_team_master_id, game.away_team_master_id])
+      .filter((id): id is string => !!id),
+  ]);
+  const excluded = new Set(excludedIds.map((id) => identities.get(id) ?? id));
+  const omitted: Array<{ game_id: string; reason: string; team_ids: string[]; record: Game }> = [];
+  const evidence: Array<Game & { original_home_team_id: string | null; original_away_team_id: string | null }> = [];
+  const seen = new Map<string, Game[]>();
+  const ambiguous = new Set<string>();
+  for (const game of [...games.values()].sort(comparePredictionGames)) {
+    const home = identities.get(game.home_team_master_id ?? '') ?? game.home_team_master_id;
+    const away = identities.get(game.away_team_master_id ?? '') ?? game.away_team_master_id;
+    let reason = '';
+    if (game.is_excluded || excluded.has(home ?? '') || excluded.has(away ?? '')) reason = 'excluded';
+    else if (!home || !away || home === away) reason = 'unresolved_or_self_match';
+    else if (game.game_date > asOf || game.game_date < cutoffDate.toISOString().slice(0, 10)) reason = 'outside_window';
+    else if (
+      ![game.home_score, game.away_score].every(
+        (value) => typeof value === 'number' && Number.isInteger(value) && value >= 0
+      )
+    )
+      reason = 'invalid_score';
+    // Date, score and event cannot prove that two provider records are one match.
+    // Quarantine ambiguous copies for source review; keep ordinary repeat games.
+    const sides = [
+      [home, game.home_score],
+      [away, game.away_score],
+    ].sort((a, b) => String(a[0]).localeCompare(String(b[0])));
+    const signature = JSON.stringify([game.game_date, sides, game.event_name ?? game.competition ?? null]);
+    const priorGames = seen.get(signature) ?? [];
+    const conflicts = priorGames.filter((prior) => {
+      const first = sourceFixtureIdentity(prior),
+        second = sourceFixtureIdentity(game);
+      if (first && second && first.namespace === second.namespace && first.id !== second.id) return false;
+      return (
+        ambiguous.has(prior.id) ||
+        [prior.home_team_master_id, prior.away_team_master_id].sort().join('|') !==
+          [game.home_team_master_id, game.away_team_master_id].sort().join('|') ||
+        (prior.provider_id && game.provider_id && prior.provider_id !== game.provider_id)
+      );
+    });
+    if (!reason && conflicts.length) {
+      reason = 'ambiguous_duplicate_fixture';
+      ambiguous.add(game.id);
+      for (const prior of conflicts) {
+        ambiguous.add(prior.id);
+        const index = evidence.findIndex((row) => row.id === prior.id);
+        if (index >= 0) {
+          evidence.splice(index, 1);
+          omitted.push({ game_id: prior.id, reason, team_ids: [home!, away!], record: prior });
+        }
+      }
+    }
+    if (reason) {
+      if (reason === 'ambiguous_duplicate_fixture') seen.set(signature, [...priorGames, game]);
+      omitted.push({
+        game_id: game.id,
+        reason,
+        team_ids: [home, away].filter((id): id is string => !!id),
+        record: game,
+      });
+      continue;
+    }
+    seen.set(signature, [...priorGames, game]);
+    evidence.push({
+      ...game,
+      home_team_master_id: home,
+      away_team_master_id: away,
+      original_home_team_id: game.home_team_master_id,
+      original_away_team_id: game.away_team_master_id,
+      result: game.result ?? null,
+      competition: game.competition ?? null,
+      division_name: game.division_name ?? null,
+      event_name: game.event_name ?? null,
+      venue: game.venue ?? null,
+      provider_id: game.provider_id ?? null,
+      source_url: game.source_url ?? null,
+      scraped_at: game.scraped_at ?? null,
+      created_at: game.created_at ?? '',
+      ml_overperformance: game.ml_overperformance ?? null,
+      is_excluded: false,
+      home_provider_id: game.home_provider_id ?? '',
+      away_provider_id: game.away_provider_id ?? '',
+    });
+  }
+  const involved = new Set([
+    ...teamIds,
+    ...[...games.values()]
+      .flatMap((g) => [g.home_team_master_id, g.away_team_master_id])
+      .filter((id): id is string => !!id),
+  ]);
+  return {
+    schema_version: 1,
+    as_of: asOf,
+    window_start: cutoffDate.toISOString().slice(0, 10),
+    games: evidence,
+    aliases: Object.fromEntries([...identities].filter(([id]) => involved.has(id)).sort()),
+    omitted,
+    review_team_ids: [
+      ...new Set(omitted.filter((row) => row.reason === 'ambiguous_duplicate_fixture').flatMap((row) => row.team_ids)),
+    ].sort(),
+    excluded_team_ids: [...excluded].filter((id) => [...involved].some((raw) => identities.get(raw) === id)).sort(),
+  };
+}
+
+function sourceFixtureIdentity(game: Game): { namespace: string; id: string } | null {
+  if (!game.provider_id || !game.source_url) return null;
+  try {
+    const url = new URL(game.source_url);
+    const fixtureId = /^(?:\d+|[a-f0-9]{8}-[a-f0-9-]{27})$/i;
+    for (const [key, value] of url.searchParams) {
+      if (/^(?:game|match|fixture)_?id$/i.test(key) && fixtureId.test(value)) {
+        return {
+          namespace: `${game.provider_id}|${url.origin}${url.pathname}|${key.toLowerCase()}`,
+          id: value.toLowerCase(),
+        };
+      }
+    }
+    const match = url.pathname.match(/^(.*\/(?:games?|match(?:es)?|fixtures?))\/([^/]+)\/?$/i);
+    return match && fixtureId.test(match[2])
+      ? { namespace: `${game.provider_id}|${url.origin}${match[1]}`, id: match[2].toLowerCase() }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchPredictionGames(
+  supabase: SupabaseClient,
+  teamIds: string[],
+  asOf?: string
+): Promise<Game[]> {
+  return (await fetchPredictionEvidence(supabase, teamIds, asOf)).games;
 }
 
 export function comparePredictionGames(left: Game, right: Game): number {
@@ -463,7 +560,8 @@ export async function buildMatchPrediction(
 export async function buildMatchPredictionWithShadowContext(
   supabase: SupabaseClient,
   teamAId: string,
-  teamBId: string
+  teamBId: string,
+  exclusionsClient: SupabaseClient = supabase
 ): Promise<MatchPredictionBuildResult> {
   await warmMatchPredictorCalibration();
 
@@ -481,10 +579,30 @@ export async function buildMatchPredictionWithShadowContext(
     fetchPredictionTeam(supabase, resolvedTeamB.canonicalTeamId),
   ]);
 
-  const games = await fetchPredictionGames(supabase, [
-    ...new Set([...resolvedTeamA.allTeamIds, ...resolvedTeamB.allTeamIds]),
-  ]);
+  const evidence = await fetchPredictionEvidence(
+    supabase,
+    [...new Set([...resolvedTeamA.allTeamIds, ...resolvedTeamB.allTeamIds])],
+    undefined,
+    exclusionsClient
+  );
 
+  if (
+    [teamAId, teamBId, resolvedTeamA.canonicalTeamId, resolvedTeamB.canonicalTeamId].some((id) =>
+      evidence.excluded_team_ids.includes(id)
+    )
+  ) {
+    throw new AppError('A selected team is excluded from ranking evidence.', 'prediction_unavailable', 422);
+  }
+  const games = evidence.games;
+  if (
+    [resolvedTeamA.canonicalTeamId, resolvedTeamB.canonicalTeamId].some((id) => evidence.review_team_ids.includes(id))
+  ) {
+    throw new AppError(
+      'Possible duplicate game records need source review before predicting.',
+      'prediction_unavailable',
+      422
+    );
+  }
   const prediction = predictMatch(teamA, teamB, games);
   const explanation = explainMatch(teamA, teamB, prediction);
 

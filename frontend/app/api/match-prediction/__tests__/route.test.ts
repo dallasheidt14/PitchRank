@@ -29,6 +29,9 @@ vi.mock('@/lib/matchPredictionShadow', () => ({
 }));
 
 import { POST } from '../route';
+import { createServiceSupabase } from '@/lib/supabase/service';
+
+vi.mock('@/lib/supabase/service', () => ({ createServiceSupabase: vi.fn(() => ({ service: true })) }));
 
 const TEAM_A_ID = '11111111-1111-1111-1111-111111111111';
 const TEAM_B_ID = '22222222-2222-2222-2222-222222222222';
@@ -90,6 +93,7 @@ describe('POST /api/match-prediction', () => {
     const response = await POST(makeRequest({ teamAId: TEAM_A_ID, teamBId: TEAM_B_ID }));
 
     expect(response.status).toBe(401);
+    expect(createServiceSupabase).not.toHaveBeenCalled();
     await expect(response.json()).resolves.toEqual({ error: 'Not authenticated' });
   });
 
@@ -150,6 +154,7 @@ describe('POST /api/match-prediction', () => {
 
     expect(response.status).toBe(200);
     expect(mockBuildMatchPrediction).toHaveBeenCalledTimes(1);
+    expect(mockBuildMatchPrediction).toHaveBeenCalledWith(expect.anything(), TEAM_A_ID, TEAM_B_ID, { service: true });
     expect(body.teamA.team_name).toBe('Alpha FC');
     expect(body.teamB.team_name).toBe('Beta FC');
     expect(body.prediction.predictedWinner).toBe('team_a');
