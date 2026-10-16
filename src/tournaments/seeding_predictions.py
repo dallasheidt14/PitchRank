@@ -59,7 +59,7 @@ class SeedingPredictionBatch:
 
 
 def seeding_predictor_sha256() -> str:
-    """Include live input mapping and the bridge alongside Compare/calibration."""
+    """Identify prediction inputs and the Python path that constructs seed orders."""
     digest = hashlib.sha256(canonical_predictor_sha256().encode("ascii"))
     for path in (
         _FRONTEND_DIR / "lib" / "matchPredictionService.ts",
@@ -69,6 +69,10 @@ def seeding_predictor_sha256() -> str:
         _SCRIPT,
         _SHIM,
         Path(__file__),
+        Path(__file__).with_name("seeding_pack.py"),
+        Path(__file__).with_name("seeding_tiers.py"),
+        Path(__file__).with_name("seeding_cohort_order.py"),
+        Path(__file__).with_name("seeding_suggested_order.py"),
     ):
         contents = path.read_bytes()
         digest.update(path.name.encode("utf-8"))

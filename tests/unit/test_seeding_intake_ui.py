@@ -946,7 +946,8 @@ render_assessment(parsed, resolved, {})
 
 
 
-def test_saved_catalog_update_keeps_the_frozen_evidence_and_operator_choices(operator):
+@pytest.mark.parametrize("old_version", ["1.0.0", "2.0.0"])
+def test_saved_catalog_update_keeps_the_frozen_evidence_and_operator_choices(operator, old_version):
     import json
 
     from src.tournaments.seeding_format_library import LEGACY_LIBRARY_PATH
@@ -954,16 +955,28 @@ def test_saved_catalog_update_keeps_the_frozen_evidence_and_operator_choices(ope
     app, calls = operator
     click(app, "Build seeding sheets")
     pack = deepcopy(app.session_state["_seeding_pack"])
-    pack["format_library"] = json.loads(LEGACY_LIBRARY_PATH.read_text())
+    if old_version == "1.0.0":
+        pack["format_library"] = json.loads(LEGACY_LIBRARY_PATH.read_text())
+    else:
+        library = pack["format_library"]
+        library["library_version"] = "2.0.0"
+        library["profiles"] = [p for p in library["profiles"] if p["profile_id"] != "matchbalance-expanded-v3"]
+        library["recommendation_policies"] = [p for p in library["recommendation_policies"]
+                                             if p["policy_id"] != "matchbalance-practical-within-policy-v2"]
+        for profile in library["profiles"]:
+            profile["is_default"] = profile["profile_id"] == "matchbalance-expanded-v2"
     pack["operator_notes"] = {"u14|Male": "Preserve this director note"}
     pack["tier_names"] = {"u14|Male": ["Gold"]}
     pack["manual_seed_orders"] = {"u14|Male": {"seeded": ["1", "0"], "held": []}}
     app.session_state["_seeding_pack"] = pack
     app.run()
-    assert app.session_state["_seeding_pack"]["format_library"]["schema_version"] == 1
-    click(app, "Use expanded formats for this saved analysis")
+    assert app.session_state["_seeding_pack"]["format_library"]["library_version"] == old_version
+    click(app, "Use current formats and tier guidance")
     updated = app.session_state["_seeding_pack"]
-    assert updated["format_library"]["schema_version"] == 2
+    assert updated["format_library"]["library_version"] == "2.1.0"
+    app.run()
+    assert not app.exception
+    assert not any(b.label == "Use current formats and tier guidance" for b in app.button)
     for field in ("teams", "predictions", "generated_at", "operator_notes", "tier_names", "manual_seed_orders"):
         assert updated[field] == pack[field]
     assert len(calls) == 1

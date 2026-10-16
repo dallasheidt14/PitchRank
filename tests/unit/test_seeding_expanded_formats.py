@@ -59,7 +59,7 @@ def test_catalog_reproduces_checked_in_definitions_and_covers_source(library):
     expected = build_catalog()
     assert expected == json.loads(library.source_path.read_text(encoding="utf-8"))
     assert library.schema_version == 2
-    assert resolve_format_profile(library).profile_id == "matchbalance-expanded-v2"
+    assert resolve_format_profile(library).profile_id == "matchbalance-expanded-v3"
     entries, count = set(), None
     for line in SOURCE.read_text(encoding="utf-8").splitlines():
         heading = re.match(r"### (\d+\+?) teams", line)
@@ -311,3 +311,29 @@ def test_format_choice_does_not_weight_repeated_fixtures_or_change_strength_boun
     assert plans[0] == plans[1]
     assert plans[0].required_unique_pairing_count == 28
     assert first.format_options != second.format_options
+
+
+@pytest.mark.parametrize("exact", [False, True])
+def test_practical_sizes_precede_division_count_and_preserve_legacy_policy(library, exact):
+    ids, teams, predictions = matrix(12, equal=True)
+    outcomes = []
+    for profile_id in ("matchbalance-expanded-v2", "matchbalance-expanded-v3"):
+        profile = resolve_format_profile(library, profile_id)
+        profile = replace(profile, template_ids=tuple(
+            key for key in profile.template_ids if library.templates_by_id[key].team_count in {3, 4, 9}
+        ), max_candidate_structures=1 if exact else 10000)
+        result = suggest_automatic_flights(ids, predictions, TierPolicy(), teams, library, profile)
+        chosen = next(p for p in result.assessment.plans if p.plan_id == result.primary_plan_id)
+        assert result.generation.search_complete
+        outcomes.append(chosen.flight_sizes)
+        if profile_id.endswith("v3"):
+            assert all(min(alt.flight_sizes) >= 4 for alt in result.useful_alternatives)
+    assert outcomes == [(3, 9), (4, 4, 4)]
+
+
+@pytest.mark.parametrize("minimum", [True, 0, 2, 3.5, "4"])
+def test_invalid_preferred_division_size_is_rejected(minimum):
+    raw = build_catalog()
+    raw["recommendation_policies"][-1]["preferred_minimum_division_size"] = minimum
+    with pytest.raises(ValueError, match="Preferred minimum division size"):
+        parse_format_library(raw)

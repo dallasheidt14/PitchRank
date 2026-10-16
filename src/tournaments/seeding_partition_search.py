@@ -178,7 +178,16 @@ def search_partitions(
     primary = compromise = None
     complete = False
     try:
-        best_worst = minimax(passing, "worst")
+        # This is a whole-arrangement preference, before division count or cost.
+        # Reuse interval evidence and the shared state budget for the fallback pass.
+        minimum = recommendation_policy.preferred_minimum_division_size
+        preferred = [[edge for edge in row if minimum is None or edge.end - edge.start >= minimum]
+                     for row in passing]
+        best_worst = minimax(preferred, "worst")
+        if best_worst:
+            passing = preferred
+        elif minimum is not None:
+            best_worst = minimax(passing, "worst")
         if best_worst:
             first_count = min(best_worst)
             threshold = best_worst[first_count]

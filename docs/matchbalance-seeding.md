@@ -155,9 +155,19 @@ incomplete if optimality has not been established; a shortened alternatives list
 does not mean the primary optimization is incomplete.
 
 The default recommendation policy considers only structurally valid plans with
-complete predictions and no projected matchup violations. It prefers the fewest
+complete predictions and no projected matchup violations. The current automatic
+profile first prefers arrangements where every strength division has at least
+four teams, if any such arrangement passes. Within that set it prefers the fewest
 competitive flights, then lower worst matchup cost, then lower pair-weighted
-average cost, with deterministic ties. It reports limited-history passes as
+average cost, with deterministic ties. Three-team divisions remain an explained
+fallback when no fully assessed larger-division arrangement passes the competitive
+limits and format restrictions. A small cost improvement alone cannot justify one.
+
+This preference applies to strength divisions, not their pools. Six similarly
+strong teams can form one tier with two pools of three. A severe strength gap can
+justify a standalone three-team tier when extending it would violate the matchup
+limits. Every potential matchup across the whole tier is still evaluated; pool
+assignments cannot hide a mismatch. The sheet reports limited-history passes as
 provisional, retains useful alternatives, and returns review-required status
 when no complete within-policy arrangement exists. Team-count compatibility is
 not a claim of field, time, referee, or schedule feasibility. The saved profile
@@ -175,8 +185,8 @@ lower maximum games, then fewer matches and a stable identifier. Outside that
 guarantee range, the nearest guarantee is preferred first. Compatible formats stay
 in the operator evidence view; they are different from alternative tier splits.
 
-Reopened runs retain their embedded catalog. **Use expanded formats for this saved
-analysis** explicitly updates formats while keeping frozen ratings and predictions;
+Reopened runs retain their embedded catalog. **Use current formats and tier guidance**
+explicitly updates the formats and tier-selection policy while keeping frozen ratings and predictions;
 a rebuild also uses the current catalog. Both retain valid matching decisions,
 manual order, holds, notes, and tier names. Format and preference changes invalidate
 affected review/export identities; a cohort override leaves other cohort reviews valid.
