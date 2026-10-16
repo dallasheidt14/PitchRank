@@ -81,6 +81,44 @@ def test_age_token_span(name, matched, widened):
     assert name[got_start:got_end] == widened
 
 
+@pytest.mark.parametrize(
+    "name,matched,widened",
+    [
+        # A club number joined to a year is part of the club: glued to its letters...
+        ("CF10 - 2013 White", "2013", "2013"),
+        ("CF10 – 2013 White", "2013", "2013"),
+        ("T11 - 2014B", "2014B", "2014B"),
+        # ...or bare and naming no birth year.
+        ("Extreme Touch 90 - 2012 PDL", "2012", "2012"),
+        ("Team LA 59-62 - 2008", "2008", "2008"),
+        # Whatever follows the club number is read whole: a band, a combined cohort, a year.
+        ("T11 - 16/17B", "17B", "16/17B"),
+        ("T11 - B2007/09 Riedell", "B2007", "B2007/09"),
+        ("Extreme Touch 90 - '15B", "15B", "'15B"),
+        # Glued to a letter, but consecutive years: a band.
+        ("Nevada FC17-18G Elite", "18G", "17-18G"),
+        # Glued, but led by a four-digit year: a combined cohort.
+        ("Pikuni C2007-11 CL", "2007", "2007-11"),
+        # Glued, but joined by a slash, which joins years and never a club number.
+        ("Nevada FC13/15G Riedell", "15G", "13/15G"),
+        # Glued, but written as a year: a gender letter after it, or an apostrophe.
+        ("Nevada FC13B-15B Riedell", "15B", "13B-15B"),
+        ("Nevada FC'07-09B Riedell", "09B", "'07-09B"),
+        # Not glued, and the lead is a birth year: a combined cohort.
+        ("Club B2007/09 Lee", "B2007", "B2007/09"),
+        ("Club 13-15 Lee", "13", "13-15"),
+        ("13-15 Club Lee", "13", "13-15"),
+        # A gender letter on either side makes the lead a year, even one no birth year can be.
+        ("Club G02-15 Lee", "G02", "G02-15"),
+        ("Club 04B-07 Lee", "04B", "04B-07"),
+    ],
+)
+def test_a_club_number_joined_to_a_year_is_not_a_band(name, matched, widened):
+    start = name.index(matched)
+    got_start, got_end = age_token_span(name, start, start + len(matched))
+    assert name[got_start:got_end] == widened
+
+
 def test_a_name_past_the_band_scan_limit_is_left_as_matched():
     name = "Club 2013/2014 Riedell " + "x" * 200
     assert age_token_span(name, 5, 9) == (5, 9)
@@ -139,6 +177,7 @@ _CLUB_EXTRACTORS = [
         ("Texas Premier SC 13/14B", "Texas Premier SC"),
         ("Portage SC 14/15B Yellow", "Portage SC"),
         ("Nevada FC 17/18G Elite", "Nevada FC"),
+        ("Nevada FC13/15G Riedell", "Nevada FC"),
         ("Club B2012/13 Riedell", "Club"),
         ("Phoenix Rising FC B2014 Black", "Phoenix Rising FC"),
         ("Ames SC 13/14u Girls Yellow", "Ames SC"),
@@ -147,6 +186,31 @@ _CLUB_EXTRACTORS = [
 )
 def test_every_club_extractor_cuts_at_the_start_of_the_whole_band(extract, name, expected):
     assert extract(name) == expected
+
+
+@pytest.mark.parametrize("extract", _CLUB_EXTRACTORS)
+@pytest.mark.parametrize(
+    "name,expected",
+    [
+        ("CF10 - 2013 White", "CF10"),
+        ("T11 - 2014B", "T11"),
+        ("T11 - 16/17B", "T11"),
+        ("T11 - B2007/09 Riedell", "T11"),
+        ("SSE90 - 2017 -Girls", "SSE90"),
+        ("Wave Riders - R64-14B-SELECT", "Wave Riders - R64"),
+        ("Extreme Touch 90 - 2012 PDL", "Extreme Touch 90"),
+        ("Extreme Touch 90 - '15B", "Extreme Touch 90"),
+        ("Team LA 59-62 - 2008", "Team LA 59-62"),
+    ],
+)
+def test_every_club_extractor_keeps_a_club_number_joined_to_a_year(extract, name, expected):
+    assert extract(name) == expected
+
+
+@pytest.mark.parametrize("reader", _READERS)
+@pytest.mark.parametrize("name", ["T11 - B2007/09 Riedell", "Club 04B/07B Riedell"])
+def test_every_reader_reads_the_label_after_a_combined_cohort(reader, name):
+    assert reader(name) == "riedell"
 
 
 @pytest.mark.parametrize("name", ["Chelsea SC B2014/15 OG", "Chelsea SC B2015 OG"])

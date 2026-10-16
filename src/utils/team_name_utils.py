@@ -432,6 +432,39 @@ _UAGE_RUN = re.compile(
     r"(?![\dA-Za-z])",
     re.I,
 )
+# One year of a band run, with the gender letters and apostrophe it may carry.
+_BAND_RUN_YEAR = re.compile(r"([BbGgMmFf]?)(['‘’]?)(20[0-9]{2}|[0-9]{2})([BbGgMmFf]?)")
+
+
+def _band_run_span(name: str, run: re.Match) -> tuple[int, int]:
+    """The part of a band run that is the team's age.
+
+    A club number joined to a year by a dash matches the band grammar as one run:
+    "CF10 - 2013", "T11 - 2014B", "Team LA 59-62 - 2008". A club number is two digits
+    not written as a year, glued to the word before them or naming no birth year, that
+    the years after it do not run on from. A letter glued in front of the digits is not
+    a mark of a year, since it can end the club's own word ("CF10"). Each club number
+    is left to the club, and whatever follows is the age, read whole: "T11 - 16/17B",
+    "T11 - B2007/09", "Extreme Touch 90 - '15B".
+    """
+    text = run.group(0)
+    found = list(_BAND_RUN_YEAR.finditer(text))
+    years = [int(m.group(3)) if len(m.group(3)) == 4 else _four_digit_year(m.group(3)) for m in found]
+
+    def club_number(i: int) -> bool:
+        prefix, apostrophe, digits, suffix = found[i].groups()
+        at = run.start() + found[i].start()
+        glued = at > 0 and name[at - 1].isalpha()
+        written_as_year = apostrophe or suffix or (prefix and not glued)
+        non_year = not _BIRTH_YEAR_MIN <= years[i] <= _BIRTH_YEAR_MAX
+        dashed = "/" not in text[found[i].end() : found[i + 1].start()]
+        runs_on = all(abs(a - b) == 1 for a, b in zip(years[i:], years[i + 1 :]))
+        return len(digits) == 2 and not written_as_year and (glued or non_year) and dashed and not runs_on
+
+    first = 0
+    while first < len(found) - 1 and club_number(first):
+        first += 1
+    return run.start() + found[first].start(), run.end()
 
 
 def age_token_span(name: str, start: int, end: int) -> tuple[int, int]:
@@ -445,10 +478,11 @@ def age_token_span(name: str, start: int, end: int) -> tuple[int, int]:
     """
     if len(name) > _BAND_SCAN_LIMIT:
         return start, end
-    for pattern in (_BAND_RUN_RE, _UAGE_RUN):
-        for run in pattern.finditer(name):
-            if run.start() < end and start < run.end():
-                start, end = min(start, run.start()), max(end, run.end())
+    spans = [_band_run_span(name, run) for run in _BAND_RUN_RE.finditer(name)]
+    spans += [run.span() for run in _UAGE_RUN.finditer(name)]
+    for span in spans:
+        if span[0] < end and start < span[1]:
+            start, end = min(start, span[0]), max(end, span[1])
     return start, end
 
 
