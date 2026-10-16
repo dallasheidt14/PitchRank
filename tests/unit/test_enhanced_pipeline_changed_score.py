@@ -197,6 +197,30 @@ def test_a_correction_applied_before_the_client_saw_an_error_stays_approved(monk
     assert (game["home_score"], game["away_score"]) == (3, 1)
 
 
+def test_two_meetings_of_the_same_teams_in_one_batch_are_not_read_as_a_changed_score(monkeypatch):
+    game = _stored(GREMIO, AFC, 2, 0)
+    db = _CorrectionsDB([game])
+    pool_game, final = _incoming(GREMIO, AFC, 2, 0), _incoming(GREMIO, AFC, 1, 3)
+
+    _import_pipeline(monkeypatch, db, [pool_game, final], uid_check=True)
+
+    assert db.corrections == []
+    assert (game["home_score"], game["away_score"]) == (2, 0)
+
+
+def test_both_perspectives_of_one_changed_game_give_one_correction(monkeypatch):
+    game = _stored(GREMIO, AFC, 0, 0)
+    db = _CorrectionsDB([game])
+
+    _, pipeline = _import_pipeline(
+        monkeypatch, db, [_incoming(GREMIO, AFC, 3, 1), _incoming(AFC, GREMIO, 1, 3, result="L")], uid_check=True
+    )
+
+    assert len(db.corrections) == 1
+    assert (game["home_score"], game["away_score"]) == (3, 1)
+    assert pipeline.metrics.scores_corrected == 1
+
+
 def test_a_changed_score_without_a_result_is_counted_and_not_written(monkeypatch):
     game = _stored(GREMIO, AFC, 0, 0)
     db = _CorrectionsDB([game])

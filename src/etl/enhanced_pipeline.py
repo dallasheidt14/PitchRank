@@ -857,9 +857,9 @@ class EnhancedETLPipeline:
                         await self._backfill_scores(null_score_updates, regen_uid_master_ids, batch_metrics)
 
                     if self.provider_code and self.provider_code.lower() in SCORE_CORRECTION_PROVIDERS:
-                        changed_score_updates = [
-                            g for g in true_dupes if self._stored_score_differs(g, regen_uid_master_ids[g["game_uid"]])
-                        ]
+                        changed_score_updates = self._changed_score_games(
+                            regen_dupes_list, true_dupes, regen_uid_master_ids
+                        )
                         if changed_score_updates:
                             await self._correct_changed_scores(
                                 changed_score_updates, regen_uid_master_ids, batch_metrics
@@ -1815,6 +1815,27 @@ class EnhancedETLPipeline:
         """True when the incoming scores, read on the stored row's sides, differ from the stored ones."""
         sides = self._scores_on_stored_sides(game, existing)
         return sides is not None and sides != (existing["home_score"], existing["away_score"])
+
+    def _changed_score_games(
+        self, incoming_dupes: List[Dict], true_dupes: List[Dict], game_uid_to_master_ids: Dict[str, Dict]
+    ) -> List[Dict]:
+        """One game per game_uid whose single reported score differs from the stored one.
+
+        A GotSport game_uid is date plus team pair, so two meetings the same day (a pool game and a
+        final) share one. A uid the batch reports with two different scores cannot be told apart
+        from a changed score, so it is left alone.
+        """
+        scores_by_uid: Dict[str, set] = {}
+        for game in incoming_dupes:
+            uid = game["game_uid"]
+            scores_by_uid.setdefault(uid, set()).add(self._scores_on_stored_sides(game, game_uid_to_master_ids[uid]))
+
+        changed: Dict[str, Dict] = {}
+        for game in true_dupes:
+            uid = game["game_uid"]
+            if len(scores_by_uid[uid]) == 1 and self._stored_score_differs(game, game_uid_to_master_ids[uid]):
+                changed.setdefault(uid, game)
+        return list(changed.values())
 
     async def _correct_changed_scores(
         self, games: List[Dict], game_uid_to_master_ids: Dict[str, Dict], batch_metrics: ImportMetrics
