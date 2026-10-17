@@ -63,7 +63,7 @@ away_score        INT
 game_date         DATE
 provider_id       UUID              -- FK to providers(id), not a code string
 event_name        TEXT
--- Games are NEVER updated, only inserted
+-- Never UPDATE game data; team links and corrections only (see below)
 ```
 
 `result` (`W`/`L`/`D`/`U`) is from the **scraping team's** side, not the home side: a `W` row can be
@@ -78,6 +78,18 @@ in `corrected_values` beside both scores: the RPC writes `result` from it and cl
 absent. Keep the side the stored `result` already describes, which its own scores show unless the
 game was a draw; a filled score can describe a different side from its siblings. A later score
 fill leaves `source_url` as it was, so it does not say which team's page supplied the score.
+
+The same trigger (`enforce_game_immutability`, running `prevent_game_updates()`) allows one change to
+team links in a direct UPDATE: `home_team_master_id` and/or `away_team_master_id` may go from NULL to
+a team, or a single side from a team to NULL, while every other checked column stays the same. A
+direct UPDATE never turns one team id into another (only `apply_game_correction` with
+`correction_type` `teams` does), so moving a side takes two writes: clear it in SQL, then let a
+filling step write it. CLAUDE.md's "never UPDATE a game row" still governs: clearing a side yourself
+is an exception that needs the owner's OK on the exact plan first. The link-opponent and create-team routes, and the unknown-opponent apply and
+discovery steps, fill only NULL sides. Clear both sides of one game with one UPDATE per side. The
+admin route `frontend/app/api/unlink-opponent/route.ts` is not a one-side clear: it also deletes the
+alias and, by default, clears every game of that provider id on the team. The only other trigger on
+`games` fires `AFTER UPDATE OF is_excluded`.
 
 ### `rankings_full`
 
@@ -126,6 +138,28 @@ one canonical team holds games from several providers. When acting on the games 
 filter `games.provider_id` to the alias's provider as well as the side's provider team id and master
 id. Leave unfiltered any check that must see every copy of a fixture — `trg_propagate_game_exclusion`
 matches date, team pair and scores whatever the provider.
+
+**Undoing a wrong unknown-opponent auto-link.** Rejecting the alias does not undo it:
+`discover_teams_from_opponents.py` skips any provider id holding an alias of any status
+(`_alias_exists`), so the squad never gets its own team, and the conflict guard in
+`apply_unknown_opponent_matches.py` lets a rejected alias that points at the same team flip back to
+approved. The fix clears game sides, so it needs the owner's OK on the exact plan (ids, sides and
+counts) before it runs, as for any game UPDATE. With that OK, delete the alias in one transaction that
+aborts unless every alias still exists and still points at the wrong team:
+- clear only the wrong side of their games (filtered as above), `RETURNING` into a temp table, with a
+  guard on the count cleared;
+- delete the aliases;
+- insert one `team_link_audit` row per alias with `games_updated` set to the sides it cleared,
+  `reverted_at` and `reverted_by` set, and `notes` listing the cleared `side:game_id`s;
+- end on a SELECT that reads as success.
+
+Then run `discover_teams_from_opponents.py --match-report <csv> --execute`, where the CSV has one row
+per id with `unknown_provider_team_id`, `action` = `no_match` and `provider_code` = `gotsport`; a row
+missing any of the three is skipped without a message. It creates each squad's team and `direct_id`
+alias, fills the cleared sides and queues a scrape. Its dry run reports every row "already exists"
+until the transaction has committed. Check that every row of the execute report reads `created`:
+`exists_team` and `skipped_api_empty` fill nothing, so those sides stay NULL. Fix whatever made the
+link before the next Tuesday run, which otherwise makes it again.
 
 ### `team_merge_map`
 ```sql
