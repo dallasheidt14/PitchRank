@@ -396,6 +396,8 @@ def decide(pair, ev):
         verdict, why = "REFUSE", "birth years disagree once labels are resolved"
     elif fused:
         verdict, why = "REVIEW", "a row already carries several concurrent registrations from one provider"
+    elif max(len(raw_a), len(raw_b)) > _BAND_SCAN_LIMIT:
+        verdict, why = "REVIEW", "a registered name is too long for the band check to read"
     elif states_a_band(raw_a) != states_a_band(raw_b):
         verdict, why = "REVIEW", "a two-year band on one side only, visible in the registered name"
     elif years_a and years_b and years_a != years_b:

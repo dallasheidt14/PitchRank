@@ -13,6 +13,9 @@ from scripts.decide_team_merges import decide, states_a_band  # noqa: E402
 MERGE_ID, KEEP_ID = "mmmmmmmm-0000-4000-8000-000000000001", "kkkkkkkk-0000-4000-8000-000000000002"
 ONE_SIDED = "a two-year band on one side only, visible in the registered name"
 RE_REGISTRATION = "same birth year, schedules never overlap — a re-registration"
+TOO_LONG = "a registered name is too long for the band check to read"
+# Past the 200-character scan limit, with no digit to read as an age or a year.
+PADDING = " Development Academy Program" * 8
 
 
 def judge(merge_name, keep_name, age_group="u19", merge_original=None, keep_original=None):
@@ -168,6 +171,23 @@ def test_a_single_year_against_its_u_label_still_merges():
 
 def test_one_year_on_each_side_still_merges():
     assert judge("Rush 2014 Red", "Rush B2014 Red", age_group="u13") == ("MERGE", RE_REGISTRATION)
+
+
+def test_a_name_past_the_scan_limit_on_one_side_goes_to_review():
+    short, long = "Rush 2014 Red", "Rush 2014 Red" + PADDING
+    assert (judge(short, long, age_group="u13"), judge(long, short, age_group="u13")) == (
+        ("REVIEW", TOO_LONG),
+        ("REVIEW", TOO_LONG),
+    )
+
+
+def test_a_u_age_range_past_the_scan_limit_does_not_merge():
+    assert judge("Rush U9/10 Red" + PADDING, "Rush U10 Red" + PADDING, age_group="u10") == ("REVIEW", TOO_LONG)
+
+
+def test_a_name_at_the_scan_limit_is_still_read():
+    at_limit = ("Rush U9/10 Red" + PADDING)[:200]
+    assert (len(at_limit), judge("Rush 2018 Red", at_limit, age_group="u9")) == (200, ("REVIEW", ONE_SIDED))
 
 
 def test_past_the_scan_limit_only_the_band_regex_reads():
