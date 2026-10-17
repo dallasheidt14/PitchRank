@@ -48,6 +48,7 @@ from scripts.team_cleanup.run_store import (  # noqa: E402
     file_hash,
     run_dir,
     stage_dir,
+    stage_progress,
     write_run,
 )
 from src.tournaments.storage._file_lock import _acquire_file_lock  # noqa: E402
@@ -517,22 +518,34 @@ def _store(tmp_path):
     return store
 
 
-def _page(folder, stage, proposals):
-    """Stage files as propose_week and pages.py leave them: proposals, a manifest and page.json's hashes."""
+def _page(folder, stage, proposals, auto=()):
+    """Stage files as propose_week and pages.py leave them: proposals, a manifest sending the proposals of
+    the teams named in ``auto`` to the automatic lane, and page.json's hashes."""
     write_json(folder / PREFLIGHT_MARKER, {"passed": True})
     write_json(folder / PROPOSALS_FILE, proposals, indent=1)
     write_json(folder / STALE_FILE, [], indent=1)
     (folder / PROPOSE_MARKER).write_text("", encoding="utf-8")
-    cards = {card_id(PAGE_RUN, f"{p['team_id_master']}|{p['field']}|{p['new_value']}"): p for p in proposals}
-    write_json(folder / MANIFEST_FILE, {"run": PAGE_RUN, "cleanup_run": RUN, "stage": stage, "cards": cards}, indent=1)
+    sent = {_id(name) for name in auto}
+
+    def by_card(chosen):
+        return {card_id(PAGE_RUN, f"{p['team_id_master']}|{p['field']}|{p['new_value']}"): p for p in chosen}
+
+    cards = by_card(p for p in proposals if p["team_id_master"] not in sent)
+    lane = by_card(p for p in proposals if p["team_id_master"] in sent)
+    manifest = {"run": PAGE_RUN, "cleanup_run": RUN, "stage": stage, "cards": cards, "auto": lane}
+    write_json(folder / MANIFEST_FILE, manifest, indent=1)
     names = (PROPOSALS_FILE, pw.APPLIER_INPUTS[stage], MANIFEST_FILE)
-    write_json(folder / PAGE_MARKER, {"run": PAGE_RUN, "hashes": {n: file_hash(folder / n) for n in names}}, indent=1)
+    marker = {"run": PAGE_RUN, "auto": len(lane), "hashes": {n: file_hash(folder / n) for n in names}}
+    write_json(folder / PAGE_MARKER, marker, indent=1)
 
 
 def _choose(tmp_path, store, stage, picks):
-    """Save the owner's choices as the page does, picks keyed by team name, and collect them."""
+    """Save the owner's choices as the page does, picks keyed by team name, and collect them, and the
+    automatic lane's changes too when the page sent it some."""
     folder = stage_dir(store, RUN, stage)
     manifest = read_json(folder / MANIFEST_FILE)
+    if manifest["auto"]:
+        col.collect(store, RUN, stage, None, "auto")
     out = tmp_path / "out" / stage
     saved = out / f"decisions-{PAGE_RUN}"
     saved.mkdir(parents=True, exist_ok=True)
@@ -561,14 +574,14 @@ def _scan_row(name, stored, proposed):
     }
 
 
-def _clubs(tmp_path, store, rows, picks):
+def _clubs(tmp_path, store, rows, picks, auto=()):
     folder = stage_dir(store, RUN, "clubs")
     folder.mkdir(parents=True, exist_ok=True)
     scan = tmp_path / "scan.csv"
     swapped.write_log([swapped.snapshot_csv_row(r) for r in rows], scan)
     kept, proposals = pw.club_proposals(pw._read_csv(scan), ["NV"])
     swapped.write_log(kept, folder / pw.SCOPED_CLUBS)
-    _page(folder, "clubs", proposals)
+    _page(folder, "clubs", proposals, auto)
     return _choose(tmp_path, store, "clubs", picks)
 
 
@@ -614,7 +627,7 @@ def _decision(name, pre, proposed, action="apply", tier="B", club="Club", confid
     }
 
 
-def _states(tmp_path, store, decisions, picks, rules="authority", elsewhere=()):
+def _states(tmp_path, store, decisions, picks, rules="authority", elsewhere=(), auto=()):
     """The national run as propose_week saves it, with ``elsewhere``'s decisions outside the NV scope."""
     folder = stage_dir(store, RUN, "states")
     folder.mkdir(parents=True, exist_ok=True)
@@ -622,7 +635,7 @@ def _states(tmp_path, store, decisions, picks, rules="authority", elsewhere=()):
     write_json(folder / "national_snapshot.json", snapshot, indent=1)
     scoped, proposals = pw.state_proposals(snapshot, ["NV"])
     write_json(folder / pw.SCOPED_STATES, scoped, indent=1)
-    _page(folder, "states", proposals)
+    _page(folder, "states", proposals, auto)
     return _choose(tmp_path, store, "states", picks)
 
 
@@ -1322,7 +1335,7 @@ def test_collect_refuses_while_an_apply_holds_the_run(tmp_path):
 
     assert str(caught.value) == (
         f"Cannot collect the clubs choices for {RUN}: run {RUN} is in use on this machine (an apply, revert, "
-        "collect or end_run holds its lock)"
+        "collect, page build or end_run holds its lock)"
     )
 
 
@@ -3090,12 +3103,15 @@ def test_a_foreign_write_in_the_rest_window_refuses_the_revert(tmp_path, monkeyp
 
 
 def _undo_section(store, stage):
-    """RECORD.md's undo: the whole-stage revert, which keeps to the window and the writer checks, and its
+    """RECORD.md's undo: the whole-lane revert, which keeps to the window and the writer checks, and its
     dry run."""
     revert = ["scripts/team_cleanup/apply_stage.py", "--run", RUN, "--stage", stage, "--revert"]
     whole = subprocess.list2cmdline([*revert, "--execute", "--store", str(store)])
     preview = subprocess.list2cmdline([*revert, "--store", str(store)])
-    return f"## Undo\n\nThe whole stage: `python {whole}`\n\nIts dry run, which writes nothing: `python {preview}`\n"
+    return (
+        f"## Undo\n\nEvery batch of the owner's choices: `python {whole}`\n\n"
+        f"Its dry run, which writes nothing: `python {preview}`\n"
+    )
 
 
 def test_the_states_record_offers_only_the_whole_stage_revert(tmp_path, monkeypatch, capsys):
@@ -3503,8 +3519,8 @@ def test_a_closed_run_s_revert_waits_for_another_holder_of_its_file_lock(tmp_pat
         message = _refused(monkeypatch, capsys, store, "clubs", "--revert", "--execute")
 
     assert message == (
-        f"Cannot revert the clubs stage of {RUN}: run {RUN} is in use on this machine (an apply, revert, collect "
-        "or end_run holds its lock)"
+        f"Cannot revert the clubs stage of {RUN}: run {RUN} is in use on this machine (an apply, revert, collect, "
+        "page build or end_run holds its lock)"
     )
     assert len(runner.commands) == 2
 
@@ -3861,3 +3877,304 @@ def test_status_and_end_run_name_the_batches_a_stopped_apply_left_applied(tmp_pa
     )
     assert f"  clubs      next: {expected}" in status.describe(store, run)
     assert f"clubs: next, {expected}" in end_run.unfinished(store, run)
+
+
+# --- the automatic lane ---------------------------------------------------------------------------
+
+
+def _club_lanes(tmp_path, auto, owner):
+    """A clubs stage whose page sent ``auto``'s changes to the automatic lane and showed ``owner``'s as cards
+    chosen Apply, both lanes collected."""
+    store = _store(tmp_path)
+    names = (*auto, *owner)
+    rows = [_scan_row(name, "LVSA", f"Club {name}") for name in names]
+    _clubs(tmp_path, store, rows, dict.fromkeys(owner, "apply"), auto)
+    return store, _Db(teams=[_team(name, club="LVSA") for name in names])
+
+
+def _clubs_of(db, names):
+    return {name: db.team(_id(name))["club_name"] for name in names}
+
+
+def test_the_automatic_lane_applies_its_own_changes_from_its_own_folder(tmp_path, monkeypatch, capsys):
+    store, db = _club_lanes(tmp_path, auto=("a1", "a2"), owner=("o1",))
+    _wire(monkeypatch, db, _Runner(db))
+
+    code, _ = _main(monkeypatch, capsys, store, "clubs", "--lane", "auto", "--execute")
+
+    folder = stage_dir(store, RUN, "clubs")
+    assert code == 0
+    assert _clubs_of(db, ("a1", "a2", "o1")) == {"a1": "Club a1", "a2": "Club a2", "o1": "LVSA"}
+    assert sorted((r["team_id_master"], r["decision"], r["source"]) for r in _decisions(db)) == sorted(
+        [(_id("a1"), "apply", f"auto:{PAGE_RUN}"), (_id("a2"), "apply", f"auto:{PAGE_RUN}")]
+    )
+    assert [r["team_id_master"] for r in _ledger(db)] == sorted([_id("a1"), _id("a2")])
+    record = (folder / "auto" / "RECORD.md").read_text(encoding="utf-8")
+    assert record.startswith(f"# the clubs automatic lane applied, run {RUN}")
+    assert "Every batch of the automatic lane: `python " in record and "--lane auto --revert --execute" in record
+    assert (folder / "auto" / "apply.json").exists()
+    assert not (folder / "apply.json").exists() and not (folder / "RECORD.md").exists()
+
+    code, _ = _main(monkeypatch, capsys, store, "clubs", "--execute")
+
+    assert code == 0 and _clubs_of(db, ("o1",)) == {"o1": "Club o1"}
+    assert stage_progress(store, RUN, "clubs").finished
+
+
+def test_an_applied_automatic_lane_is_not_applied_again_while_the_owner_s_choices_wait(tmp_path, monkeypatch, capsys):
+    store, db = _club_lanes(tmp_path, auto=("a1",), owner=("o1",))
+    runner = _Runner(db)
+    _wire(monkeypatch, db, runner)
+    assert _main(monkeypatch, capsys, store, "clubs", "--lane", "auto", "--execute")[0] == 0
+
+    message = _refused(monkeypatch, capsys, store, "clubs", "--lane", "auto", "--execute")
+
+    assert message == f"Cannot apply the clubs automatic lane of {RUN}: the clubs automatic lane is already applied"
+    assert len(runner.commands) == 1
+
+
+def test_a_stage_is_finished_only_once_its_automatic_lane_is_applied_too(tmp_path, monkeypatch, capsys):
+    store, db = _club_lanes(tmp_path, auto=("a1",), owner=("o1",))
+    _wire(monkeypatch, db, _Runner(db))
+    assert _main(monkeypatch, capsys, store, "clubs", "--execute")[0] == 0
+    run = read_json(run_dir(store, RUN) / "run.json")
+
+    lines = status.describe(store, run)
+
+    waiting = "the owner runs the automatic lane's apply"
+    assert not stage_progress(store, RUN, "clubs").finished
+    assert "  clubs      the owner's choices are applied" in lines
+    assert " " * 13 + f"automatic lane next: {waiting}" in lines
+    assert f"clubs: automatic lane next, {waiting}" in end_run.unfinished(store, run)
+    with pytest.raises(SystemExit, match="clubs: automatic lane next"):
+        end_run.check(store, run, "done")
+
+
+def test_an_automatic_lane_revert_undoes_only_its_own_changes_and_stamps_only_its_ledger_rows(
+    tmp_path, monkeypatch, capsys
+):
+    store, db = _club_lanes(tmp_path, auto=("a1", "a2"), owner=("o1",))
+    runner = _Runner(db)
+    _wire(monkeypatch, db, runner)
+    for lane in ("auto", "owner"):
+        assert _main(monkeypatch, capsys, store, "clubs", "--lane", lane, "--execute")[0] == 0
+    lane = stage_dir(store, RUN, "clubs") / "auto"
+    log = read_json(lane / "apply.json")["batches"][0]["logs"][0]
+
+    code, _ = _main(monkeypatch, capsys, store, "clubs", "--lane", "auto", "--revert", "--execute")
+
+    assert code == 0
+    assert runner.commands[-1] == ["scripts/repair_swapped_club_names.py", "--revert", log, "--execute"]
+    assert _clubs_of(db, ("a1", "a2", "o1")) == {"a1": "LVSA", "a2": "LVSA", "o1": "Club o1"}
+    assert [r["team_id_master"] for r in _ledger(db) if not r["reverted_at"]] == [_id("o1")]
+    revert = (lane / "REVERT.md").read_text(encoding="utf-8")
+    assert "Stamped reverted_at on 2 ledger row(s); 0 whose team is not back at its old value." in revert
+
+
+def test_the_automatic_lane_s_hold_reads_the_stage_s_national_run_into_its_own_folder(tmp_path, monkeypatch, capsys):
+    store = _store(tmp_path)
+    decisions = [_decision("sure", None, "NV"), _decision("card", None, "NV")]
+    _states(tmp_path, store, decisions, {"card": "apply"}, auto=("sure",))
+    db = _Db(teams=[_team("sure", state=None), _team("card", state=None)])
+    runner = _Runner(db)
+    _wire(monkeypatch, db, runner)
+
+    code, _ = _main(monkeypatch, capsys, store, "states", "--lane", "auto", "--execute")
+
+    folder = stage_dir(store, RUN, "states")
+    assert code == 0
+    assert runner.commands[0] == [
+        "scripts/hold_unsafe_state_applies.py",
+        str(folder / "national_snapshot.json"),
+        str(folder / "auto" / "safe.json"),
+        str(folder / "auto" / "held.json"),
+    ]
+    assert [d["team_id"] for d in read_json(folder / "auto" / "pilot.json")["decisions"]] == [_id("sure")]
+    assert {n: db.team(_id(n))["state_code"] for n in ("sure", "card")} == {"sure": "NV", "card": None}
+
+
+@pytest.mark.parametrize("lane", ["auto", "owner"])
+def test_choices_collected_from_another_build_of_the_page_are_refused(tmp_path, monkeypatch, capsys, lane):
+    store, db = _club_lanes(tmp_path, auto=("a1",), owner=("o1",))
+    runner = _Runner(db)
+    _wire(monkeypatch, db, runner)
+    page = stage_dir(store, RUN, "clubs") / PAGE_MARKER
+    write_json(page, {**read_json(page), "run": "20261015T000000Z-ffffff"}, indent=1)
+
+    message = _refused(monkeypatch, capsys, store, "clubs", "--lane", lane, "--execute")
+
+    assert message.endswith(
+        f"the choices were collected from page run {PAGE_RUN}, not 20261015T000000Z-ffffff, the page as built; "
+        "collect again"
+    )
+    assert runner.commands == [] and _decisions(db) == []
+
+
+def _state_lanes(tmp_path, monkeypatch):
+    """A states stage whose page sent one fill to the automatic lane and showed another as a card chosen Apply."""
+    store = _store(tmp_path)
+    decisions = [_decision("sure", None, "NV"), _decision("card", None, "NV")]
+    _states(tmp_path, store, decisions, {"card": "apply"}, auto=("sure",))
+    db = _Db(teams=[_team("sure", state=None), _team("card", state=None)])
+    _wire(monkeypatch, db, _Runner(db))
+    return store, db
+
+
+def _ran_an_hour_ago(store, db, lane):
+    """The lane's batches, and the audit rows they wrote, as if it had applied an hour ago."""
+    path = stage_dir(store, RUN, "states") / ("auto" if lane == "auto" else "") / "apply.json"
+    progress = read_json(path)
+    for batch in progress["batches"]:
+        batch.update(started_at=_an_hour_earlier(batch["started_at"]), ended_at=_an_hour_earlier(batch["ended_at"]))
+    write_json(path, progress, indent=1)
+    for row in db.tables["team_state_audit"]:
+        row["applied_at"] = _an_hour_earlier(row["applied_at"])
+
+
+def test_a_state_lane_waits_until_its_undo_window_cannot_reach_the_other_lane_s_writes(tmp_path, monkeypatch, capsys):
+    store, db = _state_lanes(tmp_path, monkeypatch)
+    assert _main(monkeypatch, capsys, store, "states", "--lane", "auto", "--execute")[0] == 0
+
+    with pytest.raises(SystemExit) as caught:
+        _main(monkeypatch, capsys, store, "states", "--execute")
+
+    assert caught.value.code == 75 and str(caught.value).startswith("Not applying until ")
+    assert "the other lane's last state batch ended at " in str(caught.value)
+    assert db.team(_id("card"))["state_code"] is None
+
+    _ran_an_hour_ago(store, db, "auto")
+    assert _main(monkeypatch, capsys, store, "states", "--execute")[0] == 0
+    _after_the_windows(monkeypatch)
+
+    assert _main(monkeypatch, capsys, store, "states", "--lane", "auto", "--revert", "--execute")[0] == 0
+    assert {n: db.team(_id(n))["state_code"] for n in ("sure", "card")} == {"sure": None, "card": "NV"}
+    assert [r["team_id_master"] for r in _ledger(db) if r["reverted_at"]] == [_id("sure")]
+
+    assert _main(monkeypatch, capsys, store, "states", "--revert", "--execute")[0] == 0
+    assert {n: db.team(_id(n))["state_code"] for n in ("sure", "card")} == {"sure": None, "card": None}
+
+
+def test_a_stopped_automatic_lane_hands_back_its_own_rerun_and_names_what_it_left_applied(
+    tmp_path, monkeypatch, capsys
+):
+    names = tuple(f"a{i:02d}" for i in range(55))
+    store, db = _club_lanes(tmp_path, auto=names, owner=("o1",))
+    _wire(monkeypatch, db, _Runner(db, codes={"repair_swapped_club_names": [None, 1]}))
+
+    message = _refused(monkeypatch, capsys, store, "clubs", "--lane", "auto", "--execute")
+
+    assert subprocess.list2cmdline(["--stage", "clubs", "--lane", "auto", "--execute"]) in message
+    run = read_json(run_dir(store, RUN) / "run.json")
+    expected = (
+        "the owner runs the automatic lane's apply again; 1 batch(es) applied (pilot) and a failed rest attempt, so "
+        "revert before abandoning the run"
+    )
+    assert " " * 13 + f"automatic lane next: {expected}" in status.describe(store, run)
+    assert f"clubs: automatic lane next, {expected}" in end_run.unfinished(store, run)
+
+
+def test_the_automatic_lane_s_dry_runs_name_the_lane(tmp_path, monkeypatch, capsys):
+    store, db = _club_lanes(tmp_path, auto=("a1",), owner=("o1",))
+    _wire(monkeypatch, db, _Runner(db))
+
+    _, out = _main(monkeypatch, capsys, store, "clubs", "--lane", "auto")
+    assert out.startswith(f"DRY RUN -- the clubs automatic lane for run {RUN}, page run {PAGE_RUN}.")
+
+    assert _main(monkeypatch, capsys, store, "clubs", "--lane", "auto", "--execute")[0] == 0
+    _, out = _main(monkeypatch, capsys, store, "clubs", "--lane", "auto", "--revert")
+    assert out.startswith(f"DRY RUN -- would revert the clubs automatic lane for run {RUN}, newest batch first:")
+
+
+# --- refusals that waiting may lift ---------------------------------------------------------------
+
+
+def _leased_elsewhere(db):
+    expires = (datetime.now(timezone.utc) + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    db.tables["team_cleanup_runs"][0].update(lease_holder="another-machine:1", lease_expires_at=expires)
+
+
+@pytest.mark.parametrize(
+    "wait, reason",
+    [
+        ({"now": WEDNESDAY}, "Outside the apply window"),
+        ({"gh": _busy("calculate-rankings.yml", 5)}, "Not applying while another writer may be running"),
+        ({"db": _leased_elsewhere}, f"Cannot apply the clubs stage of {RUN}: run {RUN} is held by another-machine:1"),
+    ],
+    ids=["outside-the-window", "another-writer", "another-applier"],
+)
+def test_a_refusal_that_waiting_may_lift_exits_75_with_its_reason(tmp_path, monkeypatch, capsys, wait, reason):
+    store, db, _ = _club_week(tmp_path)
+    runner = _Runner(db)
+    wait.get("db", lambda db: None)(db)
+    _wire(monkeypatch, db, runner, **{key: value for key, value in wait.items() if key != "db"})
+
+    with pytest.raises(SystemExit) as caught:
+        _main(monkeypatch, capsys, store, "clubs", "--execute")
+
+    assert caught.value.code == 75
+    assert capsys.readouterr().err.startswith(reason) and str(caught.value).startswith(reason)
+    assert _team_writes(db) == [] and runner.commands == []
+
+
+def test_an_apply_holding_the_run_on_this_machine_exits_75(tmp_path, monkeypatch, capsys):
+    store, db, _ = _club_week(tmp_path)
+    runner = _Runner(db)
+    _wire(monkeypatch, db, runner)
+
+    with _acquire_file_lock(run_dir(store, RUN) / APPLY_LOCK_FILE, timeout=0.0):
+        with pytest.raises(SystemExit) as caught:
+            _main(monkeypatch, capsys, store, "clubs", "--execute")
+
+    assert caught.value.code == 75 and f"run {RUN} is in use on this machine" in capsys.readouterr().err
+    assert runner.commands == []
+
+
+def test_a_collect_while_an_apply_holds_the_run_exits_75(tmp_path, monkeypatch, capsys):
+    store, _ = _club_lanes(tmp_path, auto=("a1",), owner=("o1",))
+    monkeypatch.setattr(
+        sys, "argv", ["collect.py", "--run", RUN, "--stage", "clubs", "--lane", "auto", "--store", str(store)]
+    )
+
+    with _acquire_file_lock(run_dir(store, RUN) / APPLY_LOCK_FILE, timeout=0.0):
+        with pytest.raises(SystemExit) as caught:
+            col.main()
+
+    assert caught.value.code == 75
+    assert capsys.readouterr().err.startswith(f"Cannot collect the clubs automatic lane for {RUN}: run {RUN} is in use")
+
+
+def test_a_refusal_that_waiting_cannot_lift_exits_1(tmp_path, monkeypatch, capsys):
+    store, db, _ = _club_week(tmp_path)
+    _wire(monkeypatch, db, _Runner(db))
+    monkeypatch.setattr(ap, "gh_runs", REAL_GH_RUNS)
+    failed = subprocess.CompletedProcess([], 1, stdout="", stderr="HTTP 401: Bad credentials")
+    monkeypatch.setattr(ap.subprocess, "run", lambda command, **kwargs: failed)
+
+    with pytest.raises(SystemExit) as caught:
+        _main(monkeypatch, capsys, store, "clubs", "--execute")
+
+    assert caught.value.code == str(caught.value) and str(caught.value).startswith("Not applying: gh api")
+
+
+def test_a_stage_that_writes_no_team_records_its_decisions_while_another_writer_runs(tmp_path, monkeypatch, capsys):
+    store = _store(tmp_path)
+    folder = _clubs(tmp_path, store, [_scan_row("no", "LVSA", "Club no")], {"no": "dont_apply"})
+    db = _Db(teams=[_team("no", club="LVSA")])
+    _wire(monkeypatch, db, _Runner(db), gh=_busy("calculate-rankings.yml", 5))
+
+    code, _ = _main(monkeypatch, capsys, store, "clubs", "--execute")
+
+    assert code == 0 and [r["decision"] for r in _decisions(db)] == ["dont_apply"]
+    assert (folder / "RECORD.md").exists() and _clubs_of(db, ("no",)) == {"no": "LVSA"}
+
+
+def test_a_queued_state_card_to_settle_still_waits_for_another_writer(tmp_path, monkeypatch, capsys):
+    store = _store(tmp_path)
+    _states(tmp_path, store, [_decision("q", "WA", "NV", action="queue")], {"q": "dont_apply"})
+    db = _Db(teams=[_team("q", state="WA")])
+    _wire(monkeypatch, db, _Runner(db), gh=_busy("calculate-rankings.yml", 5))
+
+    with pytest.raises(SystemExit) as caught:
+        _main(monkeypatch, capsys, store, "states", "--execute")
+
+    assert caught.value.code == 75 and _decisions(db) == []

@@ -7,12 +7,19 @@ value), every one the write guard listed as stale, every one whose team is gone 
 has moved since, every club change from a tier the scan lists without approving, and every state
 change that a recent GotSport answer or the team's name or club name already answers with the state
 the team holds. Teams users follow (watchlisted, report-card or missing-game teams) are kept inside the
-cap first and lead their group; past the cap the rest are listed and left for next week's scan,
-which proposes them again. It writes three files into the stage folder:
+caps first and lead their group; past the card cap the rest are listed and left for next week's scan,
+which proposes them again.
 
-  page.html            a self-contained page from assets/stage-page.html, one card per proposal
-  page.manifest.json   which proposal each card shows, which of them sure.py finds the evidence
-                       already settles, and what was left off and why
+The changes sure.py finds the evidence already settles go to the stage's automatic lane, with no
+card, up to page_caps.auto in config/team_cleanup.json; past it they stay cards, as every one does
+while it is 0. `collect.py --lane auto` and `apply_stage.py --lane auto` collect and apply that lane.
+page_caps.cards caps the cards. The build writes three files into the stage folder, under the run's
+file lock and only while neither lane has collected from the page:
+
+  page.html            a self-contained page from assets/stage-page.html, one card per proposal shown
+  page.manifest.json   which proposal each card shows, which go to the automatic lane, which of
+                       either sure.py finds the evidence already settles, and what was left off and
+                       why
   page.json            the build: its run, its counts, and the hashes of proposals.json, the
                        applier's input and the manifest, which the collector checks first
 
@@ -31,6 +38,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -62,12 +70,24 @@ from scripts.team_cleanup.decisions import (  # noqa: E402
 from scripts.team_cleanup.propose_week import AGES, APPLIER_INPUTS, CLUBS, PROPOSED_STAGES, STATES  # noqa: E402
 from scripts.team_cleanup.review_page import card_id, fetch_teams, render  # noqa: E402
 from scripts.team_cleanup.run_store import (  # noqa: E402
+    AUTO,
+    CLEANUP_CONFIG,
+    COLLECTED_MARKER,
+    LANE_CARDS,
     MANIFEST_FILE,
+    OWNER,
     PAGE_MARKER,
     PROPOSALS_FILE,
     STALE_FILE,
+    ApplyLockError,
+    Busy,
+    RunBusy,
     file_hash,
+    hold_apply_file,
+    lane_dir,
+    lane_name,
     read_run,
+    reporting_busy,
     stage_dir,
     stage_due,
     store_dir,
@@ -77,7 +97,6 @@ from src.tournaments.storage._io import read_json, utc_now_iso, write_json  # no
 
 TEMPLATE = Path(__file__).resolve().parent / "assets" / "stage-page.html"
 PAGE_FILE = "page.html"
-CARD_CAP = 150
 TITLES = {CLUBS: "Club names", STATES: "States", AGES: "Age groups"}
 # The tiers trusted to apply whole. Every age-plan row (review groups 1-3) is, so ages has no entry.
 # A club proposal from any other tier is a guess the scan lists unapproved, and gets no card.
@@ -85,6 +104,24 @@ WHOLE_TIERS = {
     CLUBS: {"provider", "swap", "word", "bracket"},
     STATES: {"B fill"},
 }
+
+
+@dataclass(frozen=True)
+class Caps:
+    cards: int
+    auto: int
+
+
+def load_caps(path: Path = CLEANUP_CONFIG) -> Caps:
+    """The configured caps on a page's cards and on its automatic lane, each a whole number from 0."""
+    try:
+        spec = json.loads(path.read_text(encoding="utf-8"))["page_caps"]
+        caps = Caps(spec["cards"], spec["auto"])
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise ValueError(f"{path} holds no readable page_caps ({type(exc).__name__}: {exc})") from None
+    if not all(type(cap) is int and cap >= 0 for cap in (caps.cards, caps.auto)):
+        raise ValueError(f"{path}'s page_caps must be whole numbers from 0: {spec}")
+    return caps
 
 
 def group_of(stage: str, proposal: dict) -> str:
@@ -171,7 +208,7 @@ def unmoved(field: str, now, then) -> bool:
 
 
 def sort_out(stage, proposals, stale, declined, answered, teams, canonical, interest):
-    """The proposals due a card, interest teams first so the cap keeps them, and each one left off
+    """The proposals not left off, interest teams first so the caps keep them, and each one left off
     with why."""
     stale_keys = {(s["team_id_master"], s["field"]): s["changed"] for s in stale}
     shown, left_out = [], []
@@ -208,12 +245,16 @@ def alike_key(group: str, p, team) -> str | None:
     return json.dumps([club, group, p["field"], p["old_value"], p["new_value"]])
 
 
+def change_id(run: str, p: dict) -> str:
+    return card_id(run, f"{p['team_id_master']}|{p['field']}|{p['new_value']}")
+
+
 def card(stage, run, p, team, ev, providers, interest) -> dict:
     tid = p["team_id_master"]
     dates = ev.dates[tid]
     group = group_of(stage, p)
     return {
-        "id": card_id(run, f"{tid}|{p['field']}|{p['new_value']}"),
+        "id": change_id(run, p),
         "group": group,
         "whole": whole(stage, group),
         "alike": alike_key(group, p, team),
@@ -236,9 +277,22 @@ def card(stage, run, p, team, ev, providers, interest) -> dict:
     }
 
 
+def display_order(stage: str, interest: set[str]):
+    return lambda p: (group_rank(stage, p), p["team_id_master"] not in interest, name_key(p))
+
+
+def buildable(store: Path, run_id: str, stage: str) -> Path:
+    """The stage folder, while neither lane has collected from the page as built."""
+    folder = stage_due(store, read_run(store, run_id), stage, ("page", "collect"))
+    if (lane_dir(store, run_id, stage, AUTO) / COLLECTED_MARKER).exists():
+        raise ValueError(f"{lane_name(stage, AUTO)} is collected from the page as built, so the page stays as it is")
+    return folder
+
+
 def build(sb, store: Path, run_id: str, stage: str) -> dict:
     run = read_run(store, run_id)
-    folder = stage_due(store, run, stage, ("page", "collect"))
+    folder = buildable(store, run_id, stage)
+    caps = load_caps()
     proposals = read_json(folder / PROPOSALS_FILE)
     stale = read_json(folder / STALE_FILE)
     ids = sorted({p["team_id_master"] for p in proposals})
@@ -250,8 +304,14 @@ def build(sb, store: Path, run_id: str, stage: str) -> dict:
     answered = load_answered(proposals, evidence)
     teams = fetch_teams(sb, ids)
     shown, left_out = sort_out(stage, proposals, stale, declined, answered, teams, canonical, interest)
-    shown, overflow = shown[:CARD_CAP], shown[CARD_CAP:]
-    shown.sort(key=lambda p: (group_rank(stage, p), p["team_id_master"] not in interest, name_key(p)))
+    signals = load_signals(sb, stage, folder, shown, evidence, canonical)
+    settled = {p["team_id_master"]: why for p in shown if (why := sure_because(stage, p, signals))}
+    auto = [p for p in shown if p["team_id_master"] in settled][: caps.auto]
+    sent = {p["team_id_master"] for p in auto}
+    shown = [p for p in shown if p["team_id_master"] not in sent]
+    shown, overflow = shown[: caps.cards], shown[caps.cards :]
+    shown.sort(key=display_order(stage, interest))
+    auto.sort(key=display_order(stage, interest))
 
     page_ids = [p["team_id_master"] for p in shown]
     providers = {p["id"]: p["code"] for p in sb.table("providers").select("id,code").execute().data}
@@ -260,32 +320,44 @@ def build(sb, store: Path, run_id: str, stage: str) -> dict:
     cards = [card(stage, page_run, p, teams[p["team_id_master"]], ev, providers, interest) for p in shown]
     for n, c in enumerate(cards, 1):
         c["n"] = n
-    signals = load_signals(sb, stage, folder, shown, evidence, canonical)
-    sure = {c["id"]: why for c, p in zip(cards, shown) if (why := sure_because(stage, p, signals))}
+    by_id = {c["id"]: p for c, p in zip(cards, shown)}
+    auto_by_id = {change_id(page_run, p): p for p in auto}
+    sure = {
+        cid: settled[p["team_id_master"]]
+        for cid, p in {**by_id, **auto_by_id}.items()
+        if p["team_id_master"] in settled
+    }
     title = f"{TITLES[stage]}: {', '.join(run['scope']['states'])} ({run_id})"
-
-    (folder / PAGE_FILE).write_text(render(TEMPLATE, cards, title, page_run), encoding="utf-8")
     manifest = {
         "run": page_run,
         "cleanup_run": run_id,
         "stage": stage,
         "title": title,
-        "cards": {c["id"]: p for c, p in zip(cards, shown)},
+        LANE_CARDS[OWNER]: by_id,
+        LANE_CARDS[AUTO]: auto_by_id,
         "sure": sure,
         "left_out": left_out,
         "overflow": overflow,
     }
-    write_json(folder / MANIFEST_FILE, manifest, indent=1)
-    marker = {
-        "run": page_run,
-        "built_at": utc_now_iso(),
-        "cards": len(cards),
-        "sure": len(sure),
-        "left_out": len(left_out),
-        "overflow": len(overflow),
-        "hashes": {name: file_hash(folder / name) for name in (PROPOSALS_FILE, APPLIER_INPUTS[stage], MANIFEST_FILE)},
-    }
-    write_json(folder / PAGE_MARKER, marker, indent=1)
+
+    # A lane may have been collected while the evidence was read; the collector holds this lock too.
+    with hold_apply_file(store, run_id):
+        buildable(store, run_id, stage)
+        (folder / PAGE_FILE).write_text(render(TEMPLATE, cards, title, page_run), encoding="utf-8")
+        write_json(folder / MANIFEST_FILE, manifest, indent=1)
+        marker = {
+            "run": page_run,
+            "built_at": utc_now_iso(),
+            "cards": len(cards),
+            AUTO: len(auto_by_id),
+            "sure": len(sure),
+            "left_out": len(left_out),
+            "overflow": len(overflow),
+            "hashes": {
+                name: file_hash(folder / name) for name in (PROPOSALS_FILE, APPLIER_INPUTS[stage], MANIFEST_FILE)
+            },
+        }
+        write_json(folder / PAGE_MARKER, marker, indent=1)
     return marker
 
 
@@ -299,17 +371,26 @@ def main() -> int:
         help="The run store, absolute (default: PITCHRANK_CLEANUP_DIR, else ~/pitchrank-cleanup-runs)",
     )
     args = ap.parse_args()
-    try:
-        store = store_dir(args.store)
-        marker = build(get_client(), store, args.run, args.stage)
-    except DecisionsUnavailable as exc:
-        raise SystemExit(f"{exc}\nThe page waits until the owner's earlier decisions and undos can be read.") from exc
-    except (OSError, ValueError) as exc:
-        raise SystemExit(f"Cannot build the {args.stage} page for {args.run}: {exc}") from None
+    with reporting_busy():
+        try:
+            store = store_dir(args.store)
+            marker = build(get_client(), store, args.run, args.stage)
+        except DecisionsUnavailable as exc:
+            raise SystemExit(
+                f"{exc}\nThe page waits until the owner's earlier decisions and undos can be read."
+            ) from exc
+        except RunBusy as exc:
+            raise Busy(f"Cannot build the {args.stage} page for {args.run}: {exc}") from None
+        except (OSError, ValueError, ApplyLockError) as exc:
+            raise SystemExit(f"Cannot build the {args.stage} page for {args.run}: {exc}") from None
     folder = stage_dir(store, args.run, args.stage)
+    sent = marker[AUTO]
     print(f"wrote {folder / PAGE_FILE}: {marker['cards']} cards, page run {marker['run']}")
-    print(f"  the evidence already settles {marker['sure']} of them (reported only; each is still a card)")
+    print(f"  the evidence already settles {marker['sure']}: {sent} go to the automatic lane, the rest stay cards")
     print(f"  left off {marker['left_out']}, past the cap {marker['overflow']}; see {folder / MANIFEST_FILE}")
+    if sent:
+        lane = f"--run {args.run} --stage {args.stage} --lane auto"
+        print(f"  the automatic lane: collect.py {lane}, then apply_stage.py {lane}")
     return 0
 
 

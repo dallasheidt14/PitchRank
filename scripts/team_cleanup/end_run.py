@@ -51,8 +51,8 @@ from src.tournaments.storage._io import utc_now_iso  # noqa: E402
 
 
 def unfinished(store: Path, run: dict) -> list[str]:
-    """The stages that keep the run from being done, each with its run.json note or else its next step.
-    A stage noted as having nothing to apply this week is left out."""
+    """The stages that keep the run from being done, each with its run.json note or else its next step and
+    its automatic lane's. A stage noted as having nothing to apply this week is left out."""
     notes = run.get("stages") or {}
     lines = []
     for stage in STAGES:
@@ -61,9 +61,11 @@ def unfinished(store: Path, run: dict) -> list[str]:
             if not note.startswith(SKIPPED_STAGE_NOTES):
                 lines.append(f"{stage}: {note}")
             continue
-        step = stage_progress(store, run["run_id"], stage).next_step
-        if step is not None:
-            lines.append(f"{stage}: next, {step.next_action}")
+        progress = stage_progress(store, run["run_id"], stage)
+        if progress.next_step is not None:
+            lines.append(f"{stage}: next, {progress.next_step.next_action}")
+        if progress.auto_step is not None:
+            lines.append(f"{stage}: automatic lane next, {progress.auto_step.next_action}")
     return lines
 
 
