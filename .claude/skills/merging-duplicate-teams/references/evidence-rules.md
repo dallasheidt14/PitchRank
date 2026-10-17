@@ -141,12 +141,14 @@ so the years never decided it, but the same reading decides pairs that share non
 `correcting-team-age-groups` skill states it from its side: a U-label in our own name is only as
 current as the season that wrote it.
 
-**The one-side-only band rule reads written bands only.** `_BAND` matches a U-led band
-(`U13/14` through its `13/14`) and misses the four-digit pair and the spaced forms —
-`2015/2016`, `2015-2016`, `2015 / 2016` — all confirmed by running it. So `2015/2016` against
-`15/16`, one cohort in two spellings, reaches `a two-year band on one side only` instead of a
-merge. A disjoint pair is still refused first: the birth-year REFUSE branch runs ahead of this
-one in `decide`.
+**The one-side-only band rule reads a band in any spelling, and only a band.** `states_a_band`
+counts a registered name as a band when one run of it holds two U-ages (`U13/14`, `U9/10`,
+`13/14U`) or two birth years (`B08–09`, `09/2008`, `2015 / 2016`, `B2007/09`). A season
+(`25/26`), a club number (`CF10 - 2013`) and two years written apart (`(est. 2009) B2008`) are no
+band. So `2015/2016` against `15/16`, one cohort in two spellings, goes on to the merge
+branches, while a band against a single year or a single U-age (`GU8/9 Blue` against `GU9 Blue`)
+reaches `a two-year band on one side only`. A disjoint pair is still refused first: the
+birth-year REFUSE branch runs ahead of this one in `decide`.
 
 **Reading every label with the current season's key was measured, and is not the fix.** Judged
 old against new over 8,144 pairs — same club, gender, state and stored age group, squad words

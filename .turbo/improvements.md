@@ -2180,6 +2180,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: Each module types its own set of marks that may precede a two-digit year, and they disagree: the band readers and the age fixer take straight and curly, `import_athletes2events` takes straight and right-curly, and `birth_years` takes straight only. So `birth_years_conflict("Club ’11 Blue", "Club ’12 Blue")` is False while the straight-quote pair is True (checked 2026-10-13), and that function is the year guard in the import matchers (`game_matcher`, `modular11_matcher`), the queue matcher, `repair_defective_aliases` and the fuzzy duplicate finder; `decide_team_merges`' `_BAND` likewise misses a curly band. One exported character class would keep them in step; measure how many `birth_years` readings change before switching it, across the conflict guard's callers and the reconcile triage's `stated_birth_years`.
 - **Noted**: 2026-10-13
 - **Update (2026-10-16)**: Branch `fix/band-variant-reader` adds `_DUAL_2_4` (mixed widths, "09/2008") to `birth_years`, also straight-apostrophe only: `birth_years("Club '11/2015")` is {2011, 2015} and the curly spelling {2015}. That branch also leaves `decide_team_merges`' `_BAND` behind on the en dash and mixed widths `birth_years` now reads, which is a merge-safety gap tracked as IMP-372.
+- **Update (2026-10-17)**: `decide_team_merges`' band check now reads a band through the band grammar (`_BAND_RUN_RE`), which takes a curly apostrophe, so "Northeast Wolves FC ’12–’13" reads as a band there (IMP-372); its `cohort_of` still reads years through `birth_years`, straight-apostrophe only.
 
 ### Measure how many same-provider season re-registrations no doorway pairs, starting with Doorway D's club initials
 
@@ -2381,16 +2382,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Category**: reliability
 - **Where**: `scripts/find_queue_matches.py` `find_best_match`: its club-aware variant comparison and its cohort fallback
 - **Why**: The club-aware variant read added on `fix/band-variant-reader` works one way only: queue "B13/14" (club Futuro) against stored "Futuro - B13/14" under "Futuro" is still refused, because one name reads no label and the other reads "futuro" (checked 2026-10-16). Reading both names past the candidate's club would fix it but widens acceptance ("Rush 2014" against "Rush Union 2014"), so replay pending queue rows first. None of 677 targeted pending rows replayed on 2026-10-15 hit this case. That replay did show "Impact City FC Daybreak 14/15B Blue" losing a 0.957 cohort-fallback match: its club, now read cleanly, returns candidates scoring below 0.7, and any candidate at all skips the fallback (diagnosis not re-checked).
-- **Noted**: 2026-10-16
-
-### Make the merge decider see every band birth_years reads, before duplicate scans resume
-
-- **ID**: IMP-372
-- **Status**: open
-- **Type**: plan
-- **Category**: reliability
-- **Where**: `scripts/decide_team_merges.py` `decide` and its `_BAND` regex, against `cohort_of`, which reads years through `birth_years`
-- **Why**: `decide` sends "a two-year band on one side only" to review with `_BAND`, which misses an en dash ("B08–09"), a four-digit second year ("09/2008") and a four-digit pair ("2009/2008"). `fix/band-variant-reader` taught `birth_years` the first two spellings: `birth_years("Club B08–09 Red")` is now {2008, 2009}, where it was {2008} (checked 2026-10-16). So on u19 such a name against "Club U19 Red" can skip both review branches and reach MERGE. A review of that branch reproduced MERGE for all three spellings with a fake evidence object (not re-run). Owner, 2026-10-16: "Note it, fix before unfreezing." This is latent today: scans are frozen, proposals are reviewed by hand, and none of the 465 pairs the branch newly adds to Doorway A took this path. Widening `_BAND` alone changes band detection for 84 unique live names, but it also lets one band spelled two ways ("B08–09" against "B08/09") reach MERGE. Read the band through `birth_years` instead, and measure the result against approved merges.
 - **Noted**: 2026-10-16
 
 ### Gate the event-team matcher's same-club pairs on the squad label after a band
