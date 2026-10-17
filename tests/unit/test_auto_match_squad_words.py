@@ -1,90 +1,9 @@
-"""The unknown-opponent auto-match never links one squad of a club's birth-year band to another.
-
-The shared scorer compares one variant word, so "Cincy SC B18-19 Elite" against "Cincy SC
-B18-19 Premier", a squad number against another, or "Gold" against "Gold II" all score a
-perfect match, and the weekly run linked such pairs. match_row now passes over a candidate
-whose squad words after the year differ, so the next candidate can win and a row with none
-left is a no-match, which discovery turns into the squad's own team.
-"""
-
-import re
-from types import SimpleNamespace
+"""The unknown-opponent auto-match never links one squad of a club's birth-year band to another."""
 
 import pytest
-from postgrest.exceptions import APIError
 
 from scripts import auto_match_unknown_opponents as amu
-
-# The live teams columns (information_schema, 2026-10-16). PostgREST refuses a select naming
-# any other, so the double does too.
-_TEAMS_COLUMNS = frozenset(
-    "age_group birth_year club_name created_at distinction game_row_count gender id is_deprecated"
-    " last_fixture_at last_played_at last_scraped_at league provider_id provider_team_id"
-    " scrape_attempts state state_assigned_at state_code state_confidence state_source"
-    " team_id_master team_name team_name_original updated_at".split()
-)
-
-
-def _like(value, pattern):
-    if value is None:
-        return False
-    regex = "".join(".*" if ch == "%" else "." if ch == "_" else re.escape(ch) for ch in pattern)
-    return re.fullmatch(regex, str(value), re.I) is not None
-
-
-def _clause(row, field, op, value):
-    if op == "eq":
-        return str(row.get(field)) == value
-    raise AssertionError(f"filter the double does not model: {field}.{op}.{value}")
-
-
-class _Query:
-    """Applies its filters, returns only the selected columns, and records at execute()."""
-
-    def __init__(self, db, table):
-        self.db, self.table = db, table
-        self.tests, self.columns, self.cap = [], None, None
-
-    def select(self, *columns, **_k):
-        names = [name.strip() for arg in columns for name in arg.split(",")]
-        self.columns = None if names in ([], ["*"]) else names
-        return self
-
-    def eq(self, field, value):
-        self.tests.append(lambda row: row.get(field) == value)
-        return self
-
-    def ilike(self, field, pattern):
-        self.tests.append(lambda row: _like(row.get(field), pattern))
-        return self
-
-    def or_(self, expression):
-        clauses = [clause.split(".", 2) for clause in expression.split(",")]
-        self.tests.append(lambda row: any(_clause(row, *clause) for clause in clauses))
-        return self
-
-    def limit(self, n):
-        self.cap = n
-        return self
-
-    def execute(self):
-        unknown = sorted(set(self.columns or ()) - _TEAMS_COLUMNS) if self.table == "teams" else []
-        if unknown:
-            raise APIError({"code": "42703", "message": f"column teams.{unknown[0]} does not exist"})
-        self.db.executed.append(self.table)
-        rows = [row for row in self.db.rows.get(self.table, []) if all(test(row) for test in self.tests)]
-        if self.columns is not None:
-            rows = [{name: row.get(name) for name in self.columns} for row in rows]
-        return SimpleNamespace(data=rows[: self.cap] if self.cap is not None else rows)
-
-
-class _DB:
-    def __init__(self, teams):
-        self.rows = {"teams": list(teams)}
-        self.executed = []
-
-    def table(self, name):
-        return _Query(self, name)
+from tests.unit.test_age_token_span import _DB
 
 
 def _team(team_id, name, club, age_group, gender="Male"):
@@ -101,13 +20,13 @@ def _team(team_id, name, club, age_group, gender="Male"):
     }
 
 
-def _decide(unknown_name, club, age_group, candidates, gender="Male"):
+def _decide(unknown_name, club, age_group, candidates, gender="Male", unknown_club=None):
     db = _DB(candidates)
     row = {
         "provider_code": "gotsport",
         "unknown_provider_team_id": "754784",
         "unknown_team_name": unknown_name,
-        "unknown_club_name": club,
+        "unknown_club_name": club if unknown_club is None else unknown_club,
         "unknown_age": age_group,
         "unknown_gender": gender,
     }
@@ -118,25 +37,60 @@ def _decide(unknown_name, club, age_group, candidates, gender="Male"):
 
 
 @pytest.mark.parametrize(
-    "unknown,candidate,club,age_group,gender",
+    "unknown,candidate,club,age_group",
     [
-        ("SLSG MO B 2016/2017 Rennes", "SLSG MO B 2016/2017 Flamengo", "St. Louis Scott Gallagher", "u10", "Male"),
-        ("Cincy SC B18-19 Elite", "Cincy SC B18-19 Premier", "Cincy SC", "u8", "Male"),
-        ("TCSL Blue B2017/18 7", "TCSL Blue B2017/18 5", "St. Paul Blackhawks", "u9", "Male"),
+        # The scorer refuses this pair too; the rest score at least 0.95 without the guard.
+        ("SLSG MO B 2016/2017 Rennes", "SLSG MO B 2016/2017 Flamengo", "St. Louis Scott Gallagher", "u10"),
+        ("Cincy SC B18-19 Elite", "Cincy SC B18-19 Premier", "Cincy SC", "u8"),
+        ("TCSL Blue B2017/18 7", "TCSL Blue B2017/18 5", "St. Paul Blackhawks", "u9"),
         (
             "Legends FC (CA) PRE ECNL B2014/15 Gold",
             "Legends FC (CA) PRE ECNL B2014/15 Gold II",
             "Legends FC (CA)",
             "u12",
-            "Male",
         ),
-        # GA is a program here, not Georgia, so it is a squad word like any other tier.
-        ("Club B2014/15 GA", "Club B2014/15 ECNL", "Club", "u12", "Male"),
+        ("LFA 17/18B Red Star Ace (2036)", "LFA 17/18B Red Star Tiro (2036)", "Lou Fusz Athletic", "u9"),
+        ("Club B2014/15 Gold (1)", "Club B2014/15 Gold (2)", "Club", "u12"),
+        ("Club B2014/15-Blue White", "Club B2014/15-Red White", "Club", "u12"),
+        ("Club 2014 Navy 2", "Club 2014 Navy", "Club", "u13"),
+        ("Club M08/09 Elite", "Club M08/09 Premier", "Club", "u19"),
+        # A two-letter code that names no state is a squad's, in brackets or not.
+        ("Club B2014/15 Blue (DA)", "Club B2014/15 Blue", "Club", "u12"),
+        # Lone letters on both sides part squads unless they differ only by a gender letter.
+        ("Club 2013 Maroon B", "Club 2013 Maroon C", "Club", "u13"),
+        # A gender letter before the year is not a club word that hides a squad letter after it.
+        ("SLSG MO B 2016/2017 Navy B", "SLSG MO B 2016/2017 Navy C", "St. Louis Scott Gallagher", "u10"),
+        # The first year is the age, so a tier written between two years still parts the squads,
+        # and a year repeated after the squad does not hide it.
+        ("PDA G2014 Pre-ECNL G2014/15 Mon", "PDA G2014 ECNL G2014/15 Mon", "PDA", "u12"),
+        (
+            "Boston Athletic SC 2011 Boys 1 (2012 and 2011)",
+            "Boston Athletic SC 2011 Boys 2 (2012 and 2011)",
+            "Boston Athletic SC",
+            "u16",
+        ),
+        ("Cape Coral Soccer 2009 Gold Boys RL B09", "Cape Coral Soccer 2009 Gold II Boys RL B09", "Cape Coral", "u17"),
+        # A U-age joined to the band by a spaced dash leaves the band to be read, and a label that
+        # is nothing but a league tag is still compared.
+        ("Seacoast United - U13G -13/14 Nal", "Seacoast United - U13G -13/14 Carolina", "Seacoast United", "u13"),
+        # A number up to the last birth year is a squad, not a season.
+        ("Club 2014 Navy 20", "Club 2014 Navy", "Club", "u13"),
+        # Each way of writing a single birth year.
+        ("Club 2014 Navy 7", "Club 2014 Navy 5", "Club", "u13"),
+        ("Club 14B Navy 7", "Club 14B Navy 5", "Club", "u13"),
+        ("Club '14 Navy 7", "Club '14 Navy 5", "Club", "u13"),
+        ("Club 14 Boys Navy 7", "Club 14 Boys Navy 5", "Club", "u13"),
+        ("13 WUSC Revolution Blue", "13 WUSC Revolution Blue II", "WUSC", "u13"),
     ],
 )
-def test_another_squad_of_the_band_is_not_linked(unknown, candidate, club, age_group, gender):
-    candidates = [_team("wrong", candidate, club, age_group, gender)]
-    assert _decide(unknown, club, age_group, candidates, gender) == ("no_match", None)
+def test_another_squad_of_the_band_is_not_linked(unknown, candidate, club, age_group):
+    candidates = [_team("wrong", candidate, club, age_group)]
+    assert _decide(unknown, club, age_group, candidates) == ("no_match", None)
+
+
+def test_ga_is_a_squad_word_on_a_girls_team():
+    candidates = [_team("wrong", "Club G2014/15 ECNL", "Club", "u12", "Female")]
+    assert _decide("Club G2014/15 GA", "Club", "u12", candidates, "Female") == ("no_match", None)
 
 
 @pytest.mark.parametrize(
@@ -171,6 +125,8 @@ def test_another_squad_of_the_band_is_not_linked(unknown, candidate, club, age_g
             "Male",
         ),
         ("TCSL Blue B2018/19 Red U8", "TCSL Blue B2018/19 Red", "Centennial Soccer Club", "u8", "Male"),
+        ("Club B2014/15 Blue U12B", "Club B2014/15 Blue", "Club", "u12", "Male"),
+        ("Club B2014/15 Blue U-12", "Club B2014/15 Blue U12", "Club", "u12", "Male"),
         (
             "St. Louis Fire FC - 18/19B Inferno (7v7)",
             "St. Louis Fire FC - 18/19B Inferno",
@@ -178,12 +134,48 @@ def test_another_squad_of_the_band_is_not_linked(unknown, candidate, club, age_g
             "u8",
             "Male",
         ),
-        # A program written before the year on one side and after it on the other.
-        ("Club ECNL B2014/15 Blue", "Club B2014/15 ECNL Blue", "Club", "u12", "Male"),
-        # A second band after the first is dropped whole, leaving no "15" to read as a squad.
-        ("PDA G2014 Pre-ECNL G2014/15 Mon", "PDA Pre-ECNL G2014/15 Mon", "PDA", "u12", "Female"),
+        ("LFA 17/18B Red Star Ace (2036)", "LFA 17/18B Red Star Ace", "Lou Fusz Athletic", "u9", "Male"),
+        ("Club B2014/15 Male Blue", "Club B2014/15 Boys Blue", "Club", "u12", "Male"),
+        ("FC Dallas High Plains 2016 Boy Blue", "FC Dallas High Plains 2016 Blue", "FC Dallas", "u11", "Male"),
+        ("Toledo Celtics 2008 Girl Black", "Toledo Celtics 2008 Black", "Toledo Celtics", "u19", "Female"),
+        ("Toledo Celtics 2008 Female Black", "Toledo Celtics 2008 Black", "Toledo Celtics", "u19", "Female"),
+        ("TCSL Blue B2014/15Black", "TCSL Blue B2014/15 Black", "St. Paul Blackhawks", "u12", "Male"),
         ("Kirkwood United 18/19B Red Hart", "Kirkwood United 18/19B Hart Red", "Kirkwood United SC", "u8", "Male"),
         ("Kirkwood United 18/19B Hart Red", "Kirkwood United 18/19B Red Hart", "Kirkwood United SC", "u8", "Male"),
+        # A lone letter on one side only, or a gender letter wherever it is written, does not part
+        # a squad from itself.
+        ("Club 2013 Navy C", "Club 2013 Navy", "Club", "u13", "Male"),
+        ("Club 2013 Navy", "Club 2013 Navy C", "Club", "u13", "Male"),
+        ("Houston Surf 17/18 B Black", "Houston Surf 17/18B Black", "Houston Surf", "u9", "Male"),
+        ("Houston Surf 2015B Black I", "Houston Surf 2015 Boys Black I", "Houston Surf", "u11", "Male"),
+        ("Hershey SC 2010 M Elite", "Hershey SC 2010 Elite", "Hershey SC", "u17", "Male"),
+        ("2009 Red B", "2009 Red", "Blackhills FC", "u19", "Male"),
+        ("2009 Red", "2009 Red B", "Blackhills FC", "u19", "Male"),
+        # A possessive leaves no lone "s" to set against the other side's letter.
+        ("Gallos Revolution FC 2010/11's Blue", "Gallos Revolution FC 2010/11 Blue B", "Gallos", "u16", "Male"),
+        # A state in brackets, a league tag beside a squad word, a spelled direction.
+        ("GSA North B2014/15 White ( GA )", "GSA North B2014/15 White NPL", "GSA North", "u12", "Male"),
+        ("Denver Kickers 2012 Red", "Denver Kickers 2012B RED NPL", "Denver Kickers", "u14", "Male"),
+        ("Denver Kickers 2012B RED NPL", "Denver Kickers 2012 Red", "Denver Kickers", "u14", "Male"),
+        ("Lonestar 2013 Silver Nth", "Lonestar 2013 Silver North", "Lonestar SC", "u13", "Male"),
+        # Bands the band grammar refuses at an apostrophe or a U, and a reversed U-age.
+        ("BUSA Frederick Boys 17/18' Green", "BUSA Frederick Boys 17/18 Green", "BUSA Frederick", "u9", "Male"),
+        ("Ohio Premier Academy UA GU2016/17 Black", "Ohio Premier Academy UA G2016/17 Black", "OPA", "u10", "Female"),
+        ("Kernow Storm FC B2014/15 B12U Red", "Kernow Storm FC B2014/15 Red", "Kernow Storm FC", "u12", "Male"),
+        ("Club 2014 Navy 14/2015'", "Club 2014 Navy 2014/15", "Club", "u13", "Male"),
+        # A season or a number past the last birth year is neither the age nor a squad.
+        ("Club B2011 White 25/26", "Club 2011 White", "Club", "u16", "Male"),
+        ("Club 2014 Navy 21", "Club 2014 Navy", "Club", "u13", "Male"),
+        ("Revolution 2050 Academy 2014 Blue", "Revolution 2050 2014 Blue", "Club", "u13", "Male"),
+        # A band spaced around its separator is still one age token.
+        ("Toros FC 2015 - 16 Neon", "Toros FC 2015/16 Neon", "Toros FC", "u11", "Male"),
+        # A word written before the year on one side and after it on the other.
+        ("Texas Rush Academy B2014/15 Blue", "Texas Rush B2014/15 Academy Blue", "Texas Rush", "u12", "Male"),
+        ("Texas Rush B2014/15 Academy Blue", "Texas Rush Academy B2014/15 Blue", "Texas Rush", "u12", "Male"),
+        ("PDA G2014 Pre-ECNL G2014/15 Mon", "PDA Pre-ECNL G2014/15 Mon", "PDA", "u12", "Female"),
+        # A club word after the year, which the stored club name or its initials supply.
+        ("2014 Lakers Green", "2014 Green", "Lakers FC", "u13", "Male"),
+        ("GH 2014 GHAA Blue", "GH 2014 Blue", "Germantown Hills Athletic Association", "u13", "Male"),
     ],
 )
 def test_the_same_squad_written_another_way_still_links(unknown, candidate, club, age_group, gender):
@@ -191,12 +183,38 @@ def test_the_same_squad_written_another_way_still_links(unknown, candidate, club
     assert _decide(unknown, club, age_group, candidates, gender) == ("auto_link", "same")
 
 
-def test_another_squad_does_not_block_the_squads_own_row():
-    candidates = [
-        _team("premier", "Cincy SC B18-19 Premier", "Cincy SC", "u8"),
-        _team("elite", "Cincy SC 2018/19 Boys Elite", "Cincy SC", "u8"),
-    ]
-    assert _decide("Cincy SC B18-19 Elite", "Cincy SC", "u8", candidates) == ("auto_link", "elite")
+@pytest.mark.parametrize(
+    "unknown,wrong,right,club,age_group",
+    [
+        ("Cincy SC B18-19 Elite", "Cincy SC B18-19 Premier", "Cincy SC 2018/19 Boys Elite", "Cincy SC", "u8"),
+        (
+            "PDA G2014 Pre-ECNL G2014/15 Mon",
+            "PDA G2014 ECNL G2014/15 Mon",
+            "PDA G2014 Pre-ECNL G2014/15 Mon",
+            "PDA",
+            "u12",
+        ),
+    ],
+)
+def test_another_squad_does_not_block_the_squads_own_row(unknown, wrong, right, club, age_group):
+    candidates = [_team("wrong", wrong, club, age_group), _team("right", right, club, age_group)]
+    assert _decide(unknown, club, age_group, candidates) == ("auto_link", "right")
+
+
+def test_the_candidates_own_club_name_is_read_when_the_unknown_has_none():
+    candidates = [_team("utd", "Kirkwood Elite Soccer Academy 2014 Utd Green", "Kirkwood Utd", "u13")]
+    decision = _decide("Kirkwood Elite Soccer Academy 2014 Green", "Kirkwood Utd", "u13", candidates, unknown_club="")
+    assert decision == ("review", "utd")
+
+
+def test_a_candidate_with_no_club_name_is_still_read():
+    candidates = [_team("five", "Club 2014 Navy 5", None, "u13")]
+    assert _decide("Club 2014 Navy 7", "Club", "u13", candidates, unknown_club="") == ("no_match", None)
+
+
+def test_a_leading_season_is_not_the_age():
+    candidates = [_team("green", "Lakers 2014 Green", "Lakers FC", "u13")]
+    assert _decide("25 Spring Lakers 2014 Green", "Lakers FC", "u13", candidates) == ("review", "green")
 
 
 @pytest.mark.parametrize(
@@ -209,8 +227,13 @@ def test_a_name_with_no_squad_after_its_year_is_left_to_the_scorer(unknown, cand
 
 
 @pytest.mark.parametrize(
-    "unknown,candidate", [("Cincy SC B18-19 Elite", "Cincy SC Elite"), ("Cincy SC Elite", "Cincy SC B18-19 Elite")]
+    "unknown,candidate", [("Lakers FC 2016 Green", "Lakers FC Green"), ("Lakers FC Green", "Lakers FC 2016 Green")]
 )
 def test_a_name_with_no_year_is_left_to_the_scorer(unknown, candidate):
-    candidates = [_team("elite", candidate, "Cincy SC", "u8")]
-    assert _decide(unknown, "Cincy SC", "u8", candidates) == ("review", "elite")
+    candidates = [_team("green", candidate, "Lakers FC", "u11")]
+    assert _decide(unknown, "Lakers FC", "u11", candidates) == ("auto_link", "green")
+
+
+def test_a_name_past_the_band_scan_limit_is_left_to_the_scorer():
+    candidates = [_team("five", "Club 2014 Navy 5 " + "x" * 200, "Club", "u13")]
+    assert _decide("Club 2014 Navy 7 " + "x" * 200, "Club", "u13", candidates) == ("auto_link", "five")

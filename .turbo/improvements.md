@@ -2393,12 +2393,12 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: `decide` sends "a two-year band on one side only" to review with `_BAND`, which misses an en dash ("B08–09"), a four-digit second year ("09/2008") and a four-digit pair ("2009/2008"). `fix/band-variant-reader` taught `birth_years` the first two spellings: `birth_years("Club B08–09 Red")` is now {2008, 2009}, where it was {2008} (checked 2026-10-16). So on u19 such a name against "Club U19 Red" can skip both review branches and reach MERGE. A review of that branch reproduced MERGE for all three spellings with a fake evidence object (not re-run). Owner, 2026-10-16: "Note it, fix before unfreezing." This is latent today: scans are frozen, proposals are reviewed by hand, and none of the 465 pairs the branch newly adds to Doorway A took this path. Widening `_BAND` alone changes band detection for 84 unique live names, but it also lets one band spelled two ways ("B08–09" against "B08/09") reach MERGE. Read the band through `birth_years` instead, and measure the result against approved merges.
 - **Noted**: 2026-10-16
 
-### Gate the event-team matcher's perfect scores on the squad words after a band
+### Gate the event-team matcher's same-club pairs on the squad label after a band
 
 - **ID**: IMP-373
 - **Status**: open
 - **Type**: investigate
 - **Category**: reliability
 - **Where**: `src/tournaments/event_team_matcher.py` `rank_db_candidates`
-- **Why**: `rank_db_candidates` applies the distinction gate (`_should_skip_pair`) only to a same-club pair scoring below 0.99, and `score_team_pair` scores two squads of one band at 1.0 when they differ only after the year ("Cincy SC B18-19 Elite" against "... Premier", a squad number against another, "Gold" against "Gold II"), so such a pair reaches the event matcher's top statuses. The unknown-opponent auto-match refuses it through `squad_labels_differ` (IMP-368); the gate here is the event matcher's own call. Measure against saved event intakes before changing it.
+- **Why**: `rank_db_candidates` applies the distinction gate (`_should_skip_pair`) only to a pair whose clubs match exactly and that scores below 0.99, so two paths skip it: an exact-club pair at 0.99 or above, and a pair whose clubs `_same_club` accepts by similarity but not exactly, at any score; `_classify_by_score` can rate either high_confidence once it clears 0.96. `score_team_pair` compares a single variant word, so it can score two squads of one band at 1.0 ("Cincy SC B18-19 Elite" against "... Premier", a squad number against another, "Gold" against "Gold II"). The unknown-opponent auto-match refuses such pairs through `team_name_utils.squad_labels_differ` (IMP-368); the gate here is the event matcher's own call. Measure against saved event intakes before changing it.
 - **Noted**: 2026-10-16
