@@ -84,7 +84,8 @@ team links in a direct UPDATE: `home_team_master_id` and/or `away_team_master_id
 a team, or a single side from a team to NULL, while every other checked column stays the same. A
 direct UPDATE never turns one team id into another (only `apply_game_correction` with
 `correction_type` `teams` does), so moving a side takes two writes: clear it in SQL, then let a
-filling step write it. The link-opponent and create-team routes, and the unknown-opponent apply and
+filling step write it. CLAUDE.md's "never UPDATE a game row" still governs: clearing a side yourself
+is an exception that needs the owner's OK on the exact plan first. The link-opponent and create-team routes, and the unknown-opponent apply and
 discovery steps, fill only NULL sides. Clear both sides of one game with one UPDATE per side. The
 admin route `frontend/app/api/unlink-opponent/route.ts` is not a one-side clear: it also deletes the
 alias and, by default, clears every game of that provider id on the team. The only other trigger on
@@ -142,8 +143,9 @@ matches date, team pair and scores whatever the provider.
 `discover_teams_from_opponents.py` skips any provider id holding an alias of any status
 (`_alias_exists`), so the squad never gets its own team, and the conflict guard in
 `apply_unknown_opponent_matches.py` lets a rejected alias that points at the same team flip back to
-approved. Delete it instead, in one transaction that aborts unless every alias still exists and still
-points at the wrong team:
+approved. The fix clears game sides, so it needs the owner's OK on the exact plan (ids, sides and
+counts) before it runs, as for any game UPDATE. With that OK, delete the alias in one transaction that
+aborts unless every alias still exists and still points at the wrong team:
 - clear only the wrong side of their games (filtered as above), `RETURNING` into a temp table, with a
   guard on the count cleared;
 - delete the aliases;
