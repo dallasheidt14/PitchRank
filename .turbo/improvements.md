@@ -1830,7 +1830,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Update (2026-10-02)**: narrowed from "neither gate is exercised" after the Utah PR added the two tests above. Raised as a P2 on #1250 as completed work; it is half done, and closing it would leave the uniqueness gate uncovered.
 - **Noted**: 2026-09-30
 
-
 ### Reconcile the branch guard's "Five branches" with the four rows it holds
 
 - **Status**: open
@@ -1840,7 +1839,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: The docstring opens "Five branches were folded into their parents on 2026-09-22. None may come back," while importing the module and counting `COLLAPSED_BRANCHES` gives four rows (measured 2026-09-30). Pre-existing since the file was added in `2ac13b803` (#1204). A reader either hunts for an unguarded fifth branch or adds a fifth row that was never decided -- and this file is the canonical home of the branch-versus-parent policy, so it is read whenever a new case arrives. Either correct the count to four or restore the row that went missing; deciding which needs the #1204 working notes.
 - **Noted**: 2026-09-30
 
-
 ### Record the division a league import derived an age group from
 
 - **Status**: open
@@ -1849,7 +1847,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `src/models/affinity_or_matcher.py` (`_create_new_affinity_or_team`, the `team_data` insert), `scripts/import_games_enhanced.py` (`stream_games_csv` / `load_games_csv` column whitelists)
 - **Why**: A league import takes a team's age group from the division it scraped, then writes the team with `league` NULL -- measured 2026-10-02, all 675 teams of the first `affinity_ut` run. The division is the one signal the age-group audit rates as deciding for a league import, so once it is discarded those teams can never be checked against it; the audit falls back to the team's own name, and 90 of those 675 names state no cohort at all. Carrying it through needs three layers, which is why this is a plan and not a direct fix: the scraper has to emit the division, both loader whitelists have to admit the column (anything they do not name is dropped silently and a dry run still reports success), and the shared Affinity creation path has to write it without changing what Affinity OR records. Affects the OR and WA imports equally.
 - **Noted**: 2026-10-02
-
 
 ### Give a provider-stamped state_code its own provenance value
 
@@ -2353,16 +2350,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: Both still cut "Texas Premier SC 13/14B" inside its band (checked 2026-10-15): the weekly missing-club backfill (`update-missing-club-and-state.yml` Step 2) reads "Texas Premier SC 13/" and fills nothing, for 48 live club-less teams with a bare `NN/NN[BG]` band, 40 of them with a state; the swapped-club classifier proposes "Texas Premier SC 13". Widening `club_part` through `team_name_utils.age_token_span` changes it on 4,540 unique live names (prototype replay), so the team-cleanup proposals need their own review; the owner chose to keep that loop untouched on the band branch. `extract_club_name` is in `_NOT_YET_WIDENED` in `tests/unit/test_age_token_span.py`, which fails once it is widened; `club_part` uses `LEVEL_TOKEN`, a shape that guard does not detect.
 - **Noted**: 2026-10-15
 
-### Compare the squad words after a band in Doorway A's pair scorer
-
-- **ID**: IMP-368
-- **Status**: open
-- **Type**: investigate
-- **Category**: reliability
-- **Where**: `scripts/find_fuzzy_duplicate_teams.py` `score_team_pair`, also called by `scripts/auto_match_unknown_opponents.py` `match_row` and `src/tournaments/event_team_matcher.py` `rank_db_candidates`
-- **Why**: Replaying the 2026-10-13 unknown-opponent aggregate with the band fix, three different squads still score 1.0 and auto-link: "PDA White PRE-ECNL G2014/15 Mon" to "... One ll" (GotSport 755882), "SEFPL B2015/16 PBG DEV SWOOSH" to "... PBG PRE ECNL SWOOSH" (821995), "Connecticut FC United Pre ECNL G2015/16 1" to "... 2" (755087). A read-only check reported all three applied by the 2026-10-13 Tuesday run. A squad number, a DEV/PRE ECNL tier and a coach-like word after the band are not compared. The scorer is Doorway A's, part of the frozen duplicate tooling, so a change is the owner's call.
-- **Noted**: 2026-10-15
-
 ### Stop the queue matcher proposing another club's squad under a generic club word
 
 - **ID**: IMP-369
@@ -2403,9 +2390,19 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: `decide` sends "a two-year band on one side only" to review with `_BAND`, which misses an en dash ("B08–09"), a four-digit second year ("09/2008") and a four-digit pair ("2009/2008"). `fix/band-variant-reader` taught `birth_years` the first two spellings: `birth_years("Club B08–09 Red")` is now {2008, 2009}, where it was {2008} (checked 2026-10-16). So on u19 such a name against "Club U19 Red" can skip both review branches and reach MERGE. A review of that branch reproduced MERGE for all three spellings with a fake evidence object (not re-run). Owner, 2026-10-16: "Note it, fix before unfreezing." This is latent today: scans are frozen, proposals are reviewed by hand, and none of the 465 pairs the branch newly adds to Doorway A took this path. Widening `_BAND` alone changes band detection for 84 unique live names, but it also lets one band spelled two ways ("B08–09" against "B08/09") reach MERGE. Read the band through `birth_years` instead, and measure the result against approved merges.
 - **Noted**: 2026-10-16
 
-### Correct a club name GotSport itself has wrong, so the club-mate state rule stops moving the team
+### Gate the event-team matcher's same-club pairs on the squad label after a band
 
 - **ID**: IMP-373
+- **Status**: open
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `src/tournaments/event_team_matcher.py` `rank_db_candidates`
+- **Why**: `rank_db_candidates` applies the distinction gate (`_should_skip_pair`) only to a pair whose clubs match exactly and that scores below 0.99, so two paths skip it: an exact-club pair at 0.99 or above, and a pair whose clubs `_same_club` accepts by similarity but not exactly, at any score; `_classify_by_score` can rate either high_confidence once it clears 0.96. `score_team_pair` compares a single variant word, so it can score two squads of one band at 1.0 ("Cincy SC B18-19 Elite" against "... Premier", a squad number against another, "Gold" against "Gold II"). The unknown-opponent auto-match refuses such pairs through `team_name_utils.squad_labels_differ` (IMP-368); the gate here is the event matcher's own call. Measure against saved event intakes before changing it.
+- **Noted**: 2026-10-16
+
+### Correct a club name GotSport itself has wrong, so the club-mate state rule stops moving the team
+
+- **ID**: IMP-374
 - **Status**: open
 - **Type**: investigate
 - **Category**: reliability

@@ -683,6 +683,99 @@ def _stated_years(name: str | None) -> set[int]:
     return years
 
 
+_GENDER_LETTERS = frozenset("bgmf")
+# Words in a squad label that name no squad: club and gender filler, and the state a team plays
+# in unless the code also spells a program (GA is Girls Academy; a parenthesised "(GA)" is the
+# state). Lone letters and league words are kept and compared on their own.
+_SQUAD_FILLER = (NOISE_WORDS - _GENDER_LETTERS) | {"boy", "girl", "male", "female"} | (US_STATES - PROGRAM_WORDS)
+_PAREN_CODE = re.compile(r"\(\s*([A-Za-z]{2})\s*\)")
+_POSSESSIVE = re.compile(r"['’]s\b", re.I)
+# birth_years' single-year passes, and its band passes for the bands the band grammar refuses at
+# a U or an apostrophe. A four-digit pair needs no pass of its own: _YEAR_4 reads both years.
+_YEAR_PASSES = (_DUAL_4_2, _DUAL_2_4, _DUAL_2_2, _YEAR_4, _APOS_2, _AFFIX_2, _GENDER_WORD)
+# Single letters stay squad letters ("Navy S"); longer direction forms are folded ("Nth", "NW").
+_SPELLED_DIRECTIONS = {word: direction for word, direction in DIRECTION_CANONICAL.items() if len(word) > 1}
+
+
+def _blank(match: re.Match) -> str:
+    return " " * len(match.group(0))
+
+
+def _words(text: str) -> list[str]:
+    return re.findall(r"[0-9a-z]+", text.lower())
+
+
+def _year_spans(text: str) -> list[tuple[int, int]]:
+    """Where a name states a birth year in range, an opening two-digit cohort included."""
+    spans = [_band_run_span(text, run) for run in _BAND_RUN_RE.finditer(text)]
+    spans += [m.span() for pattern in _YEAR_PASSES for m in pattern.finditer(text)]
+    spans = [(start, end) for start, end in spans if _stated_years(text[start:end])]
+    opening = _LEADING_COHORT.match(text)
+    if opening and _BIRTH_YEAR_MIN <= _four_digit_year(opening.group(1)) <= _BIRTH_YEAR_MAX:
+        spans.append(opening.span(1))
+    # A letter glued between a band and a word is that word's initial: "B2014/15Black".
+    return [(s, e - 1) if e < len(text) and text[e - 1].isalpha() and text[e].isalpha() else (s, e) for s, e in spans]
+
+
+def _squad_reading(name: str | None, club: str | None) -> tuple[set[str], list[str]] | None:
+    """The club's words, and the squad label after the name's first birth year."""
+    if not name or len(name) > _BAND_SCAN_LIMIT:
+        return None
+    text = _POSSESSIVE.sub(_blank, _UAGE_TOKEN.sub(_blank, _FORMAT_TOKEN.sub(_blank, name)))
+    text = _PAREN_CODE.sub(lambda m: _blank(m) if m.group(1).lower() in US_STATES else m.group(0), text)
+    spans = _year_spans(text)
+    if not spans:
+        return None
+    for start, end in spans:
+        text = text[:start] + " " * (end - start) + text[end:]
+    start, end = min(spans)
+    club_words = {w for w in _words(f"{text[:start]} {club or ''}") if w not in NOISE_WORDS}
+    club_words |= {_club_acronym(club)} - {""}
+    # A number past the birth years is a season ("25/26") or another year ("(2036)"), not a squad.
+    label = [
+        w
+        for w in _words(text[end:])
+        if w not in _SQUAD_FILLER and not (w.isdigit() and int(w) > _BIRTH_YEAR_MAX - 2000)
+    ]
+    return club_words, label
+
+
+def _label_parts(label: list[str], club_words: set[str]) -> tuple[list[str], set[str], set[str]]:
+    """A squad label's words, lone letters and league words, without the club's words."""
+    label = [_SPELLED_DIRECTIONS.get(w, w) for w in label if w not in club_words]
+    letters = {w for w in label if len(w) == 1 and w.isalpha()}
+    leagues = {w for w in label if w in _LEAGUE_DISTINCTION_BLOCKLIST}
+    return sorted(w for w in label if w not in letters and w not in leagues), letters, leagues
+
+
+def squad_labels_differ(name_a: str | None, name_b: str | None, club_a: str | None, club_b: str | None) -> bool:
+    """True when two names each name a squad after their first birth year, and not the same one:
+    "Cincy SC B18-19 Elite" and "Cincy SC B18-19 Premier".
+
+    The fuzzy scorer compares one variant word, so it scores "Gold" against "Gold II" as a perfect
+    match. A word other than a gender letter that either name writes before that year, or that
+    either club's name or initials hold, is the club's wherever it appears. A lone letter or a
+    league tag on one side only, or a gender letter on either, does not part a squad from itself.
+    A name with nothing after its year is left to the scorer.
+    """
+    reading_a, reading_b = _squad_reading(name_a, club_a), _squad_reading(name_b, club_b)
+    if not reading_a or not reading_b:
+        return False
+    club_words = reading_a[0] | reading_b[0]
+    words_a, letters_a, leagues_a = _label_parts(reading_a[1], club_words)
+    words_b, letters_b, leagues_b = _label_parts(reading_b[1], club_words)
+    # A league tag is set aside only beside other squad words, so a label that is nothing but
+    # one ("13/14 Nal" against "13/14 Carolina") is still compared.
+    if not (words_a and words_b):
+        words_a, words_b = sorted(words_a + list(leagues_a)), sorted(words_b + list(leagues_b))
+        leagues_a = leagues_b = set()
+    return (
+        (bool(words_a) and bool(words_b) and words_a != words_b)
+        or (bool(letters_a) and bool(letters_b) and bool((letters_a ^ letters_b) - _GENDER_LETTERS))
+        or (bool(leagues_a - leagues_b) and bool(leagues_b - leagues_a))
+    )
+
+
 # Pre-compiled patterns for _canonicalize_age_token — this helper runs per token
 # during fuzzy duplicate scanning (O(n²) teams-per-cohort) so pattern compilation
 # on every call is measurable. See `architecture_age_pattern_drift.md`.
