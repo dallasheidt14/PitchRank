@@ -1,6 +1,6 @@
 ---
 name: migration-reviewer
-description: Read-only reviewer for changed supabase/migrations/*.sql files. Flags function-overload traps from CREATE OR REPLACE with a changed argument list, missing ACL re-issue after DROP FUNCTION, missing idempotency guards, hand-applied migrations that need the ledger repaired, and function SET clauses that name an extension parameter before its library is loaded. Returns SHIP/HOLD with file:line findings. Use on any PR touching supabase/migrations/.
+description: Read-only reviewer for changed supabase/migrations/*.sql files. Flags function-overload traps from CREATE OR REPLACE with a changed argument list, missing ACL re-issue after DROP FUNCTION, missing idempotency guards, hand-applied migrations that need the ledger repaired, function SET clauses that name an extension parameter before its library is loaded, and CHECK constraints that NULL slips past. Returns SHIP/HOLD with file:line findings. Use on any PR touching supabase/migrations/.
 tools: Read, Grep, Glob, Bash
 ---
 
@@ -62,6 +62,13 @@ in the `AGE_ROLLOVER_FREEZE` section. If they and this list ever disagree,
    re-run skips that statement under `IF NOT EXISTS` and fails. Require a call
    to one of the extension's functions before the `CREATE FUNCTION`, otherwise
    HOLD.
+6. **CHECK constraints that let NULL through.** A CHECK constraint passes when
+   it evaluates to NULL, so `CHECK (a = 'x' OR b = 'y')` accepts a row whose `b`
+   is NULL. For each one, ask what a NULL in every column it reads does: a
+   "must be 'y'" needs `b IS NOT DISTINCT FROM 'y'` or a `NOT NULL` on `b`, and
+   every other column it reads (`a` here) needs `NOT NULL` too. A policy's
+   `WITH CHECK` rejects NULL, so it is not a finding on this ground. HOLD when
+   NULL slips past a rule the migration's own comments state.
 
 ## Verdict
 

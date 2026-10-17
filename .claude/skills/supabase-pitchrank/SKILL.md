@@ -736,6 +736,48 @@ To search a function body, use `strpos(p.prosrc, 'x')`. `pg_catalog.position('x'
 a syntax error (42601) in any client, migrations included: only the bare keyword takes the `IN`
 form.
 
+### Smoke a migration locally before handing it over
+
+No direct Postgres connection reaches the hosted database, so DDL cannot be tried there. On the
+owner's Windows machine PostgreSQL 16 and 17 are installed under C:\Program Files\PostgreSQL\<version>\bin
+(not on PATH; no Docker, so no `supabase start`). Run a throwaway cluster in the scratchpad, never
+against the hosted project:
+
+1. `initdb -D <scratch>\data -U smoke -A trust -E UTF8`, then
+   `pg_ctl -D <scratch>\data -o "-p <port>" -l <scratch>\pg.log start` on a port of its own (the
+   installed servers run as Windows services, one on 5432).
+2. Stub what Supabase provides: roles `anon` and `authenticated` (NOLOGIN) and `service_role`
+   (NOLOGIN BYPASSRLS); schema `auth` with `users (id uuid primary key)`, plus `auth.uid()` and
+   `auth.role()` when a policy calls them; any function the migration's triggers call;
+   `GRANT USAGE ON SCHEMA public` to the three roles. Stand in for pg_default_acl with
+   `ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role`
+   and the same statement `ON SEQUENCES` and `ON FUNCTIONS`.
+3. Apply the migrations it builds on and seed a row, then apply the new one twice with
+   `psql -h localhost -p <port> -U smoke -d postgres -v ON_ERROR_STOP=1 -f <file>`. Run each insert
+   that must be refused as its own `psql` call.
+4. Check `has_table_privilege`, `has_sequence_privilege` and `has_function_privilege` for `anon` and
+   `authenticated`, `relrowsecurity`, and constraint counts in `pg_constraint`;
+   `pg_get_constraintdef` prints `IN (...)` as `= ANY (ARRAY[...])`.
+5. `pg_ctl -D <scratch>\data stop`, then delete the data directory.
+
+### Constraints on a hand-applied table
+
+Relaxing a constraint the owner pasted by hand costs another hand-applied migration, so constrain
+only what a reader relies on:
+
+- A CHECK passes when it evaluates to NULL. Write "must be 'x' when …" as
+  `col IS NOT DISTINCT FROM 'x'`, and have the guard test pin `NOT NULL` or `PRIMARY KEY` on every
+  other column the CHECK reads.
+- Leave out a CHECK that copies a format the code generates, and make an ordering column a plain index
+  unless something reads it as a key.
+- Re-add a named constraint with `ALTER TABLE … DROP CONSTRAINT IF EXISTS` as its own statement,
+  then `ADD CONSTRAINT`.
+- `ADD COLUMN IF NOT EXISTS` skips the column's inline CHECK when the column exists: a re-run adds no
+  duplicate, and an edited inline CHECK never reaches a live table. Change one with DROP and ADD.
+- Reference the user who acted (a reviewer, an approver) as
+  `<x>_user_id UUID REFERENCES auth.users (id) ON DELETE SET NULL`; a user's own rows keep
+  `NOT NULL … ON DELETE CASCADE`.
+
 ## Environment Variables
 
 | Variable | Purpose |
