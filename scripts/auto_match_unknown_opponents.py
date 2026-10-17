@@ -49,7 +49,7 @@ from find_queue_matches import (
 
 from src.utils.age_group import normalize_age_group
 from src.utils.team_association_map import to_state_code
-from src.utils.team_name_utils import u19_shared_year_ambiguous
+from src.utils.team_name_utils import squad_labels_differ, u19_shared_year_ambiguous
 
 
 def _execute_with_retry(query_func, max_retries: int = 3, base_delay: float = 1.0):
@@ -302,6 +302,10 @@ def match_row(
     unknown_team = {"team_name": profile.team_name, "club_name": profile.club_name}
 
     for candidate in candidates:
+        # continue, not demote: another squad of the club must not block this squad's own row,
+        # and with none left the row is a no-match, which discovery turns into its own team.
+        if squad_labels_differ(profile.team_name, candidate["team_name"], profile.club_name, candidate["club_name"]):
+            continue
         score = score_team_pair(unknown_team, candidate)
         if score is None:
             continue
