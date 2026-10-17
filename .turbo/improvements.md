@@ -2402,3 +2402,23 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `scripts/decide_team_merges.py` `decide` and its `_BAND` regex, against `cohort_of`, which reads years through `birth_years`
 - **Why**: `decide` sends "a two-year band on one side only" to review with `_BAND`, which misses an en dash ("B08–09"), a four-digit second year ("09/2008") and a four-digit pair ("2009/2008"). `fix/band-variant-reader` taught `birth_years` the first two spellings: `birth_years("Club B08–09 Red")` is now {2008, 2009}, where it was {2008} (checked 2026-10-16). So on u19 such a name against "Club U19 Red" can skip both review branches and reach MERGE. A review of that branch reproduced MERGE for all three spellings with a fake evidence object (not re-run). Owner, 2026-10-16: "Note it, fix before unfreezing." This is latent today: scans are frozen, proposals are reviewed by hand, and none of the 465 pairs the branch newly adds to Doorway A took this path. Widening `_BAND` alone changes band detection for 84 unique live names, but it also lets one band spelled two ways ("B08–09" against "B08/09") reach MERGE. Read the band through `birth_years` instead, and measure the result against approved merges.
 - **Noted**: 2026-10-16
+
+### Correct a club name GotSport itself has wrong, so the club-mate state rule stops moving the team
+
+- **ID**: IMP-373
+- **Status**: open
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `teams.club_name` for the Hawaii team "Leahi Windward" (GotSport 764879); `scripts/assign_team_states.py` `club_derived_state` (tier B in `decide`)
+- **Why**: GotSport's own record files this Hawaii team under "Legends FC (CA)", and our import copied it when the team appeared on 2026-08-11; the 2026-09-14 reconcile export shows both sides holding that club. The weekly team-cleanup loop's states stage then proposed HI → CA for it through tier B (run 2026-10-15-ca, queued because a tier A probe wrote the stored HI), and the owner said "Leahi Windward is a team from Hawaii" (2026-10-16). An older "Leahi Windward" (GotSport 640037) sits correctly under Leahi Soccer Club, HI, and is probably the same squad (merges are frozen). Three Michigan ECNL RL teams in MI also carry "Legends FC (CA)"; check whether that is the same mislabel. `reconcile_teams_with_gotsport.py` fills `club_name` only where ours is blank, so a hand correction would survive it; check whether any other club-name pass restores the provider's value. Tier B already abstains when a second state holds at least 2 of the club's teams and 5% of them (`MEANINGFUL_MIN_TEAMS`, `MEANINGFUL_MIN_PCT`); decide whether a smaller presence elsewhere, such as this HI team or the three MI teams, should also stop it.
+- **Noted**: 2026-10-16
+
+### Stop the states page hiding a move whose only contradiction is the GotSport answer that wrote the held state
+
+- **ID**: IMP-375
+- **Status**: open
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `scripts/team_cleanup/pages.py` `load_answered`, the "GotSport's record says" leave-off
+- **Why**: The page leaves a state change off when a recent mapped GotSport answer names the held state. On run 2026-10-15-ca the owner confirmed five such moves were right: Ballistic United "BUSC 2011 MLS" NC → CA, Golden Eagles FC NM → CA, and three New England Surf teams CA → MA. A read-only check on 2026-10-17 found GotSport's saved answer equals the held, wrong state for all five, so the rule leaves every one off and the owner never sees it. For the three Surf teams the card's own reason says "tier_a wrote the stored value", so the answer agreeing with the held state is the held state's own source. For the other two the stored value was "reported" and its source is unchecked. Count how many left-off cards share that shape, and decide whether `load_answered` should ignore an answer that wrote the held state.
+- **Noted**: 2026-10-17

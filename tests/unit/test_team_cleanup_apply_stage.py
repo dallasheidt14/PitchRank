@@ -596,7 +596,7 @@ def _ages(tmp_path, store, rows, picks):
     folder = stage_dir(store, RUN, "ages")
     folder.mkdir(parents=True, exist_ok=True)
     bands.write_csv(rows, folder / pw.AGE_PLAN, bands.PLAN_FIELDS)
-    _page(folder, "ages", pw.age_proposals(pw._read_csv(folder / pw.AGE_PLAN)))
+    _page(folder, "ages", pw.age_proposals(pw._read_csv(folder / pw.AGE_PLAN), []))
     return _choose(tmp_path, store, "ages", picks)
 
 

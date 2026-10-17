@@ -83,6 +83,7 @@ from scripts.repair_swapped_club_names import csv_unsafe, write_log  # noqa: E40
 from scripts.team_cleanup.collect import DECISIONS_FILE, VETTED, check_unchanged  # noqa: E402
 from scripts.team_cleanup.decisions import (  # noqa: E402
     APPLY,
+    CHANGES_TABLE,
     DECISIONS_TABLE,
     DONT_APPLY,
     resolve_execute,
@@ -136,7 +137,6 @@ AGE_WRITTEN = ("updated", UNCONFIRMED)
 # settled meanwhile. Any other refusal is the database's, and stops the stage.
 CARD_REFUSAL = "P0001"
 
-CHANGES_TABLE = "team_cleanup_changes"
 CHANGE_KEY = "run_id,stage,team_id_master,field,new_value"
 QUEUE_TABLE = "team_state_review_queue"
 REVIEW_COLS = "id,team_id_master,current_state_code,proposed_state_code,status,reviewed_at"
