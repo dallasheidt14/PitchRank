@@ -369,6 +369,36 @@ def test_an_undo_on_a_team_since_merged_keeps_the_survivor_s_change_off_the_sure
     assert _row(out, "ages", "conflict") == "conflict: apply=0  dont_apply=1  unsure=0  undecided=0"
 
 
+def test_a_card_whose_team_was_merged_since_its_run_reads_the_survivor_s_undo(tmp_path, monkeypatch, capsys):
+    store = tmp_path / "store"
+    _replay_run(store, RUN, {"c1": _age("merged-away", "u14", "u13", tier=BAND)}, {"c1": "dont_apply"})
+    db = _Db(
+        team_merge_map=[_merged("merged-away", "survivor")],
+        team_cleanup_changes=[_ledgered(1, "survivor", "u13", reverted="2026-10-12T00:00:00+00:00")],
+    )
+
+    code, out = _replay(monkeypatch, capsys, store, db)
+
+    assert code == 0
+    assert _row(out, "ages", "conflict") == "conflict: apply=0  dont_apply=1  unsure=0  undecided=0"
+
+
+def test_a_fill_the_hold_check_held_stays_held_after_its_team_is_merged(tmp_path, monkeypatch, capsys):
+    store = tmp_path / "store"
+    folder = _replay_run(store, RUN, {"c1": _state("merged-away", None, "NV")}, {"c1": "dont_apply"}, stage="states")
+    write_json(folder / "snapshot.json", {"decisions": [_decision("merged-away", None, "NV")]})
+    teams = [
+        {**_team("merged-away", state=None, deprecated=True), "state_source": "operator"},
+        _team("survivor", state=None),
+    ]
+    db = _Db(teams=teams, team_merge_map=[_merged("merged-away", "survivor")])
+
+    code, out = _replay(monkeypatch, capsys, store, db)
+
+    assert code == 0
+    assert _row(out, "states", "conflict") == "conflict: apply=0  dont_apply=1  unsure=0  undecided=0"
+
+
 @pytest.mark.parametrize(
     "setup, runs, message",
     [

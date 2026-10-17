@@ -60,7 +60,8 @@ def stage_cards(store: Path, run_id: str, stage: str) -> list[tuple[dict, str]] 
 
 def replay(sb, store: Path, run_ids: list[str]) -> tuple[dict[str, Counter], list[str]]:
     """Per stage, (sure or not, the owner's decision) -> cards; and the sure cards the owner did not
-    want."""
+    want. Each card is judged as its team stands today, so a team merged since its run is read under
+    its surviving id, as the undo ledger and the live teams are."""
     canonical = resolver(load_merge_map(sb))
     tables, unwanted, paged = {}, [], set()
     for stage in PROPOSED_STAGES:
@@ -71,9 +72,9 @@ def replay(sb, store: Path, run_ids: list[str]) -> tuple[dict[str, Counter], lis
         table = Counter()
         for run_id, cards in runs.items():
             held = held_fills(sb, stage_dir(store, run_id, stage), [p for p, _ in cards]) if stage == STATES else set()
-            signals = Signals(reverted, held, evidence)
+            signals = Signals(reverted, {canonical(team) for team in held}, evidence)
             for p, decision in cards:
-                why = sure_because(stage, p, signals)
+                why = sure_because(stage, {**p, "team_id_master": canonical(p["team_id_master"])}, signals)
                 table["sure" if why else "conflict", decision] += 1
                 if why and decision in (DONT_APPLY, UNSURE):
                     change = f"{p['team_name']!r} {p['old_value']} -> {p['new_value']}"
