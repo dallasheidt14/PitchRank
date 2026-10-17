@@ -51,7 +51,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 load_dotenv(Path(__file__).resolve().parent.parent / ".env.local")
 
-from src.utils.team_name_utils import _UAGE_TOKEN, birth_years  # noqa: E402
+from src.utils.team_name_utils import (  # noqa: E402
+    _BAND_RUN_YEAR,
+    _BIRTH_YEAR_MAX,
+    _BIRTH_YEAR_MIN,
+    _FORMAT_TOKEN,
+    _UAGE_RUN,
+    _UAGE_TOKEN,
+    _band_run_span,
+    _blank,
+    _four_digit_year,
+    birth_years,
+)
+from src.utils.team_utils import _BAND_RUN_RE, _BAND_SCAN_LIMIT  # noqa: E402
 from supabase import create_client  # noqa: E402
 
 # The weekly workflow passes --min-score 0.90, not the script default. Matching it here keeps
@@ -161,7 +173,7 @@ def load_merge_map(sb) -> dict[str, str]:
     mapping, off = {}, 0
     while True:
         res = (sb.table("team_merge_map").select("deprecated_team_id,canonical_team_id")
-               .range(off, off + 999).execute())
+               .order("deprecated_team_id").range(off, off + 999).execute())
         rows = res.data or []
         for r in rows:
             mapping[r["deprecated_team_id"]] = r["canonical_team_id"]
@@ -202,7 +214,7 @@ def gather_evidence(sb, candidates):
             while True:
                 res = (sb.table("games")
                        .select("game_date,home_team_master_id,away_team_master_id")
-                       .in_(side, batch).range(off, off + 999).execute())
+                       .in_(side, batch).order("id").range(off, off + 999).execute())
                 rows = res.data or []
                 for g in rows:
                     other = g["away_team_master_id"] if side == "home_team_master_id" else g["home_team_master_id"]
@@ -231,6 +243,57 @@ def gather_evidence(sb, candidates):
 
 
 _BAND = re.compile(r"(?<!\d)(?:20\d{2}|'?\d{2})\s*[/-]\s*'?\d{2}(?!\d)")
+
+
+def _run_year(match: re.Match) -> int:
+    digits = match.group(3)
+    return int(digits) if len(digits) == 4 else _four_digit_year(digits)
+
+
+def _band_years(run: str) -> set[int]:
+    years = {_run_year(match) for match in _BAND_RUN_YEAR.finditer(run)}
+    return {y for y in years if _BIRTH_YEAR_MIN <= y <= _BIRTH_YEAR_MAX}
+
+
+def _pairs_a_band(run: str) -> bool:
+    """Whether two adjacent birth years of a band run pair as birth_years pairs them: a four-digit
+    year with any year after it, a two-digit year with a four-digit one it runs on from, and two
+    two-digit years that run on or carry a mark. Any gender letter and a curly apostrophe mark a
+    year here, where birth_years takes only B, G and a straight apostrophe."""
+    found = list(_BAND_RUN_YEAR.finditer(run))
+    for first, second in zip(found, found[1:]):
+        years = (_run_year(first), _run_year(second))
+        if not all(_BIRTH_YEAR_MIN <= y <= _BIRTH_YEAR_MAX for y in years):
+            continue
+        runs_on = abs(years[0] - years[1]) == 1
+        marked = any(m.group(1) or m.group(2) or m.group(4) for m in (first, second))
+        two_digit_pair = len(first.group(3)) == len(second.group(3)) == 2
+        if len(first.group(3)) == 4 or runs_on or (two_digit_pair and marked):
+            return True
+    return False
+
+
+def states_a_band(name: str | None) -> bool:
+    """Whether one run of a name holds two U-ages ("U13/14", "13/14U") or two birth years
+    ("B08–09", "09/2008", "2015 / 2016", "B2007/09").
+
+    A run's years pair by the band grammar, so a season ("25/26"), a club number ("CF10 - 2013"),
+    a squad number beside a year ("Elite 11 - 2008") and two years written apart
+    ("(est. 2009) B2008") make no band. _BAND adds the spellings the grammar refuses at an
+    apostrophe or a glued letter ("2014/15's", "G08/09United"), counting only birth years.
+    """
+    text = _FORMAT_TOKEN.sub(_blank, name or "")
+    if any(len(_band_years(match.group(0))) >= 2 for match in _BAND.finditer(text)):
+        return True
+    if len(text) > _BAND_SCAN_LIMIT:
+        return False
+    for run in _UAGE_RUN.finditer(text):
+        ages = {int(n) for n in _LABEL_DIGITS.findall(run.group(0)) if _MIN_LABEL <= int(n) <= _MAX_LABEL}
+        if len(ages) >= 2:
+            return True
+    spans = (_band_run_span(text, run) for run in _BAND_RUN_RE.finditer(text))
+    return any(_pairs_a_band(text[start:end]) for start, end in spans)
+
 
 _WORD_BOYS = re.compile(r"(?<![a-z0-9])boys?(?![a-z0-9])", re.I)
 _WORD_GIRLS = re.compile(r"(?<![a-z0-9])girls?(?![a-z0-9])", re.I)
@@ -333,7 +396,9 @@ def decide(pair, ev):
         verdict, why = "REFUSE", "birth years disagree once labels are resolved"
     elif fused:
         verdict, why = "REVIEW", "a row already carries several concurrent registrations from one provider"
-    elif bool(_BAND.search(raw_a)) != bool(_BAND.search(raw_b)):
+    elif max(len(raw_a), len(raw_b)) > _BAND_SCAN_LIMIT:
+        verdict, why = "REVIEW", "a registered name is too long for the band check to read"
+    elif states_a_band(raw_a) != states_a_band(raw_b):
         verdict, why = "REVIEW", "a two-year band on one side only, visible in the registered name"
     elif years_a and years_b and years_a != years_b:
         verdict, why = "REVIEW", "band vs single year"
