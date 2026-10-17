@@ -57,6 +57,7 @@ COLUMNS = {
         "decided_at",
         "superseded_at",
     },
+    "team_cleanup_changes": {"id", "stage", "team_id_master", "field", "new_value", "reverted_at"},
     "providers": {"id", "code"},
     "games": {"id", "home_team_master_id", "away_team_master_id", "game_date", "is_excluded"},
     "watchlist_items": {"id", "team_id_master"},
@@ -280,7 +281,7 @@ def _ages(store, rows):
     folder = stage_dir(store, RUN, "ages")
     folder.mkdir(parents=True, exist_ok=True)
     bands.write_csv(rows, folder / pw.AGE_PLAN, bands.PLAN_FIELDS)
-    _folder(store, "ages", pw.age_proposals(pw._read_csv(folder / pw.AGE_PLAN)))
+    _folder(store, "ages", pw.age_proposals(pw._read_csv(folder / pw.AGE_PLAN), []))
 
 
 def _build(monkeypatch, capsys, store, db, stage="states"):
@@ -1008,6 +1009,73 @@ def test_a_state_change_the_name_already_answers_gets_no_card(tmp_path, monkeypa
     assert [(p["team_id_master"], p["why"]) for p in manifest["left_out"]] == [
         ("nevada", "its name or club name places it in NV"),
     ]
+
+
+def test_the_build_reports_which_cards_the_evidence_already_settles_and_still_shows_them(
+    tmp_path, monkeypatch, capsys
+):
+    """A fill is sure unless GotSport disputes it, the hold check holds it (an operator answered the
+    team), or an undo reversed it, even on a team since merged into the one proposed."""
+    store = tmp_path / "store"
+    _reviewing(store)
+    names = ("fill", "disputed", "answered", "undone")
+    _states(store, [_decision(t, None, "NV") for t in names] + [_decision("moved", "UT", "NV")])
+    teams = [_team(t, state=None) for t in names] + [_team("moved", state="UT")]
+    teams[2]["state_source"] = "operator"
+    undo = {
+        "id": 1,
+        "stage": "states",
+        "team_id_master": "undone-old",
+        "field": "state_code",
+        "new_value": "NV",
+        "reverted_at": "2026-10-12T00:00:00+00:00",
+    }
+    db = _Db(
+        teams=teams,
+        team_state_probe_log=[_probe("disputed", "UT")],
+        team_merge_map=[_merged("undone-old", "undone")],
+        team_cleanup_changes=[undo],
+    )
+
+    code, out = _build(monkeypatch, capsys, store, db)
+
+    manifest = _read(store, "states", MANIFEST_FILE)
+    assert code == 0
+    assert sorted(p["team_id_master"] for p in manifest["cards"].values()) == sorted([*names, "moved"])
+    assert {manifest["cards"][c]["team_id_master"]: why for c, why in manifest["sure"].items()} == {
+        "fill": "a blank state filled from its club, which nothing disputes"
+    }
+    assert _read(store, "states", pages.PAGE_MARKER)["sure"] == 1
+    assert "the evidence already settles 1 of them" in out
+
+
+def test_an_ages_page_settles_a_far_u_label_move_only_where_the_review_saw_a_second_witness(
+    tmp_path, monkeypatch, capsys
+):
+    """The propose step joins the review's readings to the plan, and the build reads them."""
+    store = tmp_path / "store"
+    _reviewing(store)
+    folder = stage_dir(store, RUN, "ages")
+    folder.mkdir(parents=True, exist_ok=True)
+    tier = "U_own_name_ulabel_opponent_confirmed"
+    bands.write_csv(
+        [_plan_row("confirmed", "u17", "u9", tier), _plan_row("lone", "u17", "u9", tier)],
+        folder / pw.AGE_PLAN,
+        bands.PLAN_FIELDS,
+    )
+    (folder / pw.AGE_REVIEW_FILE).write_text(
+        "team_id,gotsport_age,div_says,band_opps_say,year_witness\nconfirmed,,,u9,A 3:0\nlone,,,,A 3:0\n",
+        encoding="utf-8",
+    )
+    _folder(store, "ages", pw.scoped_proposals("ages", folder, ["NV"]))
+
+    db = _Db(teams=[_team("confirmed", age="u17"), _team("lone", age="u17")])
+
+    code, _ = _build(monkeypatch, capsys, store, db, "ages")
+
+    manifest = _read(store, "ages", MANIFEST_FILE)
+    assert code == 0
+    assert [manifest["cards"][c]["team_id_master"] for c in manifest["sure"]] == ["confirmed"]
 
 
 def test_a_states_page_with_no_change_to_answer_reads_no_evidence(tmp_path, monkeypatch, capsys):
