@@ -1830,7 +1830,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Update (2026-10-02)**: narrowed from "neither gate is exercised" after the Utah PR added the two tests above. Raised as a P2 on #1250 as completed work; it is half done, and closing it would leave the uniqueness gate uncovered.
 - **Noted**: 2026-09-30
 
-
 ### Reconcile the branch guard's "Five branches" with the four rows it holds
 
 - **Status**: open
@@ -1840,7 +1839,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: The docstring opens "Five branches were folded into their parents on 2026-09-22. None may come back," while importing the module and counting `COLLAPSED_BRANCHES` gives four rows (measured 2026-09-30). Pre-existing since the file was added in `2ac13b803` (#1204). A reader either hunts for an unguarded fifth branch or adds a fifth row that was never decided -- and this file is the canonical home of the branch-versus-parent policy, so it is read whenever a new case arrives. Either correct the count to four or restore the row that went missing; deciding which needs the #1204 working notes.
 - **Noted**: 2026-09-30
 
-
 ### Record the division a league import derived an age group from
 
 - **Status**: open
@@ -1849,7 +1847,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `src/models/affinity_or_matcher.py` (`_create_new_affinity_or_team`, the `team_data` insert), `scripts/import_games_enhanced.py` (`stream_games_csv` / `load_games_csv` column whitelists)
 - **Why**: A league import takes a team's age group from the division it scraped, then writes the team with `league` NULL -- measured 2026-10-02, all 675 teams of the first `affinity_ut` run. The division is the one signal the age-group audit rates as deciding for a league import, so once it is discarded those teams can never be checked against it; the audit falls back to the team's own name, and 90 of those 675 names state no cohort at all. Carrying it through needs three layers, which is why this is a plan and not a direct fix: the scraper has to emit the division, both loader whitelists have to admit the column (anything they do not name is dropped silently and a dry run still reports success), and the shared Affinity creation path has to write it without changing what Affinity OR records. Affects the OR and WA imports equally.
 - **Noted**: 2026-10-02
-
 
 ### Give a provider-stamped state_code its own provenance value
 
@@ -2402,3 +2399,23 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `src/tournaments/event_team_matcher.py` `rank_db_candidates`
 - **Why**: `rank_db_candidates` applies the distinction gate (`_should_skip_pair`) only to a pair whose clubs match exactly and that scores below 0.99, so two paths skip it: an exact-club pair at 0.99 or above, and a pair whose clubs `_same_club` accepts by similarity but not exactly, at any score; `_classify_by_score` can rate either high_confidence once it clears 0.96. `score_team_pair` compares a single variant word, so it can score two squads of one band at 1.0 ("Cincy SC B18-19 Elite" against "... Premier", a squad number against another, "Gold" against "Gold II"). The unknown-opponent auto-match refuses such pairs through `team_name_utils.squad_labels_differ` (IMP-368); the gate here is the event matcher's own call. Measure against saved event intakes before changing it.
 - **Noted**: 2026-10-16
+
+### Correct a club name GotSport itself has wrong, so the club-mate state rule stops moving the team
+
+- **ID**: IMP-374
+- **Status**: open
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `teams.club_name` for the Hawaii team "Leahi Windward" (GotSport 764879); `scripts/assign_team_states.py` `club_derived_state` (tier B in `decide`)
+- **Why**: GotSport's own record files this Hawaii team under "Legends FC (CA)", and our import copied it when the team appeared on 2026-08-11; the 2026-09-14 reconcile export shows both sides holding that club. The weekly team-cleanup loop's states stage then proposed HI → CA for it through tier B (run 2026-10-15-ca, queued because a tier A probe wrote the stored HI), and the owner said "Leahi Windward is a team from Hawaii" (2026-10-16). An older "Leahi Windward" (GotSport 640037) sits correctly under Leahi Soccer Club, HI, and is probably the same squad (merges are frozen). Three Michigan ECNL RL teams in MI also carry "Legends FC (CA)"; check whether that is the same mislabel. `reconcile_teams_with_gotsport.py` fills `club_name` only where ours is blank, so a hand correction would survive it; check whether any other club-name pass restores the provider's value. Tier B already abstains when a second state holds at least 2 of the club's teams and 5% of them (`MEANINGFUL_MIN_TEAMS`, `MEANINGFUL_MIN_PCT`); decide whether a smaller presence elsewhere, such as this HI team or the three MI teams, should also stop it.
+- **Noted**: 2026-10-16
+
+### Stop the states page hiding a move whose only contradiction is the GotSport answer that wrote the held state
+
+- **ID**: IMP-375
+- **Status**: open
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `scripts/team_cleanup/pages.py` `load_answered`, the "GotSport's record says" leave-off
+- **Why**: The page leaves a state change off when a recent mapped GotSport answer names the held state. On run 2026-10-15-ca the owner confirmed five such moves were right: Ballistic United "BUSC 2011 MLS" NC → CA, Golden Eagles FC NM → CA, and three New England Surf teams CA → MA. A read-only check on 2026-10-17 found GotSport's saved answer equals the held, wrong state for all five, so the rule leaves every one off and the owner never sees it. For the three Surf teams the card's own reason says "tier_a wrote the stored value", so the answer agreeing with the held state is the held state's own source. For the other two the stored value was "reported" and its source is unchecked. Count how many left-off cards share that shape, and decide whether `load_answered` should ignore an answer that wrote the held state.
+- **Noted**: 2026-10-17

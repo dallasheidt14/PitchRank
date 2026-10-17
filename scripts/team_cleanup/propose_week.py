@@ -93,6 +93,10 @@ ABBREVIATION_LOGS = Path("inputs") / "abbreviation_logs"
 SCOPED_CLUBS = "repair_swapped_club_names.csv"
 SCOPED_STATES = "snapshot.json"
 AGE_PLAN = "plan.csv"
+AGE_REVIEW_FILE = "age_label_review.csv"
+# The age review's evidence each age proposal carries: what the league's division, the opponents'
+# bands and GotSport each say the age is, and how the opponents' single birth years vote.
+AGE_EVIDENCE = ("gotsport_age", "div_says", "band_opps_say", "year_witness")
 APPLIER_INPUTS = {CLUBS: SCOPED_CLUBS, STATES: SCOPED_STATES, AGES: AGE_PLAN}
 AGE_GROUPS_TO_APPLY = "1,2,3"
 STATE_CHANGES = ("apply", "queue")
@@ -143,7 +147,7 @@ def stage_commands(stage: str, folder: Path, states: list[str], store: Path) -> 
     if stage == STATES:
         # A dry run with Tier A on still spends paid probes and logs each one to the database.
         return [[ASSIGN_STATES, "--no-tier-a", "--out", str(folder / "national_snapshot.json")]]
-    review = folder / "age_label_review.csv"
+    review = folder / AGE_REVIEW_FILE
     return [
         [
             AGE_REVIEW,
@@ -223,8 +227,8 @@ def state_proposals(snapshot: dict, states: list[str]) -> tuple[dict, list[dict]
     ]
 
 
-def age_proposals(plan: list[dict]) -> list[dict]:
-    return [
+def age_proposals(plan: list[dict], review: list[dict]) -> list[dict]:
+    proposals = [
         {
             "team_id_master": row["team_id_master"],
             "team_name": row["team_name"],
@@ -234,6 +238,16 @@ def age_proposals(plan: list[dict]) -> list[dict]:
             "tier": row["evidence_tier"],
         }
         for row in plan
+    ]
+    return with_age_evidence(proposals, review)
+
+
+def with_age_evidence(proposals: list[dict], review: list[dict]) -> list[dict]:
+    """Each age proposal with what the review read about its team, a blank reading as none."""
+    evidence = {row["team_id"]: row for row in review}
+    return [
+        {**p, **{key: evidence.get(p["team_id_master"], {}).get(key) or None for key in AGE_EVIDENCE}}
+        for p in proposals
     ]
 
 
@@ -252,7 +266,7 @@ def scoped_proposals(stage: str, folder: Path, states: list[str]) -> list[dict]:
         scoped, proposals = state_proposals(read_json(folder / "national_snapshot.json"), states)
         write_json(folder / SCOPED_STATES, scoped, indent=1)
         return proposals
-    return age_proposals(_read_csv(folder / AGE_PLAN))
+    return age_proposals(_read_csv(folder / AGE_PLAN), _read_csv(folder / AGE_REVIEW_FILE))
 
 
 def preflight(stage: str, folder: Path) -> str | None:

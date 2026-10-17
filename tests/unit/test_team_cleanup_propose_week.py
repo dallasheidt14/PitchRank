@@ -225,26 +225,49 @@ def test_a_state_snapshot_keeps_decisions_moving_a_team_into_or_out_of_the_scope
     ]
 
 
-def test_an_age_plan_row_reads_as_an_age_group_change():
+def test_an_age_plan_row_reads_as_an_age_group_change_carrying_the_review_s_evidence():
+    """The plan drops what the review read about each team; the proposal takes it back from the
+    review, and a team the review has no reading for carries none."""
     plan = [
         {
-            "team_id_master": "a",
-            "team_name": "A 2014B",
+            "team_id_master": team,
+            "team_name": f"{team.upper()} U12",
             "old_age_group": "u13",
             "new_age_group": "u12",
-            "evidence_tier": "A_own_name_band",
+            "evidence_tier": "U_own_name_ulabel_opponent_confirmed",
             "state_code": "NV",
         }
+        for team in ("a", "b")
+    ]
+    review = [
+        {"team_id": "a", "gotsport_age": "u12", "div_says": "", "band_opps_say": "u12", "year_witness": "A 3:0"},
+        {"team_id": "z", "gotsport_age": "u9", "div_says": "u9", "band_opps_say": "u9", "year_witness": "A 4:0"},
     ]
 
-    assert pw.age_proposals(plan) == [
+    assert pw.age_proposals(plan, review) == [
         {
             "team_id_master": "a",
-            "team_name": "A 2014B",
+            "team_name": "A U12",
             "field": "age_group",
             "old_value": "u13",
             "new_value": "u12",
-            "tier": "A_own_name_band",
+            "tier": "U_own_name_ulabel_opponent_confirmed",
+            "gotsport_age": "u12",
+            "div_says": None,
+            "band_opps_say": "u12",
+            "year_witness": "A 3:0",
+        },
+        {
+            "team_id_master": "b",
+            "team_name": "B U12",
+            "field": "age_group",
+            "old_value": "u13",
+            "new_value": "u12",
+            "tier": "U_own_name_ulabel_opponent_confirmed",
+            "gotsport_age": None,
+            "div_says": None,
+            "band_opps_say": None,
+            "year_witness": None,
         },
     ]
 

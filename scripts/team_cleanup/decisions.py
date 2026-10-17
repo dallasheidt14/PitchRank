@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 DECISIONS_TABLE = "team_cleanup_decisions"
+CHANGES_TABLE = "team_cleanup_changes"
 MERGES = "merges"
 KEEP_SEPARATE = "keep_separate"
 KEEP_SEPARATE_COLS = "id,team_id_master,other_team_id,decided_at,superseded_at"

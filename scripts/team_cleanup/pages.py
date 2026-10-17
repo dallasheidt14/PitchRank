@@ -11,7 +11,8 @@ cap first and lead their group; past the cap the rest are listed and left for ne
 which proposes them again. It writes three files into the stage folder:
 
   page.html            a self-contained page from assets/stage-page.html, one card per proposal
-  page.manifest.json   which proposal each card shows, and what was left off and why
+  page.manifest.json   which proposal each card shows, which of them sure.py finds the evidence
+                       already settles, and what was left off and why
   page.json            the build: its run, its counts, and the hashes of proposals.json, the
                        applier's input and the manifest, which the collector checks first
 
@@ -35,7 +36,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from scripts.assign_team_states import build_locality_index, club_key, fetch_live_teams  # noqa: E402
+from scripts.assign_team_states import club_key  # noqa: E402
 from scripts.enqueue_user_interest_teams import (  # noqa: E402
     collect_report_card_teams,
     collect_user_requested_teams,
@@ -50,7 +51,7 @@ from scripts.find_cross_provider_duplicates import (  # noqa: E402
     page,
     resolver,
 )
-from scripts.review_state_queue_by_name import classify, provider_states  # noqa: E402
+from scripts.review_state_queue_by_name import classify  # noqa: E402
 from scripts.team_cleanup.decisions import (  # noqa: E402
     DECISIONS_TABLE,
     DONT_APPLY,
@@ -71,6 +72,7 @@ from scripts.team_cleanup.run_store import (  # noqa: E402
     stage_due,
     store_dir,
 )
+from scripts.team_cleanup.sure import keeps_state, load_signals, state_evidence, sure_because  # noqa: E402
 from src.tournaments.storage._io import read_json, utc_now_iso, write_json  # noqa: E402
 
 TEMPLATE = Path(__file__).resolve().parent / "assets" / "stage-page.html"
@@ -136,30 +138,24 @@ def load_interest(sb, canonical) -> set[str]:
     return {canonical(t) for t in teams}
 
 
-def load_answered(sb, stage: str, proposals) -> dict[str, str]:
+def load_answered(proposals, evidence) -> dict[str, str]:
     """{team: why} for each state change the states skill's own evidence already answers with the
     state the team holds: a recent GotSport answer, or the team's name or club name as its name
     pass reads it. A proposal that keeps the held state changes nothing and is never answered."""
-    if stage != STATES:
+    if evidence is None:
         return {}
-    changes = [(p, (p["old_value"] or "").strip() or None) for p in proposals]
-    changes = [(p, held) for p, held in changes if p["new_value"] != held]
-    if not changes:
-        return {}
-    answers = provider_states(sb)
-    live = fetch_live_teams(sb)
-    by_id = {t["team_id_master"]: t for t in live}
-    locality_index = build_locality_index(live)
     answered = {}
-    for p, held in changes:
-        tid = p["team_id_master"]
-        answer = answers.get(tid)
+    for p in proposals:
+        if keeps_state(p):
+            continue
+        tid, held = p["team_id_master"], (p["old_value"] or "").strip() or None
+        answer = evidence.answers.get(tid)
         if answer and answer == held:
             answered[tid] = f"GotSport's record says {held}"
             continue
         row = {"current_state_code": held, "proposed_state_code": p["new_value"]}
         # The approved and reverted ledgers are left out: classify rejects before it reads them.
-        if classify(row, by_id.get(tid), locality_index, answer)[0] == "reject":
+        if classify(row, evidence.by_id.get(tid), evidence.locality_index, answer)[0] == "reject":
             answered[tid] = f"its name or club name places it in {held}"
     return answered
 
@@ -250,7 +246,8 @@ def build(sb, store: Path, run_id: str, stage: str) -> dict:
     canonical = resolver(merge_map)
     declined = load_declined(sb, stage, canonical)
     interest = load_interest(sb, canonical)
-    answered = load_answered(sb, stage, proposals)
+    evidence = state_evidence(sb, stage, proposals)
+    answered = load_answered(proposals, evidence)
     teams = fetch_teams(sb, ids)
     shown, left_out = sort_out(stage, proposals, stale, declined, answered, teams, canonical, interest)
     shown, overflow = shown[:CARD_CAP], shown[CARD_CAP:]
@@ -263,6 +260,8 @@ def build(sb, store: Path, run_id: str, stage: str) -> dict:
     cards = [card(stage, page_run, p, teams[p["team_id_master"]], ev, providers, interest) for p in shown]
     for n, c in enumerate(cards, 1):
         c["n"] = n
+    signals = load_signals(sb, stage, folder, shown, evidence, canonical)
+    sure = {c["id"]: why for c, p in zip(cards, shown) if (why := sure_because(stage, p, signals))}
     title = f"{TITLES[stage]}: {', '.join(run['scope']['states'])} ({run_id})"
 
     (folder / PAGE_FILE).write_text(render(TEMPLATE, cards, title, page_run), encoding="utf-8")
@@ -272,6 +271,7 @@ def build(sb, store: Path, run_id: str, stage: str) -> dict:
         "stage": stage,
         "title": title,
         "cards": {c["id"]: p for c, p in zip(cards, shown)},
+        "sure": sure,
         "left_out": left_out,
         "overflow": overflow,
     }
@@ -280,6 +280,7 @@ def build(sb, store: Path, run_id: str, stage: str) -> dict:
         "run": page_run,
         "built_at": utc_now_iso(),
         "cards": len(cards),
+        "sure": len(sure),
         "left_out": len(left_out),
         "overflow": len(overflow),
         "hashes": {name: file_hash(folder / name) for name in (PROPOSALS_FILE, APPLIER_INPUTS[stage], MANIFEST_FILE)},
@@ -302,11 +303,12 @@ def main() -> int:
         store = store_dir(args.store)
         marker = build(get_client(), store, args.run, args.stage)
     except DecisionsUnavailable as exc:
-        raise SystemExit(f"{exc}\nThe page waits until the owner's earlier decisions can be read.") from exc
+        raise SystemExit(f"{exc}\nThe page waits until the owner's earlier decisions and undos can be read.") from exc
     except (OSError, ValueError) as exc:
         raise SystemExit(f"Cannot build the {args.stage} page for {args.run}: {exc}") from None
     folder = stage_dir(store, args.run, args.stage)
     print(f"wrote {folder / PAGE_FILE}: {marker['cards']} cards, page run {marker['run']}")
+    print(f"  the evidence already settles {marker['sure']} of them (reported only; each is still a card)")
     print(f"  left off {marker['left_out']}, past the cap {marker['overflow']}; see {folder / MANIFEST_FILE}")
     return 0
 
