@@ -2412,3 +2412,23 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `scripts/team_cleanup/pages.py` `load_answered`, the "GotSport's record says" leave-off
 - **Why**: The page leaves a state change off when a recent mapped GotSport answer names the held state. On run 2026-10-15-ca the owner confirmed five such moves were right: Ballistic United "BUSC 2011 MLS" NC → CA, Golden Eagles FC NM → CA, and three New England Surf teams CA → MA. A read-only check on 2026-10-17 found GotSport's saved answer equals the held, wrong state for all five, so the rule leaves every one off and the owner never sees it. For the three Surf teams the card's own reason says "tier_a wrote the stored value", so the answer agreeing with the held state is the held state's own source. For the other two the stored value was "reported" and its source is unchecked. Count how many left-off cards share that shape, and decide whether `load_answered` should ignore an answer that wrote the held state.
 - **Noted**: 2026-10-17
+
+### Make the unknown-opponent auto-match's broader candidate search actually widen
+
+- **ID**: IMP-376
+- **Status**: open
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `scripts/auto_match_unknown_opponents.py` `fetch_candidates`
+- **Why**: The "fallback broader query" re-runs the club-filtered query. postgrest-py filter builders mutate in place: `club_q = query.ilike("club_name", ...)` returns the same object, so `query` carries the club filter too (checked 2026-10-17: `club_q is query` is True, and the base query's params end `club_name=ilike...`). `unknown-opponent-hygiene-weekly.yml` runs without `--strict-club`, so the job behaves as strict-club while appearing to have a fallback. Both reads also take `.limit(max_candidates)` with no `.order()`. A fix widens the weekly job's candidate pool and so its auto-links; measure the change on the saved Tuesday aggregates first.
+- **Noted**: 2026-10-17
+
+### Read the squad label after a U-age in the unknown-opponent squad check
+
+- **ID**: IMP-377
+- **Status**: open
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `src/utils/team_name_utils.py` `squad_labels_differ` / `_squad_reading`
+- **Why**: The squad check from IMP-368 (#1324) reads a label only after a birth year, so names carrying only a U-age are left to `score_team_pair`: `squad_labels_differ("Cincy SC U12 Elite", "Cincy SC U12 Premier", ...)` returns False where the B2014 spelling returns True (checked 2026-10-17). The scorer can rate such a pair 1.0, so the weekly unknown-opponent job can still auto-link two squads of one U-age. Count such pairs in the saved Tuesday aggregates and the approved merges before extending it.
+- **Noted**: 2026-10-17
