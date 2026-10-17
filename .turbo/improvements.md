@@ -2384,12 +2384,14 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 ### Gate the event-team matcher's same-club pairs on the squad label after a band
 
 - **ID**: IMP-373
-- **Status**: open
+- **Status**: deferred
 - **Type**: investigate
 - **Category**: reliability
 - **Where**: `src/tournaments/event_team_matcher.py` `rank_db_candidates`
 - **Why**: `rank_db_candidates` applies the distinction gate (`_should_skip_pair`) only to a pair whose clubs match exactly and that scores below 0.99, so two paths skip it: an exact-club pair at 0.99 or above, and a pair whose clubs `_same_club` accepts by similarity but not exactly, at any score; `_classify_by_score` can rate either high_confidence once it clears 0.96. `score_team_pair` compares a single variant word, so it can score two squads of one band at 1.0 ("Cincy SC B18-19 Elite" against "... Premier", a squad number against another, "Gold" against "Gold II"). The unknown-opponent auto-match refuses such pairs through `team_name_utils.squad_labels_differ` (IMP-368); the gate here is the event matcher's own call. Measure against saved event intakes before changing it.
 - **Noted**: 2026-10-16
+- **Update (2026-10-17)**: Measured before building. A guard calling `squad_labels_differ` in `rank_db_candidates` (provider-id matches exempt) changed no link across 1,123 saved event teams (event 42434's intake journal, the 51783 intake, the 55368 walk, the saved seeding runs): no team gained or lost an auto-link, a GotSport-id link or an exact-name match, and none of 42434's 89 auto-links moved. It changed 33 decisions that write nothing: 32 "none" rows whose top suggestion (the display-only `matcher_resolved_*` columns; seeding reads `resolved_*`) stopped naming another squad in 23 cases, and one review row ("2014B West" against "B2014 west 1", unclear) became none. Read-only, no approved event-id alias with games pairs different squads; the 12 that differ in name were approved by the queue auto-approver (IMP-369/371), not this matcher, and carry no games. The event intake that writes this matcher's aliases last ran 2026-05-04. Owner chose to shelve it.
+- **Trigger**: The event intake (`scrape-specific-event.yml` or `tournament_intake.py` alias writes) is run again, or a wrong-squad link traced to `rank_db_candidates` turns up. Re-measure against the new intake before adding the guard.
 
 ### Correct a club name GotSport itself has wrong, so the club-mate state rule stops moving the team
 
