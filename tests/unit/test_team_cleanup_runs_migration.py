@@ -1,4 +1,4 @@
-"""Pin the parts of the team_cleanup_runs migration that fail silently.
+"""Pin the parts of team_cleanup_runs's migrations that fail silently.
 
 ci.yml applies no migrations, so these text assertions stand in for executing the SQL. Without the
 one-open-run index two weekly runs can both be open, and without its predicate a finished run
@@ -83,6 +83,35 @@ def test_the_database_keeps_updated_at():
     assert f"BEFORE UPDATE ON public.{TABLE} FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();" in trigger
 
 
+def test_the_owner_s_done_is_a_time_and_who_marked_it_together():
+    """The applier reads owner_done_at to know a page is finished; a time without who set it, the
+    owner or the Sunday deadline, could not be told apart in the run's record."""
+    columns = _flat(_newest_statement(rf"(?is)alter\s+table\s+(?:public\.)?{TABLE}\s+add\s+column"))
+    whole = _flat(_newest_statement(r"(?is)add\s+constraint\s+team_cleanup_runs_owner_done_is_whole"))
+
+    assert "ADD COLUMN IF NOT EXISTS owner_done_at TIMESTAMPTZ," in columns
+    assert "ADD COLUMN IF NOT EXISTS owner_done_by TEXT CHECK (owner_done_by IN ('owner', 'deadline'));" in columns
+    assert "CHECK ((owner_done_at IS NULL) = (owner_done_by IS NULL));" in whole
+
+
+def test_the_owner_s_done_check_is_dropped_before_it_is_added_and_never_after():
+    """A hand-applied migration runs again; the drop lets the add succeed the second time, and a drop
+    after the newest add would leave the table with no check at all."""
+    drop = r"(?is)drop\s+constraint\s+if\s+exists\s+team_cleanup_runs_owner_done_is_whole\s*;"
+    add = r"(?is)add\s+constraint\s+team_cleanup_runs_owner_done_is_whole\b"
+    tree = _tree()
+
+    adds = list(re.finditer(add, tree))
+    assert adds, "no migration adds the owner's-done check"
+    drops_before = [m for m in re.finditer(drop, tree) if m.start() < adds[-1].start()]
+    drops_after = [
+        m for m in re.finditer(r"(?is)drop\s+constraint[^;]*owner_done_is_whole", tree) if m.start() > adds[-1].start()
+    ]
+
+    assert drops_before, "the owner's-done check is added with no drop of that name before it"
+    assert not drops_after, "a later statement drops the owner's-done check the newest migration added"
+
+
 def test_row_level_security_is_enabled():
     assert re.search(rf"(?is)alter\s+table\s+(?:public\.)?{TABLE}\s+enable\s+row\s+level\s+security", _tree()), (
         f"{TABLE} ships without RLS, which leaves both policies inert"
@@ -137,7 +166,8 @@ def test_nothing_later_reshapes_the_table_behind_these_guards():
     for verb, pattern, allowed in (
         ("CREATE TABLE", rf"(?is)create\s+table\s+(?:if\s+not\s+exists\s+)?(?:public\.)?{TABLE}\b", 1),
         ("DROP TABLE", rf"(?is)drop\s+table\s+(?:if\s+exists\s+)?(?:public\.)?{TABLE}\b", 0),
-        ("ALTER TABLE", rf"(?is)alter\s+table\s+(?:if\s+exists\s+)?(?:public\.)?{TABLE}\b", 1),
+        # Enabling RLS, then the owner's-done columns, the drop of their check and its re-add.
+        ("ALTER TABLE", rf'(?is)alter\s+table\s+(?:if\s+exists\s+)?(?:only\s+)?(?:"?public"?\.)?"?{TABLE}"?\b', 4),
         ("DROP POLICY", rf'(?is)drop\s+policy\s+[^;]*"{TABLE}_', 2),
         ("DROP INDEX", r"(?is)drop\s+index\s+[^;]*uq_team_cleanup_runs", 0),
         ("DROP TRIGGER", r"(?is)drop\s+trigger\s+[^;]*update_team_cleanup_runs_updated_at", 1),
@@ -145,6 +175,6 @@ def test_nothing_later_reshapes_the_table_behind_these_guards():
     ):
         hits = re.findall(pattern, tree)
         assert len(hits) <= allowed, (
-            f"{verb} on {TABLE} appeared in a migration; these guards read only its "
-            f"original definition and no longer describe the live table: {hits}"
+            f"{verb} on {TABLE} appeared in a migration; these guards do not cover it "
+            f"and may no longer describe the live table: {hits}"
         )
