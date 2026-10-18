@@ -124,7 +124,7 @@ function fit(priors: Record<string, Prior>, fixtures: Fixture[]): NetworkEvidenc
     incident[a].push(edge);
     incident[b].push(edge);
   }
-  const components = new Map<number, number>();
+  const components = new Map<number, { entrants: number; totalGoals: number }>();
   for (let start = 0; start < ids.length; start++)
     if (!components.has(start)) {
       const members = new Set([start]),
@@ -136,13 +136,18 @@ function fit(priors: Record<string, Prior>, fixtures: Fixture[]): NetworkEvidenc
             queue.push(next);
           }
       const entrants = [...members].filter((i) => priors[ids[i]].entrant).length;
-      for (const member of members) components.set(member, entrants);
+      let totalWeight = 0,
+        weightedGoals = 0;
+      for (const member of members)
+        for (const edge of incident[member])
+          if (edge.a === member) {
+            // Count a physical fixture once, using only this component's evidence.
+            totalWeight += edge.w;
+            weightedGoals += edge.w * Math.min(edge.g.goals, 10);
+          }
+      const totalGoals = Math.max(1.4, Math.min(8.8, totalWeight ? weightedGoals / totalWeight : 3));
+      for (const member of members) components.set(member, { entrants, totalGoals });
     }
-  const totalWeight = edges.reduce((s, e) => s + e.w, 0);
-  const totalGoals = Math.max(
-    1.4,
-    Math.min(8.8, totalWeight ? edges.reduce((s, e) => s + e.w * Math.min(e.g.goals, 10), 0) / totalWeight : 3)
-  );
   return Object.fromEntries(
     ids.map((id, i) => {
       const observations: Observation[] = incident[i]
@@ -191,8 +196,8 @@ function fit(priors: Record<string, Prior>, fixtures: Fixture[]): NetworkEvidenc
               .map((g) => g.date)
               .sort()
               .at(-1) ?? null,
-          componentEntrants: components.get(i)!,
-          totalGoals,
+          componentEntrants: components.get(i)!.entrants,
+          totalGoals: components.get(i)!.totalGoals,
           converged: true,
         },
       ];
@@ -343,6 +348,7 @@ export function predictNetworkResult(a: TeamWithRanking, b: TeamWithRanking, evi
     eb = evidence[b.team_id_master];
   if (!ea || !eb) throw new Error('Missing game-evidence strength');
   const margin = clip(ea.strength - eb.strength, 8),
-    total = Math.max(ea.totalGoals, Math.abs(margin) + 0.3);
+    // Across disconnected components, combine both rates symmetrically.
+    total = Math.max((ea.totalGoals + eb.totalGoals) / 2, Math.abs(margin) + 0.3);
   return withScoreDistribution(predictMatch(a, b, []), margin, total);
 }

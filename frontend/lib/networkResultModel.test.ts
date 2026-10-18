@@ -135,3 +135,45 @@ it('counts only accepted entrants in connected evidence components', () => {
   expect(together.a.componentEntrants).toBe(2);
   expect(together.b.componentEntrants).toBe(2);
 });
+
+it('keeps unrelated high-scoring fixtures out of a matchup goal rate', () => {
+  const field = { ...teams, c: team('c'), x: team('x') };
+  const original = build(field, [game('ab', 2)], '2026-10-01', ['a', 'b', 'c']);
+  const extra = { ...game('cx', 4), home_team_master_id: 'c', away_team_master_id: 'x', away_score: 6 };
+  const expanded = build(field, [game('ab', 2), extra], '2026-10-01', ['a', 'b', 'c']);
+  const before = predict(field.a, field.b, original);
+  const after = predict(field.a, field.b, expanded);
+  expect(expanded.a.totalGoals).toBe(2);
+  expect(expanded.b.totalGoals).toBe(2);
+  expect(expanded.c.totalGoals).toBe(8.8);
+  expect(after.expectedAbsoluteGoalDifference).toBeCloseTo(before.expectedAbsoluteGoalDifference!, 12);
+  expect(after.blowout4PlusProbability).toBeCloseTo(before.blowout4PlusProbability!, 12);
+  expect(after.winProbabilityA).toBeCloseTo(before.winProbabilityA, 12);
+  const ac = predict(field.a, field.c, expanded),
+    ca = predict(field.c, field.a, expanded);
+  expect(ac.expectedGoals!.teamA + ac.expectedGoals!.teamB).toBeCloseTo(5.4, 12);
+  expect(ac.expectedMargin).toBeCloseTo(-ca.expectedMargin, 12);
+  expect(ac.expectedAbsoluteGoalDifference).toBeCloseTo(ca.expectedAbsoluteGoalDifference!, 12);
+  expect(ac.blowout4PlusProbability).toBeCloseTo(ca.blowout4PlusProbability!, 12);
+  expect(ac.winProbabilityA).toBeCloseTo(ca.winProbabilityB, 12);
+});
+
+it('recalculates scoring rates when removing a game disconnects the evidence', () => {
+  const field = { ...teams, c: team('c'), d: team('d'), e: team('e') };
+  const evidence = build(
+    field,
+    [
+      game('ab', 2),
+      { ...game('bc', 2), home_team_master_id: 'b', away_team_master_id: 'c' },
+      { ...game('cd', 8), home_team_master_id: 'c', away_team_master_id: 'd' },
+    ],
+    '2026-10-01'
+  );
+  for (const id of ['a', 'b', 'c', 'd']) expect(evidence[id].totalGoals).toBe(4);
+  const disconnected = without(evidence, 'bc');
+  expect(disconnected.a.totalGoals).toBe(2);
+  expect(disconnected.b.totalGoals).toBe(2);
+  expect(disconnected.c.totalGoals).toBe(8);
+  expect(disconnected.d.totalGoals).toBe(8);
+  expect(disconnected.e.totalGoals).toBe(3);
+});
