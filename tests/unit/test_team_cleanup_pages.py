@@ -1606,6 +1606,24 @@ def test_a_published_page_the_owner_has_begun_deciding_is_not_built_again(tmp_pa
     assert {r["page_run"] for r in db.tables["team_cleanup_cards"]} == {first}
 
 
+def test_no_page_is_built_again_once_the_review_is_marked_done(tmp_path, monkeypatch, capsys):
+    """A new build's cards start undecided, and a done review is collected as it stands, so the owner would
+    never see them."""
+    store, db = _sure_week(tmp_path, monkeypatch, auto=1)
+    _publish(monkeypatch, capsys, store, db, "--publish", "--execute")
+    before = _page_files(store)
+    db.tables["team_cleanup_runs"][0].update(owner_done_at="2026-10-18T18:00:00+00:00", owner_done_by="deadline")
+
+    with pytest.raises(SystemExit) as caught:
+        _publish(monkeypatch, capsys, store, db, "--publish", "--execute")
+
+    assert str(caught.value) == (
+        f"Cannot build the states page for {RUN}: the review of run {RUN} is marked done, so its pages stay as "
+        "they are"
+    )
+    assert _page_files(store) == before and db.executes.count(INSERT) == 1
+
+
 def test_a_decision_saved_while_the_build_reads_its_evidence_stops_the_new_build(tmp_path, monkeypatch, capsys):
     store, db = _sure_week(tmp_path, monkeypatch, auto=1)
     _publish(monkeypatch, capsys, store, db, "--publish", "--execute")

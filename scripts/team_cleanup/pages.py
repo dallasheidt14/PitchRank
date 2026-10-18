@@ -37,8 +37,8 @@ That insert is its only database write, made before the files so a refused one l
 as it was; page.json records `published`. --publish alone writes nothing, not even the files, and nor
 does --dry-run, with or without it. Once the stage has published cards for the run, every new build is
 published too and must carry a card, since a build with none publishes no row to replace them; once the
-owner has decided a card of any of them, the page is not built again, since a new build's cards start
-undecided.
+owner has decided a card of any of them, or marked the run's review done, the page is not built again,
+since a new build's cards start undecided.
 
     python scripts/team_cleanup/pages.py --run 2026-10-14-nv --stage states
     python scripts/team_cleanup/pages.py --run 2026-10-14-nv --stage states --publish --execute
@@ -98,6 +98,7 @@ from scripts.team_cleanup.run_store import (  # noqa: E402
     OWNER,
     PAGE_MARKER,
     PROPOSALS_FILE,
+    RUNS_TABLE,
     STALE_FILE,
     ApplyLockError,
     Busy,
@@ -311,10 +312,14 @@ def buildable(store: Path, run_id: str, stage: str) -> Path:
 
 
 def check_undecided(sb, run_id: str, stage: str, publish: bool, empty: bool) -> None:
-    """Refuse a new build once the owner has decided a card of any build of this page published for the
-    run, and refuse one that would not replace a published page on the website: one that does not publish,
-    or one with no card, which publishes no row. The website is to show the newest build published, so the
-    page on disk must be that build."""
+    """Refuse a new build once the run's review is marked done, whose new cards would be collected without
+    the owner seeing them, or once the owner has decided a card of any build of this page published for
+    the run, and refuse one that would not replace a published page on the website: one that does not
+    publish, or one with no card, which publishes no row. The website is to show the newest build
+    published, so the page on disk must be that build."""
+    done = sb.table(RUNS_TABLE).select("owner_done_at").eq("run_id", run_id).execute().data
+    if done and done[0]["owner_done_at"] is not None:
+        raise ValueError(f"the review of run {run_id} is marked done, so its pages stay as they are")
     rows = fetch_cards(sb, run_id=run_id, stage=stage)
     decided = sorted({row["page_run"] for row in rows if row["lane"] == OWNER and row["decision"] is not None})
     if decided:
