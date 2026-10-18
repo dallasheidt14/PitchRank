@@ -1492,6 +1492,46 @@ def test_a_page_with_published_cards_is_built_again_only_by_publishing(tmp_path,
     assert _page_files(store) == before
 
 
+def _builds_no_card(monkeypatch):
+    """Every proposal left off, as when the evidence now answers all of them."""
+    sort_out = pages.sort_out
+
+    def nothing_shown(*args):
+        shown, left_out = sort_out(*args)
+        return [], left_out + shown
+
+    monkeypatch.setattr(pages, "sort_out", nothing_shown)
+
+
+def test_a_published_page_is_not_replaced_by_a_build_with_no_card(tmp_path, monkeypatch, capsys):
+    """A build with no card publishes no row, so the website would go on showing the published page."""
+    store, db = _sure_week(tmp_path, monkeypatch, auto=1)
+    _publish(monkeypatch, capsys, store, db, "--publish", "--execute")
+    first, before = _read(store, "states", pages.PAGE_MARKER)["run"], _page_files(store)
+    _builds_no_card(monkeypatch)
+
+    with pytest.raises(SystemExit) as caught:
+        _publish(monkeypatch, capsys, store, db, "--publish", "--execute")
+
+    assert str(caught.value) == (
+        f"Cannot build the states page for {RUN}: the new build has no cards, so publishing it would leave the "
+        f"website showing the published page {first}; the page stays as it is"
+    )
+    assert _page_files(store) == before and db.executes.count(INSERT) == 1
+
+
+def test_a_page_with_no_card_publishes_no_row_and_collects_to_nothing(tmp_path, monkeypatch, capsys):
+    store, db = _sure_week(tmp_path, monkeypatch, auto=1)
+    _builds_no_card(monkeypatch)
+
+    code, _ = _publish(monkeypatch, capsys, store, db, "--publish", "--execute")
+
+    assert code == 0 and _read(store, "states", pages.PAGE_MARKER)["published"] is True
+    assert INSERT not in db.executes and db.tables["team_cleanup_cards"] == []
+    code, out = _collect_db(monkeypatch, capsys, store, db)
+    assert code == 0 and "nothing to apply" in out
+
+
 def test_execute_without_publish_is_refused(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(sys, "argv", ["pages.py", "--run", RUN, "--stage", "states", "--execute"])
 
@@ -1700,8 +1740,8 @@ def test_a_choice_saved_on_the_page_a_rebuild_replaced_stops_the_collect(tmp_pat
     _publish(monkeypatch, capsys, store, db, "--publish", "--execute")
     checks, saved = pages.check_undecided, []
 
-    def decided_after_the_check(sb, run_id, stage, publish):
-        checks(sb, run_id, stage, publish)
+    def decided_after_the_check(*args, **kwargs):
+        checks(*args, **kwargs)
         saved.append(_decide(db, "c", "apply"))
 
     monkeypatch.setattr(pages, "check_undecided", decided_after_the_check)

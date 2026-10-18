@@ -35,9 +35,9 @@ show the build the table saved last for the run (its created_at, not its page ru
 when the build starts) and save the owner's choices on it, and `collect.py --from-db` reads them back.
 That insert is its only database write, made before the files so a refused one leaves the page on disk
 as it was; page.json records `published`. --publish alone writes nothing, not even the
-files. Once the stage has published cards for the run, every new build is published too, and once the
-owner has decided a card of any of them, the page is not built again, since a new build's cards start
-undecided.
+files. Once the stage has published cards for the run, every new build is published too and must carry
+a card, since a build with none publishes no row to replace them; once the owner has decided a card of
+any of them, the page is not built again, since a new build's cards start undecided.
 
     python scripts/team_cleanup/pages.py --run 2026-10-14-nv --stage states
     python scripts/team_cleanup/pages.py --run 2026-10-14-nv --stage states --publish --execute
@@ -309,10 +309,11 @@ def buildable(store: Path, run_id: str, stage: str) -> Path:
     return folder
 
 
-def check_undecided(sb, run_id: str, stage: str, publish: bool) -> None:
+def check_undecided(sb, run_id: str, stage: str, publish: bool, empty: bool) -> None:
     """Refuse a new build once the owner has decided a card of any build of this page published for the
-    run, and refuse one that would not publish over a published page: the website is to show the newest
-    build published, so the page on disk must be that build."""
+    run, and refuse one that would not replace a published page on the website: one that does not publish,
+    or one with no card, which publishes no row. The website is to show the newest build published, so the
+    page on disk must be that build."""
     rows = fetch_cards(sb, run_id=run_id, stage=stage)
     decided = sorted({row["page_run"] for row in rows if row["lane"] == OWNER and row["decision"] is not None})
     if decided:
@@ -322,6 +323,11 @@ def check_undecided(sb, run_id: str, stage: str, publish: bool) -> None:
         )
     if rows and not publish:
         raise ValueError("the page is published, so a new build of it is published too: pass --publish")
+    if rows and empty:
+        raise ValueError(
+            "the new build has no cards, so publishing it would leave the website showing the published page "
+            f"{', '.join(sorted({row['page_run'] for row in rows}))}; the page stays as it is"
+        )
 
 
 def build(sb, store: Path, run_id: str, stage: str, publish: bool = False, execute: bool = False) -> dict:
@@ -395,11 +401,11 @@ def build(sb, store: Path, run_id: str, stage: str, publish: bool = False, execu
     # the files, so a failed publish leaves the page on disk as it was.
     with hold_apply_file(store, run_id):
         buildable(store, run_id, stage)
-        check_undecided(sb, run_id, stage, publish)
+        rows = card_rows(run_id, stage, page_run, built_at, lanes)
+        check_undecided(sb, run_id, stage, publish, empty=not rows)
         if publish and not execute:
             return marker
-        if publish:
-            rows = card_rows(run_id, stage, page_run, built_at, lanes)
+        if publish and rows:
             sb.table(CARDS_TABLE).insert(rows, returning=ReturnMethod.minimal).execute()
         (folder / PAGE_FILE).write_text(render(TEMPLATE, cards, title, page_run), encoding="utf-8")
         write_json(folder / MANIFEST_FILE, manifest, indent=1)
