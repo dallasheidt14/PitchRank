@@ -20,26 +20,40 @@ file lock and only while neither lane has collected from the page:
   page.manifest.json   which proposal each card shows, which go to the automatic lane, which of
                        either sure.py finds the evidence already settles, and what was left off and
                        why
-  page.json            the build: its run, its counts, and the hashes of proposals.json, the
-                       applier's input and the manifest, which the collector checks first
+  page.json            the build: its run, its counts, whether its cards are published, and the
+                       hashes of proposals.json, the applier's input and the manifest, which the
+                       collector checks first
 
 Publish page.html as an Artifact with the db capability. The owner's choices land in the page's
 own collection, `decisions-<run>`. A saved choice holds the decision, a note and a timestamp, never
 team ids: collect.py takes the ids from the manifest, so a write to the page can decide a proposal
 the page shows but cannot add one.
 
-Read-only: it never writes to the database.
+With --publish --execute it also writes each card of either lane to team_cleanup_cards (published to
+the website, as opposed to an Artifact), the automatic lane's already decided Apply; the website is to
+show the newest build published for the run and save the owner's choices on it, and `collect.py
+--from-db` reads them back. That insert is its only database write, made before the files so a refused one leaves
+the page on disk as it was; page.json records `published`. --publish alone writes nothing, not even the
+files. Once the stage has published cards for the run, every new build is published too, and once the
+owner has decided a card of any of them, the page is not built again, since a new build's cards start
+undecided.
 
     python scripts/team_cleanup/pages.py --run 2026-10-14-nv --stage states
+    python scripts/team_cleanup/pages.py --run 2026-10-14-nv --stage states --publish --execute
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import shlex
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+
+import httpx
+from postgrest.exceptions import APIError
+from postgrest.types import ReturnMethod
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
@@ -60,12 +74,16 @@ from scripts.find_cross_provider_duplicates import (  # noqa: E402
     resolver,
 )
 from scripts.review_state_queue_by_name import classify  # noqa: E402
+from scripts.team_cleanup.collect import fetch_cards  # noqa: E402
 from scripts.team_cleanup.decisions import (  # noqa: E402
+    CARDS_TABLE,
     DECISIONS_TABLE,
     DONT_APPLY,
     DONT_APPLY_COLS,
     DecisionsUnavailable,
+    card_rows,
     new_page_run,
+    resolve_execute,
 )
 from scripts.team_cleanup.propose_week import AGES, APPLIER_INPUTS, CLUBS, PROPOSED_STAGES, STATES  # noqa: E402
 from scripts.team_cleanup.review_page import card_id, fetch_teams, render  # noqa: E402
@@ -87,6 +105,7 @@ from scripts.team_cleanup.run_store import (  # noqa: E402
     lane_dir,
     lane_name,
     read_run,
+    refused,
     reporting_busy,
     stage_dir,
     stage_due,
@@ -289,7 +308,24 @@ def buildable(store: Path, run_id: str, stage: str) -> Path:
     return folder
 
 
-def build(sb, store: Path, run_id: str, stage: str) -> dict:
+def check_undecided(sb, run_id: str, stage: str, publish: bool) -> None:
+    """Refuse a new build once the owner has decided a card of any build of this page published for the
+    run, and refuse one that would not publish over a published page: the website is to show the newest
+    build published, so the page on disk must be that build."""
+    rows = fetch_cards(sb, run_id=run_id, stage=stage)
+    decided = sorted({row["page_run"] for row in rows if row["lane"] == OWNER and row["decision"] is not None})
+    if decided:
+        raise ValueError(
+            f"the owner has decided cards of the published page {', '.join(decided)}, so the page stays as it is; "
+            "collect the choices with collect.py --from-db"
+        )
+    if rows and not publish:
+        raise ValueError("the page is published, so a new build of it is published too: pass --publish")
+
+
+def build(sb, store: Path, run_id: str, stage: str, publish: bool = False, execute: bool = False) -> dict:
+    """The page's build, its files written unless it is a publish's dry run, and its cards inserted when
+    published."""
     run = read_run(store, run_id)
     folder = buildable(store, run_id, stage)
     caps = load_caps()
@@ -313,50 +349,61 @@ def build(sb, store: Path, run_id: str, stage: str) -> dict:
     shown.sort(key=display_order(stage, interest))
     auto.sort(key=display_order(stage, interest))
 
-    page_ids = [p["team_id_master"] for p in shown]
+    page_ids = [p["team_id_master"] for p in (*shown, *auto)]
     providers = {p["id"]: p["code"] for p in sb.table("providers").select("id,code").execute().data}
     ev = build_evidence(fetch_games(sb, sorted(merged_into(page_ids, merge_map, canonical))), [], canonical, page_ids)
     page_run = new_page_run()
-    cards = [card(stage, page_run, p, teams[p["team_id_master"]], ev, providers, interest) for p in shown]
-    for n, c in enumerate(cards, 1):
-        c["n"] = n
-    by_id = {c["id"]: p for c, p in zip(cards, shown)}
-    auto_by_id = {change_id(page_run, p): p for p in auto}
-    sure = {
-        cid: settled[p["team_id_master"]]
-        for cid, p in {**by_id, **auto_by_id}.items()
-        if p["team_id_master"] in settled
-    }
+    lanes, by_lane = {}, {}
+    for lane, chosen in ((OWNER, shown), (AUTO, auto)):
+        lanes[lane] = [
+            {
+                **card(stage, page_run, p, teams[p["team_id_master"]], ev, providers, interest),
+                "n": n,
+                "sure": settled.get(p["team_id_master"]),
+            }
+            for n, p in enumerate(chosen, 1)
+        ]
+        by_lane[lane] = {c["id"]: p for c, p in zip(lanes[lane], chosen)}
+    cards = lanes[OWNER]
+    sure = {c["id"]: c["sure"] for lane_cards in lanes.values() for c in lane_cards if c["sure"]}
     title = f"{TITLES[stage]}: {', '.join(run['scope']['states'])} ({run_id})"
     manifest = {
         "run": page_run,
         "cleanup_run": run_id,
         "stage": stage,
         "title": title,
-        LANE_CARDS[OWNER]: by_id,
-        LANE_CARDS[AUTO]: auto_by_id,
+        **{LANE_CARDS[lane]: by_lane[lane] for lane in (OWNER, AUTO)},
         "sure": sure,
         "left_out": left_out,
         "overflow": overflow,
     }
+    built_at = utc_now_iso()
+    marker = {
+        "run": page_run,
+        "built_at": built_at,
+        "published": publish and execute,
+        "cards": len(cards),
+        AUTO: len(by_lane[AUTO]),
+        "sure": len(sure),
+        "left_out": len(left_out),
+        "overflow": len(overflow),
+    }
 
-    # A lane may have been collected while the evidence was read; the collector holds this lock too.
+    # A lane may have been collected, or a published page decided, while the evidence was read; the collector
+    # holds this lock too. The cards go in one insert, so a build is published whole or not at all, and before
+    # the files, so a failed publish leaves the page on disk as it was.
     with hold_apply_file(store, run_id):
         buildable(store, run_id, stage)
+        check_undecided(sb, run_id, stage, publish)
+        if publish and not execute:
+            return marker
+        if publish:
+            rows = card_rows(run_id, stage, page_run, built_at, lanes)
+            sb.table(CARDS_TABLE).insert(rows, returning=ReturnMethod.minimal).execute()
         (folder / PAGE_FILE).write_text(render(TEMPLATE, cards, title, page_run), encoding="utf-8")
         write_json(folder / MANIFEST_FILE, manifest, indent=1)
-        marker = {
-            "run": page_run,
-            "built_at": utc_now_iso(),
-            "cards": len(cards),
-            AUTO: len(auto_by_id),
-            "sure": len(sure),
-            "left_out": len(left_out),
-            "overflow": len(overflow),
-            "hashes": {
-                name: file_hash(folder / name) for name in (PROPOSALS_FILE, APPLIER_INPUTS[stage], MANIFEST_FILE)
-            },
-        }
+        hashed = (PROPOSALS_FILE, APPLIER_INPUTS[stage], MANIFEST_FILE)
+        marker["hashes"] = {name: file_hash(folder / name) for name in hashed}
         write_json(folder / PAGE_MARKER, marker, indent=1)
     return marker
 
@@ -370,22 +417,37 @@ def main() -> int:
         type=Path,
         help="The run store, absolute (default: PITCHRANK_CLEANUP_DIR, else ~/pitchrank-cleanup-runs)",
     )
+    ap.add_argument("--publish", action="store_true", help=f"Write the cards to {CARDS_TABLE}")
+    ap.add_argument("--execute", action="store_true", help="With --publish, write them (default is a dry run)")
+    ap.add_argument("--dry-run", action="store_true", help="Force a dry run; wins over --execute")
     args = ap.parse_args()
+    if args.execute and not args.publish:
+        ap.error("--execute writes only the cards --publish names")
+    execute = resolve_execute(args.execute, args.dry_run)
+    what = f"Cannot build the {args.stage} page for {args.run}"
     with reporting_busy():
         try:
             store = store_dir(args.store)
-            marker = build(get_client(), store, args.run, args.stage)
+            marker = build(get_client(), store, args.run, args.stage, args.publish, execute)
         except DecisionsUnavailable as exc:
             raise SystemExit(
                 f"{exc}\nThe page waits until the owner's earlier decisions and undos can be read."
             ) from exc
         except RunBusy as exc:
-            raise Busy(f"Cannot build the {args.stage} page for {args.run}: {exc}") from None
+            raise Busy(f"{what}: {exc}") from None
         except (OSError, ValueError, ApplyLockError) as exc:
-            raise SystemExit(f"Cannot build the {args.stage} page for {args.run}: {exc}") from None
+            raise SystemExit(f"{what}: {exc}") from None
+        except (APIError, httpx.HTTPError) as exc:
+            raise SystemExit(refused(what, exc, shlex.join(["python", *sys.argv]))) from None
     folder = stage_dir(store, args.run, args.stage)
     sent = marker[AUTO]
-    print(f"wrote {folder / PAGE_FILE}: {marker['cards']} cards, page run {marker['run']}")
+    if args.publish and not execute:
+        print(f"DRY RUN -- would build page run {marker['run']} and publish its {marker['cards'] + sent} cards to")
+        print(f"  {CARDS_TABLE}, writing no file; add --execute")
+    else:
+        print(f"wrote {folder / PAGE_FILE}: {marker['cards']} cards, page run {marker['run']}")
+    if marker["published"]:
+        print(f"  published its {marker['cards'] + sent} cards, both lanes, to {CARDS_TABLE}")
     print(f"  the evidence already settles {marker['sure']}: {sent} go to the automatic lane, the rest stay cards")
     print(f"  left off {marker['left_out']}, past the cap {marker['overflow']}; see {folder / MANIFEST_FILE}")
     if sent:
