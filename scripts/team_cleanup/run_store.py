@@ -14,6 +14,9 @@ The store sits outside the repo, so removing a worktree takes no undo log with i
                                    skill_stale, and until then write_guard_before.json holds the
                                    opening snapshot
   <store>/runs/<run_id>/<stage>/   that stage's files and logs/, with one marker per finished step
+  <store>/runs/<run_id>/<stage>/auto/
+                                   the stage's automatic lane, when its page settled changes with no
+                                   card
   <store>/health/                  weekly reports
 
 A stage's progress is read back from its markers rather than stored, so a run killed mid-stage
@@ -42,6 +45,11 @@ stay written:
 
 The owner acts twice: deciding on the page, before collected.json, and triggering the apply,
 before RECORD.md.
+
+A page that sends changes the evidence already settles to the automatic lane (page.json's `auto`)
+gives that lane its own collected.json, vetted file, decisions.json, apply record and RECORD.md in
+auto/, read from the stage folder's page and inputs; the owner triggers its apply too. The stage is
+finished once both lanes are.
 """
 
 from __future__ import annotations
@@ -52,6 +60,7 @@ import logging
 import os
 import re
 import socket
+import sys
 from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -65,6 +74,7 @@ from src.tournaments.storage._io import read_json, utc_now_iso, write_json
 
 logger = logging.getLogger(__name__)
 
+CLEANUP_CONFIG = Path(__file__).resolve().parents[2] / "config" / "team_cleanup.json"
 STORE_ENV = "PITCHRANK_CLEANUP_DIR"
 RUNS_TABLE = "team_cleanup_runs"
 RUN_FILE = "run.json"
@@ -76,6 +86,13 @@ LEASE_HOURS = 6
 PERMISSION_DENIED = "42501"
 
 STAGES = ("reconcile", "clubs", "states", "ages", MERGES)
+# The owner's choices on the page, and the changes the page settled with no card, each under its key in
+# page.manifest.json.
+OWNER, AUTO = "owner", "auto"
+LANES = (OWNER, AUTO)
+LANE_CARDS = {OWNER: "cards", AUTO: AUTO}
+# sysexits' EX_TEMPFAIL: the command may succeed if run again later.
+BUSY = 75
 OPEN_STATUSES = ("proposing", "reviewing", "applying", "second_lap")
 DONE, ABANDONED = "done", "abandoned"
 STATUSES = (*OPEN_STATUSES, DONE, ABANDONED)
@@ -121,6 +138,10 @@ STEPS = (
     Step("collect", COLLECTED_MARKER, "the owner decides on the page, then collect the choices"),
     APPLY,
 )
+# The owner's steps up to the page, which the automatic lane is built from too.
+SHARED_STEPS = ("preflight", "propose", "review", "page")
+AUTO_COLLECT = Step("collect", COLLECTED_MARKER, "collect the automatic lane")
+AUTO_APPLY = Step("apply", APPLY_MARKER, "the owner runs the automatic lane's apply")
 
 
 @dataclass(frozen=True)
@@ -129,15 +150,42 @@ class StageProgress:
     next_step: Step | None
     queued: tuple[str, ...] = ()
     set_aside: tuple[str, ...] = ()
+    auto_step: Step | None = None
 
     @property
     def finished(self) -> bool:
-        return self.next_step is None
+        return self.next_step is None and self.auto_step is None
 
 
 class ApplyLockError(RuntimeError):
     """The run's apply lock is held (its file on this machine, or another holder's live lease), or the run
     cannot be leased."""
+
+
+class RunBusy(ApplyLockError):
+    """Another process holds the run for now, so a later attempt may take it."""
+
+
+class Busy(SystemExit):
+    """A refusal that waiting may lift, such as the apply window being shut or another writer or applier at
+    work. It exits BUSY; reporting_busy prints its message, which an exit code does not carry."""
+
+    def __init__(self, message: str):
+        super().__init__(message)
+        self.code = BUSY
+
+
+@contextlib.contextmanager
+def reporting_busy() -> Iterator[None]:
+    try:
+        yield
+    except Busy as exc:
+        print(exc, file=sys.stderr)
+        raise
+
+
+def lane_name(stage: str, lane: str) -> str:
+    return f"the {stage} automatic lane" if lane == AUTO else f"the {stage} stage"
 
 
 def store_dir(given: Path | None = None) -> Path:
@@ -163,6 +211,18 @@ def stage_dir(store: Path, run_id: str, stage: str) -> Path:
     if stage not in STAGES:
         raise ValueError(f"{stage!r} is not a stage; the stages are {', '.join(STAGES)}")
     return run_dir(store, run_id) / stage
+
+
+def lane_dir(store: Path, run_id: str, stage: str, lane: str = OWNER) -> Path:
+    if lane not in LANES:
+        raise ValueError(f"{lane!r} is not a lane; the lanes are {', '.join(LANES)}")
+    folder = stage_dir(store, run_id, stage)
+    return folder / AUTO if lane == AUTO else folder
+
+
+def inputs_dir(folder: Path) -> Path:
+    """The stage folder holding the page and inputs a lane's folder was collected from."""
+    return folder.parent if folder.name == AUTO else folder
 
 
 def _utc_stamp(moment: datetime) -> str:
@@ -263,21 +323,44 @@ def check_reviews(folder: Path, keys: tuple[str, ...]) -> tuple[tuple[str, ...],
 
 
 def stage_progress(store: Path, run_id: str, stage: str) -> StageProgress:
-    """The stage's first unfinished step, read from its markers.
+    """The stage's first unfinished step, and its automatic lane's, read from their markers.
 
     Reaching the review step re-checks the reviews, which sets aside any that does not copy its
     proposal (see ``check_reviews``).
     """
     folder = stage_dir(store, run_id, stage)
+    auto = _auto_step(folder)
     set_aside: tuple[str, ...] = ()
     for step in STEPS:
         if step is REVIEW:
             queued, set_aside = check_reviews(folder / REVIEW_DIR, review_keys(stage))
             if queued:
-                return StageProgress(stage, step, queued, set_aside)
+                return StageProgress(stage, step, queued, set_aside, auto)
         elif not (folder / step.marker).exists():
-            return StageProgress(stage, _apply_step(folder) if step is APPLY else step, set_aside=set_aside)
-    return StageProgress(stage, None, set_aside=set_aside)
+            step = _apply_step(folder) if step is APPLY else step
+            return StageProgress(stage, step, set_aside=set_aside, auto_step=auto)
+    return StageProgress(stage, None, set_aside=set_aside, auto_step=auto)
+
+
+def _auto_step(folder: Path) -> Step | None:
+    """The automatic lane's first unfinished step: None once it is applied, or while no page has sent it a
+    change and nothing is collected into it. A page.json that cannot be read keeps the stage open, since
+    it may have sent some."""
+    lane = folder / AUTO
+    try:
+        sent = read_json(folder / PAGE_MARKER).get(AUTO, 0)
+    except FileNotFoundError:
+        sent = 0
+    except (OSError, ValueError, AttributeError) as exc:
+        rebuild = f"build the page again: its {PAGE_MARKER} cannot be read: {exc}"
+        return Step(AUTO_COLLECT.name, AUTO_COLLECT.marker, rebuild)
+    if not (sent or (lane / AUTO_COLLECT.marker).exists()):
+        return None
+    if not (lane / AUTO_COLLECT.marker).exists():
+        return AUTO_COLLECT
+    if not (lane / AUTO_APPLY.marker).exists():
+        return _apply_step(lane, AUTO_APPLY)
+    return None
 
 
 def _lacks(records, name: str, keys: tuple[str, ...]) -> list[str]:
@@ -329,15 +412,15 @@ def read_progress(folder: Path) -> dict:
     return progress
 
 
-def _apply_step(folder: Path) -> Step:
+def _apply_step(folder: Path, apply: Step = APPLY) -> Step:
     """The apply step, naming what an earlier attempt at it already wrote, which abandoning the run
     would leave in place."""
     try:
         progress = read_progress(folder)
     except FileNotFoundError:
-        return APPLY
+        return apply
     except (OSError, ValueError) as exc:
-        return Step(APPLY.name, APPLY.marker, f"{APPLY.next_action}; its {APPLY_PROGRESS_FILE} cannot be read: {exc}")
+        return Step(apply.name, apply.marker, f"{apply.next_action}; its {APPLY_PROGRESS_FILE} cannot be read: {exc}")
     batches, queue = progress["batches"], progress["queue"]
     applied = sorted({batch["batch"] for batch in batches if batch["exit"] == 0})
     failed = sorted({batch["batch"] for batch in batches if batch["exit"] not in (0, None)} - set(applied))
@@ -350,16 +433,16 @@ def _apply_step(folder: Path) -> Step:
     if unended:
         said.append(f"{' and '.join(unended)} stopped with no recorded end, to record in {APPLY_PROGRESS_FILE}")
     if not said:
-        return APPLY
+        return apply
     return Step(
-        APPLY.name,
-        APPLY.marker,
-        f"the owner runs the apply again; {', '.join(said)}, so revert before abandoning the run",
+        apply.name,
+        apply.marker,
+        f"{apply.next_action} again; {', '.join(said)}, so revert before abandoning the run",
     )
 
 
-def stage_due(store: Path, run: dict, stage: str, steps: tuple[str, ...]) -> Path:
-    """The stage's folder, once its run is in review and the stage's next step is one of ``steps``."""
+def stage_due(store: Path, run: dict, stage: str, steps: tuple[str, ...], lane: str = OWNER) -> Path:
+    """The lane's folder, once its run is in review and the lane's next step is one of ``steps``."""
     if run["status"] != "reviewing":
         raise ValueError(
             f"run {run['run_id']} is {run['status']}; pages are built and collected while it is reviewing, "
@@ -368,12 +451,23 @@ def stage_due(store: Path, run: dict, stage: str, steps: tuple[str, ...]) -> Pat
     override = (run.get("stages") or {}).get(stage)
     if override:
         raise ValueError(f"{stage} has no proposals this run: {override}")
-    step = stage_progress(store, run["run_id"], stage).next_step
-    if step is None:
-        raise ValueError(f"{stage} is already applied")
+    folder = lane_dir(store, run["run_id"], stage, lane)
+    progress = stage_progress(store, run["run_id"], stage)
+    if lane == OWNER:
+        step = progress.next_step
+        if step is None:
+            raise ValueError(f"{stage} is already applied")
+    else:
+        step = progress.auto_step
+        if progress.next_step is not None and progress.next_step.name in SHARED_STEPS:
+            raise ValueError(f"{stage} is not ready for this: next, {progress.next_step.next_action}")
+        if step is None and (folder / AUTO_APPLY.marker).exists():
+            raise ValueError(f"{lane_name(stage, lane)} is already applied")
+        if step is None:
+            raise ValueError(f"{stage} has no automatic lane: no page has sent it a change")
     if step.name not in steps:
         raise ValueError(f"{stage} is not ready for this: next, {step.next_action}")
-    return stage_dir(store, run["run_id"], stage)
+    return folder
 
 
 def file_hash(path: Path) -> str | None:
@@ -472,8 +566,8 @@ def _take_lease(sb, run_id: str, holder: str) -> None:
     if row["status"] not in OPEN_STATUSES:
         raise ApplyLockError(f"run {run_id} is {row['status']}, so nothing may apply to it")
     if row["lease_holder"]:
-        raise ApplyLockError(f"run {run_id} is held by {row['lease_holder']} until {row['lease_expires_at']}")
-    raise ApplyLockError(f"run {run_id} was held when the lease was asked for and is free now; try again")
+        raise RunBusy(f"run {run_id} is held by {row['lease_holder']} until {row['lease_expires_at']}")
+    raise RunBusy(f"run {run_id} was held when the lease was asked for and is free now; try again")
 
 
 def _release_lease(sb, run_id: str, holder: str, *, quiet: bool = False) -> None:
@@ -507,8 +601,9 @@ def hold_apply_file(store: Path, run_id: str) -> Iterator[None]:
         try:
             stack.enter_context(_acquire_file_lock(folder / APPLY_LOCK_FILE, timeout=0.0))
         except FileLockError as exc:
-            raise ApplyLockError(
-                f"run {run_id} is in use on this machine (an apply, revert, collect or end_run holds its lock)"
+            raise RunBusy(
+                f"run {run_id} is in use on this machine (an apply, revert, collect, page build or end_run holds "
+                "its lock)"
             ) from exc
         yield
 

@@ -27,7 +27,11 @@ Into the stage folder it writes:
 It never touches the database. Collecting again, while the run is in review and the stage is not
 applied, replaces all three; while an apply holds the run on this machine, it refuses.
 
+With --lane auto it collects the stage's automatic lane instead, into auto/: every change the
+manifest's `auto` lists, decided Apply with no choice to read, under the same three files.
+
     python scripts/team_cleanup/collect.py --run 2026-10-14-nv --stage states --decisions <out_dir>
+    python scripts/team_cleanup/collect.py --run 2026-10-14-nv --stage states --lane auto
 """
 
 from __future__ import annotations
@@ -52,13 +56,22 @@ from scripts.team_cleanup.propose_week import (  # noqa: E402
 )
 from scripts.team_cleanup.review_page import load_choices  # noqa: E402
 from scripts.team_cleanup.run_store import (  # noqa: E402
+    AUTO,
     COLLECTED_MARKER,
+    LANE_CARDS,
+    LANES,
     MANIFEST_FILE,
+    OWNER,
     PAGE_MARKER,
     ApplyLockError,
+    Busy,
+    RunBusy,
     file_hash,
     hold_apply_file,
+    inputs_dir,
+    lane_name,
     read_run,
+    reporting_busy,
     stage_due,
     store_dir,
 )
@@ -66,6 +79,8 @@ from src.tournaments.storage._io import read_json, utc_now_iso, write_json  # no
 
 DECISIONS_FILE = "decisions.json"
 VETTED = {CLUBS: "vetted.csv", STATES: "vetted.json", AGES: "vetted.csv"}
+# How each lane's decisions name where they came from.
+LANE_SOURCES = {OWNER: "page", AUTO: AUTO}
 
 
 def check_unchanged(folder: Path) -> None:
@@ -92,12 +107,12 @@ def check_choices(manifest: dict, choices: dict[str, dict]) -> None:
             raise SystemExit(f"saved choice {card_id} holds a decision or note the page never writes: {choice}")
 
 
-def decision_rows(manifest: dict, choices: dict[str, dict]) -> list[dict]:
+def decision_rows(manifest: dict, choices: dict[str, dict], lane: str = OWNER) -> list[dict]:
     """Every decided card, dated by the page's build: a page's documents carry no trustworthy time
     of their own."""
-    decided_at, source = page_built_at(manifest), f"page:{manifest['run']}"
+    decided_at, source = page_built_at(manifest), f"{LANE_SOURCES[lane]}:{manifest['run']}"
     rows = []
-    for card_id, proposal in manifest["cards"].items():
+    for card_id, proposal in manifest[LANE_CARDS[lane]].items():
         choice = choices.get(card_id, {})
         if choice.get("decision"):
             note = (choice.get("note") or "").strip() or None
@@ -110,45 +125,57 @@ def decision_rows(manifest: dict, choices: dict[str, dict]) -> list[dict]:
 def write_vetted(folder: Path, stage: str, approved: set[str]) -> Path | None:
     """The stage file's rows for the approved teams, copied as it holds them, so the applier reads
     its own escaping back. A stage proposes one change per team, so a team id names one row."""
-    path = folder / VETTED[stage]
+    path, inputs = folder / VETTED[stage], inputs_dir(folder)
     path.unlink(missing_ok=True)
     if not approved:
         return None
     if stage == STATES:
-        snapshot = read_json(folder / APPLIER_INPUTS[STATES])
+        snapshot = read_json(inputs / APPLIER_INPUTS[STATES])
         decisions = [d for d in snapshot["decisions"] if d["team_id"] in approved]
         write_json(path, {**snapshot, "decisions": decisions}, indent=1)
         return path
-    rows = [row for row in _read_csv(folder / APPLIER_INPUTS[stage]) if row["team_id_master"] in approved]
+    rows = [row for row in _read_csv(inputs / APPLIER_INPUTS[stage]) if row["team_id_master"] in approved]
     write_log([{**row, "approved": "true"} for row in rows] if stage == CLUBS else rows, path)
     return path
 
 
-def collect(store: Path, run_id: str, stage: str, decisions: Path) -> dict:
-    """Held under the apply lock's file half, so no apply on this machine acts on files a collect is replacing."""
+def collected(stage: str, lane: str) -> str:
+    return lane_name(stage, AUTO) if lane == AUTO else f"the {stage} choices"
+
+
+def collect(store: Path, run_id: str, stage: str, decisions: Path | None, lane: str = OWNER) -> dict:
+    """Held under the apply lock's file half, so no apply or page build on this machine acts on files a collect
+    is replacing."""
     try:
         with hold_apply_file(store, run_id):
-            return _collect(store, run_id, stage, decisions)
+            return _collect(store, run_id, stage, decisions, lane)
+    except RunBusy as exc:
+        raise Busy(f"Cannot collect {collected(stage, lane)} for {run_id}: {exc}") from None
     except ApplyLockError as exc:
-        raise SystemExit(f"Cannot collect the {stage} choices for {run_id}: {exc}") from None
+        raise SystemExit(f"Cannot collect {collected(stage, lane)} for {run_id}: {exc}") from None
 
 
-def _collect(store: Path, run_id: str, stage: str, decisions: Path) -> dict:
-    folder = stage_due(store, read_run(store, run_id), stage, ("collect", "apply"))
-    check_unchanged(folder)
-    manifest = read_json(folder / MANIFEST_FILE)
-    choices = load_choices(decisions, manifest["run"]) if manifest["cards"] else {}
-    check_choices(manifest, choices)
+def _collect(store: Path, run_id: str, stage: str, decisions: Path | None, lane: str) -> dict:
+    folder = stage_due(store, read_run(store, run_id), stage, ("collect", "apply"), lane)
+    check_unchanged(inputs_dir(folder))
+    manifest = read_json(inputs_dir(folder) / MANIFEST_FILE)
+    cards = manifest[LANE_CARDS[lane]]
+    if lane == AUTO:
+        choices = {card_id: {"decision": APPLY} for card_id in cards}
+    else:
+        choices = load_choices(decisions, manifest["run"]) if cards else {}
+        check_choices(manifest, choices)
 
-    rows = decision_rows(manifest, choices)
+    rows = decision_rows(manifest, choices, lane)
     approved = {row["team_id_master"] for row in rows if row["decision"] == APPLY}
+    folder.mkdir(exist_ok=True)
     vetted = write_vetted(folder, stage, approved)
     write_json(folder / DECISIONS_FILE, rows, indent=1)
     counts = Counter(row["decision"] for row in rows)
     marker = {
         "run": manifest["run"],
         "collected_at": utc_now_iso(),
-        "counts": {**{d: counts[d] for d in TEAM_DECISIONS}, "undecided": len(manifest["cards"]) - len(rows)},
+        "counts": {**{d: counts[d] for d in TEAM_DECISIONS}, "undecided": len(cards) - len(rows)},
         "vetted": vetted.name if vetted else None,
         "hashes": {path.name: file_hash(path) for path in (vetted, folder / DECISIONS_FILE) if path},
     }
@@ -160,17 +187,21 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--run", required=True, help="The run id, e.g. 2026-10-14-nv")
     ap.add_argument("--stage", required=True, choices=PROPOSED_STAGES)
-    ap.add_argument("--decisions", required=True, type=Path, help="The out_dir folder, or a JSON list of documents")
+    ap.add_argument("--lane", choices=LANES, default=OWNER, help="The owner's choices, or the automatic lane")
+    ap.add_argument("--decisions", type=Path, help="The out_dir folder, or a JSON list of documents")
     ap.add_argument(
         "--store",
         type=Path,
         help="The run store, absolute (default: PITCHRANK_CLEANUP_DIR, else ~/pitchrank-cleanup-runs)",
     )
     args = ap.parse_args()
-    try:
-        result = collect(store_dir(args.store), args.run, args.stage, args.decisions)
-    except (OSError, ValueError) as exc:
-        raise SystemExit(f"Cannot collect the {args.stage} choices for {args.run}: {exc}") from None
+    if (args.lane == OWNER) != (args.decisions is not None):
+        ap.error("--decisions is the owner's lane's, which needs it; the automatic lane reads no choices")
+    with reporting_busy():
+        try:
+            result = collect(store_dir(args.store), args.run, args.stage, args.decisions, args.lane)
+        except (OSError, ValueError) as exc:
+            raise SystemExit(f"Cannot collect {collected(args.stage, args.lane)} for {args.run}: {exc}") from None
     folder, marker = result["folder"], result["marker"]
     print(f"page run {marker['run']}:")
     for decision, count in marker["counts"].items():

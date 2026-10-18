@@ -40,9 +40,13 @@ def describe(store: Path, run: dict) -> list[str]:
         progress = stage_progress(store, run["run_id"], stage)
         if progress.finished:
             lines.append(f"  {stage:<10} finished")
+        elif progress.next_step is None:
+            lines.append(f"  {stage:<10} the owner's choices are applied")
         else:
             waiting = f" ({len(progress.queued)} queued: {', '.join(progress.queued)})" if progress.queued else ""
             lines.append(f"  {stage:<10} next: {progress.next_step.next_action}{waiting}")
+        if progress.auto_step is not None:
+            lines.append(f"  {'':<10} automatic lane next: {progress.auto_step.next_action}")
         lines += [f"  {'':<10} set aside {stage}/{REVIEW_DIR}/{name}{BAD_SUFFIX}" for name in progress.set_aside]
     return lines
 

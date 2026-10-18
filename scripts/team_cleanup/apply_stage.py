@@ -4,14 +4,14 @@
 A dry run unless --execute. The owner runs --execute from the repo root, with the service-role key in
 the environment; an agent never does. In order, it:
 
-  1. Refuses unless the run is in review and the stage's next step is its apply, and when any file the
-     page or the collector hashed has changed since: the vetted file and decisions.json must be the
-     ones collected.json names.
+  1. Refuses unless the run is in review and the lane's next step is its apply, when the choices were
+     collected from another build of the page, and when any file the page or the collector hashed has
+     changed since: the vetted file and decisions.json must be the ones collected.json names.
   2. Refuses outside the apply window that config/team_cleanup.json sets, in Arizona time, unless
      --outside-window is passed.
   3. Takes the run's apply lock (this machine's file lock, then the run row's lease), checks the files
      again, and refuses while a writer workflow's run is not completed or a Python process on this
-     machine runs a team applier.
+     machine runs a team applier, unless it has no team to write and no queued state card to settle.
   4. Records every decided card in team_cleanup_decisions, Don't apply and Not sure included, before
      anything else is written.
   5. Applies the cards chosen Apply, a pilot of 50 and then the rest, each a cut file written beside
@@ -28,26 +28,35 @@ the environment; an agent never does. In order, it:
   6. States only: checks the window and the other writers again, then settles each card the rules only
      queued as the dashboard's State Review Queue would. Apply approves the card's pending review row,
      unless a later sweep refiled it from another state, read again just before the approval, and
-     Don't apply rejects it, filing the row first when none is pending. Once every one of the stage's
+     Don't apply rejects it, filing the row first when none is pending. Once every one of the lane's
      own writes lies inside the windows its revert reads, it ledgers the approvals the database holds.
-  7. Writes RECORD.md, which marks the stage applied.
+  7. Writes RECORD.md, which marks the lane applied; the stage is finished once both lanes are.
 
 Its progress is kept in <stage>/apply.json, so a re-run after a stop resumes: a batch whose applier
 exited 0 is not run again, and every attempt's changes are verified and ledgered again.
 
---revert undoes the stage, newest batch first, under the same window and checks. Clubs and ages replay
-their applier's own --revert of each batch's own log, the one written as team-cleanup:<run> for the
-batch's cut. States refuse while one of the stage's own writes lies outside the windows apply.json
-saves, wait until every batch's and review-queue step's window has closed, and refuse when a window
-holds a write that is not the stage's own, before calling revert_team_states over each window. It then
-stamps reverted_at on each ledger row whose team holds its old value again, and appends what it did to
-<stage>/REVERT.md.
+--revert undoes the lane (the owner's choices, unless --lane auto), newest batch first, under the same
+window and checks. Clubs and ages replay their applier's own --revert of each batch's own log, the one
+written as team-cleanup:<run> for the batch's cut. States refuse while one of the lane's own writes lies
+outside the windows apply.json saves, wait until every batch's and review-queue step's window has
+closed, and refuse when a window holds a write that is not the lane's own, before calling
+revert_team_states over each window. It then stamps reverted_at on each ledger row of the lane's teams
+whose team holds its old value again, and appends what it did to the lane's REVERT.md.
 A run already done or abandoned can still be reverted: no lease can be taken on it, so the revert holds
 this machine's file lock alone.
+
+--lane auto applies, or reverts, the stage's automatic lane instead: the changes its page settled with
+no card, which collect.py --lane auto collected into auto/. Each lane keeps its own apply record and
+RECORD.md there, and both read the stage folder's page and inputs.
+
+Refused outside the window, while another writer may be running, while another applier holds the run,
+or for states until the other lane's last batch is four minutes past, it exits 75 rather than 1, so a
+caller can try again later.
 
     python scripts/team_cleanup/apply_stage.py --run 2026-10-14-nv --stage clubs
     python scripts/team_cleanup/apply_stage.py --run 2026-10-14-nv --stage clubs --execute
     python scripts/team_cleanup/apply_stage.py --run 2026-10-14-nv --stage states --revert --execute
+    python scripts/team_cleanup/apply_stage.py --run 2026-10-14-nv --stage ages --lane auto --execute
 """
 
 from __future__ import annotations
@@ -106,18 +115,27 @@ from scripts.team_cleanup.review_page import fetch_teams  # noqa: E402
 from scripts.team_cleanup.run_store import (  # noqa: E402
     APPLY_MARKER,
     APPLY_PROGRESS_FILE,
+    AUTO,
+    CLEANUP_CONFIG,
     COLLECTED_MARKER,
+    LANES,
     OPEN_STATUSES,
+    OWNER,
     PAGE_MARKER,
     ApplyLockError,
+    Busy,
+    RunBusy,
     acquire_apply_lock,
     file_hash,
     hold_apply_file,
+    inputs_dir,
+    lane_dir,
+    lane_name,
     read_progress,
     read_run,
     refused,
     renew_lease,
-    stage_dir,
+    reporting_busy,
     stage_due,
     store_dir,
 )
@@ -155,7 +173,6 @@ CLOCK_MARGIN = timedelta(minutes=2)
 OTHER_WRITER = "already at the proposed state, set by another writer"
 MOVED = "moved since the choices were collected"
 
-WINDOW_CONFIG = ROOT / "config" / "team_cleanup.json"
 ARIZONA = timezone(timedelta(hours=-7), "Arizona")
 WEEKDAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
 WEEK_MINUTES = 7 * 24 * 60
@@ -259,6 +276,15 @@ def actor_for(run_id: str) -> str:
     return f"team-cleanup:{run_id}"
 
 
+def lane_flags(lane: str) -> list[str]:
+    return ["--lane", lane] if lane != OWNER else []
+
+
+def lane_label(stage: str, lane: str) -> str:
+    """The lane in a heading: the stage alone for the owner's choices."""
+    return lane_name(stage, AUTO) if lane == AUTO else stage
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -306,7 +332,7 @@ def _bound(spec: dict) -> tuple[int, str]:
     return _after_propose(weekday, minute), f"{WEEKDAYS[weekday].title()} {spec['time']}"
 
 
-def load_window(path: Path = WINDOW_CONFIG) -> Window:
+def load_window(path: Path = CLEANUP_CONFIG) -> Window:
     """The configured apply window, refused unless it runs forwards from Wednesday's propose and ends by
     the Monday hard stop."""
     try:
@@ -331,7 +357,7 @@ def in_window(window: Window, moment: datetime) -> bool:
 def check_window(outside_window: bool) -> None:
     window = load_window()
     if not (outside_window or in_window(window, _now())):
-        raise SystemExit(f"Outside the apply window ({window.text}); apply inside it, or pass --outside-window.")
+        raise Busy(f"Outside the apply window ({window.text}); apply inside it, or pass --outside-window.")
 
 
 # --- the pre-apply checks ------------------------------------------------------------------------
@@ -440,7 +466,7 @@ def check_other_writers() -> None:
     except CheckFailed as exc:
         raise SystemExit(f"Not applying: {exc}") from None
     if problems:
-        raise SystemExit("Not applying while another writer may be running:\n  " + "\n  ".join(problems))
+        raise Busy("Not applying while another writer may be running:\n  " + "\n  ".join(problems))
 
 
 def keep_lease(sb, run_id: str, holder: str | None, what: str, retry: str) -> None:
@@ -474,15 +500,20 @@ def check_collected(folder: Path, stage: str) -> dict:
     return marker
 
 
-def open_stage(store: Path, run_id: str, stage: str) -> tuple[Path, dict]:
-    """The stage's folder and collected.json, once the stage is due its apply and nothing it reads has
+def open_stage(store: Path, run_id: str, stage: str, lane: str = OWNER) -> tuple[Path, dict]:
+    """The lane's folder and collected.json, once the lane is due its apply and nothing it reads has
     changed since the page was built and the choices collected."""
-    folder = stage_due(store, read_run(store, run_id), stage, ("apply",))
+    folder = stage_due(store, read_run(store, run_id), stage, ("apply",), lane)
     try:
-        check_unchanged(folder)
+        check_unchanged(inputs_dir(folder))
+        built = read_json(inputs_dir(folder) / PAGE_MARKER)["run"]
     except KeyError as exc:
-        raise ValueError(f"{folder / PAGE_MARKER} lacks {exc}; build the page again") from None
+        raise ValueError(f"{inputs_dir(folder) / PAGE_MARKER} lacks {exc}; build the page again") from None
     marker = check_collected(folder, stage)
+    if marker["run"] != built:
+        raise ValueError(
+            f"the choices were collected from page run {marker['run']}, not {built}, the page as built; collect again"
+        )
     if stage == STATES and marker.get("vetted"):
         rules = read_json(folder / VETTED[STATES]).get("rules")
         if rules != SNAPSHOT_RULES:
@@ -536,7 +567,7 @@ def applier_command(stage: str, cut: Path, store: Path, run_id: str) -> list[str
 def hold_command(folder: Path) -> list[str]:
     """The hold script over the whole national run, so a club sent to two states is held even when one
     of them is outside this run's scope."""
-    national = folder / NATIONAL_STATES
+    national = inputs_dir(folder) / NATIONAL_STATES
     if not national.exists():
         raise ValueError(f"there is no {national} for the hold script to read")
     return [HOLD_STATES, str(national), str(folder / SAFE_FILE), str(folder / HELD_FILE)]
@@ -694,7 +725,7 @@ def queue_plans(sb, folder: Path, rows: list[dict], collected_at: str) -> list[d
     if not cards:
         return []
     newest = newest_reviews(sb, {card["team_id_master"] for card in cards})
-    return plan_queue(cards, newest, read_json(folder / APPLIER_INPUTS[STATES]), collected_at)
+    return plan_queue(cards, newest, read_json(inputs_dir(folder) / APPLIER_INPUTS[STATES]), collected_at)
 
 
 def describe_plan(plan: dict) -> str:
@@ -831,7 +862,7 @@ def approval_steps(progress: dict) -> dict[str, list[tuple[str, dict]]]:
 
 
 def state_owner(progress: dict):
-    """Whether a team_state_audit row is one of the stage's own writes. The replay's carry its snapshot's
+    """Whether a team_state_audit row is one of the lane's own writes. The replay's carry its snapshot's
     reason for a team in that cut; an approval names a review a queue step settled. Anything else in a
     step's window is another writer's."""
     replays, approvals = replay_steps(progress), approval_steps(progress)
@@ -852,7 +883,7 @@ def _audit_line(row: dict) -> str:
 
 
 def unreachable_writes(sb, run_id: str, progress: dict) -> list[str]:
-    """The stage's own state writes, found at any time, that lie outside the window of every step that may
+    """The lane's own state writes, found at any time, that lie outside the window of every step that may
     have made them: the revert reads only those windows, so it could not undo them. Each names the nearest
     of those steps. An approved card whose review has no audit row is listed too."""
     replays, approvals = replay_steps(progress), approval_steps(progress)
@@ -881,7 +912,7 @@ def unreachable_writes(sb, run_id: str, progress: dict) -> list[str]:
 
 
 def unreachable_text(folder: Path, unreachable: list[str]) -> str:
-    """What the apply and the revert both say of the stage's own writes its revert could not reach."""
+    """What the apply and the revert both say of the lane's own writes its revert could not reach."""
     path = folder / APPLY_PROGRESS_FILE
     return (
         f"{len(unreachable)} of the stage's own state write(s) or approval(s) the revert could not reach, since it "
@@ -1140,6 +1171,35 @@ def _log_stamps(exports: Path, pattern: str | None) -> dict[Path, tuple[int, int
     return {path: (path.stat().st_mtime_ns, path.stat().st_size) for path in exports.glob(pattern)}
 
 
+def other_lane(folder: Path) -> Path:
+    stage = inputs_dir(folder)
+    return stage / AUTO if folder == stage else stage
+
+
+def check_lanes_apart(folder: Path) -> None:
+    """Hold a state batch until two clock margins after the other lane's last batch ended. Both lanes replay as
+    assign_team_states under their snapshot's reason, and a revert reads each batch's window widened by the
+    margin, so windows any closer would each hold the other lane's writes and neither lane could be reverted."""
+    other = other_lane(folder)
+    if not (other / APPLY_PROGRESS_FILE).exists():
+        return
+    batches = read_progress(other)["batches"]
+    unended = [batch for batch in batches if batch["ended_at"] is None]
+    if unended:
+        raise SystemExit(
+            f"The other lane's {unended[0]['batch']} batch in {other / APPLY_PROGRESS_FILE} has no recorded end; "
+            "settle it there before this lane applies, so their undo windows can be told apart."
+        )
+    if not batches:
+        return
+    ended = max(_instant(batch["ended_at"]) for batch in batches)
+    if _instant(utc_now_iso()) < ended + 2 * CLOCK_MARGIN:
+        raise Busy(
+            f"Not applying until {(ended + 2 * CLOCK_MARGIN).isoformat()}: the other lane's last state batch "
+            f"ended at {ended.isoformat()}, and the two lanes' undo windows must not overlap."
+        )
+
+
 def apply_batches(
     sb,
     folder: Path,
@@ -1159,6 +1219,8 @@ def apply_batches(
         if not any(b["exit"] == 0 for b in attempts):
             # Recording decisions and preparing the cuts take time, so check again before any batch writes.
             check_window(outside_window)
+            if stage == STATES:
+                check_lanes_apart(folder)
             check_other_writers()
             keep_lease(sb, run_id, holder, f"the {name} was not applied", retry)
             attempts.append(run_batch(folder, store, run_id, stage, name, cut, progress))
@@ -1189,7 +1251,7 @@ def apply_queue(
     retry: str,
 ) -> None:
     """Settle the queued state cards, read against the review queue once the window and the other writers
-    are checked, then, once every one of the stage's own writes lies where its revert reads, ledger its
+    are checked, then, once every one of the lane's own writes lies where its revert reads, ledger its
     approvals the database holds: the audit rows naming a review a queue step settled."""
     unended = [queued for queued in progress["queue"] if queued["ended_at"] is None]
     if unended:
@@ -1220,12 +1282,15 @@ def apply_queue(
         raise SystemExit(f"Stopped: {len(missing)} approved state(s) the database does not hold: {listed}")
 
 
-def apply_stage(sb, store: Path, run_id: str, stage: str, outside_window: bool, retry: str) -> Path:
+def apply_stage(sb, store: Path, run_id: str, stage: str, lane: str, outside_window: bool, retry: str) -> Path:
     with acquire_apply_lock(sb, store, run_id) as holder:
-        folder, marker = open_stage(store, run_id, stage)
-        check_other_writers()
-        progress = load_progress(folder, marker)
+        folder, marker = open_stage(store, run_id, stage, lane)
         rows = read_json(folder / DECISIONS_FILE)
+        # With no team to write and no queued card to settle, the apply writes only decision rows, and the
+        # other-writer check guards team, state and game writes.
+        if vetted_changes(folder, stage) or (stage == STATES and queue_cards(rows)):
+            check_other_writers()
+        progress = load_progress(folder, marker)
         check_ledger(sb)
         planned = plan_decisions(sb, stage, rows)
         record_decisions(sb, planned, retry)
@@ -1233,20 +1298,22 @@ def apply_stage(sb, store: Path, run_id: str, stage: str, outside_window: bool, 
         apply_batches(sb, folder, store, run_id, stage, progress, holder, outside_window, retry)
         if stage == STATES:
             apply_queue(sb, folder, run_id, rows, progress, marker["collected_at"], holder, outside_window, retry)
-        return write_record(folder, store, run_id, stage, marker, rows, progress)
+        return write_record(folder, store, run_id, stage, lane, marker, rows, progress)
 
 
 # --- RECORD.md -----------------------------------------------------------------------------------
 
 
-def write_record(folder: Path, store: Path, run_id: str, stage: str, marker: dict, rows: list, progress: dict) -> Path:
+def write_record(
+    folder: Path, store: Path, run_id: str, stage: str, lane: str, marker: dict, rows: list, progress: dict
+) -> Path:
     names = {row["team_id_master"]: row["team_name"] for row in rows}
     counts = ", ".join(f"{decision} {count}" for decision, count in marker["counts"].items())
     applied_as = (
         f"{STATE_SWEEP_ACTOR}, review-queue approvals as {actor_for(run_id)}" if stage == STATES else actor_for(run_id)
     )
     lines = [
-        f"# {stage} applied, run {run_id}",
+        f"# {lane_label(stage, lane)} applied, run {run_id}",
         "",
         f"- Page run {marker['run']}, choices collected {marker['collected_at']}: {counts}",
         f"- All {len(rows)} decided card(s) are recorded in {DECISIONS_TABLE}.",
@@ -1276,16 +1343,17 @@ def write_record(folder: Path, store: Path, run_id: str, stage: str, marker: dic
         cards = [card for queued in progress["queue"] for card in queued["cards"]]
         settled = [f"- {c['team_name']!r} to {c['state']}, {c['decision']}: {c['outcome']}" for c in cards]
         lines += ["", "## Review queue", "", *(settled or ["No queued card was decided."])]
-    # Only the whole-stage revert keeps to the window, waits for other writers and stamps the ledger, so
+    # Only the whole-lane revert keeps to the window, waits for other writers and stamps the ledger, so
     # no batch's own applier revert is offered.
-    command = [APPLY_SCRIPT, "--run", run_id, "--stage", stage, "--revert"]
+    command = [APPLY_SCRIPT, "--run", run_id, "--stage", stage, *lane_flags(lane), "--revert"]
     whole = f"python {subprocess.list2cmdline([*command, '--execute', '--store', str(store)])}"
     preview = f"python {subprocess.list2cmdline([*command, '--store', str(store)])}"
+    undone = "the automatic lane" if lane == AUTO else "the owner's choices"
     lines += [
         "",
         "## Undo",
         "",
-        f"The whole stage: `{whole}`",
+        f"Every batch of {undone}: `{whole}`",
         "",
         f"Its dry run, which writes nothing: `{preview}`",
     ]
@@ -1306,7 +1374,7 @@ def state_windows(run_id: str, progress: dict) -> list[tuple[str, tuple[str, str
 
 
 def foreign_writes(sb, run_id: str, progress: dict) -> list[str]:
-    """Writes in a step's window, under its actor, that are not the stage's own: reverting the window
+    """Writes in a step's window, under its actor, that are not the lane's own: reverting the window
     would undo them too."""
     own = state_owner(progress)
     found = []
@@ -1393,8 +1461,20 @@ def revert_window(sb, run_id: str, actor: str, window: tuple[str, str], label: s
             return changed
 
 
-def stamp_reverted(sb, run_id: str, stage: str) -> tuple[int, int]:
-    """Stamp reverted_at on each ledger row whose team holds its old value again: (stamped, left)."""
+def lane_teams(stage: str, progress: dict) -> set[str]:
+    """The teams a lane's batches and review-queue steps acted on, which no other lane's do."""
+    teams = {card["team_id_master"] for queued in progress["queue"] for card in queued["cards"]}
+    for cut in {Path(batch["cut"]) for batch in progress["batches"]}:
+        if stage == STATES:
+            teams |= {d["team_id"] for d in read_json(cut)["decisions"]}
+        else:
+            teams |= {row["team_id_master"] for row in _read_csv(cut)}
+    return teams
+
+
+def stamp_reverted(sb, run_id: str, stage: str, own: set[str]) -> tuple[int, int]:
+    """Stamp reverted_at on each ledger row of a team in ``own``, the lane's, whose team holds its old value
+    again: (stamped, left)."""
     rows = page(
         lambda: (
             sb.table(CHANGES_TABLE)
@@ -1405,6 +1485,7 @@ def stamp_reverted(sb, run_id: str, stage: str) -> tuple[int, int]:
         ),
         "id",
     )
+    rows = [row for row in rows if row["team_id_master"] in own]
     teams = fetch_teams(sb, sorted({row["team_id_master"] for row in rows}))
     back = [
         row["id"]
@@ -1418,8 +1499,8 @@ def stamp_reverted(sb, run_id: str, stage: str) -> tuple[int, int]:
     return len(back), len(rows) - len(back)
 
 
-def revert_stage(sb, store: Path, run_id: str, stage: str, outside_window: bool, retry: str) -> None:
-    """Undo the stage, newest step first. An open run's revert holds its lease, renewed before each step;
+def revert_stage(sb, store: Path, run_id: str, stage: str, lane: str, outside_window: bool, retry: str) -> None:
+    """Undo the lane, newest step first. An open run's revert holds its lease, renewed before each step;
     a closed run's, which no lease can be taken on, holds this machine's file lock alone. Either way the
     window and the other writers are checked again before each step after the first."""
     if read_run(store, run_id)["status"] in OPEN_STATUSES:
@@ -1427,7 +1508,7 @@ def revert_stage(sb, store: Path, run_id: str, stage: str, outside_window: bool,
     else:
         hold = hold_apply_file(store, run_id)
     with hold as holder:
-        folder = stage_dir(store, run_id, stage)
+        folder = lane_dir(store, run_id, stage, lane)
         progress = read_progress(folder)
         check_other_writers()
         lines = [f"## Revert, {utc_now_iso()}", ""]
@@ -1461,7 +1542,7 @@ def revert_stage(sb, store: Path, run_id: str, stage: str, outside_window: bool,
                         raise SystemExit(
                             f"Stopped: the {label} revert exited {code}; see {output}:\n    {_tail(output)}"
                         )
-            stamped, left = stamp_reverted(sb, run_id, stage)
+            stamped, left = stamp_reverted(sb, run_id, stage, lane_teams(stage, progress))
             lines.append(
                 f"Stamped reverted_at on {stamped} ledger row(s); {left} whose team is not back at its old value."
             )
@@ -1475,16 +1556,16 @@ def revert_stage(sb, store: Path, run_id: str, stage: str, outside_window: bool,
                 )
         except (APIError, httpx.HTTPError) as exc:
             lines.append(f"Stopped: {exc}")
-            raise SystemExit(refused(f"Could not finish reverting {stage}", exc, retry)) from None
+            raise SystemExit(refused(f"Could not finish reverting {lane_name(stage, lane)}", exc, retry)) from None
         finally:
             with (folder / REVERT_FILE).open("a", encoding="utf-8") as record:
                 record.write("\n".join(lines) + "\n\n")
 
 
-def dry_run_revert(sb, store: Path, run_id: str, stage: str) -> None:
-    folder = stage_dir(store, run_id, stage)
+def dry_run_revert(sb, store: Path, run_id: str, stage: str, lane: str) -> None:
+    folder = lane_dir(store, run_id, stage, lane)
     progress = read_progress(folder)
-    print(f"DRY RUN -- would revert {stage} for run {run_id}, newest batch first:")
+    print(f"DRY RUN -- would revert {lane_label(stage, lane)} for run {run_id}, newest batch first:")
     if stage == STATES:
         for actor, window, label in reversed(state_windows(run_id, progress)):
             print(f"  {label}: revert_team_states('{actor}', '{window[0]}', '{window[1]}', ...)")
@@ -1502,12 +1583,12 @@ def dry_run_revert(sb, store: Path, run_id: str, stage: str) -> None:
 # --- the dry run ---------------------------------------------------------------------------------
 
 
-def dry_run(sb, run_id: str, stage: str, folder: Path, marker: dict) -> None:
+def dry_run(sb, run_id: str, stage: str, lane: str, folder: Path, marker: dict) -> None:
     rows = read_json(folder / DECISIONS_FILE)
     check_ledger(sb)
     planned = plan_decisions(sb, stage, rows)
     replacing = sum(1 for *_, current in planned if current)
-    print(f"DRY RUN -- {stage} for run {run_id}, page run {marker['run']}.")
+    print(f"DRY RUN -- {lane_label(stage, lane)} for run {run_id}, page run {marker['run']}.")
     print(
         f"Would record {len(planned)} of {len(rows)} decided card(s) in {DECISIONS_TABLE}, {replacing} of them "
         "replacing an earlier decision; the rest are recorded already:"
@@ -1540,7 +1621,7 @@ def dry_run(sb, run_id: str, stage: str, folder: Path, marker: dict) -> None:
 def retry_command(args: argparse.Namespace, store: Path, execute: bool) -> str:
     """The command that reads where things stand after a lost answer, in the mode this one ran: a dry
     run's is a dry run."""
-    command = [APPLY_SCRIPT, "--run", args.run, "--stage", args.stage]
+    command = [APPLY_SCRIPT, "--run", args.run, "--stage", args.stage, *lane_flags(args.lane)]
     command += [*(["--revert"] if args.revert else []), *(["--execute"] if execute else [])]
     command += [*(["--outside-window"] if args.outside_window else []), "--store", str(store)]
     return f"python {subprocess.list2cmdline(command)}"
@@ -1550,7 +1631,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--run", required=True, help="The run id, e.g. 2026-10-14-nv")
     parser.add_argument("--stage", required=True, choices=PROPOSED_STAGES)
-    parser.add_argument("--revert", action="store_true", help="Undo the stage's applied batches")
+    parser.add_argument("--lane", choices=LANES, default=OWNER, help="The owner's choices, or the automatic lane")
+    parser.add_argument("--revert", action="store_true", help="Undo the lane's applied batches")
     parser.add_argument("--execute", action="store_true", help="Write to the database (default is a dry run)")
     parser.add_argument("--dry-run", action="store_true", help="Force a dry run; wins over --execute")
     parser.add_argument("--outside-window", action="store_true", help="Run --execute outside the apply window")
@@ -1559,29 +1641,35 @@ def main() -> int:
         type=Path,
         help="The run store, absolute (default: PITCHRANK_CLEANUP_DIR, else ~/pitchrank-cleanup-runs)",
     )
-    args = parser.parse_args()
+    with reporting_busy():
+        return run_command(parser.parse_args())
+
+
+def run_command(args: argparse.Namespace) -> int:
     execute = resolve_execute(args.execute, args.dry_run)
-    what = f"{'revert' if args.revert else 'apply'} the {args.stage} stage of {args.run}"
+    what = f"{'revert' if args.revert else 'apply'} {lane_name(args.stage, args.lane)} of {args.run}"
     try:
         store = store_dir(args.store)
         if args.revert:
             read_run(store, args.run)
-            if not (stage_dir(store, args.run, args.stage) / APPLY_PROGRESS_FILE).exists():
+            if not (lane_dir(store, args.run, args.stage, args.lane) / APPLY_PROGRESS_FILE).exists():
                 raise ValueError(f"nothing of it was applied: there is no {APPLY_PROGRESS_FILE}")
         else:
-            folder, marker = open_stage(store, args.run, args.stage)
+            folder, marker = open_stage(store, args.run, args.stage, args.lane)
         if execute:
             check_window(args.outside_window)
         retry = retry_command(args, store, execute)
         sb = get_client()
         if args.revert and execute:
-            revert_stage(sb, store, args.run, args.stage, args.outside_window, retry)
+            revert_stage(sb, store, args.run, args.stage, args.lane, args.outside_window, retry)
         elif args.revert:
-            dry_run_revert(sb, store, args.run, args.stage)
+            dry_run_revert(sb, store, args.run, args.stage, args.lane)
         elif execute:
-            print(f"Wrote {apply_stage(sb, store, args.run, args.stage, args.outside_window, retry)}")
+            print(f"Wrote {apply_stage(sb, store, args.run, args.stage, args.lane, args.outside_window, retry)}")
         else:
-            dry_run(sb, args.run, args.stage, folder, marker)
+            dry_run(sb, args.run, args.stage, args.lane, folder, marker)
+    except RunBusy as exc:
+        raise Busy(f"Cannot {what}: {exc}") from None
     except ApplyLockError as exc:
         raise SystemExit(f"Cannot {what}: {exc}") from None
     except (APIError, httpx.HTTPError) as exc:

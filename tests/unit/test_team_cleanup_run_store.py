@@ -523,7 +523,7 @@ def test_a_second_apply_on_this_machine_is_refused_by_the_file_lock(tmp_path):
     store, first, second = _store(tmp_path), _Db(_row()), _Db(_row())
 
     with rs.acquire_apply_lock(first, store, RUN, holder="applier-a"):
-        with pytest.raises(rs.ApplyLockError, match=f"^run {RUN} is in use on this machine"):
+        with pytest.raises(rs.RunBusy, match=f"^run {RUN} is in use on this machine"):
             with rs.acquire_apply_lock(second, store, RUN, holder="applier-b"):
                 pass
 
@@ -535,7 +535,7 @@ def test_a_second_apply_elsewhere_is_refused_by_the_lease(tmp_path):
     here, elsewhere = _store(tmp_path, name="here"), _store(tmp_path, name="elsewhere")
 
     with rs.acquire_apply_lock(db, here, RUN, holder="applier-a"):
-        with pytest.raises(rs.ApplyLockError, match="is held by applier-a until"):
+        with pytest.raises(rs.RunBusy, match="is held by applier-a until"):
             with rs.acquire_apply_lock(db, elsewhere, RUN, holder="applier-b"):
                 pass
         assert db.runs[RUN]["lease_holder"] == "applier-a"
@@ -566,10 +566,11 @@ def test_a_lease_expiring_this_second_is_reported_as_held(monkeypatch, tmp_path)
 def test_a_closed_run_is_not_leased(tmp_path, status):
     store, db = _store(tmp_path), _Db(_row(status=status))
 
-    with pytest.raises(rs.ApplyLockError, match=f"is {status}, so nothing may apply to it"):
+    with pytest.raises(rs.ApplyLockError, match=f"is {status}, so nothing may apply to it") as caught:
         with rs.acquire_apply_lock(db, store, RUN, holder="applier-a"):
             pass
 
+    assert not isinstance(caught.value, rs.RunBusy), "waiting does not reopen a closed run"
     assert db.runs[RUN]["lease_holder"] is None
 
 
@@ -640,7 +641,7 @@ def test_a_lease_freed_between_the_update_and_its_re_read_asks_for_a_retry(tmp_p
     store = _store(tmp_path)
     db = _Db(_row(lease_holder="applier-x", lease_expires_at=_stamp(hours=1)), after_update=holder_lets_go)
 
-    with pytest.raises(rs.ApplyLockError, match="was held when the lease was asked for and is free now; try again"):
+    with pytest.raises(rs.RunBusy, match="was held when the lease was asked for and is free now; try again"):
         with rs.acquire_apply_lock(db, store, RUN, holder="applier-b"):
             pass
 
@@ -951,7 +952,7 @@ def test_the_file_half_of_the_apply_lock_is_refused_while_another_shell_holds_it
                 pass
 
     assert str(caught.value) == (
-        f"run {RUN} is in use on this machine (an apply, revert, collect or end_run holds its lock)"
+        f"run {RUN} is in use on this machine (an apply, revert, collect, page build or end_run holds its lock)"
     )
 
     with rs.hold_apply_file(store, RUN):

@@ -17,15 +17,18 @@ from scripts.team_cleanup import collect as col  # noqa: E402
 from scripts.team_cleanup import pages  # noqa: E402
 from scripts.team_cleanup import propose_week as pw  # noqa: E402
 from scripts.team_cleanup.run_store import (  # noqa: E402
+    APPLY_LOCK_FILE,
     MANIFEST_FILE,
     PREFLIGHT_MARKER,
     PROPOSALS_FILE,
     PROPOSE_MARKER,
     STALE_FILE,
+    run_dir,
     stage_dir,
     stage_progress,
     write_run,
 )
+from src.tournaments.storage._file_lock import _acquire_file_lock  # noqa: E402
 from src.tournaments.storage._io import write_json  # noqa: E402
 
 RUN = "2026-10-14-nv"
@@ -517,7 +520,7 @@ def test_teams_users_follow_are_kept_inside_the_cap_and_shown_first_in_their_gro
             },
         ],
     )
-    monkeypatch.setattr(pages, "CARD_CAP", 5)
+    monkeypatch.setattr(pages, "load_caps", lambda: pages.Caps(cards=5, auto=0))
 
     _build(monkeypatch, capsys, store, db)
 
@@ -1046,7 +1049,7 @@ def test_the_build_reports_which_cards_the_evidence_already_settles_and_still_sh
         "fill": "a blank state filled from its club, which nothing disputes"
     }
     assert _read(store, "states", pages.PAGE_MARKER)["sure"] == 1
-    assert "the evidence already settles 1 of them" in out
+    assert "the evidence already settles 1: 0 go to the automatic lane, the rest stay cards" in out
 
 
 def test_an_ages_page_settles_a_far_u_label_move_only_where_the_review_saw_a_second_witness(
@@ -1092,6 +1095,204 @@ def test_a_states_page_with_no_change_to_answer_reads_no_evidence(tmp_path, monk
     assert code == 0
     assert "team_state_probe_log" not in db.executes
     assert [p["team_id_master"] for p in _read(store, "states", MANIFEST_FILE)["cards"].values()] == ["lock"]
+
+
+# --- the automatic lane ----------------------------------------------------------------------------
+
+
+def _sure_week(tmp_path, monkeypatch, auto):
+    """Three fills nothing disputes and a correction, which is never sure, with ``auto`` the lane's cap."""
+    store = tmp_path / "store"
+    _reviewing(store)
+    _states(store, [_decision(t, None, "NV") for t in ("a", "b", "c")] + [_decision("fix", "UT", "NV")])
+    db = _Db(teams=[_team(t, state=None) for t in ("a", "b", "c")] + [_team("fix", state="UT")])
+    monkeypatch.setattr(pages, "load_caps", lambda: pages.Caps(cards=150, auto=auto))
+    return store, db
+
+
+def _collect_auto(monkeypatch, capsys, store, stage):
+    monkeypatch.setattr(
+        sys, "argv", ["collect.py", "--run", RUN, "--stage", stage, "--lane", "auto", "--store", str(store)]
+    )
+    code = col.main()
+    return code, capsys.readouterr().out
+
+
+def test_settled_changes_go_to_the_automatic_lane_up_to_its_cap_and_the_rest_stay_cards(tmp_path, monkeypatch, capsys):
+    store, db = _sure_week(tmp_path, monkeypatch, auto=2)
+
+    code, out = _build(monkeypatch, capsys, store, db)
+
+    manifest = _read(store, "states", MANIFEST_FILE)
+    assert code == 0
+    assert [p["team_id_master"] for p in manifest["auto"].values()] == ["a", "b"]
+    assert [p["team_id_master"] for p in manifest["cards"].values()] == ["c", "fix"]
+    assert [c["id"] for c in _cards(store, "states")] == list(manifest["cards"])
+    settled = {**manifest["cards"], **manifest["auto"]}
+    assert sorted(settled[c]["team_id_master"] for c in manifest["sure"]) == ["a", "b", "c"]
+    assert all(c.startswith(f"{manifest['run']}_") for c in manifest["auto"])
+    assert _read(store, "states", pages.PAGE_MARKER)["auto"] == 2
+    assert stage_progress(store, RUN, "states").auto_step.next_action == "collect the automatic lane"
+    assert "the evidence already settles 3: 2 go to the automatic lane, the rest stay cards" in out
+    assert f"collect.py --run {RUN} --stage states --lane auto, then apply_stage.py" in out
+
+
+def test_the_configured_caps_keep_every_settled_change_a_card_until_the_lane_is_given_a_cap():
+    assert pages.load_caps() == pages.Caps(cards=150, auto=0)
+
+
+@pytest.mark.parametrize(
+    "caps",
+    [{"cards": 150}, {"cards": -1, "auto": 0}, {"cards": 150, "auto": True}, {"cards": "150", "auto": 0}, [150, 0]],
+    ids=["missing", "negative", "a-bool", "a-string", "a-list"],
+)
+def test_caps_that_are_missing_or_not_whole_numbers_from_0_are_refused(tmp_path, caps):
+    config = tmp_path / "team_cleanup.json"
+    config.write_text(json.dumps({"page_caps": caps}), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="page_caps"):
+        pages.load_caps(config)
+
+
+def test_the_automatic_lane_collects_into_its_own_folder_as_the_owner_s_choices_do(tmp_path, monkeypatch, capsys):
+    store, db = _sure_week(tmp_path, monkeypatch, auto=2)
+    _build(monkeypatch, capsys, store, db)
+    built = _read(store, "states", MANIFEST_FILE)["run"]
+
+    code, _ = _collect_auto(monkeypatch, capsys, store, "states")
+
+    lane = stage_dir(store, RUN, "states") / "auto"
+    vetted = json.loads((lane / "vetted.json").read_text(encoding="utf-8"))
+    rows = json.loads((lane / col.DECISIONS_FILE).read_text(encoding="utf-8"))
+    marker = json.loads((lane / "collected.json").read_text(encoding="utf-8"))
+    assert code == 0
+    assert vetted["rules"] == "authority" and [d["team_id"] for d in vetted["decisions"]] == ["a", "b"]
+    assert [(r["team_id_master"], r["decision"], r["note"], r["source"]) for r in rows] == [
+        ("a", "apply", None, f"auto:{built}"),
+        ("b", "apply", None, f"auto:{built}"),
+    ]
+    assert marker["counts"] == {"apply": 2, "dont_apply": 0, "unsure": 0, "undecided": 0}
+    assert marker["hashes"] == {
+        "vetted.json": _sha(lane / "vetted.json"),
+        "decisions.json": _sha(lane / "decisions.json"),
+    }
+    progress = stage_progress(store, RUN, "states")
+    assert (progress.next_step.name, progress.auto_step.name) == ("collect", "apply")
+
+
+def test_a_page_whose_automatic_lane_is_collected_is_not_rebuilt(tmp_path, monkeypatch, capsys):
+    store, db = _sure_week(tmp_path, monkeypatch, auto=1)
+    _build(monkeypatch, capsys, store, db)
+    _collect_auto(monkeypatch, capsys, store, "states")
+
+    with pytest.raises(SystemExit, match="the states automatic lane is collected from the page as built"):
+        _build(monkeypatch, capsys, store, db)
+
+
+def test_a_page_that_sent_nothing_to_the_automatic_lane_leaves_it_nothing_to_collect(tmp_path, monkeypatch, capsys):
+    store = _built(tmp_path, monkeypatch, capsys)
+
+    with pytest.raises(SystemExit, match="states has no automatic lane: no page has sent it a change"):
+        _collect_auto(monkeypatch, capsys, store, "states")
+    assert stage_progress(store, RUN, "states").auto_step is None
+
+
+def test_a_page_json_that_cannot_be_read_keeps_the_stage_open(tmp_path, monkeypatch, capsys):
+    """It may have sent changes to the automatic lane, which closing the run would leave unapplied."""
+    store = _built(tmp_path, monkeypatch, capsys)
+    (stage_dir(store, RUN, "states") / pages.PAGE_MARKER).write_text("{", encoding="utf-8")
+
+    progress = stage_progress(store, RUN, "states")
+
+    assert not progress.finished
+    assert progress.auto_step.next_action.startswith("build the page again: its page.json cannot be read")
+
+
+def test_a_collected_automatic_lane_stays_open_whatever_page_json_says(tmp_path, monkeypatch, capsys):
+    store, db = _sure_week(tmp_path, monkeypatch, auto=1)
+    _build(monkeypatch, capsys, store, db)
+    _collect_auto(monkeypatch, capsys, store, "states")
+    marker = _read(store, "states", pages.PAGE_MARKER)
+    write_json(stage_dir(store, RUN, "states") / pages.PAGE_MARKER, {**marker, "auto": 0}, indent=1)
+
+    assert stage_progress(store, RUN, "states").auto_step.name == "apply"
+
+
+def test_the_lane_cap_picks_first_and_the_card_cap_takes_the_rest_with_followed_teams_first(
+    tmp_path, monkeypatch, capsys
+):
+    store = tmp_path / "store"
+    _reviewing(store)
+    _states(store, [_decision(t, None, "NV") for t in ("a", "b", "c", "d")])
+    db = _Db(
+        teams=[_team(t, state=None) for t in ("a", "b", "c", "d")], watchlist_items=[{"id": 1, "team_id_master": "d"}]
+    )
+    monkeypatch.setattr(pages, "load_caps", lambda: pages.Caps(cards=1, auto=2))
+
+    _build(monkeypatch, capsys, store, db)
+
+    manifest = _read(store, "states", MANIFEST_FILE)
+    assert [p["team_id_master"] for p in manifest["auto"].values()] == ["d", "a"]
+    assert [p["team_id_master"] for p in manifest["cards"].values()] == ["b"]
+    assert [p["team_id_master"] for p in manifest["overflow"]] == ["c"]
+
+
+def test_a_lane_collected_while_the_page_is_rebuilt_keeps_the_page_it_was_collected_from(tmp_path, monkeypatch, capsys):
+    """The collector holds the run's file lock; the build checks again under it before replacing anything."""
+    store, db = _sure_week(tmp_path, monkeypatch, auto=2)
+    _build(monkeypatch, capsys, store, db)
+    first = _read(store, "states", pages.PAGE_MARKER)["run"]
+    reads = pages.fetch_teams
+
+    def collect_meanwhile(sb, ids):
+        col.collect(store, RUN, "states", None, "auto")
+        return reads(sb, ids)
+
+    monkeypatch.setattr(pages, "fetch_teams", collect_meanwhile)
+
+    with pytest.raises(SystemExit, match="the states automatic lane is collected from the page as built"):
+        _build(monkeypatch, capsys, store, db)
+    assert _read(store, "states", pages.PAGE_MARKER)["run"] == first
+    assert _read(store, "states", MANIFEST_FILE)["run"] == first
+
+
+def test_a_build_while_an_apply_holds_the_run_exits_75(tmp_path, monkeypatch, capsys):
+    store, db = _state_week(tmp_path)
+
+    with _acquire_file_lock(run_dir(store, RUN) / APPLY_LOCK_FILE, timeout=0.0):
+        with pytest.raises(SystemExit) as caught:
+            _build(monkeypatch, capsys, store, db)
+
+    assert caught.value.code == 75
+    assert capsys.readouterr().err.startswith(f"Cannot build the states page for {RUN}: run {RUN} is in use")
+    assert not (stage_dir(store, RUN, "states") / pages.PAGE_MARKER).exists()
+
+
+def test_the_automatic_lane_waits_for_the_steps_it_shares_with_the_owner_s(tmp_path, monkeypatch, capsys):
+    store, db = _sure_week(tmp_path, monkeypatch, auto=1)
+    _build(monkeypatch, capsys, store, db)
+    review = stage_dir(store, RUN, "states") / "review"
+    review.mkdir()
+    write_json(review / "batch1.json", [], indent=1)
+
+    with pytest.raises(SystemExit, match="states is not ready for this: next, review the queued proposals"):
+        _collect_auto(monkeypatch, capsys, store, "states")
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["--lane", "auto", "--decisions", "out"],
+        ["--lane", "owner"],
+    ],
+    ids=["auto-with-choices", "owner-without-choices"],
+)
+def test_only_the_owner_s_lane_reads_saved_choices(tmp_path, monkeypatch, capsys, argv):
+    monkeypatch.setattr(sys, "argv", ["collect.py", "--run", RUN, "--stage", "states", *argv])
+
+    with pytest.raises(SystemExit) as caught:
+        col.main()
+    assert caught.value.code == 2 and "--decisions is the owner's lane's" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize(
