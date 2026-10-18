@@ -105,16 +105,21 @@ remain independently configurable.
 ## Customer cheat sheet
 
 The PDF, printable HTML, Excel, and Streamlit review share one content model.
-The director sheet leads with seed, team, and tier headings, followed by short
-format descriptions and essential warnings. The operator table adds placement
-status; baseline comparisons, game examples, and diagnostics are expandable. Tier names default to Tier 1, Tier 2, etc.; the operator can name
+The director sheet keeps the original ranked-table layout: seed, team/club,
+PowerScore and state rank, saved W-L-D record, and movement. Yellow Competitive
+Break lines separate tiers. Short format descriptions and essential warnings
+follow the list; there is no What to know column or separate banner per tier.
+Records are counted from the frozen scored fixtures, not the ranking aggregates.
+Older snapshots without those fixtures leave the record blank.
+The operator table keeps PowerScore and record visible, with full baseline
+comparisons, game examples, and diagnostics in the expandable details. Tier names default to Tier 1, Tier 2, etc.; the operator can name
 them Gold, Silver, or another useful label.
 
-**Competitive Break** means natural strength separation. **Recommended tier
-break** means a practical division boundary supported by complete-division
-matchup analysis. Both labels remain in the detailed operator evidence and CSV when the evidence
-agrees. Director sheets use tier headings to separate divisions and label natural
-breaks within a division. Every natural boundary is evaluated without a display
+In the detailed operator evidence and CSV, **Competitive Break** means natural
+strength separation, and **Recommended tier break** means a practical division
+boundary supported by complete-division matchup analysis. Both labels remain in the detailed operator evidence and CSV when the evidence
+agrees. Director sheets keep one continuous ranked list, using yellow Competitive Break
+lines between suggested tiers and labeling natural breaks within a tier. Every natural boundary is evaluated without a display
 cap. Manual ordering or holds recompute guidance for the effective membership.
 **Very close** ranges remain in internal evidence only when their full contiguous
 member sequence survives.

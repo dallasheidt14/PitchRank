@@ -370,6 +370,7 @@ def _render_cohort_review(
             "MatchBalance Seed": row.matchbalance_seed,
             "Manual/Effective Seed": row.seed,
             "PowerScore": row.score,
+            "Record (W-L-D)": row.team.record or "—",
             "Movement": row.movement,
             "State rank": row.state_rank or "—",
             "Competitive marker": " · ".join(
@@ -383,7 +384,8 @@ def _render_cohort_review(
         st.download_button("Download director CSV", director_csv(sheet, pack.get("operator_notes", {}).get(key, "")),
                            file_name=f"matchbalance-{key.replace('|', '-')}.csv", mime="text/csv",
                            key=f"_director_csv_{key}")
-        primary_columns = ["Effective seed", "Team", "Tier", "Placement status"]
+        primary_columns = ["Effective seed", "Team", "Tier", "PowerScore", "Record (W-L-D)",
+                           "Competitive marker", "Placement status"]
         with st.expander("Detailed evidence, baseline, and matching"):
             for observation in content.notes:
                 st.caption(observation)

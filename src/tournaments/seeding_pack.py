@@ -688,15 +688,46 @@ def needs_placement_review(pack: dict[str, Any], key: str, analysis: CheatSheetA
     return not isinstance(reviews, dict) or reviews.get(key) != placement_review_fingerprint(pack, key, analysis)
 
 
+def _snapshot_records(evidence: Mapping[str, Any]) -> dict[str, dict[str, int]]:
+    """Use frozen scored fixtures, never ranking totals with defaulted zeroes."""
+    try:
+        games = json.loads(evidence["canonical_json"])["games"]
+    except (KeyError, TypeError, ValueError):
+        return {}
+    if not isinstance(games, list):
+        return {}
+    records = {}
+    seen = set()
+    for game in games:
+        if not isinstance(game, dict):
+            return {}
+        if game.get("is_excluded"):
+            continue
+        game_id = game.get("id")
+        home, away = game.get("home_team_master_id"), game.get("away_team_master_id")
+        scores = [game.get("home_score"), game.get("away_score")]
+        if (not all(isinstance(value, str) and value for value in (game_id, home, away))
+                or home == away or game_id in seen
+                or not all(isinstance(value, int) and not isinstance(value, bool) and value >= 0
+                           for value in scores)):
+            return {}
+        seen.add(game_id)
+        for team_id, margin in ((home, scores[0] - scores[1]), (away, scores[1] - scores[0])):
+            record = records.setdefault(team_id, {"wins": 0, "losses": 0, "draws": 0})
+            record["wins" if margin > 0 else "losses" if margin < 0 else "draws"] += 1
+    return records
+
+
 def snapshot_ratings(pack: dict[str, Any], identities: Mapping[str, str | None]) -> dict[str, dict[str, Any]]:
     """Use the same snapshot as predictions, including newly canonicalized IDs."""
-    ratings = {key: dict(value) for key, value in pack["ratings"].items()}
-    for teams in pack["teams"].values():
+    ratings = {key: {**value, "scored_record": None} for key, value in pack["ratings"].items()}
+    for cohort, teams in pack["teams"].items():
+        records = _snapshot_records(pack.get("input_evidence", {}).get(cohort, {}))
         for entrant_id, team in teams.items():
             requested_id = identities.get(entrant_id)
             if requested_id:
                 supplemental = ratings.get(str(requested_id), {})
-                captured = {**supplemental, **team}
+                captured = {**supplemental, **team, "scored_record": records.get(team.get("team_id_master"))}
                 # Compare can lack the optional state-ranking view while the
                 # sheet's separate display lookup succeeds. Keep that display
                 # information, without falling back for any strength metric.

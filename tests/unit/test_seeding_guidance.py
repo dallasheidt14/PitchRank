@@ -150,7 +150,7 @@ def test_clear_gap_has_one_specific_observation_across_pdf_and_excel():
     assert 'data-entrant="3" class="strength-break"' in document
     break_group = (
         '<tbody class="competitive-break-group"><tr class="competitive-break">'
-        '<td colspan="4"><span>Competitive Break: natural strength separation</span>'
+        '<td colspan="5"><span>Competitive Break: natural strength separation</span>'
         '<small>Strength guidance; the director makes the final placement decision</small>'
         '</td></tr><tr data-entrant="4"'
     )
@@ -205,7 +205,7 @@ def test_workbook_keeps_secondary_identity_and_roster_context_on_team_row():
     assert all(text in document for text in content.rows[0].name_lines)
     assert tab.row_dimensions[7].height >= 75
     assert tab.auto_filter.ref is None
-    assert [table.autoFilter.ref for table in tab.tables.values()] == ["A6:K7"]
+    assert [table.autoFilter.ref for table in tab.tables.values()] == ["A6:L7"]
 
 
 def test_direction_without_competitive_risk_does_not_create_a_break():

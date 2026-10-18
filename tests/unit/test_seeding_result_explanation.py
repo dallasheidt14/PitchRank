@@ -33,7 +33,7 @@ def test_every_director_export_preserves_reason_compromise_and_coverage():
         tier_guidance={"status": "review_required_compromise", "cuts": [1],
             "divisions": [{"label": "Tier 1", "start_seed": 1, "end_seed": 1, "size": 1,
                            "pool_sizes": [1], "minimum_games": 0}], "warnings": ["Review worst matchup."]})
-    sheet = CohortSheet("u13", "Female", (SheetTeam("=Alpha", "Club", .8, entrant_id="a", requested_flight="Gold", listed_division="League A"),),
+    sheet = CohortSheet("u13", "Female", (SheetTeam("=Alpha", "Club", .8, entrant_id="a", requested_flight="Gold", listed_division="League A", record="8-3-1"),),
                         (SheetTeam("Unplaced", "Club", entrant_id="b"),), tier_analysis=analysis)
     content = build_director_cohort(sheet)
     assert any("8 games lack usable opponent ratings" in note and "Field sensitivity: seeds 1–4" in note
@@ -53,7 +53,10 @@ def test_every_director_export_preserves_reason_compromise_and_coverage():
     assert "Field sensitivity" not in html
     assert "8 games lack usable opponent ratings" in html
     assert "Requested: Gold" in html and "Listed: League A" in html
-    assert '<th class="num">PowerScore</th>' not in html
+    assert '<th class="num">PowerScore</th>' in html
+    assert "8-3-1" in html and "Record<br>(W-L-D)" in html
+    assert rows[0]["Record (W-L-D)"] == "8-3-1"
+    assert rows[0]["PowerScore"] == "80.0"
     book = load_workbook(BytesIO(build_seeding_workbook("Cup", [sheet], generated_on="2026-10-18",
                                                      ranking_run="2026-10-17")))
     assert any("8 games lack usable opponent ratings" in str(cell.value)
@@ -61,7 +64,8 @@ def test_every_director_export_preserves_reason_compromise_and_coverage():
     assert "Requested: Gold" in book.active["B7"].value and "Listed: League A" in book.active["B7"].value
     assert reason not in book.active["G7"].value
     assert "Tier 1" in book.active["G7"].value
-    assert book.active.column_dimensions["D"].hidden
+    assert not any(book.active.column_dimensions[col].hidden for col in ("D", "E", "F", "L"))
+    assert book.active["L7"].value == "8-3-1"
     assert book.active["B8"].value == "Unplaced"
 
 

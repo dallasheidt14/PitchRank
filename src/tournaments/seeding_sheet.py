@@ -35,7 +35,6 @@ from src.tournaments.roster_resolver import ResolvedTeam
 from src.tournaments.seeding_content import (
     LIMITED_HISTORY_LEGEND,
     build_director_cohort,
-    compact_format,
     format_state_rank,
 )
 
@@ -81,6 +80,7 @@ class SheetTeam:
     play_up_from_age_group: str | None = None
     requested_flight: str | None = None
     listed_division: str | None = None
+    record: str = ""
 
 
 @dataclass(frozen=True)
@@ -139,6 +139,19 @@ def _play_up_from_age_group(rating: Mapping[str, Any], entered_age_group: str) -
     return ranked if ranked_age and entered_age and ranked_age < entered_age else None
 
 
+def _saved_record(rating: Mapping[str, Any]) -> str:
+    """Show the snapshot's W-L-D without turning unknown counts into zeroes."""
+    record = rating.get("scored_record")
+    if not isinstance(record, Mapping):
+        return ""
+    counts = [record.get(key) for key in ("wins", "losses", "draws")]
+    if not all(isinstance(value, (int, float)) and not isinstance(value, bool)
+               and math.isfinite(value) and value >= 0 and value == int(value)
+               for value in counts):
+        return ""
+    return "-".join(str(int(value)) for value in counts)
+
+
 def build_cohort_sheets(
     rows: Sequence[RosterRow],
     resolved: Sequence[ResolvedTeam],
@@ -182,6 +195,7 @@ def build_cohort_sheets(
                 pitchrank_name if _materially_different_name(registered_name, pitchrank_name) else None
             ),
             power_score=score,
+            record=_saved_record(rating),
             state_rank=rating.get("rank_in_state_final"),
             state=str(rating["state"]).strip() if rating.get("state") else None,
             status=rating.get("status"),
@@ -345,7 +359,6 @@ def _rows_html(
     movement_notes: Mapping[str, str] | None = None,
     close_range_notes: Mapping[str, str] | None = None,
     break_labels: Mapping[str, str] | None = None,
-    compact: bool = False,
     show_notes: bool = True,
 ) -> str:
     row_groups = []
@@ -368,7 +381,7 @@ def _rows_html(
         )
         pitchrank_name = (
             f'<span class="pitchrank-name">PitchRank: {html.escape(team.pitchrank_team_name)}</span>'
-            if team.pitchrank_team_name and not compact else ""
+            if team.pitchrank_team_name else ""
         )
         if team.plays_up and team.play_up_from_age_group:
             play_up = (
@@ -389,9 +402,10 @@ def _rows_html(
             f'<span style="width:{team.power_score * 100:.2f}%"></span></span>'
             if numbered and team.power_score is not None else ""
         )
-        baseline_cells = "" if compact else (
+        evidence_cells = (
             f'<td class="num score">{_score(team.power_score)}{score_bar}'
             f'<span class="state">{html.escape(_state_rank(team))}</span>{flight_context}</td>'
+            f'<td class="num record">{html.escape(team.record) or "—"}</td>'
             f'<td class="movement">{html.escape((movement_notes or {}).get(team.entrant_id, ""))}</td>'
         )
         row_class = ' class="strength-break"' if team.entrant_id in strength_break_ids else ""
@@ -403,8 +417,8 @@ def _rows_html(
             f'<td class="pos">{position if numbered else "-"}</td>'
             f'<td class="team">{html.escape(team.team_name)}{play_up}{flag}{pitchrank_name}'
             f'<span class="club">{html.escape(team.club_name)}</span>'
-            f'{flight_context if compact else ""}{inline_note}</td>'
-            f'{baseline_cells}{note_cell}</tr>'
+            f'{inline_note}</td>'
+            f'{evidence_cells}{note_cell}</tr>'
         )
         if break_before_next_row:
             if regular_rows:
@@ -412,7 +426,7 @@ def _rows_html(
                 regular_rows = []
             row_groups.append(
                 '<tbody class="competitive-break-group">'
-                f'<tr class="competitive-break"><td colspan="{(2 if compact else 4) + int(show_notes)}">'
+                f'<tr class="competitive-break"><td colspan="{5 + int(show_notes)}">'
                 f'<span>{html.escape(separator_label)}</span>'
                 '<small>Strength guidance; the director makes the final placement decision</small>'
                 f'</td></tr>{row}</tbody>'
@@ -433,31 +447,30 @@ def _table_html(title: str, teams: Sequence[SheetTeam], *, numbered: bool, start
                 movement_notes: Mapping[str, str] | None = None,
                 close_range_notes: Mapping[str, str] | None = None,
                 break_labels: Mapping[str, str] | None = None,
-                seed_label: str = "MatchBalance Seed", compact: bool = False,
+                seed_label: str = "MatchBalance Seed",
                 show_notes: bool = True) -> str:
     summary = f'<div class="tier-description">{html.escape(subtitle)}</div>' if subtitle else ""
     purpose_html = f'<span class="tier-purpose">{html.escape(purpose)}</span>' if purpose else ""
     rows = _rows_html(teams, numbered=numbered, start=start, placement_notes=placement_notes,
                       strength_break_ids=strength_break_ids, movement_notes=movement_notes,
-                      close_range_notes=close_range_notes, break_labels=break_labels, compact=compact,
+                      close_range_notes=close_range_notes, break_labels=break_labels,
                       show_notes=show_notes)
-    columns = ('<col style="width:8%"><col style="width:40%"><col style="width:52%">' if compact else
-               '<col class="seed-col"><col class="team-col"><col class="score-col">'
-               '<col class="move-col"><col class="notes-col">')
-    if not show_notes:
-        columns = ('<col style="width:10%"><col style="width:90%">' if compact else
-                   '<col style="width:11%"><col style="width:49%"><col style="width:18%"><col style="width:22%">')
+    columns = ('<col style="width:9%"><col style="width:42%"><col style="width:15%">'
+               '<col style="width:13%"><col style="width:21%">')
+    if show_notes:
+        columns = ('<col style="width:8%"><col style="width:28%"><col style="width:14%">'
+                   '<col style="width:12%"><col style="width:17%"><col style="width:21%">')
     note_header = '<th>What to know</th>' if show_notes else ""
-    baseline_headers = "" if compact else '<th class="num">PowerScore</th><th>Movement</th>'
+    evidence_headers = '<th class="num">PowerScore</th><th class="num">Record<br>(W-L-D)</th><th>Movement</th>'
     return (
         f'<table class="grid{" review" if review else " tier-table"}">'
         f'<colgroup>{columns}</colgroup><thead>'
-        f'<tr class="tier-heading"><th colspan="{(2 if compact else 4) + int(show_notes)}">'
+        f'<tr class="tier-heading"><th colspan="{5 + int(show_notes)}">'
         f'<span class="tier-title">{html.escape(title)}</span>'
         f'{purpose_html}<span class="count">{len(teams)} {"team" if len(teams) == 1 else "teams"}</span>'
         f'<span class="cohort-tag">{html.escape(cohort_label)}</span>{summary}</th></tr>'
-        f'<tr class="columns"><th class="pos">{html.escape("Seed" if compact else seed_label)}</th><th>Team / club</th>'
-        f'{baseline_headers}{note_header}</tr>'
+        f'<tr class="columns"><th class="pos">{html.escape(seed_label)}</th><th>Team / club</th>'
+        f'{evidence_headers}{note_header}</tr>'
         f'</thead>{rows}</table>'
     )
 
@@ -582,34 +595,29 @@ def _cheat_sheet_tables(sheet: CohortSheet) -> tuple[str, str]:
     guidance = getattr(sheet.tier_analysis, "tier_guidance", {}) if sheet.tier_analysis else {}
     divisions = guidance.get("divisions", [])
     tables = []
-    compact = any(row.recommendation_reason for row in content.seeded)
-    groups = divisions or [{"label": "MatchBalance Suggested Seeding", "start_seed": 1,
-                            "end_seed": len(content.seeded)}]
-    displayed_ids = []
-    for division in groups:
-        members = [row for row in content.seeded
-                   if division["start_seed"] <= row.seed <= division["end_seed"]]
-        displayed_ids.extend(row.team.entrant_id for row in members)
-        tables.append(_table_html(
-            division["label"], [row.team for row in members], numbered=True,
-            start=division["start_seed"], cohort_label=cohort,
-            subtitle=compact_format(division) if divisions else "",
-            strength_break_ids=frozenset(row.team.entrant_id for row in members
-                                        if row.strength_break_after and row.seed < division["end_seed"]),
-            break_labels={row.team.entrant_id: row.break_label for row in members},
-            movement_notes={row.team.entrant_id: row.movement for row in members},
-            compact=compact, show_notes=False,
-        ))
-    if displayed_ids != [row.team.entrant_id for row in content.seeded]:
-        raise ValueError("Tier divisions must cover every seeded team exactly once, in seed order.")
+    if divisions:
+        displayed_ids = [row.team.entrant_id for division in divisions for row in content.seeded
+                         if division["start_seed"] <= row.seed <= division["end_seed"]]
+        if displayed_ids != [row.team.entrant_id for row in content.seeded]:
+            raise ValueError("Tier divisions must cover every seeded team exactly once, in seed order.")
+    practical_cuts = set(guidance.get("cuts", []))
+    tables.append(_table_html(
+        "MatchBalance Suggested Seeding", [row.team for row in content.seeded], numbered=True,
+        cohort_label=cohort, seed_label="Seed",
+        strength_break_ids=frozenset(row.team.entrant_id for row in content.seeded if row.strength_break_after),
+        break_labels={row.team.entrant_id: "Competitive Break" if row.seed in practical_cuts else row.break_label
+                      for row in content.seeded},
+        movement_notes={row.team.entrant_id: row.movement for row in content.seeded},
+        show_notes=False,
+    ))
     if content.unseeded:
         tables.append(_table_html(
             "Placement needed", [row.team for row in content.unseeded], numbered=False, review=True,
-            cohort_label=cohort,
+            cohort_label=cohort, seed_label="Seed",
             subtitle="Strength is not established. These teams are not ranked last.",
             placement_notes={row.team.entrant_id: row.display_status + ". " + row.recommendation_reason
                              for row in content.unseeded},
-            compact=compact, show_notes=False,
+            show_notes=False,
         ))
     sizes = " + ".join(str(item["size"]) for item in divisions)
     summary = (f"Suggested tiers: {sizes} teams. " if sizes else "")
@@ -628,17 +636,18 @@ def _sheet_html(
     cohort = f"{_display_gender(sheet.gender)} {sheet.age_group.upper()}"
     tables, summary = _cheat_sheet_tables(sheet)
     content = build_director_cohort(sheet, operator_note)
-    guidance = content.director_notes
+    guidance = (*content.format_notes, *content.director_notes)
     notes = ""
     if guidance:
         items = "".join(f"<li>{html.escape(value)}</li>" for value in dict.fromkeys(guidance))
         notes = (f'<aside class="guidance"><h2>Director notes · {html.escape(cohort)}</h2>'
                  f'<ul>{items}</ul></aside>')
     explanation = "Read from seed 1 down. Tier lines suggest strength divisions; a division can contain several pools."
-    if not any(row.recommendation_reason for row in content.seeded):
-        explanation += (" PitchRank score already adjusts for age, so a younger team playing up can be compared here. "
-                        "State rank is that team's rank "
-                        "within its own PitchRank age and gender group.")
+    explanation += (" PitchRank score already adjusts for age, so a younger team playing up can be compared here. "
+                    "State rank is that team's rank "
+                    "within its own PitchRank age and gender group.")
+    if any(row.team.record for row in content.rows):
+        explanation += " Record is wins-losses-draws from scored games in this snapshot."
     if any(row.evidence_note for row in content.seeded):
         explanation += " Limited history means the placement needs a closer look."
     guide = f"""<section class="seed-guide">

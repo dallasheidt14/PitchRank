@@ -64,22 +64,22 @@ def build_seeding_workbook(
         sheet = workbook.create_sheet(title)
         sheet.sheet_view.showGridLines = False
         sheet.freeze_panes = "D7"
-        sheet.merge_cells("A1:K1")
+        sheet.merge_cells("A1:L1")
         _set_text(sheet["A1"], _safe_text(event_name))
         sheet["A1"].font = Font(name="Arial", size=18, bold=True, color="FFFFFF")
         sheet["A1"].fill = PatternFill("solid", fgColor=FOREST)
         sheet["A1"].alignment = Alignment(vertical="center")
         sheet.row_dimensions[1].height = 28
-        sheet.merge_cells("A2:K2")
+        sheet.merge_cells("A2:L2")
         team_count = len(cohort.rated) + len(cohort.unrated)
         sheet["A2"] = f"{cohort_label(cohort_key(cohort.age_group, cohort.gender))} · {team_count} accepted teams"
         sheet["A2"].font = Font(bold=True, color=FOREST_DEEP)
-        sheet.merge_cells("A3:K3")
+        sheet.merge_cells("A3:L3")
         sheet["A3"] = DIRECTOR_LEGEND
         sheet["A3"].font = Font(italic=True, color=MUTED)
         sheet["A3"].alignment = Alignment(wrap_text=True, vertical="center")
         sheet.row_dimensions[3].height = 30
-        sheet.merge_cells("A4:K4")
+        sheet.merge_cells("A4:L4")
         sheet["A4"] = f"Ratings as of {ranking_run} · Generated {generated_on}"
         sheet["A4"].font = Font(color=MUTED, size=9)
         content = build_director_cohort(
@@ -89,7 +89,7 @@ def build_seeding_workbook(
         if any(row.evidence_note for row in content.seeded):
             sheet["A3"] = DIRECTOR_LEGEND + " Limited history: " + LIMITED_HISTORY_LEGEND
             sheet.row_dimensions[3].height = 42
-        sheet.merge_cells("A5:K5")
+        sheet.merge_cells("A5:L5")
         sheet["A5"] = (content.guidance_summary + " " if content.guidance_summary else "") + " · ".join(
             f"{label}: {sum(row.placement_status == label for row in team_rows)}"
             for label in PLACEMENT_STATUSES
@@ -101,7 +101,7 @@ def build_seeding_workbook(
         headers = [
             "Manual/Effective seed" if manual else "MatchBalance seed",
             "Team name", "Club", "PowerScore", "State rank", "PowerScore seed",
-            "Tier / placement", "Final division", "Pool", "Final seed", "Director notes",
+            "Tier / placement", "Final division", "Pool", "Final seed", "Director notes", "Record (W-L-D)",
         ]
         for column, value in enumerate(headers, 1):
             cell = sheet.cell(6, column, value)
@@ -120,7 +120,7 @@ def build_seeding_workbook(
             )
             values = [
                 row.seed, "\n".join(row.name_lines), _safe_text(team.club_name), row.score,
-                row.state_rank, row.power_score_seed, _safe_text(placement), "", "", "", "",
+                row.state_rank, row.power_score_seed, _safe_text(placement), "", "", "", "", team.record,
             ]
             for column, value in enumerate(values, 1):
                 cell = sheet.cell(row_index, column, value)
@@ -135,7 +135,7 @@ def build_seeding_workbook(
                     cell.fill = PatternFill("solid", fgColor="FFF9DB")
                 if column == 4 and value is not None:
                     cell.number_format = "0.0"
-                if column in {1, 4, 5, 6, 10}:
+                if column in {1, 4, 5, 6, 10, 12}:
                     cell.alignment = Alignment(horizontal="center", vertical="top")
             if row_index % 2 == 0:
                 for column in range(1, 8):
@@ -152,7 +152,7 @@ def build_seeding_workbook(
                 color="B8D6CC", showValue=True,
             ))
         if end_row >= 7:
-            table = Table(displayName=f"Cohort{sheet_number}", ref=f"A6:K{end_row}")
+            table = Table(displayName=f"Cohort{sheet_number}", ref=f"A6:L{end_row}")
             table.tableStyleInfo = TableStyleInfo(
                 name="TableStyleMedium4",
                 showFirstColumn=False,
@@ -167,23 +167,18 @@ def build_seeding_workbook(
             sheet.cell(end_row, 1, "Director notes").font = Font(bold=True, color=FOREST_DEEP)
             for note in dict.fromkeys(notes):
                 end_row += 1
-                sheet.merge_cells(start_row=end_row, start_column=1, end_row=end_row, end_column=11)
+                sheet.merge_cells(start_row=end_row, start_column=1, end_row=end_row, end_column=12)
                 cell = sheet.cell(end_row, 1)
                 _set_text(cell, _safe_text(note))
                 cell.alignment = Alignment(vertical="top", wrap_text=True)
                 sheet.row_dimensions[end_row].height = 15 * sum(
                     max(1, (len(line) + 139) // 140) for line in note.splitlines()
                 )
-        widths = [17, 32, 24, 15, 15, 15, 34, 18, 12, 14, 32]
+        widths = [17, 32, 24, 15, 15, 15, 34, 18, 12, 14, 32, 16]
         for column, width in enumerate(widths, 1):
             sheet.column_dimensions[get_column_letter(column)].width = width
-        if any(row.recommendation_reason for row in content.seeded):
-            # Preserve baseline comparisons without crowding the placement sheet.
-            for column in ("D", "E", "F"):
-                sheet.column_dimensions[column].hidden = True
-            sheet.column_dimensions["G"].width = 28
         sheet.print_title_rows = "1:6"
-        sheet.print_area = f"A1:K{end_row}"
+        sheet.print_area = f"A1:L{end_row}"
         sheet.page_setup.orientation = "landscape"
         sheet.page_setup.fitToWidth = 1
         sheet.page_setup.fitToHeight = 0

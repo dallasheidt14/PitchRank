@@ -48,7 +48,7 @@ def test_workbook_has_editable_director_columns_and_literal_names():
     assert sheet["B7"].data_type == "s"
     assert sheet.freeze_panes == "D7"
     assert sheet.auto_filter.ref is None
-    assert [table.autoFilter.ref for table in sheet.tables.values()] == ["A6:K7"]
+    assert [table.autoFilter.ref for table in sheet.tables.values()] == ["A6:L7"]
     assert [sheet.cell(6, column).value for column in range(8, 12)] == [
         "Final division", "Pool", "Final seed", "Director notes"
     ]
@@ -97,7 +97,7 @@ def test_cohort_notes_match_pdf_and_stay_outside_sortable_team_rows():
         assert cell.row > 9
         assert str(sheet.max_row) in str(sheet.print_area)
     assert sheet.auto_filter.ref is None
-    assert [table.autoFilter.ref for table in sheet.tables.values()] == ["A6:K9"]
+    assert [table.autoFilter.ref for table in sheet.tables.values()] == ["A6:L9"]
     assert "Seeded: 3" in sheet["A5"].value
     assert all(sheet.cell(row, 11).value is None for row in range(7, 10))
 

@@ -90,6 +90,21 @@ def test_a_ranked_team_carries_its_score_and_state_rank():
     assert top.state_rank == 33
 
 
+@pytest.mark.parametrize("counts,expected", [
+    ({"wins": 8, "losses": 3, "draws": 1}, "8-3-1"),
+    ({"wins": 0, "losses": 0.0, "draws": 0}, "0-0-0"),
+    ({}, ""),
+    ({"wins": 8, "losses": 3}, ""),
+    ({"wins": True, "losses": 3, "draws": 1}, ""),
+    ({"wins": -1, "losses": 3, "draws": 1}, ""),
+    ({"wins": 1.5, "losses": 3, "draws": 1}, ""),
+    ({"wins": float("nan"), "losses": 3, "draws": 1}, ""),
+])
+def test_sheet_uses_saved_record_without_inventing_missing_counts(counts, expected):
+    ratings = {**RATINGS, "m-laredo": {**RATINGS["m-laredo"], "scored_record": counts}}
+    assert _sheets(ratings)[0].rated[0].record == expected
+
+
 def test_registered_name_stays_primary_and_a_different_pitchrank_name_is_secondary():
     """The roster calls it `Barcelona SC 13B Aztecas`; we hold `Barcelona SC Aztecas U14`."""
     team = _sheets()[0].rated[1]
@@ -603,7 +618,7 @@ def test_tier_headings_repeat_and_review_table_stays_together_when_it_fits():
 
     seed_table = document.split('<table class="grid tier-table">', 1)[1].split("</table>", 1)[0]
     assert seed_table.index("MatchBalance Suggested Seeding") < seed_table.index("</thead>")
-    assert seed_table.index("MatchBalance Seed") < seed_table.index("</thead>")
+    assert seed_table.index('<th class="pos">Seed</th>') < seed_table.index("</thead>")
     assert "table.grid thead { display: table-header-group; }" in document
     assert "table.review { break-inside: avoid-page; page-break-inside: avoid; }" in document
 

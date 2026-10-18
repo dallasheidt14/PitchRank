@@ -1058,6 +1058,45 @@ def test_snapshot_ratings_use_captured_canonical_data_under_requested_id():
     assert pack["teams"]["u12|Male"]["0"]["test_metadata"]["source"] == "captured"
 
 
+def test_display_record_counts_frozen_fixtures_under_the_canonical_identity():
+    pack = _pack()
+    team = pack["teams"]["u12|Male"]["0"]
+    team.update(team_id_master=IDS[4], wins=17, losses=5, draws=8)
+    games = [
+        {"id": "win", "home_team_master_id": IDS[4], "away_team_master_id": IDS[1],
+         "home_score": 3, "away_score": 1},
+        {"id": "loss", "home_team_master_id": IDS[1], "away_team_master_id": IDS[4],
+         "home_score": 2, "away_score": 0},
+        {"id": "draw", "home_team_master_id": IDS[4], "away_team_master_id": IDS[1],
+         "home_score": 0, "away_score": 0},
+        {"id": "excluded", "home_team_master_id": IDS[4], "away_team_master_id": IDS[1],
+         "home_score": 9, "away_score": 0, "is_excluded": True},
+    ]
+    pack["input_evidence"] = {"u12|Male": {"canonical_json": json.dumps({"games": games})}}
+    original = deepcopy(pack)
+    ratings = snapshot_ratings(pack, team_ids_by_row(ROWS, RESOLVED, {}))
+    sheets = build_cohort_sheets(ROWS, RESOLVED, {}, ratings)
+    teams = {team.entrant_id: team for sheet in sheets for team in (*sheet.rated, *sheet.unrated)}
+    assert teams["0"].record == "1-1-1"
+    assert teams["1"].record == "1-1-1"
+    assert teams["3"].record == ""
+    assert ratings[IDS[0]]["wins"] == 17  # Display records never rewrite prediction inputs.
+    assert pack == original
+
+
+@pytest.mark.parametrize("evidence", [
+    {}, {"canonical_json": "{}"}, {"canonical_json": '{"games": []}'},
+    {"canonical_json": '{"games": [{"home_score": null}]}'},
+])
+def test_missing_frozen_history_does_not_display_defaulted_ranking_zeroes(evidence):
+    pack = _pack()
+    pack["teams"]["u12|Male"]["0"].update(wins=0, losses=0, draws=0)
+    pack["input_evidence"] = {"u12|Male": evidence}
+    ratings = snapshot_ratings(pack, team_ids_by_row(ROWS, RESOLVED, {}))
+    sheets = build_cohort_sheets(ROWS, RESOLVED, {}, ratings)
+    assert next(team for sheet in sheets for team in sheet.rated if team.entrant_id == "0").record == ""
+
+
 def test_missing_compare_state_rank_preserves_supplemental_display_but_not_strength_values():
     pack = _pack()
     pack["ratings"][IDS[0]].update(power_score_final=0.90, rank_in_cohort_final=1)
