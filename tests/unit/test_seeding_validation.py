@@ -207,12 +207,14 @@ def test_frozen_seed_order_cannot_include_an_external_history_opponent():
         scorecard([row], baseline="baseline")
 
 
+@pytest.mark.parametrize("version", ["opponent_adjusted_results_v1", "joint_game_evidence_v1"])
 @pytest.mark.parametrize("invalid", [None, "version", "missing", "zero_half_life", "season_weight"])
-def test_results_model_parameters_share_export_and_scorecard_validation(invalid):
+def test_results_model_parameters_share_export_and_scorecard_validation(invalid, version):
     saved = pack()
     evidence = json.loads(saved["input_evidence"]["cohort-a-b"]["canonical_json"])
-    parameters = {"version": "opponent_adjusted_results_v1", "halfLifeDays": 90, "marginCap": 4,
-                  "priorWeight": 5, "previousSeasonWeight": 0.5}
+    parameters = {"version": version, "halfLifeDays": 90, "marginCap": 4,
+                  "priorWeight": 0.5, "previousSeasonWeight": 0.5, "maximumIterations": 1000,
+                  "convergenceTolerance": 1e-9, "clusterSamples": 12, "clusterSeed": 20261018}
     evidence.update(model="results", model_parameters=parameters)
     if invalid == "version":
         parameters["version"] = "unsupported"
@@ -297,3 +299,25 @@ def test_batched_bootstrap_preserves_the_pre_refactor_oracle():
     assert result["first"]["resamples"] == 1999
     assert result["first"]["interval_95"] == pytest.approx([-0.13333333333333333, 0.12000000000000001])
     assert result["first"]["family_adjusted_interval"] == pytest.approx([-0.1625, 0.14705882352941177])
+
+
+@pytest.mark.parametrize("field,value", [("maximumIterations", 0), ("maximumIterations", True),
+    ("convergenceTolerance", 0), ("convergenceTolerance", float("nan")),
+    ("clusterSamples", -1), ("clusterSeed", 1.5)])
+def test_joint_solver_settings_are_replayable_in_export_and_scorecard(field, value):
+    saved = pack()
+    evidence = json.loads(saved["input_evidence"]["cohort-a-b"]["canonical_json"])
+    parameters = {"version": "joint_game_evidence_v1", "halfLifeDays": 90, "marginCap": 4,
+                  "priorWeight": 0.5, "previousSeasonWeight": 0.5, "maximumIterations": 1000,
+                  "convergenceTolerance": 1e-9, "clusterSamples": 12, "clusterSeed": 20261018}
+    parameters[field] = value
+    evidence.update(model="results", model_parameters=parameters)
+    saved["input_evidence"]["cohort-a-b"]["canonical_json"] = json.dumps(evidence)
+    with pytest.raises(ValueError, match="solver parameters"):
+        frozen_validation_inputs(saved, "cohort-a-b", candidate_packs={"candidate": saved})
+    row = record()
+    inputs = json.loads(row["frozen_inputs_json"])
+    inputs["candidates"]["candidate"]["evidence"] = evidence
+    replace_payload(row, inputs)
+    with pytest.raises(ValueError, match="solver parameters"):
+        scorecard([row], baseline="baseline", confirmation=True)

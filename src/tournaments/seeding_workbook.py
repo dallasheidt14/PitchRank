@@ -113,7 +113,7 @@ def build_seeding_workbook(
             team = row.team
             placement = " · ".join(
                 value for value in (
-                    row.tier_label, row.movement, row.observation, row.break_label,
+                    row.tier_label, row.recommendation_reason, row.movement, row.observation, row.break_label,
                     row.close_range_after, row.display_status,
                 ) if value
             )
@@ -176,6 +176,11 @@ def build_seeding_workbook(
         widths = [17, 32, 24, 15, 15, 15, 34, 18, 12, 14, 32]
         for column, width in enumerate(widths, 1):
             sheet.column_dimensions[get_column_letter(column)].width = width
+        if any(row.recommendation_reason for row in content.seeded):
+            # Keep baseline columns recoverable while the director reads the evidence.
+            for column in ("D", "E", "F"):
+                sheet.column_dimensions[column].hidden = True
+            sheet.column_dimensions["G"].width = 65
         sheet.print_title_rows = "1:6"
         sheet.print_area = f"A1:K{end_row}"
         sheet.page_setup.orientation = "landscape"

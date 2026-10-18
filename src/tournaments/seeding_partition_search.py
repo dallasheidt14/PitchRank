@@ -196,24 +196,37 @@ def search_partitions(
             ]
             primary = best_average(restricted, {first_count}, tolerant=True)
             structures.add(primary)
-        else:
+        if primary is None or (recommendation_policy.practical_risk_tolerance and minimum
+                               and min(primary) < minimum):
             risks = minimax(outgoing, "risk")
             if risks:
                 threshold = min(risks.values())
+
+                def minimize_additive(edges, metric):
+                    forward, backward = [math.inf] * (n + 1), [math.inf] * (n + 1)
+                    forward[0] = backward[n] = 0
+                    for start in range(n):
+                        for edge in edges[start]:
+                            tick()
+                            forward[edge.end] = min(forward[edge.end], forward[start] + metric(edge))
+                    for start in reversed(range(n)):
+                        backward[start] = min(
+                            (metric(edge) + backward[edge.end] for edge in edges[start]), default=math.inf)
+                    return [[edge for edge in row
+                             if forward[edge.start] + metric(edge) + backward[edge.end] == forward[n]]
+                            for row in edges]
+
                 restricted = [[edge for edge in row if edge.risk <= threshold] for row in outgoing]
-                forward, backward = [math.inf] * (n + 1), [math.inf] * (n + 1)
-                forward[0] = backward[n] = 0
-                for start in range(n):
-                    for edge in restricted[start]:
-                        forward[edge.end] = min(forward[edge.end], forward[start] + edge.violations)
-                for start in reversed(range(n)):
-                    backward[start] = min(
-                        (edge.violations + backward[edge.end] for edge in restricted[start]), default=math.inf
-                    )
-                restricted = [
-                    [edge for edge in row if forward[edge.start] + edge.violations + backward[edge.end] == forward[n]]
-                    for row in restricted
-                ]
+                baseline = minimize_additive(restricted, lambda edge: edge.violations)
+                structures.add(best_average(baseline, set(risks), tolerant=False))
+                tolerance = recommendation_policy.practical_risk_tolerance
+                if tolerance and minimum:
+                    restricted = [[edge for edge in row if edge.risk <= threshold + tolerance]
+                                  for row in outgoing]
+                    restricted = minimize_additive(restricted, lambda edge: int(edge.end - edge.start < minimum))
+                    threshold = min(minimax(restricted, "risk").values())
+                    restricted = [[edge for edge in row if edge.risk <= threshold] for row in restricted]
+                restricted = minimize_additive(restricted, lambda edge: edge.violations)
                 compromise = best_average(restricted, set(risks), tolerant=False)
                 structures.add(compromise)
         complete = True

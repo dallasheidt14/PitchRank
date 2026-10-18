@@ -593,3 +593,16 @@ it('preserves ambiguous cross-provider records for review without recommending t
   expect(batch.cohorts['u14|Male'].unavailable_codes).toEqual({ '0': 'metadata_conflict', '1': 'metadata_conflict' });
   expect(batch.cohorts['u14|Male'].predictions).toEqual([]);
 });
+
+it('does not count external history opponents as accepted entrants', async () => {
+  const tables = fixtures();
+  tables.games = [game('external', A, C)];
+  const batch = await buildSeedingPredictions(
+    database(tables).client,
+    { 'u14|Male': { '0': A, '1': B } },
+    { model: 'results' }
+  );
+  const saved = JSON.parse((batch.evidence['u14|Male'] as { canonical_json: string }).canonical_json);
+  expect(saved.teams['0'].result_evidence.componentEntrants).toBe(1);
+  expect(saved.teams['1'].result_evidence.componentEntrants).toBe(1);
+});

@@ -66,6 +66,7 @@ def seeding_predictor_sha256() -> str:
         _FRONTEND_DIR / "lib" / "seedingPredictions.ts",
         _FRONTEND_DIR / "lib" / "predictionIdentity.ts",
         _FRONTEND_DIR / "lib" / "cohortResultModel.ts",
+        _FRONTEND_DIR / "lib" / "networkResultModel.ts",
         _SCRIPT,
         _SHIM,
         Path(__file__),

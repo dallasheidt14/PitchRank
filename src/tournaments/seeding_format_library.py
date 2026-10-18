@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
@@ -62,6 +63,7 @@ class MatchBalanceRecommendationPolicy:
     numerical_tie_absolute_tolerance: float
     provenance_status: str
     preferred_minimum_division_size: int | None = None
+    practical_risk_tolerance: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -423,6 +425,10 @@ def validate_format_library(library: FormatLibrary) -> FormatLibraryValidation:
             )
 
     for policy in library.recommendation_policies:
+        tolerance = policy.practical_risk_tolerance
+        if (isinstance(tolerance, bool) or not isinstance(tolerance, (int, float))
+                or not math.isfinite(tolerance) or not 0 <= tolerance <= 0.25):
+            library_errors.append("Practical risk tolerance must be finite and between zero and 0.25.")
         minimum = policy.preferred_minimum_division_size
         if minimum is not None and (isinstance(minimum, bool) or not isinstance(minimum, int) or minimum < 3):
             library_errors.append(

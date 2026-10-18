@@ -12,13 +12,13 @@ import {
 import { predictMatch, warmMatchPredictorCalibration, type MatchPrediction } from './matchPredictor';
 import type { Game } from './types';
 import {
-  buildResultEvidence,
-  predictCohortResult,
-  COHORT_RESULT_MODEL,
-  withoutResultGame,
-  resampleResultEvidence,
-  type ResultEvidence,
-} from './cohortResultModel';
+  buildNetworkEvidence as buildResultEvidence,
+  predictNetworkResult as predictCohortResult,
+  NETWORK_RESULT_MODEL as COHORT_RESULT_MODEL,
+  withoutNetworkGame as withoutResultGame,
+  resampleNetworkEvidence as resampleResultEvidence,
+  type NetworkEvidence as ResultEvidence,
+} from './networkResultModel';
 export type SeedingModel = 'legacy' | 'cohort' | 'results';
 
 export type SeedingCohorts = Record<string, Record<string, string>>;
@@ -291,7 +291,10 @@ export async function buildSeedingPredictions(
     const frozenTeams = Object.fromEntries(
       [...opponentTeams].filter(([id]) => involved.has(id) || canonicalCounts.has(id)).sort()
     );
-    const resultEvidence = model === 'results' ? buildResultEvidence(frozenTeams, cohortGames, evidence.as_of) : {};
+    const resultEvidence =
+      model === 'results'
+        ? buildResultEvidence(frozenTeams, cohortGames, evidence.as_of, [...canonicalCounts.keys()])
+        : {};
     for (const team of Object.values(output.teams)) {
       const profile = resultEvidence[team.team_id_master];
       if (profile) Object.assign(team, { result_evidence: profile });

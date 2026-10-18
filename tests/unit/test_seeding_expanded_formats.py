@@ -59,7 +59,7 @@ def test_catalog_reproduces_checked_in_definitions_and_covers_source(library):
     expected = build_catalog()
     assert expected == json.loads(library.source_path.read_text(encoding="utf-8"))
     assert library.schema_version == 2
-    assert resolve_format_profile(library).profile_id == "matchbalance-expanded-v3"
+    assert resolve_format_profile(library).profile_id == "matchbalance-expanded-v4"
     entries, count = set(), None
     for line in SOURCE.read_text(encoding="utf-8").splitlines():
         heading = re.match(r"### (\d+\+?) teams", line)
@@ -198,8 +198,13 @@ def test_exact_search_matches_exhaustive_oracle(library, seed, unsafe):
                 for pair in flight.group.pairings
             )
 
+        plans = exhaustive.assessment.plans
+        minimum_risk = min(map(risk, plans))
+        eligible = [p for p in plans if risk(p) <= minimum_risk + exhaustive.recommendation_policy.practical_risk_tolerance]
+        fewest_small = min(sum(size < 4 for size in p.flight_sizes) for p in eligible)
+        eligible = [p for p in eligible if sum(size < 4 for size in p.flight_sizes) == fewest_small]
         expected = min(
-            exhaustive.assessment.plans,
+            eligible,
             key=lambda p: (
                 risk(p),
                 p.violating_pairing_count,
@@ -228,7 +233,9 @@ def test_compromise_counts_only_violating_pairs_in_mixed_evidence(library):
     exact = suggest_automatic_flights(
         ids, predictions, TierPolicy(), teams, library, replace(profile, max_candidate_structures=1)
     )
-    assert exact.generation.optimal_compromise_structure == (5, 3)
+    # The adaptive policy accepts one additional violation at identical worst
+    # risk to avoid a three-team division. The violation metric remains accurate.
+    assert exact.generation.optimal_compromise_structure == (4, 4)
     for result in (exhaustive, exact):
         best = min(
             result.assessment.plans,

@@ -67,12 +67,19 @@ def _candidate(candidate, cutoff):
         _dated(evidence["window_start"], date.fromisoformat(evidence["as_of"]), "Invalid frozen history window")
         parameters = evidence["model_parameters"]
         if evidence["model"] == "results":
-            if (parameters["version"] != "opponent_adjusted_results_v1"
+            if (parameters["version"] not in {"opponent_adjusted_results_v1", "joint_game_evidence_v1"}
                     or not all(_number(parameters[key]) and parameters[key] > 0
                                for key in ("halfLifeDays", "marginCap", "priorWeight"))
                     or not _number(parameters["previousSeasonWeight"])
                     or not 0 <= parameters["previousSeasonWeight"] <= 1):
                 raise ValueError("Invalid frozen result-model parameters")
+            if parameters["version"] == "joint_game_evidence_v1" and (
+                    not all(isinstance(parameters[key], int) and not isinstance(parameters[key], bool)
+                            and parameters[key] >= minimum for key, minimum in
+                            (("clusterSamples", 0), ("clusterSeed", 0), ("maximumIterations", 1)))
+                    or not _number(parameters["convergenceTolerance"])
+                    or parameters["convergenceTolerance"] <= 0):
+                raise ValueError("Invalid frozen joint-model solver parameters")
         teams = [*evidence["teams"].values(), *evidence["opponents"].values()]
         for team in teams:
             if (not isinstance(team["team_id_master"], str) or not team["team_id_master"]

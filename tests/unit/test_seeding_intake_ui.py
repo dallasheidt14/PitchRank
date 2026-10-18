@@ -172,7 +172,7 @@ def test_main_review_shows_scores_without_internal_ids_or_close_labels(operator)
     click(app, "Build seeding sheets")
     editor = app.dataframe[0].value
     assert list(editor.columns)[:4] == [
-        "Effective seed", "Team", "Tier", "PowerScore Seed",
+        "Effective seed", "Team", "Tier", "Why this placement",
     ]
     assert editor["PowerScore"].tolist() == pytest.approx([55., 55.])
     assert "Entrant" not in editor.columns
@@ -306,7 +306,7 @@ def test_legacy_analysis_reuses_predictions_and_preserves_notes(operator):
     app.run()
     assert not app.exception and not app.error
     upgraded = app.session_state["_seeding_pack"]
-    assert upgraded["analysis_schema_version"] == 11
+    assert upgraded["analysis_schema_version"] == 12
     assert upgraded["predictions"] == pack["predictions"]
     assert upgraded["generated_at"] == pack["generated_at"]
     assert upgraded["operator_notes"] == pack["operator_notes"]
@@ -422,7 +422,7 @@ def test_rebuild_materializes_new_policy_defaults_from_a_version_three_pack(oper
     click(app, "Build seeding sheets")
 
     rebuilt = app.session_state["_seeding_pack"]
-    assert rebuilt["analysis_schema_version"] == 11
+    assert rebuilt["analysis_schema_version"] == 12
     assert rebuilt["policy"]["blowout_cost_weight"] == 2.0
     assert rebuilt["policy"]["very_close_expected_goal_difference"] == 1.0
     assert rebuilt["policy"]["material_reversal_expected_goal_difference"] == 1.0
@@ -590,12 +590,12 @@ def test_manual_order_requires_explicit_hold_and_restore_removes_override(operat
     click(app, "Save manual seed order")
     saved = app.session_state["_seeding_pack"]["manual_seed_orders"]["u14|Male"]
     assert saved == {"seeded": ["0"], "held": ["1"]}
-    assert "Manual/Effective Seed" in app.session_state["_seeding_sheet_html"]
+    assert "Operator-adjusted from the MatchBalance suggestion." in app.session_state["_seeding_sheet_html"]
 
     click(app, "Build seeding sheets")  # Archives the manual decision for a later rebuild.
     click(app, "Restore MatchBalance suggested order")
     assert app.session_state["_seeding_pack"]["manual_seed_orders"] == {}
-    assert "Manual/Effective Seed" not in app.session_state["_seeding_sheet_html"]
+    assert "Operator-adjusted from the MatchBalance suggestion." not in app.session_state["_seeding_sheet_html"]
     click(app, "Build seeding sheets")
     assert app.session_state["_seeding_pack"]["manual_seed_orders"] == {}
 
@@ -687,7 +687,7 @@ def test_unsupported_saved_note_remains_editable_after_export_failure(operator, 
     click(app, "Save director notes")
     assert not app.error
     assert app.session_state["_seeding_pack"]["operator_notes"]["u14|Male"] == "Corrected note"
-    assert app.session_state["_seeding_pack"]["analysis_schema_version"] == 11
+    assert app.session_state["_seeding_pack"]["analysis_schema_version"] == 12
     assert "Corrected note" in app.session_state["_seeding_sheet_html"]
     assert "_seeding_xlsx" in app.session_state and len(calls) == 1
 
@@ -973,7 +973,7 @@ def test_saved_catalog_update_keeps_the_frozen_evidence_and_operator_choices(ope
     assert app.session_state["_seeding_pack"]["format_library"]["library_version"] == old_version
     click(app, "Use current formats and tier guidance")
     updated = app.session_state["_seeding_pack"]
-    assert updated["format_library"]["library_version"] == "2.1.0"
+    assert updated["format_library"]["library_version"] == "2.2.0"
     app.run()
     assert not app.exception
     assert not any(b.label == "Use current formats and tier guidance" for b in app.button)
@@ -1406,3 +1406,18 @@ def test_preview_choice_is_explicit_and_rebuild_preserves_manual_choices(operato
     app.run()
     assert not app.exception
     assert app.session_state["_seeding_pack"] == pack
+
+
+def test_director_csv_retains_draft_when_fresh_snapshot_has_pending_roster_review(operator, monkeypatch):
+    app, _calls = operator
+    downloads = []
+    original = ui.director_csv
+    def capture(sheet, note=""):
+        payload = original(sheet, note)
+        downloads.append(payload.decode("utf-8-sig"))
+        return payload
+    monkeypatch.setattr(ui, "director_csv", capture)
+    click(app, "Build seeding sheets")
+    assert app.session_state["_seeding_verified_identity"]
+    assert downloads and all("DRAFT — review needed: roster completeness" in item for item in downloads)
+    assert "DRAFT — review needed: roster completeness" in app.session_state["_seeding_sheet_html"]

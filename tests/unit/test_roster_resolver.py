@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import re
 
+import pytest
+
 from src.tournaments.roster_paste import parse_roster
 from src.tournaments.roster_resolver import (
     ResolvedTeam,
@@ -853,3 +855,53 @@ def test_unreadable_manual_reference_is_reported_as_such():
     )
 
     assert outcome.status == "unrecognized"
+
+
+def test_aspire_disambiguates_twentieth_provider_hit_by_exact_club_and_name():
+    row = _row("Female U13\nMcLean YS\tAspire 13/14\tVA")
+    hits = [{"team_id": index, "team_name": "Aspire 13/14", "club_name": f"Other Club {index}"}
+            for index in range(19)]
+    hits.append({"team_id": 284346, "team_name": "Aspire 13/14", "club_name": "McLean Youth Soccer"})
+    result = resolve_row(row, gotsport_search=lambda *_: hits,
+                         lookup_provider_id=lambda _: "8faaaf62-31ae-4289-87d6-07af61ca311b",
+                         lookup_exact_name=_never_called)
+    assert result.status == "gotsport_id"
+    assert result.team_id_master == "8faaaf62-31ae-4289-87d6-07af61ca311b"
+
+
+def test_inspire_surfaces_younger_exact_identity_for_playing_up_confirmation():
+    row = _row("Female U13\nMcLean Youth Soccer\tInspire 14/15\tVA")
+    def search(name, age, gender):
+        return [{"team_id": 337661 if age == "u12" else 99, "team_name": name,
+                 "club_name": "McLean Youth Soccer" if age == "u12" else "Houston Club"}]
+    result = resolve_row(row, gotsport_search=search,
+                         lookup_provider_id=lambda _: "02ae90ef-527c-4b1d-981f-60945f6fafe9",
+                         lookup_exact_name=_never_called)
+    assert result.status == "review"
+    assert result.candidates[0]["team_id_master"] == "02ae90ef-527c-4b1d-981f-60945f6fafe9"
+    assert "playing in U13" in result.review_reason
+
+
+@pytest.mark.parametrize("name,master", [
+    ("PPA 13/14 EDP Girls", "1f91748f-3c3d-41e2-a5b6-3a2791aa8392"),
+    ("PPA 13/14 NCSL Girls", "da71503e-ac55-4ec3-832f-c5a1afe88a36"),
+])
+def test_ppa_state_conflict_keeps_canonical_candidate_visible(name, master):
+    row = _row(f"Female U13\nPPA\t{name}\tDC")
+    result = resolve_row(row, gotsport_search=lambda *_: [
+        {"team_id": 123, "team_name": name, "club_name": "PPA", "state": "MD"}],
+        lookup_provider_id=lambda _: master, lookup_exact_name=_never_called)
+    assert result.status == "review"
+    assert result.candidates[0]["team_id_master"] == master
+    assert "State conflict" in result.review_reason
+
+
+def test_approximate_club_name_cannot_disambiguate_provider_hits():
+    row = _row("Female U13\nNorthstar United\tBlue\tVA")
+    hits = [{"team_id": 101, "team_name": "Blue", "club_name": "Northstarr United"},
+            {"team_id": 102, "team_name": "Blue", "club_name": "Other Club"}]
+    result = resolve_row(row, gotsport_search=lambda *_: hits,
+                         lookup_provider_id=_never_called, lookup_exact_name=_never_called)
+    assert result.status == "review"
+    assert len(result.candidates) == 2
+    assert result.team_id_master is None

@@ -487,9 +487,9 @@ def test_customer_pdf_prioritizes_seeding_actions_over_model_jargon():
     document = _render_tier(policy=TierPolicy(1.5, 0.2))
     assert ">53.5<span class=\"score-track\"" in document
     assert ">0.535</td>" not in document
-    assert "they do not assign divisions or pools." in document
+    assert "a division can contain several pools." in document
     assert "MatchBalance Seed" in document
-    assert "Competitive Breaks" in document
+    assert "Natural separation" in document
     assert "Close ranges" not in document
     assert "MatchBalance Seed" in document
     assert "PitchRank score" in document
@@ -539,7 +539,7 @@ def test_multiple_boundary_options_use_an_or_list():
     document = _render_tier(analysis)
 
     assert "Boundary options" not in document
-    assert "they do not assign divisions or pools." in document
+    assert "a division can contain several pools." in document
 
 
 def test_customer_pdf_translates_system_diagnostics_into_seeding_actions():
@@ -578,7 +578,7 @@ def test_customer_pdf_does_not_recommend_a_missing_boundary_option():
 
     document = _render_tier(analysis)
 
-    assert "they do not assign divisions or pools." in document
+    assert "a division can contain several pools." in document
     assert "use the team marked Boundary option" not in document
 
 
@@ -593,7 +593,7 @@ def test_customer_pdf_explains_a_ranking_matchup_order_conflict_plainly():
 
     document = _render_tier(analysis)
 
-    assert "they do not assign divisions or pools." in document
+    assert "a division can contain several pools." in document
     assert "Ranking/matchup order conflict" not in document
     assert "use the team marked Boundary option" not in document
 

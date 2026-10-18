@@ -18,9 +18,11 @@ from src.tournaments.reports.render_csv import csv_safe
 from src.tournaments.roster_paste import ParsedRoster, RosterRow
 from src.tournaments.roster_resolver import ResolvedTeam
 from src.tournaments.seeding_assessment import assess_roster, could_belong
-from src.tournaments.seeding_content import DIRECTOR_LEGEND, build_director_cohort, export_fingerprint
+from src.tournaments.seeding_content import DIRECTOR_LEGEND, build_director_cohort, director_csv, export_fingerprint
 from src.tournaments.seeding_format_ui import render_format_preferences
 from src.tournaments.seeding_pack import (
+    ANALYSIS_SCHEMA_VERSION,
+    PACK_SCHEMA_VERSION,
     analyze_pack,
     available_cohorts,
     carry_pack_decisions,
@@ -361,6 +363,7 @@ def _render_cohort_review(
             "Effective seed": row.seed,
             "Team": row.team.team_name,
             "Tier": row.tier_label,
+            "Why this placement": row.recommendation_reason,
             "PowerScore Seed": row.power_score_seed,
             "MatchBalance Seed": row.matchbalance_seed,
             "Manual/Effective Seed": row.seed,
@@ -375,7 +378,11 @@ def _render_cohort_review(
             "Roster context": " · ".join(row.roster_context),
         })
     if rows:
-        primary_columns = ["Effective seed", "Team", "Tier", "PowerScore", "Competitive marker", "Placement status"]
+        st.download_button("Download director CSV", director_csv(sheet, pack.get("operator_notes", {}).get(key, "")),
+                           file_name=f"matchbalance-{key.replace('|', '-')}.csv", mime="text/csv",
+                           key=f"_director_csv_{key}")
+        primary_columns = ["Effective seed", "Team", "Tier", "Why this placement",
+                           "Competitive marker", "Placement status"]
         with st.expander("Baseline, movement, and matching details"):
             st.dataframe(pd.DataFrame(rows), hide_index=True)
         st.data_editor(
@@ -442,7 +449,14 @@ def _render_placement_checks(key, analysis, pack, roster_rows, save) -> None:
                 team = st.selectbox("Show the results behind a team", options=list(result_options),
                                     format_func=lambda value: roster_rows[value].registered_name,
                                     key=f"_seeding_result_evidence_{key}")
-                st.dataframe(result_options[team], hide_index=True)
+                st.dataframe([{
+                    "Date": game["date"], "Opponent": game["opponent_name"],
+                    "Club": game.get("opponent_club", ""),
+                    "Result": (f"{int((game['fixture']['goals'] + game['margin']) / 2)}-"
+                               f"{int((game['fixture']['goals'] - game['margin']) / 2)}"
+                               if game.get("fixture") else f"Goal difference {game['margin']:+g}"),
+                    "Competition": game.get("event", ""), "Source": game.get("source_url") or "",
+                } for game in result_options[team]], hide_index=True)
             comparison = analysis.ordering_evidence.get("pairwise_comparison", {})
             if comparison:
                 st.caption("Regularized pairwise diagnostic: " + (
@@ -810,8 +824,8 @@ def render_seeding_pack(
 
     if (
         isinstance(pack, dict)
-        and pack.get("schema_version") in (3, 4, 5, 6, 7, 8)
-        and pack.get("analysis_schema_version") in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+        and pack.get("schema_version") in range(3, PACK_SCHEMA_VERSION + 1)
+        and pack.get("analysis_schema_version") in range(1, ANALYSIS_SCHEMA_VERSION)
     ):
         try:
             pack = upgrade_pack_analysis(
@@ -903,7 +917,18 @@ def render_seeding_pack(
             selected_rows, resolved, overrides, snapshot_ratings(pack, identities), tier_analyses=analyses,
         )
         from dataclasses import replace
-        sheets = [replace(sheet, delivery_note=snapshot_note) for sheet in sheets]
+        pending = []
+        if not coverage_ready:
+            pending.append("roster completeness")
+        if assessment.attention & selected_indices or any(
+                could_belong(row, *key.split("|", 1)) for row in uncertain for key in selected):
+            pending.append("team identity or cohort review")
+        if pending_reviews or has_data_review:
+            pending.append("placement review")
+        if not snapshot_ready:
+            pending.append("snapshot freshness")
+        delivery_note = ("DRAFT — review needed: " + ", ".join(pending) + ". " if draft else "") + snapshot_note
+        sheets = [replace(sheet, delivery_note=delivery_note) for sheet in sheets]
         document = render_sheet_html(
             title, sheets, generated_on=pack["generated_at"][:10], ranking_run=pack.get("ratings_as_of") or "unknown",
             operator_notes=notes,

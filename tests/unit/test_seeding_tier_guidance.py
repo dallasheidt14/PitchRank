@@ -215,3 +215,35 @@ def test_three_entrants_remain_supported_with_explained_fallback():
     result = build_tier_guidance(analysis, entrants, pairs, TierPolicy(), load_format_library())
     assert [d["size"] for d in result["divisions"]] == [3]
     assert any("Small-division fallback" in note for note in result["warnings"])
+
+
+@pytest.mark.parametrize("exact", [False, True])
+@pytest.mark.parametrize("extra_risk,expected", [(0.04, [4, 4, 4]), (0.2, [3, 6, 3])])
+def test_compromise_uses_small_divisions_only_for_material_risk_reduction(exact, extra_risk, expected):
+    entrants, pairs, analysis = cohort(12, lambda a, b: prediction(
+        .2, 2.4 + 2 * extra_risk if a < 3 <= b or a < 9 <= b else 2.4, .02))
+    library = load_format_library()
+    profiles = tuple(replace(profile, template_ids=tuple(
+        key for key in profile.template_ids if library.templates_by_id[key].team_count in {3, 4, 6}
+    ), max_candidate_structures=1 if exact else 10000) for profile in library.profiles
+                     if profile.profile_id.startswith("matchbalance-expanded"))
+    result = build_tier_guidance(analysis, entrants, pairs, TierPolicy(), replace(library, profiles=profiles))
+    assert result["status"] == "review_required_compromise"
+    assert [d["size"] for d in result["divisions"]] == expected
+    assert result["search_complete"]
+    assert bool(result["practical_tradeoff"]) == (extra_risk == .04)
+
+
+@pytest.mark.parametrize("exact", [False, True])
+def test_near_limit_practical_split_never_masquerades_as_passing(exact):
+    entrants, pairs, analysis = cohort(12, lambda a, b: prediction(
+        .2, 2.02 if a < 3 <= b or a < 9 <= b else 1.98, .02))
+    library = load_format_library()
+    library = replace(library, profiles=tuple(replace(p, max_candidate_structures=1 if exact else 10000,
+        template_ids=tuple(k for k in p.template_ids if library.templates_by_id[k].team_count in {3, 4, 6}))
+        for p in library.profiles if p.profile_id.startswith("matchbalance-expanded")))
+    result = build_tier_guidance(analysis, entrants, pairs, TierPolicy(), library)
+    assert [d["size"] for d in result["divisions"]] == [4, 4, 4]
+    assert result["status"] == "review_required_compromise"
+    assert result["alternative_sizes"] == [3, 6, 3]
+    assert any("passing alternative" in w for w in result["warnings"])

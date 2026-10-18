@@ -25,7 +25,7 @@ SOURCE_ID = "format-field-guide-2026-10"
 def build_catalog() -> dict:
     legacy = json.loads((ROOT / "config/matchbalance_format_library_v1.json").read_text())
     catalog = deepcopy(legacy)
-    catalog.update(schema_version=2, library_version="2.1.0")
+    catalog.update(schema_version=2, library_version="2.2.0")
     catalog["source_documents"].append(
         {
             "source_id": SOURCE_ID,
@@ -492,6 +492,26 @@ def build_catalog() -> dict:
         recommendation_policy_id=practical_policy["policy_id"],
     )
     catalog["profiles"].append(practical_profile)
+    practical_profile["is_default"] = False
+    adaptive_policy = deepcopy(practical_policy)
+    adaptive_policy.update(
+        policy_id="matchbalance-adaptive-practical-v3", version=3,
+        practical_risk_tolerance=0.15,
+        description="Prefer practical divisions. When no all-four-or-larger split passes, avoid smaller "
+        "divisions if the extra worst normalized risk is at most 0.15; explicitly label any compromise.",
+    )
+    adaptive_policy["selection_steps"].append(
+        "Without an all-four-or-larger passing split, minimize small divisions within 0.15 of the "
+        "lowest worst normalized risk, then risk, violations, pair-weighted average, and division count. "
+        "Use this adaptive candidate when no passing recommendation exists, or when it reduces the "
+        "number of undersized divisions in the passing recommendation. A retained passing "
+        "recommendation need not lie inside the adaptive risk band."
+    )
+    catalog["recommendation_policies"].append(adaptive_policy)
+    adaptive_profile = deepcopy(practical_profile)
+    adaptive_profile.update(profile_id="matchbalance-expanded-v4", version=4, is_default=True,
+                            recommendation_policy_id=adaptive_policy["policy_id"])
+    catalog["profiles"].append(adaptive_profile)
     catalog["source_coverage"] = coverage
     return catalog
 
