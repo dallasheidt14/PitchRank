@@ -204,7 +204,7 @@ def test_the_two_groups_are_labelled_ranked_and_unranked():
     html = render_sheet_html("STX Cup 2026", _sheets(), generated_on="2026-09-02", ranking_run="2026-08-31")
 
     assert "MatchBalance Suggested Seeding" in html
-    assert "Unseeded teams" in html
+    assert "Placement needed" in html
 
 
 def test_the_unranked_heading_is_absent_when_every_team_is_rated():
@@ -489,11 +489,11 @@ def test_customer_pdf_prioritizes_seeding_actions_over_model_jargon():
     assert ">0.535</td>" not in document
     assert "a division can contain several pools." in document
     assert "MatchBalance Seed" in document
-    assert "Natural separation" in document
+    assert "Tier lines suggest strength divisions" in document
     assert "Close ranges" not in document
     assert "MatchBalance Seed" in document
     assert "PitchRank score" in document
-    assert "What to know" in document
+    assert "What to know" not in document
     assert "Placement status" not in document
     assert "Data review required" in document
     assert "Limited recent results" not in document
@@ -516,7 +516,7 @@ def test_all_manual_cohort_does_not_instruct_director_to_use_missing_tiers():
     )
     document = _render_tier(analysis)
 
-    assert "0 teams in the effective seed order · 3 held for placement review." in document
+    assert "0 of 3 teams placed; 3 still need placement." in document
     assert "MatchBalance Suggested Seeding" in document
     assert "Build flights from the same tier" not in document
     assert "Tier 1 is strongest" not in document

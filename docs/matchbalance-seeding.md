@@ -105,17 +105,19 @@ remain independently configurable.
 ## Customer cheat sheet
 
 The PDF, printable HTML, Excel, and Streamlit review share one content model.
-Effective seed and team name come first, followed by tier, score, and essential
-warnings. Baseline comparisons and detailed diagnostics are expandable in the
-operator view. Tier names default to Tier 1, Tier 2, etc.; the operator can name
+The director sheet leads with seed, team, and tier headings, followed by short
+format descriptions and essential warnings. The operator table adds placement
+status; baseline comparisons, game examples, and diagnostics are expandable. Tier names default to Tier 1, Tier 2, etc.; the operator can name
 them Gold, Silver, or another useful label.
 
 **Competitive Break** means natural strength separation. **Recommended tier
 break** means a practical division boundary supported by complete-division
-matchup analysis. Both labels appear when the evidence agrees. Every natural
-boundary is evaluated without a display cap. Manual ordering or holds recompute
-the guidance for the effective membership. **Very close** ranges survive only
-when their full contiguous member sequence survives.
+matchup analysis. Both labels remain in the detailed operator evidence and CSV when the evidence
+agrees. Director sheets use tier headings to separate divisions and label natural
+breaks within a division. Every natural boundary is evaluated without a display
+cap. Manual ordering or holds recompute guidance for the effective membership.
+**Very close** ranges remain in internal evidence only when their full contiguous
+member sequence survives.
 
 Manual-placement warnings and plays-up/requested-flight/listed-division context
 stay visible. Uncertain teams are never silently pushed to the bottom.

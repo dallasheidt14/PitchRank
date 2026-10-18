@@ -101,7 +101,7 @@ def build_seeding_workbook(
         headers = [
             "Manual/Effective seed" if manual else "MatchBalance seed",
             "Team name", "Club", "PowerScore", "State rank", "PowerScore seed",
-            "Movement / placement notes", "Final division", "Pool", "Final seed", "Director notes",
+            "Tier / placement", "Final division", "Pool", "Final seed", "Director notes",
         ]
         for column, value in enumerate(headers, 1):
             cell = sheet.cell(6, column, value)
@@ -113,8 +113,9 @@ def build_seeding_workbook(
             team = row.team
             placement = " · ".join(
                 value for value in (
-                    row.tier_label, row.recommendation_reason, row.movement, row.observation, row.break_label,
-                    row.close_range_after, row.display_status,
+                    row.tier_label, "Strength gap below" if row.observation else "",
+                    row.display_status if row.display_status != "Seeded" else "",
+                    row.recommendation_reason if row.seed is None else "",
                 ) if value
             )
             values = [
@@ -160,7 +161,7 @@ def build_seeding_workbook(
                 showColumnStripes=False,
             )
             sheet.add_table(table)
-        notes = content.notes
+        notes = (*content.format_notes, *content.director_notes)
         if notes:
             end_row += 2
             sheet.cell(end_row, 1, "Director notes").font = Font(bold=True, color=FOREST_DEEP)
@@ -177,10 +178,10 @@ def build_seeding_workbook(
         for column, width in enumerate(widths, 1):
             sheet.column_dimensions[get_column_letter(column)].width = width
         if any(row.recommendation_reason for row in content.seeded):
-            # Keep baseline columns recoverable while the director reads the evidence.
+            # Preserve baseline comparisons without crowding the placement sheet.
             for column in ("D", "E", "F"):
                 sheet.column_dimensions[column].hidden = True
-            sheet.column_dimensions["G"].width = 65
+            sheet.column_dimensions["G"].width = 28
         sheet.print_title_rows = "1:6"
         sheet.print_area = f"A1:K{end_row}"
         sheet.page_setup.orientation = "landscape"

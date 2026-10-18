@@ -150,14 +150,14 @@ def test_clear_gap_has_one_specific_observation_across_pdf_and_excel():
     assert 'data-entrant="3" class="strength-break"' in document
     break_group = (
         '<tbody class="competitive-break-group"><tr class="competitive-break">'
-        '<td colspan="5"><span>Competitive Break: natural strength separation</span>'
+        '<td colspan="4"><span>Competitive Break: natural strength separation</span>'
         '<small>Strength guidance; the director makes the final placement decision</small>'
         '</td></tr><tr data-entrant="4"'
     )
     assert break_group in document
     assert "tbody.competitive-break-group { break-inside: avoid-page; " in document
     assert "tr.competitive-break { break-after: avoid-page; " in document
-    assert content.rows[3].observation in tab.cell(10, 7).value
+    assert "Strength gap below" in tab.cell(10, 7).value
     assert tab.cell(10, 1).border.bottom.style == "medium"
     assert tab["A1"].data_type == "s"
     for note in content.notes:
@@ -340,7 +340,8 @@ def test_customer_sheet_labels_matchbalance_movement_breaks_and_close_ranges():
     )
     assert "MatchBalance Seed" in document
     assert "Competitive Break" in document
-    assert "Very close: seeds" in document
+    assert "Very close: seeds" not in document
+    assert any(row.close_range_after for row in build_director_cohort(sheet).rows)
 
     entrants, pairs = consensus_case({
         "0": 11, "1": 8, "2": 10, "3": 7, "4": 6, "5": 5, "6": 4,
@@ -489,4 +490,4 @@ def test_limited_history_keeps_seed_and_literal_row_context_with_fixed_score_sca
     table_rows = sorted([tuple(cell.value for cell in row) for row in tab.iter_rows(min_row=7, max_row=14)],
                         key=lambda row: row[1], reverse=True)
     marked = next(row for row in table_rows if row[0] == 4)
-    assert content.rows[3].observation in marked[6]
+    assert "Strength gap below" in marked[6]

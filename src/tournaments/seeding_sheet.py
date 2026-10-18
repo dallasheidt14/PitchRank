@@ -33,9 +33,9 @@ from typing import TYPE_CHECKING, Any
 from src.tournaments.roster_paste import RosterRow
 from src.tournaments.roster_resolver import ResolvedTeam
 from src.tournaments.seeding_content import (
-    DIRECTOR_LEGEND,
     LIMITED_HISTORY_LEGEND,
     build_director_cohort,
+    compact_format,
     format_state_rank,
 )
 
@@ -346,6 +346,7 @@ def _rows_html(
     close_range_notes: Mapping[str, str] | None = None,
     break_labels: Mapping[str, str] | None = None,
     compact: bool = False,
+    show_notes: bool = True,
 ) -> str:
     row_groups = []
     regular_rows = []
@@ -367,7 +368,7 @@ def _rows_html(
         )
         pitchrank_name = (
             f'<span class="pitchrank-name">PitchRank: {html.escape(team.pitchrank_team_name)}</span>'
-            if team.pitchrank_team_name else ""
+            if team.pitchrank_team_name and not compact else ""
         )
         if team.plays_up and team.play_up_from_age_group:
             play_up = (
@@ -394,12 +395,16 @@ def _rows_html(
             f'<td class="movement">{html.escape((movement_notes or {}).get(team.entrant_id, ""))}</td>'
         )
         row_class = ' class="strength-break"' if team.entrant_id in strength_break_ids else ""
+        inline_note = (f'<span class="placement">{html.escape(note)}</span>'
+                       if not show_notes and not numbered and note else "")
+        note_cell = f'<td class="{note_class}">{html.escape(note)}{close_html}</td>' if show_notes else ""
         row = (
             f'<tr data-entrant="{html.escape(team.entrant_id, quote=True)}"{row_class}>'
             f'<td class="pos">{position if numbered else "-"}</td>'
             f'<td class="team">{html.escape(team.team_name)}{play_up}{flag}{pitchrank_name}'
-            f'<span class="club">{html.escape(team.club_name)}</span>{flight_context if compact else ""}</td>'
-            f'{baseline_cells}<td class="{note_class}">{html.escape(note)}{close_html}</td></tr>'
+            f'<span class="club">{html.escape(team.club_name)}</span>'
+            f'{flight_context if compact else ""}{inline_note}</td>'
+            f'{baseline_cells}{note_cell}</tr>'
         )
         if break_before_next_row:
             if regular_rows:
@@ -407,7 +412,7 @@ def _rows_html(
                 regular_rows = []
             row_groups.append(
                 '<tbody class="competitive-break-group">'
-                f'<tr class="competitive-break"><td colspan="{3 if compact else 5}">'
+                f'<tr class="competitive-break"><td colspan="{(2 if compact else 4) + int(show_notes)}">'
                 f'<span>{html.escape(separator_label)}</span>'
                 '<small>Strength guidance; the director makes the final placement decision</small>'
                 f'</td></tr>{row}</tbody>'
@@ -428,25 +433,31 @@ def _table_html(title: str, teams: Sequence[SheetTeam], *, numbered: bool, start
                 movement_notes: Mapping[str, str] | None = None,
                 close_range_notes: Mapping[str, str] | None = None,
                 break_labels: Mapping[str, str] | None = None,
-                seed_label: str = "MatchBalance Seed", compact: bool = False) -> str:
+                seed_label: str = "MatchBalance Seed", compact: bool = False,
+                show_notes: bool = True) -> str:
     summary = f'<div class="tier-description">{html.escape(subtitle)}</div>' if subtitle else ""
     purpose_html = f'<span class="tier-purpose">{html.escape(purpose)}</span>' if purpose else ""
     rows = _rows_html(teams, numbered=numbered, start=start, placement_notes=placement_notes,
                       strength_break_ids=strength_break_ids, movement_notes=movement_notes,
-                      close_range_notes=close_range_notes, break_labels=break_labels, compact=compact)
+                      close_range_notes=close_range_notes, break_labels=break_labels, compact=compact,
+                      show_notes=show_notes)
     columns = ('<col style="width:8%"><col style="width:40%"><col style="width:52%">' if compact else
                '<col class="seed-col"><col class="team-col"><col class="score-col">'
                '<col class="move-col"><col class="notes-col">')
+    if not show_notes:
+        columns = ('<col style="width:10%"><col style="width:90%">' if compact else
+                   '<col style="width:11%"><col style="width:49%"><col style="width:18%"><col style="width:22%">')
+    note_header = '<th>What to know</th>' if show_notes else ""
     baseline_headers = "" if compact else '<th class="num">PowerScore</th><th>Movement</th>'
     return (
         f'<table class="grid{" review" if review else " tier-table"}">'
         f'<colgroup>{columns}</colgroup><thead>'
-        f'<tr class="tier-heading"><th colspan="{3 if compact else 5}">'
+        f'<tr class="tier-heading"><th colspan="{(2 if compact else 4) + int(show_notes)}">'
         f'<span class="tier-title">{html.escape(title)}</span>'
         f'{purpose_html}<span class="count">{len(teams)} {"team" if len(teams) == 1 else "teams"}</span>'
         f'<span class="cohort-tag">{html.escape(cohort_label)}</span>{summary}</th></tr>'
         f'<tr class="columns"><th class="pos">{html.escape("Seed" if compact else seed_label)}</th><th>Team / club</th>'
-        f'{baseline_headers}<th>What to know</th></tr>'
+        f'{baseline_headers}{note_header}</tr>'
         f'</thead>{rows}</table>'
     )
 
@@ -568,46 +579,46 @@ def _director_guidance(analysis: Any) -> list[str]:
 def _cheat_sheet_tables(sheet: CohortSheet) -> tuple[str, str]:
     content = build_director_cohort(sheet)
     cohort = f"{_display_gender(sheet.gender)} {sheet.age_group.upper()}"
-    manual = bool(sheet.tier_analysis and getattr(sheet.tier_analysis, "manual_override", False))
-    seed_label = "Manual/Effective Seed" if manual else "MatchBalance Seed"
-    tables = _table_html(
-        "MatchBalance Suggested Seeding", [row.team for row in content.seeded], numbered=True,
-        cohort_label=cohort,
-        subtitle=(
-            "Operator-adjusted from the MatchBalance suggestion."
-            if manual else "Preview: whole-cohort evidence order; review uncertain placements."
-            if sheet.tier_analysis and getattr(sheet.tier_analysis, "ordering_evidence", None) else
-            "PowerScore baseline with conservative, evidence-supported adjustments."
-        ),
-        placement_notes={
-            row.team.entrant_id: " · ".join(
-                value for value in (row.tier_label, row.recommendation_reason, row.observation, row.display_status)
-                if value and value != "Seeded"
-            )
-            for row in content.seeded
-        },
-        strength_break_ids=frozenset(row.team.entrant_id for row in content.seeded if row.strength_break_after),
-        movement_notes={row.team.entrant_id: row.movement for row in content.seeded},
-        close_range_notes={row.team.entrant_id: row.close_range_after for row in content.seeded},
-        break_labels={row.team.entrant_id: row.break_label for row in content.seeded},
-        seed_label=seed_label,
-        compact=any(row.recommendation_reason for row in content.seeded),
-    )
+    guidance = getattr(sheet.tier_analysis, "tier_guidance", {}) if sheet.tier_analysis else {}
+    divisions = guidance.get("divisions", [])
+    tables = []
+    compact = any(row.recommendation_reason for row in content.seeded)
+    groups = divisions or [{"label": "MatchBalance Suggested Seeding", "start_seed": 1,
+                            "end_seed": len(content.seeded)}]
+    displayed_ids = []
+    for division in groups:
+        members = [row for row in content.seeded
+                   if division["start_seed"] <= row.seed <= division["end_seed"]]
+        displayed_ids.extend(row.team.entrant_id for row in members)
+        tables.append(_table_html(
+            division["label"], [row.team for row in members], numbered=True,
+            start=division["start_seed"], cohort_label=cohort,
+            subtitle=compact_format(division) if divisions else "",
+            strength_break_ids=frozenset(row.team.entrant_id for row in members
+                                        if row.strength_break_after and row.seed < division["end_seed"]),
+            break_labels={row.team.entrant_id: row.break_label for row in members},
+            movement_notes={row.team.entrant_id: row.movement for row in members},
+            compact=compact, show_notes=False,
+        ))
+    if displayed_ids != [row.team.entrant_id for row in content.seeded]:
+        raise ValueError("Tier divisions must cover every seeded team exactly once, in seed order.")
     if content.unseeded:
-        tables += _table_html(
-            "Unseeded teams", [row.team for row in content.unseeded], numbered=False, review=True,
+        tables.append(_table_html(
+            "Placement needed", [row.team for row in content.unseeded], numbered=False, review=True,
             cohort_label=cohort,
-            subtitle="These accepted teams are preserved, but PitchRank cannot place them in the seed order.",
+            subtitle="Strength is not established. These teams are not ranked last.",
             placement_notes={row.team.entrant_id: row.display_status + ". " + row.recommendation_reason
                              for row in content.unseeded},
-            compact=any(row.recommendation_reason for row in content.seeded),
-        )
-    summary = (
-        (content.guidance_summary + " " if content.guidance_summary else "") +
-        f"{len(content.seeded)} teams in the effective seed order · "
-        f"{len(content.unseeded)} held for placement review."
-    )
-    return tables, summary
+            compact=compact, show_notes=False,
+        ))
+    sizes = " + ".join(str(item["size"]) for item in divisions)
+    summary = (f"Suggested tiers: {sizes} teams. " if sizes else "")
+    summary += f"{len(content.seeded)} of {len(content.rows)} teams placed"
+    if content.unseeded:
+        summary += f"; {len(content.unseeded)} still need placement"
+    if guidance.get("status") == "review_required_compromise":
+        summary += ". Matchup review needed before finalizing"
+    return "\n".join(tables), summary + "."
 
 
 def _sheet_html(
@@ -617,19 +628,19 @@ def _sheet_html(
     cohort = f"{_display_gender(sheet.gender)} {sheet.age_group.upper()}"
     tables, summary = _cheat_sheet_tables(sheet)
     content = build_director_cohort(sheet, operator_note)
-    guidance = content.notes
+    guidance = content.director_notes
     notes = ""
     if guidance:
         items = "".join(f"<li>{html.escape(value)}</li>" for value in dict.fromkeys(guidance))
         notes = (f'<aside class="guidance"><h2>Director notes · {html.escape(cohort)}</h2>'
                  f'<ul>{items}</ul></aside>')
-    explanation = (
-        DIRECTOR_LEGEND + " "
-        + "PitchRank score already adjusts for age, so a younger team playing up can be compared here. "
-        "State rank is that team's rank within its own PitchRank age and gender group."
-    )
+    explanation = "Read from seed 1 down. Tier lines suggest strength divisions; a division can contain several pools."
+    if not any(row.recommendation_reason for row in content.seeded):
+        explanation += (" PitchRank score already adjusts for age, so a younger team playing up can be compared here. "
+                        "State rank is that team's rank "
+                        "within its own PitchRank age and gender group.")
     if any(row.evidence_note for row in content.seeded):
-        explanation += " Limited history: " + LIMITED_HISTORY_LEGEND
+        explanation += " Limited history means the placement needs a closer look."
     guide = f"""<section class="seed-guide">
   <div class="recommendation">{html.escape(summary)}</div>
   <p class="method">{html.escape(explanation)}</p>
@@ -765,6 +776,7 @@ def render_sheet_html(
  color: {BRAND["muted"]}; }}
  .state {{ display: block; margin-top: 3px; color: {BRAND["muted"]}; font-size: 8px; }}
  .movement, .placement {{ font-size: 9.5px; }}
+ .team .placement {{ display: block; margin-top: 3px; font-weight: 400; }}
  .movement {{ color: {BRAND["forest_deep"]}; font-weight: 700; }}
  .placement {{ color: {BRAND["muted"]}; }}
  .boundary-note {{ color: {BRAND["forest_deep"]}; font-weight: 700; background: #FFF9DB; }}
@@ -792,6 +804,7 @@ def render_sheet_html(
  body {{ background: white; }}
  .sheet {{ max-width: none; margin: 0; padding: 0; break-after: auto; }}
  .sheet + .sheet {{ break-before: page; page-break-before: always; }}
+ table.grid td {{ padding: 3px 6px; }}
  .masthead {{ padding: 3mm 4mm; margin-bottom: 3mm; }}
  .event {{ font-size: 25px; margin-bottom: 3mm; }}
  .facts {{ padding: 2mm 0; }}

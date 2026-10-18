@@ -13,7 +13,7 @@ from src.utils.us_states import STATE_CODE_TO_NAME, state_name_to_code
 if TYPE_CHECKING:
     from src.tournaments.seeding_sheet import CohortSheet, SheetTeam
 
-CONTENT_VERSION = 9
+CONTENT_VERSION = 10
 DIRECTOR_LEGEND = (
     "Read from seed 1 down. Tier lines suggest strength divisions; a division can contain several pools. "
     "Natural separation marks a strength gap; practical splits also consider usable division sizes. "
@@ -83,6 +83,8 @@ class DirectorCohort:
     rows: tuple[DirectorRow, ...]
     notes: tuple[str, ...]
     guidance_summary: str = ""
+    director_notes: tuple[str, ...] = ()
+    format_notes: tuple[str, ...] = ()
 
     @property
     def seeded(self) -> tuple[DirectorRow, ...]:
@@ -207,7 +209,7 @@ def build_director_cohort(sheet: CohortSheet, operator_note: str = "") -> Direct
         )
         rows.append(DirectorRow(None, team, "", status,
                                 recommendation_reason=team.review_reason or "Unplaced; strength is not established."))
-    # The same concise guidance and full accepted roster feed every export.
+    # Keep full evidence alongside the concise director view of the same roster.
     notes = []
     guidance_summary = ""
     if divisions:
@@ -288,11 +290,120 @@ def build_director_cohort(sheet: CohortSheet, operator_note: str = "") -> Direct
                      + " teams" + ("; " + ", ".join(tradeoffs) if tradeoffs else "") + ".")
     if guidance:
         notes.append("Formats use the saved MatchBalance profile; confirm game guarantees and event logistics.")
+    if analysis and getattr(analysis, "manual_override", False):
+        notes.append("Operator-adjusted from the MatchBalance suggestion.")
     if sheet.delivery_note:
         notes.append(sheet.delivery_note)
     if operator_note.strip():
         notes.append(operator_note.strip())
-    return DirectorCohort(tuple(rows), tuple(dict.fromkeys(notes)), guidance_summary)
+    return DirectorCohort(
+        tuple(rows), tuple(dict.fromkeys(notes)), guidance_summary,
+        _concise_director_notes(sheet, rows, operator_note),
+        tuple(f"{item['label']} — {item['size']} teams: {compact_format(item)}" for item in divisions),
+    )
+
+
+def compact_format(division: Mapping) -> str:
+    selected = division.get("selected_format", {})
+    pools = selected.get("pool_sizes", division.get("pool_sizes", []))
+    minimum = selected.get("minimum_games", division.get("minimum_games"))
+    maximum = selected.get("maximum_games")
+    parts = [selected.get("display_name") or "Playing format"]
+    if "includes playoffs" in selected.get("summary", "") and not any(
+            word in parts[0].lower() for word in ("final", "playoff", "knockout")):
+        parts.append("includes playoffs")
+    if len(pools) > 1:
+        parts.append("pools " + " + ".join(map(str, pools)))
+    if minimum is not None:
+        if maximum is None:
+            parts.append(f"at least {minimum} games; maximum not specified")
+        else:
+            parts.append(f"{minimum} games each" if minimum == maximum else
+                         f"{minimum} guaranteed, up to {maximum} games")
+    if selected.get("total_matches") is not None:
+        parts.append(f"{selected['total_matches']} matches")
+    if (selected.get("maximum_pair_meetings") or 0) > 1:
+        parts.append("repeat opponents possible")
+    if selected.get("unequal_game_concerns"):
+        parts.append("unequal preliminary games — confirm scheduling and standings rules")
+    return "; ".join(parts)
+
+
+def _concise_director_notes(sheet, rows, operator_note):
+    analysis = sheet.tier_analysis
+    guidance = getattr(analysis, "tier_guidance", {}) if analysis else {}
+    ordering = getattr(analysis, "ordering_evidence", {}) if analysis else {}
+    notes = []
+    if guidance.get("status") == "review_required_compromise":
+        notes.append("Matchup review needed: this split still includes potentially uneven games.")
+    # Keep unfamiliar warnings visible rather than silently losing a new blocker.
+    summarized = ("Review-required compromise:", "A passing alternative", "Practical division sizes avoid",
+                  "Limited or unknown playing history", "Worst remaining mismatch:")
+    for warning in guidance.get("warnings", []):
+        if not warning.startswith(summarized) and "teams assessed in the tier order" not in warning:
+            notes.append(warning)
+    names = {row.team.entrant_id: row.team.team_name for row in rows}
+    risks = guidance.get("risky_pairings", [])
+    if risks:
+        worst_warning = next((w for w in guidance.get("warnings", [])
+                              if w.startswith("Worst remaining mismatch:")), "")
+        if worst_warning:
+            notes.append(worst_warning.replace("Worst remaining mismatch:", "Review this matchup:")
+                         .replace("expected absolute goal difference", "projected goal gap")
+                         .replace("four-goal margin probability", "chance of a 4+ goal margin"))
+        else:
+            for pair in risks:
+                notes.append("Review this matchup: " + " vs ".join(names[item] for item in pair["entrant_ids"]) + ".")
+    limited = []
+    uncertain = []
+    sensitivity = ordering.get("game_sensitivity", {})
+    for row in rows:
+        if row.seed is None:
+            continue
+        if row.placement_status != SEEDED:
+            reason = row.team.review_reason or row.placement_status
+            notes.append(f"{row.team.team_name}: {reason.rstrip('.')}.")
+        detail = ordering.get("teams", {}).get(row.team.entrant_id, {})
+        if row.evidence_note or row.team.entrant_id in getattr(analysis, "limited_history", ()):
+            limited.append(row.team.team_name)
+        for caution in detail.get("cautions", []):
+            if caution.startswith("Field sensitivity:"):
+                continue
+            if "Limited playing history" in caution:
+                limited.append(row.team.team_name)
+            else:
+                notes.append(f"{row.team.team_name}: {caution.rstrip('.')}.")
+        span = ordering.get("game_sensitivity", {}).get("seed_ranges", {}).get(row.team.entrant_id)
+        if span and span[1] - span[0] >= 2:
+            uncertain.append(row.team.team_name)
+    if limited:
+        notes.append("Limited history — review placement: " + "; ".join(dict.fromkeys(limited)) + ".")
+    elif any(w.startswith("Limited or unknown playing history") for w in guidance.get("warnings", [])):
+        notes.append("Some teams have limited history; review their placement before finalizing.")
+    if uncertain:
+        notes.append("Several positions change when individual results are removed. Treat nearby seeds as a guide.")
+    if sensitivity.get("changed_tier_memberships") or sensitivity.get("cluster_changed_tier_memberships"):
+        notes.append("Tier breaks change in result stress checks; review teams near each break.")
+    sizes = guidance.get("alternative_sizes", [])
+    if sizes:
+        status = (guidance.get("alternative") or {}).get("status")
+        note = "Alternative: " + " + ".join(map(str, sizes)) + " teams"
+        if status == "passing":
+            note += "; meets the matchup limits"
+        elif status == "review_required_compromise":
+            note += "; also needs matchup review"
+        if min(sizes) < 4:
+            note += "; includes a small division"
+        notes.append(note + ".")
+    if ordering:
+        notes.append("Preview recommendation: improved prediction accuracy has not yet been verified.")
+    if analysis and getattr(analysis, "manual_override", False):
+        notes.append("Operator-adjusted from the MatchBalance suggestion.")
+    if sheet.delivery_note:
+        notes.append(sheet.delivery_note)
+    if operator_note.strip():
+        notes.append(operator_note.strip())
+    return tuple(dict.fromkeys(notes))
 
 
 def export_fingerprint(

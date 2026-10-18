@@ -356,7 +356,9 @@ def _render_cohort_review(
     st.caption(DIRECTOR_LEGEND)
     rows = []
     content = build_director_cohort(sheet, pack.get("operator_notes", {}).get(key, ""))
-    for observation in content.notes:
+    for description in content.format_notes:
+        st.write(description)
+    for observation in content.director_notes:
         st.caption(observation)
     for row in content.rows:
         rows.append({
@@ -381,9 +383,10 @@ def _render_cohort_review(
         st.download_button("Download director CSV", director_csv(sheet, pack.get("operator_notes", {}).get(key, "")),
                            file_name=f"matchbalance-{key.replace('|', '-')}.csv", mime="text/csv",
                            key=f"_director_csv_{key}")
-        primary_columns = ["Effective seed", "Team", "Tier", "Why this placement",
-                           "Competitive marker", "Placement status"]
-        with st.expander("Baseline, movement, and matching details"):
+        primary_columns = ["Effective seed", "Team", "Tier", "Placement status"]
+        with st.expander("Detailed evidence, baseline, and matching"):
+            for observation in content.notes:
+                st.caption(observation)
             st.dataframe(pd.DataFrame(rows), hide_index=True)
         st.data_editor(
             pd.DataFrame(rows)[primary_columns], hide_index=True, width="stretch",
@@ -410,8 +413,10 @@ def _render_cohort_review(
                     _persist_decisions(save)
                     st.rerun()
             st.json(analysis.tier_guidance)
-        _render_manual_seed_editor(key, analysis, pack, save, roster_rows)
-        _render_director_notes(key, pack, save)
+        with st.expander("Adjust seed order (optional)"):
+            _render_manual_seed_editor(key, analysis, pack, save, roster_rows)
+        with st.expander("Add director notes (optional)"):
+            _render_director_notes(key, pack, save)
     _render_placement_checks(key, analysis, pack, roster_rows, save)
     if data_review:
         st.warning(f"{data_review} team(s) need identity or cohort review before delivery.")
@@ -422,7 +427,7 @@ def _render_placement_checks(key, analysis, pack, roster_rows, save) -> None:
             and not analysis.tier_guidance.get("review_required")):
         return
     pending = needs_placement_review(pack, key, analysis)
-    with st.expander("Placement checks — internal", expanded=pending):
+    with st.expander("Review flagged placements" + (" — needed" if pending else " — complete"), expanded=False):
         st.caption(
             "Review the preview recommendation using the saved results below. "
             "Larger moves are allowed; limited evidence remains flagged."
@@ -1007,9 +1012,10 @@ def render_seeding_pack(
     readiness = [
         ("Accepted-team roster confirmed", coverage_ready, "Confirm the complete roster in step 2."),
         ("Match decisions complete", match_ready, "Resolve the remaining teams in step 2."),
-        ("Snapshot freshness checked or acknowledged", snapshot_ready,
+        ("Snapshot ready for export" if snapshot_ready else "Check snapshot freshness", snapshot_ready,
          "Check freshness or acknowledge this dated snapshot."),
-        ("Placement checks complete", placement_ready, "Review flagged placements in step 3."),
+        ("Placement checks complete" if placement_ready else "Placement review needed",
+         placement_ready, "Review flagged placements in step 3."),
     ]
     for label, ready, action in readiness:
         st.markdown(f"{'✅' if ready else '⚠️'} **{label}**" + ("" if ready else f" — {action}"))
