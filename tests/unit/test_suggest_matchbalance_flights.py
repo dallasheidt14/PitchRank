@@ -325,3 +325,57 @@ def test_real_snapshot_automatic_report_is_reproducible():
 
     assert first["content_sha256"] == second["content_sha256"]
     assert first["cohorts"] == second["cohorts"]
+
+
+@pytest.mark.parametrize("source, reverse, expected", [
+    ("suggested", False, [4]), ("effective", False, [3]), ("effective", True, []),
+])
+def test_cohort_report_passes_boundary_evidence_for_selected_order(monkeypatch, source, reverse, expected):
+    from dataclasses import asdict
+    from itertools import combinations
+
+    from scripts import suggest_matchbalance_flights as command
+    from src.tournaments.compare_predictor_bridge import ComparePrediction
+    from src.tournaments.seeding_format_library import load_format_library
+    from src.tournaments.seeding_group_assessment import GroupTeam
+    from src.tournaments.seeding_tiers import TierEntrant, TierPolicy, build_cheat_sheet_analysis
+
+    entrants = [TierEntrant(str(i), f"Team {i}", .9 - i * .025,
+                            limited_history=False, evidence_game_count=20) for i in range(12)]
+    predictions = {}
+    for first, second in combinations(range(12), 2):
+        separated = first < 4 <= second
+        predictions[str(first), str(second)] = ComparePrediction(
+            "team_a", .6, .25, .15, {"teamA": 2, "teamB": 1},
+            3 if separated else .2, 3.2 if separated else .8, .4 if separated else .02, "high", .9,
+        )
+    order = tuple(str(i) for i in (reversed(range(12)) if reverse else range(1, 12)))
+    analysis = build_cheat_sheet_analysis(
+        entrants, predictions, manual_order=order, manual_holds=() if reverse else ("0",),
+    )
+    metadata = {item.entrant_id: GroupTeam(item.entrant_id, item.team_name,
+                power_score=item.power_score, limited_history=False, evidence_game_count=20)
+                for item in entrants}
+    monkeypatch.setattr(command, "_accepted_entrant_ids", lambda *_: tuple(metadata))
+    monkeypatch.setattr(command, "build_team_metadata", lambda *_: metadata)
+    original_suggest = command.suggest_automatic_flights
+    observed = []
+
+    def capture(*args, **kwargs):
+        observed.append(list(kwargs["supported_boundaries"]))
+        return original_suggest(*args, **kwargs)
+
+    monkeypatch.setattr(command, "suggest_automatic_flights", capture)
+    pack = {"policy": asdict(TierPolicy())}
+    report = command._cohort_report(
+        loaded={"analysis": analysis, "original_pack": pack, "upgraded_pack": pack,
+                "predictions": predictions},
+        cohort="u13|Female", library=load_format_library(), profile_id=None,
+        order_source=source, max_candidate_structures=None,
+    )
+    assert observed == [expected]
+    assert report["natural_separation_findings"]["selected_order_supported"] == expected
+    regression = report["order_and_boundary_regression"]
+    assert regression["selected_order"] == list(analysis.suggested_order if source == "suggested" else order)
+    assert regression["order_state_unchanged"] is True
+    assert regression["boundary_state_unchanged"] is True

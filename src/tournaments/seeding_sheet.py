@@ -461,7 +461,8 @@ def _table_html(title: str, teams: Sequence[SheetTeam], *, numbered: bool, start
         columns = ('<col style="width:8%"><col style="width:28%"><col style="width:14%">'
                    '<col style="width:12%"><col style="width:17%"><col style="width:21%">')
     note_header = '<th>What to know</th>' if show_notes else ""
-    evidence_headers = '<th class="num">PowerScore</th><th class="num">Record<br>(W-L-D)</th><th>Movement</th>'
+    evidence_headers = ('<th class="num">PowerScore</th><th class="num">Record<br>(W-L-D)</th>'
+                        '<th title="Change from the PowerScore seed">Seed change</th>')
     return (
         f'<table class="grid{" review" if review else " tier-table"}">'
         f'<colgroup>{columns}</colgroup><thead>'

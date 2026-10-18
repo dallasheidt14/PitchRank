@@ -68,6 +68,7 @@ def _calculate_guidance(order, natural, review, entrants, predictions, policy, l
     result = suggest_automatic_flights(
         order, predictions, policy, metadata, library, profile,
         accepted_entrant_ids=accepted, unassigned_entrants=unassigned,
+        supported_boundaries=tuple(sorted(natural)),
     )
     format_context = {
         "profile": asdict(profile),
@@ -215,7 +216,17 @@ def _calculate_guidance(order, natural, review, entrants, predictions, policy, l
                 f"four-goal margin probability {worst.blowout_probability:.0%}."
             )
     return {
-        "version": 3, "practical_tradeoff": practical_tradeoff,
+        "version": 4, "practical_tradeoff": practical_tradeoff,
+        "selection_reason": result.selection_reason,
+        "boundary_reasons": [
+            {"after_seed": item["end_seed"],
+             "kind": "natural" if item["natural_break_after"] else "practical",
+             "reason": ("Game evidence supports a clear strength gap."
+                        if item["natural_break_after"] else
+                        "A practical split to keep the full division competitive; "
+                        "no clear natural gap is established.")}
+            for item in divisions[:-1]
+        ],
         "status": "review_required_compromise" if compromise else result.status,
         "review_required": compromise or chosen is None or bool(unassigned)
         or result.primary_evidence_status == "provisional_due_to_history",

@@ -106,7 +106,7 @@ remain independently configurable.
 
 The PDF, printable HTML, Excel, and Streamlit review share one content model.
 The director sheet keeps the original ranked-table layout: seed, team/club,
-PowerScore and state rank, saved W-L-D record, and movement. Yellow Competitive
+PowerScore and state rank, saved W-L-D record, and seed change from the PowerScore baseline. Yellow Competitive
 Break lines separate tiers. Short format descriptions and essential warnings
 follow the list; there is no What to know column or separate banner per tier.
 Records are counted from the frozen scored fixtures, not the ranking aggregates.
@@ -161,14 +161,13 @@ costs and deterministic ties. A state safeguard leaves the analysis explicitly
 incomplete if optimality has not been established; a shortened alternatives list
 does not mean the primary optimization is incomplete.
 
-The default recommendation policy considers only structurally valid plans with
-complete predictions and no projected matchup violations. The current automatic
-profile first prefers arrangements where every strength division has at least
-four teams, if any such arrangement passes. Within that set it prefers the fewest
-competitive flights, then lower worst matchup cost, then lower pair-weighted
-average cost, with deterministic ties. Three-team divisions remain an explained
-fallback when no fully assessed larger-division arrangement passes the competitive
-limits and format restrictions. A small cost improvement alone cannot justify one.
+The default policy requires complete predictions and no projected matchup violations.
+Among passing splits, preserve supported strength breaks, prefer equal preliminary
+game counts, guarantees closest to three or four games, and regular pool play.
+Then prefer fewer tiers below four teams, fewer tiers overall, lower worst matchup
+cost, and lower pair-weighted average cost, with deterministic ties. These are
+preferences: explicit event requirements can select other guarantees and formats.
+A passing split is never replaced by an unsafe split to avoid a small tier.
 
 This preference applies to strength divisions, not their pools. Six similarly
 strong teams can form one tier with two pools of three. A severe strength gap can
@@ -186,11 +185,15 @@ games, maximum games, repeat opponents, and playoffs. A cohort can override thes
 settings, including clearing an inherited limit. Conflicting restrictions are
 reported together and never silently relaxed.
 
-Strength boundaries are selected before choosing a playing format. The displayed
-format prefers three or four guaranteed games, fewer possible repeat meetings,
-lower maximum games, then fewer matches and a stable identifier. Outside that
-guarantee range, the nearest guarantee is preferred first. Compatible formats stay
-in the operator evidence view; they are different from alternative tier splits.
+Format suitability is evaluated once per supported team count; duplicate compatible
+templates never multiply matchup evidence. After selecting boundaries, choose a
+format for each tier's actual count: equal preliminary games, guarantee closest to
+three or four, regular pool play, fewer repeat meetings, narrower game-count range,
+lower maximum games, fewer total matches, then a stable identifier. Changing only
+the displayed compatible format cannot change a tier's matchup assessment.
+All compatible formats remain in the operator evidence view, separately from
+alternative strength splits. When no natural gap is established, the sheet explains
+that the breaks form practical divisions rather than claiming a sharp strength drop.
 
 Reopened runs retain their embedded catalog. **Use current formats and tier guidance**
 explicitly updates the formats and tier-selection policy while keeping frozen ratings and predictions;
@@ -218,9 +221,9 @@ its coverage, such as **12 of 14 teams assessed**.
 - `seeding_tiers.py` freezes the PowerScore baseline, evaluates local consensus,
   invokes the optimizer, and recomputes display annotations.
 - `seeding_pack.py` snapshots the baseline, suggestion, movement reasoning,
-  conflicts, and explicit manual override (pack schema 7, analysis schema 10).
+  conflicts, and explicit manual override (pack schema 9, analysis schema 12).
 - `seeding_freshness.py` binds freshness evidence and acknowledgments to the
-  saved snapshot. Shared export content uses schema version 7.
+  saved snapshot. Shared export content uses schema version 12.
 - `seeding_format_library.py` validates exact format variants and resolves the
   event-wide profile; `seeding_flight_suggestions.py` generates and selects
   fixed-order candidate structures without altering the seed or boundary logic.

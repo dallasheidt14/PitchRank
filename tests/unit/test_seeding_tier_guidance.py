@@ -200,7 +200,7 @@ def test_genuine_separation_keeps_elite_teams_together_and_explains_small_fallba
     assert [d["size"] for d in result["divisions"]] == [elite, 12 - elite]
     assert result["search_complete"]
     assert not result["risky_pairings"]
-    notes = [note for note in result["warnings"] if "Small-division fallback" in note]
+    notes = [note for note in result["warnings"] if "Small tier:" in note]
     if elite == 3:
         assert len(notes) == 1
         assert "fully assessed" in notes[0] and "competitive limits" in notes[0]
@@ -214,7 +214,7 @@ def test_three_entrants_remain_supported_with_explained_fallback():
     entrants, pairs, analysis = cohort(3, lambda a, b: prediction())
     result = build_tier_guidance(analysis, entrants, pairs, TierPolicy(), load_format_library())
     assert [d["size"] for d in result["divisions"]] == [3]
-    assert any("Small-division fallback" in note for note in result["warnings"])
+    assert any("Small tier:" in note for note in result["warnings"])
 
 
 @pytest.mark.parametrize("exact", [False, True])
@@ -227,7 +227,8 @@ def test_compromise_uses_small_divisions_only_for_material_risk_reduction(exact,
         key for key in profile.template_ids if library.templates_by_id[key].team_count in {3, 4, 6}
     ), max_candidate_structures=1 if exact else 10000) for profile in library.profiles
                      if profile.profile_id.startswith("matchbalance-expanded"))
-    result = build_tier_guidance(analysis, entrants, pairs, TierPolicy(), replace(library, profiles=profiles))
+    result = build_tier_guidance(analysis, entrants, pairs, TierPolicy(), replace(library, profiles=profiles),
+                                 profile_id="matchbalance-expanded-v4")
     assert result["status"] == "review_required_compromise"
     assert [d["size"] for d in result["divisions"]] == expected
     assert result["search_complete"]
@@ -242,8 +243,78 @@ def test_near_limit_practical_split_never_masquerades_as_passing(exact):
     library = replace(library, profiles=tuple(replace(p, max_candidate_structures=1 if exact else 10000,
         template_ids=tuple(k for k in p.template_ids if library.templates_by_id[k].team_count in {3, 4, 6}))
         for p in library.profiles if p.profile_id.startswith("matchbalance-expanded")))
-    result = build_tier_guidance(analysis, entrants, pairs, TierPolicy(), library)
+    result = build_tier_guidance(analysis, entrants, pairs, TierPolicy(), library,
+                                 profile_id="matchbalance-expanded-v4")
     assert [d["size"] for d in result["divisions"]] == [4, 4, 4]
     assert result["status"] == "review_required_compromise"
     assert result["alternative_sizes"] == [3, 6, 3]
     assert any("passing alternative" in w for w in result["warnings"])
+
+
+@pytest.mark.parametrize("exact", [False, True])
+def test_new_policy_does_not_replace_a_passing_split_with_an_unsafe_size_compromise(exact):
+    entrants, pairs, analysis = cohort(12, lambda a, b: prediction(
+        .2, 2.02 if a < 3 <= b or a < 9 <= b else 1.98, .02))
+    library = load_format_library()
+    library = replace(library, profiles=tuple(replace(p, max_candidate_structures=1 if exact else 10000,
+        template_ids=tuple(k for k in p.template_ids if library.templates_by_id[k].team_count in {3, 4, 6}))
+        for p in library.profiles if p.profile_id.startswith("matchbalance-expanded")))
+    result = build_tier_guidance(analysis, entrants, pairs, TierPolicy(), library)
+    assert [d["size"] for d in result["divisions"]] == [3, 6, 3]
+    assert result["status"] == "primary_suggestion_selected"
+    assert result["risky_pairings"] == []
+    assert result["practical_tradeoff"] is None
+
+
+@pytest.mark.parametrize("exact", [False, True])
+def test_frozen_u13_replaces_four_eleven_four_without_changing_the_seed_order(exact):
+    import json
+    from pathlib import Path
+
+    fixture = json.loads((Path(__file__).parents[1] / "fixtures/matchbalance_u13_tier_evidence.json").read_text())
+    entrants = [TierEntrant(str(i), f"Team {i + 1}", .9 - i * .02,
+                           evidence_game_count=20) for i in range(19)]
+    entrants.append(TierEntrant("unplaced", "Unplaced entrant", None, review_reason="Identity needs review"))
+    pairs = {(str(a), str(b)): ComparePrediction(
+        "team_a", wa, wb, draw, {"teamA": 2, "teamB": 1}, margin, absolute, blowout, "high", .9)
+        for a, b, margin, absolute, blowout, wa, wb, draw in fixture["pairings"]}
+    order = tuple(str(i) for i in range(19))
+    analysis = build_cheat_sheet_analysis(entrants, pairs, manual_order=order)
+    library = load_format_library()
+    if exact:
+        library = replace(library, profiles=tuple(replace(p, max_candidate_structures=1) for p in library.profiles))
+    old = build_tier_guidance(analysis, entrants, pairs, TierPolicy(), library,
+                              profile_id="matchbalance-expanded-v4")
+    new = build_tier_guidance(analysis, entrants, pairs, TierPolicy(), library)
+    assert [d["size"] for d in old["divisions"]] == [4, 11, 4]
+    assert old["risky_pairings"]
+    assert [d["size"] for d in new["divisions"]] == [4, 12, 3]
+    assert [d["pool_sizes"] for d in new["divisions"]] == [[4], [4, 4, 4], [3]]
+    assert new["divisions"][-1]["selected_format"]["template_id"] == "mb-expanded-3-double-v2"
+    assert new["status"] == "primary_suggestion_for_assigned_subset"
+    assert new["risky_pairings"] == []
+    assert new["search_complete"]
+    assert (new["assessed_count"], new["accepted_count"]) == (19, 20)
+    assert new["review_required"]  # The unplaced entrant remains unresolved.
+    assert analysis.ordered_ids == order
+    assert [key for d in new["divisions"] for key in d["entrant_ids"]] == list(order)
+    assert {x["kind"] for x in new["boundary_reasons"]} == {"practical"}
+
+
+@pytest.mark.parametrize("exact", [False, True])
+def test_evenly_matched_eleven_teams_get_practical_formats_instead_of_an_unequal_division(exact):
+    entrants, pairs, analysis = cohort(11, lambda a, b: prediction())
+    library = load_format_library()
+    if exact:
+        library = replace(library, profiles=tuple(replace(p, max_candidate_structures=1) for p in library.profiles))
+    result = build_tier_guidance(analysis, entrants, pairs, TierPolicy(), library)
+    assert [d["size"] for d in result["divisions"]] == [5, 6]
+    assert [d["pool_sizes"] for d in result["divisions"]] == [[5], [3, 3]]
+    assert result["risky_pairings"] == []
+    assert not any(d["natural_break_after"] for d in result["divisions"])
+    assert result["boundary_reasons"][0]["kind"] == "practical"
+    # An explicit event requirement is honored; 3-4 games is not an eligibility gate.
+    long_format = build_tier_guidance(analysis, entrants, pairs, TierPolicy(), library,
+                                       format_preferences={"minimum_games": 10})
+    assert [d["size"] for d in long_format["divisions"]] == [11]
+    assert long_format["divisions"][0]["minimum_games"] == 10

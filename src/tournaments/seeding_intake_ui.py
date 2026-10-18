@@ -371,7 +371,7 @@ def _render_cohort_review(
             "Manual/Effective Seed": row.seed,
             "PowerScore": row.score,
             "Record (W-L-D)": row.team.record or "—",
-            "Movement": row.movement,
+            "Seed change": row.movement,
             "State rank": row.state_rank or "—",
             "Competitive marker": " · ".join(
                 value for value in (row.break_label, row.observation, row.close_range_after) if value
@@ -397,6 +397,8 @@ def _render_cohort_review(
             key=f"_seeding_cheat_sheet_editor_{key}",
         )
         with st.expander("Tier names and format evidence"):
+            for boundary in analysis.tier_guidance.get("boundary_reasons", []):
+                st.caption(f"After seed {boundary['after_seed']}: {boundary['reason']}")
             for division in analysis.tier_guidance.get("divisions", []):
                 st.markdown(f"**{division['label']} — playing format options**")
                 for option in division.get("compatible_formats", []):

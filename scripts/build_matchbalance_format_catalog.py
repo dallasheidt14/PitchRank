@@ -25,7 +25,7 @@ SOURCE_ID = "format-field-guide-2026-10"
 def build_catalog() -> dict:
     legacy = json.loads((ROOT / "config/matchbalance_format_library_v1.json").read_text())
     catalog = deepcopy(legacy)
-    catalog.update(schema_version=2, library_version="2.2.0")
+    catalog.update(schema_version=2, library_version="2.3.0")
     catalog["source_documents"].append(
         {
             "source_id": SOURCE_ID,
@@ -512,6 +512,29 @@ def build_catalog() -> dict:
     adaptive_profile.update(profile_id="matchbalance-expanded-v4", version=4, is_default=True,
                             recommendation_policy_id=adaptive_policy["policy_id"])
     catalog["profiles"].append(adaptive_profile)
+    adaptive_profile["is_default"] = False
+    evidence_policy = deepcopy(practical_policy)
+    evidence_policy.update(
+        policy_id="matchbalance-evidence-formats-v4", version=4, evidence_first=True,
+        practical_risk_tolerance=0.0,
+        description="Preserve supported competitive breaks, fit practical formats to each count, "
+        "and never replace a passing split with an unsafe size compromise.",
+        selection_steps=[
+            "Require complete predictions and no over-limit pairing for a passing recommendation.",
+            "Preserve the most evidence-supported competitive breaks.",
+            "Prefer equal preliminary game counts, guarantees closest to three or four games, then regular pool play.",
+            "Prefer fewer divisions below four teams, then fewer divisions overall.",
+            "Then minimize worst matchup cost, pair-weighted average cost, and deterministic ties.",
+            "Only without a passing arrangement, minimize worst normalized risk, violating pairings, "
+            "pair-weighted average cost, and division count; label the result review-required.",
+        ],
+    )
+    catalog["recommendation_policies"].append(evidence_policy)
+    evidence_profile = deepcopy(adaptive_profile)
+    evidence_profile.update(profile_id="matchbalance-expanded-v5", version=5, is_default=True,
+                            recommendation_policy_id=evidence_policy["policy_id"],
+                            format_selection="evidence_first")
+    catalog["profiles"].append(evidence_profile)
     catalog["source_coverage"] = coverage
     return catalog
 

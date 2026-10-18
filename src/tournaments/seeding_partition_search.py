@@ -6,6 +6,7 @@ import math
 from dataclasses import dataclass
 from functools import lru_cache
 
+from src.tournaments.seeding_format_preferences import interval_preference
 from src.tournaments.seeding_group_assessment import assess_group
 
 
@@ -35,7 +36,8 @@ class PartitionSearch:
 
 
 def search_partitions(
-    order, predictions, policy, metadata, sizes, recommendation_policy, *, maximum_states=1000000
+    order, predictions, policy, metadata, sizes, recommendation_policy, *, maximum_states=1000000,
+    supported_boundaries=(), format_burdens=None,
 ) -> PartitionSearch:
     n = len(order)
     if len(set(order)) != n:
@@ -181,13 +183,42 @@ def search_partitions(
         # This is a whole-arrangement preference, before division count or cost.
         # Reuse interval evidence and the shared state budget for the fallback pass.
         minimum = recommendation_policy.preferred_minimum_division_size
-        preferred = [[edge for edge in row if minimum is None or edge.end - edge.start >= minimum]
-                     for row in passing]
-        best_worst = minimax(preferred, "worst")
-        if best_worst:
-            passing = preferred
-        elif minimum is not None:
+        if recommendation_policy.evidence_first:
+            # Lexicographic additive preferences have optimal substructure. Keep
+            # every tied edge so worst risk and pair-weighted averages stay exact.
+            def preference(edge):
+                return interval_preference(edge.start, edge.end, recommendation_policy,
+                                           supported_boundaries, format_burdens)
+            forward, backward = [None] * (n + 1), [None] * (n + 1)
+            forward[0] = backward[n] = (0, 0, 0, 0, 0)
+            def add(left, right):
+                return tuple(a + b for a, b in zip(left, right, strict=True))
+            for start in range(n):
+                if forward[start] is None:
+                    continue
+                for edge in passing[start]:
+                    tick()
+                    value = add(forward[start], preference(edge))
+                    if forward[edge.end] is None or value < forward[edge.end]:
+                        forward[edge.end] = value
+            for start in reversed(range(n)):
+                values = [add(preference(edge), backward[edge.end]) for edge in passing[start]
+                          if backward[edge.end] is not None]
+                backward[start] = min(values, default=None)
+            if forward[n] is not None:
+                passing = [[edge for edge in row if forward[edge.start] is not None
+                            and backward[edge.end] is not None
+                            and add(add(forward[edge.start], preference(edge)), backward[edge.end]) == forward[n]]
+                           for row in passing]
             best_worst = minimax(passing, "worst")
+        else:
+            preferred = [[edge for edge in row if minimum is None or edge.end - edge.start >= minimum]
+                         for row in passing]
+            best_worst = minimax(preferred, "worst")
+            if best_worst:
+                passing = preferred
+            elif minimum is not None:
+                best_worst = minimax(passing, "worst")
         if best_worst:
             first_count = min(best_worst)
             threshold = best_worst[first_count]
