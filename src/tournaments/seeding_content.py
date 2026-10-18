@@ -13,7 +13,7 @@ from src.utils.us_states import STATE_CODE_TO_NAME, state_name_to_code
 if TYPE_CHECKING:
     from src.tournaments.seeding_sheet import CohortSheet, SheetTeam
 
-CONTENT_VERSION = 12
+CONTENT_VERSION = 13
 DIRECTOR_LEGEND = (
     "Read from seed 1 down. Tier lines suggest strength divisions; a division can contain several pools. "
     "Natural separation marks a strength gap; practical splits also consider usable division sizes. "
@@ -93,6 +93,14 @@ class DirectorCohort:
     @property
     def unseeded(self) -> tuple[DirectorRow, ...]:
         return tuple(row for row in self.rows if row.seed is None)
+
+
+def format_national_rank(team: SheetTeam) -> str:
+    """Blank means unavailable; another ranked cohort is always identified."""
+    if team.national_rank is None:
+        return ""
+    context = f" ({team.national_rank_context})" if team.national_rank_context else ""
+    return f"#{team.national_rank:,}{context}"
 
 
 def format_state_rank(state: str | None, rank: int) -> str:
@@ -443,11 +451,13 @@ def director_csv(sheet: CohortSheet, operator_note: str = "") -> bytes:
     writer = csv.writer(stream)
     writer.writerow(["Seed", "Team", "Tier", "Tier break", "Why this placement", "Placement status",
                      "Recommendation", "Coverage", "Warnings and formats", "Roster context",
-                     "PowerScore", "Record (W-L-D)", "State rank", "Seed change"])
+                     "PowerScore", "Record (W-L-D)", "State rank", "National rank"])
     coverage = f"{len(content.seeded)} of {len(content.rows)} teams assessed"
     for row in content.rows:
         writer.writerow([csv_safe(str(value)) if value is not None else "" for value in (
             row.seed, row.team.team_name, row.tier_label, row.break_label, row.recommendation_reason,
-            row.display_status, content.guidance_summary, coverage, " | ".join(content.notes),
-            " · ".join(row.roster_context), row.score, row.team.record, row.state_rank, row.movement)])
+            row.display_status, content.guidance_summary, coverage,
+            " | ".join((*content.format_notes, *content.director_notes)),
+            " · ".join(row.roster_context), row.score, row.team.record, row.state_rank,
+            format_national_rank(row.team))])
     return stream.getvalue().encode("utf-8-sig")

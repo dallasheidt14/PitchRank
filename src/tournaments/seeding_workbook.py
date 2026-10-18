@@ -11,7 +11,12 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
-from src.tournaments.seeding_content import DIRECTOR_LEGEND, LIMITED_HISTORY_LEGEND, build_director_cohort
+from src.tournaments.seeding_content import (
+    DIRECTOR_LEGEND,
+    LIMITED_HISTORY_LEGEND,
+    build_director_cohort,
+    format_national_rank,
+)
 from src.tournaments.seeding_pack import cohort_key, cohort_label
 from src.tournaments.seeding_sheet import CohortSheet
 from src.tournaments.seeding_tiers import PLACEMENT_STATUSES
@@ -100,7 +105,7 @@ def build_seeding_workbook(
         manual = bool(cohort.tier_analysis and getattr(cohort.tier_analysis, "manual_override", False))
         headers = [
             "Manual/Effective seed" if manual else "MatchBalance seed",
-            "Team name", "Club", "PowerScore", "State rank", "PowerScore seed",
+            "Team name", "Club", "PowerScore", "State rank", "National rank",
             "Tier / placement", "Final division", "Pool", "Final seed", "Director notes", "Record (W-L-D)",
         ]
         for column, value in enumerate(headers, 1):
@@ -120,13 +125,13 @@ def build_seeding_workbook(
             )
             values = [
                 row.seed, "\n".join(row.name_lines), _safe_text(team.club_name), row.score,
-                row.state_rank, row.power_score_seed, _safe_text(placement), "", "", "", "", team.record,
+                row.state_rank, format_national_rank(team), _safe_text(placement), "", "", "", "", team.record,
             ]
             for column, value in enumerate(values, 1):
                 cell = sheet.cell(row_index, column, value)
                 if isinstance(value, str):
                     _set_text(cell, value)
-                cell.alignment = Alignment(vertical="top", wrap_text=column in {2, 3, 7, 8, 9, 11})
+                cell.alignment = Alignment(vertical="top", wrap_text=column in {2, 3, 6, 7, 8, 9, 11})
                 cell.border = Border(bottom=Side(
                     style="medium" if row.strength_break_after else "hair",
                     color=FOREST if row.strength_break_after else RULE,
@@ -136,14 +141,14 @@ def build_seeding_workbook(
                 if column == 4 and value is not None:
                     cell.number_format = "0.0"
                 if column in {1, 4, 5, 6, 10, 12}:
-                    cell.alignment = Alignment(horizontal="center", vertical="top")
+                    cell.alignment = Alignment(horizontal="center", vertical="top", wrap_text=column == 6)
             if row_index % 2 == 0:
                 for column in range(1, 8):
                     sheet.cell(row_index, column).fill = PatternFill("solid", fgColor=BAND)
             # Excel does not autofit wrapped rows reliably when printing.
             sheet.row_dimensions[row_index].height = 15 * max(
                 sum(max(1, (len(line) + width - 1) // width) for line in str(value or "").split("\n"))
-                for value, width in ((values[1], 30), (values[2], 22), (values[6], 30))
+                for value, width in ((values[1], 30), (values[2], 22), (values[5], 15), (values[6], 30))
             )
         end_row = max(6, 6 + len(team_rows))
         if content.seeded:

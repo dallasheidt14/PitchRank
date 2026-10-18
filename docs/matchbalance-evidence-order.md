@@ -8,7 +8,7 @@ MatchBalance keeps three separate orders: the published PowerScore baseline, its
 2. Import and match the accepted roster as usual.
 3. Under **Recommendation method (optional)**, choose **Whole-cohort comparison — preview** or **Opponent-adjusted recent results — preview**, then **Build seeding sheets**. Changing the selector alone never replaces saved recommendations.
 4. Review movement explanations, supporting and contrary game examples, limited evidence, and tier risks. A preview requires placement review. Manual orders and holds remain available.
-5. Export the ranked cheat sheet. The PDF, printable HTML, and Excel keep the ranked list, PowerScore, state rank, saved W-L-D record, tier separators, compact formats, and material cautions. Detailed movement reasons and game examples remain in the expandable operator view and CSV.
+5. Export the ranked cheat sheet. The PDF, printable HTML, and Excel keep the ranked list, PowerScore, national cohort rank, state rank, saved W-L-D record, tier separators, compact formats, and material cautions. The national rank belongs to the team's published age and gender cohort; a different cohort is labeled and an unknown rank stays blank. Seed-change comparisons remain in the expandable operator evidence, not the director exports. Detailed game explanations remain in the operator view and CSV.
 
 The current method remains the default until an untouched historical confirmation supports a release. Preview output is available for inspection; it is not evidence that prediction accuracy improved.
 
@@ -20,7 +20,7 @@ Compare and new Seeding builds resolve complete merge chains and normalize both 
 
 Original participant IDs, provider/source metadata, canonical identities, omitted-game reasons, exact team inputs, calibration inputs, and model parameters are retained with new snapshots. Repeated reads of the same game ID count once. Possible cross-provider or merged-identity duplicates remain recorded for source review and block affected placements; ordinary repeat meetings remain observations. Unknown opponent ratings are visible and do not receive invented strengths. Each cohort has its own input digest. Freshness checks describe changed rating fields, game additions/removals/corrections, analysis dates, and model inputs without replacing the saved analysis.
 
-Pack schema 9, analysis schema 12, and content version 12 support an offline upgrade that preserves older embedded predictions, ordering methods, and format policies. Applying the joint model requires an explicit rebuild; applying the adaptive catalog requires a rebuild or format update. Matching overrides, manual orders, holds, notes, and tier names survive compatible roster identities. Model source, parameters, formats, and preferences participate in cache and export identities.
+Pack schema 9, analysis schema 12, and content version 13 support an offline upgrade that preserves older embedded predictions, ordering methods, and format policies. Applying the joint model requires an explicit rebuild; applying the adaptive catalog requires a rebuild or format update. Matching overrides, manual orders, holds, notes, and tier names survive compatible roster identities. Model source, parameters, formats, and preferences participate in cache and export identities.
 
 ## Preview methods
 

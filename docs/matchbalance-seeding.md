@@ -106,7 +106,9 @@ remain independently configurable.
 
 The PDF, printable HTML, Excel, and Streamlit review share one content model.
 The director sheet keeps the original ranked-table layout: seed, team/club,
-PowerScore and state rank, saved W-L-D record, and seed change from the PowerScore baseline. Yellow Competitive
+PowerScore and state rank, saved W-L-D record, and national cohort rank. Seed-change
+comparisons stay in the operator evidence. A rank from another age/gender cohort
+is labeled; unavailable national ranks stay blank. Yellow Competitive
 Break lines separate tiers. Short format descriptions and essential warnings
 follow the list; there is no What to know column or separate banner per tier.
 Records are counted from the frozen scored fixtures, not the ranking aggregates.
@@ -223,7 +225,7 @@ its coverage, such as **12 of 14 teams assessed**.
 - `seeding_pack.py` snapshots the baseline, suggestion, movement reasoning,
   conflicts, and explicit manual override (pack schema 9, analysis schema 12).
 - `seeding_freshness.py` binds freshness evidence and acknowledgments to the
-  saved snapshot. Shared export content uses schema version 12.
+  saved snapshot. Shared export content uses schema version 13.
 - `seeding_format_library.py` validates exact format variants and resolves the
   event-wide profile; `seeding_flight_suggestions.py` generates and selects
   fixed-order candidate structures without altering the seed or boundary logic.

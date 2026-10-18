@@ -18,7 +18,13 @@ from src.tournaments.reports.render_csv import csv_safe
 from src.tournaments.roster_paste import ParsedRoster, RosterRow
 from src.tournaments.roster_resolver import ResolvedTeam
 from src.tournaments.seeding_assessment import assess_roster, could_belong
-from src.tournaments.seeding_content import DIRECTOR_LEGEND, build_director_cohort, director_csv, export_fingerprint
+from src.tournaments.seeding_content import (
+    DIRECTOR_LEGEND,
+    build_director_cohort,
+    director_csv,
+    export_fingerprint,
+    format_national_rank,
+)
 from src.tournaments.seeding_format_ui import render_format_preferences
 from src.tournaments.seeding_pack import (
     ANALYSIS_SCHEMA_VERSION,
@@ -371,7 +377,7 @@ def _render_cohort_review(
             "Manual/Effective Seed": row.seed,
             "PowerScore": row.score,
             "Record (W-L-D)": row.team.record or "—",
-            "Seed change": row.movement,
+            "National rank": format_national_rank(row.team) or "—",
             "State rank": row.state_rank or "—",
             "Competitive marker": " · ".join(
                 value for value in (row.break_label, row.observation, row.close_range_after) if value
@@ -384,7 +390,7 @@ def _render_cohort_review(
         st.download_button("Download director CSV", director_csv(sheet, pack.get("operator_notes", {}).get(key, "")),
                            file_name=f"matchbalance-{key.replace('|', '-')}.csv", mime="text/csv",
                            key=f"_director_csv_{key}")
-        primary_columns = ["Effective seed", "Team", "Tier", "PowerScore", "Record (W-L-D)",
+        primary_columns = ["Effective seed", "Team", "Tier", "PowerScore", "Record (W-L-D)", "National rank",
                            "Competitive marker", "Placement status"]
         with st.expander("Detailed evidence, baseline, and matching"):
             for observation in content.notes:

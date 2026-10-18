@@ -45,7 +45,7 @@ RATINGS = {
                 "rank_in_cohort_final": 585, "rank_in_state_final": 72, "state": "TX"},
     "m-laredo": {"team_name": "Laredo Heat Red U14", "club_name": "Laredo Youth Soccer Assn",
                  "power_score_final": 0.5347, "status": "Active",
-                 "rank_in_cohort_final": 315, "rank_in_state_final": 33, "state": "TX"},
+                 "rank_in_cohort_final": 315, "rank_in_state_final": 33, "state": "TX", "age": 14, "gender": "M"},
 }
 
 
@@ -672,3 +672,99 @@ def test_invalid_score_still_renders_team_with_its_placement_review_reason(score
     assert "Data review required" in document
     row = document.split('data-entrant="2"', 1)[1].split("</tr>", 1)[0]
     assert '<td class="num score">-<span class="state">—</span></td>' in row
+
+
+@pytest.mark.parametrize("values,expected", [
+    ({}, "#315"),
+    ({"age": 13}, "#315 (U13 Boys)"),
+    ({"gender": "F"}, "#315 (U14 Girls)"),
+    ({"age": None}, ""),
+    ({"gender": None}, ""),
+    ({"rank_in_cohort_final": None}, ""),
+    ({"rank_in_cohort_final": 0}, ""),
+    ({"rank_in_cohort_final": True}, ""),
+    ({"rank_in_cohort_final": 3.5}, ""),
+    ({"rank_in_cohort_final": float("nan")}, ""),
+    ({"status": "Inactive"}, ""),
+])
+def test_national_rank_retains_its_published_cohort_across_director_exports(values, expected):
+    import csv
+    from io import BytesIO, StringIO
+
+    from openpyxl import load_workbook
+
+    from src.tournaments.seeding_content import director_csv, format_national_rank
+    from src.tournaments.seeding_workbook import build_seeding_workbook
+
+    ratings = {**RATINGS, "m-laredo": {**RATINGS["m-laredo"], **values}}
+    sheet = _sheets(ratings)[0]
+    team = next(t for t in (*sheet.rated, *sheet.unrated) if t.entrant_id == "1")
+    assert format_national_rank(team) == expected
+    kwargs = {"generated_on": "2026-10-18", "ranking_run": "2026-10-17"}
+    document = render_sheet_html("Event", [sheet], **kwargs)
+    row = document.split('data-entrant="1"', 1)[1].split("</tr>", 1)[0]
+    assert f'class="num national-rank">{expected or "—"}</td>' in row
+    assert "Seed change" not in document and "from PowerScore" not in document
+    csv_rows = list(csv.DictReader(StringIO(director_csv(sheet).decode("utf-8-sig"))))
+    record = next(r for r in csv_rows if r["Team"] == team.team_name)
+    assert record["National rank"] == expected
+    assert "Seed change" not in record
+    tab = load_workbook(BytesIO(build_seeding_workbook("Event", [sheet], **kwargs))).active
+    assert tab["F6"].value == "National rank"
+    found = next(r for r in tab.iter_rows(min_row=7, max_row=6+sheet.total_teams)
+                 if str(r[1].value).split("\n", 1)[0] == team.team_name)
+    assert (found[5].value or "") == expected
+
+
+@pytest.mark.parametrize("rank_cohort,captured,expected", [
+    ({"age_group": "u13", "gender": "Female"}, {}, "#315 (U13 Girls)"),
+    ({}, {}, ""),
+    ({"age_group": "u13", "gender": "Female"},
+     {"age": 14, "gender": "M", "rank_in_cohort_final": 900}, "#900"),
+])
+def test_saved_rank_uses_ranking_cohort_when_compare_rejects_current_profile(rank_cohort, captured, expected):
+    from types import SimpleNamespace
+
+    from src.tournaments.seeding_content import director_csv, format_national_rank
+    from src.tournaments.seeding_pack import snapshot_ratings
+    from src.tournaments.seeding_sheet import make_ratings_lookup
+
+    # Compare omits metadata-conflict teams. The supplemental lookup must not
+    # relabel a published rank using the team's newly corrected profile.
+    tables = {
+        "rankings_full": [{"team_id": "m-laredo", "power_score_final": .5,
+                           "rank_in_cohort_final": 315, "status": "Active", **rank_cohort}],
+        "teams": [{"team_id_master": "m-laredo", "team_name": "Laredo", "club_name": "Club",
+                   "age_group": "u14", "gender": "Male"}],
+        "state_rankings_view": [],
+    }
+    requests = []
+
+    class Query:
+        def __init__(self, table):
+            self.table = table
+
+        def select(self, columns):
+            self.columns = columns.split(",")
+            return self
+
+        def in_(self, key, values):
+            self.key, self.values = key, values
+            return self
+
+        def execute(self):
+            requests.append(self.table)
+            return SimpleNamespace(data=[
+                {key: row[key] for key in self.columns if key in row}
+                for row in tables[self.table] if row[self.key] in self.values
+            ])
+
+    supplemental = make_ratings_lookup(SimpleNamespace(table=Query))(["m-laredo"])
+    pack = {"ratings": supplemental, "teams": {"u14|Male": {"1": captured} if captured else {}}}
+    ratings = snapshot_ratings(pack, {"1": "m-laredo"})
+    sheet = _sheets(ratings)[0]
+    team = next(t for t in sheet.rated if t.entrant_id == "1")
+    assert requests == ["rankings_full", "state_rankings_view", "teams"]
+    assert format_national_rank(team) == expected
+    if expected:
+        assert expected in director_csv(sheet).decode("utf-8-sig")

@@ -35,6 +35,7 @@ from src.tournaments.roster_resolver import ResolvedTeam
 from src.tournaments.seeding_content import (
     LIMITED_HISTORY_LEGEND,
     build_director_cohort,
+    format_national_rank,
     format_state_rank,
 )
 
@@ -81,6 +82,8 @@ class SheetTeam:
     requested_flight: str | None = None
     listed_division: str | None = None
     record: str = ""
+    national_rank: int | None = None
+    national_rank_context: str = ""
 
 
 @dataclass(frozen=True)
@@ -139,6 +142,22 @@ def _play_up_from_age_group(rating: Mapping[str, Any], entered_age_group: str) -
     return ranked if ranked_age and entered_age and ranked_age < entered_age else None
 
 
+def _published_national_rank(rating: Mapping[str, Any], age_group: str, gender: str) -> tuple[int | None, str]:
+    """Keep a published rank attached to its own age/gender cohort."""
+    rank = rating.get("rank_in_cohort_final")
+    ranked_age = _ranked_age_group(rating)
+    ranked_gender = {"m": "Male", "male": "Male", "f": "Female", "female": "Female"}.get(
+        str(rating.get("gender") or "").strip().lower())
+    if (not isinstance(rank, (int, float)) or isinstance(rank, bool)
+            or not math.isfinite(rank) or rank < 1 or rank != int(rank)
+            or not ranked_age or not ranked_gender or rating.get("status") == "Inactive"):
+        return None, ""
+    context = ""
+    if ranked_age != age_group.lower() or ranked_gender != gender:
+        context = f"{ranked_age.upper()} {'Boys' if ranked_gender == 'Male' else 'Girls'}"
+    return int(rank), context
+
+
 def _saved_record(rating: Mapping[str, Any]) -> str:
     """Show the snapshot's W-L-D without turning unknown counts into zeroes."""
     record = rating.get("scored_record")
@@ -188,6 +207,7 @@ def build_cohort_sheets(
         analysis = (tier_analyses or {}).get(cohort)
         registered_name = row.registered_name
         pitchrank_name = str(rating.get("team_name") or "").strip()
+        national_rank, national_rank_context = _published_national_rank(rating, *cohort)
         team = SheetTeam(
             team_name=registered_name,
             club_name=str(row.club_raw or rating.get("club_name") or ""),
@@ -196,6 +216,8 @@ def build_cohort_sheets(
             ),
             power_score=score,
             record=_saved_record(rating),
+            national_rank=national_rank,
+            national_rank_context=national_rank_context,
             state_rank=rating.get("rank_in_state_final"),
             state=str(rating["state"]).strip() if rating.get("state") else None,
             status=rating.get("status"),
@@ -252,7 +274,7 @@ def make_ratings_lookup(supabase_client: Any) -> Callable[[Sequence[str]], dict[
             batch = wanted[start : start + 100]
             for row in (
                 supabase_client.table("rankings_full")
-                .select("team_id,power_score_final,rank_in_cohort_final,status")
+                .select("team_id,power_score_final,rank_in_cohort_final,status,age_group,gender")
                 .in_("team_id", batch)
                 .execute()
                 .data
@@ -272,7 +294,7 @@ def make_ratings_lookup(supabase_client: Any) -> Callable[[Sequence[str]], dict[
                 )
             for row in (
                 supabase_client.table("teams")
-                .select("team_id_master,team_name,club_name,age_group")
+                .select("team_id_master,team_name,club_name")
                 .in_("team_id_master", batch)
                 .execute()
                 .data
@@ -282,7 +304,6 @@ def make_ratings_lookup(supabase_client: Any) -> Callable[[Sequence[str]], dict[
                     {
                         "team_name": row.get("team_name"),
                         "club_name": row.get("club_name"),
-                        "age_group": row.get("age_group"),
                     }
                 )
 
@@ -356,7 +377,6 @@ def _rows_html(
     teams: Sequence[SheetTeam], *, numbered: bool, start: int = 1,
     placement_notes: Mapping[str, str] | None = None,
     strength_break_ids: frozenset[str] = frozenset(),
-    movement_notes: Mapping[str, str] | None = None,
     close_range_notes: Mapping[str, str] | None = None,
     break_labels: Mapping[str, str] | None = None,
     show_notes: bool = True,
@@ -406,7 +426,7 @@ def _rows_html(
             f'<td class="num score">{_score(team.power_score)}{score_bar}'
             f'<span class="state">{html.escape(_state_rank(team))}</span>{flight_context}</td>'
             f'<td class="num record">{html.escape(team.record) or "—"}</td>'
-            f'<td class="movement">{html.escape((movement_notes or {}).get(team.entrant_id, ""))}</td>'
+            f'<td class="num national-rank">{html.escape(format_national_rank(team)) or "—"}</td>'
         )
         row_class = ' class="strength-break"' if team.entrant_id in strength_break_ids else ""
         inline_note = (f'<span class="placement">{html.escape(note)}</span>'
@@ -444,7 +464,6 @@ def _table_html(title: str, teams: Sequence[SheetTeam], *, numbered: bool, start
                 subtitle: str = "", placement_notes: Mapping[str, str] | None = None,
                 review: bool = False, cohort_label: str = "", purpose: str = "",
                 strength_break_ids: frozenset[str] = frozenset(),
-                movement_notes: Mapping[str, str] | None = None,
                 close_range_notes: Mapping[str, str] | None = None,
                 break_labels: Mapping[str, str] | None = None,
                 seed_label: str = "MatchBalance Seed",
@@ -452,7 +471,7 @@ def _table_html(title: str, teams: Sequence[SheetTeam], *, numbered: bool, start
     summary = f'<div class="tier-description">{html.escape(subtitle)}</div>' if subtitle else ""
     purpose_html = f'<span class="tier-purpose">{html.escape(purpose)}</span>' if purpose else ""
     rows = _rows_html(teams, numbered=numbered, start=start, placement_notes=placement_notes,
-                      strength_break_ids=strength_break_ids, movement_notes=movement_notes,
+                      strength_break_ids=strength_break_ids,
                       close_range_notes=close_range_notes, break_labels=break_labels,
                       show_notes=show_notes)
     columns = ('<col style="width:9%"><col style="width:42%"><col style="width:15%">'
@@ -462,7 +481,8 @@ def _table_html(title: str, teams: Sequence[SheetTeam], *, numbered: bool, start
                    '<col style="width:12%"><col style="width:17%"><col style="width:21%">')
     note_header = '<th>What to know</th>' if show_notes else ""
     evidence_headers = ('<th class="num">PowerScore</th><th class="num">Record<br>(W-L-D)</th>'
-                        '<th title="Change from the PowerScore seed">Seed change</th>')
+                        '<th class="num" title="PitchRank national rank within the published age and gender cohort">'
+                        'National rank</th>')
     return (
         f'<table class="grid{" review" if review else " tier-table"}">'
         f'<colgroup>{columns}</colgroup><thead>'
@@ -608,7 +628,6 @@ def _cheat_sheet_tables(sheet: CohortSheet) -> tuple[str, str]:
         strength_break_ids=frozenset(row.team.entrant_id for row in content.seeded if row.strength_break_after),
         break_labels={row.team.entrant_id: "Competitive Break" if row.seed in practical_cuts else row.break_label
                       for row in content.seeded},
-        movement_notes={row.team.entrant_id: row.movement for row in content.seeded},
         show_notes=False,
     ))
     if content.unseeded:
@@ -785,9 +804,9 @@ def render_sheet_html(
  .flight {{ display: block; white-space: normal; margin-top: 2px; font-size: 8px; line-height: 1.25; font-weight: 400;
  color: {BRAND["muted"]}; }}
  .state {{ display: block; margin-top: 3px; color: {BRAND["muted"]}; font-size: 8px; }}
- .movement, .placement {{ font-size: 9.5px; }}
+ .national-rank, .placement {{ font-size: 9.5px; }}
  .team .placement {{ display: block; margin-top: 3px; font-weight: 400; }}
- .movement {{ color: {BRAND["forest_deep"]}; font-weight: 700; }}
+ .national-rank {{ color: {BRAND["forest_deep"]}; font-weight: 700; }}
  .placement {{ color: {BRAND["muted"]}; }}
  .boundary-note {{ color: {BRAND["forest_deep"]}; font-weight: 700; background: #FFF9DB; }}
  .flag {{ display: inline-block; margin-left: 5px; border: 1px solid {BRAND["rule"]}; border-radius: 2px;

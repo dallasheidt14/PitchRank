@@ -78,7 +78,7 @@ def test_counts_preserved_without_equivalence_or_format_claims(count):
         assert tab.cell(index, 1).value == row.seed
         assert tab.cell(index, 2).value == row.team.team_name
         assert tab.cell(index, 4).value == pytest.approx(row.score)
-        assert tab.cell(index, 6).value == row.power_score_seed
+        assert tab.cell(index, 6).value is None  # No published national rank in this fixture.
     assert "Director notes" not in [tab.cell(i, 1).value for i in range(7, tab.max_row + 1)]
 
 
@@ -333,7 +333,7 @@ def test_manual_order_requires_every_rated_team_to_be_seeded_or_explicitly_held(
     assert analysis.manual_holds == ("2", "3", "4")
 
 
-def test_customer_sheet_labels_matchbalance_movement_breaks_and_close_ranges():
+def test_customer_sheet_keeps_breaks_without_exposing_seed_movement():
     sheet, _, _ = cohort(8, gap=4)
     document = render_sheet_html(
         "Cup", [sheet], generated_on="2026-09-26", ranking_run="2026-09-25",
@@ -356,7 +356,9 @@ def test_customer_sheet_labels_matchbalance_movement_breaks_and_close_ranges():
     moved_document = render_sheet_html(
         "Cup", [moved_sheet], generated_on="2026-09-26", ranking_run="2026-09-25",
     )
-    assert "↑ from PowerScore #3" in moved_document
+    assert "from PowerScore" not in moved_document
+    assert "Seed change" not in moved_document
+    assert "National rank" in moved_document
 
 
 def test_customer_movement_uses_manual_effective_seed_and_keeps_matchbalance_detail():
@@ -491,3 +493,22 @@ def test_limited_history_keeps_seed_and_literal_row_context_with_fixed_score_sca
                         key=lambda row: row[1], reverse=True)
     marked = next(row for row in table_rows if row[0] == 4)
     assert "Strength gap below" in marked[6]
+
+
+def test_director_csv_keeps_cautions_without_internal_seed_comparisons():
+    from src.tournaments.seeding_content import director_csv
+
+    sheet, _, _ = cohort(4)
+    sheet = replace(sheet, tier_analysis=replace(
+        sheet.tier_analysis,
+        ordering_evidence={"teams": {"0": {
+            "limited_history": True, "reason": "Saved whole-cohort comparison.",
+            "cautions": ["Confirm team identity"],
+        }}},
+    ))
+    content = build_director_cohort(sheet)
+    assert any("PowerScore #1 to MatchBalance #1" in note for note in content.notes)
+    exported = director_csv(sheet).decode("utf-8-sig")
+    assert "PowerScore #" not in exported
+    assert "Confirm team identity" in exported
+    assert "National rank" in exported
