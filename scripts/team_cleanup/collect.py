@@ -26,9 +26,10 @@ Into the stage folder it writes:
 
 With --from-db it reads the choices from the page's published cards in team_cleanup_cards instead,
 the website's, taking a decision, a note and the time it was saved from each owner card. It refuses
-a later build published without its files, a card of the build with no row, a row under the build's
-page run that it never made, a row in the other lane, and a decision and its time not set together;
-with every row there, no decision at all is a page left undecided.
+a build the table saved later whose files are missing, a choice saved on an earlier build this one
+replaced, a card of the build with no row, a row under the build's page run that it never made, a row
+in the other lane, and a decision and its time not set together; with every row there, no decision
+at all is a page left undecided.
 That read is its only database access. Collecting again, while the run is in review and the stage is
 not applied, replaces all three files; while an apply holds the run on this machine, it refuses.
 
@@ -46,6 +47,7 @@ import argparse
 import shlex
 import sys
 from collections import Counter
+from datetime import datetime
 from pathlib import Path
 
 import httpx
@@ -130,17 +132,35 @@ def fetch_cards(sb, **match) -> list[dict]:
 
 
 def db_choices(sb, manifest: dict) -> tuple[dict[str, dict], dict[str, str]]:
-    """The owner's choices on the page's published cards, and when the database saved each one. A later
-    build of the page published without its files on disk is refused: the website is to show the newest
-    build, so the owner may have decided that one instead."""
-    run, built = manifest["run"], page_built_at(manifest)
+    """The owner's choices on the page's published cards, and when the database saved each one. Builds are
+    ordered by when the table saved them, since a page run is stamped when its build starts reading. A
+    later build with no files on disk is refused: the website is to show the newest build, so the owner may
+    have decided that one instead. So is a choice saved on an earlier build, which this one replaced
+    without it."""
+    run = manifest["run"]
     rows = fetch_cards(sb, run_id=manifest["cleanup_run"], stage=manifest["stage"])
-    newer = sorted({row["page_run"] for row in rows if page_built_at({"run": row["page_run"]}) > built})
+    saved = {}
+    for row in rows:
+        at = datetime.fromisoformat(row["created_at"])
+        saved[row["page_run"]] = min(at, saved.get(row["page_run"], at))
+    mine = saved.get(run)
+    newer = sorted((at, page_run) for page_run, at in saved.items() if page_run != run and (mine is None or at > mine))
     if newer:
         raise SystemExit(
-            f"page run {newer[-1]} of this page is published, but the page on disk is the earlier {run}: the later "
-            "build's files were lost. Build and publish the page again if none of its cards is decided; decided "
-            f"ones stay in {CARDS_TABLE} and need recovering by hand"
+            f"page run {newer[-1][1]} of this page is published, but the page on disk is the earlier {run}: the "
+            "later build's files were lost. Build and publish the page again if none of its cards is decided; "
+            f"decided ones stay in {CARDS_TABLE} and need recovering by hand"
+        )
+    replaced = sorted(
+        row["card_id"]
+        for row in rows
+        if row["page_run"] != run and row["lane"] == OWNER and row["decision"] is not None
+    )
+    if replaced:
+        raise SystemExit(
+            f"{len(replaced)} choice(s) were saved on an earlier build of this page, which page run {run} replaced "
+            f"without them: {', '.join(replaced[:10])}. Make them again on the page shown now, then clear their "
+            f"decision and decided_at in {CARDS_TABLE}, and collect again"
         )
     lanes = {card_id: lane for lane in LANES for card_id in manifest[LANE_CARDS[lane]]}
     found = {row["card_id"]: row for row in rows if row["page_run"] == run}

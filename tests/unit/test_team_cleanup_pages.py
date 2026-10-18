@@ -154,14 +154,23 @@ def _refusal(code, message):
 INSERT = ("team_cleanup_cards", "insert")
 
 
+def _pg_time(moment):
+    """A timestamptz as PostgREST renders it: the fraction's trailing zeros dropped, and a zero fraction
+    with them."""
+    text = moment.isoformat()
+    stamp, offset = text[:-6], text[-6:]
+    return (stamp.rstrip("0").rstrip(".") if "." in stamp else stamp) + offset
+
+
 class _CardsInsert:
     """An insert into team_cleanup_cards, checked at execute() as its migration would: one statement, so a
-    single bad row refuses the lot. Defaults fill only the columns a row leaves out. A CHECK passes on NULL,
+    single bad row refuses the lot. Defaults fill only the columns a row leaves out, created_at with the
+    statement's time as now() does: one per insert, a quarter second later for each. A CHECK passes on NULL,
     as Postgres's does, and the auto lane's `decision IS NOT DISTINCT FROM 'apply'` does not; with no auth
     user, any decided_by_user_id fails its foreign key. A table named in ``lost`` stores the rows and then
     loses the answer, as a dropped connection does."""
 
-    DEFAULTS = {"note": None, "decision": None, "decided_at": None, "decided_by_user_id": None, "created_at": "now"}
+    DEFAULTS = {"note": None, "decision": None, "decided_at": None, "decided_by_user_id": None}
 
     def __init__(self, db, rows, returning):
         self._db, self._sent, self._returning = db, rows if isinstance(rows, list) else [rows], returning
@@ -170,8 +179,10 @@ class _CardsInsert:
         self._db.executes.append(INSERT)
         if INSERT in self._db.broken:
             raise self._db.broken[INSERT]
+        self._db.now += timedelta(milliseconds=250)
+        defaults = {**self.DEFAULTS, "created_at": _pg_time(self._db.now)}
         # As the client serialises them: a value JSON cannot carry fails before any row is stored.
-        rows = [{**self.DEFAULTS, **json.loads(json.dumps(sent, allow_nan=False))} for sent in self._sent]
+        rows = [{**defaults, **json.loads(json.dumps(sent, allow_nan=False))} for sent in self._sent]
         table = self._db.tables["team_cleanup_cards"]
         runs, ids = {r["run_id"] for r in self._db.tables["team_cleanup_runs"]}, {r["card_id"] for r in table}
         for sent, row in zip(self._sent, rows):
@@ -208,6 +219,7 @@ class _Db:
         self.tables["providers"] = self.tables["providers"] or [{"id": 1, "code": "gotsport"}]
         self.tables["team_cleanup_runs"] = self.tables["team_cleanup_runs"] or [{"run_id": RUN}]
         self.broken, self.lost, self.executes = {}, {}, []
+        self.now = datetime(2026, 10, 15, 3, 0, 10, tzinfo=timezone.utc)
 
     def table(self, name):
         db = self
@@ -1618,7 +1630,6 @@ def test_a_published_page_left_undecided_collects_to_nothing(tmp_path, monkeypat
 
 def test_a_page_published_again_is_collected_from_its_newest_build_alone(tmp_path, monkeypatch, capsys):
     store, db = _sure_week(tmp_path, monkeypatch, auto=1)
-    _builds_a_second_apart(monkeypatch)
     _publish(monkeypatch, capsys, store, db, "--publish", "--execute")
     _publish(monkeypatch, capsys, store, db, "--publish", "--execute")
     run = _read(store, "states", MANIFEST_FILE)["run"]
@@ -1632,30 +1643,79 @@ def test_a_page_published_again_is_collected_from_its_newest_build_alone(tmp_pat
     assert code == 0 and [(r["team_id_master"], r["source"]) for r in rows] == [("b", f"page:{run}")]
 
 
-def _builds_a_second_apart(monkeypatch):
-    """Page runs as new_page_run names them, a second apart."""
-    seconds = iter(range(10, 60))
-    monkeypatch.setattr(pages, "new_page_run", lambda: f"20261015T0300{next(seconds)}Z-a1b2c3")
+def _page_runs(monkeypatch, *runs):
+    """The page runs the next builds take, in order, as new_page_run stamps them when a build starts."""
+    names = iter(runs)
+    monkeypatch.setattr(pages, "new_page_run", lambda: next(names))
 
 
-def test_a_newer_published_build_with_no_page_on_disk_is_refused(tmp_path, monkeypatch, capsys):
-    """The website shows the newest build, so the owner may be deciding cards the page on disk lacks."""
+@pytest.mark.parametrize(
+    "flags, first, second",
+    [
+        (["--publish", "--execute"], "20261015T030010Z-a1b2c3", "20261015T030011Z-a1b2c3"),
+        (["--publish", "--execute"], "20261015T030010Z-ffffff", "20261015T030010Z-000000"),
+        ([], "20261015T030010Z-a1b2c3", "20261015T030011Z-a1b2c3"),
+    ],
+    ids=["a-second-later", "same-second", "over-an-unpublished-page"],
+)
+def test_a_newer_published_build_with_no_page_on_disk_is_refused(tmp_path, monkeypatch, capsys, flags, first, second):
+    """The website shows the newest build, so the owner may be deciding cards the page on disk lacks. Two
+    page runs stamped in one second sort by their random suffix, so only the table says which is newer."""
     store, db = _sure_week(tmp_path, monkeypatch, auto=1)
-    _builds_a_second_apart(monkeypatch)
-    _publish(monkeypatch, capsys, store, db, "--publish", "--execute")
-    run = _read(store, "states", MANIFEST_FILE)["run"]
+    _page_runs(monkeypatch, first, second)
+    _publish(monkeypatch, capsys, store, db, *flags)
     db.lost["team_cleanup_cards"] = httpx.ReadTimeout("timed out")
     with pytest.raises(SystemExit):
         _publish(monkeypatch, capsys, store, db, "--publish", "--execute")
-    newer = max(r["page_run"] for r in db.tables["team_cleanup_cards"])
 
     with pytest.raises(SystemExit) as caught:
         _collect_db(monkeypatch, capsys, store, db)
 
     assert str(caught.value).endswith(
-        f"page run {newer} of this page is published, but the page on disk is the earlier {run}: the later build's "
+        f"page run {second} of this page is published, but the page on disk is the earlier {first}: the later build's "
         "files were lost. Build and publish the page again if none of its cards is decided; decided ones stay in "
         "team_cleanup_cards and need recovering by hand"
+    )
+
+
+def test_a_build_stamped_earlier_but_published_last_is_the_page_collected(tmp_path, monkeypatch, capsys):
+    """Two builds overlapping: the one that started first waited for the lock and published second, so its
+    page is on disk and is the newest."""
+    store, db = _sure_week(tmp_path, monkeypatch, auto=1)
+    _page_runs(monkeypatch, "20261015T030020Z-a1b2c3", "20261015T030010Z-a1b2c3")
+    _publish(monkeypatch, capsys, store, db, "--publish", "--execute")
+    _publish(monkeypatch, capsys, store, db, "--publish", "--execute")
+    _decide(db, "b", "apply")
+
+    code, _ = _collect_db(monkeypatch, capsys, store, db)
+
+    rows = json.loads((stage_dir(store, RUN, "states") / col.DECISIONS_FILE).read_text(encoding="utf-8"))
+    assert code == 0 and [(r["team_id_master"], r["source"]) for r in rows] == [("b", "page:20261015T030010Z-a1b2c3")]
+
+
+def test_a_choice_saved_on_the_page_a_rebuild_replaced_stops_the_collect(tmp_path, monkeypatch, capsys):
+    """The owner saved it on the page then shown after the rebuild checked for decided cards, so the build
+    published without it."""
+    store, db = _sure_week(tmp_path, monkeypatch, auto=1)
+    _publish(monkeypatch, capsys, store, db, "--publish", "--execute")
+    checks, saved = pages.check_undecided, []
+
+    def decided_after_the_check(sb, run_id, stage, publish):
+        checks(sb, run_id, stage, publish)
+        saved.append(_decide(db, "c", "apply"))
+
+    monkeypatch.setattr(pages, "check_undecided", decided_after_the_check)
+    code, _ = _publish(monkeypatch, capsys, store, db, "--publish", "--execute")
+    run = _read(store, "states", MANIFEST_FILE)["run"]
+    assert code == 0 and not saved[0].startswith(run)
+
+    with pytest.raises(SystemExit) as caught:
+        _collect_db(monkeypatch, capsys, store, db)
+
+    assert str(caught.value).endswith(
+        f"1 choice(s) were saved on an earlier build of this page, which page run {run} replaced without them: "
+        f"{saved[0]}. Make them again on the page shown now, then clear their decision and decided_at in "
+        "team_cleanup_cards, and collect again"
     )
 
 

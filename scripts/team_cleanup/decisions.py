@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 DECISIONS_TABLE = "team_cleanup_decisions"
 CHANGES_TABLE = "team_cleanup_changes"
 CARDS_TABLE = "team_cleanup_cards"
-CARD_COLS = "card_id,page_run,lane,decision,note,decided_at"
+CARD_COLS = "card_id,page_run,lane,decision,note,decided_at,created_at"
 MERGES = "merges"
 KEEP_SEPARATE = "keep_separate"
 KEEP_SEPARATE_COLS = "id,team_id_master,other_team_id,decided_at,superseded_at"

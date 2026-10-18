@@ -31,9 +31,10 @@ the page shows but cannot add one.
 
 With --publish --execute it also writes each card of either lane to team_cleanup_cards (published to
 the website, as opposed to an Artifact), the automatic lane's already decided Apply; the website is to
-show the newest build published for the run and save the owner's choices on it, and `collect.py
---from-db` reads them back. That insert is its only database write, made before the files so a refused one leaves
-the page on disk as it was; page.json records `published`. --publish alone writes nothing, not even the
+show the build the table saved last for the run (its created_at, not its page run, which is stamped
+when the build starts) and save the owner's choices on it, and `collect.py --from-db` reads them back.
+That insert is its only database write, made before the files so a refused one leaves the page on disk
+as it was; page.json records `published`. --publish alone writes nothing, not even the
 files. Once the stage has published cards for the run, every new build is published too, and once the
 owner has decided a card of any of them, the page is not built again, since a new build's cards start
 undecided.
