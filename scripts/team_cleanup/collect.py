@@ -25,12 +25,13 @@ Into the stage folder it writes:
   collected.json             the collection: the page run, the counts and the files' hashes
 
 With --from-db it reads the choices from the page's published cards in team_cleanup_cards instead,
-the website's, taking a decision, a note and the time it was saved from each owner card. It refuses
+the website's, taking a decision, a note and the time it was saved from each owner card, once
+team_cleanup_runs marks the run's review done (owner_done_at) and the choices stop changing. It refuses
 a build the table saved later whose files are missing, a choice saved on an earlier build this one
 replaced, a card of the build with no row, a row under the build's page run that it never made, a row
 in the other lane, and a decision and its time not set together; with every row there, no decision
 at all is a page left undecided.
-That read is its only database access. Collecting again, while the run is in review and the stage is
+Those reads are its only database access. Collecting again, while the run is in review and the stage is
 not applied, replaces all three files; while an apply holds the run on this machine, it refuses.
 
 With --lane auto it collects the stage's automatic lane instead, into auto/: every change the
@@ -76,6 +77,7 @@ from scripts.team_cleanup.run_store import (  # noqa: E402
     MANIFEST_FILE,
     OWNER,
     PAGE_MARKER,
+    RUNS_TABLE,
     ApplyLockError,
     Busy,
     RunBusy,
@@ -136,9 +138,15 @@ def db_choices(sb, manifest: dict) -> tuple[dict[str, dict], dict[str, str]]:
     ordered by when the table saved them, since a page run is stamped when its build starts reading. A
     later build with no files on disk is refused: the website is to show the newest build, so the owner may
     have decided that one instead. So is a choice saved on an earlier build, which this one replaced
-    without it."""
-    run = manifest["run"]
-    rows = fetch_cards(sb, run_id=manifest["cleanup_run"], stage=manifest["stage"])
+    without it. Nothing is read until the run's review is marked done, so the choices no longer change."""
+    run, cleanup_run = manifest["run"], manifest["cleanup_run"]
+    done = sb.table(RUNS_TABLE).select("owner_done_at").eq("run_id", cleanup_run).execute().data
+    if not done or done[0]["owner_done_at"] is None:
+        raise SystemExit(
+            f"the review page of run {cleanup_run} is not marked done, so the owner's choices may still change; "
+            "collect once it is"
+        )
+    rows = fetch_cards(sb, run_id=cleanup_run, stage=manifest["stage"])
     saved = {}
     for row in rows:
         at = datetime.fromisoformat(row["created_at"])

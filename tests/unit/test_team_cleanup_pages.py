@@ -70,7 +70,7 @@ COLUMNS = {
     "watchlist_items": {"id", "team_id_master"},
     "report_card_leads": {"id", "team_id"},
     "scrape_requests": {"id", "team_id_master", "priority", "request_type", "requested_at"},
-    "team_cleanup_runs": {"run_id"},
+    "team_cleanup_runs": {"run_id", "owner_done_at", "owner_done_by"},
     "team_cleanup_cards": {
         "card_id",
         "run_id",
@@ -217,7 +217,9 @@ class _Db:
     def __init__(self, **tables):
         self.tables = {name: [dict(r) for r in tables.get(name, ())] for name in COLUMNS}
         self.tables["providers"] = self.tables["providers"] or [{"id": 1, "code": "gotsport"}]
-        self.tables["team_cleanup_runs"] = self.tables["team_cleanup_runs"] or [{"run_id": RUN}]
+        self.tables["team_cleanup_runs"] = self.tables["team_cleanup_runs"] or [
+            {"run_id": RUN, "owner_done_at": None, "owner_done_by": None}
+        ]
         self.broken, self.lost, self.executes = {}, {}, []
         self.now = datetime(2026, 10, 15, 3, 0, 10, tzinfo=timezone.utc)
 
@@ -1412,7 +1414,10 @@ def _publish(monkeypatch, capsys, store, db, *flags, stage="states"):
     return code, capsys.readouterr().out
 
 
-def _collect_db(monkeypatch, capsys, store, db, stage="states"):
+def _collect_db(monkeypatch, capsys, store, db, stage="states", done=True):
+    """Collect the website's choices, the review marked done first unless ``done`` is false."""
+    if done:
+        db.tables["team_cleanup_runs"][0].update(owner_done_at="2026-10-18T18:00:00+00:00", owner_done_by="owner")
     monkeypatch.setattr(col, "get_client", lambda: db)
     monkeypatch.setattr(sys, "argv", ["collect.py", "--run", RUN, "--stage", stage, "--from-db", "--store", str(store)])
     code = col.main()
@@ -1470,6 +1475,17 @@ def test_a_publish_s_dry_run_writes_no_card_and_no_file(tmp_path, monkeypatch, c
     assert ("team_cleanup_cards", "insert") not in db.executes
     assert [p.name for p in folder.iterdir() if p.name.startswith("page")] == []
     assert "DRY RUN -- would build page run " in out and "publish its 4 cards to" in out
+
+
+def test_a_dry_run_that_does_not_publish_leaves_the_page_under_review_as_it_was(tmp_path, monkeypatch, capsys):
+    store, db = _sure_week(tmp_path, monkeypatch, auto=1)
+    _publish(monkeypatch, capsys, store, db)
+    before = _page_files(store)
+
+    code, out = _publish(monkeypatch, capsys, store, db, "--dry-run")
+
+    assert code == 0 and _page_files(store) == before and db.tables["team_cleanup_cards"] == []
+    assert "DRY RUN -- would build page run " in out and "with 3 cards, writing no file" in out
 
 
 def test_a_build_that_does_not_publish_says_so(tmp_path, monkeypatch, capsys):
@@ -1655,6 +1671,22 @@ def test_choices_saved_on_the_website_are_collected_with_the_time_the_database_s
     assert [d["team_id"] for d in vetted["decisions"]] == ["b"]
     marker = json.loads((folder / "collected.json").read_text(encoding="utf-8"))
     assert marker["run"] == run and marker["counts"] == {"apply": 1, "dont_apply": 1, "unsure": 0, "undecided": 1}
+
+
+def test_choices_are_not_collected_before_the_review_is_marked_done(tmp_path, monkeypatch, capsys):
+    """The owner may still be choosing, so a read now could take a half-made set of choices to the apply."""
+    store, db = _sure_week(tmp_path, monkeypatch, auto=1)
+    _publish(monkeypatch, capsys, store, db, "--publish", "--execute")
+    _decide(db, "b", "apply")
+
+    with pytest.raises(SystemExit) as caught:
+        _collect_db(monkeypatch, capsys, store, db, done=False)
+
+    assert str(caught.value) == (
+        f"the review page of run {RUN} is not marked done, so the "
+        "owner's choices may still change; collect once it is"
+    )
+    assert not (stage_dir(store, RUN, "states") / col.DECISIONS_FILE).exists()
 
 
 def test_a_published_page_left_undecided_collects_to_nothing(tmp_path, monkeypatch, capsys):
