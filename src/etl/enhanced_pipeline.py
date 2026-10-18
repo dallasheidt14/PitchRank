@@ -2270,23 +2270,28 @@ class EnhancedETLPipeline:
                     master_ids.add(g["home_team_master_id"])
                     master_ids.add(g["away_team_master_id"])
 
-                or_filter = ",".join(f"home_team_master_id.eq.{mid},away_team_master_id.eq.{mid}" for mid in master_ids)
+                # 50 teams (100 or-terms) per call to stay inside the URI limit
+                excluded_rows: List[Dict] = []
+                for team_batch in self._chunks(sorted(master_ids), 50):
+                    or_filter = ",".join(
+                        f"home_team_master_id.eq.{mid},away_team_master_id.eq.{mid}" for mid in team_batch
+                    )
+                    result = (
+                        self.supabase.table("games")
+                        .select("home_team_master_id, away_team_master_id, home_score, away_score")
+                        .eq("game_date", game_date)
+                        .eq("is_excluded", True)
+                        .or_(or_filter)
+                        .execute()
+                    )
+                    excluded_rows.extend(result.data or [])
 
-                result = (
-                    self.supabase.table("games")
-                    .select("home_team_master_id, away_team_master_id, home_score, away_score")
-                    .eq("game_date", game_date)
-                    .eq("is_excluded", True)
-                    .or_(or_filter)
-                    .execute()
-                )
-
-                if not result.data:
+                if not excluded_rows:
                     continue
 
                 # Build set of excluded master-level keys
                 excluded_keys = set()
-                for row in result.data:
+                for row in excluded_rows:
                     h = row.get("home_team_master_id")
                     a = row.get("away_team_master_id")
                     hs = _safe_int(row.get("home_score"))
