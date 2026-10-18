@@ -3,11 +3,14 @@
 import hashlib
 import json
 import os
+import shlex
 import sys
 from datetime import date, datetime, timedelta, timezone
 
+import httpx
 import pytest
 from postgrest.exceptions import APIError
+from postgrest.types import ReturnMethod
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
@@ -30,6 +33,7 @@ from scripts.team_cleanup.run_store import (  # noqa: E402
 )
 from src.tournaments.storage._file_lock import _acquire_file_lock  # noqa: E402
 from src.tournaments.storage._io import write_json  # noqa: E402
+from tests.unit import test_team_cleanup_cards_migration as cards_migration  # noqa: E402
 
 RUN = "2026-10-14-nv"
 ROW_CAP = 1000
@@ -66,7 +70,26 @@ COLUMNS = {
     "watchlist_items": {"id", "team_id_master"},
     "report_card_leads": {"id", "team_id"},
     "scrape_requests": {"id", "team_id_master", "priority", "request_type", "requested_at"},
+    "team_cleanup_runs": {"run_id", "owner_done_at", "owner_done_by"},
+    "team_cleanup_cards": {
+        "card_id",
+        "run_id",
+        "stage",
+        "lane",
+        "page_run",
+        "position",
+        "card",
+        "decision",
+        "note",
+        "decided_at",
+        "decided_by_user_id",
+        "created_at",
+    },
 }
+# What the cards table's migration refuses: its NOT NULL columns, listed by hand, and the values its IN-list
+# CHECKs allow, read from the migration itself.
+CARD_REQUIRED = ("card_id", "run_id", "stage", "lane", "page_run", "position", "card", "created_at")
+CARD_STAGES, CARD_LANES, CARD_DECISIONS = (cards_migration._in_list(c) for c in ("stage", "lane", "decision"))
 
 
 class _Result:
@@ -76,8 +99,8 @@ class _Result:
 
 class _Query:
     """Records each read at execute(), where the real builder sends it. It answers at most ROW_CAP
-    rows, refuses an unknown column and a ranged page with no order. A page build only reads, so
-    there is no insert, update or delete to call."""
+    rows, refuses an unknown column and a ranged page with no order. A page build writes only by
+    publishing, an insert (_CardsInsert), so there is no update or delete to call."""
 
     def __init__(self, db, table, columns):
         for column in columns:
@@ -123,11 +146,82 @@ class _Query:
         return _Result([{c: r[c] for c in self._columns} for r in found[:ROW_CAP]])
 
 
+def _refusal(code, message):
+    return APIError({"code": code, "message": message})
+
+
+# The cards insert, as `broken` and `executes` name it apart from a read of the same table.
+INSERT = ("team_cleanup_cards", "insert")
+
+
+def _pg_time(moment):
+    """A timestamptz as PostgREST renders it: the fraction's trailing zeros dropped, and a zero fraction
+    with them."""
+    text = moment.isoformat()
+    stamp, offset = text[:-6], text[-6:]
+    return (stamp.rstrip("0").rstrip(".") if "." in stamp else stamp) + offset
+
+
+class _CardsInsert:
+    """An insert into team_cleanup_cards, checked at execute() as its migration would: one statement, so a
+    single bad row refuses the lot. Defaults fill only the columns a row leaves out, created_at with the
+    statement's time as now() does: one per insert, a quarter second later for each. A CHECK passes on NULL,
+    as Postgres's does, and the auto lane's `decision IS NOT DISTINCT FROM 'apply'` does not; with no auth
+    user, any decided_by_user_id fails its foreign key. A table named in ``lost`` stores the rows and then
+    loses the answer, as a dropped connection does."""
+
+    DEFAULTS = {"note": None, "decision": None, "decided_at": None, "decided_by_user_id": None}
+
+    def __init__(self, db, rows, returning):
+        self._db, self._sent, self._returning = db, rows if isinstance(rows, list) else [rows], returning
+
+    def execute(self):
+        self._db.executes.append(INSERT)
+        if INSERT in self._db.broken:
+            raise self._db.broken[INSERT]
+        self._db.now += timedelta(milliseconds=250)
+        defaults = {**self.DEFAULTS, "created_at": _pg_time(self._db.now)}
+        # As the client serialises them: a value JSON cannot carry fails before any row is stored.
+        rows = [{**defaults, **json.loads(json.dumps(sent, allow_nan=False))} for sent in self._sent]
+        table = self._db.tables["team_cleanup_cards"]
+        runs, ids = {r["run_id"] for r in self._db.tables["team_cleanup_runs"]}, {r["card_id"] for r in table}
+        for sent, row in zip(self._sent, rows):
+            assert set(sent) <= COLUMNS["team_cleanup_cards"], f"PostgREST refuses unknown columns in {sorted(sent)}"
+            if any(row[column] is None for column in CARD_REQUIRED):
+                raise _refusal("23502", f"null value in a NOT NULL column of {row}")
+            checks = (
+                row["stage"] in CARD_STAGES,
+                row["lane"] in CARD_LANES,
+                row["position"] >= 1,
+                row["decision"] in (*CARD_DECISIONS, None),
+                len(row["note"] or "") <= 2000,
+                row["card_id"][: len(row["page_run"]) + 1] == row["page_run"] + "_",
+                row["lane"] == "owner" or row["decision"] == "apply",
+            )
+            if not all(checks):
+                raise _refusal("23514", f"new row for team_cleanup_cards violates a check constraint: {row['card_id']}")
+            if row["run_id"] not in runs:
+                raise _refusal("23503", "insert violates foreign key constraint team_cleanup_cards_run_id_fkey")
+            if row["decided_by_user_id"] is not None:
+                raise _refusal("23503", "insert violates foreign key constraint on decided_by_user_id")
+            if row["card_id"] in ids:
+                raise _refusal("23505", "duplicate key value violates unique constraint team_cleanup_cards_pkey")
+            ids.add(row["card_id"])
+        table.extend(rows)
+        if "team_cleanup_cards" in self._db.lost:
+            raise self._db.lost["team_cleanup_cards"]
+        return _Result([] if self._returning == ReturnMethod.minimal else rows)
+
+
 class _Db:
     def __init__(self, **tables):
         self.tables = {name: [dict(r) for r in tables.get(name, ())] for name in COLUMNS}
         self.tables["providers"] = self.tables["providers"] or [{"id": 1, "code": "gotsport"}]
-        self.broken, self.executes = {}, []
+        self.tables["team_cleanup_runs"] = self.tables["team_cleanup_runs"] or [
+            {"run_id": RUN, "owner_done_at": None, "owner_done_by": None}
+        ]
+        self.broken, self.lost, self.executes = {}, {}, []
+        self.now = datetime(2026, 10, 15, 3, 0, 10, tzinfo=timezone.utc)
 
     def table(self, name):
         db = self
@@ -136,7 +230,14 @@ class _Db:
             def select(self, columns):
                 return _Query(db, name, [c.strip() for c in columns.split(",")])
 
+            def insert(self, rows, returning=ReturnMethod.representation):
+                assert name == "team_cleanup_cards", f"a page build writes only team_cleanup_cards, not {name}"
+                return _CardsInsert(db, rows, returning)
+
         return _T()
+
+    def cards(self, **match):
+        return [r for r in self.tables["team_cleanup_cards"] if all(r[k] == v for k, v in match.items())]
 
 
 def _team(tid, *, state="NV", club="Las Vegas Sports Academy", age="u12", deprecated=False, name=None):
@@ -829,7 +930,7 @@ def test_an_applied_stage_is_not_collected_again(tmp_path, monkeypatch, capsys):
         _collect(monkeypatch, capsys, store, "states", out)
 
 
-def test_collecting_never_opens_the_database(tmp_path, monkeypatch, capsys):
+def test_collecting_saved_choices_never_opens_the_database(tmp_path, monkeypatch, capsys):
     store = _built(tmp_path, monkeypatch, capsys)
     out = _choose(store, "states", tmp_path, {"fill": {"decision": "apply"}})
 
@@ -837,6 +938,7 @@ def test_collecting_never_opens_the_database(tmp_path, monkeypatch, capsys):
         raise AssertionError("the collector opened a database client")
 
     monkeypatch.setattr(pw, "get_client", refuse)
+    monkeypatch.setattr(col, "get_client", refuse)
     monkeypatch.setattr("supabase.create_client", refuse)
 
     code, _ = _collect(monkeypatch, capsys, store, "states", out)
@@ -1279,20 +1381,500 @@ def test_the_automatic_lane_waits_for_the_steps_it_shares_with_the_owner_s(tmp_p
         _collect_auto(monkeypatch, capsys, store, "states")
 
 
+LANE_RULE = "the owner's lane takes --decisions or --from-db, and the automatic lane neither"
+BOTH = "argument --from-db: not allowed with argument --decisions"
+
+
 @pytest.mark.parametrize(
-    "argv",
+    "argv, said",
     [
-        ["--lane", "auto", "--decisions", "out"],
-        ["--lane", "owner"],
+        (["--lane", "auto", "--decisions", "out"], LANE_RULE),
+        (["--lane", "auto", "--from-db"], LANE_RULE),
+        (["--lane", "auto", "--decisions", "out", "--from-db"], BOTH),
+        (["--lane", "owner"], LANE_RULE),
+        (["--lane", "owner", "--decisions", "out", "--from-db"], BOTH),
     ],
-    ids=["auto-with-choices", "owner-without-choices"],
+    ids=["auto-with-choices", "auto-from-db", "auto-with-both", "owner-without-choices", "owner-with-both"],
 )
-def test_only_the_owner_s_lane_reads_saved_choices(tmp_path, monkeypatch, capsys, argv):
+def test_only_the_owner_s_lane_reads_saved_choices_and_from_one_place(tmp_path, monkeypatch, capsys, argv, said):
     monkeypatch.setattr(sys, "argv", ["collect.py", "--run", RUN, "--stage", "states", *argv])
 
     with pytest.raises(SystemExit) as caught:
         col.main()
-    assert caught.value.code == 2 and "--decisions is the owner's lane's" in capsys.readouterr().err
+    assert caught.value.code == 2 and said in capsys.readouterr().err
+
+
+# --- publishing the cards, and collecting the website's choices --------------------------------------
+
+
+def _publish(monkeypatch, capsys, store, db, *flags, stage="states"):
+    monkeypatch.setattr(pages, "get_client", lambda: db)
+    monkeypatch.setattr(sys, "argv", ["pages.py", "--run", RUN, "--stage", stage, "--store", str(store), *flags])
+    code = pages.main()
+    return code, capsys.readouterr().out
+
+
+def _collect_db(monkeypatch, capsys, store, db, stage="states", done=True):
+    """Collect the website's choices, the review marked done first unless ``done`` is false."""
+    if done:
+        db.tables["team_cleanup_runs"][0].update(owner_done_at="2026-10-18T18:00:00+00:00", owner_done_by="owner")
+    monkeypatch.setattr(col, "get_client", lambda: db)
+    monkeypatch.setattr(sys, "argv", ["collect.py", "--run", RUN, "--stage", stage, "--from-db", "--store", str(store)])
+    code = col.main()
+    return code, capsys.readouterr().out
+
+
+def _decide(db, team_id, decision, note=None, at="2026-10-15T03:00:00+00:00"):
+    """A choice as the website's route saves it, on the newest build: the decision, a note and the server's
+    time."""
+    row = [r for r in db.cards(lane="owner") if r["card"]["team"]["name"] == f"Team {team_id}"][-1]
+    row.update(decision=decision, note=note, decided_at=at)
+    return row["card_id"]
+
+
+def test_a_published_build_writes_both_lanes_cards_in_one_insert(tmp_path, monkeypatch, capsys):
+    store, db = _sure_week(tmp_path, monkeypatch, auto=2)
+
+    code, out = _publish(monkeypatch, capsys, store, db, "--publish", "--execute")
+
+    manifest, built = _read(store, "states", MANIFEST_FILE), _read(store, "states", pages.PAGE_MARKER)
+    owner, auto = db.cards(lane="owner"), db.cards(lane="auto")
+    assert code == 0 and built["published"] is True
+    assert db.executes.count(("team_cleanup_cards", "insert")) == 1
+    assert [r["card_id"] for r in owner] == list(manifest["cards"])
+    assert [r["card_id"] for r in auto] == list(manifest["auto"])
+    assert {(r["run_id"], r["stage"], r["page_run"]) for r in owner + auto} == {(RUN, "states", manifest["run"])}
+    assert [(r["position"], r["decision"], r["decided_at"]) for r in owner] == [(1, None, None), (2, None, None)]
+    assert [(r["position"], r["decision"], r["decided_at"]) for r in auto] == [
+        (1, "apply", built["built_at"]),
+        (2, "apply", built["built_at"]),
+    ]
+    assert owner[0]["card"] == _cards(store, "states")[0]
+    assert [r["card"]["sure"] for r in owner + auto] == [
+        "a blank state filled from its club, which nothing disputes",
+        None,
+        "a blank state filled from its club, which nothing disputes",
+        "a blank state filled from its club, which nothing disputes",
+    ]
+    assert "published its 4 cards, both lanes, to team_cleanup_cards" in out
+
+
+def _page_files(store):
+    folder = stage_dir(store, RUN, "states")
+    return {name: (folder / name).read_bytes() for name in (pages.PAGE_FILE, MANIFEST_FILE, pages.PAGE_MARKER)}
+
+
+@pytest.mark.parametrize("flags", [["--publish"], ["--publish", "--execute", "--dry-run"]], ids=["publish", "dry-run"])
+def test_a_publish_s_dry_run_writes_no_card_and_no_file(tmp_path, monkeypatch, capsys, flags):
+    store, db = _sure_week(tmp_path, monkeypatch, auto=2)
+
+    code, out = _publish(monkeypatch, capsys, store, db, *flags)
+
+    folder = stage_dir(store, RUN, "states")
+    assert code == 0 and db.tables["team_cleanup_cards"] == []
+    assert ("team_cleanup_cards", "insert") not in db.executes
+    assert [p.name for p in folder.iterdir() if p.name.startswith("page")] == []
+    assert "DRY RUN -- would build page run " in out and "publish its 4 cards to" in out
+
+
+def test_a_dry_run_that_does_not_publish_leaves_the_page_under_review_as_it_was(tmp_path, monkeypatch, capsys):
+    store, db = _sure_week(tmp_path, monkeypatch, auto=1)
+    _publish(monkeypatch, capsys, store, db)
+    before = _page_files(store)
+
+    code, out = _publish(monkeypatch, capsys, store, db, "--dry-run")
+
+    assert code == 0 and _page_files(store) == before and db.tables["team_cleanup_cards"] == []
+    assert "DRY RUN -- would build page run " in out and "with 3 cards, writing no file" in out
+
+
+def test_a_build_that_does_not_publish_says_so(tmp_path, monkeypatch, capsys):
+    store, db = _sure_week(tmp_path, monkeypatch, auto=1)
+
+    _publish(monkeypatch, capsys, store, db)
+
+    assert _read(store, "states", pages.PAGE_MARKER)["published"] is False and db.tables["team_cleanup_cards"] == []
+
+
+def test_a_page_with_published_cards_is_built_again_only_by_publishing(tmp_path, monkeypatch, capsys):
+    """The website shows the newest build published, so a build that does not publish would leave it showing an
+    older page than the one on disk."""
+    store, db = _sure_week(tmp_path, monkeypatch, auto=1)
+    _publish(monkeypatch, capsys, store, db, "--publish", "--execute")
+    before = _page_files(store)
+
+    with pytest.raises(SystemExit, match="the page is published, so a new build of it is published too"):
+        _publish(monkeypatch, capsys, store, db)
+    assert _page_files(store) == before
+
+
+def _builds_no_card(monkeypatch):
+    """Every proposal left off, as when the evidence now answers all of them."""
+    sort_out = pages.sort_out
+
+    def nothing_shown(*args):
+        shown, left_out = sort_out(*args)
+        return [], left_out + shown
+
+    monkeypatch.setattr(pages, "sort_out", nothing_shown)
+
+
+def test_a_published_page_is_not_replaced_by_a_build_with_no_card(tmp_path, monkeypatch, capsys):
+    """A build with no card publishes no row, so the website would go on showing the published page."""
+    store, db = _sure_week(tmp_path, monkeypatch, auto=1)
+    _publish(monkeypatch, capsys, store, db, "--publish", "--execute")
+    first, before = _read(store, "states", pages.PAGE_MARKER)["run"], _page_files(store)
+    _builds_no_card(monkeypatch)
+
+    with pytest.raises(SystemExit) as caught:
+        _publish(monkeypatch, capsys, store, db, "--publish", "--execute")
+
+    assert str(caught.value) == (
+        f"Cannot build the states page for {RUN}: the new build has no cards, so publishing it would leave the "
+        f"website showing the published page {first}; the page stays as it is"
+    )
+    assert _page_files(store) == before and db.executes.count(INSERT) == 1
+
+
+def test_a_page_with_no_card_publishes_no_row_and_collects_to_nothing(tmp_path, monkeypatch, capsys):
+    store, db = _sure_week(tmp_path, monkeypatch, auto=1)
+    _builds_no_card(monkeypatch)
+
+    code, _ = _publish(monkeypatch, capsys, store, db, "--publish", "--execute")
+
+    assert code == 0 and _read(store, "states", pages.PAGE_MARKER)["published"] is True
+    assert INSERT not in db.executes and db.tables["team_cleanup_cards"] == []
+    code, out = _collect_db(monkeypatch, capsys, store, db)
+    assert code == 0 and "nothing to apply" in out
+
+
+def test_execute_without_publish_is_refused(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", ["pages.py", "--run", RUN, "--stage", "states", "--execute"])
+
+    with pytest.raises(SystemExit) as caught:
+        pages.main()
+    assert caught.value.code == 2 and "--execute writes only the cards --publish names" in capsys.readouterr().err
+
+
+def test_a_refused_publish_leaves_no_page_behind(tmp_path, monkeypatch, capsys):
+    store, db = _sure_week(tmp_path, monkeypatch, auto=2)
+    db.broken[INSERT] = _refusal("42501", "permission denied for table team_cleanup_cards")
+
+    with pytest.raises(SystemExit) as caught:
+        _publish(monkeypatch, capsys, store, db, "--publish", "--execute")
+
+    assert str(caught.value) == (
+        f"Cannot build the states page for {RUN}: permission denied for table team_cleanup_cards; only the "
+        "service-role key may do this"
+    )
+    assert [p.name for p in stage_dir(store, RUN, "states").iterdir() if p.name.startswith("page")] == []
+
+
+def test_a_refused_publish_leaves_the_published_page_as_it_was(tmp_path, monkeypatch, capsys):
+    store, db = _sure_week(tmp_path, monkeypatch, auto=1)
+    _publish(monkeypatch, capsys, store, db, "--publish", "--execute")
+    before = _page_files(store)
+    db.broken[INSERT] = _refusal("23514", "new row violates a check constraint")
+
+    with pytest.raises(SystemExit, match="new row violates a check constraint"):
+        _publish(monkeypatch, capsys, store, db, "--publish", "--execute")
+    assert _page_files(store) == before
+
+
+def test_a_lost_answer_hands_back_the_same_publish_and_leaves_the_page_on_disk_as_it_was(tmp_path, monkeypatch, capsys):
+    store, db = _sure_week(tmp_path, monkeypatch, auto=1)
+    db.lost["team_cleanup_cards"] = httpx.ReadTimeout("timed out")
+
+    with pytest.raises(SystemExit) as caught:
+        _publish(monkeypatch, capsys, store, db, "--publish", "--execute")
+
+    assert str(caught.value).startswith(f"Cannot build the states page for {RUN}: the database's answer was lost")
+    assert str(caught.value).endswith(shlex.join(["--store", str(store), "--publish", "--execute"]))
+    assert [p.name for p in stage_dir(store, RUN, "states").iterdir() if p.name.startswith("page")] == []
+    assert len(db.tables["team_cleanup_cards"]) == 4
+
+
+def test_a_published_page_the_owner_has_begun_deciding_is_not_built_again(tmp_path, monkeypatch, capsys):
+    store, db = _sure_week(tmp_path, monkeypatch, auto=1)
+    _publish(monkeypatch, capsys, store, db, "--publish", "--execute")
+    first = _read(store, "states", pages.PAGE_MARKER)["run"]
+    _decide(db, "c", "dont_apply")
+
+    with pytest.raises(SystemExit, match=f"the owner has decided cards of the published page {first}"):
+        _publish(monkeypatch, capsys, store, db, "--publish", "--execute")
+    assert _read(store, "states", pages.PAGE_MARKER)["run"] == first
+    assert {r["page_run"] for r in db.tables["team_cleanup_cards"]} == {first}
+
+
+def test_no_page_is_built_again_once_the_review_is_marked_done(tmp_path, monkeypatch, capsys):
+    """A new build's cards start undecided, and a done review is collected as it stands, so the owner would
+    never see them."""
+    store, db = _sure_week(tmp_path, monkeypatch, auto=1)
+    _publish(monkeypatch, capsys, store, db, "--publish", "--execute")
+    before = _page_files(store)
+    db.tables["team_cleanup_runs"][0].update(owner_done_at="2026-10-18T18:00:00+00:00", owner_done_by="deadline")
+
+    with pytest.raises(SystemExit) as caught:
+        _publish(monkeypatch, capsys, store, db, "--publish", "--execute")
+
+    assert str(caught.value) == (
+        f"Cannot build the states page for {RUN}: the review of run {RUN} is marked done, so its pages stay as "
+        "they are"
+    )
+    assert _page_files(store) == before and db.executes.count(INSERT) == 1
+
+
+def test_a_decision_saved_while_the_build_reads_its_evidence_stops_the_new_build(tmp_path, monkeypatch, capsys):
+    store, db = _sure_week(tmp_path, monkeypatch, auto=1)
+    _publish(monkeypatch, capsys, store, db, "--publish", "--execute")
+    first = _read(store, "states", pages.PAGE_MARKER)["run"]
+    reads = pages.fetch_teams
+
+    def decided_meanwhile(sb, ids):
+        _decide(db, "c", "apply")
+        return reads(sb, ids)
+
+    monkeypatch.setattr(pages, "fetch_teams", decided_meanwhile)
+
+    with pytest.raises(SystemExit, match=f"the owner has decided cards of the published page {first}"):
+        _publish(monkeypatch, capsys, store, db, "--publish", "--execute")
+    assert {r["page_run"] for r in db.tables["team_cleanup_cards"]} == {first}
+
+
+def test_a_decision_on_a_build_the_page_on_disk_no_longer_names_still_stops_a_new_build(tmp_path, monkeypatch, capsys):
+    """A build whose insert landed but whose answer was lost leaves its cards newest on the website."""
+    store, db = _sure_week(tmp_path, monkeypatch, auto=1)
+    db.lost["team_cleanup_cards"] = httpx.ReadTimeout("timed out")
+    with pytest.raises(SystemExit):
+        _publish(monkeypatch, capsys, store, db, "--publish", "--execute")
+    db.lost.clear()
+    orphan = db.tables["team_cleanup_cards"][0]["page_run"]
+    _decide(db, "c", "apply")
+
+    with pytest.raises(SystemExit, match=f"the owner has decided cards of the published page {orphan}"):
+        _publish(monkeypatch, capsys, store, db, "--publish", "--execute")
+
+
+def test_a_published_page_whose_only_decided_cards_are_the_automatic_lane_s_is_built_again(
+    tmp_path, monkeypatch, capsys
+):
+    store, db = _sure_week(tmp_path, monkeypatch, auto=1)
+    _publish(monkeypatch, capsys, store, db, "--publish", "--execute")
+    first = _read(store, "states", pages.PAGE_MARKER)["run"]
+
+    code, _ = _publish(monkeypatch, capsys, store, db, "--publish", "--execute")
+
+    assert code == 0 and _read(store, "states", pages.PAGE_MARKER)["run"] != first
+
+
+def test_choices_saved_on_the_website_are_collected_with_the_time_the_database_saved_them(
+    tmp_path, monkeypatch, capsys
+):
+    store, db = _sure_week(tmp_path, monkeypatch, auto=1)
+    _publish(monkeypatch, capsys, store, db, "--publish", "--execute")
+    run = _read(store, "states", MANIFEST_FILE)["run"]
+    _decide(db, "b", "apply", "fine", at="2026-10-15T03:00:00+00:00")
+    _decide(db, "fix", "dont_apply", at="2026-10-15T04:00:00+00:00")
+
+    code, _ = _collect_db(monkeypatch, capsys, store, db)
+
+    folder = stage_dir(store, RUN, "states")
+    rows = json.loads((folder / col.DECISIONS_FILE).read_text(encoding="utf-8"))
+    assert code == 0
+    assert [(r["team_id_master"], r["decision"], r["note"], r["decided_at"], r["source"]) for r in rows] == [
+        ("b", "apply", "fine", "2026-10-15T03:00:00+00:00", f"page:{run}"),
+        ("fix", "dont_apply", None, "2026-10-15T04:00:00+00:00", f"page:{run}"),
+    ]
+    vetted = json.loads((folder / "vetted.json").read_text(encoding="utf-8"))
+    assert [d["team_id"] for d in vetted["decisions"]] == ["b"]
+    marker = json.loads((folder / "collected.json").read_text(encoding="utf-8"))
+    assert marker["run"] == run and marker["counts"] == {"apply": 1, "dont_apply": 1, "unsure": 0, "undecided": 1}
+
+
+def test_choices_are_not_collected_before_the_review_is_marked_done(tmp_path, monkeypatch, capsys):
+    """The owner may still be choosing, so a read now could take a half-made set of choices to the apply."""
+    store, db = _sure_week(tmp_path, monkeypatch, auto=1)
+    _publish(monkeypatch, capsys, store, db, "--publish", "--execute")
+    _decide(db, "b", "apply")
+
+    with pytest.raises(SystemExit) as caught:
+        _collect_db(monkeypatch, capsys, store, db, done=False)
+
+    assert str(caught.value) == (
+        f"the review page of run {RUN} is not marked done, so the "
+        "owner's choices may still change; collect once it is"
+    )
+    assert not (stage_dir(store, RUN, "states") / col.DECISIONS_FILE).exists()
+
+
+def test_a_published_page_left_undecided_collects_to_nothing(tmp_path, monkeypatch, capsys):
+    store, db = _sure_week(tmp_path, monkeypatch, auto=1)
+    _publish(monkeypatch, capsys, store, db, "--publish", "--execute")
+
+    code, out = _collect_db(monkeypatch, capsys, store, db)
+
+    folder = stage_dir(store, RUN, "states")
+    assert code == 0 and "nothing to apply" in out and not (folder / "vetted.json").exists()
+    assert json.loads((folder / "collected.json").read_text(encoding="utf-8"))["counts"]["undecided"] == 3
+
+
+def test_a_page_published_again_is_collected_from_its_newest_build_alone(tmp_path, monkeypatch, capsys):
+    store, db = _sure_week(tmp_path, monkeypatch, auto=1)
+    _publish(monkeypatch, capsys, store, db, "--publish", "--execute")
+    _publish(monkeypatch, capsys, store, db, "--publish", "--execute")
+    run = _read(store, "states", MANIFEST_FILE)["run"]
+    _decide(db, "b", "apply")
+    newest = next(r for r in db.cards(lane="owner") if r["decision"])
+    assert len({r["page_run"] for r in db.tables["team_cleanup_cards"]}) == 2 and newest["page_run"] == run
+
+    code, _ = _collect_db(monkeypatch, capsys, store, db)
+
+    rows = json.loads((stage_dir(store, RUN, "states") / col.DECISIONS_FILE).read_text(encoding="utf-8"))
+    assert code == 0 and [(r["team_id_master"], r["source"]) for r in rows] == [("b", f"page:{run}")]
+
+
+def _page_runs(monkeypatch, *runs):
+    """The page runs the next builds take, in order, as new_page_run stamps them when a build starts."""
+    names = iter(runs)
+    monkeypatch.setattr(pages, "new_page_run", lambda: next(names))
+
+
+@pytest.mark.parametrize(
+    "flags, first, second",
+    [
+        (["--publish", "--execute"], "20261015T030010Z-a1b2c3", "20261015T030011Z-a1b2c3"),
+        (["--publish", "--execute"], "20261015T030010Z-ffffff", "20261015T030010Z-000000"),
+        ([], "20261015T030010Z-a1b2c3", "20261015T030011Z-a1b2c3"),
+    ],
+    ids=["a-second-later", "same-second", "over-an-unpublished-page"],
+)
+def test_a_newer_published_build_with_no_page_on_disk_is_refused(tmp_path, monkeypatch, capsys, flags, first, second):
+    """The website shows the newest build, so the owner may be deciding cards the page on disk lacks. Two
+    page runs stamped in one second sort by their random suffix, so only the table says which is newer."""
+    store, db = _sure_week(tmp_path, monkeypatch, auto=1)
+    _page_runs(monkeypatch, first, second)
+    _publish(monkeypatch, capsys, store, db, *flags)
+    db.lost["team_cleanup_cards"] = httpx.ReadTimeout("timed out")
+    with pytest.raises(SystemExit):
+        _publish(monkeypatch, capsys, store, db, "--publish", "--execute")
+
+    with pytest.raises(SystemExit) as caught:
+        _collect_db(monkeypatch, capsys, store, db)
+
+    assert str(caught.value).endswith(
+        f"page run {second} of this page is published, but the page on disk is the earlier {first}: the later build's "
+        "files were lost. Build and publish the page again if none of its cards is decided; decided ones stay in "
+        "team_cleanup_cards and need recovering by hand"
+    )
+
+
+def test_a_build_stamped_earlier_but_published_last_is_the_page_collected(tmp_path, monkeypatch, capsys):
+    """Two builds overlapping: the one that started first waited for the lock and published second, so its
+    page is on disk and is the newest."""
+    store, db = _sure_week(tmp_path, monkeypatch, auto=1)
+    _page_runs(monkeypatch, "20261015T030020Z-a1b2c3", "20261015T030010Z-a1b2c3")
+    _publish(monkeypatch, capsys, store, db, "--publish", "--execute")
+    _publish(monkeypatch, capsys, store, db, "--publish", "--execute")
+    _decide(db, "b", "apply")
+
+    code, _ = _collect_db(monkeypatch, capsys, store, db)
+
+    rows = json.loads((stage_dir(store, RUN, "states") / col.DECISIONS_FILE).read_text(encoding="utf-8"))
+    assert code == 0 and [(r["team_id_master"], r["source"]) for r in rows] == [("b", "page:20261015T030010Z-a1b2c3")]
+
+
+def test_a_choice_saved_on_the_page_a_rebuild_replaced_stops_the_collect(tmp_path, monkeypatch, capsys):
+    """The owner saved it on the page then shown after the rebuild checked for decided cards, so the build
+    published without it."""
+    store, db = _sure_week(tmp_path, monkeypatch, auto=1)
+    _publish(monkeypatch, capsys, store, db, "--publish", "--execute")
+    checks, saved = pages.check_undecided, []
+
+    def decided_after_the_check(*args, **kwargs):
+        checks(*args, **kwargs)
+        saved.append(_decide(db, "c", "apply"))
+
+    monkeypatch.setattr(pages, "check_undecided", decided_after_the_check)
+    code, _ = _publish(monkeypatch, capsys, store, db, "--publish", "--execute")
+    run = _read(store, "states", MANIFEST_FILE)["run"]
+    assert code == 0 and not saved[0].startswith(run)
+
+    with pytest.raises(SystemExit) as caught:
+        _collect_db(monkeypatch, capsys, store, db)
+
+    assert str(caught.value).endswith(
+        f"1 choice(s) were saved on an earlier build of this page, which page run {run} replaced without them: "
+        f"{saved[0]}. Make them again on the page shown now, then clear their decision and decided_at in "
+        "team_cleanup_cards, and collect again"
+    )
+
+
+def test_a_card_read_the_database_refuses_is_reported_not_raised(tmp_path, monkeypatch, capsys):
+    store, db = _sure_week(tmp_path, monkeypatch, auto=1)
+    _publish(monkeypatch, capsys, store, db, "--publish", "--execute")
+    db.broken["team_cleanup_cards"] = _refusal("42501", "permission denied for table team_cleanup_cards")
+
+    with pytest.raises(SystemExit) as caught:
+        _collect_db(monkeypatch, capsys, store, db)
+
+    assert str(caught.value) == (
+        f"Cannot collect the states choices for {RUN}: permission denied for table team_cleanup_cards; only the "
+        "service-role key may do this"
+    )
+
+
+def test_the_automatic_lane_s_cards_carry_their_evidence(tmp_path, monkeypatch, capsys):
+    store, db = _sure_week(tmp_path, monkeypatch, auto=1)
+    db.tables["games"] = [_game(1, "a", "x", "2026-09-05"), _game(2, "y", "a", "2026-09-12")]
+
+    _publish(monkeypatch, capsys, store, db, "--publish", "--execute")
+
+    team = db.cards(lane="auto")[0]["card"]["team"]
+    assert (team["name"], team["games"], team["first"], team["last"]) == ("Team a", 2, "2026-09-05", "2026-09-12")
+
+
+def _unpublished(db, card):
+    db.tables["team_cleanup_cards"].remove(card)
+
+
+def _stray(db, card):
+    db.tables["team_cleanup_cards"].append({**card, "card_id": card["page_run"] + "_ffffffffffffffff"})
+
+
+def _relaned(db, card):
+    card["lane"] = "auto" if card["lane"] == "owner" else "owner"
+
+
+def _untimed(db, card):
+    card["decision"] = "apply"
+
+
+def _undecided_with_a_time(db, card):
+    card["decided_at"] = "2026-10-15T03:00:00+00:00"
+
+
+@pytest.mark.parametrize(
+    "spoil, message",
+    [
+        (_unpublished, "1 card(s) of page run {run} are not in team_cleanup_cards"),
+        (_stray, "team_cleanup_cards holds card(s) page run {run} never made"),
+        (_relaned, "is in the auto lane; page run {run} built it in owner"),
+        (_untimed, "holds a decision without the time it was saved, or a time without one"),
+        (_undecided_with_a_time, "holds a decision without the time it was saved, or a time without one"),
+    ],
+    ids=["missing", "stray", "other-lane", "decision-without-time", "time-without-decision"],
+)
+def test_published_cards_that_disagree_with_the_build_are_refused(tmp_path, monkeypatch, capsys, spoil, message):
+    store, db = _sure_week(tmp_path, monkeypatch, auto=1)
+    _publish(monkeypatch, capsys, store, db, "--publish", "--execute")
+    run = _read(store, "states", MANIFEST_FILE)["run"]
+    spoil(db, db.cards(lane="owner")[0])
+
+    with pytest.raises(SystemExit) as caught:
+        _collect_db(monkeypatch, capsys, store, db)
+
+    assert message.format(run=run) in str(caught.value)
+    assert not (stage_dir(store, RUN, "states") / "collected.json").exists()
 
 
 @pytest.mark.parametrize(

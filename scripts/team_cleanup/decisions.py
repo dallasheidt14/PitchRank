@@ -9,6 +9,8 @@ from datetime import datetime, timezone
 
 DECISIONS_TABLE = "team_cleanup_decisions"
 CHANGES_TABLE = "team_cleanup_changes"
+CARDS_TABLE = "team_cleanup_cards"
+CARD_COLS = "card_id,page_run,lane,decision,note,decided_at,created_at"
 MERGES = "merges"
 KEEP_SEPARATE = "keep_separate"
 KEEP_SEPARATE_COLS = "id,team_id_master,other_team_id,decided_at,superseded_at"
@@ -86,6 +88,26 @@ def keep_separate_row(merge_id: str, keep_id: str, note: str, decided_at: str, s
         "decided_at": decided_at,
         "source": source,
     }
+
+
+def card_rows(run_id: str, stage: str, page_run: str, built_at: str, lanes: dict[str, list[dict]]) -> list[dict]:
+    """Each card of a page build as team_cleanup_cards holds it, the automatic lane's decided Apply at the
+    build. ``lanes`` maps a lane to its cards."""
+    return [
+        {
+            "card_id": c["id"],
+            "run_id": run_id,
+            "stage": stage,
+            "lane": lane,
+            "page_run": page_run,
+            "position": c["n"],
+            "card": c,
+            "decision": APPLY if lane == "auto" else None,
+            "decided_at": built_at if lane == "auto" else None,
+        }
+        for lane, cards in lanes.items()
+        for c in cards
+    ]
 
 
 def team_decision_row(stage: str, card: dict) -> dict:
