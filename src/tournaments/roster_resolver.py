@@ -195,10 +195,10 @@ def _search_provider_candidates(row: RosterRow, search: GotsportSearch, age: str
         found = search(query, age, row.section_gender)
         for hit in found:
             hits[str(hit.get("team_id"))] = hit
-        identified = [hit for hit in hits.values() if _same_club_identity(hit, row)]
-        if identified:
-            return identified
-    return list(hits.values())
+    # Queries can expose different provider IDs under equivalent club labels.
+    # Finish every query before deciding that an identity is unique.
+    identified = [hit for hit in hits.values() if _same_club_identity(hit, row)]
+    return identified or list(hits.values())
 
 
 def _state_code(value: Any) -> str | None:
@@ -423,12 +423,11 @@ def resolve_row(
              for candidate in (lookup_club_candidates(row) if lookup_club_candidates else ())
              if candidate.get("team_id_master")}
     missing_details: set[str] = set()
-    if local:
-        # The club lookup already returns the complete cohort-scoped set. Avoid
-        # retrieving hundreds of unrelated squads sharing a generic team label.
-        exact_ids = {team_id for team_id, candidate in local.items()
-                     if _names_the_same_team(candidate.get("team_name", ""), row)}
-    else:
+    exact_ids = {team_id for team_id, candidate in local.items()
+                 if _names_the_same_team(candidate.get("team_name", ""), row)}
+    if not exact_ids:
+        # Other squads at this club do not prove the requested team is absent.
+        # Keep the literal-name fallback, including equivalent club spellings.
         exact_ids = set(lookup_exact_name(row.team_name_stripped, row.section_age_group, row.section_gender))
         for team_id in sorted(exact_ids):
             details = lookup_team_details(team_id) if lookup_team_details else None
@@ -735,8 +734,10 @@ def make_exact_name_lookup(supabase_client: Any, merge_resolver: Any = None) -> 
 def make_club_candidate_lookup(supabase_client: Any, merge_resolver: Any = None) -> ClubCandidateLookup:
     """Read every current-cohort squad at the submitted club, across providers.
 
-    Different team labels are review candidates only. Literal matching keeps
-    club wildcards from admitting unrelated clubs; pagination preserves ambiguity.
+    Include exact squad names under equivalent club labels so a literal-club
+    hit cannot hide a second identity. Fetch their metadata in the same paginated
+    query instead of issuing one details request per generic-name result.
+    Different squad names remain review candidates only.
     """
     def lookup(row: RosterRow) -> list[dict[str, Any]]:
         if not row.club_raw.strip():
@@ -748,9 +749,16 @@ def make_club_candidate_lookup(supabase_client: Any, merge_resolver: Any = None)
                     .select("team_id_master,team_name,club_name,age_group,gender,state_code,state")
                     .eq("age_group", row.section_age_group).eq("gender", row.section_gender)
                     .eq("is_deprecated", False)
-                    .ilike("club_name", escape_ilike_literal(row.club_raw.strip()))
+                    .or_(f"club_name.ilike.{_postgrest_ilike_operand(row.club_raw.strip())},"
+                         f"{_exact_name_or_filter(row.team_name_stripped)}")
                     .order("team_id_master").range(offset, offset + 99).execute().data or [])
             for candidate in page:
+                club = str(candidate.get("club_name") or "").strip()
+                literal_club = club.casefold() == row.club_raw.strip().casefold()
+                equivalent_identity = (bool(club) and _names_the_same_team(candidate.get("team_name", ""), row)
+                                       and are_same_club(row.club_raw, club, threshold=1.0))
+                if not literal_club and not equivalent_identity:
+                    continue
                 team_id = _resolved_id(candidate.get("team_id_master"), merge_resolver)
                 if not team_id:
                     continue

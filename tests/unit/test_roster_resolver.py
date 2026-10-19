@@ -943,11 +943,10 @@ def test_reading_rage_club_search_resolves_exact_provider_identity():
 
     def search(query, age, gender):
         queries.append((query, age, gender))
-        assert query == "Reading Rage Surf", "Do not start with the generic squad name"
-        return [{"team_id": 753576, "team_name": "ECNL RL G2012/13", "club_name": query}]
+        return [{"team_id": 753576, "team_name": "ECNL RL G2012/13", "club_name": "Reading Rage Surf"}]
 
     result = _resolve_with_database(row, [_club_team()], search)
-    assert queries == [("Reading Rage Surf", "u14", "Female")]
+    assert queries == [("Reading Rage Surf", "u14", "Female"), ("ECNL RL G2012/13", "u14", "Female")]
     assert (result.status, result.team_id_master) == ("gotsport_id", READING)
 
 
@@ -1126,3 +1125,70 @@ def test_search_page_safeguard_never_returns_a_partial_candidate_set():
                                "pagination": {"current_page": 1, "total_pages": 26}}])
     with pytest.raises(ValueError, match="incomplete"):
         search_gotsport_teams("ECNL RL", "u14", "Female", session=session)
+
+
+
+def test_team_name_query_cannot_hide_second_equivalent_club_provider_identity():
+    row = _row("Female U14\nMcLean YS\tBlue\tVA")
+    first = {"team_id": 11, "team_name": "Blue", "club_name": "McLean YS"}
+    second = {"team_id": 22, "team_name": "Blue", "club_name": "McLean Youth Soccer"}
+    queries = []
+
+    def search(query, *_):
+        queries.append(query)
+        return [first] if query == "McLean YS" else [first, second]
+
+    result = _resolve_with_database(row, [_club_team("mclean", "McLean YS", "Blue", state_code="VA")], search)
+    assert queries == ["McLean YS", "Blue"]
+    assert result.status == "review"
+    assert result.team_id_master is None
+    assert {str(c["team_id"]) for c in result.candidates if c.get("team_id")} == {"11", "22"}
+
+
+def test_club_search_match_cannot_bypass_a_later_query_failure():
+    row = _row("Female U14\nReading Rage Surf\tECNL RL G2012/13\tPA")
+
+    def search(query, *_):
+        if query == "Reading Rage Surf":
+            return [{"team_id": 753576, "team_name": "ECNL RL G2012/13", "club_name": query}]
+        raise ValueError("Search incomplete")
+
+    with pytest.raises(ValueError, match="incomplete"):
+        _resolve_with_database(row, [_club_team()], search)
+
+
+def test_other_club_squads_do_not_suppress_exact_name_fallback():
+    row = _row("Female U14\nMcLean YS\tBlue\tVA")
+    wanted = _club_team("wanted", "McLean Youth Soccer", "Blue", state_code="VA")
+    other = _club_team("other", "McLean YS", "Red", state_code="VA")
+    lookups = []
+
+    def exact(*args):
+        lookups.append(args)
+        return ["wanted"]
+
+    result = resolve_row(row, gotsport_search=lambda *_: [], lookup_provider_id=_never_called,
+                         lookup_club_candidates=lambda _: [other], lookup_exact_name=exact,
+                         lookup_team_details=lambda _: wanted)
+    assert lookups == [("Blue", "u14", "Female")]
+    assert (result.status, result.team_id_master) == ("exact_name", "wanted")
+
+
+def test_database_lookup_includes_equivalent_club_labels_without_hiding_ambiguity():
+    row = _row("Female U14\nMcLean YS\tBlue\tVA")
+    exact = _club_team("exact", "McLean YS", "Blue", state_code="VA")
+    alias = _club_team("alias", "McLean Youth Soccer", "Blue", state_code="VA")
+    other = _club_team("other", "McLean YS", "Red", state_code="VA")
+    foreign = _club_team("foreign", "Other Academy", "Blue", state_code="VA")
+    result = _resolve_with_database(row, [exact, alias, other, foreign], lambda *_: [])
+    assert result.status == "review"
+    assert result.team_id_master is None
+    assert {c["team_id_master"] for c in result.candidates} == {"exact", "alias", "other"}
+
+
+def test_database_lookup_finds_requested_team_under_equivalent_club_label():
+    row = _row("Female U14\nMcLean YS\tBlue\tVA")
+    alias = _club_team("wanted", "McLean Youth Soccer", "Blue", state_code="VA")
+    other = _club_team("other", "McLean YS", "Red", state_code="VA")
+    result = _resolve_with_database(row, [alias, other], lambda *_: [])
+    assert (result.status, result.team_id_master) == ("exact_name", "wanted")
