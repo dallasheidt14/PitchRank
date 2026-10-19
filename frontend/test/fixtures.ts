@@ -1,5 +1,6 @@
 import type Stripe from 'stripe';
 import type { RankingRow } from '@/types/RankingRow';
+import type { CardRow, CleanupCard } from '@/lib/mission-control/cleanup';
 
 /** Defaults describe an established, fully ranked team; override per test. */
 export function makeRankingRow(overrides: Partial<RankingRow> = {}): RankingRow {
@@ -61,6 +62,64 @@ export function makeGame(overrides: Partial<GameFixture> = {}): GameFixture {
     away_score: 1,
     is_excluded: false,
     ...overrides,
+  };
+}
+
+/** A state fill's card as pages.py builds it; override per test. */
+export function makeCleanupCard(overrides: Partial<CleanupCard> = {}): CleanupCard {
+  return {
+    id: 'build_card',
+    n: 1,
+    group: 'B fill',
+    whole: true,
+    alike: null,
+    interest: false,
+    sure: null,
+    change: { field: 'state_code', old: null, new: 'NV' },
+    why: 'its club plays in NV',
+    team: {
+      name: 'Las Vegas Sports Academy 2013 Boys',
+      original: null,
+      club: 'Las Vegas Sports Academy',
+      state: null,
+      age: 'u13',
+      gender: 'Male',
+      provider: 'gotsport',
+      games: 12,
+      excluded: 0,
+      first: '2026-08-15',
+      last: '2026-10-11',
+    },
+    ...overrides,
+  };
+}
+
+type CleanupCardColumns = { run_id: string; decided_by_user_id: string | null };
+
+/** A team_cleanup_cards row, typed to sit in a Supabase double's table. */
+export type CleanupCardFixture = CardRow & CleanupCardColumns & Record<string, unknown>;
+
+/** An undecided owner card of a states page, as team_cleanup_cards holds it; override per test. */
+export function makeCleanupCardRow(
+  overrides: Partial<Omit<CardRow, 'card'> & CleanupCardColumns> & { card?: Partial<CleanupCard> } = {}
+): CleanupCardFixture {
+  const { card, ...row } = overrides;
+  const pageRun = row.page_run ?? '20261021T180000Z-a1b2c3';
+  const cardId = row.card_id ?? `${pageRun}_0000000000000001`;
+  return {
+    run_id: '2026-10-21-all',
+    stage: 'states',
+    lane: 'owner',
+    page_run: pageRun,
+    card_id: cardId,
+    position: 1,
+    decision: null,
+    note: null,
+    decided_at: null,
+    decided_by_user_id: null,
+    created_at: '2026-10-21T18:05:00.25+00:00',
+    ...row,
+    card: makeCleanupCard({ id: cardId, n: row.position ?? 1, ...card }),
   };
 }
 

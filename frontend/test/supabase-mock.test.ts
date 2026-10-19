@@ -57,4 +57,52 @@ describe('filteringClientMock', () => {
 
     expect((data as typeof rows).map((row) => row.id)).toEqual(['1', '3']);
   });
+
+  it('answers only the columns a plain select names, and a column a row lacks as null', async () => {
+    const { data } = await client().client.from('games').select('id, score, missing').eq('home', B);
+
+    expect(data).toEqual([{ id: '2', score: null, missing: null }]);
+  });
+
+  it('keeps NULL and missing values in is(col, null), and refuses any other value', async () => {
+    const db = filteringClientMock({ games: [{ id: '1', score: null }, { id: '2' }, { id: '3', score: 0 }] });
+
+    const { data } = await db.client.from('games').select('id').is('score', null);
+
+    expect(data).toEqual([{ id: '1' }, { id: '2' }]);
+    expect(() =>
+      db.client
+        .from('games')
+        .select('id')
+        .is('score', 0 as unknown as null)
+    ).toThrow(/does not model/);
+  });
+});
+
+describe('filteringClientMock updates', () => {
+  const fresh = () =>
+    filteringClientMock({
+      games: [
+        { id: '1', score: null, note: 'a' },
+        { id: '2', score: 2, note: 'b' },
+      ],
+    });
+
+  it('changes only the rows its filters leave, and only once the request is sent', async () => {
+    const db = fresh();
+
+    const pending = db.client.from('games').update({ note: 'changed' }).is('score', null);
+    expect(db.tableRows.games.map((row) => row.note)).toEqual(['a', 'b']);
+    await pending;
+
+    expect(db.tableRows.games.map((row) => row.note)).toEqual(['changed', 'b']);
+  });
+
+  it('answers the changed rows only when select follows, as supabase-js does', async () => {
+    const quiet = await fresh().client.from('games').update({ note: 'x' }).eq('id', '2');
+    const answered = await fresh().client.from('games').update({ note: 'x' }).eq('id', '2').select('id, note');
+
+    expect(quiet.data).toBeNull();
+    expect(answered.data).toEqual([{ id: '2', note: 'x' }]);
+  });
 });
