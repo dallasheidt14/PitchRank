@@ -1390,6 +1390,10 @@ def revert_logs(stage: str, progress: dict, run_id: str) -> list[tuple[str, str]
     return [(b["batch"], log) for b in reversed(progress["batches"]) if (log := own_log(stage, b, run_id))]
 
 
+class NotYet(str):
+    """A revert refusal that time alone lifts, so the revert exits BUSY and a caller tries again later."""
+
+
 def revert_refusal(sb, store: Path, folder: Path, run_id: str, stage: str, progress: dict) -> str | None:
     """Why the stage cannot be reverted yet, if it cannot: a batch or a review-queue step with no recorded
     end, a batch whose new logs are not told apart as its own, or for states one of its own writes outside
@@ -1430,7 +1434,9 @@ def revert_refusal(sb, store: Path, folder: Path, run_id: str, stage: str, progr
         if _instant(window[1]) > now
     ]
     if still_open:
-        return f"Not reverting yet: a write could still land in {', '.join(still_open)}; revert once it has closed"
+        return NotYet(
+            f"Not reverting yet: a write could still land in {', '.join(still_open)}; revert once it has closed"
+        )
     foreign = foreign_writes(sb, run_id, progress)
     if foreign:
         return (
@@ -1523,7 +1529,7 @@ def revert_stage(sb, store: Path, run_id: str, stage: str, lane: str, outside_wi
             refusal = revert_refusal(sb, store, folder, run_id, stage, progress)
             if refusal:
                 lines.append(f"Refused. {refusal}")
-                raise SystemExit(refusal)
+                raise Busy(refusal) if isinstance(refusal, NotYet) else SystemExit(refusal)
             if stage == STATES:
                 for step, (actor, window, label) in enumerate(reversed(state_windows(run_id, progress))):
                     before(step, label)

@@ -40,7 +40,20 @@ CONFIG = {
     "apply_window": {"start": {"weekday": "Friday", "time": "17:00"}, "end": {"weekday": "Sunday", "time": "22:00"}},
     "review_deadline": {"weekday": "Sunday", "time": "18:00"},
 }
-COLUMNS = {"run_id", "status", "owner_done_at", "owner_done_by"}
+COLUMNS = {
+    "team_cleanup_runs": {"run_id", "status", "owner_done_at", "owner_done_by"},
+    "team_cleanup_requests": {
+        "id",
+        "run_id",
+        "stage",
+        "lane",
+        "action",
+        "requested_at",
+        "status",
+        "handled_at",
+        "result",
+    },
+}
 
 
 def _config(folder, **changes):
@@ -55,47 +68,70 @@ class _Result:
 
 
 class _Runs:
-    """team_cleanup_runs: a select or an update, filtered by eq() and is_(col, "null"), recorded at execute().
-    Like PostgREST it refuses a column the table lacks; ``broken`` is the error every execute() raises."""
+    """team_cleanup_runs and team_cleanup_requests: a select or an update, filtered by eq() and is_(col,
+    "null") and ordered by order(), recorded at execute(). Like PostgREST it refuses a column the table lacks;
+    ``broken`` is the error every execute() raises."""
 
-    def __init__(self, rows=()):
-        self.rows = [dict(r) for r in rows]
+    def __init__(self, rows=(), requests=()):
+        self.tables = {
+            "team_cleanup_runs": [dict(r) for r in rows],
+            "team_cleanup_requests": [dict(r) for r in requests],
+        }
         self.writes = []
         self.broken = None
 
+    @property
+    def rows(self):
+        return self.tables["team_cleanup_runs"]
+
+    @property
+    def requests(self):
+        return self.tables["team_cleanup_requests"]
+
     def table(self, name):
-        assert name == "team_cleanup_runs"
-        return _RunsQuery(self)
+        assert name in COLUMNS, f"no table {name}"
+        return _RunsQuery(self, name)
 
 
 class _RunsQuery:
-    def __init__(self, db):
-        self.db, self.filters, self.payload, self.columns = db, [], None, None
+    def __init__(self, db, name):
+        self.db, self.name, self.filters, self.payload, self.columns, self.ordered = db, name, [], None, None, None
+
+    def _known(self, *columns):
+        assert set(columns) <= COLUMNS[self.name], f"PostgREST refuses unknown columns {sorted(columns)}"
 
     def select(self, columns):
         self.columns = [c.strip() for c in columns.split(",")]
-        assert set(self.columns) <= COLUMNS, f"PostgREST refuses unknown columns {self.columns}"
+        self._known(*self.columns)
         return self
 
     def update(self, payload):
-        assert set(payload) <= COLUMNS, f"PostgREST refuses unknown columns {sorted(payload)}"
+        self._known(*payload)
         self.payload = payload
         return self
 
     def eq(self, column, value):
-        assert column in COLUMNS
+        self._known(column)
         self.filters.append((column, value))
         return self
 
     def is_(self, column, value):
-        assert column in COLUMNS and value == "null"
+        self._known(column)
+        assert value == "null"
         self.filters.append((column, None))
+        return self
+
+    def order(self, column):
+        self._known(column)
+        self.ordered = column
         return self
 
     def execute(self):
         if self.db.broken:
             raise self.db.broken
-        rows = [r for r in self.db.rows if all(r.get(c) == v for c, v in self.filters)]
+        rows = [r for r in self.db.tables[self.name] if all(r.get(c) == v for c, v in self.filters)]
+        if self.ordered:
+            rows.sort(key=lambda r: r[self.ordered])
         if self.payload is not None:
             self.db.writes.append(self.payload)
             for row in rows:
@@ -111,11 +147,11 @@ def _arg(command, flag):
 class _Runner:
     """Stands in for each script the tick runs: records the command, refuses what the script refuses, and
     otherwise writes the markers the script would. ``codes`` maps (script, stage) to the exit codes of its
-    successive runs; a run with no entry left behaves as the script would. _tick() sets ``db``, ``now`` and
-    ``window``."""
+    successive runs; a run with no entry left behaves as the script would. ``auto`` is how many changes a page
+    sends to the automatic lane. _tick() sets ``db``, ``now`` and ``window``."""
 
     def __init__(self, store, codes=None):
-        self.store, self.codes, self.commands = store, codes or {}, []
+        self.store, self.codes, self.commands, self.auto = store, codes or {}, [], 1
         self.db, self.now, self.window = None, None, None
 
     def __call__(self, command, log):
@@ -141,8 +177,11 @@ class _Runner:
         elif script == "collect.py" and "--from-db" in command:
             if not any(r["run_id"] == run_id and r.get("owner_done_at") for r in self.db.rows):
                 return 1, "the owner has not marked the review done"
-        elif script == "apply_stage.py" and not in_window(self.window, self.now):
-            return 75, "Outside the apply window"
+        elif script == "apply_stage.py":
+            if "--revert" in command and not (_lane(self.store, command) / "RECORD.md").exists():
+                return 1, "nothing of it was applied"
+            if not in_window(self.window, self.now):
+                return 75, "Outside the apply window"
         elif script == "end_run.py" and unfinished(self.store, read_run(self.store, run_id)):
             return 1, "a stage is unfinished"
         return None
@@ -154,15 +193,16 @@ class _Runner:
             _proposed(self.store, f"{_arg(command, '--date')}-all", "reviewing")
         elif script == "pages.py":
             folder = stage_dir(self.store, run_id, stage)
-            _write(folder / "page.json", {"run": "20261021T190000Z-a1b2c3", "auto": 1, "published": True})
-            _write(folder / "page.manifest.json", {"cards": {"c1": {}, "c2": {}}, "auto": {"a1": {}}})
+            _write(folder / "page.json", {"run": "20261021T190000Z-a1b2c3", "auto": self.auto, "published": True})
+            auto = {f"a{n}": {} for n in range(self.auto)}
+            _write(folder / "page.manifest.json", {"cards": {"c1": {}, "c2": {}}, "auto": auto})
         elif script == "collect.py":
             folder = stage_dir(self.store, run_id, stage) / ("auto" if lane == "auto" else "")
             counts = {"apply": 1} if lane == "auto" else {"apply": 1, "dont_apply": 0, "unsure": 0, "undecided": 1}
             _write(folder / "collected.json", {"counts": counts})
         elif script == "apply_stage.py":
-            folder = stage_dir(self.store, run_id, stage) / ("auto" if lane == "auto" else "")
-            (folder / "RECORD.md").write_text("applied", encoding="utf-8")
+            marker = "REVERT.md" if "--revert" in command else "RECORD.md"
+            (_lane(self.store, command) / marker).write_text("done", encoding="utf-8")
         elif script == "end_run.py":
             write_run(self.store, {**read_run(self.store, run_id), "status": "done"})
 
@@ -171,6 +211,11 @@ class _Runner:
             (Path(c[0]).name, _arg(c, "--stage"), _arg(c, "--lane") or ("from-db" if "--from-db" in c else None))
             for c in self.commands
         ]
+
+
+def _lane(store, command):
+    folder = stage_dir(store, _arg(command, "--run"), _arg(command, "--stage"))
+    return folder / "auto" if _arg(command, "--lane") == "auto" else folder
 
 
 def _write(path, payload):
@@ -357,8 +402,28 @@ def test_a_week_whose_propose_fails_before_its_run_exists_emails_the_owner_after
 # --- the review ----------------------------------------------------------------------------------------
 
 
-def _reviewing(owner_done_at=None):
-    return _Runs([{"run_id": RUN, "status": "reviewing", "owner_done_at": owner_done_at, "owner_done_by": None}])
+def _reviewing(owner_done_at=None, requests=()):
+    run = {"run_id": RUN, "status": "reviewing", "owner_done_at": owner_done_at, "owner_done_by": None}
+    return _Runs([run], requests)
+
+
+def _undo(stage="states", lane="auto", n=1):
+    """An undo the owner asked for on the page, as the website files it."""
+    return {
+        "id": f"r{n}",
+        "run_id": RUN,
+        "stage": stage,
+        "lane": lane,
+        "action": "revert",
+        "requested_at": f"2026-10-24T17:0{n}:00Z",
+        "status": "pending",
+        "handled_at": None,
+        "result": None,
+    }
+
+
+def _reverts(runner):
+    return [c for c in runner.commands if "--revert" in c]
 
 
 def test_every_page_is_built_and_published_and_the_owner_emailed_once(tmp_path, monkeypatch, emails):
@@ -465,6 +530,87 @@ def test_a_stage_noted_as_not_run_this_week_is_left_alone(tmp_path, monkeypatch,
     _tick(monkeypatch, store, _reviewing(), runner, BEFORE_WINDOW)
 
     assert "ages" not in {stage for _, stage, _ in runner.ran()}
+
+
+# --- undo requests --------------------------------------------------------------------------------------
+
+
+def test_an_undo_runs_once_its_lane_has_applied_and_is_recorded_done_before_the_run_closes(
+    tmp_path, monkeypatch, emails
+):
+    store = tmp_path / "store"
+    _proposed(store)
+    db = _reviewing("2026-10-24T17:00:00Z", [_undo("states", "auto")])
+    runner = _Runner(store)
+
+    assert _tick(monkeypatch, store, db, runner, IN_WINDOW) == 0
+
+    assert _reverts(runner) == [
+        [
+            "scripts/team_cleanup/apply_stage.py",
+            "--run",
+            RUN,
+            "--stage",
+            "states",
+            "--lane",
+            "auto",
+            "--revert",
+            "--execute",
+            "--store",
+            str(store),
+        ]
+    ]
+    assert runner.commands.index(_reverts(runner)[0]) < [Path(c[0]).name for c in runner.commands].index("end_run.py")
+    assert (db.requests[0]["status"], db.requests[0]["handled_at"], db.requests[0]["result"]) == (
+        "done",
+        "2026-10-24T18:00:00Z",
+        "ran",
+    )
+
+
+def test_an_undo_of_a_lane_not_yet_applied_waits_for_it(tmp_path, monkeypatch, emails):
+    store = tmp_path / "store"
+    _proposed(store)
+    db = _reviewing(None, [_undo("states", "owner")])
+    runner = _Runner(store)
+
+    _tick(monkeypatch, store, db, runner, IN_WINDOW)
+
+    assert _reverts(runner) == [] and db.requests[0]["status"] == "pending"
+
+
+def test_an_undo_that_must_wait_holds_the_close_and_one_that_fails_is_recorded(tmp_path, monkeypatch, emails):
+    store = tmp_path / "store"
+    _proposed(store)
+    db = _reviewing("2026-10-24T17:00:00Z", [_undo("states", "auto")])
+    # The states automatic apply, the owner's apply, then the undo: waiting, then failing.
+    runner = _Runner(store, codes={("apply_stage.py", "states"): [0, 0, 75, 1]})
+
+    _tick(monkeypatch, store, db, runner, IN_WINDOW)
+
+    assert db.requests[0]["status"] == "pending" and read_run(store, RUN)["status"] == "reviewing"
+    assert "end_run.py" not in [Path(c[0]).name for c in runner.commands]
+
+    assert _tick(monkeypatch, store, db, runner, IN_WINDOW + timedelta(hours=1)) == 1
+
+    assert (db.requests[0]["status"], db.requests[0]["result"]) == ("failed", "the step's own refusal")
+
+
+def test_an_undo_of_a_lane_nothing_was_sent_to_or_a_stage_not_run_is_recorded_failed(tmp_path, monkeypatch, emails):
+    store = tmp_path / "store"
+    _proposed(store, notes={"ages": "skill_stale: the self-check exited 1"})
+    db = _reviewing("2026-10-24T17:00:00Z", [_undo("clubs", "auto", 1), _undo("ages", "owner", 2)])
+    runner = _Runner(store)
+    runner.auto = 0
+
+    _tick(monkeypatch, store, db, runner, IN_WINDOW)
+
+    assert _reverts(runner) == []
+    assert [(r["status"], r["result"]) for r in db.requests] == [
+        ("failed", "nothing was sent to the clubs automatic lane, so nothing to undo"),
+        ("failed", "the ages stage was not run this week, so nothing of it applied"),
+    ]
+    assert read_run(store, RUN)["status"] == "done"
 
 
 # --- waiting, failing and being stuck -------------------------------------------------------------------

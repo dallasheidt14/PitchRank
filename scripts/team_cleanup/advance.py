@@ -14,7 +14,8 @@ and writes nothing to the run or the database; --execute does it.
                 at the review deadline (config/team_cleanup.json), mark the review done for the owner,
                 so the choices made stand and the rest come back next week
                 once the review is done: collect each stage's choices and apply them
-                once every stage is finished: close the run and email the owner a summary
+                once a lane has applied: undo it when the owner asked to on the page
+                once every stage is finished and no undo waits: close the run and email the owner a summary
 
 An apply waits for the apply window, whose end the review deadline must fall before, so the choices it
 marks done apply that week. A step that exits 75 (another writer at work, the run held by another
@@ -61,12 +62,14 @@ from scripts.team_cleanup.apply_stage import (  # noqa: E402
     _instant,
     _tail,
     in_window,
+    lane_flags,
     load_window,
 )
 from scripts.team_cleanup.decisions import resolve_execute  # noqa: E402
 from scripts.team_cleanup.end_run import unfinished  # noqa: E402
 from scripts.team_cleanup.propose_week import ALL, PROPOSED_STAGES, run_id_for, run_step  # noqa: E402
 from scripts.team_cleanup.run_store import (  # noqa: E402
+    APPLY_MARKER,
     AUTO,
     AUTOPILOT_FILE,
     BUSY,
@@ -81,6 +84,8 @@ from scripts.team_cleanup.run_store import (  # noqa: E402
     RUNS_TABLE,
     SHARED_STEPS,
     _utc_stamp,
+    lane_dir,
+    lane_name,
     list_runs,
     refused,
     run_dir,
@@ -105,6 +110,7 @@ COLLECT = "scripts/team_cleanup/collect.py"
 APPLY = "scripts/team_cleanup/apply_stage.py"
 END_RUN = "scripts/team_cleanup/end_run.py"
 STATUS_COMMAND = "python scripts/team_cleanup/advance.py"
+REQUESTS_TABLE = "team_cleanup_requests"
 
 
 @dataclass(frozen=True)
@@ -198,6 +204,7 @@ class Tick:
         self.failed = False
         self.blocked: list[str] = []
         self.steps = 0
+        self.last_log: Path | None = None
 
     # --- running a step ------------------------------------------------------------------------
 
@@ -210,6 +217,7 @@ class Tick:
         name = f"{self.now:%Y%m%dT%H%M%SZ}-{self.steps:02d}-{Path(action.command[0]).stem}.log"
         log = self.store / "logs" / "autopilot" / run_id / name
         code = run_step(action.command, log)
+        self.last_log = log
         if code == 0:
             print(f"{action.what}: done")
         elif code == BUSY:
@@ -302,7 +310,8 @@ class Tick:
                 held.add(action.stage)
         if all(self.page_up(run_id, stage) for stage in stages):
             self.email_once(run_id, state, "ready", *ready_email(self.store, run_id, stages, self.deadline(run_id)))
-        if not unfinished(self.store, run):
+        undo_waits = self.undo(run_id, stages)
+        if not unfinished(self.store, run) and not undo_waits:
             close = [END_RUN, "--run", run_id, "--done", "--execute", "--store", str(self.store)]
             if self.run(run_id, Action(f"close run {run_id}", close)) == 0:
                 self.email_once(run_id, state, "closed", *summary_email(self.store, run_id, stages))
@@ -340,6 +349,61 @@ class Tick:
         step = stage_progress(self.store, run_id, stage).next_step
         return step is None or step.name not in SHARED_STEPS
 
+    def undo(self, run_id: str, stages: list[str]) -> bool:
+        """Run each undo the owner asked for on the page once its lane has applied, recording how it went;
+        whether one still waits, which holds the run open so no undo is left behind by the close."""
+        try:
+            requests = (
+                self.sb.table(REQUESTS_TABLE)
+                .select("id,stage,lane")
+                .eq("run_id", run_id)
+                .eq("status", "pending")
+                .order("requested_at")
+                .execute()
+                .data
+            )
+        except (APIError, httpx.HTTPError) as exc:
+            self.blocked_by(refused(f"Reading run {run_id}'s undo requests from {REQUESTS_TABLE}", exc, STATUS_COMMAND))
+            return True
+        waits = False
+        for request in requests:
+            stage, lane = request["stage"], request["lane"]
+            if stage not in stages:
+                self.settle(request, "failed", f"the {stage} stage was not run this week, so nothing of it applied")
+                continue
+            if not (lane_dir(self.store, run_id, stage, lane) / APPLY_MARKER).exists():
+                progress = stage_progress(self.store, run_id, stage)
+                if (progress.auto_step if lane == AUTO else progress.next_step) is None:
+                    self.settle(request, "failed", f"nothing was sent to {lane_name(stage, lane)}, so nothing to undo")
+                else:
+                    waits = True
+                    print(f"The undo of {lane_name(stage, lane)} waits until it has applied.")
+                continue
+            command = [APPLY, "--run", run_id, "--stage", stage, *lane_flags(lane), "--revert", "--execute"]
+            code = self.run(run_id, Action(f"undo {lane_name(stage, lane)}", [*command, "--store", str(self.store)]))
+            if code is None or code == BUSY:
+                waits = True
+            else:
+                self.settle(request, "done" if code == 0 else "failed", _tail(self.last_log, 3) or "no output")
+        return waits
+
+    def settle(self, request: dict, status: str, result: str) -> None:
+        """Record an undo request as handled, unless something else already has."""
+        if not self.execute:
+            print(f"DRY RUN -- would record the undo of {request['stage']} {request['lane']} as {status}: {result}")
+            return
+        try:
+            self.sb.table(REQUESTS_TABLE).update(
+                {"status": status, "handled_at": _utc_stamp(self.now), "result": result[:2000]}
+            ).eq("id", request["id"]).eq("status", "pending").execute()
+        except (APIError, httpx.HTTPError) as exc:
+            self.blocked_by(refused(f"Recording an undo request in {REQUESTS_TABLE}", exc, STATUS_COMMAND))
+
+    def blocked_by(self, problem: str) -> None:
+        self.failed = True
+        self.blocked.append(problem)
+        print(problem)
+
     def deadline(self, run_id: str) -> datetime:
         return deadline_of(run_id, self.deadline_minutes)
 
@@ -364,10 +428,7 @@ class Tick:
                 .data
             )
         except (APIError, httpx.HTTPError) as exc:
-            problem = refused(f"Reading or marking run {run_id}'s review in {RUNS_TABLE}", exc, STATUS_COMMAND)
-            self.failed = True
-            self.blocked.append(problem)
-            print(problem)
+            self.blocked_by(refused(f"Reading or marking run {run_id}'s review in {RUNS_TABLE}", exc, STATUS_COMMAND))
             return False
         if marked:
             print(f"The review deadline passed, so run {run_id}'s review is marked done.")
