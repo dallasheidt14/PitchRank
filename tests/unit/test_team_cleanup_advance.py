@@ -620,6 +620,22 @@ def test_an_undo_of_the_last_finished_run_is_run_by_the_next_tick(tmp_path, monk
     assert db.requests[0]["status"] == "done"
 
 
+def test_an_undo_left_on_an_older_finished_run_is_still_run_after_a_newer_run_closes(tmp_path, monkeypatch, emails):
+    store = tmp_path / "store"
+    older = "2026-10-14-all"
+    _proposed(store, older, "done")
+    _proposed(store, status="done")
+    (stage_dir(store, older, "states") / "auto").mkdir()
+    (stage_dir(store, older, "states") / "auto" / "RECORD.md").write_text("applied", encoding="utf-8")
+    db = _Runs([], [{**_undo("states", "auto"), "run_id": older}])
+    runner = _Runner(store)
+
+    _tick(monkeypatch, store, db, runner, IN_WINDOW)
+
+    assert [_arg(c, "--run") for c in _reverts(runner)] == [older]
+    assert db.requests[0]["status"] == "done"
+
+
 def test_a_requests_table_not_yet_created_holds_no_run_open(tmp_path, monkeypatch, emails):
     store = tmp_path / "store"
     _proposed(store)

@@ -254,10 +254,13 @@ class Tick:
 
     def tick(self) -> int:
         runs = list_runs(self.store)
-        finished = next((run for run in runs if run["status"] == DONE), None)
-        if finished is not None:
-            # The page offers to undo the last finished run's changes, which apply and close in one tick.
-            self.undo(finished["run_id"], open_stages(finished))
+        # The page offers to undo the last finished run's changes, which apply and close in one tick; an undo
+        # filed while a newer run was closing may name the run before it, so every finished run with one waiting
+        # is taken.
+        finished = {run["run_id"]: run for run in runs if run["status"] == DONE}
+        for run_id in self.waiting_runs():
+            if run_id in finished:
+                self.undo(run_id, open_stages(finished[run_id]))
         run = next((run for run in runs if run["status"] in OPEN_STATUSES), None)
         if run is None:
             self.summarize_closed(runs)
@@ -407,6 +410,14 @@ class Tick:
             ).eq("id", request["id"]).eq("status", "pending").execute()
         except (APIError, httpx.HTTPError) as exc:
             self.blocked_by(refused(f"Recording an undo request in {REQUESTS_TABLE}", exc, STATUS_COMMAND))
+
+    def waiting_runs(self) -> list[str]:
+        """The runs an undo request still waits on; none when the requests cannot be read."""
+        try:
+            rows = self.sb.table(REQUESTS_TABLE).select("run_id").eq("status", "pending").execute().data
+        except (APIError, httpx.HTTPError):
+            return []
+        return sorted({r["run_id"] for r in rows})
 
     def undone(self, run_id: str) -> list[str]:
         """How each undo the owner asked for on the run went, for the summary; none when they cannot be read."""
