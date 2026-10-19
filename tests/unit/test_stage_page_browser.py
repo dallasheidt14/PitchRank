@@ -181,6 +181,19 @@ def test_editing_waits_for_a_live_snapshot_and_shows_a_choice_saved_elsewhere(op
     assert not errors
 
 
+def test_a_state_card_shows_its_evidence_as_the_website_does(open_page):
+    page, errors = open_page()
+
+    lines = [page.locator(".card").nth(n).locator(".evidence").all_inner_texts() for n in range(3)]
+
+    assert lines == [
+        ["Opponents: none with a state (of 2 teams played)", "Club-mates: UT 2 · NV 1 · WA 1"],
+        ["Club-mates: UT 2 · NV 1 · WA 1"],
+        ["Club-mates: UT 2 · NV 1"],
+    ]
+    assert not errors
+
+
 def test_apply_all_saves_only_its_groups_undecided_cards(open_page, built):
     page, errors = open_page({"other": {"decision": "dont_apply", "note": "plays in CA"}})
     _live(page)
