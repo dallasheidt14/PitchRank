@@ -1207,6 +1207,45 @@ def test_a_states_page_with_no_change_to_answer_reads_no_evidence(tmp_path, monk
     assert code == 0
     assert "team_state_probe_log" not in db.executes
     assert [p["team_id_master"] for p in _read(store, "states", MANIFEST_FILE)["cards"].values()] == ["lock"]
+    assert "evidence" not in _cards(store, "states")[0]
+
+
+def test_a_state_card_shows_its_opponents_club_mates_gotsport_answer_and_name_reading(tmp_path, monkeypatch, capsys):
+    """Each distinct opponent counts once, by its stored state, and an excluded game counts none; the
+    team itself is not its own club-mate. None of it decides the card."""
+    store = tmp_path / "store"
+    _reviewing(store)
+    _states(store, [_decision("fix", "UT", "NV")])
+    club = "Reno United"
+    teams = [
+        _team("fix", state="UT", club=club),
+        _team("o1"),
+        _team("o2"),
+        _team("o3", state=None),
+        _team("x", state="CA"),
+        _team("m1", club=club),
+        _team("m2", club=club),
+        _team("m3", state="CA", club=club),
+    ]
+    games = [
+        _game(1, "fix", "o1", "2026-09-05"),
+        _game(2, "o1", "fix", "2026-09-12"),
+        _game(3, "fix", "o2", "2026-09-19"),
+        _game(4, "o3", "fix", "2026-09-26"),
+        _game(5, "fix", "x", "2026-10-03", excluded=True),
+    ]
+    db = _Db(teams=teams, games=games, team_state_probe_log=[_probe("fix", "NV")])
+
+    code, _ = _build(monkeypatch, capsys, store, db)
+
+    assert code == 0
+    assert _cards(store, "states")[0]["evidence"] == {
+        "opponents": {"NV": 2},
+        "opponents_total": 3,
+        "club": {"NV": 2, "CA": 1},
+        "gotsport": "NV",
+        "name": {"state": None, "how": "none"},
+    }
 
 
 # --- the automatic lane ----------------------------------------------------------------------------

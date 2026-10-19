@@ -1,6 +1,29 @@
 import { describe, expect, it } from 'vitest';
 import { makeCleanupCardRow } from '@/test/fixtures';
-import { alikeSets, groupCards, newestBuild, stageReviews, tally } from './cleanup';
+import { alikeSets, evidenceLines, groupCards, newestBuild, stageReviews, tally } from './cleanup';
+
+describe('evidenceLines', () => {
+  const none = { opponents: {}, opponents_total: 0, club: {}, gotsport: null, name: { state: null, how: 'none' } };
+
+  it('says where the name points, and when it points two ways', () => {
+    expect(evidenceLines({ ...none, name: { state: 'NV', how: 'town' } })).toEqual([
+      'Name points to NV (a town in the name)',
+    ]);
+    expect(evidenceLines({ ...none, name: { state: null, how: 'conflict' } })).toEqual(['Name points two ways']);
+  });
+
+  it('counts opponents with no stored state only in the total', () => {
+    expect(evidenceLines({ ...none, opponents_total: 4 })).toEqual([
+      'Opponents: none with a state (of 4 teams played)',
+    ]);
+  });
+
+  it('orders a tie by state and says nothing for a card with no evidence', () => {
+    expect(evidenceLines({ ...none, club: { UT: 3, NV: 3 } })).toEqual(['Club-mates: NV 3 · UT 3']);
+    expect(evidenceLines(none)).toEqual([]);
+    expect(evidenceLines(undefined)).toEqual([]);
+  });
+});
 
 describe('newestBuild', () => {
   it('takes the build the table saved last, not the latest page run', () => {

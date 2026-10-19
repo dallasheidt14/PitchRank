@@ -38,6 +38,49 @@ export function changeValue(value: string | null): string {
   return value == null || value === '' ? '(none)' : value;
 }
 
+/** What the states skill reads beside a state card's proposal: shown to the owner, never used to decide it. */
+export interface StateCardEvidence {
+  /** Distinct opponents per stored state; those with no state count only in opponents_total. */
+  opponents: Record<string, number>;
+  opponents_total: number;
+  /** The team's club-mates per stored state, the team itself left out. */
+  club: Record<string, number>;
+  gotsport: string | null;
+  name: { state: string | null; how: string };
+}
+
+const NAME_SOURCE: Record<string, string> = {
+  team: 'the team name',
+  club: 'the club name',
+  town: 'a town in the name',
+};
+
+function byCount(perState: Record<string, number>): string {
+  return Object.entries(perState)
+    .sort(([a, x], [b, y]) => y - x || a.localeCompare(b))
+    .map(([state, n]) => `${state} ${n}`)
+    .join(' · ');
+}
+
+/** A state card's evidence as plain lines, most common state first (the stored card is JSONB, whose keys
+ * carry no order). */
+export function evidenceLines(evidence: StateCardEvidence | undefined): string[] {
+  if (!evidence) return [];
+  const lines: string[] = [];
+  if (evidence.opponents_total) {
+    const placed = Object.keys(evidence.opponents).length ? byCount(evidence.opponents) : 'none with a state';
+    lines.push(`Opponents: ${placed} (of ${evidence.opponents_total} teams played)`);
+  }
+  if (Object.keys(evidence.club).length) lines.push(`Club-mates: ${byCount(evidence.club)}`);
+  if (evidence.gotsport) lines.push(`GotSport says: ${evidence.gotsport}`);
+  if (evidence.name.state) {
+    lines.push(`Name points to ${evidence.name.state} (${NAME_SOURCE[evidence.name.how] ?? 'the name'})`);
+  } else if (evidence.name.how === 'conflict') {
+    lines.push('Name points two ways');
+  }
+  return lines;
+}
+
 export interface CleanupCard {
   id: string;
   n: number;
@@ -61,6 +104,8 @@ export interface CleanupCard {
     first: string | null;
     last: string | null;
   };
+  /** On state cards of a page that changes a state. */
+  evidence?: StateCardEvidence;
 }
 
 export interface CardRow {
