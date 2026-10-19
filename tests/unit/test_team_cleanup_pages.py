@@ -1313,8 +1313,9 @@ def test_settled_changes_go_to_the_automatic_lane_up_to_its_cap_and_the_rest_sta
     assert f"collect.py --run {RUN} --stage states --lane auto, then apply_stage.py" in out
 
 
-def test_the_configured_caps_send_one_pilot_batch_a_stage_to_the_automatic_lane_and_show_100_cards():
-    assert LOAD_CAPS() == pages.Caps(cards=100, auto=50)
+def test_the_configured_caps_send_one_pilot_batch_a_stage_to_the_automatic_lane_and_show_the_backlog():
+    # 2,000 cards a stage clears the backlog in one review; it goes back to a weekly size once that is done.
+    assert LOAD_CAPS() == pages.Caps(cards=2000, auto=50)
 
 
 @pytest.mark.parametrize(
