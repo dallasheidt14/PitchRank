@@ -328,7 +328,7 @@ applying the rest.
 
 **Under the weekly team-cleanup loop** the apply (`scripts/team_cleanup/apply_stage.py`) runs
 this step and Step 5 itself. It runs the hold script over the run's whole national snapshot,
-writes the applies the owner chose, less those it held, into two cut files, a pilot of the first
+writes the lane's applies (the owner's choices, or the changes the automatic lane settled), less those it held, into two cut files, a pilot of the first
 50 by team id and a rest, and runs `assign_team_states.py --execute --snapshot <cut>` over each
 in turn, reading each batch back from the database and stopping before the rest when a write it
 expected is missing. Cards the rules only queued go through the review queue instead. The

@@ -207,7 +207,7 @@ the same way. Each write carries the planned old value as a predicate, so a team
 the plan is skipped rather than overwritten. Undo with `--revert <apply log> --execute`.
 
 Under the weekly team-cleanup loop the apply (`scripts/team_cleanup/apply_stage.py`) writes the
-rows the owner chose into two cut files, a pilot of the first 50 by team id and a rest, and runs
+rows of the lane (the owner's choices, or the changes the automatic lane settled) into two cut files, a pilot of the first 50 by team id and a rest, and runs
 the fixer with `--apply <cut> --execute --skip-name-contradictions` over each in turn, reading
 each batch back from the database and stopping before the rest when a write it expected is
 missing. The `--limit 50` pilot above is for a hand run.

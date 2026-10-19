@@ -154,7 +154,7 @@ this one applies exactly the rows marked approved. The pilot is therefore a choi
 rows: approve a handful of a tier, apply, verify, then approve the rest of it.
 
 Under the weekly team-cleanup loop the apply (`scripts/team_cleanup/apply_stage.py`) writes the
-rows the owner chose into two cut files, a pilot of the first 50 by team id and a rest, and
+rows of the lane (the owner's choices, or the changes the automatic lane settled) into two cut files, a pilot of the first 50 by team id and a rest, and
 replays each in turn, reading each batch back from the database and stopping before the rest
 when a write it expected is missing.
 

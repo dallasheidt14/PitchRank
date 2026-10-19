@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Apply the owner's choices for one stage of a weekly team-cleanup run, through the stage's own applier.
 
-A dry run unless --execute. The owner runs --execute from the repo root, with the service-role key in
-the environment; an agent never does. In order, it:
+A dry run unless --execute. The owner, or the hourly autopilot (advance.py), runs --execute from the repo
+root, with the service-role key in the environment; an agent never does. In order, it:
 
   1. Refuses unless the run is in review and the lane's next step is its apply, when the choices were
      collected from another build of the page, and when any file the page or the collector hashed has
@@ -209,7 +209,7 @@ WRITER_WORKFLOWS = (
     "sincsports-team-discovery.yml",
 )
 # The scripts that can write teams, states or games, or read a field a stage writes into something
-# published, which a person or an agent may run on this machine: the appliers run only by hand, and each
+# published, which a person, an agent or the autopilot may run on this machine: the appliers, and each
 # such script a checked workflow runs. The test file names why each other script those workflows run is
 # left out.
 APPLIER_SCRIPTS = (
