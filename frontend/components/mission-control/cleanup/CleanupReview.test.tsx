@@ -62,6 +62,7 @@ function review(run: Partial<NonNullable<Review['run']>> = {}, cards?: CardRow[]
       },
     ],
     undo: [],
+    previous: null,
   };
 }
 
@@ -393,6 +394,21 @@ describe('the team cleanup review page', () => {
     await click(button(document.body, 'Keep them'));
 
     expect(posts).toEqual([]);
+  });
+
+  it("offers the last finished run's undo, with no run open too", async () => {
+    serve({ ...review(), run: null, stages: [], previous: { runId: '2026-10-14-all', undo: [] } });
+    await render();
+
+    const panel = container!.querySelector<HTMLElement>('[data-testid="cleanup-previous"]')!;
+    expect(container!.textContent).toContain('No cleanup run is open right now.');
+    expect(panel.querySelectorAll('[data-testid="cleanup-previous-stage"]')).toHaveLength(3);
+    await click(
+      button(panel.querySelectorAll<HTMLElement>('[data-testid="cleanup-previous-stage"]')[1], 'Undo my changes')
+    );
+    await click(button(document.body, 'Undo'));
+
+    expect(posts).toEqual([{ url: UNDO, body: { runId: '2026-10-14-all', stage: 'states', lane: 'owner' } }]);
   });
 
   it('offers no undo once the run is past review', async () => {

@@ -159,10 +159,17 @@ export interface UndoRequest {
   result: string | null;
 }
 
+/** The last finished run: its changes have applied, so the page offers to undo them. */
+export interface PreviousRun {
+  runId: string;
+  undo: UndoRequest[];
+}
+
 export interface CleanupReview {
   run: CleanupRun | null;
   stages: StageReview[];
   undo: UndoRequest[];
+  previous: PreviousRun | null;
 }
 
 /** What a lane's latest undo request says, for the page. */

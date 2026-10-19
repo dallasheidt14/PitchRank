@@ -2,7 +2,13 @@ import { NextResponse } from 'next/server';
 import { BUSINESS_TIMEZONE } from '@/lib/admin/timezone';
 import { requireAdmin } from '@/lib/supabase/admin';
 import { createServiceSupabase } from '@/lib/supabase/service';
-import { stageReviews, type CardRow, type CleanupReview, type UndoRequest } from '@/lib/mission-control/cleanup';
+import {
+  stageReviews,
+  type CardRow,
+  type CleanupReview,
+  type PreviousRun,
+  type UndoRequest,
+} from '@/lib/mission-control/cleanup';
 
 export const dynamic = 'force-dynamic';
 
@@ -46,7 +52,8 @@ async function readReview() {
     return NextResponse.json({ error: 'Could not read the cleanup run' }, { status: 500 });
   }
   const run = runs?.[0];
-  if (!run) return NextResponse.json({ run: null, stages: [], undo: [] } satisfies CleanupReview);
+  const previous = await previousRun(supabase);
+  if (!run) return NextResponse.json({ run: null, stages: [], undo: [], previous } satisfies CleanupReview);
 
   const rows: CardRow[] = [];
   for (let offset = 0; ; offset += PAGE_SIZE) {
@@ -64,29 +71,6 @@ async function readReview() {
     if (!data || data.length < PAGE_SIZE) break;
   }
 
-  const { data: requests, error: requestError } = await supabase
-    .from('team_cleanup_requests')
-    .select('stage, lane, status, requested_at, handled_at, result')
-    .eq('run_id', run.run_id)
-    .order('requested_at', { ascending: false });
-  // The cards matter more than the undo statuses: a failed read, as before team_cleanup_requests exists, shows
-  // the page with none rather than no page.
-  if (requestError) console.error('[cleanup] Reading the undo requests failed:', requestError.message);
-  // Newest first, so the first seen per stage and lane is its latest.
-  const undo = new Map<string, UndoRequest>();
-  for (const r of requestError ? [] : (requests ?? [])) {
-    const key = `${r.stage}|${r.lane}`;
-    if (undo.has(key)) continue;
-    undo.set(key, {
-      stage: r.stage,
-      lane: r.lane,
-      status: r.status,
-      requestedLabel: businessTime(r.requested_at) ?? '',
-      handledLabel: businessTime(r.handled_at),
-      result: r.result,
-    });
-  }
-
   return NextResponse.json({
     run: {
       runId: run.run_id,
@@ -97,6 +81,56 @@ async function readReview() {
       ownerDoneLabel: businessTime(run.owner_done_at),
     },
     stages: stageReviews(rows),
-    undo: [...undo.values()],
+    undo: await latestUndo(supabase, run.run_id),
+    previous,
   } satisfies CleanupReview);
+}
+
+type Supabase = ReturnType<typeof createServiceSupabase>;
+
+/**
+ * The last finished run, whose changes the page offers to undo. A run's last lane applies and the run closes in
+ * one hourly tick, so its undo can only be asked for after the close. Failing reads give none, not no page.
+ */
+async function previousRun(supabase: Supabase): Promise<PreviousRun | null> {
+  const { data, error } = await supabase
+    .from('team_cleanup_runs')
+    .select('run_id')
+    .eq('status', 'done')
+    .order('run_id', { ascending: false })
+    .limit(1);
+  if (error) console.error('[cleanup] Reading the last finished run failed:', error.message);
+  const runId = error ? undefined : data?.[0]?.run_id;
+  return runId ? { runId, undo: await latestUndo(supabase, runId) } : null;
+}
+
+/**
+ * Each stage and lane's latest undo request on a run. The cards matter more than the undo statuses: a failed
+ * read, as before team_cleanup_requests exists, gives none rather than no page.
+ */
+async function latestUndo(supabase: Supabase, runId: string): Promise<UndoRequest[]> {
+  const { data, error } = await supabase
+    .from('team_cleanup_requests')
+    .select('stage, lane, status, requested_at, handled_at, result')
+    .eq('run_id', runId)
+    .order('requested_at', { ascending: false });
+  if (error) {
+    console.error('[cleanup] Reading the undo requests failed:', error.message);
+    return [];
+  }
+  // Newest first, so the first seen per stage and lane is its latest.
+  const latest = new Map<string, UndoRequest>();
+  for (const r of data ?? []) {
+    const key = `${r.stage}|${r.lane}`;
+    if (latest.has(key)) continue;
+    latest.set(key, {
+      stage: r.stage,
+      lane: r.lane,
+      status: r.status,
+      requestedLabel: businessTime(r.requested_at) ?? '',
+      handledLabel: businessTime(r.handled_at),
+      result: r.result,
+    });
+  }
+  return [...latest.values()];
 }

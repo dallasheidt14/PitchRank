@@ -17,8 +17,8 @@ const UNIQUE_VIOLATION = '23505';
 
 /**
  * Ask the cleanup loop to undo one lane of a stage: the owner's choices, or the changes the evidence settled.
- * The hourly loop runs it once the lane has applied and records the result. Only for the run in review.
- * Body: `{ runId, stage, lane }`.
+ * The hourly loop runs it once the lane has applied and records the result. Only for the run in review, or the
+ * last finished run, which are the two the loop runs undos for. Body: `{ runId, stage, lane }`.
  */
 export async function POST(request: NextRequest) {
   const auth = await requireAdmin();
@@ -41,13 +41,24 @@ export async function POST(request: NextRequest) {
 
 async function fileUndo(runId: string, stage: CleanupStage, lane: CleanupLane, userId: string) {
   const supabase = createServiceSupabase();
-  const { data: runs, error: runError } = await supabase.from('team_cleanup_runs').select('status').eq('run_id', runId);
-  if (runError) {
-    console.error('[cleanup] Reading the run for an undo failed:', runError.message);
+  const [{ data: runs, error: runError }, { data: finished, error: finishedError }] = await Promise.all([
+    supabase.from('team_cleanup_runs').select('status').eq('run_id', runId),
+    supabase
+      .from('team_cleanup_runs')
+      .select('run_id')
+      .eq('status', 'done')
+      .order('run_id', { ascending: false })
+      .limit(1),
+  ]);
+  if (runError || finishedError) {
+    console.error('[cleanup] Reading the run for an undo failed:', (runError ?? finishedError)!.message);
     return NextResponse.json({ error: 'Could not ask for the undo' }, { status: 500 });
   }
-  if (runs?.[0]?.status !== 'reviewing') {
-    return NextResponse.json({ error: 'Only the run in review can be undone from here' }, { status: 409 });
+  if (runs?.[0]?.status !== 'reviewing' && finished?.[0]?.run_id !== runId) {
+    return NextResponse.json(
+      { error: 'Only the run in review or the last finished run can be undone from here' },
+      { status: 409 }
+    );
   }
 
   const { error } = await supabase

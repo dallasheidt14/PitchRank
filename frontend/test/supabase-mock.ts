@@ -117,8 +117,9 @@ function plainColumns(selected: string | undefined): string[] | null {
  * unique index (null for a row the index leaves out) and an insert whose key a stored row already
  * holds is refused with Postgres' 23505 and stores nothing, as the database refuses it.
  *
- * Set `failing[table]` to an error and every query against that table answers it, as PostgREST
- * answers PGRST205 for a table a migration has not created yet.
+ * Set `failing[table]` to an error and a query against that table that is awaited (not one ending in
+ * `.single()` or `.maybeSingle()`) answers it, as PostgREST answers PGRST205 for a table a migration
+ * has not created yet.
  */
 export function filteringClientMock(initialRows: Record<string, MockRow[]> = {}) {
   const tableRows: Record<string, MockRow[]> = { ...initialRows };

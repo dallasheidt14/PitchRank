@@ -79,6 +79,8 @@ class _Runs:
         }
         self.writes = []
         self.broken = None
+        # Tables a migration has not created yet: PostgREST answers PGRST205 for them.
+        self.missing = set()
 
     @property
     def rows(self):
@@ -129,6 +131,8 @@ class _RunsQuery:
     def execute(self):
         if self.db.broken:
             raise self.db.broken
+        if self.name in self.db.missing:
+            raise APIError({"code": "PGRST205", "message": f"no table {self.name}", "details": None, "hint": None})
         rows = [r for r in self.db.tables[self.name] if all(r.get(c) == v for c, v in self.filters)]
         if self.ordered:
             rows.sort(key=lambda r: r[self.ordered])
@@ -594,6 +598,37 @@ def test_an_undo_that_must_wait_holds_the_close_and_one_that_fails_is_recorded(t
     assert _tick(monkeypatch, store, db, runner, IN_WINDOW + timedelta(hours=1)) == 1
 
     assert (db.requests[0]["status"], db.requests[0]["result"]) == ("failed", "the step's own refusal")
+    # The run then closes in that tick, so the summary is where the owner hears the undo failed.
+    assert read_run(store, RUN)["status"] == "done"
+    assert "Undo of the states automatic lane: failed (the step&#x27;s own refusal)" in emails[-1][2]
+
+
+def test_an_undo_of_the_last_finished_run_is_run_by_the_next_tick(tmp_path, monkeypatch, emails):
+    """A run's last lane applies and the run closes in one tick, so the page offers its undo after the close."""
+    store = tmp_path / "store"
+    _proposed(store, status="done")
+    (stage_dir(store, RUN, "states") / "auto").mkdir()
+    (stage_dir(store, RUN, "states") / "auto" / "RECORD.md").write_text("applied", encoding="utf-8")
+    db = _Runs([], [_undo("states", "auto")])
+    runner = _Runner(store)
+
+    _tick(monkeypatch, store, db, runner, IN_WINDOW)
+
+    assert [c[c.index("--stage") :][:5] for c in _reverts(runner)] == [
+        ["--stage", "states", "--lane", "auto", "--revert"]
+    ]
+    assert db.requests[0]["status"] == "done"
+
+
+def test_a_requests_table_not_yet_created_holds_no_run_open(tmp_path, monkeypatch, emails):
+    store = tmp_path / "store"
+    _proposed(store)
+    db = _reviewing("2026-10-24T17:00:00Z")
+    db.missing.add("team_cleanup_requests")
+
+    assert _tick(monkeypatch, store, db, _Runner(store), IN_WINDOW) == 0
+
+    assert read_run(store, RUN)["status"] == "done"
 
 
 def test_an_undo_of_a_lane_nothing_was_sent_to_or_a_stage_not_run_is_recorded_failed(tmp_path, monkeypatch, emails):

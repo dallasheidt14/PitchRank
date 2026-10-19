@@ -65,7 +65,7 @@ from scripts.team_cleanup.apply_stage import (  # noqa: E402
     lane_flags,
     load_window,
 )
-from scripts.team_cleanup.decisions import resolve_execute  # noqa: E402
+from scripts.team_cleanup.decisions import TABLE_MISSING, resolve_execute  # noqa: E402
 from scripts.team_cleanup.end_run import unfinished  # noqa: E402
 from scripts.team_cleanup.propose_week import ALL, PROPOSED_STAGES, run_id_for, run_step  # noqa: E402
 from scripts.team_cleanup.run_store import (  # noqa: E402
@@ -254,6 +254,10 @@ class Tick:
 
     def tick(self) -> int:
         runs = list_runs(self.store)
+        finished = next((run for run in runs if run["status"] == DONE), None)
+        if finished is not None:
+            # The page offers to undo the last finished run's changes, which apply and close in one tick.
+            self.undo(finished["run_id"], open_stages(finished))
         run = next((run for run in runs if run["status"] in OPEN_STATUSES), None)
         if run is None:
             self.summarize_closed(runs)
@@ -314,7 +318,8 @@ class Tick:
         if not unfinished(self.store, run) and not undo_waits:
             close = [END_RUN, "--run", run_id, "--done", "--execute", "--store", str(self.store)]
             if self.run(run_id, Action(f"close run {run_id}", close)) == 0:
-                self.email_once(run_id, state, "closed", *summary_email(self.store, run_id, stages))
+                summary = summary_email(self.store, run_id, stages, self.undone(run_id))
+                self.email_once(run_id, state, "closed", *summary)
                 return
         self.settle_blockage(run_id, state)
 
@@ -363,6 +368,10 @@ class Tick:
                 .data
             )
         except (APIError, httpx.HTTPError) as exc:
+            if isinstance(exc, APIError) and exc.code == TABLE_MISSING:
+                # Before its migration is applied no undo can have been asked for, so nothing holds the run.
+                print(f"{REQUESTS_TABLE} does not exist yet, so no undo waits.")
+                return False
             self.blocked_by(refused(f"Reading run {run_id}'s undo requests from {REQUESTS_TABLE}", exc, STATUS_COMMAND))
             return True
         waits = False
@@ -384,7 +393,7 @@ class Tick:
             if code is None or code == BUSY:
                 waits = True
             else:
-                self.settle(request, "done" if code == 0 else "failed", _tail(self.last_log, 3) or "no output")
+                self.settle(request, "done" if code == 0 else "failed", _tail(self.last_log, 12) or "no output")
         return waits
 
     def settle(self, request: dict, status: str, result: str) -> None:
@@ -398,6 +407,25 @@ class Tick:
             ).eq("id", request["id"]).eq("status", "pending").execute()
         except (APIError, httpx.HTTPError) as exc:
             self.blocked_by(refused(f"Recording an undo request in {REQUESTS_TABLE}", exc, STATUS_COMMAND))
+
+    def undone(self, run_id: str) -> list[str]:
+        """How each undo the owner asked for on the run went, for the summary; none when they cannot be read."""
+        try:
+            rows = (
+                self.sb.table(REQUESTS_TABLE)
+                .select("stage,lane,status,result")
+                .eq("run_id", run_id)
+                .order("requested_at")
+                .execute()
+                .data
+            )
+        except (APIError, httpx.HTTPError):
+            return []
+        return [
+            f"Undo of {lane_name(r['stage'], r['lane'])}: {r['status']}"
+            + (f" ({(r['result'] or '').strip()})" if r["status"] == "failed" else "")
+            for r in rows
+        ]
 
     def blocked_by(self, problem: str) -> None:
         self.failed = True
@@ -461,7 +489,8 @@ class Tick:
         run_id = runs[0]["run_id"]
         state = read_state(self.store, run_id)
         if state:
-            self.email_once(run_id, state, "closed", *summary_email(self.store, run_id, open_stages(runs[0])))
+            summary = summary_email(self.store, run_id, open_stages(runs[0]), self.undone(run_id))
+            self.email_once(run_id, state, "closed", *summary)
 
 
 def _counts(store: Path, run_id: str, stage: str) -> tuple[int, int]:
@@ -494,7 +523,7 @@ def _arizona_time(moment: datetime) -> str:
     return f"{local:%A} {local.hour % 12 or 12}:{local:%M} {'AM' if local.hour < 12 else 'PM'}"
 
 
-def summary_email(store: Path, run_id: str, stages: list[str]) -> tuple[str, str]:
+def summary_email(store: Path, run_id: str, stages: list[str], undone: list[str] = ()) -> tuple[str, str]:
     rows = []
     for stage in stages:
         owner = _collected(stage_dir(store, run_id, stage) / COLLECTED_MARKER)
@@ -504,6 +533,8 @@ def summary_email(store: Path, run_id: str, stages: list[str]) -> tuple[str, str
             f"evidence settled, {owner.get('undecided', 0)} left for next week</li>"
         )
     body = f"<p>This week's team cleanup ({html.escape(run_id)}) is finished.</p><ul>{''.join(rows)}</ul>"
+    if undone:
+        body += "<p>Undo requests:</p><ul>" + "".join(f"<li>{html.escape(line)}</li>" for line in undone) + "</ul>"
     return f"PitchRank cleanup {run_id} is finished", body
 
 

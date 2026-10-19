@@ -109,7 +109,7 @@ describe('GET /api/mission-control/cleanup', () => {
 
     const body = await (await GET()).json();
 
-    expect(body).toEqual({ run: null, stages: [], undo: [] });
+    expect(body).toEqual({ run: null, stages: [], undo: [], previous: { runId: '2026-10-14-all', undo: [] } });
   });
 
   it("shows each lane's latest undo request in Arizona time", async () => {
@@ -172,6 +172,47 @@ describe('GET /api/mission-control/cleanup', () => {
         result: 'reverted',
       },
     ]);
+  });
+
+  it('offers the latest finished run with its own undo statuses, and none when no run has finished', async () => {
+    db.tableRows.team_cleanup_runs.push({
+      run_id: '2026-10-07-ca',
+      scope: { states: ['CA'] },
+      status: 'done',
+      owner_done_at: null,
+      owner_done_by: null,
+    });
+    db.tableRows.team_cleanup_requests = [
+      {
+        run_id: '2026-10-14-all',
+        stage: 'ages',
+        lane: 'owner',
+        status: 'done',
+        requested_at: '2026-10-22T17:00:00+00:00',
+        handled_at: '2026-10-22T17:17:00+00:00',
+        result: 'reverted',
+      },
+    ];
+
+    const body = await (await GET()).json();
+
+    expect(body.previous).toEqual({
+      runId: '2026-10-14-all',
+      undo: [
+        {
+          stage: 'ages',
+          lane: 'owner',
+          status: 'done',
+          requestedLabel: 'Thu, Oct 22, 10:00 AM',
+          handledLabel: 'Thu, Oct 22, 10:17 AM',
+          result: 'reverted',
+        },
+      ],
+    });
+    expect(body.undo).toEqual([]);
+
+    db.tableRows.team_cleanup_runs = [db.tableRows.team_cleanup_runs[1]];
+    expect((await (await GET()).json()).previous).toBeNull();
   });
 
   it('still shows the cards when the undo requests cannot be read', async () => {

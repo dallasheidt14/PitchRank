@@ -293,10 +293,13 @@ python scripts/team_cleanup/end_run.py --run 2026-10-21-all --abandon --reason "
 
 ## Undoing a lane
 
-For the run in review, the owner undoes a lane from the review page: **Undo automatic changes** or
-**Undo my changes** on a stage files a request in `team_cleanup_requests`, and the autopilot runs it
-once that lane has applied, records it done or failed with the revert's last lines, and holds the
-run's close while one waits. The page shows each lane's latest request. Point the owner there first.
+The owner undoes a lane from the review page, for the run in review or the last finished run (a run's
+last lane applies and the run closes in one tick, so most undos come after the close): **Undo
+automatic changes** or **Undo my changes** on a stage files a request in `team_cleanup_requests`, and
+the autopilot runs it once that lane has applied, records it done or failed with the revert's last
+lines, and holds an open run's close while one waits. The page shows each lane's latest request, and
+the run's summary email lists them. Point the owner there first. Before closing or abandoning a run by
+hand, check the page for an undo still waiting: `end_run.py` does not read them.
 
 By hand, which the autopilot does not know about: it retries an unfinished apply every tick, and a
 retry re-writes undone rows. So before undoing a lane that had not finished, pause the autopilot and

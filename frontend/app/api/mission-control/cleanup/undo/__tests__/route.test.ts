@@ -69,13 +69,19 @@ describe('POST /api/mission-control/cleanup/undo', () => {
     expect(requests()).toEqual([]);
   });
 
-  it('refuses a run that is not in review', async () => {
-    db.tableRows.team_cleanup_runs = [{ run_id: RUN, status: 'done' }];
+  it('takes the last finished run, whose changes have applied, and refuses an older one', async () => {
+    db.tableRows.team_cleanup_runs = [
+      { run_id: '2026-10-07-all', status: 'done' },
+      { run_id: '2026-10-14-all', status: 'done' },
+      { run_id: RUN, status: 'proposing' },
+    ];
 
-    const res = await askUndo();
+    const older = await askUndo({ runId: '2026-10-07-all', stage: 'states', lane: 'auto' });
+    const last = await askUndo({ runId: '2026-10-14-all', stage: 'states', lane: 'auto' });
+    const proposing = await askUndo();
 
-    expect(res.status).toBe(409);
-    expect(requests()).toEqual([]);
+    expect([older.status, last.status, proposing.status]).toEqual([409, 200, 409]);
+    expect(requests().map((r) => r.run_id)).toEqual(['2026-10-14-all']);
   });
 
   it('refuses a second undo of a lane while the first still waits, and allows one after it was handled', async () => {
