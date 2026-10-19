@@ -31,6 +31,7 @@ from collections.abc import Mapping, Sequence
 from src.tournaments.gotsport_event_roster import EventRoster, printable_text, redact_secret
 from src.tournaments.roster_paste import ParsedRoster, RosterRow, split_roster_markers
 from src.tournaments.roster_resolver import (
+    ClubCandidateLookup,
     ExactNameLookup,
     GotsportSearch,
     ProviderIdLookup,
@@ -164,6 +165,7 @@ def resolve_unlinked(
     lookup_team_details: TeamDetailsLookup | None = None,
     delay_seconds: float = 0.0,
     historical_context: bool = False,
+    lookup_club_candidates: ClubCandidateLookup | None = None,
 ) -> tuple[ResolvedTeam, ...]:
     """Give the teams the walk could not link a second, free pass.
 
@@ -233,6 +235,7 @@ def resolve_unlinked(
                 lookup_provider_id=lookup_provider_id,
                 lookup_exact_name=lookup_exact_name,
                 lookup_team_details=lookup_team_details,
+                lookup_club_candidates=lookup_club_candidates,
             )
             if delay_seconds:
                 time.sleep(delay_seconds)
