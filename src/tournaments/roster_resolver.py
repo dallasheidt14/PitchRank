@@ -79,6 +79,10 @@ TeamDetailsLookup = Callable[[str], dict[str, Any] | None]
 ClubCandidateLookup = Callable[[RosterRow], list[dict[str, Any]]]
 
 
+class IncompleteTeamSearchError(ValueError):
+    """Provider results cannot establish uniqueness for this roster row."""
+
+
 @dataclass(frozen=True)
 class ResolvedTeam:
     """Outcome of resolving one roster row.
@@ -141,17 +145,19 @@ def search_gotsport_teams(
         current = int(pagination.get("current_page", page))
         total = int(pagination.get("total_pages", 1))
         if current != page or total > 25 or (not rows and (total > page or page > 1)):
-            raise ValueError("GotSport team search is incomplete; narrow the search before matching.")
+            raise IncompleteTeamSearchError(
+                "GotSport team search is incomplete; confirm this team's identity manually."
+            )
         before = len(hits)
         for hit in rows:
             if not hit.get("team_id"):
-                raise ValueError("GotSport team search returned a candidate without an identity.")
+                raise IncompleteTeamSearchError("GotSport team search returned a candidate without an identity.")
             hits[str(hit["team_id"])] = hit
         if page > 1 and rows and len(hits) == before:
-            raise ValueError("GotSport team search repeated a page; matching is incomplete.")
+            raise IncompleteTeamSearchError("GotSport team search repeated a page; matching is incomplete.")
         if page >= total:
             return list(hits.values())
-    raise ValueError("GotSport team search is incomplete.")
+    raise IncompleteTeamSearchError("GotSport team search is incomplete.")
 
 
 def _search_names(row: RosterRow) -> list[str]:
@@ -420,11 +426,18 @@ def resolve_row(
     lookup_club_candidates: ClubCandidateLookup | None = None,
 ) -> ResolvedTeam:
     """Resolve exact identities; gather local evidence before requesting review."""
-    hits = _search_provider_candidates(row, gotsport_search, row.section_age_group)
-    provider = _resolve_provider_hits(
-        row, hits, gotsport_search=gotsport_search,
-        lookup_provider_id=lookup_provider_id, lookup_team_details=lookup_team_details,
-    )
+    try:
+        hits = _search_provider_candidates(row, gotsport_search, row.section_age_group)
+        provider = _resolve_provider_hits(
+            row, hits, gotsport_search=gotsport_search,
+            lookup_provider_id=lookup_provider_id, lookup_team_details=lookup_team_details,
+        )
+    except IncompleteTeamSearchError as exc:
+        # A persistent search-size or pagination problem belongs to this row,
+        # not every later team. Local records can inform review, never auto-match
+        # when the provider identity search did not finish.
+        hits = []
+        provider = ResolvedTeam(source_index=row.source_index, status="review", review_reason=str(exc))
     local = {candidate["team_id_master"]: candidate
              for candidate in (lookup_club_candidates(row) if lookup_club_candidates else ())
              if candidate.get("team_id_master")}
@@ -491,7 +504,7 @@ def resolve_row(
         key = ("master", str(candidate["team_id_master"])) if candidate.get("team_id_master") else (
             "provider", str(candidate.get("team_id")))
         candidates[key] = {**candidates.get(key, {}), **candidate}
-    if candidates:
+    if candidates or (provider and provider.review_reason):
         reason = provider.review_reason if provider else None
         if not reason:
             reason = next((reason for candidate in local.values()

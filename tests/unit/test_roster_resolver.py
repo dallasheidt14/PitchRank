@@ -1264,3 +1264,26 @@ def test_combined_label_still_accepts_one_exact_local_identity(provider_hit):
            "club_name": "Arizona Soccer Club"}
     result = _resolve_with_database(row, [linked, other], lambda *_: [hit] if provider_hit else [])
     assert (result.status, result.team_id_master) == ("gotsport_id" if provider_hit else "exact_name", "linked")
+
+
+@pytest.mark.parametrize("has_local_candidate", [True, False])
+def test_incomplete_provider_search_reviews_only_affected_row_and_continues_roster(has_local_candidate):
+    rows = parse_roster("Female U14\nHuge Club\tBlue\tPA\nReading Rage Surf\tECNL RL G2012/13\tPA").rows
+    local = _club_team("huge", "Huge Club", "Blue", provider_id=OTHER)
+    client = _FakeClient(teams=[_club_team(), *([local] if has_local_candidate else [])], providers=PROVIDERS)
+    session = _SearchSession([{"team_ranking_data": [{"team_id": 1}],
+                               "pagination": {"current_page": 1, "total_pages": 26}}])
+
+    def search(query, age, gender):
+        if query == "Huge Club":
+            return search_gotsport_teams(query, age, gender, session=session)
+        return [{"team_id": 753576, "team_name": "ECNL RL G2012/13", "club_name": "Reading Rage Surf"}]
+
+    results = resolve_roster(rows, gotsport_search=search,
+        lookup_provider_id=make_provider_id_lookup(client), lookup_exact_name=make_exact_name_lookup(client),
+        lookup_team_details=make_team_details_lookup(client), lookup_club_candidates=make_club_candidate_lookup(client))
+    assert [result.status for result in results] == ["review", "gotsport_id"]
+    assert results[0].team_id_master is None
+    assert "incomplete" in results[0].review_reason
+    assert {c["team_id_master"] for c in results[0].candidates} == ({"huge"} if has_local_candidate else set())
+    assert results[1].team_id_master == READING
