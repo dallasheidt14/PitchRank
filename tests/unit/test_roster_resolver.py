@@ -1192,3 +1192,44 @@ def test_database_lookup_finds_requested_team_under_equivalent_club_label():
     other = _club_team("other", "McLean YS", "Red", state_code="VA")
     result = _resolve_with_database(row, [alias, other], lambda *_: [])
     assert (result.status, result.team_id_master) == ("exact_name", "wanted")
+
+
+@pytest.mark.parametrize("club", ["McLean YS", "McLean Youth Soccer"])
+def test_verified_provider_match_checks_for_local_duplicate_identities(club):
+    row = _row("Female U14\nMcLean YS\tBlue\tVA")
+    linked = _club_team("linked", "McLean YS", "Blue", state_code="VA")
+    duplicate = _club_team("duplicate", club, "Blue", state_code="VA",
+                           provider_id=OTHER, provider_team_id="96204")
+    hit = {"team_id": 753576, "team_name": "Blue", "club_name": "McLean YS"}
+    result = _resolve_with_database(row, [linked, duplicate], lambda *_: [hit])
+    assert result.status == "review"
+    assert result.team_id_master is None
+    assert {c["team_id_master"] for c in result.candidates} == {"linked", "duplicate"}
+    assert "More than one PitchRank record" in result.review_reason
+
+
+@pytest.mark.parametrize("change", [
+    {"state_code": "NJ"}, {"age_group": "u13"}, {"gender": "Male"},
+    {"club_name": "McLean United"}, {"team_name": "Red"}, {"is_deprecated": True},
+])
+def test_verified_provider_match_ignores_unrelated_local_squads(change):
+    row = _row("Female U14\nMcLean YS\tBlue\tVA")
+    linked = _club_team("linked", "McLean YS", "Blue", state_code="VA")
+    other = {**linked, "team_id_master": "other", "provider_id": OTHER, **change}
+    hit = {"team_id": 753576, "team_name": "Blue", "club_name": "McLean YS"}
+    result = _resolve_with_database(row, [linked, other], lambda *_: [hit])
+    assert (result.status, result.team_id_master) == ("gotsport_id", "linked")
+
+
+def test_verified_provider_match_requires_successful_local_duplicate_check():
+    row = _row("Female U14\nMcLean YS\tBlue\tVA")
+    linked = _club_team("linked", "McLean YS", "Blue", state_code="VA")
+    hit = {"team_id": 753576, "team_name": "Blue", "club_name": "McLean YS"}
+
+    def unavailable(_row):
+        raise RuntimeError("Database unavailable")
+
+    with pytest.raises(RuntimeError, match="Database unavailable"):
+        resolve_row(row, gotsport_search=lambda *_: [hit], lookup_provider_id=lambda _: "linked",
+                    lookup_team_details=lambda _: linked, lookup_exact_name=_never_called,
+                    lookup_club_candidates=unavailable)

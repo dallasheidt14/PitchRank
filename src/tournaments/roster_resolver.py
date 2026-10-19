@@ -416,12 +416,27 @@ def resolve_row(
         row, hits, gotsport_search=gotsport_search,
         lookup_provider_id=lookup_provider_id, lookup_team_details=lookup_team_details,
     )
-    if provider and provider.status == "gotsport_id":
-        return provider
-
     local = {candidate["team_id_master"]: candidate
              for candidate in (lookup_club_candidates(row) if lookup_club_candidates else ())
              if candidate.get("team_id_master")}
+    if provider and provider.status == "gotsport_id":
+        # A public provider ID does not settle duplicate identities across our
+        # providers. Check the complete local identity set before accepting it.
+        duplicates = [candidate for team_id, candidate in local.items()
+                      if team_id != provider.team_id_master and _same_club_identity(candidate, row)
+                      and not _identity_conflict_reason(row, candidate)]
+        if duplicates:
+            hit = next(hit for hit in hits if str(hit.get("team_id")) == provider.provider_team_id)
+            linked = _review_candidate(team_id_master=provider.team_id_master, provider_hit=hit,
+                                       details=local.get(provider.team_id_master))
+            return ResolvedTeam(
+                source_index=row.source_index, status="review", provider_team_id=provider.provider_team_id,
+                candidates=(linked, *duplicates),
+                review_reason="More than one PitchRank record matches this team and club. "
+                              "Confirm which record to use.",
+            )
+        return provider
+
     missing_details: set[str] = set()
     exact_ids = {team_id for team_id, candidate in local.items()
                  if _names_the_same_team(candidate.get("team_name", ""), row)}
