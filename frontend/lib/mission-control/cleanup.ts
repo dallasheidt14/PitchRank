@@ -77,6 +77,8 @@ export function evidenceLines(evidence: StateCardEvidence | undefined): string[]
     lines.push(`Name points to ${evidence.name.state} (${NAME_SOURCE[evidence.name.how] ?? 'the name'})`);
   } else if (evidence.name.how === 'conflict') {
     lines.push('Name points two ways');
+  } else if (evidence.name.how === 'unplaced') {
+    lines.push("Name mentions a state it can't be placed by");
   }
   return lines;
 }

@@ -5,11 +5,14 @@ import { alikeSets, evidenceLines, groupCards, newestBuild, stageReviews, tally 
 describe('evidenceLines', () => {
   const none = { opponents: {}, opponents_total: 0, club: {}, gotsport: null, name: { state: null, how: 'none' } };
 
-  it('says where the name points, and when it points two ways', () => {
+  it('says where the name points, when it points two ways, and when its state word places nothing', () => {
     expect(evidenceLines({ ...none, name: { state: 'NV', how: 'town' } })).toEqual([
       'Name points to NV (a town in the name)',
     ]);
     expect(evidenceLines({ ...none, name: { state: null, how: 'conflict' } })).toEqual(['Name points two ways']);
+    expect(evidenceLines({ ...none, name: { state: null, how: 'unplaced' } })).toEqual([
+      "Name mentions a state it can't be placed by",
+    ]);
   });
 
   it('counts opponents with no stored state only in the total', () => {

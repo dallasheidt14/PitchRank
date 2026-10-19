@@ -1248,6 +1248,31 @@ def test_a_state_card_shows_its_opponents_club_mates_gotsport_answer_and_name_re
     }
 
 
+@pytest.mark.parametrize(
+    "name, club, reading",
+    [
+        ("California Storm 2012", "No Club Selection", {"state": "CA", "how": "team"}),
+        ("Washington County SC 2012", "Reno United", {"state": None, "how": "unplaced"}),
+        ("Utah Royals FC-AZ 2012", "Reno United", {"state": None, "how": "unplaced"}),
+    ],
+    ids=["a-state-in-the-team-name", "a-place-called-after-a-state", "an-affiliate-marker"],
+)
+def test_a_state_card_shows_the_name_reading_the_name_pass_keeps_and_no_placeholder_club_mates(
+    tmp_path, monkeypatch, capsys, name, club, reading
+):
+    store = tmp_path / "store"
+    _reviewing(store)
+    _states(store, [_decision("fix", "UT", "NV")])
+    teams = [_team("fix", state="UT", club=club, name=name), _team("mate", club=club)]
+
+    code, _ = _build(monkeypatch, capsys, store, _Db(teams=teams))
+
+    assert code == 0
+    evidence = _cards(store, "states")[0]["evidence"]
+    assert evidence["name"] == reading
+    assert evidence["club"] == ({} if club == "No Club Selection" else {"NV": 1})
+
+
 # --- the automatic lane ----------------------------------------------------------------------------
 
 

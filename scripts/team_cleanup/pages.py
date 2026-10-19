@@ -76,7 +76,12 @@ from scripts.find_cross_provider_duplicates import (  # noqa: E402
     page,
     resolver,
 )
-from scripts.review_state_queue_by_name import classify, name_reading  # noqa: E402
+from scripts.review_state_queue_by_name import (  # noqa: E402
+    affiliate_contradicts,
+    classify,
+    name_reading,
+    names_a_place,
+)
 from scripts.team_cleanup.collect import fetch_cards  # noqa: E402
 from scripts.team_cleanup.decisions import (  # noqa: E402
     CARDS_TABLE,
@@ -294,6 +299,14 @@ def state_facts(evidence, ev, teams, team_ids) -> dict[str, dict]:
         if held_state(live):
             mates[held_state(live)] -= 1
         state, how = name_reading(team, evidence.locality_index)
+        # A state word the name pass's own checks set aside (a place called after another state, an
+        # affiliate marker naming one) is no reading; shown as one, it would argue against a right card.
+        if state and (
+            names_a_place(team, state)
+            or affiliate_contradicts(team.get("team_name"), state)
+            or affiliate_contradicts(team.get("club_name"), state)
+        ):
+            state, how = None, "unplaced"
         facts[tid] = {
             "opponents": dict(Counter(s for s in opponents if s).most_common()),
             "opponents_total": len(opponents),
