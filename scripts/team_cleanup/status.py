@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Show each open team-cleanup run: where each stage has got, and its next step.
+"""Show each open team-cleanup run: where each stage has got, its next step, and why the autopilot is
+blocked, if it is.
 
 Reads the run store's files only, never the database. Re-checking the reviews sets aside any
 review that does not copy its proposal, as <name>_review.json.bad, and queues the proposal again.
@@ -19,19 +20,26 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from scripts.team_cleanup.run_store import (  # noqa: E402
+    AUTOPILOT_FILE,
     BAD_SUFFIX,
     OPEN_STATUSES,
     REVIEW_DIR,
     STAGES,
     list_runs,
     read_run,
+    run_dir,
     stage_progress,
     store_dir,
 )
+from src.tournaments.storage._io import read_json  # noqa: E402
 
 
 def describe(store: Path, run: dict) -> list[str]:
     lines = [f"Run {run['run_id']} ({run['status']}), scope {run.get('scope')}"]
+    autopilot = run_dir(store, run["run_id"]) / AUTOPILOT_FILE
+    notes = read_json(autopilot) if autopilot.exists() else {}
+    if notes.get("problem"):
+        lines.append(f"  {'autopilot':<10} blocked since {notes.get('blocked_since')}: {notes['problem']}")
     overrides = run.get("stages") or {}
     for stage in STAGES:
         if stage in overrides:

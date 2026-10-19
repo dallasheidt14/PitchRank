@@ -13,7 +13,9 @@ fields, then runs each stage's skill self-check and proposal step into
           and 5 are owner questions, not plan rows)
 
 Each stage leaves proposals.json, one row per proposed change, beside its applier's input for the
-scope: clubs/repair_swapped_club_names.csv, states/snapshot.json, ages/plan.csv. Reconcile is run
+scope: clubs/repair_swapped_club_names.csv, states/snapshot.json, ages/plan.csv. A scope of ALL
+names the run <date>-all; clubs and states keep every team, one with no state included, and ages
+covers every team holding a US state, the age review's own scope when given none. Reconcile is run
 by hand and merges wait while the duplicate scans are frozen; run.json says so and neither runs.
 A stage whose self-check fails is marked skill_stale and skipped. A finished stage leaves
 propose_done, so a run stopped part way resumes at the stage it stopped in. Once each stage has
@@ -23,6 +25,7 @@ to reviewing.
 
 Usage:
     python scripts/team_cleanup/propose_week.py --states NV
+    python scripts/team_cleanup/propose_week.py --states ALL
     python scripts/team_cleanup/propose_week.py --states NH,VT --store <dir> --date 2026-10-14 --dry-run
 """
 
@@ -72,6 +75,7 @@ from src.utils.us_states import STATE_CODE_TO_NAME  # noqa: E402
 
 CLUBS, STATES, AGES = "clubs", "states", "ages"
 PROPOSED_STAGES = (CLUBS, STATES, AGES)
+ALL = "ALL"
 NOT_RUN = {
     "reconcile": "not run: reconcile is run by hand",
     MERGES: "not run: the duplicate scans are frozen until the owner resumes them",
@@ -109,13 +113,23 @@ GUARD_DONE = "write_guard.json"
 
 
 def parse_states(text: str) -> list[str]:
+    codes = [part.strip().upper() for part in text.split(",")]
+    if ALL in codes:
+        if len(codes) > 1:
+            raise ValueError(f"{ALL} covers every team, so it stands alone, not beside {text!r}'s other codes")
+        return [ALL]
     states = []
-    for code in (part.strip().upper() for part in text.split(",")):
+    for code in codes:
         if code not in STATE_CODE_TO_NAME:
             raise ValueError(f"{code!r} is not a US state code")
         if code not in states:
             states.append(code)
     return states
+
+
+def in_scope(states: list[str], state: str | None) -> bool:
+    """ALL takes a team with no state too."""
+    return states == [ALL] or state in states
 
 
 def run_id_for(day: date, states: list[str]) -> str:
@@ -148,12 +162,13 @@ def stage_commands(stage: str, folder: Path, states: list[str], store: Path) -> 
         # A dry run with Tier A on still spends paid probes and logs each one to the database.
         return [[ASSIGN_STATES, "--no-tier-a", "--out", str(folder / "national_snapshot.json")]]
     review = folder / AGE_REVIEW_FILE
+    # The age review covers every US state when given none.
+    scope = [] if states == [ALL] else ["--state", ",".join(states)]
     return [
         [
             AGE_REVIEW,
             "review",
-            "--state",
-            ",".join(states),
+            *scope,
             "--exports-dir",
             str(store / "exports"),
             "--out",
@@ -191,7 +206,7 @@ def _read_csv(path: Path) -> list[dict]:
 def club_proposals(rows: list[dict], states: list[str]) -> tuple[list[dict], list[dict]]:
     """The swap scan's rows for teams in the scope, kept as the scan wrote them, and each as a
     proposed club_name change in the values the teams hold."""
-    kept = [row for row in rows if row["state"] in states]
+    kept = [row for row in rows if in_scope(states, row["state"])]
     return kept, [
         {
             "team_id_master": row["team_id_master"],
@@ -210,7 +225,9 @@ def club_proposals(rows: list[dict], states: list[str]) -> tuple[list[dict], lis
 
 def state_proposals(snapshot: dict, states: list[str]) -> tuple[dict, list[dict]]:
     """The snapshot cut to decisions whose team is in the scope before or after, and its changes."""
-    decisions = [d for d in snapshot["decisions"] if d["proposed"] in states or d["pre_image"] in states]
+    decisions = [
+        d for d in snapshot["decisions"] if in_scope(states, d["proposed"]) or in_scope(states, d["pre_image"])
+    ]
     return {**snapshot, "decisions": decisions}, [
         {
             "team_id_master": d["team_id"],
@@ -445,7 +462,7 @@ def propose_week(sb, store: Path, run_id: str, states: list[str], day: date) -> 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--states", required=True, help="The run's scope, comma-separated state codes")
+    parser.add_argument("--states", required=True, help="The run's scope, comma-separated state codes, or ALL")
     parser.add_argument(
         "--store",
         type=Path,

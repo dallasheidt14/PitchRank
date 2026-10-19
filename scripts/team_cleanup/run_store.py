@@ -7,7 +7,16 @@ The store sits outside the repo, so removing a worktree takes no undo log with i
                                    saved logs of update-missing-club-and-state.yml runs, which the
                                    club scan reads
   <store>/propose.lock             held while a week is being proposed
+  <store>/advance.lock             held while an autopilot tick (advance.py) runs
+  <store>/autopilot.paused         while it exists, the autopilot does nothing
+  <store>/team_cleanup_tick.cmd    the copy of the tick the scheduled task runs
+  <store>/logs/advance.log         the scheduled task's output, tick by tick
+  <store>/logs/autopilot/<run_id>/ each step an autopilot tick ran, one log per step
   <store>/runs/<run_id>/run.json   scope, budgets, status, stage overrides, timestamps
+  <store>/runs/<run_id>/autopilot.json
+                                   the autopilot's own notes on the run: the commit it was proposed
+                                   with, what it has emailed, and since when and why it has been
+                                   blocked; written before run.json when the week's start is blocked
   <store>/runs/<run_id>/write_guard.json
                                    how many teams changed while the stages proposed, and each
                                    stage's stale count; written once each stage has proposed or is
@@ -43,12 +52,12 @@ stay written:
                    script's safe.json and held.json
   REVERT.md        each --revert's account, appended
 
-The owner acts twice: deciding on the page, before collected.json, and triggering the apply,
-before RECORD.md.
+The owner decides on the page, before collected.json; the apply, before RECORD.md, is run by the owner
+or by the autopilot (advance.py).
 
 A page that sends changes the evidence already settles to the automatic lane (page.json's `auto`)
 gives that lane its own collected.json, vetted file, decisions.json, apply record and RECORD.md in
-auto/, read from the stage folder's page and inputs; the owner triggers its apply too. The stage is
+auto/, read from the stage folder's page and inputs, and its apply is run the same way. The stage is
 finished once both lanes are.
 """
 
@@ -78,6 +87,7 @@ CLEANUP_CONFIG = Path(__file__).resolve().parents[2] / "config" / "team_cleanup.
 STORE_ENV = "PITCHRANK_CLEANUP_DIR"
 RUNS_TABLE = "team_cleanup_runs"
 RUN_FILE = "run.json"
+AUTOPILOT_FILE = "autopilot.json"
 APPLY_LOCK_FILE = "apply.lock"
 REVIEW_DIR = "review"
 REVIEW_SUFFIX = "_review.json"
