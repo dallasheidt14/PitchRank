@@ -63,6 +63,19 @@ def test_the_age_review_covers_every_state_in_the_scope(tmp_path):
     assert review[review.index("--state") + 1] == "NH,VT"
 
 
+def test_a_scope_of_all_stands_alone_and_names_the_run_all(tmp_path):
+    assert pw.parse_states(" all ") == ["ALL"]
+    assert pw.run_id_for(date(2026, 10, 21), ["ALL"]) == "2026-10-21-all"
+    with pytest.raises(ValueError, match="stands alone"):
+        pw.parse_states("ALL,NV")
+
+
+def test_an_all_scope_age_review_names_no_state_so_it_covers_every_us_state(tmp_path):
+    review = pw.stage_commands("ages", tmp_path / "ages", ["ALL"], tmp_path)[0]
+
+    assert "--state" not in review
+
+
 def test_the_club_scan_reads_every_saved_run_log_and_never_fetches_one(tmp_path):
     saved = tmp_path / "inputs" / "abbreviation_logs"
     saved.mkdir(parents=True)
@@ -169,6 +182,14 @@ def test_club_scan_rows_are_cut_to_the_scope_and_read_as_the_values_the_teams_ho
     ]
 
 
+def test_an_all_scope_keeps_every_club_scan_row_a_team_with_no_state_included():
+    rows = _as_scanned(_scan_row("a", "NV"), _scan_row("b", "UT"), _scan_row("c", ""))
+
+    kept, proposals = pw.club_proposals(rows, ["ALL"])
+
+    assert kept == rows and [p["team_id_master"] for p in proposals] == ["a", "b", "c"]
+
+
 def _decision(team_id, pre, proposed, action="apply"):
     return {
         "team_id": team_id,
@@ -181,6 +202,16 @@ def _decision(team_id, pre, proposed, action="apply"):
         "action": action,
         "reason": "club-mates",
     }
+
+
+def test_an_all_scope_keeps_every_state_decision():
+    decisions = [_decision("into", None, "NV"), _decision("elsewhere", "CA", "AZ"), _decision("none", None, None)]
+    snapshot = {"rules": "authority", "created_at": "2026-10-14T18:00:00", "live_teams": 9, "decisions": decisions}
+
+    scoped, proposals = pw.state_proposals(snapshot, ["ALL"])
+
+    assert scoped["decisions"] == decisions
+    assert [p["team_id_master"] for p in proposals] == ["into", "elsewhere", "none"]
 
 
 def test_a_state_snapshot_keeps_decisions_moving_a_team_into_or_out_of_the_scope():

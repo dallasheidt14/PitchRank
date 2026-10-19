@@ -57,6 +57,21 @@ def test_the_open_run_shows_each_stage_s_next_step(monkeypatch, capsys, tmp_path
     ]
 
 
+def test_a_blocked_autopilot_says_since_when_and_why(monkeypatch, capsys, tmp_path):
+    store = tmp_path / "store"
+    rs.write_run(store, {"run_id": RUN, "scope": {"states": ["NV"]}, "status": "reviewing"})
+    (rs.run_dir(store, RUN) / "autopilot.json").write_text(
+        json.dumps({"blocked_since": "2026-10-22T18:00:00Z", "problem": "build and publish the clubs page failed"}),
+        encoding="utf-8",
+    )
+
+    _, out = _run(monkeypatch, capsys, "--store", str(store))
+
+    assert out.splitlines()[1] == (
+        "  autopilot  blocked since 2026-10-22T18:00:00Z: build and publish the clubs page failed"
+    )
+
+
 def test_with_no_open_run_it_names_the_latest(monkeypatch, capsys, tmp_path):
     store = tmp_path / "store"
     rs.write_run(store, {"run_id": "2026-10-07-ut", "scope": {}, "status": "done"})
