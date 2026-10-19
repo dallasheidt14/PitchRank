@@ -329,6 +329,14 @@ describe('the team cleanup review page', () => {
     expect(button(container!, 'Mark review done')).toBeUndefined();
   });
 
+  it('offers no Done before any stage page is published', async () => {
+    serve({ ...review(), stages: [] });
+    await render();
+
+    expect(container!.textContent).toContain('No review page is published for this run yet.');
+    expect(button(container!, 'Mark review done')).toBeUndefined();
+  });
+
   it('marks the review done once confirmed, and reloads it', async () => {
     await render();
 

@@ -1618,10 +1618,23 @@ def test_no_page_is_built_again_once_the_review_is_marked_done(tmp_path, monkeyp
         _publish(monkeypatch, capsys, store, db, "--publish", "--execute")
 
     assert str(caught.value) == (
-        f"Cannot build the states page for {RUN}: the review of run {RUN} is marked done, so its pages stay as "
-        "they are"
+        f"Cannot build the states page for {RUN}: the review of run {RUN} is marked done, so its published pages "
+        "stay as they are"
     )
     assert _page_files(store) == before and db.executes.count(INSERT) == 1
+
+
+def test_a_stage_never_published_is_still_built_after_the_review_is_marked_done(tmp_path, monkeypatch, capsys):
+    """Done can come before every stage's page is up; refusing the rest would leave the run unable to finish.
+    The owner saw none of this stage's cards, so they stay undecided and come back next week."""
+    store, db = _sure_week(tmp_path, monkeypatch, auto=1)
+    db.tables["team_cleanup_runs"][0].update(owner_done_at="2026-10-18T18:00:00+00:00", owner_done_by="owner")
+
+    code, _ = _publish(monkeypatch, capsys, store, db, "--publish", "--execute")
+    collected, out = _collect_db(monkeypatch, capsys, store, db, done=False)
+
+    assert code == 0 and len(db.tables["team_cleanup_cards"]) == 4
+    assert collected == 0 and "nothing to apply" in out
 
 
 def test_a_decision_saved_while_the_build_reads_its_evidence_stops_the_new_build(tmp_path, monkeypatch, capsys):

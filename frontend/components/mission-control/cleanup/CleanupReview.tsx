@@ -303,7 +303,7 @@ export function CleanupReview() {
         />
       )}
 
-      {run.status === 'reviewing' && !run.ownerDoneAt && (
+      {run.status === 'reviewing' && !run.ownerDoneAt && review.stages.length > 0 && (
         <div className="fixed inset-x-0 bottom-0 z-10 border-t bg-background/95 px-4 py-3 backdrop-blur">
           <div className="mx-auto flex max-w-3xl items-center justify-between gap-3">
             <span className="text-sm text-muted-foreground">{undecidedTotal} undecided in all stages</span>

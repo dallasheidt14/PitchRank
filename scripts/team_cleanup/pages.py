@@ -312,15 +312,16 @@ def buildable(store: Path, run_id: str, stage: str) -> Path:
 
 
 def check_undecided(sb, run_id: str, stage: str, publish: bool, empty: bool) -> None:
-    """Refuse a new build once the run's review is marked done, whose new cards would be collected without
-    the owner seeing them, or once the owner has decided a card of any build of this page published for
-    the run, and refuse one that would not replace a published page on the website: one that does not
-    publish, or one with no card, which publishes no row. The website is to show the newest build
-    published, so the page on disk must be that build."""
-    done = sb.table(RUNS_TABLE).select("owner_done_at").eq("run_id", run_id).execute().data
-    if done and done[0]["owner_done_at"] is not None:
-        raise ValueError(f"the review of run {run_id} is marked done, so its pages stay as they are")
+    """Refuse a new build of a published page once the run's review is marked done, whose new cards would be
+    collected without the owner seeing them, or once the owner has decided a card of any build of it published
+    for the run, and refuse one that would not replace a published page on the website: one that does not
+    publish, or one with no card, which publishes no row. The website is to show the newest build published,
+    so the page on disk must be that build. A stage with nothing published may still be built after Done,
+    so the run can finish: the owner saw none of its cards, which stay undecided and come back next week."""
     rows = fetch_cards(sb, run_id=run_id, stage=stage)
+    done = sb.table(RUNS_TABLE).select("owner_done_at").eq("run_id", run_id).execute().data
+    if rows and done and done[0]["owner_done_at"] is not None:
+        raise ValueError(f"the review of run {run_id} is marked done, so its published pages stay as they are")
     decided = sorted({row["page_run"] for row in rows if row["lane"] == OWNER and row["decision"] is not None})
     if decided:
         raise ValueError(
