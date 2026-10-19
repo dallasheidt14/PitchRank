@@ -82,12 +82,14 @@ export function CleanupReview() {
   const [confirming, setConfirming] = useState(false);
   const [marking, setMarking] = useState(false);
   // The choices as shown, ahead of the database while saves are in flight; the database's, as last loaded
-  // or saved, for a failed save to go back to; the saves still to land per card; how many have failed. One
-  // save runs at a time, so a decision and a note on one card land in the order they were made.
+  // or saved, for a failed save to go back to; the saves still to land per card; how many have failed, and
+  // how many had when Done was asked for. One save runs at a time, so a decision and a note on one card land
+  // in the order they were made.
   const shownChoices = useRef<Choices>({});
   const confirmed = useRef<Choices>({});
   const pending = useRef<Record<string, number>>({});
   const failures = useRef(0);
+  const failuresAtDone = useRef(0);
   const queue = useRef<Promise<void>>(Promise.resolve());
 
   const showChoices = useCallback((next: Choices) => {
@@ -195,9 +197,8 @@ export function CleanupReview() {
   const markDone = useCallback(async () => {
     if (!run) return;
     setMarking(true);
-    const failedBefore = failures.current;
     await queue.current;
-    if (failures.current > failedBefore) {
+    if (failures.current > failuresAtDone.current) {
       setConfirming(false);
       setMarking(false);
       setStatus('A choice did not save, so the review is not marked done. Check the cards and try again.');
@@ -307,7 +308,13 @@ export function CleanupReview() {
         <div className="fixed inset-x-0 bottom-0 z-10 border-t bg-background/95 px-4 py-3 backdrop-blur">
           <div className="mx-auto flex max-w-3xl items-center justify-between gap-3">
             <span className="text-sm text-muted-foreground">{undecidedTotal} undecided in all stages</span>
-            <Button onClick={() => setConfirming(true)} disabled={marking}>
+            <Button
+              onClick={() => {
+                failuresAtDone.current = failures.current;
+                setConfirming(true);
+              }}
+              disabled={marking}
+            >
               Mark review done
             </Button>
           </div>

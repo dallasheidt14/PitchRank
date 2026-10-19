@@ -363,6 +363,31 @@ describe('the team cleanup review page', () => {
     expect(container!.textContent).toContain('A choice did not save, so the review is not marked done.');
   });
 
+  it('leaves the review open when a save fails while the confirmation is showing', async () => {
+    holding = true;
+    await render();
+
+    await click(button(card('One'), 'Apply'));
+    await click(button(container!, 'Mark review done'));
+    await release(500);
+    await click(button(document.body, 'Mark done'));
+
+    expect(posts.map((p) => p.url)).toEqual([DECISIONS]);
+    expect(container!.textContent).toContain('A choice did not save, so the review is not marked done.');
+  });
+
+  it('marks the review done after an earlier failed save was made again', async () => {
+    refusal = { status: 500, error: 'Could not save the choice' };
+    await render();
+    await click(button(card('One'), 'Apply'));
+    refusal = null;
+    await click(button(card('One'), 'Apply'));
+
+    await confirmDone();
+
+    expect(posts.map((p) => p.url)).toEqual([DECISIONS, DECISIONS, DONE]);
+  });
+
   it('waits for every part of a group save split across writes before marking done', async () => {
     const group = Array.from({ length: 101 }, (_, n) =>
       makeCleanupCardRow({
