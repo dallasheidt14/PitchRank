@@ -9,6 +9,7 @@ const RUN = '2026-10-21-all';
 const PAGE = '20261021T180000Z-a1b2c3';
 const DECISIONS = '/api/mission-control/cleanup/decisions';
 const DONE = '/api/mission-control/cleanup/done';
+const UNDO = '/api/mission-control/cleanup/undo';
 
 function team(name: string) {
   return { ...makeCleanupCardRow().card.team, name };
@@ -60,6 +61,8 @@ function review(run: Partial<NonNullable<Review['run']>> = {}, cards?: CardRow[]
         ],
       },
     ],
+    undo: [],
+    previous: null,
   };
 }
 
@@ -88,6 +91,22 @@ function serve(next: Review) {
 /** The decisions route as the table answers it: a note trimmed, and only the cards it changed come back. */
 function answer({ url, body }: Post): Response {
   if (url === DONE) return Response.json({ ownerDoneAt: '2026-10-22T01:00:00+00:00', ownerDoneBy: 'owner' });
+  if (url === UNDO) {
+    served = {
+      ...served,
+      undo: [
+        {
+          stage: body.stage as 'states',
+          lane: body.lane as 'auto',
+          status: 'pending',
+          requestedLabel: 'Thu, Oct 22, 12:00 PM',
+          handledLabel: null,
+          result: null,
+        },
+      ],
+    };
+    return Response.json({ requested: true });
+  }
   const updated = (body.cardIds as string[])
     .filter((id) => !(body.onlyUndecided && stored[id].decision))
     .map((id) => {
@@ -350,6 +369,53 @@ describe('the team cleanup review page', () => {
     );
     expect(lines).toEqual(['Opponents: UT 18 · NV 2 (of 21 teams played)', 'Club-mates: CA 14', 'GotSport says: UT']);
     expect(card('Plain').querySelector('[data-testid="cleanup-evidence"]')).toBeNull();
+  });
+
+  it("asks for a lane's undo once confirmed, then shows it waiting and offers it no more", async () => {
+    await render();
+    const undo = container!.querySelector<HTMLElement>('[data-testid="cleanup-undo"]')!;
+
+    await click(button(undo, 'Undo automatic changes'));
+    await click(button(document.body, 'Undo'));
+
+    expect(posts).toEqual([{ url: UNDO, body: { runId: RUN, stage: 'states', lane: 'auto' } }]);
+    const shown = container!.querySelector<HTMLElement>('[data-testid="cleanup-undo"]')!;
+    expect(shown.textContent).toContain(
+      'Undoing automatic changes: asked Thu, Oct 22, 12:00 PM, waiting for the next hourly run.'
+    );
+    expect(button(shown, 'Undo automatic changes').disabled).toBe(true);
+    expect(button(shown, 'Undo my changes').disabled).toBe(false);
+  });
+
+  it('asks for nothing when the undo is not confirmed', async () => {
+    await render();
+
+    await click(button(container!.querySelector('[data-testid="cleanup-undo"]')!, 'Undo my changes'));
+    await click(button(document.body, 'Keep them'));
+
+    expect(posts).toEqual([]);
+  });
+
+  it("offers the last finished run's undo, with no run open too", async () => {
+    serve({ ...review(), run: null, stages: [], previous: { runId: '2026-10-14-all', undo: [] } });
+    await render();
+
+    const panel = container!.querySelector<HTMLElement>('[data-testid="cleanup-previous"]')!;
+    expect(container!.textContent).toContain('No cleanup run is open right now.');
+    expect(panel.querySelectorAll('[data-testid="cleanup-previous-stage"]')).toHaveLength(3);
+    await click(
+      button(panel.querySelectorAll<HTMLElement>('[data-testid="cleanup-previous-stage"]')[1], 'Undo my changes')
+    );
+    await click(button(document.body, 'Undo'));
+
+    expect(posts).toEqual([{ url: UNDO, body: { runId: '2026-10-14-all', stage: 'states', lane: 'owner' } }]);
+  });
+
+  it('offers no undo once the run is past review', async () => {
+    serve(review({ status: 'applying' }));
+    await render();
+
+    expect(container!.querySelector('[data-testid="cleanup-undo"]')).toBeNull();
   });
 
   it('offers no Done before any stage page is published', async () => {

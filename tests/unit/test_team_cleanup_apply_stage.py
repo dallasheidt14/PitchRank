@@ -3045,9 +3045,14 @@ def test_a_state_revert_waits_until_every_window_has_closed(tmp_path, monkeypatc
     pilot = read_json(stage_dir(store, RUN, "states") / "apply.json")["batches"][0]
     window_end = (_instant(pilot["ended_at"]) + timedelta(minutes=2)).isoformat()
 
-    message = _refused(monkeypatch, capsys, store, "states", "--revert", "--execute")
+    with pytest.raises(SystemExit) as caught:
+        _main(monkeypatch, capsys, store, "states", "--revert", "--execute")
 
-    assert message.startswith(f"Not reverting yet: a write could still land in the pilot batch window, to {window_end}")
+    # Time alone lifts it, so it exits 75 and the autopilot's next tick tries again.
+    assert caught.value.code == 75
+    assert str(caught.value).startswith(
+        f"Not reverting yet: a write could still land in the pilot batch window, to {window_end}"
+    )
     assert _reverts(db) == [] and db.team(_id("fill"))["state_code"] == "NV"
 
 
