@@ -685,10 +685,21 @@ def test_a_name_stating_another_squad_is_held(season_2026, name, target, reason)
         ("Club U12/11 v 11", {12}),
         ("Club U１２ Boys", set()),
         ("Club 2013 Blue", set()),
+        # A two-year band after a hyphen names birth years, not a U-age (owner, 2026-10-19: "17/18 is birth
+        # years and that means 2017/18 which is u9").
+        ("BVB SEATTLE-B17-18", set()),
+        ("BVB SEATTLE-B17- 18", set()),
+        # A one-digit squad number after it leaves a wrapped age a U-age.
+        ("Town-G09A-2", {9}),
     ],
 )
 def test_name_u_ages_reads_every_u_age_form(name, ages):
     assert fbc.name_u_ages(name) == ages
+
+
+def test_a_band_after_a_hyphen_is_read_as_its_birth_years_and_lets_its_own_cohort_through(season_2026):
+    assert fbc.name_years("BVB SEATTLE-B17-18") == {2017, 2018}
+    assert fbc.name_contradiction("BVB SEATTLE-B17-18", "u9") == ""
 
 
 @pytest.mark.parametrize(
