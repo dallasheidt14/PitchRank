@@ -140,8 +140,9 @@ _YEAR_APOS = re.compile(r"['‘’]([0-9]{2})(?![0-9])")
 # "U/10B" is a U-age whose slash _UAGE_TOKEN does not expect; left in, birth_years reads "10B" as 2010.
 _UAGE_SLASH = re.compile(r"(?<![0-9A-Za-z])[BGMF]?U/([0-9]{1,2})[BGMF]?(?![0-9A-Za-z])", re.I)
 # "Town-G09A-Coach": a B/G age wrapped in hyphens is last season's U-age, not a birth year (owner,
-# 2026-10-11).
-_HYPHEN_AGE = re.compile(r"(?<=-)[BG]([0-9]{2})[A-Z]?(?=-)", re.I)
+# 2026-10-11). "SEATTLE-B17-18" is not one: a second year after the hyphen makes it a two-year band, whose
+# years name the cohort (owner, 2026-10-19: "17/18 is birth years and that means 2017/18 which is u9").
+_HYPHEN_AGE = re.compile(r"(?<=-)[BG]([0-9]{2})[A-Z]?(?=-(?![0-9]))", re.I)
 _NAME_UAGE = re.compile(r"(?i)(?<![a-z0-9])[bg]?u-?([0-9]{1,2})(?![0-9])|(?<![0-9])([0-9]{1,2})u(?=[bg]?(?![a-z0-9]))")
 
 
