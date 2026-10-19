@@ -329,6 +329,29 @@ describe('the team cleanup review page', () => {
     expect(button(container!, 'Mark review done')).toBeUndefined();
   });
 
+  it("shows a state card's evidence, and none on a card without it", async () => {
+    const evidence = {
+      opponents: { NV: 2, UT: 18 },
+      opponents_total: 21,
+      club: { CA: 14 },
+      gotsport: 'UT',
+      name: { state: null, how: 'none' },
+    };
+    serve(
+      review({}, [
+        makeCleanupCardRow({ card_id: 'c1', position: 1, card: { team: team('Utah side'), evidence } }),
+        makeCleanupCardRow({ card_id: 'c2', position: 2, card: { team: team('Plain') } }),
+      ])
+    );
+    await render();
+
+    const lines = [...card('Utah side').querySelectorAll('[data-testid="cleanup-evidence"] li')].map(
+      (li) => li.textContent
+    );
+    expect(lines).toEqual(['Opponents: UT 18 · NV 2 (of 21 teams played)', 'Club-mates: CA 14', 'GotSport says: UT']);
+    expect(card('Plain').querySelector('[data-testid="cleanup-evidence"]')).toBeNull();
+  });
+
   it('offers no Done before any stage page is published', async () => {
     serve({ ...review(), stages: [] });
     await render();

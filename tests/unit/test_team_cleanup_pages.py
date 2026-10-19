@@ -1207,6 +1207,70 @@ def test_a_states_page_with_no_change_to_answer_reads_no_evidence(tmp_path, monk
     assert code == 0
     assert "team_state_probe_log" not in db.executes
     assert [p["team_id_master"] for p in _read(store, "states", MANIFEST_FILE)["cards"].values()] == ["lock"]
+    assert "evidence" not in _cards(store, "states")[0]
+
+
+def test_a_state_card_shows_its_opponents_club_mates_gotsport_answer_and_name_reading(tmp_path, monkeypatch, capsys):
+    """Each distinct opponent counts once, by its stored state, and an excluded game counts none; the
+    team itself is not its own club-mate. None of it decides the card."""
+    store = tmp_path / "store"
+    _reviewing(store)
+    _states(store, [_decision("fix", "UT", "NV")])
+    club = "Reno United"
+    teams = [
+        _team("fix", state="UT", club=club),
+        _team("o1"),
+        _team("o2"),
+        _team("o3", state=None),
+        _team("x", state="CA"),
+        _team("m1", club=club),
+        _team("m2", club=club),
+        _team("m3", state="CA", club=club),
+    ]
+    games = [
+        _game(1, "fix", "o1", "2026-09-05"),
+        _game(2, "o1", "fix", "2026-09-12"),
+        _game(3, "fix", "o2", "2026-09-19"),
+        _game(4, "o3", "fix", "2026-09-26"),
+        _game(5, "fix", "x", "2026-10-03", excluded=True),
+    ]
+    db = _Db(teams=teams, games=games, team_state_probe_log=[_probe("fix", "NV")])
+
+    code, _ = _build(monkeypatch, capsys, store, db)
+
+    assert code == 0
+    assert _cards(store, "states")[0]["evidence"] == {
+        "opponents": {"NV": 2},
+        "opponents_total": 3,
+        "club": {"NV": 2, "CA": 1},
+        "gotsport": "NV",
+        "name": {"state": None, "how": "none"},
+    }
+
+
+@pytest.mark.parametrize(
+    "name, club, reading",
+    [
+        ("California Storm 2012", "No Club Selection", {"state": "CA", "how": "team"}),
+        ("Washington County SC 2012", "Reno United", {"state": None, "how": "unplaced"}),
+        ("Utah Royals FC-AZ 2012", "Reno United", {"state": None, "how": "unplaced"}),
+    ],
+    ids=["a-state-in-the-team-name", "a-place-called-after-a-state", "an-affiliate-marker"],
+)
+def test_a_state_card_shows_the_name_reading_the_name_pass_keeps_and_no_placeholder_club_mates(
+    tmp_path, monkeypatch, capsys, name, club, reading
+):
+    store = tmp_path / "store"
+    _reviewing(store)
+    _states(store, [_decision("fix", "UT", "NV")])
+    teams = [_team("fix", state="UT", club=club, name=name), _team("mate", club=club)]
+
+    code, _ = _build(monkeypatch, capsys, store, _Db(teams=teams))
+
+    assert code == 0
+    evidence = _cards(store, "states")[0]["evidence"]
+    assert evidence["name"] == reading
+    assert evidence["club"] == ({} if club == "No Club Selection" else {"NV": 1})
 
 
 # --- the automatic lane ----------------------------------------------------------------------------

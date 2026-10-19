@@ -6,6 +6,7 @@ import {
   CLEANUP_DECISIONS,
   DECISION_LABELS,
   changeValue,
+  evidenceLines,
   fieldLabel,
   type CardRow,
   type Choice,
@@ -67,6 +68,7 @@ export function CleanupCardView({
   onNote: (note: string) => void;
 }) {
   const { card } = row;
+  const evidence = evidenceLines(card.evidence);
   // The note being typed; outside editing the box shows the saved note.
   const [draft, setDraft] = useState<string | null>(null);
 
@@ -107,6 +109,13 @@ export function CleanupCardView({
         </p>
       )}
       {card.sure && <p className="m-0 text-sm text-muted-foreground">The evidence already settles it: {card.sure}</p>}
+      {evidence.length > 0 && (
+        <ul data-testid="cleanup-evidence" className="m-0 grid list-none gap-0.5 p-0 text-sm text-muted-foreground">
+          {evidence.map((line) => (
+            <li key={line}>{line}</li>
+          ))}
+        </ul>
+      )}
       <div className="flex flex-wrap gap-2">
         {CLEANUP_DECISIONS.map((decision) => (
           <button

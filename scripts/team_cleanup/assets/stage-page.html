@@ -98,6 +98,22 @@ let bulk = false;          // a whole-group or look-alike decision is still writ
 
 function el(tag, cls, text){ const e=document.createElement(tag); if(cls) e.className=cls; if(text!=null) e.textContent=text; return e; }
 function month(d){ return d ? d.slice(0,7) : "—"; }
+const NAME_SOURCE = {team:"the team name", club:"the club name", town:"a town in the name"};
+function byCount(perState){
+  return Object.entries(perState).sort(([a,x],[b,y]) => y - x || a.localeCompare(b)).map(([s,n]) => s + " " + n).join(" · ");
+}
+// A state card's evidence, as the website shows it: shown to the owner, never used to decide.
+function evidenceLines(e){
+  if (!e) return [];
+  const lines = [];
+  if (e.opponents_total) lines.push("Opponents: " + (Object.keys(e.opponents).length ? byCount(e.opponents) : "none with a state") + " (of " + e.opponents_total + " teams played)");
+  if (Object.keys(e.club).length) lines.push("Club-mates: " + byCount(e.club));
+  if (e.gotsport) lines.push("GotSport says: " + e.gotsport);
+  if (e.name.state) lines.push("Name points to " + e.name.state + " (" + (NAME_SOURCE[e.name.how] || "the name") + ")");
+  else if (e.name.how === "conflict") lines.push("Name points two ways");
+  else if (e.name.how === "unplaced") lines.push("Name mentions a state it can't be placed by");
+  return lines;
+}
 function choice(id){ return local[id] || saved[id] || {}; }
 function shown(v){ return v == null || v === "" ? "(none)" : v; }
 
@@ -118,6 +134,7 @@ function buildCard(c){
     document.createTextNode(" → "), el("span","new", shown(c.change.new)));
   card.append(ch);
   if (c.why){ const why=el("p","why"); why.append(el("b",null,"Why: "), document.createTextNode(c.why)); card.append(why); }
+  for (const line of evidenceLines(c.evidence)) card.append(el("div","facts evidence", line));
   const acts = el("div","acts"), buttons = {};
   for (const [key,cls] of [["apply","b-apply"],["dont_apply","b-dont"],["unsure","b-unsure"]]){
     const b = el("button",cls,LABEL[key]); b.type="button";

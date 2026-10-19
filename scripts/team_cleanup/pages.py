@@ -50,6 +50,7 @@ import argparse
 import json
 import shlex
 import sys
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -60,7 +61,7 @@ from postgrest.types import ReturnMethod
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from scripts.assign_team_states import club_key  # noqa: E402
+from scripts.assign_team_states import build_club_index, club_key  # noqa: E402
 from scripts.enqueue_user_interest_teams import (  # noqa: E402
     collect_report_card_teams,
     collect_user_requested_teams,
@@ -75,7 +76,12 @@ from scripts.find_cross_provider_duplicates import (  # noqa: E402
     page,
     resolver,
 )
-from scripts.review_state_queue_by_name import classify  # noqa: E402
+from scripts.review_state_queue_by_name import (  # noqa: E402
+    affiliate_contradicts,
+    classify,
+    name_reading,
+    names_a_place,
+)
 from scripts.team_cleanup.collect import fetch_cards  # noqa: E402
 from scripts.team_cleanup.decisions import (  # noqa: E402
     CARDS_TABLE,
@@ -271,7 +277,47 @@ def change_id(run: str, p: dict) -> str:
     return card_id(run, f"{p['team_id_master']}|{p['field']}|{p['new_value']}")
 
 
-def card(stage, run, p, team, ev, providers, interest) -> dict:
+def held_state(team: dict) -> str | None:
+    """A team's stored state; state_code is CHAR(2), so it reads back padded."""
+    return (team.get("state_code") or "").strip() or None
+
+
+def state_facts(evidence, ev, teams, team_ids) -> dict[str, dict]:
+    """What the states skill reads beside each state card's proposal, for the owner to see and never to decide
+    it: its opponents' and club-mates' stored states, GotSport's recent answer, and the state its name points
+    at. Opponents who agree prove nothing inside a mislabelled cluster, and club-mates are what proposed a
+    Tier B correction. None of it is read for a page with no state change (``evidence`` None)."""
+    if evidence is None:
+        return {}
+    clubs = build_club_index(evidence.by_id.values())
+    facts = {}
+    for tid in team_ids:
+        team = teams[tid]
+        opponents = [held_state(evidence.by_id.get(o) or {}) for o in ev.opponents[tid]]
+        live = evidence.by_id.get(tid) or {}
+        mates = Counter(clubs.get(club_key(live.get("club_name")), {}))
+        if held_state(live):
+            mates[held_state(live)] -= 1
+        state, how = name_reading(team, evidence.locality_index)
+        # A state word the name pass's own checks set aside (a place called after another state, an
+        # affiliate marker naming one) is no reading; shown as one, it would argue against a right card.
+        if state and (
+            names_a_place(team, state)
+            or affiliate_contradicts(team.get("team_name"), state)
+            or affiliate_contradicts(team.get("club_name"), state)
+        ):
+            state, how = None, "unplaced"
+        facts[tid] = {
+            "opponents": dict(Counter(s for s in opponents if s).most_common()),
+            "opponents_total": len(opponents),
+            "club": dict(Counter({s: n for s, n in mates.items() if n > 0}).most_common()),
+            "gotsport": evidence.answers.get(tid),
+            "name": {"state": state, "how": how},
+        }
+    return facts
+
+
+def card(stage, run, p, team, ev, providers, interest, facts=None) -> dict:
     tid = p["team_id_master"]
     dates = ev.dates[tid]
     group = group_of(stage, p)
@@ -296,6 +342,7 @@ def card(stage, run, p, team, ev, providers, interest) -> dict:
             "first": min(dates, default=None),
             "last": max(dates, default=None),
         },
+        **({"evidence": facts[tid]} if facts and tid in facts else {}),
     }
 
 
@@ -367,12 +414,13 @@ def build(
     page_ids = [p["team_id_master"] for p in (*shown, *auto)]
     providers = {p["id"]: p["code"] for p in sb.table("providers").select("id,code").execute().data}
     ev = build_evidence(fetch_games(sb, sorted(merged_into(page_ids, merge_map, canonical))), [], canonical, page_ids)
+    facts = state_facts(evidence, ev, teams, page_ids)
     page_run = new_page_run()
     lanes, by_lane = {}, {}
     for lane, chosen in ((OWNER, shown), (AUTO, auto)):
         lanes[lane] = [
             {
-                **card(stage, page_run, p, teams[p["team_id_master"]], ev, providers, interest),
+                **card(stage, page_run, p, teams[p["team_id_master"]], ev, providers, interest, facts),
                 "n": n,
                 "sure": settled.get(p["team_id_master"]),
             }

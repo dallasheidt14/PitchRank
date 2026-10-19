@@ -213,8 +213,9 @@ checks the stage skill leaves to a person, which no script enforces: for clubs t
 **Hold rather than write** in `normalizing-club-names`, for states reading each as a person would
 (`assigning-team-states` Step 4). For a state Apply whose name does not plainly back the change, read
 who the team played (its opponents' stored states), where its club-mates sit, and a recent `mapped`
-GotSport answer in `team_state_probe_log` that names a third state, never the unset default `AL`;
-together they caught four wrong changes in one Nevada run. Each is a reason to raise a card with the
+GotSport answer that names a third state, never the unset default `AL`; together they caught four
+wrong changes in one Nevada run. Each state card carries them, as the owner sees them on the page,
+under `evidence` in `<stage>/page.html`'s cards and in `team_cleanup_cards.card`. Each is a reason to raise a card with the
 owner, never a state to propose: opponents agreeing with a stored state prove nothing inside a
 mislabelled cluster, and club-mates are what proposed a Tier B correction. After Done the page takes
 no new choice, so a card that fails here can only be taken back by undoing its whole lane after the
@@ -319,6 +320,5 @@ closes only by abandoning it.
 ## Not in code
 
 A second lap (re-proposing what a stage's writes uncovered), the post-Monday check of how the week's
-rankings moved the changed teams, reviewer subagents for proposals, undo buttons on the review page,
-and evidence (opponents' and club-mates' states) on state cards do not exist in code. Do not
-improvise them; tell the owner when a request needs one.
+rankings moved the changed teams, reviewer subagents for proposals, and undo buttons on the review
+page do not exist in code. Do not improvise them; tell the owner when a request needs one.
