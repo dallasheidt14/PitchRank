@@ -132,7 +132,7 @@ def test_review_and_sheet_keep_registered_name_primary_with_match_and_play_up_co
     app, _calls = operator
     click(app, "Build seeding sheets")
 
-    editor = app.dataframe[0].value
+    editor = next(frame.value for frame in app.dataframe if "PitchRank match" in frame.value.columns)
     beta = editor.loc[editor["Team"] == "Beta Entry"].iloc[0]
     assert beta["PitchRank match"] == "Beta FC"
     assert beta["Roster context"] == "Plays up from U13"
@@ -172,7 +172,7 @@ def test_main_review_shows_scores_without_internal_ids_or_close_labels(operator)
     click(app, "Build seeding sheets")
     editor = app.dataframe[0].value
     assert list(editor.columns)[:4] == [
-        "Effective seed", "Team", "Tier", "Why this placement",
+        "Effective seed", "Team", "Tier", "PowerScore",
     ]
     assert editor["PowerScore"].tolist() == pytest.approx([55., 55.])
     assert "Entrant" not in editor.columns
@@ -536,7 +536,7 @@ def test_saved_pack_invalid_field_explains_rebuild_and_keeps_build_control(opera
     assert "Alpha FC" in app.session_state["_seeding_sheet_html"]
     app.run()
     assert app.button(key="_seeding_build_tiers").proto.type == "secondary"
-    optional = next(item for item in app.expander if item.label == "Rebuild with current team data (optional)")
+    optional = next(item for item in app.expander if item.label == "Analysis settings and rebuild (optional)")
     assert not optional.proto.expanded
 
 
@@ -739,7 +739,7 @@ render_seeding_pack(parsed, resolved, None, event_name="Draft Cup", save=lambda:
 '''
     app = AppTest.from_string(app_code).run()
     assert not app.exception
-    assert any("Delivery status: draft" in message.value for message in app.info)
+    assert any("Delivery status: draft" in message.value for message in app.caption)
     assert not any("roster assessed" in message.value for message in app.caption)
 
 
@@ -801,7 +801,7 @@ render_seeding_pack(parsed, resolved, None, event_name="Partial Cup", save=lambd
 
 def test_live_legacy_session_without_assessment_exports_draft(operator):
     app, _calls = operator
-    assert any("Delivery status: draft" in message.value for message in app.info)
+    assert any("Delivery status: draft" in message.value for message in app.caption)
     click(app, "Build seeding sheets")
     assert "DRAFT" in app.session_state["_seeding_sheet_html"]
 
@@ -817,7 +817,7 @@ def test_compare_discovered_conflicts_mark_all_exports_as_draft(operator, monkey
     app.session_state["_seeding_assessment"] = {"coverage": "complete", "completed": [0, 1, 2]}
     next(widget for widget in app.radio if widget.label == "Sheet pack").set_value("Choose cohorts").run()
     app.multiselect[0].set_value(["u14|Male"]).run()
-    assert any("Delivery status: draft" in message.value for message in app.info)
+    assert any("Delivery status: draft" in message.value for message in app.caption)
     codes = {"u14|Male": {"0": code, "1": code}} if code else {}
     batch = SeedingPredictionBatch({"u14|Male": {}}, {"u14|Male": {}},
         {"u14|Male": {"0": reason, "1": reason}}, "2026-09-15T10:00:00+00:00", None, "a" * 64, codes)
@@ -831,7 +831,7 @@ def test_compare_discovered_conflicts_mark_all_exports_as_draft(operator, monkey
     monkeypatch.setattr(ui, "team_csv", capture_csv)
     click(app, "Build seeding sheets")
     assert not app.error
-    assert any("Delivery status: draft" in message.value for message in app.info)
+    assert any("Delivery status: draft" in message.value for message in app.caption)
     assert b"Draft" in exported[-1]
     assert "DRAFT" in app.session_state["_seeding_sheet_html"]
     from io import BytesIO
@@ -856,7 +856,7 @@ def test_teams_without_a_current_rating_do_not_hold_the_pack_in_draft(operator, 
     click(app, "Mark placement review complete")
     next(widget for widget in app.text_input if widget.label == "Reason for accepting this dated snapshot").set_value("Director will place unrated teams")
     click(app, "Accept dated snapshot for delivery")
-    assert not any("Delivery status: draft" in message.value for message in app.info)
+    assert not any("Delivery status: draft" in message.value for message in app.caption)
     assert any("roster assessed" in message.value for message in app.caption)
     assert "DRAFT" not in app.session_state["_seeding_sheet_html"]
     assert "No current rating" in app.session_state["_seeding_sheet_html"]
@@ -1401,11 +1401,50 @@ def test_preview_choice_is_explicit_and_rebuild_preserves_manual_choices(operato
     click(app, "Build seeding sheets")
     pack = app.session_state["_seeding_pack"]
     assert pack["ordering_method"] == "cohort_expected_points_v1"
-    assert requested_models == ["legacy", "cohort"]
+    assert requested_models == ["results", "cohort"]
     assert "Preview recommendation" in app.session_state["_seeding_sheet_html"]
     app.run()
     assert not app.exception
     assert app.session_state["_seeding_pack"] == pack
+
+
+def test_new_run_defaults_to_results_but_reopened_legacy_pack_keeps_its_method(operator):
+    app, _calls = operator
+    assert app.selectbox(key="_seeding_prediction_model").value == "results"
+    click(app, "Build seeding sheets")
+    # The fixture loader deliberately produces a legacy snapshot.
+    legacy_pack = deepcopy(app.session_state["_seeding_pack"])
+    legacy_pack.pop("prediction_model", None)
+    reopened = AppTest.from_string(APP, default_timeout=15)
+    reopened.session_state["_seeding_pack"] = legacy_pack
+    reopened.run()
+    assert not reopened.exception
+    assert reopened.selectbox(key="_seeding_prediction_model").value == "legacy"
+    assert reopened.session_state["_seeding_pack"] == legacy_pack
+
+
+def test_single_cohort_has_no_scope_picker():
+    app = AppTest.from_string('''
+import streamlit as st
+from src.tournaments.roster_paste import parse_roster
+from src.tournaments.seeding_intake_ui import _selected_cohorts
+parsed = parse_roster("Female U13\\nClub\\tTeam\\tState\\nAlpha\\tAlpha FC\\tTX")
+st.session_state["selected"] = _selected_cohorts(parsed, None)
+''').run()
+    assert not app.exception
+    assert not app.radio and not app.multiselect
+    assert app.session_state["selected"] == ["u13|Female"]
+
+
+def test_build_step_keeps_freshness_gate_in_export_and_preserves_draft(operator):
+    code = APP.replace('event_name="Acceptance Cup", save=save)',
+                       'event_name="Acceptance Cup", save=save, view="build")')
+    app = AppTest.from_string(code, default_timeout=15).run()
+    click(app, "Build seeding sheets")
+    assert not any(button.label == "Check snapshot freshness" for button in app.button)
+    assert not any(button.label == "Generate PDF pack" for button in app.button)
+    assert "DRAFT" in app.session_state["_seeding_sheet_html"]
+    assert any(item.label == "Review seed order and director notes" for item in app.expander)
 
 
 def test_director_csv_retains_draft_when_fresh_snapshot_has_pending_roster_review(operator, monkeypatch):

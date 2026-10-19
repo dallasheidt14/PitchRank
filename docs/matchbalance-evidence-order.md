@@ -6,11 +6,11 @@ MatchBalance keeps three separate orders: the published PowerScore baseline, its
 
 1. Use **Start a new tournament** to save the active run and return to a blank pasted-roster intake. A failed save keeps the active work in place. Give the new run a descriptive name before importing U12, U13, or another cohort.
 2. Import and match the accepted roster as usual.
-3. Under **Recommendation method (optional)**, choose **Whole-cohort comparison — preview** or **Opponent-adjusted recent results — preview**, then **Build seeding sheets**. Changing the selector alone never replaces saved recommendations.
-4. Review movement explanations, supporting and contrary game examples, limited evidence, and tier risks. A preview requires placement review. Manual orders and holds remain available.
+3. Click **Build seeding sheets**. New runs default to **Actual game results — preview**. Saved runs retain their original method. **Analysis settings and rebuild (optional)** contains the method selector, format preferences, and rebuild action; changing the selector alone never replaces saved recommendations.
+4. Review the ranked list and tier breaks. Required placement checks open below the list; choose a team to inspect its game evidence. Detailed diagnostics, manual orders, and holds remain available in expandable controls. A preview requires placement review.
 5. Export the ranked cheat sheet. The PDF, printable HTML, and Excel keep the ranked list, PowerScore, national cohort rank, state rank, saved W-L-D record, tier separators, compact formats, and material cautions. The national rank belongs to the team's published age and gender cohort; a different cohort is labeled and an unknown rank stays blank. Seed-change comparisons remain in the expandable operator evidence, not the director exports. Detailed game explanations remain in the operator view and CSV.
 
-The current method remains the default until an untouched historical confirmation supports a release. Preview output is available for inspection; it is not evidence that prediction accuracy improved.
+Actual-results analysis is the default workflow for new runs, but remains labeled as a preview. This usability choice does not establish improved prediction accuracy; that requires untouched historical confirmation. Freshness checks and dated-snapshot acknowledgment appear in Export, with the same readiness requirements as before.
 
 To extend an existing event, return to Import and expand **Add age groups to this run**. Paste only the new cohorts and confirm their complete lists. Existing roster identities, matching decisions, notes, and cohort reviews stay in place. Replacement lists and unimported drafts cannot be silently discarded by **Start a new tournament**.
 
