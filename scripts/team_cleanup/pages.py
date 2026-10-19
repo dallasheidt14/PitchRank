@@ -122,6 +122,7 @@ from scripts.team_cleanup.run_store import (  # noqa: E402
 )
 from scripts.team_cleanup.sure import keeps_state, load_signals, state_evidence, sure_because  # noqa: E402
 from src.tournaments.storage._io import read_json, utc_now_iso, write_json  # noqa: E402
+from src.utils.us_states import STATE_CODE_TO_NAME  # noqa: E402
 
 TEMPLATE = Path(__file__).resolve().parent / "assets" / "stage-page.html"
 PAGE_FILE = "page.html"
@@ -299,6 +300,9 @@ def state_facts(evidence, ev, teams, team_ids) -> dict[str, dict]:
         if held_state(live):
             mates[held_state(live)] -= 1
         state, how = name_reading(team, evidence.locality_index)
+        # A town word can point outside the US (ON, Ontario), which the name pass reads as no state.
+        if state and state not in STATE_CODE_TO_NAME:
+            state, how = None, "none"
         # A state word the name pass's own checks set aside (a place called after another state, an
         # affiliate marker naming one) is no reading; shown as one, it would argue against a right card.
         if state and (

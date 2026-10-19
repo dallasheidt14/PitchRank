@@ -1248,6 +1248,23 @@ def test_a_state_card_shows_its_opponents_club_mates_gotsport_answer_and_name_re
     }
 
 
+def test_a_town_word_pointing_outside_the_us_reads_as_no_state_and_the_page_still_builds(
+    tmp_path, monkeypatch, capsys
+):
+    """Twelve Ontario teams across four clubs teach the town index that "mississauga" means ON, which the
+    name pass reads as no state."""
+    store = tmp_path / "store"
+    _reviewing(store)
+    _states(store, [_decision("fix", "UT", "NV")])
+    ontario = [_team(f"on{n}", state="ON", club=f"Club {n % 4}", name=f"Mississauga Club {n}") for n in range(12)]
+    teams = [_team("fix", state="UT", name="Mississauga Lions 2012"), *ontario]
+
+    code, _ = _build(monkeypatch, capsys, store, _Db(teams=teams))
+
+    assert code == 0
+    assert _cards(store, "states")[0]["evidence"]["name"] == {"state": None, "how": "none"}
+
+
 @pytest.mark.parametrize(
     "name, club, reading",
     [
