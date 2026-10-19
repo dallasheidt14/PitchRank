@@ -35,6 +35,16 @@ from src.tournaments.storage._file_lock import _acquire_file_lock  # noqa: E402
 from src.tournaments.storage._io import write_json  # noqa: E402
 from tests.unit import test_team_cleanup_cards_migration as cards_migration  # noqa: E402
 
+LOAD_CAPS = pages.load_caps
+
+
+@pytest.fixture(autouse=True)
+def _every_settled_change_a_card(monkeypatch):
+    """The page's caps, whatever config/team_cleanup.json ships: 150 cards and an empty automatic lane, unless a
+    test gives the lane a cap."""
+    monkeypatch.setattr(pages, "load_caps", lambda: pages.Caps(cards=150, auto=0))
+
+
 RUN = "2026-10-14-nv"
 ROW_CAP = 1000
 COLUMNS = {
@@ -1239,8 +1249,8 @@ def test_settled_changes_go_to_the_automatic_lane_up_to_its_cap_and_the_rest_sta
     assert f"collect.py --run {RUN} --stage states --lane auto, then apply_stage.py" in out
 
 
-def test_the_configured_caps_keep_every_settled_change_a_card_until_the_lane_is_given_a_cap():
-    assert pages.load_caps() == pages.Caps(cards=150, auto=0)
+def test_the_configured_caps_send_one_pilot_batch_a_stage_to_the_automatic_lane_and_show_100_cards():
+    assert LOAD_CAPS() == pages.Caps(cards=100, auto=50)
 
 
 @pytest.mark.parametrize(
@@ -1253,7 +1263,7 @@ def test_caps_that_are_missing_or_not_whole_numbers_from_0_are_refused(tmp_path,
     config.write_text(json.dumps({"page_caps": caps}), encoding="utf-8")
 
     with pytest.raises(ValueError, match="page_caps"):
-        pages.load_caps(config)
+        LOAD_CAPS(config)
 
 
 def test_the_automatic_lane_collects_into_its_own_folder_as_the_owner_s_choices_do(tmp_path, monkeypatch, capsys):

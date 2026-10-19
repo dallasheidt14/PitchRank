@@ -244,6 +244,10 @@ def test_a_review_deadline_after_the_apply_window_ends_is_refused(tmp_path):
         advance.load_deadline(path)
 
 
+def test_the_shipped_review_deadline_falls_inside_the_shipped_apply_window():
+    assert advance.load_deadline() == 6180  # Sunday 18:00 Arizona, in minutes after Wednesday 11:00
+
+
 @pytest.mark.parametrize("run_id", ["2026-10-21-all", "2026-10-22-ca", "2026-10-25-nv"])
 def test_a_run_s_deadline_is_the_first_on_or_after_its_date(tmp_path, run_id):
     deadline = advance.load_deadline(_config(tmp_path))

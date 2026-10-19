@@ -119,8 +119,8 @@ scan lists without approving (the `Listed` tiers in `normalizing-club-names`), w
 writes only when a person opts one in. For states it also leaves off each change that a recent
 `mapped` GotSport answer other than the unset default `AL`, or the team's name or club name as
 `assigning-team-states` Step 6's name pass reads it, already answers with the state the team
-holds. `<stage>/page.manifest.json` lists each with its reason. Past 150 cards the rest wait for a
-later run, with teams users follow first.
+holds. `<stage>/page.manifest.json` lists each with its reason. Past the card cap in
+`config/team_cleanup.json` (`page_caps`) the rest wait for a later run, with teams users follow first.
 
 Build every proposed stage, even one with nothing to propose: a 0-card stage still has to be
 collected and applied before the run can close. A rebuild is allowed until the choices are
@@ -137,7 +137,7 @@ Check that each returned link differs from every link already sent.
 
 Send the owner the links with a short plain summary per stage: how many teams and what kind of
 change (for example "41 teams get their club name fixed, 9 need your call"), and that the applies
-run in the window `config/team_cleanup.json` sets (Friday 5 pm to Saturday 10 pm Arizona by
+run in the window `config/team_cleanup.json` sets (Wednesday 11 am to Sunday 10 pm Arizona by
 default). A 0-card stage has no page to publish: tell the owner it had no changes this week but
 still needs its quick apply in the window.
 

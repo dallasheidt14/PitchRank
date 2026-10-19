@@ -64,7 +64,7 @@ BUILT = "2026-10-14T18:00:00+00:00"
 CREATED = "2026-10-14T18:00:00.123456+00:00"
 ACTOR = "team-cleanup:2026-10-14-nv"
 FRIDAY_EVENING = datetime(2026, 10, 17, 1, 0, tzinfo=timezone.utc)  # Friday 18:00 in Arizona
-WEDNESDAY = datetime(2026, 10, 14, 20, 0, tzinfo=timezone.utc)
+MONDAY_MORNING = datetime(2026, 10, 19, 15, 0, tzinfo=timezone.utc)  # Monday 08:00 in Arizona, outside the window
 REAL_GH_RUNS = ap.gh_runs
 REAL_PYTHON_PROCESSES = ap.python_processes
 
@@ -703,18 +703,18 @@ def _club_week(tmp_path, n=3):
 @pytest.mark.parametrize(
     "moment, inside",
     [
-        (datetime(2026, 10, 16, 23, 59, tzinfo=timezone.utc), False),
-        (datetime(2026, 10, 17, 0, 0, tzinfo=timezone.utc), True),
-        (datetime(2026, 10, 18, 4, 59, tzinfo=timezone.utc), True),
-        (datetime(2026, 10, 18, 5, 0, tzinfo=timezone.utc), False),
-        (datetime(2026, 10, 19, 1, 0, tzinfo=timezone.utc), False),
+        (datetime(2026, 10, 14, 17, 59, tzinfo=timezone.utc), False),
+        (datetime(2026, 10, 14, 18, 0, tzinfo=timezone.utc), True),
+        (datetime(2026, 10, 19, 4, 59, tzinfo=timezone.utc), True),
+        (datetime(2026, 10, 19, 5, 0, tzinfo=timezone.utc), False),
+        (datetime(2026, 10, 19, 15, 0, tzinfo=timezone.utc), False),
     ],
-    ids=["fri-16:59-az", "fri-17:00-az", "sat-21:59-az", "sat-22:00-az", "sun-18:00-az"],
+    ids=["wed-10:59-az", "wed-11:00-az", "sun-21:59-az", "sun-22:00-az", "mon-08:00-az"],
 )
-def test_the_configured_window_is_friday_17_to_saturday_22_arizona(moment, inside):
+def test_the_configured_window_is_wednesday_11_to_sunday_22_arizona(moment, inside):
     window = ap.load_window()
 
-    assert window.text == "Friday 17:00 to Saturday 22:00, Arizona time"
+    assert window.text == "Wednesday 11:00 to Sunday 22:00, Arizona time"
     assert ap.in_window(window, moment) is inside
 
 
@@ -739,12 +739,12 @@ def test_a_window_outside_propose_to_hard_stop_is_refused(tmp_path, start, end):
 def test_an_apply_outside_the_window_is_refused_and_outside_window_lets_it_run(tmp_path, monkeypatch, capsys):
     store, db, names = _club_week(tmp_path)
     runner = _Runner(db)
-    _wire(monkeypatch, db, runner, now=WEDNESDAY)
+    _wire(monkeypatch, db, runner, now=MONDAY_MORNING)
 
     message = _refused(monkeypatch, capsys, store, "clubs", "--execute")
 
     assert message == (
-        "Outside the apply window (Friday 17:00 to Saturday 22:00, Arizona time); "
+        "Outside the apply window (Wednesday 11:00 to Sunday 22:00, Arizona time); "
         "apply inside it, or pass --outside-window."
     )
     assert db.executes == [] and runner.commands == []
@@ -757,7 +757,7 @@ def test_an_apply_outside_the_window_is_refused_and_outside_window_lets_it_run(t
 def test_an_apply_outside_the_window_with_the_override_runs_the_rest_too(tmp_path, monkeypatch, capsys):
     store, db, names = _club_week(tmp_path, n=51)
     runner = _Runner(db)
-    _wire(monkeypatch, db, runner, now=WEDNESDAY)
+    _wire(monkeypatch, db, runner, now=MONDAY_MORNING)
 
     code, out = _main(monkeypatch, capsys, store, "clubs", "--execute", "--outside-window")
 
@@ -772,7 +772,7 @@ def test_a_window_that_closes_while_decisions_are_recorded_stops_the_pilot(tmp_p
 
     def record_then_close(*args, **kwargs):
         record(*args, **kwargs)
-        monkeypatch.setattr(ap, "_now", lambda: WEDNESDAY)
+        monkeypatch.setattr(ap, "_now", lambda: MONDAY_MORNING)
 
     monkeypatch.setattr(ap, "record_decisions", record_then_close)
 
@@ -784,7 +784,7 @@ def test_a_window_that_closes_while_decisions_are_recorded_stops_the_pilot(tmp_p
 
 def test_a_lost_answer_outside_the_window_hands_back_the_override(tmp_path, monkeypatch, capsys):
     store, db, _ = _club_week(tmp_path)
-    _wire(monkeypatch, db, _Runner(db), now=WEDNESDAY)
+    _wire(monkeypatch, db, _Runner(db), now=MONDAY_MORNING)
     db.lost[("team_cleanup_decisions", "insert")] = httpx.ReadTimeout("timed out")
 
     message = _refused(monkeypatch, capsys, store, "clubs", "--execute", "--outside-window")
@@ -2112,7 +2112,7 @@ def test_the_queue_waits_for_the_window_and_for_a_writer_that_started_during_the
 
     def during_the_pilot(db):
         if change == "the-window-closed":
-            monkeypatch.setattr(ap, "_now", lambda: WEDNESDAY)
+            monkeypatch.setattr(ap, "_now", lambda: MONDAY_MORNING)
         else:
             busy.append(True)
 
@@ -2808,7 +2808,7 @@ def _one_change_week(tmp_path, stage):
 def test_a_dry_run_writes_nothing_and_runs_nothing(tmp_path, monkeypatch, capsys, stage):
     store, db = _one_change_week(tmp_path, stage)
     runner = _Runner(db)
-    _wire(monkeypatch, db, runner, now=WEDNESDAY)
+    _wire(monkeypatch, db, runner, now=MONDAY_MORNING)
     before = _files(store)
 
     code, out = _main(monkeypatch, capsys, store, stage)
@@ -2829,7 +2829,7 @@ def test_a_dry_run_names_each_batch_s_applier_but_hands_out_no_command_that_writ
     tmp_path, monkeypatch, capsys, stage, applier
 ):
     store, db = _one_change_week(tmp_path, stage)
-    _wire(monkeypatch, db, _Runner(db), now=WEDNESDAY)
+    _wire(monkeypatch, db, _Runner(db), now=MONDAY_MORNING)
 
     _, out = _main(monkeypatch, capsys, store, stage)
 
@@ -3178,7 +3178,7 @@ def test_a_state_revert_checks_again_for_other_writers_between_windows(tmp_path,
 
 def test_a_state_revert_checks_the_window_again_between_windows(tmp_path, monkeypatch, capsys):
     store, db = _applied_states(tmp_path, monkeypatch, capsys)
-    _after_the_first_window(monkeypatch, lambda: monkeypatch.setattr(ap, "_now", lambda: WEDNESDAY))
+    _after_the_first_window(monkeypatch, lambda: monkeypatch.setattr(ap, "_now", lambda: MONDAY_MORNING))
 
     message = _refused(monkeypatch, capsys, store, "states", "--revert", "--execute")
 
@@ -3285,7 +3285,7 @@ def test_a_revert_checks_again_for_other_writers_before_each_later_step(tmp_path
 
 def test_a_revert_checks_the_window_again_before_each_later_step(tmp_path, monkeypatch, capsys):
     store, db, _, runner, logs = _two_club_batches(tmp_path, monkeypatch, capsys)
-    runner.during["repair_swapped_club_names"] = lambda db: monkeypatch.setattr(ap, "_now", lambda: WEDNESDAY)
+    runner.during["repair_swapped_club_names"] = lambda db: monkeypatch.setattr(ap, "_now", lambda: MONDAY_MORNING)
 
     message = _refused(monkeypatch, capsys, store, "clubs", "--revert", "--execute")
 
@@ -3340,7 +3340,7 @@ def test_a_state_revert_dry_run_writes_nothing(tmp_path, monkeypatch, capsys):
 
 def test_a_revert_outside_the_window_is_refused(tmp_path, monkeypatch, capsys):
     store, db, _, runner, _ = _two_club_batches(tmp_path, monkeypatch, capsys)
-    monkeypatch.setattr(ap, "_now", lambda: WEDNESDAY)
+    monkeypatch.setattr(ap, "_now", lambda: MONDAY_MORNING)
 
     message = _refused(monkeypatch, capsys, store, "clubs", "--revert", "--execute")
 
@@ -3396,7 +3396,7 @@ def test_a_revert_refuses_a_batch_that_finished_with_no_log_found(tmp_path, monk
 
 def test_a_revert_outside_the_window_with_the_override_reverts_every_batch(tmp_path, monkeypatch, capsys):
     store, db, names, runner, _ = _two_club_batches(tmp_path, monkeypatch, capsys)
-    monkeypatch.setattr(ap, "_now", lambda: WEDNESDAY)
+    monkeypatch.setattr(ap, "_now", lambda: MONDAY_MORNING)
 
     code, _ = _main(monkeypatch, capsys, store, "clubs", "--revert", "--execute", "--outside-window")
 
@@ -3491,7 +3491,7 @@ def test_a_closed_run_s_revert_holds_only_this_machine_s_file_lock(tmp_path, mon
 def test_a_closed_run_s_revert_still_keeps_to_the_window(tmp_path, monkeypatch, capsys):
     store, db, names, runner, _ = _two_club_batches(tmp_path, monkeypatch, capsys)
     _ended(store, db)
-    monkeypatch.setattr(ap, "_now", lambda: WEDNESDAY)
+    monkeypatch.setattr(ap, "_now", lambda: MONDAY_MORNING)
 
     message = _refused(monkeypatch, capsys, store, "clubs", "--revert", "--execute")
 
@@ -3639,7 +3639,7 @@ def test_the_rest_waits_for_a_writer_that_started_during_the_pilot(tmp_path, mon
 def test_the_rest_waits_for_the_window_still_to_be_open(tmp_path, monkeypatch, capsys):
     store, db, _ = _club_week(tmp_path, n=51)
     runner = _Runner(
-        db, during={"repair_swapped_club_names": lambda db: monkeypatch.setattr(ap, "_now", lambda: WEDNESDAY)}
+        db, during={"repair_swapped_club_names": lambda db: monkeypatch.setattr(ap, "_now", lambda: MONDAY_MORNING)}
     )
     _wire(monkeypatch, db, runner)
 
@@ -4096,7 +4096,7 @@ def _leased_elsewhere(db):
 @pytest.mark.parametrize(
     "wait, reason",
     [
-        ({"now": WEDNESDAY}, "Outside the apply window"),
+        ({"now": MONDAY_MORNING}, "Outside the apply window"),
         ({"gh": _busy("calculate-rankings.yml", 5)}, "Not applying while another writer may be running"),
         ({"db": _leased_elsewhere}, f"Cannot apply the clubs stage of {RUN}: run {RUN} is held by another-machine:1"),
     ],
