@@ -293,11 +293,16 @@ python scripts/team_cleanup/end_run.py --run 2026-10-21-all --abandon --reason "
 
 ## Undoing a lane
 
-The autopilot never undoes anything, but it does retry an unfinished apply every tick, and a retry
-re-writes undone rows. So before undoing a lane that had not finished, pause the autopilot and keep it
-paused until that run is abandoned. Dry-run the undo yourself, then hand the owner the `--execute`
-form, adding `--outside-window` only when they ask to undo outside the window. The owner's choices and
-the automatic lane are undone separately:
+For the run in review, the owner undoes a lane from the review page: **Undo automatic changes** or
+**Undo my changes** on a stage files a request in `team_cleanup_requests`, and the autopilot runs it
+once that lane has applied, records it done or failed with the revert's last lines, and holds the
+run's close while one waits. The page shows each lane's latest request. Point the owner there first.
+
+By hand, which the autopilot does not know about: it retries an unfinished apply every tick, and a
+retry re-writes undone rows. So before undoing a lane that had not finished, pause the autopilot and
+keep it paused until that run is abandoned. Dry-run the undo yourself, then hand the owner the
+`--execute` form, adding `--outside-window` only when they ask to undo outside the window. The owner's
+choices and the automatic lane are undone separately:
 
 ```bash
 python scripts/team_cleanup/apply_stage.py --run 2026-10-21-all --stage states --revert
@@ -306,7 +311,7 @@ python scripts/team_cleanup/apply_stage.py --run 2026-10-21-all --stage states -
 ```
 
 It undoes the whole lane, under the apply's window and other-writer checks. Clubs and ages restore only
-rows that still hold the value the batch wrote. States refuse until two minutes after a batch ended,
+rows that still hold the value the batch wrote. States wait (exit 75) until two minutes after a batch ended,
 and when a window holds another writer's change or one of their own writes falls outside the saved
 windows. The result is appended to the lane's `<lane folder>/REVERT.md`. State review-queue cards it
 settled stay settled, and the owner's recorded decisions stay as they were. A change the undo put back
@@ -320,5 +325,5 @@ closes only by abandoning it.
 ## Not in code
 
 A second lap (re-proposing what a stage's writes uncovered), the post-Monday check of how the week's
-rankings moved the changed teams, reviewer subagents for proposals, and undo buttons on the review
-page do not exist in code. Do not improvise them; tell the owner when a request needs one.
+rankings moved the changed teams, and reviewer subagents for proposals do not exist in code. Do not
+improvise them; tell the owner when a request needs one.

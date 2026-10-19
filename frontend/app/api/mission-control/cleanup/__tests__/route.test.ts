@@ -109,7 +109,83 @@ describe('GET /api/mission-control/cleanup', () => {
 
     const body = await (await GET()).json();
 
-    expect(body).toEqual({ run: null, stages: [] });
+    expect(body).toEqual({ run: null, stages: [], undo: [] });
+  });
+
+  it("shows each lane's latest undo request in Arizona time", async () => {
+    db.tableRows.team_cleanup_requests = [
+      {
+        run_id: RUN,
+        stage: 'states',
+        lane: 'auto',
+        status: 'failed',
+        requested_at: '2026-10-22T18:00:00+00:00',
+        handled_at: '2026-10-22T18:17:00+00:00',
+        result: 'Not reverting: other writes',
+      },
+      {
+        run_id: RUN,
+        stage: 'states',
+        lane: 'auto',
+        status: 'pending',
+        requested_at: '2026-10-22T19:00:00+00:00',
+        handled_at: null,
+        result: null,
+      },
+      {
+        run_id: RUN,
+        stage: 'clubs',
+        lane: 'owner',
+        status: 'done',
+        requested_at: '2026-10-22T17:00:00+00:00',
+        handled_at: '2026-10-22T17:17:00+00:00',
+        result: 'reverted',
+      },
+      {
+        run_id: '2026-10-14-all',
+        stage: 'ages',
+        lane: 'auto',
+        status: 'done',
+        requested_at: '2026-10-15T17:00:00+00:00',
+        handled_at: '2026-10-15T17:17:00+00:00',
+        result: null,
+      },
+    ];
+
+    const body = await (await GET()).json();
+
+    expect(body.undo).toEqual([
+      {
+        stage: 'states',
+        lane: 'auto',
+        status: 'pending',
+        requestedLabel: 'Thu, Oct 22, 12:00 PM',
+        handledLabel: null,
+        result: null,
+      },
+      {
+        stage: 'clubs',
+        lane: 'owner',
+        status: 'done',
+        requestedLabel: 'Thu, Oct 22, 10:00 AM',
+        handledLabel: 'Thu, Oct 22, 10:17 AM',
+        result: 'reverted',
+      },
+    ]);
+  });
+
+  it('still shows the cards when the undo requests cannot be read', async () => {
+    db.failing.team_cleanup_requests = {
+      code: 'PGRST205',
+      message: "Could not find the table 'public.team_cleanup_requests'",
+    };
+
+    const res = await GET();
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.undo).toEqual([]);
+    expect(body.stages[0].cards).toHaveLength(2);
   });
 
   it('still shows a run past review, so its page reads as locked rather than missing', async () => {

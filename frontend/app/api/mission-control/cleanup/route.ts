@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { BUSINESS_TIMEZONE } from '@/lib/admin/timezone';
 import { requireAdmin } from '@/lib/supabase/admin';
 import { createServiceSupabase } from '@/lib/supabase/service';
-import { stageReviews, type CardRow, type CleanupReview } from '@/lib/mission-control/cleanup';
+import { stageReviews, type CardRow, type CleanupReview, type UndoRequest } from '@/lib/mission-control/cleanup';
 
 export const dynamic = 'force-dynamic';
 
@@ -46,7 +46,7 @@ async function readReview() {
     return NextResponse.json({ error: 'Could not read the cleanup run' }, { status: 500 });
   }
   const run = runs?.[0];
-  if (!run) return NextResponse.json({ run: null, stages: [] } satisfies CleanupReview);
+  if (!run) return NextResponse.json({ run: null, stages: [], undo: [] } satisfies CleanupReview);
 
   const rows: CardRow[] = [];
   for (let offset = 0; ; offset += PAGE_SIZE) {
@@ -64,6 +64,29 @@ async function readReview() {
     if (!data || data.length < PAGE_SIZE) break;
   }
 
+  const { data: requests, error: requestError } = await supabase
+    .from('team_cleanup_requests')
+    .select('stage, lane, status, requested_at, handled_at, result')
+    .eq('run_id', run.run_id)
+    .order('requested_at', { ascending: false });
+  // The cards matter more than the undo statuses: a failed read, as before team_cleanup_requests exists, shows
+  // the page with none rather than no page.
+  if (requestError) console.error('[cleanup] Reading the undo requests failed:', requestError.message);
+  // Newest first, so the first seen per stage and lane is its latest.
+  const undo = new Map<string, UndoRequest>();
+  for (const r of requestError ? [] : (requests ?? [])) {
+    const key = `${r.stage}|${r.lane}`;
+    if (undo.has(key)) continue;
+    undo.set(key, {
+      stage: r.stage,
+      lane: r.lane,
+      status: r.status,
+      requestedLabel: businessTime(r.requested_at) ?? '',
+      handledLabel: businessTime(r.handled_at),
+      result: r.result,
+    });
+  }
+
   return NextResponse.json({
     run: {
       runId: run.run_id,
@@ -74,5 +97,6 @@ async function readReview() {
       ownerDoneLabel: businessTime(run.owner_done_at),
     },
     stages: stageReviews(rows),
+    undo: [...undo.values()],
   } satisfies CleanupReview);
 }

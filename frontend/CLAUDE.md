@@ -136,7 +136,9 @@ frontend/
   - `/api/mission-control/cleanup` backs the weekly team cleanup's review page, and its saves are what
     `scripts/team_cleanup/collect.py --from-db` collects. That reads them only once the run's `owner_done_at` is
     set, and refuses a choice from the automatic lane or an older build, which is why `decisions` writes only
-    owner-lane cards of each stage's newest build and refuses every save after `done`
+    owner-lane cards of each stage's newest build and refuses every save after `done`. `undo` files a pending
+    `team_cleanup_requests` row for one lane of a stage, which `scripts/team_cleanup/advance.py` runs once the
+    lane has applied; the table allows one pending request per lane
 - `GET /api/team-aliases/[teamId]`
 - `GET|POST|DELETE /api/team-merge/*`
 

@@ -16,23 +16,28 @@ import {
   CLEANUP_DECISIONS,
   MAX_CARDS_PER_WRITE,
   STAGE_LABELS,
+  UNDO_LABELS,
   alikeSets,
   changeValue,
   fieldLabel,
   groupCards,
   tally,
+  undoStatus,
   type CardRow,
   type Choice,
   type CleanupDecision,
+  type CleanupLane,
   type CleanupReview as Review,
   type CleanupStage,
   type StageReview,
+  type UndoRequest,
 } from '@/lib/mission-control/cleanup';
 import { CleanupCardView, DECISION_TONE } from './CleanupCardView';
 
 const REVIEW_URL = '/api/mission-control/cleanup';
 const DECISIONS_URL = '/api/mission-control/cleanup/decisions';
 const DONE_URL = '/api/mission-control/cleanup/done';
+const UNDO_URL = '/api/mission-control/cleanup/undo';
 const TALLY_LABELS: Record<CleanupDecision, string> = { apply: 'apply', dont_apply: "don't apply", unsure: 'unsure' };
 
 type Choices = Record<string, Choice>;
@@ -81,6 +86,8 @@ export function CleanupReview() {
   const [bulkBusy, setBulkBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [marking, setMarking] = useState(false);
+  const [undoing, setUndoing] = useState<{ stage: CleanupStage; lane: CleanupLane } | null>(null);
+  const [asking, setAsking] = useState(false);
   // The choices as shown, ahead of the database while saves are in flight; the database's, as last loaded
   // or saved, for a failed save to go back to; the saves still to land per card; how many have failed, and
   // how many had when Done was asked for. One save runs at a time, so a decision and a note on one card land
@@ -217,6 +224,22 @@ export function CleanupReview() {
     }
   }, [run, load]);
 
+  const askUndo = useCallback(async () => {
+    if (!run || !undoing) return;
+    setAsking(true);
+    try {
+      await requestJson(UNDO_URL, { runId: run.runId, ...undoing });
+      setStatus(`${UNDO_LABELS[undoing.lane].replace('Undo', 'Undoing')}: asked, the next hourly run does it.`);
+      await load();
+    } catch (error) {
+      setStatus(`Undo not asked for: ${reasonOf(error)}.`);
+      if (isConflict(error)) await load();
+    } finally {
+      setUndoing(null);
+      setAsking(false);
+    }
+  }, [run, undoing, load]);
+
   const stage = review?.stages.find((s) => s.stage === active) ?? null;
   const undecidedTotal = useMemo(
     () => (review?.stages ?? []).reduce((n, s) => n + tally(s.cards, choices).undecided, 0),
@@ -301,6 +324,8 @@ export function CleanupReview() {
           bulkBusy={bulkBusy}
           onSave={save}
           onDecideOpen={decideOpen}
+          undo={run.status === 'reviewing' ? (review.undo ?? []).filter((r) => r.stage === stage.stage) : null}
+          onUndo={(lane) => setUndoing({ stage: stage.stage, lane })}
         />
       )}
 
@@ -320,6 +345,26 @@ export function CleanupReview() {
           </div>
         </div>
       )}
+
+      <Dialog open={undoing !== null} onOpenChange={(open) => !asking && !open && setUndoing(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{undoing && `${UNDO_LABELS[undoing.lane]} in ${STAGE_LABELS[undoing.stage]}?`}</DialogTitle>
+            <DialogDescription>
+              The next hourly run puts back every one of these changes that has been applied, or undoes them as soon as
+              they apply. An undone change is not applied automatically again.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setUndoing(null)} disabled={asking}>
+              Keep them
+            </Button>
+            <Button onClick={() => void askUndo()} disabled={asking}>
+              {asking ? 'Asking…' : 'Undo'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={confirming} onOpenChange={(open) => !marking && setConfirming(open)}>
         <DialogContent>
@@ -351,6 +396,8 @@ function StageView({
   bulkBusy,
   onSave,
   onDecideOpen,
+  undo,
+  onUndo,
 }: {
   stage: StageReview;
   choices: Choices;
@@ -358,6 +405,9 @@ function StageView({
   bulkBusy: boolean;
   onSave: (stage: StageReview, ids: string[], patch: Patch, onlyUndecided?: boolean) => Promise<void>;
   onDecideOpen: (stage: StageReview, ids: string[], decision: CleanupDecision) => Promise<void>;
+  /** The stage's latest undo request per lane; null when the run is past review and nothing can be undone here. */
+  undo: UndoRequest[] | null;
+  onUndo: (lane: CleanupLane) => void;
 }) {
   const [show, setShow] = useState('');
   const groups = useMemo(() => groupCards(stage.cards), [stage.cards]);
@@ -462,6 +512,29 @@ function StageView({
             ))}
           </ul>
         </details>
+      )}
+
+      {undo && (
+        <div className="space-y-2 rounded-lg border bg-card p-3.5 text-sm" data-testid="cleanup-undo">
+          <div className="flex flex-wrap gap-2">
+            {(stage.auto.length > 0 ? (['auto', 'owner'] as const) : (['owner'] as const)).map((lane) => (
+              <Button
+                key={lane}
+                variant="outline"
+                size="sm"
+                disabled={undo.some((r) => r.lane === lane && r.status === 'pending')}
+                onClick={() => onUndo(lane)}
+              >
+                {UNDO_LABELS[lane]}
+              </Button>
+            ))}
+          </div>
+          {undo.map((r) => (
+            <p key={r.lane} className="m-0 text-muted-foreground">
+              {undoStatus(r)}
+            </p>
+          ))}
+        </div>
       )}
     </section>
   );

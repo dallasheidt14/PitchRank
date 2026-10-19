@@ -112,10 +112,19 @@ function plainColumns(selected: string | undefined): string[] | null {
  * the real builder sends the request, so an update whose chain is never awaited changes
  * nothing. It answers the changed rows only when `.select()` follows, as supabase-js
  * does.
+ *
+ * `.insert(rows)` adds them at the terminal call too. Set `unique[table]` to a row's key under a
+ * unique index (null for a row the index leaves out) and an insert whose key a stored row already
+ * holds is refused with Postgres' 23505 and stores nothing, as the database refuses it.
+ *
+ * Set `failing[table]` to an error and every query against that table answers it, as PostgREST
+ * answers PGRST205 for a table a migration has not created yet.
  */
 export function filteringClientMock(initialRows: Record<string, MockRow[]> = {}) {
   const tableRows: Record<string, MockRow[]> = { ...initialRows };
   const queries: Array<{ table: string; rows: MockRow[] }> = [];
+  const unique: Record<string, (row: MockRow) => string | null> = {};
+  const failing: Record<string, { code: string; message: string }> = {};
 
   function createBuilder(table: string) {
     let rows: MockRow[] = [...(tableRows[table] ?? [])];
@@ -123,7 +132,26 @@ export function filteringClientMock(initialRows: Record<string, MockRow[]> = {})
     let headOnly = false;
     let columns: string[] | null = null;
     let patch: MockRow | null = null;
+    let inserting: MockRow[] | null = null;
     let returning = false;
+
+    const insert = () => {
+      const key = unique[table];
+      const held = new Set((tableRows[table] ?? []).map((row) => key?.(row) ?? null).filter((k) => k !== null));
+      if (
+        key &&
+        inserting!.some((row) => {
+          const k = key(row);
+          return k !== null && held.has(k);
+        })
+      ) {
+        return { data: null, error: { code: '23505', message: 'duplicate key value violates unique constraint' } };
+      }
+      const added = inserting!.map((row) => ({ ...row }));
+      tableRows[table] = [...(tableRows[table] ?? []), ...added];
+      queries.push({ table, rows: added });
+      return { data: returning ? added : null, error: null };
+    };
 
     const record = () => {
       if (patch) for (const row of rows) Object.assign(row, patch);
@@ -137,11 +165,15 @@ export function filteringClientMock(initialRows: Record<string, MockRow[]> = {})
         countRequested = options?.count !== undefined;
         headOnly = options?.head === true;
         columns = plainColumns(selected);
-        returning = patch !== null;
+        returning = patch !== null || inserting !== null;
         return builder;
       },
       update: (values: MockRow) => {
         patch = values;
+        return builder;
+      },
+      insert: (values: MockRow | MockRow[]) => {
+        inserting = Array.isArray(values) ? values : [values];
         return builder;
       },
       is: (field: string, value: null) => {
@@ -221,6 +253,8 @@ export function filteringClientMock(initialRows: Record<string, MockRow[]> = {})
       then: (onFulfilled: (value: unknown) => unknown, onRejected?: (reason: unknown) => unknown) =>
         Promise.resolve(
           (() => {
+            if (failing[table]) return { data: null, error: failing[table], count: null };
+            if (inserting) return insert();
             const found = record();
             return { data: headOnly ? null : found, error: null, count: countRequested ? (found?.length ?? 0) : null };
           })()
@@ -234,6 +268,8 @@ export function filteringClientMock(initialRows: Record<string, MockRow[]> = {})
     client: { from: (table: string) => createBuilder(table) } as unknown as SupabaseClient,
     tableRows,
     queries,
+    unique,
+    failing,
     /**
      * Every query run against `table`, in order, as the stored rows its filters matched: whole rows rather than
      * the selected columns, and shared with the table, so a later update shows in them.
@@ -244,6 +280,8 @@ export function filteringClientMock(initialRows: Record<string, MockRow[]> = {})
     reset() {
       queries.length = 0;
       for (const key of Object.keys(tableRows)) delete tableRows[key];
+      for (const key of Object.keys(unique)) delete unique[key];
+      for (const key of Object.keys(failing)) delete failing[key];
     },
   };
 }

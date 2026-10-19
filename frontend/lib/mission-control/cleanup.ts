@@ -140,9 +140,38 @@ export interface CleanupRun {
   ownerDoneLabel: string | null;
 }
 
+export const CLEANUP_LANES = ['owner', 'auto'] as const;
+export type CleanupLane = (typeof CLEANUP_LANES)[number];
+
+export const UNDO_LABELS: Record<CleanupLane, string> = {
+  owner: 'Undo my changes',
+  auto: 'Undo automatic changes',
+};
+
+/** A lane's latest undo request, as team_cleanup_requests holds it; the hourly loop runs the pending ones. */
+export interface UndoRequest {
+  stage: CleanupStage;
+  lane: CleanupLane;
+  status: 'pending' | 'done' | 'failed';
+  /** requested_at and handled_at in the business timezone, which only the server knows. */
+  requestedLabel: string;
+  handledLabel: string | null;
+  result: string | null;
+}
+
 export interface CleanupReview {
   run: CleanupRun | null;
   stages: StageReview[];
+  undo: UndoRequest[];
+}
+
+/** What a lane's latest undo request says, for the page. */
+export function undoStatus(request: UndoRequest | undefined): string | null {
+  if (!request) return null;
+  const what = UNDO_LABELS[request.lane].replace('Undo', 'Undoing');
+  if (request.status === 'pending') return `${what}: asked ${request.requestedLabel}, waiting for the next hourly run.`;
+  if (request.status === 'done') return `${what}: done ${request.handledLabel}.`;
+  return `${what}: failed ${request.handledLabel}${request.result ? ` (${request.result})` : ''}. You can ask again.`;
 }
 
 export interface Choice {
