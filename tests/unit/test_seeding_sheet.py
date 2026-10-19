@@ -45,7 +45,7 @@ RATINGS = {
                 "rank_in_cohort_final": 585, "rank_in_state_final": 72, "state": "TX"},
     "m-laredo": {"team_name": "Laredo Heat Red U14", "club_name": "Laredo Youth Soccer Assn",
                  "power_score_final": 0.5347, "status": "Active",
-                 "rank_in_cohort_final": 315, "rank_in_state_final": 33, "state": "TX"},
+                 "rank_in_cohort_final": 315, "rank_in_state_final": 33, "state": "TX", "age": 14, "gender": "M"},
 }
 
 
@@ -88,6 +88,21 @@ def test_a_ranked_team_carries_its_score_and_state_rank():
 
     assert top.power_score == 0.5347
     assert top.state_rank == 33
+
+
+@pytest.mark.parametrize("counts,expected", [
+    ({"wins": 8, "losses": 3, "draws": 1}, "8-3-1"),
+    ({"wins": 0, "losses": 0.0, "draws": 0}, "0-0-0"),
+    ({}, ""),
+    ({"wins": 8, "losses": 3}, ""),
+    ({"wins": True, "losses": 3, "draws": 1}, ""),
+    ({"wins": -1, "losses": 3, "draws": 1}, ""),
+    ({"wins": 1.5, "losses": 3, "draws": 1}, ""),
+    ({"wins": float("nan"), "losses": 3, "draws": 1}, ""),
+])
+def test_sheet_uses_saved_record_without_inventing_missing_counts(counts, expected):
+    ratings = {**RATINGS, "m-laredo": {**RATINGS["m-laredo"], "scored_record": counts}}
+    assert _sheets(ratings)[0].rated[0].record == expected
 
 
 def test_registered_name_stays_primary_and_a_different_pitchrank_name_is_secondary():
@@ -204,7 +219,7 @@ def test_the_two_groups_are_labelled_ranked_and_unranked():
     html = render_sheet_html("STX Cup 2026", _sheets(), generated_on="2026-09-02", ranking_run="2026-08-31")
 
     assert "MatchBalance Suggested Seeding" in html
-    assert "Unseeded teams" in html
+    assert "Placement needed" in html
 
 
 def test_the_unranked_heading_is_absent_when_every_team_is_rated():
@@ -487,13 +502,13 @@ def test_customer_pdf_prioritizes_seeding_actions_over_model_jargon():
     document = _render_tier(policy=TierPolicy(1.5, 0.2))
     assert ">53.5<span class=\"score-track\"" in document
     assert ">0.535</td>" not in document
-    assert "they do not assign divisions or pools." in document
+    assert "a division can contain several pools." in document
     assert "MatchBalance Seed" in document
-    assert "Competitive Breaks" in document
+    assert "Tier lines suggest strength divisions" in document
     assert "Close ranges" not in document
     assert "MatchBalance Seed" in document
     assert "PitchRank score" in document
-    assert "What to know" in document
+    assert "What to know" not in document
     assert "Placement status" not in document
     assert "Data review required" in document
     assert "Limited recent results" not in document
@@ -516,7 +531,7 @@ def test_all_manual_cohort_does_not_instruct_director_to_use_missing_tiers():
     )
     document = _render_tier(analysis)
 
-    assert "0 teams in the effective seed order · 3 held for placement review." in document
+    assert "0 of 3 teams placed; 3 still need placement." in document
     assert "MatchBalance Suggested Seeding" in document
     assert "Build flights from the same tier" not in document
     assert "Tier 1 is strongest" not in document
@@ -539,7 +554,7 @@ def test_multiple_boundary_options_use_an_or_list():
     document = _render_tier(analysis)
 
     assert "Boundary options" not in document
-    assert "they do not assign divisions or pools." in document
+    assert "a division can contain several pools." in document
 
 
 def test_customer_pdf_translates_system_diagnostics_into_seeding_actions():
@@ -578,7 +593,7 @@ def test_customer_pdf_does_not_recommend_a_missing_boundary_option():
 
     document = _render_tier(analysis)
 
-    assert "they do not assign divisions or pools." in document
+    assert "a division can contain several pools." in document
     assert "use the team marked Boundary option" not in document
 
 
@@ -593,7 +608,7 @@ def test_customer_pdf_explains_a_ranking_matchup_order_conflict_plainly():
 
     document = _render_tier(analysis)
 
-    assert "they do not assign divisions or pools." in document
+    assert "a division can contain several pools." in document
     assert "Ranking/matchup order conflict" not in document
     assert "use the team marked Boundary option" not in document
 
@@ -603,7 +618,7 @@ def test_tier_headings_repeat_and_review_table_stays_together_when_it_fits():
 
     seed_table = document.split('<table class="grid tier-table">', 1)[1].split("</table>", 1)[0]
     assert seed_table.index("MatchBalance Suggested Seeding") < seed_table.index("</thead>")
-    assert seed_table.index("MatchBalance Seed") < seed_table.index("</thead>")
+    assert seed_table.index('<th class="pos">Seed</th>') < seed_table.index("</thead>")
     assert "table.grid thead { display: table-header-group; }" in document
     assert "table.review { break-inside: avoid-page; page-break-inside: avoid; }" in document
 
@@ -657,3 +672,99 @@ def test_invalid_score_still_renders_team_with_its_placement_review_reason(score
     assert "Data review required" in document
     row = document.split('data-entrant="2"', 1)[1].split("</tr>", 1)[0]
     assert '<td class="num score">-<span class="state">—</span></td>' in row
+
+
+@pytest.mark.parametrize("values,expected", [
+    ({}, "#315"),
+    ({"age": 13}, "#315 (U13 Boys)"),
+    ({"gender": "F"}, "#315 (U14 Girls)"),
+    ({"age": None}, ""),
+    ({"gender": None}, ""),
+    ({"rank_in_cohort_final": None}, ""),
+    ({"rank_in_cohort_final": 0}, ""),
+    ({"rank_in_cohort_final": True}, ""),
+    ({"rank_in_cohort_final": 3.5}, ""),
+    ({"rank_in_cohort_final": float("nan")}, ""),
+    ({"status": "Inactive"}, ""),
+])
+def test_national_rank_retains_its_published_cohort_across_director_exports(values, expected):
+    import csv
+    from io import BytesIO, StringIO
+
+    from openpyxl import load_workbook
+
+    from src.tournaments.seeding_content import director_csv, format_national_rank
+    from src.tournaments.seeding_workbook import build_seeding_workbook
+
+    ratings = {**RATINGS, "m-laredo": {**RATINGS["m-laredo"], **values}}
+    sheet = _sheets(ratings)[0]
+    team = next(t for t in (*sheet.rated, *sheet.unrated) if t.entrant_id == "1")
+    assert format_national_rank(team) == expected
+    kwargs = {"generated_on": "2026-10-18", "ranking_run": "2026-10-17"}
+    document = render_sheet_html("Event", [sheet], **kwargs)
+    row = document.split('data-entrant="1"', 1)[1].split("</tr>", 1)[0]
+    assert f'class="num national-rank">{expected or "—"}</td>' in row
+    assert "Seed change" not in document and "from PowerScore" not in document
+    csv_rows = list(csv.DictReader(StringIO(director_csv(sheet).decode("utf-8-sig"))))
+    record = next(r for r in csv_rows if r["Team"] == team.team_name)
+    assert record["National rank"] == expected
+    assert "Seed change" not in record
+    tab = load_workbook(BytesIO(build_seeding_workbook("Event", [sheet], **kwargs))).active
+    assert tab["F6"].value == "National rank"
+    found = next(r for r in tab.iter_rows(min_row=7, max_row=6+sheet.total_teams)
+                 if str(r[1].value).split("\n", 1)[0] == team.team_name)
+    assert (found[5].value or "") == expected
+
+
+@pytest.mark.parametrize("rank_cohort,captured,expected", [
+    ({"age_group": "u13", "gender": "Female"}, {}, "#315 (U13 Girls)"),
+    ({}, {}, ""),
+    ({"age_group": "u13", "gender": "Female"},
+     {"age": 14, "gender": "M", "rank_in_cohort_final": 900}, "#900"),
+])
+def test_saved_rank_uses_ranking_cohort_when_compare_rejects_current_profile(rank_cohort, captured, expected):
+    from types import SimpleNamespace
+
+    from src.tournaments.seeding_content import director_csv, format_national_rank
+    from src.tournaments.seeding_pack import snapshot_ratings
+    from src.tournaments.seeding_sheet import make_ratings_lookup
+
+    # Compare omits metadata-conflict teams. The supplemental lookup must not
+    # relabel a published rank using the team's newly corrected profile.
+    tables = {
+        "rankings_full": [{"team_id": "m-laredo", "power_score_final": .5,
+                           "rank_in_cohort_final": 315, "status": "Active", **rank_cohort}],
+        "teams": [{"team_id_master": "m-laredo", "team_name": "Laredo", "club_name": "Club",
+                   "age_group": "u14", "gender": "Male"}],
+        "state_rankings_view": [],
+    }
+    requests = []
+
+    class Query:
+        def __init__(self, table):
+            self.table = table
+
+        def select(self, columns):
+            self.columns = columns.split(",")
+            return self
+
+        def in_(self, key, values):
+            self.key, self.values = key, values
+            return self
+
+        def execute(self):
+            requests.append(self.table)
+            return SimpleNamespace(data=[
+                {key: row[key] for key in self.columns if key in row}
+                for row in tables[self.table] if row[self.key] in self.values
+            ])
+
+    supplemental = make_ratings_lookup(SimpleNamespace(table=Query))(["m-laredo"])
+    pack = {"ratings": supplemental, "teams": {"u14|Male": {"1": captured} if captured else {}}}
+    ratings = snapshot_ratings(pack, {"1": "m-laredo"})
+    sheet = _sheets(ratings)[0]
+    team = next(t for t in sheet.rated if t.entrant_id == "1")
+    assert requests == ["rankings_full", "state_rankings_view", "teams"]
+    assert format_national_rank(team) == expected
+    if expected:
+        assert expected in director_csv(sheet).decode("utf-8-sig")

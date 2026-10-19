@@ -5886,7 +5886,7 @@ def _render_seeding_step_navigation(
             type="primary",
             key=f"_seeding_go_{next_step[1]}_next",
             disabled=next_disabled,
-            help=next_help,
+            help=next_help if next_disabled else None,
         ):
             _open_seeding_step(next_step[1])
             st.rerun()

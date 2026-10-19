@@ -13,14 +13,11 @@ from src.utils.us_states import STATE_CODE_TO_NAME, state_name_to_code
 if TYPE_CHECKING:
     from src.tournaments.seeding_sheet import CohortSheet, SheetTeam
 
-CONTENT_VERSION = 8
+CONTENT_VERSION = 14
 DIRECTOR_LEGEND = (
-    "Start with the numbered MatchBalance Seed order. PowerScore remains the original published-strength "
-    "baseline; bars use the same 0-100 scale. Competitive Breaks mark boundaries where nearby projected "
-    "matchups meaningfully worsen; the PowerScore difference is supporting context; they do not assign "
-    "divisions or pools. Recommended tier breaks use practical division sizes and all potential matchups. "
-    "A tier can contain multiple pools. Very-close ranges identify the same competitive "
-    "neighborhood without claiming the teams are equal."
+    "Read from seed 1 down. Tier lines suggest strength divisions; a division can contain several pools. "
+    "Natural separation marks a strength gap; practical splits also consider usable division sizes. "
+    "Review warnings and unplaced teams before making final placements."
 )
 LIMITED_HISTORY_LEGEND = "Fewer ranked games support this score. Keep it as a starting point for placement."
 
@@ -39,6 +36,7 @@ class DirectorRow:
     close_range_after: str = ""
     tier_label: str = ""
     break_label: str = ""
+    recommendation_reason: str = ""
 
     @property
     def score(self) -> float | None:
@@ -85,6 +83,8 @@ class DirectorCohort:
     rows: tuple[DirectorRow, ...]
     notes: tuple[str, ...]
     guidance_summary: str = ""
+    director_notes: tuple[str, ...] = ()
+    format_notes: tuple[str, ...] = ()
 
     @property
     def seeded(self) -> tuple[DirectorRow, ...]:
@@ -93,6 +93,14 @@ class DirectorCohort:
     @property
     def unseeded(self) -> tuple[DirectorRow, ...]:
         return tuple(row for row in self.rows if row.seed is None)
+
+
+def format_national_rank(team: SheetTeam) -> str:
+    """Blank means unavailable; another ranked cohort is always identified."""
+    if team.national_rank is None:
+        return ""
+    context = f" ({team.national_rank_context})" if team.national_rank_context else ""
+    return f"#{team.national_rank:,}{context}"
 
 
 def format_state_rank(state: str | None, rank: int) -> str:
@@ -107,6 +115,7 @@ def format_state_rank(state: str | None, rank: int) -> str:
 def build_director_cohort(sheet: CohortSheet, operator_note: str = "") -> DirectorCohort:
     """Preserve every entrant exactly once; never infer equivalence from limits."""
     analysis = sheet.tier_analysis
+    manual_override = bool(analysis and getattr(analysis, "manual_override", False))
     teams = (*sheet.rated, *sheet.unrated)
     by_id = {team.entrant_id: team for team in teams}
     if len(by_id) != len(teams) or (analysis is not None and "" in by_id):
@@ -154,6 +163,9 @@ def build_director_cohort(sheet: CohortSheet, operator_note: str = "") -> Direct
     guidance = getattr(analysis, "tier_guidance", {}) if analysis else {}
     divisions = guidance.get("divisions", [])
     practical = set(guidance.get("cuts", []))
+    if guidance.get("boundary_method") == "whole_group_v1":
+        breaks = {item['end_seed'] for item in divisions if item['natural_break_after']}
+    ordering = getattr(analysis, "ordering_evidence", {}) if analysis else {}
     for seed, team in enumerate(seeded, 1):
         original = baseline_seeds.get(team.entrant_id)
         suggested = matchbalance_seeds.get(team.entrant_id)
@@ -172,10 +184,19 @@ def build_director_cohort(sheet: CohortSheet, operator_note: str = "") -> Direct
         tier = next((item["label"] for item in divisions
                      if item["start_seed"] <= seed <= item["end_seed"]), "")
         break_label = (
-            "Recommended tier break + natural strength separation" if seed in practical and seed in breaks else
+            "Recommended tier break + strength-band separation" if seed in practical and seed in breaks else
             "Recommended tier break" if seed in practical else
             "Competitive Break: natural strength separation" if seed in breaks else ""
         )
+        detail = ordering.get("teams", {}).get(team.entrant_id, {})
+        reason = detail.get("director_reason", "")
+        span = ordering.get("game_sensitivity", {}).get("seed_ranges", {}).get(team.entrant_id)
+        if reason and span and span[1] - span[0] >= 2:
+            reason += f" Order sensitive to results (stress seeds {span[0]}-{span[1]})."
+        if manual_override:
+            reason = "Manual placement. " + reason
+        if guidance.get("status") == "review_required_compromise":
+            break_label = break_label.replace("Recommended tier break", "Provisional tier break — review required")
         rows.append(DirectorRow(
             seed,
             team,
@@ -189,14 +210,16 @@ def build_director_cohort(sheet: CohortSheet, operator_note: str = "") -> Direct
             close_after.get(seed, ""),
             tier,
             break_label,
+            reason,
         ))
     for team in unseeded:
         status = statuses.get(team.entrant_id) or (
             DATA_REVIEW if analysis is not None
             else NO_CURRENT_RATING
         )
-        rows.append(DirectorRow(None, team, "", status))
-    # The same concise guidance and full accepted roster feed every export.
+        rows.append(DirectorRow(None, team, "", status,
+                                recommendation_reason=team.review_reason or "Unplaced; strength is not established."))
+    # Keep full evidence alongside the concise director view of the same roster.
     notes = []
     guidance_summary = ""
     if divisions:
@@ -217,7 +240,12 @@ def build_director_cohort(sheet: CohortSheet, operator_note: str = "") -> Direct
         else:
             notes.append(qualifier + ": " + "; ".join(tier_notes)
                          + ". Pool memberships remain the director's decision.")
-    notes.extend(guidance.get("warnings", []))
+    for warning in guidance.get("warnings", []):
+        if warning.startswith("Practical division sizes avoid"):
+            notes.append("This split avoids smaller divisions with a modest increase in projected mismatch risk. "
+                         "Review the worst matchup and the alternative below.")
+        else:
+            notes.append(warning)
     ordering = getattr(analysis, "ordering_evidence", {}) if analysis else {}
     if ordering:
         guidance_summary = "Preview — " + guidance_summary
@@ -235,6 +263,11 @@ def build_director_cohort(sheet: CohortSheet, operator_note: str = "") -> Direct
                          f"{sensitivity['cluster_changed_tier_memberships']} of {sensitivity['cluster_samples']} "
                          "team/event cluster samples. These are stress checks, not confidence intervals.")
         for entrant, detail in ordering.get("teams", {}).items():
+            if detail.get("director_reason"):
+                cautions = list(dict.fromkeys(detail.get("cautions", [])))
+                if cautions:
+                    notes.append(f"{by_id[entrant].team_name}: " + "; ".join(cautions) + ".")
+                continue
             original, suggested = baseline_seeds.get(entrant), matchbalance_seeds.get(entrant)
             consequential = original is not None and suggested is not None and abs(original - suggested) >= 3
             unstable = sensitivity.get("seed_ranges", {}).get(entrant, [suggested, suggested])
@@ -259,15 +292,134 @@ def build_director_cohort(sheet: CohortSheet, operator_note: str = "") -> Direct
                 tradeoffs.append(("lower " if delta < 0 else "higher ") + label)
         if alternative.get("additional_flight_count", 0) > 0:
             tradeoffs.append("more divisions to schedule")
+        if alternative.get("status") == "review_required_compromise":
+            tradeoffs.append("also requires mismatch review")
+        elif alternative.get("status") == "passing":
+            tradeoffs.append("passes competitive limits")
         notes.append("Alternative split: " + " + ".join(map(str, guidance["alternative_sizes"]))
                      + " teams" + ("; " + ", ".join(tradeoffs) if tradeoffs else "") + ".")
     if guidance:
         notes.append("Formats use the saved MatchBalance profile; confirm game guarantees and event logistics.")
+    if analysis and getattr(analysis, "manual_override", False):
+        notes.append("Operator-adjusted from the MatchBalance suggestion.")
     if sheet.delivery_note:
         notes.append(sheet.delivery_note)
     if operator_note.strip():
         notes.append(operator_note.strip())
-    return DirectorCohort(tuple(rows), tuple(dict.fromkeys(notes)), guidance_summary)
+    return DirectorCohort(
+        tuple(rows), tuple(dict.fromkeys(notes)), guidance_summary,
+        _concise_director_notes(sheet, rows, operator_note),
+        tuple(f"{item['label']} — {item['size']} teams: {compact_format(item)}" for item in divisions),
+    )
+
+
+def compact_format(division: Mapping) -> str:
+    selected = division.get("selected_format", {})
+    pools = selected.get("pool_sizes", division.get("pool_sizes", []))
+    minimum = selected.get("minimum_games", division.get("minimum_games"))
+    maximum = selected.get("maximum_games")
+    parts = [selected.get("display_name") or "Playing format"]
+    if "includes playoffs" in selected.get("summary", "") and not any(
+            word in parts[0].lower() for word in ("final", "playoff", "knockout")):
+        parts.append("includes playoffs")
+    if len(pools) > 1:
+        parts.append("pools " + " + ".join(map(str, pools)))
+    if minimum is not None:
+        if maximum is None:
+            parts.append(f"at least {minimum} games; maximum not specified")
+        else:
+            parts.append(f"{minimum} games each" if minimum == maximum else
+                         f"{minimum} guaranteed, up to {maximum} games")
+    if selected.get("total_matches") is not None:
+        parts.append(f"{selected['total_matches']} matches")
+    if (selected.get("maximum_pair_meetings") or 0) > 1:
+        parts.append("repeat opponents possible")
+    if selected.get("unequal_game_concerns"):
+        parts.append("unequal preliminary games — confirm scheduling and standings rules")
+    return "; ".join(parts)
+
+
+def _concise_director_notes(sheet, rows, operator_note):
+    analysis = sheet.tier_analysis
+    guidance = getattr(analysis, "tier_guidance", {}) if analysis else {}
+    ordering = getattr(analysis, "ordering_evidence", {}) if analysis else {}
+    notes = []
+    if guidance.get("status") == "review_required_compromise":
+        notes.append("Matchup review needed: this split still includes potentially uneven games.")
+    elif guidance.get("boundary_reasons") and all(
+            item["kind"] == "practical" for item in guidance["boundary_reasons"]):
+        notes.append("These splits keep projected matchups within the limits; "
+                     "teams near the lines may be similar in strength.")
+    elif guidance.get("boundary_method") == "whole_group_v1" and guidance.get("cuts"):
+        notes.append("Tiers compare results across whole groups. Teams near a break may still be closely matched.")
+    # Keep unfamiliar warnings visible rather than silently losing a new blocker.
+    summarized = ("Review-required compromise:", "A passing alternative", "Practical division sizes avoid",
+                  "Limited or unknown playing history", "Worst remaining mismatch:")
+    for warning in guidance.get("warnings", []):
+        if not warning.startswith(summarized) and "teams assessed in the tier order" not in warning:
+            notes.append(warning)
+    names = {row.team.entrant_id: row.team.team_name for row in rows}
+    risks = guidance.get("risky_pairings", [])
+    if risks:
+        worst_warning = next((w for w in guidance.get("warnings", [])
+                              if w.startswith("Worst remaining mismatch:")), "")
+        if worst_warning:
+            notes.append(worst_warning.replace("Worst remaining mismatch:", "Review this matchup:")
+                         .replace("expected absolute goal difference", "projected goal gap")
+                         .replace("four-goal margin probability", "chance of a 4+ goal margin"))
+        else:
+            for pair in risks:
+                notes.append("Review this matchup: " + " vs ".join(names[item] for item in pair["entrant_ids"]) + ".")
+    limited = []
+    uncertain = []
+    sensitivity = ordering.get("game_sensitivity", {})
+    for row in rows:
+        if row.seed is None:
+            continue
+        if row.placement_status != SEEDED:
+            reason = row.team.review_reason or row.placement_status
+            notes.append(f"{row.team.team_name}: {reason.rstrip('.')}.")
+        detail = ordering.get("teams", {}).get(row.team.entrant_id, {})
+        if row.evidence_note or row.team.entrant_id in getattr(analysis, "limited_history", ()):
+            limited.append(row.team.team_name)
+        for caution in detail.get("cautions", []):
+            if caution.startswith("Field sensitivity:"):
+                continue
+            if "Limited playing history" in caution:
+                limited.append(row.team.team_name)
+            else:
+                notes.append(f"{row.team.team_name}: {caution.rstrip('.')}.")
+        span = ordering.get("game_sensitivity", {}).get("seed_ranges", {}).get(row.team.entrant_id)
+        if span and span[1] - span[0] >= 2:
+            uncertain.append(row.team.team_name)
+    if limited:
+        notes.append("Limited history — review placement: " + "; ".join(dict.fromkeys(limited)) + ".")
+    elif any(w.startswith("Limited or unknown playing history") for w in guidance.get("warnings", [])):
+        notes.append("Some teams have limited history; review their placement before finalizing.")
+    if uncertain:
+        notes.append("Several positions change when individual results are removed. Treat nearby seeds as a guide.")
+    if sensitivity.get("changed_tier_memberships") or sensitivity.get("cluster_changed_tier_memberships"):
+        notes.append("Tier breaks change in result stress checks; review teams near each break.")
+    sizes = guidance.get("alternative_sizes", [])
+    if sizes:
+        status = (guidance.get("alternative") or {}).get("status")
+        note = "Alternative: " + " + ".join(map(str, sizes)) + " teams"
+        if status == "passing":
+            note += "; meets the matchup limits"
+        elif status == "review_required_compromise":
+            note += "; also needs matchup review"
+        if min(sizes) < 4:
+            note += "; includes a small division"
+        notes.append(note + ".")
+    if ordering:
+        notes.append("Preview recommendation: improved prediction accuracy has not yet been verified.")
+    if analysis and getattr(analysis, "manual_override", False):
+        notes.append("Operator-adjusted from the MatchBalance suggestion.")
+    if sheet.delivery_note:
+        notes.append(sheet.delivery_note)
+    if operator_note.strip():
+        notes.append(operator_note.strip())
+    return tuple(dict.fromkeys(notes))
 
 
 def export_fingerprint(
@@ -289,3 +441,27 @@ def export_fingerprint(
         } for sheet in sheets],
     }
     return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False, allow_nan=False).encode()).hexdigest()
+
+
+def director_csv(sheet: CohortSheet, operator_note: str = "") -> bytes:
+    """A self-describing director export; each team retains status and coverage."""
+    import csv
+    import io
+
+    from src.tournaments.reports.render_csv import csv_safe
+
+    content = build_director_cohort(sheet, operator_note)
+    stream = io.StringIO(newline="")
+    writer = csv.writer(stream)
+    writer.writerow(["Seed", "Team", "Tier", "Tier break", "Why this placement", "Placement status",
+                     "Recommendation", "Coverage", "Warnings and formats", "Roster context",
+                     "PowerScore", "Record (W-L-D)", "State rank", "National rank"])
+    coverage = f"{len(content.seeded)} of {len(content.rows)} teams assessed"
+    for row in content.rows:
+        writer.writerow([csv_safe(str(value)) if value is not None else "" for value in (
+            row.seed, row.team.team_name, row.tier_label, row.break_label, row.recommendation_reason,
+            row.display_status, content.guidance_summary, coverage,
+            " | ".join((*content.format_notes, *content.director_notes)),
+            " · ".join(row.roster_context), row.score, row.team.record, row.state_rank,
+            format_national_rank(row.team))])
+    return stream.getvalue().encode("utf-8-sig")

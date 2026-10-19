@@ -18,9 +18,17 @@ from src.tournaments.reports.render_csv import csv_safe
 from src.tournaments.roster_paste import ParsedRoster, RosterRow
 from src.tournaments.roster_resolver import ResolvedTeam
 from src.tournaments.seeding_assessment import assess_roster, could_belong
-from src.tournaments.seeding_content import DIRECTOR_LEGEND, build_director_cohort, export_fingerprint
+from src.tournaments.seeding_content import (
+    DIRECTOR_LEGEND,
+    build_director_cohort,
+    director_csv,
+    export_fingerprint,
+    format_national_rank,
+)
 from src.tournaments.seeding_format_ui import render_format_preferences
 from src.tournaments.seeding_pack import (
+    ANALYSIS_SCHEMA_VERSION,
+    PACK_SCHEMA_VERSION,
     analyze_pack,
     available_cohorts,
     carry_pack_decisions,
@@ -147,6 +155,8 @@ def _offer_interrupted_build(
 
 def _selected_cohorts(parsed: ParsedRoster, saved: dict[str, Any] | None) -> list[str]:
     choices = available_cohorts(parsed.rows)
+    if len(choices) <= 1:
+        return list(choices)
     saved_selection = (saved or {}).get("selected_cohorts")
     if not isinstance(saved_selection, list) or any(not isinstance(key, str) for key in saved_selection):
         saved_selection = None
@@ -336,7 +346,6 @@ def _render_cohort_review(
     roster_rows: Mapping[str, RosterRow], sheet: CohortSheet,
 ) -> None:
     st.markdown(f"##### {cohort_label(key)}")
-    render_format_preferences(pack, save, invalidate_seeding_exports, cohort=key)
     statuses = analysis.placement_status
     seeded = len(analysis.ordered_ids)
     age_group, gender = key.split("|", 1)
@@ -354,18 +363,22 @@ def _render_cohort_review(
     st.caption(DIRECTOR_LEGEND)
     rows = []
     content = build_director_cohort(sheet, pack.get("operator_notes", {}).get(key, ""))
-    for observation in content.notes:
+    for description in content.format_notes:
+        st.write(description)
+    for observation in content.director_notes:
         st.caption(observation)
     for row in content.rows:
         rows.append({
             "Effective seed": row.seed,
             "Team": row.team.team_name,
             "Tier": row.tier_label,
+            "Why this placement": row.recommendation_reason,
             "PowerScore Seed": row.power_score_seed,
             "MatchBalance Seed": row.matchbalance_seed,
             "Manual/Effective Seed": row.seed,
             "PowerScore": row.score,
-            "Movement": row.movement,
+            "Record (W-L-D)": row.team.record or "—",
+            "National rank": format_national_rank(row.team) or "—",
             "State rank": row.state_rank or "—",
             "Competitive marker": " · ".join(
                 value for value in (row.break_label, row.observation, row.close_range_after) if value
@@ -375,16 +388,26 @@ def _render_cohort_review(
             "Roster context": " · ".join(row.roster_context),
         })
     if rows:
-        primary_columns = ["Effective seed", "Team", "Tier", "PowerScore", "Competitive marker", "Placement status"]
-        with st.expander("Baseline, movement, and matching details"):
-            st.dataframe(pd.DataFrame(rows), hide_index=True)
+        st.download_button("Download director CSV", director_csv(sheet, pack.get("operator_notes", {}).get(key, "")),
+                           file_name=f"matchbalance-{key.replace('|', '-')}.csv", mime="text/csv",
+                           key=f"_director_csv_{key}")
+        primary_columns = ["Effective seed", "Team", "Tier", "PowerScore", "Record (W-L-D)", "National rank",
+                           "Competitive marker", "Placement status"]
         st.data_editor(
             pd.DataFrame(rows)[primary_columns], hide_index=True, width="stretch",
             disabled=primary_columns,
             column_config={"PowerScore": st.column_config.ProgressColumn(format="%.1f", min_value=0, max_value=100)},
             key=f"_seeding_cheat_sheet_editor_{key}",
         )
+        _render_placement_checks(key, analysis, pack, roster_rows, save)
+        with st.expander("Detailed evidence, baseline, and matching"):
+            for observation in content.notes:
+                st.caption(observation)
+            st.dataframe(pd.DataFrame(rows), hide_index=True)
+        render_format_preferences(pack, save, invalidate_seeding_exports, cohort=key)
         with st.expander("Tier names and format evidence"):
+            for boundary in analysis.tier_guidance.get("boundary_reasons", []):
+                st.caption(f"After seed {boundary['after_seed']}: {boundary['reason']}")
             for division in analysis.tier_guidance.get("divisions", []):
                 st.markdown(f"**{division['label']} — playing format options**")
                 for option in division.get("compatible_formats", []):
@@ -403,9 +426,12 @@ def _render_cohort_review(
                     _persist_decisions(save)
                     st.rerun()
             st.json(analysis.tier_guidance)
-        _render_manual_seed_editor(key, analysis, pack, save, roster_rows)
-        _render_director_notes(key, pack, save)
-    _render_placement_checks(key, analysis, pack, roster_rows, save)
+        with st.expander("Adjust seed order (optional)"):
+            _render_manual_seed_editor(key, analysis, pack, save, roster_rows)
+        with st.expander("Add director notes (optional)"):
+            _render_director_notes(key, pack, save)
+    if not rows:
+        _render_placement_checks(key, analysis, pack, roster_rows, save)
     if data_review:
         st.warning(f"{data_review} team(s) need identity or cohort review before delivery.")
 
@@ -415,7 +441,7 @@ def _render_placement_checks(key, analysis, pack, roster_rows, save) -> None:
             and not analysis.tier_guidance.get("review_required")):
         return
     pending = needs_placement_review(pack, key, analysis)
-    with st.expander("Placement checks — internal", expanded=pending):
+    with st.expander("Review flagged placements" + (" — needed" if pending else " — complete"), expanded=pending):
         st.caption(
             "Review the preview recommendation using the saved results below. "
             "Larger moves are allowed; limited evidence remains flagged."
@@ -427,34 +453,32 @@ def _render_placement_checks(key, analysis, pack, roster_rows, save) -> None:
         )
         if analysis.ordering_evidence:
             st.warning("Preview: historical prediction improvement has not yet been established.")
-            result_options = {}
-            for entrant, detail in analysis.ordering_evidence.get("teams", {}).items():
-                st.text(f"{roster_rows[entrant].registered_name} — {detail['reason']}")
+            team_evidence = analysis.ordering_evidence.get("teams", {})
+            if team_evidence:
+                entrant = st.selectbox("Show the results behind a team", options=list(team_evidence),
+                                      format_func=lambda value: roster_rows[value].registered_name,
+                                      key=f"_seeding_result_evidence_{key}")
+                detail = team_evidence[entrant]
+                st.write(detail["reason"])
                 if detail.get("cautions"):
                     st.caption("; ".join(detail["cautions"]))
-                results = detail.get("results", {})
-                if results.get("influentialGames"):
-                    result_options[entrant] = results["influentialGames"]
                 span = analysis.ordering_evidence.get("game_sensitivity", {}).get("seed_ranges", {}).get(entrant)
                 if span and span[0] != span[1]:
                     st.caption(f"Result stress checks: seeds {span[0]}–{span[1]}.")
-            if result_options:
-                team = st.selectbox("Show the results behind a team", options=list(result_options),
-                                    format_func=lambda value: roster_rows[value].registered_name,
-                                    key=f"_seeding_result_evidence_{key}")
-                st.dataframe(result_options[team], hide_index=True)
-            comparison = analysis.ordering_evidence.get("pairwise_comparison", {})
-            if comparison:
-                st.caption("Regularized pairwise diagnostic: " + (
-                    "same order as expected points." if comparison.get("agrees_with_expected_points")
-                    else "differs from expected points; inspect this close decision."
-                ) + (" Solver did not converge." if not comparison.get("converged") else ""))
-        seed_by_id = {entrant: seed for seed, entrant in enumerate(analysis.baseline_order, 1)}
-        for entrant in analysis.limited_history:
-            st.write(
-                f"PowerScore seed {seed_by_id[entrant]} · "
-                f"{roster_rows[entrant].registered_name}: limited ranked history."
-            )
+                games = detail.get("results", {}).get("influentialGames", [])
+                if games:
+                    st.dataframe([{
+                        "Date": game["date"], "Opponent": game["opponent_name"],
+                        "Club": game.get("opponent_club", ""),
+                        "Result": (f"{int((game['fixture']['goals'] + game['margin']) / 2)}-"
+                                   f"{int((game['fixture']['goals'] - game['margin']) / 2)}"
+                                   if game.get("fixture") else f"Goal difference {game['margin']:+g}"),
+                        "Competition": game.get("event", ""), "Source": game.get("source_url") or "",
+                    } for game in games], hide_index=True)
+        if analysis.limited_history:
+            st.caption("Limited history: " + "; ".join(
+                roster_rows[entrant].registered_name for entrant in analysis.limited_history
+            ) + ". Review these teams carefully.")
         for check in analysis.placement_checks:
             upper = roster_rows[analysis.baseline_order[check.upper_seed - 1]].registered_name
             lower = roster_rows[analysis.baseline_order[check.lower_seed - 1]].registered_name
@@ -462,6 +486,35 @@ def _render_placement_checks(key, analysis, pack, roster_rows, save) -> None:
                 f"Seed {check.lower_seed} · {lower} is favored by {check.lower_expected_advantage:.1f} expected "
                 f"goals against seed {check.upper_seed} · {upper}. Check the placement before delivery."
             )
+        for conflict in analysis.ordering_conflicts:
+            st.warning(
+                f"{roster_rows[conflict.winner_id].registered_name} over "
+                f"{roster_rows[conflict.loser_id].registered_name}: {conflict.reason}"
+            )
+        if pending:
+            st.caption("Confirm that you have reviewed the flagged placements before final delivery.")
+            if st.button("Mark placement review complete", key=f"_seeding_placement_review_{key}"):
+                reviews = pack.get("placement_reviews")
+                if not isinstance(reviews, dict):
+                    reviews = {}
+                pack["placement_reviews"] = {**reviews, key: placement_review_fingerprint(pack, key, analysis)}
+                st.session_state[_PACK_KEY] = pack
+                invalidate_seeding_exports()
+                _persist_decisions(save)
+                st.rerun()
+        else:
+            st.caption("Placement review complete for this evidence and these director notes.")
+        _render_ordering_diagnostics(analysis, pack, roster_rows)
+
+
+def _render_ordering_diagnostics(analysis, pack, roster_rows) -> None:
+    with st.expander("Ordering diagnostics (optional)", expanded=False):
+        comparison = analysis.ordering_evidence.get("pairwise_comparison", {})
+        if comparison:
+            st.caption("Regularized pairwise diagnostic: " + (
+                "same order as expected points." if comparison.get("agrees_with_expected_points")
+                else "differs from expected points; inspect this close decision."
+            ) + (" Solver did not converge." if not comparison.get("converged") else ""))
         supported = [item for item in analysis.local_consensus_checks if item.supported]
         if supported:
             st.markdown("**PowerScore-anchored local-consensus proposals**")
@@ -517,19 +570,6 @@ def _render_placement_checks(key, analysis, pack, roster_rows, save) -> None:
                 for item in unsupported:
                     team = roster_rows[item.entrant_id].registered_name
                     st.write(f"Seed {item.baseline_seed} · {team}: {' '.join(item.blockers)}")
-        if pending:
-            st.caption("This pack remains a draft until these placements have been reviewed.")
-            if st.button("Mark placement review complete", key=f"_seeding_placement_review_{key}"):
-                reviews = pack.get("placement_reviews")
-                if not isinstance(reviews, dict):
-                    reviews = {}
-                pack["placement_reviews"] = {**reviews, key: placement_review_fingerprint(pack, key, analysis)}
-                st.session_state[_PACK_KEY] = pack
-                invalidate_seeding_exports()
-                _persist_decisions(save)
-                st.rerun()
-        else:
-            st.caption("Placement review complete for this evidence and these director notes.")
 
 
 def _render_analysis_details(
@@ -579,8 +619,19 @@ def _render_analysis_details(
                 }
                 for item in detail.movements
             ]), hide_index=True)
-        if detail.boundary_assessments:
+        boundary_assessments = detail.boundary_assessments
+        if detail.tier_guidance.get('boundary_method') == 'whole_group_v1':
+            from src.tournaments.seeding_tiers import BoundaryAssessment
+            boundary_assessments = tuple(
+                BoundaryAssessment(**{k: v for k, v in item.items() if k in BoundaryAssessment.__dataclass_fields__})
+                for item in detail.tier_guidance['group_boundaries']
+            )
+        if boundary_assessments:
+            group_evidence = {b['after_seed']: b for b in detail.tier_guidance.get('group_boundaries', [])}
             st.caption(
+                "Whole-group comparisons: the selected cuts compare both neighboring tiers; other cuts "
+                "compare splitting one proposed tier. Close boundary teams do not veto a strength band."
+                if detail.tier_guidance.get('boundary_method') == 'whole_group_v1' else
                 "Complete boundary analysis. No boundary is omitted because of its PowerScore gap, "
                 "position, proximity to another finding, or the customer-sheet display limit."
             )
@@ -592,6 +643,8 @@ def _render_analysis_details(
                 "Matchups": item.pairing_count,
                 "Upper favored": item.favored_fraction,
                 "Average signed margin": item.average_expected_margin,
+                "Within-group average strength difference": group_evidence.get(item.after_seed, {}).get(
+                    'within_group_average_margin'),
                 "Average absolute goal difference": item.average_expected_absolute_goal_difference,
                 "Worst absolute goal difference": item.maximum_expected_absolute_goal_difference,
                 "Average 4+ goal risk": item.average_blowout_probability,
@@ -611,8 +664,8 @@ def _render_analysis_details(
                 ),
                 "Classification": item.classification,
                 "Reason": item.reason,
-            } for item in detail.boundary_assessments]), hide_index=True)
-        if detail.boundary_windows:
+            } for item in boundary_assessments]), hide_index=True)
+        if detail.boundary_windows and detail.tier_guidance.get('boundary_method') != 'whole_group_v1':
             with st.expander("Local-window evidence for every boundary"):
                 st.dataframe(pd.DataFrame([{
                     "After seed": item.after_seed,
@@ -697,8 +750,7 @@ def render_seeding_pack(
     if view != "export":
         st.markdown("### 3. Review the seed order" if view == "build" else "### 3. Build and review the seed order")
         st.caption(
-            "Build the recommended order and strength tiers, then review flagged placements. "
-            "PowerScore, the MatchBalance recommendation, and your manual placements remain separate."
+            "Review the ranked teams and competitive breaks, then check any flagged placements."
         )
     else:
         st.markdown("### 4. Export the director pack")
@@ -756,22 +808,26 @@ def render_seeding_pack(
             # Required recovery must remain visible even when the roster still matches.
             pass
     build_requested = False
-    prediction_model = (pack or {}).get("prediction_model", "legacy")
+    prediction_model = pack.get("prediction_model", "legacy") if pack else "results"
     if prediction_model not in {"legacy", "cohort", "results"}:
         prediction_model = "legacy"
+    settings = None
     if view != "export":
-        with st.expander("Recommendation method (optional)", expanded=False):
-            labels = {"legacy": "Current method", "cohort": "Whole-cohort comparison — preview",
-                      "results": "Opponent-adjusted recent results — preview"}
+        settings = st.expander("Analysis settings and rebuild (optional)", expanded=False)
+        with settings:
+            labels = {"results": "Actual game results — preview", "legacy": "Original PowerScore method",
+                      "cohort": "Whole-cohort comparison — preview"}
             prediction_model = st.selectbox("Build method", list(labels),
                 index=list(labels).index(prediction_model), format_func=labels.get, key="_seeding_prediction_model")
             st.caption("Preview methods can make larger evidence-based moves. They retain PowerScore as a reference "
                        "and require placement review. Saved sheets change only when you build again.")
-        if saved_analyses is not None:
-            with st.expander("Rebuild with current team data (optional)", expanded=False):
+            if saved_analyses is not None:
                 st.caption("Your sheets are already built. Rebuilding preserves director notes and roster decisions.")
                 build_requested = st.button("Build seeding sheets", key="_seeding_build_tiers")
-        else:
+        if saved_analyses is None:
+            st.caption("New sheets use actual game results, adjusted for opponent strength. "
+                       "This method is a preview; review its placements before delivery."
+                       if prediction_model == "results" else labels[prediction_model])
             st.info("Next: Build seeding sheets to see the ranked teams and recommended tier breaks.")
             build_requested = st.button("Build seeding sheets", type="primary", key="_seeding_build_tiers")
     if build_requested:
@@ -810,8 +866,8 @@ def render_seeding_pack(
 
     if (
         isinstance(pack, dict)
-        and pack.get("schema_version") in (3, 4, 5, 6, 7, 8)
-        and pack.get("analysis_schema_version") in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+        and pack.get("schema_version") in range(3, PACK_SCHEMA_VERSION + 1)
+        and pack.get("analysis_schema_version") in range(1, ANALYSIS_SCHEMA_VERSION)
     ):
         try:
             pack = upgrade_pack_analysis(
@@ -825,8 +881,9 @@ def render_seeding_pack(
             return
 
     current_pack = pack_matches(pack, parsed.rows, resolved, overrides, selected)
-    if current_pack and view != "export":
-        render_format_preferences(pack, save, invalidate_seeding_exports)
+    if current_pack and settings is not None:
+        with settings:
+            render_format_preferences(pack, save, invalidate_seeding_exports)
     analyses = {}
     analysis_error = None
     if current_pack:
@@ -865,25 +922,16 @@ def render_seeding_pack(
         else:
             st.info("Next: Continue to export to preview a draft and see any remaining checks before final delivery.")
     if draft and view != "export":
-        st.info("Delivery status: draft. Complete roster and placement checks before sending.")
-        if pending_reviews:
-            st.caption("Placement review pending: " + ", ".join(cohort_label(key) for key in pending_reviews))
+        st.caption("Delivery status: draft. Remaining delivery checks are listed in Export.")
     elif view != "export":
-        st.caption("Delivery status: roster assessed. Review seed order and director notes before sending.")
-    if view != "export":
-        with st.expander("Internal roster CSV (optional)", expanded=False):
-            st.caption("This is a review file, not the director pack.")
-            st.download_button(
-                "Download all selected teams as CSV", team_csv(selected_rows, resolved, overrides, draft=draft),
-                file_name=f"{slugify(event_name)}-teams.csv", mime="text/csv", key="_seeding_all_teams_csv",
-            )
+        st.caption("Delivery status: roster assessed. Review the placements before sending.")
     if not current_pack:
         invalidate_seeding_exports()
         if pack:
             st.info("The selected cohorts or team matches changed. Build seeding sheets to update this pack.")
         _render_export_waiting("Build the seed order in step 3 before exporting.")
         return
-    if pack.get("predictor_sha256") != seeding_predictor_sha256():
+    if view != "build" and pack.get("predictor_sha256") != seeding_predictor_sha256():
         st.info("The predictor has changed since this snapshot. Rebuild to refresh, "
                 "or review and acknowledge the dated snapshot.")
     if analysis_error is not None:
@@ -891,19 +939,32 @@ def render_seeding_pack(
         st.error(f"This pack needs rebuilding: {analysis_error}")
         _render_export_waiting("Rebuild the seed order before exporting.")
         return
-    st.caption(f"Saved prediction snapshot: {pack['generated_at']} · "
-               f"Ratings as of {pack.get('ratings_as_of') or 'unknown'}")
+    if view != "build":
+        st.caption(f"Saved prediction snapshot: {pack['generated_at']} · "
+                   f"Ratings as of {pack.get('ratings_as_of') or 'unknown'}")
     identities = team_ids_by_row(parsed.rows, resolved, overrides)
     title = f"{event_name} · DRAFT — review needed" if draft else event_name
     snapshot_note = freshness_note(pack, verified_identity)
-    st.caption(snapshot_note)
+    if view != "build":
+        st.caption(snapshot_note)
     notes = {tuple(key.split("|", 1)): value for key, value in pack.get("operator_notes", {}).items()}
     try:
         sheets = build_cohort_sheets(
             selected_rows, resolved, overrides, snapshot_ratings(pack, identities), tier_analyses=analyses,
         )
         from dataclasses import replace
-        sheets = [replace(sheet, delivery_note=snapshot_note) for sheet in sheets]
+        pending = []
+        if not coverage_ready:
+            pending.append("roster completeness")
+        if assessment.attention & selected_indices or any(
+                could_belong(row, *key.split("|", 1)) for row in uncertain for key in selected):
+            pending.append("team identity or cohort review")
+        if pending_reviews or has_data_review:
+            pending.append("placement review")
+        if not snapshot_ready:
+            pending.append("snapshot freshness")
+        delivery_note = ("DRAFT — review needed: " + ", ".join(pending) + ". " if draft else "") + snapshot_note
+        sheets = [replace(sheet, delivery_note=delivery_note) for sheet in sheets]
         document = render_sheet_html(
             title, sheets, generated_on=pack["generated_at"][:10], ranking_run=pack.get("ratings_as_of") or "unknown",
             operator_notes=notes,
@@ -948,7 +1009,8 @@ def render_seeding_pack(
             st.caption("Sheet guidance updated using saved predictions. Team choices and director notes are preserved.")
     if freshly_built_identity:
         st.session_state["_seeding_verified_identity"] = freshly_built_identity
-    _render_freshness(pack, parsed, resolved, overrides, selected, save)
+    if view != "build":
+        _render_freshness(pack, parsed, resolved, overrides, selected, save)
     if st.session_state.get("_seeding_export_fingerprint") != content_hash:
         invalidate_seeding_exports()
     # The document hash also invalidates a cached PDF when its layout changes.
@@ -982,14 +1044,15 @@ def render_seeding_pack(
     readiness = [
         ("Accepted-team roster confirmed", coverage_ready, "Confirm the complete roster in step 2."),
         ("Match decisions complete", match_ready, "Resolve the remaining teams in step 2."),
-        ("Snapshot freshness checked or acknowledged", snapshot_ready,
+        ("Snapshot ready for export" if snapshot_ready else "Check snapshot freshness", snapshot_ready,
          "Check freshness or acknowledge this dated snapshot."),
-        ("Placement checks complete", placement_ready, "Review flagged placements in step 3."),
+        ("Placement checks complete" if placement_ready else "Placement review needed",
+         placement_ready, "Review flagged placements in step 3."),
     ]
     for label, ready, action in readiness:
         st.markdown(f"{'✅' if ready else '⚠️'} **{label}**" + ("" if ready else f" — {action}"))
     st.caption("Director notes are optional and can be edited in step 3.")
-    if view == "export":
+    if view != "build":
         with st.expander("Advanced downloads", expanded=False):
             st.caption("The CSV is an internal review file, not the director pack.")
             st.download_button(

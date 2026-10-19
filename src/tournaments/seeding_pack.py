@@ -29,9 +29,9 @@ from src.tournaments.seeding_tiers import (
     build_tiers,
 )
 
-PACK_SCHEMA_VERSION = 8
-ANALYSIS_SCHEMA_VERSION = 11
-_UPGRADABLE_PACK_SCHEMAS = frozenset({3, 4, 5, 6, 7, 8})
+PACK_SCHEMA_VERSION = 9
+ANALYSIS_SCHEMA_VERSION = 13
+_UPGRADABLE_PACK_SCHEMAS = frozenset({3, 4, 5, 6, 7, 8, 9})
 _AGE_GROUP = re.compile(r"^u[1-9][0-9]?$")
 _LEGACY_UNAVAILABLE_REASONS = {
     "Two roster entries resolve to the same team; verify the matches.": (
@@ -176,7 +176,7 @@ def retain_matching_cohorts(pack: Any, rows, resolved, overrides) -> Any:
     When no cohort matches, keep the dated pack only as a rebuild source. The
     analysis/export guard still rejects its stale roster fingerprint.
     """
-    if not isinstance(pack, dict) or pack.get("schema_version") not in {6, 7, PACK_SCHEMA_VERSION}:
+    if not isinstance(pack, dict) or pack.get("schema_version") not in {6, 7, 8, PACK_SCHEMA_VERSION}:
         return pack
     fingerprints = cohort_fingerprints(rows, resolved, overrides)
     saved = pack.get("cohort_fingerprints", {})
@@ -306,7 +306,7 @@ def snapshot_matches_roster(
     matches = (
         isinstance(pack.get("cohort_fingerprints"), dict)
         and all(pack["cohort_fingerprints"].get(key) == fingerprints.get(key) for key in saved_selection)
-        if pack.get("schema_version") in (6, 7, PACK_SCHEMA_VERSION) else
+        if pack.get("schema_version") in (6, 7, 8, PACK_SCHEMA_VERSION) else
         pack.get("roster_fingerprint") == roster_fingerprint(rows, resolved, overrides)
     )
     return (
@@ -404,6 +404,11 @@ def _review_reason(
     if not team:
         return "Current PitchRank data is unavailable. Confirm the team match before seeding.", NO_CURRENT_RATING
     if team.get("status") == "Inactive":
+        results = team.get("result_evidence", {})
+        if results.get("modelVersion") == "joint_game_evidence_v1":
+            return (f"Inactive rating; {results.get('games', 0)} usable saved games, "
+                    f"latest {results.get('latestGameDate') or 'unknown'}. Confirm current team before placement.",
+                    NO_CURRENT_RATING)
         return "No current ranking. Use recent results or club input.", NO_CURRENT_RATING
     if _published_score(team) is None:
         return "No current PitchRank score. Use recent results or club input.", NO_CURRENT_RATING
@@ -456,13 +461,16 @@ def analyze_pack(
                     "Multiple roster entries resolve to the same PitchRank team. "
                     "Confirm each registration before seeding."
                 ), DATA_REVIEW
+            limited_history = (evidence["status"] == "Not Enough Ranked Games"
+                               if evidence.get("status") else None)
+            if evidence.get("result_evidence", {}).get("modelVersion") == "joint_game_evidence_v1":
+                limited_history = bool(limited_history or evidence["result_evidence"].get("limited"))
             entrants.append(TierEntrant(
                 entrant_id=entrant_id,
                 team_name=row.registered_name,
                 power_score=_published_score(evidence),
                 review_reason=review_reason,
-                limited_history=(evidence["status"] == "Not Enough Ranked Games"
-                                 if evidence.get("status") else None),
+                limited_history=limited_history,
                 review_status=review_status,
                 evidence_game_count=evidence.get("prediction_game_count"),
             ))
@@ -510,6 +518,19 @@ def analyze_pack(
                 results = pack["teams"][key].get(entrant, {}).get("result_evidence")
                 if results:
                     detail["results"] = results
+                    if results.get("modelVersion") == "joint_game_evidence_v1":
+                        from src.tournaments.seeding_result_explanation import explain_results
+                        detail["director_reason"] = explain_results(results)
+                        native_age = pack["teams"][key].get(entrant, {}).get("age")
+                        entered_age = int(key.split("|", 1)[0][1:])
+                        if native_age and native_age > entered_age:
+                            caution = f"Identity review: saved rating is U{native_age}; entered in U{entered_age}."
+                            detail["director_reason"] += " " + caution
+                            detail["cautions"].append(caution)
+                        detail["reason"] = detail["director_reason"]
+                        if results.get("componentEntrants", 0) < 2:
+                            detail["cautions"].append("No shared results connect this team to another entrant; "
+                                                       "relative placement relies on the rating prior.")
                     adjustment = results["correction"]
                     detail["reason"] += (
                         f" Recent opponent-adjusted results shift its goal estimate by {adjustment:+.2f}.")
@@ -519,7 +540,8 @@ def analyze_pack(
                     if results.get("limited") and not detail["limited_history"]:
                         detail["cautions"].append("Limited recent opponent evidence; placement needs review.")
             analysis = replace(analysis, ordering_evidence=evidence)
-        analyses[tuple(key.split("|", 1))] = replace(analysis, tier_guidance=build_tier_guidance(
+        from src.tournaments.seeding_group_evidence import apply_group_guidance
+        analyses[tuple(key.split("|", 1))] = apply_group_guidance(analysis, build_tier_guidance(
             analysis, entrants, snapshot_predictions[key], policy, library,
             profile_id=pack.get("format_profile_id"), tier_names=pack.get("tier_names", {}).get(key, ()),
             format_preferences=effective_preferences(pack, key),
@@ -614,7 +636,7 @@ def upgrade_pack_analysis(
     """
     if (
         pack.get("schema_version") not in _UPGRADABLE_PACK_SCHEMAS
-        or pack.get("analysis_schema_version") not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+        or pack.get("analysis_schema_version") not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
     ):
         raise ValueError("This saved pack requires a fresh build.")
     if not snapshot_matches_roster(pack, rows, resolved, overrides, selected):
@@ -667,15 +689,46 @@ def needs_placement_review(pack: dict[str, Any], key: str, analysis: CheatSheetA
     return not isinstance(reviews, dict) or reviews.get(key) != placement_review_fingerprint(pack, key, analysis)
 
 
+def _snapshot_records(evidence: Mapping[str, Any]) -> dict[str, dict[str, int]]:
+    """Use frozen scored fixtures, never ranking totals with defaulted zeroes."""
+    try:
+        games = json.loads(evidence["canonical_json"])["games"]
+    except (KeyError, TypeError, ValueError):
+        return {}
+    if not isinstance(games, list):
+        return {}
+    records = {}
+    seen = set()
+    for game in games:
+        if not isinstance(game, dict):
+            return {}
+        if game.get("is_excluded"):
+            continue
+        game_id = game.get("id")
+        home, away = game.get("home_team_master_id"), game.get("away_team_master_id")
+        scores = [game.get("home_score"), game.get("away_score")]
+        if (not all(isinstance(value, str) and value for value in (game_id, home, away))
+                or home == away or game_id in seen
+                or not all(isinstance(value, int) and not isinstance(value, bool) and value >= 0
+                           for value in scores)):
+            return {}
+        seen.add(game_id)
+        for team_id, margin in ((home, scores[0] - scores[1]), (away, scores[1] - scores[0])):
+            record = records.setdefault(team_id, {"wins": 0, "losses": 0, "draws": 0})
+            record["wins" if margin > 0 else "losses" if margin < 0 else "draws"] += 1
+    return records
+
+
 def snapshot_ratings(pack: dict[str, Any], identities: Mapping[str, str | None]) -> dict[str, dict[str, Any]]:
     """Use the same snapshot as predictions, including newly canonicalized IDs."""
-    ratings = {key: dict(value) for key, value in pack["ratings"].items()}
-    for teams in pack["teams"].values():
+    ratings = {key: {**value, "scored_record": None} for key, value in pack["ratings"].items()}
+    for cohort, teams in pack["teams"].items():
+        records = _snapshot_records(pack.get("input_evidence", {}).get(cohort, {}))
         for entrant_id, team in teams.items():
             requested_id = identities.get(entrant_id)
             if requested_id:
                 supplemental = ratings.get(str(requested_id), {})
-                captured = {**supplemental, **team}
+                captured = {**supplemental, **team, "scored_record": records.get(team.get("team_id_master"))}
                 # Compare can lack the optional state-ranking view while the
                 # sheet's separate display lookup succeeds. Keep that display
                 # information, without falling back for any strength metric.

@@ -6,7 +6,9 @@ import math
 from dataclasses import dataclass
 from functools import lru_cache
 
+from src.tournaments.seeding_format_preferences import interval_preference
 from src.tournaments.seeding_group_assessment import assess_group
+from src.tournaments.seeding_group_evidence import grouping_costs
 
 
 class SearchLimitReached(Exception):
@@ -35,11 +37,13 @@ class PartitionSearch:
 
 
 def search_partitions(
-    order, predictions, policy, metadata, sizes, recommendation_policy, *, maximum_states=1000000
+    order, predictions, policy, metadata, sizes, recommendation_policy, *, maximum_states=1000000,
+    supported_boundaries=(), format_burdens=None,
 ) -> PartitionSearch:
     n = len(order)
     if len(set(order)) != n:
         raise ValueError("The selected order contains duplicate entrants.")
+    band_costs = grouping_costs(order, predictions, policy, metadata, recommendation_policy.group_split_penalty)
     pairs = assess_group(order, predictions, policy, metadata).pairings
     by_pair = {frozenset(pair.entrant_ids): pair for pair in pairs}
     ratios = [pair.matchup_cost.as_integer_ratio() for pair in pairs if pair.matchup_cost is not None]
@@ -174,6 +178,7 @@ def search_partitions(
         return min(recovered)
 
     passing = [[edge for edge in row if edge.violations == 0] for row in outgoing]
+    alternative_edges = None
     structures = set()
     primary = compromise = None
     complete = False
@@ -181,13 +186,48 @@ def search_partitions(
         # This is a whole-arrangement preference, before division count or cost.
         # Reuse interval evidence and the shared state budget for the fallback pass.
         minimum = recommendation_policy.preferred_minimum_division_size
-        preferred = [[edge for edge in row if minimum is None or edge.end - edge.start >= minimum]
-                     for row in passing]
-        best_worst = minimax(preferred, "worst")
-        if best_worst:
-            passing = preferred
-        elif minimum is not None:
+        if recommendation_policy.evidence_first:
+            # Lexicographic additive preferences have optimal substructure. Keep
+            # every tied edge so worst risk and pair-weighted averages stay exact.
+            def preferred_edges(*, include_cohesion=True):
+                def preference(edge):
+                    value = interval_preference(edge.start, edge.end, recommendation_policy,
+                                                supported_boundaries, format_burdens, band_costs)
+                    return value if include_cohesion else value[:-1]
+                forward, backward = [None] * (n + 1), [None] * (n + 1)
+                forward[0] = backward[n] = (0,) * (5 if include_cohesion else 4)
+                def add(left, right):
+                    return tuple(a + b for a, b in zip(left, right, strict=True))
+                for start in range(n):
+                    if forward[start] is None:
+                        continue
+                    for edge in passing[start]:
+                        tick()
+                        value = add(forward[start], preference(edge))
+                        if forward[edge.end] is None or value < forward[edge.end]:
+                            forward[edge.end] = value
+                for start in reversed(range(n)):
+                    values = [add(preference(edge), backward[edge.end]) for edge in passing[start]
+                              if backward[edge.end] is not None]
+                    backward[start] = min(values, default=None)
+                return [[edge for edge in row if forward[edge.start] is not None
+                         and backward[edge.end] is not None
+                         and add(add(forward[edge.start], preference(edge)), backward[edge.end]) == forward[n]]
+                        for row in passing]
+
+            # A useful safer alternative may trade an extra tier for lower risk.
+            if recommendation_policy.group_split_penalty is not None:
+                alternative_edges = preferred_edges(include_cohesion=False)
+            passing = preferred_edges()
             best_worst = minimax(passing, "worst")
+        else:
+            preferred = [[edge for edge in row if minimum is None or edge.end - edge.start >= minimum]
+                         for row in passing]
+            best_worst = minimax(preferred, "worst")
+            if best_worst:
+                passing = preferred
+            elif minimum is not None:
+                best_worst = minimax(passing, "worst")
         if best_worst:
             first_count = min(best_worst)
             threshold = best_worst[first_count]
@@ -196,35 +236,52 @@ def search_partitions(
             ]
             primary = best_average(restricted, {first_count}, tolerant=True)
             structures.add(primary)
-        else:
+        if primary is None or (recommendation_policy.practical_risk_tolerance and minimum
+                               and min(primary) < minimum):
             risks = minimax(outgoing, "risk")
             if risks:
                 threshold = min(risks.values())
+
+                def minimize_additive(edges, metric):
+                    forward, backward = [math.inf] * (n + 1), [math.inf] * (n + 1)
+                    forward[0] = backward[n] = 0
+                    for start in range(n):
+                        for edge in edges[start]:
+                            tick()
+                            forward[edge.end] = min(forward[edge.end], forward[start] + metric(edge))
+                    for start in reversed(range(n)):
+                        backward[start] = min(
+                            (metric(edge) + backward[edge.end] for edge in edges[start]), default=math.inf)
+                    return [[edge for edge in row
+                             if forward[edge.start] + metric(edge) + backward[edge.end] == forward[n]]
+                            for row in edges]
+
                 restricted = [[edge for edge in row if edge.risk <= threshold] for row in outgoing]
-                forward, backward = [math.inf] * (n + 1), [math.inf] * (n + 1)
-                forward[0] = backward[n] = 0
-                for start in range(n):
-                    for edge in restricted[start]:
-                        forward[edge.end] = min(forward[edge.end], forward[start] + edge.violations)
-                for start in reversed(range(n)):
-                    backward[start] = min(
-                        (edge.violations + backward[edge.end] for edge in restricted[start]), default=math.inf
-                    )
-                restricted = [
-                    [edge for edge in row if forward[edge.start] + edge.violations + backward[edge.end] == forward[n]]
-                    for row in restricted
-                ]
+                baseline = minimize_additive(restricted, lambda edge: edge.violations)
+                structures.add(best_average(baseline, set(risks), tolerant=False))
+                tolerance = recommendation_policy.practical_risk_tolerance
+                if tolerance and minimum:
+                    restricted = [[edge for edge in row if edge.risk <= threshold + tolerance]
+                                  for row in outgoing]
+                    restricted = minimize_additive(restricted, lambda edge: int(edge.end - edge.start < minimum))
+                    threshold = min(minimax(restricted, "risk").values())
+                    restricted = [[edge for edge in row if edge.risk <= threshold] for row in restricted]
+                restricted = minimize_additive(restricted, lambda edge: edge.violations)
                 compromise = best_average(restricted, set(risks), tolerant=False)
                 structures.add(compromise)
         complete = True
         # Summarize alternatives with minimum-worst and minimum-average representatives
         # for each division count; this is not the complete set of useful partitions.
-        for count, threshold in sorted(best_worst.items()):
+        if alternative_edges is None:
+            alternative_edges = passing
+        alternative_worst = minimax(alternative_edges, "worst")
+        for count, threshold in sorted(alternative_worst.items()):
             restricted = [
-                [edge for edge in row if edge.worst < threshold or close(edge.worst, threshold)] for row in passing
+                [edge for edge in row if edge.worst < threshold or close(edge.worst, threshold)]
+                for row in alternative_edges
             ]
             structures.add(best_average(restricted, {count}, tolerant=True))
-            structures.add(best_average(passing, {count}, tolerant=True))
+            structures.add(best_average(alternative_edges, {count}, tolerant=True))
     except SearchLimitReached:
         pass
     structures.discard(None)

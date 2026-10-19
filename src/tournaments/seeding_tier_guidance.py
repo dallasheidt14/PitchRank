@@ -68,6 +68,7 @@ def _calculate_guidance(order, natural, review, entrants, predictions, policy, l
     result = suggest_automatic_flights(
         order, predictions, policy, metadata, library, profile,
         accepted_entrant_ids=accepted, unassigned_entrants=unassigned,
+        supported_boundaries=tuple(sorted(natural)),
     )
     format_context = {
         "profile": asdict(profile),
@@ -89,26 +90,57 @@ def _calculate_guidance(order, natural, review, entrants, predictions, policy, l
             and pair.blowout_probability is not None), default=0.0)
 
     chosen = by_id.get(result.primary_plan_id)
+    passing_choice = chosen
     compromise = False
-    if chosen is None and result.generation.search_complete:
+    recommendation = result.recommendation_policy
+    minimum = recommendation.preferred_minimum_division_size
+    tolerance = recommendation.practical_risk_tolerance
+    practical_tradeoff = None
+    baseline = None
+    if result.generation.search_complete and (chosen is None or (
+            tolerance and minimum and min(chosen.flight_sizes) < minimum)):
         complete = [item for item in plans if item.structural.valid and item.prediction_complete
                     and item.accepted_field_coverage.every_accepted_entrant_accounted_for]
         if complete:
+            def risk_key(item):
+                return (normalized_risk(item), item.violating_pairing_count,
+                        item.pair_weighted_average_matchup_cost, len(item.flights), item.flight_sizes)
+
+            baseline = min(complete, key=risk_key)
+            candidates = complete
             if result.generation.search_method == "exact_dynamic_programming":
-                complete = [item for item in complete
-                            if item.flight_sizes == result.generation.optimal_compromise_structure]
-        if complete:
-            chosen = min(complete, key=lambda item: (
-                normalized_risk(item), item.violating_pairing_count,
-                item.pair_weighted_average_matchup_cost, len(item.flights), item.flight_sizes,
-            ))
-            compromise = True
+                candidates = [item for item in complete
+                              if item.flight_sizes == result.generation.optimal_compromise_structure]
+            elif tolerance and minimum:
+                candidates = [item for item in complete
+                              if normalized_risk(item) <= normalized_risk(baseline) + tolerance]
+                fewest_small = min(sum(size < minimum for size in item.flight_sizes) for item in candidates)
+                candidates = [item for item in candidates
+                              if sum(size < minimum for size in item.flight_sizes) == fewest_small]
+            if candidates:
+                practical = min(candidates, key=risk_key)
+                if chosen is None or sum(size < minimum for size in practical.flight_sizes) < sum(
+                        size < minimum for size in chosen.flight_sizes):
+                    chosen = practical
+                    compromise = chosen.violating_pairing_count > 0
+                    if normalized_risk(chosen) > normalized_risk(baseline):
+                        practical_tradeoff = {
+                            "minimum_risk_sizes": list(baseline.flight_sizes),
+                            "minimum_normalized_risk": normalized_risk(baseline),
+                            "selected_normalized_risk": normalized_risk(chosen),
+                            "tolerance": tolerance,
+                        }
     alternatives = [by_id[item.plan_id] for item in result.useful_alternatives]
     alternative = min(alternatives, key=lambda item: (
         item.worst_matchup_cost, item.pair_weighted_average_matchup_cost, item.flight_sizes,
     ), default=None)
     alternative_detail = next((asdict(item) for item in result.useful_alternatives
                                if alternative and item.plan_id == alternative.plan_id), None)
+    if practical_tradeoff and baseline and baseline.plan_id != chosen.plan_id:
+        alternative = passing_choice or baseline
+        alternative_detail = {"flight_sizes": list(alternative.flight_sizes),
+                              "status": ("passing" if alternative.violating_pairing_count == 0
+                                         else "review_required_compromise")}
     divisions = []
     if chosen is not None:
         start = 1
@@ -129,12 +161,28 @@ def _calculate_guidance(order, natural, review, entrants, predictions, policy, l
                                        for template_id in options.compatible_template_ids],
             })
             start = end + 1
+    group_evidence = []
+    if recommendation.group_split_penalty is not None:
+        from src.tournaments.seeding_group_evidence import group_boundaries
+        group_evidence = group_boundaries(order, divisions, predictions, policy, metadata)
+        natural = {item['after_seed'] for item in group_evidence
+                   if item['selected'] and item['classification'] == 'Supported separation'}
+        for division in divisions:
+            division['natural_break_after'] = division['end_seed'] in natural
     warnings = []
     if unassigned:
         warnings.append(f"{len(positions)} of {len(accepted)} teams assessed in the tier order; "
                         f"{len(unassigned)} still need placement. These breaks cover the assessed subset.")
     if compromise:
-        warnings.append("Review-required compromise: every evaluated arrangement retains projected mismatches.")
+        warnings.append("Review-required compromise: this split retains projected mismatches.")
+        if passing_choice:
+            warnings.append("A passing alternative uses smaller divisions: "
+                            + " + ".join(map(str, passing_choice.flight_sizes)) + ".")
+    if practical_tradeoff:
+        extra_risk = practical_tradeoff['selected_normalized_risk'] - practical_tradeoff['minimum_normalized_risk']
+        warnings.append("Practical division sizes avoid small tiers with only "
+                        f"{extra_risk:.3f} "
+                        "extra worst normalized mismatch risk. Competitive limits are unchanged.")
     if not result.generation.search_complete:
         warnings.append("Search incomplete; no primary tier split is recommended.")
     if chosen is None:
@@ -176,7 +224,20 @@ def _calculate_guidance(order, natural, review, entrants, predictions, policy, l
                 f"four-goal margin probability {worst.blowout_probability:.0%}."
             )
     return {
-        "version": 2, "status": "review_required_compromise" if compromise else result.status,
+        "version": 5, "practical_tradeoff": practical_tradeoff,
+        "boundary_method": "whole_group_v1" if recommendation.group_split_penalty is not None else "local_windows_v1",
+        "group_boundaries": group_evidence,
+        "selection_reason": result.selection_reason,
+        "boundary_reasons": [
+            {"after_seed": item["end_seed"],
+             "kind": "natural" if item["natural_break_after"] else "practical",
+             "reason": ("Results support different strength bands; teams near the line may still be close."
+                        if item["natural_break_after"] else
+                        "A practical split to keep the full division competitive; "
+                        "distinct strength bands are not established at this position.")}
+            for item in divisions[:-1]
+        ],
+        "status": "review_required_compromise" if compromise else result.status,
         "review_required": compromise or chosen is None or bool(unassigned)
         or result.primary_evidence_status == "provisional_due_to_history",
         "accepted_count": len(accepted), "assessed_count": len(positions),

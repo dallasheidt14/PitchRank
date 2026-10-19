@@ -1111,6 +1111,7 @@ export interface MatchPrediction {
     teamB: number;
   };
   expectedMargin: number;
+  expectedGoals?: { teamA: number; teamB: number };
   expectedAbsoluteGoalDifference?: number;
   blowout4PlusProbability: number;
   confidence: 'high' | 'medium' | 'low';
@@ -1304,8 +1305,11 @@ export function predictMatch(teamA: TeamWithRanking, teamB: TeamWithRanking, all
   const absPowerDiff = Math.abs(powerDiff);
   const marginMultiplier = getAgeSpecificMarginMultiplier(effectiveAge, absPowerDiff, mismatchScore);
   const desiredMargin = (lambdaA - lambdaB) * clamp(marginMultiplier / 1.25, 0.85, 1.25);
-  lambdaA = clamp((totalGoals + desiredMargin) / 2, 0.15, 7.5);
-  lambdaB = clamp(totalGoals - lambdaA, 0.15, 7.5);
+  // Bound the margin symmetrically so swapping teams preserves the matchup distribution.
+  const feasibleMargin = Math.min(totalGoals - 0.3, 15 - totalGoals);
+  const boundedMargin = clamp(desiredMargin, -feasibleMargin, feasibleMargin);
+  lambdaA = (totalGoals + boundedMargin) / 2;
+  lambdaB = (totalGoals - boundedMargin) / 2;
 
   const distribution = buildOutcomeDistribution(lambdaA, lambdaB);
   const decisiveMass = distribution.winA + distribution.winB;
@@ -1419,6 +1423,7 @@ export function predictMatch(teamA: TeamWithRanking, teamB: TeamWithRanking, all
       teamB: expectedScore.teamB,
     },
     expectedMargin,
+    expectedGoals: { teamA: lambdaA, teamB: lambdaB },
     expectedAbsoluteGoalDifference: distribution.expectedAbsoluteGoalDifference,
     blowout4PlusProbability: distribution.blowout4Plus,
     confidence,

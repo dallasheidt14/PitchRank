@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
@@ -62,6 +63,9 @@ class MatchBalanceRecommendationPolicy:
     numerical_tie_absolute_tolerance: float
     provenance_status: str
     preferred_minimum_division_size: int | None = None
+    practical_risk_tolerance: float = 0.0
+    evidence_first: bool = False
+    group_split_penalty: float | None = None
 
 
 @dataclass(frozen=True)
@@ -423,6 +427,16 @@ def validate_format_library(library: FormatLibrary) -> FormatLibraryValidation:
             )
 
     for policy in library.recommendation_policies:
+        penalty = policy.group_split_penalty
+        if penalty is not None and (isinstance(penalty, bool) or not isinstance(penalty, (int, float))
+                                    or not math.isfinite(penalty) or penalty <= 0 or not policy.evidence_first):
+            library_errors.append("Group split penalty must be positive and finite under evidence-first selection.")
+        if not isinstance(policy.evidence_first, bool):
+            library_errors.append("Evidence-first selection must be a boolean.")
+        tolerance = policy.practical_risk_tolerance
+        if (isinstance(tolerance, bool) or not isinstance(tolerance, (int, float))
+                or not math.isfinite(tolerance) or not 0 <= tolerance <= 0.25):
+            library_errors.append("Practical risk tolerance must be finite and between zero and 0.25.")
         minimum = policy.preferred_minimum_division_size
         if minimum is not None and (isinstance(minimum, bool) or not isinstance(minimum, int) or minimum < 3):
             library_errors.append(
@@ -476,7 +490,7 @@ def validate_format_library(library: FormatLibrary) -> FormatLibraryValidation:
             errors.append("Repeat-opponent preference must be allowed or prohibited.")
         if profile.playoffs not in {"any", "required", "excluded"}:
             errors.append("Playoff preference must be any, required or excluded.")
-        if profile.format_selection not in {"practical_default", "legacy_preference"}:
+        if profile.format_selection not in {"practical_default", "legacy_preference", "evidence_first"}:
             errors.append("Unknown format-selection policy.")
         for value in (profile.required_minimum_games_per_team, profile.required_maximum_games_per_team):
             if value is not None and (isinstance(value, bool) or not isinstance(value, int) or value < 1):

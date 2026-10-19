@@ -91,6 +91,7 @@ SYNTHETIC_FIXTURE: dict[str, Any] = {
             ],
             "review": {"u13-08": ["No current rating.", NO_CURRENT_RATING]},
             "plays_up": {"u13-03": "u12"},
+            "national_ranks": {"u13-01": 42, "u13-02": 105, "u13-03": 82, "u13-04": 260, "u13-05": 594},
             "requested_flight": {"u13-05": "Gold"},
             "note": "Sample data only. Confirm recent results and club context before final placement.",
         },
@@ -272,6 +273,13 @@ def _build_cohort(fixture: dict[str, Any]) -> CohortSheet:
                 club_name=club,
                 power_score=score,
                 state_rank=rank,
+                national_rank=fixture.get("national_ranks", {}).get(entrant_id),
+                national_rank_context=(
+                    f"{fixture['plays_up'][entrant_id].upper()} "
+                    f"{'Boys' if fixture['gender'] == 'Male' else 'Girls'}"
+                    if entrant_id in fixture.get("national_ranks", {})
+                    and entrant_id in fixture.get("plays_up", {}) else ""
+                ),
                 state=state,
                 status=status,
                 entrant_id=entrant_id,

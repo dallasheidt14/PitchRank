@@ -196,6 +196,8 @@ describe('predictMatch', () => {
     const strong = makeTeam({
       team_id_master: 'strong',
       team_name: 'Strong FC 14B',
+      exp_goals_for: 7,
+      exp_goals_against: 0.5,
       power_score_final: 0.99,
       glicko_rating: 2200,
       glicko_rd: 35,
@@ -211,6 +213,8 @@ describe('predictMatch', () => {
     const weak = makeTeam({
       team_id_master: 'weak',
       team_name: 'Weak FC 14B',
+      exp_goals_for: 0.5,
+      exp_goals_against: 7,
       power_score_final: 0.01,
       glicko_rating: 1100,
       glicko_rd: 160,
@@ -465,4 +469,32 @@ describe('predictMatch', () => {
     expect(prediction.components.commonOpponentCount).toBe(2);
     expect(prediction.commonOpponents?.sharedOpponents).toBe(2);
   });
+});
+
+it('keeps extreme mismatches reciprocal when the weaker score reaches its floor', () => {
+  const strong = makeTeam({
+    team_id_master: 'strong',
+    age: 12,
+    power_score_final: 0.62,
+    glicko_rating: 1666,
+    offense_norm: 0.9,
+    defense_norm: 0.9,
+    sos_norm: 0.8,
+  });
+  const weak = makeTeam({
+    team_id_master: 'weak',
+    age: 13,
+    power_score_final: 0.2,
+    glicko_rating: 1024,
+    offense_norm: 0.2,
+    defense_norm: 0.3,
+    sos_norm: 0.4,
+  });
+  const ab = predictMatch(strong, weak, []),
+    ba = predictMatch(weak, strong, []);
+  expect(ab.expectedMargin).toBeCloseTo(-ba.expectedMargin, 12);
+  expect(ab.expectedGoals!.teamA).toBeCloseTo(ba.expectedGoals!.teamB, 12);
+  expect(ab.expectedAbsoluteGoalDifference).toBeCloseTo(ba.expectedAbsoluteGoalDifference!, 12);
+  expect(ab.blowout4PlusProbability).toBeCloseTo(ba.blowout4PlusProbability, 12);
+  expect(ab.winProbabilityA).toBeCloseTo(ba.winProbabilityB, 12);
 });

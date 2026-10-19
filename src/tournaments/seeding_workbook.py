@@ -11,7 +11,12 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
-from src.tournaments.seeding_content import DIRECTOR_LEGEND, LIMITED_HISTORY_LEGEND, build_director_cohort
+from src.tournaments.seeding_content import (
+    DIRECTOR_LEGEND,
+    LIMITED_HISTORY_LEGEND,
+    build_director_cohort,
+    format_national_rank,
+)
 from src.tournaments.seeding_pack import cohort_key, cohort_label
 from src.tournaments.seeding_sheet import CohortSheet
 from src.tournaments.seeding_tiers import PLACEMENT_STATUSES
@@ -64,22 +69,22 @@ def build_seeding_workbook(
         sheet = workbook.create_sheet(title)
         sheet.sheet_view.showGridLines = False
         sheet.freeze_panes = "D7"
-        sheet.merge_cells("A1:K1")
+        sheet.merge_cells("A1:L1")
         _set_text(sheet["A1"], _safe_text(event_name))
         sheet["A1"].font = Font(name="Arial", size=18, bold=True, color="FFFFFF")
         sheet["A1"].fill = PatternFill("solid", fgColor=FOREST)
         sheet["A1"].alignment = Alignment(vertical="center")
         sheet.row_dimensions[1].height = 28
-        sheet.merge_cells("A2:K2")
+        sheet.merge_cells("A2:L2")
         team_count = len(cohort.rated) + len(cohort.unrated)
         sheet["A2"] = f"{cohort_label(cohort_key(cohort.age_group, cohort.gender))} · {team_count} accepted teams"
         sheet["A2"].font = Font(bold=True, color=FOREST_DEEP)
-        sheet.merge_cells("A3:K3")
+        sheet.merge_cells("A3:L3")
         sheet["A3"] = DIRECTOR_LEGEND
         sheet["A3"].font = Font(italic=True, color=MUTED)
         sheet["A3"].alignment = Alignment(wrap_text=True, vertical="center")
         sheet.row_dimensions[3].height = 30
-        sheet.merge_cells("A4:K4")
+        sheet.merge_cells("A4:L4")
         sheet["A4"] = f"Ratings as of {ranking_run} · Generated {generated_on}"
         sheet["A4"].font = Font(color=MUTED, size=9)
         content = build_director_cohort(
@@ -89,7 +94,7 @@ def build_seeding_workbook(
         if any(row.evidence_note for row in content.seeded):
             sheet["A3"] = DIRECTOR_LEGEND + " Limited history: " + LIMITED_HISTORY_LEGEND
             sheet.row_dimensions[3].height = 42
-        sheet.merge_cells("A5:K5")
+        sheet.merge_cells("A5:L5")
         sheet["A5"] = (content.guidance_summary + " " if content.guidance_summary else "") + " · ".join(
             f"{label}: {sum(row.placement_status == label for row in team_rows)}"
             for label in PLACEMENT_STATUSES
@@ -100,8 +105,8 @@ def build_seeding_workbook(
         manual = bool(cohort.tier_analysis and getattr(cohort.tier_analysis, "manual_override", False))
         headers = [
             "Manual/Effective seed" if manual else "MatchBalance seed",
-            "Team name", "Club", "PowerScore", "State rank", "PowerScore seed",
-            "Movement / placement notes", "Final division", "Pool", "Final seed", "Director notes",
+            "Team name", "Club", "PowerScore", "State rank", "National rank",
+            "Tier / placement", "Final division", "Pool", "Final seed", "Director notes", "Record (W-L-D)",
         ]
         for column, value in enumerate(headers, 1):
             cell = sheet.cell(6, column, value)
@@ -113,19 +118,20 @@ def build_seeding_workbook(
             team = row.team
             placement = " · ".join(
                 value for value in (
-                    row.tier_label, row.movement, row.observation, row.break_label,
-                    row.close_range_after, row.display_status,
+                    row.tier_label, "Strength gap below" if row.observation else "",
+                    row.display_status if row.display_status != "Seeded" else "",
+                    row.recommendation_reason if row.seed is None else "",
                 ) if value
             )
             values = [
                 row.seed, "\n".join(row.name_lines), _safe_text(team.club_name), row.score,
-                row.state_rank, row.power_score_seed, _safe_text(placement), "", "", "", "",
+                row.state_rank, format_national_rank(team), _safe_text(placement), "", "", "", "", team.record,
             ]
             for column, value in enumerate(values, 1):
                 cell = sheet.cell(row_index, column, value)
                 if isinstance(value, str):
                     _set_text(cell, value)
-                cell.alignment = Alignment(vertical="top", wrap_text=column in {2, 3, 7, 8, 9, 11})
+                cell.alignment = Alignment(vertical="top", wrap_text=column in {2, 3, 6, 7, 8, 9, 11})
                 cell.border = Border(bottom=Side(
                     style="medium" if row.strength_break_after else "hair",
                     color=FOREST if row.strength_break_after else RULE,
@@ -134,15 +140,15 @@ def build_seeding_workbook(
                     cell.fill = PatternFill("solid", fgColor="FFF9DB")
                 if column == 4 and value is not None:
                     cell.number_format = "0.0"
-                if column in {1, 4, 5, 6, 10}:
-                    cell.alignment = Alignment(horizontal="center", vertical="top")
+                if column in {1, 4, 5, 6, 10, 12}:
+                    cell.alignment = Alignment(horizontal="center", vertical="top", wrap_text=column == 6)
             if row_index % 2 == 0:
                 for column in range(1, 8):
                     sheet.cell(row_index, column).fill = PatternFill("solid", fgColor=BAND)
             # Excel does not autofit wrapped rows reliably when printing.
             sheet.row_dimensions[row_index].height = 15 * max(
                 sum(max(1, (len(line) + width - 1) // width) for line in str(value or "").split("\n"))
-                for value, width in ((values[1], 30), (values[2], 22), (values[6], 30))
+                for value, width in ((values[1], 30), (values[2], 22), (values[5], 15), (values[6], 30))
             )
         end_row = max(6, 6 + len(team_rows))
         if content.seeded:
@@ -151,7 +157,7 @@ def build_seeding_workbook(
                 color="B8D6CC", showValue=True,
             ))
         if end_row >= 7:
-            table = Table(displayName=f"Cohort{sheet_number}", ref=f"A6:K{end_row}")
+            table = Table(displayName=f"Cohort{sheet_number}", ref=f"A6:L{end_row}")
             table.tableStyleInfo = TableStyleInfo(
                 name="TableStyleMedium4",
                 showFirstColumn=False,
@@ -160,24 +166,24 @@ def build_seeding_workbook(
                 showColumnStripes=False,
             )
             sheet.add_table(table)
-        notes = content.notes
+        notes = (*content.format_notes, *content.director_notes)
         if notes:
             end_row += 2
             sheet.cell(end_row, 1, "Director notes").font = Font(bold=True, color=FOREST_DEEP)
             for note in dict.fromkeys(notes):
                 end_row += 1
-                sheet.merge_cells(start_row=end_row, start_column=1, end_row=end_row, end_column=11)
+                sheet.merge_cells(start_row=end_row, start_column=1, end_row=end_row, end_column=12)
                 cell = sheet.cell(end_row, 1)
                 _set_text(cell, _safe_text(note))
                 cell.alignment = Alignment(vertical="top", wrap_text=True)
                 sheet.row_dimensions[end_row].height = 15 * sum(
                     max(1, (len(line) + 139) // 140) for line in note.splitlines()
                 )
-        widths = [17, 32, 24, 15, 15, 15, 34, 18, 12, 14, 32]
+        widths = [17, 32, 24, 15, 15, 15, 34, 18, 12, 14, 32, 16]
         for column, width in enumerate(widths, 1):
             sheet.column_dimensions[get_column_letter(column)].width = width
         sheet.print_title_rows = "1:6"
-        sheet.print_area = f"A1:K{end_row}"
+        sheet.print_area = f"A1:L{end_row}"
         sheet.page_setup.orientation = "landscape"
         sheet.page_setup.fitToWidth = 1
         sheet.page_setup.fitToHeight = 0

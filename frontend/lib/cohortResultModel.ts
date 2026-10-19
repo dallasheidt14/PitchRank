@@ -113,7 +113,16 @@ export function predictCohortResult(a: TeamWithRanking, b: TeamWithRanking, evid
   const ea = evidence[a.team_id_master];
   const eb = evidence[b.team_id_master];
   const margin = clip(base.expectedMargin + (ea?.correction ?? 0) - (eb?.correction ?? 0), 8);
-  const total = Math.max(3, base.expectedScore.teamA + base.expectedScore.teamB, Math.abs(margin) + 0.4);
+  const total = Math.max(
+    3,
+    (base.expectedGoals?.teamA ?? base.expectedScore.teamA) + (base.expectedGoals?.teamB ?? base.expectedScore.teamB),
+    Math.abs(margin) + 0.4
+  );
+  return withScoreDistribution(base, margin, total);
+}
+
+/** Share one reciprocal distribution; integer display scores never feed its means. */
+export function withScoreDistribution(base: MatchPrediction, margin: number, total: number): MatchPrediction {
   const lambdaA = (total + margin) / 2;
   const lambdaB = (total - margin) / 2;
   const massA = poisson(lambdaA),
@@ -140,6 +149,7 @@ export function predictCohortResult(a: TeamWithRanking, b: TeamWithRanking, evid
     drawProbability: draw,
     expectedScore: { teamA: Math.round(lambdaA), teamB: Math.round(lambdaB) },
     expectedMargin: margin,
+    expectedGoals: { teamA: lambdaA, teamB: lambdaB },
     expectedAbsoluteGoalDifference: abs,
     blowout4PlusProbability: blowout,
     // No calibrated outcome-confidence claim for this experimental model.

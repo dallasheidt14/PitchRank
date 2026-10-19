@@ -78,7 +78,7 @@ def test_counts_preserved_without_equivalence_or_format_claims(count):
         assert tab.cell(index, 1).value == row.seed
         assert tab.cell(index, 2).value == row.team.team_name
         assert tab.cell(index, 4).value == pytest.approx(row.score)
-        assert tab.cell(index, 6).value == row.power_score_seed
+        assert tab.cell(index, 6).value is None  # No published national rank in this fixture.
     assert "Director notes" not in [tab.cell(i, 1).value for i in range(7, tab.max_row + 1)]
 
 
@@ -157,7 +157,7 @@ def test_clear_gap_has_one_specific_observation_across_pdf_and_excel():
     assert break_group in document
     assert "tbody.competitive-break-group { break-inside: avoid-page; " in document
     assert "tr.competitive-break { break-after: avoid-page; " in document
-    assert content.rows[3].observation in tab.cell(10, 7).value
+    assert "Strength gap below" in tab.cell(10, 7).value
     assert tab.cell(10, 1).border.bottom.style == "medium"
     assert tab["A1"].data_type == "s"
     for note in content.notes:
@@ -205,7 +205,7 @@ def test_workbook_keeps_secondary_identity_and_roster_context_on_team_row():
     assert all(text in document for text in content.rows[0].name_lines)
     assert tab.row_dimensions[7].height >= 75
     assert tab.auto_filter.ref is None
-    assert [table.autoFilter.ref for table in tab.tables.values()] == ["A6:K7"]
+    assert [table.autoFilter.ref for table in tab.tables.values()] == ["A6:L7"]
 
 
 def test_direction_without_competitive_risk_does_not_create_a_break():
@@ -333,14 +333,15 @@ def test_manual_order_requires_every_rated_team_to_be_seeded_or_explicitly_held(
     assert analysis.manual_holds == ("2", "3", "4")
 
 
-def test_customer_sheet_labels_matchbalance_movement_breaks_and_close_ranges():
+def test_customer_sheet_keeps_breaks_without_exposing_seed_movement():
     sheet, _, _ = cohort(8, gap=4)
     document = render_sheet_html(
         "Cup", [sheet], generated_on="2026-09-26", ranking_run="2026-09-25",
     )
     assert "MatchBalance Seed" in document
     assert "Competitive Break" in document
-    assert "Very close: seeds" in document
+    assert "Very close: seeds" not in document
+    assert any(row.close_range_after for row in build_director_cohort(sheet).rows)
 
     entrants, pairs = consensus_case({
         "0": 11, "1": 8, "2": 10, "3": 7, "4": 6, "5": 5, "6": 4,
@@ -355,7 +356,9 @@ def test_customer_sheet_labels_matchbalance_movement_breaks_and_close_ranges():
     moved_document = render_sheet_html(
         "Cup", [moved_sheet], generated_on="2026-09-26", ranking_run="2026-09-25",
     )
-    assert "↑ from PowerScore #3" in moved_document
+    assert "from PowerScore" not in moved_document
+    assert "Seed change" not in moved_document
+    assert "National rank" in moved_document
 
 
 def test_customer_movement_uses_manual_effective_seed_and_keeps_matchbalance_detail():
@@ -489,4 +492,23 @@ def test_limited_history_keeps_seed_and_literal_row_context_with_fixed_score_sca
     table_rows = sorted([tuple(cell.value for cell in row) for row in tab.iter_rows(min_row=7, max_row=14)],
                         key=lambda row: row[1], reverse=True)
     marked = next(row for row in table_rows if row[0] == 4)
-    assert content.rows[3].observation in marked[6]
+    assert "Strength gap below" in marked[6]
+
+
+def test_director_csv_keeps_cautions_without_internal_seed_comparisons():
+    from src.tournaments.seeding_content import director_csv
+
+    sheet, _, _ = cohort(4)
+    sheet = replace(sheet, tier_analysis=replace(
+        sheet.tier_analysis,
+        ordering_evidence={"teams": {"0": {
+            "limited_history": True, "reason": "Saved whole-cohort comparison.",
+            "cautions": ["Confirm team identity"],
+        }}},
+    ))
+    content = build_director_cohort(sheet)
+    assert any("PowerScore #1 to MatchBalance #1" in note for note in content.notes)
+    exported = director_csv(sheet).decode("utf-8-sig")
+    assert "PowerScore #" not in exported
+    assert "Confirm team identity" in exported
+    assert "National rank" in exported

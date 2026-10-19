@@ -59,7 +59,7 @@ def test_catalog_reproduces_checked_in_definitions_and_covers_source(library):
     expected = build_catalog()
     assert expected == json.loads(library.source_path.read_text(encoding="utf-8"))
     assert library.schema_version == 2
-    assert resolve_format_profile(library).profile_id == "matchbalance-expanded-v3"
+    assert resolve_format_profile(library).profile_id == "matchbalance-expanded-v6"
     entries, count = set(), None
     for line in SOURCE.read_text(encoding="utf-8").splitlines():
         heading = re.match(r"### (\d+\+?) teams", line)
@@ -100,7 +100,7 @@ def test_preferences_are_optional_and_cohort_overrides_can_clear_a_limit(library
     assert effective_preferences(pack, "u14|Male") == {"minimum_games": None, "playoffs": "excluded"}
     automatic = resolve_format_profile(library)
     result = generate_candidate_structures(3, library, automatic)
-    assert result.size_template_options[0].preferred_template_id == "mb-expanded-3-points-v2"
+    assert result.size_template_options[0].preferred_template_id == "mb-expanded-3-double-v2"
     limited = apply_preferences(automatic, {"minimum_games": 3, "maximum_games": 3, "repeat_opponents": "prohibited"})
     assert generate_candidate_structures(3, library, limited).unsupported
     assert not generate_candidate_structures(4, library, limited).unsupported
@@ -198,8 +198,9 @@ def test_exact_search_matches_exhaustive_oracle(library, seed, unsafe):
                 for pair in flight.group.pairings
             )
 
+        plans = exhaustive.assessment.plans
         expected = min(
-            exhaustive.assessment.plans,
+            plans,
             key=lambda p: (
                 risk(p),
                 p.violating_pairing_count,
@@ -228,6 +229,8 @@ def test_compromise_counts_only_violating_pairs_in_mixed_evidence(library):
     exact = suggest_automatic_flights(
         ids, predictions, TierPolicy(), teams, library, replace(profile, max_candidate_structures=1)
     )
+    # Without a passing plan, minimize actual violations rather than making
+    # another matchup unsafe merely to avoid a smaller division.
     assert exact.generation.optimal_compromise_structure == (5, 3)
     for result in (exhaustive, exact):
         best = min(
@@ -337,3 +340,33 @@ def test_invalid_preferred_division_size_is_rejected(minimum):
     raw["recommendation_policies"][-1]["preferred_minimum_division_size"] = minimum
     with pytest.raises(ValueError, match="Preferred minimum division size"):
         parse_format_library(raw)
+
+
+@pytest.mark.parametrize("seed", range(5))
+def test_exact_search_matches_all_preference_terms_and_boundary_ties(library, seed):
+    ids, teams, predictions = matrix(19, seed)
+    profile = resolve_format_profile(library)
+    cuts = (5, 11)
+    exhaustive = suggest_automatic_flights(ids, predictions, TierPolicy(), teams, library, profile,
+                                           supported_boundaries=cuts)
+    exact = suggest_automatic_flights(ids, predictions, TierPolicy(), teams, library,
+                                       replace(profile, max_candidate_structures=1), supported_boundaries=cuts)
+    expected = next(p for p in exhaustive.assessment.plans if p.plan_id == exhaustive.primary_plan_id)
+    actual = next(p for p in exact.assessment.plans if p.plan_id == exact.primary_plan_id)
+    assert actual.flight_sizes == expected.flight_sizes
+    assert actual.pair_weighted_average_matchup_cost == expected.pair_weighted_average_matchup_cost
+    assert exact.generation.search_complete
+
+
+def test_new_display_formats_use_equal_games_and_balanced_pools(library):
+    options = generate_candidate_structures(19, library, resolve_format_profile(library)).size_template_options
+    selected = {o.team_count: library.templates_by_id[o.preferred_template_id] for o in options}
+    assert selected[3].template_id == "mb-expanded-3-double-v2"
+    assert selected[5].template_id == "mb-expanded-5-rr-v2"
+    assert selected[6].pool_sizes == (3, 3)
+    assert selected[8].pool_sizes == (4, 4)
+    assert selected[12].pool_sizes == (4, 4, 4)
+    for size in (3, 4, 5, 6, 8, 12):
+        counts = calculate_format_games(size, selected[size].playing_structure)
+        assert len(set(counts.preliminary_games_by_slot)) == 1
+        assert not selected[size].unequal_pool_requirements

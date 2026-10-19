@@ -142,12 +142,12 @@ def test_legacy_upgrade_keeps_original_format_catalog():
                                  predictor_sha256="a" * 64)["format_library"] == legacy
 
 
-@pytest.mark.parametrize("schema", [6, 7, 8])
+@pytest.mark.parametrize("schema", [6, 7, 8, 9])
 def test_unrelated_identity_edit_preserves_completed_cohort_snapshot(schema):
     pack = _pack(("u12|Male", "u14|Male"))
     pack["schema_version"] = schema
-    if schema < 8:
-        pack["analysis_schema_version"] = 9 if schema == 6 else 10
+    if schema < 9:
+        pack["analysis_schema_version"] = 9 if schema == 6 else 10 if schema == 7 else 11
     pack["operator_notes"] = {"u14|Male": "Keep this note."}
     changed = {4: {"not_found": True}}
     before = deepcopy(pack)
@@ -155,7 +155,7 @@ def test_unrelated_identity_edit_preserves_completed_cohort_snapshot(schema):
     assert pack == before
     assert retained["selected_cohorts"] == ["u12|Male"]
     assert retained["operator_notes"] == pack["operator_notes"]
-    if schema < 8:
+    if schema < 9:
         retained = upgrade_pack_analysis(retained, ROWS, RESOLVED, changed, ["u12|Male"],
                                          predictor_sha256="a" * 64)
     assert pack_matches(retained, ROWS, RESOLVED, changed, ["u12|Male"])
@@ -270,8 +270,8 @@ def test_saved_analysis_upgrade_preserves_prediction_and_operator_choices_withou
     before = deepcopy(old)
     upgraded = upgrade_pack_analysis(old, ROWS, RESOLVED, {}, ["u12|Male"], predictor_sha256="a" * 64)
     assert old == before
-    assert upgraded["schema_version"] == 8
-    assert upgraded["analysis_schema_version"] == 11
+    assert upgraded["schema_version"] == 9
+    assert upgraded["analysis_schema_version"] == 13
     assert upgraded["policy"] == json.loads(json.dumps(asdict(TierPolicy(max_expected_margin=1.75))))
     assert upgraded["manual_seed_orders"] == old["manual_seed_orders"]
     assert upgraded["ordering"]
@@ -299,8 +299,8 @@ def test_schema_three_pack_upgrades_with_reproducible_separate_orders():
         old, ROWS, RESOLVED, {}, ["u12|Male"], predictor_sha256="a" * 64,
     )
 
-    assert upgraded["schema_version"] == 8
-    assert upgraded["analysis_schema_version"] == 11
+    assert upgraded["schema_version"] == 9
+    assert upgraded["analysis_schema_version"] == 13
     assert upgraded["manual_seed_orders"] == {}
     ordering = upgraded["ordering"]["u12|Male"]
     assert ordering["baseline_order"]
@@ -1056,6 +1056,45 @@ def test_snapshot_ratings_use_captured_canonical_data_under_requested_id():
     assert ratings[IDS[0]]["rank_in_state_final"] == 10
     ratings[IDS[0]]["test_metadata"]["source"] = "consumer changed"
     assert pack["teams"]["u12|Male"]["0"]["test_metadata"]["source"] == "captured"
+
+
+def test_display_record_counts_frozen_fixtures_under_the_canonical_identity():
+    pack = _pack()
+    team = pack["teams"]["u12|Male"]["0"]
+    team.update(team_id_master=IDS[4], wins=17, losses=5, draws=8)
+    games = [
+        {"id": "win", "home_team_master_id": IDS[4], "away_team_master_id": IDS[1],
+         "home_score": 3, "away_score": 1},
+        {"id": "loss", "home_team_master_id": IDS[1], "away_team_master_id": IDS[4],
+         "home_score": 2, "away_score": 0},
+        {"id": "draw", "home_team_master_id": IDS[4], "away_team_master_id": IDS[1],
+         "home_score": 0, "away_score": 0},
+        {"id": "excluded", "home_team_master_id": IDS[4], "away_team_master_id": IDS[1],
+         "home_score": 9, "away_score": 0, "is_excluded": True},
+    ]
+    pack["input_evidence"] = {"u12|Male": {"canonical_json": json.dumps({"games": games})}}
+    original = deepcopy(pack)
+    ratings = snapshot_ratings(pack, team_ids_by_row(ROWS, RESOLVED, {}))
+    sheets = build_cohort_sheets(ROWS, RESOLVED, {}, ratings)
+    teams = {team.entrant_id: team for sheet in sheets for team in (*sheet.rated, *sheet.unrated)}
+    assert teams["0"].record == "1-1-1"
+    assert teams["1"].record == "1-1-1"
+    assert teams["3"].record == ""
+    assert ratings[IDS[0]]["wins"] == 17  # Display records never rewrite prediction inputs.
+    assert pack == original
+
+
+@pytest.mark.parametrize("evidence", [
+    {}, {"canonical_json": "{}"}, {"canonical_json": '{"games": []}'},
+    {"canonical_json": '{"games": [{"home_score": null}]}'},
+])
+def test_missing_frozen_history_does_not_display_defaulted_ranking_zeroes(evidence):
+    pack = _pack()
+    pack["teams"]["u12|Male"]["0"].update(wins=0, losses=0, draws=0)
+    pack["input_evidence"] = {"u12|Male": evidence}
+    ratings = snapshot_ratings(pack, team_ids_by_row(ROWS, RESOLVED, {}))
+    sheets = build_cohort_sheets(ROWS, RESOLVED, {}, ratings)
+    assert next(team for sheet in sheets for team in sheet.rated if team.entrant_id == "0").record == ""
 
 
 def test_missing_compare_state_rank_preserves_supplemental_display_but_not_strength_values():

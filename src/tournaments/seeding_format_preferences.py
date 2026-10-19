@@ -4,6 +4,7 @@ from dataclasses import replace
 from typing import Mapping
 
 from src.tournaments.seeding_format_library import FormatProfile, FormatTemplate
+from src.tournaments.seeding_format_mechanics import calculate_format_games
 
 PREFERENCE_DEFAULTS = {
     "minimum_games": None,
@@ -64,6 +65,57 @@ def practical_format_key(template: FormatTemplate) -> tuple:
         template.total_matches if template.total_matches is not None else float("inf"),
         template.template_id,
     )
+
+
+def format_suitability(template: FormatTemplate) -> tuple[int, int, int]:
+    """Operational burden, independent of pool assignments and predicted strength.
+
+    These are preferences, never eligibility limits. Odd counts can still use a
+    complete round robin; unequal tables and long schedules remain explicit.
+    """
+    unequal = bool(template.unequal_pool_requirements)
+    if template.playing_structure is not None:
+        counts = calculate_format_games(template.team_count, template.playing_structure)
+        unequal = unequal or len(set(counts.preliminary_games_by_slot)) > 1
+    minimum = template.minimum_guaranteed_games_per_team
+    distance = min(abs(minimum - 3), abs(minimum - 4)) if minimum is not None else template.team_count
+    regular = template.preliminary_play_type in {
+        "round_robin", "double_round_robin", "crossover", "mixed_round_robin_and_crossover",
+    }
+    return int(unequal), distance, int(not regular)
+
+
+def straightforward_format_key(template: FormatTemplate) -> tuple:
+    """Prefer equal preliminary games and familiar pool play for this exact count."""
+    spread = (template.maximum_possible_games_per_team - template.minimum_guaranteed_games_per_team
+              if template.maximum_possible_games_per_team is not None
+              and template.minimum_guaranteed_games_per_team is not None else float("inf"))
+    return (*format_suitability(template),
+            template.maximum_pair_meetings or float("inf"), spread, *practical_format_key(template)[3:])
+
+
+def interval_preference(start, end, policy, supported_boundaries=(), format_burdens=None, group_costs=None) -> tuple:
+    """Additive terms shared by exhaustive and exact consecutive-tier searches."""
+    size = end - start
+    unequal, distance, irregular = (format_burdens or {}).get(size, (0, 0, 0))
+    minimum = policy.preferred_minimum_division_size
+    if policy.group_split_penalty is not None:
+        if group_costs is None:
+            raise ValueError("Whole-group selection requires interval evidence.")
+        return (unequal, distance, irregular, int(minimum is not None and size < minimum),
+                group_costs[start, end])
+    return (sum(start < cut < end for cut in supported_boundaries), unequal, distance, irregular,
+            int(minimum is not None and size < minimum))
+
+
+def partition_preference(sizes, policy, supported_boundaries=(), format_burdens=None, group_costs=None) -> tuple:
+    total = (0, 0, 0, 0, 0)
+    start = 0
+    for size in sizes:
+        terms = interval_preference(start, start + size, policy, supported_boundaries, format_burdens, group_costs)
+        total = tuple(left + right for left, right in zip(total, terms, strict=True))
+        start += size
+    return total
 
 
 def format_exclusions(template: FormatTemplate, profile: FormatProfile) -> tuple[str, ...]:

@@ -164,6 +164,11 @@ def _cohort_report(
     metadata = build_team_metadata(loaded, cohort, accepted_ids)
     competitive_policy = TierPolicy(**upgraded_pack["policy"])
     profile = resolve_format_profile(library, profile_id)
+    # Suggested classifications and effective breaks refer to different orders
+    # after a manual edit or hold. Both are recomputed by the frozen-pack loader.
+    boundaries = (analysis.supported_boundaries if selected.source == "suggested"
+                  else analysis.breaks)
+    supported_cuts = tuple(item.after_seed for item in boundaries)
 
     before_order = _order_snapshot(analysis, upgraded_pack, cohort)
     before_boundary = _boundary_snapshot(analysis, upgraded_pack)
@@ -178,6 +183,7 @@ def _cohort_report(
         accepted_entrant_ids=accepted_ids,
         unassigned_entrants=selected.unassigned_entrants,
         max_candidate_structures=max_candidate_structures,
+        supported_boundaries=supported_cuts,
     )
     after_order = _order_snapshot(analysis, upgraded_pack, cohort)
     after_boundary = _boundary_snapshot(analysis, upgraded_pack)
@@ -220,6 +226,8 @@ def _cohort_report(
                 "they are not required cuts or certificates of within-flight fit."
             ),
             **before_boundary,
+            "selected_order_source": selected.source,
+            "selected_order_supported": list(supported_cuts),
         },
         "automatic_flight_suggestion": _suggestion_payload(suggestion),
     }

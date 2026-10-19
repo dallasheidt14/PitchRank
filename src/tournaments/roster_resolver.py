@@ -17,8 +17,8 @@ is measurably weaker — of the 37 rows it matched on that same roster, only 26
 were unique within the right cohort, so it is the fallback rather than the
 first question asked.
 
-Rows with several candidates are never auto-picked; they carry their candidates
-into the review sheet so an operator chooses.
+Only a unique exact team-and-club identity can disambiguate multiple provider hits.
+Remaining candidates go to review; adjacent-age identities require confirmation.
 """
 
 from __future__ import annotations
@@ -271,6 +271,35 @@ def resolve_row(
         if hits:
             break
 
+    # Provider search includes unrelated clubs. Disambiguate by exact identity,
+    # never by provider rank, result position, or a fuzzy score.
+    def same_identity(hit):
+        return (_names_the_same_team(hit.get("team_name", ""), row)
+                and bool(row.club_raw.strip()) and bool(hit.get("club_name"))
+                and are_same_club(row.club_raw, hit["club_name"], threshold=1.0))
+
+    identified = [hit for hit in hits if same_identity(hit)]
+    if len(identified) == 1:
+        hits = identified
+    elif not identified and row.club_raw.strip() and re.search(r"\d{2}/\d{2}", row.team_name_stripped):
+        # A younger team can enter an older tournament cohort. Surface the exact
+        # club/name candidate for confirmation; do not silently change its age.
+        younger = f"u{int(row.section_age_group[1:]) - 1}"
+        adjacent = []
+        for name in _search_names(row):
+            adjacent.extend(hit for hit in gotsport_search(name, younger, row.section_gender)
+                            if same_identity(hit))
+        adjacent = list({str(hit.get("team_id")): hit for hit in adjacent}.values())
+        if adjacent:
+            candidates = []
+            for hit in adjacent:
+                master = lookup_provider_id(str(hit.get("team_id")))
+                details = lookup_team_details(master) if master and lookup_team_details else None
+                candidates.append(_review_candidate(team_id_master=master, provider_hit=hit, details=details))
+            return ResolvedTeam(source_index=row.source_index, status="review", candidates=tuple(candidates),
+                                review_reason=f"Exact club/name found in {younger.upper()}; confirm this is the "
+                                f"team playing in {row.section_age_group.upper()}.")
+
     if len(hits) > 1:
         return ResolvedTeam(
             source_index=row.source_index,
@@ -286,7 +315,7 @@ def resolve_row(
                 candidates=tuple(hits),
             )
         conflict = _identity_conflict_reason(row, hits[0])
-        if conflict:
+        if conflict and "Club conflict:" in conflict:
             return ResolvedTeam(
                 source_index=row.source_index,
                 status="review",
@@ -299,6 +328,10 @@ def resolve_row(
         if team_id_master:
             details = lookup_team_details(team_id_master) if lookup_team_details else None
             conflict = _identity_conflict_reason(row, hits[0], details)
+            if details and details.get("age_group") and str(details["age_group"]).lower() != row.section_age_group:
+                age_note = (f"Age conflict: roster {row.section_age_group.upper()}, saved identity "
+                            f"{str(details['age_group']).upper()}. Confirm identity and playing-up status.")
+                conflict = " ".join(value for value in (conflict, age_note) if value)
             if conflict:
                 return ResolvedTeam(
                     source_index=row.source_index,
