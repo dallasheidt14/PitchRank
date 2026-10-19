@@ -179,8 +179,17 @@ def _names_the_same_team(candidate_name: str, row: RosterRow) -> bool:
     }
 
 
+def _candidate_names_the_same_team(candidate: dict[str, Any], row: RosterRow) -> bool:
+    """Accept a literal squad name or its explicit club-plus-squad display label."""
+    name = str(candidate.get("team_name") or "").strip()
+    club = str(candidate.get("club_name") or "").strip()
+    return _names_the_same_team(name, row) or (
+        bool(club and name) and _names_the_same_team(f"{club} {name}", row)
+    )
+
+
 def _same_club_identity(candidate: dict[str, Any], row: RosterRow) -> bool:
-    return (_names_the_same_team(candidate.get("team_name", ""), row)
+    return (_candidate_names_the_same_team(candidate, row)
             and bool(row.club_raw.strip()) and bool(candidate.get("club_name"))
             and are_same_club(row.club_raw, candidate["club_name"], threshold=1.0))
 
@@ -353,7 +362,7 @@ def _resolve_provider_hits(
         )
 
     if len(hits) == 1:
-        if not _names_the_same_team(hits[0].get("team_name", ""), row):
+        if not _candidate_names_the_same_team(hits[0], row):
             return ResolvedTeam(
                 source_index=row.source_index,
                 status="review",
@@ -439,7 +448,7 @@ def resolve_row(
 
     missing_details: set[str] = set()
     exact_ids = {team_id for team_id, candidate in local.items()
-                 if _names_the_same_team(candidate.get("team_name", ""), row)}
+                 if _candidate_names_the_same_team(candidate, row)}
     if not exact_ids:
         # Other squads at this club do not prove the requested team is absent.
         # Keep the literal-name fallback, including equivalent club spellings.
@@ -450,7 +459,7 @@ def resolve_row(
                 missing_details.add(team_id)
             local[team_id] = _review_candidate(team_id_master=team_id, details=details)
     exact = [candidate for candidate in local.values()
-             if (candidate["team_id_master"] in exact_ids or _names_the_same_team(candidate.get("team_name", ""), row))
+             if (candidate["team_id_master"] in exact_ids or _candidate_names_the_same_team(candidate, row))
              and candidate["team_id_master"] not in missing_details
              and not _identity_conflict_reason(row, candidate)]
     strong = [candidate for candidate in exact
@@ -770,7 +779,7 @@ def make_club_candidate_lookup(supabase_client: Any, merge_resolver: Any = None)
             for candidate in page:
                 club = str(candidate.get("club_name") or "").strip()
                 literal_club = club.casefold() == row.club_raw.strip().casefold()
-                equivalent_identity = (bool(club) and _names_the_same_team(candidate.get("team_name", ""), row)
+                equivalent_identity = (bool(club) and _candidate_names_the_same_team(candidate, row)
                                        and are_same_club(row.club_raw, club, threshold=1.0))
                 if not literal_club and not equivalent_identity:
                     continue

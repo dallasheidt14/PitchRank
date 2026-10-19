@@ -1233,3 +1233,34 @@ def test_verified_provider_match_requires_successful_local_duplicate_check():
         resolve_row(row, gotsport_search=lambda *_: [hit], lookup_provider_id=lambda _: "linked",
                     lookup_team_details=lambda _: linked, lookup_exact_name=_never_called,
                     lookup_club_candidates=unavailable)
+
+
+@pytest.mark.parametrize("linked_name,duplicate_name", [
+    ("2016/17B Navy", "2016/17B Navy"),
+    ("Arizona Soccer Club 2016/17B Navy", "2016/17B Navy"),
+    ("2016/17B Navy", "Arizona Soccer Club 2016/17B Navy"),
+])
+def test_provider_match_checks_combined_local_duplicate_labels(linked_name, duplicate_name):
+    row = _row("Male U11\nArizona Soccer Club\tArizona Soccer Club 2016/17B Navy\tAZ")
+    linked = _club_team("linked", "Arizona Soccer Club", linked_name,
+                        age_group="u11", gender="Male", state_code="AZ")
+    duplicate = {**linked, "team_id_master": "duplicate", "team_name": duplicate_name,
+                 "provider_id": OTHER, "provider_team_id": "96204"}
+    hit = {"team_id": 753576, "team_name": "Arizona Soccer Club 2016/17B Navy",
+           "club_name": "Arizona Soccer Club"}
+    result = _resolve_with_database(row, [linked, duplicate], lambda *_: [hit])
+    assert result.status == "review"
+    assert result.team_id_master is None
+    assert {c["team_id_master"] for c in result.candidates} == {"linked", "duplicate"}
+
+
+@pytest.mark.parametrize("provider_hit", [True, False])
+def test_combined_label_still_accepts_one_exact_local_identity(provider_hit):
+    row = _row("Male U11\nArizona Soccer Club\tArizona Soccer Club 2016/17B Navy\tAZ")
+    linked = _club_team("linked", "Arizona Soccer Club", "2016/17B Navy",
+                        age_group="u11", gender="Male", state_code="AZ")
+    other = {**linked, "team_id_master": "other", "team_name": "2016/17B Gold", "provider_id": OTHER}
+    hit = {"team_id": 753576, "team_name": "Arizona Soccer Club 2016/17B Navy",
+           "club_name": "Arizona Soccer Club"}
+    result = _resolve_with_database(row, [linked, other], lambda *_: [hit] if provider_hit else [])
+    assert (result.status, result.team_id_master) == ("gotsport_id" if provider_hit else "exact_name", "linked")
