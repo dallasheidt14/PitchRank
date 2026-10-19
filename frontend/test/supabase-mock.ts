@@ -74,6 +74,14 @@ export function serviceClientMock() {
 export type MockRow = Record<string, unknown>;
 
 const OR_TERM = /^([A-Za-z_][A-Za-z0-9_]*)\.eq\.([0-9a-fA-F-]+)$/;
+const PLAIN_COLUMN = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/** The columns a select names, or null when it asks for `*`, an embed or an alias. */
+function plainColumns(selected: string | undefined): string[] | null {
+  if (!selected) return null;
+  const names = selected.split(',').map((name) => name.trim());
+  return names.every((name) => PLAIN_COLUMN.test(name)) ? names : null;
+}
 
 /**
  * A Supabase client mock whose builder APPLIES the filters it is given.
@@ -81,14 +89,14 @@ const OR_TERM = /^([A-Za-z_][A-Za-z0-9_]*)\.eq\.([0-9a-fA-F-]+)$/;
  * `queryBuilder` above replays a canned result, which suits a route that only
  * needs rows back. It is the wrong tool for a test guarding a filter: the guard
  * passes just as well once the filter is deleted. This builder models PostgREST
- * closely enough to refuse what PostgREST refuses — `.eq` and `.gte` drop NULL, `.not(col,
- * 'is', null)` drops missing values, `.or` honours the column each term names
+ * closely enough to refuse what PostgREST refuses — `.eq` and `.gte` drop NULL, `.is(col,
+ * null)` keeps NULL and missing values, `.not(col, 'is', null)` drops them, `.or` honours the column each term names
  * rather than accepting a match on either side, `.single()` errors with PGRST116
  * unless exactly one row survives, and `.maybeSingle()` errors once more than one
  * does. That last one matters as much as the rest: a filter guard whose query ends
  * in `.maybeSingle()` would otherwise still pass with the filter deleted, because
- * the extra rows it lets through arrive as a silent `rows[0]`. A `.not()` operator
- * or `.or()` term this builder cannot model throws rather than passing silently.
+ * the extra rows it lets through arrive as a silent `rows[0]`. A `.not()` operator,
+ * `.or()` term or non-null `.is()` value this builder cannot model throws rather than passing silently.
  *
  * Rows are recorded per query, not per table, so a second query against the same
  * table is a visible change rather than one that silently retargets an assertion.
@@ -96,6 +104,14 @@ const OR_TERM = /^([A-Za-z_][A-Za-z0-9_]*)\.eq\.([0-9a-fA-F-]+)$/;
  * `select(_, { count })` resolves a `count` of the surviving rows and `head: true` drops
  * `data`, as supabase-js does. PostgREST's exact count ignores `limit`/`range`, but this
  * one counts after them, so don't combine the two in a test.
+ *
+ * `.select('a, b')` answers only the columns a plain list names, a column a row lacks as
+ * null, as PostgREST does; `*`, an embed or an alias passes whole rows.
+ *
+ * `.update(values)` changes the stored rows its filters leave, at the terminal call where
+ * the real builder sends the request, so an update whose chain is never awaited changes
+ * nothing. It answers the changed rows only when `.select()` follows, as supabase-js
+ * does.
  */
 export function filteringClientMock(initialRows: Record<string, MockRow[]> = {}) {
   const tableRows: Record<string, MockRow[]> = { ...initialRows };
@@ -105,16 +121,34 @@ export function filteringClientMock(initialRows: Record<string, MockRow[]> = {})
     let rows: MockRow[] = [...(tableRows[table] ?? [])];
     let countRequested = false;
     let headOnly = false;
+    let columns: string[] | null = null;
+    let patch: MockRow | null = null;
+    let returning = false;
 
     const record = () => {
+      if (patch) for (const row of rows) Object.assign(row, patch);
       queries.push({ table, rows });
-      return rows;
+      if (patch && !returning) return null;
+      return columns ? rows.map((row) => Object.fromEntries(columns!.map((c) => [c, c in row ? row[c] : null]))) : rows;
     };
 
     const builder = {
-      select: (_columns?: string, options?: { count?: string; head?: boolean }) => {
+      select: (selected?: string, options?: { count?: string; head?: boolean }) => {
         countRequested = options?.count !== undefined;
         headOnly = options?.head === true;
+        columns = plainColumns(selected);
+        returning = patch !== null;
+        return builder;
+      },
+      update: (values: MockRow) => {
+        patch = values;
+        return builder;
+      },
+      is: (field: string, value: null) => {
+        if (value !== null) {
+          throw new Error(`filteringClientMock does not model .is(${field}, ${String(value)})`);
+        }
+        rows = rows.filter((row) => row[field] === null || row[field] === undefined);
         return builder;
       },
       eq: (field: string, value: unknown) => {
@@ -163,7 +197,7 @@ export function filteringClientMock(initialRows: Record<string, MockRow[]> = {})
         return builder;
       },
       single: async () => {
-        const found = record();
+        const found = record() ?? [];
         if (found.length !== 1) {
           return {
             data: null,
@@ -174,7 +208,7 @@ export function filteringClientMock(initialRows: Record<string, MockRow[]> = {})
         return { data: found[0], error: null, status: 200 };
       },
       maybeSingle: async () => {
-        const found = record();
+        const found = record() ?? [];
         if (found.length > 1) {
           return {
             data: null,
@@ -188,7 +222,7 @@ export function filteringClientMock(initialRows: Record<string, MockRow[]> = {})
         Promise.resolve(
           (() => {
             const found = record();
-            return { data: headOnly ? null : found, error: null, count: countRequested ? found.length : null };
+            return { data: headOnly ? null : found, error: null, count: countRequested ? (found?.length ?? 0) : null };
           })()
         ).then(onFulfilled, onRejected),
     };
@@ -200,7 +234,10 @@ export function filteringClientMock(initialRows: Record<string, MockRow[]> = {})
     client: { from: (table: string) => createBuilder(table) } as unknown as SupabaseClient,
     tableRows,
     queries,
-    /** Every query run against `table`, in order, as the rows each one resolved to. */
+    /**
+     * Every query run against `table`, in order, as the stored rows its filters matched: whole rows rather than
+     * the selected columns, and shared with the table, so a later update shows in them.
+     */
     queriesFor(table: string) {
       return queries.filter((query) => query.table === table).map((query) => query.rows);
     },

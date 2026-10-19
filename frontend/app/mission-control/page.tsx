@@ -47,7 +47,10 @@ export default function MissionControlPage() {
               Live snapshot of model accuracy, prospective evaluation coverage, and point-in-time training readiness.
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button asChild variant="outline" size="sm">
+              <Link href="/mission-control/cleanup">Team cleanup →</Link>
+            </Button>
             <Button asChild variant="outline" size="sm">
               <Link href="/mission-control/subscriptions">Subscriptions →</Link>
             </Button>

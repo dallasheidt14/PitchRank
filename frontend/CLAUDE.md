@@ -133,6 +133,10 @@ frontend/
 ### Admin (requireAdmin)
 
 - `GET|POST /api/mission-control/*`
+  - `/api/mission-control/cleanup` backs the weekly team cleanup's review page, and its saves are what
+    `scripts/team_cleanup/collect.py --from-db` collects. That reads them only once the run's `owner_done_at` is
+    set, and refuses a choice from the automatic lane or an older build, which is why `decisions` writes only
+    owner-lane cards of each stage's newest build and refuses every save after `done`
 - `GET /api/team-aliases/[teamId]`
 - `GET|POST|DELETE /api/team-merge/*`
 
