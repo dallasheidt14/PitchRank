@@ -377,13 +377,16 @@ def _prefer_practical_division_sizes(
     plans: Sequence[FlightPlanAssessment], policy: MatchBalanceRecommendationPolicy,
     options_by_size: Mapping[int, SizeTemplateOptions] | None = None,
     supported_boundaries: Sequence[int] = (),
+    group_costs=None,
+    *, alternatives=False,
 ) -> tuple[FlightPlanAssessment, ...]:
     """Apply operational preferences only after complete matchup safety is established."""
     candidates = tuple(plans)
     if policy.evidence_first and candidates:
         burdens = {size: option.format_burden for size, option in (options_by_size or {}).items()}
         def preference(plan):
-            return partition_preference(plan.flight_sizes, policy, supported_boundaries, burdens)
+            value = partition_preference(plan.flight_sizes, policy, supported_boundaries, burdens, group_costs)
+            return value[:-1] if alternatives and policy.group_split_penalty is not None else value
         best = min(map(preference, candidates))
         return tuple(plan for plan in candidates if preference(plan) == best)
     minimum = policy.preferred_minimum_division_size
@@ -396,6 +399,9 @@ def small_division_fallback_note(plan: FlightPlanAssessment, policy: MatchBalanc
     minimum = policy.preferred_minimum_division_size
     if minimum is None or min(plan.flight_sizes) >= minimum:
         return None
+    if policy.group_split_penalty is not None:
+        return (f"Small tier: no equally practical, fully assessed split with fewer tiers below {minimum} teams "
+                "passes the competitive limits. Review the teams near this break.")
     if policy.evidence_first:
         return ("Small tier: no equally practical, fully assessed split keeps every tier at least "
                 f"{minimum} teams, preserves the supported strength breaks, and passes the competitive limits.")
@@ -411,8 +417,9 @@ def _select_by_default_policy(
     policy: MatchBalanceRecommendationPolicy,
     options_by_size: Mapping[int, SizeTemplateOptions],
     supported_boundaries: Sequence[int] = (),
+    group_costs=None,
 ) -> FlightPlanAssessment | None:
-    candidates = _prefer_practical_division_sizes(plans, policy, options_by_size, supported_boundaries)
+    candidates = _prefer_practical_division_sizes(plans, policy, options_by_size, supported_boundaries, group_costs)
     if not candidates:
         return None
     minimum_flights = min(len(item.flights) for item in candidates)
@@ -533,11 +540,14 @@ def _useful_alternatives(
     policy: MatchBalanceRecommendationPolicy,
     options_by_size: Mapping[int, SizeTemplateOptions] | None = None,
     supported_boundaries: Sequence[int] = (),
+    group_costs=None,
 ) -> tuple[RecommendationAlternative, ...]:
     result = []
     primary_worst = _metric(primary, "worst_matchup_cost")
     primary_average = _metric(primary, "pair_weighted_average_matchup_cost")
-    for plan in _prefer_practical_division_sizes(eligible, policy, options_by_size, supported_boundaries):
+    for plan in _prefer_practical_division_sizes(
+        eligible, policy, options_by_size, supported_boundaries, group_costs, alternatives=True,
+    ):
         if plan.plan_id == primary.plan_id:
             continue
         plan_worst = _metric(plan, "worst_matchup_cost")
@@ -561,6 +571,13 @@ def _useful_alternatives(
                     "Adds competitive flights and has a lower raw pair-weighted "
                     "average matchup cost."
                 )
+        elif (policy.group_split_penalty is not None and additional_flights == 0
+              and (worst_is_lower or average_is_lower)):
+            kind = "same_flight_count_modeled_risk_alternative"
+            if worst_is_lower:
+                reasons.append("Uses the same number of flights with a lower raw worst matchup cost.")
+            if average_is_lower:
+                reasons.append("Uses the same number of flights with a lower raw pair-weighted average cost.")
         elif (
             additional_flights == 0
             and average_is_lower
@@ -616,6 +633,9 @@ def suggest_automatic_flights(
     recommendation_policy = library.policies_by_id[
         profile.recommendation_policy_id
     ]
+    from src.tournaments.seeding_group_evidence import grouping_costs
+    band_costs = grouping_costs(order, predictions, competitive_policy, team_metadata,
+                               recommendation_policy.group_split_penalty)
     operational_note = (
         "Team-count compatibility and projected matchup fit do not establish field, "
         "time, referee, or schedule feasibility."
@@ -711,7 +731,7 @@ def suggest_automatic_flights(
         )
     )
     best_evaluated = _select_by_default_policy(
-        eligible, recommendation_policy, options_by_size, supported_boundaries
+        eligible, recommendation_policy, options_by_size, supported_boundaries, band_costs
     )
     if generation.search_method == "exact_dynamic_programming":
         best_evaluated = next((item for item in eligible if item.flight_sizes == generation.optimal_structure), None)
@@ -782,7 +802,9 @@ def suggest_automatic_flights(
             best_evaluated_plan_id=best_evaluated.plan_id,
             primary_evidence_status=evidence_status,
             selection_reason=(
-                ("Preserve supported strength breaks and prefer equal-game practical formats. "
+                ("Compare variation within whole strength groups, balancing extra splits against tighter groups. "
+                 if recommendation_policy.group_split_penalty is not None else
+                 "Preserve supported strength breaks and prefer equal-game practical formats. "
                  if recommendation_policy.evidence_first else "")
                 + "Selected under the MatchBalance default recommendation policy: "
                 "complete predictions, no projected matchup violations. "
@@ -793,7 +815,7 @@ def suggest_automatic_flights(
             ),
             format_options=format_options,
             useful_alternatives=_useful_alternatives(
-                best_evaluated, eligible, recommendation_policy, options_by_size, supported_boundaries
+                best_evaluated, eligible, recommendation_policy, options_by_size, supported_boundaries, band_costs
             ),
             compromise_plan_ids=(),
             incomplete_prediction_plan_ids=incomplete,

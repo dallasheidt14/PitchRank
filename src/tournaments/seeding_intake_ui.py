@@ -608,8 +608,19 @@ def _render_analysis_details(
                 }
                 for item in detail.movements
             ]), hide_index=True)
-        if detail.boundary_assessments:
+        boundary_assessments = detail.boundary_assessments
+        if detail.tier_guidance.get('boundary_method') == 'whole_group_v1':
+            from src.tournaments.seeding_tiers import BoundaryAssessment
+            boundary_assessments = tuple(
+                BoundaryAssessment(**{k: v for k, v in item.items() if k in BoundaryAssessment.__dataclass_fields__})
+                for item in detail.tier_guidance['group_boundaries']
+            )
+        if boundary_assessments:
+            group_evidence = {b['after_seed']: b for b in detail.tier_guidance.get('group_boundaries', [])}
             st.caption(
+                "Whole-group comparisons: the selected cuts compare both neighboring tiers; other cuts "
+                "compare splitting one proposed tier. Close boundary teams do not veto a strength band."
+                if detail.tier_guidance.get('boundary_method') == 'whole_group_v1' else
                 "Complete boundary analysis. No boundary is omitted because of its PowerScore gap, "
                 "position, proximity to another finding, or the customer-sheet display limit."
             )
@@ -621,6 +632,8 @@ def _render_analysis_details(
                 "Matchups": item.pairing_count,
                 "Upper favored": item.favored_fraction,
                 "Average signed margin": item.average_expected_margin,
+                "Within-group average strength difference": group_evidence.get(item.after_seed, {}).get(
+                    'within_group_average_margin'),
                 "Average absolute goal difference": item.average_expected_absolute_goal_difference,
                 "Worst absolute goal difference": item.maximum_expected_absolute_goal_difference,
                 "Average 4+ goal risk": item.average_blowout_probability,
@@ -640,8 +653,8 @@ def _render_analysis_details(
                 ),
                 "Classification": item.classification,
                 "Reason": item.reason,
-            } for item in detail.boundary_assessments]), hide_index=True)
-        if detail.boundary_windows:
+            } for item in boundary_assessments]), hide_index=True)
+        if detail.boundary_windows and detail.tier_guidance.get('boundary_method') != 'whole_group_v1':
             with st.expander("Local-window evidence for every boundary"):
                 st.dataframe(pd.DataFrame([{
                     "After seed": item.after_seed,

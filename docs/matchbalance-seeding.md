@@ -163,17 +163,22 @@ costs and deterministic ties. A state safeguard leaves the analysis explicitly
 incomplete if optimality has not been established; a shortened alternatives list
 does not mean the primary optimization is incomplete.
 
-The default policy requires complete predictions and no projected matchup violations.
-Among passing splits, preserve supported strength breaks, prefer equal preliminary
-game counts, guarantees closest to three or four games, and regular pool play.
-Then prefer fewer tiers below four teams, fewer tiers overall, lower worst matchup
-cost, and lower pair-weighted average cost, with deterministic ties. These are
+The expanded-v6 policy requires complete predictions and no projected matchup violations.
+Among passing splits, prefer equal preliminary game counts, guarantees closest to
+three or four games, regular pool play, and fewer tiers below four teams. Then
+minimize variation within whole strength groups, with a fixed penalty per tier
+to avoid unnecessary splits. Remaining ties prefer fewer tiers, lower worst matchup
+cost, and lower pair-weighted average cost. These are
 preferences: explicit event requirements can select other guarantees and formats.
 A passing split is never replaced by an unsafe split to avoid a small tier.
+Group separation compares all cross-group matchups against within-group variation;
+the immediate neighbors can be closely matched. See the
+[whole-group policy and evidence requirements](matchbalance-evidence-order.md#preview-methods).
+Saved earlier profiles keep their original rules until a rebuild or format update.
 
 This preference applies to strength divisions, not their pools. Six similarly
-strong teams can form one tier with two pools of three. A severe strength gap can
-justify a standalone three-team tier when extending it would violate the matchup
+strong teams can form one tier with two pools of three. A three-team tier can
+remain necessary when a larger practical arrangement would violate the matchup
 limits. Every potential matchup across the whole tier is still evaluated; pool
 assignments cannot hide a mismatch. The sheet reports limited-history passes as
 provisional, retains useful alternatives, and returns review-required status
@@ -223,12 +228,14 @@ its coverage, such as **12 of 14 teams assessed**.
 - `seeding_tiers.py` freezes the PowerScore baseline, evaluates local consensus,
   invokes the optimizer, and recomputes display annotations.
 - `seeding_pack.py` snapshots the baseline, suggestion, movement reasoning,
-  conflicts, and explicit manual override (pack schema 9, analysis schema 12).
+  conflicts, and explicit manual override (pack schema 9, analysis schema 13).
 - `seeding_freshness.py` binds freshness evidence and acknowledgments to the
-  saved snapshot. Shared export content uses schema version 13.
+  saved snapshot. Shared export content uses schema version 14.
 - `seeding_format_library.py` validates exact format variants and resolves the
   event-wide profile; `seeding_flight_suggestions.py` generates and selects
-  fixed-order candidate structures without altering the seed or boundary logic.
+  fixed-order candidate structures without altering the seed order.
+- `seeding_group_evidence.py` measures within-group variation and cross-group
+  separation independently of the individual-matchup safety limits.
 - `seeding_sheet.py` and `seeding_workbook.py` render the customer cheat sheet;
   `seeding_intake_ui.py` retains the detailed operator evidence and manual editor.
 - Relevant regression suites include `test_seeding_suggested_order.py`,

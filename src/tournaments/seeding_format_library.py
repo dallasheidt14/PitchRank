@@ -65,6 +65,7 @@ class MatchBalanceRecommendationPolicy:
     preferred_minimum_division_size: int | None = None
     practical_risk_tolerance: float = 0.0
     evidence_first: bool = False
+    group_split_penalty: float | None = None
 
 
 @dataclass(frozen=True)
@@ -426,6 +427,10 @@ def validate_format_library(library: FormatLibrary) -> FormatLibraryValidation:
             )
 
     for policy in library.recommendation_policies:
+        penalty = policy.group_split_penalty
+        if penalty is not None and (isinstance(penalty, bool) or not isinstance(penalty, (int, float))
+                                    or not math.isfinite(penalty) or penalty <= 0 or not policy.evidence_first):
+            library_errors.append("Group split penalty must be positive and finite under evidence-first selection.")
         if not isinstance(policy.evidence_first, bool):
             library_errors.append("Evidence-first selection must be a boolean.")
         tolerance = policy.practical_risk_tolerance

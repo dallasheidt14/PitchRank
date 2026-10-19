@@ -13,7 +13,7 @@ from src.utils.us_states import STATE_CODE_TO_NAME, state_name_to_code
 if TYPE_CHECKING:
     from src.tournaments.seeding_sheet import CohortSheet, SheetTeam
 
-CONTENT_VERSION = 13
+CONTENT_VERSION = 14
 DIRECTOR_LEGEND = (
     "Read from seed 1 down. Tier lines suggest strength divisions; a division can contain several pools. "
     "Natural separation marks a strength gap; practical splits also consider usable division sizes. "
@@ -163,6 +163,8 @@ def build_director_cohort(sheet: CohortSheet, operator_note: str = "") -> Direct
     guidance = getattr(analysis, "tier_guidance", {}) if analysis else {}
     divisions = guidance.get("divisions", [])
     practical = set(guidance.get("cuts", []))
+    if guidance.get("boundary_method") == "whole_group_v1":
+        breaks = {item['end_seed'] for item in divisions if item['natural_break_after']}
     ordering = getattr(analysis, "ordering_evidence", {}) if analysis else {}
     for seed, team in enumerate(seeded, 1):
         original = baseline_seeds.get(team.entrant_id)
@@ -182,7 +184,7 @@ def build_director_cohort(sheet: CohortSheet, operator_note: str = "") -> Direct
         tier = next((item["label"] for item in divisions
                      if item["start_seed"] <= seed <= item["end_seed"]), "")
         break_label = (
-            "Recommended tier break + natural strength separation" if seed in practical and seed in breaks else
+            "Recommended tier break + strength-band separation" if seed in practical and seed in breaks else
             "Recommended tier break" if seed in practical else
             "Competitive Break: natural strength separation" if seed in breaks else ""
         )
@@ -347,7 +349,9 @@ def _concise_director_notes(sheet, rows, operator_note):
     elif guidance.get("boundary_reasons") and all(
             item["kind"] == "practical" for item in guidance["boundary_reasons"]):
         notes.append("These splits keep projected matchups within the limits; "
-                     "the results do not establish sharp strength gaps.")
+                     "teams near the lines may be similar in strength.")
+    elif guidance.get("boundary_method") == "whole_group_v1" and guidance.get("cuts"):
+        notes.append("Tiers compare results across whole groups. Teams near a break may still be closely matched.")
     # Keep unfamiliar warnings visible rather than silently losing a new blocker.
     summarized = ("Review-required compromise:", "A passing alternative", "Practical division sizes avoid",
                   "Limited or unknown playing history", "Worst remaining mismatch:")

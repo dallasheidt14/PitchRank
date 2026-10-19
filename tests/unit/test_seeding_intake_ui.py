@@ -306,7 +306,7 @@ def test_legacy_analysis_reuses_predictions_and_preserves_notes(operator):
     app.run()
     assert not app.exception and not app.error
     upgraded = app.session_state["_seeding_pack"]
-    assert upgraded["analysis_schema_version"] == 12
+    assert upgraded["analysis_schema_version"] == 13
     assert upgraded["predictions"] == pack["predictions"]
     assert upgraded["generated_at"] == pack["generated_at"]
     assert upgraded["operator_notes"] == pack["operator_notes"]
@@ -422,7 +422,7 @@ def test_rebuild_materializes_new_policy_defaults_from_a_version_three_pack(oper
     click(app, "Build seeding sheets")
 
     rebuilt = app.session_state["_seeding_pack"]
-    assert rebuilt["analysis_schema_version"] == 12
+    assert rebuilt["analysis_schema_version"] == 13
     assert rebuilt["policy"]["blowout_cost_weight"] == 2.0
     assert rebuilt["policy"]["very_close_expected_goal_difference"] == 1.0
     assert rebuilt["policy"]["material_reversal_expected_goal_difference"] == 1.0
@@ -687,7 +687,7 @@ def test_unsupported_saved_note_remains_editable_after_export_failure(operator, 
     click(app, "Save director notes")
     assert not app.error
     assert app.session_state["_seeding_pack"]["operator_notes"]["u14|Male"] == "Corrected note"
-    assert app.session_state["_seeding_pack"]["analysis_schema_version"] == 12
+    assert app.session_state["_seeding_pack"]["analysis_schema_version"] == 13
     assert "Corrected note" in app.session_state["_seeding_sheet_html"]
     assert "_seeding_xlsx" in app.session_state and len(calls) == 1
 
@@ -973,7 +973,7 @@ def test_saved_catalog_update_keeps_the_frozen_evidence_and_operator_choices(ope
     assert app.session_state["_seeding_pack"]["format_library"]["library_version"] == old_version
     click(app, "Use current formats and tier guidance")
     updated = app.session_state["_seeding_pack"]
-    assert updated["format_library"]["library_version"] == "2.3.0"
+    assert updated["format_library"]["library_version"] == "2.4.0"
     app.run()
     assert not app.exception
     assert not any(b.label == "Use current formats and tier guidance" for b in app.button)

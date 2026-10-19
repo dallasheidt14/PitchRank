@@ -94,20 +94,25 @@ def straightforward_format_key(template: FormatTemplate) -> tuple:
             template.maximum_pair_meetings or float("inf"), spread, *practical_format_key(template)[3:])
 
 
-def interval_preference(start, end, policy, supported_boundaries=(), format_burdens=None) -> tuple[int, ...]:
+def interval_preference(start, end, policy, supported_boundaries=(), format_burdens=None, group_costs=None) -> tuple:
     """Additive terms shared by exhaustive and exact consecutive-tier searches."""
     size = end - start
     unequal, distance, irregular = (format_burdens or {}).get(size, (0, 0, 0))
     minimum = policy.preferred_minimum_division_size
+    if policy.group_split_penalty is not None:
+        if group_costs is None:
+            raise ValueError("Whole-group selection requires interval evidence.")
+        return (unequal, distance, irregular, int(minimum is not None and size < minimum),
+                group_costs[start, end])
     return (sum(start < cut < end for cut in supported_boundaries), unequal, distance, irregular,
             int(minimum is not None and size < minimum))
 
 
-def partition_preference(sizes, policy, supported_boundaries=(), format_burdens=None) -> tuple[int, ...]:
+def partition_preference(sizes, policy, supported_boundaries=(), format_burdens=None, group_costs=None) -> tuple:
     total = (0, 0, 0, 0, 0)
     start = 0
     for size in sizes:
-        terms = interval_preference(start, start + size, policy, supported_boundaries, format_burdens)
+        terms = interval_preference(start, start + size, policy, supported_boundaries, format_burdens, group_costs)
         total = tuple(left + right for left, right in zip(total, terms, strict=True))
         start += size
     return total

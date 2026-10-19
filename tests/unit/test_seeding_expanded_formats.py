@@ -59,7 +59,7 @@ def test_catalog_reproduces_checked_in_definitions_and_covers_source(library):
     expected = build_catalog()
     assert expected == json.loads(library.source_path.read_text(encoding="utf-8"))
     assert library.schema_version == 2
-    assert resolve_format_profile(library).profile_id == "matchbalance-expanded-v5"
+    assert resolve_format_profile(library).profile_id == "matchbalance-expanded-v6"
     entries, count = set(), None
     for line in SOURCE.read_text(encoding="utf-8").splitlines():
         heading = re.match(r"### (\d+\+?) teams", line)

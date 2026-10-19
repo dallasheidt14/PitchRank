@@ -358,6 +358,9 @@ class CheatSheetAnalysis:
     def marker_for_seed(self, seed: int) -> str:
         for item in self.breaks:
             if item.after_seed == seed:
+                if self.tier_guidance.get('boundary_method') == 'whole_group_v1':
+                    return ("Competitive Break: results support different strength bands; "
+                            "teams near the line may still be closely matched.")
                 return (
                     "Competitive Break: projected matchup quality worsens between "
                     f"seeds {seed} and {seed + 1}; PowerScore difference "

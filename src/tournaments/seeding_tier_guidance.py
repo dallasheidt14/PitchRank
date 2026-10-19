@@ -161,6 +161,14 @@ def _calculate_guidance(order, natural, review, entrants, predictions, policy, l
                                        for template_id in options.compatible_template_ids],
             })
             start = end + 1
+    group_evidence = []
+    if recommendation.group_split_penalty is not None:
+        from src.tournaments.seeding_group_evidence import group_boundaries
+        group_evidence = group_boundaries(order, divisions, predictions, policy, metadata)
+        natural = {item['after_seed'] for item in group_evidence
+                   if item['selected'] and item['classification'] == 'Supported separation'}
+        for division in divisions:
+            division['natural_break_after'] = division['end_seed'] in natural
     warnings = []
     if unassigned:
         warnings.append(f"{len(positions)} of {len(accepted)} teams assessed in the tier order; "
@@ -216,15 +224,17 @@ def _calculate_guidance(order, natural, review, entrants, predictions, policy, l
                 f"four-goal margin probability {worst.blowout_probability:.0%}."
             )
     return {
-        "version": 4, "practical_tradeoff": practical_tradeoff,
+        "version": 5, "practical_tradeoff": practical_tradeoff,
+        "boundary_method": "whole_group_v1" if recommendation.group_split_penalty is not None else "local_windows_v1",
+        "group_boundaries": group_evidence,
         "selection_reason": result.selection_reason,
         "boundary_reasons": [
             {"after_seed": item["end_seed"],
              "kind": "natural" if item["natural_break_after"] else "practical",
-             "reason": ("Game evidence supports a clear strength gap."
+             "reason": ("Results support different strength bands; teams near the line may still be close."
                         if item["natural_break_after"] else
                         "A practical split to keep the full division competitive; "
-                        "no clear natural gap is established.")}
+                        "distinct strength bands are not established at this position.")}
             for item in divisions[:-1]
         ],
         "status": "review_required_compromise" if compromise else result.status,

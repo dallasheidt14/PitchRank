@@ -30,7 +30,7 @@ from src.tournaments.seeding_tiers import (
 )
 
 PACK_SCHEMA_VERSION = 9
-ANALYSIS_SCHEMA_VERSION = 12
+ANALYSIS_SCHEMA_VERSION = 13
 _UPGRADABLE_PACK_SCHEMAS = frozenset({3, 4, 5, 6, 7, 8, 9})
 _AGE_GROUP = re.compile(r"^u[1-9][0-9]?$")
 _LEGACY_UNAVAILABLE_REASONS = {
@@ -540,7 +540,8 @@ def analyze_pack(
                     if results.get("limited") and not detail["limited_history"]:
                         detail["cautions"].append("Limited recent opponent evidence; placement needs review.")
             analysis = replace(analysis, ordering_evidence=evidence)
-        analyses[tuple(key.split("|", 1))] = replace(analysis, tier_guidance=build_tier_guidance(
+        from src.tournaments.seeding_group_evidence import apply_group_guidance
+        analyses[tuple(key.split("|", 1))] = apply_group_guidance(analysis, build_tier_guidance(
             analysis, entrants, snapshot_predictions[key], policy, library,
             profile_id=pack.get("format_profile_id"), tier_names=pack.get("tier_names", {}).get(key, ()),
             format_preferences=effective_preferences(pack, key),
@@ -635,7 +636,7 @@ def upgrade_pack_analysis(
     """
     if (
         pack.get("schema_version") not in _UPGRADABLE_PACK_SCHEMAS
-        or pack.get("analysis_schema_version") not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11)
+        or pack.get("analysis_schema_version") not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
     ):
         raise ValueError("This saved pack requires a fresh build.")
     if not snapshot_matches_roster(pack, rows, resolved, overrides, selected):

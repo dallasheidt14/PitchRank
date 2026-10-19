@@ -50,12 +50,13 @@ def test_eighteen_team_example_has_distinct_strength_divisions_and_pools():
     assert [item["label"] for item in result["divisions"]] == ["Gold", "Silver", "Bronze"]
 
 
-def test_gradual_strength_decline_gets_practical_breaks_without_claiming_natural_gap():
+def test_gradual_strength_decline_can_form_bands_without_claiming_a_sharp_gap():
     entrants, pairs, analysis = cohort(12, lambda a, b: prediction((b-a)*.35, .6+(b-a)*.35, .05+(b-a)*.025))
     result = build_tier_guidance(analysis, entrants, pairs, TierPolicy(), load_format_library())
     assert result["cuts"]
     assert not analysis.breaks
-    assert not any(item["natural_break_after"] for item in result["divisions"])
+    assert all("sharp" not in item["reason"] for item in result["boundary_reasons"])
+    assert any(item["natural_break_after"] for item in result["divisions"])
 
 
 def test_compromise_is_review_required_and_reports_worst_remaining_pair():
@@ -285,7 +286,8 @@ def test_frozen_u13_replaces_four_eleven_four_without_changing_the_seed_order(ex
         library = replace(library, profiles=tuple(replace(p, max_candidate_structures=1) for p in library.profiles))
     old = build_tier_guidance(analysis, entrants, pairs, TierPolicy(), library,
                               profile_id="matchbalance-expanded-v4")
-    new = build_tier_guidance(analysis, entrants, pairs, TierPolicy(), library)
+    new = build_tier_guidance(analysis, entrants, pairs, TierPolicy(), library,
+                              profile_id="matchbalance-expanded-v5")
     assert [d["size"] for d in old["divisions"]] == [4, 11, 4]
     assert old["risky_pairings"]
     assert [d["size"] for d in new["divisions"]] == [4, 12, 3]

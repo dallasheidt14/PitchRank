@@ -271,7 +271,7 @@ def test_saved_analysis_upgrade_preserves_prediction_and_operator_choices_withou
     upgraded = upgrade_pack_analysis(old, ROWS, RESOLVED, {}, ["u12|Male"], predictor_sha256="a" * 64)
     assert old == before
     assert upgraded["schema_version"] == 9
-    assert upgraded["analysis_schema_version"] == 12
+    assert upgraded["analysis_schema_version"] == 13
     assert upgraded["policy"] == json.loads(json.dumps(asdict(TierPolicy(max_expected_margin=1.75))))
     assert upgraded["manual_seed_orders"] == old["manual_seed_orders"]
     assert upgraded["ordering"]
@@ -300,7 +300,7 @@ def test_schema_three_pack_upgrades_with_reproducible_separate_orders():
     )
 
     assert upgraded["schema_version"] == 9
-    assert upgraded["analysis_schema_version"] == 12
+    assert upgraded["analysis_schema_version"] == 13
     assert upgraded["manual_seed_orders"] == {}
     ordering = upgraded["ordering"]["u12|Male"]
     assert ordering["baseline_order"]
