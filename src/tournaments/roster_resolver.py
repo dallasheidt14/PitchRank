@@ -1,6 +1,10 @@
 """Resolve pasted roster rows to canonical team ids.
 
-Two passes, in this order:
+Search by club before broad team-name searches, then check local identities
+before returning an ambiguous result. Only exact identities can auto-match;
+different names and conflicting provider records remain operator decisions.
+
+Two sources of identity:
 
 1. **GotSport id.** The public rankings search at ``team_ranking_data`` returns
    a ``team_id`` that *is* our ``provider_team_id`` for the ``gotsport``
@@ -48,6 +52,7 @@ __all__ = [
     "ManualResolution",
     "fetch_gotsport_provider_id",
     "make_exact_name_lookup",
+    "make_club_candidate_lookup",
     "make_provider_id_lookup",
     "make_team_details_lookup",
     "parse_manual_reference",
@@ -71,6 +76,7 @@ GotsportSearch = Callable[[str, str, str], list[dict[str, Any]]]
 ProviderIdLookup = Callable[[str], str | None]
 ExactNameLookup = Callable[[str, str, str], list[str]]
 TeamDetailsLookup = Callable[[str], dict[str, Any] | None]
+ClubCandidateLookup = Callable[[RosterRow], list[dict[str, Any]]]
 
 
 @dataclass(frozen=True)
@@ -119,14 +125,33 @@ def search_gotsport_teams(
     points columns are deliberately left unused.
     """
     getter = session.get if session is not None else requests.get
-    response = getter(
-        GOTSPORT_RANKING_SEARCH_URL,
-        params=build_search_params(team_name, age_group, gender),
-        headers={"Accept": "application/json", "Origin": "https://rankings.gotsport.com"},
-        timeout=timeout,
-    )
-    response.raise_for_status()
-    return response.json().get("team_ranking_data") or []
+    hits: dict[str, dict[str, Any]] = {}
+    for page in range(1, 26):
+        params = build_search_params(team_name, age_group, gender)
+        params["search[page]"] = str(page)
+        response = getter(
+            GOTSPORT_RANKING_SEARCH_URL, params=params,
+            headers={"Accept": "application/json", "Origin": "https://rankings.gotsport.com"},
+            timeout=timeout,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        rows = payload.get("team_ranking_data") or []
+        pagination = payload.get("pagination") or {}
+        current = int(pagination.get("current_page", page))
+        total = int(pagination.get("total_pages", 1))
+        if current != page or total > 25 or (not rows and (total > page or page > 1)):
+            raise ValueError("GotSport team search is incomplete; narrow the search before matching.")
+        before = len(hits)
+        for hit in rows:
+            if not hit.get("team_id"):
+                raise ValueError("GotSport team search returned a candidate without an identity.")
+            hits[str(hit["team_id"])] = hit
+        if page > 1 and rows and len(hits) == before:
+            raise ValueError("GotSport team search repeated a page; matching is incomplete.")
+        if page >= total:
+            return list(hits.values())
+    raise ValueError("GotSport team search is incomplete.")
 
 
 def _search_names(row: RosterRow) -> list[str]:
@@ -152,6 +177,28 @@ def _names_the_same_team(candidate_name: str, row: RosterRow) -> bool:
         _comparable(row.team_name_raw),
         _comparable(row.team_name_stripped),
     }
+
+
+def _same_club_identity(candidate: dict[str, Any], row: RosterRow) -> bool:
+    return (_names_the_same_team(candidate.get("team_name", ""), row)
+            and bool(row.club_raw.strip()) and bool(candidate.get("club_name"))
+            and are_same_club(row.club_raw, candidate["club_name"], threshold=1.0))
+
+
+def _search_provider_candidates(row: RosterRow, search: GotsportSearch, age: str) -> list[dict[str, Any]]:
+    """Use the club as a retrieval query, never as proof of the squad's identity."""
+    hits: dict[str, dict[str, Any]] = {}
+    queries = dict.fromkeys([row.club_raw.strip(), *_search_names(row)])
+    for query in queries:
+        if not query:
+            continue
+        found = search(query, age, row.section_gender)
+        for hit in found:
+            hits[str(hit.get("team_id"))] = hit
+        identified = [hit for hit in hits.values() if _same_club_identity(hit, row)]
+        if identified:
+            return identified
+    return list(hits.values())
 
 
 def _state_code(value: Any) -> str | None:
@@ -182,7 +229,7 @@ def _identity_conflict_reason(row: RosterRow, *signals: dict[str, Any] | None) -
         if not signal:
             continue
         candidate_club = str(signal.get("club_name") or "").strip()
-        if submitted_club and candidate_club and not are_same_club(submitted_club, candidate_club):
+        if submitted_club and candidate_club and not are_same_club(submitted_club, candidate_club, threshold=1.0):
             reason = f"Club conflict: submitted '{submitted_club}', candidate '{candidate_club}'."
             if reason not in seen:
                 reasons.append(reason)
@@ -195,6 +242,19 @@ def _identity_conflict_reason(row: RosterRow, *signals: dict[str, Any] | None) -
             if reason not in seen:
                 reasons.append(reason)
                 seen.add(reason)
+
+        age = str(signal.get("age_group") or "").lower()
+        if not age and signal.get("age") is not None:
+            age = f"u{signal['age']}"
+        gender = str(signal.get("gender") or "")
+        gender = {"m": "Male", "f": "Female"}.get(gender.lower(), gender)
+        for label, actual, expected in (("Age", age, row.section_age_group),
+                                        ("Gender", gender, row.section_gender)):
+            if actual and actual != expected:
+                reason = f"{label} conflict: roster '{expected}', candidate '{actual}'."
+                if reason not in seen:
+                    reasons.append(reason)
+                    seen.add(reason)
 
     return " ".join(reasons) or None
 
@@ -256,40 +316,25 @@ def _exact_name_or_filter(value: str) -> str:
     return ",".join(clauses)
 
 
-def resolve_row(
+def _resolve_provider_hits(
     row: RosterRow,
+    hits: list[dict[str, Any]],
     *,
     gotsport_search: GotsportSearch,
     lookup_provider_id: ProviderIdLookup,
-    lookup_exact_name: ExactNameLookup,
     lookup_team_details: TeamDetailsLookup | None = None,
-) -> ResolvedTeam:
-    """Resolve one row, GotSport id first and exact local name second."""
-    hits: list[dict[str, Any]] = []
-    for name in _search_names(row):
-        hits = gotsport_search(name, row.section_age_group, row.section_gender)
-        if hits:
-            break
-
+) -> ResolvedTeam | None:
     # Provider search includes unrelated clubs. Disambiguate by exact identity,
     # never by provider rank, result position, or a fuzzy score.
-    def same_identity(hit):
-        return (_names_the_same_team(hit.get("team_name", ""), row)
-                and bool(row.club_raw.strip()) and bool(hit.get("club_name"))
-                and are_same_club(row.club_raw, hit["club_name"], threshold=1.0))
-
-    identified = [hit for hit in hits if same_identity(hit)]
+    identified = [hit for hit in hits if _same_club_identity(hit, row)]
     if len(identified) == 1:
         hits = identified
     elif not identified and row.club_raw.strip() and re.search(r"\d{2}/\d{2}", row.team_name_stripped):
         # A younger team can enter an older tournament cohort. Surface the exact
         # club/name candidate for confirmation; do not silently change its age.
         younger = f"u{int(row.section_age_group[1:]) - 1}"
-        adjacent = []
-        for name in _search_names(row):
-            adjacent.extend(hit for hit in gotsport_search(name, younger, row.section_gender)
-                            if same_identity(hit))
-        adjacent = list({str(hit.get("team_id")): hit for hit in adjacent}.values())
+        adjacent = [hit for hit in _search_provider_candidates(row, gotsport_search, younger)
+                    if _same_club_identity(hit, row)]
         if adjacent:
             candidates = []
             for hit in adjacent:
@@ -328,10 +373,8 @@ def resolve_row(
         if team_id_master:
             details = lookup_team_details(team_id_master) if lookup_team_details else None
             conflict = _identity_conflict_reason(row, hits[0], details)
-            if details and details.get("age_group") and str(details["age_group"]).lower() != row.section_age_group:
-                age_note = (f"Age conflict: roster {row.section_age_group.upper()}, saved identity "
-                            f"{str(details['age_group']).upper()}. Confirm identity and playing-up status.")
-                conflict = " ".join(value for value in (conflict, age_note) if value)
+            if lookup_team_details and not details:
+                conflict = "The linked PitchRank record could not be verified. Confirm the team's identity."
             if conflict:
                 return ResolvedTeam(
                     source_index=row.source_index,
@@ -353,31 +396,86 @@ def resolve_row(
                 provider_team_id=provider_team_id,
                 matched_name=hits[0].get("team_name"),
             )
-
-    local = lookup_exact_name(row.team_name_stripped, row.section_age_group, row.section_gender)
-    if len(local) == 1:
-        details = lookup_team_details(local[0]) if lookup_team_details else None
-        conflict = _identity_conflict_reason(row, details)
         if conflict:
-            return ResolvedTeam(
-                source_index=row.source_index,
-                status="review",
-                candidates=(_review_candidate(team_id_master=local[0], details=details),),
-                review_reason=conflict,
-            )
-        return ResolvedTeam(
-            source_index=row.source_index,
-            status="exact_name",
-            team_id_master=local[0],
-            matched_name=row.team_name_stripped,
-        )
-    if len(local) > 1:
-        return ResolvedTeam(
-            source_index=row.source_index,
-            status="review",
-            candidates=tuple({"team_id_master": team_id} for team_id in local),
-        )
+            return ResolvedTeam(source_index=row.source_index, status="review",
+                                provider_team_id=provider_team_id, candidates=tuple(hits),
+                                review_reason=conflict)
 
+    return None
+
+
+def resolve_row(
+    row: RosterRow, *, gotsport_search: GotsportSearch,
+    lookup_provider_id: ProviderIdLookup, lookup_exact_name: ExactNameLookup,
+    lookup_team_details: TeamDetailsLookup | None = None,
+    lookup_club_candidates: ClubCandidateLookup | None = None,
+) -> ResolvedTeam:
+    """Resolve exact identities; gather local evidence before requesting review."""
+    hits = _search_provider_candidates(row, gotsport_search, row.section_age_group)
+    provider = _resolve_provider_hits(
+        row, hits, gotsport_search=gotsport_search,
+        lookup_provider_id=lookup_provider_id, lookup_team_details=lookup_team_details,
+    )
+    if provider and provider.status == "gotsport_id":
+        return provider
+
+    local = {candidate["team_id_master"]: candidate
+             for candidate in (lookup_club_candidates(row) if lookup_club_candidates else ())
+             if candidate.get("team_id_master")}
+    missing_details: set[str] = set()
+    if local:
+        # The club lookup already returns the complete cohort-scoped set. Avoid
+        # retrieving hundreds of unrelated squads sharing a generic team label.
+        exact_ids = {team_id for team_id, candidate in local.items()
+                     if _names_the_same_team(candidate.get("team_name", ""), row)}
+    else:
+        exact_ids = set(lookup_exact_name(row.team_name_stripped, row.section_age_group, row.section_gender))
+        for team_id in sorted(exact_ids):
+            details = lookup_team_details(team_id) if lookup_team_details else None
+            if lookup_team_details and not details:
+                missing_details.add(team_id)
+            local[team_id] = _review_candidate(team_id_master=team_id, details=details)
+    exact = [candidate for candidate in local.values()
+             if (candidate["team_id_master"] in exact_ids or _names_the_same_team(candidate.get("team_name", ""), row))
+             and candidate["team_id_master"] not in missing_details
+             and not _identity_conflict_reason(row, candidate)]
+    strong = [candidate for candidate in exact
+              if row.club_raw.strip() and candidate.get("club_name")
+              and are_same_club(row.club_raw, candidate["club_name"], threshold=1.0)]
+    # An exact local identity may resolve unrelated search noise, but cannot
+    # overrule conflicting identity evidence or two exact provider identities.
+    foreign_club_noise = bool(row.club_raw.strip() and hits) and all(
+        hit.get("club_name") and not are_same_club(row.club_raw, hit["club_name"], threshold=1.0)
+        for hit in hits
+    )
+    blocked = bool(provider and provider.review_reason)
+    if foreign_club_noise and provider and (provider.review_reason or "").startswith("Club conflict:"):
+        blocked = False
+    blocked = blocked or sum(_same_club_identity(hit, row) for hit in hits) > 1
+    choice = strong[0] if len(strong) == 1 else None
+    if provider is None and len(exact_ids) == 1 and len(exact) == 1:
+        choice = exact[0]
+    if choice and not blocked:
+        return ResolvedTeam(source_index=row.source_index, status="exact_name",
+                            team_id_master=choice["team_id_master"],
+                            matched_name=choice.get("team_name") or row.team_name_stripped)
+
+    same_club = [candidate for candidate in local.values()
+                 if row.club_raw.strip() and candidate.get("club_name")
+                 and are_same_club(row.club_raw, candidate["club_name"], threshold=1.0)]
+    candidates: dict[tuple[str, str], dict[str, Any]] = {}
+    for candidate in [*(same_club or local.values()), *(provider.candidates if provider else ())]:
+        key = ("master", str(candidate["team_id_master"])) if candidate.get("team_id_master") else (
+            "provider", str(candidate.get("team_id")))
+        candidates[key] = {**candidates.get(key, {}), **candidate}
+    if candidates:
+        reason = provider.review_reason if provider else None
+        if not reason:
+            reason = next((reason for candidate in local.values()
+                           if (reason := _identity_conflict_reason(row, candidate))), None)
+        return ResolvedTeam(source_index=row.source_index, status="review",
+                            provider_team_id=provider.provider_team_id if provider else None,
+                            candidates=tuple(candidates.values()), review_reason=reason)
     return ResolvedTeam(source_index=row.source_index, status="unresolved")
 
 
@@ -388,6 +486,7 @@ def resolve_roster(
     lookup_provider_id: ProviderIdLookup,
     lookup_exact_name: ExactNameLookup,
     lookup_team_details: TeamDetailsLookup | None = None,
+    lookup_club_candidates: ClubCandidateLookup | None = None,
     delay_seconds: float = 0.0,
     on_progress: Callable[[int, int], None] | None = None,
 ) -> tuple[ResolvedTeam, ...]:
@@ -406,6 +505,7 @@ def resolve_roster(
                 lookup_provider_id=lookup_provider_id,
                 lookup_exact_name=lookup_exact_name,
                 lookup_team_details=lookup_team_details,
+                lookup_club_candidates=lookup_club_candidates,
             )
         )
         if on_progress is not None:
@@ -604,18 +704,21 @@ def make_exact_name_lookup(supabase_client: Any, merge_resolver: Any = None) -> 
     """
 
     def lookup(team_name: str, age_group: str, gender: str) -> list[str]:
-        rows = (
-            supabase_client.table("teams")
-            .select("team_id_master,team_name,club_name")
-            .eq("age_group", age_group)
-            .eq("gender", gender)
-            .eq("is_deprecated", False)
-            .or_(_exact_name_or_filter(team_name))
-            .limit(10)
-            .execute()
-            .data
-            or []
-        )
+        rows = []
+        while True:
+            page = (
+                supabase_client.table("teams")
+                .select("team_id_master,team_name,club_name")
+                .eq("age_group", age_group)
+                .eq("gender", gender)
+                .eq("is_deprecated", False)
+                .or_(_exact_name_or_filter(team_name))
+                .order("team_id_master").range(len(rows), len(rows) + 99)
+                .execute().data or []
+            )
+            rows.extend(page)
+            if len(page) < 100:
+                break
         expected = _comparable(team_name)
         rows = [
             row
@@ -626,6 +729,38 @@ def make_exact_name_lookup(supabase_client: Any, merge_resolver: Any = None) -> 
         resolved = {_resolved_id(row.get("team_id_master"), merge_resolver) for row in rows}
         return sorted(team_id for team_id in resolved if team_id)
 
+    return lookup
+
+
+def make_club_candidate_lookup(supabase_client: Any, merge_resolver: Any = None) -> ClubCandidateLookup:
+    """Read every current-cohort squad at the submitted club, across providers.
+
+    Different team labels are review candidates only. Literal matching keeps
+    club wildcards from admitting unrelated clubs; pagination preserves ambiguity.
+    """
+    def lookup(row: RosterRow) -> list[dict[str, Any]]:
+        if not row.club_raw.strip():
+            return []
+        candidates: dict[str, dict[str, Any]] = {}
+        offset = 0
+        while True:
+            page = (supabase_client.table("teams")
+                    .select("team_id_master,team_name,club_name,age_group,gender,state_code,state")
+                    .eq("age_group", row.section_age_group).eq("gender", row.section_gender)
+                    .eq("is_deprecated", False)
+                    .ilike("club_name", escape_ilike_literal(row.club_raw.strip()))
+                    .order("team_id_master").range(offset, offset + 99).execute().data or [])
+            for candidate in page:
+                team_id = _resolved_id(candidate.get("team_id_master"), merge_resolver)
+                if not team_id:
+                    continue
+                if team_id != candidate["team_id_master"]:
+                    candidate = make_team_details_lookup(supabase_client)(team_id)
+                if candidate:
+                    candidates[team_id] = candidate
+            if len(page) < 100:
+                return list(candidates.values())
+            offset += len(page)
     return lookup
 
 

@@ -18,6 +18,7 @@ from src.tournaments.roster_resolver import (
     _postgrest_ilike_operand,
     build_search_params,
     make_exact_name_lookup,
+    make_club_candidate_lookup,
     make_provider_id_lookup,
     make_team_details_lookup,
     parse_manual_reference,
@@ -25,6 +26,7 @@ from src.tournaments.roster_resolver import (
     resolve_roster,
     resolve_row,
     summarize,
+    search_gotsport_teams,
 )
 
 
@@ -97,7 +99,7 @@ def test_single_gotsport_hit_with_a_conflicting_club_requires_review():
             {"team_id": 534748, "team_name": name, "club_name": "Beach FC"}
         ],
         lookup_provider_id=_never_called,
-        lookup_exact_name=_never_called,
+        lookup_exact_name=_no_exact_name,
     )
 
     assert resolved.status == "review"
@@ -117,7 +119,7 @@ def test_single_gotsport_hit_with_a_database_state_conflict_requires_review():
             {"team_id": 534748, "team_name": name, "club_name": "Barcelona SC"}
         ],
         lookup_provider_id=lambda _pid: "master-1",
-        lookup_exact_name=_never_called,
+        lookup_exact_name=_no_exact_name,
         lookup_team_details=lambda _team_id: {
             "team_id_master": "master-1",
             "team_name": "Barcelona SC 13B Aztecas",
@@ -146,7 +148,7 @@ def test_marker_name_retries_the_stripped_form_when_the_raw_form_misses():
         lookup_exact_name=_never_called,
     )
 
-    assert seen == ["Fire 13B-c", "Fire 13B"]
+    assert seen == ["Victoria Youth Soccer Organization", "Fire 13B-c", "Fire 13B"]
     assert resolved.status == "gotsport_id"
 
 
@@ -165,7 +167,7 @@ def test_unmarked_name_is_searched_only_once():
         lookup_exact_name=_no_exact_name,
     )
 
-    assert seen == ["A Team"]
+    assert seen == ["A Club", "A Team"]
 
 
 def test_several_gotsport_hits_go_to_review_without_picking_one():
@@ -470,6 +472,14 @@ class _FakeQuery:
 
     def limit(self, count):
         self._rows = self._rows[:count]
+        return self
+
+    def order(self, column):
+        self._rows.sort(key=lambda row: str(row.get(column, "")))
+        return self
+
+    def range(self, start, end):
+        self._rows = self._rows[start:end + 1]
         return self
 
     def execute(self):
@@ -876,7 +886,7 @@ def test_inspire_surfaces_younger_exact_identity_for_playing_up_confirmation():
                  "club_name": "McLean Youth Soccer" if age == "u12" else "Houston Club"}]
     result = resolve_row(row, gotsport_search=search,
                          lookup_provider_id=lambda _: "02ae90ef-527c-4b1d-981f-60945f6fafe9",
-                         lookup_exact_name=_never_called)
+                         lookup_exact_name=_no_exact_name)
     assert result.status == "review"
     assert result.candidates[0]["team_id_master"] == "02ae90ef-527c-4b1d-981f-60945f6fafe9"
     assert "playing in U13" in result.review_reason
@@ -890,7 +900,7 @@ def test_ppa_state_conflict_keeps_canonical_candidate_visible(name, master):
     row = _row(f"Female U13\nPPA\t{name}\tDC")
     result = resolve_row(row, gotsport_search=lambda *_: [
         {"team_id": 123, "team_name": name, "club_name": "PPA", "state": "MD"}],
-        lookup_provider_id=lambda _: master, lookup_exact_name=_never_called)
+        lookup_provider_id=lambda _: master, lookup_exact_name=_no_exact_name)
     assert result.status == "review"
     assert result.candidates[0]["team_id_master"] == master
     assert "State conflict" in result.review_reason
@@ -901,7 +911,218 @@ def test_approximate_club_name_cannot_disambiguate_provider_hits():
     hits = [{"team_id": 101, "team_name": "Blue", "club_name": "Northstarr United"},
             {"team_id": 102, "team_name": "Blue", "club_name": "Other Club"}]
     result = resolve_row(row, gotsport_search=lambda *_: hits,
-                         lookup_provider_id=_never_called, lookup_exact_name=_never_called)
+                         lookup_provider_id=_never_called, lookup_exact_name=_no_exact_name)
     assert result.status == "review"
     assert len(result.candidates) == 2
     assert result.team_id_master is None
+
+
+READING = "c3160f4c-49a4-4bef-8455-52e055f27c42"
+NLSA_TGS = "7ce98e99-b7fe-45ad-bc35-99d78befda80"
+NLSA_GOTSPORT = "4f18fa0c-49b1-4bcd-9526-509b472f4f03"
+
+
+def _club_team(master=READING, club="Reading Rage Surf", name="ECNL RL G2012/13", **changes):
+    return {"team_id_master": master, "club_name": club, "team_name": name,
+            "age_group": "u14", "gender": "Female", "state_code": "PA",
+            "provider_id": GOTSPORT, "provider_team_id": "753576", "is_deprecated": False, **changes}
+
+
+def _resolve_with_database(row, teams, search):
+    client = _FakeClient(teams=teams, providers=PROVIDERS)
+    return resolve_row(
+        row, gotsport_search=search, lookup_provider_id=make_provider_id_lookup(client),
+        lookup_exact_name=make_exact_name_lookup(client), lookup_team_details=make_team_details_lookup(client),
+        lookup_club_candidates=make_club_candidate_lookup(client),
+    )
+
+
+def test_reading_rage_club_search_resolves_exact_provider_identity():
+    row = _row("Female U14\nReading Rage Surf\tECNL RL G2012/13\tPA")
+    queries = []
+
+    def search(query, age, gender):
+        queries.append((query, age, gender))
+        assert query == "Reading Rage Surf", "Do not start with the generic squad name"
+        return [{"team_id": 753576, "team_name": "ECNL RL G2012/13", "club_name": query}]
+
+    result = _resolve_with_database(row, [_club_team()], search)
+    assert queries == [("Reading Rage Surf", "u14", "Female")]
+    assert (result.status, result.team_id_master) == ("gotsport_id", READING)
+
+
+def test_local_club_identity_rescues_reading_rage_before_ambiguous_provider_review():
+    row = _row("Female U14\nReading Rage Surf\tECNL RL G2012/13\tPA")
+    noise = [{"team_id": 1, "team_name": "ECNL RL G2012/13", "club_name": "Slammers FC"},
+             {"team_id": 2, "team_name": "ECNL RL G2012/13", "club_name": "Arizona Soccer Club"}]
+    result = _resolve_with_database(row, [
+        _club_team("wrong-club", "Slammers FC"), _club_team(),
+    ], lambda *_: noise)
+    assert (result.status, result.team_id_master) == ("exact_name", READING)
+
+
+def test_nlsa_surfaces_tgs_and_gotsport_records_without_choosing_or_merging():
+    row = _row("Female U14\nNLSA Surf\tECNL RL G2012/13\tNJ")
+    teams = [
+        _club_team(NLSA_TGS, "NLSA Surf", "NLSA ECNL RL 2013", state_code="NJ",
+                   provider_id=OTHER, provider_team_id="96204"),
+        _club_team(NLSA_GOTSPORT, "Next Level Soccer Academy (NJ)", state_code="NJ",
+                   provider_team_id="146672"),
+        _club_team("unrelated", "Slammers FC"),
+    ]
+    hit = {"team_id": 146672, "team_name": "ECNL RL G2012/13", "club_name": "NLSA Surf"}
+    result = _resolve_with_database(row, teams, lambda *_: [hit])
+    assert result.status == "review"
+    assert result.team_id_master is None
+    assert {c["team_id_master"] for c in result.candidates} == {NLSA_TGS, NLSA_GOTSPORT}
+    assert "Club conflict" in result.review_reason
+
+
+@pytest.mark.parametrize("change", [
+    {"club_name": "Reading Rage United"}, {"state_code": "NJ"},
+    {"age_group": "u13"}, {"gender": "Male"}, {"is_deprecated": True},
+    {"team_name": "ECNL G2012/13"}, {"team_name": "ECNL RL G2012/13 Blue"},
+    {"team_name": "ECNL RL G2011/12"},
+])
+def test_local_fallback_does_not_auto_match_a_conflicting_squad(change):
+    row = _row("Female U14\nReading Rage Surf\tECNL RL G2012/13\tPA")
+    result = _resolve_with_database(row, [_club_team(**change)], lambda *_: [])
+    assert result.status in {"review", "unresolved"}
+    assert result.team_id_master is None
+
+
+def test_two_local_exact_identities_remain_review_required():
+    row = _row("Female U14\nReading Rage Surf\tECNL RL G2012/13\tPA")
+    result = _resolve_with_database(row, [_club_team(), _club_team("second")], lambda *_: [])
+    assert result.status == "review"
+    assert {c["team_id_master"] for c in result.candidates} == {READING, "second"}
+
+
+def test_local_match_cannot_overrule_provider_state_conflict():
+    row = _row("Female U14\nReading Rage Surf\tECNL RL G2012/13\tPA")
+    hit = {"team_id": 753576, "team_name": "ECNL RL G2012/13",
+           "club_name": "Reading Rage Surf", "state": "CA"}
+    result = _resolve_with_database(row, [_club_team()], lambda *_: [hit])
+    assert result.status == "review"
+    assert result.team_id_master is None
+    assert "State conflict" in result.review_reason
+
+
+def test_unmapped_provider_state_conflict_still_blocks_automatic_local_match():
+    row = _row("Female U14\nReading Rage Surf\tECNL RL G2012/13\tPA")
+    hit = {"team_id": 9999, "team_name": "ECNL RL G2012/13",
+           "club_name": "Reading Rage Surf", "state": "CA"}
+    result = _resolve_with_database(row, [_club_team()], lambda *_: [hit])
+    assert result.status == "review"
+    assert result.team_id_master is None
+    assert "State conflict" in result.review_reason
+
+
+def test_one_unrelated_provider_club_does_not_block_exact_local_identity():
+    row = _row("Female U14\nReading Rage Surf\tECNL RL G2012/13\tPA")
+    hit = {"team_id": 9999, "team_name": "ECNL RL G2012/13", "club_name": "Slammers FC"}
+    result = _resolve_with_database(row, [_club_team()], lambda *_: [hit])
+    assert (result.status, result.team_id_master) == ("exact_name", READING)
+
+
+def test_one_local_record_cannot_hide_two_exact_provider_identities():
+    row = _row("Female U14\nReading Rage Surf\tECNL RL G2012/13\tPA")
+    hits = [{"team_id": tid, "team_name": "ECNL RL G2012/13", "club_name": "Reading Rage Surf"}
+            for tid in [753576, 42]]
+    result = _resolve_with_database(row, [_club_team()], lambda *_: hits)
+    assert result.status == "review"
+    assert result.team_id_master is None
+
+
+def test_single_approximate_club_match_is_not_an_automatic_identity():
+    row = _row("Female U14\nNorthstar United\tBlue\tPA")
+    hit = {"team_id": 1, "team_name": "Blue", "club_name": "Northstarr United"}
+    result = resolve_row(row, gotsport_search=lambda *_: [hit], lookup_provider_id=_never_called,
+                         lookup_exact_name=lambda *_: [])
+    assert result.status == "review"
+    assert result.team_id_master is None
+
+
+@pytest.mark.parametrize("changes", [{"age": 13}, {"gender": "m"}])
+def test_provider_cohort_conflict_is_not_ignored(changes):
+    row = _row("Female U14\nReading Rage Surf\tECNL RL G2012/13\tPA")
+    hit = {"team_id": 753576, "team_name": "ECNL RL G2012/13",
+           "club_name": "Reading Rage Surf", **changes}
+    result = _resolve_with_database(row, [_club_team()], lambda *_: [hit])
+    assert result.status == "review"
+    assert result.team_id_master is None
+
+
+def test_missing_local_details_cannot_be_treated_as_verified_identity():
+    row = _row("Female U14\nReading Rage Surf\tECNL RL G2012/13\tPA")
+    result = resolve_row(row, gotsport_search=lambda *_: [], lookup_provider_id=_never_called,
+                         lookup_exact_name=lambda *_: [READING], lookup_team_details=lambda _: None)
+    assert result.status == "review"
+    assert result.team_id_master is None
+
+
+def test_club_candidate_lookup_reads_all_pages_and_does_not_hide_second_identity():
+    row = _row("Female U14\nReading Rage Surf\tECNL RL G2012/13\tPA")
+    teams = [_club_team(f"id-{i:03d}", name=f"Squad {i}") for i in range(100)]
+    teams[0]["team_name"] = "ECNL RL G2012/13"
+    teams.append(_club_team("id-100"))
+    result = _resolve_with_database(row, teams, lambda *_: [])
+    assert result.status == "review"
+    assert len(result.candidates) == 101
+
+
+def test_exact_name_lookup_returns_candidates_beyond_first_ten_and_first_page():
+    client = _FakeClient(teams=[_club_team(f"id-{i:03d}") for i in range(102)])
+    assert make_exact_name_lookup(client)("ECNL RL G2012/13", "u14", "Female") == [
+        f"id-{i:03d}" for i in range(102)]
+
+
+def test_club_lookup_escapes_wildcards_in_club_name():
+    row = _row("Female U14\nReading_Rage%\tECNL RL G2012/13\tPA")
+    client = _FakeClient(teams=[_club_team("literal", "Reading_Rage%"),
+                                _club_team("wildcard", "Reading Rage Surf")])
+    assert [c["team_id_master"] for c in make_club_candidate_lookup(client)(row)] == ["literal"]
+
+
+class _SearchSession:
+    def __init__(self, pages):
+        self.pages = pages
+        self.calls = []
+
+    def get(self, url, *, params, headers, timeout):
+        from types import SimpleNamespace
+        assert url == "https://system.gotsport.com/api/v1/team_ranking_data"
+        self.calls.append(dict(params))
+        payload = self.pages[int(params["search[page]"]) - 1]
+        return SimpleNamespace(raise_for_status=lambda: None, json=lambda: payload)
+
+
+def test_search_reads_later_pages_before_claiming_unique_identity():
+    session = _SearchSession([
+        {"team_ranking_data": [{"team_id": 1}], "pagination": {"current_page": 1, "total_pages": 2}},
+        {"team_ranking_data": [{"team_id": 2}], "pagination": {"current_page": 2, "total_pages": 2}},
+    ])
+    assert search_gotsport_teams("Reading Rage Surf", "u14", "Female", session=session) == [
+        {"team_id": 1}, {"team_id": 2}]
+    assert [call["search[page]"] for call in session.calls] == ["1", "2"]
+    assert all(call["search[team_or_club_name]"] == "Reading Rage Surf" for call in session.calls)
+
+
+@pytest.mark.parametrize("second", [
+    {"team_ranking_data": [{"team_id": 2}], "pagination": {"current_page": 1, "total_pages": 2}},
+    {"team_ranking_data": [{"team_id": 1}], "pagination": {"current_page": 2, "total_pages": 2}},
+    {"team_ranking_data": [], "pagination": {"current_page": 2, "total_pages": 3}},
+    {"team_ranking_data": [], "pagination": {"current_page": 2, "total_pages": 2}},
+])
+def test_incomplete_or_repeated_search_pages_never_return_a_partial_match(second):
+    session = _SearchSession([
+        {"team_ranking_data": [{"team_id": 1}], "pagination": {"current_page": 1, "total_pages": 2}}, second])
+    with pytest.raises(ValueError, match="incomplete"):
+        search_gotsport_teams("Reading Rage Surf", "u14", "Female", session=session)
+
+
+def test_search_page_safeguard_never_returns_a_partial_candidate_set():
+    session = _SearchSession([{"team_ranking_data": [{"team_id": 1}],
+                               "pagination": {"current_page": 1, "total_pages": 26}}])
+    with pytest.raises(ValueError, match="incomplete"):
+        search_gotsport_teams("ECNL RL", "u14", "Female", session=session)

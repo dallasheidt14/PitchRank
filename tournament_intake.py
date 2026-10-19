@@ -85,6 +85,7 @@ from src.tournaments.roster_resolver import (
     ProviderIdLookup,
     ResolvedTeam,
     fetch_gotsport_provider_id,
+    make_club_candidate_lookup,
     make_exact_name_lookup,
     make_provider_id_lookup,
     make_team_details_lookup,
@@ -4433,12 +4434,15 @@ def _resolve_seeding_incrementally(parsed, resolved, client):
     try:
         with st.spinner(f"Matching {len(indices)} remaining teams..."):
             lookup = _seeding_provider_id_lookup(client) if indices else None
+            club_lookup = (make_club_candidate_lookup(client, _seeding_merge_resolver(client))
+                           if indices and client is not None else None)
             for index in indices:
                 current = resolve_unlinked(
                     effective, current, indices=[index],
                     gotsport_search=lambda name, age, gender: search_gotsport_teams(name, age, gender, session=session),
                     lookup_provider_id=lookup, lookup_exact_name=make_exact_name_lookup(client),
                     lookup_team_details=make_team_details_lookup(client) if client is not None else None,
+                    lookup_club_candidates=club_lookup,
                     delay_seconds=_SEEDING_LOOKUP_DELAY_SECONDS,
                 )
                 # Publish result before marking the request finished. An interrupted

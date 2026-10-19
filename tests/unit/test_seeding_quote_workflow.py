@@ -532,3 +532,34 @@ def test_matching_checkpoints_preserve_previous_source_snapshot(monkeypatch, tmp
     history = list((tmp_path / "cup/history").glob("*.json"))
     assert any("Previous source" in path.read_text() for path in history)
     assert len(history) == 2
+
+
+def test_incremental_matching_uses_local_club_candidates_and_preserves_manual_decisions(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+    from tests.unit.test_roster_resolver import _FakeClient, _club_team, PROVIDERS, READING
+
+    fake = _install(monkeypatch, _FakeSt())
+    parsed = parse_roster("Girls U14\nReading Rage Surf\tECNL RL G2012/13\tPA\nNLSA Surf\tECNL RL G2012/13\tNJ")
+    outcomes = tuple(ResolvedTeam(row.source_index, "unresolved") for row in parsed.rows)
+    manual = {1: {"team_id_master": "7ce98e99-b7fe-45ad-bc35-99d78befda80", "team_name": "NLSA ECNL RL 2013"}}
+    fake.session_state.update(_seeding_result=(parsed, outcomes), _seeding_overrides=manual,
+                             seeding_event_name="Club lookup regression", _seeding_assessment={"coverage": "complete"})
+    client = _FakeClient(teams=[_club_team()], providers=PROVIDERS)
+    monkeypatch.setattr(intake, "_seeding_merge_resolver", lambda _: SimpleNamespace(resolve=lambda value: value))
+    monkeypatch.setattr(intake, "_seeding_provider_id_lookup", lambda _: lambda _pid: None)
+    monkeypatch.setattr(intake, "_enrich_seeding_names", lambda resolved, _client: resolved)
+    monkeypatch.setattr(intake, "save_seeding_run_file", lambda run, **kwargs: save_run(run, base_dir=tmp_path, **kwargs))
+    searched = []
+
+    def search(query, age, gender, **kwargs):
+        searched.append(query)
+        return []
+
+    monkeypatch.setattr(intake, "search_gotsport_teams", search)
+    intake._resolve_seeding_incrementally(parsed, outcomes, client)
+    saved = load_run("club-lookup-regression", base_dir=tmp_path)
+    assert saved.resolved[0].team_id_master == READING
+    assert saved.overrides == manual
+    assert "Reading Rage Surf" in searched
+    assert "NLSA Surf" not in searched
+    assert not fake.session_state["_seeding_resolution_failed"]
