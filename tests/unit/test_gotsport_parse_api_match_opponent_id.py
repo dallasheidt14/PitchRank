@@ -1,7 +1,11 @@
-"""A null opponent team_id from the GotSport API must parse to an empty id, not "None".
+"""How ``_parse_api_match`` maps a GotSport API match onto a game.
 
-``str(opponent.get("team_id", ""))`` fills the default only for a missing key, so a present
-``null`` becomes ``"None"``. The game parses either way, so only the opponent id shows the defect.
+A null opponent team_id must parse to an empty id, not "None": ``str(opponent.get("team_id", ""))``
+fills the default only for a missing key, so a present ``null`` becomes ``"None"``. The game parses
+either way, so only the opponent id shows the defect.
+
+GotSport labels tournament matches ``Transfer Competition`` and carries the real event in
+``event_name``, so that placeholder must give way to the event and division.
 """
 
 from datetime import date
@@ -48,3 +52,29 @@ def test_real_opponent_id_is_kept():
     assert game is not None
     assert game.opponent_id == "98765"
     scraper.session.get.assert_not_called()
+
+
+def _tournament_match(competition_name, division_name="U10G Gold Group B", event_name="Blue Chip Juniors 2026"):
+    match = _match(222)
+    match.update(competition_name=competition_name, division_name=division_name, event_name=event_name)
+    return match
+
+
+def test_placeholder_competition_falls_back_to_event_name():
+    game = _scraper()._parse_api_match(_tournament_match("Transfer Competition"), 111, date(2020, 1, 1))
+
+    assert game.competition == "Blue Chip Juniors 2026"
+
+
+def test_placeholder_competition_without_event_falls_back_to_division():
+    match = _tournament_match("Transfer Competition", event_name="")
+
+    game = _scraper()._parse_api_match(match, 111, date(2020, 1, 1))
+
+    assert game.competition == "U10G Gold Group B"
+
+
+def test_real_competition_name_is_kept():
+    game = _scraper()._parse_api_match(_tournament_match("CPL League"), 111, date(2020, 1, 1))
+
+    assert game.competition == "CPL League"

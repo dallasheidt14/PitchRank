@@ -4,6 +4,7 @@ import {
   composeTeamDisplay,
   composeTeamMeta,
   formatDistinction,
+  formatGameCompetition,
   formatLeague,
   MLS_NEXT_PROVIDER_CODES,
   scrollBehavior,
@@ -302,5 +303,36 @@ describe('scrollBehavior', () => {
   it('jumps instead when the visitor asked for reduced motion', () => {
     prefersReducedMotion(true);
     expect(scrollBehavior()).toBe('auto');
+  });
+});
+
+describe('formatGameCompetition', () => {
+  it('keeps a real competition name', () => {
+    expect(formatGameCompetition({ competition: 'CPL League', event_name: 'Spring Cup' }, '—')).toBe('CPL League');
+  });
+
+  it('shows the event instead of the Transfer Competition placeholder', () => {
+    expect(
+      formatGameCompetition(
+        { competition: 'Transfer Competition', event_name: 'Blue Chip Juniors 2026', division_name: 'U10G Gold' },
+        '—'
+      )
+    ).toBe('Blue Chip Juniors 2026');
+  });
+
+  it('falls back to the division when the placeholder has no event', () => {
+    expect(
+      formatGameCompetition({ competition: 'Transfer Competition', event_name: null, division_name: 'U10G Gold' }, '—')
+    ).toBe('U10G Gold');
+  });
+
+  it('keeps the division ahead of the event when there is no competition at all', () => {
+    expect(formatGameCompetition({ competition: null, event_name: 'Event 7', division_name: 'U10G Gold' }, '—')).toBe(
+      'U10G Gold'
+    );
+  });
+
+  it('hides the placeholder when nothing else is known', () => {
+    expect(formatGameCompetition({ competition: 'Transfer Competition' }, '—')).toBe('—');
   });
 });

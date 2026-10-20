@@ -124,6 +124,18 @@ export function formatDistinction(distinction?: string | null): string | null {
     .join(' ');
 }
 
+const PLACEHOLDER_COMPETITION = 'Transfer Competition';
+
+export function formatGameCompetition(
+  game: { competition?: string | null; event_name?: string | null; division_name?: string | null },
+  fallback: string
+): string {
+  if (game.competition === PLACEHOLDER_COMPETITION) {
+    return game.event_name || game.division_name || fallback;
+  }
+  return game.competition || game.division_name || fallback;
+}
+
 const CLUB_ABBREVIATIONS: Array<[RegExp, string]> = [
   [/\bSoccer Club\b/i, 'SC'],
   [/\bFootball Club\b/i, 'FC'],

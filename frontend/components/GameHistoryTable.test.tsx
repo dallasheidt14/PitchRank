@@ -36,7 +36,9 @@ const GAMES = [
     ml_overperformance: 0.2,
     home_team_name: 'Test FC 2013',
     away_team_name: 'Rival SC 2013',
-    competition: 'Fall League',
+    competition: 'Transfer Competition',
+    event_name: 'Spring Cup',
+    division_name: 'U10G Gold',
   },
   {
     id: 'game-unknown-opponent',
@@ -162,6 +164,16 @@ describe('GameHistoryTable highlighted scores', () => {
     expect(highlightedScore().tagName).toBe('SPAN');
     expect(container!.textContent).toContain('2+ goals better than PitchRank expected');
     expect(container!.textContent).not.toContain('Tap or hover');
+  });
+});
+
+describe('GameHistoryTable competition column', () => {
+  it('shows the event, not the Transfer Competition placeholder', async () => {
+    await renderTable([]);
+    const row = Array.from(container!.querySelectorAll('tr')).find((tr) => tr.textContent?.includes('1-1'))!;
+
+    expect(row.textContent).toContain('Spring Cup');
+    expect(row.textContent).not.toContain('Transfer Competition');
   });
 });
 

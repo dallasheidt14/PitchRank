@@ -309,6 +309,7 @@ class GotSportScraper(BaseScraper):
 
     BASE_URL = "https://system.gotsport.com/api/v1"
     RANKINGS_BASE = "https://rankings.gotsport.com"
+    PLACEHOLDER_COMPETITION_NAME = "Transfer Competition"
 
     def __init__(self, supabase_client, provider_code: str = "gotsport"):
         super().__init__(supabase_client, provider_code)
@@ -772,6 +773,8 @@ class GotSportScraper(BaseScraper):
             competition_name = match.get("competition_name", "")
             division_name = match.get("division_name", "")
             event_name = match.get("event_name", "")
+            if competition_name == self.PLACEHOLDER_COMPETITION_NAME:
+                competition_name = event_name
 
             # Determine result
             result = self._determine_result(goals_for, goals_against)
