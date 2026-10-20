@@ -498,3 +498,19 @@ def test_explicit_retry_releases_incompatible_intent_only_after_request_is_termi
     receipt = second["teams"]["a"]
     assert receipt["status"] == ("conflict" if status == "processing" else "pending")
     assert (receipt["request_id"] == old_intent) == (status == "processing")
+
+
+def test_refresh_adds_newly_eligible_match_without_repeating_completed_work(saved):
+    run, folder = saved
+    queue = Queue()
+    excluded = replace(run, overrides={1: {"not_found": True}})
+    refresh_run(excluded, folder, queue)
+    for request in queue.requests.values():
+        request.update(status="completed")
+    refresh_run(excluded, folder, queue, status_only=True)
+    refresh_run(run, folder, queue, status_only=True)
+    assert [item["team_id_master"] for item in queue.inserts] == ["a"]
+    result = refresh_run(run, folder, queue, retry_failed=True)
+    assert [item["team_id_master"] for item in queue.inserts] == ["a", "b"]
+    assert result["teams"]["a"]["status"] == "completed"
+    assert result["teams"]["b"]["status"] == "pending"

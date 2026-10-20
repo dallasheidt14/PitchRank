@@ -971,7 +971,7 @@ def test_rating_age_conflict_has_same_actionable_reason_in_every_director_format
     assert row.seed is None
     assert row.display_status == "Waiting for updated rankings"
     assert "Your team match is saved" in row.recommendation_reason
-    assert "Waiting for updated rankings" in render_sheet_html(
+    assert "Team details were corrected, but its rating has not been updated." in render_sheet_html(
         "Test Cup", [sheet], generated_on="2026-10-19", ranking_run="2026-10-18")
     assert "Waiting for updated rankings" in director_csv(sheet).decode("utf-8-sig")
 
@@ -1014,14 +1014,17 @@ def test_rating_warning_survives_bridge_build_save_reopen_and_manual_placement(t
     from src.tournaments.seeding_workbook import build_seeding_workbook
     workbook = load_workbook(BytesIO(build_seeding_workbook(
         "Warning chain", [sheet], generated_on="2026-10-19", ranking_run="2026-10-18")))
-    assert "Waiting for updated rankings: 1" in workbook.active["A5"].value
+    assert "need placement" in workbook.active["A5"].value
+    assert any("We cannot recommend a placement yet." in str(cell.value)
+               for cells in workbook.active for cell in cells)
     if manual:
         placement = next(cells[6].value for cells in workbook.active.iter_rows(min_row=7)
                          if cells[1].value and str(cells[1].value).split('\n')[0] == row.team.team_name)
-        assert "Your team match is saved" in placement
+        assert "We cannot recommend a placement yet." in placement
     from src.tournaments.seeding_sheet import render_sheet_html
     document = render_sheet_html("Warning chain", [sheet], generated_on="2026-10-19", ranking_run="2026-10-18")
-    assert "Your team match is saved" in document
+    assert "We cannot recommend a placement yet." in document
+    assert "Rebuild after rankings finish" not in document
     assert "Waiting for updated rankings. Waiting for updated rankings" not in document
 
 

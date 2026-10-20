@@ -73,6 +73,26 @@ Compatible pending requests receive operator priority without changing their
 source or date; processing and completed requests are retained. A conflicting
 source needs review. Queueing never launches a rankings calculation.
 
+Before deploying the migration to another database, run this read-only preflight:
+
+```sql
+SELECT team_id_master, count(*) AS active_requests,
+       array_agg(id ORDER BY requested_at) AS request_ids
+FROM public.scrape_requests
+WHERE status IN ('pending', 'processing')
+GROUP BY team_id_master
+HAVING count(*) > 1;
+```
+
+Require zero rows before applying. The old pending-only index allowed pending
+and processing requests for the same team. If duplicates exist, inspect the
+request IDs and running workers; let live work finish. Use
+`python scripts/retire_stranded_scrape_requests.py` to preview abandoned claims,
+then its `--execute` option only after confirming they are stranded. Do not
+silently delete requests or retire live workers just to make the index succeed.
+Re-run the preflight immediately before applying during a queue-writer maintenance
+window. The index intentionally fails closed if a duplicate appears meanwhile.
+
 Apply migration `20261020020000_atomic_matchbalance_refresh.sql` before using
 automatic refresh. It protects both pending and processing requests and stores
 adoption receipts in `scrape_request_intents`, so a lost response cannot cause

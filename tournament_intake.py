@@ -5270,12 +5270,13 @@ def _render_seeding_enqueue(parsed: ParsedRoster, resolved: Sequence[ResolvedTea
                            "Details": item.get("reason", "")} for item in journal["teams"].values()
                           if item.get("current", True)], hide_index=True)
         check = st.button("Check refresh status", key="_seeding_check_refresh", disabled=supabase_client is None)
-        retry = False
-        if not journal["teams"] or any(status in counts for status in (
+        needs_retry = any(status in counts for status in (
             "failed", "uncertain", "conflict", "unavailable_source", "planned", "submitting",
-        )):
-            retry = st.button("Retry failed requests" if journal["teams"] else "Refresh saved matches",
-                              key="_seeding_enqueue", disabled=supabase_client is None)
+        ))
+        # Cohort corrections can make a saved match eligible after all existing
+        # receipts completed. Keep the explicit, idempotent refresh available.
+        retry = st.button("Retry failed requests" if needs_retry else "Refresh saved matches",
+                          key="_seeding_enqueue", disabled=supabase_client is None)
         if check or retry:
             if _autosave_seeding_run():
                 _refresh_saved_seeding_run(supabase_client, retry_failed=retry, status_only=check)
