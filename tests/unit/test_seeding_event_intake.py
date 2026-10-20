@@ -3674,9 +3674,10 @@ def test_the_seeding_view_keeps_the_session_key_names_it_already_used():
     assert _SEEDING_KEYS.loaded_slug == "_seeding_loaded_slug"
 
 
-def test_completed_receipts_keep_refresh_available_for_newly_eligible_matches(app, tmp_path):
+@pytest.mark.parametrize("clicked", [False, True])
+def test_completed_receipts_keep_refresh_available_for_newly_eligible_matches(app, tmp_path, clicked):
     parsed = ParsedRoster((), ())
-    fake_st = _install(app, _FakeSt(buttons={"_seeding_enqueue": True}))
+    fake_st = _install(app, _FakeSt(buttons={"_seeding_enqueue": clicked}))
     fake_st.session_state.seeding_event_name = "Completed run"
     app.setattr(tournament_intake, "default_seeding_base_dir", lambda: tmp_path)
     app.setattr(tournament_intake, "read_refresh", lambda *_: {"teams": {
@@ -3684,7 +3685,11 @@ def test_completed_receipts_keep_refresh_available_for_newly_eligible_matches(ap
     app.setattr(tournament_intake, "_autosave_seeding_run", lambda: True)
     calls = []
     app.setattr(tournament_intake, "_refresh_saved_seeding_run", lambda *args, **kw: calls.append(kw))
-    with pytest.raises(_Rerun):
+    if clicked:
+        with pytest.raises(_Rerun):
+            tournament_intake._render_seeding_enqueue(parsed, (), object())
+        assert calls == [{"retry_failed": True, "status_only": False}]
+    else:
         tournament_intake._render_seeding_enqueue(parsed, (), object())
-    assert fake_st.button_by_key("_seeding_enqueue")["label"] == "Refresh saved matches"
-    assert calls == [{"retry_failed": True, "status_only": False}]
+        assert fake_st.button_by_key("_seeding_enqueue")["label"] == "Refresh saved matches"
+        assert calls == []
