@@ -89,7 +89,7 @@ def test_legacy_embedded_format_keeps_unknown_game_counts_exportable():
     assert "maximum not specified" in content.format_notes[0]
     assert "includes playoffs" in content.format_notes[0]
     html = render_sheet_html("Legacy Cup", [sheet], generated_on="2026-10-18", ranking_run="2026-10-17")
-    assert "maximum not specified" in html and "up to None" not in html
+    assert "maximum not specified" not in html and "up to None" not in html
     workbook = load_workbook(BytesIO(build_seeding_workbook("Legacy Cup", [sheet],
         generated_on="2026-10-18", ranking_run="2026-10-17")))
     assert workbook.active["B7"].value == "Alpha"
@@ -118,5 +118,60 @@ def test_tier_stability_warning_survives_unchanged_seed_positions():
         sheet = CohortSheet("u13", "Female", (SheetTeam("Alpha", "Club", .8, entrant_id="a"),), (),
                             replace(analysis, ordering_evidence=evidence))
         content = build_director_cohort(sheet)
-        assert any("Tier breaks change" in note for note in content.director_notes)
+        assert any("Some placements depend on a small number of results" in note for note in content.director_notes)
         assert all("Several positions change" not in note for note in content.director_notes)
+
+
+def test_director_review_list_preserves_sparse_teams_without_operator_format_details():
+    analysis = build_cheat_sheet_analysis([TierEntrant("a", "Review & Co", .8)], {})
+    analysis = replace(analysis, limited_history=("a",), tier_guidance={
+        "status": "passing", "cuts": [], "warnings": ["Confirm missing opponent results."],
+        "divisions": [{"label": "Tier 1", "start_seed": 1, "end_seed": 1, "size": 1,
+                       "pool_sizes": [1], "minimum_games": 0}],
+    })
+    sheet = CohortSheet("u13", "Male", (SheetTeam("Review & Co", "Club", .8, entrant_id="a"),), (), analysis)
+    content = build_director_cohort(sheet)
+    assert content.review_teams == ("Review & Co",)
+    assert content.format_notes
+    args = dict(generated_on="2026-10-20", ranking_run="2026-10-20")
+    document = render_sheet_html("Cup", [sheet], **args)
+    checklist = document.split('<aside class="guidance">', 1)[1]
+    assert '<ul class="review-team-list"><li>Review &amp; Co</li></ul>' in checklist
+    assert "We have too few usable recent results" in checklist
+    assert "take a closer look" in checklist
+    assert "Confirm missing opponent results." in checklist
+    assert "Tier 1 —" not in checklist
+    tab = load_workbook(BytesIO(build_seeding_workbook("Cup", [sheet], **args))).active
+    assert any(cell.value == "Review & Co" for row in tab.iter_rows(min_row=9) for cell in row)
+    assert any(cell.value == "Confirm missing opponent results." for row in tab for cell in row)
+    assert not any(str(cell.value).startswith("Tier 1 —") for row in tab for cell in row)
+    csv_rows = list(csv.DictReader(StringIO(director_csv(sheet).decode("utf-8-sig"))))
+    assert "Teams to review: Review & Co" in csv_rows[0]["Warnings and formats"]
+
+
+def test_director_exports_translate_operations_without_changing_saved_reason():
+    from src.tournaments.seeding_tiers import NO_CURRENT_RATING
+
+    raw = ("Rankings do not currently include usable game history for this team. "
+           "Refresh results, then run rankings and rebuild.")
+    entrants = [TierEntrant("a", "Missing history", review_reason=raw, review_status=NO_CURRENT_RATING)]
+    analysis = build_cheat_sheet_analysis(entrants, {})
+    team = SheetTeam("Missing history", "Club", entrant_id="a", review_reason=raw,
+                     review_kind="no_current_rating")
+    expected = ("Not enough data to recommend a placement. "
+                "Please check recent results or ask the coach about the team's level.")
+    args = dict(generated_on="2026-10-20", ranking_run="2026-10-20")
+    for manual in (False, True):
+        current = build_cheat_sheet_analysis(entrants, {}, manual_order=("a",)) if manual else analysis
+        sheet = CohortSheet("u13", "Male", (), (team,), current)
+        row = build_director_cohort(sheet).rows[0]
+        assert row.team.review_reason == raw
+        assert row.recommendation_reason == raw or raw in row.recommendation_reason
+        assert row.placement_explanation == expected
+        document = render_sheet_html("Cup", [sheet], **args)
+        tab = load_workbook(BytesIO(build_seeding_workbook("Cup", [sheet], **args))).active
+        csv_text = director_csv(sheet).decode("utf-8-sig")
+        for output in (document, str([cell.value for r in tab for cell in r]), csv_text):
+            assert "Not enough data to recommend a placement." in output
+            assert "run rankings" not in output and "Refresh results" not in output
+        assert team.review_reason == raw

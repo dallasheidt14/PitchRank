@@ -98,7 +98,7 @@ def test_cohort_notes_match_pdf_and_stay_outside_sortable_team_rows():
         assert str(sheet.max_row) in str(sheet.print_area)
     assert sheet.auto_filter.ref is None
     assert [table.autoFilter.ref for table in sheet.tables.values()] == ["A6:L9"]
-    assert "Seeded: 3" in sheet["A5"].value
+    assert "3 teams ranked" in sheet["A5"].value
     assert all(sheet.cell(row, 11).value is None for row in range(7, 10))
 
 

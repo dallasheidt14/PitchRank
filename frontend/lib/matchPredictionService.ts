@@ -109,6 +109,32 @@ type PredictiveRow = {
   exp_goals_against?: number | null;
 };
 
+export class PredictionMetadataError extends AppError {
+  constructor(
+    message: string,
+    public readonly details: {
+      kind: 'ratings_outdated' | 'invalid_team_metadata';
+      team_age?: number;
+      rating_ages?: number[];
+    }
+  ) {
+    super(message, 'prediction_metadata_conflict', 422);
+  }
+}
+
+export class PredictionUnavailableError extends AppError {
+  readonly details: { kind: 'no_current_rating'; reason: 'inactive' | 'no_ranked_results' | 'rating_absent' };
+
+  constructor(reason: 'inactive' | 'no_ranked_results' | 'rating_absent') {
+    super(
+      'Prediction unavailable. Match predictions rely on current ranking data for both teams.',
+      'prediction_unavailable',
+      422
+    );
+    this.details = { kind: 'no_current_rating', reason };
+  }
+}
+
 const BASE_RANKINGS_FULL_FIELDS =
   'age_group, gender, rank_in_cohort_final, power_score_final, glicko_rating, glicko_rd, glicko_volatility, sos_norm, off_norm, def_norm, wins, losses, draws, games_played, last_calculated, status';
 const OPTIONAL_RANKINGS_FULL_PREDICTION_FIELDS =
@@ -239,10 +265,9 @@ export async function fetchPredictionTeam(
     normalizeGenderCode(stateRankingData?.gender) ??
     normalizeGenderCode(rankingsFullData?.gender);
   if (age == null || gender == null) {
-    throw new AppError(
+    throw new PredictionMetadataError(
       'The PitchRank team record is missing a valid age or gender. Correct the team record before predicting.',
-      'prediction_metadata_conflict',
-      422
+      { kind: 'invalid_team_metadata' }
     );
   }
   // Ratings may predate a profile correction. Do not mix cohorts in one prediction.
@@ -260,10 +285,21 @@ export async function fetchPredictionTeam(
     }
   }
   if (conflicts.length) {
-    throw new AppError(
+    throw new PredictionMetadataError(
       `PitchRank data needs updating: ${[...new Set(conflicts)].join('; ')}. Recalculate rankings before predicting.`,
-      'prediction_metadata_conflict',
-      422
+      {
+        kind: 'ratings_outdated',
+        team_age: age,
+        rating_ages: [
+          ...new Set(
+            [
+              normalizeAgeGroup(rankingData?.age),
+              normalizeAgeGroup(stateRankingData?.age),
+              normalizeAgeGroup(rankingsFullData?.age_group),
+            ].filter((value): value is number => value != null)
+          ),
+        ],
+      }
     );
   }
 
@@ -342,10 +378,8 @@ export async function fetchPredictionTeam(
   };
 
   if (team.power_score_final == null || (!options.allowEmptyHistory && team.games_played <= 0)) {
-    throw new AppError(
-      'Prediction unavailable. Match predictions rely on current ranking data for both teams.',
-      'prediction_unavailable',
-      422
+    throw new PredictionUnavailableError(
+      team.status === 'Inactive' ? 'inactive' : team.games_played <= 0 ? 'no_ranked_results' : 'rating_absent'
     );
   }
 

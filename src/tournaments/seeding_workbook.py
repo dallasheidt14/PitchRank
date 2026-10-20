@@ -12,14 +12,12 @@ from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
 from src.tournaments.seeding_content import (
-    DIRECTOR_LEGEND,
     LIMITED_HISTORY_LEGEND,
     build_director_cohort,
     format_national_rank,
 )
 from src.tournaments.seeding_pack import cohort_key, cohort_label
 from src.tournaments.seeding_sheet import CohortSheet
-from src.tournaments.seeding_tiers import PLACEMENT_STATUSES
 
 FOREST = "0B5345"
 FOREST_DEEP = "083E33"
@@ -79,11 +77,7 @@ def build_seeding_workbook(
         team_count = len(cohort.rated) + len(cohort.unrated)
         sheet["A2"] = f"{cohort_label(cohort_key(cohort.age_group, cohort.gender))} · {team_count} accepted teams"
         sheet["A2"].font = Font(bold=True, color=FOREST_DEEP)
-        sheet.merge_cells("A3:L3")
-        sheet["A3"] = DIRECTOR_LEGEND
-        sheet["A3"].font = Font(italic=True, color=MUTED)
-        sheet["A3"].alignment = Alignment(wrap_text=True, vertical="center")
-        sheet.row_dimensions[3].height = 30
+        sheet.row_dimensions[3].height = 6
         sheet.merge_cells("A4:L4")
         sheet["A4"] = f"Ratings as of {ranking_run} · Generated {generated_on}"
         sheet["A4"].font = Font(color=MUTED, size=9)
@@ -91,14 +85,11 @@ def build_seeding_workbook(
             cohort, (operator_notes or {}).get((cohort.age_group, cohort.gender), ""),
         )
         team_rows = content.rows
-        if any(row.evidence_note for row in content.seeded):
-            sheet["A3"] = DIRECTOR_LEGEND + " Limited history: " + LIMITED_HISTORY_LEGEND
-            sheet.row_dimensions[3].height = 42
         sheet.merge_cells("A5:L5")
-        sheet["A5"] = (content.guidance_summary + " " if content.guidance_summary else "") + " · ".join(
-            f"{label}: {sum(row.placement_status == label for row in team_rows)}"
-            for label in PLACEMENT_STATUSES
-        )
+        sheet["A5"] = content.coverage_summary
+        guidance = getattr(cohort.tier_analysis, "tier_guidance", {}) if cohort.tier_analysis else {}
+        if guidance.get("status") == "review_required_compromise":
+            sheet["A5"].value += ". Matchup review needed before finalizing"
         sheet["A5"].font = Font(color=MUTED, size=9)
         sheet["A5"].alignment = Alignment(wrap_text=True, vertical="center")
         sheet.row_dimensions[5].height = 30
@@ -119,8 +110,8 @@ def build_seeding_workbook(
             placement = " · ".join(
                 value for value in (
                     row.tier_label, "Strength gap below" if row.observation else "",
-                    row.display_status if row.display_status != "Seeded" else "",
-                    row.recommendation_reason if row.seed is None else "",
+                    row.placement_explanation if row.seed is None or team.review_reason else (
+                        row.display_status if row.display_status != "Seeded" else ""),
                 ) if value
             )
             values = [
@@ -166,10 +157,13 @@ def build_seeding_workbook(
                 showColumnStripes=False,
             )
             sheet.add_table(table)
-        notes = (*content.format_notes, *content.director_notes)
+        notes = (
+            *((LIMITED_HISTORY_LEGEND, *content.review_teams) if content.review_teams else ()),
+            *content.director_notes,
+        )
         if notes:
             end_row += 2
-            sheet.cell(end_row, 1, "Director notes").font = Font(bold=True, color=FOREST_DEEP)
+            sheet.cell(end_row, 1, "Teams to review").font = Font(bold=True, color=FOREST_DEEP)
             for note in dict.fromkeys(notes):
                 end_row += 1
                 sheet.merge_cells(start_row=end_row, start_column=1, end_row=end_row, end_column=12)

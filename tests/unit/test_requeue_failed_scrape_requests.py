@@ -9,6 +9,9 @@ provider will never serve.
 
 import os
 import sys
+from types import SimpleNamespace
+
+import pytest
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
@@ -16,9 +19,43 @@ from scripts.requeue_failed_scrape_requests import (
     _scrape_covered_failure,
     attempt_time,
     best_request_per_team,
+    enqueue,
     is_retryable,
     latest_attempt_per_team,
 )
+
+
+@pytest.mark.parametrize("status,expected", [("pending", (1, 0)), ("completed", (1, 0)),
+                                            ("processing", (0, 1)), ("failed", (0, 1))])
+def test_recovery_does_not_count_returned_processing_request_as_requeued(status, expected):
+    class Client:
+        def rpc(self, name, payload):
+            assert name == "enqueue_scrape_request"
+            self.reading = False
+            return self
+
+        def table(self, name):
+            assert name == "scrape_requests"
+            self.reading = True
+            return self
+
+        def select(self, fields):
+            assert fields == "status"
+            return self
+
+        def eq(self, key, value):
+            assert (key, value) == ("id", "returned-request")
+            return self
+
+        def limit(self, count):
+            return self
+
+        def execute(self):
+            return SimpleNamespace(data=[{"status": status}] if self.reading else "returned-request")
+
+    team = dict(team_id_master="team", team_name="Team", provider_id="provider", provider_team_id="123",
+                game_date="2026-10-20", request_type="missing_games", priority=1)
+    assert enqueue(Client(), [team]) == expected
 
 
 def _row(message=None, team=None, priority=2, request_type="active_team"):

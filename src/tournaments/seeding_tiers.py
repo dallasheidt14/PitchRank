@@ -333,6 +333,7 @@ class CheatSheetAnalysis:
     ordering_conflicts: tuple[OrderingConflict, ...] = ()
     tier_guidance: Mapping = field(default_factory=dict)
     ordering_evidence: Mapping = field(default_factory=dict)
+    review_kinds: Mapping[str, str] = field(default_factory=dict)
 
     @property
     def supported_boundaries(self) -> tuple[BoundaryAssessment, ...]:

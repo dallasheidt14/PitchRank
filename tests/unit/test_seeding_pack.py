@@ -142,12 +142,14 @@ def test_legacy_upgrade_keeps_original_format_catalog():
                                  predictor_sha256="a" * 64)["format_library"] == legacy
 
 
-@pytest.mark.parametrize("schema", [6, 7, 8, 9])
+@pytest.mark.parametrize("schema", [6, 7, 8, 9, 10])
 def test_unrelated_identity_edit_preserves_completed_cohort_snapshot(schema):
     pack = _pack(("u12|Male", "u14|Male"))
     pack["schema_version"] = schema
     if schema < 9:
         pack["analysis_schema_version"] = 9 if schema == 6 else 10 if schema == 7 else 11
+    elif schema == 9:
+        pack["analysis_schema_version"] = 13
     pack["operator_notes"] = {"u14|Male": "Keep this note."}
     changed = {4: {"not_found": True}}
     before = deepcopy(pack)
@@ -155,7 +157,7 @@ def test_unrelated_identity_edit_preserves_completed_cohort_snapshot(schema):
     assert pack == before
     assert retained["selected_cohorts"] == ["u12|Male"]
     assert retained["operator_notes"] == pack["operator_notes"]
-    if schema < 9:
+    if schema < 10:
         retained = upgrade_pack_analysis(retained, ROWS, RESOLVED, changed, ["u12|Male"],
                                          predictor_sha256="a" * 64)
     assert pack_matches(retained, ROWS, RESOLVED, changed, ["u12|Male"])
@@ -270,8 +272,8 @@ def test_saved_analysis_upgrade_preserves_prediction_and_operator_choices_withou
     before = deepcopy(old)
     upgraded = upgrade_pack_analysis(old, ROWS, RESOLVED, {}, ["u12|Male"], predictor_sha256="a" * 64)
     assert old == before
-    assert upgraded["schema_version"] == 9
-    assert upgraded["analysis_schema_version"] == 13
+    assert upgraded["schema_version"] == 10
+    assert upgraded["analysis_schema_version"] == 14
     assert upgraded["policy"] == json.loads(json.dumps(asdict(TierPolicy(max_expected_margin=1.75))))
     assert upgraded["manual_seed_orders"] == old["manual_seed_orders"]
     assert upgraded["ordering"]
@@ -299,8 +301,8 @@ def test_schema_three_pack_upgrades_with_reproducible_separate_orders():
         old, ROWS, RESOLVED, {}, ["u12|Male"], predictor_sha256="a" * 64,
     )
 
-    assert upgraded["schema_version"] == 9
-    assert upgraded["analysis_schema_version"] == 13
+    assert upgraded["schema_version"] == 10
+    assert upgraded["analysis_schema_version"] == 14
     assert upgraded["manual_seed_orders"] == {}
     ordering = upgraded["ordering"]["u12|Male"]
     assert ordering["baseline_order"]
@@ -873,7 +875,7 @@ def test_matched_girls_team_reaches_the_female_seeded_sheet():
 
 def test_inactive_ranking_is_named_clearly():
     result = analyze_pack(_pack(change_team={"status": "Inactive"}), ROWS, RESOLVED, {})[("u12", "Male")]
-    assert result.review["0"] == "No current ranking. Use recent results or club input."
+    assert result.review["0"] == "PitchRank marks this team inactive. Confirm its recent results before placement."
     assert result.placement_status["0"] == "No current rating"
 
 
@@ -950,6 +952,77 @@ def test_matched_team_without_a_rating_is_unrated_not_a_data_review():
     result = analyze_pack(pack, ROWS, RESOLVED, {})[("u12", "Male")]
 
     assert result.placement_status == {"0": "No current rating", "1": "Seeded", "2": "Data review required"}
+
+
+def test_rating_age_conflict_has_same_actionable_reason_in_every_director_format():
+    from src.tournaments.seeding_content import build_director_cohort, director_csv
+    from src.tournaments.seeding_sheet import render_sheet_html
+    pack = _unavailable_pack("Older calculated age differs", "metadata_conflict")
+    pack["unavailable_details"] = {"u12|Male": {"0": {"kind": "ratings_outdated", "team_age": 12,
+                                                       "rating_ages": [13]}}}
+    pack["ordering"] = {}
+    pack["boundary_analysis"] = {}
+    analysis = analyze_pack(pack, ROWS, RESOLVED, {})
+    assert analysis[("u12", "Male")].placement_status["0"] == "Data review required"
+
+    sheet = build_cohort_sheets(ROWS[:3], RESOLVED, {}, snapshot_ratings(pack, team_ids_by_row(ROWS, RESOLVED, {})),
+                                tier_analyses=analysis)[0]
+    row = next(row for row in build_director_cohort(sheet).rows if row.team.entrant_id == "0")
+    assert row.seed is None
+    assert row.display_status == "Waiting for updated rankings"
+    assert "Your team match is saved" in row.recommendation_reason
+    assert "Waiting for updated rankings" in render_sheet_html(
+        "Test Cup", [sheet], generated_on="2026-10-19", ranking_run="2026-10-18")
+    assert "Waiting for updated rankings" in director_csv(sheet).decode("utf-8-sig")
+
+
+@pytest.mark.parametrize("manual", [False, True])
+def test_rating_warning_survives_bridge_build_save_reopen_and_manual_placement(tmp_path, manual):
+    from src.tournaments.seeding_content import build_director_cohort
+    from src.tournaments.seeding_predictions import _parse_batch
+    from src.tournaments.seeding_run_store import SeedingRun, load_run, save_run
+    rows = ROWS[:3]
+    resolved = tuple(item for item in RESOLVED if item.source_index < 3)
+    request = prediction_request(rows, resolved, {}, ["u12|Male"])
+    baseline = _batch(request)
+    detail = {"kind": "ratings_outdated", "team_age": 12, "rating_ages": [13]}
+    payload = {"schema_version": 1, "generated_at": baseline.generated_at,
+               "ratings_as_of": baseline.ratings_as_of, "cohorts": {"u12|Male": {
+                   "teams": {"1": baseline.teams["u12|Male"]["1"]},
+                   "unavailable": {"0": "Calculated age differs"},
+                   "unavailable_codes": {"0": "metadata_conflict"},
+                   "unavailable_details": {"0": detail}, "predictions": [],
+               }}}
+    batch = _parse_batch(payload, request, "a" * 64)
+    pack = make_pack(rows, resolved, {}, ["u12|Male"], batch, {})
+    if manual:
+        pack["manual_seed_orders"] = {"u12|Male": {"seeded": ["0", "1"], "held": []}}
+    save_run(SeedingRun("Warning chain", rows, resolved, pack=pack), base_dir=tmp_path)
+    reopened = load_run("warning-chain", base_dir=tmp_path)
+    assert reopened.pack["unavailable_details"]["u12|Male"]["0"] == detail
+    analysis = analyze_pack(reopened.pack, rows, resolved, {})
+    sheet = build_cohort_sheets(rows, resolved, {}, snapshot_ratings(pack, team_ids_by_row(rows, resolved, {})),
+                                tier_analyses=analysis)[0]
+    row = next(row for row in build_director_cohort(sheet).rows if row.team.entrant_id == "0")
+    assert row.display_status == "Waiting for updated rankings"
+    assert "Your team match is saved" in row.recommendation_reason
+    assert (row.seed is not None) is manual
+    assert analysis[("u12", "Male")].placement_status["0"] == "Data review required"
+
+    from io import BytesIO
+    from openpyxl import load_workbook
+    from src.tournaments.seeding_workbook import build_seeding_workbook
+    workbook = load_workbook(BytesIO(build_seeding_workbook(
+        "Warning chain", [sheet], generated_on="2026-10-19", ranking_run="2026-10-18")))
+    assert "Waiting for updated rankings: 1" in workbook.active["A5"].value
+    if manual:
+        placement = next(cells[6].value for cells in workbook.active.iter_rows(min_row=7)
+                         if cells[1].value and str(cells[1].value).split('\n')[0] == row.team.team_name)
+        assert "Your team match is saved" in placement
+    from src.tournaments.seeding_sheet import render_sheet_html
+    document = render_sheet_html("Warning chain", [sheet], generated_on="2026-10-19", ranking_run="2026-10-18")
+    assert "Your team match is saved" in document
+    assert "Waiting for updated rankings. Waiting for updated rankings" not in document
 
 
 @pytest.mark.parametrize("reason,status", [

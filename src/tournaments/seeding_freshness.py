@@ -97,7 +97,7 @@ def freshness_note(pack: dict, verified_identity: str | None = None) -> str:
                 f"{acknowledgment['reason']}")
     if check.get("snapshot_identity") == identity and check.get("checked_at"):
         status = check.get("status") if verified_identity == identity else "not_checked"
-        label = {"verified_current": "Verified current", "newer_inputs_available": "Newer inputs available",
+        label = {"verified_current": "Verified current", "newer_inputs_available": "Rebuild to use updated data",
                  "not_checked": "Not checked in this session"}.get(status, "Not checked")
         return f"{label}. Last freshness check: {check['checked_at']}."
     return "Freshness not checked. This is a dated saved snapshot."
