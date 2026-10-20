@@ -67,6 +67,12 @@ through the `reconcile-gotsport` triage under the owner's rules that CLAUDE.md r
 | A multi-year name (`B10-12`, `06-07-08`) | Decides nothing: the squad spans several groups. |
 | Opponents' `age_group` **columns** | Worthless — the paths that mislabelled the team set its opponents too. |
 
+GotSport team-history imports do not write `games.division_name`. The review counts every game's
+division text as a league read, so a tournament flight, including one a team entered playing up,
+votes as if it were the league's own statement; SincSports and PlayMetrics tournament imports
+already store flights there. Before storing a provider's division text on games, check whether it
+names a league division or a tournament flight.
+
 Measured 2026-09-19. In North Carolina ~1,260 names such as `15 (11U) CSA Uptown King` were
 last season's labels: that team plays this season in Classic League `'14 (U12B)`, and 20 of 20
 division reads backed the stored group. `08 (17U) CISC NM Tan` is stored U19, correctly — 2008 is

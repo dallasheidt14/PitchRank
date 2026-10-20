@@ -23,7 +23,7 @@ import type { RankingRow } from '@/types/RankingRow';
 import type { GameWithTeams } from '@/lib/types';
 import { formatGameDate } from '@/lib/dateUtils';
 import { AGE_GROUPS_ALL } from '@/lib/constants';
-import { teamDisplayName, spokenTeamMeta, scrollBehavior } from '@/lib/utils';
+import { teamDisplayName, spokenTeamMeta, scrollBehavior, formatGameCompetition } from '@/lib/utils';
 import { TeamRowSubtitle } from '@/components/TeamRowSubtitle';
 
 interface UnknownOpponentLinkProps {
@@ -431,7 +431,7 @@ export function UnknownOpponentLink({
               </div>
               <div className="col-span-2">
                 <span className="text-muted-foreground">Competition:</span>{' '}
-                <span className="font-medium">{game.competition || game.division_name || 'Unknown'}</span>
+                <span className="font-medium">{formatGameCompetition(game, 'Unknown')}</span>
               </div>
               <div className="col-span-2">
                 <span className="text-muted-foreground">Provider ID:</span>{' '}

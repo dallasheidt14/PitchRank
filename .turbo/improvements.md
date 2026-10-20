@@ -2422,3 +2422,23 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `src/utils/team_name_utils.py` `squad_labels_differ` / `_squad_reading`
 - **Why**: The squad check from IMP-368 (#1324) reads a label only after a birth year, so names carrying only a U-age are left to `score_team_pair`: `squad_labels_differ("Cincy SC U12 Elite", "Cincy SC U12 Premier", ...)` returns False where the B2014 spelling returns True (checked 2026-10-17). The scorer can rate such a pair 1.0, so the weekly unknown-opponent job can still auto-link two squads of one U-age. Count such pairs in the saved Tuesday aggregates and the approved merges before extending it.
 - **Noted**: 2026-10-17
+
+### Stop the age review counting tournament flights as league division reads
+
+- **ID**: IMP-378
+- **Status**: open
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `.claude/skills/correcting-team-age-groups/scripts/review_age_labels.py` `review`
+- **Why**: `review` counts every `games.division_name` this season as a deciding age vote, with no provider or competition filter, and the skill rates the division label "Decides". A review on 2026-10-20 measured (read-only, not re-checked here) about 1,880 stored division labels this season that are tournament flights, SincSports about 1,620 and PlayMetrics tournaments about 258, roughly 21% of the division labels that state an age. A single division read for the stored group also blocks the play-up path. A team that entered a tournament flight a year up therefore votes as if its league had said so. Measure how many reviewed teams a tournament flight changes before choosing between excluding tournament events and weighting them below league divisions.
+- **Noted**: 2026-10-20
+
+### Hide the Transfer Competition placeholder in the admin dashboard
+
+- **ID**: IMP-379
+- **Status**: open
+- **Type**: direct
+- **Category**: readability
+- **Where**: `dashboard.py` `load_unknown_opponent_games`, and the two game tables that read `g.get('competition') or g.get('event_name')`
+- **Why**: GotSport labels tournament matches `Transfer Competition`, and games are immutable, so the older rows keep it in `games.competition`. The public site now maps the placeholder to the event or division, but the dashboard still shows the raw label. Reuse `GotSportScraper.PLACEHOLDER_COMPETITION_NAME` rather than a second literal. Older GotSport team-history rows carry no event or division, so the fallback there is a dash; a backfill is not needed for this.
+- **Noted**: 2026-10-20

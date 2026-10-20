@@ -10,6 +10,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { useGameExplainability, useTeamGames, useTeam } from '@/lib/hooks';
 import { formatGameDate, formatShortDate } from '@/lib/dateUtils';
+import { formatGameCompetition } from '@/lib/utils';
 import { explainGameBreakdown } from '@/lib/gameExplainer';
 import Link from 'next/link';
 import { usePrefetchTeam } from '@/lib/hooks';
@@ -465,7 +466,7 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
                         )}
                       </TableCell>
                       <TableCell className="hidden sm:table-cell text-sm text-muted-foreground">
-                        {game.competition || game.division_name || '—'}
+                        {formatGameCompetition(game, '—')}
                       </TableCell>
                     </TableRow>
                   );

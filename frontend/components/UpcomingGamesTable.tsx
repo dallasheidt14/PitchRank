@@ -8,6 +8,7 @@ import { ErrorDisplay } from '@/components/ui/ErrorDisplay';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useTeamUpcomingGames, usePrefetchTeam } from '@/lib/hooks';
 import { formatShortDate } from '@/lib/dateUtils';
+import { formatGameCompetition } from '@/lib/utils';
 import type { GameWithTeams } from '@/lib/types';
 
 interface UpcomingGamesTableProps {
@@ -141,7 +142,7 @@ export function UpcomingGamesTable({ teamId, limit }: UpcomingGamesTableProps) {
                   </TableCell>
                   <TableCell className="text-center text-xs sm:text-sm text-muted-foreground">{opp.venue}</TableCell>
                   <TableCell className="hidden sm:table-cell text-sm text-muted-foreground">
-                    {game.competition || game.division_name || '—'}
+                    {formatGameCompetition(game, '—')}
                   </TableCell>
                 </TableRow>
               );
