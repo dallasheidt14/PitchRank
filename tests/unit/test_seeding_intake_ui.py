@@ -117,7 +117,7 @@ def test_build_contains_all_cohorts_and_identity_edit_hides_old_export(operator)
     assert set(calls[0]) == {"u14|Male", "u15|Female"}
     document = app.session_state["_seeding_sheet_html"]
     assert "Alpha FC" in document and "Beta FC" in document and "New Girls" in document
-    assert "Data review required" in document
+    assert "Confirm this team&#x27;s identity" in document
     click(app, "Generate PDF pack")
     assert app.session_state["_seeding_pdf"].startswith(b"%PDF-")
     app.session_state["_seeding_overrides"] = {0: {"team_id_master": "00000000-0000-0000-0000-000000000009"}}
@@ -143,8 +143,8 @@ def test_review_and_sheet_keep_registered_name_primary_with_match_and_play_up_co
     assert "Plays up from U13" in row
 
 
-@pytest.mark.parametrize("ranked_age", [14, 15])
-def test_review_uses_generic_play_up_for_same_age_or_older_match_and_keeps_c_suffix(ranked_age):
+@pytest.mark.parametrize("ranked_age", [14, 15, None, True])
+def test_review_omits_play_up_for_same_age_older_or_unknown_match_and_keeps_c_suffix(ranked_age):
     row = parse_roster("Male U14\nClub\tFire 13B*-c\tTX").rows[0]
 
     columns = ui._identity_columns(
@@ -154,7 +154,7 @@ def test_review_uses_generic_play_up_for_same_age_or_older_match_and_keeps_c_suf
     )
 
     assert columns["Team"] == "Fire 13B-c"
-    assert columns["Roster context"] == "Plays up"
+    assert columns["Roster context"] == ""
 
 
 def test_analysis_details_are_read_only_and_director_notes_save(operator):
@@ -306,7 +306,7 @@ def test_legacy_analysis_reuses_predictions_and_preserves_notes(operator):
     app.run()
     assert not app.exception and not app.error
     upgraded = app.session_state["_seeding_pack"]
-    assert upgraded["analysis_schema_version"] == 13
+    assert upgraded["analysis_schema_version"] == 14
     assert upgraded["predictions"] == pack["predictions"]
     assert upgraded["generated_at"] == pack["generated_at"]
     assert upgraded["operator_notes"] == pack["operator_notes"]
@@ -422,7 +422,7 @@ def test_rebuild_materializes_new_policy_defaults_from_a_version_three_pack(oper
     click(app, "Build seeding sheets")
 
     rebuilt = app.session_state["_seeding_pack"]
-    assert rebuilt["analysis_schema_version"] == 13
+    assert rebuilt["analysis_schema_version"] == 14
     assert rebuilt["policy"]["blowout_cost_weight"] == 2.0
     assert rebuilt["policy"]["very_close_expected_goal_difference"] == 1.0
     assert rebuilt["policy"]["material_reversal_expected_goal_difference"] == 1.0
@@ -445,7 +445,7 @@ resolved =''')
     workbook = load_workbook(BytesIO(app.session_state["_seeding_xlsx"]))
     assert set(workbook.sheetnames) == {"U14 Boys", "U15 Girls", "U15 Unspecified gender"}
     assert any(button.label == "Generate PDF pack" for button in app.button)
-    assert any("identity or cohort review" in item.value for item in app.warning)
+    assert any("Confirm this team's identity" in item.value for item in app.warning)
 
 
 def test_analysis_diagnostics_remain_collapsed_and_never_yellow(operator):
@@ -687,7 +687,7 @@ def test_unsupported_saved_note_remains_editable_after_export_failure(operator, 
     click(app, "Save director notes")
     assert not app.error
     assert app.session_state["_seeding_pack"]["operator_notes"]["u14|Male"] == "Corrected note"
-    assert app.session_state["_seeding_pack"]["analysis_schema_version"] == 13
+    assert app.session_state["_seeding_pack"]["analysis_schema_version"] == 14
     assert "Corrected note" in app.session_state["_seeding_sheet_html"]
     assert "_seeding_xlsx" in app.session_state and len(calls) == 1
 
@@ -859,7 +859,7 @@ def test_teams_without_a_current_rating_do_not_hold_the_pack_in_draft(operator, 
     assert not any("Delivery status: draft" in message.value for message in app.caption)
     assert any("roster assessed" in message.value for message in app.caption)
     assert "DRAFT" not in app.session_state["_seeding_sheet_html"]
-    assert "No current rating" in app.session_state["_seeding_sheet_html"]
+    assert "Not enough data to recommend a placement." in app.session_state["_seeding_sheet_html"]
 
 
 @pytest.mark.parametrize("unavailable", [None, [], {"u14|Male": None}, {"u14|Male": {"0": {}}}])
@@ -1402,7 +1402,7 @@ def test_preview_choice_is_explicit_and_rebuild_preserves_manual_choices(operato
     pack = app.session_state["_seeding_pack"]
     assert pack["ordering_method"] == "cohort_expected_points_v1"
     assert requested_models == ["results", "cohort"]
-    assert "Preview recommendation" in app.session_state["_seeding_sheet_html"]
+    assert "Preview recommendation" not in app.session_state["_seeding_sheet_html"]
     app.run()
     assert not app.exception
     assert app.session_state["_seeding_pack"] == pack
@@ -1460,3 +1460,16 @@ def test_director_csv_retains_draft_when_fresh_snapshot_has_pending_roster_revie
     assert app.session_state["_seeding_verified_identity"]
     assert downloads and all("DRAFT — review needed: roster completeness" in item for item in downloads)
     assert "DRAFT — review needed: roster completeness" in app.session_state["_seeding_sheet_html"]
+
+
+@pytest.mark.parametrize("age_fields, expected", [
+    ({"age": 12}, "Plays up from U12"),
+    ({"age_group": "u12"}, "Plays up from U12"),
+    ({"age": 12, "age_group": "u13"}, ""),
+    ({"age": 13, "age_group": "u12"}, ""),
+    ({"age": 13, "age_group": "u13"}, ""),
+])
+def test_review_play_up_uses_known_consistent_ages_without_needing_a_star(age_fields, expected):
+    row = parse_roster("Male U13\nClub\tWhite Dtown 13/14 (B)\tPA").rows[0]
+    columns = ui._identity_columns("0", {"0": {"team_name": "White Dtown", **age_fields}}, {"0": row})
+    assert columns["Roster context"] == expected

@@ -29,9 +29,10 @@ from src.tournaments.seeding_tiers import (
     build_tiers,
 )
 
-PACK_SCHEMA_VERSION = 9
-ANALYSIS_SCHEMA_VERSION = 13
-_UPGRADABLE_PACK_SCHEMAS = frozenset({3, 4, 5, 6, 7, 8, 9})
+PACK_SCHEMA_VERSION = 10
+ANALYSIS_SCHEMA_VERSION = 14
+_UPGRADABLE_PACK_SCHEMAS = frozenset({3, 4, 5, 6, 7, 8, 9, 10})
+_SCOPED_PACK_SCHEMAS = _UPGRADABLE_PACK_SCHEMAS - {3, 4, 5}
 _AGE_GROUP = re.compile(r"^u[1-9][0-9]?$")
 _LEGACY_UNAVAILABLE_REASONS = {
     "Two roster entries resolve to the same team; verify the matches.": (
@@ -41,8 +42,7 @@ _LEGACY_UNAVAILABLE_REASONS = {
         "Confirm the club and team match. Then use recent results or club input before seeding."
     ),
 }
-# A pack without unavailable_codes is classified by sentence: this must equal the no_current_rating
-# reason in seedingPredictions.ts, and every other sentence is a data review.
+# Frozen fallback for packs saved before unavailable_codes existed.
 _LEGACY_NO_RATING_REASON = "No usable current PitchRank rating is available."
 
 
@@ -176,7 +176,7 @@ def retain_matching_cohorts(pack: Any, rows, resolved, overrides) -> Any:
     When no cohort matches, keep the dated pack only as a rebuild source. The
     analysis/export guard still rejects its stale roster fingerprint.
     """
-    if not isinstance(pack, dict) or pack.get("schema_version") not in {6, 7, 8, PACK_SCHEMA_VERSION}:
+    if not isinstance(pack, dict) or pack.get("schema_version") not in _SCOPED_PACK_SCHEMAS:
         return pack
     fingerprints = cohort_fingerprints(rows, resolved, overrides)
     saved = pack.get("cohort_fingerprints", {})
@@ -188,7 +188,8 @@ def retain_matching_cohorts(pack: Any, rows, resolved, overrides) -> Any:
     retained = json.loads(json.dumps(pack))
     retained["saved_manual_decisions"] = _saved_manual_decisions(pack)
     retained["selected_cohorts"] = selected
-    for field in ("cohort_fingerprints", "teams", "unavailable", "unavailable_codes", "input_digests",
+    for field in ("cohort_fingerprints", "teams", "unavailable", "unavailable_codes", "unavailable_details",
+                  "input_digests",
                   "predictions", "manual_groups", "manual_seed_orders", "ordering", "boundary_analysis",
                   "input_evidence", "sensitivity_predictions"):
         retained[field] = {key: value for key, value in pack.get(field, {}).items() if key in selected}
@@ -250,6 +251,7 @@ def make_pack(
         "teams": batch.teams,
         "unavailable": batch.unavailable,
         "unavailable_codes": batch.unavailable_codes,
+        "unavailable_details": getattr(batch, "unavailable_details", {}),
         "ratings": {key: dict(value) for key, value in ratings.items() if key in requested_ids},
         "predictions": {
             key: [{"entrant_a": a, "entrant_b": b, **asdict(value)} for (a, b), value in sorted(pairs.items())]
@@ -306,7 +308,7 @@ def snapshot_matches_roster(
     matches = (
         isinstance(pack.get("cohort_fingerprints"), dict)
         and all(pack["cohort_fingerprints"].get(key) == fingerprints.get(key) for key in saved_selection)
-        if pack.get("schema_version") in (6, 7, 8, PACK_SCHEMA_VERSION) else
+        if pack.get("schema_version") in _SCOPED_PACK_SCHEMAS else
         pack.get("roster_fingerprint") == roster_fingerprint(rows, resolved, overrides)
     )
     return (
@@ -331,6 +333,7 @@ def _snapshot_predictions(
     for section in (
         "manual_groups",
         "unavailable_codes",
+        "unavailable_details",
         "manual_seed_orders",
         "ordering",
         "boundary_analysis",
@@ -363,6 +366,7 @@ def _snapshot_predictions(
                 key: {
                     **{section: pack[section][key] for section in ("teams", "unavailable", "predictions")},
                     "unavailable_codes": codes.get(key, {}),
+                    "unavailable_details": pack.get("unavailable_details", {}).get(key, {}),
                 }
                 for key in request
             },
@@ -390,6 +394,7 @@ def _published_score(team: dict[str, Any]) -> float | None:
 
 def _review_reason(
     row: RosterRow, team: dict[str, Any], unavailable: str | None, code: str | None, identity: str | None,
+    details: dict | None = None,
 ) -> tuple[str | None, str]:
     """The status is meaningful only when a reason is returned."""
     if not _valid_cohort(row.section_age_group, row.section_gender):
@@ -397,6 +402,9 @@ def _review_reason(
     if not identity:
         return "Confirm the club, team name, and age group before seeding.", DATA_REVIEW
     if unavailable:
+        if details and details.get("kind") == "ratings_outdated":
+            return ("Waiting for updated rankings. Your team match is saved; the rating still uses older team details. "
+                    "Rebuild after rankings finish.", DATA_REVIEW)
         status = UNAVAILABLE_STATUS[code] if code else (
             NO_CURRENT_RATING if unavailable == _LEGACY_NO_RATING_REASON else DATA_REVIEW
         )
@@ -409,7 +417,7 @@ def _review_reason(
             return (f"Inactive rating; {results.get('games', 0)} usable saved games, "
                     f"latest {results.get('latestGameDate') or 'unknown'}. Confirm current team before placement.",
                     NO_CURRENT_RATING)
-        return "No current ranking. Use recent results or club input.", NO_CURRENT_RATING
+        return "PitchRank marks this team inactive. Confirm its recent results before placement.", NO_CURRENT_RATING
     if _published_score(team) is None:
         return "No current PitchRank score. Use recent results or club input.", NO_CURRENT_RATING
     # The accepted roster is the source of truth for tournament placement.
@@ -455,6 +463,7 @@ def analyze_pack(
             else:
                 review_reason, review_status = _review_reason(
                     row, evidence, unavailable.get(entrant_id), codes.get(entrant_id), identity,
+                    pack.get("unavailable_details", {}).get(key, {}).get(entrant_id),
                 )
             if row.source_index in duplicate_rows:
                 review_reason, review_status = (
@@ -509,6 +518,16 @@ def analyze_pack(
             manual_holds=manual["held"] if manual is not None else (),
             ordering_method=pack.get("ordering_method", "legacy"),
         )
+        analysis = replace(analysis, review_kinds={
+            entrant: pack.get("unavailable_details", {}).get(key, {}).get(entrant, {}).get("kind")
+            or pack.get("unavailable_codes", {}).get(key, {}).get(entrant, "identity_review")
+            for entrant in analysis.review
+        })
+        if pack.get("prediction_model") == "results":
+            analysis = replace(analysis,
+                diagnostics=tuple(item for item in analysis.diagnostics if "low outcome confidence" not in item)
+                + ("Prediction confidence has not yet been validated.",),
+                warnings=tuple(item for item in analysis.warnings if "low outcome confidence" not in item))
         if analysis.ordering_evidence:
             evidence = dict(analysis.ordering_evidence)
             evidence["prediction_model"] = pack.get("prediction_model", "legacy")
@@ -636,7 +655,7 @@ def upgrade_pack_analysis(
     """
     if (
         pack.get("schema_version") not in _UPGRADABLE_PACK_SCHEMAS
-        or pack.get("analysis_schema_version") not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
+        or pack.get("analysis_schema_version") not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13)
     ):
         raise ValueError("This saved pack requires a fresh build.")
     if not snapshot_matches_roster(pack, rows, resolved, overrides, selected):

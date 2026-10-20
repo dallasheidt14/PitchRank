@@ -5,6 +5,8 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { AppError } from './errors';
 import {
   fetchPredictionEvidence,
+  PredictionMetadataError,
+  PredictionUnavailableError,
   fetchPredictionTeam,
   resolvePredictionTeamIds,
   type PredictionTeam,
@@ -54,6 +56,7 @@ export type SeedingUnavailableCode = (typeof SEEDING_UNAVAILABLE_CODES)[number];
 interface Unavailable {
   code: SeedingUnavailableCode;
   reason: string;
+  details?: { kind: string; team_age?: number; rating_ages?: number[] };
 }
 
 export interface SeedingPredictionResult {
@@ -69,6 +72,7 @@ export interface SeedingPredictionResult {
       teams: Record<string, SeedingTeam>;
       unavailable: Record<string, string>;
       unavailable_codes: Record<string, SeedingUnavailableCode>;
+      unavailable_details: Record<string, NonNullable<Unavailable['details']>>;
       predictions: SeedingPairPrediction[];
       sensitivity?: Array<{
         omitted_game_id: string;
@@ -172,14 +176,23 @@ export async function buildSeedingPredictions(
               reason: 'Confirm the club, team name, and age group before seeding.',
             });
           } else if (error instanceof AppError && error.code === 'prediction_unavailable') {
+            const detail = error instanceof PredictionUnavailableError ? error.details : undefined;
+            const explanation =
+              detail?.reason === 'inactive'
+                ? 'PitchRank marks this team inactive. Confirm its recent results before placement.'
+                : detail?.reason === 'no_ranked_results'
+                  ? 'Rankings do not currently include usable game history for this team. Refresh results, then run rankings and rebuild.'
+                  : 'No usable current PitchRank rating is available. Check its game history, then run rankings and rebuild.';
             unavailableByCanonical.set(teamId, {
               code: 'no_current_rating',
-              reason: 'No usable current PitchRank rating is available.',
+              reason: explanation,
+              details: detail,
             });
           } else if (error instanceof AppError && error.code === 'prediction_metadata_conflict') {
             unavailableByCanonical.set(teamId, {
               code: 'metadata_conflict',
               reason: `${error.message} Then rebuild matchup tiers. Your team match is saved.`,
+              details: error instanceof PredictionMetadataError ? error.details : { kind: 'data_review' },
             });
           } else {
             throw error;
@@ -234,11 +247,13 @@ export async function buildSeedingPredictions(
       teams: {},
       unavailable: {},
       unavailable_codes: {},
+      unavailable_details: {},
       predictions: [],
     };
-    const markUnavailable = (entrantId: string, { code, reason }: Unavailable) => {
+    const markUnavailable = (entrantId: string, { code, reason, details }: Unavailable) => {
       output.unavailable[entrantId] = reason;
       output.unavailable_codes[entrantId] = code;
+      output.unavailable_details[entrantId] = details ?? { kind: code };
     };
     result.cohorts[cohortKey] = output;
     const canonicalCounts = new Map<string, number>();
@@ -260,6 +275,7 @@ export async function buildSeedingPredictions(
         markUnavailable(entrantId, {
           code: 'metadata_conflict',
           reason: 'This canonical team is excluded from ranking evidence. Resolve its identity before seeding.',
+          details: { kind: 'identity_review' },
         });
         continue;
       }
@@ -267,6 +283,7 @@ export async function buildSeedingPredictions(
         markUnavailable(entrantId, {
           code: 'metadata_conflict',
           reason: 'Possible duplicate game records need source review. The records remain in the saved evidence.',
+          details: { kind: 'game_records_review' },
         });
         continue;
       }
@@ -324,6 +341,7 @@ export async function buildSeedingPredictions(
           .sort()
       ),
       unavailable: output.unavailable_codes,
+      unavailable_details: output.unavailable_details,
       games: cohortGames,
       omitted: scopedOmissions,
     };

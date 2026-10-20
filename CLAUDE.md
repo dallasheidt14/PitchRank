@@ -877,12 +877,11 @@ arrives as SIGINT, and `KeyboardInterrupt` is not an `Exception`. Nothing surviv
 SIGKILL, and releasing a large claim costs a round trip per 100 rows, so a cancelled
 bulk drain may still strand part of its batch.
 
-**A stranded row does not block its team.** `idx_scrape_requests_pending_team` is
-`UNIQUE … WHERE status = 'pending'`, so a row sitting in `processing` does not stop
-`enqueue_scrape_request` creating a fresh pending one — verified 2026-08-28, when 1,974
-of 6,392 stranded teams had already been re-queued. The cost is that queue depth becomes
-unreadable, not that teams fall out of the pipeline. Earlier wording here claimed
-otherwise.
+**An active row blocks duplicate work for its team.** `idx_scrape_requests_active_team`
+is unique across `pending` and `processing`. Compatible requests reuse that work;
+conflicting source/date requests require review. Retire a stranded processing request
+before requeueing it. MatchBalance's durable intent receipt also prevents a browser
+restart from repeating a completed request.
 
 Stranding is bursty rather than gradual: a cancelled `clear-queue` run put 5,981 rows
 into `processing` in a single second on 2026-08-23. `scripts/retire_stranded_scrape_requests.py`

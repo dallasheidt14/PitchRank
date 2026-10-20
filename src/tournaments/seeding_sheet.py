@@ -50,6 +50,7 @@ __all__ = [
     "fetch_ranking_run_date",
     "make_ratings_lookup",
     "render_sheet_html",
+    "play_up_from_age_group",
 ]
 
 BRAND = {
@@ -84,6 +85,7 @@ class SheetTeam:
     record: str = ""
     national_rank: int | None = None
     national_rank_context: str = ""
+    review_kind: str = ""
 
 
 @dataclass(frozen=True)
@@ -135,8 +137,11 @@ def _ranked_age_group(rating: Mapping[str, Any]) -> str | None:
     return f"u{int(match.group(1))}" if match else None
 
 
-def _play_up_from_age_group(rating: Mapping[str, Any], entered_age_group: str) -> str | None:
+def play_up_from_age_group(rating: Mapping[str, Any], entered_age_group: str) -> str | None:
     ranked = _ranked_age_group(rating)
+    metadata_age = _ranked_age_group({"age_group": rating.get("age_group")})
+    if metadata_age and ranked != metadata_age:
+        return None
     ranked_age = _age_sort_key(ranked or "")
     entered_age = _age_sort_key(entered_age_group)
     return ranked if ranked_age and entered_age and ranked_age < entered_age else None
@@ -208,6 +213,7 @@ def build_cohort_sheets(
         registered_name = row.registered_name
         pitchrank_name = str(rating.get("team_name") or "").strip()
         national_rank, national_rank_context = _published_national_rank(rating, *cohort)
+        play_up_from = play_up_from_age_group(rating, row.section_age_group)
         team = SheetTeam(
             team_name=registered_name,
             club_name=str(row.club_raw or rating.get("club_name") or ""),
@@ -224,8 +230,9 @@ def build_cohort_sheets(
             entrant_id=str(row.source_index),
             team_id_master=team_id,
             review_reason=analysis.review.get(str(row.source_index)) if analysis else None,
-            plays_up=bool(row.has_star_marker),
-            play_up_from_age_group=_play_up_from_age_group(rating, row.section_age_group),
+            review_kind=getattr(analysis, "review_kinds", {}).get(str(row.source_index), ""),
+            plays_up=play_up_from is not None,
+            play_up_from_age_group=play_up_from,
             requested_flight=str(getattr(row, "requested_flight", "") or "").strip() or None,
             listed_division=str(getattr(row, "listed_division", "") or "").strip() or None,
         )
@@ -408,8 +415,6 @@ def _rows_html(
                 f'<span class="play-up">Plays up from '
                 f'{html.escape(team.play_up_from_age_group.upper())}</span>'
             )
-        elif team.plays_up:
-            play_up = '<span class="play-up">Plays up</span>'
         else:
             play_up = ""
         flight_context = ""
@@ -430,7 +435,7 @@ def _rows_html(
         )
         row_class = ' class="strength-break"' if team.entrant_id in strength_break_ids else ""
         inline_note = (f'<span class="placement">{html.escape(note)}</span>'
-                       if not show_notes and not numbered and note else "")
+                       if not show_notes and (not numbered or team.review_reason) and note else "")
         note_cell = f'<td class="{note_class}">{html.escape(note)}{close_html}</td>' if show_notes else ""
         row = (
             f'<tr data-entrant="{html.escape(team.entrant_id, quote=True)}"{row_class}>'
@@ -448,7 +453,6 @@ def _rows_html(
                 '<tbody class="competitive-break-group">'
                 f'<tr class="competitive-break"><td colspan="{5 + int(show_notes)}">'
                 f'<span>{html.escape(separator_label)}</span>'
-                '<small>Strength guidance; the director makes the final placement decision</small>'
                 f'</td></tr>{row}</tbody>'
             )
         else:
@@ -628,6 +632,8 @@ def _cheat_sheet_tables(sheet: CohortSheet) -> tuple[str, str]:
         strength_break_ids=frozenset(row.team.entrant_id for row in content.seeded if row.strength_break_after),
         break_labels={row.team.entrant_id: "Competitive Break" if row.seed in practical_cuts else row.break_label
                       for row in content.seeded},
+        placement_notes={row.team.entrant_id: row.placement_explanation for row in content.seeded
+                         if row.team.review_reason},
         show_notes=False,
     ))
     if content.unseeded:
@@ -635,15 +641,11 @@ def _cheat_sheet_tables(sheet: CohortSheet) -> tuple[str, str]:
             "Placement needed", [row.team for row in content.unseeded], numbered=False, review=True,
             cohort_label=cohort, seed_label="Seed",
             subtitle="Strength is not established. These teams are not ranked last.",
-            placement_notes={row.team.entrant_id: row.display_status + ". " + row.recommendation_reason
+            placement_notes={row.team.entrant_id: row.placement_explanation
                              for row in content.unseeded},
             show_notes=False,
         ))
-    sizes = " + ".join(str(item["size"]) for item in divisions)
-    summary = (f"Suggested tiers: {sizes} teams. " if sizes else "")
-    summary += f"{len(content.seeded)} of {len(content.rows)} teams placed"
-    if content.unseeded:
-        summary += f"; {len(content.unseeded)} still need placement"
+    summary = content.coverage_summary
     if guidance.get("status") == "review_required_compromise":
         summary += ". Matchup review needed before finalizing"
     return "\n".join(tables), summary + "."
@@ -656,29 +658,20 @@ def _sheet_html(
     cohort = f"{_display_gender(sheet.gender)} {sheet.age_group.upper()}"
     tables, summary = _cheat_sheet_tables(sheet)
     content = build_director_cohort(sheet, operator_note)
-    guidance = (*content.format_notes, *content.director_notes)
+    guidance = content.director_notes
     notes = ""
-    if guidance:
+    if guidance or content.review_teams:
+        review = ""
+        if content.review_teams:
+            teams = "".join(f"<li>{html.escape(name)}</li>" for name in content.review_teams)
+            review = (f'<p>{html.escape(LIMITED_HISTORY_LEGEND)}</p>'
+                      f'<ul class="review-team-list">{teams}</ul>')
         items = "".join(f"<li>{html.escape(value)}</li>" for value in dict.fromkeys(guidance))
-        notes = (f'<aside class="guidance"><h2>Director notes · {html.escape(cohort)}</h2>'
-                 f'<ul>{items}</ul></aside>')
-    explanation = "Read from seed 1 down. Tier lines suggest strength divisions; a division can contain several pools."
-    explanation += (" PitchRank score already adjusts for age, so a younger team playing up can be compared here. "
-                    "State rank is that team's rank "
-                    "within its own PitchRank age and gender group.")
-    if any(row.team.record for row in content.rows):
-        explanation += " Record is wins-losses-draws from scored games in this snapshot."
-    if any(row.evidence_note for row in content.seeded):
-        explanation += " Limited history means the placement needs a closer look."
+        other_notes = f'<ul>{items}</ul>' if items else ""
+        notes = (f'<aside class="guidance"><h2>Teams to review · {html.escape(cohort)}</h2>'
+                 f'{review}{other_notes}</aside>')
     guide = f"""<section class="seed-guide">
   <div class="recommendation">{html.escape(summary)}</div>
-  <p class="method">{html.escape(explanation)}</p>
-  <div class="guide-grid">
-   <div class="guide-step"><strong>MatchBalance Seed</strong>
-    <span>Start with this recommendation, then use tournament judgement for final placement.</span></div>
-   <div class="guide-step"><strong>Limited history</strong>
-    <span>{html.escape(LIMITED_HISTORY_LEGEND)}</span></div>
-  </div>
  </section>"""
     return f"""<section class="sheet">
  <header class="masthead">
@@ -822,6 +815,9 @@ def render_sheet_html(
  .guidance h2 {{ font-size: 11px; color: {BRAND["forest"]}; margin: 0 0 2mm; }}
  .guidance ul {{ margin: 0; padding-left: 4mm; font-size: 10px; line-height: 1.5; }}
  .guidance li {{ margin-bottom: 1.5mm; }}
+ .guidance p {{ font-size: 10px; line-height: 1.5; margin: 0 0 2mm; }}
+ .guidance .review-team-list {{ columns: 2; column-gap: 7mm; margin-bottom: 4mm; }}
+ .review-team-list li {{ break-inside: avoid; }}
  .diagnostics {{ margin: 4mm 0; font-size: 9px; color: {BRAND["muted"]}; }}
  .diagnostics summary {{ cursor: pointer; color: {BRAND["forest"]}; font-weight: 700; }}
  .diagnostics ul {{ margin: 2mm 0 0; padding-left: 5mm; line-height: 1.45; }}

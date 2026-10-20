@@ -31,6 +31,9 @@ PowerScore remains the baseline; directors decide final placement and pool membe
    the accepted roster. Unmatched teams, duplicate identities, inactive teams,
    missing ratings, and metadata conflicts remain visible for manual placement.
    A younger team playing up remains eligible when its other data is valid.
+   Saved automatic and manual matches queue missing-game checks. Under **Team
+   game refresh**, check progress or retry failures. Wait for the relevant requests
+   to finish, then calculate rankings and wait for completion before rebuilding.
 4. Click **Build seeding sheets**. The saved pack freezes
    its roster, current ratings, predictions, policy, and original PowerScore
    order for reproducibility.
@@ -60,6 +63,62 @@ inputs per cohort, with a separate model/code identity. Checking compares those
 inputs without replacing saved predictions. Reopening offline shows the last
 check time but requires another check or a snapshot-specific acknowledgment.
 Changes to report contents invalidate its acknowledgment and cached exports.
+
+## Team refresh and data warnings
+
+Refresh receipts live beside the saved run in `team_refresh.json`; they do not
+change frozen predictions or cohort review decisions. Reopening a legacy run
+does not queue work. Use **Refresh saved matches** to backfill it deliberately.
+Compatible pending requests receive operator priority without changing their
+source or date; processing and completed requests are retained. A conflicting
+source needs review. Queueing never launches a rankings calculation.
+
+Before deploying the migration to another database, run this read-only preflight:
+
+```sql
+SELECT team_id_master, count(*) AS active_requests,
+       array_agg(id ORDER BY requested_at) AS request_ids
+FROM public.scrape_requests
+WHERE status IN ('pending', 'processing')
+GROUP BY team_id_master
+HAVING count(*) > 1;
+```
+
+Require zero rows before applying. The old pending-only index allowed pending
+and processing requests for the same team. If duplicates exist, inspect the
+request IDs and running workers; let live work finish. Use
+`python scripts/retire_stranded_scrape_requests.py` to preview abandoned claims,
+then its `--execute` option only after confirming they are stranded. Do not
+silently delete requests or retire live workers just to make the index succeed.
+Re-run the preflight immediately before applying during a queue-writer maintenance
+window. The index intentionally fails closed if a duplicate appears meanwhile.
+
+Apply migration `20261020020000_atomic_matchbalance_refresh.sql` before using
+automatic refresh. It protects both pending and processing requests and stores
+adoption receipts in `scrape_request_intents`, so a lost response cannot cause
+another scrape after the original finishes. The existing enqueue RPC keeps its
+signature and preserves accepted sources/dates. For abandoned processing work,
+use the existing stranded-request retirement tool before the requeue tool;
+the RPC reports an error for processing work older than 24 hours.
+
+**Waiting for updated rankings** means the selected team is saved correctly but
+its calculated rating still uses different age/gender metadata. Rebuild after
+rankings finish; approving its placement cannot clear this data conflict.
+**Rebuild to use updated data** means the saved sheet is older than its inputs.
+**No current rating** explains missing ranked history or inactive status.
+**Limited history** means too few usable recent results to confidently judge a team's level. The director checklist asks for recent results or coach input; it does not imply a weak team. Internal refresh/rebuild instructions stay in the operator view. The results preview's
+confidence has not yet been validated, so it does not label every matchup low
+confidence merely because calibrated confidence is unavailable.
+
+For recovery outside Streamlit, preview one saved run without making writes:
+
+```powershell
+python scripts/refresh_seeding_teams.py <path-to-seeding_run.json>
+```
+
+Add `--execute` to submit requests, `--execute --status-only` to reconcile existing
+receipts, or `--execute --retry-failed` to retry. Keep the sidecar with the run when
+moving or backing it up, so completed refreshes remain known after a restart.
 
 Cohort fingerprints keep unrelated roster edits from invalidating completed
 cohorts. Narrowed rebuilds retain notes, tier names, and manual decisions for
@@ -228,9 +287,9 @@ its coverage, such as **12 of 14 teams assessed**.
 - `seeding_tiers.py` freezes the PowerScore baseline, evaluates local consensus,
   invokes the optimizer, and recomputes display annotations.
 - `seeding_pack.py` snapshots the baseline, suggestion, movement reasoning,
-  conflicts, and explicit manual override (pack schema 9, analysis schema 13).
+  conflicts, and explicit manual override (pack schema 10, analysis schema 14).
 - `seeding_freshness.py` binds freshness evidence and acknowledgments to the
-  saved snapshot. Shared export content uses schema version 14.
+  saved snapshot. Shared export content uses schema version 21.
 - `seeding_format_library.py` validates exact format variants and resolves the
   event-wide profile; `seeding_flight_suggestions.py` generates and selects
   fixed-order candidate structures without altering the seed order.

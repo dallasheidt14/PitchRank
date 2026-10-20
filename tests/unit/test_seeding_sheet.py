@@ -286,11 +286,12 @@ def test_ranking_run_date_falls_back_when_nothing_is_calculated():
 def test_the_sheet_shows_state_rank_and_not_ranked_games():
     html = render_sheet_html("STX Cup 2026", _sheets(), generated_on="2026-09-02", ranking_run="2026-08-31")
 
-    assert "State rank" in html
+    assert '<span class="state">TX #33</span>' in html
     assert "Ranked games" not in html
 
 
-def test_play_up_marker_becomes_a_plain_language_badge_with_ranked_age():
+@pytest.mark.parametrize("starred", [False, True])
+def test_play_up_badge_uses_age_even_without_a_roster_marker(starred):
     ratings = {
         **RATINGS,
         "m-tyler": {
@@ -303,7 +304,7 @@ def test_play_up_marker_becomes_a_plain_language_badge_with_ranked_age():
             "age": 12,
         },
     }
-    parsed = parse_roster(PASTE)
+    parsed = parse_roster(PASTE if starred else PASTE.replace("*", ""))
     sheets = build_cohort_sheets(parsed.rows, RESOLVED, {3: {"team_id_master": "m-tyler"}}, ratings)
 
     assert sheets[1].rated[0].plays_up is True
@@ -317,8 +318,8 @@ def test_play_up_marker_becomes_a_plain_language_badge_with_ranked_age():
     assert "Tyler FC 15B*" not in row
 
 
-@pytest.mark.parametrize("ranked_age", [14, 15])
-def test_play_up_badge_does_not_claim_same_age_or_older_team_is_the_origin(ranked_age):
+@pytest.mark.parametrize("ranked_age", [14, 15, None, True])
+def test_play_up_badge_does_not_claim_same_age_older_or_unknown_team_plays_up(ranked_age):
     ratings = {
         **RATINGS,
         "m-tyler": {
@@ -339,8 +340,8 @@ def test_play_up_badge_does_not_claim_same_age_or_older_team_is_the_origin(ranke
         "STX Cup 2026", sheets, generated_on="2026-09-02", ranking_run="2026-08-31"
     )
     row = document.split('data-entrant="3"', 1)[1].split("</tr>", 1)[0]
-    assert "Plays up" in row
-    assert "Plays up from" not in row
+    assert sheets[1].rated[0].plays_up is False
+    assert "Plays up" not in row
 
 
 def test_registered_name_keeps_unknown_c_suffix_while_replacing_only_the_star_marker():
@@ -403,19 +404,6 @@ def test_roster_flight_fields_reach_the_sheet_model_without_changing_their_meani
     assert pasted_sheet.rated[0].listed_division is None
     assert event_sheet.rated[0].requested_flight is None
     assert event_sheet.rated[0].listed_division == "U14 Boys Premier"
-
-
-def test_score_explanation_handles_play_up_teams_and_own_cohort_state_rank():
-    plain_document = render_sheet_html(
-        "STX Cup 2026", _sheets(), generated_on="2026-09-02", ranking_run="2026-08-31"
-    )
-    tier_document = _render_tier()
-
-    for document in (plain_document, tier_document):
-        assert "PitchRank score already adjusts for age" in document
-        assert "younger team playing up can be compared" in document
-        assert "own PitchRank age and gender group" in document
-        assert "Rankings are specific to each age group and gender" not in document
 
 
 def test_a_ranked_teams_state_rank_reaches_the_page_with_its_state():
@@ -482,7 +470,7 @@ def test_tier_order_controls_print_order_and_seeds_continue_across_tiers():
 def test_missing_analysis_member_is_kept_for_review_instead_of_dropped():
     document = _render_tier(_analysis(review={}))
     assert document.count('data-entrant="2"') == 1
-    assert "Data review required" in document
+    assert "Team data needs review" in document
 
 
 @pytest.mark.parametrize("analysis", [
@@ -502,15 +490,16 @@ def test_customer_pdf_prioritizes_seeding_actions_over_model_jargon():
     document = _render_tier(policy=TierPolicy(1.5, 0.2))
     assert ">53.5<span class=\"score-track\"" in document
     assert ">0.535</td>" not in document
-    assert "a division can contain several pools." in document
-    assert "MatchBalance Seed" in document
-    assert "Tier lines suggest strength divisions" in document
+    assert "Read from seed 1 down" not in document
+    assert "MatchBalance Suggested Seeding" in document
+    assert "Suggested tiers:" not in document
+    assert "Strength guidance; the director makes the final placement decision" not in document
     assert "Close ranges" not in document
-    assert "MatchBalance Seed" in document
-    assert "PitchRank score" in document
+    assert "MatchBalance Suggested Seeding" in document
+    assert "PowerScore" in document
     assert "What to know" not in document
     assert "Placement status" not in document
-    assert "Data review required" in document
+    assert "Team data needs review" in document
     assert "Limited recent results" not in document
     assert "Boundary option" not in document
     assert "No close peer was found at this level." not in document
@@ -531,7 +520,7 @@ def test_all_manual_cohort_does_not_instruct_director_to_use_missing_tiers():
     )
     document = _render_tier(analysis)
 
-    assert "0 of 3 teams placed; 3 still need placement." in document
+    assert "0 teams ranked · 3 need placement." in document
     assert "MatchBalance Suggested Seeding" in document
     assert "Build flights from the same tier" not in document
     assert "Tier 1 is strongest" not in document
@@ -554,7 +543,7 @@ def test_multiple_boundary_options_use_an_or_list():
     document = _render_tier(analysis)
 
     assert "Boundary options" not in document
-    assert "a division can contain several pools." in document
+    assert "Read from seed 1 down" not in document
 
 
 def test_customer_pdf_translates_system_diagnostics_into_seeding_actions():
@@ -593,7 +582,7 @@ def test_customer_pdf_does_not_recommend_a_missing_boundary_option():
 
     document = _render_tier(analysis)
 
-    assert "a division can contain several pools." in document
+    assert "Read from seed 1 down" not in document
     assert "use the team marked Boundary option" not in document
 
 
@@ -608,7 +597,7 @@ def test_customer_pdf_explains_a_ranking_matchup_order_conflict_plainly():
 
     document = _render_tier(analysis)
 
-    assert "a division can contain several pools." in document
+    assert "Read from seed 1 down" not in document
     assert "Ranking/matchup order conflict" not in document
     assert "use the team marked Boundary option" not in document
 
@@ -669,7 +658,7 @@ def test_invalid_score_still_renders_team_with_its_placement_review_reason(score
     )
     document = render_sheet_html("Test Cup", sheets, generated_on="2026-09-15", ranking_run="2026-09-14")
     assert document.count('data-entrant="2"') == 1
-    assert "Data review required" in document
+    assert "Team data needs review" in document
     row = document.split('data-entrant="2"', 1)[1].split("</tr>", 1)[0]
     assert '<td class="num score">-<span class="state">—</span></td>' in row
 

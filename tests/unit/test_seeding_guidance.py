@@ -151,7 +151,6 @@ def test_clear_gap_has_one_specific_observation_across_pdf_and_excel():
     break_group = (
         '<tbody class="competitive-break-group"><tr class="competitive-break">'
         '<td colspan="5"><span>Competitive Break: natural strength separation</span>'
-        '<small>Strength guidance; the director makes the final placement decision</small>'
         '</td></tr><tr data-entrant="4"'
     )
     assert break_group in document
@@ -338,7 +337,7 @@ def test_customer_sheet_keeps_breaks_without_exposing_seed_movement():
     document = render_sheet_html(
         "Cup", [sheet], generated_on="2026-09-26", ranking_run="2026-09-25",
     )
-    assert "MatchBalance Seed" in document
+    assert "MatchBalance Suggested Seeding" in document
     assert "Competitive Break" in document
     assert "Very close: seeds" not in document
     assert any(row.close_range_after for row in build_director_cohort(sheet).rows)
@@ -484,7 +483,7 @@ def test_limited_history_keeps_seed_and_literal_row_context_with_fixed_score_sca
     assert 'style="width:90.00%"' in document
     assert 'class="flag">Limited history' in document
     assert tab["D7"].value == 90 and tab["G7"].value == content.rows[0].display_status
-    assert "Seeded: 8" in tab["A5"].value
+    assert "8 teams ranked" in tab["A5"].value
     rule = tab.conditional_formatting[next(iter(tab.conditional_formatting))][0]
     assert [(x.type, x.val) for x in rule.dataBar.cfvo] == [("num", 0), ("num", 100)]
     assert tab["A7"].border.bottom.style == "hair"

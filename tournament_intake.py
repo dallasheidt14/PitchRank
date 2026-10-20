@@ -84,7 +84,6 @@ from src.tournaments.roster_paste import ParsedRoster, parse_roster
 from src.tournaments.roster_resolver import (
     ProviderIdLookup,
     ResolvedTeam,
-    fetch_gotsport_provider_id,
     make_club_candidate_lookup,
     make_exact_name_lookup,
     make_provider_id_lookup,
@@ -106,11 +105,6 @@ from src.tournaments.seeding_assessment import (
     package_roster,
     source_fingerprint,
 )
-from src.tournaments.seeding_enqueue import (
-    enqueue_resolved_teams,
-    make_enqueue_caller,
-    make_provider_team_id_lookup,
-)
 from src.tournaments.seeding_intake_ui import invalidate_seeding_exports, render_seeding_pack
 from src.tournaments.seeding_optimizer import (
     normalize_age_group,
@@ -124,6 +118,7 @@ from src.tournaments.seeding_pack import (
     snapshot_matches_roster,
     team_ids_by_row,
 )
+from src.tournaments.seeding_refresh import RefreshQueue, read_refresh, refresh_run, refresh_summary
 from src.tournaments.seeding_run_store import (
     PackRecovery,
     RunNameTaken,
@@ -4415,6 +4410,14 @@ def _enrich_seeding_names(resolved: Sequence[ResolvedTeam], client: Any) -> tupl
 
 def _resolve_seeding_incrementally(parsed, resolved, client):
     """Publish each successful lookup before starting the next network request."""
+    refresh_queue = None
+
+    def queue_for_matching():
+        nonlocal refresh_queue
+        if refresh_queue is None:
+            refresh_queue = RefreshQueue(client)
+        return refresh_queue
+
     metadata = dict(st.session_state.get("_seeding_assessment") or {})
     metadata.setdefault("event_id", st.session_state.get("_seeding_result_event_id"))
     completed = set(metadata.get("completed", []))
@@ -4426,7 +4429,9 @@ def _resolve_seeding_incrementally(parsed, resolved, client):
                if index not in completed and index not in overrides and index in eligible]
     st.session_state["_seeding_resolution_failed"] = True
     # Archive the prior source before progress checkpoints replace the latest file.
-    if _seeding_run_name() and not _autosave_seeding_run():
+    if _seeding_run_name() and not _autosave_seeding_run(
+        refresh_client=client, refresh_queue_factory=queue_for_matching,
+    ):
         _add_seeding_notice("info", "Matching paused until this run can be saved. Retry saving, then retry matching.")
         return
     session = requests.Session()
@@ -4451,7 +4456,8 @@ def _resolve_seeding_incrementally(parsed, resolved, client):
                 completed.add(index)
                 metadata["completed"] = sorted(completed)
                 st.session_state["_seeding_assessment"] = dict(metadata)
-                _autosave_seeding_run(archive_previous=False)
+                _autosave_seeding_run(archive_previous=False, refresh_client=client,
+                                     refresh_queue_factory=queue_for_matching)
             current = _enrich_seeding_names(current, client)
             _park_seeding_result((parsed, current), event_id=metadata.get("event_id"))
         st.session_state["_seeding_resolution_failed"] = False
@@ -4462,7 +4468,7 @@ def _resolve_seeding_incrementally(parsed, resolved, client):
         )
     finally:
         session.close()
-    _autosave_seeding_run()
+    _autosave_seeding_run(refresh_client=client, refresh_queue_factory=queue_for_matching)
 
 
 def _run_seeding_name_lookup(
@@ -4812,7 +4818,7 @@ def _render_seeding_override(
             if keys is _SEEDING_KEYS:
                 _retain_seeding_cohort_work()
                 invalidate_seeding_exports(st.session_state)
-                _autosave_seeding_run()
+                _autosave_seeding_run(refresh_client=supabase_client)
             st.rerun()
 
 
@@ -4893,7 +4899,8 @@ def _persisted_seeding_run_matches_active() -> bool:
     return persisted == _seeding_run_signature(active)
 
 
-def _autosave_seeding_run(*, archive_previous: bool = True) -> bool:
+def _autosave_seeding_run(*, archive_previous: bool = True, refresh_client: Any = None,
+                         refresh_queue_factory: Any = None) -> bool:
     """Persist the run, reporting whether it actually landed.
 
     Silent when unnamed: a run has to be called something before it can have a
@@ -4901,6 +4908,10 @@ def _autosave_seeding_run(*, archive_previous: bool = True) -> bool:
     failed write both answer False, so a caller that announces success does not
     announce it over the warning this just raised.
     """
+    if refresh_client is not None:
+        st.session_state["_seeding_refresh_client_pending"] = refresh_client
+    else:
+        refresh_client = st.session_state.get("_seeding_refresh_client_pending")
     if (st.session_state.get("_seeding_transition") or
         st.session_state.get("_seeding_pending_name") is not None or
         st.session_state.get("_seeding_pending_event_url") is not None):
@@ -4944,6 +4955,11 @@ def _autosave_seeding_run(*, archive_previous: bool = True) -> bool:
         st.session_state["_seeding_save_error"] = True
         _add_seeding_notice("warning", f"Could not save this run: {exc}")
         return False
+    # Queue only after the match has reached disk, before a session-state write
+    # can yield to a pending Streamlit rerun. A failed save retains this intent.
+    if refresh_client is not None:
+        if _refresh_saved_seeding_run(refresh_client, name=active.name, queue_factory=refresh_queue_factory):
+            st.session_state.pop("_seeding_refresh_client_pending", None)
     st.session_state["_seeding_persisted_signature"] = _seeding_run_signature(active)
     st.session_state["_seeding_save_error"] = False
     return True
@@ -5002,6 +5018,7 @@ def _apply_seeding_transition() -> None:
     # A queued Streamlit rerun can interrupt any assignment. Keep the complete
     # transition available so the next render reinstalls every field together.
     _reset_seeding_review_widgets()
+    st.session_state.pop("_seeding_refresh_client_pending", None)
     st.session_state["_seeding_assessment"] = update["metadata"]
     st.session_state["_seeding_cohort_decisions"] = update["decisions"]
     st.session_state["_seeding_overrides"] = update["overrides"]
@@ -5203,38 +5220,67 @@ def _render_seeding_sheet(
     )
 
 
+def _refresh_saved_seeding_run(
+    client: Any, *, retry_failed: bool = False, status_only: bool = False, name: str | None = None,
+    queue_factory: Any = None,
+) -> bool:
+    """Called by a saved matching action or explicit retry, never by page render."""
+    from src.tournaments.seeding_run_store import slugify
+    name = name if name is not None else _seeding_run_name()
+    if not name or client is None:
+        return False
+    try:
+        slug = slugify(name)
+        run = load_seeding_run_file(slug)
+        refresh_run(run, default_seeding_base_dir() / slug, queue_factory() if queue_factory else RefreshQueue(client),
+                    retry_failed=retry_failed, status_only=status_only)
+        return True
+    except Exception:
+        logger.warning("Team refresh interrupted; saved matches were retained.")
+        _add_seeding_notice("warning", "Your matches are saved. Team refresh could not finish; "
+                            "retry under Team game refresh.")
+        return False
+
+
 def _render_seeding_enqueue(parsed: ParsedRoster, resolved: Sequence[ResolvedTeam], supabase_client: Any) -> None:
-    """Run refresh checks only on an operator click, never while rendering."""
-    with st.expander("Refresh team data (optional)"):
-        st.caption("You can skip this when quoting. Refresh queues matched teams for a scrape of their latest "
-                   "game results. After the scrapes and a subsequent rankings run finish, rebuild the sheets "
-                   "to use updated ratings.")
-        check = st.button("Check teams available to refresh", key="_seeding_check_refresh", help=(
-            "Checks which matched teams can be refreshed through GotSport. Does not queue or run scrapes."
+    """Display durable progress without making writes merely by opening a run."""
+    from src.tournaments.seeding_run_store import slugify
+    name = _seeding_run_name()
+    if not name:
+        return
+    try:
+        journal = read_refresh(default_seeding_base_dir() / slugify(name), name)
+    except (OSError, ValueError):
+        st.warning("Team refresh history needs recovery. Your saved matches and sheets are available.")
+        return
+    labels = {"pending": "queued", "processing": "processing", "completed": "completed",
+              "failed": "failed", "uncertain": "needs a status check", "conflict": "needs review",
+              "unavailable_source": "no linked source", "planned": "waiting to queue",
+              "submitting": "waiting to confirm"}
+    counts = refresh_summary(journal)
+    if counts:
+        st.caption("Game refresh: " + "; ".join(
+            f"{count} {labels.get(status, status)}" for status, count in counts.items()))
+    with st.expander("Team game refresh"):
+        st.caption("New matches are queued automatically. Process Missing Games collects results; "
+                   "rankings must then finish before you rebuild the sheets. "
+                   "Refreshing this page does not queue duplicates.")
+        if journal["teams"]:
+            st.dataframe([{"Team": item["team_name"], "Refresh": labels.get(item["status"], item["status"]),
+                           "Details": item.get("reason", "")} for item in journal["teams"].values()
+                          if item.get("current", True)], hide_index=True)
+        check = st.button("Check refresh status", key="_seeding_check_refresh", disabled=supabase_client is None)
+        needs_retry = any(status in counts for status in (
+            "failed", "uncertain", "conflict", "unavailable_source", "planned", "submitting",
         ))
-        queue = st.button("Queue matched teams for refresh", key="_seeding_enqueue", disabled=supabase_client is None,
-                          help="Submits scrape requests for eligible matched teams. Ratings do not update immediately.")
-        if not (check or queue):
-            return
-        try:
-            provider_id = fetch_gotsport_provider_id(supabase_client)
-            if not provider_id:
-                st.error("GotSport is unavailable in the database. Try again later.")
-                return
-            outcome = enqueue_resolved_teams(
-                parsed.rows, resolved, st.session_state._seeding_overrides,
-                enqueue=make_enqueue_caller(supabase_client, provider_id) if queue else lambda _payload: None,
-                lookup_provider_team_id=make_provider_team_id_lookup(supabase_client, provider_id),
-                dry_run=not queue,
-            )
-            if queue:
-                st.success(f"Queued {outcome.queued} teams.")
-                if outcome.failed:
-                    st.error(f"{outcome.failed} requests failed. You can retry the refresh.")
-            else:
-                st.info(f"{outcome.would_queue} teams available to refresh; {outcome.skipped} cannot be queued.")
-        except Exception:
-            st.error("Refresh is temporarily unavailable. Your roster, quote and saved sheets are still available.")
+        # Cohort corrections can make a saved match eligible after all existing
+        # receipts completed. Keep the explicit, idempotent refresh available.
+        retry = st.button("Retry failed requests" if needs_retry else "Refresh saved matches",
+                          key="_seeding_enqueue", disabled=supabase_client is None)
+        if check or retry:
+            if _autosave_seeding_run():
+                _refresh_saved_seeding_run(supabase_client, retry_failed=retry, status_only=check)
+                st.rerun()
 
 
 def _seeding_event_probe_for(url: str, *, keys: _WalkKeys = _SEEDING_KEYS) -> dict[str, Any] | None:

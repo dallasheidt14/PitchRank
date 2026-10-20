@@ -13,13 +13,23 @@ from src.utils.us_states import STATE_CODE_TO_NAME, state_name_to_code
 if TYPE_CHECKING:
     from src.tournaments.seeding_sheet import CohortSheet, SheetTeam
 
-CONTENT_VERSION = 14
-DIRECTOR_LEGEND = (
-    "Read from seed 1 down. Tier lines suggest strength divisions; a division can contain several pools. "
-    "Natural separation marks a strength gap; practical splits also consider usable division sizes. "
-    "Review warnings and unplaced teams before making final placements."
+CONTENT_VERSION = 21
+
+REVIEW_LABELS = {
+    "ratings_outdated": "Waiting for updated rankings",
+    "invalid_team_metadata": "Correct team age or gender",
+    "identity_review": "Confirm this team's identity",
+    "team_not_found": "Confirm this team's identity",
+    "duplicate_entry": "Check duplicate roster entries",
+    "game_records_review": "Check duplicate game records",
+    "metadata_conflict": "PitchRank data needs review",
+    "data_review": "PitchRank data needs review",
+}
+LIMITED_HISTORY_LEGEND = (
+    "Limited history: We have too few usable recent results to confidently judge this team's level. "
+    "Please check recent results or ask the coach before assigning a division. "
+    'This means "take a closer look," not "this is a weak team."'
 )
-LIMITED_HISTORY_LEGEND = "Fewer ranked games support this score. Keep it as a starting point for placement."
 
 
 @dataclass(frozen=True)
@@ -51,6 +61,33 @@ class DirectorRow:
         return " · ".join(value for value in (self.placement_status, self.evidence_note) if value)
 
     @property
+    def director_review_reason(self) -> str:
+        """Translate known operational conditions without hiding unknown review warnings."""
+        reason = self.team.review_reason or ""
+        kind = self.team.review_kind
+        if kind == "ratings_outdated" or reason.startswith("Waiting for updated rankings."):
+            return ("Team details were corrected, but its rating has not been updated. "
+                    "We cannot recommend a placement yet.")
+        if self.placement_status == NO_CURRENT_RATING or kind == "no_current_rating":
+            if self.team.status == "Inactive" or reason.startswith(
+                ("Inactive rating;", "PitchRank marks this team inactive.")
+            ):
+                return ("We do not have enough recent results to recommend a placement. "
+                        "Please check recent results or ask the coach about the team's level.")
+            return ("Not enough data to recommend a placement. "
+                    "Please check recent results or ask the coach about the team's level.")
+        return reason
+
+    @property
+    def placement_explanation(self) -> str:
+        director_reason = self.director_review_reason
+        if director_reason and director_reason != self.team.review_reason:
+            return director_reason
+        if self.recommendation_reason.startswith(self.display_status):
+            return self.recommendation_reason
+        return ". ".join(value for value in (self.display_status, self.recommendation_reason) if value)
+
+    @property
     def state_rank(self) -> str:
         team = self.team
         if team.state_rank is None:
@@ -61,11 +98,8 @@ class DirectorRow:
     def roster_context(self) -> tuple[str, ...]:
         team = self.team
         context = []
-        if team.plays_up:
-            context.append(
-                f"Plays up from {team.play_up_from_age_group.upper()}"
-                if team.play_up_from_age_group else "Plays up"
-            )
+        if team.plays_up and team.play_up_from_age_group:
+            context.append(f"Plays up from {team.play_up_from_age_group.upper()}")
         if team.requested_flight:
             context.append(f"Requested: {team.requested_flight}")
         if team.listed_division:
@@ -85,6 +119,14 @@ class DirectorCohort:
     guidance_summary: str = ""
     director_notes: tuple[str, ...] = ()
     format_notes: tuple[str, ...] = ()
+    review_teams: tuple[str, ...] = ()
+
+    @property
+    def coverage_summary(self) -> str:
+        summary = f"{len(self.seeded)} teams ranked"
+        if self.unseeded:
+            summary += f" · {len(self.unseeded)} need placement"
+        return summary
 
     @property
     def seeded(self) -> tuple[DirectorRow, ...]:
@@ -181,6 +223,8 @@ def build_director_cohort(sheet: CohortSheet, operator_note: str = "") -> Direct
             manual_detail = f"Manual from MatchBalance #{suggested}" if suggested is not None else "Manual placement"
             movement = " · ".join(value for value in (movement, manual_detail) if value)
         status = statuses.get(team.entrant_id, SEEDED)
+        if status == DATA_REVIEW:
+            status = REVIEW_LABELS.get(team.review_kind, "Team data needs review")
         tier = next((item["label"] for item in divisions
                      if item["start_seed"] <= seed <= item["end_seed"]), "")
         break_label = (
@@ -195,6 +239,8 @@ def build_director_cohort(sheet: CohortSheet, operator_note: str = "") -> Direct
             reason += f" Order sensitive to results (stress seeds {span[0]}-{span[1]})."
         if manual_override:
             reason = "Manual placement. " + reason
+        if team.review_reason:
+            reason = " ".join(value for value in (team.review_reason, reason) if value)
         if guidance.get("status") == "review_required_compromise":
             break_label = break_label.replace("Recommended tier break", "Provisional tier break — review required")
         rows.append(DirectorRow(
@@ -217,6 +263,8 @@ def build_director_cohort(sheet: CohortSheet, operator_note: str = "") -> Direct
             DATA_REVIEW if analysis is not None
             else NO_CURRENT_RATING
         )
+        if status == DATA_REVIEW:
+            status = REVIEW_LABELS.get(team.review_kind, "Team data needs review")
         rows.append(DirectorRow(None, team, "", status,
                                 recommendation_reason=team.review_reason or "Unplaced; strength is not established."))
     # Keep full evidence alongside the concise director view of the same roster.
@@ -251,6 +299,8 @@ def build_director_cohort(sheet: CohortSheet, operator_note: str = "") -> Direct
         guidance_summary = "Preview — " + guidance_summary
         notes.append("Preview recommendation: compares every assessed team with the whole cohort. "
                      "Prediction improvement has not yet been demonstrated on held-out events.")
+        if ordering.get("prediction_model") == "results":
+            notes.append("Prediction confidence has not yet been validated.")
         sensitivity = ordering.get("game_sensitivity", {})
         if sensitivity.get("games_checked"):
             notes.append("Influential-result check: tier membership changes in "
@@ -306,10 +356,12 @@ def build_director_cohort(sheet: CohortSheet, operator_note: str = "") -> Direct
         notes.append(sheet.delivery_note)
     if operator_note.strip():
         notes.append(operator_note.strip())
+    director_notes, review_teams = _concise_director_notes(sheet, rows, operator_note)
     return DirectorCohort(
         tuple(rows), tuple(dict.fromkeys(notes)), guidance_summary,
-        _concise_director_notes(sheet, rows, operator_note),
+        director_notes,
         tuple(f"{item['label']} — {item['size']} teams: {compact_format(item)}" for item in divisions),
+        review_teams,
     )
 
 
@@ -346,12 +398,6 @@ def _concise_director_notes(sheet, rows, operator_note):
     notes = []
     if guidance.get("status") == "review_required_compromise":
         notes.append("Matchup review needed: this split still includes potentially uneven games.")
-    elif guidance.get("boundary_reasons") and all(
-            item["kind"] == "practical" for item in guidance["boundary_reasons"]):
-        notes.append("These splits keep projected matchups within the limits; "
-                     "teams near the lines may be similar in strength.")
-    elif guidance.get("boundary_method") == "whole_group_v1" and guidance.get("cuts"):
-        notes.append("Tiers compare results across whole groups. Teams near a break may still be closely matched.")
     # Keep unfamiliar warnings visible rather than silently losing a new blocker.
     summarized = ("Review-required compromise:", "A passing alternative", "Practical division sizes avoid",
                   "Limited or unknown playing history", "Worst remaining mismatch:")
@@ -377,7 +423,7 @@ def _concise_director_notes(sheet, rows, operator_note):
         if row.seed is None:
             continue
         if row.placement_status != SEEDED:
-            reason = row.team.review_reason or row.placement_status
+            reason = row.director_review_reason or row.placement_status
             notes.append(f"{row.team.team_name}: {reason.rstrip('.')}.")
         detail = ordering.get("teams", {}).get(row.team.entrant_id, {})
         if row.evidence_note or row.team.entrant_id in getattr(analysis, "limited_history", ()):
@@ -387,39 +433,26 @@ def _concise_director_notes(sheet, rows, operator_note):
                 continue
             if "Limited playing history" in caution:
                 limited.append(row.team.team_name)
+            elif caution.startswith("No shared results connect this team"):
+                notes.append(f"{row.team.team_name}: We have little evidence comparing this team with "
+                             "the rest of the field. Please check its placement.")
             else:
                 notes.append(f"{row.team.team_name}: {caution.rstrip('.')}.")
         span = ordering.get("game_sensitivity", {}).get("seed_ranges", {}).get(row.team.entrant_id)
         if span and span[1] - span[0] >= 2:
             uncertain.append(row.team.team_name)
-    if limited:
-        notes.append("Limited history — review placement: " + "; ".join(dict.fromkeys(limited)) + ".")
-    elif any(w.startswith("Limited or unknown playing history") for w in guidance.get("warnings", [])):
-        notes.append("Some teams have limited history; review their placement before finalizing.")
-    if uncertain:
-        notes.append("Several positions change when individual results are removed. Treat nearby seeds as a guide.")
-    if sensitivity.get("changed_tier_memberships") or sensitivity.get("cluster_changed_tier_memberships"):
-        notes.append("Tier breaks change in result stress checks; review teams near each break.")
-    sizes = guidance.get("alternative_sizes", [])
-    if sizes:
-        status = (guidance.get("alternative") or {}).get("status")
-        note = "Alternative: " + " + ".join(map(str, sizes)) + " teams"
-        if status == "passing":
-            note += "; meets the matchup limits"
-        elif status == "review_required_compromise":
-            note += "; also needs matchup review"
-        if min(sizes) < 4:
-            note += "; includes a small division"
-        notes.append(note + ".")
-    if ordering:
-        notes.append("Preview recommendation: improved prediction accuracy has not yet been verified.")
+    if not limited and any(w.startswith("Limited or unknown playing history") for w in guidance.get("warnings", [])):
+        notes.append(LIMITED_HISTORY_LEGEND)
+    if uncertain or sensitivity.get("changed_tier_memberships") or sensitivity.get("cluster_changed_tier_memberships"):
+        notes.append("Some placements depend on a small number of results. "
+                     "Please review close placements before finalizing.")
     if analysis and getattr(analysis, "manual_override", False):
         notes.append("Operator-adjusted from the MatchBalance suggestion.")
     if sheet.delivery_note:
         notes.append(sheet.delivery_note)
     if operator_note.strip():
         notes.append(operator_note.strip())
-    return tuple(dict.fromkeys(notes))
+    return tuple(dict.fromkeys(notes)), tuple(dict.fromkeys(limited))
 
 
 def export_fingerprint(
@@ -430,7 +463,7 @@ def export_fingerprint(
     payload = {
         "content_version": CONTENT_VERSION, "analysis_version": analysis_version,
         "event": event_name, "generated_on": generated_on, "ranking_run": ranking_run,
-        "policy": dict(policy), "legend": DIRECTOR_LEGEND,
+        "policy": dict(policy), "legend": LIMITED_HISTORY_LEGEND,
         "cohorts": [{
             "age": sheet.age_group, "gender": sheet.gender,
             "format_context_digest": (sheet.tier_analysis.tier_guidance or {}).get("format_context_digest")
@@ -459,9 +492,12 @@ def director_csv(sheet: CohortSheet, operator_note: str = "") -> bytes:
     coverage = f"{len(content.seeded)} of {len(content.rows)} teams assessed"
     for row in content.rows:
         writer.writerow([csv_safe(str(value)) if value is not None else "" for value in (
-            row.seed, row.team.team_name, row.tier_label, row.break_label, row.recommendation_reason,
+            row.seed, row.team.team_name, row.tier_label, row.break_label,
+            row.placement_explanation if row.team.review_reason else row.recommendation_reason,
             row.display_status, content.guidance_summary, coverage,
-            " | ".join((*content.format_notes, *content.director_notes)),
+            " | ".join((*content.format_notes, *content.director_notes,
+                        *((LIMITED_HISTORY_LEGEND, "Teams to review: " + "; ".join(content.review_teams))
+                          if content.review_teams else ()))),
             " · ".join(row.roster_context), row.score, row.team.record, row.state_rank,
             format_national_rank(row.team))])
     return stream.getvalue().encode("utf-8-sig")

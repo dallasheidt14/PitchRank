@@ -56,6 +56,7 @@ class SeedingPredictionBatch:
     evidence: dict[str, dict] = field(default_factory=dict)
     calibration_inputs: dict = field(default_factory=dict)
     sensitivity: dict = field(default_factory=dict)
+    unavailable_details: dict[str, dict[str, dict]] = field(default_factory=dict)
 
 
 def seeding_predictor_sha256() -> str:
@@ -141,6 +142,7 @@ def _parse_batch(
     teams = {}
     unavailable = {}
     unavailable_codes = {}
+    unavailable_details = {}
     input_digests = result.get("input_digests", {})
     if not isinstance(input_digests, dict) or (input_digests and set(input_digests) != set(cohorts)) or any(
         not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value)
@@ -161,6 +163,14 @@ def _parse_batch(
         if any(not isinstance(reason, str) or not reason for reason in missing.values()):
             raise ValueError("Seeding Compare result is missing an unavailable reason")
         codes = output.get("unavailable_codes", {})
+        details = output.get("unavailable_details", {})
+        if (not isinstance(details, dict) or not set(details) <= set(missing)
+                or any(not isinstance(value, dict) or value.get("kind") not in {
+                    "ratings_outdated", "invalid_team_metadata", "data_review", "identity_review",
+                    "game_records_review", "team_not_found", "no_current_rating", "duplicate_entry",
+                } for value in details.values())):
+            raise ValueError("Seeding Compare result has invalid unavailable details")
+        unavailable_details[cohort_key] = details
         if (
             not isinstance(codes, dict)
             or not set(codes) <= set(missing)
@@ -228,6 +238,7 @@ def _parse_batch(
         ratings_as_of=ratings_as_of,
         predictor_sha256=predictor_sha256,
         unavailable_codes=unavailable_codes,
+        unavailable_details=unavailable_details,
         input_digests=input_digests, model=model, evidence=evidence,
         sensitivity={key: output.get("sensitivity", []) for key, output in outputs.items()},
         calibration_inputs={path.name: json.loads(path.read_text(encoding="utf-8"))

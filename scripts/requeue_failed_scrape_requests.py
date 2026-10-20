@@ -15,10 +15,10 @@ This is the operator repair: it reads those rows, keeps the ones whose message d
 not name a permanent fault, resolves merges, drops the teams already re-scraped
 since, and re-enqueues each at the priority its original request carried.
 
-Rows are read, never rewritten. Clearing the stranded 'processing' rows is
-scripts/retire_stranded_scrape_requests.py's job, and the two are independent:
-idx_scrape_requests_pending_team is UNIQUE only WHERE status = 'pending', so a row
-left in 'processing' does not stop a fresh pending one being created for its team.
+Rows are read, never rewritten. Retire stranded 'processing' rows with
+scripts/retire_stranded_scrape_requests.py before requeueing them. The active
+queue constraint protects both pending and processing requests; the enqueue RPC
+rejects processing work older than 24 hours instead of falsely reporting it queued.
 
 Writing is opt-in. --execute is required; without it this reports and exits.
 
@@ -248,7 +248,7 @@ def enqueue(client, ready: list[dict]) -> tuple[int, int]:
     ok = failed = 0
     for i, team in enumerate(ready, start=1):
         try:
-            client.rpc(
+            response = client.rpc(
                 "enqueue_scrape_request",
                 {
                     "p_team_id_master": team["team_id_master"],
@@ -260,6 +260,11 @@ def enqueue(client, ready: list[dict]) -> tuple[int, int]:
                     "p_priority": team["priority"],
                 },
             ).execute()
+            returned = (client.table("scrape_requests").select("status")
+                        .eq("id", response.data).limit(1).execute().data or [])
+            if not returned or returned[0]["status"] not in {"pending", "completed"}:
+                raise ValueError("Request is not queued. If it is abandoned processing work, "
+                                 "retire it before retrying.")
             ok += 1
         except Exception as exc:  # noqa: BLE001
             failed += 1

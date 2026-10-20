@@ -1166,7 +1166,7 @@ def test_the_scrape_clears_the_cached_sheet_but_not_the_open_run_marker(app):
 def test_the_scrape_checkpoints_completed_matching(app):
     """Matching saves progress so a later connection failure can be retried."""
     saved = []
-    app.setattr(tournament_intake, "_autosave_seeding_run", lambda: saved.append(True) or True)
+    app.setattr(tournament_intake, "_autosave_seeding_run", lambda **_kwargs: saved.append(True) or True)
     app.setattr(tournament_intake, "scrape_event_roster", _RecordingScrape())
     _install(app, _FakeSt())
 
@@ -2183,13 +2183,15 @@ def test_the_seeding_tab_warns_before_a_duplicate_match_reaches_the_sheet(monkey
     assert fake_st.dataframes == 2
 
 
-def test_seeding_enqueue_explains_missing_database_instead_of_crashing(app):
+def test_seeding_enqueue_disables_refresh_without_database(app, tmp_path):
     from src.tournaments.roster_paste import parse_roster
 
     parsed = parse_roster("Male U14\nClub A\tTeam A\tTX")
     resolved = (ResolvedTeam(source_index=0, status="gotsport_id", team_id_master="master-a"),)
     fake_st = _install(app, _FakeSt())
     fake_st.session_state._seeding_overrides = {}
+    fake_st.session_state.seeding_event_name = "Test event"
+    app.setattr(tournament_intake, "default_seeding_base_dir", lambda: tmp_path)
 
     tournament_intake._render_seeding_enqueue(parsed, resolved, None)
 
@@ -2197,7 +2199,7 @@ def test_seeding_enqueue_explains_missing_database_instead_of_crashing(app):
     assert fake_st.button_by_key("_seeding_enqueue")["disabled"] is True
 
 
-def test_check_teams_available_to_refresh_executes_no_rpc(app):
+def test_opening_team_refresh_uses_receipts_without_database_calls(app, tmp_path):
     from src.tournaments.roster_paste import parse_roster
 
     class Request:
@@ -2245,14 +2247,16 @@ def test_check_teams_available_to_refresh_executes_no_rpc(app):
     parsed = parse_roster("Male U14\nClub A\tTeam A\tTX")
     resolved = (ResolvedTeam(source_index=0, status="exact_name", team_id_master="master-a"),)
     database = Db()
-    fake_st = _install(app, _FakeSt(buttons={"_seeding_check_refresh": True}))
+    fake_st = _install(app, _FakeSt())
     fake_st.session_state._seeding_overrides = {}
-    app.setattr(tournament_intake, "fetch_gotsport_provider_id", lambda _client: "gotsport-provider")
+    fake_st.session_state.seeding_event_name = "Legacy test"
+    app.setattr(tournament_intake, "default_seeding_base_dir", lambda: tmp_path)
+    app.setattr(tournament_intake, "RefreshQueue", lambda *_: pytest.fail("opening a legacy run queried the queue"))
 
     tournament_intake._render_seeding_enqueue(parsed, resolved, database)
 
     assert database.rpc_executes == []
-    assert fake_st.infos == ["1 teams available to refresh; 0 cannot be queued."]
+    assert not list(tmp_path.iterdir())
 
 
 # -------- the tab actually wires its parts together -----------------------
@@ -3668,3 +3672,24 @@ def test_the_seeding_view_keeps_the_session_key_names_it_already_used():
     assert _SEEDING_KEYS.resolution_failed == "_seeding_resolution_failed"
     assert _SEEDING_KEYS.lock_key == "_seeding_scrape_lock_key"
     assert _SEEDING_KEYS.loaded_slug == "_seeding_loaded_slug"
+
+
+@pytest.mark.parametrize("clicked", [False, True])
+def test_completed_receipts_keep_refresh_available_for_newly_eligible_matches(app, tmp_path, clicked):
+    parsed = ParsedRoster((), ())
+    fake_st = _install(app, _FakeSt(buttons={"_seeding_enqueue": clicked}))
+    fake_st.session_state.seeding_event_name = "Completed run"
+    app.setattr(tournament_intake, "default_seeding_base_dir", lambda: tmp_path)
+    app.setattr(tournament_intake, "read_refresh", lambda *_: {"teams": {
+        "a": {"team_name": "Existing team", "status": "completed"}}})
+    app.setattr(tournament_intake, "_autosave_seeding_run", lambda: True)
+    calls = []
+    app.setattr(tournament_intake, "_refresh_saved_seeding_run", lambda *args, **kw: calls.append(kw))
+    if clicked:
+        with pytest.raises(_Rerun):
+            tournament_intake._render_seeding_enqueue(parsed, (), object())
+        assert calls == [{"retry_failed": True, "status_only": False}]
+    else:
+        tournament_intake._render_seeding_enqueue(parsed, (), object())
+        assert fake_st.button_by_key("_seeding_enqueue")["label"] == "Refresh saved matches"
+        assert calls == []

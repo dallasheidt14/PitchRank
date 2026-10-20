@@ -198,6 +198,11 @@ describe('Seeding canonical Compare bridge', () => {
       expect(result.cohorts['u14|Male'].unavailable.a).toContain('Recalculate rankings');
       expect(result.cohorts['u14|Male'].unavailable.a).toContain('Your team match is saved');
       expect(result.cohorts['u14|Male'].unavailable_codes).toEqual({ a: 'metadata_conflict' });
+      expect(result.cohorts['u14|Male'].unavailable_details.a).toMatchObject({
+        kind: 'ratings_outdated',
+        team_age: 14,
+        rating_ages: expect.arrayContaining([15]),
+      });
       expect(result.cohorts['u14|Male'].teams.a).toBeUndefined();
       expect(result.cohorts['u14|Male'].predictions).toEqual([]);
       if (table === 'rankings_full') data[table][0].age_group = 'u14';
@@ -205,6 +210,7 @@ describe('Seeding canonical Compare bridge', () => {
       const updated = await buildSeedingPredictions(db.client, { 'u15|Male': { a: A, b: B } });
       expect(updated.cohorts['u15|Male'].unavailable).toEqual({});
       expect(updated.cohorts['u15|Male'].unavailable_codes).toEqual({});
+      expect(updated.cohorts['u15|Male'].unavailable_details).toEqual({});
       expect(updated.cohorts['u15|Male'].teams.a).toMatchObject({ age: 14, ratings_age: 14 });
       const compare = await buildMatchPrediction(db.client, A, B);
       expect(updated.cohorts['u15|Male'].predictions[0].expected_margin).toBe(compare.prediction.expectedMargin);
@@ -233,6 +239,7 @@ describe('Seeding canonical Compare bridge', () => {
       await expect(fetchPredictionTeam(database(data).client, A)).rejects.toMatchObject({
         code: 'prediction_metadata_conflict',
         message: expect.stringContaining('missing a valid age or gender'),
+        details: { kind: 'invalid_team_metadata' },
       });
     }
   );
@@ -343,9 +350,23 @@ describe('Seeding canonical Compare bridge', () => {
     const data = fixtures();
     data.rankings_full[1].power_score_final = null;
     const result = await buildSeedingPredictions(database(data).client, { cohort: { a: A, b: B } });
-    expect(result.cohorts.cohort.unavailable.b).toBe('No usable current PitchRank rating is available.');
+    expect(result.cohorts.cohort.unavailable.b).toBe(
+      'No usable current PitchRank rating is available. Check its game history, then run rankings and rebuild.'
+    );
     expect(result.cohorts.cohort.unavailable_codes).toEqual({ b: 'no_current_rating' });
+    expect(result.cohorts.cohort.unavailable_details.b).toEqual({ kind: 'no_current_rating', reason: 'rating_absent' });
     expect(result.cohorts.cohort.teams.b).toBeUndefined();
+    expect(result.cohorts.cohort.predictions).toEqual([]);
+  });
+
+  it.each(['inactive', 'no_ranked_results'] as const)('explains a missing rating caused by %s', async (reason) => {
+    const data = fixtures();
+    data.rankings_full[1].power_score_final = null;
+    data.rankings_full[1].status = reason === 'inactive' ? 'Inactive' : 'Active';
+    data.rankings_full[1].games_played = reason === 'no_ranked_results' ? 0 : 20;
+    const result = await buildSeedingPredictions(database(data).client, { cohort: { a: A, b: B } });
+    expect(result.cohorts.cohort.unavailable_details.b).toEqual({ kind: 'no_current_rating', reason });
+    expect(result.cohorts.cohort.unavailable.b).toContain(reason === 'inactive' ? 'inactive' : 'usable game history');
     expect(result.cohorts.cohort.predictions).toEqual([]);
   });
 

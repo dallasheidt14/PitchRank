@@ -19,7 +19,8 @@ from src.tournaments.roster_paste import ParsedRoster, RosterRow
 from src.tournaments.roster_resolver import ResolvedTeam
 from src.tournaments.seeding_assessment import assess_roster, could_belong
 from src.tournaments.seeding_content import (
-    DIRECTOR_LEGEND,
+    LIMITED_HISTORY_LEGEND,
+    REVIEW_LABELS,
     build_director_cohort,
     director_csv,
     export_fingerprint,
@@ -49,7 +50,13 @@ from src.tournaments.seeding_pack import (
 from src.tournaments.seeding_pdf import SeedingPdfError, render_seeding_pdf
 from src.tournaments.seeding_predictions import load_seeding_predictions, seeding_predictor_sha256
 from src.tournaments.seeding_run_store import PackRecovery, slugify
-from src.tournaments.seeding_sheet import CohortSheet, build_cohort_sheets, make_ratings_lookup, render_sheet_html
+from src.tournaments.seeding_sheet import (
+    CohortSheet,
+    build_cohort_sheets,
+    make_ratings_lookup,
+    play_up_from_age_group,
+    render_sheet_html,
+)
 from src.tournaments.seeding_tiers import DATA_REVIEW, NO_CURRENT_RATING, NOT_FOUND
 from src.tournaments.seeding_workbook import build_seeding_workbook, validate_seeding_workbook, workbook_sheet_titles
 
@@ -188,19 +195,9 @@ def _identity_columns(
     different_name = bool(pitchrank_name and comparable(registered_name) != comparable(pitchrank_name))
 
     roster_note = ""
-    if row and row.has_star_marker:
-        age = team.get("age")
-        entered = row.section_age_group.lower().removeprefix("u")
-        entered_age = int(entered) if entered.isdigit() else None
-        if (
-            isinstance(age, int)
-            and not isinstance(age, bool)
-            and entered_age is not None
-            and age < entered_age
-        ):
-            roster_note = f"Plays up from U{age}"
-        else:
-            roster_note = "Plays up"
+    play_up_from = play_up_from_age_group(team, row.section_age_group) if row else None
+    if play_up_from:
+        roster_note = f"Plays up from {play_up_from.upper()}"
     if row:
         requested = str(getattr(row, "requested_flight", "") or "").strip()
         listed = str(getattr(row, "listed_division", "") or "").strip()
@@ -359,12 +356,13 @@ def _render_cohort_review(
     first.metric("Accepted", accepted)
     second.metric("Seeded", seeded)
     third.metric("Unrated / not found", unrated)
-    fourth.metric("Data review", data_review)
-    st.caption(DIRECTOR_LEGEND)
+    fourth.metric("Data needs updating", data_review)
     rows = []
     content = build_director_cohort(sheet, pack.get("operator_notes", {}).get(key, ""))
     for description in content.format_notes:
         st.write(description)
+    if content.review_teams:
+        st.caption(LIMITED_HISTORY_LEGEND + " Teams to review: " + "; ".join(content.review_teams))
     for observation in content.director_notes:
         st.caption(observation)
     for row in content.rows:
@@ -433,7 +431,11 @@ def _render_cohort_review(
     if not rows:
         _render_placement_checks(key, analysis, pack, roster_rows, save)
     if data_review:
-        st.warning(f"{data_review} team(s) need identity or cohort review before delivery.")
+        from collections import Counter
+        reasons = Counter(REVIEW_LABELS.get(analysis.review_kinds.get(entrant, ""), "Team data needs review")
+                          for entrant, status in statuses.items() if status == DATA_REVIEW)
+        for reason, count in reasons.items():
+            st.warning(f"{count} team(s): {reason}. See their details in the table above.")
 
 
 def _render_placement_checks(key, analysis, pack, roster_rows, save) -> None:
@@ -917,7 +919,9 @@ def render_seeding_pack(
     if current_pack and view != "export":
         if analysis_error is not None:
             st.info("Next: Rebuild the sheets to resolve the saved analysis problem shown below.")
-        elif pending_reviews or has_data_review:
+        elif has_data_review:
+            st.info("Next: Resolve the team data issues listed below, then rebuild. Your matching decisions are saved.")
+        elif pending_reviews:
             st.info("Next: Check the flagged placements under Review seed order and director notes below.")
         else:
             st.info("Next: Continue to export to preview a draft and see any remaining checks before final delivery.")
@@ -959,7 +963,9 @@ def render_seeding_pack(
         if assessment.attention & selected_indices or any(
                 could_belong(row, *key.split("|", 1)) for row in uncertain for key in selected):
             pending.append("team identity or cohort review")
-        if pending_reviews or has_data_review:
+        if has_data_review:
+            pending.append("team data updates")
+        if pending_reviews:
             pending.append("placement review")
         if not snapshot_ready:
             pending.append("snapshot freshness")
@@ -1040,10 +1046,12 @@ def render_seeding_pack(
 
     st.markdown("#### Readiness")
     match_ready = not bool(assessment.attention & selected_indices)
-    placement_ready = not pending_reviews and not has_data_review
+    placement_ready = not pending_reviews
     readiness = [
         ("Accepted-team roster confirmed", coverage_ready, "Confirm the complete roster in step 2."),
         ("Match decisions complete", match_ready, "Resolve the remaining teams in step 2."),
+        ("Team data ready" if not has_data_review else "Team data needs updating", not has_data_review,
+         "Resolve the specific data warnings in step 3, then rebuild. Placement approval cannot resolve them."),
         ("Snapshot ready for export" if snapshot_ready else "Check snapshot freshness", snapshot_ready,
          "Check freshness or acknowledge this dated snapshot."),
         ("Placement checks complete" if placement_ready else "Placement review needed",

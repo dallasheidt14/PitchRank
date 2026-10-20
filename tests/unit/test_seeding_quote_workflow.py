@@ -8,7 +8,7 @@ import tournament_intake as intake
 from src.tournaments.roster_paste import parse_roster
 from src.tournaments.roster_resolver import ResolvedTeam
 from src.tournaments.seeding_run_store import SeedingRun, SeedingRunEntry, load_run, save_run
-from tests.unit.test_seeding_event_intake import _FakeSessionState, _FakeSt, _Rerun, _install, _roster, _team
+from tests.unit.test_seeding_event_intake import _FakeSessionState, _FakeSt, _install, _Rerun, _roster, _team
 
 APP = '''
 import streamlit as st
@@ -62,7 +62,7 @@ def operator(monkeypatch, tmp_path):
     monkeypatch.setattr(intake, "list_seeding_runs", lambda: [])
     monkeypatch.setattr(intake, "_autosave_seeding_run", lambda **_kwargs: True)
     monkeypatch.setattr(intake, "_render_seeding_event_scrape", lambda *_args: None)
-    monkeypatch.setattr(intake, "fetch_gotsport_provider_id", lambda *_args: pytest.fail("render queried refresh service"))
+    monkeypatch.setattr(intake, "RefreshQueue", lambda *_args: pytest.fail("render queried refresh service"))
     app = AppTest.from_string(APP, default_timeout=15).run()
     assert not app.exception
     return app
@@ -536,7 +536,8 @@ def test_matching_checkpoints_preserve_previous_source_snapshot(monkeypatch, tmp
 
 def test_incremental_matching_uses_local_club_candidates_and_preserves_manual_decisions(monkeypatch, tmp_path):
     from types import SimpleNamespace
-    from tests.unit.test_roster_resolver import _FakeClient, _club_team, PROVIDERS, READING
+
+    from tests.unit.test_roster_resolver import PROVIDERS, READING, _club_team, _FakeClient
 
     fake = _install(monkeypatch, _FakeSt())
     parsed = parse_roster("Girls U14\nReading Rage Surf\tECNL RL G2012/13\tPA\nNLSA Surf\tECNL RL G2012/13\tNJ")
@@ -563,3 +564,109 @@ def test_incremental_matching_uses_local_club_candidates_and_preserves_manual_de
     assert "Reading Rage Surf" in searched
     assert "NLSA Surf" not in searched
     assert not fake.session_state["_seeding_resolution_failed"]
+
+
+def test_saved_matching_queues_before_a_pending_streamlit_rerun(monkeypatch, tmp_path):
+    from src.tournaments.seeding_refresh import read_refresh
+    from tests.unit.test_seeding_refresh import Queue
+    fake = _install(monkeypatch, _FakeSt())
+    parsed = parse_roster("Boys U13\nClub\tTeam A\nClub\tTeam B")
+    outcomes = (ResolvedTeam(0, "exact_name", team_id_master="a"), ResolvedTeam(1, "unresolved"))
+    fake.session_state.update(_seeding_result=(parsed, outcomes), seeding_event_name="Saved matching",
+                             _seeding_overrides={1: {"team_id_master": "b"}},
+                             _seeding_assessment={"coverage": "complete"})
+    queue = Queue()
+    monkeypatch.setattr(intake, "RefreshQueue", lambda _client: queue)
+    monkeypatch.setattr(intake, "default_seeding_base_dir", lambda: tmp_path)
+    monkeypatch.setattr(intake, "load_seeding_run_file", lambda slug: load_run(slug, base_dir=tmp_path))
+
+    def save_then_rerun(run, **kwargs):
+        result = save_run(run, base_dir=tmp_path, **kwargs)
+        fake.session_state.arm(_Rerun())
+        return result
+
+    monkeypatch.setattr(intake, "save_seeding_run_file", save_then_rerun)
+    with pytest.raises(_Rerun):
+        intake._autosave_seeding_run(refresh_client=object())
+    assert len(queue.inserts) == 2
+    assert set(read_refresh(tmp_path / "saved-matching", "Saved matching")["teams"]) == {"a", "b"}
+    assert load_run("saved-matching", base_dir=tmp_path).overrides == {1: {"team_id_master": "b"}}
+
+
+def test_failed_match_save_does_not_queue(monkeypatch):
+    fake = _install(monkeypatch, _FakeSt())
+    parsed = parse_roster("Boys U13\nClub\tTeam A")
+    fake.session_state.update(_seeding_result=(parsed, (ResolvedTeam(0, "exact_name", team_id_master="a"),)),
+                             seeding_event_name="Cannot save", _seeding_assessment={"coverage": "complete"})
+    def cannot_save(*args, **kwargs):
+        raise OSError("disk full")
+    monkeypatch.setattr(intake, "save_seeding_run_file", cannot_save)
+    monkeypatch.setattr(intake, "RefreshQueue", lambda *_: pytest.fail("unsaved match queued"))
+    assert not intake._autosave_seeding_run(refresh_client=object())
+
+
+def test_incremental_matches_queue_before_interrupt_and_resume_without_duplicates(monkeypatch, tmp_path):
+    from tests.unit.test_seeding_refresh import Queue
+    fake = _install(monkeypatch, _FakeSt())
+    parsed = parse_roster("Boys U13\nClub\tTeam A\nClub\tTeam B\nClub\tTeam C")
+    resolved = (ResolvedTeam(0, "exact_name", team_id_master="a"),
+                ResolvedTeam(1, "unresolved"), ResolvedTeam(2, "unresolved"))
+    fake.session_state.update(_seeding_result=(parsed, resolved), seeding_event_name="Interrupted matching",
+                             _seeding_assessment={"coverage": "complete"}, _seeding_overrides={})
+    queue, constructions = Queue(), []
+    def construct(_):
+        constructions.append(True)
+        return queue
+    monkeypatch.setattr(intake, "RefreshQueue", construct)
+    monkeypatch.setattr(intake, "default_seeding_base_dir", lambda: tmp_path)
+    monkeypatch.setattr(intake, "load_seeding_run_file", lambda slug: load_run(slug, base_dir=tmp_path))
+    monkeypatch.setattr(intake, "save_seeding_run_file", lambda run, **kw: save_run(run, base_dir=tmp_path, **kw))
+    monkeypatch.setattr(intake, "_seeding_provider_id_lookup", lambda _: None)
+    monkeypatch.setattr(intake, "_seeding_merge_resolver", lambda _: None)
+    monkeypatch.setattr(intake, "make_club_candidate_lookup", lambda *_: None)
+    monkeypatch.setattr(intake, "_enrich_seeding_names", lambda items, _: items)
+    interrupted = False
+    def resolve(_parsed, items, *, indices, **_):
+        nonlocal interrupted
+        index = indices[0]
+        assert any(row["team_id_master"] == "a" for row in queue.requests.values())
+        if index == 2 and not interrupted:
+            interrupted = True
+            raise KeyboardInterrupt()
+        return tuple(replace(item, status="exact_name", team_id_master="abc"[index])
+                     if item.source_index == index else item for item in items)
+    monkeypatch.setattr(intake, "resolve_unlinked", resolve)
+    with pytest.raises(KeyboardInterrupt):
+        intake._resolve_seeding_incrementally(parsed, resolved, object())
+    assert [row["team_id_master"] for row in queue.inserts] == ["a", "b"]
+    assert len(constructions) == 1
+    saved = load_run("interrupted-matching", base_dir=tmp_path)
+    assert saved.resolved[1].team_id_master == "b"
+    intake._resolve_seeding_incrementally(parsed, saved.resolved, object())
+    assert [row["team_id_master"] for row in queue.inserts] == ["a", "b", "c"]
+    assert len(constructions) == 2
+
+
+@pytest.mark.parametrize("initial_failure", ["unnamed", "write_error"])
+def test_retrying_an_ordinary_save_finishes_the_pending_match_refresh(monkeypatch, tmp_path, initial_failure):
+    from tests.unit.test_seeding_refresh import Queue
+    fake = _install(monkeypatch, _FakeSt())
+    parsed = parse_roster("Boys U13\nClub\tTeam A")
+    fake.session_state.update(_seeding_result=(parsed, (ResolvedTeam(0, "exact_name", team_id_master="a"),)),
+                             seeding_event_name="" if initial_failure == "unnamed" else "Save retry",
+                             _seeding_assessment={"coverage": "complete"})
+    queue = Queue()
+    monkeypatch.setattr(intake, "RefreshQueue", lambda _: queue)
+    monkeypatch.setattr(intake, "default_seeding_base_dir", lambda: tmp_path)
+    monkeypatch.setattr(intake, "load_seeding_run_file", lambda slug: load_run(slug, base_dir=tmp_path))
+    def failed(*args, **kwargs):
+        raise OSError("disk full")
+    monkeypatch.setattr(intake, "save_seeding_run_file", failed)
+    assert not intake._autosave_seeding_run(refresh_client=object())
+    assert not queue.inserts
+    fake.session_state.seeding_event_name = "Save retry"
+    monkeypatch.setattr(intake, "save_seeding_run_file", lambda run, **kwargs: save_run(run, base_dir=tmp_path, **kwargs))
+    assert intake._autosave_seeding_run()
+    assert [x["team_id_master"] for x in queue.inserts] == ["a"]
+    assert intake._autosave_seeding_run()
+    assert len(queue.inserts) == 1
