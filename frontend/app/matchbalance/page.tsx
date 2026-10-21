@@ -89,7 +89,7 @@ const STEPS = [
   },
   {
     title: 'You receive the seeding cheat sheet',
-    body: 'Your package shows the recommended seed order with each team’s PowerScore, record and national rank, plus recommended divisions, formats and teams that need manual placement. You finalize placements, assign pools and build the schedule.',
+    body: 'Your package shows the recommended seed order with each team’s PowerScore, record and national rank, plus recommended divisions, formats and teams that need manual placement. Review the recommendations, add your local knowledge, then assign pools and build your preliminary schedule. Coaches can review placements through your usual process.',
   },
 ];
 
@@ -199,12 +199,13 @@ export default function MatchBalancePage() {
               <span className="mt-2 block text-[#f4d03f]">MatchBalance tells you how to seed them.</span>
             </h1>
             <p className="mt-7 max-w-2xl text-xl font-medium leading-relaxed text-white/95">
-              Spend less time researching teams. Start with a clearer seeding plan.
+              Spend less time researching teams. Get to your preliminary schedule faster.
             </p>
             <p className="mt-3 max-w-2xl text-base leading-relaxed text-white/75 md:text-lg">
-              MatchBalance combines recent game results, opponent strength and PitchRank ratings to recommend a seed
-              order and practical competitive divisions for your tournament. You receive a clean cheat sheet showing
-              where teams fit, where to separate divisions and which teams need a closer look.
+              MatchBalance combines recent results, opponent strength, and PitchRank ratings to recommend a seed order
+              and practical competitive divisions for your tournament. Get a clear cheat sheet showing where teams fit,
+              where to separate divisions, and which teams need a closer look—so you can focus your time on the toughest
+              placement decisions.
             </p>
             <div className="mt-9 flex flex-col gap-3 sm:flex-row sm:items-center">
               <a
