@@ -61,7 +61,7 @@ export function RelatedRankings({ currentRegion, currentAgeGroup, currentGender 
         <div className="grid gap-6 sm:grid-cols-3">
           {/* Same region, different age groups */}
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground mb-2">
+            <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-2">
               Other Ages {isNational ? '' : `in ${currentState?.name || currentRegion.toUpperCase()}`}
             </p>
             <ul className="space-y-0">
@@ -80,7 +80,7 @@ export function RelatedRankings({ currentRegion, currentAgeGroup, currentGender 
 
           {/* Same age group, different regions */}
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground mb-2">
+            <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-2">
               {ageDisplay} {genderDisplay} Elsewhere
             </p>
             <ul className="space-y-0">
@@ -103,7 +103,7 @@ export function RelatedRankings({ currentRegion, currentAgeGroup, currentGender 
 
           {/* Opposite gender */}
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground mb-2">
+            <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-2">
               {oppositeGenderDisplay} Rankings
             </p>
             <ul className="space-y-0">
@@ -132,7 +132,7 @@ export function RelatedRankings({ currentRegion, currentAgeGroup, currentGender 
 
         {/* Browse by State */}
         <div className="mt-5 pt-4 border-t border-border/60">
-          <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground mb-2">
+          <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-2">
             Rankings by State
           </p>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-x-4 gap-y-1">
@@ -150,9 +150,7 @@ export function RelatedRankings({ currentRegion, currentAgeGroup, currentGender 
 
         {/* Browse by Age */}
         <div className="mt-4 pt-4 border-t border-border/60">
-          <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground mb-2">
-            Rankings by Age
-          </p>
+          <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-2">Rankings by Age</p>
           <div className="flex flex-wrap gap-2">
             {AGE_GROUPS.map((age) => (
               <Link

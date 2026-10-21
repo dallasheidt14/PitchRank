@@ -91,12 +91,12 @@ export function Footer() {
           {/* Rankings Links */}
           <div>
             <h4 className="font-display font-semibold uppercase tracking-wide mb-4">Rankings</h4>
-            <ul className="space-y-2">
+            <ul>
               {footerLinks.Rankings.map((link) => (
                 <li key={link.name}>
                   <Link
                     href={link.href}
-                    className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                    className="inline-flex min-h-11 items-center text-sm text-muted-foreground hover:text-foreground transition-colors"
                   >
                     {link.name}
                   </Link>
@@ -108,12 +108,12 @@ export function Footer() {
           {/* Resources Links */}
           <div>
             <h4 className="font-display font-semibold uppercase tracking-wide mb-4">Resources</h4>
-            <ul className="space-y-2">
+            <ul>
               {footerLinks.Resources.map((link) => (
                 <li key={link.name}>
                   <Link
                     href={link.href}
-                    className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                    className="inline-flex min-h-11 items-center text-sm text-muted-foreground hover:text-foreground transition-colors"
                   >
                     {link.name}
                   </Link>
@@ -122,12 +122,12 @@ export function Footer() {
             </ul>
 
             <h4 className="font-display font-semibold uppercase tracking-wide mb-4 mt-6">Legal</h4>
-            <ul className="space-y-2">
+            <ul>
               {footerLinks.Legal.map((link) => (
                 <li key={link.name}>
                   <Link
                     href={link.href}
-                    className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                    className="inline-flex min-h-11 items-center text-sm text-muted-foreground hover:text-foreground transition-colors"
                   >
                     {link.name}
                   </Link>
@@ -144,25 +144,25 @@ export function Footer() {
             <div className="flex gap-6">
               <Link
                 href="/terms-of-service"
-                className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                className="inline-flex min-h-11 items-center text-sm text-muted-foreground hover:text-foreground transition-colors"
               >
                 Terms
               </Link>
               <Link
                 href="/privacy-policy"
-                className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                className="inline-flex min-h-11 items-center text-sm text-muted-foreground hover:text-foreground transition-colors"
               >
                 Privacy
               </Link>
               <Link
                 href="/methodology"
-                className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                className="inline-flex min-h-11 items-center text-sm text-muted-foreground hover:text-foreground transition-colors"
               >
                 Methodology
               </Link>
               <a
                 href="mailto:pitchrankio@gmail.com"
-                className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                className="inline-flex min-h-11 items-center text-sm text-muted-foreground hover:text-foreground transition-colors"
               >
                 Contact
               </a>

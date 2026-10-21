@@ -203,7 +203,7 @@ const RankingsRow = memo(
         </div>
         <div className="px-1.5 sm:px-4 py-2 sm:py-3 text-right font-semibold flex flex-col items-end justify-center gap-0.5 sm:flex-row sm:items-center sm:justify-end text-xs sm:text-sm min-w-0 overflow-hidden">
           <span className="truncate">{formatPowerScore(team.power_score_final)}</span>
-          <span className="sm:hidden inline-flex items-center text-[10px] font-medium text-primary">
+          <span className="sm:hidden inline-flex items-center text-xs font-medium text-primary">
             View
             <ChevronRight className="h-3 w-3" />
           </span>

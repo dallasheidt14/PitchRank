@@ -182,7 +182,10 @@ export function Breadcrumbs({ items, showHomeIcon = true }: BreadcrumbsProps) {
                     {isHome && showHomeIcon ? <Home className="h-4 w-4" aria-label="Home" /> : crumb.label}
                   </span>
                 ) : (
-                  <Link href={crumb.href} className="hover:text-foreground transition-colors">
+                  <Link
+                    href={crumb.href}
+                    className="inline-flex min-h-11 items-center hover:text-foreground transition-colors"
+                  >
                     {isHome && showHomeIcon ? <Home className="h-4 w-4" aria-label="Home" /> : crumb.label}
                   </Link>
                 )}
