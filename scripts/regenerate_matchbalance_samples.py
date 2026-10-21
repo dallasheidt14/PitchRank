@@ -66,7 +66,7 @@ RENDERER_ASSETS = (
 SYNTHETIC_FIXTURE: dict[str, Any] = {
     "generated_on": "2026-09-25",
     "ranking_run": "2026-09-22",
-    "public_event": "San Antonio Labor Cup 2026 — Sample",
+    "public_event": "MatchBalance Sample Invitational - Illustrative Data",
     "workbook_event": "MatchBalance Sample Invitational",
     "cohorts": [
         {
@@ -74,26 +74,51 @@ SYNTHETIC_FIXTURE: dict[str, Any] = {
             "gender": "Male",
             "teams": [
                 ["u13-01", "Northstar FC 2013 Navy", "Northstar FC", 0.914, 3, "Texas", "Active"],
-                ["u13-02", "Canyon United 2013 Gold", "Canyon United", 0.886, 8, "TX", "Active"],
-                ["u13-03", "River City SC 2013 Blue", "River City SC", 0.858, 12, "Texas", "Active"],
-                ["u13-04", "Lone Star Athletic 2013", "Lone Star Athletic", 0.832, 17, "TX", "Active"],
-                ["u13-05", "Hill Country FC 2013", "Hill Country FC", 0.711, 31, "Texas", "Active"],
-                [
-                    "u13-07",
-                    "Southside United 2013",
-                    "Southside United",
-                    0.661,
-                    48,
-                    "Texas",
-                    "Not Enough Ranked Games",
-                ],
-                ["u13-08", "Sample FC 2013 White", "Sample FC", None, None, "TX", None],
+                ["u13-02", "Canyon United 2013 Gold", "Canyon United", 0.904, 8, "TX", "Active"],
+                ["u13-03", "River City SC 2013 Blue", "River City SC", 0.894, 12, "Texas", "Active"],
+                ["u13-04", "Lone Star Athletic 2013", "Lone Star Athletic", 0.884, 17, "TX", "Active"],
+                ["u13-05", "Cedar Valley FC 2013", "Cedar Valley FC", 0.874, 22, "Texas", "Active"],
+                ["u13-06", "Lakeview United 2013", "Lakeview United", 0.864, 28, "TX", "Active"],
+                ["u13-07", "Hill Country FC 2013", "Hill Country FC", 0.714, 51, "Texas", "Active"],
+                ["u13-08", "Prairie SC 2013", "Prairie SC", 0.704, 58, "TX", "Active"],
+                ["u13-09", "Oak Grove FC 2013", "Oak Grove FC", 0.694, 64, "Texas", "Active"],
+                ["u13-10", "Westside United 2013", "Westside United", 0.684, 72, "TX", "Active"],
+                ["u13-11", "Meadow Athletic 2013", "Meadow Athletic", 0.674, 80, "Texas", "Active"],
+                ["u13-12", "Southside United 2013", "Southside United", 0.664, None, "TX", "Not Enough Ranked Games"],
+                ["u13-13", "Sample FC 2013 White", "Sample FC", None, None, "TX", None],
             ],
-            "review": {"u13-08": ["No current rating.", NO_CURRENT_RATING]},
-            "plays_up": {"u13-03": "u12"},
-            "national_ranks": {"u13-01": 42, "u13-02": 105, "u13-03": 82, "u13-04": 260, "u13-05": 594},
-            "requested_flight": {"u13-05": "Gold"},
-            "note": "Sample data only. Confirm recent results and club context before final placement.",
+            "review": {
+                "u13-13": ["No current rating.", NO_CURRENT_RATING],
+            },
+            "national_ranks": {
+                "u13-01": 42,
+                "u13-02": 105,
+                "u13-03": 158,
+                "u13-04": 260,
+                "u13-05": 310,
+                "u13-06": 380,
+                "u13-07": 594,
+                "u13-08": 660,
+                "u13-09": 745,
+                "u13-10": 810,
+                "u13-11": 920,
+            },
+            "records": {
+                "u13-01": "12-2-1",
+                "u13-02": "11-3-1",
+                "u13-03": "10-3-2",
+                "u13-04": "10-4-1",
+                "u13-05": "9-4-2",
+                "u13-06": "8-5-2",
+                "u13-07": "9-4-2",
+                "u13-08": "8-5-2",
+                "u13-09": "7-6-2",
+                "u13-10": "6-6-3",
+                "u13-11": "6-7-2",
+                "u13-12": "1-1-1",
+            },
+            "note": ("Illustrative sample: fictional teams, records, ratings and matchup projections. "
+                     "Not a real tournament or an accuracy claim."),
         },
         {
             "age_group": "u10",
@@ -273,6 +298,7 @@ def _build_cohort(fixture: dict[str, Any]) -> CohortSheet:
                 club_name=club,
                 power_score=score,
                 state_rank=rank,
+                record=fixture.get("records", {}).get(entrant_id, ""),
                 national_rank=fixture.get("national_ranks", {}).get(entrant_id),
                 national_rank_context=(
                     f"{fixture['plays_up'][entrant_id].upper()} "
@@ -298,6 +324,10 @@ def _build_cohort(fixture: dict[str, Any]) -> CohortSheet:
                 review_reason,
                 limited_history=status == "Not Enough Ranked Games",
                 review_status=review_status,
+                evidence_game_count=(
+                    sum(int(count) for count in fixture["records"][entrant_id].split("-"))
+                    if entrant_id in fixture.get("records", {}) else None
+                ),
             )
         )
     eligible = {item.entrant_id: item.power_score for item in entrants if not item.review_reason}
@@ -312,6 +342,22 @@ def _build_cohort(fixture: dict[str, Any]) -> CohortSheet:
     rated = tuple(team for team in teams if team.power_score is not None)
     unrated = tuple(team for team in teams if team.power_score is None)
     return CohortSheet(fixture["age_group"], fixture["gender"], rated, unrated, analysis)
+
+
+def public_sample_note(cohort: CohortSheet) -> str:
+    """Describe the computed sample formats without duplicating a full catalog label."""
+    divisions = cohort.tier_analysis.tier_guidance["divisions"]
+    descriptions = []
+    for division in divisions:
+        selected = division["selected_format"]
+        pools = " + ".join(str(size) for size in selected["pool_sizes"])
+        descriptions.append(
+            f"Seeds {division['start_seed']}-{division['end_seed']}: pools {pools}; "
+            f"{selected['minimum_games']} guaranteed, up to {selected['maximum_games']} games "
+            f"with semifinals and a final ({selected['total_matches']} matches). "
+            f"{selected['advancement']}"
+        )
+    return " ".join((*descriptions, SYNTHETIC_FIXTURE["cohorts"][0]["note"]))
 
 
 def _normalize_pdf(payload: bytes) -> bytes:
@@ -403,7 +449,7 @@ def regenerate() -> None:
         [public],
         generated_on=SYNTHETIC_FIXTURE["generated_on"],
         ranking_run=SYNTHETIC_FIXTURE["ranking_run"],
-        operator_notes={("u13", "Male"): notes[("u13", "Male")]},
+        operator_notes={("u13", "Male"): public_sample_note(public)},
     )
     PUBLIC_PDF.write_bytes(_normalize_pdf(render_seeding_pdf(document)))
 
