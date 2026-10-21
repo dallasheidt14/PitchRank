@@ -25,7 +25,7 @@ import EVENT_PRICING from '@/lib/matchbalance-pricing.json';
 export const metadata: Metadata = {
   title: 'MatchBalance Tournament Seeding',
   description:
-    'MatchBalance turns PitchRank PowerScores and tournament-specific matchup analysis into a practical seeding cheat sheet for tournament directors.',
+    'MatchBalance combines recent game results, opponent strength and PitchRank ratings to recommend a seed order and practical competitive divisions for tournament directors.',
   alternates: {
     canonical: `${BASE_URL}/matchbalance`,
   },
@@ -47,30 +47,30 @@ const CAPABILITIES = [
   {
     icon: BarChart3,
     number: '01',
-    title: 'MatchBalance Seed review',
-    body: 'PowerScore creates the starting order. MatchBalance then looks for cases where the nearby matchup evidence consistently supports reviewing a team higher. One unusual matchup is not enough: a move proposal must hold up against the same nearby teams and pass multiple safeguards.',
-    footer: 'PowerScore remains visible and remains the ordering baseline.',
+    title: 'Seed order from actual results',
+    body: 'MatchBalance estimates each team’s strength from its recent results and the strength of the opponents it played, with PitchRank ratings helping steady teams that have little history. The recommended seed order follows that evidence.',
+    footer: 'PowerScore stays visible and unchanged beside every seed.',
   },
   {
     icon: Flag,
     number: '02',
-    title: 'Competitive Breaks',
-    body: 'Not every difference between two seeds matters equally. MatchBalance identifies places where a meaningful PowerScore step is also supported by nearby matchup evidence, giving directors a quick visual guide to where a natural flight boundary may exist.',
-    footer: 'A recommendation—not a mandatory division.',
+    title: 'Competitive divisions',
+    body: 'We recommend divisions by evaluating the teams together—not just the gap between two neighboring seeds. Two teams right beside a break can still be closely matched.',
+    footer: 'A recommendation—you finalize every placement.',
   },
   {
     icon: UsersRound,
     number: '03',
-    title: 'Very-close groups',
-    body: 'Sometimes the useful answer is that the exact order matters less. MatchBalance identifies small ranges that stay within strict matchup limits so you can spend your time on the placement decisions with meaningful competitive consequences.',
-    footer: 'Close does not mean identical or interchangeable.',
+    title: 'Practical formats',
+    body: 'Six similarly strong teams can stay in one division as two pools of three. Each recommended division comes with compatible formats, so group sizes fit the way you actually run the event.',
+    footer: 'You assign pools and build the schedule.',
   },
   {
     icon: ShieldCheck,
     number: '04',
-    title: 'Matchup risk, not just rank difference',
-    body: 'MatchBalance compares every eligible pairing using PitchRank’s matchup model. It considers projected goal separation and four-goal blowout risk, so a group cannot look competitive on average while one team is badly overmatched.',
-    footer: 'Every eligible pairing is checked, not just adjacent seeds.',
+    title: 'Mismatch checks across the whole division',
+    body: 'MatchBalance compares every eligible pairing using PitchRank’s matchup model. It considers projected goal separation and four-goal blowout risk, so a division cannot look competitive on average while one team is badly overmatched.',
+    footer: 'Helps you spot potential mismatches before brackets are final.',
   },
 ];
 
@@ -80,16 +80,16 @@ const STEPS = [
     body: 'Send your accepted-team list or event link. We match the teams to PitchRank and organize each age group and gender.',
   },
   {
-    title: 'PowerScore establishes the baseline',
-    body: 'Each team begins in its normal PitchRank PowerScore order. MatchBalance does not alter the published PowerScore.',
+    title: 'We read recent results',
+    body: 'We look at each team’s recent games and the strength of the opponents it faced, using PitchRank ratings to steady the estimates. The published PowerScore is never changed.',
   },
   {
     title: 'MatchBalance analyzes the field',
-    body: 'We compare the teams throughout the cohort to find competitive matchups, material reversals, very-close ranges, supported Competitive Breaks and teams with limited evidence. Strong local-consensus evidence is raised as a move proposal for review.',
+    body: 'We evaluate the teams in each age group together to recommend a seed order, competitive divisions and compatible formats, and flag teams with limited history that need a closer look.',
   },
   {
     title: 'You receive the seeding cheat sheet',
-    body: 'Your package shows the suggested seed order, original PowerScore context, supported strength breaks and teams that need manual placement. You remain in control of flights, brackets and tournament structure.',
+    body: 'Your package shows the recommended seed order with each team’s PowerScore, record and national rank, plus recommended divisions, formats and teams that need manual placement. You finalize placements, assign pools and build the schedule.',
   },
 ];
 
@@ -97,7 +97,7 @@ const DELIVERABLES = [
   {
     icon: FileText,
     title: 'A sheet for every covered cohort',
-    body: 'Each age group and gender receives its own tournament-specific seeding cheat sheet with suggested seeds, PitchRank PowerScores, supported strength markers, limited-history warnings and requested-flight context when available.',
+    body: 'Each age group and gender receives its own tournament-specific cheat sheet with the recommended seed order, PowerScore, record, national rank, recommended divisions and formats, and limited-history warnings.',
   },
   {
     icon: FileSpreadsheet,
@@ -112,9 +112,9 @@ const DELIVERABLES = [
 ];
 
 const CONTEXT_POINTS = [
-  'MatchBalance does not automatically create divisions, brackets or schedules.',
-  'Competitive Breaks are advisory, and very-close groups are not claims that teams are identical.',
-  'Teams with insufficient information are identified for manual placement instead of being guessed into the field.',
+  'MatchBalance recommends strength divisions and compatible formats. You finalize placements, assign pools and build the schedule.',
+  'Recommended divisions are advisory, and teams in the same division are not claimed to be identical.',
+  'Teams with limited history are flagged so you know where extra research matters, and teams with insufficient information are identified for manual placement instead of being guessed into the field.',
 ];
 
 const COHORT_PRICING = [
@@ -150,9 +150,14 @@ const FAQS: FAQ[] = [
       'Your accepted-team list, or a link to your event page. A list exported from any registration platform works. You do not need to collect team resumes or past results for us.',
   },
   {
+    question: 'How does MatchBalance decide the seed order?',
+    answer:
+      'It estimates each team’s strength from recent results and the strength of the opponents it played, with PitchRank ratings helping steady teams that have little history. PowerScore stays visible and unchanged on the sheet, but it does not dictate the recommended order.',
+  },
+  {
     question: 'What does MatchBalance not do?',
     answer:
-      'It does not place teams, build brackets or schedules, or contact clubs. It gives you evidence about each team; every flight and bracket decision stays with you.',
+      'It does not assign final placements, build pools, brackets or schedules, or contact clubs. It recommends a seed order, divisions and formats; every placement decision stays with you.',
   },
 ];
 
@@ -189,21 +194,17 @@ export default function MatchBalancePage() {
             <p className="mb-5 font-display text-sm font-bold uppercase tracking-[0.24em] text-[#f4d03f]">
               For tournament directors
             </p>
-            <h1 className="max-w-4xl font-display text-5xl font-bold uppercase leading-[0.98] tracking-[-0.025em] text-white sm:text-6xl lg:text-7xl">
+            <h1 className="max-w-4xl font-display text-4xl font-bold uppercase leading-[0.98] tracking-[-0.025em] text-white sm:text-6xl lg:text-7xl">
               Rankings tell you who&apos;s stronger.
               <span className="mt-2 block text-[#f4d03f]">MatchBalance tells you how to seed them.</span>
             </h1>
             <p className="mt-7 max-w-2xl text-xl font-medium leading-relaxed text-white/95">
-              A rankings list is only the starting point.
+              Spend less time researching teams. Start with a clearer seeding plan.
             </p>
             <p className="mt-3 max-w-2xl text-base leading-relaxed text-white/75 md:text-lg">
-              MatchBalance starts with PitchRank PowerScores, analyzes how every team in the field projects against the
-              others, identifies teams in the same competitive range, flags meaningful strength breaks and raises a seed
-              adjustment for review only when the nearby matchup evidence consistently supports it.
-            </p>
-            <p className="mt-4 max-w-2xl text-base leading-relaxed text-white/75 md:text-lg">
-              The result is a tournament seeding cheat sheet built to help you make better placement decisions—not just
-              another list of rankings.
+              MatchBalance combines recent game results, opponent strength and PitchRank ratings to recommend a seed
+              order and practical competitive divisions for your tournament. You receive a clean cheat sheet showing
+              where teams fit, where to separate divisions and which teams need a closer look.
             </p>
             <div className="mt-9 flex flex-col gap-3 sm:flex-row sm:items-center">
               <a
@@ -271,34 +272,10 @@ export default function MatchBalancePage() {
                 </div>
               ))}
               <div className="flex items-center justify-between gap-4 bg-[#edf6f2] px-5 py-3 text-sm sm:px-6">
-                <span className="font-semibold text-[#0b5345]">Very close: seeds 4–6</span>
-                <span className="text-xs text-[#5f6f69]">Review as one competitive neighborhood</span>
+                <span className="font-semibold text-[#0b5345]">Division 2 starts at seed 4</span>
+                <span className="text-xs text-[#5f6f69]">Formats and pool options on the sheet</span>
               </div>
             </div>
-          </div>
-        </div>
-      </section>
-
-      {/* More than a rankings sheet */}
-      <section className="px-4 py-16 md:py-24">
-        <div className="mx-auto grid max-w-6xl items-center gap-10 lg:grid-cols-[.9fr_1.1fr] lg:gap-20">
-          <div>
-            <p className="font-display text-sm font-bold uppercase tracking-[0.2em] text-[#0b5345]">
-              More than a rankings sheet
-            </p>
-            <h2 className="mt-3 font-display text-4xl font-bold uppercase leading-tight tracking-tight text-[#0a332c] md:text-5xl">
-              A ranking tells you 1 through 20.
-              <span className="block text-[#0b5345]">MatchBalance explains what those numbers mean.</span>
-            </h2>
-          </div>
-          <div className="space-y-5 text-lg leading-relaxed text-[#4d5d57]">
-            <p>Two teams can sit next to each other in a ranking and still be a poor competitive matchup.</p>
-            <p>Other teams may be separated by several ranking positions but project to play extremely close games.</p>
-            <p>
-              MatchBalance looks beyond the ranking number and analyzes the actual tournament field. For every age group
-              and gender, we use PitchRank as the baseline and evaluate projected matchups across the cohort before
-              producing placement guidance.
-            </p>
           </div>
         </div>
       </section>
@@ -370,6 +347,11 @@ export default function MatchBalancePage() {
             <h2 className="mt-3 font-display text-4xl font-bold uppercase tracking-tight text-[#0a332c] md:text-5xl">
               Rankings are one input. Seeding is the decision.
             </h2>
+            <p className="mt-5 text-lg leading-relaxed text-[#4d5d57]">
+              Two teams can sit next to each other in a ranking and still be a poor competitive matchup. MatchBalance
+              reads recent results in the context of who each team played, then evaluates the whole field before
+              producing placement guidance.
+            </p>
           </div>
 
           <div className="mt-12 grid items-stretch gap-6 lg:grid-cols-[1fr_auto_1fr]">
@@ -404,9 +386,9 @@ export default function MatchBalancePage() {
                   <div className="flex items-start gap-3">
                     <ArrowUp className="mt-0.5 h-5 w-5 text-[#0b7a5a]" aria-hidden="true" />
                     <div>
-                      <p className="font-semibold">Review Team C for a possible move above Team B</p>
+                      <p className="font-semibold">Team C’s results came against stronger opponents</p>
                       <p className="mt-1 text-sm text-[#65736e]">
-                        The same nearby comparisons consistently support it.
+                        Who a team played matters alongside wins and losses.
                       </p>
                     </div>
                   </div>
@@ -420,9 +402,9 @@ export default function MatchBalancePage() {
                   <div className="flex items-start gap-3">
                     <UsersRound className="mt-0.5 h-5 w-5 text-[#0b5345]" aria-hidden="true" />
                     <div>
-                      <p className="font-semibold text-[#0b5345]">Very close: seeds 4–6</p>
+                      <p className="font-semibold text-[#0b5345]">Seeds 4–9 stay in one division</p>
                       <p className="mt-1 text-sm text-[#65736e]">
-                        Focus less on the exact order and more on where the group belongs.
+                        Six similarly strong teams can play as two pools of three.
                       </p>
                     </div>
                   </div>
@@ -541,9 +523,9 @@ export default function MatchBalancePage() {
               The goal isn&apos;t to perfectly rank every team. It&apos;s to create better competitive matchups.
             </h2>
             <p className="mt-5 leading-relaxed text-[#3f4d48]">
-              PitchRank provides a stable measure of team strength. MatchBalance adds tournament-specific matchup
-              analysis on top of it, surfacing the decisions that deserve your attention so you spend less time
-              researching teams one by one.
+              PitchRank ratings give a stable measure of team strength. MatchBalance adds the results from your
+              tournament field—who each team played and how strong those opponents were—so you start with a ranked field
+              and the difficult placement decisions identified, instead of researching teams one by one.
             </p>
           </div>
 
