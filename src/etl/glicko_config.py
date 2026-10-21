@@ -49,6 +49,54 @@ class GlickoConfig:
     CONVERGENCE_THRESHOLD: float = 1.0
     MAX_ITERATIONS: int = 30
 
+    # Explicit experiment settings remain offline-only; a named profile selects the verified pair.
+    RATING_UPDATE_MODE: str = field(default="legacy", kw_only=True)
+    FIXED_PRIOR_DAMPING: float = field(default=0.5, kw_only=True)
+    FIXED_PRIOR_MAX_ITERATIONS: int = field(default=200, kw_only=True)
+    FIXED_PRIOR_RATING_TOLERANCE: float = field(default=0.0001, kw_only=True)
+    FIXED_PRIOR_RD_TOLERANCE: float = field(default=0.0001, kw_only=True)
+    FIXED_PRIOR_VOLATILITY_TOLERANCE: float = field(default=0.00000001, kw_only=True)
+
+    @property
+    def fixed_prior(self) -> bool:
+        return self.RATING_UPDATE_MODE != "legacy"
+
+    @property
+    def normalize_rating_weights(self) -> bool:
+        return self.RATING_UPDATE_MODE not in {"fixed-prior-v1", "fixed-prior-mode-v2"}
+
+    @property
+    def conditional_mode(self) -> bool:
+        return self.RATING_UPDATE_MODE in {"fixed-prior-mode-v2", "fixed-prior-mode-normalized-v2"}
+
+    @property
+    def solver_tolerances(self) -> tuple[float, float, float]:
+        requested = (self.FIXED_PRIOR_RATING_TOLERANCE, self.FIXED_PRIOR_RD_TOLERANCE,
+                     self.FIXED_PRIOR_VOLATILITY_TOLERANCE)
+        if self.conditional_mode:
+            return tuple(min(value, limit) for value, limit in zip(requested, (1e-6, 1e-6, 1e-10)))
+        return requested
+
+    def validate_solver(self) -> None:
+        import math
+
+        if self.RATING_UPDATE_MODE not in {
+            "legacy", "fixed-prior-normalized-v1", "fixed-prior-v1", "fixed-prior-mode-v2",
+            "fixed-prior-mode-normalized-v2",
+        }:
+            raise ValueError(f"Unknown rating update mode: {self.RATING_UPDATE_MODE}")
+        if not self.fixed_prior:
+            return
+        values = (
+            self.INITIAL_MU, self.INITIAL_SIGMA, self.INITIAL_VOLATILITY,
+            self.FIXED_PRIOR_DAMPING, self.FIXED_PRIOR_RATING_TOLERANCE,
+            self.FIXED_PRIOR_RD_TOLERANCE, self.FIXED_PRIOR_VOLATILITY_TOLERANCE,
+        )
+        if not all(math.isfinite(v) and v > 0 for v in values):
+            raise ValueError("Fixed-prior settings must be finite and positive")
+        if self.FIXED_PRIOR_DAMPING > 1 or self.FIXED_PRIOR_MAX_ITERATIONS < 1:
+            raise ValueError("Invalid fixed-prior damping or iteration limit")
+
     # Cross-age
     ANCHOR_SCALE_FACTOR: float = 400.0
     MALE_ANCHORS: dict = field(
@@ -243,6 +291,7 @@ class GlickoConfig:
     MIN_GAMES_PROVISIONAL: int = 10
 
     def __post_init__(self):
+        self.validate_solver()
         # Fail closed: the old SOS-credit cap and the new record reconciliation are two
         # generations of the same post-mu shaping. Stacking them would produce a
         # doubly-shaped board that masquerades as a clean single-lever test, so no run —

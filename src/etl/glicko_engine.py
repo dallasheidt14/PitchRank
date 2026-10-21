@@ -18,6 +18,23 @@ logger = logging.getLogger(__name__)
 # =========================================================
 GLICKO2_SCALE = 173.7178  # Glickman's scaling factor
 
+
+def resolve_as_of(today: Optional[pd.Timestamp] = None) -> pd.Timestamp:
+    """Resolve one aware UTC instant; naive inputs are already UTC."""
+    value = pd.Timestamp.now("UTC") if today is None else pd.Timestamp(today)
+    if pd.isna(value):
+        raise ValueError("Ranking as-of timestamp must not be NaT")
+    value = value.tz_localize("UTC") if value.tzinfo is None else value.tz_convert("UTC")
+    return value.as_unit("ns")
+
+
+class RatingConvergenceError(RuntimeError):
+    """An offline candidate produced no valid converged board."""
+
+    def __init__(self, message: str, diagnostics: dict):
+        super().__init__(message)
+        self.diagnostics = diagnostics.copy()
+
 _EXPLAIN_COLUMNS = [
     "team_id",
     "opp_id",
@@ -329,9 +346,9 @@ def _window_cutoff(today: pd.Timestamp, window_days: int, grace_days: int = 0) -
 
 def _game_window_mask(dates: pd.Series, today: pd.Timestamp, window_days: int, grace_days: int = 0) -> pd.Series:
     """Use the same inclusive date bounds for selection and the full-window record."""
-    today = pd.Timestamp(today).tz_localize(None)
+    today = resolve_as_of(today).tz_localize(None)
     if getattr(dates.dtype, "tz", None) is not None:
-        dates = dates.dt.tz_localize(None)
+        dates = dates.dt.tz_convert("UTC").dt.tz_localize(None)
     return dates.between(_window_cutoff(today, window_days, grace_days), today)
 
 
@@ -602,6 +619,8 @@ def compute_recency_weights(
     lambda_: float = 1.0,
     window_days: Optional[int] = None,
     grace_days: int = 0,
+    *,
+    normalize: bool = True,
 ) -> np.ndarray:
     """Compute exponential-decay recency weights.
 
@@ -611,21 +630,29 @@ def compute_recency_weights(
         lambda_: Decay rate (higher = faster decay).
 
     Returns:
-        Numpy array of weights that sum to 1.0.
+        Normalized weights by default; raw decay weights when normalize=False.
     """
     gd = (
-        game_dates.dt.tz_localize(None)
+        game_dates.dt.tz_convert("UTC").dt.tz_localize(None)
         if hasattr(game_dates.dtype, "tz") and game_dates.dtype.tz is not None
         else game_dates
     )
-    today_naive = today.tz_localize(None) if today.tzinfo is not None else today
+    today_naive = resolve_as_of(today).tz_localize(None)
     days_ago = (today_naive - gd).dt.days
     weights = np.exp(-lambda_ * days_ago / 365.0)
     if window_days is not None and grace_days > 0:
         tail_days = (days_ago - int(window_days)).clip(lower=0)
         taper = 1.0 - (tail_days / float(int(grace_days) + 1))
         weights = weights * np.clip(taper, 0.0, 1.0)
-    return weights / weights.sum()
+    return weights / weights.sum() if normalize else weights
+
+
+def compute_rating_weights(tg: pd.DataFrame, today: pd.Timestamp, cfg: GlickoConfig) -> np.ndarray:
+    """Shared rating/explanation weights; averaging callers retain normalization."""
+    return np.asarray(compute_recency_weights(
+        tg["date"], today, cfg.RECENCY_LAMBDA, window_days=cfg.WINDOW_DAYS,
+        grace_days=cfg.WINDOW_GRACE_DAYS, normalize=cfg.normalize_rating_weights,
+    )) * compute_repeat_opponent_weights(tg["opp_id"].values, cfg)
 
 
 def compute_repeat_opponent_weights(opp_ids, cfg: GlickoConfig) -> np.ndarray:
@@ -1103,7 +1130,7 @@ def _summarize_team_recent_activity(tg: Optional[pd.DataFrame], today: pd.Timest
 
     dates = pd.to_datetime(tg["date"], errors="coerce")
     if hasattr(dates.dtype, "tz") and dates.dtype.tz is not None:
-        dates = dates.dt.tz_localize(None)
+        dates = dates.dt.tz_convert("UTC").dt.tz_localize(None)
     valid_dates = dates.dropna()
     if valid_dates.empty:
         return {
@@ -1135,7 +1162,7 @@ def _compute_base_evidence_scale(
         return pd.Series(1.0, index=team_df.index if not team_df.empty else pd.Index([]), dtype=float)
 
     if today is not None and today.tzinfo is not None:
-        today = today.tz_localize(None)
+        today = today.tz_convert("UTC").tz_localize(None)
 
     ranked = team_df.sort_values(["mu", "team_id"], ascending=[False, True]).reset_index(drop=True)
     rank_lookup = {str(row.team_id): idx + 1 for idx, row in enumerate(ranked.itertuples(index=False))}
@@ -1277,8 +1304,7 @@ def compute_game_explainability(
             continue
 
         # Recency weights are additionally decayed for repeated opponents.
-        weights = np.asarray(compute_recency_weights(tg["date"], today, cfg.RECENCY_LAMBDA))
-        weights = weights * compute_repeat_opponent_weights(tg["opp_id"].values, cfg)
+        weights = compute_rating_weights(tg, today, cfg)
 
         # Convert team rating to Glicko-2 scale
         team_mu_g2, _ = _to_glicko2_scale(team_mu, team_sigma)
@@ -1602,6 +1628,7 @@ def run_glicko2_cohort(
     tier_league_map: Optional[Dict[str, str]] = None,
     cohort_gender: str = "Male",
     team_state_map: Optional[Dict[str, str]] = None,
+    solver_diagnostics: Optional[dict] = None,
 ) -> Tuple[pd.DataFrame, Dict[str, pd.DataFrame]]:
     """Run Glicko-2 for a single (age, gender) cohort.
 
@@ -1633,6 +1660,9 @@ def run_glicko2_cohort(
           games_played, wins, losses, draws, last_game, goals_for, goals_against
         - Dict mapping team_id -> filtered games DataFrame for reuse downstream
     """
+    cfg.validate_solver()
+    today = resolve_as_of(today).tz_localize(None)
+    diagnostics = solver_diagnostics if solver_diagnostics is not None else {}
     # 1. Identify all teams
     all_teams = games_df["team_id"].unique().tolist()
 
@@ -1709,29 +1739,42 @@ def run_glicko2_cohort(
             "opp_ages": opp_ages,
             "opp_genders": opp_genders,
             "cross_age_mask": cross_age_mask,
-            "weights": (
-                compute_recency_weights(
-                    tg["date"],
-                    today,
-                    cfg.RECENCY_LAMBDA,
-                    window_days=cfg.WINDOW_DAYS,
-                    grace_days=getattr(cfg, "WINDOW_GRACE_DAYS", 0),
-                )
-                * compute_repeat_opponent_weights(tg["opp_id"].values, cfg)
-            ).tolist(),
+            "weights": compute_rating_weights(tg, today, cfg).tolist(),
             "outcomes": [
                 game_outcome(int(gf), int(ga), cfg.MAX_GD) for gf, ga in zip(tg["gf"].values, tg["ga"].values)
             ],
         }
 
-    # 7. Iterate until convergence (Jacobi iteration)
-    for iteration in range(cfg.MAX_ITERATIONS):
+    diagnostics.update(
+        age=str(cohort_age), gender=str(_cohort_gender_detected), profile=cfg.RATING_UPDATE_MODE,
+        iterations=0, converged=False, max_rating_residual=0.0, max_rd_residual=0.0,
+        max_volatility_residual=0.0,
+    )
+    prior = (cfg.INITIAL_MU, cfg.INITIAL_SIGMA, cfg.INITIAL_VOLATILITY)
+    if cfg.fixed_prior and any(
+        not np.isfinite(value).all() or value[1] <= 0 or value[2] <= 0 for value in ratings.values()
+    ):
+        raise RatingConvergenceError("Invalid fixed-prior starting estimates", diagnostics)
+    limit = cfg.FIXED_PRIOR_MAX_ITERATIONS if cfg.fixed_prior else cfg.MAX_ITERATIONS
+    conditional = None
+    if cfg.conditional_mode:
+        from src.etl.fixed_prior import FixedPriorProblem
+
+        conditional = FixedPriorProblem(
+            all_teams, team_arrays, cfg, cohort_age, _cohort_gender_detected,
+            global_rating_map, _tier_mult_conv,
+        )
+    # 7. Jacobi estimates; a candidate's own prior never becomes its posterior.
+    for iteration in range(limit):
         new_ratings: Dict[str, Tuple[float, float, float]] = {}
+        if conditional is not None:
+            ratings = conditional.solve(ratings, diagnostics)
+            break
 
         for t in all_teams:
             arr = team_arrays[t]
             if arr is None:
-                new_ratings[t] = ratings[t]
+                new_ratings[t] = prior if cfg.fixed_prior else ratings[t]
                 continue
 
             # Collect opponents using pre-computed arrays
@@ -1761,11 +1804,41 @@ def run_glicko2_cohort(
                 opponents_list.append((opp_mu, opp_sigma))
 
             # Update rating
-            mu, sigma, vol = ratings[t]
+            mu, sigma, vol = prior if cfg.fixed_prior else ratings[t]
             new_mu, new_sigma, new_vol = glicko2_update(
                 mu, sigma, vol, opponents_list, arr["outcomes"], arr["weights"], cfg.TAU
             )
             new_ratings[t] = (new_mu, new_sigma, new_vol)
+
+        if cfg.fixed_prior:
+            if any(
+                not np.isfinite(value).all() or value[1] <= 0 or value[2] <= 0
+                for value in new_ratings.values()
+            ):
+                diagnostics["iterations"] = iteration + 1
+                raise RatingConvergenceError("Non-finite or invalid fixed-prior update", diagnostics)
+            residuals = np.array([
+                np.abs(np.asarray(new_ratings[t]) - ratings[t]) for t in all_teams
+            ])
+            maxima = residuals.max(axis=0) if len(residuals) else np.zeros(3)
+            converged = bool(np.all(maxima < [
+                cfg.FIXED_PRIOR_RATING_TOLERANCE, cfg.FIXED_PRIOR_RD_TOLERANCE,
+                cfg.FIXED_PRIOR_VOLATILITY_TOLERANCE,
+            ]))
+            diagnostics.update(
+                iterations=iteration + 1, converged=converged,
+                max_rating_residual=float(maxima[0]), max_rd_residual=float(maxima[1]),
+                max_volatility_residual=float(maxima[2]),
+            )
+            logger.info("Fixed-prior iteration %d: rating=%.8f rd=%.8f volatility=%.12f",
+                        iteration + 1, *maxima)
+            ratings = {
+                t: tuple(np.asarray(ratings[t]) + cfg.FIXED_PRIOR_DAMPING *
+                         (np.asarray(new_ratings[t]) - ratings[t])) for t in all_teams
+            }
+            if converged:
+                break
+            continue
 
         # Compute convergence metrics
         max_delta = 0.0
@@ -1775,6 +1848,12 @@ def run_glicko2_cohort(
             max_delta = max(max_delta, delta)
             delta_sum += delta
         mean_delta = delta_sum / len(all_teams) if all_teams else 0.0
+        max_rd = max((abs(new_ratings[t][1] - ratings[t][1]) for t in all_teams), default=0.0)
+        max_vol = max((abs(new_ratings[t][2] - ratings[t][2]) for t in all_teams), default=0.0)
+        diagnostics.update(
+            iterations=iteration + 1, converged=mean_delta < cfg.CONVERGENCE_THRESHOLD,
+            max_rating_residual=max_delta, max_rd_residual=max_rd, max_volatility_residual=max_vol,
+        )
 
         # Batch-update all ratings (Jacobi)
         ratings = new_ratings
@@ -1795,6 +1874,8 @@ def run_glicko2_cohort(
             )
             break
     else:
+        if cfg.fixed_prior:
+            raise RatingConvergenceError(f"Fixed-prior solve did not converge in {limit} iterations", diagnostics)
         logger.warning(
             "Glicko-2 did not converge after %d iterations (max_delta=%.4f, mean_delta=%.4f)",
             cfg.MAX_ITERATIONS,
@@ -1874,12 +1955,9 @@ def compute_rankings_v2(
          "game_explainability": DataFrame with per-game Glicko-2 breakdown
              (one row per team-game perspective)}
     """
-    # 1. Setup
-    if today is None:
-        today = pd.Timestamp.now("UTC")
-    # Strip timezone so all date comparisons are tz-naive (Supabase dates are naive)
-    if today.tzinfo is not None:
-        today = today.tz_localize(None)
+    # 1. Setup: preserve the UTC instant before using naive UTC for date arithmetic.
+    as_of = resolve_as_of(today)
+    today = as_of.tz_localize(None)
     if cfg is None:
         cfg = GlickoConfig()
     if collect_ceiling_connectivity and (cfg.SCF_ENABLED or pass_label != "Pass2" or team_state_map is None):
@@ -1893,6 +1971,7 @@ def compute_rankings_v2(
         _cohort_gender = games_df["gender"].iloc[0].capitalize()
 
     # 2. Run Glicko-2 convergence
+    solver_diagnostics = {"pass_label": pass_label}
     team_df, team_games = run_glicko2_cohort(
         games_df,
         cfg,
@@ -1902,6 +1981,7 @@ def compute_rankings_v2(
         tier_league_map=tier_league_map,
         cohort_gender=_cohort_gender,
         team_state_map=team_state_map,
+        solver_diagnostics=solver_diagnostics,
     )
 
     # 3. Build the converged ratings dict for all downstream derived metrics
@@ -2033,7 +2113,7 @@ def compute_rankings_v2(
     cutoff = today - pd.Timedelta(days=cfg.INACTIVE_DAYS)
     last_game_ser = pd.to_datetime(team_df["last_game"])
     if hasattr(last_game_ser.dtype, "tz") and last_game_ser.dtype.tz is not None:
-        last_game_ser = last_game_ser.dt.tz_localize(None)
+        last_game_ser = last_game_ser.dt.tz_convert("UTC").dt.tz_localize(None)
     team_df["status"] = np.where(
         (last_game_ser < cutoff) | (team_df["last_game"].isna()),
         "Inactive",
@@ -2143,7 +2223,7 @@ def compute_rankings_v2(
     team_df["rank_change_state_30d"] = None
 
     # Timestamps
-    team_df["last_calculated"] = pd.Timestamp.now("UTC")
+    team_df["last_calculated"] = as_of
 
     # Games in last 180 days
     team_df["games_last_180_days"] = (
@@ -2174,5 +2254,13 @@ def compute_rankings_v2(
         "teams": team_df,
         "games_used": games_used,
         "game_explainability": game_explain_df,
+        "solver_diagnostics": pd.DataFrame([solver_diagnostics]),
+        "rating_evidence": pd.DataFrame([
+            {"team_id": team_id, "pass_label": pass_label, "age": str(_age_val),
+             "gender": _cohort_gender, "profile": cfg.RATING_UPDATE_MODE,
+             "rating_weight_sum": float(compute_rating_weights(tg, today, cfg).sum()) if len(tg) else 0.0,
+             "distinct_opponents": int(tg["opp_id"].nunique())}
+            for team_id, tg in team_games.items()
+        ]),
         **({"ceiling_connectivity": ceiling_connectivity} if collect_ceiling_connectivity else {}),
     }

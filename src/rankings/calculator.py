@@ -6,7 +6,7 @@ import asyncio
 import hashlib
 import logging
 from contextlib import nullcontext
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import date
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 
 from src.etl.glicko_config import GlickoConfig
-from src.etl.glicko_engine import compute_rankings_v2
+from src.etl.glicko_engine import compute_rankings_v2, resolve_as_of
 from src.etl.v53e import V53EConfig, compute_rankings
 from src.rankings.data_adapter import batch_fetch_rows, fetch_games_for_rankings
 from src.rankings.layer13_predictive_adjustment import Layer13Config, apply_predictive_adjustment
@@ -53,9 +53,37 @@ class RankingContext:
     # Instrumentation
     timing_report: Optional[Any] = None
     pass_label: Optional[str] = None
+    glicko_cfg: Optional[GlickoConfig] = None
+    ranking_profile: Optional[str] = None
 
 
 logger = logging.getLogger(__name__)
+
+
+VERIFIED_RANKING_PROFILE = "reproducible-v2"
+
+
+def _ranking_profile_configuration(profile):
+    """Select the measured solver and publication policy as one indivisible profile."""
+    if profile != VERIFIED_RANKING_PROFILE:
+        raise ValueError(f"Unknown ranking profile: {profile}")
+    from src.rankings.offline_publication import PublicationExperiment
+
+    return (GlickoConfig(RATING_UPDATE_MODE="fixed-prior-mode-v2"),
+            PublicationExperiment("support-continuous-v2"))
+
+
+def _require_offline_candidate(cfg, *, use_glicko, fetch_from_supabase, ranking_profile=None, **side_effects):
+    if ranking_profile is not None:
+        expected, _ = _ranking_profile_configuration(ranking_profile)
+        if not use_glicko or cfg is None or asdict(cfg) != asdict(expected):
+            raise ValueError("The reproducible-v2 profile requires its complete measured configuration")
+        return
+    if cfg is None:
+        return
+    cfg.validate_solver()
+    if cfg.fixed_prior and (not use_glicko or fetch_from_supabase or any(side_effects.values())):
+        raise ValueError("Fixed-prior candidates require frozen inputs and every persistence/history flag disabled")
 
 
 def _section(timing_report: Optional["TimingReport"], name: str, **metadata):
@@ -69,7 +97,7 @@ def _normalize_snapshot_date(today: Optional[pd.Timestamp]) -> Optional[date]:
     if today is None:
         return None
 
-    timestamp = pd.Timestamp(today)
+    timestamp = resolve_as_of(today)
     return timestamp.date()
 
 
@@ -2139,13 +2167,18 @@ async def compute_rankings_with_ml(
     use_glicko = ctx.use_glicko
     ceiling_connectivity_enabled = ctx.ceiling_connectivity_enabled
     initial_ratings = ctx.initial_ratings
-    if use_glicko and today is None:
-        # Bind fetching, selection and cache identity to the same instant.
-        today = pd.Timestamp.now("UTC").tz_localize(None)
+    if use_glicko:
+        today = resolve_as_of(today).tz_localize(None)
     snapshot_date = _normalize_snapshot_date(today)
 
     v53_cfg = v53_cfg or V53EConfig()
-    glicko_cfg = GlickoConfig() if use_glicko else None
+    glicko_cfg = ctx.glicko_cfg or (GlickoConfig() if use_glicko else None)
+    _require_offline_candidate(
+        glicko_cfg, use_glicko=use_glicko, fetch_from_supabase=fetch_from_supabase,
+        ranking_profile=ctx.ranking_profile,
+        save_snapshot=save_snapshot, persist_game_residuals=persist_game_residuals,
+        persist_game_explainability=persist_game_explainability,
+    )
     if ceiling_connectivity_enabled and (
         not use_glicko or glicko_cfg.SCF_ENABLED or pass_label not in {"Pass1", "Pass2"}
     ):
@@ -2184,6 +2217,8 @@ async def compute_rankings_with_ml(
     # Changing any tuning param (engine, Glicko config, ML config, tier multipliers) invalidates cache
     game_ids = games_df["game_id"].astype(str).tolist() if "game_id" in games_df.columns else []
     hash_input = "".join(sorted(game_ids)) + str(lookback_days) + (provider_filter or "")
+    if use_glicko:
+        hash_input += hashlib.sha256(pd.util.hash_pandas_object(games_df, index=False).values.tobytes()).hexdigest()
     if merge_version and merge_version != "no_merges":
         hash_input += f"_merge_{merge_version}"
 
@@ -2215,7 +2250,13 @@ async def compute_rankings_with_ml(
     _ecfg = glicko_cfg or v53_cfg
     _ml = layer13_cfg or Layer13Config(lookback_days=_ecfg.WINDOW_DAYS if hasattr(_ecfg, "WINDOW_DAYS") else 365)
     _cfg_dict = {
-        "cache_schema": 4,
+        "cache_schema": 6,
+        "glicko_config": asdict(glicko_cfg) if glicko_cfg is not None else None,
+        "effective_solver_tolerances": glicko_cfg.solver_tolerances if glicko_cfg is not None else None,
+        "rating_context": {
+            "pass": pass_label, "opponents": global_strength_map, "initial_ratings": initial_ratings,
+            "states": team_state_map, "leagues": tier_league_map,
+        } if use_glicko else None,
         "engine": "glicko" if use_glicko else "v53e",
         "as_of": pd.Timestamp(today).isoformat() if today is not None else None,
         "selection_policy": (
@@ -2278,6 +2319,8 @@ async def compute_rankings_with_ml(
     cache_file_teams = cache_dir / f"rankings_{cache_key}_teams.parquet"
     cache_file_games = cache_dir / f"rankings_{cache_key}_games.parquet"
     cache_file_explain = cache_dir / f"rankings_{cache_key}_game_explainability.parquet"
+    cache_file_solver = cache_dir / f"rankings_{cache_key}_solver.parquet"
+    cache_file_evidence = cache_dir / f"rankings_{cache_key}_evidence.parquet"
 
     # Try to load from cache (both teams and games_used)
     base = None
@@ -2285,6 +2328,24 @@ async def compute_rankings_with_ml(
         try:
             cached_teams = pd.read_parquet(cache_file_teams)
             if not cached_teams.empty:
+                if use_glicko and not pd.to_datetime(cached_teams["last_calculated"], utc=True).eq(
+                    resolve_as_of(today)
+                ).all():
+                    raise ValueError("Cached calculation timestamp differs from as-of")
+                cached_solver = pd.read_parquet(cache_file_solver) if use_glicko else pd.DataFrame()
+                cached_evidence = pd.read_parquet(cache_file_evidence) if use_glicko else pd.DataFrame()
+                if use_glicko:
+                    if cached_solver.empty or not cached_solver["profile"].eq(glicko_cfg.RATING_UPDATE_MODE).all():
+                        raise ValueError("Incompatible cached solver profile")
+                    if glicko_cfg.fixed_prior:
+                        residual_cols = ["max_rating_residual", "max_rd_residual", "max_volatility_residual"]
+                        residuals = cached_solver[residual_cols].to_numpy(dtype=float)
+                        limits = glicko_cfg.solver_tolerances
+                        if (not cached_solver["converged"].eq(True).all()
+                                or not np.isfinite(residuals).all() or not (residuals < limits).all()
+                                or not np.isfinite(cached_teams[["mu", "sigma", "volatility"]]).all().all()
+                                or not (cached_teams[["sigma", "volatility"]] > 0).all().all()):
+                            raise ValueError("Invalid cached candidate solve")
                 # Cache hit - load teams plus any auxiliary DataFrames.
                 cached_games_used = pd.DataFrame()
                 cached_game_explainability = pd.DataFrame()
@@ -2298,6 +2359,8 @@ async def compute_rankings_with_ml(
                         logger.warning("games_used cache load failed; rebuilding rankings: %s", error)
                         raise
                 if use_glicko:
+                    if not cache_file_games.exists():
+                        raise FileNotFoundError("Missing selected games cache for Glicko run")
                     if cache_file_explain.exists():
                         try:
                             cached_game_explainability = pd.read_parquet(cache_file_explain)
@@ -2308,6 +2371,8 @@ async def compute_rankings_with_ml(
                         raise FileNotFoundError("Missing game explainability cache for Glicko run")
                 base = {
                     "teams": cached_teams,
+                    "solver_diagnostics": cached_solver,
+                    "rating_evidence": cached_evidence,
                     "games_used": cached_games_used,
                     "game_explainability": cached_game_explainability,
                 }
@@ -2354,6 +2419,9 @@ async def compute_rankings_with_ml(
                 if not base["teams"].empty:
                     base["teams"].to_parquet(cache_file_teams, index=False)
                     logger.debug(f"💾 Cached teams to {cache_file_teams}")
+                if use_glicko:
+                    base.get("solver_diagnostics", pd.DataFrame()).to_parquet(cache_file_solver, index=False)
+                    base.get("rating_evidence", pd.DataFrame()).to_parquet(cache_file_evidence, index=False)
                 games_used_to_cache = base.get("games_used")
                 if games_used_to_cache is not None and not getattr(games_used_to_cache, "empty", True):
                     games_used_to_cache.to_parquet(cache_file_games, index=False)
@@ -2503,6 +2571,8 @@ async def compute_rankings_with_ml(
             game_explainability if not getattr(game_explainability, "empty", True) else pd.DataFrame()
         ),
         "pre_sos_state": _pre_sos_state,
+        "solver_diagnostics": base.get("solver_diagnostics", pd.DataFrame()),
+        "rating_evidence": base.get("rating_evidence", pd.DataFrame()),
         **({"ceiling_connectivity": base.get("ceiling_connectivity")}
            if ceiling_connectivity_enabled and pass_label == "Pass2" else {}),
     }
@@ -2591,6 +2661,9 @@ async def compute_all_cohorts(
     calculate_rank_changes_enabled: bool = True,
     save_snapshot: bool = True,
     ceiling_connectivity_enabled: bool = False,
+    glicko_cfg: Optional[GlickoConfig] = None,
+    publication_policy=None,  # Explicit experimental configurations remain offline-only.
+    ranking_profile: Optional[str] = None,  # Selects the verified solver/policy pair together.
 ) -> Dict[str, pd.DataFrame]:
     """
     Compute rankings for all cohorts using two-pass architecture.
@@ -2605,6 +2678,30 @@ async def compute_all_cohorts(
         merge_resolver: Optional MergeResolver instance for resolving merged teams
         use_glicko: If True, use Glicko-2 engine; if False, use legacy v53e engine
     """
+    if ranking_profile is not None:
+        if not use_glicko or glicko_cfg is not None or publication_policy is not None:
+            raise ValueError("Select either the complete ranking profile or explicit offline experiment settings")
+        glicko_cfg, publication_policy = _ranking_profile_configuration(ranking_profile)
+        ceiling_connectivity_enabled = True
+    _require_offline_candidate(
+        glicko_cfg, use_glicko=use_glicko, fetch_from_supabase=fetch_from_supabase,
+        ranking_profile=ranking_profile,
+        persist_game_residuals=persist_game_residuals, persist_game_explainability=persist_game_explainability,
+        calculate_rank_changes_enabled=calculate_rank_changes_enabled, save_snapshot=save_snapshot,
+    )
+    if publication_policy is not None:
+        publication_policy.validate()
+        if (not use_glicko or glicko_cfg is None
+                or glicko_cfg.RATING_UPDATE_MODE != "fixed-prior-mode-v2"
+                or (ranking_profile is None and (
+                    fetch_from_supabase or persist_game_residuals or persist_game_explainability
+                    or calculate_rank_changes_enabled or save_snapshot))):
+            raise ValueError("Publication experiments require complete confidence v2 and offline/no-persistence flags")
+    publication_diagnostics = []
+    publication_game_evidence = None
+    publication_support = None
+    if use_glicko:
+        today = resolve_as_of(today).tz_localize(None)
     # Default config if not provided
     v53_cfg = v53_cfg or V53EConfig()
     if ceiling_connectivity_enabled and (
@@ -2747,6 +2844,8 @@ async def compute_all_cohorts(
                 pass_label="Pass1",
                 ceiling_connectivity_enabled=ceiling_connectivity_enabled,
                 use_glicko=use_glicko,
+                glicko_cfg=glicko_cfg,
+                ranking_profile=ranking_profile,
                 persist_game_residuals=persist_game_residuals,
                 persist_game_explainability=persist_game_explainability,
             ),
@@ -2818,6 +2917,8 @@ async def compute_all_cohorts(
                 pre_sos_state=None if use_glicko else pass1_pre_sos_states.get(i),
                 use_glicko=use_glicko,
                 initial_ratings=pass1_glicko_ratings.get(i) if use_glicko else None,
+                glicko_cfg=glicko_cfg,
+                ranking_profile=ranking_profile,
                 persist_game_residuals=persist_game_residuals,
                 persist_game_explainability=persist_game_explainability,
             ),
@@ -3020,6 +3121,13 @@ async def compute_all_cohorts(
         except Exception as e:
             logger.error(f"❌ Failed to create age_num column: {e}")
             teams_combined["age_num"] = 0  # Default to 0, will get no anchor scaling
+
+    if publication_policy is not None:
+        from src.rankings.offline_publication import apply_publication_experiment, evidence
+
+        publication_support, publication_game_evidence = evidence(
+            games_used_combined, teams_combined, today, glicko_cfg, publication_policy,
+        )
 
     # ========== Same-Age Evidence Metrics ==========
     if not teams_combined.empty:
@@ -3285,6 +3393,8 @@ async def compute_all_cohorts(
                             "publication_cap_score"
                         ]
 
+                policy_pre_cap = base.copy() if publication_policy is not None else None
+
                 # Hard publication cap for weak same-age evidence.
                 if "publication_cap_score" in teams_age.columns:
                     cap_scores = pd.to_numeric(teams_age["publication_cap_score"], errors="coerce")
@@ -3314,6 +3424,15 @@ async def compute_all_cohorts(
                                 age,
                                 details,
                             )
+
+                if publication_policy is not None:
+                    import sys
+
+                    base, policy_diagnostics = apply_publication_experiment(
+                        teams_age, policy_pre_cap, base, publication_support, raw_shrink,
+                        publish_penalty, publication_policy, sys.modules[__name__],
+                    )
+                    publication_diagnostics.append(policy_diagnostics)
 
                 # Scale by anchor and clip to [0, anchor_val]
                 ps_scaled = (base * anchor_val).clip(0.0, anchor_val)
@@ -3388,6 +3507,17 @@ async def compute_all_cohorts(
                         )
                     else:
                         logger.info(f"✅ power_score_true bounds: [{pst.min():.4f}, {pst.max():.4f}]")
+
+            if publication_policy is not None:
+                policy_outputs = pd.concat(publication_diagnostics).set_index("team_id", verify_integrity=True)
+                for output_column, diagnostic_column in (
+                    ("positive_ml_evidence_scale", "policy_ml_authority"),
+                    ("publication_cap_rank", "policy_applied_cap_rank"),
+                    ("publication_cap_score", "policy_applied_cap_score"),
+                ):
+                    # Wait until every age is processed: changing one age's cap
+                    # dtype must not alter a later age's legacy checkpoint.
+                    teams_combined[output_column] = teams_combined.team_id.map(policy_outputs[diagnostic_column])
 
             # === MANDATORY: Anchor integrity validation ===
             if "power_score_true" in teams_combined.columns:
@@ -3511,9 +3641,19 @@ async def compute_all_cohorts(
 
     logger.info(f"✅ Two-pass rankings flow complete: {len(teams_combined):,} teams ranked")
 
+    diagnostics = {}
+    for key in ("solver_diagnostics", "rating_evidence"):
+        frames = [result[key] for result in [*pass1_results, *pass2_results]
+                  if result is not None and key in result and not result[key].empty]
+        diagnostics[key] = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+
     return {
         "teams": teams_combined,
         "games_used": games_used_combined,
+        **({"publication_diagnostics": pd.concat(publication_diagnostics, ignore_index=True),
+            "publication_game_evidence": publication_game_evidence}
+           if publication_policy is not None and publication_diagnostics else {}),
         "game_explainability": game_explainability_combined,
+        **diagnostics,
         **({"ceiling_connectivity": ceiling_connectivity} if ceiling_connectivity_enabled else {}),
     }

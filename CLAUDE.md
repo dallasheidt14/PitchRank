@@ -452,9 +452,14 @@ When planning a new provider, audit what per-team metadata the source exposes (s
 
 ## Ranking Algorithm (Glicko-2 + ML Layer 13)
 
-Production runs the Glicko-2 engine: `calculate-rankings.yml` calls
-`scripts/calculate_rankings.py --ml --force-rebuild --engine glicko`, and `glicko` is the
-default everywhere. v53e
+The ranking CLI defaults to the `reproducible-v2` profile for `--engine glicko`:
+a fixed Gaussian prior logistic posterior-mode estimator coupled to continuous
+result-based publication support. It is not standard iterative Glicko-2.
+`calculate-rankings.yml` calls
+`scripts/calculate_rankings.py --ml --force-rebuild --engine glicko`.
+Library callers retain legacy defaults; `--ranking-profile legacy` is the CLI
+rollback. See `docs/ranking-reproducible-release.md` for activation, safeguards,
+and the historical evidence. v53e
 (`src/etl/v53e.py`) is the legacy engine, reachable only via `--engine v53e`; nothing in the
 Glicko path calls it. Parameters and feature flags live in `src/etl/glicko_config.py` and
 `src/rankings/constants.py`; the `rankings-algorithm` skill documents them.
@@ -474,8 +479,9 @@ Games (Supabase; strict 365-day window; newest 30 games per team)
             → sigmoid(z-score) → powerscore_core → × provisional_mult → powerscore_adj
   → ML Layer 13 per cohort: powerscore_ml = powerscore_adj + 0.08·ml_norm
   → Pass 3: national/state SOS columns — display only, never feeds PowerScore
-  → Same-age evidence gates (SOS-gated ML authority, shrink, play-up bonus, caps)
-            → power_score_true
+  → reproducible-v2: outcome-weighted same-age/older evidence and one continuous
+            publication adjustment → power_score_true
+    (legacy profile: SOS-gated ML authority, shrink, play-up bonus and hard caps)
   → power_score_final = power_score_true × AGE_TO_ANCHOR[age]
   → rank_in_cohort_final by power_score_true DESC (Active only) → 7d/30d changes
   → Clip PowerScore columns to [0, 1] → ranking_history → rankings_full + current_rankings
