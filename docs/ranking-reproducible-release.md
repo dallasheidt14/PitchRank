@@ -1,8 +1,9 @@
 # Reproducible ranking profile: release integration
 
-This branch prepares the measured correction for production review. It has not
-been pushed, merged, or used to publish rankings. The offline-only instruction
-remains in force until the owner explicitly approves the rollout.
+The owner authorized production rollout on October 21, 2026 after reviewing the
+corrected offline results. This branch connects that measured correction to the
+production entry point. Publication is complete only after the full-board run
+and the stored-ranking verification described below succeed.
 
 ## Exact profile
 
