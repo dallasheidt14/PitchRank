@@ -590,29 +590,29 @@ export default function MatchBalancePage() {
             </h2>
             <p className="mt-5 text-lg leading-relaxed text-[#586761]">
               Don&apos;t just look at another ranking list. See how MatchBalance turns a tournament field into a
-              practical seeding cheat sheet with suggested seeds, PowerScore context, supported strength breaks and
-              placement guidance.
+              practical seeding cheat sheet with a recommended seed order, PowerScore, record, national rank,
+              competitive breaks and teams that need a closer look.
             </p>
             <a
-              href="/matchbalance/sample-u14-boys.pdf"
+              href="/matchbalance/sample-u13-boys.pdf"
               className="mt-8 inline-flex h-12 items-center justify-center gap-2 rounded-md bg-[#0b5345] px-6 font-bold text-white transition-colors hover:bg-[#083f35]"
             >
               View the sample MatchBalance sheet
               <ArrowRight className="h-4 w-4" aria-hidden="true" />
             </a>
-            <p className="mt-3 text-xs text-[#72817b]">U14 Boys · San Antonio Labor Cup 2026 · PDF</p>
+            <p className="mt-3 text-xs text-[#72817b]">U13 Boys · Sample tournament field · PDF</p>
           </div>
           <a
-            href="/matchbalance/sample-u14-boys.pdf"
-            className="group block overflow-hidden rounded-xl border border-[#cad6d0] bg-white p-2 shadow-2xl shadow-[#0b5345]/12"
+            href="/matchbalance/sample-u13-boys.pdf"
+            className="group block max-h-[36rem] overflow-hidden rounded-xl border border-[#cad6d0] bg-white p-2 shadow-2xl shadow-[#0b5345]/12"
             aria-label="Open the sample MatchBalance sheet PDF"
           >
             <Image
-              src="/matchbalance/sample-u14-boys.png"
+              src="/matchbalance/sample-u13-boys.png"
               width={1224}
-              height={760}
+              height={1584}
               sizes="(max-width: 1024px) 100vw, 650px"
-              alt="Competitive Break excerpt from the MatchBalance U14 Boys seeding sheet for the San Antonio Labor Cup 2026"
+              alt="MatchBalance U13 Boys sample seeding sheet showing seeds, PowerScore, record, national rank and a competitive break"
               className="h-auto w-full rounded-lg transition-transform duration-300 group-hover:scale-[1.01]"
             />
           </a>
