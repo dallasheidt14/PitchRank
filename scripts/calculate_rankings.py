@@ -21,7 +21,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from src.rankings.calculator import compute_all_cohorts, compute_rankings_v53e_only
+from src.rankings.calculator import VERIFIED_RANKING_PROFILE, compute_all_cohorts, compute_rankings_v53e_only
 from src.rankings.data_adapter import v53e_to_rankings_full_format, v53e_to_supabase_format
 from src.rankings.layer13_predictive_adjustment import Layer13Config
 from src.utils.merge_resolver import MergeResolver
@@ -615,6 +615,16 @@ def _backfill_total_game_stats(supabase_client, console) -> int:
     return changed
 
 
+def _resolve_ranking_profile(engine, requested=None):
+    """Glicko selects the measured complete profile; v53e keeps its existing path."""
+    profile = requested or (VERIFIED_RANKING_PROFILE if engine == "glicko" else "legacy")
+    if profile not in {"legacy", VERIFIED_RANKING_PROFILE}:
+        raise ValueError(f"Unknown ranking profile: {profile}")
+    if engine != "glicko" and profile != "legacy":
+        raise ValueError("The reproducible-v2 profile requires the Glicko engine")
+    return None if profile == "legacy" else profile
+
+
 async def main():
     parser = argparse.ArgumentParser(description="Calculate team rankings")
     parser.add_argument("--ml", action="store_true", help="Enable ML predictive adjustment layer")
@@ -636,7 +646,17 @@ async def main():
         "--engine", choices=["v53e", "glicko"], default="glicko", help="Ranking engine to use (default: glicko)"
     )
 
+    parser.add_argument(
+        "--ranking-profile", choices=["legacy", VERIFIED_RANKING_PROFILE], default=None,
+        help="Glicko defaults to the complete reproducible-v2 profile; legacy is an explicit rollback",
+    )
     args = parser.parse_args()
+    try:
+        ranking_profile = _resolve_ranking_profile(args.engine, args.ranking_profile)
+    except ValueError as error:
+        parser.error(str(error))
+    if ranking_profile is not None and not args.dry_run and (args.age_group or args.gender or args.provider):
+        parser.error("Reproducible-v2 publication requires an unfiltered full-board run; use --dry-run for inspection")
 
     # Initialize Supabase client
     supabase_url = os.getenv("SUPABASE_URL")
@@ -672,6 +692,7 @@ async def main():
         mode_text = f"ML-Enhanced ({engine_label})" if args.ml else f"{engine_label} Only"
         console.print(f"\n[bold green]Calculating {mode_text} Rankings[/bold green]")
         console.print(f"  Lookback days: {args.lookback_days}")
+        console.print(f"  Ranking profile: {ranking_profile or 'legacy'}")
         if args.provider:
             console.print(f"  Provider filter: {args.provider}")
         if args.dry_run:
@@ -691,6 +712,7 @@ async def main():
                 merge_resolver=merge_resolver,
                 timing_report=timing_report,
                 use_glicko=(args.engine == "glicko"),
+                ranking_profile=ranking_profile,
                 ceiling_connectivity_enabled=(args.engine == "glicko"),
                 persist_game_residuals=not args.dry_run,
                 persist_game_explainability=not args.dry_run,
@@ -709,6 +731,7 @@ async def main():
                     merge_resolver=merge_resolver,
                     timing_report=timing_report,
                     use_glicko=True,
+                    ranking_profile=ranking_profile,
                     ceiling_connectivity_enabled=True,
                     persist_game_residuals=not args.dry_run,
                     persist_game_explainability=not args.dry_run,

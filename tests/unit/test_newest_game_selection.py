@@ -179,9 +179,13 @@ async def test_cached_calculation_is_invalidated_by_selection_inputs(monkeypatch
     def engine(**kwargs):
         calls.append(kwargs)
         return {
-            "teams": pd.DataFrame([{"team_id": "A", "powerscore_adj": 0.5}]),
+            "teams": pd.DataFrame([{
+                "team_id": "A", "powerscore_adj": 0.5, "last_calculated": kwargs["today"],
+            }]),
             "games_used": games_for(days=range(2)),
             "game_explainability": pd.DataFrame([{"team_id": "A", "game_id": "A-000"}]),
+            "solver_diagnostics": pd.DataFrame([{"profile": kwargs["cfg"].RATING_UPDATE_MODE}]),
+            "rating_evidence": pd.DataFrame(),
         }
 
     monkeypatch.setattr(calculator, "compute_rankings_v2", engine)
