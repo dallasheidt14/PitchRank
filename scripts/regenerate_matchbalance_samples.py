@@ -354,7 +354,8 @@ def public_sample_note(cohort: CohortSheet) -> str:
         descriptions.append(
             f"Seeds {division['start_seed']}-{division['end_seed']}: pools {pools}; "
             f"{selected['minimum_games']} guaranteed, up to {selected['maximum_games']} games "
-            f"with semifinals and a final ({selected['total_matches']} matches)."
+            f"with semifinals and a final ({selected['total_matches']} matches). "
+            f"{selected['advancement']}"
         )
     return " ".join((*descriptions, SYNTHETIC_FIXTURE["cohorts"][0]["note"]))
 

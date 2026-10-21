@@ -80,6 +80,8 @@ def test_public_sample_shows_practical_tiers_records_and_honest_coverage():
     )
     assert "pools 3 + 3" in html
     assert "3 guaranteed, up to 4 games" in html
+    assert html.count("The two third-place teams play a consolation match.") == 2
+    assert "4 teams qualify: top 2 per pool." in html
     assert "fictional teams, records, ratings and matchup projections" in html
     assert "Not enough data to recommend a placement" in html
     assert "Matchup review needed" not in html
