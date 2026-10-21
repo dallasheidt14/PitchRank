@@ -183,3 +183,44 @@ async def test_actual_cli_selects_profile_and_preserves_dry_run_flags(monkeypatc
     monkeypatch.setattr(command, 'compute_all_cohorts', compute)
     await command.main()
     assert len(seen) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('primary_games', [16, 30])
+async def test_publication_evidence_uses_only_the_retained_source_solve(monkeypatch, tmp_path, primary_games):
+    from src.rankings import offline_publication
+
+    monkeypatch.chdir(tmp_path)
+    frame = fixture()
+    base = frame[frame.team_id.eq('a')].copy()
+    additions = []
+    for i in range(primary_games - len(base)):
+        row = base.iloc[[i % len(base)]].copy()
+        row['id'] = row['game_id'] = f'primary-extra-{i}'
+        additions.append(row)
+    discarded = base.head(4).copy()
+    discarded['age'] = discarded['opp_age'] = '12'
+    discarded['id'] = discarded['game_id'] = [f'discarded-{i}' for i in range(4)]
+    discarded['gf'], discarded['ga'] = 0, 6
+    frame = pd.concat([frame, *additions, discarded], ignore_index=True)
+    original = offline_publication.evidence
+    observed = []
+
+    def record(selected, teams, *args):
+        observed.append(selected.copy())
+        return original(selected, teams, *args)
+
+    monkeypatch.setattr(offline_publication, 'evidence', record)
+    result = await calculator.compute_all_cohorts(Client(), games_df=frame, today=AS_OF,
+        fetch_from_supabase=False, force_rebuild=True, ranking_profile='reproducible-v2',
+        layer13_cfg=Layer13Config(enabled=False), persist_game_residuals=False,
+        persist_game_explainability=False, calculate_rank_changes_enabled=False, save_snapshot=False)
+    assert len(observed) == 1
+    selected = observed[0].query("team_id == 'a'")
+    assert len(selected) == primary_games
+    assert set(selected.age) == {'11'}
+    assert not selected.game_id.str.startswith('discarded-').any()
+    assert result['teams'].query("team_id == 'a'").games_played.item() == primary_games
+    assert result['games_used'].game_id.str.startswith('discarded-').any()
+    assert '_publication_source_cohort' not in result['teams']
+    assert '_publication_source_cohort' not in result['games_used']

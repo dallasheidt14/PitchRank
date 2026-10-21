@@ -2932,6 +2932,7 @@ async def compute_all_cohorts(
     with _section(timing_report, "merge_and_filter"):
         all_teams = []
         all_games_used = []
+        all_publication_sources = []
         all_game_explainability = []
         all_ceiling_connectivity = []
 
@@ -2951,9 +2952,15 @@ async def compute_all_cohorts(
                     diagnostics["_ceiling_source_cohort"] = source_cohort
                     all_ceiling_connectivity.append(diagnostics)
                     result["teams"] = result["teams"].assign(_ceiling_source_cohort=source_cohort)
+                if publication_policy is not None:
+                    result["teams"] = result["teams"].assign(_publication_source_cohort=source_cohort)
                 all_teams.append(result["teams"])
             if not result.get("games_used", pd.DataFrame()).empty:
                 all_games_used.append(result["games_used"])
+                if publication_policy is not None:
+                    all_publication_sources.append(
+                        pd.Series(source_cohort, index=range(len(result["games_used"])), dtype="int64")
+                    )
             if not result.get("game_explainability", pd.DataFrame()).empty:
                 all_game_explainability.append(result["game_explainability"])
 
@@ -3125,8 +3132,16 @@ async def compute_all_cohorts(
     if publication_policy is not None:
         from src.rankings.offline_publication import apply_publication_experiment, evidence
 
+        # Team deduplication chooses one source solve. Publication evidence must
+        # use that same solve's selected games, including after deprecated filtering.
+        retained_sources = teams_combined.set_index("team_id")["_publication_source_cohort"]
+        source_cohorts = pd.concat(all_publication_sources, ignore_index=True)
+        publication_games = games_used_combined.loc[
+            source_cohorts.eq(games_used_combined["team_id"].map(retained_sources))
+        ]
+        teams_combined = teams_combined.drop(columns="_publication_source_cohort")
         publication_support, publication_game_evidence = evidence(
-            games_used_combined, teams_combined, today, glicko_cfg, publication_policy,
+            publication_games, teams_combined, today, glicko_cfg, publication_policy,
         )
 
     # ========== Same-Age Evidence Metrics ==========
