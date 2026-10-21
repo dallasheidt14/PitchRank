@@ -69,7 +69,7 @@ const CAPABILITIES = [
     icon: ShieldCheck,
     number: '04',
     title: 'Mismatch checks across the whole division',
-    body: 'MatchBalance compares every eligible pairing using PitchRank’s matchup model. It considers projected goal separation and four-goal blowout risk, so a division cannot look competitive on average while one team is badly overmatched.',
+    body: 'MatchBalance compares every eligible pairing using PitchRank’s matchup model. It considers projected goal separation and four-goal blowout risk. We check every assessed pairing to flag potential mismatches that a division average could hide.',
     footer: 'Helps you spot potential mismatches before brackets are final.',
   },
 ];
@@ -523,9 +523,10 @@ export default function MatchBalancePage() {
               The goal isn&apos;t to perfectly rank every team. It&apos;s to create better competitive matchups.
             </h2>
             <p className="mt-5 leading-relaxed text-[#3f4d48]">
-              PitchRank ratings give a stable measure of team strength. MatchBalance adds the results from your
-              tournament field—who each team played and how strong those opponents were—so you start with a ranked field
-              and the difficult placement decisions identified, instead of researching teams one by one.
+              PitchRank ratings give a stable measure of team strength. MatchBalance analyzes the recent game history of
+              the teams entered in your tournament—who each team played and how strong those opponents were—so you start
+              with a ranked field and the difficult placement decisions identified, instead of researching teams one by
+              one.
             </p>
           </div>
 
@@ -600,7 +601,7 @@ export default function MatchBalancePage() {
               View the sample MatchBalance sheet
               <ArrowRight className="h-4 w-4" aria-hidden="true" />
             </a>
-            <p className="mt-3 text-xs text-[#72817b]">U13 Boys · Sample tournament field · PDF</p>
+            <p className="mt-3 text-xs text-[#72817b]">U13 Boys · Illustrative sample data · PDF</p>
           </div>
           <a
             href="/matchbalance/sample-u13-boys.pdf"
