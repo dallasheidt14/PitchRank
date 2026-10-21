@@ -58,9 +58,7 @@ export function CohortSEOContent({ data }: CohortSEOContentProps) {
             {/* Top Clubs */}
             {topClubs.length > 0 && (
               <div className="pb-4 sm:pb-0 sm:pr-5">
-                <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground mb-2">
-                  Top Clubs
-                </p>
+                <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-2">Top Clubs</p>
                 <ul className="text-sm space-y-0">
                   {topClubs.map((club) => (
                     <li key={club.name} className="flex justify-between py-1.5 border-b border-border/40 last:border-0">
@@ -75,9 +73,7 @@ export function CohortSEOContent({ data }: CohortSEOContentProps) {
             {/* Rising */}
             {hasRisers && (
               <div className="pt-4 sm:pt-0 sm:px-5 border-t sm:border-t-0 border-border/40">
-                <p className="text-[11px] font-semibold uppercase tracking-widest text-green-700 mb-2">
-                  Rising This Week
-                </p>
+                <p className="text-xs font-semibold uppercase tracking-widest text-green-700 mb-2">Rising This Week</p>
                 <ul className="text-sm space-y-0">
                   {risers.map((t) => (
                     <li
@@ -103,9 +99,7 @@ export function CohortSEOContent({ data }: CohortSEOContentProps) {
             {/* Falling */}
             {hasFallers && (
               <div className="pt-4 sm:pt-0 sm:pl-5 border-t sm:border-t-0 border-border/40">
-                <p className="text-[11px] font-semibold uppercase tracking-widest text-red-700 mb-2">
-                  Falling This Week
-                </p>
+                <p className="text-xs font-semibold uppercase tracking-widest text-red-700 mb-2">Falling This Week</p>
                 <ul className="text-sm space-y-0">
                   {fallers.map((t) => (
                     <li
