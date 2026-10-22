@@ -1,10 +1,10 @@
 {
   "outputs": {
     "docs/design/matchbalance-excel/director-workbook-sample.xlsx": "66b3123d47c53c98d0f95d1429934df32d7bb62741cd89c4e31d1fc8fc0d937d",
-    "docs/design/matchbalance-excel/u10-boys.png": "ff647185cf9ee64c7a6d746a97962d404f63a5962442e1faf3a2176f7ba438a0",
-    "docs/design/matchbalance-excel/u12-girls.png": "4a3379db00a11a8dc6b3ac00ba01e4c609b119e185632f25b036e52665af1747",
+    "docs/design/matchbalance-excel/u10-boys.png": "e0c13e6a956abe581e9be1f4815c18535585627a31d57799924deb133c86fc5a",
+    "docs/design/matchbalance-excel/u12-girls.png": "f2d5e14de49147ffe4f9575ac0807392aaaa4d71559851b6730af57a7a95ded1",
     "frontend/public/matchbalance/sample-u13-boys.pdf": "4e793120808463832148ba230433bbd0f3e1b9724469474cced8cce7f308a2f4",
     "frontend/public/matchbalance/sample-u13-boys.png": "a400e340e8666e4e963be60aa279616200c6faa0edaad0e9ccfd6a0d90ab930b"
   },
-  "renderer_sha256": "c04f396217cca8933cb30509b4218fab889f631693a4c4a48f4e6679de8e45ae"
+  "renderer_sha256": "0889526ac8b6fa0b60d2c0b2f591c9f0abeefce5ae4a4a058b16b210f8fba822"
 }
