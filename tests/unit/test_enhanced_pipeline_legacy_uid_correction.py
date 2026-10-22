@@ -179,10 +179,12 @@ def test_a_correction_needs_the_provider_id_to_be_known(monkeypatch):
 
 
 def test_a_provider_outside_the_correction_list_is_not_corrected(monkeypatch):
-    stored = _row(f"tgs:{DATE}:471854:483752", GREMIO, AFC, 13, 0)
+    stored = _row(f"sincsports:{DATE}:471854:483752", GREMIO, AFC, 13, 0)
     db = _CorrectionsDB([stored])
 
-    inserted, _ = _import(monkeypatch, db, [{**_incoming(GREMIO, AFC, 8, 0), "provider": "tgs"}], provider="tgs")
+    incoming = {**_incoming(GREMIO, AFC, 8, 0), "provider": "sincsports"}
+
+    inserted, _ = _import(monkeypatch, db, [incoming], provider="sincsports")
 
     assert db.corrections == []
     assert len(inserted) == 1

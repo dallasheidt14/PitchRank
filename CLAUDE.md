@@ -430,6 +430,16 @@ Resolve against the event, never the wall clock. The weekly chain rescans a fixe
 id range indefinitely, so a clock-derived cohort would re-file the same
 historical event one group higher every Aug 1.
 
+#### TGS edits scores after posting them
+
+The importer corrects a changed TGS score through `game_corrections` + `apply_game_correction`, as for
+GotSport (`SCORE_CORRECTION_PROVIDERS` in `src/etl/enhanced_pipeline.py`). A change moving **both** sides,
+other than the stored pair swapped, is held instead (`scores_correct_held`), because TGS has shown a
+correct result replaced by an unrelated one. `scripts/reconcile_tgs_scores.py` (`tgs-score-reconcile.yml`)
+catches what the importer cannot reach (games outside its scan range, and a stale row whose corrected
+twin is already stored, which it hides), holds the same both-sides changes, and applies a change only
+once two consecutive scheduled runs see the same score, because TGS has no last-updated field.
+
 ### Adding a new scraper
 
 **First check whether this repo already scrapes it.** Search for the provider's base URL or
@@ -655,6 +665,7 @@ two-line edit in `.github/workflows/claude-code-review.yml`.
 | `calculate-rankings.yml` | Mon 12:30 PM UTC, and after any successful Modular11 league or events run | Recalculate rankings (Glicko-2 + ML). The `workflow_run` trigger does not distinguish a Modular11 dry run, so a test scrape on Actions starts a full ranking run; scrape locally to test |
 | `auto-gotsport-event-scrape.yml` | Manual dispatch | Tournament bracket scraping (cron removed 2026-05-17) |
 | `tgs-event-scrape-import.yml` | Mon 6:30 AM UTC | TGS event scraping |
+| `tgs-score-reconcile.yml` | Tue + Fri 5:23 AM UTC | Correct stored TGS scores TGS has since changed, or hide a stale row beside its corrected twin (`is_excluded`); see 'TGS edits scores after posting them' |
 | `data-hygiene-weekly.yml` | Mon 11:00 AM UTC — **switched off in GitHub since 2026-08-23** | Data cleanup — name normalization, distinction backfill, dupe and queue-match steps (the age step is disabled; see `AGE_DERIVATION_ENABLED`). `gh workflow list --all` shows it `disabled_manually`; the file keeps its cron, so nothing here runs until someone re-enables it, and IMP-258 must be fixed first |
 | `unknown-opponent-hygiene-weekly.yml` | Tue 6:00 PM UTC | Resolve "Unknown" opponents |
 | `auto-merge-queue.yml` | Dispatch / `workflow_call` | Auto-approve low-risk merges |

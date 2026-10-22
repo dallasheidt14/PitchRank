@@ -21,6 +21,7 @@ from src.etl.bulk_ops import (  # noqa: E402
     bulk_update_last_scraped_at,
     call_rpc_with_fallback,
 )
+from src.etl.game_corrections import apply_score_correction, moves_both_sides  # noqa: E402
 from src.models.game_matcher import REMATCH_PROVIDERS, GameHistoryMatcher  # noqa: E402
 from src.utils.enhanced_validators import EnhancedDataValidator, parse_game_date  # noqa: E402
 from src.utils.provider_ids import PROVIDER_ID_GAME_UID, clean_provider_id, is_blank_provider_id  # noqa: E402
@@ -29,9 +30,18 @@ from supabase import Client, create_client  # noqa: E402
 logger = logging.getLogger(__name__)
 
 
-# Providers whose re-scraped score replaces a different stored one. GotSport edits scores after
-# posting them (placeholders, mid-tournament entries, later fixes); the others are not verified.
-SCORE_CORRECTION_PROVIDERS = frozenset({"gotsport"})
+# Providers whose re-scraped score replaces a different stored one. GotSport and TGS edit scores
+# after posting them (placeholders, mid-tournament entries, later fixes); the others are not verified.
+SCORE_CORRECTION_PROVIDERS = frozenset({"gotsport", "tgs"})
+
+# Providers whose changed score is held when both sides moved and the pair is not just the stored
+# one the other way round: TGS has shown a correct result replaced by an unrelated one.
+HOLD_BOTH_SIDES_CHANGED_PROVIDERS = frozenset({"tgs"})
+
+# Providers whose stored row for a changed score is found by provider team ids as well as master
+# ids, whatever game_uid it carries. A merge repoints master ids and leaves the games saved under
+# the old ones, so the same game then sits under an id the re-scrape no longer produces.
+PROVIDER_ID_CORRECTION_PROVIDERS = frozenset({"tgs"})
 
 
 @dataclass
@@ -69,6 +79,7 @@ class ImportMetrics:
     scores_backfill_failed: int = 0
     scores_corrected: int = 0  # Scored games whose stored score was replaced by a changed score from the provider
     scores_correct_failed: int = 0  # Changed scores that could not be applied
+    scores_correct_held: int = 0  # Changed scores left alone because both sides moved
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert metrics to dictionary for JSONB storage"""
@@ -98,6 +109,7 @@ class ImportMetrics:
             "scores_backfill_failed": self.scores_backfill_failed,
             "scores_corrected": self.scores_corrected,
             "scores_correct_failed": self.scores_correct_failed,
+            "scores_correct_held": self.scores_correct_held,
         }
 
 
@@ -862,7 +874,7 @@ class EnhancedETLPipeline:
 
                     if self.provider_code and self.provider_code.lower() in SCORE_CORRECTION_PROVIDERS:
                         changed_score_updates = self._changed_score_games(
-                            regen_dupes_list, true_dupes, regen_uid_master_ids
+                            regen_dupes_list, true_dupes, regen_uid_master_ids, result_conflicts
                         )
                         if changed_score_updates:
                             await self._correct_changed_scores(
@@ -1189,7 +1201,8 @@ class EnhancedETLPipeline:
                     f"  Scores backfilled:{self.metrics.scores_backfilled:,} "
                     f"({self.metrics.scores_backfill_failed:,} failed)\n"
                     f"  Scores corrected:{self.metrics.scores_corrected:,} "
-                    f"({self.metrics.scores_correct_failed:,} failed)\n"
+                    f"({self.metrics.scores_correct_failed:,} failed, "
+                    f"{self.metrics.scores_correct_held:,} held)\n"
                     f"  Perspective dup: {self.metrics.duplicates_skipped:,} skipped\n"
                     f"  Processing rate: {games_per_sec:.1f} games/sec\n"
                     f"  Elapsed time:    {elapsed_time / 60:.1f} minutes\n"
@@ -1638,7 +1651,9 @@ class EnhancedETLPipeline:
         '_fixture_score_update' instead, for the caller to write as a score backfill; it is not
         counted as a duplicate. A result that disagrees on score with the pair's one scored row,
         saved under a provider-id uid, is tagged '_scored_row_correction' for the caller to
-        apply as a score correction. ``reported_games`` is the whole batch before earlier duplicate
+        apply as a score correction. For a provider in PROVIDER_ID_CORRECTION_PROVIDERS that
+        row may carry any uid and is also found by the pair's provider team ids; a result that
+        matches its score is a duplicate. ``reported_games`` is the whole batch before earlier duplicate
         filters dropped any of it: a pair's first meeting can be filtered out of ``game_records``
         and must still count when judging whether the pair met once. ``result_conflicts`` names the
         (date, provider team ids) pairs where validation dropped a perspective reporting a different
@@ -1685,6 +1700,7 @@ class EnhancedETLPipeline:
                 reported_by_date.setdefault(game["game_date"], []).append(game)
 
         fills_disabled = bool(self.provider_code and self.provider_code.lower() in REMATCH_PROVIDERS)
+        by_provider_ids = bool(self.provider_code and self.provider_code.lower() in PROVIDER_ID_CORRECTION_PROVIDERS)
         rematch_provider_ids = set()
         if not fills_disabled:
             try:
@@ -1724,7 +1740,11 @@ class EnhancedETLPipeline:
                     # A game whose two teams fall in different batches comes back twice
                     rows_by_id.update((row["id"], row) for row in result.data or [])
 
-                if not rows_by_id:
+                provider_id_rows: Dict[frozenset, List[Dict]] = {}
+                if by_provider_ids:
+                    provider_id_rows = self._scored_rows_by_provider_ids(game_date, incoming_games)
+
+                if not rows_by_id and not provider_id_rows:
                     continue
 
                 # Build a set of existing master-level keys from DB
@@ -1773,8 +1793,7 @@ class EnhancedETLPipeline:
                     reported_results.setdefault(pair, set()).add(
                         (home_score, away_score) if first_home else (away_score, home_score)
                     )
-                    teams = frozenset((game.get("home_provider_id"), game.get("away_provider_id")))
-                    if (game_date, teams) in result_conflicts:
+                    if self._meeting_dropped(game, result_conflicts):
                         reported_results[pair].add("dropped perspective with another score")
 
                 # Check incoming games against existing master-level keys
@@ -1838,35 +1857,51 @@ class EnhancedETLPipeline:
                         )
                         continue
 
-                    # A scored row saved under a provider-id uid whose score has since changed: the
-                    # result under the master-id uid is the same game, and inserting it would store
-                    # the game twice. Only when it is the pair's single game that day and the batch
-                    # reports it once.
-                    pair_rows = scored_rows.get(sorted_ids, [])
+                    # A result whose stored row sits under another uid (or, for
+                    # PROVIDER_ID_CORRECTION_PROVIDERS, under master ids a merge left behind) is the
+                    # same game; inserting it would store the game twice. Only when it is the pair's
+                    # single game that day and the batch reports it once. A result that matches the
+                    # stored score is a duplicate, not a correction.
                     if (
                         not fills_disabled
                         and self.provider_code
                         and self.provider_code.lower() in SCORE_CORRECTION_PROVIDERS
                         and h_score is not None
                         and a_score is not None
-                        and len(pair_rows) == 1
                         and not unscored_fixtures.get(sorted_ids)
                         and len(reported_results.get(sorted_ids, ())) == 1
                         and self.provider_id
-                        and pair_rows[0].get("provider_id") == self.provider_id
-                        and PROVIDER_ID_GAME_UID.match(pair_rows[0].get("game_uid") or "")
                     ):
-                        row = pair_rows[0]
-                        row_home_first = sorted_ids[0] == row["home_team_master_id"]
-                        same_orientation = row_home_first == (sorted_ids[0] == h_master)
+                        target = self._scored_row_to_correct(
+                            game,
+                            sorted_ids,
+                            scored_rows.get(sorted_ids, []),
+                            provider_id_rows.get(
+                                frozenset((game.get("home_provider_id"), game.get("away_provider_id"))), []
+                            ),
+                            by_provider_ids,
+                        )
+                        if target is None:
+                            continue
+                        row, same_orientation = target
+                        corrected_scores = (h_score, a_score) if same_orientation else (a_score, h_score)
+                        if corrected_scores == (_safe_int(row.get("home_score")), _safe_int(row.get("away_score"))):
+                            game["_master_dedup_skip"] = True
+                            duplicates_found += 1
+                            existing_master_keys.add(key)
+                            logger.info(
+                                f"[Pipeline] Master-level duplicate: game on {game_date} already stored as "
+                                f"{row['game_uid']} with the same score. game_uid={game.get('game_uid')}"
+                            )
+                            continue
                         game["_scored_row_correction"] = (
                             {
                                 **game,
                                 "game_uid": row["game_uid"],
                                 "home_team_master_id": row["home_team_master_id"],
                                 "away_team_master_id": row["away_team_master_id"],
-                                "home_score": h_score if same_orientation else a_score,
-                                "away_score": a_score if same_orientation else h_score,
+                                "home_score": corrected_scores[0],
+                                "away_score": corrected_scores[1],
                             },
                             {
                                 "home_team_master_id": row["home_team_master_id"],
@@ -1886,6 +1921,65 @@ class EnhancedETLPipeline:
                 # Non-fatal: continue without this check rather than block the import
 
         return duplicates_found
+
+    def _scored_row_to_correct(
+        self,
+        game: Dict,
+        sorted_ids: tuple,
+        pair_rows: List[Dict],
+        provider_rows: List[Dict],
+        by_provider_ids: bool,
+    ) -> Optional[Tuple[Dict, bool]]:
+        """The stored row a changed result corrects, and whether it is stored on the incoming sides.
+
+        ``pair_rows`` are the pair's scored rows under its current master ids, ``provider_rows`` those
+        found by its provider team ids, which a merge leaves untouched.
+        """
+        if len(pair_rows) == 1:
+            row = pair_rows[0]
+            if row.get("provider_id") != self.provider_id:
+                return None
+            if not (by_provider_ids or PROVIDER_ID_GAME_UID.match(row.get("game_uid") or "")):
+                return None
+            incoming_first = sorted_ids[0] == game["home_team_master_id"]
+            return row, (sorted_ids[0] == row["home_team_master_id"]) == incoming_first
+        if pair_rows or not by_provider_ids or len(provider_rows) != 1:
+            return None
+        row = provider_rows[0]
+        # A half-linked row is never ranked, so correcting it would drop the fully linked result
+        if not (row.get("home_team_master_id") and row.get("away_team_master_id")):
+            return None
+        return row, row.get("home_provider_id") == game.get("home_provider_id")
+
+    def _scored_rows_by_provider_ids(self, game_date: str, incoming_games: List[Dict]) -> Dict[frozenset, List[Dict]]:
+        """This provider's scored, non-excluded rows on a date, keyed by their pair of provider team ids."""
+        provider_team_ids = sorted(
+            {
+                team_id
+                for g in incoming_games
+                for team_id in (g.get("home_provider_id"), g.get("away_provider_id"))
+                if not is_blank_provider_id(team_id)
+            }
+        )
+        rows_by_pair: Dict[frozenset, List[Dict]] = {}
+        for team_batch in self._chunks(provider_team_ids, 100):
+            result = (
+                self.supabase.table("games")
+                .select(
+                    "id, game_uid, provider_id, home_team_master_id, away_team_master_id, "
+                    "home_provider_id, away_provider_id, home_score, away_score, is_excluded"
+                )
+                .eq("game_date", game_date)
+                .eq("provider_id", self.provider_id)
+                .in_("home_provider_id", team_batch)
+                .execute()
+            )
+            for row in result.data or []:
+                if row.get("is_excluded") or row.get("home_score") is None or row.get("away_score") is None:
+                    continue
+                pair = frozenset((row.get("home_provider_id"), row.get("away_provider_id")))
+                rows_by_pair.setdefault(pair, []).append(row)
+        return rows_by_pair
 
     async def _backfill_scores(
         self, games_to_update: List[Dict], game_uid_to_master_ids: Dict[str, Dict], batch_metrics: ImportMetrics
@@ -1918,19 +2012,37 @@ class EnhancedETLPipeline:
             return away_score, home_score
         return home_score, away_score
 
+    def _score_change_held(self, game: Dict, existing: Dict) -> bool:
+        """True when this provider holds both-sides changes and the score moved both sides, other than swapped."""
+        if not (self.provider_code and self.provider_code.lower() in HOLD_BOTH_SIDES_CHANGED_PROVIDERS):
+            return False
+        sides = self._scores_on_stored_sides(game, existing)
+        return sides is not None and moves_both_sides((existing["home_score"], existing["away_score"]), sides)
+
     def _stored_score_differs(self, game: Dict, existing: Dict) -> bool:
         """True when the incoming scores, read on the stored row's sides, differ from the stored ones."""
         sides = self._scores_on_stored_sides(game, existing)
         return sides is not None and sides != (existing["home_score"], existing["away_score"])
 
+    @staticmethod
+    def _meeting_dropped(game: Dict, result_conflicts: frozenset) -> bool:
+        """True when validation dropped another same-day result for this game's pair of provider team ids."""
+        teams = frozenset((game.get("home_provider_id"), game.get("away_provider_id")))
+        return (game.get("game_date"), teams) in result_conflicts
+
     def _changed_score_games(
-        self, incoming_dupes: List[Dict], true_dupes: List[Dict], game_uid_to_master_ids: Dict[str, Dict]
+        self,
+        incoming_dupes: List[Dict],
+        true_dupes: List[Dict],
+        game_uid_to_master_ids: Dict[str, Dict],
+        result_conflicts: frozenset = frozenset(),
     ) -> List[Dict]:
         """One game per game_uid whose single reported score differs from the stored one.
 
-        A GotSport game_uid is date plus team pair, so two meetings the same day (a pool game and a
-        final) share one. A uid the batch reports with two different scores cannot be told apart
-        from a changed score, so it is left alone.
+        A game_uid outside REMATCH_PROVIDERS is date plus team pair, so two meetings the same day (a
+        pool game and a final) share one. A uid the batch reports with two different scores cannot be told apart
+        from a changed score, so it is left alone, and so is a pair whose second meeting validation
+        dropped (``result_conflicts``).
         """
         scores_by_uid: Dict[str, set] = {}
         for game in incoming_dupes:
@@ -1940,6 +2052,8 @@ class EnhancedETLPipeline:
         changed: Dict[str, Dict] = {}
         for game in true_dupes:
             uid = game["game_uid"]
+            if self._meeting_dropped(game, result_conflicts):
+                continue
             if len(scores_by_uid[uid]) == 1 and self._stored_score_differs(game, game_uid_to_master_ids[uid]):
                 changed.setdefault(uid, game)
         return list(changed.values())
@@ -1949,67 +2063,46 @@ class EnhancedETLPipeline:
     ) -> None:
         """Replace the stored score of already-scored games with the provider's changed one.
 
-        Goes through game_corrections + apply_game_correction, the sanctioned write to an immutable
-        row, which leaves the old and new values on record. A raw ``.update()`` is rejected by the
-        prevent_game_updates trigger.
+        A change that HOLD_BOTH_SIDES_CHANGED_PROVIDERS holds is counted, not written.
         """
+        held_uids = {g["game_uid"] for g in games if self._score_change_held(g, game_uid_to_master_ids[g["game_uid"]])}
         if self.dry_run:
-            logger.info(f"[Pipeline] Dry run: would correct the score on {len(games)} games")
+            logger.info(
+                f"[Pipeline] Dry run: would correct the score on {len(games) - len(held_uids)} games "
+                f"({len(held_uids)} held)"
+            )
             return
 
         corrected = failed = 0
+        held = len(held_uids)
         for game in games:
             game_uid = game["game_uid"]
+            if game_uid in held_uids:
+                continue
             existing = game_uid_to_master_ids[game_uid]
             home_score, away_score = self._scores_on_stored_sides(game, existing)
             if not game.get("result"):
                 failed += 1
                 continue
 
-            correction_id = None
-            try:
-                correction = (
-                    self.supabase.table("game_corrections")
-                    .insert(
-                        {
-                            "original_game_uid": game_uid,
-                            "correction_type": "score",
-                            "original_values": {
-                                "home_score": existing["home_score"],
-                                "away_score": existing["away_score"],
-                            },
-                            "corrected_values": {
-                                "home_score": home_score,
-                                "away_score": away_score,
-                                "result": game["result"],
-                            },
-                            "reason": f"{self.provider_code} re-scrape reports a different score",
-                            "submitted_by": "enhanced_pipeline",
-                        }
-                    )
-                    .execute()
-                )
-                correction_id = correction.data[0]["id"]
-                self.supabase.rpc(
-                    "apply_game_correction", {"correction_id": correction_id, "approver_name": "enhanced_pipeline"}
-                ).execute()
+            if apply_score_correction(
+                self.supabase,
+                game_uid=game_uid,
+                original={"home_score": existing["home_score"], "away_score": existing["away_score"]},
+                corrected={"home_score": home_score, "away_score": away_score, "result": game["result"]},
+                reason=f"{self.provider_code} re-scrape reports a different score",
+                submitted_by="enhanced_pipeline",
+            ):
                 corrected += 1
-            except Exception as e:
+            else:
                 failed += 1
-                logger.warning(f"[Pipeline] Could not correct the score on {game_uid}: {e}")
-                if correction_id:
-                    # apply_game_correction only takes pending rows; do not leave one to pile up per re-scrape
-                    try:
-                        self.supabase.table("game_corrections").update({"status": "rejected"}).eq(
-                            "id", correction_id
-                        ).eq("status", "pending").execute()
-                    except Exception as reject_error:
-                        logger.warning(f"[Pipeline] Could not reject correction {correction_id}: {reject_error}")
 
         batch_metrics.scores_corrected += corrected
         batch_metrics.scores_correct_failed += failed
+        batch_metrics.scores_correct_held += held
         self.metrics.scores_corrected += corrected
         self.metrics.scores_correct_failed += failed
+        self.metrics.scores_correct_held += held
         if corrected:
             logger.info(f"[Pipeline] Corrected the score on {corrected} games from a changed provider score")
 
