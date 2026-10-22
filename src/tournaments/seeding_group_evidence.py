@@ -2,6 +2,9 @@
 
 Within-band loss is sum(signed_margin ** 2) / team_count. For a consistent
 strength model this is exactly its within-band sum of squared deviations.
+The per-team policy divides once more by team count, measuring variance rather
+than total spread. Replicating a distribution then cannot increase its incentive
+to split. Legacy snapshots retain the total-spread objective.
 One versioned cost per band prevents trivial fragmentation into tiny groups.
 Neither PowerScore gaps nor a mandatory mismatch at the boundary enter it.
 """
@@ -23,7 +26,7 @@ from src.tournaments.seeding_tiers import (
 )
 
 
-def grouping_costs(order, predictions, policy, metadata, split_penalty):
+def grouping_costs(order, predictions, policy, metadata, split_penalty, *, normalization="total"):
     """Exact additive interval costs; unavailable intervals never become cheap."""
     if split_penalty is None:
         return None
@@ -41,7 +44,8 @@ def grouping_costs(order, predictions, policy, metadata, split_penalty):
                     complete = False
                 else:
                     total += value
-            costs[start, end] = (total / (end - start) + Fraction(split_penalty)
+            denominator = (end - start) ** (2 if normalization == "per_team" else 1)
+            costs[start, end] = (total / denominator + Fraction(split_penalty)
                                  if complete else math.inf)
     return costs
 

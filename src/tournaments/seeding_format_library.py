@@ -66,6 +66,8 @@ class MatchBalanceRecommendationPolicy:
     practical_risk_tolerance: float = 0.0
     evidence_first: bool = False
     group_split_penalty: float | None = None
+    require_meaningful_breaks: bool = False
+    group_cost_normalization: str = "total"
 
 
 @dataclass(frozen=True)
@@ -427,6 +429,13 @@ def validate_format_library(library: FormatLibrary) -> FormatLibraryValidation:
             )
 
     for policy in library.recommendation_policies:
+        if policy.group_cost_normalization not in ("total", "per_team"):
+            library_errors.append("Group cost normalization must be total or per_team.")
+        if policy.group_cost_normalization == "per_team" and policy.group_split_penalty is None:
+            library_errors.append("Per-team group normalization requires whole-group selection.")
+        if (not isinstance(policy.require_meaningful_breaks, bool)
+                or (policy.require_meaningful_breaks and policy.group_split_penalty is None)):
+            library_errors.append("Meaningful breaks require a boolean and whole-group selection.")
         penalty = policy.group_split_penalty
         if penalty is not None and (isinstance(penalty, bool) or not isinstance(penalty, (int, float))
                                     or not math.isfinite(penalty) or penalty <= 0 or not policy.evidence_first):

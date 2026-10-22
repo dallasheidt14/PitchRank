@@ -180,3 +180,147 @@ def test_same_count_alternative_can_improve_both_matchup_risk_metrics(exact):
     assert alternative['additional_flight_count'] == 0
     assert alternative['worst_matchup_cost_delta'] < 0
     assert alternative['pair_weighted_average_matchup_cost_delta'] < 0
+
+
+@pytest.mark.parametrize('exact', [False, True])
+def test_larger_field_does_not_turn_a_small_strength_difference_into_extra_divisions(exact):
+    small = example([.3] * 4 + [-.3] * 4)
+    large = example([.3] * 8 + [-.3] * 8)
+    # The old total-spread objective adds a split purely because the field doubled.
+    assert run(*small, profile_id='matchbalance-expanded-v6').tier_guidance['cuts'] == []
+    assert run(*large, profile_id='matchbalance-expanded-v6').tier_guidance['cuts'] == [8]
+    for fixture in (small, large):
+        assert run(*fixture, exact=exact).tier_guidance['cuts'] == []
+
+
+def test_normalized_group_cost_is_invariant_to_replicated_strength_distribution():
+    values = [1, .9, .8, .1, 0, -.7, -.8, -.9]
+    scores = []
+    for copies in (1, 3):
+        entrants, predictions = example(sorted(values * copies, reverse=True))
+        order = [e.entrant_id for e in entrants]
+        metadata = {e.entrant_id: GroupTeam(e.entrant_id, e.team_name, limited_history=False) for e in entrants}
+        costs = grouping_costs(order, predictions, TierPolicy(), metadata, .25, normalization='per_team')
+        scores.append(float(costs[0, len(order)]))
+    assert scores[0] == pytest.approx(scores[1])
+
+
+@pytest.mark.parametrize('exact', [False, True])
+def test_format_display_preference_cannot_split_an_even_field(exact):
+    # Seven teams have a supported partial format; 3 + 4 has a nicer display
+    # preference, but there is no strength reason to make separate divisions.
+    entrants, predictions = example([0] * 7)
+    old = run(entrants, predictions, profile_id='matchbalance-expanded-v6')
+    assert old.tier_guidance['cuts']
+    new = run(entrants, predictions, exact=exact)
+    assert new.tier_guidance['cuts'] == []
+
+
+@pytest.mark.parametrize('exact', [False, True])
+@pytest.mark.parametrize('problem,reason', [
+    ('risk', 'combined_matchup_limits'), ('missing', 'incomplete_combined_evidence'),
+])
+def test_weak_directional_gap_can_still_need_a_split_for_safety_or_missing_predictions(exact, problem, reason):
+    entrants, predictions = example([.1] * 4 + [0] * 4)
+    analysis = build_cheat_sheet_analysis(entrants, predictions)
+    for i in range(4):
+        for j in range(4, 8):
+            if problem == 'missing':
+                del predictions[str(i), str(j)]
+            else:
+                predictions[str(i), str(j)] = replace(predictions[str(i), str(j)],
+                                                      expected_absolute_goal_difference=2.1)
+    library = load_format_library()
+    if exact:
+        library = replace(library, profiles=tuple(replace(p, max_candidate_structures=1) for p in library.profiles))
+    result = apply_group_guidance(analysis, build_tier_guidance(analysis, entrants, predictions, TierPolicy(), library))
+    assert result.tier_guidance['cuts'] == [4]
+    detail = result.tier_guidance['boundary_reasons'][0]['justification']
+    assert detail['reason'] == reason
+    assert detail['justified']
+    assert not result.tier_guidance['risky_pairings']
+    assert not result.breaks
+
+
+@pytest.mark.parametrize('count', [32, 48, 66, 100])
+def test_large_field_meaningful_search_completes_with_every_cut_explained(count):
+    entrants, predictions = example([2 - 4 * i / (count - 1) for i in range(count)])
+    result = run(entrants, predictions, exact=True)
+    guidance = result.tier_guidance
+    assert guidance['search_complete']
+    assert sum(d['size'] for d in guidance['divisions']) == count
+    assert not guidance['risky_pairings']
+    assert all(b['justification']['justified'] for b in guidance['boundary_reasons'])
+    assert guidance['search_method'] == 'exact_dynamic_programming'
+
+
+def test_justification_matches_direct_neighbor_evidence_and_reversals():
+    from src.tournaments.seeding_break_justification import boundary_justifications
+    from src.tournaments.seeding_group_evidence import group_boundaries
+    entrants, predictions = example([1, .9, .8, .1, 0, -.7, -.8, -.9])
+    order = [e.entrant_id for e in entrants]
+    metadata = {e.entrant_id: GroupTeam(e.entrant_id, e.team_name, limited_history=False) for e in entrants}
+    for sequence in (order, list(reversed(order))):
+        justify = boundary_justifications(sequence, predictions, TierPolicy(), metadata, {4, 8})
+        direct = group_boundaries(sequence, [dict(start_seed=1, end_seed=4), dict(start_seed=5, end_seed=8)],
+                                  predictions, TierPolicy(), metadata)[3]
+        assert justify(0, 4, 8)['average_directional_advantage'] == pytest.approx(direct['average_expected_margin'])
+        assert justify(0, 4, 8)['within_group_average_advantage'] == pytest.approx(direct['within_group_average_margin'])
+    assert not justify(0, 4, 8)['justified']
+
+
+def test_invalid_meaningful_group_policy_is_rejected():
+    from scripts.build_matchbalance_format_catalog import build_catalog
+    from src.tournaments.seeding_format_library import parse_format_library
+    for field, value in [('require_meaningful_breaks', 'yes'), ('group_cost_normalization', 'unknown'),
+                         ('group_cost_normalization', [])]:
+        raw = build_catalog()
+        raw['recommendation_policies'][-1][field] = value
+        with pytest.raises(ValueError):
+            parse_format_library(raw)
+
+
+def test_justified_search_keeps_earliest_boundaries_inside_final_numeric_tie_windows():
+    import math
+    from src.tournaments.seeding_break_justification import select_justified_partition
+    from src.tournaments.seeding_partition_search import Interval
+    scale = 10 ** 12
+    edges = [[] for _ in range(9)]
+    edges[0] = [Interval(0, 4, 6, 6 * scale + 3, 1 + 5e-13, 1, 0),
+                Interval(0, 5, 10, 10 * scale, 1, 1, 0)]
+    edges[4] = [Interval(4, 8, 6, 6 * scale, 1, 1, 0)]
+    edges[5] = [Interval(5, 8, 3, 3 * scale, 1, 1, 0)]
+    result = select_justified_partition(edges,
+        lambda *_: {'justified': True, 'reason': 'whole_group_separation'},
+        lambda _: (0, 0, 0, 0, 0),
+        lambda a, b: math.isclose(a, b, rel_tol=1e-12, abs_tol=1e-12), scale, lambda: None)
+    assert result == (4, 4)
+
+
+def test_justified_search_avoids_catalog_holes_before_optimizing_cohesion():
+    import math
+    from src.tournaments.seeding_break_justification import select_justified_partition
+    from src.tournaments.seeding_partition_search import Interval
+    # Both paths are safe and equally practical. A lower cohesion score cannot
+    # win by introducing a boundary that exists only due to a catalog hole.
+    edges = [[] for _ in range(13)]
+    edges[0] = [Interval(0, 4, 6, 6, 1, 1, 0), Interval(0, 6, 15, 15, 1, 1, 0)]
+    edges[4] = [Interval(4, 12, 28, 28, 1, 1, 0)]
+    edges[6] = [Interval(6, 12, 15, 15, 1, 1, 0)]
+    result = select_justified_partition(edges,
+        lambda a, b, c: {'justified': True, 'reason': 'combined_format_unavailable' if b == 4 else 'whole_group_separation'},
+        lambda e: (0, 0, 0, 0, 0 if e.end - e.start in (4, 8) else 1),
+        math.isclose, 1, lambda: None)
+    assert result == (6, 6)
+
+
+def test_legacy_profile_retains_original_total_spread_policy():
+    library = load_format_library()
+    old = library.policies_by_id[resolve_format_profile(library, 'matchbalance-expanded-v6').recommendation_policy_id]
+    assert old.group_cost_normalization == 'total'
+    assert old.group_split_penalty == 1.0
+    assert not old.require_meaningful_breaks
+    new = library.policies_by_id[resolve_format_profile(library).recommendation_policy_id]
+    assert new.group_cost_normalization == 'per_team'
+    assert new.group_split_penalty == .25
+    assert new.require_meaningful_breaks

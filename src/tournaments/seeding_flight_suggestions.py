@@ -635,7 +635,8 @@ def suggest_automatic_flights(
     ]
     from src.tournaments.seeding_group_evidence import grouping_costs
     band_costs = grouping_costs(order, predictions, competitive_policy, team_metadata,
-                               recommendation_policy.group_split_penalty)
+                               recommendation_policy.group_split_penalty,
+                               normalization=recommendation_policy.group_cost_normalization)
     operational_note = (
         "Team-count compatibility and projected matchup fit do not establish field, "
         "time, referee, or schedule feasibility."
@@ -730,8 +731,29 @@ def suggest_automatic_flights(
             and item.accepted_field_coverage.every_accepted_entrant_accounted_for
         )
     )
+    primary_candidates = eligible
+    if recommendation_policy.require_meaningful_breaks:
+        from src.tournaments.seeding_break_justification import (
+            boundary_justifications,
+            format_only_break_count,
+            partition_is_justified,
+        )
+        burdens = {size: option.format_burden for size, option in options_by_size.items()}
+        justify = boundary_justifications(order, predictions, competitive_policy, team_metadata,
+                                         set(generation.supported_flight_sizes), burdens)
+        primary_candidates = tuple(item for item in eligible if partition_is_justified(item.flight_sizes, justify))
+        if primary_candidates:
+            def operational_preference(item):
+                return partition_preference(item.flight_sizes, recommendation_policy,
+                                            supported_boundaries, burdens, band_costs)[:-1]
+            best_operations = min(operational_preference(item) for item in primary_candidates)
+            primary_candidates = tuple(item for item in primary_candidates
+                                       if operational_preference(item) == best_operations)
+            fewest_format_only = min(format_only_break_count(item.flight_sizes, justify) for item in primary_candidates)
+            primary_candidates = tuple(item for item in primary_candidates
+                                       if format_only_break_count(item.flight_sizes, justify) == fewest_format_only)
     best_evaluated = _select_by_default_policy(
-        eligible, recommendation_policy, options_by_size, supported_boundaries, band_costs
+        primary_candidates, recommendation_policy, options_by_size, supported_boundaries, band_costs
     )
     if generation.search_method == "exact_dynamic_programming":
         best_evaluated = next((item for item in eligible if item.flight_sizes == generation.optimal_structure), None)
@@ -802,7 +824,10 @@ def suggest_automatic_flights(
             best_evaluated_plan_id=best_evaluated.plan_id,
             primary_evidence_status=evidence_status,
             selection_reason=(
-                ("Compare variation within whole strength groups, balancing extra splits against tighter groups. "
+                ("Each break has a whole-group strength, combined-matchup, missing-evidence, or practical format "
+                 "reason; cosmetic format preferences alone cannot justify another division. "
+                 if recommendation_policy.require_meaningful_breaks else "")
+                + ("Compare variation within whole strength groups, balancing extra splits against tighter groups. "
                  if recommendation_policy.group_split_penalty is not None else
                  "Preserve supported strength breaks and prefer equal-game practical formats. "
                  if recommendation_policy.evidence_first else "")
