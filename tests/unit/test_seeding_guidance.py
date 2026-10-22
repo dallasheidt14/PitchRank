@@ -494,6 +494,43 @@ def test_limited_history_keeps_seed_and_literal_row_context_with_fixed_score_sca
     assert "Strength gap below" in marked[6]
 
 
+@pytest.mark.parametrize("source", ["analysis", "ordering", "results", "legacy_caution"])
+def test_current_history_warning_matches_row_and_review_list_for_active_rating(source):
+    from src.tournaments.seeding_content import director_csv
+
+    sheet, _, _ = cohort(4)
+    sheet = replace(sheet, rated=tuple(replace(team, status="Active") for team in sheet.rated))
+    before = build_director_cohort(sheet)
+    detail = {"reason": "Saved comparison.", "director_reason": "Saved comparison."}
+    changes = {}
+    if source == "analysis":
+        changes["limited_history"] = ("0",)
+    elif source == "ordering":
+        detail["limited_history"] = True
+    elif source == "results":
+        detail["results"] = {"limited": True}
+    else:
+        detail["cautions"] = ["Limited playing history; check placement"]
+    sheet = replace(sheet, tier_analysis=replace(
+        sheet.tier_analysis, ordering_evidence={"teams": {"0": detail}}, **changes,
+    ))
+    content = build_director_cohort(sheet)
+    assert [(row.seed, row.team.power_score) for row in content.rows] == [
+        (row.seed, row.team.power_score) for row in before.rows
+    ]
+    assert content.rows[0].team.status == "Active"
+    assert content.rows[0].display_status == "Seeded · Limited history"
+    assert all(not row.evidence_note for row in content.rows[1:])
+    assert content.review_teams == ("Team 0",)
+    assert replace(content.rows[0], seed=None).evidence_note == ""
+    args = dict(generated_on="2026-10-21", ranking_run="2026-10-21")
+    document = render_sheet_html("Event", [sheet], **args)
+    assert document.count('class="flag">Limited history') == 1
+    tab = load_workbook(BytesIO(build_seeding_workbook("Event", [sheet], **args))).active
+    assert tab["G7"].value == "Seeded · Limited history"
+    assert "Seeded · Limited history" in director_csv(sheet).decode("utf-8-sig")
+
+
 def test_director_csv_keeps_cautions_without_internal_seed_comparisons():
     from src.tournaments.seeding_content import director_csv
 

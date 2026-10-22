@@ -5,6 +5,15 @@ sheet and sends it to tournament directors. Each age/gender cohort gets its own
 section with consecutive strength tiers and compatible division formats.
 PowerScore remains the baseline; directors decide final placement and pool membership.
 
+New MatchBalance builds use scored games **on or after August 1, 2026**, through
+the analysis date. This applies to records, recent form, head-to-head and common
+opponents, results-based ordering, sensitivity checks, and competitive tiers.
+The exact start date is frozen in the evidence snapshot and its freshness digest.
+Published PowerScore and other rating strengths remain the baseline and can
+reflect earlier games; this policy does not recalculate rankings or change Compare.
+Saved packs retain their original evidence until explicitly rebuilt. Teams with
+little or no history in this window remain visible with history limitations.
+
 ## Prepare and deliver a pack
 
 1. Install the locked browser dependencies and Playwright Chromium, then start
