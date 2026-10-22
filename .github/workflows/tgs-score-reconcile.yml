@@ -1,0 +1,183 @@
+name: TGS Score Reconcile
+
+on:
+  schedule:
+    # Tuesday and Friday 05:23 UTC. The Monday TGS chain runs into Monday evening UTC, so Tuesday's
+    # run is the first to see all of it. Twice a week because a change is applied only when the
+    # previous scheduled run saw the same live score: Tuesday confirms Friday's sightings and Friday
+    # confirms Tuesday's, so a correction lands within the week rather than after a fortnight.
+    # Minute 23 rather than 0, which is GitHub's most contended slot and drops runs.
+    - cron: '23 5 * * 2,5'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (compare and report, apply nothing)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+# One writer at a time. Two runs would each read a previous snapshot the other is about to
+# replace, and both would try to correct the same games.
+concurrency:
+  group: tgs-score-reconcile
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read
+
+# No AGE_ROLLOVER_FREEZE gate: this changes scores and hides superseded rows between teams that
+# already have master ids, and never writes an age group or creates a team.
+env:
+  SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+  SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+  SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+  SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+  PYTHONUNBUFFERED: '1'
+
+jobs:
+  tgs-score-reconcile:
+    name: Reconcile TGS Scores
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          # Not requirements.txt: only what the script's import chain needs. A new module-level
+          # import anywhere in it (scripts.scrape_tgs_event, scripts.exclude_none_opponent_games,
+          # src.utils, src.etl.game_corrections) breaks this job with ModuleNotFoundError.
+          pip install supabase python-dotenv requests
+          echo "✅ Dependencies installed"
+
+      - name: Verify Supabase secrets
+        run: |
+          echo "SUPABASE_URL is set: $([ -n "$SUPABASE_URL" ] && echo yes || echo no)"
+          echo "SUPABASE_KEY is set: $([ -n "$SUPABASE_KEY" ] && echo yes || echo no)"
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_KEY" ]; then
+            echo "::error::Missing secrets. In repo Settings → Secrets and variables → Actions, add SUPABASE_URL and SUPABASE_SERVICE_KEY."
+            exit 1
+          fi
+
+      - name: Fetch the previous scheduled run's snapshot
+        id: previous
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p logs previous
+          # The previous scheduled run, whatever its outcome: a run that failed still recorded what it
+          # saw, and skipping it would let a change confirm across a run that saw something else. Only
+          # schedule events, so a pull request run from a fork cannot supply the snapshot.
+          PREVIOUS_RUN=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow tgs-score-reconcile.yml \
+            --event schedule --status completed --limit 1 --json databaseId --jq '.[0].databaseId // empty' || true)
+          if [ -n "$PREVIOUS_RUN" ] && gh run download "$PREVIOUS_RUN" --repo "$GITHUB_REPOSITORY" \
+            --name tgs-score-reconcile-snapshot --dir previous; then
+            echo "snapshot=previous/snapshot.json" >> "$GITHUB_OUTPUT"
+            echo "Using the snapshot from run $PREVIOUS_RUN"
+          else
+            echo "snapshot=" >> "$GITHUB_OUTPUT"
+            echo "The previous scheduled run left no snapshot: this run only records what it sees and applies nothing."
+          fi
+
+      - name: Compare stored scores with the live TGS schedules
+        id: reconcile
+        env:
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
+          PREVIOUS_SNAPSHOT: ${{ steps.previous.outputs.snapshot }}
+        run: |
+          set -o pipefail
+          ARGS="--snapshot-out logs/snapshot.json --out logs/rollback.json"
+          if [ -n "$PREVIOUS_SNAPSHOT" ]; then ARGS="$ARGS --snapshot-in $PREVIOUS_SNAPSHOT"; fi
+          if [ "$DRY_RUN" != "true" ]; then ARGS="$ARGS --execute"; fi
+          # Keep the script's own status: under pipefail it is the pipeline's, and `bash -e` would
+          # end the step before the greps below ran, leaving the summary blank on a failed run.
+          STATUS=0
+          python scripts/reconcile_tgs_scores.py $ARGS 2>&1 | tee logs/reconcile.log || STATUS=$?
+
+          # `|| true` because pipefail is still on and a no-match grep exits 1, which
+          # `bash -e` would take as the step's status before any default could apply.
+          CORRECTED=$(grep -oP 'Corrected \K[\d,]+' logs/reconcile.log | tail -1 || true)
+          HID=$(grep -oP 'hid \K[\d,]+' logs/reconcile.log | tail -1 || true)
+          REFUSED=$(grep -oP 'another game: \K[\d,]+' logs/reconcile.log | tail -1 || true)
+          WAITING=$(grep -oP 'altered: \K[\d,]+' logs/reconcile.log | tail -1 || true)
+          HELD=$(grep -oP 'both_sides: \K[\d,]+' logs/reconcile.log | tail -1 || true)
+          SKIPPED=$(grep -oP 'skipped \K[\d,]+(?= that changed)' logs/reconcile.log | tail -1 || true)
+          FAILED=$(grep -oP 'failed \K[\d,]+' logs/reconcile.log | tail -1 || true)
+          echo "corrected=${CORRECTED:-0}" >> $GITHUB_OUTPUT
+          echo "hid=${HID:-0}" >> $GITHUB_OUTPUT
+          echo "refused=${REFUSED:-0}" >> $GITHUB_OUTPUT
+          echo "waiting=${WAITING:-0}" >> $GITHUB_OUTPUT
+          echo "held=${HELD:-0}" >> $GITHUB_OUTPUT
+          echo "skipped=${SKIPPED:-0}" >> $GITHUB_OUTPUT
+          echo "failed=${FAILED:-0}" >> $GITHUB_OUTPUT
+          exit $STATUS
+
+      - name: Upload the snapshot for the next run
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: tgs-score-reconcile-snapshot
+          path: logs/snapshot.json
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Upload logs and rollback record
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          # The rollback record lists every corrected and hidden game; undoing a run needs it.
+          name: tgs-score-reconcile-logs-${{ github.run_number }}
+          path: |
+            logs/*.log
+            logs/rollback.json
+          if-no-files-found: ignore
+          retention-days: 90
+
+      - name: Summary
+        if: always()
+        env:
+          MODE: ${{ github.event.inputs.dry_run == 'true' && '🔍 Dry Run' || '⚡ Live' }}
+          CORRECTED: ${{ steps.reconcile.outputs.corrected || 'skipped' }}
+          HID: ${{ steps.reconcile.outputs.hid || 'skipped' }}
+          REFUSED: ${{ steps.reconcile.outputs.refused || 'skipped' }}
+          WAITING: ${{ steps.reconcile.outputs.waiting || 'skipped' }}
+          HELD: ${{ steps.reconcile.outputs.held || 'skipped' }}
+          SKIPPED: ${{ steps.reconcile.outputs.skipped || 'skipped' }}
+          FAILED: ${{ steps.reconcile.outputs.failed || 'skipped' }}
+        run: |
+          echo "## ⚽ TGS Score Reconcile" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Mode:** $MODE" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Scores corrected | $CORRECTED |" >> $GITHUB_STEP_SUMMARY
+          echo "| Stale rows hidden (corrected twin already stored) | $HID |" >> $GITHUB_STEP_SUMMARY
+          echo "| Hides refused (would also hide another game) | $REFUSED |" >> $GITHUB_STEP_SUMMARY
+          echo "| Changes waiting for a second sighting | $WAITING |" >> $GITHUB_STEP_SUMMARY
+          echo "| Changes held (both sides moved) | $HELD |" >> $GITHUB_STEP_SUMMARY
+          echo "| Entries skipped (a row changed after it was read) | $SKIPPED |" >> $GITHUB_STEP_SUMMARY
+          echo "| Corrections that failed | $FAILED |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "A change moving both sides of the score is never applied here: TGS has shown a" >> $GITHUB_STEP_SUMMARY
+          echo "correct result replaced by an unrelated one. Check those against TGS by hand." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "To undo a run, use \`rollback.json\` in its logs artifact. Only entries whose" >> $GITHUB_STEP_SUMMARY
+          echo "\`outcome\` is \`applied\` were written: file a correction back to the \`from\` score of each" >> $GITHUB_STEP_SUMMARY
+          echo "applied correction, and set \`is_excluded = false\` on each applied hidden entry's \`game_id\`." >> $GITHUB_STEP_SUMMARY
+          echo "Leave \`skipped\`, \`failed\` and \`pending\` entries alone: this run wrote nothing for them." >> $GITHUB_STEP_SUMMARY

@@ -806,6 +806,9 @@ EXEMPT_WRITERS = {
     "existing team's club, state or age",
     "process-missing-games.yml": "runs every 15 minutes, so checking it would block every apply; it imports "
     "games for queued teams and stamps last_scraped_at, and never changes an existing team's club, state or age",
+    "tgs-score-reconcile.yml": "corrects the stored score of TGS games, or hides a row a corrected copy "
+    "supersedes, found by provider team ids; it never changes a team's club, state or age and reads none of them. "
+    "Its Tuesday and Friday crons sit inside the apply week, before the Monday import the hard stop is set by",
     "refresh-team-scrape-activity.yml": "writes only the teams' derived activity columns (last_played_at, "
     "last_fixture_at, game_row_count, scrape_attempts), which no stage writes or reads; its Sunday cron sits "
     "inside the apply week, before the Monday import the hard stop is set by",
