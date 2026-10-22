@@ -4824,7 +4824,7 @@ elif section == "✏️ Manual Team Edit":
                     home_games = execute_with_retry(
                         lambda: db.table('games').select(
                             'game_uid, game_date, home_team_master_id, away_team_master_id, '
-                            'home_score, away_score'
+                            'home_score, away_score, is_excluded'
                         ).eq('home_team_master_id', team['team_id_master']).order(
                             'game_date', desc=True
                         ).limit(50)
@@ -4833,7 +4833,7 @@ elif section == "✏️ Manual Team Edit":
                     away_games = execute_with_retry(
                         lambda: db.table('games').select(
                             'game_uid, game_date, home_team_master_id, away_team_master_id, '
-                            'home_score, away_score'
+                            'home_score, away_score, is_excluded'
                         ).eq('away_team_master_id', team['team_id_master']).order(
                             'game_date', desc=True
                         ).limit(50)
@@ -4843,6 +4843,8 @@ elif section == "✏️ Manual Team Edit":
                     # Sort by date descending
                     all_games.sort(key=lambda x: x.get('game_date', ''), reverse=True)
                     all_games = all_games[:50]  # Limit to 50 most recent
+                    live_games = [g for g in all_games if not g.get('is_excluded')]
+                    hidden_count = len(all_games) - len(live_games)
 
                     if all_games:
                         # Get all unique team IDs to look up names
@@ -4864,13 +4866,16 @@ elif section == "✏️ Manual Team Edit":
                                 for t in teams_result.data:
                                     team_names[t['team_id_master']] = t['team_name']
 
-                        st.success(f"Found **{len(all_games)}** games")
+                        hidden_note = f" (plus {hidden_count} hidden)" if hidden_count else ""
+                        st.success(f"Found **{len(live_games)}** games{hidden_note}")
 
-                        # Calculate record
+                        # Calculate record (unscored rows are unplayed fixtures, not 0-0 draws)
                         wins = losses = draws = gf = ga = 0
-                        for g in all_games:
-                            home_score = g.get('home_score') or 0
-                            away_score = g.get('away_score') or 0
+                        for g in live_games:
+                            home_score = g.get('home_score')
+                            away_score = g.get('away_score')
+                            if home_score is None or away_score is None:
+                                continue
                             is_home = g.get('home_team_master_id') == team['team_id_master']
 
                             if is_home:
@@ -4912,8 +4917,10 @@ elif section == "✏️ Manual Team Edit":
                                 'Home': team_names.get(g.get('home_team_master_id'), 'Unknown'),
                                 'Score': f"{g.get('home_score', '-')} - {g.get('away_score', '-')}",
                                 'Away': team_names.get(g.get('away_team_master_id'), 'Unknown'),
+                                'Hidden': 'hidden' if g.get('is_excluded') else '',
                                 'Result': (
-                                    'W' if (g.get('home_team_master_id') == team['team_id_master'] and (g.get('home_score', 0) or 0) > (g.get('away_score', 0) or 0)) or
+                                    '—' if g.get('home_score') is None or g.get('away_score') is None
+                                    else 'W' if (g.get('home_team_master_id') == team['team_id_master'] and (g.get('home_score', 0) or 0) > (g.get('away_score', 0) or 0)) or
                                            (g.get('away_team_master_id') == team['team_id_master'] and (g.get('away_score', 0) or 0) > (g.get('home_score', 0) or 0))
                                     else 'L' if (g.get('home_team_master_id') == team['team_id_master'] and (g.get('home_score', 0) or 0) < (g.get('away_score', 0) or 0)) or
                                                 (g.get('away_team_master_id') == team['team_id_master'] and (g.get('away_score', 0) or 0) < (g.get('home_score', 0) or 0))
