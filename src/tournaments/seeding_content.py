@@ -13,7 +13,7 @@ from src.utils.us_states import STATE_CODE_TO_NAME, state_name_to_code
 if TYPE_CHECKING:
     from src.tournaments.seeding_sheet import CohortSheet, SheetTeam
 
-CONTENT_VERSION = 21
+CONTENT_VERSION = 22
 
 REVIEW_LABELS = {
     "ratings_outdated": "Waiting for updated rankings",
@@ -47,6 +47,7 @@ class DirectorRow:
     tier_label: str = ""
     break_label: str = ""
     recommendation_reason: str = ""
+    limited_history: bool = False
 
     @property
     def score(self) -> float | None:
@@ -54,7 +55,8 @@ class DirectorRow:
 
     @property
     def evidence_note(self) -> str:
-        return "Limited history" if self.seed is not None and self.team.status == "Not Enough Ranked Games" else ""
+        limited = self.limited_history or self.team.status == "Not Enough Ranked Games"
+        return "Limited history" if self.seed is not None and limited else ""
 
     @property
     def display_status(self) -> str:
@@ -257,6 +259,12 @@ def build_director_cohort(sheet: CohortSheet, operator_note: str = "") -> Direct
             tier,
             break_label,
             reason,
+            limited_history=bool(
+                team.entrant_id in getattr(analysis, "limited_history", ())
+                or detail.get("limited_history")
+                or detail.get("results", {}).get("limited")
+                or any("Limited playing history" in caution for caution in detail.get("cautions", []))
+            ),
         ))
     for team in unseeded:
         status = statuses.get(team.entrant_id) or (
@@ -426,13 +434,15 @@ def _concise_director_notes(sheet, rows, operator_note):
             reason = row.director_review_reason or row.placement_status
             notes.append(f"{row.team.team_name}: {reason.rstrip('.')}.")
         detail = ordering.get("teams", {}).get(row.team.entrant_id, {})
-        if row.evidence_note or row.team.entrant_id in getattr(analysis, "limited_history", ()):
+        if row.evidence_note:
             limited.append(row.team.team_name)
         for caution in detail.get("cautions", []):
             if caution.startswith("Field sensitivity:"):
                 continue
             if "Limited playing history" in caution:
-                limited.append(row.team.team_name)
+                # The shared row flag already puts this team in the review list
+                # and beside its name in every export.
+                continue
             elif caution.startswith("No shared results connect this team"):
                 notes.append(f"{row.team.team_name}: We have little evidence comparing this team with "
                              "the rest of the field. Please check its placement.")

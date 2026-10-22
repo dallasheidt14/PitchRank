@@ -155,6 +155,83 @@ function fixtures(): Record<string, Row[]> {
 }
 
 describe('Seeding canonical Compare bridge', () => {
+  it.each(['legacy', 'cohort', 'results'] as const)(
+    '%s uses only August 1 onward for evidence, records, predictions and sensitivity',
+    async (model) => {
+      const data = fixtures();
+      data.games = [
+        game('opening-day', OLD_A, B, { game_date: '2026-08-01', home_score: 2, away_score: 1 }),
+        game('recent', B, C, { game_date: '2026-10-01' }),
+      ];
+      const build = () =>
+        buildSeedingPredictions(database(data).client, { cohort: { a: A, b: B, c: C } }, { model, asOf: '2026-10-21' });
+      const original = await build();
+      data.games.push(
+        game('old-blowout', A, B, { game_date: '2026-07-31', home_score: 0, away_score: 20 }),
+        game('future', A, B, { game_date: '2026-10-22', home_score: 20, away_score: 0 }),
+        game('unscored', A, B, { game_date: '2026-08-02', home_score: null }),
+        game('excluded', A, B, { game_date: '2026-08-03', is_excluded: true })
+      );
+      const filtered = await build();
+      expect(filtered.cohorts).toEqual(original.cohorts);
+      expect(filtered.input_digests).toEqual(original.input_digests);
+      const snapshot = JSON.parse((filtered.evidence.cohort as { canonical_json: string }).canonical_json);
+      expect(snapshot.window_start).toBe('2026-08-01');
+      expect(snapshot.games.map((g: { id: string }) => g.id)).toEqual(['recent', 'opening-day']);
+      expect(snapshot.teams.a).toMatchObject({
+        wins: 1,
+        losses: 0,
+        draws: 0,
+        games_played: 1,
+        prediction_game_count: 1,
+        power_score_final: 0.55,
+      });
+      const compare = await fetchPredictionEvidence(database(data).client, [A, OLD_A, B], '2026-10-21');
+      expect(compare.games.map((g) => g.id)).toContain('old-blowout');
+      expect(compare.window_start).toBe('2025-10-21');
+      // Published record totals may still include earlier seasons. They must
+      // not re-enter MatchBalance through the predictor's aggregate inputs.
+      for (const rating of data.rankings_full)
+        Object.assign(rating, { games_played: 100, wins: 90, losses: 5, draws: 5 });
+      const changedPublishedRecords = await build();
+      expect(changedPublishedRecords.cohorts).toEqual(filtered.cohorts);
+      data.games[0].home_score = 4;
+      expect((await build()).input_digests).not.toEqual(original.input_digests);
+    }
+  );
+
+  it('keeps a rated team with only older games visible with zero season history', async () => {
+    const data = fixtures();
+    data.games = [game('old', A, B, { game_date: '2026-07-31' })];
+    const result = await buildSeedingPredictions(
+      database(data).client,
+      { cohort: { a: A, b: B } },
+      { model: 'results', asOf: '2026-10-21' }
+    );
+    expect(result.cohorts.cohort.unavailable).toEqual({});
+    expect(result.cohorts.cohort.teams.a).toMatchObject({
+      prediction_game_count: 0,
+      latest_game_date: null,
+      games_played: 0,
+      wins: 0,
+      losses: 0,
+      draws: 0,
+      result_evidence: { games: 0 },
+    });
+    expect(result.cohorts.cohort.predictions).toHaveLength(2);
+  });
+
+  it.each(['2026-02-30', 'invalid', '2026-10-22'])(
+    'rejects an invalid or future history start %s',
+    async (windowStart) => {
+      const db = database(fixtures());
+      await expect(fetchPredictionEvidence(db.client, [A], '2026-10-21', db.client, { windowStart })).rejects.toThrow(
+        'Invalid prediction history start date'
+      );
+      expect(db.queries).toEqual([]);
+    }
+  );
+
   it('digests the actual rating and merged game inputs without depending on request order', async () => {
     const data = fixtures();
     const digest = async (entries = { a: A, b: B }) =>
@@ -212,8 +289,11 @@ describe('Seeding canonical Compare bridge', () => {
       expect(updated.cohorts['u15|Male'].unavailable_codes).toEqual({});
       expect(updated.cohorts['u15|Male'].unavailable_details).toEqual({});
       expect(updated.cohorts['u15|Male'].teams.a).toMatchObject({ age: 14, ratings_age: 14 });
-      const compare = await buildMatchPrediction(db.client, A, B);
-      expect(updated.cohorts['u15|Male'].predictions[0].expected_margin).toBe(compare.prediction.expectedMargin);
+      const teams = updated.cohorts['u15|Male'].teams;
+      const games = await fetchPredictionGames(db.client, [A, OLD_A, B]);
+      expect(updated.cohorts['u15|Male'].predictions[0].expected_margin).toBe(
+        predictMatch(teams.a, teams.b, games).expectedMargin
+      );
     }
   );
 
@@ -256,7 +336,7 @@ describe('Seeding canonical Compare bridge', () => {
     });
   });
 
-  it('matches real Compare and direct predictMatch with exact pair games, then mirrors the result', async () => {
+  it('uses the shared predictor with season records, leaves Compare intact, and mirrors the result', async () => {
     const db = database(fixtures());
     const result = await buildSeedingPredictions(db.client, { 'u14:Male': { '6': OLD_A, '7': B, '8': C } });
     const output = result.cohorts['u14:Male'];
@@ -274,8 +354,10 @@ describe('Seeding canonical Compare bridge', () => {
     const teamB = await fetchPredictionTeam(db.client, B);
     const games = await fetchPredictionGames(db.client, [A, OLD_A, B]);
     await warmMatchPredictorCalibration();
-    const direct = predictMatch(teamA, teamB, games);
-    expect(compare.prediction).toEqual(direct);
+    expect(compare.prediction).toEqual(predictMatch(teamA, teamB, games));
+    const direct = predictMatch(output.teams['6'], output.teams['7'], games);
+    expect(output.teams['6']).toMatchObject({ wins: 3, losses: 0, draws: 0, games_played: 3 });
+    expect(teamA.games_played).toBe(20);
     expect(row).toMatchObject({
       expected_margin: direct.expectedMargin,
       expected_absolute_goal_difference: direct.expectedAbsoluteGoalDifference,
@@ -387,23 +469,25 @@ describe('Seeding canonical Compare bridge', () => {
     );
   });
 
-  it('matches Compare when the optional predictive view is absent from the database schema', async () => {
+  it('uses season records when the optional predictive view is absent from the database schema', async () => {
     const db = database(fixtures(), 'team_predictive_view', { code: 'PGRST205', message: 'Missing optional view' });
     const result = await buildSeedingPredictions(db.client, { cohort: { a: A, b: B } });
-    const compare = await buildMatchPrediction(db.client, A, B);
+    const teams = result.cohorts.cohort.teams;
+    const prediction = predictMatch(teams.a, teams.b, await fetchPredictionGames(db.client, [A, OLD_A, B]));
     expect(result.cohorts.cohort.teams.a.exp_margin).toBeNull();
-    expect(result.cohorts.cohort.predictions[0].expected_margin).toBe(compare.prediction.expectedMargin);
-    expect(result.cohorts.cohort.predictions[0].win_probability_a).toBe(compare.prediction.winProbabilityA);
+    expect(result.cohorts.cohort.predictions[0].expected_margin).toBe(prediction.expectedMargin);
+    expect(result.cohorts.cohort.predictions[0].win_probability_a).toBe(prediction.winProbabilityA);
   });
 
   it.each(['rankings_view', 'state_rankings_view'])(
-    'matches Compare rankings_full inputs when %s lacks optional Glicko columns',
+    'uses rankings_full strengths and season records when %s lacks optional Glicko columns',
     async (view) => {
       const db = database(fixtures(), view, { code: '42703', message: `column ${view}.glicko_rating does not exist` });
       const result = await buildSeedingPredictions(db.client, { cohort: { a: A, b: B } });
-      const compare = await buildMatchPrediction(db.client, A, B);
+      const teams = result.cohorts.cohort.teams;
+      const prediction = predictMatch(teams.a, teams.b, await fetchPredictionGames(db.client, [A, OLD_A, B]));
       expect(result.cohorts.cohort.teams.a.glicko_rating).toBe(1750);
-      expect(result.cohorts.cohort.predictions[0].expected_margin).toBe(compare.prediction.expectedMargin);
+      expect(result.cohorts.cohort.predictions[0].expected_margin).toBe(prediction.expectedMargin);
     }
   );
 

@@ -23,6 +23,9 @@ import {
 } from './networkResultModel';
 export type SeedingModel = 'legacy' | 'cohort' | 'results';
 
+// Explicit MatchBalance policy; Compare and published rankings keep their own windows.
+export const MATCHBALANCE_HISTORY_START = '2026-08-01';
+
 export type SeedingCohorts = Record<string, Record<string, string>>;
 type ResolvedTeam = Awaited<ReturnType<typeof resolvePredictionTeamIds>>;
 export type SeedingTeam = PredictionTeam & {
@@ -205,9 +208,40 @@ export async function buildSeedingPredictions(
   const allIds = [...resolvedByRequested.values()]
     .filter((item) => teamByCanonical.has(item.canonicalTeamId))
     .flatMap((item) => item.allTeamIds);
-  const evidence = await fetchPredictionEvidence(supabase, allIds, options.asOf);
+  const evidence = await fetchPredictionEvidence(supabase, allIds, options.asOf, supabase, {
+    windowStart: MATCHBALANCE_HISTORY_START,
+  });
   const games = evidence.games;
+  // Network priors compare against a zero-game neutral reference, so aggregate
+  // records do not enter them. Keep their published inputs independent of which
+  // other cohorts happen to be selected in the same build.
   const opponentTeams = new Map(teamByCanonical);
+  // The legacy pair predictor also reads a team's aggregate record. Replace that
+  // record from the same canonical, scored fixtures rather than leaking older
+  // ranking-window results into the season-only game analysis. Rating strengths
+  // (PowerScore, Glicko, offense/defense and SOS) remain published baseline inputs.
+  for (const [id, team] of teamByCanonical) {
+    let wins = 0,
+      losses = 0,
+      draws = 0;
+    for (const game of games) {
+      const home = game.home_team_master_id === id;
+      if (!home && game.away_team_master_id !== id) continue;
+      const margin = (game.home_score! - game.away_score!) * (home ? 1 : -1);
+      if (margin > 0) wins++;
+      else if (margin < 0) losses++;
+      else draws++;
+    }
+    const played = wins + losses + draws;
+    teamByCanonical.set(id, {
+      ...team,
+      wins,
+      losses,
+      draws,
+      games_played: played,
+      win_percentage: played ? ((wins + draws * 0.5) / played) * 100 : null,
+    });
+  }
   const unknownOpponents: Record<string, string> = {};
   if (model === 'results') {
     const opponents = [...new Set(games.flatMap((g) => [g.home_team_master_id, g.away_team_master_id]))]

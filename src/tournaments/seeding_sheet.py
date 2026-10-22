@@ -386,6 +386,7 @@ def _rows_html(
     strength_break_ids: frozenset[str] = frozenset(),
     close_range_notes: Mapping[str, str] | None = None,
     break_labels: Mapping[str, str] | None = None,
+    evidence_notes: Mapping[str, str] | None = None,
     show_notes: bool = True,
 ) -> str:
     row_groups = []
@@ -393,7 +394,7 @@ def _rows_html(
     break_before_next_row = False
     separator_label = "Competitive Break"
     for position, team in enumerate(teams, start=start):
-        status = _status_label(team.status) if numbered else ""
+        status = ((evidence_notes or {}).get(team.entrant_id) or _status_label(team.status)) if numbered else ""
         flag = (
             f'<span class="flag">{html.escape(status)}</span>'
             if status and status != "Active" else ""
@@ -471,13 +472,14 @@ def _table_html(title: str, teams: Sequence[SheetTeam], *, numbered: bool, start
                 close_range_notes: Mapping[str, str] | None = None,
                 break_labels: Mapping[str, str] | None = None,
                 seed_label: str = "MatchBalance Seed",
+                evidence_notes: Mapping[str, str] | None = None,
                 show_notes: bool = True) -> str:
     summary = f'<div class="tier-description">{html.escape(subtitle)}</div>' if subtitle else ""
     purpose_html = f'<span class="tier-purpose">{html.escape(purpose)}</span>' if purpose else ""
     rows = _rows_html(teams, numbered=numbered, start=start, placement_notes=placement_notes,
                       strength_break_ids=strength_break_ids,
                       close_range_notes=close_range_notes, break_labels=break_labels,
-                      show_notes=show_notes)
+                      evidence_notes=evidence_notes, show_notes=show_notes)
     columns = ('<col style="width:9%"><col style="width:42%"><col style="width:15%">'
                '<col style="width:13%"><col style="width:21%">')
     if show_notes:
@@ -629,6 +631,7 @@ def _cheat_sheet_tables(sheet: CohortSheet) -> tuple[str, str]:
     tables.append(_table_html(
         "MatchBalance Suggested Seeding", [row.team for row in content.seeded], numbered=True,
         cohort_label=cohort, seed_label="Seed",
+        evidence_notes={row.team.entrant_id: row.evidence_note for row in content.seeded},
         strength_break_ids=frozenset(row.team.entrant_id for row in content.seeded if row.strength_break_after),
         break_labels={row.team.entrant_id: "Competitive Break" if row.seed in practical_cuts else row.break_label
                       for row in content.seeded},

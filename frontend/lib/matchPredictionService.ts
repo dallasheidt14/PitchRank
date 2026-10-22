@@ -390,12 +390,21 @@ export async function fetchPredictionEvidence(
   supabase: SupabaseClient,
   teamIds: string[],
   asOf = new Date().toISOString().slice(0, 10),
-  exclusionsClient: SupabaseClient = supabase
+  exclusionsClient: SupabaseClient = supabase,
+  options: { windowStart?: string } = {}
 ) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(asOf) || !Number.isFinite(Date.parse(asOf)))
     throw new Error('Invalid prediction date');
   const cutoffDate = new Date(asOf + 'T00:00:00Z');
   cutoffDate.setUTCDate(cutoffDate.getUTCDate() - 365);
+  const windowStart = options.windowStart ?? cutoffDate.toISOString().slice(0, 10);
+  if (
+    !/^\d{4}-\d{2}-\d{2}$/.test(windowStart) ||
+    !Number.isFinite(Date.parse(windowStart)) ||
+    new Date(windowStart).toISOString().slice(0, 10) !== windowStart ||
+    windowStart > asOf
+  )
+    throw new Error('Invalid prediction history start date');
 
   // Both Compare and Seeding use this stable order, including same-day games.
   // Page below the local PostgREST cap and keep the complete filter below its
@@ -412,7 +421,7 @@ export async function fetchPredictionEvidence(
         .select(
           'id, game_date, home_team_master_id, away_team_master_id, home_score, away_score, competition, division_name, event_name, ml_overperformance, provider_id, source_url, scraped_at'
         )
-        .gte('game_date', cutoffDate.toISOString().split('T')[0])
+        .gte('game_date', windowStart)
         .lte('game_date', asOf)
         .not('home_score', 'is', null)
         .not('away_score', 'is', null)
@@ -457,7 +466,7 @@ export async function fetchPredictionEvidence(
     let reason = '';
     if (game.is_excluded || excluded.has(home ?? '') || excluded.has(away ?? '')) reason = 'excluded';
     else if (!home || !away || home === away) reason = 'unresolved_or_self_match';
-    else if (game.game_date > asOf || game.game_date < cutoffDate.toISOString().slice(0, 10)) reason = 'outside_window';
+    else if (game.game_date > asOf || game.game_date < windowStart) reason = 'outside_window';
     else if (
       ![game.home_score, game.away_score].every(
         (value) => typeof value === 'number' && Number.isInteger(value) && value >= 0
@@ -536,7 +545,7 @@ export async function fetchPredictionEvidence(
   return {
     schema_version: 1,
     as_of: asOf,
-    window_start: cutoffDate.toISOString().slice(0, 10),
+    window_start: windowStart,
     games: evidence,
     aliases: Object.fromEntries([...identities].filter(([id]) => involved.has(id)).sort()),
     omitted,
