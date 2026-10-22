@@ -53,6 +53,11 @@ def plan_game(sb, gid, src, dst, provider_team_id):
     if not held:
         row["result"] = "skipped_not_held_by_from"
         return row
+    if len(held) == 2:  # the fused row is on both sides: the provider id picks the squad's side
+        held = [s for s in held if provider_team_id and game[f"{s}_provider_id"] == provider_team_id]
+        if len(held) != 1:
+            row["result"] = "skipped_ambiguous_side"
+            return row
     row["side"] = held[0]
     other = "away" if held[0] == "home" else "home"
     if read_side(sb, gid, other) == dst:

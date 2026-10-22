@@ -24,11 +24,10 @@ sys.path.insert(0, str(ROOT))
 from dotenv import load_dotenv  # noqa: E402
 from supabase import create_client  # noqa: E402
 
+from src.utils.us_states import STATE_CODE_TO_NAME  # noqa: E402
+
 load_dotenv(ROOT / ".env")
 load_dotenv(ROOT / ".env.local", override=True)
-
-STATE_NAMES = {"CA": "California"}
-
 
 def parse_alias(text):
     code, pid, master = text.split(":")
@@ -75,8 +74,8 @@ def main():
     if not args.to_existing:
         if not re.fullmatch(r"u[0-9]{1,2}", args.age_group):
             ap.error("--age-group must look like u15")
-        if not re.fullmatch(r"[A-Z]{2}", args.state_code):
-            ap.error("--state-code must be two capital letters")
+        if args.state_code not in STATE_CODE_TO_NAME:
+            ap.error(f"--state-code {args.state_code!r} is not a known state code")
     aliases = [parse_alias(a) for a in args.alias]
     for code, _, _ in aliases:
         if code not in providers:
@@ -111,7 +110,7 @@ def main():
         row = {
             "team_id_master": new_id, "provider_id": providers[first_code], "provider_team_id": own_pid,
             "team_name": args.name, "team_name_original": args.name, "club_name": args.club,
-            "state": STATE_NAMES.get(args.state_code), "state_code": args.state_code,
+            "state": STATE_CODE_TO_NAME[args.state_code], "state_code": args.state_code,
             "age_group": args.age_group, "gender": args.gender, "league": args.league, "is_deprecated": False,
         }
         print("would create team:" if not execute else "creating team:", json.dumps(row))
