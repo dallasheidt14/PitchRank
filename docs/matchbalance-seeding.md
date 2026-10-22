@@ -231,18 +231,39 @@ costs and deterministic ties. A state safeguard leaves the analysis explicitly
 incomplete if optimality has not been established; a shortened alternatives list
 does not mean the primary optimization is incomplete.
 
-The expanded-v6 policy requires complete predictions and no projected matchup violations.
-Among passing splits, prefer equal preliminary game counts, guarantees closest to
-three or four games, regular pool play, and fewer tiers below four teams. Then
-minimize variation within whole strength groups, with a fixed penalty per tier
-to avoid unnecessary splits. Remaining ties prefer fewer tiers, lower worst matchup
-cost, and lower pair-weighted average cost. These are
+The expanded-v7 policy requires complete predictions and no projected matchup violations.
+Each extra division must have a reason: a material whole-group strength difference,
+an unsafe or incompletely assessed combined division, or a practical format need
+under the effective event settings. Unequal preliminary games or a guarantee outside
+the preferred three-to-four range can justify a format split when both smaller
+divisions avoid that burden. It is explicitly a playing-format choice, not a strength
+gap or a mandatory game restriction. A close matchup between the two teams
+nearest a line does not veto a meaningful whole-group difference. The strength
+test uses the existing one-goal average directional advantage, favored fraction,
+and comparison with within-group variation; sparse history still makes it provisional.
+Among equally practical arrangements, the search minimizes catalog-only breaks, so a catalog
+hole cannot preserve unnecessary divisions when other safe boundaries avoid it.
+
+Among those passing splits, prefer equal preliminary game counts, guarantees closest
+to three or four games, regular pool play, and fewer tiers below four teams. Then
+minimize within-division strength variance plus 0.25 goal-squared per tier. The variance
+is the sum of squared signed pair margins divided by division size squared. Unlike
+the older total-spread objective, simply replicating a strength distribution does
+not increase its incentive to split. The 0.25 penalty is the variance between two
+equal, internally level groups separated by one expected goal; it is an explainable
+placement preference, not a fitted accuracy claim. Remaining ties prefer fewer tiers,
+lower worst matchup cost, and lower pair-weighted average cost. These are
 preferences: explicit event requirements can select other guarantees and formats.
 A passing split is never replaced by an unsafe split to avoid a small tier.
 Group separation compares all cross-group matchups against within-group variation;
 the immediate neighbors can be closely matched. See the
 [whole-group policy and evidence requirements](matchbalance-evidence-order.md#preview-methods).
 Saved earlier profiles keep their original rules until a rebuild or format update.
+The exact search retains the previous division in its state to check each neighboring
+pair of divisions. Exhaustive small-field evaluation uses the same boundary rule.
+Operator evidence records why each selected break is useful; this detail does not
+add a new block of jargon to the director sheet. More-divided risk alternatives
+remain labeled as alternatives, not additional supported strength cliffs.
 
 This preference applies to strength divisions, not their pools. Six similarly
 strong teams can form one tier with two pools of three. A three-team tier can
@@ -298,7 +319,7 @@ its coverage, such as **12 of 14 teams assessed**.
 - `seeding_pack.py` snapshots the baseline, suggestion, movement reasoning,
   conflicts, and explicit manual override (pack schema 10, analysis schema 14).
 - `seeding_freshness.py` binds freshness evidence and acknowledgments to the
-  saved snapshot. Shared export content uses schema version 21.
+  saved snapshot. Shared export content uses schema version 22.
 - `seeding_format_library.py` validates exact format variants and resolves the
   event-wide profile; `seeding_flight_suggestions.py` generates and selects
   fixed-order candidate structures without altering the seed order.

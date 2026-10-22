@@ -223,20 +223,48 @@ def _calculate_guidance(order, natural, review, entrants, predictions, policy, l
                 f"expected absolute goal difference {worst.expected_absolute_goal_difference:.2f}, "
                 f"four-goal margin probability {worst.blowout_probability:.0%}."
             )
+    boundary_reasons = [
+        {"after_seed": item["end_seed"],
+         "kind": "natural" if item["natural_break_after"] else "practical",
+         "reason": ("Results support different strength bands; teams near the line may still be close."
+                    if item["natural_break_after"] else
+                    "A practical split to keep the full division competitive; "
+                    "distinct strength bands are not established at this position.")}
+        for item in divisions[:-1]
+    ]
+    if recommendation.require_meaningful_breaks:
+        from src.tournaments.seeding_break_justification import boundary_justifications
+        justify = boundary_justifications(order, predictions, policy, metadata,
+                                         set(result.generation.supported_flight_sizes),
+                                         {item.team_count: item.format_burden
+                                          for item in result.generation.size_template_options})
+        explanations = {
+            "whole_group_separation": ("The surrounding groups differ in projected strength; "
+                                       "teams near the line may still be close."),
+            "combined_matchup_limits": "Combining these divisions would introduce projected mismatches.",
+            "incomplete_combined_evidence": ("Some matchups between these divisions cannot be assessed; "
+                                             "review before combining them."),
+            "combined_format_unavailable": ("The combined team count has no compatible format "
+                                            "under the selected settings."),
+            "combined_schedule_burden": ("Separate divisions avoid unequal preliminary game counts or a "
+                                         "game guarantee outside the preferred three-to-four-game range. "
+                                         "This is a playing-format choice, not an established strength gap."),
+            "no_material_benefit": ("This split has no demonstrated competitive or format benefit; "
+                                    "review the arrangement."),
+        }
+        for item, upper, lower in zip(boundary_reasons, divisions, divisions[1:]):
+            detail = justify(upper['start_seed'] - 1, upper['end_seed'], lower['end_seed'])
+            item['justification'] = detail
+            if item['kind'] != 'natural':
+                item['reason'] = explanations[detail['reason']]
+                if detail['reason'] == 'whole_group_separation':
+                    item['reason'] += " Limited history means this separation still needs review."
     return {
-        "version": 5, "practical_tradeoff": practical_tradeoff,
+        "version": 6 if recommendation.require_meaningful_breaks else 5, "practical_tradeoff": practical_tradeoff,
         "boundary_method": "whole_group_v1" if recommendation.group_split_penalty is not None else "local_windows_v1",
         "group_boundaries": group_evidence,
         "selection_reason": result.selection_reason,
-        "boundary_reasons": [
-            {"after_seed": item["end_seed"],
-             "kind": "natural" if item["natural_break_after"] else "practical",
-             "reason": ("Results support different strength bands; teams near the line may still be close."
-                        if item["natural_break_after"] else
-                        "A practical split to keep the full division competitive; "
-                        "distinct strength bands are not established at this position.")}
-            for item in divisions[:-1]
-        ],
+        "boundary_reasons": boundary_reasons,
         "status": "review_required_compromise" if compromise else result.status,
         "review_required": compromise or chosen is None or bool(unassigned)
         or result.primary_evidence_status == "provisional_due_to_history",

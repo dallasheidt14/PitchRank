@@ -6,6 +6,7 @@ import math
 from dataclasses import dataclass
 from functools import lru_cache
 
+from src.tournaments.seeding_break_justification import boundary_justifications, select_justified_partition
 from src.tournaments.seeding_format_preferences import interval_preference
 from src.tournaments.seeding_group_assessment import assess_group
 from src.tournaments.seeding_group_evidence import grouping_costs
@@ -43,7 +44,8 @@ def search_partitions(
     n = len(order)
     if len(set(order)) != n:
         raise ValueError("The selected order contains duplicate entrants.")
-    band_costs = grouping_costs(order, predictions, policy, metadata, recommendation_policy.group_split_penalty)
+    band_costs = grouping_costs(order, predictions, policy, metadata, recommendation_policy.group_split_penalty,
+                               normalization=recommendation_policy.group_cost_normalization)
     pairs = assess_group(order, predictions, policy, metadata).pairings
     by_pair = {frozenset(pair.entrant_ids): pair for pair in pairs}
     ratios = [pair.matchup_cost.as_integer_ratio() for pair in pairs if pair.matchup_cost is not None]
@@ -186,7 +188,19 @@ def search_partitions(
         # This is a whole-arrangement preference, before division count or cost.
         # Reuse interval evidence and the shared state budget for the fallback pass.
         minimum = recommendation_policy.preferred_minimum_division_size
-        if recommendation_policy.evidence_first:
+        if recommendation_policy.require_meaningful_breaks:
+            justify = boundary_justifications(order, predictions, policy, metadata, set(sizes), format_burdens)
+            primary = select_justified_partition(
+                passing, justify,
+                lambda edge: interval_preference(edge.start, edge.end, recommendation_policy,
+                                                 supported_boundaries, format_burdens, band_costs),
+                close, scale, tick,
+            )
+            if primary is not None:
+                structures.add(primary)
+            alternative_edges = passing
+            best_worst = {}
+        elif recommendation_policy.evidence_first:
             # Lexicographic additive preferences have optimal substructure. Keep
             # every tied edge so worst risk and pair-weighted averages stay exact.
             def preferred_edges(*, include_cohesion=True):

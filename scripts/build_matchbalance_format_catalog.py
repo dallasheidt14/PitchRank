@@ -25,7 +25,7 @@ SOURCE_ID = "format-field-guide-2026-10"
 def build_catalog() -> dict:
     legacy = json.loads((ROOT / "config/matchbalance_format_library_v1.json").read_text())
     catalog = deepcopy(legacy)
-    catalog.update(schema_version=2, library_version="2.4.0")
+    catalog.update(schema_version=2, library_version="2.5.0")
     catalog["source_documents"].append(
         {
             "source_id": SOURCE_ID,
@@ -558,6 +558,34 @@ def build_catalog() -> dict:
     group_profile.update(profile_id="matchbalance-expanded-v6", version=6, is_default=True,
                          recommendation_policy_id=group_policy["policy_id"])
     catalog["profiles"].append(group_profile)
+    group_profile["is_default"] = False
+    justified_policy = deepcopy(group_policy)
+    justified_policy.update(
+        policy_id="matchbalance-meaningful-groups-v6", version=6, require_meaningful_breaks=True,
+        group_cost_normalization="per_team", group_split_penalty=0.25,
+        description="Require each extra division to separate meaningfully different whole groups, "
+        "avoid an unsafe or incompletely assessed combined division, or meet practical format needs. "
+        "Close boundary opponents remain allowed; cosmetic format preferences alone cannot justify a split.",
+    )
+    justified_policy["selection_steps"].insert(1,
+        "Reject a split between neighboring divisions when their combination has complete safe predictions "
+        "and a practical compatible format, unless their whole-group directional advantage meets the existing "
+        "separation threshold, favored fraction, and within-group comparison. History limitations "
+        "remain explicit. Removing unequal preliminary games or a guarantee outside the preferred three-to-four "
+        "range can justify a format split; it is not a strength gap or a mandatory game requirement.")
+    justified_policy["selection_steps"].insert(2,
+        "Among equally practical arrangements, minimize catalog-only breaks before cohesion; "
+        "a missing combined catalog size must not force extra divisions when other safe boundaries avoid it.")
+    justified_policy["selection_steps"][4] = (
+        "Minimize sum of squared signed margins divided by division size squared, plus 0.25 goal-squared "
+        "per division. For coherent strength estimates this is within-division variance: replicating "
+        "a strength distribution does not create extra incentive to split it. A 0.25 penalty corresponds "
+        "to the variance between two equal, internally level groups separated by one expected goal.")
+    catalog["recommendation_policies"].append(justified_policy)
+    justified_profile = deepcopy(group_profile)
+    justified_profile.update(profile_id="matchbalance-expanded-v7", version=7, is_default=True,
+                             recommendation_policy_id=justified_policy["policy_id"])
+    catalog["profiles"].append(justified_profile)
     catalog["source_coverage"] = coverage
     return catalog
 
