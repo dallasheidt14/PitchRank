@@ -2442,3 +2442,23 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `dashboard.py` `load_unknown_opponent_games`, and the two game tables that read `g.get('competition') or g.get('event_name')`
 - **Why**: GotSport labels tournament matches `Transfer Competition`, and games are immutable, so the older rows keep it in `games.competition`. The public site now maps the placeholder to the event or division, but the dashboard still shows the raw label. Reuse `GotSportScraper.PLACEHOLDER_COMPETITION_NAME` rather than a second literal. Older GotSport team-history rows carry no event or division, so the fallback there is a dash; a backfill is not needed for this.
 - **Noted**: 2026-10-20
+
+### Mark hidden games in the `diagnose_ranking.py` Recent Games table
+
+- **ID**: IMP-380
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `fetch_team_games` in `scripts/diagnose_ranking.py`
+- **Why**: Read on `origin/main` 2026-10-22. The query selects no `is_excluded` and does not filter it, so the Recent Games table lists the superseded twin a score correction leaves behind, the same duplicate the admin games tab showed before #1355. Select the flag and mark or skip hidden rows, and keep them out of the schedule-quality figures.
+- **Noted**: 2026-10-22
+
+### Show a dash in the admin games tab Score cell for unscored games
+
+- **ID**: IMP-381
+- **Status**: open
+- **Type**: direct
+- **Category**: readability
+- **Where**: the `'Score'` entry of `games_df` in the `with games_tab:` block of `dashboard.py`
+- **Why**: Read on `origin/main` 2026-10-22. `g.get('home_score', '-')` only falls back when the key is absent, and supabase-py returns the key with `None`, so an unscored fixture reads `None - None` while its Result column now shows a dash. Treat `None` as unscored in the cell.
+- **Noted**: 2026-10-22
