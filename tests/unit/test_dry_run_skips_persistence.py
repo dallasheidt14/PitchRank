@@ -52,7 +52,10 @@ def _patch_environment(monkeypatch, argv):
 
     async def fake_compute_all_cohorts(**kwargs):
         captured.update(kwargs)
-        return {"teams": _ranked_teams_df()}
+        return {
+            "teams": _ranked_teams_df(),
+            "joint_solver_diagnostics": {"solver": {"converged": True}},
+        }
 
     async def fake_save_rankings(_supabase, teams_df, **_kwargs):
         captured["save_calls"] += 1
