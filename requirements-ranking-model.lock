@@ -1,0 +1,7 @@
+# Complete ranking runtime. The base application lock stays unchanged so
+# unrelated seeding/model fingerprints do not change with this ranking rollout.
+-r requirements.lock
+scipy==1.16.1
+numba==0.61.2
+llvmlite==0.44.0
+threadpoolctl==3.6.0

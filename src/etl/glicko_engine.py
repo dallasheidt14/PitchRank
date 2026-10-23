@@ -1619,50 +1619,11 @@ def apply_record_score_reconciliation(team_df: pd.DataFrame, cfg: GlickoConfig) 
 # =========================================================
 # Batch convergence engine
 # =========================================================
-def run_glicko2_cohort(
-    games_df: pd.DataFrame,
-    cfg: GlickoConfig,
-    today: pd.Timestamp,
-    global_rating_map: Optional[Dict[str, float]] = None,
-    initial_ratings: Optional[Dict[str, Tuple[float, float, float]]] = None,
-    tier_league_map: Optional[Dict[str, str]] = None,
-    cohort_gender: str = "Male",
-    team_state_map: Optional[Dict[str, str]] = None,
-    solver_diagnostics: Optional[dict] = None,
-) -> Tuple[pd.DataFrame, Dict[str, pd.DataFrame]]:
-    """Run Glicko-2 for a single (age, gender) cohort.
-
-    Processes games iteratively until ratings converge. Each iteration:
-    1. For each team, collect opponents + outcomes + recency weights
-    2. Apply glicko2_update to compute new mu/sigma/volatility
-    3. Check convergence (mean |delta_mu| < threshold)
-    4. Stop if converged or max iterations reached
-
-    Args:
-        games_df: DataFrame with columns: team_id, opp_id, date, gf, ga, age, gender.
-                  Should be pre-filtered to a single (age, gender) cohort.
-                  Each row is one team's perspective of one game.
-        cfg: GlickoConfig with all parameters.
-        today: Reference date for recency weighting and window filtering.
-        global_rating_map: Optional dict of {team_id: mu} for cross-age opponent lookup.
-                          When provided (Pass 2), cross-age opponents use this rating.
-        initial_ratings: Optional dict of {team_id: (mu, sigma, volatility)} for warm-start.
-                        When provided, use these as starting ratings instead of defaults.
-        tier_league_map: Optional dict of {team_id: league} for tier-based opponent
-                        strength discounting during convergence.
-        cohort_gender: "Male" or "Female" for tier lookup.
-        team_state_map: Optional dict of {team_id: state_code} for balanced window
-                        bridge selection.
-
-    Returns:
-        Tuple of (DataFrame, team_games dict):
-        - DataFrame with columns: team_id, mu, sigma, volatility,
-          games_played, wins, losses, draws, last_game, goals_for, goals_against
-        - Dict mapping team_id -> filtered games DataFrame for reuse downstream
-    """
+def prepare_cohort_games(games_df, cfg, today, global_rating_map=None, initial_ratings=None,
+                         tier_league_map=None, cohort_gender="Male", team_state_map=None):
+    """Shared selection and clipping for conditional and joint snapshot solvers."""
     cfg.validate_solver()
     today = resolve_as_of(today).tz_localize(None)
-    diagnostics = solver_diagnostics if solver_diagnostics is not None else {}
     # 1. Identify all teams
     all_teams = games_df["team_id"].unique().tolist()
 
@@ -1719,6 +1680,59 @@ def run_glicko2_cohort(
             team_state_map=team_state_map,
             tier_mult_fn=_tier_mult_conv,
         )
+
+    return ratings, team_games, cohort_age, _cohort_gender_detected, _tier_mult_conv
+
+
+def run_glicko2_cohort(
+    games_df: pd.DataFrame,
+    cfg: GlickoConfig,
+    today: pd.Timestamp,
+    global_rating_map: Optional[Dict[str, float]] = None,
+    initial_ratings: Optional[Dict[str, Tuple[float, float, float]]] = None,
+    tier_league_map: Optional[Dict[str, str]] = None,
+    cohort_gender: str = "Male",
+    team_state_map: Optional[Dict[str, str]] = None,
+    solver_diagnostics: Optional[dict] = None,
+) -> Tuple[pd.DataFrame, Dict[str, pd.DataFrame]]:
+    """Run Glicko-2 for a single (age, gender) cohort.
+
+    Processes games iteratively until ratings converge. Each iteration:
+    1. For each team, collect opponents + outcomes + recency weights
+    2. Apply glicko2_update to compute new mu/sigma/volatility
+    3. Check convergence (mean |delta_mu| < threshold)
+    4. Stop if converged or max iterations reached
+
+    Args:
+        games_df: DataFrame with columns: team_id, opp_id, date, gf, ga, age, gender.
+                  Should be pre-filtered to a single (age, gender) cohort.
+                  Each row is one team's perspective of one game.
+        cfg: GlickoConfig with all parameters.
+        today: Reference date for recency weighting and window filtering.
+        global_rating_map: Optional dict of {team_id: mu} for cross-age opponent lookup.
+                          When provided (Pass 2), cross-age opponents use this rating.
+        initial_ratings: Optional dict of {team_id: (mu, sigma, volatility)} for warm-start.
+                        When provided, use these as starting ratings instead of defaults.
+        tier_league_map: Optional dict of {team_id: league} for tier-based opponent
+                        strength discounting during convergence.
+        cohort_gender: "Male" or "Female" for tier lookup.
+        team_state_map: Optional dict of {team_id: state_code} for balanced window
+                        bridge selection.
+
+    Returns:
+        Tuple of (DataFrame, team_games dict):
+        - DataFrame with columns: team_id, mu, sigma, volatility,
+          games_played, wins, losses, draws, last_game, goals_for, goals_against
+        - Dict mapping team_id -> filtered games DataFrame for reuse downstream
+    """
+    cfg.validate_solver()
+    today = resolve_as_of(today).tz_localize(None)
+    diagnostics = solver_diagnostics if solver_diagnostics is not None else {}
+    ratings, team_games, cohort_age, _cohort_gender_detected, _tier_mult_conv = prepare_cohort_games(
+        games_df, cfg, today, global_rating_map, initial_ratings, tier_league_map,
+        cohort_gender, team_state_map,
+    )
+    all_teams = list(team_games)
 
     # 6. Pre-convert team games to arrays (avoid iterrows in the hot loop)
     team_arrays: Dict[str, Optional[Dict]] = {}
@@ -1883,9 +1897,14 @@ def run_glicko2_cohort(
             mean_delta,
         )
 
+    return summarize_cohort_games(team_games, ratings), team_games
+
+
+def summarize_cohort_games(team_games, ratings):
+    """One record-statistics implementation for every rating model."""
     # 7. Compute aggregate stats per team
     results = []
-    for t in all_teams:
+    for t in team_games:
         tg = team_games[t]
         mu, sigma, vol = ratings[t]
 
@@ -1913,7 +1932,7 @@ def run_glicko2_cohort(
             }
         )
 
-    return pd.DataFrame(results), team_games
+    return pd.DataFrame(results)
 
 
 # =========================================================
@@ -1929,6 +1948,7 @@ def compute_rankings_v2(
     initial_ratings: Optional[Dict[str, Tuple[float, float, float]]] = None,
     tier_league_map: Optional[Dict[str, str]] = None,
     collect_ceiling_connectivity: bool = False,
+    joint_scoring=None,
 ) -> Dict[str, pd.DataFrame]:
     """Run the full Glicko-2 ranking pipeline.
 
@@ -1972,22 +1992,28 @@ def compute_rankings_v2(
 
     # 2. Run Glicko-2 convergence
     solver_diagnostics = {"pass_label": pass_label}
-    team_df, team_games = run_glicko2_cohort(
-        games_df,
-        cfg,
-        today,
-        global_rating_map,
-        initial_ratings=initial_ratings,
-        tier_league_map=tier_league_map,
-        cohort_gender=_cohort_gender,
-        team_state_map=team_state_map,
-        solver_diagnostics=solver_diagnostics,
-    )
+    if joint_scoring is None:
+        team_df, team_games = run_glicko2_cohort(
+            games_df,
+            cfg,
+            today,
+            global_rating_map,
+            initial_ratings=initial_ratings,
+            tier_league_map=tier_league_map,
+            cohort_gender=_cohort_gender,
+            team_state_map=team_state_map,
+            solver_diagnostics=solver_diagnostics,
+        )
+    else:
+        team_df, team_games = joint_scoring.cohort(games_df, cfg, today, solver_diagnostics)
+
 
     # 3. Build the converged ratings dict for all downstream derived metrics
     team_ratings: Dict[str, Tuple[float, float, float]] = dict(
         zip(team_df["team_id"], zip(team_df["mu"], team_df["sigma"], team_df["volatility"]))
     )
+    if joint_scoring is not None:
+        team_ratings = joint_scoring.effective_map(team_ratings, games_df)
     ceiling_connectivity = None
     if collect_ceiling_connectivity:
         measurements = compute_schedule_connectivity(
@@ -2022,13 +2048,14 @@ def compute_rankings_v2(
         cfg,
         today,
         team_games=team_games,
-        tier_league_map=tier_league_map,
+        tier_league_map=None if joint_scoring is not None else tier_league_map,
         cohort_gender=_cohort_gender,
     )
     team_df = team_df.merge(sos, on="team_id", how="left")
 
     # 5b. Compute per-game explainability breakdown
-    game_explain_df = compute_game_explainability(
+    explain = compute_game_explainability if joint_scoring is None else joint_scoring.explain
+    game_explain_df = explain(
         games_df,
         team_ratings,
         cfg,
@@ -2250,7 +2277,7 @@ def compute_rankings_v2(
     selected_frames = [tg.copy() for tg in team_games.values() if tg is not None and not tg.empty]
     games_used = pd.concat(selected_frames, ignore_index=False) if selected_frames else games_df.copy()
 
-    return {
+    result = {
         "teams": team_df,
         "games_used": games_used,
         "game_explainability": game_explain_df,
@@ -2264,3 +2291,5 @@ def compute_rankings_v2(
         ]),
         **({"ceiling_connectivity": ceiling_connectivity} if collect_ceiling_connectivity else {}),
     }
+
+    return result if joint_scoring is None else joint_scoring.annotate_result(result, team_games)

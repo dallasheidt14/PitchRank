@@ -11,6 +11,7 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))
 
+import json
 import logging
 import os
 import time
@@ -21,7 +22,12 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from src.rankings.calculator import VERIFIED_RANKING_PROFILE, compute_all_cohorts, compute_rankings_v53e_only
+from src.rankings.calculator import (
+    JOINT_RANKING_PROFILE,
+    VERIFIED_RANKING_PROFILE,
+    compute_all_cohorts,
+    compute_rankings_v53e_only,
+)
 from src.rankings.data_adapter import v53e_to_rankings_full_format, v53e_to_supabase_format
 from src.rankings.layer13_predictive_adjustment import Layer13Config
 from src.utils.merge_resolver import MergeResolver
@@ -618,7 +624,7 @@ def _backfill_total_game_stats(supabase_client, console) -> int:
 def _resolve_ranking_profile(engine, requested=None):
     """Glicko selects the measured complete profile; v53e keeps its existing path."""
     profile = requested or (VERIFIED_RANKING_PROFILE if engine == "glicko" else "legacy")
-    if profile not in {"legacy", VERIFIED_RANKING_PROFILE}:
+    if profile not in {"legacy", VERIFIED_RANKING_PROFILE, JOINT_RANKING_PROFILE}:
         raise ValueError(f"Unknown ranking profile: {profile}")
     if engine != "glicko" and profile != "legacy":
         raise ValueError("The reproducible-v2 profile requires the Glicko engine")
@@ -647,7 +653,7 @@ async def main():
     )
 
     parser.add_argument(
-        "--ranking-profile", choices=["legacy", VERIFIED_RANKING_PROFILE], default=None,
+        "--ranking-profile", choices=["legacy", VERIFIED_RANKING_PROFILE, JOINT_RANKING_PROFILE], default=None,
         help="Glicko defaults to the complete reproducible-v2 profile; legacy is an explicit rollback",
     )
     args = parser.parse_args()
@@ -657,6 +663,9 @@ async def main():
         parser.error(str(error))
     if ranking_profile is not None and not args.dry_run and (args.age_group or args.gender or args.provider):
         parser.error("Reproducible-v2 publication requires an unfiltered full-board run; use --dry-run for inspection")
+
+    if ranking_profile == JOINT_RANKING_PROFILE and (args.age_group or args.gender or args.provider):
+        parser.error("Joint rankings require all cohorts and providers, including for a dry run")
 
     # Initialize Supabase client
     supabase_url = os.getenv("SUPABASE_URL")
@@ -748,6 +757,12 @@ async def main():
                     merge_resolver=merge_resolver,
                     timing_report=timing_report,
                 )
+
+        if ranking_profile == JOINT_RANKING_PROFILE:
+            diagnostics = result.get("joint_solver_diagnostics")
+            if not diagnostics or diagnostics.get("solver", {}).get("converged") is not True:
+                raise ValueError("Joint ranking completed without valid solver diagnostics")
+            logger.info("Joint ranking diagnostics: %s", json.dumps(diagnostics, sort_keys=True, allow_nan=False))
 
         teams_df = result["teams"]
 

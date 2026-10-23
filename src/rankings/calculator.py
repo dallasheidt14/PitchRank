@@ -55,29 +55,32 @@ class RankingContext:
     pass_label: Optional[str] = None
     glicko_cfg: Optional[GlickoConfig] = None
     ranking_profile: Optional[str] = None
+    joint_scoring: Optional[Any] = None
 
 
 logger = logging.getLogger(__name__)
 
 
 VERIFIED_RANKING_PROFILE = "reproducible-v2"
+JOINT_RANKING_PROFILE = "joint-field-quality-support-v1"
 
 
 def _ranking_profile_configuration(profile):
     """Select the measured solver and publication policy as one indivisible profile."""
-    if profile != VERIFIED_RANKING_PROFILE:
+    if profile not in {VERIFIED_RANKING_PROFILE, JOINT_RANKING_PROFILE}:
         raise ValueError(f"Unknown ranking profile: {profile}")
     from src.rankings.offline_publication import PublicationExperiment
 
     return (GlickoConfig(RATING_UPDATE_MODE="fixed-prior-mode-v2"),
-            PublicationExperiment("support-continuous-v2"))
+            PublicationExperiment("support-quality-only-v1" if profile == JOINT_RANKING_PROFILE
+                                  else "support-continuous-v2"))
 
 
 def _require_offline_candidate(cfg, *, use_glicko, fetch_from_supabase, ranking_profile=None, **side_effects):
     if ranking_profile is not None:
         expected, _ = _ranking_profile_configuration(ranking_profile)
         if not use_glicko or cfg is None or asdict(cfg) != asdict(expected):
-            raise ValueError("The reproducible-v2 profile requires its complete measured configuration")
+            raise ValueError("The ranking profile requires its complete measured configuration")
         return
     if cfg is None:
         return
@@ -2170,6 +2173,10 @@ async def compute_rankings_with_ml(
     if use_glicko:
         today = resolve_as_of(today).tz_localize(None)
     snapshot_date = _normalize_snapshot_date(today)
+    if (ctx.ranking_profile == JOINT_RANKING_PROFILE) != (ctx.joint_scoring is not None):
+        raise ValueError("The joint profile requires the complete all-cohort snapshot")
+    if ctx.joint_scoring is not None:
+        force_rebuild = True
 
     v53_cfg = v53_cfg or V53EConfig()
     glicko_cfg = ctx.glicko_cfg or (GlickoConfig() if use_glicko else None)
@@ -2394,6 +2401,7 @@ async def compute_rankings_with_ml(
                     pass_label=pass_label,
                     initial_ratings=initial_ratings,
                     tier_league_map=tier_league_map,
+                    **({"joint_scoring": ctx.joint_scoring} if ctx.joint_scoring is not None else {}),
                     **({"collect_ceiling_connectivity": True}
                        if ceiling_connectivity_enabled and pass_label == "Pass2" else {}),
                 )
@@ -2414,7 +2422,7 @@ async def compute_rankings_with_ml(
             logger.info(f"✅ v53e engine completed: {len(base['teams']):,} teams ranked")
 
         # C1 never mixes fresh diagnostics with cached engine state.
-        if not ceiling_connectivity_enabled:
+        if not ceiling_connectivity_enabled and ctx.joint_scoring is None:
             try:
                 if not base["teams"].empty:
                     base["teams"].to_parquet(cache_file_teams, index=False)
@@ -2683,6 +2691,8 @@ async def compute_all_cohorts(
             raise ValueError("Select either the complete ranking profile or explicit offline experiment settings")
         glicko_cfg, publication_policy = _ranking_profile_configuration(ranking_profile)
         ceiling_connectivity_enabled = True
+    if ranking_profile == JOINT_RANKING_PROFILE and provider_filter is not None:
+        raise ValueError("Joint ranking requires the full provider input universe")
     _require_offline_candidate(
         glicko_cfg, use_glicko=use_glicko, fetch_from_supabase=fetch_from_supabase,
         ranking_profile=ranking_profile,
@@ -2741,6 +2751,7 @@ async def compute_all_cohorts(
     team_ids.update(games_df["team_id"].dropna().astype(str).tolist())
     team_ids.update(games_df["opp_id"].dropna().astype(str).tolist())
 
+    metadata_rows = []
     team_state_map = {}
     tier_league_map: Dict[str, str] = {}
     with _section(timing_report, "team_metadata"):
@@ -2749,10 +2760,12 @@ async def compute_all_cohorts(
             rows = batch_fetch_rows(
                 supabase_client,
                 "teams",
-                "team_id_master, state_code, league",
+                ("team_id_master, state_code, league, is_deprecated" if ranking_profile == JOINT_RANKING_PROFILE
+                 else "team_id_master, state_code, league"),
                 "team_id_master",
                 list(team_ids),
             )
+            metadata_rows = rows
             for row in rows:
                 team_id = str(row.get("team_id_master", ""))
                 if not team_id:
@@ -2821,6 +2834,15 @@ async def compute_all_cohorts(
     cohorts = list(games_df.groupby(["age", "gender"]))
     logger.info(f"🔄 Two-pass cross-age strength flow: processing {len(cohorts)} cohorts")
 
+    joint_scoring = None
+    if ranking_profile == JOINT_RANKING_PROFILE:
+        from src.rankings.joint_field_scoring import prepare_joint_scoring
+
+        with _section(timing_report, "joint_snapshot"):
+            joint_scoring = prepare_joint_scoring(
+                cohorts, pd.DataFrame(metadata_rows), glicko_cfg, today,
+                team_state_map=team_state_map, tier_league_map=tier_league_map, progress=logger.info)
+
     # ========== PASS 1: Get initial strengths from all cohorts ==========
     logger.info("📊 Pass 1: Computing initial strengths for all cohorts...")
     pass1_tasks = []
@@ -2846,6 +2868,7 @@ async def compute_all_cohorts(
                 use_glicko=use_glicko,
                 glicko_cfg=glicko_cfg,
                 ranking_profile=ranking_profile,
+                joint_scoring=joint_scoring,
                 persist_game_residuals=persist_game_residuals,
                 persist_game_explainability=persist_game_explainability,
             ),
@@ -2919,6 +2942,7 @@ async def compute_all_cohorts(
                 initial_ratings=pass1_glicko_ratings.get(i) if use_glicko else None,
                 glicko_cfg=glicko_cfg,
                 ranking_profile=ranking_profile,
+                joint_scoring=joint_scoring,
                 persist_game_residuals=persist_game_residuals,
                 persist_game_explainability=persist_game_explainability,
             ),
@@ -3670,5 +3694,7 @@ async def compute_all_cohorts(
            if publication_policy is not None and publication_diagnostics else {}),
         "game_explainability": game_explainability_combined,
         **diagnostics,
+        **({"joint_solver_diagnostics": joint_scoring.snapshot.diagnostics}
+           if joint_scoring is not None else {}),
         **({"ceiling_connectivity": ceiling_connectivity} if ceiling_connectivity_enabled else {}),
     }

@@ -1,12 +1,17 @@
-# Joint-field ranking investigation: offline implementation in progress
+# Joint-field ranking investigation and native integration
 
-The numerical kernel in `src/rankings/joint_field_solver.py` implements the
-`joint-field-consistent-v1` experiment. `joint_field_problem.py` builds that
-likelihood from already selected records without fetching or publishing.
-`joint_field_curvature.py` includes the shared field covariance;
-`joint_field_snapshot.py` composes one reusable snapshot. No production entry
-point selects these modules. Full frozen-input uncertainty parity and the
-remaining integration/review are pending; this code alone is not a release decision.
+The native profile `joint-field-quality-support-v1` now connects the measured
+joint snapshot to `compute_all_cohorts` and the ranking command. The source
+integration is under verification; the default remains `reproducible-v2` until
+that verification completes. The numerical equations and quality-support policy
+are the previously evaluated candidate, not new settings selected from U19 ranks.
+
+`joint_field_scoring.py` prepares the existing clipped/newest-game selections
+once, fits one snapshot, and reuses it for both scoring passes. Offense/defense,
+schedule strength, connectivity and explanations use the same global opponent
+state with the existing age-anchor offset. SOS does not multiply the fitted
+opponent's league adjustment a second time. The conditional solver is bypassed
+rather than run and overwritten. The old profile remains an explicit rollback.
 
 The motivating calculation defect is repeated application of an uncentered
 league multiplier to fitted opponent ratings. In a neutral all-draw field,
@@ -240,3 +245,44 @@ Before untouched evaluation, freeze final candidate source and metric, lock
 explicit evaluation dates, then capture training inputs after that lock. Evaluate
 the following 30 complete UTC days. The October screen is development evidence
 and cannot substitute for that confirmation.
+
+
+## Native runner checks
+
+The controlled neutral-field regression reproduces the previous multiplier
+feedback at U14, U15, U16, U17 and U19. With only draws and otherwise identical
+inputs, ECNL ratings fell from approximately 1412 with four independent opponents
+to 946 with thirty; HD stayed at 1500. The joint model leaves the ECNL prior
+center at 1470 for both sample sizes, with lower uncertainty for more independent
+results. This establishes a calculation defect across ages. It does not establish
+that every newly inferred league ordering or individual placement is correct.
+
+The native integration tests exercise the actual all-cohort orchestrator, ensure
+one model fit serves both passes, reject changed inputs/configuration, and prove
+a failed fit stops before scoring or persistence. They also cover consistent
+cross-age explanations and direct SOS without repeated tier multiplication.
+
+```powershell
+python -m pip install -r requirements-ranking-model.lock
+python -m pytest tests/unit/test_joint_field_scoring.py tests/unit/test_production_ranking_profile.py -q
+python scripts/calculate_rankings.py --ml --force-rebuild --dry-run --ranking-profile joint-field-quality-support-v1
+```
+
+Joint runs require all age/gender cohorts and all providers. A filtered command
+is rejected before connecting to the database, including during a dry run. The
+complete selection universe is necessary because league effects are shared across
+ages. The joint path bypasses legacy caches; it cannot reuse a conditional-fit
+cache as a joint snapshot. The runtime dependency lock includes Numba for the
+large exact-curvature calculation and leaves the general application lock intact.
+
+Rollback uses the previous complete profile, not the older legacy solver:
+
+```powershell
+python scripts/calculate_rankings.py --ml --force-rebuild --ranking-profile reproducible-v2
+```
+
+The October agreement figures remain historical development evidence. The
+attempted later confirmation capture failed before sealing predictions and is
+not a valid prospective evaluation. Numerical correctness, reproducibility and
+historical comparisons must not be presented as empirically calibrated confidence
+or proof of future predictive improvement.
