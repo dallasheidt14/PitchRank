@@ -52,7 +52,10 @@ async def test_cli_wires_release_without_enabling_dry_run_writes(monkeypatch, ml
             assert kwargs["save_snapshot"] is (not dry_run)
         else:
             assert "ceiling_connectivity_enabled" not in kwargs
-        return {"teams": pd.DataFrame()}
+        return {
+            "teams": pd.DataFrame(),
+            "joint_solver_diagnostics": {"solver": {"converged": True}},
+        }
     monkeypatch.setattr(command, "compute_all_cohorts", compute)
     monkeypatch.setattr(command, "compute_rankings_v53e_only", compute)
     await command.main()

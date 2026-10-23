@@ -1,0 +1,6 @@
+# Optional offline joint-field candidate. Production requirements stay separate.
+-r requirements.txt
+scipy>=1.12.0  # Solver uses the explicit rtol/atol conjugate-gradient interface.
+threadpoolctl>=3.6.0
+# Use requirements-offline-rankings.lock for the measured full-input runtime,
+# including the optional Numba accelerator needed for practical large inversions.

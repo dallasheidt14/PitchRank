@@ -14,6 +14,7 @@ import pandas as pd
 
 from src.etl.glicko_config import GlickoConfig
 from src.etl.glicko_engine import compute_recency_weights, compute_repeat_opponent_weights, game_outcome, resolve_as_of
+from src.rankings.publication_support import quality_only_support
 from src.rankings.shared import sos_ml_blend
 
 
@@ -24,21 +25,26 @@ class PublicationExperiment:
     connectivity_floor: float = 0.5
 
     def validate(self):
-        if self.profile not in {"support-bands-v1", "support-continuous-v1", "support-continuous-v2"}:
+        if self.profile not in {"support-bands-v1", "support-continuous-v1", "support-continuous-v2",
+                                "support-retained-provisional-v1", "support-quality-only-v1"}:
             raise ValueError("Unknown offline publication profile")
         if (self.independent_prior_mass, self.connectivity_floor) != (4., .5):
             raise ValueError("Changed policy settings require a new candidate version")
 
     def manifest(self):
         self.validate()
-        revised = self.profile == "support-continuous-v2"
+        revised = self.includes_older
         return {**asdict(self), "evidence_pool": (
                     "engine-selected same-gender games against same-age or older opponents"
                     if revised else "engine-selected same-board games only"),
                 "opponent_quality": "powerscore_adj, continuous, missing=0",
                 "outcome": "existing clipped logarithmic goal-margin outcome",
                 "opponent_mass": "1-exp(-sum(raw rating weights))",
-                "support": "connectivity * sum(opponent_mass * quality * mean_outcome) / (4 + total_mass)",
+                "support": ("connectivity * sum(opponent_mass * quality * mean_outcome) / total_mass; "
+                            "zero mass gives zero"
+                            if self.quality_only else
+                            "connectivity * sum(opponent_mass * quality * mean_outcome) / (4 + total_mass)"),
+                "publication_prior_mass_applied": not self.quality_only,
                 "connectivity": ("0.5 + 0.5 * weighted_state_diversity * opponent_external_fraction; "
                                  "unknown state joins largest state; "
                                  "external means beyond the team's own opponent set"),
@@ -49,12 +55,26 @@ class PublicationExperiment:
                                         "+ legacy connectivity max*(1-connectivity)), capped at legacy 0.08"),
                 "bands": [[.25, 2000], [.62, 400], [.84, 250], [1., None]],
                 "continuous": "pre_cap - max(0, gross - gross/(1+(1-support)*gross) - existing_discount)",
-                "gross": "min(1, pre_cap + provisional_loss + raw_shrink + publication_penalty)",
+                "gross": ("min(1, pre_cap + raw_shrink + publication_penalty); provisional loss receives no credit"
+                          if self.retains_provisional_uncertainty else
+                          "min(1, pre_cap + provisional_loss + raw_shrink + publication_penalty)"),
                 "older_opponent_policy": (
                     "older results use the same outcome-weighted support and publication transformation; "
                     "opponent quality remains its own-cohort adjusted score; no added age bonus or legacy exemption"
                     if revised else "qualifying play-up rows retain original publication path exactly"),
                 "interpretation": "heuristic support and sensitivity discount, not calibrated confidence"}
+
+    @property
+    def retains_provisional_uncertainty(self):
+        return self.profile in {"support-retained-provisional-v1", "support-quality-only-v1"}
+
+    @property
+    def quality_only(self):
+        return self.profile == "support-quality-only-v1"
+
+    @property
+    def includes_older(self):
+        return self.profile == "support-continuous-v2" or self.retains_provisional_uncertainty
 
 
 def _finite_unit(values, label):
@@ -141,7 +161,7 @@ def evidence(selected, teams, as_of, rating_cfg, cfg=PublicationExperiment()):
     work["rating_weight"] = np.asarray(compute_recency_weights(
         work.date, at, rating_cfg.RECENCY_LAMBDA, normalize=False,
     )) * compute_repeat_opponent_weights(list(zip(work.team_id, work.opp_id)), rating_cfg)
-    if cfg.profile == "support-continuous-v2":
+    if cfg.includes_older:
         own_age = pd.to_numeric(work.age.astype(str).str.lower().str.lstrip("u"), errors="coerce")
         opp_age = pd.to_numeric(work.opp_age.astype(str).str.lower().str.lstrip("u"), errors="coerce")
         eligible = (work.gender.str.lower() == work.opp_gender.str.lower()) & opp_age.ge(own_age)
@@ -188,7 +208,7 @@ def evidence(selected, teams, as_of, rating_cfg, cfg=PublicationExperiment()):
     summary["policy_difficulty"] = totals.difficulty / totals.mass
     summary["policy_performance_support"] = totals.supported / totals.mass
     summary["policy_selected_same_age_games"] = sg[sg.same_board].groupby("team_id").size()
-    if cfg.profile == "support-continuous-v2":
+    if cfg.includes_older:
         summary["policy_selected_older_games"] = sg[~sg.same_board].groupby("team_id").size()
         summary["policy_selected_evidence_games"] = sg.groupby("team_id").size()
     summary["policy_distinct_opponents"] = opponents.groupby(level="team_id").size()
@@ -213,6 +233,8 @@ def evidence(selected, teams, as_of, rating_cfg, cfg=PublicationExperiment()):
     summary["policy_support"] = (summary.policy_connectivity * totals.supported
                                  / (cfg.independent_prior_mass + totals.mass))
     summary = summary.fillna(0.)
+    if cfg.quality_only:
+        summary = quality_only_support(summary)
     _finite_unit(summary.policy_support, "computed support")
     packet = sg.drop(columns="weighted_outcome").merge(
         opponents[["mass", "performance", "supported"]].rename(columns={
@@ -233,6 +255,10 @@ def apply_publication_experiment(teams_age, pre_cap, legacy_scores, support, raw
     aligned.index = teams_age.index
     if aligned.policy_support.isna().any():
         raise ValueError("Missing publication support")
+    if cfg.quality_only:
+        expected = quality_only_support(aligned).policy_support.to_numpy()
+        if not np.array_equal(aligned.policy_support.to_numpy(), expected):
+            raise ValueError("Quality-only profile requires matching evidence; stale support checkpoint")
     older = teams_age.apply(lambda row: calculator._has_play_up_support(
         calculator._safe_float(row.get("play_up_game_share")) or 0.,
         calculator._safe_int(row.get("play_up_top500_non_loss_opp_count")),
@@ -240,7 +266,7 @@ def apply_publication_experiment(teams_age, pre_cap, legacy_scores, support, raw
         calculator._safe_float(row.get("play_up_avg_opp_power_adj")),
         calculator._same_age_evidence_policy(calculator._safe_int(row.get("age_num"))),
     ), axis=1)
-    preserve_older = older & (cfg.profile != "support-continuous-v2")
+    preserve_older = older & (not cfg.includes_older)
     # Replace the rank-category-driven same-age authority, raw shrink and
     # publication penalty together. Leaving one of them active would preserve
     # the very top-100/500 discontinuities the experiment is intended to test.
@@ -282,6 +308,8 @@ def apply_publication_experiment(teams_age, pre_cap, legacy_scores, support, raw
     stages.loc[preserve_older, "policy_publish_penalty"] = publish_penalty.loc[preserve_older]
     credit = ((teams_age.powerscore_core - teams_age.powerscore_adj).clip(lower=0.)
               + stages.policy_raw_shrink + stages.policy_publish_penalty)
+    if cfg.retains_provisional_uncertainty:
+        credit = stages.policy_raw_shrink + stages.policy_publish_penalty
     cap_rank = aligned.policy_support.map(support_band)
     applied_cap = cap_rank.copy() if cfg.profile == "support-bands-v1" else pd.Series(np.nan, index=teams_age.index)
     cap_score = pd.Series(np.nan, index=teams_age.index)
@@ -304,7 +332,7 @@ def apply_publication_experiment(teams_age, pre_cap, legacy_scores, support, raw
     aligned["team_id"] = teams_age.team_id
     aligned["policy_profile"] = cfg.profile
     aligned["policy_older_preserved"] = preserve_older
-    if cfg.profile == "support-continuous-v2":
+    if cfg.includes_older:
         aligned["policy_legacy_older_qualified"] = older
     for column in stages:
         aligned[column] = stages[column]
@@ -313,6 +341,10 @@ def apply_publication_experiment(teams_age, pre_cap, legacy_scores, support, raw
     aligned["policy_legacy_final"] = legacy_scores
     aligned["policy_final"] = result
     aligned["policy_existing_discount_credit"] = credit
+    if cfg.retains_provisional_uncertainty:
+        aligned["policy_provisional_discount_credit"] = 0.
+        aligned["policy_retained_provisional_loss"] = (
+            teams_age.powerscore_core - teams_age.powerscore_adj).clip(lower=0.)
     aligned["policy_additional_discount"] = policy_base - result
     aligned["policy_attribution_cap_rank"] = cap_rank
     aligned["policy_applied_cap_rank"] = applied_cap

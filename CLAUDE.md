@@ -1,6 +1,6 @@
 # CLAUDE.md — PitchRank AI Assistant Guide
 
-PitchRank is a **youth soccer ranking platform** that scrapes game data from multiple providers, calculates rankings with a two-pass Glicko-2 rating engine plus an XGBoost residual layer (ML Layer 13), and serves results through a Next.js frontend. This file is the primary reference for AI assistants working in this codebase.
+PitchRank is a **youth soccer ranking platform** that scrapes game data from multiple providers, calculates rankings with a joint rating snapshot reused across two scoring passes plus an XGBoost residual layer (ML Layer 13), and serves results through a Next.js frontend. This file is the primary reference for AI assistants working in this codebase.
 
 ---
 
@@ -460,42 +460,47 @@ When planning a new provider, audit what per-team metadata the source exposes (s
 
 ---
 
-## Ranking Algorithm (Glicko-2 + ML Layer 13)
+## Ranking Algorithm (Joint Snapshot + ML Layer 13)
 
-The ranking CLI defaults to the `reproducible-v2` profile for `--engine glicko`:
-a fixed Gaussian prior logistic posterior-mode estimator coupled to continuous
-result-based publication support. It is not standard iterative Glicko-2.
-`calculate-rankings.yml` calls
-`scripts/calculate_rankings.py --ml --force-rebuild --engine glicko`.
-Library callers retain legacy defaults; `--ranking-profile legacy` is the CLI
-rollback. See `docs/ranking-reproducible-release.md` for activation, safeguards,
-and the historical evidence. v53e
-(`src/etl/v53e.py`) is the legacy engine, reachable only via `--engine v53e`; nothing in the
-Glicko path calls it. Parameters and feature flags live in `src/etl/glicko_config.py` and
-`src/rankings/constants.py`; the `rankings-algorithm` skill documents them.
+Production calls `scripts/calculate_rankings.py --ml --force-rebuild --engine glicko`.
+The `glicko` engine argument is retained for compatibility, but its default profile
+is `joint-field-quality-support-v1`: one shared team/league snapshot, consistent
+global opponent inputs, and quality-only publication support that retains own
+uncertainty. `--ranking-profile reproducible-v2` restores the previous complete
+conditional Glicko-2/publication path; `legacy` selects the older solver.
+`--engine v53e` remains the legacy v53e engine.
+
+The joint profile requires an unfiltered all-cohort, all-provider calculation.
+Use `requirements-ranking-model.lock` for its runtime, including Numba for the
+large exact-curvature calculation. Numerical settings, evidence semantics and
+historical evaluation limits are in `docs/ranking-joint-field-investigation.md`.
+The uncertainty is joint loss curvature, not calibrated confidence.
 
 ### Pipeline Flow
 
 ```
-Games (Supabase; strict 365-day window; newest 30 games per team)
-  → Merge Resolution (deprecated → canonical team IDs)
-  → Drop every game with a team in `team_ranking_exclusions` on either side, so a listed
-            team is neither ranked nor an opponent; the read fails closed
-  → Pass 1: Glicko-2 convergence per (age, gender) cohort, no cross-age knowledge
-  → Global strength map {team_id: mu} from Pass 1
-  → Pass 2: re-run each cohort warm-started from Pass 1; cross-age opponents rated
-            from the global map + anchor offset
-  → Per cohort, post-convergence: OFF/DEF → SOS (repeat cap + trim) → SCF dampening
-            → sigmoid(z-score) → powerscore_core → × provisional_mult → powerscore_adj
-  → ML Layer 13 per cohort: powerscore_ml = powerscore_adj + 0.08·ml_norm
-  → Pass 3: national/state SOS columns — display only, never feeds PowerScore
-  → reproducible-v2: outcome-weighted same-age/older evidence and one continuous
-            publication adjustment → power_score_true
-    (legacy profile: SOS-gated ML authority, shrink, play-up bonus and hard caps)
-  → power_score_final = power_score_true × AGE_TO_ANCHOR[age]
-  → rank_in_cohort_final by power_score_true DESC (Active only) → 7d/30d changes
-  → Clip PowerScore columns to [0, 1] → ranking_history → rankings_full + current_rankings
+Games (Supabase; strict 365-day window)
+  -> Merge resolution and ranking exclusions
+  -> Existing goal clipping and newest 30 selected records per team
+  -> One joint fit: team residuals + shared league effects + fixed age offsets
+       Physical likelihood is the union of endpoint-selected games, counted once
+       Own selected records and ten-game publication eligibility stay separate
+  -> Exact joint uncertainty, including field variance and covariance
+  -> Both scoring passes reuse the same snapshot without fitting it again
+       OFF/DEF, SOS and connectivity use consistent global opponent strengths
+  -> Per-cohort normalization and own provisional uncertainty adjustment
+  -> ML Layer 13 per cohort (existing settings)
+  -> National/state SOS display columns
+  -> Outcome-weighted opponent support, continuous publication adjustment
+  -> power_score_true, age-anchored power_score_final, final ranks, rank changes
+  -> ranking_history, rankings_full and current_rankings
 ```
+
+`src/etl/glicko_engine.py` still owns common selection and scoring. The native joint
+integration is `src/rankings/joint_field_scoring.py`, using the solver/problem/
+curvature/snapshot modules alongside it. `RankingContext` passes one solved
+snapshot through both scoring passes. Failed or non-finite solves abort; the
+joint path does not read or write the older conditional-fit caches.
 
 ### PowerScore
 
