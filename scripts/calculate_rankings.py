@@ -623,11 +623,11 @@ def _backfill_total_game_stats(supabase_client, console) -> int:
 
 def _resolve_ranking_profile(engine, requested=None):
     """Glicko selects the measured complete profile; v53e keeps its existing path."""
-    profile = requested or (VERIFIED_RANKING_PROFILE if engine == "glicko" else "legacy")
+    profile = requested or (JOINT_RANKING_PROFILE if engine == "glicko" else "legacy")
     if profile not in {"legacy", VERIFIED_RANKING_PROFILE, JOINT_RANKING_PROFILE}:
         raise ValueError(f"Unknown ranking profile: {profile}")
     if engine != "glicko" and profile != "legacy":
-        raise ValueError("The reproducible-v2 profile requires the Glicko engine")
+        raise ValueError("Named ranking profiles require the Glicko engine")
     return None if profile == "legacy" else profile
 
 
@@ -654,7 +654,8 @@ async def main():
 
     parser.add_argument(
         "--ranking-profile", choices=["legacy", VERIFIED_RANKING_PROFILE, JOINT_RANKING_PROFILE], default=None,
-        help="Glicko defaults to the complete reproducible-v2 profile; legacy is an explicit rollback",
+        help=("Glicko defaults to joint-field-quality-support-v1; "
+              "reproducible-v2 restores the previous complete profile"),
     )
     args = parser.parse_args()
     try:
@@ -662,7 +663,7 @@ async def main():
     except ValueError as error:
         parser.error(str(error))
     if ranking_profile is not None and not args.dry_run and (args.age_group or args.gender or args.provider):
-        parser.error("Reproducible-v2 publication requires an unfiltered full-board run; use --dry-run for inspection")
+        parser.error("Named ranking profiles require an unfiltered full-board publication")
 
     if ranking_profile == JOINT_RANKING_PROFILE and (args.age_group or args.gender or args.provider):
         parser.error("Joint rankings require all cohorts and providers, including for a dry run")
@@ -697,7 +698,8 @@ async def main():
 
     # Run rankings calculation
     try:
-        engine_label = "Glicko-2" if args.engine == "glicko" else "v53e"
+        engine_label = ("Joint rating model" if ranking_profile == JOINT_RANKING_PROFILE
+                        else "Glicko-2" if args.engine == "glicko" else "v53e")
         mode_text = f"ML-Enhanced ({engine_label})" if args.ml else f"{engine_label} Only"
         console.print(f"\n[bold green]Calculating {mode_text} Rankings[/bold green]")
         console.print(f"  Lookback days: {args.lookback_days}")

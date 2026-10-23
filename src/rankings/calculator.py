@@ -2218,7 +2218,8 @@ async def compute_rankings_with_ml(
 
     # 2) Check cache before running v53e rankings engine
     cache_dir = Path("data/cache")
-    cache_dir.mkdir(parents=True, exist_ok=True)
+    if ctx.joint_scoring is None:
+        cache_dir.mkdir(parents=True, exist_ok=True)
 
     # Generate hash key from game IDs + full config fingerprint
     # Changing any tuning param (engine, Glicko config, ML config, tier multipliers) invalidates cache

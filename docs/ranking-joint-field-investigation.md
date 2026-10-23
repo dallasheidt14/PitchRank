@@ -2,8 +2,8 @@
 
 The native profile `joint-field-quality-support-v1` now connects the measured
 joint snapshot to `compute_all_cohorts` and the ranking command. The source
-integration is under verification; the default remains `reproducible-v2` until
-that verification completes. The numerical equations and quality-support policy
+integration has passed its full frozen-input comparison. The ranking command now
+defaults to this profile; `reproducible-v2` is the previous complete rollback. The numerical equations and quality-support policy
 are the previously evaluated candidate, not new settings selected from U19 ranks.
 
 `joint_field_scoring.py` prepares the existing clipped/newest-game selections
@@ -286,3 +286,21 @@ attempted later confirmation capture failed before sealing predictions and is
 not a valid prospective evaluation. Numerical correctness, reproducibility and
 historical comparisons must not be presented as empirically calibrated confidence
 or proof of future predictive improvement.
+
+
+## Native integration release verification
+
+The fresh native run completed all 36 engine passes and the full publication
+calculation on the October 12 freeze. Every own selected record and eligibility
+status matches the evaluated candidate, with 61,058 Active teams and zero final
+rank differences. Maximum final-score difference is 1.06e-15; maximum rating
+difference is 4.55e-13 points. The run took approximately 56 minutes on the local
+Windows machine. Network and database writes were blocked throughout.
+
+The full Python run passed 11,702 tests; two Compare tests initially failed because
+the isolated checkout lacked its frontend runtime. After attaching the installed
+runtime with an identical dependency lock, all 159 affected/required Windows checks
+passed. All 24 native integration tests passed. Frontend lint, formatting,
+typecheck, all 1,314 tests and generated-content drift checks passed. The remaining
+activation edits change CLI selection/labels and remove an unused cache directory;
+they do not change any scoring equation or numerical setting.

@@ -56,7 +56,7 @@ def test_profile_is_the_exact_measured_pair():
     cfg, policy = calculator._ranking_profile_configuration('reproducible-v2')
     assert asdict(cfg) == asdict(GlickoConfig(RATING_UPDATE_MODE='fixed-prior-mode-v2'))
     assert asdict(policy) == {'profile': 'support-continuous-v2', 'independent_prior_mass': 4., 'connectivity_floor': .5}
-    assert command._resolve_ranking_profile('glicko') == 'reproducible-v2'
+    assert command._resolve_ranking_profile('glicko') == 'joint-field-quality-support-v1'
     assert command._resolve_ranking_profile('glicko', 'legacy') is None
     assert command._resolve_ranking_profile('v53e') is None
     with pytest.raises(ValueError):
@@ -174,11 +174,11 @@ async def test_actual_cli_selects_profile_and_preserves_dry_run_flags(monkeypatc
 
     async def compute(**kwargs):
         seen.append(kwargs)
-        assert kwargs['ranking_profile'] == (None if legacy else 'reproducible-v2')
+        assert kwargs['ranking_profile'] == (None if legacy else 'joint-field-quality-support-v1')
         assert kwargs['persist_game_residuals'] is False
         assert kwargs['persist_game_explainability'] is False
         assert kwargs['save_snapshot'] is False
-        return {'teams': pd.DataFrame()}
+        return {'teams': pd.DataFrame(), 'joint_solver_diagnostics': {'solver': {'converged': True}}}
 
     monkeypatch.setattr(command, 'compute_all_cohorts', compute)
     await command.main()

@@ -126,6 +126,7 @@ def test_real_all_cohort_orchestration_fits_once_and_never_runs_conditional_solv
     assert set(result["publication_diagnostics"].policy_profile) == {"support-quality-only-v1"}
     assert len(result["games_used"]) == len(games)
     assert not list(tmp_path.rglob("*.parquet"))
+    assert not (tmp_path / "data" / "cache").exists()
 
 
 @pytest.mark.parametrize("failure", ["non-convergence", "non-finite"])
