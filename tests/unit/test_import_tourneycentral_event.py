@@ -577,6 +577,26 @@ class TestBuildRoster:
         with pytest.raises(argparse.ArgumentTypeError):
             tc._age_for_team(value)
 
+    def test_the_operator_sets_the_gender_of_a_team_entered_in_the_other_genders_division(self):
+        """FREEDOM U15 GIRLS entered the Boys U14-15 division; the division would file it as Male."""
+        division = tc.parse_division_code("BoysU1415Red")
+        listings = [(division, _listing("1", "FREEDOM U15 GIRLS")), (division, _listing("2", "Xcel U15"))]
+
+        in_scope, _ = tc.build_roster(listings, _event(), SEASON, genders={"1": "Female"})
+
+        assert [(row.tc_team_id, row.gender) for row in in_scope] == [("1", "Female"), ("2", "Male")]
+
+    @pytest.mark.parametrize("value", ["317937=Female", "317937=female", "317937=MALE"])
+    def test_a_gender_option_reads_team_id_and_gender(self, value):
+        team_id, _, gender = value.partition("=")
+
+        assert tc._gender_for_team(value) == (team_id, gender.capitalize())
+
+    @pytest.mark.parametrize("value", ["317937=Girls", "317937=F", "317937", "x=Female", "0=Female", "317937=Fem٣le"])
+    def test_a_gender_option_refuses_what_is_not_a_team_and_a_gender(self, value):
+        with pytest.raises(argparse.ArgumentTypeError):
+            tc._gender_for_team(value)
+
     @staticmethod
     def _cusc(*teams):
         division = tc.parse_division_code("BU10Silver")
