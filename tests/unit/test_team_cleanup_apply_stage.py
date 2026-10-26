@@ -495,7 +495,15 @@ class _Runner:
         is logged failed and the run exits 1. Its --revert puts each logged merge back, leaving a row in
         ``merged_again`` merged, as the real one leaves a merge reverted and redone since."""
         if "--revert" in command:
-            for entry in reversed(merger.read_log(_arg(command, "--revert"))):
+            replayed = _arg(command, "--revert")
+            if "--execute" in command:
+                # Its own default log is named by the second, so two reverts in one second share it.
+                out = _arg(command, "--out") if "--out" in command else replayed.with_name("merge_reverts_1.json")
+                if out.exists():
+                    log.write_text(f"{out} already exists and may be the only record a revert can replay\n")
+                    return 1
+                out.write_text("[]", encoding="utf-8")
+            for entry in reversed(merger.read_log(replayed)):
                 team = self.db.team(entry["merge_id"])
                 if "--execute" in command and team["is_deprecated"] and entry["merge_id"] not in self.merged_again:
                     team["is_deprecated"] = False
@@ -4451,12 +4459,16 @@ def test_reverting_merges_shows_each_batch_s_fixtures_again_then_undoes_its_merg
 
     logs = run_dir(store, RUN) / "merges" / "logs"
     assert code == 0
-    assert runner.commands == [
+    assert [c[:4] for c in runner.commands] == [
         [EXCLUSION, "--revert", str(logs / "merge_rest_1_exclude_1.json"), "--execute"],
         [MERGE_APPLIER, "--revert", str(logs / "merge_rest_1.json"), "--execute"],
         [EXCLUSION, "--revert", str(logs / "merge_pilot_1_exclude_1.json"), "--execute"],
         [MERGE_APPLIER, "--revert", str(logs / "merge_pilot_1.json"), "--execute"],
     ]
+    # Each merge revert names its own log, so two batches' reverts in one second cannot collide.
+    outs = [_arg(c, "--out") for c in runner.commands if c[0] == MERGE_APPLIER]
+    assert [out.name.split("_revert_")[0] for out in outs] == ["merge_rest_1", "merge_pilot_1"]
+    assert all(out.parent == logs for out in outs)
     assert _merged_into(db) == {} and runner.excluded == set()
     assert not any(db.team(_id(name))["is_deprecated"] for name in names)
     assert all(r["reverted_at"] for r in _ledger(db))

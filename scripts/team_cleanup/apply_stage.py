@@ -607,8 +607,14 @@ def exclude_command(merge_log: str, out: Path) -> list[str]:
 
 
 def revert_command(stage: str, log: str, execute: bool) -> list[str]:
-    """The applier's own --revert of one batch's log; without --execute it previews, writing nothing."""
-    return [APPLIERS[stage], "--revert", log, *(["--execute"] if execute else [])]
+    """The applier's own --revert of one batch's log; without --execute it previews, writing nothing. The merge
+    applier would name its own revert log by the second, refusing one already there, so each merges revert
+    names its own beside the batch's log."""
+    command = [APPLIERS[stage], "--revert", log, *(["--execute"] if execute else [])]
+    if stage == MERGES and execute:
+        out = Path(log).with_name(f"{Path(log).stem}_revert_{datetime.now(timezone.utc):%Y%m%dT%H%M%S%fZ}.json")
+        command += ["--out", str(out)]
+    return command
 
 
 def exclude_revert_command(log: str, execute: bool) -> list[str]:
