@@ -1,6 +1,6 @@
 import type Stripe from 'stripe';
 import type { RankingRow } from '@/types/RankingRow';
-import type { CardRow, CleanupCard } from '@/lib/mission-control/cleanup';
+import type { CardRow, PairCard, PairCardRow, PairSide, TeamCard, TeamCardRow } from '@/lib/mission-control/cleanup';
 
 /** Defaults describe an established, fully ranked team; override per test. */
 export function makeRankingRow(overrides: Partial<RankingRow> = {}): RankingRow {
@@ -66,7 +66,7 @@ export function makeGame(overrides: Partial<GameFixture> = {}): GameFixture {
 }
 
 /** A state fill's card as pages.py builds it; override per test. */
-export function makeCleanupCard(overrides: Partial<CleanupCard> = {}): CleanupCard {
+export function makeCleanupCard(overrides: Partial<TeamCard> = {}): TeamCard {
   return {
     id: 'build_card',
     n: 1,
@@ -94,33 +94,94 @@ export function makeCleanupCard(overrides: Partial<CleanupCard> = {}): CleanupCa
   };
 }
 
+/** One row of a duplicate pair, in the shape the page reads; override per test. */
+export function makePairSide(overrides: Partial<PairSide> = {}): PairSide {
+  return {
+    team_id: '22222222-2222-2222-2222-222222222222',
+    name: 'Phoenix Rising 2013 Boys',
+    original: null,
+    club: 'Phoenix Rising',
+    state: 'AZ',
+    age: 'u13',
+    gender: 'Male',
+    provider: 'gotsport',
+    games: 9,
+    excluded: 0,
+    first: '2026-08-22',
+    last: '2026-10-18',
+    ...overrides,
+  };
+}
+
+/** A pair the cross-provider scan proposes, in the shape the page reads; override per test. */
+export function makePairCard(overrides: Partial<PairCard> = {}): PairCard {
+  return {
+    id: 'build_pair',
+    n: 1,
+    group: 'C identical name',
+    whole: false,
+    alike: null,
+    interest: false,
+    sure: null,
+    why: 'the same name, club and cohort on GotSport and TGS',
+    merge: makePairSide({
+      team_id: '33333333-3333-3333-3333-333333333333',
+      name: 'Phoenix Rising B13 Premier',
+      provider: 'tgs',
+      games: 3,
+      first: '2026-09-12',
+      last: '2026-09-14',
+    }),
+    keep: makePairSide(),
+    evidence: {
+      doorway: 'C',
+      shared_opponents: 2,
+      shared_opponent_names: ['SC del Sol 2013', 'Arizona Arsenal 2013'],
+      shared_dates: 0,
+      opponent_overlap: 0.25,
+    },
+    ...overrides,
+  };
+}
+
 type CleanupCardColumns = { run_id: string; decided_by_user_id: string | null };
 
 /** A team_cleanup_cards row, typed to sit in a Supabase double's table. */
 export type CleanupCardFixture = CardRow & CleanupCardColumns & Record<string, unknown>;
 
-/** An undecided owner card of a states page, as team_cleanup_cards holds it; override per test. */
-export function makeCleanupCardRow(
-  overrides: Partial<Omit<CardRow, 'card'> & CleanupCardColumns> & { card?: Partial<CleanupCard> } = {}
-): CleanupCardFixture {
-  const { card, ...row } = overrides;
-  const pageRun = row.page_run ?? '20261021T180000Z-a1b2c3';
-  const cardId = row.card_id ?? `${pageRun}_0000000000000001`;
+/** The columns every undecided owner card shares, the stage and the card left to the caller. */
+function cardRowColumns({ page_run = '20261021T180000Z-a1b2c3', card_id }: { page_run?: string; card_id?: string }) {
   return {
     run_id: '2026-10-21-all',
-    stage: 'states',
-    lane: 'owner',
-    page_run: pageRun,
-    card_id: cardId,
+    lane: 'owner' as const,
+    page_run,
+    card_id: card_id ?? `${page_run}_0000000000000001`,
     position: 1,
     decision: null,
     note: null,
+    swap: false,
     decided_at: null,
     decided_by_user_id: null,
     created_at: '2026-10-21T18:05:00.25+00:00',
-    ...row,
-    card: makeCleanupCard({ id: cardId, n: row.position ?? 1, ...card }),
   };
+}
+
+/** An undecided owner card of a states page, as team_cleanup_cards holds it; override per test. */
+export function makeCleanupCardRow(
+  overrides: Partial<Omit<TeamCardRow, 'card'> & CleanupCardColumns> & { card?: Partial<TeamCard> } = {}
+): TeamCardRow & CleanupCardColumns & Record<string, unknown> {
+  const { card, ...row } = overrides;
+  const columns = { ...cardRowColumns(row), stage: 'states' as const, ...row };
+  return { ...columns, card: makeCleanupCard({ id: columns.card_id, n: columns.position, ...card }) };
+}
+
+/** An undecided owner card of a duplicate-teams page, as team_cleanup_cards holds it; override per test. */
+export function makePairCardRow(
+  overrides: Partial<Omit<PairCardRow, 'card'> & CleanupCardColumns> & { card?: Partial<PairCard> } = {}
+): PairCardRow & CleanupCardColumns & Record<string, unknown> {
+  const { card, ...row } = overrides;
+  const columns = { ...cardRowColumns(row), stage: 'merges' as const, ...row };
+  return { ...columns, card: makePairCard({ id: columns.card_id, n: columns.position, ...card }) };
 }
 
 /**

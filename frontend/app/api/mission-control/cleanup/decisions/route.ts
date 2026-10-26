@@ -15,11 +15,13 @@ import {
 export const dynamic = 'force-dynamic';
 
 /**
- * Save the owner's decision or note on cards of a stage's review page.
+ * Save the owner's decision, note or swap on cards of a stage's review page.
  *
- * Body: `{ runId, stage, pageRun, cardIds, decision?, note?, onlyUndecided? }`. A `decision` of null clears
- * it with its time and author; `onlyUndecided` leaves a card already decided as it is. Only the owner's lane
- * is written, and only on the page's newest build, while the run is in review and not yet marked done.
+ * Body: `{ runId, stage, pageRun, cardIds, decision?, note?, swap?, onlyUndecided? }`. A `decision` of null
+ * clears it with its time and author; `swap`, on duplicate-team cards only, sets whether the owner keeps the row
+ * the pair would retire;
+ * `onlyUndecided` leaves a card already decided as it is. Only the owner's lane is written, and only on the
+ * page's newest build, while the run is in review and not yet marked done.
  */
 export async function POST(request: NextRequest) {
   const auth = await requireAdmin();
@@ -31,9 +33,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
   }
   const fields = body.data as Record<string, unknown>;
-  const { runId, stage, pageRun, cardIds, decision, note, onlyUndecided } = fields;
+  const { runId, stage, pageRun, cardIds, decision, note, swap, onlyUndecided } = fields;
   const setsDecision = 'decision' in fields;
   const setsNote = 'note' in fields;
+  const setsSwap = 'swap' in fields;
 
   if (!isId(runId) || !isStage(stage) || !isId(pageRun)) {
     return NextResponse.json({ error: 'runId, stage and pageRun are required' }, { status: 400 });
@@ -41,14 +44,17 @@ export async function POST(request: NextRequest) {
   if (!Array.isArray(cardIds) || cardIds.length === 0 || cardIds.length > MAX_CARDS_PER_WRITE || !cardIds.every(isId)) {
     return NextResponse.json({ error: `cardIds must list 1 to ${MAX_CARDS_PER_WRITE} cards` }, { status: 400 });
   }
-  if (!setsDecision && !setsNote) {
-    return NextResponse.json({ error: 'Nothing to save: send a decision or a note' }, { status: 400 });
+  if (!setsDecision && !setsNote && !setsSwap) {
+    return NextResponse.json({ error: 'Nothing to save: send a decision, a note or a swap' }, { status: 400 });
   }
   if (setsDecision && decision !== null && !isDecision(decision)) {
     return NextResponse.json({ error: 'decision must be apply, dont_apply, unsure or null' }, { status: 400 });
   }
   if (setsNote && note !== null && (typeof note !== 'string' || note.trim().length > MAX_NOTE_LENGTH)) {
     return NextResponse.json({ error: `note must be at most ${MAX_NOTE_LENGTH} characters` }, { status: 400 });
+  }
+  if (setsSwap && (stage !== 'merges' || typeof swap !== 'boolean')) {
+    return NextResponse.json({ error: 'swap must be true or false, on a duplicate-team card' }, { status: 400 });
   }
   if (onlyUndecided !== undefined && typeof onlyUndecided !== 'boolean') {
     return NextResponse.json({ error: 'onlyUndecided must be true or false' }, { status: 400 });
@@ -62,6 +68,7 @@ export async function POST(request: NextRequest) {
     patch.decided_by_user_id = chosen ? auth.user.id : null;
   }
   if (setsNote) patch.note = typeof note === 'string' && note.trim() ? note.trim() : null;
+  if (setsSwap) patch.swap = swap;
 
   try {
     return await save({ runId, stage, pageRun, cardIds, patch, onlyUndecided: onlyUndecided === true });
@@ -130,7 +137,7 @@ async function save({
     .eq('lane', 'owner')
     .in('card_id', cardIds);
   if (onlyUndecided) write = write.is('decision', null);
-  const { data: updated, error: writeError } = await write.select('card_id, decision, note, decided_at');
+  const { data: updated, error: writeError } = await write.select('card_id, decision, note, swap, decided_at');
   if (writeError) {
     console.error('[cleanup] Saving choices failed:', writeError.message);
     return NextResponse.json({ error: 'Could not save the choice' }, { status: 500 });

@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { makeCleanupCardRow } from '@/test/fixtures';
-import type { CardRow, Choice, CleanupReview as Review } from '@/lib/mission-control/cleanup';
+import { makeCleanupCardRow, makePairCardRow } from '@/test/fixtures';
+import type { CardRow, Choice, CleanupReview as Review, PairCard } from '@/lib/mission-control/cleanup';
 import { CleanupReview } from './CleanupReview';
 
 const RUN = '2026-10-21-all';
@@ -66,6 +66,37 @@ function review(run: Partial<NonNullable<Review['run']>> = {}, cards?: CardRow[]
   };
 }
 
+const MERGES_PAGE = '20261021T200000Z-d4e5f6';
+const KEEP = 'Phoenix Rising 2013 Boys';
+const MERGE = 'Phoenix Rising B13 Premier';
+
+/** A run whose only page is the duplicate teams: one pair for the owner, one merged automatically. */
+function pairs({
+  card,
+  swap = false,
+  run,
+}: { card?: Partial<PairCard>; swap?: boolean; run?: Partial<NonNullable<Review['run']>> } = {}): Review {
+  return {
+    ...review(run),
+    stages: [
+      {
+        stage: 'merges',
+        pageRun: MERGES_PAGE,
+        cards: [makePairCardRow({ card_id: 'p1', page_run: MERGES_PAGE, swap, card })],
+        auto: [
+          makePairCardRow({
+            card_id: 'pa',
+            lane: 'auto',
+            decision: 'apply',
+            page_run: MERGES_PAGE,
+            card: { sure: 'one row holds no games and its alias already points at the other' },
+          }),
+        ],
+      },
+    ],
+  };
+}
+
 type Post = { url: string; body: Record<string, unknown> };
 type Held = Post & { release: (status?: number) => void };
 
@@ -84,7 +115,7 @@ function serve(next: Review) {
   served = next;
   stored = {};
   for (const row of next.stages.flatMap((s) => s.cards)) {
-    stored[row.card_id] = { decision: row.decision, note: row.note ?? '' };
+    stored[row.card_id] = { decision: row.decision, note: row.note ?? '', swap: row.swap };
   }
 }
 
@@ -113,8 +144,9 @@ function answer({ url, body }: Post): Response {
       stored[id] = {
         decision: 'decision' in body ? (body.decision as Choice['decision']) : stored[id].decision,
         note: 'note' in body ? ((body.note as string | null) ?? '').trim() : stored[id].note,
+        swap: 'swap' in body ? (body.swap as boolean) : stored[id].swap,
       };
-      return { card_id: id, decision: stored[id].decision, note: stored[id].note || null };
+      return { card_id: id, decision: stored[id].decision, note: stored[id].note || null, swap: stored[id].swap };
     });
   return Response.json({ updated });
 }
@@ -276,7 +308,7 @@ describe('the team cleanup review page', () => {
 
   it('shows the last loaded choice on a look-alike the save left alone, decided meanwhile elsewhere', async () => {
     await render();
-    stored.c2 = { decision: 'apply', note: '' };
+    stored.c2 = { decision: 'apply', note: '', swap: false };
 
     await click(button(card('One').querySelector<HTMLElement>('[data-testid="cleanup-alike"]')!, "Don't apply"));
 
@@ -371,6 +403,124 @@ describe('the team cleanup review page', () => {
     expect(card('Plain').querySelector('[data-testid="cleanup-evidence"]')).toBeNull();
   });
 
+  it('shows a pair with its kept team first, and the other first once the owner keeps it instead', async () => {
+    serve(pairs());
+    await render();
+    const sides = () =>
+      [...card(KEEP).querySelectorAll<HTMLElement>('[data-testid="cleanup-pair-side"]')].map((el) => [
+        el.dataset.kept,
+        el.textContent!.includes(KEEP) ? KEEP : MERGE,
+      ]);
+    expect(sides()).toEqual([
+      ['true', KEEP],
+      ['false', MERGE],
+    ]);
+
+    await click(button(card(KEEP), 'Keep the other one'));
+
+    expect(posts).toEqual([
+      { url: DECISIONS, body: { runId: RUN, stage: 'merges', pageRun: MERGES_PAGE, cardIds: ['p1'], swap: true } },
+    ]);
+    expect(sides()).toEqual([
+      ['true', MERGE],
+      ['false', KEEP],
+    ]);
+    expect(button(card(KEEP), 'Keep the other one').getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('shows a pair saved as swapped with the other team kept, and swaps it back', async () => {
+    serve(pairs({ swap: true }));
+    await render();
+    const keptFirst = () =>
+      card(KEEP).querySelector<HTMLElement>('[data-testid="cleanup-pair-side"]')!.textContent!.includes(KEEP)
+        ? KEEP
+        : MERGE;
+    expect(keptFirst()).toBe(MERGE);
+    expect(button(card(KEEP), 'Keep the other one').getAttribute('aria-pressed')).toBe('true');
+
+    await click(button(card(KEEP), 'Keep the other one'));
+
+    expect(posts.map((p) => p.body.swap)).toEqual([false]);
+    expect(keptFirst()).toBe(KEEP);
+  });
+
+  it('shows a swap at once, before its save lands', async () => {
+    serve(pairs());
+    holding = true;
+    await render();
+
+    await click(button(card(KEEP), 'Keep the other one'));
+
+    expect(button(card(KEEP), 'Keep the other one').getAttribute('aria-pressed')).toBe('true');
+    await release();
+  });
+
+  it('saves a note typed on a pair card', async () => {
+    serve(pairs());
+    await render();
+
+    await typeNote(KEEP, 'same coach, renamed for the fall');
+
+    expect(posts.map((p) => p.body)).toEqual([
+      { runId: RUN, stage: 'merges', pageRun: MERGES_PAGE, cardIds: ['p1'], note: 'same coach, renamed for the fall' },
+    ]);
+  });
+
+  it("locks a pair's choices, swap included, once the review is marked done", async () => {
+    serve(pairs({ run: { ownerDoneAt: '2026-10-26T01:00:00+00:00', ownerDoneBy: 'owner', ownerDoneLabel: 'x' } }));
+    await render();
+
+    expect([...card(KEEP).querySelectorAll('button')].every((b) => b.disabled)).toBe(true);
+  });
+
+  it("saves a pair's Merge them and Keep separate as the decisions the loop reads", async () => {
+    serve(pairs());
+    await render();
+
+    await click(button(card(KEEP), 'Merge them'));
+    await click(button(card(KEEP), 'Keep separate'));
+
+    expect(posts.map((p) => p.body.decision)).toEqual(['apply', 'dont_apply']);
+    expect(card(KEEP).dataset.decision).toBe('dont_apply');
+  });
+
+  it("counts a pair's decisions in the words its buttons use", async () => {
+    serve(pairs());
+    await render();
+
+    expect(container!.querySelector('[data-testid="cleanup-tally"]')!.textContent).toBe(
+      '0 merge0 keep separate0 unsure1 left'
+    );
+  });
+
+  it("shows a pair's evidence", async () => {
+    serve(pairs());
+    await render();
+
+    const lines = [...card(KEEP).querySelectorAll('[data-testid="cleanup-evidence"] li')].map((li) => li.textContent);
+    expect(lines).toEqual([
+      'Found as the same squad registered with two providers',
+      'Shared opponents: 2 (SC del Sol 2013, Arizona Arsenal 2013)',
+      'Opponent overlap: 25%',
+    ]);
+  });
+
+  it('never offers to merge a whole group at once', async () => {
+    serve(pairs({ card: { whole: true } }));
+    await render();
+
+    expect(button(container!, 'Apply every undecided card here')).toBeUndefined();
+  });
+
+  it('lists an automatic merge on one line, the team merged away first', async () => {
+    serve(pairs());
+    await render();
+
+    expect(container!.querySelector('[data-testid="cleanup-auto"] li')!.textContent).toBe(
+      `${MERGE} → kept as ${KEEP} (one row holds no games and its alias already points at the other)`
+    );
+  });
+
   it("asks for a lane's undo once confirmed, then shows it waiting and offers it no more", async () => {
     await render();
     const undo = container!.querySelector<HTMLElement>('[data-testid="cleanup-undo"]')!;
@@ -396,16 +546,20 @@ describe('the team cleanup review page', () => {
     expect(posts).toEqual([]);
   });
 
-  it("offers the last finished run's undo, with no run open too", async () => {
-    serve({ ...review(), run: null, stages: [], previous: { runId: '2026-10-14-all', undo: [] } });
+  it("offers the last finished run's undo for each stage it published, with no run open too", async () => {
+    serve({
+      ...review(),
+      run: null,
+      stages: [],
+      previous: { runId: '2026-10-14-all', stages: ['clubs', 'states', 'ages'], undo: [] },
+    });
     await render();
 
     const panel = container!.querySelector<HTMLElement>('[data-testid="cleanup-previous"]')!;
+    const stages = panel.querySelectorAll<HTMLElement>('[data-testid="cleanup-previous-stage"]');
     expect(container!.textContent).toContain('No cleanup run is open right now.');
-    expect(panel.querySelectorAll('[data-testid="cleanup-previous-stage"]')).toHaveLength(3);
-    await click(
-      button(panel.querySelectorAll<HTMLElement>('[data-testid="cleanup-previous-stage"]')[1], 'Undo my changes')
-    );
+    expect([...stages].map((el) => el.textContent!.split('Undo')[0])).toEqual(['Club names', 'States', 'Age groups']);
+    await click(button(stages[1], 'Undo my changes'));
     await click(button(document.body, 'Undo'));
 
     expect(posts).toEqual([{ url: UNDO, body: { runId: '2026-10-14-all', stage: 'states', lane: 'owner' } }]);
