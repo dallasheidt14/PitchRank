@@ -2,7 +2,9 @@
 
 The store sits outside the repo, so removing a worktree takes no undo log with it:
 
-  <store>/exports/                 every applier's plans and logs (their --exports-dir)
+  <store>/exports/                 the club and age appliers' plans and logs (their --exports-dir);
+                                   the merge applier and its doubled-fixture exclusion log into the
+                                   lane's logs/
   <store>/inputs/abbreviation_logs/<GitHub run id>.log
                                    saved logs of update-missing-club-and-state.yml runs, which the
                                    club scan reads
@@ -34,10 +36,12 @@ resumes at the first step whose marker is missing:
   preflight.json   the stage's skill self-check passed
   propose_done     its proposals.json is written, one row per proposed change. stale.json is
                    written beside it when write_guard.json is, listing the proposals whose
-                   proposed field or liveness something else changed meanwhile
+                   proposed field or liveness something else changed meanwhile, and the pairs
+                   either of whose rows changed in any field the guard watches
   review/          every <name>.json there has a <name>_review.json that copies it
-  page.json        the owner's review page is built: page.html, and page.manifest.json, which
-                   names the proposal behind each card
+  page.json        the owner's review page is built: page.html (not for merges, whose cards only
+                   the website shows), and page.manifest.json, which names the proposal behind
+                   each card
   collected.json   the owner's choices are collected into the stage applier's input: vetted.csv or
                    vetted.json (absent when nothing was chosen to apply), and decisions.json,
                    every decided card for the applier to record

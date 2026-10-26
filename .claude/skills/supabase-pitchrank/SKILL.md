@@ -772,7 +772,10 @@ until then. Vercel deploys on merge, and PostgREST fails the whole query on an u
 page that reads it errors outright, not just the new feature. Apply first (an added column that is
 nullable or has a default does not break deployed code that never names it, provided nothing else in
 the migration narrows what that code writes), confirm the column from the database, record the
-ledger, then merge.
+ledger, then merge. A PR whose Python script names the column follows the same order: the weekly
+team-cleanup autopilot moves `C:\pitchrank-weekly` to `origin/main` each Wednesday and runs its
+scripts from there, so a script naming a column the database lacks fails every tick of the next run
+until the column exists, every stage of it when the name sits in a column list the stages share.
 
 To search a function body, use `strpos(p.prosrc, 'x')`. `pg_catalog.position('x' in p.prosrc)` is
 a syntax error (42601) in any client, migrations included: only the bare keyword takes the `IN`

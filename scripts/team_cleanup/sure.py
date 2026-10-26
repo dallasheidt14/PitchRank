@@ -11,9 +11,12 @@ the stage's own code already reads; replay_sure.py checks them against how the o
   ages    a move to the band in the team's own name, or to a U-age label the review's opponents
           confirmed (never a play-up) when the league's division, its opponents' bands or GotSport say
           that age too, or the move is two groups or fewer
+  merges  a pair the cross-provider scan finds provably safe: the row it retires holds no games, still
+          none when the page is built, and that row's provider alias already points at the row it keeps
 
 Everything else is a conflict, every state correction included: a club count can move a team out of
-its own state. A change the loop applied and an undo reversed is never sure again.
+its own state. A change the loop applied and an undo reversed is never sure again, nor is a merge of
+the same two rows the other way round, either row read as the one it has since been merged into.
 
 Reading is all it does; nothing here writes.
 """
@@ -28,8 +31,16 @@ from scripts.find_cross_provider_duplicates import page
 from scripts.fix_band_cohorts import age_num
 from scripts.hold_unsafe_state_applies import split
 from scripts.review_state_queue_by_name import name_reading, provider_states
-from scripts.team_cleanup.decisions import CHANGES_TABLE, DecisionsUnavailable
-from scripts.team_cleanup.propose_week import AGES, APPLIER_INPUTS, CLUBS, STATES
+from scripts.team_cleanup.decisions import CHANGES_TABLE, MERGES, DecisionsUnavailable
+from scripts.team_cleanup.propose_week import (
+    AGES,
+    APPLIER_INPUTS,
+    CLUBS,
+    CROSS_PROVIDER_DOORWAY,
+    FIELDS,
+    PROVABLY_SAFE,
+    STATES,
+)
 from src.tournaments.storage._io import read_json
 
 BAND_TIER = "A_own_name_band"
@@ -49,6 +60,10 @@ class StateEvidence:
 
 @dataclass(frozen=True)
 class Signals:
+    """What a stage's rules read beyond each proposal: the changes an undo reversed, the teams held back
+    (a state fill the hold check holds, a pair's retiring row that has played since its scan), and the
+    states skill's evidence."""
+
     reverted: set[tuple] = field(default_factory=set)
     held: set[str] = field(default_factory=set)
     evidence: StateEvidence | None = None
@@ -71,7 +86,8 @@ def state_evidence(sb, stage: str, proposals) -> StateEvidence | None:
 
 def reverted_changes(sb, stage: str, canonical) -> set[tuple]:
     """{(team, field, new value)} for each change this loop applied and an undo reversed, keyed on
-    each team's surviving row, since an undo outlives a merge of its team.
+    each team's surviving row, since an undo outlives a merge of its team; a merge's new value is a
+    team too, read the same way.
 
     Any failure to read raises: an empty answer would make every undone change sure again.
     """
@@ -82,7 +98,16 @@ def reverted_changes(sb, stage: str, canonical) -> set[tuple]:
         )
     except Exception as exc:
         raise DecisionsUnavailable(f"could not read {CHANGES_TABLE}: {exc}") from exc
-    return {(canonical(r["team_id_master"]), r["field"], r["new_value"]) for r in rows if r["reverted_at"]}
+    merged_into = FIELDS[MERGES]
+    return {
+        (
+            canonical(r["team_id_master"]),
+            r["field"],
+            canonical(r["new_value"]) if r["field"] == merged_into else r["new_value"],
+        )
+        for r in rows
+        if r["reverted_at"]
+    }
 
 
 def held_fills(sb, folder: Path, proposals) -> set[str]:
@@ -110,6 +135,8 @@ def sure_because(stage: str, proposal: dict, signals: Signals) -> str | None:
         return _sure_state(proposal, signals)
     if stage == AGES:
         return _sure_age(proposal)
+    if stage == MERGES:
+        return _sure_merge(proposal, signals)
     return None
 
 
@@ -133,6 +160,14 @@ def _sure_state(p: dict, signals: Signals) -> str | None:
     if how in ("conflict", "unplaced") or (state and state != new):
         return None
     return "a blank state filled from its club, which nothing disputes"
+
+
+def _sure_merge(p: dict, signals: Signals) -> str | None:
+    if (p["keep_id"], FIELDS[MERGES], p["merge_id"]) in signals.reverted or p["merge_id"] in signals.held:
+        return None
+    if p["doorway"] == CROSS_PROVIDER_DOORWAY and p["tier"] == PROVABLY_SAFE:
+        return "the row it retires holds no games, and its provider alias already points at the row it keeps"
+    return None
 
 
 def _sure_age(p: dict) -> str | None:

@@ -41,6 +41,11 @@ def _age(tid, old, new, tier=ULABEL, **evidence):
     return _change(tid, "age_group", old, new, tier=tier, **{key: evidence.get(key) for key in AGE_EVIDENCE})
 
 
+def _pair(merge, keep, *, doorway="C", tier="1_provably_safe"):
+    pair = {"merge_id": merge, "keep_id": keep, "doorway": doorway, "tier": tier if doorway == "C" else None}
+    return _change(merge, "merged_into", None, keep, **pair)
+
+
 def _signals(teams=(), answers=None, held=(), reverted=(), index=None):
     teams = list(teams)
     by_id = {t["team_id_master"]: t for t in teams}
@@ -183,6 +188,29 @@ def test_a_change_an_undo_reversed_is_never_sure_again(stage, proposal):
     assert sure.sure_because(stage, proposal, signals) is None
 
 
+@pytest.mark.parametrize(
+    "proposal, settled",
+    [
+        (_pair("m", "k"), True),
+        (_pair("m", "k", tier="2_both_have_games"), False),
+        (_pair("m", "k", tier="3_other_side_empty"), False),
+        (_pair("m", "k", doorway="D"), False),
+    ],
+    ids=["provably-safe", "both-have-games", "other-side-empty", "squad-key"],
+)
+def test_a_pair_is_sure_only_when_the_cross_provider_scan_finds_it_provably_safe(proposal, settled):
+    assert (sure.sure_because("merges", proposal, _signals()) is not None) is settled
+
+
+@pytest.mark.parametrize(
+    "reverted",
+    [("m", "merged_into", "k"), ("k", "merged_into", "m")],
+    ids=["as-proposed", "the-other-way-round"],
+)
+def test_a_merge_an_undo_reversed_is_never_sure_again_either_way_round(reverted):
+    assert sure.sure_because("merges", _pair("m", "k"), _signals(reverted=[reverted])) is None
+
+
 def _ledgered(n, tid, new, *, reverted=None, stage="ages", field="age_group"):
     return {"id": n, "stage": stage, "team_id_master": tid, "field": field, "new_value": new, "reverted_at": reverted}
 
@@ -204,6 +232,24 @@ def test_only_the_stage_s_reverted_changes_are_read_back_keyed_on_the_surviving_
         ("undone", "age_group", "u13"),
         ("survivor", "age_group", "u12"),
     }
+
+
+def test_an_undone_merge_is_read_with_both_rows_as_they_have_since_been_merged():
+    """The owner undid m -> k, and k was merged into k2 since: m -> k2 is the same merge, never sure again."""
+    undone = "2026-10-12T00:00:00+00:00"
+    db = _Db(team_cleanup_changes=[_ledgered(1, "m", "k", reverted=undone, stage="merges", field="merged_into")])
+    canonical = {"k": "k2"}.get
+
+    reverted = sure.reverted_changes(db, "merges", lambda t: canonical(t, t))
+
+    assert reverted == {("m", "merged_into", "k2")}
+    assert sure.sure_because("merges", _pair("m", "k2"), _signals(reverted=reverted)) is None
+    assert sure.sure_because("merges", _pair("k2", "m"), _signals(reverted=reverted)) is None
+
+
+def test_a_provably_safe_pair_whose_retiring_row_is_held_is_the_owner_s():
+    assert sure.sure_because("merges", _pair("m", "k"), _signals(held=["m"])) is None
+    assert sure.sure_because("merges", _pair("m", "k"), _signals(held=["k"])) is not None
 
 
 def test_an_unreadable_ledger_stops_rather_than_reads_every_undo_as_none():

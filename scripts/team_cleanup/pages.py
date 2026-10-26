@@ -6,17 +6,23 @@ the owner already declined (an active dont_apply in team_cleanup_decisions namin
 value), every one the write guard listed as stale, every one whose team is gone or whose field
 has moved since, every club change from a tier the scan lists without approving, and every state
 change that a recent GotSport answer or the team's name or club name already answers with the state
-the team holds. Teams users follow (watchlisted, report-card or missing-game teams) are kept inside the
-caps first and lead their group; past the card cap the rest are listed and left for next week's scan,
-which proposes them again.
+the team holds. A pair is left off when either row is gone or merged away, or has changed its age
+group, gender, state or club since the scan read it. Teams users follow (watchlisted, report-card or
+missing-game teams) are kept inside the caps first and lead their group; past the card cap the rest
+are listed and left for next week's scan, which proposes them again. The merges caps keep followed
+teams' pairs first, then the cross-provider scan's before the squad-key scan's, each by the fewest
+games on the row it retires, and each pair card shows the two rows' shared opponents and same-day
+games.
 
 The changes sure.py finds the evidence already settles go to the stage's automatic lane, with no
 card, up to page_caps.auto in config/team_cleanup.json; past it they stay cards, as every one does
 while it is 0. `collect.py --lane auto` and `apply_stage.py --lane auto` collect and apply that lane.
-page_caps.cards caps the cards. The build writes three files into the stage folder, under the run's
-file lock and only while neither lane has collected from the page:
+page_caps.cards caps the cards, and page_caps.<stage> gives a stage caps of its own. The build writes
+three files into the stage folder (two for merges), under the run's file lock and only while neither
+lane has collected from the page:
 
-  page.html            a self-contained page from assets/stage-page.html, one card per proposal shown
+  page.html            a self-contained page from assets/stage-page.html, one card per proposal shown;
+                       none for merges, whose pair cards only the website shows
   page.manifest.json   which proposal each card shows, which go to the automatic lane, which of
                        either sure.py finds the evidence already settles, and what was left off and
                        why
@@ -24,10 +30,10 @@ file lock and only while neither lane has collected from the page:
                        hashes of proposals.json, the applier's input and the manifest, which the
                        collector checks first
 
-Publish page.html as an Artifact with the db capability. The owner's choices land in the page's
-own collection, `decisions-<run>`. A saved choice holds the decision, a note and a timestamp, never
-team ids: collect.py takes the ids from the manifest, so a write to the page can decide a proposal
-the page shows but cannot add one.
+Publish page.html as an Artifact with the db capability; merges have no such page, so their cards are
+decided only on the website. The owner's choices land in the page's own collection, `decisions-<run>`.
+A saved choice holds the decision, a note and a timestamp, never team ids: collect.py takes the ids
+from the manifest, so a write to the page can decide a proposal the page shows but cannot add one.
 
 With --publish --execute it also writes each card of either lane to team_cleanup_cards (published to
 the website, as opposed to an Artifact), the automatic lane's already decided Apply; the website is to
@@ -51,7 +57,7 @@ import json
 import shlex
 import sys
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import httpx
@@ -88,13 +94,24 @@ from scripts.team_cleanup.decisions import (  # noqa: E402
     DECISIONS_TABLE,
     DONT_APPLY,
     DONT_APPLY_COLS,
+    MERGES,
     DecisionsUnavailable,
     card_rows,
     new_page_run,
     resolve_execute,
 )
-from scripts.team_cleanup.propose_week import AGES, APPLIER_INPUTS, CLUBS, PROPOSED_STAGES, STATES  # noqa: E402
-from scripts.team_cleanup.review_page import card_id, fetch_teams, render  # noqa: E402
+from scripts.team_cleanup.pairs import side  # noqa: E402
+from scripts.team_cleanup.propose_week import (  # noqa: E402
+    AGES,
+    APPLIER_INPUTS,
+    CLUBS,
+    CROSS_PROVIDER_DOORWAY,
+    PROPOSED_STAGES,
+    SCAN_COUNTS,
+    SQUAD_KEY_DOORWAY,
+    STATES,
+)
+from scripts.team_cleanup.review_page import card_id, fetch_teams, render, team_block  # noqa: E402
 from scripts.team_cleanup.run_store import (  # noqa: E402
     AUTO,
     CLEANUP_CONFIG,
@@ -121,18 +138,22 @@ from scripts.team_cleanup.run_store import (  # noqa: E402
     store_dir,
 )
 from scripts.team_cleanup.sure import keeps_state, load_signals, state_evidence, sure_because  # noqa: E402
+from scripts.team_cleanup.vetted import changed_since_vetted  # noqa: E402
 from src.tournaments.storage._io import read_json, utc_now_iso, write_json  # noqa: E402
 from src.utils.us_states import STATE_CODE_TO_NAME  # noqa: E402
 
 TEMPLATE = Path(__file__).resolve().parent / "assets" / "stage-page.html"
 PAGE_FILE = "page.html"
-TITLES = {CLUBS: "Club names", STATES: "States", AGES: "Age groups"}
+TITLES = {CLUBS: "Club names", STATES: "States", AGES: "Age groups", MERGES: "Duplicate teams"}
 # The tiers trusted to apply whole. Every age-plan row (review groups 1-3) is, so ages has no entry.
 # A club proposal from any other tier is a guess the scan lists unapproved, and gets no card.
 WHOLE_TIERS = {
     CLUBS: {"provider", "swap", "word", "bracket"},
     STATES: {"B fill"},
 }
+# A pair's group names the scan that found it; same-name pairs across two providers come first.
+PAIR_GROUPS = {CROSS_PROVIDER_DOORWAY: "C identical name", SQUAD_KEY_DOORWAY: "D squad key"}
+SHARED_NAMES_SHOWN = 5
 
 
 @dataclass(frozen=True)
@@ -141,12 +162,14 @@ class Caps:
     auto: int
 
 
-def load_caps(path: Path = CLEANUP_CONFIG) -> Caps:
-    """The configured caps on a page's cards and on its automatic lane, each a whole number from 0."""
+def load_caps(path: Path = CLEANUP_CONFIG, stage: str | None = None) -> Caps:
+    """The configured caps on a page's cards and on its automatic lane, each a whole number from 0: the
+    stage's own caps when page_caps names the stage, else the shared ones."""
     try:
         spec = json.loads(path.read_text(encoding="utf-8"))["page_caps"]
+        spec = spec.get(stage, spec)
         caps = Caps(spec["cards"], spec["auto"])
-    except (OSError, ValueError, KeyError, TypeError) as exc:
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
         raise ValueError(f"{path} holds no readable page_caps ({type(exc).__name__}: {exc})") from None
     if not all(type(cap) is int and cap >= 0 for cap in (caps.cards, caps.auto)):
         raise ValueError(f"{path}'s page_caps must be whole numbers from 0: {spec}")
@@ -156,6 +179,8 @@ def load_caps(path: Path = CLEANUP_CONFIG) -> Caps:
 def group_of(stage: str, proposal: dict) -> str:
     """The card's group on the page. A state change the rules would only queue, and a club change
     the scan left for review, sit apart from the confident ones of their tier."""
+    if stage == MERGES:
+        return PAIR_GROUPS[proposal["doorway"]]
     tier = proposal["tier"]
     if stage == CLUBS:
         return f"{tier} (needs review)" if proposal["needs_review"] else tier
@@ -166,7 +191,7 @@ def group_of(stage: str, proposal: dict) -> str:
 
 
 def whole(stage: str, group: str) -> bool:
-    return stage == AGES or group in WHOLE_TIERS[stage]
+    return stage == AGES or group in WHOLE_TIERS.get(stage, ())
 
 
 def group_rank(stage: str, proposal: dict) -> tuple:
@@ -177,6 +202,19 @@ def group_rank(stage: str, proposal: dict) -> tuple:
 
 def name_key(proposal: dict) -> str:
     return (proposal["team_name"] or "").lower()
+
+
+def teams_of(proposal: dict) -> tuple[str, ...]:
+    return (proposal["merge_id"], proposal["keep_id"]) if "merge_id" in proposal else (proposal["team_id_master"],)
+
+
+def proposal_key(proposal: dict) -> str:
+    """A proposal's key within a build: its pair, else its team, since a stage proposes one change a team."""
+    return f"{proposal['merge_id']}_{proposal['keep_id']}" if "merge_id" in proposal else proposal["team_id_master"]
+
+
+def interested(proposal: dict, interest: set[str]) -> bool:
+    return any(team in interest for team in teams_of(proposal))
 
 
 def load_declined(sb, stage: str, canonical) -> dict[tuple, str]:
@@ -236,6 +274,15 @@ def unmoved(field: str, now, then) -> bool:
     return now == then
 
 
+def pair_moved(p: dict, teams: dict, canonical) -> str | None:
+    """Why a pair no longer stands as its scan read it: a row gone or merged away, or either row's age
+    group, gender, state or club changed since."""
+    rows = [teams.get(team) for team in teams_of(p)]
+    if any(t is None or t["is_deprecated"] or canonical(t["team_id_master"]) != t["team_id_master"] for t in rows):
+        return "no longer two live teams"
+    return changed_since_vetted(p, *rows)
+
+
 def sort_out(stage, proposals, stale, declined, answered, teams, canonical, interest):
     """The proposals not left off, interest teams first so the caps keep them, and each one left off
     with why."""
@@ -249,6 +296,8 @@ def sort_out(stage, proposals, stale, declined, answered, teams, canonical, inte
             why = f"the scan lists {p['tier']} guesses without approving them"
         elif (tid, field) in stale_keys:
             why = f"changed while the week was proposed: {stale_keys[tid, field]}"
+        elif stage == MERGES:
+            why = pair_moved(p, teams, canonical)
         elif team is None or team["is_deprecated"] or canonical(tid) != tid:
             why = "no longer a live team"
         elif not unmoved(field, team[field], p["old_value"]):
@@ -261,7 +310,7 @@ def sort_out(stage, proposals, stale, declined, answered, teams, canonical, inte
             left_out.append({**p, "why": why})
         else:
             shown.append(p)
-    shown.sort(key=lambda p: (p["team_id_master"] not in interest, group_rank(stage, p), name_key(p)))
+    shown.sort(key=lambda p: (not interested(p, interest), group_rank(stage, p), name_key(p)))
     return shown, left_out
 
 
@@ -323,7 +372,6 @@ def state_facts(evidence, ev, teams, team_ids) -> dict[str, dict]:
 
 def card(stage, run, p, team, ev, providers, interest, facts=None) -> dict:
     tid = p["team_id_master"]
-    dates = ev.dates[tid]
     group = group_of(stage, p)
     return {
         "id": change_id(run, p),
@@ -333,24 +381,66 @@ def card(stage, run, p, team, ev, providers, interest, facts=None) -> dict:
         "interest": tid in interest,
         "change": {"field": p["field"], "old": p["old_value"], "new": p["new_value"]},
         "why": p.get("reason") or "",
-        "team": {
-            "name": team["team_name"],
-            "original": team["team_name_original"],
-            "club": team["club_name"],
-            "state": (team["state_code"] or "").strip() or None,
-            "age": team["age_group"],
-            "gender": team["gender"],
-            "provider": providers.get(team["provider_id"]),
-            "games": ev.games[tid],
-            "excluded": ev.excluded[tid],
-            "first": min(dates, default=None),
-            "last": max(dates, default=None),
-        },
+        "team": team_block(team, ev, providers),
         **({"evidence": facts[tid]} if facts and tid in facts else {}),
     }
 
 
-def display_order(stage: str, interest: set[str]):
+def pair_why(p: dict) -> str:
+    """Why the scan paired the two rows; neither scan gives a proposed pair a reason of its own."""
+    if p["doorway"] == CROSS_PROVIDER_DOORWAY:
+        return f"Both are named {p['keep_name']!r}, one on gotsport and one on {p['provider']}"
+    return f"Both are {p['club']}'s {p['squad_key']!r} squad of one age group, the name written two ways"
+
+
+def pair_card(run, p, teams, ev, providers, interest, names) -> dict:
+    """A pair as the website's pair card reads it. The overlap is measured here rather than taken from the
+    scan, whose record reads 0.0 for a row with no opponents, and which the squad-key scan never measures."""
+    merge, keep = p["merge_id"], p["keep_id"]
+    shared = ev.opponents[merge] & ev.opponents[keep]
+    both = ev.opponents[merge] and ev.opponents[keep]
+    group = group_of(MERGES, p)
+    return {
+        "id": card_id(run, proposal_key(p)),
+        "group": group,
+        "whole": whole(MERGES, group),
+        "alike": None,
+        "interest": interested(p, interest),
+        "why": pair_why(p),
+        "merge": side(merge, teams, ev, providers),
+        "keep": side(keep, teams, ev, providers),
+        "evidence": {
+            "doorway": p["doorway"],
+            "shared_opponents": len(shared),
+            "shared_opponent_names": sorted(names[o] for o in shared if names.get(o))[:SHARED_NAMES_SHOWN],
+            "shared_dates": len(ev.dates[merge] & ev.dates[keep]),
+            "opponent_overlap": round(len(shared) / len(ev.opponents[merge] | ev.opponents[keep]), 3) if both else None,
+        },
+    }
+
+
+def read_evidence(sb, team_ids, merge_map, canonical):
+    """The teams' games, read under every row merged into them."""
+    rows = fetch_games(sb, sorted(merged_into(team_ids, merge_map, canonical)))
+    return build_evidence(rows, [], canonical, team_ids)
+
+
+def shared_opponent_names(sb, pairs, ev) -> dict[str, str]:
+    """{opponent: name} for every opponent both rows of a pair played."""
+    shared = set().union(*(ev.opponents[p["merge_id"]] & ev.opponents[p["keep_id"]] for p in pairs))
+    return {tid: team["team_name"] for tid, team in fetch_teams(sb, sorted(shared)).items()}
+
+
+def pair_cap_order(interest: set[str], ev):
+    """The order the merges caps keep pairs in: followed teams', then by group, the row a pair retires
+    holding the fewest games first."""
+    return lambda p: (not interested(p, interest), group_rank(MERGES, p), ev.games[p["merge_id"]], name_key(p))
+
+
+def display_order(stage: str, interest: set[str], ev=None):
+    """Groups first, followed teams leading their group; a pair's, the row it retires holding the fewest games."""
+    if stage == MERGES:
+        return lambda p: (group_rank(stage, p), not interested(p, interest), ev.games[p["merge_id"]], name_key(p))
     return lambda p: (group_rank(stage, p), p["team_id_master"] not in interest, name_key(p))
 
 
@@ -394,10 +484,10 @@ def build(
     """The page's build, its files written unless it is a dry run, and its cards inserted when published."""
     run = read_run(store, run_id)
     folder = buildable(store, run_id, stage)
-    caps = load_caps()
+    caps = load_caps(stage=stage)
     proposals = read_json(folder / PROPOSALS_FILE)
     stale = read_json(folder / STALE_FILE)
-    ids = sorted({p["team_id_master"] for p in proposals})
+    ids = sorted({team for p in proposals for team in teams_of(p)})
     merge_map = load_merge_map(sb)
     canonical = resolver(merge_map)
     declined = load_declined(sb, stage, canonical)
@@ -407,26 +497,38 @@ def build(
     teams = fetch_teams(sb, ids)
     shown, left_out = sort_out(stage, proposals, stale, declined, answered, teams, canonical, interest)
     signals = load_signals(sb, stage, folder, shown, evidence, canonical)
-    settled = {p["team_id_master"]: why for p in shown if (why := sure_because(stage, p, signals))}
-    auto = [p for p in shown if p["team_id_master"] in settled][: caps.auto]
-    sent = {p["team_id_master"] for p in auto}
-    shown = [p for p in shown if p["team_id_master"] not in sent]
+    ev = None
+    if stage == MERGES:
+        # The cap orders pairs by their retiring row's games, so the evidence is read before it; a retiring
+        # row that has played since the scan keeps its pair out of the automatic lane.
+        ev = read_evidence(sb, [team for p in shown for team in teams_of(p)], merge_map, canonical)
+        shown.sort(key=pair_cap_order(interest, ev))
+        signals = replace(signals, held={p["merge_id"] for p in shown if ev.games[p["merge_id"]]})
+    settled = {proposal_key(p): why for p in shown if (why := sure_because(stage, p, signals))}
+    auto = [p for p in shown if proposal_key(p) in settled][: caps.auto]
+    sent = {proposal_key(p) for p in auto}
+    shown = [p for p in shown if proposal_key(p) not in sent]
     shown, overflow = shown[: caps.cards], shown[caps.cards :]
-    shown.sort(key=display_order(stage, interest))
-    auto.sort(key=display_order(stage, interest))
 
-    page_ids = [p["team_id_master"] for p in (*shown, *auto)]
+    page_ids = [team for p in (*shown, *auto) for team in teams_of(p)]
     providers = {p["id"]: p["code"] for p in sb.table("providers").select("id,code").execute().data}
-    ev = build_evidence(fetch_games(sb, sorted(merged_into(page_ids, merge_map, canonical))), [], canonical, page_ids)
+    ev = ev or read_evidence(sb, page_ids, merge_map, canonical)
+    shown.sort(key=display_order(stage, interest, ev))
+    auto.sort(key=display_order(stage, interest, ev))
     facts = state_facts(evidence, ev, teams, page_ids)
+    names = shared_opponent_names(sb, (*shown, *auto), ev) if stage == MERGES else {}
     page_run = new_page_run()
     lanes, by_lane = {}, {}
     for lane, chosen in ((OWNER, shown), (AUTO, auto)):
         lanes[lane] = [
             {
-                **card(stage, page_run, p, teams[p["team_id_master"]], ev, providers, interest, facts),
+                **(
+                    pair_card(page_run, p, teams, ev, providers, interest, names)
+                    if stage == MERGES
+                    else card(stage, page_run, p, teams[p["team_id_master"]], ev, providers, interest, facts)
+                ),
                 "n": n,
-                "sure": settled.get(p["team_id_master"]),
+                "sure": settled.get(proposal_key(p)),
             }
             for n, p in enumerate(chosen, 1)
         ]
@@ -443,6 +545,7 @@ def build(
         "sure": sure,
         "left_out": left_out,
         "overflow": overflow,
+        **({"scanned": read_json(folder / SCAN_COUNTS)} if stage == MERGES else {}),
     }
     built_at = utc_now_iso()
     marker = {
@@ -467,7 +570,8 @@ def build(
             return marker
         if publish and rows:
             sb.table(CARDS_TABLE).insert(rows, returning=ReturnMethod.minimal).execute()
-        (folder / PAGE_FILE).write_text(render(TEMPLATE, cards, title, page_run), encoding="utf-8")
+        if stage != MERGES:
+            (folder / PAGE_FILE).write_text(render(TEMPLATE, cards, title, page_run), encoding="utf-8")
         write_json(folder / MANIFEST_FILE, manifest, indent=1)
         hashed = (PROPOSALS_FILE, APPLIER_INPUTS[stage], MANIFEST_FILE)
         marker["hashes"] = {name: file_hash(folder / name) for name in hashed}
@@ -514,6 +618,8 @@ def main() -> int:
         print(f"  {CARDS_TABLE}, writing no file; add --execute")
     elif dry_run:
         print(f"DRY RUN -- would build page run {marker['run']} with {marker['cards']} cards, writing no file")
+    elif args.stage == MERGES:
+        print(f"built the {args.stage} page: {marker['cards']} cards, page run {marker['run']}")
     else:
         print(f"wrote {folder / PAGE_FILE}: {marker['cards']} cards, page run {marker['run']}")
     if marker["published"]:

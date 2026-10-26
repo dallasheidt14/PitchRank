@@ -11,17 +11,28 @@ fields, then runs each stage's skill self-check and proposal step into
   states  assign_team_states.py --no-tier-a over the country, cut to the scope
   ages    review_age_labels.py review --state <scope>, then write-plan --groups 1,2,3 (groups 4
           and 5 are owner questions, not plan rows)
+  merges  find_cross_provider_duplicates.py over the country (per state for a narrower scope) and
+          find_squad_key_duplicates.py per state, into merges/scans/
 
 Each stage leaves proposals.json, one row per proposed change, beside its applier's input for the
-scope: clubs/repair_swapped_club_names.csv, states/snapshot.json, ages/plan.csv. A scope of ALL
-names the run <date>-all; clubs and states keep every team, one with no state included, and ages
-covers every team holding a US state, the age review's own scope when given none. Reconcile is run
-by hand and merges wait while the duplicate scans are frozen; run.json says so and neither runs.
-A stage whose self-check fails is marked skill_stale and skipped. A finished stage leaves
-propose_done, so a run stopped part way resumes at the stage it stopped in. Once each stage has
-proposed or is skill_stale, each proposal whose proposed field or liveness something else changed
-meanwhile is listed in <stage>/stale.json, the week's health report is written, and the run moves
-to reviewing.
+scope: clubs/repair_swapped_club_names.csv, states/snapshot.json, ages/plan.csv, merges/pairs.json.
+A merges row is one proposed pair, retiring merge_id into keep_id: each scan's proposals, the
+cross-provider one's review tiers left out, once each pair, the cross-provider record kept where
+both scans found it. A pair the other scan held or rejected, one touching a team another stage
+proposes to change this week, and one with a team in another pair a scan proposed or held, are left
+out too, and merges/scans.json counts every pair the scans or this cut left out, by why. Merges
+proposes last, and waits for a retry when an earlier stage fails in the same pass, so its pairs are
+always cut against every other stage's proposals.
+
+A scope of ALL names the run <date>-all; clubs and states keep every team, one with no state
+included, ages covers every team holding a US state, the age review's own scope when given none, and
+merges every US state, the cross-provider scan a team with no state too. Reconcile is run by hand;
+run.json says so and it does not run. A stage whose self-check fails is marked skill_stale and
+skipped. A finished stage leaves propose_done, so a run stopped part way resumes at the stage it
+stopped in. Once each stage has proposed or is skill_stale, each proposal whose proposed field or
+liveness something else changed meanwhile, and each pair either of whose rows changed in any field
+the guard watches, is listed in <stage>/stale.json, the week's health report is written, and the run
+moves to reviewing.
 
 Usage:
     python scripts/team_cleanup/propose_week.py --states NV
@@ -37,6 +48,7 @@ import os
 import shutil
 import subprocess
 import sys
+from collections import Counter
 from datetime import date, datetime, timezone
 from pathlib import Path
 
@@ -46,7 +58,9 @@ from postgrest.exceptions import APIError
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from scripts.find_cross_provider_duplicates import get_client  # noqa: E402
+from scripts.find_cross_provider_duplicates import FLIP_TIER, REJECTED_TIER, get_client  # noqa: E402
+from scripts.find_squad_key_duplicates import HELD as SQUAD_KEY_HELD  # noqa: E402
+from scripts.find_squad_key_duplicates import PROPOSED as SQUAD_KEY_PROPOSED  # noqa: E402
 from scripts.repair_swapped_club_names import (  # noqa: E402
     DEFAULT_ABBREVIATION_RUNS,
     csv_unsafe,
@@ -69,22 +83,24 @@ from scripts.team_cleanup.run_store import (  # noqa: E402
     store_dir,
     write_run,
 )
+from scripts.team_cleanup.vetted import KEEP_AS_VETTED, MERGE_AS_VETTED  # noqa: E402
 from src.tournaments.storage._file_lock import FileLockError, _acquire_file_lock  # noqa: E402
 from src.tournaments.storage._io import read_json, utc_now_iso, write_json  # noqa: E402
 from src.utils.us_states import STATE_CODE_TO_NAME  # noqa: E402
 
 CLUBS, STATES, AGES = "clubs", "states", "ages"
-PROPOSED_STAGES = (CLUBS, STATES, AGES)
+# Merges last, so its pairs are cut against the other stages' proposals; that cut, not the order its lanes
+# apply in, keeps a merge off a team another stage writes.
+PROPOSED_STAGES = (CLUBS, STATES, AGES, MERGES)
 ALL = "ALL"
-NOT_RUN = {
-    "reconcile": "not run: reconcile is run by hand",
-    MERGES: "not run: the duplicate scans are frozen until the owner resumes them",
-}
-FIELDS = {CLUBS: "club_name", STATES: "state_code", AGES: "age_group"}
+NOT_RUN = {"reconcile": "not run: reconcile is run by hand"}
+FIELDS = {CLUBS: "club_name", STATES: "state_code", AGES: "age_group", MERGES: "merged_into"}
 
 SWAPPED_CLUBS = "scripts/repair_swapped_club_names.py"
 ASSIGN_STATES = "scripts/assign_team_states.py"
 AGE_REVIEW = ".claude/skills/correcting-team-age-groups/scripts/review_age_labels.py"
+CROSS_PROVIDER = "scripts/find_cross_provider_duplicates.py"
+SQUAD_KEY = "scripts/find_squad_key_duplicates.py"
 HEALTH = "scripts/team_cleanup/health.py"
 # --code-only: the state check's database half only measures, so it can crash the check but never fail it;
 # the club and age checks read no database and take the flag for symmetry.
@@ -92,6 +108,7 @@ SELF_CHECKS = {
     CLUBS: ["scripts/check_club_skill_assumptions.py", "--code-only"],
     STATES: ["scripts/check_state_skill_assumptions.py", "--code-only"],
     AGES: ["scripts/check_age_skill_assumptions.py", "--code-only"],
+    MERGES: ["scripts/check_merge_skill_assumptions.py", "--code-only"],
 }
 ABBREVIATION_LOGS = Path("inputs") / "abbreviation_logs"
 SCOPED_CLUBS = "repair_swapped_club_names.csv"
@@ -101,7 +118,18 @@ AGE_REVIEW_FILE = "age_label_review.csv"
 # The age review's evidence each age proposal carries: what the league's division, the opponents'
 # bands and GotSport each say the age is, and how the opponents' single birth years vote.
 AGE_EVIDENCE = ("gotsport_age", "div_says", "band_opps_say", "year_witness")
-APPLIER_INPUTS = {CLUBS: SCOPED_CLUBS, STATES: SCOPED_STATES, AGES: AGE_PLAN}
+MERGE_SCANS = "scans"
+MERGE_PAIRS = "pairs.json"
+SCAN_COUNTS = "scans.json"
+CROSS_PROVIDER_FILE = "cross_provider_duplicates"
+# The scan that found a pair: the same squad registered with two providers, or one club's squad under two
+# spellings.
+CROSS_PROVIDER_DOORWAY, SQUAD_KEY_DOORWAY = "C", "D"
+PROVABLY_SAFE = "1_provably_safe"
+# The cross-provider scan's tiers a pair card shows; its two review tiers, a competing partner and a
+# fused registration, are held with the squad-key scan's held pairs.
+CROSS_PROVIDER_TIERS = (PROVABLY_SAFE, "2_both_have_games", "3_other_side_empty", FLIP_TIER, "5_both_empty")
+APPLIER_INPUTS = {CLUBS: SCOPED_CLUBS, STATES: SCOPED_STATES, AGES: AGE_PLAN, MERGES: MERGE_PAIRS}
 AGE_GROUPS_TO_APPLY = "1,2,3"
 STATE_CHANGES = ("apply", "queue")
 STEP_TIMEOUT_SECONDS = 4 * 60 * 60
@@ -161,6 +189,15 @@ def stage_commands(stage: str, folder: Path, states: list[str], store: Path) -> 
     if stage == STATES:
         # A dry run with Tier A on still spends paid probes and logs each one to the database.
         return [[ASSIGN_STATES, "--no-tier-a", "--out", str(folder / "national_snapshot.json")]]
+    if stage == MERGES:
+        scans = folder / MERGE_SCANS
+        if states == [ALL]:
+            cross = [[CROSS_PROVIDER, "--out-dir", str(scans / "national")]]
+        else:
+            cross = [[CROSS_PROVIDER, "--state", state, "--out-dir", str(scans / state.lower())] for state in states]
+        # The squad-key scan takes one state at a time and names its files by it.
+        scope = sorted(STATE_CODE_TO_NAME) if states == [ALL] else states
+        return cross + [[SQUAD_KEY, "--state", state, "--out-dir", str(scans)] for state in scope]
     review = folder / AGE_REVIEW_FILE
     # The age review covers every US state when given none.
     scope = [] if states == [ALL] else ["--state", ",".join(states)]
@@ -268,6 +305,101 @@ def with_age_evidence(proposals: list[dict], review: list[dict]) -> list[dict]:
     ]
 
 
+def pair_row(record: dict, doorway: str, **found) -> dict:
+    """A scan's proposed pair as a merges proposal, retiring merge_id into keep_id: in the shape every
+    stage's proposals share, and carrying what the merge applier reads."""
+    return {
+        "team_id_master": record["merge_id"],
+        "team_name": record["merge_name"],
+        "field": FIELDS[MERGES],
+        "old_value": None,
+        "new_value": record["keep_id"],
+        **{key: record[key] for key in ("merge_id", "keep_id", "merge_name", "keep_name", "club")},
+        "doorway": doorway,
+        "tier": None,
+        "provider": None,
+        "squad_key": None,
+        "alias_already_points_at_gotsport": False,
+        **found,
+        MERGE_AS_VETTED: record[MERGE_AS_VETTED],
+        KEEP_AS_VETTED: record[KEEP_AS_VETTED],
+    }
+
+
+def pair_key(pair: dict) -> frozenset:
+    return frozenset((pair["merge_id"], pair["keep_id"]))
+
+
+def cross_provider_pairs(scans: Path) -> tuple[list[dict], list[dict], list[dict], Counter]:
+    """The cross-provider scan's proposals, the pairs it held and the ones it rejected, from each of its
+    runs, and what it left out, by why."""
+    pairs, held, rejected, left_out = [], [], [], Counter()
+    for folder in sorted(path.parent for path in scans.glob(f"*/{CROSS_PROVIDER_FILE}.csv")):
+        for row in _read_csv(folder / f"{CROSS_PROVIDER_FILE}.csv"):
+            if row["tier"] not in CROSS_PROVIDER_TIERS:
+                (rejected if row["tier"] == REJECTED_TIER else held).append(row)
+                left_out[f"cross-provider: {row['rejected_reason'] or row['tier']}"] += 1
+        for record in read_json(folder / f"{CROSS_PROVIDER_FILE}.json"):
+            if record["tier"] in CROSS_PROVIDER_TIERS:
+                found = {key: record[key] for key in ("tier", "provider", "alias_already_points_at_gotsport")}
+                pairs.append(pair_row(record, CROSS_PROVIDER_DOORWAY, **found))
+    return pairs, held, rejected, left_out
+
+
+def squad_key_pairs(scans: Path) -> tuple[list[dict], list[dict], list[dict], Counter]:
+    """The squad-key scan's proposals, the pairs it held and the ones it rejected, from each state's run,
+    and what it held or rejected, by why."""
+    pairs, held, rejected, left_out = [], [], [], Counter()
+    for path in sorted(scans.glob("squad_key_duplicates_*_all.json")):
+        for status, records in read_json(path).items():
+            if status == SQUAD_KEY_PROPOSED:
+                pairs += [pair_row(record, SQUAD_KEY_DOORWAY, squad_key=record["squad_key"]) for record in records]
+                continue
+            (held if status == SQUAD_KEY_HELD else rejected).extend(records)
+            left_out.update(f"squad-key: {record['reason']}" for record in records)
+    return pairs, held, rejected, left_out
+
+
+def merge_proposals(folder: Path) -> tuple[list[dict], Counter]:
+    """Each pair the scans propose, once, and what was left out, by why. A pair one scan proposes and the
+    other held or rejected keeps the refusal, since each scan screens what the other cannot. A pair
+    touching a team the week's other stages propose to change waits a week rather than race their write,
+    and a team in two pairs, a held one included, is a cluster the owner settles by hand."""
+    cross, cross_held, cross_rejected, left_out = cross_provider_pairs(folder / MERGE_SCANS)
+    squad, squad_held, squad_rejected, squad_left_out = squad_key_pairs(folder / MERGE_SCANS)
+    left_out.update(squad_left_out)
+    held = {pair_key(p) for p in cross_held + squad_held}
+    refused = held | {pair_key(p) for p in cross_rejected + squad_rejected}
+    pairs, seen = [], set()
+    for pair in cross + squad:
+        key = pair_key(pair)
+        if key in refused:
+            left_out["the other scan held or rejected it"] += 1
+            continue
+        if key in seen:
+            left_out["found by both scans, kept once"] += 1
+            continue
+        seen.add(key)
+        pairs.append(pair)
+    changing = {
+        p["team_id_master"]
+        for stage in (CLUBS, STATES, AGES)
+        if (path := folder.parent / stage / PROPOSALS_FILE).exists()
+        for p in read_json(path)
+    }
+    clustered = Counter(team for key in seen | held for team in key)
+    kept = []
+    for pair in pairs:
+        teams = {pair["merge_id"], pair["keep_id"]}
+        if teams & changing:
+            left_out["another stage proposes to change one of its teams this week"] += 1
+        elif any(clustered[team] > 1 for team in teams):
+            left_out["one of its teams pairs with another row too"] += 1
+        else:
+            kept.append(pair)
+    return kept, left_out
+
+
 def scoped_proposals(stage: str, folder: Path, states: list[str]) -> list[dict]:
     """Read the stage's output, cut a national scan's output to the scope for its applier, and return
     the stage's proposals."""
@@ -282,6 +414,11 @@ def scoped_proposals(stage: str, folder: Path, states: list[str]) -> list[dict]:
     if stage == STATES:
         scoped, proposals = state_proposals(read_json(folder / "national_snapshot.json"), states)
         write_json(folder / SCOPED_STATES, scoped, indent=1)
+        return proposals
+    if stage == MERGES:
+        proposals, left_out = merge_proposals(folder)
+        write_json(folder / MERGE_PAIRS, proposals, indent=1)
+        write_json(folder / SCAN_COUNTS, dict(sorted(left_out.items())), indent=1)
         return proposals
     return age_proposals(_read_csv(folder / AGE_PLAN), _read_csv(folder / AGE_REVIEW_FILE))
 
@@ -307,7 +444,8 @@ def propose(stage: str, folder: Path, states: list[str], store: Path) -> str | N
     if lacking:
         return f"failed: {lacking}"
     # An earlier attempt's scan would otherwise stand in for a retry's scan that found nothing.
-    shutil.rmtree(folder / "national", ignore_errors=True)
+    for scans in ("national", MERGE_SCANS):
+        shutil.rmtree(folder / scans, ignore_errors=True)
     for number, command in enumerate(stage_commands(stage, folder, states, store), 1):
         log = folder / LOGS / f"{number}_{Path(command[0]).stem}.log"
         code = run_step(command, log)
@@ -357,7 +495,7 @@ def open_run(sb, store: Path, run_id: str, states: list[str], retry: str) -> dic
 
 def close_guard(sb, store: Path, run_id: str) -> dict:
     """Write each proposed stage's stale.json (its proposals whose field or liveness moved since the
-    opening snapshot) and the run's write_guard.json."""
+    opening snapshot, or, for a pair, any guarded field of either row) and the run's write_guard.json."""
     folder = run_dir(store, run_id)
     before = read_json(folder / GUARD_BEFORE)
     moved = write_guard.changes(before["teams"], write_guard.snapshot(sb))
@@ -419,6 +557,8 @@ def propose_stages(store: Path, run: dict, states: list[str]) -> list[str]:
     for stage in PROPOSED_STAGES:
         folder = stage_dir(store, run["run_id"], stage)
         if (folder / PROPOSE_MARKER).exists():
+            continue
+        if stage == MERGES and failed:
             continue
         run["stages"].pop(stage, None)
         problem = preflight(stage, folder)

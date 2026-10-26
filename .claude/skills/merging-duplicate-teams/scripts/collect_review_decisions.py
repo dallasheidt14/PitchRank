@@ -88,7 +88,7 @@ def collect(manifest: dict, choices: dict[str, dict], *, check: bool = True) -> 
 
 def check_merges(manifest: dict, result: dict) -> None:
     refuse_conflicts(result["merges"])
-    refuse_kept_apart_joins(manifest, result)
+    refuse_kept_apart_joins(result["merges"], [manifest["pairs"][i] for i in result["by_decision"]["separate"]])
 
 
 def record_keep_separate(rows: list[dict], execute: bool) -> None:

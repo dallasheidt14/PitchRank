@@ -14,7 +14,6 @@ import sys
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from scripts.team_cleanup.decisions import MERGES  # noqa: E402
 from scripts.team_cleanup.propose_week import PROPOSED_STAGES  # noqa: E402
 from scripts.team_cleanup.run_store import LANES  # noqa: E402
 from tests.unit.test_team_cleanup_cards_migration import _flat, _newest_statement, _stage_values, _tree  # noqa: E402
@@ -48,7 +47,7 @@ def test_a_request_s_columns_carry_the_not_nulls_its_checks_rely_on():
 
 
 def test_a_request_names_a_stage_and_lane_the_loop_runs():
-    assert _stage_values(TABLE) == (*PROPOSED_STAGES, MERGES) == ("clubs", "states", "ages", "merges")
+    assert _stage_values(TABLE) == PROPOSED_STAGES == ("clubs", "states", "ages", "merges")
     assert sorted(_in_list("lane")) == sorted(LANES) == ["auto", "owner"]
 
 

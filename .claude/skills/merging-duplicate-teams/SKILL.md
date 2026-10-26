@@ -92,6 +92,11 @@ that saw no decisions would propose every kept-apart pair again. Doorways A and 
 A Keep separate chosen on a review page counts only once it is recorded in that table, which the
 collector in Step 5 does when the owner runs it with `--execute`.
 
+The weekly team cleanup (the `running-team-cleanup` skill) runs Doorways C and D every week and puts
+their pairs on the cleanup review page; a Keep separate chosen there reaches that table when the
+stage applies. It merges on its own only Doorway C's `1_provably_safe` tier; every other pair waits
+for the owner's card. Check that week's run before merging a pair by hand.
+
 **Doorway A — name similarity.** `scripts/find_fuzzy_duplicate_teams.py`, called in-process by
 `decide_team_merges.py`. This is the recall ceiling for everything in Step 3: a pair it cannot
 propose is never judged, never reviewed, and never merged. It proposes a pair only when the two
@@ -821,7 +826,8 @@ the surviving row, and sets `is_excluded` on the rest. Dry run by default; `--li
 staged first pass; `--merge-log <applier log>` scans only the clusters of the teams that batch
 merged into, so the repair can be reverted with its batch without touching another's. It logs
 every excluded id, and `--revert <its log>` puts them back. Run it after
-**every** merge batch, not only a Doorway B one — nothing does it automatically (IMP-137).
+**every** merge batch you apply by hand, not only a Doorway B one; only the weekly cleanup's merges
+apply runs it on its own (IMP-137).
 
 Three things it depends on, which any successor must keep. The discriminator is that the two rows
 carry **different raw master ids**: a genuine same-day rematch recorded once carries identical

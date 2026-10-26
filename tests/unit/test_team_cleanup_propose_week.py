@@ -1,5 +1,6 @@
 """Tests for the unattended weekly propose driver and its write guard."""
 
+import ast
 import csv
 import json
 import os
@@ -14,11 +15,13 @@ from postgrest.exceptions import APIError
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
+from scripts import find_cross_provider_duplicates as cross  # noqa: E402
 from scripts import repair_swapped_club_names as swapped  # noqa: E402
 from scripts.team_cleanup import propose_week as pw  # noqa: E402
 from scripts.team_cleanup import write_guard  # noqa: E402
 from scripts.team_cleanup.run_store import read_run, run_dir, write_run  # noqa: E402
 from src.tournaments.storage._file_lock import _acquire_file_lock  # noqa: E402
+from src.utils.us_states import STATE_CODE_TO_NAME  # noqa: E402
 
 DAY = "2026-10-14"
 RUN = "2026-10-14-nv"
@@ -74,6 +77,30 @@ def test_an_all_scope_age_review_names_no_state_so_it_covers_every_us_state(tmp_
     review = pw.stage_commands("ages", tmp_path / "ages", ["ALL"], tmp_path)[0]
 
     assert "--state" not in review
+
+
+def test_merges_scan_the_scope_s_states_with_both_scans_and_neither_executes(tmp_path):
+    folder = tmp_path / "merges"
+
+    assert pw.stage_commands("merges", folder, ["NV", "UT"], tmp_path) == [
+        ["scripts/find_cross_provider_duplicates.py", "--state", "NV", "--out-dir", str(folder / "scans" / "nv")],
+        ["scripts/find_cross_provider_duplicates.py", "--state", "UT", "--out-dir", str(folder / "scans" / "ut")],
+        ["scripts/find_squad_key_duplicates.py", "--state", "NV", "--out-dir", str(folder / "scans")],
+        ["scripts/find_squad_key_duplicates.py", "--state", "UT", "--out-dir", str(folder / "scans")],
+    ]
+
+
+def test_an_all_scope_scans_across_providers_once_and_each_us_state_for_squad_keys(tmp_path):
+    folder = tmp_path / "merges"
+
+    commands = pw.stage_commands("merges", folder, ["ALL"], tmp_path)
+
+    assert commands[0] == ["scripts/find_cross_provider_duplicates.py", "--out-dir", str(folder / "scans" / "national")]
+    squad = [command[2] for command in commands[1:]]
+    assert squad == sorted(STATE_CODE_TO_NAME) and len(squad) == 51
+    assert {(c[0], c[1], c[3], c[4]) for c in commands[1:]} == {
+        ("scripts/find_squad_key_duplicates.py", "--state", "--out-dir", str(folder / "scans"))
+    }
 
 
 def test_the_club_scan_reads_every_saved_run_log_and_never_fetches_one(tmp_path):
@@ -320,11 +347,242 @@ def test_the_club_stage_reads_the_newest_scan_and_a_scan_that_found_nothing_prop
     assert [p["team_id_master"] for p in pw.scoped_proposals("clubs", folder, ["NV"])] == ["nv-club"]
 
 
+def _vetted(team):
+    return {"age_group": "u12", "gender": "Male", "state_code": "NV", "club_name": f"Club of {team}"}
+
+
+def _cross(merge, keep, tier="2_both_have_games", reason=""):
+    """A cross-provider record as the scan writes it, with the fields the pair cut reads."""
+    return {
+        "tier": tier,
+        "rejected_reason": reason,
+        "provider": "tgs",
+        "club": "Las Vegas Sports Academy",
+        "state": "NV",
+        "alias_already_points_at_gotsport": tier == "1_provably_safe",
+        "merge_id": merge,
+        "keep_id": keep,
+        "merge_name": f"Team {merge}",
+        "keep_name": f"Team {keep}",
+        "merge_as_vetted": _vetted(merge),
+        "keep_as_vetted": _vetted(keep),
+    }
+
+
+def _squad(merge, keep, status="proposed", reason="", state="NV"):
+    """A squad-key record as the scan writes it."""
+    return {
+        "status": status,
+        "reason": reason,
+        "club": "Las Vegas Sports Academy",
+        "state": state,
+        "squad_key": "black premier",
+        "merge_id": merge,
+        "keep_id": keep,
+        "merge_name": f"Team {merge}",
+        "keep_name": f"Team {keep}",
+        "merge_as_vetted": _vetted(merge),
+        "keep_as_vetted": _vetted(keep),
+    }
+
+
+def _write_cross(out, records):
+    """The cross-provider scan's files as it writes them: its CSV every record, its JSON the proposals."""
+    out.mkdir(parents=True, exist_ok=True)
+    cross.write_csv(out / "cross_provider_duplicates.csv", list(records))
+    proposed = [r for r in records if r["tier"] != cross.REJECTED_TIER]
+    (out / "cross_provider_duplicates.json").write_text(json.dumps(proposed), encoding="utf-8")
+
+
+def _write_squad(scans, state, records):
+    """The squad-key scan's _all.json for one state: every record, by status."""
+    scans.mkdir(parents=True, exist_ok=True)
+    by_status = {status: [r for r in records if r["status"] == status] for status in ("proposed", "held", "rejected")}
+    (scans / f"squad_key_duplicates_{state.lower()}_all.json").write_text(json.dumps(by_status), encoding="utf-8")
+
+
+def _write_scans(folder, cross_records=(), squad_records=()):
+    _write_cross(folder / "scans" / "nv", cross_records)
+    for state in sorted({r["state"] for r in squad_records}):
+        _write_squad(folder / "scans", state, [r for r in squad_records if r["state"] == state])
+
+
+def test_a_proposed_pair_reads_as_retiring_its_merge_row_into_its_keep_row(tmp_path):
+    folder = tmp_path / "merges"
+    _write_scans(folder, [_cross("m1", "k1", tier="1_provably_safe")], [_squad("m2", "k2")])
+
+    pairs, _ = pw.merge_proposals(folder)
+
+    assert pairs == [
+        {
+            "team_id_master": "m1",
+            "team_name": "Team m1",
+            "field": "merged_into",
+            "old_value": None,
+            "new_value": "k1",
+            "merge_id": "m1",
+            "keep_id": "k1",
+            "merge_name": "Team m1",
+            "keep_name": "Team k1",
+            "club": "Las Vegas Sports Academy",
+            "doorway": "C",
+            "tier": "1_provably_safe",
+            "provider": "tgs",
+            "squad_key": None,
+            "alias_already_points_at_gotsport": True,
+            "merge_as_vetted": _vetted("m1"),
+            "keep_as_vetted": _vetted("k1"),
+        },
+        {
+            "team_id_master": "m2",
+            "team_name": "Team m2",
+            "field": "merged_into",
+            "old_value": None,
+            "new_value": "k2",
+            "merge_id": "m2",
+            "keep_id": "k2",
+            "merge_name": "Team m2",
+            "keep_name": "Team k2",
+            "club": "Las Vegas Sports Academy",
+            "doorway": "D",
+            "tier": None,
+            "provider": None,
+            "squad_key": "black premier",
+            "alias_already_points_at_gotsport": False,
+            "merge_as_vetted": _vetted("m2"),
+            "keep_as_vetted": _vetted("k2"),
+        },
+    ]
+
+
+def test_only_proposed_pairs_are_cut_and_every_other_one_is_counted_by_why(tmp_path):
+    folder = tmp_path / "merges"
+    cross_records = [
+        _cross("c-ok", "c-keep"),
+        _cross("c-rival", "c-k2", tier="6_review_competing_partner"),
+        _cross("c-fused", "c-k3", tier="7_review_fused_registration"),
+        _cross("c-same-day", "c-k4", tier="0_rejected", reason="both played a game on the same day"),
+    ]
+    squad_records = [
+        _squad("d-ok", "d-keep"),
+        _squad("d-held", "d-k2", status="held", reason="a row pairs with more than one row of its club"),
+        _squad("d-no", "d-k3", status="rejected", reason="the two records played each other"),
+        _squad("d-ut", "d-ut-keep", state="UT"),
+    ]
+    _write_scans(folder, cross_records, squad_records)
+
+    pairs, left_out = pw.merge_proposals(folder)
+
+    assert [p["merge_id"] for p in pairs] == ["c-ok", "d-ok", "d-ut"]
+    assert left_out == {
+        "cross-provider: 6_review_competing_partner": 1,
+        "cross-provider: 7_review_fused_registration": 1,
+        "cross-provider: both played a game on the same day": 1,
+        "squad-key: a row pairs with more than one row of its club": 1,
+        "squad-key: the two records played each other": 1,
+    }
+
+
+def test_a_pair_both_scans_found_is_kept_once_as_the_cross_provider_record(tmp_path):
+    folder = tmp_path / "merges"
+    _write_scans(folder, [_cross("a", "b")], [_squad("b", "a")])
+
+    pairs, left_out = pw.merge_proposals(folder)
+
+    assert [(p["merge_id"], p["keep_id"], p["doorway"]) for p in pairs] == [("a", "b", "C")]
+    assert left_out == {"found by both scans, kept once": 1}
+
+
+def test_a_pair_touching_another_stage_s_proposal_or_another_pair_waits(tmp_path):
+    folder = tmp_path / "merges"
+    (tmp_path / "states").mkdir()
+    (tmp_path / "states" / "proposals.json").write_text(json.dumps([{"team_id_master": "moving"}]), encoding="utf-8")
+    _write_scans(
+        folder,
+        [_cross("clear", "clear-keep"), _cross("moving", "m-keep"), _cross("hub", "x")],
+        [_squad("y", "hub")],
+    )
+
+    pairs, left_out = pw.merge_proposals(folder)
+
+    assert [p["merge_id"] for p in pairs] == ["clear"]
+    assert left_out == {
+        "another stage proposes to change one of its teams this week": 1,
+        "one of its teams pairs with another row too": 2,
+    }
+
+
+def test_another_stage_s_proposal_for_either_row_of_a_pair_holds_it_back(tmp_path):
+    folder = tmp_path / "merges"
+    for stage, team in (("clubs", "c-keep"), ("ages", "a-merge")):
+        (tmp_path / stage).mkdir()
+        (tmp_path / stage / "proposals.json").write_text(json.dumps([{"team_id_master": team}]), encoding="utf-8")
+    _write_scans(folder, [_cross("c-merge", "c-keep"), _cross("a-merge", "a-keep"), _cross("clear", "clear-keep")])
+
+    pairs, left_out = pw.merge_proposals(folder)
+
+    assert [p["merge_id"] for p in pairs] == ["clear"]
+    assert left_out == {"another stage proposes to change one of its teams this week": 2}
+
+
+def test_a_pair_the_other_scan_held_or_rejected_and_a_pair_beside_a_held_one_stay_off(tmp_path):
+    folder = tmp_path / "merges"
+    cross_records = [
+        _cross("fused", "f-keep", tier="7_review_fused_registration"),
+        _cross("played", "p-keep", tier="0_rejected", reason="the two records played each other"),
+        _cross("d-held", "dh-keep"),
+        _cross("ok", "ok-keep"),
+    ]
+    squad_records = [
+        _squad("f-keep", "fused"),
+        _squad("played", "p-keep"),
+        _squad("d-held", "dh-keep", status="held", reason="a row pairs with more than one row of its club"),
+        _squad("x", "x-keep", status="held", reason="a row pairs with more than one row of its club"),
+        _squad("beside", "x-keep"),
+    ]
+    _write_scans(folder, cross_records, squad_records)
+
+    pairs, left_out = pw.merge_proposals(folder)
+
+    assert [p["merge_id"] for p in pairs] == ["ok"]
+    assert left_out["the other scan held or rejected it"] == 3
+    assert left_out["one of its teams pairs with another row too"] == 1
+
+
+def test_the_proposed_tiers_are_the_cross_provider_scan_s_own_less_its_two_review_tiers():
+    source = (pw.ROOT / pw.CROSS_PROVIDER).read_text(encoding="utf-8")
+    tier_for = next(
+        node for node in ast.walk(ast.parse(source)) if isinstance(node, ast.FunctionDef) and node.name == "tier_for"
+    )
+    returned = {
+        node.value.value if isinstance(node.value, ast.Constant) else node.value.id
+        for node in ast.walk(tier_for)
+        if isinstance(node, ast.Return)
+    }
+    tiers = {cross.FLIP_TIER if tier == "FLIP_TIER" else tier for tier in returned}
+    review = {"6_review_competing_partner", "7_review_fused_registration"}
+    assert set(pw.CROSS_PROVIDER_TIERS) == tiers - review
+    assert review <= tiers and pw.PROVABLY_SAFE in tiers
+
+
+def test_the_merges_stage_writes_its_pairs_as_the_applier_reads_them_and_its_counts(tmp_path):
+    folder = tmp_path / "merges"
+    _write_scans(folder, [_cross("m1", "k1"), _cross("no", "k", tier="0_rejected", reason="opponent overlap")])
+
+    proposals = pw.scoped_proposals("merges", folder, ["NV"])
+
+    assert json.loads((folder / "pairs.json").read_text(encoding="utf-8")) == proposals
+    assert [p["merge_id"] for p in proposals] == ["m1"]
+    assert json.loads((folder / "scans.json").read_text(encoding="utf-8")) == {"cross-provider: opponent overlap": 1}
+
+
 # --- the write guard ---------------------------------------------------------------------
 
 
 def test_the_guard_covers_every_field_a_stage_proposes():
-    assert set(pw.FIELDS.values()) | {"is_deprecated"} == set(write_guard.GUARDED_FIELDS)
+    # A merge writes no field of its own: its pair is guarded on every field of both rows.
+    fields = {field for stage, field in pw.FIELDS.items() if stage != "merges"}
+    assert fields | {"is_deprecated"} == set(write_guard.GUARDED_FIELDS)
 
 
 def test_changes_list_each_moved_field_and_teams_created_or_deleted_in_the_window():
@@ -360,6 +618,21 @@ def test_a_proposal_is_stale_when_its_own_field_moved_or_its_team_stopped_being_
         {"team_id_master": "merged", "field": "age_group", "changed": {"is_deprecated": [False, True]}},
         {"team_id_master": "deleted", "field": "state_code", "changed": {"is_deprecated": [False, None]}},
         {"team_id_master": "created", "field": "state_code", "changed": {"is_deprecated": [None, False]}},
+    ]
+
+
+def test_a_pair_is_stale_when_either_row_moved_in_any_guarded_field():
+    moved = {"club": {"club_name": ["C", "C2"]}, "merged": {"is_deprecated": [False, True]}}
+    pair = {"team_id_master": "m", "field": "merged_into"}
+    proposals = [
+        {**pair, "merge_id": "club", "keep_id": "k1"},
+        {**pair, "merge_id": "m2", "keep_id": "merged"},
+        {**pair, "merge_id": "m3", "keep_id": "k3"},
+    ]
+
+    assert write_guard.stale(proposals, moved) == [
+        {**pair, "merge_id": "club", "keep_id": "k1", "changed": {"merge club_name": ["C", "C2"]}},
+        {**pair, "merge_id": "m2", "keep_id": "merged", "changed": {"keep is_deprecated": [False, True]}},
     ]
 
 
@@ -504,9 +777,9 @@ class _Runner:
     its successive runs fails (a truthy entry exits 2); ``during`` maps one to a change it makes to
     the database, as a concurrent writer would."""
 
-    def __init__(self, db, codes=None, during=None, club_rows=SCAN_ROWS):
+    def __init__(self, db, codes=None, during=None, club_rows=SCAN_ROWS, cross_records=(), squad_records=()):
         self.db, self.codes, self.during, self.commands = db, codes or {}, during or {}, []
-        self.club_rows = club_rows
+        self.club_rows, self.cross_records, self.squad_records = club_rows, cross_records, squad_records
 
     def __call__(self, command, log):
         script = Path(command[0]).name
@@ -540,6 +813,11 @@ class _Runner:
                 "evidence_tier": "A_own_name_band",
             }
             _write_csv(_arg(command, "--out"), [plan])
+        elif script == "find_cross_provider_duplicates.py":
+            _write_cross(_arg(command, "--out-dir"), self.cross_records)
+        elif script == "find_squad_key_duplicates.py":
+            state = command[command.index("--state") + 1]
+            _write_squad(_arg(command, "--out-dir"), state, [r for r in self.squad_records if r["state"] == state])
         return 0
 
 
@@ -611,6 +889,21 @@ def _expected(store):
             "--out",
             str(folder / "ages" / "plan.csv"),
         ],
+        "merge_check": ["scripts/check_merge_skill_assumptions.py", "--code-only"],
+        "cross_provider": [
+            "scripts/find_cross_provider_duplicates.py",
+            "--state",
+            "NV",
+            "--out-dir",
+            str(folder / "merges" / "scans" / "nv"),
+        ],
+        "squad_key": [
+            "scripts/find_squad_key_duplicates.py",
+            "--state",
+            "NV",
+            "--out-dir",
+            str(folder / "merges" / "scans"),
+        ],
         "health": ["scripts/team_cleanup/health.py", "--store", str(store), "--date", DAY],
     }
 
@@ -626,7 +919,12 @@ def test_a_week_opens_the_run_proposes_each_stage_for_the_scope_and_moves_to_rev
     def another_session_fills_the_state(db):
         db.tables["teams"][1]["state_code"] = "UT"
 
-    runner = _Runner(db, during={"assign_team_states.py": another_session_fills_the_state})
+    # One pair waits on the states stage's proposal for one of its teams; the other is proposed.
+    runner = _Runner(
+        db,
+        during={"assign_team_states.py": another_session_fills_the_state},
+        cross_records=[_cross("nv-dup", "nv-gs"), _cross("nv-none", "nv-gs2")],
+    )
     code, out = _week(monkeypatch, capsys, store, db, runner)
 
     assert code == 0 and "ready for review" in out
@@ -642,10 +940,7 @@ def test_a_week_opens_the_run_proposes_each_stage_for_the_scope_and_moves_to_rev
     ]
     run = read_run(store, RUN)
     assert run["status"] == "reviewing" and run["scope"] == {"states": ["NV"]}
-    assert run["stages"] == {
-        "reconcile": "not run: reconcile is run by hand",
-        "merges": "not run: the duplicate scans are frozen until the owner resumes them",
-    }
+    assert run["stages"] == {"reconcile": "not run: reconcile is run by hand"}
     assert _json(store, "clubs", "proposals.json") == [
         {
             "team_id_master": "nv-club",
@@ -674,11 +969,14 @@ def test_a_week_opens_the_run_proposes_each_stage_for_the_scope_and_moves_to_rev
             "changed": {"state_code": [None, "UT"]},
         },
     ]
+    assert [(p["merge_id"], p["keep_id"]) for p in _json(store, "merges", "proposals.json")] == [("nv-dup", "nv-gs")]
+    assert _json(store, "merges", "scans.json") == {"another stage proposes to change one of its teams this week": 1}
     assert _json(store, "clubs", "stale.json") == [] and _json(store, "ages", "stale.json") == []
+    assert _json(store, "merges", "stale.json") == []
     guard = _json(store, "write_guard.json")
-    assert (guard["teams_changed"], guard["stale"]) == (1, {"clubs": 0, "states": 1, "ages": 0})
+    assert (guard["teams_changed"], guard["stale"]) == (1, {"clubs": 0, "states": 1, "ages": 0, "merges": 0})
     assert not (run_dir(store, RUN) / "write_guard_before.json").exists()
-    for stage in ("clubs", "states", "ages"):
+    for stage in ("clubs", "states", "ages", "merges"):
         assert (run_dir(store, RUN) / stage / "propose_done").exists()
 
 
@@ -735,6 +1033,9 @@ def test_no_step_writes_teams_or_spends_paid_probes(monkeypatch, capsys, tmp_pat
         "assign_team_states.py",
         "check_age_skill_assumptions.py",
         "review_age_labels.py",
+        "check_merge_skill_assumptions.py",
+        "find_cross_provider_duplicates.py",
+        "find_squad_key_duplicates.py",
         "health.py",
     }
     assert not any(flag in command for command in runner.commands for flag in ("--execute", "--apply", "--revert"))
@@ -836,9 +1137,10 @@ def test_an_insert_the_table_refuses_says_why(monkeypatch, capsys, tmp_path):
     assert runner.commands == []
 
 
-def test_a_failed_stage_keeps_the_run_open_and_a_retry_on_a_later_day_resumes_only_that_stage(
+def test_a_failed_stage_keeps_the_run_open_and_a_retry_on_a_later_day_resumes_it_then_merges(
     monkeypatch, capsys, tmp_path
 ):
+    """Merges waits for the retry too: its pairs are cut against the other stages' proposals."""
     store, db = _store(tmp_path), _Db(_teams())
     first = _Runner(db, codes={"assign_team_states.py": [1]})
 
@@ -851,6 +1153,8 @@ def test_a_failed_stage_keeps_the_run_open_and_a_retry_on_a_later_day_resumes_on
     )
     assert [e[1] for e in db.writes()] == ["insert"]
     assert (folder / "write_guard_before.json").exists() and not (folder / "states" / "propose_done").exists()
+    assert "merges" not in read_run(store, RUN)["stages"] and not (folder / "merges" / "propose_done").exists()
+    assert "find_squad_key_duplicates.py" not in {Path(c[0]).name for c in first.commands}
     opened = json.loads((folder / "write_guard_before.json").read_text(encoding="utf-8"))["taken_at"]
 
     second = _Runner(db)
@@ -858,7 +1162,13 @@ def test_a_failed_stage_keeps_the_run_open_and_a_retry_on_a_later_day_resumes_on
 
     expected = _expected(store)
     assert code == 0
-    assert second.commands == [expected["states"], expected["health"]]
+    assert second.commands == [
+        expected["states"],
+        expected["merge_check"],
+        expected["cross_provider"],
+        expected["squad_key"],
+        expected["health"],
+    ]
     assert "states" not in read_run(store, RUN)["stages"]
     assert _json(store, "write_guard.json")["from"] == opened
     assert [e[1] for e in db.writes()] == ["insert", "update"]
@@ -875,10 +1185,26 @@ def test_the_retry_names_every_state_in_the_scope(monkeypatch, capsys, tmp_path)
 @pytest.mark.parametrize(
     ("stage", "check", "scan", "others"),
     [
-        ("states", "check_state_skill_assumptions.py", "assign_team_states.py", {"clubs": 0, "ages": 0}),
-        ("clubs", "check_club_skill_assumptions.py", "repair_swapped_club_names.py", {"states": 0, "ages": 0}),
+        (
+            "states",
+            "check_state_skill_assumptions.py",
+            "assign_team_states.py",
+            {"clubs": 0, "ages": 0, "merges": 0},
+        ),
+        (
+            "clubs",
+            "check_club_skill_assumptions.py",
+            "repair_swapped_club_names.py",
+            {"states": 0, "ages": 0, "merges": 0},
+        ),
+        (
+            "merges",
+            "check_merge_skill_assumptions.py",
+            "find_squad_key_duplicates.py",
+            {"clubs": 0, "states": 0, "ages": 0},
+        ),
     ],
-    ids=["states", "clubs"],
+    ids=["states", "clubs", "merges"],
 )
 def test_a_failing_self_check_marks_the_stage_stale_and_the_others_go_on(
     monkeypatch, capsys, tmp_path, stage, check, scan, others
@@ -959,6 +1285,15 @@ def test_a_retried_club_stage_never_reads_an_earlier_attempt_s_scan(monkeypatch,
     _week(monkeypatch, capsys, store, db, _Runner(db, club_rows=()))
 
     assert _json(store, "clubs", "proposals.json") == []
+
+
+def test_a_retried_merges_stage_never_reads_an_earlier_attempt_s_scans(monkeypatch, capsys, tmp_path):
+    store, db = _store(tmp_path), _Db(_teams())
+    _write_scans(run_dir(store, RUN) / "merges", [_cross("from-the-first", "attempt")], [_squad("old", "scan")])
+
+    _week(monkeypatch, capsys, store, db, _Runner(db))
+
+    assert _json(store, "merges", "proposals.json") == []
 
 
 def test_a_run_abandoned_while_proposing_is_left_as_it_is(monkeypatch, capsys, tmp_path):

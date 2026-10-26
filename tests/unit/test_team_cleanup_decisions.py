@@ -7,6 +7,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from scripts.find_cross_provider_duplicates import resolver  # noqa: E402
 from scripts.team_cleanup import decisions as dec  # noqa: E402
+from scripts.team_cleanup.pairs import as_chosen  # noqa: E402
 
 REASON = "the owner chose Keep separate on 2026-09-25"
 
@@ -68,6 +69,48 @@ def test_an_unrelated_pair_is_not_kept_apart():
     canonical = resolver({})
     index = dec.keep_separate_index([decision("a", "b")], canonical)
     assert dec.kept_apart_reason(index, canonical, "a", "c") is None
+
+
+def _pair_card(decision, *, swap=False):
+    """A pair card's decisions.json row, as collect.py writes one."""
+    return {
+        "merge_id": "m",
+        "keep_id": "k",
+        "decision": decision,
+        "note": "same squad",
+        "decided_at": "2026-10-25T18:00:00+00:00",
+        "source": "page:20261022T180000Z-a1b2c3",
+        "swap": swap,
+    }
+
+
+def test_a_pair_s_merge_or_not_sure_names_the_pair_the_way_round_the_owner_chose():
+    assert dec.pair_decision_row(_pair_card("apply")) == {
+        "stage": "merges",
+        "subject_key": "k|m",
+        "team_id_master": "m",
+        "other_team_id": "k",
+        "decision": "apply",
+        "note": "same squad",
+        "decided_at": "2026-10-25T18:00:00+00:00",
+        "source": "page:20261022T180000Z-a1b2c3",
+    }
+    swapped = dec.pair_decision_row(as_chosen(_pair_card("unsure", swap=True)))
+    assert (swapped["team_id_master"], swapped["other_team_id"], swapped["decision"]) == ("k", "m", "unsure")
+    assert swapped["subject_key"] == "k|m"
+
+
+def test_a_pair_s_don_t_apply_is_recorded_as_keep_separate():
+    assert dec.pair_decision_row(_pair_card("dont_apply")) == {
+        "stage": "merges",
+        "subject_key": "k|m",
+        "team_id_master": "m",
+        "other_team_id": "k",
+        "decision": "keep_separate",
+        "note": "same squad",
+        "decided_at": "2026-10-25T18:00:00+00:00",
+        "source": "page:20261022T180000Z-a1b2c3",
+    }
 
 
 def test_only_a_table_missing_from_the_schema_cache_counts_as_missing():

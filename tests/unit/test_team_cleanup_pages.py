@@ -3,6 +3,7 @@
 import hashlib
 import json
 import os
+import re
 import shlex
 import sys
 from datetime import date, datetime, timedelta, timezone
@@ -31,6 +32,7 @@ from scripts.team_cleanup.run_store import (  # noqa: E402
     stage_progress,
     write_run,
 )
+from scripts.team_cleanup.vetted import as_vetted, stamp  # noqa: E402
 from src.tournaments.storage._file_lock import _acquire_file_lock  # noqa: E402
 from src.tournaments.storage._io import write_json  # noqa: E402
 from tests.unit import test_team_cleanup_cards_migration as cards_migration  # noqa: E402
@@ -42,7 +44,7 @@ LOAD_CAPS = pages.load_caps
 def _every_settled_change_a_card(monkeypatch):
     """The page's caps, whatever config/team_cleanup.json ships: 150 cards and an empty automatic lane, unless a
     test gives the lane a cap."""
-    monkeypatch.setattr(pages, "load_caps", lambda: pages.Caps(cards=150, auto=0))
+    monkeypatch.setattr(pages, "load_caps", lambda **_: pages.Caps(cards=150, auto=0))
 
 
 RUN = "2026-10-14-nv"
@@ -94,12 +96,14 @@ COLUMNS = {
         "decided_at",
         "decided_by_user_id",
         "created_at",
+        "swap",
     },
 }
 # What the cards table's migration refuses: its NOT NULL columns, listed by hand, and the values its IN-list
 # CHECKs allow, read from the migration itself.
 CARD_REQUIRED = ("card_id", "run_id", "stage", "lane", "page_run", "position", "card", "created_at")
-CARD_STAGES, CARD_LANES, CARD_DECISIONS = (cards_migration._in_list(c) for c in ("stage", "lane", "decision"))
+CARD_LANES, CARD_DECISIONS = (cards_migration._in_list(c) for c in ("lane", "decision"))
+CARD_STAGES = cards_migration._stage_values(cards_migration.TABLE)
 
 
 class _Result:
@@ -180,7 +184,7 @@ class _CardsInsert:
     user, any decided_by_user_id fails its foreign key. A table named in ``lost`` stores the rows and then
     loses the answer, as a dropped connection does."""
 
-    DEFAULTS = {"note": None, "decision": None, "decided_at": None, "decided_by_user_id": None}
+    DEFAULTS = {"note": None, "decision": None, "decided_at": None, "decided_by_user_id": None, "swap": False}
 
     def __init__(self, db, rows, returning):
         self._db, self._sent, self._returning = db, rows if isinstance(rows, list) else [rows], returning
@@ -631,7 +635,7 @@ def test_teams_users_follow_are_kept_inside_the_cap_and_shown_first_in_their_gro
             },
         ],
     )
-    monkeypatch.setattr(pages, "load_caps", lambda: pages.Caps(cards=5, auto=0))
+    monkeypatch.setattr(pages, "load_caps", lambda **_: pages.Caps(cards=5, auto=0))
 
     _build(monkeypatch, capsys, store, db)
 
@@ -871,10 +875,10 @@ def test_choices_are_read_from_the_out_dir_itself_too(tmp_path, monkeypatch, cap
 @pytest.mark.parametrize(
     "data, message",
     [
-        ({"decision": "merge"}, "holds a decision or note the page never writes"),
-        ({"decision": True}, "holds a decision or note the page never writes"),
-        ({"decision": "apply", "note": 5}, "holds a decision or note the page never writes"),
-        ({"decision": "apply", "note": "a\x00b"}, "holds a decision or note the page never writes"),
+        ({"decision": "merge"}, "holds a decision, swap or note the page never writes"),
+        ({"decision": True}, "holds a decision, swap or note the page never writes"),
+        ({"decision": "apply", "note": 5}, "holds a decision, swap or note the page never writes"),
+        ({"decision": "apply", "note": "a\x00b"}, "holds a decision, swap or note the page never writes"),
     ],
     ids=["unknown-decision", "boolean-decision", "number-note", "nul-note"],
 )
@@ -1299,7 +1303,7 @@ def _sure_week(tmp_path, monkeypatch, auto):
     _reviewing(store)
     _states(store, [_decision(t, None, "NV") for t in ("a", "b", "c")] + [_decision("fix", "UT", "NV")])
     db = _Db(teams=[_team(t, state=None) for t in ("a", "b", "c")] + [_team("fix", state="UT")])
-    monkeypatch.setattr(pages, "load_caps", lambda: pages.Caps(cards=150, auto=auto))
+    monkeypatch.setattr(pages, "load_caps", lambda **_: pages.Caps(cards=150, auto=auto))
     return store, db
 
 
@@ -1421,7 +1425,7 @@ def test_the_lane_cap_picks_first_and_the_card_cap_takes_the_rest_with_followed_
     db = _Db(
         teams=[_team(t, state=None) for t in ("a", "b", "c", "d")], watchlist_items=[{"id": 1, "team_id_master": "d"}]
     )
-    monkeypatch.setattr(pages, "load_caps", lambda: pages.Caps(cards=1, auto=2))
+    monkeypatch.setattr(pages, "load_caps", lambda **_: pages.Caps(cards=1, auto=2))
 
     _build(monkeypatch, capsys, store, db)
 
@@ -2016,3 +2020,344 @@ def test_the_page_writes_the_fields_the_collector_reads():
     assert "save(c.id, {decision:" in template and "save(c.id, {note:" in template
     assert "await save(x.id, {decision});" in template
     assert 'decideOpen(groups.get(c.group).cards, "apply")' in template
+
+
+# --- the merges page: pair cards, and the owner's choices on them --------------------------------------
+
+CLEANUP_TS = pw.ROOT / "frontend" / "lib" / "mission-control" / "cleanup.ts"
+CARD_KEYS = {"id", "n", "group", "whole", "alike", "interest", "sure", "why", "merge", "keep", "evidence"}
+SIDE_KEYS = {
+    "team_id",
+    "name",
+    "original",
+    "club",
+    "state",
+    "age",
+    "gender",
+    "provider",
+    "games",
+    "excluded",
+    "first",
+    "last",
+}
+EVIDENCE_KEYS = {"doorway", "shared_opponents", "shared_opponent_names", "shared_dates", "opponent_overlap"}
+
+
+def _ts_fields(name):
+    """The fields a TypeScript interface in cleanup.ts declares, with those of the interface it extends."""
+    source = CLEANUP_TS.read_text(encoding="utf-8")
+    found = re.search(rf"interface {name}(?: extends (\w+))? \{{\n(.*?)\n\}}", source, re.S)
+    own = set(re.findall(r"^  (\w+)\??:", found.group(2), re.M))
+    return own | (_ts_fields(found.group(1)) if found.group(1) else set())
+
+
+def _pair(merge, keep, *, doorway="C", tier="2_both_have_games", **teams):
+    """A merges proposal as the propose step writes it, vetted against the rows ``teams`` overrides."""
+    rows = {tid: teams.get(tid) or _team(tid) for tid in (merge, keep)}
+    record = {
+        "merge_id": merge,
+        "keep_id": keep,
+        "merge_name": f"Team {merge}",
+        "keep_name": f"Team {keep}",
+        "club": "Las Vegas Sports Academy",
+        **stamp(rows[merge], rows[keep]),
+    }
+    if doorway == "C":
+        found = {"tier": tier, "provider": "tgs", "alias_already_points_at_gotsport": tier == "1_provably_safe"}
+        return pw.pair_row(record, "C", **found)
+    return pw.pair_row(record, "D", squad_key="black premier")
+
+
+def _merges(store, pairs, stale=()):
+    folder = _folder(store, "merges", pairs, stale)
+    write_json(folder / pw.MERGE_PAIRS, pairs, indent=1)
+    write_json(folder / pw.SCAN_COUNTS, {"squad-key: the two records played each other": 2}, indent=1)
+    return folder
+
+
+def _merge_week(tmp_path, monkeypatch, pairs, *, teams, games=(), cards=150, auto=0):
+    store = tmp_path / "store"
+    _reviewing(store)
+    _merges(store, pairs)
+    db = _Db(teams=teams, games=list(games))
+    monkeypatch.setattr(
+        pages, "load_caps", lambda **kw: pages.Caps(cards, auto) if kw.get("stage") == "merges" else pages.Caps(1, 1)
+    )
+    return store, db
+
+
+def _decide_pair(db, merge, decision, *, swap=False, note=None, at="2026-10-15T03:00:00+00:00"):
+    """A pair choice as the website's route saves it: the decision, the swap, a note and the server's time."""
+    row = [r for r in db.cards(lane="owner") if r["card"]["merge"]["team_id"] == merge][-1]
+    row.update(decision=decision, swap=swap, note=note, decided_at=at)
+    return row["card_id"]
+
+
+def test_a_pair_card_carries_exactly_the_fields_the_website_s_pair_card_reads():
+    assert CARD_KEYS == _ts_fields("PairCard")
+    assert SIDE_KEYS == _ts_fields("PairSide")
+    assert EVIDENCE_KEYS == _ts_fields("PairEvidence")
+
+
+def test_a_pair_card_shows_both_rows_how_the_pair_was_found_and_what_their_schedules_share(
+    tmp_path, monkeypatch, capsys
+):
+    games = [
+        _game(1, "m1", "o1", "2026-09-01"),
+        _game(2, "k1", "o1", "2026-09-08"),
+        _game(3, "m1", "o2", "2026-09-15"),
+        _game(4, "k1", "o3", "2026-09-15"),
+        _game(5, "m1-old", "o4", "2026-08-30", excluded=True),
+    ]
+    teams = [_team("m1"), _team("k1"), *(_team(o) for o in ("o1", "o2", "o3", "o4"))]
+    store, db = _merge_week(tmp_path, monkeypatch, [_pair("m1", "k1")], teams=teams, games=games)
+    db.tables["team_merge_map"] = [_merged("m1-old", "m1")]
+
+    code, out = _publish(monkeypatch, capsys, store, db, "--publish", "--execute", stage="merges")
+
+    [row] = db.cards(lane="owner")
+    manifest = _read(store, "merges", MANIFEST_FILE)
+    assert code == 0 and "built the merges page: 1 cards" in out
+    side = {"original": None, "club": "Las Vegas Sports Academy", "state": "NV", "age": "u12", "gender": "Male"}
+    assert row["card"] == {
+        "id": row["card_id"],
+        "group": "C identical name",
+        "whole": False,
+        "alike": None,
+        "interest": False,
+        "why": "Both are named 'Team k1', one on gotsport and one on tgs",
+        "merge": {
+            "team_id": "m1",
+            "name": "Team m1",
+            **side,
+            "provider": "gotsport",
+            "games": 2,
+            "excluded": 1,
+            "first": "2026-09-01",
+            "last": "2026-09-15",
+        },
+        "keep": {
+            "team_id": "k1",
+            "name": "Team k1",
+            **side,
+            "provider": "gotsport",
+            "games": 2,
+            "excluded": 0,
+            "first": "2026-09-08",
+            "last": "2026-09-15",
+        },
+        "evidence": {
+            "doorway": "C",
+            "shared_opponents": 1,
+            "shared_opponent_names": ["Team o1"],
+            "shared_dates": 1,
+            "opponent_overlap": 0.333,
+        },
+        "n": 1,
+        "sure": None,
+    }
+    assert set(row["card"]) == CARD_KEYS
+    assert row["card_id"] == f"{manifest['run']}_" + hashlib.sha256(b"m1_k1").hexdigest()[:16]
+    assert manifest["scanned"] == {"squad-key: the two records played each other": 2}
+    assert not (stage_dir(store, RUN, "merges") / pages.PAGE_FILE).exists()
+
+
+def test_a_pair_with_a_row_that_never_played_reads_no_overlap_rather_than_none(tmp_path, monkeypatch, capsys):
+    store, db = _merge_week(
+        tmp_path, monkeypatch, [_pair("m1", "k1", doorway="D")], teams=[_team("m1"), _team("k1"), _team("o1")]
+    )
+    db.tables["games"] = [_game(1, "k1", "o1", "2026-09-01")]
+
+    _publish(monkeypatch, capsys, store, db, "--publish", "--execute", stage="merges")
+
+    [row] = db.cards(lane="owner")
+    assert row["card"]["group"] == "D squad key"
+    assert row["card"]["why"] == (
+        "Both are Las Vegas Sports Academy's 'black premier' squad of one age group, the name written two ways"
+    )
+    assert row["card"]["evidence"] == {
+        "doorway": "D",
+        "shared_opponents": 0,
+        "shared_opponent_names": [],
+        "shared_dates": 0,
+        "opponent_overlap": None,
+    }
+
+
+def test_the_merges_cap_keeps_the_cross_provider_pairs_retiring_the_fewest_games_first(tmp_path, monkeypatch, capsys):
+    pairs = [_pair("d-empty", "dk", doorway="D"), _pair("c-busy", "ck1"), _pair("c-empty", "ck2")]
+    teams = [_team(t) for t in ("d-empty", "dk", "c-busy", "ck1", "c-empty", "ck2", "o1")]
+    games = [_game(1, "c-busy", "o1", "2026-09-01"), _game(2, "c-busy", "o1", "2026-09-08")]
+    store, db = _merge_week(tmp_path, monkeypatch, pairs, teams=teams, games=games, cards=2)
+
+    code, _ = _build(monkeypatch, capsys, store, db, stage="merges")
+
+    manifest = _read(store, "merges", MANIFEST_FILE)
+    assert code == 0
+    assert [p["merge_id"] for p in manifest["cards"].values()] == ["c-empty", "c-busy"]
+    assert [p["merge_id"] for p in manifest["overflow"]] == ["d-empty"]
+
+
+def test_the_shipped_merges_caps_are_a_hundred_cards_and_fifty_automatic_merges():
+    assert LOAD_CAPS(stage="merges") == pages.Caps(cards=100, auto=50)
+    assert LOAD_CAPS(stage="states") == LOAD_CAPS() == pages.Caps(cards=2000, auto=50)
+
+
+def test_only_a_provably_safe_pair_merges_on_its_own_and_a_moved_or_retired_row_keeps_a_pair_off(
+    tmp_path, monkeypatch, capsys
+):
+    """A row that has played since the scan holds a provably safe pair back to a card; a row gone, merged away
+    (even one still live), or changed since the scan, on either side, keeps a pair off the page."""
+    pairs = [
+        _pair("safe", "s-keep", tier="1_provably_safe"),
+        _pair("both", "b-keep"),
+        _pair("played", "pl-keep", tier="1_provably_safe"),
+        _pair("moved", "mv-keep"),
+        _pair("retired", "r-keep"),
+        _pair("k-gone", "dead-keep"),
+        _pair("k-mapped", "mapped-keep"),
+        _pair("k-moved", "moved-keep"),
+    ]
+    live = ("safe", "s-keep", "both", "b-keep", "played", "pl-keep", "mv-keep", "r-keep")
+    live += ("k-gone", "k-mapped", "k-moved")
+    teams = [
+        *(_team(t) for t in (*live, "mapped-keep", "elsewhere", "o1")),
+        _team("moved", state="UT"),
+        _team("retired", deprecated=True),
+        _team("dead-keep", deprecated=True),
+        _team("moved-keep", club="Another Club"),
+    ]
+    games = [_game(1, "played", "o1", "2026-10-21")]
+    store, db = _merge_week(tmp_path, monkeypatch, pairs, teams=teams, games=games, auto=50)
+    db.tables["team_merge_map"] = [_merged("mapped-keep", "elsewhere")]
+
+    code, _ = _build(monkeypatch, capsys, store, db, stage="merges")
+
+    manifest = _read(store, "merges", MANIFEST_FILE)
+    assert code == 0
+    assert [p["merge_id"] for p in manifest["auto"].values()] == ["safe"]
+    assert [p["merge_id"] for p in manifest["cards"].values()] == ["both", "played"]
+    assert {p["merge_id"]: p["why"] for p in manifest["left_out"]} == {
+        "moved": "changed since it was vetted: merge state_code 'NV' -> 'UT'",
+        "retired": "no longer two live teams",
+        "k-gone": "no longer two live teams",
+        "k-mapped": "no longer two live teams",
+        "k-moved": "changed since it was vetted: keep club_name 'Las Vegas Sports Academy' -> 'Another Club'",
+    }
+    assert list(manifest["sure"].values()) == [
+        "the row it retires holds no games, and its provider alias already points at the row it keeps"
+    ]
+
+
+@pytest.mark.parametrize("cap, shown", [(2, ["c1", "d1"]), (1, ["d1"])], ids=["both", "cap-of-one"])
+def test_a_followed_kept_row_leads_the_cap_and_its_group_and_a_kept_row_that_never_played_reads_no_overlap(
+    tmp_path, monkeypatch, capsys, cap, shown
+):
+    pairs = [_pair("c1", "ck1"), _pair("d1", "dk1", doorway="D")]
+    teams = [_team(t) for t in ("c1", "ck1", "d1", "dk1", "o1")]
+    games = [_game(n, team, "o1", f"2026-09-0{n}") for n, team in enumerate(("d1", "c1", "ck1"), 1)]
+    store, db = _merge_week(tmp_path, monkeypatch, pairs, teams=teams, games=games, cards=cap)
+    db.tables["watchlist_items"] = [{"id": 1, "team_id_master": "dk1"}]
+
+    _publish(monkeypatch, capsys, store, db, "--publish", "--execute", stage="merges")
+
+    cards = {r["card"]["merge"]["team_id"]: r["card"] for r in db.cards(lane="owner")}
+    manifest = _read(store, "merges", MANIFEST_FILE)
+    assert [p["merge_id"] for p in manifest["cards"].values()] == shown
+    assert cards["d1"]["interest"] is True and cards["d1"]["evidence"]["opponent_overlap"] is None
+    if "c1" in cards:
+        assert cards["c1"]["interest"] is False and cards["c1"]["evidence"]["opponent_overlap"] == 1.0
+
+
+def test_pair_choices_become_the_merge_list_each_the_way_round_the_owner_chose(tmp_path, monkeypatch, capsys):
+    clubs = {t: _team(t, club=f"Club {t}") for t in ("m2", "k2")}
+    pairs = [_pair("m1", "k1"), _pair("m2", "k2", **clubs), _pair("m3", "k3")]
+    teams = [*(_team(t) for t in ("m1", "k1", "m3", "k3")), *clubs.values()]
+    store, db = _merge_week(tmp_path, monkeypatch, pairs, teams=teams)
+    _publish(monkeypatch, capsys, store, db, "--publish", "--execute", stage="merges")
+    _decide_pair(db, "m1", "apply")
+    _decide_pair(db, "m2", "apply", swap=True, note="keep the GotSport row")
+    _decide_pair(db, "m3", "dont_apply", note="two squads")
+
+    code, out = _collect_db(monkeypatch, capsys, store, db, stage="merges")
+
+    folder = stage_dir(store, RUN, "merges")
+    vetted = json.loads((folder / "vetted.json").read_text(encoding="utf-8"))
+    assert code == 0
+    assert vetted == [
+        {
+            "merge_id": "m1",
+            "keep_id": "k1",
+            "merge_name": "Team m1",
+            "keep_name": "Team k1",
+            "merge_as_vetted": as_vetted(_team("m1")),
+            "keep_as_vetted": as_vetted(_team("k1")),
+        },
+        {
+            "keep_id": "m2",
+            "merge_id": "k2",
+            "keep_name": "Team m2",
+            "merge_name": "Team k2",
+            "keep_as_vetted": {"age_group": "u12", "gender": "Male", "state_code": "NV", "club_name": "Club m2"},
+            "merge_as_vetted": {"age_group": "u12", "gender": "Male", "state_code": "NV", "club_name": "Club k2"},
+        },
+    ]
+    decided = json.loads((folder / col.DECISIONS_FILE).read_text(encoding="utf-8"))
+    assert [(d["merge_id"], d["decision"], d["swap"], d["note"]) for d in decided] == [
+        ("m1", "apply", False, None),
+        ("m2", "apply", True, "keep the GotSport row"),
+        ("m3", "dont_apply", False, "two squads"),
+    ]
+    assert "'Team k2' into 'Team m2'  note: 'keep the GotSport row'" in out
+    assert "dont_apply 'Team m3' into 'Team k3'  note: 'two squads'" in out
+
+
+@pytest.mark.parametrize(
+    "choices, message",
+    [
+        ({("a", "b"): "apply", ("b", "c"): "apply"}, "these merges disagree about which team survives"),
+        (
+            {("a", "k"): "apply", ("b", "k"): "apply", ("a", "b"): "dont_apply"},
+            "these merges would join teams the page keeps separate",
+        ),
+    ],
+    ids=["a-survivor-merged-away", "joins-a-kept-apart-pair"],
+)
+def test_pair_choices_that_cannot_land_as_chosen_are_refused(tmp_path, monkeypatch, capsys, choices, message):
+    proposals = [_pair(merge, keep) for merge, keep in choices]
+    teams = [_team(t) for t in sorted({t for pair in choices for t in pair})]
+    store, db = _merge_week(tmp_path, monkeypatch, proposals, teams=teams)
+    _publish(monkeypatch, capsys, store, db, "--publish", "--execute", stage="merges")
+    for row in db.cards(lane="owner"):
+        pair = (row["card"]["merge"]["team_id"], row["card"]["keep"]["team_id"])
+        row.update(decision=choices[pair], decided_at="2026-10-15T03:00:00+00:00")
+
+    with pytest.raises(SystemExit) as caught:
+        _collect_db(monkeypatch, capsys, store, db, stage="merges")
+
+    assert message in str(caught.value)
+    assert not (stage_dir(store, RUN, "merges") / "vetted.json").exists()
+
+
+def test_a_swap_that_is_not_true_or_false_is_refused():
+    manifest = {"cards": {"c1": {}}}
+
+    with pytest.raises(SystemExit, match="holds a decision, swap or note the page never writes"):
+        col.check_choices(manifest, {"c1": {"decision": "apply", "note": None, "swap": "yes"}})
+
+
+def test_the_automatic_lane_collects_its_pairs_unswapped(tmp_path, monkeypatch, capsys):
+    store, db = _merge_week(
+        tmp_path,
+        monkeypatch,
+        [_pair("safe", "keep", tier="1_provably_safe")],
+        teams=[_team("safe"), _team("keep")],
+        auto=50,
+    )
+    _build(monkeypatch, capsys, store, db, stage="merges")
+
+    code, _ = _collect_auto(monkeypatch, capsys, store, "merges")
+
+    vetted = json.loads((stage_dir(store, RUN, "merges") / "auto" / "vetted.json").read_text(encoding="utf-8"))
+    assert code == 0
+    assert [(p["merge_id"], p["keep_id"]) for p in vetted] == [("safe", "keep")]
