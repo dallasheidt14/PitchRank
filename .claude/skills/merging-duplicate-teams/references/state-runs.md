@@ -102,8 +102,8 @@ team-cleanup apply runs before it writes (`PROCESS_QUERY` in
 powershell -NoProfile -Command "[Console]::OutputEncoding = [Text.Encoding]::UTF8; Get-CimInstance Win32_Process -Filter \"Name LIKE 'python%'\" | Select-Object ProcessId,ParentProcessId,CommandLine | ConvertTo-Json -Compress"
 ```
 
-An apply that looks dead may still be running; a second one races it, and with the same `--out`
-overwrites its log.
+An apply that looks dead may still be running, and a second one races it on the same pairs; the
+applier's refusal of an existing `--out` protects the first log, not the merges.
 
 Apply the vetted merges (Step 6) before building the owner page, so each card shows games
 merged together. Re-point every owner pair at the survivors first: a pair whose row was retired
@@ -120,8 +120,9 @@ choices before it refuses the merges, so those need no second run.
 
 ## After applying
 
-Run `scripts/exclude_merge_duplicate_games.py`, dry run first; a pair promoted from a same-day
-refusal usually leaves one match recorded twice.
+Run `scripts/exclude_merge_duplicate_games.py --merge-log <log>` once for each log the state's
+applies wrote, dry run first; a pair promoted from a same-day refusal usually leaves one match
+recorded twice.
 
 Then check the survivors for signs of a wrong merge: a game against itself, names stating both
 genders, names two or more birth years apart, and dates with games in two different events.

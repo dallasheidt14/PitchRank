@@ -25,6 +25,14 @@ survivor, so any field populated only on the deprecated row disappears from the 
 
 Because the snapshot is complete and games are untouched, a merge is genuinely reversible.
 
+Every insert or update on `team_merge_map` passes the `check_merge_chains` trigger
+(`prevent_merge_chains`). It refuses a row whose canonical has its own `team_merge_map` row or is
+flagged `is_deprecated`, and a row retiring a team others are merged into. The merge RPC stays
+inside it by cascading the incoming rows first. An undo must reverse the merge first — delete the
+team's own row and clear its `is_deprecated`, as `revert_team_merge` does — before pointing earlier
+merges back at it; until then the trigger refuses any row naming it as canonical. A test double for
+`team_merge_map` must refuse the same rows, or tests pass on a write order production refuses.
+
 ## The RPC reports failure on success
 
 The RPC's success payload carries a `message` key, and supabase-py's client (postgrest-py) reads
@@ -33,8 +41,9 @@ with the message `JSON could not be generated`; the real payload, containing `"s
 sits in the exception's `details` and so in its text.
 
 `scripts/run_all_merges.py` and `scripts/apply_vetted_team_merges.py` both parse it out. Any
-new caller must do the same. The danger is not the misreport but the log: a run that records
-every merge as failed produces a revert file that is a silent no-op.
+new caller must do the same, or it reports every committed merge as failed. The applier also reads
+each merge's `team_merge_map` row back after the call, which is what its `--revert` replays, so a
+reply lost altogether still leaves a revertable entry.
 
 Verify a batch against the database — each intended row deprecated, its canonical matching,
 no surviving row deprecated without a chain to explain it — rather than trusting the reply.
@@ -91,13 +100,21 @@ while the short one holds the live schedule. If the rule changes at all, rank on
 
 ## Reverting
 
-`scripts/revert_fuzzy_auto_merges.py` un-deprecates the team, repoints `team_alias_map` and
-drops the `team_merge_map` row, reading the snapshot from `team_merge_audit`.
+A batch `apply_vetted_team_merges.py` applied is undone from its own log with `--revert`, which
+also points back the merges into each retired team and the aliases its merge moved;
+`revert_team_merge` alone leaves the incoming merges on the survivor and moves back only the
+aliases the retired team's games name. It stops at an entry whose run never read back its merge
+row; SKILL.md Step 6 says how to settle that team by hand.
+
+`scripts/revert_fuzzy_auto_merges.py` is for merges with no such log: it un-deprecates the team,
+repoints `team_alias_map` and drops the `team_merge_map` row, reading the snapshot from
+`team_merge_audit`.
 
 **Pass the actor explicitly — the default is wrong for merges this skill applies.** The script
 hardcodes `pitchrank-bot`, which is what the weekly job records; `apply_vetted_team_merges.py`
-records `pitchrank-operator`. Reverting an operator-applied batch with default arguments
-matches zero rows and reports success, which is indistinguishable from a completed revert.
+records its `--actor`, `pitchrank-operator` by default. Reverting an operator-applied batch with
+default arguments matches zero rows and reports success, which is indistinguishable from a
+completed revert.
 
 Scope a revert by date and actor. Judge what to revert from the audit snapshots rather than a
 naive birth-year sweep over current names: normalization drops a year from band names, so

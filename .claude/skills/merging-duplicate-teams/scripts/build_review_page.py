@@ -39,6 +39,7 @@ from scripts.find_cross_provider_duplicates import (  # noqa: E402
 )
 from scripts.team_cleanup import review_page  # noqa: E402
 from scripts.team_cleanup.decisions import new_page_run  # noqa: E402
+from scripts.team_cleanup.pairs import side  # noqa: E402
 from scripts.team_cleanup.review_page import fetch_teams  # noqa: E402
 from scripts.team_cleanup.vetted import stamp  # noqa: E402
 
@@ -55,23 +56,6 @@ def normalise(pair: dict) -> dict:
         raise SystemExit(f"unknown status {status!r} for {pair['merge_id']} -> {pair['keep_id']}")
     reason = pair.get("reason") or pair.get("rejected_reason") or ""
     return {"merge_id": pair["merge_id"], "keep_id": pair["keep_id"], "status": status, "reason": reason}
-
-
-def side(tid, teams, ev, providers) -> dict:
-    t, dates = teams[tid], ev.dates[tid]
-    return {
-        "team_id": tid,
-        "name": t["team_name"],
-        "original": t["team_name_original"],
-        "club": t["club_name"],
-        "age": t["age_group"],
-        "gender": t["gender"],
-        "provider": providers.get(t["provider_id"]),
-        "games": ev.games[tid],
-        "excluded": ev.excluded[tid],
-        "first": min(dates, default=None),
-        "last": max(dates, default=None),
-    }
 
 
 def build_records(pairs, teams, canonical, ev, providers, run) -> tuple[list[dict], list[str]]:

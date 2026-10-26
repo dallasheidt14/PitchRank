@@ -78,9 +78,8 @@ Resume at **Step 4**, and reach Step 6 only through Step 5. The approved list is
 candidate list, not a safe list.
 
 Nothing is written at this stage, so there is nothing to undo. An applied merge *is*
-reversible — the RPC snapshots the deprecated row and leaves `games` untouched — but pass
-`--merged-by` explicitly when reverting, because the reverter's default actor is not the
-one the applier records and a default-argument revert matches nothing and reports success.
+reversible — the RPC snapshots the deprecated row and leaves `games` untouched — by replaying
+the applier's own log with `--revert` (Step 6).
 
 ## Step 2: Generate candidates from every doorway
 
@@ -364,8 +363,9 @@ Calibrated against two labelled sets drawn from the database itself. **Do not us
 the run that once merged 1,772 pairs of distinct teams. Segment by actor.
 
 - **POSITIVES**: 2,530 merges made by the owner by hand (`dallasheidt@gmail.com` and the other
-  human actors), both sides holding games. `pitchrank-operator` rows are this pipeline's own
-  output and are circular — exclude them.
+  human actors), both sides holding games. Rows `apply_vetted_team_merges.py` wrote —
+  `pitchrank-operator` by default, or whatever `--actor` a run named — are this pipeline's own
+  output and are circular; exclude them.
 - **NEGATIVES**: 33,674 pairs of live teams sharing club, age group, gender and state that have
   **played each other**, and so are certainly distinct.
 
@@ -778,9 +778,23 @@ Verify against the database rather than the script's own report — see
 reply cannot be trusted and how to revert. Confirm each intended row is deprecated, its canonical
 matches, and no surviving row was deprecated except where a chain accounts for it.
 
-Revert with `scripts/revert_fuzzy_auto_merges.py`, scoped by date **and actor**. Its actor default
-is `pitchrank-bot`; `apply_vetted_team_merges.py` records `pitchrank-operator`. A default-argument
-revert of a batch this skill just told you to apply matches nothing and reports success.
+Revert a batch from the log its execute wrote:
+`python scripts/apply_vetted_team_merges.py --revert <log.json>`, a dry run until `--execute`.
+It undoes that batch's merges newest first, and points back the merges into each retired team and
+the aliases its merge moved; `revert_team_merge` alone leaves the incoming merges on the survivor
+and moves back only the aliases the retired team's games name. `--out` must
+name a new file, so one run's log is never overwritten by the next. It stops at the first merge it
+cannot undo, leaving the older ones merged; an entry whose run stopped before reading back its
+merge row is one, since a later merge of the same team by the same actor could pass for it. Settle
+such an entry by hand: find the `team_merge_map` row retiring its `merge_id`, confirm from
+`merged_by` and `merged_at` that it is the batch's, write that row's `id` into the entry's `map_id`
+(or, with no such row, set its `map_read` to true, since nothing merged), then re-run `--revert`.
+Never settle one team with `revert_fuzzy_auto_merges.py`, which reverts every merge by that actor
+since the given time.
+A log whose entries carry no `merged_by` records no merge row, and `--revert` refuses it: revert those batches with
+`scripts/revert_fuzzy_auto_merges.py`, scoped by date **and** `--merged-by` — its default actor,
+`pitchrank-bot`, is not the applier's (`--actor`, `pitchrank-operator` by default), and a
+default-argument revert matches nothing and reports success.
 
 ## Step 7: Repair the downstream side effects
 
@@ -804,13 +818,19 @@ deletes rows outright, which is a stronger write than the immutability rule allo
 `scripts/exclude_merge_duplicate_games.py` is the repair. It groups every scored game in a merge
 cluster by **merge-resolved** `(home, away, date, home_score, away_score)`, keeps the copy naming
 the surviving row, and sets `is_excluded` on the rest. Dry run by default; `--limit N` for a
-staged first pass; it logs every excluded id, so the write is reversible. Run it after **every**
-merge batch, not only a Doorway B one — nothing does it automatically (IMP-137).
+staged first pass; `--merge-log <applier log>` scans only the clusters of the teams that batch
+merged into, so the repair can be reverted with its batch without touching another's. It logs
+every excluded id, and `--revert <its log>` puts them back. Run it after
+**every** merge batch, not only a Doorway B one — nothing does it automatically (IMP-137).
 
-Two things it depends on, which any successor must keep. The discriminator is that the two rows
+Three things it depends on, which any successor must keep. The discriminator is that the two rows
 carry **different raw master ids**: a genuine same-day rematch recorded once carries identical
-ones, and those groups are deliberately left alone. And the grouping key **keeps home/away
-orientation**, without which a real reverse fixture collapses into its own first leg.
+ones, and those groups are deliberately left alone. The grouping key **keeps home/away
+orientation**, without which a real reverse fixture collapses into its own first leg. And it
+**never excludes a copy the exclusion trigger would carry to another copy** outside the run, such
+as the copy kept or a reversed copy of the same match: `trg_propagate_game_exclusion` would hide that
+one too, unlogged, so a revert could not restore it. Those copies are left doubled, counted on the
+run's "left in place" line, for IMP-137.
 
 Do not delete game rows.
 
@@ -851,8 +871,10 @@ State plainly that the held pairs need a human decision rather than a rule.
 
 A row is two squads when its provider ids play different opponents on the same league date, or
 show up as self-play. Split it before anything merges into it. This covers fusion at the alias
-layer. When `team_merge_map` shows the moving squad arrived through a merge, revert that merge
-instead (Step 6): its games still name the absorbed row, which still holds the provider id.
+layer. When `team_merge_map` shows the moving squad arrived through a merge, revert that one merge
+instead, through `revert_team_merge` on its own `team_merge_map` row — Step 6's `--revert` replays
+a whole batch, and `revert_fuzzy_auto_merges.py` every merge by an actor since a date: its games
+still name the absorbed row, which still holds the provider id.
 
 **When the moving id's real team already has a row, move the id to it instead of creating one.**
 Follow the write order below with that row as the new row, skipping step 2: repoint the alias
