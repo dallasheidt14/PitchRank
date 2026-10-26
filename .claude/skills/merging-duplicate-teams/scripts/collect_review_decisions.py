@@ -33,32 +33,23 @@ import argparse
 import json
 import os
 import sys
-from collections import Counter
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(ROOT))
 
 from scripts.find_cross_provider_duplicates import active_subjects, get_client  # noqa: E402
-from scripts.team_cleanup.decisions import (  # noqa: E402
-    DECISIONS_TABLE,
-    DecisionsUnavailable,
-    keep_separate_row,
-    page_built_at,
-    resolve_execute,
+from scripts.team_cleanup.decisions import DECISIONS_TABLE, DecisionsUnavailable, resolve_execute  # noqa: E402
+from scripts.team_cleanup.pairs import (  # noqa: E402
+    page_keep_separate_rows,
+    refuse_conflicts,
+    refuse_kept_apart_joins,
+    swapped,
 )
 from scripts.team_cleanup.review_page import load_choices  # noqa: E402
-from scripts.team_cleanup.vetted import KEEP_AS_VETTED, MERGE_AS_VETTED, records_teams  # noqa: E402
+from scripts.team_cleanup.vetted import records_teams  # noqa: E402
 
 DECISIONS = ("merge", "separate", "unsure")
-SWAPPED = {
-    "merge_id": "keep_id",
-    "keep_id": "merge_id",
-    "merge_name": "keep_name",
-    "keep_name": "merge_name",
-    MERGE_AS_VETTED: KEEP_AS_VETTED,
-    KEEP_AS_VETTED: MERGE_AS_VETTED,
-}
 
 
 def collect(manifest: dict, choices: dict[str, dict], *, check: bool = True) -> dict:
@@ -87,7 +78,7 @@ def collect(manifest: dict, choices: dict[str, dict], *, check: bool = True) -> 
         if decision != "merge":
             continue
         if choice.get("swap"):
-            pair = {SWAPPED.get(key, key): value for key, value in pair.items()}
+            pair = swapped(pair)
         merges.append(dict(pair))
     result = {"merges": merges, "by_decision": by_decision, "notes": notes}
     if check:
@@ -98,49 +89,6 @@ def collect(manifest: dict, choices: dict[str, dict], *, check: bool = True) -> 
 def check_merges(manifest: dict, result: dict) -> None:
     refuse_conflicts(result["merges"])
     refuse_kept_apart_joins(manifest, result)
-
-
-def refuse_conflicts(merges: list[dict]) -> None:
-    """A team merged into two survivors, or merged away while also a survivor, makes the applier
-    drop or chain those merges, so the owner's cluster decision would not land as chosen."""
-    retired = Counter(m["merge_id"] for m in merges)
-    clash = [m for m in merges if retired[m["merge_id"]] > 1 or m["keep_id"] in retired]
-    if clash:
-        lines = "\n".join(f"  {m['merge_name']} -> {m['keep_name']}" for m in clash)
-        raise SystemExit(f"these merges disagree about which team survives; settle the cluster on the page:\n{lines}")
-
-
-def refuse_kept_apart_joins(manifest: dict, result: dict) -> None:
-    """Two merges into one survivor can join a pair the same page keeps separate, and the applier
-    cannot refuse that until the page's Keep separate choices are recorded."""
-    group: dict[str, str] = {}
-
-    def root(team_id: str) -> str:
-        while group.get(team_id, team_id) != team_id:
-            team_id = group[team_id]
-        return team_id
-
-    for m in result["merges"]:
-        group[root(m["merge_id"])] = root(m["keep_id"])
-    joined = [
-        manifest["pairs"][pair_id]
-        for pair_id in result["by_decision"]["separate"]
-        if root(manifest["pairs"][pair_id]["merge_id"]) == root(manifest["pairs"][pair_id]["keep_id"])
-    ]
-    if joined:
-        lines = "\n".join(f"  {p['merge_name']} / {p['keep_name']}" for p in joined)
-        raise SystemExit(f"these merges would join teams the page keeps separate; settle them on the page:\n{lines}")
-
-
-def keep_separate_rows(manifest: dict, result: dict) -> list[dict]:
-    """A page's documents carry no trustworthy time of their own, so a decision is dated by the
-    page's build."""
-    decided_at, source = page_built_at(manifest), f"page:{manifest['run']}"
-    rows = []
-    for pair_id in result["by_decision"]["separate"]:
-        pair, note = manifest["pairs"][pair_id], (result["notes"].get(pair_id) or "").strip()
-        rows.append(keep_separate_row(pair["merge_id"], pair["keep_id"], note, decided_at, source))
-    return rows
 
 
 def record_keep_separate(rows: list[dict], execute: bool) -> None:
@@ -192,7 +140,7 @@ def main() -> int:
                 print(f"      {names(pair_id)}")
     for pair_id, note in result["notes"].items():
         print(f"  note on {names(pair_id)}: {note!r}")
-    record_keep_separate(keep_separate_rows(manifest, result), execute)
+    record_keep_separate(page_keep_separate_rows(manifest, result), execute)
 
     check_merges(manifest, result)
     Path(args.out).write_text(json.dumps(result["merges"], indent=1), encoding="utf-8")

@@ -18,7 +18,16 @@ reported here, never excluded, at either scope.
 
 --scope widens the search, never the action. `merge-clusters` (default) reads only games in a
 merge cluster; `all` sweeps every scored game, which costs several minutes and finds the
-same-id groups so they can be counted. Both exclude the differing-id shape alone.
+same-id groups so they can be counted. Both exclude the differing-id shape alone. --merge-log
+narrows `merge-clusters` to the clusters of the teams an apply_vetted_team_merges.py log merged
+into, so one batch's repair can be undone without touching another's.
+
+--revert undoes a run from its own log: it sets is_excluded back to false on each logged game the
+run's updates reached, directly or through the exclusion trigger, while it is still excluded, and
+stamps the log so it is not replayed. Un-excluding
+a game cascades to nothing. Excluding one does: a copy whose exclusion the trigger would carry to
+another copy outside the run is left in place, so every game a run hides is in its log. Every
+--execute run leaves a log, an empty one when it excludes nothing.
 
 The grouping key keeps home/away orientation. Collapsing it would fuse a real reverse fixture
 into its own first leg.
@@ -35,6 +44,8 @@ Usage:
     python scripts/exclude_merge_duplicate_games.py                      # dry run
     python scripts/exclude_merge_duplicate_games.py --execute
     python scripts/exclude_merge_duplicate_games.py --scope all          # count same-id too
+    python scripts/exclude_merge_duplicate_games.py --merge-log merge_results.json --execute --out excluded.json
+    python scripts/exclude_merge_duplicate_games.py --revert excluded.json --execute
 """
 
 from __future__ import annotations
@@ -53,13 +64,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 load_dotenv(Path(__file__).resolve().parent.parent / ".env.local", override=True)
 
+from scripts.apply_vetted_team_merges import new_log, read_log, write_log  # noqa: E402
+from scripts.exclude_none_opponent_games import cascade_collisions, cascade_key  # noqa: E402
 from supabase import create_client  # noqa: E402
 
 GAME_FIELDS = (
     "id,game_date,home_team_master_id,away_team_master_id,home_score,away_score,"
-    "event_name,competition,division_name,venue,source_url,created_at,game_uid"
+    "event_name,competition,division_name,venue,source_url,created_at,game_uid,is_excluded"
 )
 METADATA_FIELDS = ("event_name", "competition", "division_name", "venue", "source_url")
+LOG_STEM = "exclude_merge_duplicate_games"
 ID_BATCH = 100
 PAGE = 1000
 
@@ -193,23 +207,94 @@ def keep_rank(game: dict, deprecated: set[str]) -> tuple:
     return (survivor_sides, populated, game["created_at"] or "")
 
 
+def logged_survivors(path: Path) -> set[str]:
+    """The teams an apply_vetted_team_merges.py log records merges into, whether or not each merge was
+    confirmed: scanning a cluster no merge changed excludes nothing a full scan would not."""
+    return {entry["keep_id"] for entry in read_log(path)}
+
+
+def still_excluded(sb, ids: list[str]) -> set[str]:
+    found: set[str] = set()
+    for i in range(0, len(ids), ID_BATCH):
+        rows = sb.table("games").select("id").in_("id", ids[i : i + ID_BATCH]).eq("is_excluded", True).execute()
+        found |= {row["id"] for row in rows.data or []}
+    return found
+
+
+def logged_cascade_key(row: dict) -> tuple | None:
+    home, away = (int(score) for score in row["score"].split("-"))
+    return cascade_key({**row, "home_score": home, "away_score": away})
+
+
+def revert(sb, path: Path, execute: bool) -> int:
+    """Set is_excluded back to false, while still true, on the games a run's updates reached: its first
+    `sent` logged rows (updates ran in log order, and `sent` counts a batch whose reply was lost) plus any
+    later logged row the trigger excluded along with one of them. A log with no `sent` falls back to
+    `confirmed`. The log is stamped once reverted, so a later replay cannot undo another run's exclusion of
+    the same games."""
+    logged = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(logged, dict) or not isinstance(logged.get("rows"), list):
+        raise SystemExit(f"{path} holds no exclude_merge_duplicate_games.py log")
+    if logged.get("reverted_at"):
+        print(f"{path} was reverted at {logged['reverted_at']} — nothing to do")
+        return 0
+    sent = logged.get("sent", logged.get("confirmed"))
+    if not isinstance(sent, int):
+        raise SystemExit(
+            f"{path} records no count of rows sent, so its run stopped before it could say which games it "
+            "excluded; settle them by hand"
+        )
+    rows = logged["rows"]
+    reached = {logged_cascade_key(row) for row in rows[:sent]} - {None}
+    ids = [row["id"] for n, row in enumerate(rows) if n < sent or logged_cascade_key(row) in reached]
+    excluded = still_excluded(sb, ids)
+    print(f"games {path} excluded: {len(ids):,}, of which still excluded: {len(excluded):,}")
+    if not execute:
+        print("\nDRY RUN — nothing written. Re-run with --execute.")
+        return 0
+    restored = 0
+    for i in range(0, len(ids), ID_BATCH):
+        batch = ids[i : i + ID_BATCH]
+        res = sb.table("games").update({"is_excluded": False}).in_("id", batch).eq("is_excluded", True).execute()
+        restored += len(res.data or [])
+    write_log(path, {**logged, "reverted_at": datetime.now(UTC).isoformat()})
+    print(f"\nRestored {restored:,} game rows.")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--scope", choices=("merge-clusters", "all"), default="merge-clusters",
                     help="merge-clusters: duplicates a merge created, told apart by differing raw "
                          "team ids. all: every scored game, including copies under identical ids")
+    ap.add_argument("--merge-log", default=None,
+                    help="an apply_vetted_team_merges.py log: scan only the clusters of the teams it merged into")
+    ap.add_argument("--revert", default=None, help="this script's own log: un-exclude the games it excluded")
     ap.add_argument("--execute", action="store_true", help="write is_excluded (default is a dry run)")
     ap.add_argument("--limit", type=int, default=None, help="exclude at most N rows")
     ap.add_argument("--out", default=None, help="where to write the excluded-id log")
     args = ap.parse_args()
     dry_run = not args.execute
     merge_scope = args.scope == "merge-clusters"
+    if args.revert and (args.merge_log or not merge_scope or args.limit is not None or args.out):
+        ap.error("--revert undoes the whole log it is given and takes only --execute")
+    if args.merge_log and not merge_scope:
+        ap.error("--merge-log narrows the merge-clusters scope; --scope all reads every game")
 
     sb = get_client()
+    if args.revert:
+        return revert(sb, Path(args.revert), args.execute)
+
+    def nothing_to_exclude(why: str) -> int:
+        """With --execute, leaves an empty log so a revert of this run has one to read."""
+        print(why)
+        if args.execute:
+            write_log(new_log(args.out, Path(), LOG_STEM), {"applied": True, "confirmed": 0, "sent": 0, "rows": []})
+        return 0
+
     merge_map = load_merge_map(sb)
     if merge_scope and not merge_map:
-        print("no merges on record — nothing to do")
-        return 0
+        return nothing_to_exclude("no merges on record — nothing to do")
 
     def resolve(tid: str) -> str:
         seen: set[str] = set()
@@ -219,9 +304,16 @@ def main() -> int:
         return tid
 
     deprecated = set(merge_map)
-    if merge_scope:
+    if args.merge_log:
+        survivors = {resolve(t) for t in logged_survivors(Path(args.merge_log))}
+        if not survivors:
+            return nothing_to_exclude(f"{args.merge_log} records no merge — nothing to do")
+        cluster_ids = sorted(survivors | {d for d in deprecated if resolve(d) in survivors})
+        print(f"teams {args.merge_log} merged into: {len(survivors):,}   rows in their clusters: {len(cluster_ids):,}")
+    elif merge_scope:
         cluster_ids = sorted(deprecated | {resolve(c) for c in merge_map.values()})
         print(f"merged team rows: {len(deprecated):,}   clusters to scan: {len(cluster_ids):,}")
+    if merge_scope:
         games = fetch_games_for(sb, cluster_ids)
         print(f"scored games in those clusters: {len(games):,}")
     else:
@@ -240,10 +332,10 @@ def main() -> int:
         )
         groups[key].append(g)
 
-    to_exclude: list[dict] = []
+    candidates: list[tuple[dict, dict]] = []
     same_id_groups = 0
     distinct_match_ids = 0
-    for key, rows in groups.items():
+    for rows in groups.values():
         if len(rows) < 2:
             continue
         raw_pairs = {(r["home_team_master_id"], r["away_team_master_id"]) for r in rows}
@@ -254,15 +346,7 @@ def main() -> int:
             distinct_match_ids += 1
             continue
         rows.sort(key=lambda r: (keep_rank(r, deprecated), r["id"]), reverse=True)
-        for r in rows[1:]:
-            to_exclude.append({
-                "id": r["id"],
-                "game_date": r["game_date"],
-                "kept_id": rows[0]["id"],
-                "home_team_master_id": r["home_team_master_id"],
-                "away_team_master_id": r["away_team_master_id"],
-                "score": f"{key[3]}-{key[4]}",
-            })
+        candidates += [(r, rows[0]) for r in rows[1:]]
 
     differing_ids = sum(1 for r in groups.values() if len(r) > 1) - same_id_groups
     print(f"fixture tuples recorded twice under differing team ids: {differing_ids:,}")
@@ -271,6 +355,27 @@ def main() -> int:
         print(SAME_ID_NOTE)
     if distinct_match_ids:
         print(f"skipped, provider gave the rows distinct match ids: {distinct_match_ids:,}")
+    if args.limit is not None:
+        candidates = candidates[: args.limit]
+        print(f"limited to {len(candidates):,} rows")
+
+    # trg_propagate_game_exclusion would also exclude any other copy sharing a candidate's cascade key,
+    # the copy kept included, and no log would name it.
+    colliding = {cascade_key(g) for g in cascade_collisions([r for r, _ in candidates], list(games.values()))}
+    to_exclude = [
+        {
+            "id": r["id"],
+            "game_date": r["game_date"],
+            "kept_id": kept["id"],
+            "home_team_master_id": r["home_team_master_id"],
+            "away_team_master_id": r["away_team_master_id"],
+            "score": f"{r['home_score']}-{r['away_score']}",
+        }
+        for r, kept in candidates
+        if cascade_key(r) not in colliding
+    ]
+    if left := len(candidates) - len(to_exclude):
+        print(f"left in place, the exclusion trigger would also hide another copy: {left:,}")
     print(f"redundant rows to exclude: {len(to_exclude):,}")
     for r in to_exclude[:10]:
         print(f"   {r['game_date']}  {r['score']}  exclude {r['id'][:8]} keep {r['kept_id'][:8]}")
@@ -278,47 +383,34 @@ def main() -> int:
         print(f"   ... and {len(to_exclude) - 10:,} more")
 
     if not to_exclude:
-        return 0
-    if args.limit is not None:
-        to_exclude = to_exclude[: args.limit]
-        print(f"limited to {len(to_exclude):,} rows")
+        return nothing_to_exclude("nothing to exclude")
 
     if dry_run:
         print("\nDRY RUN — nothing written. Re-run with --execute.")
         return 0
 
-    out_path = Path(args.out) if args.out else Path(
-        f"exclude_merge_duplicate_games_{datetime.now(UTC):%Y%m%dT%H%M%SZ}.json"
-    )
-    if out_path.exists():
-        raise SystemExit(
-            f"{out_path} already exists and is the only rollback record for that run. "
-            "Pass a different --out; a staged apply needs one log per batch, because a later "
-            "scan skips already-excluded rows and cannot reconstruct the ids."
-        )
+    out_path = new_log(args.out, Path(), LOG_STEM)
 
-    # Written before the first update, not after the last. A transient PostgREST failure
-    # mid-run otherwise leaves rows excluded with no record of which, and the scan cannot
-    # find them again -- it filters out exactly the rows it already excluded.
-    out_path.write_text(json.dumps({"applied": False, "rows": to_exclude}, indent=1), encoding="utf-8")
-
+    # Written before each batch is sent, not only in the closing write: a run killed outright skips that
+    # write, and a later scan cannot find the rows again -- it filters out exactly the rows it already
+    # excluded. `sent` counts a batch whose reply was lost, which may still have committed.
     ids = [r["id"] for r in to_exclude]
-    done = 0
+    done = sent = 0
+    write_log(out_path, {"applied": False, "sent": sent, "rows": to_exclude})
     try:
         for i in range(0, len(ids), ID_BATCH):
             batch = ids[i : i + ID_BATCH]
+            sent = done + len(batch)
+            write_log(out_path, {"applied": False, "sent": sent, "rows": to_exclude})
             sb.table("games").update({"is_excluded": True}).in_("id", batch).execute()
             done += len(batch)
     finally:
-        out_path.write_text(
-            json.dumps({"applied": True, "confirmed": done, "rows": to_exclude}, indent=1),
-            encoding="utf-8",
-        )
+        write_log(out_path, {"applied": True, "confirmed": done, "sent": sent, "rows": to_exclude})
 
     print(f"\nExcluded {done:,} redundant game rows. Log: {out_path}")
     if done != len(ids):
         print(f"WARNING: {len(ids) - done:,} planned rows were not written — the run stopped early.")
-    print("To undo: set is_excluded = false for the ids in that log.")
+    print(f"To undo: python scripts/exclude_merge_duplicate_games.py --revert {out_path}  (a dry run; add --execute)")
     return 0
 
 
