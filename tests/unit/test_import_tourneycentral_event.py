@@ -225,6 +225,10 @@ class TestDivisionCodes:
             ("B1011v11Gold", ("Male", 10, 10, 11)),
             ("BU107v7Gold", ("Male", 10, 10, 7)),
             ("B19Gold", ("Male", 19, 19, None)),
+            ("BoysU13Red", ("Male", 13, 13, None)),
+            ("BoysU1415Red", ("Male", 14, 15, None)),
+            ("GirlsU09Red", ("Female", 9, 9, None)),
+            ("GirlsU1314Red", ("Female", 13, 14, None)),
         ],
     )
     def test_a_code_gives_gender_ages_and_format(self, code, expected):
@@ -234,7 +238,19 @@ class TestDivisionCodes:
 
     @pytest.mark.parametrize(
         "code",
-        ["B2015Gold", "B2021Gold", "BU1416Gold", "B20Gold", "BU", "Open", "B15-14Gold", "BU1514Gold", ""],
+        [
+            "B2015Gold",
+            "B2021Gold",
+            "BU1416Gold",
+            "B20Gold",
+            "BU",
+            "Open",
+            "B15-14Gold",
+            "BU1514Gold",
+            "BoysU1416Red",
+            "Boys2015Red",
+            "",
+        ],
     )
     def test_a_code_of_another_shape_is_refused(self, code):
         """A birth-year code read as two digits would be filed as U20."""

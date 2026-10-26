@@ -214,11 +214,12 @@ NAME_WITHOUT_AN_AGE = {
 _EVENT_URL = re.compile(r"^https?://(([a-z0-9][a-z0-9-]*)\.tourneycentral\.com)(?:/\S*)?$", re.IGNORECASE | re.ASCII)
 _ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}", re.ASCII)
 # B11Gold, B107v7Gold, B129v9Red, G14-15Gold, and the U-spelling BU9Gold, GU11Premier,
-# BU1415Black. A pair written without its hyphen may not run into a format (B1011v11 is U10
-# 11v11), and parse_division_code holds it to consecutive ages and every age to U19, so a
-# birth-year code such as B2015Gold or B2021Gold is refused rather than read as ages.
+# BU1415Black, and the spelled-out BoysU13Red, GirlsU1314Red. A pair written without its
+# hyphen may not run into a format (B1011v11 is U10 11v11), and parse_division_code holds
+# it to consecutive ages and every age to U19, so a birth-year code such as B2015Gold or
+# B2021Gold is refused rather than read as ages.
 _DIVISION_CODE = re.compile(
-    r"^([BG])U?(\d{1,2})(?:-(\d{2})|(\d{2})(?!\s*v))?\s*(?:(\d{1,2})\s*v\s*\d{1,2})?(?:\D.*)?$",
+    r"^([BG])(?:oys|irls)?U?(\d{1,2})(?:-(\d{2})|(\d{2})(?!\s*v))?\s*(?:(\d{1,2})\s*v\s*\d{1,2})?(?:\D.*)?$",
     re.IGNORECASE | re.ASCII,
 )
 OLDEST_BOARD_AGE = 19
