@@ -225,6 +225,10 @@ class TestDivisionCodes:
             ("B1011v11Gold", ("Male", 10, 10, 11)),
             ("BU107v7Gold", ("Male", 10, 10, 7)),
             ("B19Gold", ("Male", 19, 19, None)),
+            ("BoysU13Red", ("Male", 13, 13, None)),
+            ("BoysU1415Red", ("Male", 14, 15, None)),
+            ("GirlsU09Red", ("Female", 9, 9, None)),
+            ("GirlsU1314Red", ("Female", 13, 14, None)),
         ],
     )
     def test_a_code_gives_gender_ages_and_format(self, code, expected):
@@ -234,7 +238,19 @@ class TestDivisionCodes:
 
     @pytest.mark.parametrize(
         "code",
-        ["B2015Gold", "B2021Gold", "BU1416Gold", "B20Gold", "BU", "Open", "B15-14Gold", "BU1514Gold", ""],
+        [
+            "B2015Gold",
+            "B2021Gold",
+            "BU1416Gold",
+            "B20Gold",
+            "BU",
+            "Open",
+            "B15-14Gold",
+            "BU1514Gold",
+            "BoysU1416Red",
+            "Boys2015Red",
+            "",
+        ],
     )
     def test_a_code_of_another_shape_is_refused(self, code):
         """A birth-year code read as two digits would be filed as U20."""
@@ -527,6 +543,39 @@ class TestBuildRoster:
         _, in_scope, _, _, _, _ = _collect()
 
         assert _by_name(in_scope)["Elite FC U14 Boys Select"].state_code == "OH"
+
+    def test_the_operator_files_a_team_whose_name_states_no_age(self):
+        """Liederkranz SC plays GirlsU12Red here; the age named is used, not the division's."""
+        division = tc.parse_division_code("GirlsU12Red")
+        listings = [(division, _listing("1", "Liederkranz SC")), (division, _listing("2", "Ohio Fusion"))]
+
+        in_scope, skipped = tc.build_roster(listings, _event(), SEASON, age_groups={"1": "u10"})
+
+        assert [(row.tc_team_id, row.age_group, row.birth_year, row.age_source) for row in in_scope] == [
+            ("1", "u10", 2017, "set by the operator")
+        ]
+        assert [(row.tc_team_id, row.skip_reason) for row in skipped] == [("2", "no age in the team name")]
+
+    def test_a_team_with_no_age_named_is_still_left_out(self):
+        division = tc.parse_division_code("GirlsU12Red")
+
+        in_scope, skipped = tc.build_roster([(division, _listing("1", "Liederkranz SC"))], _event(), SEASON)
+
+        assert in_scope == []
+        assert skipped[0].skip_reason == "no age in the team name"
+
+    @pytest.mark.parametrize("value", ["314847=u10", "314847=U10", "1=u19"])
+    def test_an_age_option_reads_team_id_and_board(self, value):
+        team_id, _, age_group = value.partition("=")
+
+        assert tc._age_for_team(value) == (team_id, age_group.lower())
+
+    @pytest.mark.parametrize(
+        "value", ["314847=u9", "314847=u20", "314847=u١٠", "x=u10", "0=u10", "314847", "314847=10"]
+    )
+    def test_an_age_option_refuses_what_is_not_a_team_and_a_board(self, value):
+        with pytest.raises(argparse.ArgumentTypeError):
+            tc._age_for_team(value)
 
     @staticmethod
     def _cusc(*teams):

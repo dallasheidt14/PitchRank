@@ -40,7 +40,8 @@ younger year (``B15/16`` is U11), a single birth year as a band's younger year
 (``G2016`` is U11), a U-age against the tournament's own season.  The division never
 sets it -- not as a bound and not as a fallback -- because teams play up.  A name that
 states no age, or two, is left out for a person to decide, and ``--leave-out`` holds back
-any other team the operator names by its Tourney Central id.  ``--state`` sets a named
+any other team the operator names by its Tourney Central id.  ``--age`` files a named
+team on the board a person gives, and ``--state`` sets a named
 team's state where its listed location is wrong.  Before anything is
 registered, the tournament's labels are checked against the birth-year bands in its
 team names, and a tournament that labels by the coming season stops the run, since its
@@ -214,16 +215,18 @@ NAME_WITHOUT_AN_AGE = {
 _EVENT_URL = re.compile(r"^https?://(([a-z0-9][a-z0-9-]*)\.tourneycentral\.com)(?:/\S*)?$", re.IGNORECASE | re.ASCII)
 _ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}", re.ASCII)
 # B11Gold, B107v7Gold, B129v9Red, G14-15Gold, and the U-spelling BU9Gold, GU11Premier,
-# BU1415Black. A pair written without its hyphen may not run into a format (B1011v11 is U10
-# 11v11), and parse_division_code holds it to consecutive ages and every age to U19, so a
-# birth-year code such as B2015Gold or B2021Gold is refused rather than read as ages.
+# BU1415Black, and the spelled-out BoysU13Red, GirlsU1314Red. A pair written without its
+# hyphen may not run into a format (B1011v11 is U10 11v11), and parse_division_code holds
+# it to consecutive ages and every age to U19, so a birth-year code such as B2015Gold or
+# B2021Gold is refused rather than read as ages.
 _DIVISION_CODE = re.compile(
-    r"^([BG])U?(\d{1,2})(?:-(\d{2})|(\d{2})(?!\s*v))?\s*(?:(\d{1,2})\s*v\s*\d{1,2})?(?:\D.*)?$",
+    r"^([BG])(?:oys|irls)?U?(\d{1,2})(?:-(\d{2})|(\d{2})(?!\s*v))?\s*(?:(\d{1,2})\s*v\s*\d{1,2})?(?:\D.*)?$",
     re.IGNORECASE | re.ASCII,
 )
 OLDEST_BOARD_AGE = 19
 # A team id and a game number reach a database write, so both are ASCII digits of bounded length.
 _TEAM_ID = re.compile(r"[1-9][0-9]{0,9}")
+_BOARD_AGE_GROUP = re.compile(r"u1[0-9]")
 _GAME_NO = re.compile(r"[0-9]{1,5}")
 _TEAM_LINK_ID = re.compile(r"[?&]t=([0-9]+)")
 _META_CHARSET = re.compile(rb"<meta[^>]+charset=[\"']?([A-Za-z0-9_-]+)", re.IGNORECASE)
@@ -649,15 +652,18 @@ def build_roster(
     board_season: int,
     leave_out: FrozenSet[str] = frozenset(),
     states: Optional[Dict[str, str]] = None,
+    age_groups: Optional[Dict[str, str]] = None,
 ) -> Tuple[List[TeamRow], List[TeamRow]]:
     """Split the tournament's teams into those to register and those skipped, with a reason.
 
     The operator names teams by Tourney Central id: ``leave_out`` holds them back, such as a
     name whose age only a person can settle, and ``states`` sets a team's state where its
     location is wrong (CUSC West entered Party on the Pitch from "Fairfield, AL"; Fairfield
-    is a city in both states, so no rule can see it).
+    is a city in both states, so no rule can see it). ``age_groups`` files a team whose name
+    states no age on the board a person named.
     """
     states = states or {}
+    age_groups = age_groups or {}
     in_scope: List[TeamRow] = []
     skipped: List[TeamRow] = []
     seen: Set[str] = set()
@@ -670,6 +676,9 @@ def build_roster(
             age_from_name(respell_ages(team_name), None, event.season) if team_name else (None, "unreadable team name")
         )
         age_source = NAME_WITHOUT_AN_AGE.get(age_source, age_source)
+        if listing.tc_team_id in age_groups:
+            birth_year = _birth_year_on_board(age_groups[listing.tc_team_id], event.season)
+            age_source = "set by the operator"
         club_name, club_as_written = club_for(listing.club, team_name, event.host) if team_name else (None, None)
         cohort = board_cohort(birth_year, board_season) if birth_year else None
         ages = (
@@ -703,6 +712,11 @@ def build_roster(
             row.skip_reason = f"no US state in the location {listing.location!r}"
         (skipped if row.skip_reason else in_scope).append(row)
     return in_scope, skipped
+
+
+def _birth_year_on_board(age_group: str, season: int) -> int:
+    """The band's younger year that sits on ``u10``-``u19`` in ``season``."""
+    return season - int(age_group[1:]) + 1
 
 
 def existing_aliases(supabase, provider_id: str, tc_team_ids: List[str]) -> Dict[str, str]:
@@ -1031,6 +1045,14 @@ def parse_args() -> argparse.Namespace:
         metavar="TEAM_ID=ST",
         help="Set a team's US state where its listed location is wrong, e.g. 316490=OH",
     )
+    p.add_argument(
+        "--age",
+        nargs="+",
+        default=[],
+        type=_age_for_team,
+        metavar="TEAM_ID=uNN",
+        help="File a team whose name states no age on a board a person named, e.g. 314847=u10",
+    )
     return p.parse_args()
 
 
@@ -1048,6 +1070,14 @@ def _state_for_team(value: str) -> Tuple[str, str]:
     return team_id, state
 
 
+def _age_for_team(value: str) -> Tuple[str, str]:
+    team_id, _, age_group = value.partition("=")
+    age_group = age_group.lower()
+    if not _TEAM_ID.fullmatch(team_id) or not _BOARD_AGE_GROUP.fullmatch(age_group):
+        raise argparse.ArgumentTypeError(f"not TEAM_ID=uNN with an age from u10 to u19: {value!r}")
+    return team_id, age_group
+
+
 def collect_event(
     fetch_html: Callable[[str], str],
     host: str,
@@ -1058,6 +1088,7 @@ def collect_event(
     pause: Callable[[], None] = lambda: None,
     leave_out: FrozenSet[str] = frozenset(),
     states: Optional[Dict[str, str]] = None,
+    age_groups: Optional[Dict[str, str]] = None,
 ) -> Tuple[Event, List[TeamRow], List[TeamRow], List[EventGame], List[str], List[str]]:
     """Fetch the tournament and its divisions; return the roster, the games in window,
     the problems found and the divisions skipped.
@@ -1095,7 +1126,7 @@ def collect_event(
     if mismatch:
         raise LabelSeasonError(mismatch)
 
-    in_scope, skipped = build_roster(listings, event, board_season, leave_out, states)
+    in_scope, skipped = build_roster(listings, event, board_season, leave_out, states, age_groups)
     earliest = today - timedelta(days=days_back)
     in_window = [g for g in games if earliest <= g.game_date <= today]
     return event, in_scope, skipped, in_window, problems, division_skips
@@ -1138,11 +1169,12 @@ def main() -> int:
             pause,
             frozenset(args.leave_out),
             dict(args.state),
+            dict(args.age),
         )
     except (ScrapeFetchError, LabelSeasonError) as e:
         console.print(f"[red]{escape(str(e))}[/red]\nNothing was registered or written.")
         return 1
-    named = set(args.leave_out) | {team_id for team_id, _ in args.state}
+    named = set(args.leave_out) | {team_id for team_id, _ in args.state} | {team_id for team_id, _ in args.age}
     unknown = sorted(named - {row.tc_team_id for row in in_scope + skipped})
     if unknown:
         console.print(f"[yellow]Team ids named but not in this tournament: {', '.join(unknown)}[/yellow]")
