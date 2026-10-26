@@ -37,7 +37,8 @@ Scope cuts, decided while planning:
 
 Survey of `C:\pitchrank-cleanup-loop` at origin/main 8efa8116e, 2026-10-22. Line numbers were
 confirmed by grep. PR 1 has since changed the applier, the exclude script and the kit's pair
-helpers; read those entries against PR 1's steps.
+helpers, and PR 2 the two stage CHECKs, their migration tests and the website, which now admit
+merges; read those entries against their PR's steps.
 
 ### Analogous Features
 
@@ -220,8 +221,9 @@ unrelated dirty files.
 - Before each PR, run `git fetch --all --prune` and branch from `origin/main`. Confirm with
   `git status --short` that the only untracked file is `.turbo/plans/team-cleanup-orchestrator.md`,
   and never stage that file.
-- Ship three PRs in order, each branched from `main` after the previous one merges. PR 3 must not
-  merge before PR 2's migration is applied and ledgered.
+- Ship three PRs in order, each branched from `main` after the previous one merges. PR 2 itself must
+  not merge before its migration is applied and ledgered: the review page's GET and the decisions
+  route select `swap`, so a deploy ahead of the column takes the whole review page down.
 - The run open when this plan was written, `2026-10-22-all`, is pinned to its own code
   (`autopilot.json`) and keeps "merges: not run". The first run with merges is the next Wednesday
   propose after PR 3 merges and `C:\pitchrank-weekly` is re-pinned.
@@ -274,8 +276,8 @@ unrelated dirty files.
 
 5. **Migration `supabase/migrations/<ts>_team_cleanup_cards_merges.sql`**
    - Widen the `stage` CHECK on `team_cleanup_cards` and `team_cleanup_requests` to add `'merges'`,
-     using `DROP CONSTRAINT IF EXISTS` then `ADD CONSTRAINT`. Read the live constraint names from
-     the two creating migrations.
+     using `DROP CONSTRAINT IF EXISTS` then `ADD CONSTRAINT`. Both CHECKs were declared inline, so
+     Postgres named them `<table>_stage_check`.
    - Add `team_cleanup_cards.swap BOOLEAN NOT NULL DEFAULT false`.
    - Grants and RLS are unchanged; confirm both creating migrations' policies still cover the new
      column.
@@ -283,37 +285,44 @@ unrelated dirty files.
      from `C:\pitchrank-cleanup-loop`, after copying `C:\PitchRank\supabase\.temp` in.
    - Run the `migration-reviewer` agent on the PR.
 6. **Make the migration tests read the effective final constraint**
-   - `test_team_cleanup_cards_migration.py:92` and `test_team_cleanup_requests_migration.py:50`
-     read only the newest `CREATE TABLE`. Resolve each table's stage CHECK across `CREATE` and every
-     later `ALTER ... CONSTRAINT` in `supabase/migrations/*.sql`, per CLAUDE.md.
-   - Assert the literal `("clubs", "states", "ages", "merges")`.
-   - Stop asserting equality with `PROPOSED_STAGES` until PR 3. Add a pin in PR 3 that the stage
-     lists match.
+   - The stage pins `test_a_card_s_stage_and_decision_are_the_ones_the_loop_uses` and
+     `test_a_request_names_a_stage_and_lane_the_loop_runs` read only the newest `CREATE TABLE`.
+     Resolve each table's stage CHECK across `CREATE` and every later `ALTER ... CONSTRAINT` in
+     `supabase/migrations/*.sql`, per CLAUDE.md.
+   - Assert `_stage_values(table) == (*PROPOSED_STAGES, MERGES) == ("clubs", "states", "ages",
+     "merges")`: the tables admit merges a PR before the loop proposes it. PR 3 replaces
+     `(*PROPOSED_STAGES, MERGES)` with `PROPOSED_STAGES`.
 7. **`frontend/lib/mission-control/cleanup.ts`**
    - Add `'merges'` to `CLEANUP_STAGES` and label it "Duplicate teams" in `STAGE_LABELS`.
-   - Make `CleanupCard` a union with a pair shape: `{kind: 'pair', merge: Side, keep: Side,
-     evidence: {doorway, reason, shared_opponents, shared_opponent_names, shared_dates,
-     opponent_overlap}, swap}`.
-   - `Side` mirrors `pairs.side()`: name, registered name, provider, club, age, gender, state,
-     games, excluded games, first and last month.
+   - A card row's stage decides its shape: every merges card is a pair card, every other card a
+     team card. Cards carry no `kind`.
+   - A pair card is the card base (`id`, `n`, `group`, `whole`, `alike`, `interest`, `sure`, `why`)
+     plus `merge` and `keep` sides and `evidence: {doorway: 'C' | 'D', shared_opponents,
+     shared_opponent_names (up to five), shared_dates, opponent_overlap (0 to 1, null when either
+     row has no opponents)}`. `why` says why the scan paired them (step 16); the owner's swap lives
+     in the `swap` column, never in the card.
+   - A side is the team block of a single-team card (name, original, club, state, age, gender,
+     provider, games, excluded, first, last) plus `team_id`.
 8. **`components/mission-control/cleanup/PairCardView.tsx`** (new)
-   - Layout: the two rows side by side, stacked at phone width. The surviving row is marked; it
-     flips when swapped.
-   - Evidence lines: shared opponents, with up to five names; shared game dates; opponent overlap
-     as a percentage; the scanner's one-line reason.
+   - Layout (owner-approved): the kept row first, labelled "Kept", the other "Merged into the kept
+     team"; side by side, stacked at phone width. "Keep the other one" trades the two.
+   - Evidence lines: how the pair was found; shared opponents, with their names; opponent overlap
+     as a percentage; days both played. The `why` line sits above them.
    - Buttons: **Merge them** / **Keep separate** / **Not sure**, mapped to apply / dont_apply /
      unsure. Plus a "Keep the other one" swap toggle and a note.
    - Reuse `CleanupCardView`'s button, note and saving patterns.
 9. **`CleanupReview.tsx`**
    - Render `PairCardView` for pair cards.
    - Give pairs a one-line form ("A → kept as B") in the auto-lane list.
-   - Never offer "Apply every undecided card here" on merges.
-   - Undo and `PreviousRunUndo` already iterate `CLEANUP_STAGES`. Confirm the undo route needs no
-     stage-specific branch.
+   - Never offer "Apply every undecided card here" on merges, and count the tally in the pair
+     buttons' words.
+   - `PreviousRunUndo` lists only the stages the last finished run published cards for; a run from
+     before merges therefore shows no merges Undo. The undo route needs no stage-specific branch.
 10. **`frontend/app/api/mission-control/cleanup/decisions/route.ts`**
     - Accept an optional boolean `swap` on merges cards only, and refuse it on other stages.
-      Persist it, and return it from the GET.
-    - This website change is inert until PR 3, because no merges cards exist yet.
+      Persist it and echo it in the POST's reply; the review route's GET (`cleanup/route.ts`)
+      returns it with each card.
+    - The pair card is inert until PR 3, because no merges cards exist yet.
 11. **Frontend tests**: Vitest for the pair card (swap flips the marked survivor, labels map to the
     stored decisions) and for the decisions route (`swap` refused on a states card).
 
@@ -340,7 +349,7 @@ unrelated dirty files.
     - `scoped_proposals(MERGES)`:
       - Take only proposed records: Doorway C's proposal tiers and Doorway D's `status == proposed`.
       - Normalise each into one pair row: `merge_id`, `keep_id`, `merge_name`, `keep_name`,
-        doorway, tier or status, reason, `merge_as_vetted`, `keep_as_vetted`,
+        doorway, tier or status, `merge_as_vetted`, `keep_as_vetted`,
         `alias_already_points_at_gotsport`, games on each side.
       - Dedupe on the unordered pair, keeping the Doorway C record.
       - Drop any pair whose team appears in this run's clubs, states or ages `proposals.json`, so
@@ -362,11 +371,28 @@ unrelated dirty files.
     - Key `sort_out`/`change_id` on the pair id `card_id(run, f"{merge}_{keep}")`, as the kit does.
     - Order owner cards by doorway C identical-name, then doorway D, then by fewer games on the
       retiring side. Cap them with the merges caps.
-    - New `pair_card()`:
-      - two `pairs.side()` blocks
-      - evidence computed from the `build_evidence` result `build()` already fetches: shared
-        opponents (merge-resolved names, up to five), shared dates, `opponent_jaccard`
-      - `swap: false`
+    - `build()` reads teams and games for both `merge_id` and `keep_id` of every pair, plus the
+      shared opponents' names; today it reads only each proposal's `team_id_master`.
+    - New `pair_card()`, in exactly the shape step 7 gives the page:
+      - the card base. `group` is the owner-card ordering bucket, "C identical name" then
+        "D squad key" (the page shows it after "Tier"); `group_of()` cannot supply it, since it reads
+        a `tier` key Doorway D rows lack. `alike` is null; `interest` is true when either side is of
+        interest. `why` is a sentence `pair_card()` composes from the pair row, since neither scanner
+        gives a proposed pair a reason (Doorway D writes an empty `reason`, Doorway C none): for C
+        the shared name and the two providers, for D the squad key the two spellings share.
+      - `merge` and `keep` from `pairs.side()`, rebuilt on a new team-block helper that `card()`
+        also uses for `team`, plus `team_id`, so a side carries the normalised `state` a single-team
+        card does; the kit's page gains `state` and keeps working.
+      - evidence from the `build_evidence` result: `doorway` from the pair row; `shared_opponents`,
+        the size of `ev.opponents[merge] & ev.opponents[keep]`; `shared_opponent_names`, the first
+        five of those by name; `shared_dates`, the size of `ev.dates[merge] & ev.dates[keep]`;
+        `opponent_overlap`, shared over union rounded to 3 as `screen()` computes `opponent_jaccard`,
+        or null when either set is empty. Compute it here: the pair row carries no jaccard, Doorway D
+        never measures one, and the scanner's 0.0 for an empty side would read as measured.
+      - no `kind` and no `swap`: the stage marks a pair card, and swap is a column defaulting false
+    - Add a test that builds a pair card and asserts, as literal key sets, the card's, each side's
+      and the evidence's keys from `PairCard`, `PairSide` and `PairEvidence` in `cleanup.ts`, so the
+      Python writer and the page cannot drift apart unseen.
     - The manifest records `merge_as_vetted`/`keep_as_vetted` through `vetted.stamp`, as the kit's
       `manifest()` does.
 17. **`scripts/team_cleanup/collect.py`**
@@ -413,8 +439,9 @@ unrelated dirty files.
     - **Collect:** swap, conflict refusal, kept-apart refusal.
     - **Apply:** the pilot is 25; the exclude step runs once per batch with that batch's log; the
       ledger shape; Keep separate is recorded; revert runs the two replays in order.
-    - **Pins:** update the `NOT_RUN` pins and the PR 2 stage-list pin. Revert each half of every
-      compound guard on its own and confirm the new test is among those that fail.
+    - **Pins:** update the `NOT_RUN` pins, and in both migration tests' stage pins replace
+      `(*PROPOSED_STAGES, MERGES)` with `PROPOSED_STAGES`. Revert each half of every compound guard
+      on its own and confirm the new test is among those that fail.
 21. **Docs**
     - The running-team-cleanup skill gets a merges section: what reaches a card, what merges on its
       own, how Undo reverses a merge, and the 100-card cap.
@@ -434,10 +461,11 @@ unrelated dirty files.
   old log records no merge row, so every entry should be refused as predating `--revert` and the
   run should exit 1. Nothing is written. The revert path itself is exercised in the first live
   week's Undo.
-- **PR 2:** after the owner applies the migration, confirm from the database that both CHECKs
-  accept `merges`, that `swap` exists, and that the anon key still gets 42501 on
-  `team_cleanup_cards`. Then confirm the existing stage tabs render unchanged on a preview
-  deployment.
+- **PR 2:** before merging, after the owner applies the migration, confirm from the database that
+  both CHECKs accept `merges`, that `swap` exists, and that the anon key still gets 42501 on
+  `team_cleanup_cards`. Then, on a preview deployment, confirm the existing stage tabs render
+  unchanged and the last finished run's Undo lists only the stages it published, with no Duplicate
+  teams entry.
 - **PR 3:** propose one small state into a scratch store with
   `propose_week.py --states <xx> --store <scratch> --date <unused> --dry-run`, build its merges
   page into the same store, and check:

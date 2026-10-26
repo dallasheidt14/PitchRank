@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { makeCleanupCardRow } from '@/test/fixtures';
-import { alikeSets, evidenceLines, groupCards, newestBuild, stageReviews, tally } from './cleanup';
+import { alikeSets, evidenceLines, groupCards, newestBuild, pairEvidenceLines, stageReviews, tally } from './cleanup';
 
 describe('evidenceLines', () => {
   const none = { opponents: {}, opponents_total: 0, club: {}, gotsport: null, name: { state: null, how: 'none' } };
@@ -25,6 +25,24 @@ describe('evidenceLines', () => {
     expect(evidenceLines({ ...none, club: { UT: 3, NV: 3 } })).toEqual(['Club-mates: NV 3 · UT 3']);
     expect(evidenceLines(none)).toEqual([]);
     expect(evidenceLines(undefined)).toEqual([]);
+  });
+});
+
+describe('pairEvidenceLines', () => {
+  it('says when a pair shares no opponent, leaves out an overlap it cannot measure, and counts the days both played', () => {
+    expect(
+      pairEvidenceLines({
+        doorway: 'D',
+        shared_opponents: 0,
+        shared_opponent_names: [],
+        shared_dates: 1,
+        opponent_overlap: null,
+      })
+    ).toEqual([
+      "Found as one club's squad under two spellings",
+      'No shared opponents',
+      'Played on the same day 1 time',
+    ]);
   });
 });
 
@@ -81,7 +99,11 @@ describe('groups, look-alikes and the tally', () => {
   });
 
   it('counts each decision and the cards left undecided', () => {
-    expect(tally(rows, { a: { decision: 'apply', note: '' }, c: { decision: null, note: 'x' } })).toEqual({
+    const choices = {
+      a: { decision: 'apply', note: '', swap: false },
+      c: { decision: null, note: 'x', swap: false },
+    } as const;
+    expect(tally(rows, choices)).toEqual({
       apply: 1,
       dont_apply: 0,
       unsure: 0,

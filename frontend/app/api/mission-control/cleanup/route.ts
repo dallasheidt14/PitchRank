@@ -3,9 +3,11 @@ import { BUSINESS_TIMEZONE } from '@/lib/admin/timezone';
 import { requireAdmin } from '@/lib/supabase/admin';
 import { createServiceSupabase } from '@/lib/supabase/service';
 import {
+  CLEANUP_STAGES,
   stageReviews,
   type CardRow,
   type CleanupReview,
+  type CleanupStage,
   type PreviousRun,
   type UndoRequest,
 } from '@/lib/mission-control/cleanup';
@@ -59,7 +61,7 @@ async function readReview() {
   for (let offset = 0; ; offset += PAGE_SIZE) {
     const { data, error } = await supabase
       .from('team_cleanup_cards')
-      .select('card_id, stage, lane, page_run, position, card, decision, note, decided_at, created_at')
+      .select('card_id, stage, lane, page_run, position, card, decision, note, swap, decided_at, created_at')
       .eq('run_id', run.run_id)
       .order('card_id')
       .range(offset, offset + PAGE_SIZE - 1);
@@ -101,7 +103,24 @@ async function previousRun(supabase: Supabase): Promise<PreviousRun | null> {
     .limit(1);
   if (error) console.error('[cleanup] Reading the last finished run failed:', error.message);
   const runId = error ? undefined : data?.[0]?.run_id;
-  return runId ? { runId, undo: await latestUndo(supabase, runId) } : null;
+  return runId ? { runId, stages: await stagesOf(supabase, runId), undo: await latestUndo(supabase, runId) } : null;
+}
+
+/** The stages a run published cards for, in run order; a stage whose cards cannot be read is left out. */
+async function stagesOf(supabase: Supabase, runId: string): Promise<CleanupStage[]> {
+  const published = await Promise.all(
+    CLEANUP_STAGES.map(async (stage) => {
+      const { data, error } = await supabase
+        .from('team_cleanup_cards')
+        .select('card_id')
+        .eq('run_id', runId)
+        .eq('stage', stage)
+        .limit(1);
+      if (error) console.error(`[cleanup] Reading the ${stage} cards of run ${runId} failed:`, error.message);
+      return !error && !!data?.length;
+    })
+  );
+  return CLEANUP_STAGES.filter((_, i) => published[i]);
 }
 
 /**

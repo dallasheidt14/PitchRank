@@ -59,7 +59,7 @@ describe('POST /api/mission-control/cleanup/undo', () => {
   });
 
   it.each([
-    [{ runId: RUN, stage: 'merges', lane: 'auto' }],
+    [{ runId: RUN, stage: 'reconcile', lane: 'auto' }],
     [{ runId: RUN, stage: 'states', lane: 'both' }],
     [{ stage: 'states', lane: 'owner' }],
   ])('refuses a request that names no stage, lane or run it can undo: %o', async (body) => {

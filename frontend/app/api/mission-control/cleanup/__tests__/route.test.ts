@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextResponse } from 'next/server';
-import { makeCleanupCardRow } from '@/test/fixtures';
+import { makeCleanupCardRow, makePairCardRow } from '@/test/fixtures';
 import { filteringClientMock } from '@/test/supabase-mock';
 
 const db = filteringClientMock();
@@ -109,7 +109,34 @@ describe('GET /api/mission-control/cleanup', () => {
 
     const body = await (await GET()).json();
 
-    expect(body).toEqual({ run: null, stages: [], undo: [], previous: { runId: '2026-10-14-all', undo: [] } });
+    expect(body).toEqual({
+      run: null,
+      stages: [],
+      undo: [],
+      previous: { runId: '2026-10-14-all', stages: ['ages'], undo: [] },
+    });
+  });
+
+  it('names only the stages the last finished run published cards for, in run order', async () => {
+    db.tableRows.team_cleanup_cards.push(
+      makePairCardRow({ run_id: '2026-10-14-all', page_run: '20261014T190000Z-a1b2c3' }),
+      makeCleanupCardRow({ run_id: '2026-10-14-all', page_run: '20261014T170000Z-a1b2c3', stage: 'clubs' })
+    );
+
+    const body = await (await GET()).json();
+
+    expect(body.previous.stages).toEqual(['clubs', 'ages', 'merges']);
+  });
+
+  it("returns a pair card's swap with the card", async () => {
+    db.tableRows.team_cleanup_cards.push(
+      makePairCardRow({ page_run: '20261021T200000Z-d4e5f6', created_at: '2026-10-21T20:00:00+00:00', swap: true })
+    );
+
+    const body = await (await GET()).json();
+
+    const merges = body.stages.find((s: { stage: string }) => s.stage === 'merges');
+    expect(merges.cards.map((r: { swap: boolean }) => r.swap)).toEqual([true]);
   });
 
   it("shows each lane's latest undo request in Arizona time", async () => {
@@ -198,6 +225,7 @@ describe('GET /api/mission-control/cleanup', () => {
 
     expect(body.previous).toEqual({
       runId: '2026-10-14-all',
+      stages: ['ages'],
       undo: [
         {
           stage: 'ages',

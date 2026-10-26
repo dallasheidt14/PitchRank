@@ -3,7 +3,7 @@
  * to team_cleanup_cards, and the choices the owner saves on them.
  */
 
-export const CLEANUP_STAGES = ['clubs', 'states', 'ages'] as const;
+export const CLEANUP_STAGES = ['clubs', 'states', 'ages', 'merges'] as const;
 export type CleanupStage = (typeof CLEANUP_STAGES)[number];
 
 export const CLEANUP_DECISIONS = ['apply', 'dont_apply', 'unsure'] as const;
@@ -15,11 +15,19 @@ export const DECISION_LABELS: Record<CleanupDecision, string> = {
   unsure: 'Not sure',
 };
 
+/** The same three decisions as a duplicate pair's buttons name them. */
+export const PAIR_DECISION_LABELS: Record<CleanupDecision, string> = {
+  apply: 'Merge them',
+  dont_apply: 'Keep separate',
+  unsure: 'Not sure',
+};
+
 /** As pages.py titles each stage's page. */
 export const STAGE_LABELS: Record<CleanupStage, string> = {
   clubs: 'Club names',
   states: 'States',
   ages: 'Age groups',
+  merges: 'Duplicate teams',
 };
 
 const FIELD_LABELS: Record<string, string> = { club_name: 'Club', state_code: 'State', age_group: 'Age group' };
@@ -83,7 +91,58 @@ export function evidenceLines(evidence: StateCardEvidence | undefined): string[]
   return lines;
 }
 
-export interface CleanupCard {
+/** Evidence beside a pair: shown to the owner, never used to decide it. */
+export interface PairEvidence {
+  doorway: 'C' | 'D';
+  shared_opponents: number;
+  /** Some of the shared opponents by name; shared_opponents counts them all. */
+  shared_opponent_names: string[];
+  /** Days both rows have a game on. */
+  shared_dates: number;
+  /** The shared opponents' share of all the pair's opponents, 0 to 1; null when either row has none. */
+  opponent_overlap: number | null;
+}
+
+const DOORWAYS: Record<PairEvidence['doorway'], string> = {
+  C: 'the same squad registered with two providers',
+  D: "one club's squad under two spellings",
+};
+
+export function pairEvidenceLines(evidence: PairEvidence): string[] {
+  const named = evidence.shared_opponent_names.length ? ` (${evidence.shared_opponent_names.join(', ')})` : '';
+  const lines = [
+    `Found as ${DOORWAYS[evidence.doorway]}`,
+    evidence.shared_opponents ? `Shared opponents: ${evidence.shared_opponents}${named}` : 'No shared opponents',
+  ];
+  if (evidence.opponent_overlap != null) {
+    lines.push(`Opponent overlap: ${Math.round(evidence.opponent_overlap * 100)}%`);
+  }
+  if (evidence.shared_dates) {
+    lines.push(`Played on the same day ${evidence.shared_dates} time${evidence.shared_dates === 1 ? '' : 's'}`);
+  }
+  return lines;
+}
+
+export interface CardTeam {
+  name: string | null;
+  original: string | null;
+  club: string | null;
+  state: string | null;
+  age: string | null;
+  gender: string | null;
+  provider: string | null;
+  games: number;
+  excluded: number;
+  first: string | null;
+  last: string | null;
+}
+
+/** One row of a duplicate pair. */
+export interface PairSide extends CardTeam {
+  team_id: string;
+}
+
+interface CardBase {
   id: string;
   n: number;
   group: string;
@@ -91,36 +150,53 @@ export interface CleanupCard {
   alike: string | null;
   interest: boolean;
   sure: string | null;
-  change: { field: string; old: string | null; new: string | null };
   why: string;
-  team: {
-    name: string | null;
-    original: string | null;
-    club: string | null;
-    state: string | null;
-    age: string | null;
-    gender: string | null;
-    provider: string | null;
-    games: number;
-    excluded: number;
-    first: string | null;
-    last: string | null;
-  };
+}
+
+/** A proposed change to one team, on every stage but merges. */
+export interface TeamCard extends CardBase {
+  change: { field: string; old: string | null; new: string | null };
+  team: CardTeam;
   /** On state cards of a page that changes a state. */
   evidence?: StateCardEvidence;
 }
 
-export interface CardRow {
+/** Two rows that may be one team, on the merges stage: merging retires `merge` into `keep`, unless the owner
+ * swaps them. */
+export interface PairCard extends CardBase {
+  merge: PairSide;
+  keep: PairSide;
+  evidence: PairEvidence;
+}
+
+export type CleanupCard = TeamCard | PairCard;
+
+interface CardRowOf<S extends CleanupStage, C extends CleanupCard> {
   card_id: string;
-  stage: CleanupStage;
+  stage: S;
   lane: 'owner' | 'auto';
   page_run: string;
   position: number;
-  card: CleanupCard;
+  card: C;
   decision: CleanupDecision | null;
   note: string | null;
+  /** True when the owner keeps the row a pair card would retire; false on every other card. */
+  swap: boolean;
   decided_at: string | null;
   created_at: string;
+}
+
+export type TeamCardRow = CardRowOf<Exclude<CleanupStage, 'merges'>, TeamCard>;
+export type PairCardRow = CardRowOf<'merges', PairCard>;
+export type CardRow = TeamCardRow | PairCardRow;
+
+export function isPairRow(row: CardRow): row is PairCardRow {
+  return row.stage === 'merges';
+}
+
+/** A pair's two rows, the one that survives first. */
+export function survivorFirst(card: PairCard, swap: boolean): [PairSide, PairSide] {
+  return swap ? [card.merge, card.keep] : [card.keep, card.merge];
 }
 
 export interface StageReview {
@@ -162,6 +238,8 @@ export interface UndoRequest {
 /** The last finished run: its changes have applied, so the page offers to undo them. */
 export interface PreviousRun {
   runId: string;
+  /** The stages it published cards for, in run order: no other stage applied anything to undo. */
+  stages: CleanupStage[];
   undo: UndoRequest[];
 }
 
@@ -184,6 +262,13 @@ export function undoStatus(request: UndoRequest | undefined): string | null {
 export interface Choice {
   decision: CleanupDecision | null;
   note: string;
+  swap: boolean;
+}
+
+export const EMPTY_CHOICE: Choice = { decision: null, note: '', swap: false };
+
+export function choiceOf(row: Pick<CardRow, 'decision' | 'note' | 'swap'>): Choice {
+  return { decision: row.decision, note: row.note ?? '', swap: row.swap };
 }
 
 export function isDecision(value: unknown): value is CleanupDecision {

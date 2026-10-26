@@ -766,6 +766,14 @@ repair fails with "Cannot find project ref", and from a checkout on another bran
 not exist". Copy a linked checkout's supabase/.temp into the worktree's supabase directory and run
 the repair there.
 
+When a PR's website code starts naming a column a hand-applied migration adds (in a select, filter,
+order or write), merge it only after the migration is live, and run `scripts/pr_wait.py --no-merge`
+until then. Vercel deploys on merge, and PostgREST fails the whole query on an unknown column, so the
+page that reads it errors outright, not just the new feature. Apply first (an added column that is
+nullable or has a default does not break deployed code that never names it, provided nothing else in
+the migration narrows what that code writes), confirm the column from the database, record the
+ledger, then merge.
+
 To search a function body, use `strpos(p.prosrc, 'x')`. `pg_catalog.position('x' in p.prosrc)` is
 a syntax error (42601) in any client, migrations included: only the bare keyword takes the `IN`
 form.

@@ -15,14 +15,17 @@ import { cn } from '@/lib/utils';
 import {
   CLEANUP_DECISIONS,
   CLEANUP_LANES,
-  CLEANUP_STAGES,
+  EMPTY_CHOICE,
   MAX_CARDS_PER_WRITE,
   STAGE_LABELS,
   UNDO_LABELS,
   alikeSets,
   changeValue,
+  choiceOf,
   fieldLabel,
   groupCards,
+  isPairRow,
+  survivorFirst,
   tally,
   undoStatus,
   type CardRow,
@@ -31,21 +34,28 @@ import {
   type CleanupLane,
   type CleanupReview as Review,
   type CleanupStage,
+  type PairCardRow,
   type PreviousRun,
   type StageReview,
   type UndoRequest,
 } from '@/lib/mission-control/cleanup';
 import { CleanupCardView, DECISION_TONE } from './CleanupCardView';
+import { PairCardView } from './PairCardView';
 
 const REVIEW_URL = '/api/mission-control/cleanup';
 const DECISIONS_URL = '/api/mission-control/cleanup/decisions';
 const DONE_URL = '/api/mission-control/cleanup/done';
 const UNDO_URL = '/api/mission-control/cleanup/undo';
 const TALLY_LABELS: Record<CleanupDecision, string> = { apply: 'apply', dont_apply: "don't apply", unsure: 'unsure' };
+const PAIR_TALLY_LABELS: Record<CleanupDecision, string> = {
+  apply: 'merge',
+  dont_apply: 'keep separate',
+  unsure: 'unsure',
+};
 
 type Choices = Record<string, Choice>;
-type Patch = { decision?: CleanupDecision | null; note?: string };
-type Saved = { card_id: string; decision: CleanupDecision | null; note: string | null };
+type Patch = { decision?: CleanupDecision | null; note?: string; swap?: boolean };
+type Saved = { card_id: string } & Pick<CardRow, 'decision' | 'note' | 'swap'>;
 
 /** GET the URL, or POST `body` to it as JSON. A refusal throws an AppError carrying its status. */
 async function requestJson<T>(url: string, body?: unknown): Promise<T> {
@@ -71,7 +81,7 @@ function reasonOf(error: unknown): string {
 function choicesOf(review: Review): Choices {
   const choices: Choices = {};
   for (const stage of review.stages) {
-    for (const row of stage.cards) choices[row.card_id] = { decision: row.decision, note: row.note ?? '' };
+    for (const row of stage.cards) choices[row.card_id] = choiceOf(row);
   }
   return choices;
 }
@@ -141,6 +151,7 @@ export function CleanupReview() {
         next[id] = {
           decision: 'decision' in patch ? (patch.decision ?? null) : current[id].decision,
           note: 'note' in patch ? (patch.note ?? '').trim() : current[id].note,
+          swap: patch.swap ?? current[id].swap,
         };
         pending.current[id] = (pending.current[id] ?? 0) + 1;
       }
@@ -159,7 +170,7 @@ export function CleanupReview() {
         try {
           const { updated } = await requestJson<{ updated: Saved[] }>(DECISIONS_URL, body);
           const saved = { ...confirmed.current };
-          for (const row of updated) saved[row.card_id] = { decision: row.decision, note: row.note ?? '' };
+          for (const row of updated) saved[row.card_id] = choiceOf(row);
           confirmed.current = saved;
         } catch (error) {
           failed = error;
@@ -444,11 +455,19 @@ function StageView({
 
   return (
     <section className="space-y-4" aria-label={`${STAGE_LABELS[stage.stage]} review`}>
-      <p className="max-w-prose text-sm text-muted-foreground">
-        {stage.cards.length} proposed change{stage.cards.length === 1 ? '' : 's'}. Choose Apply, Don&apos;t apply or Not
-        sure on each, and add a note if you know something the data doesn&apos;t. Don&apos;t apply is remembered, so the
-        same change is not proposed again. Choices save as you go.
-      </p>
+      {stage.stage === 'merges' ? (
+        <p className="max-w-prose text-sm text-muted-foreground">
+          {stage.cards.length} pair{stage.cards.length === 1 ? '' : 's'} of teams that may be one team. Choose Merge
+          them, Keep separate or Not sure on each, and Keep the other one to keep the team the card would merge away.
+          Keep separate is remembered, so the pair is not proposed again. Choices save as you go.
+        </p>
+      ) : (
+        <p className="max-w-prose text-sm text-muted-foreground">
+          {stage.cards.length} proposed change{stage.cards.length === 1 ? '' : 's'}. Choose Apply, Don&apos;t apply or
+          Not sure on each, and add a note if you know something the data doesn&apos;t. Don&apos;t apply is remembered,
+          so the same change is not proposed again. Choices save as you go.
+        </p>
+      )}
 
       <div className="sticky top-0 z-10 flex flex-wrap items-center gap-2.5 border-b bg-background py-2.5">
         <label htmlFor="cleanup-show" className="text-sm">
@@ -471,7 +490,7 @@ function StageView({
         <div className="ml-auto flex flex-wrap gap-2 text-xs tabular-nums" data-testid="cleanup-tally">
           {CLEANUP_DECISIONS.map((decision) => (
             <span key={decision} className={cn('rounded-full px-2 py-0.5', DECISION_TONE[decision].chip)}>
-              {counts[decision]} {TALLY_LABELS[decision]}
+              {counts[decision]} {(stage.stage === 'merges' ? PAIR_TALLY_LABELS : TALLY_LABELS)[decision]}
             </span>
           ))}
           <span className="rounded-full bg-muted px-2 py-0.5">{counts.undecided} left</span>
@@ -489,7 +508,7 @@ function StageView({
               <span className="text-sm text-muted-foreground tabular-nums">
                 {g.cards.length} card{g.cards.length === 1 ? '' : 's'}, {open.length} undecided
               </span>
-              {g.whole && (
+              {g.whole && stage.stage !== 'merges' && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -502,7 +521,20 @@ function StageView({
             </div>
             {rows.map((row) => {
               const set = row.card.alike ? (alike.get(row.card.alike) ?? []) : [];
-              const choice = choices[row.card_id] ?? { decision: null, note: '' };
+              const choice = choices[row.card_id] ?? EMPTY_CHOICE;
+              if (isPairRow(row)) {
+                return (
+                  <PairCardView
+                    key={row.card_id}
+                    row={row}
+                    choice={choice}
+                    editable={editable}
+                    onDecide={(decision) => void onSave(stage, [row.card_id], { decision })}
+                    onSwap={(swap) => void onSave(stage, [row.card_id], { swap })}
+                    onNote={(note) => void onSave(stage, [row.card_id], { note })}
+                  />
+                );
+              }
               return (
                 <CleanupCardView
                   key={row.card_id}
@@ -529,9 +561,15 @@ function StageView({
           <ul className="mt-2.5 space-y-2 text-sm">
             {stage.auto.map((row) => (
               <li key={row.card_id} className="break-words">
-                <span className="font-medium">{row.card.team.name || '(no name)'}</span>:{' '}
-                {fieldLabel(row.card.change.field)} {changeValue(row.card.change.old)} →{' '}
-                {changeValue(row.card.change.new)}
+                {isPairRow(row) ? (
+                  <AutoPair row={row} />
+                ) : (
+                  <>
+                    <span className="font-medium">{row.card.team.name || '(no name)'}</span>:{' '}
+                    {fieldLabel(row.card.change.field)} {changeValue(row.card.change.old)} →{' '}
+                    {changeValue(row.card.change.new)}
+                  </>
+                )}
                 {row.card.sure && <span className="text-muted-foreground"> ({row.card.sure})</span>}
               </li>
             ))}
@@ -565,6 +603,17 @@ function StageView({
   );
 }
 
+/** An automatic merge on one line: the team merged away, then the one it is kept as. */
+function AutoPair({ row }: { row: PairCardRow }) {
+  const [kept, merged] = survivorFirst(row.card, row.swap);
+  return (
+    <>
+      <span className="font-medium">{merged.name || '(no name)'}</span> → kept as{' '}
+      <span className="font-medium">{kept.name || '(no name)'}</span>
+    </>
+  );
+}
+
 /** The last finished run's lanes, each with an Undo button and its latest request's status. */
 function PreviousRunUndo({
   previous,
@@ -585,7 +634,7 @@ function PreviousRunUndo({
           If something it applied looks wrong, undo that category&apos;s changes and the next hourly run puts them back.
         </p>
       </div>
-      {CLEANUP_STAGES.map((stage) => {
+      {previous.stages.map((stage) => {
         const requests = previous.undo.filter((r) => r.stage === stage);
         return (
           <div key={stage} className="space-y-1.5" data-testid="cleanup-previous-stage">

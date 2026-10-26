@@ -17,7 +17,7 @@ from pathlib import Path
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from scripts.team_cleanup.decisions import TEAM_DECISIONS, new_page_run  # noqa: E402
+from scripts.team_cleanup.decisions import MERGES, TEAM_DECISIONS, new_page_run  # noqa: E402
 from scripts.team_cleanup.propose_week import PROPOSED_STAGES  # noqa: E402
 from scripts.team_cleanup.review_page import card_id  # noqa: E402
 
@@ -70,6 +70,30 @@ def _in_list(column: str) -> tuple[str, ...]:
     return tuple(v.strip().strip("'") for v in found.group(1).split(","))
 
 
+def _stage_values(table: str) -> tuple[str, ...] | None:
+    """The values `table`'s stage CHECK accepts once every migration has run: its CREATE TABLE's inline CHECK,
+    replaced by each later ADD of `<table>_stage_check` and cleared by each DROP of it; None when the last
+    migration to touch it dropped it."""
+    named = rf'(?:"?public"?\.)?"?{table}"?\b'
+    constraint = f"{table}_stage_check"
+    statement = re.compile(
+        rf"(?is)(create\s+table\s+(?:if\s+not\s+exists\s+)?{named}|alter\s+table\s+(?:if\s+exists\s+)?(?:only\s+)?{named})[^;]*;"
+    )
+    values = None
+    for path in _migrations():
+        for match in statement.finditer(_executable(path.read_text(encoding="utf-8"))):
+            sql = re.sub(r"\s+", " ", match.group(0))
+            if match.group(1).lower().startswith("create"):
+                found = re.search(r"stage TEXT[^,]*CHECK \(stage IN \(([^)]*)\)\)", sql)
+            else:
+                if re.search(rf"(?i)drop constraint (?:if exists )?{constraint}\b", sql):
+                    values = None
+                found = re.search(rf"(?i)add constraint {constraint} CHECK \(stage IN \(([^)]*)\)\)", sql)
+            if found:
+                values = tuple(v.strip().strip("'") for v in found.group(1).split(","))
+    return values
+
+
 def test_a_card_s_columns_carry_the_not_nulls_its_checks_rely_on():
     """A NULL page_run passes the build-id check and a NULL position passes position >= 1, since a
     CHECK passes on NULL."""
@@ -88,9 +112,19 @@ def test_a_card_s_columns_carry_the_not_nulls_its_checks_rely_on():
 
 def test_a_card_s_stage_and_decision_are_the_ones_the_loop_uses():
     """The loop writes the stage and reads the decision back through these constants, and the table
-    refuses anything else; a value added on one side only fails against the live table."""
-    assert _in_list("stage") == PROPOSED_STAGES == ("clubs", "states", "ages")
+    refuses anything else; a value added on one side only fails against the live table. The table admits merges
+    ahead of the loop proposing it."""
+    assert _stage_values(TABLE) == (*PROPOSED_STAGES, MERGES) == ("clubs", "states", "ages", "merges")
     assert _in_list("decision") == TEAM_DECISIONS == ("apply", "dont_apply", "unsure")
+
+
+def test_a_pair_card_s_swap_is_never_null():
+    """swap is the owner's choice of which row survives, and a NULL would be neither choice."""
+    adding = _flat(
+        _newest_statement(rf"(?is)alter\s+table\s+{NAMED}[^;]*\badd\s+column\s+(?:if\s+not\s+exists\s+)?swap\b")
+    )
+
+    assert "ADD COLUMN IF NOT EXISTS swap BOOLEAN NOT NULL DEFAULT false" in adding
 
 
 def test_a_note_is_bounded():
@@ -179,18 +213,18 @@ def test_nothing_revokes_the_table_from_the_service_role():
 def test_nothing_later_reshapes_the_table_behind_these_guards():
     """These guards read migration text and CI applies none, so a later ALTER, DROP or re-CREATE,
     however it names the table, could leave them green against a table that no longer matches; fail
-    on the first one so its author widens them."""
+    on any beyond the RLS switch and the merges migration, so its author widens them."""
     tree = _tree()
 
     for verb, pattern, allowed in (
         ("CREATE TABLE", rf"(?is)create\s+table\s+(?:if\s+not\s+exists\s+)?{NAMED}", 1),
         ("DROP TABLE", rf"(?is)drop\s+table\s+(?:if\s+exists\s+)?{NAMED}", 0),
-        ("ALTER TABLE", rf"(?is)alter\s+table\s+(?:if\s+exists\s+)?(?:only\s+)?{NAMED}", 1),
+        ("ALTER TABLE", rf"(?is)alter\s+table\s+(?:if\s+exists\s+)?(?:only\s+)?{NAMED}", 2),
         ("DROP POLICY", rf'(?is)drop\s+policy\s+[^;]*"{TABLE}_', 2),
         ("DROP INDEX", r"(?is)drop\s+index\s+[^;]*idx_team_cleanup_cards", 0),
     ):
         hits = re.findall(pattern, tree)
         assert len(hits) <= allowed, (
-            f"{verb} on {TABLE} appeared in a migration; these guards read only its "
-            f"original definition and no longer describe the live table: {hits}"
+            f"{verb} on {TABLE} appeared in a migration; these guards read only its original definition "
+            f"and the merges migration, and no longer describe the live table: {hits}"
         )

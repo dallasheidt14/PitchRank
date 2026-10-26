@@ -14,9 +14,10 @@ import sys
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
+from scripts.team_cleanup.decisions import MERGES  # noqa: E402
 from scripts.team_cleanup.propose_week import PROPOSED_STAGES  # noqa: E402
 from scripts.team_cleanup.run_store import LANES  # noqa: E402
-from tests.unit.test_team_cleanup_cards_migration import _flat, _newest_statement, _tree  # noqa: E402
+from tests.unit.test_team_cleanup_cards_migration import _flat, _newest_statement, _stage_values, _tree  # noqa: E402
 
 TABLE = "team_cleanup_requests"
 NAMED = rf'(?:"?public"?\.)?"?{TABLE}"?\b'
@@ -47,7 +48,7 @@ def test_a_request_s_columns_carry_the_not_nulls_its_checks_rely_on():
 
 
 def test_a_request_names_a_stage_and_lane_the_loop_runs():
-    assert _in_list("stage") == PROPOSED_STAGES == ("clubs", "states", "ages")
+    assert _stage_values(TABLE) == (*PROPOSED_STAGES, MERGES) == ("clubs", "states", "ages", "merges")
     assert sorted(_in_list("lane")) == sorted(LANES) == ["auto", "owner"]
 
 
@@ -94,13 +95,14 @@ def test_nothing_grants_the_table_to_a_browser_role():
 
 
 def test_nothing_later_reshapes_the_table_behind_these_guards():
-    """These guards read the original definition; a later ALTER, DROP or re-CREATE fails here first."""
+    """These guards read the original definition and the stage widening; any other ALTER, DROP or re-CREATE
+    fails here first."""
     tree = _tree()
 
     for verb, pattern, allowed in (
         ("CREATE TABLE", rf"(?is)create\s+table\s+(?:if\s+not\s+exists\s+)?{NAMED}", 1),
         ("DROP TABLE", rf"(?is)drop\s+table\s+(?:if\s+exists\s+)?{NAMED}", 0),
-        ("ALTER TABLE", rf"(?is)alter\s+table\s+(?:if\s+exists\s+)?(?:only\s+)?{NAMED}", 1),
+        ("ALTER TABLE", rf"(?is)alter\s+table\s+(?:if\s+exists\s+)?(?:only\s+)?{NAMED}", 2),
         ("DROP POLICY", rf'(?is)drop\s+policy\s+[^;]*"{TABLE}_', 2),
         ("DROP INDEX", r"(?is)drop\s+index\s+[^;]*uq_team_cleanup_requests", 0),
     ):
