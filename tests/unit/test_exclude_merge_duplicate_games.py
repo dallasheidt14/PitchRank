@@ -409,6 +409,15 @@ def test_revert_leaves_the_rows_a_stopped_run_never_wrote(tmp_path, monkeypatch)
     assert excluded(db) == ["g001"]
 
 
+def test_revert_leaves_an_unsent_game_with_an_unresolved_team_alone(tmp_path, monkeypatch):
+    """The trigger never carries an exclusion to a game missing a team, so sending one reaches no other."""
+    games = [game(f"g{n:03d}", GONE, None, excluded=True, date=on_day(n)) for n in range(2)]
+    db = _Db(games, [])
+    log = exclude_log(tmp_path, games, sent=1)
+    assert run(monkeypatch, db, "--revert", str(log), "--execute") == 0
+    assert excluded(db) == ["g001"]
+
+
 def test_revert_refuses_a_log_that_never_recorded_what_it_sent(tmp_path, monkeypatch):
     db = _Db(excluded_games(1), [])
     log = exclude_log(tmp_path, db.tables["games"], applied=False)

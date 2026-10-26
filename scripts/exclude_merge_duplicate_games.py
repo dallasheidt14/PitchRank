@@ -245,7 +245,7 @@ def revert(sb, path: Path, execute: bool) -> int:
             "excluded; settle them by hand"
         )
     rows = logged["rows"]
-    reached = {logged_cascade_key(row) for row in rows[:sent]}
+    reached = {logged_cascade_key(row) for row in rows[:sent]} - {None}
     ids = [row["id"] for n, row in enumerate(rows) if n < sent or logged_cascade_key(row) in reached]
     excluded = still_excluded(sb, ids)
     print(f"games {path} excluded: {len(ids):,}, of which still excluded: {len(excluded):,}")
