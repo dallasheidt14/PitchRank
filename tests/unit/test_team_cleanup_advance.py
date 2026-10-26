@@ -27,8 +27,8 @@ from scripts.team_cleanup.run_store import (  # noqa: E402
 from src.tournaments.storage._file_lock import _acquire_file_lock  # noqa: E402
 
 RUN = "2026-10-21-all"
-STAGES = ("clubs", "states", "ages")
-NOTES = {"reconcile": "not run: reconcile is run by hand", "merges": "not run: the duplicate scans are frozen"}
+STAGES = ("clubs", "states", "ages", "merges")
+NOTES = {"reconcile": "not run: reconcile is run by hand"}
 UTC = timezone.utc
 # Arizona keeps UTC-7 all year: Wednesday 11:00 there is 18:00 UTC.
 PROPOSE_TIME = datetime(2026, 10, 21, 18, 0, tzinfo=UTC)
@@ -442,12 +442,14 @@ def test_every_page_is_built_and_published_and_the_owner_emailed_once(tmp_path, 
         ("pages.py", "clubs", None),
         ("pages.py", "states", None),
         ("pages.py", "ages", None),
+        ("pages.py", "merges", None),
         ("collect.py", "clubs", "auto"),
         ("collect.py", "states", "auto"),
         ("collect.py", "ages", "auto"),
+        ("collect.py", "merges", "auto"),
     ]
-    assert all({"--publish", "--execute"} <= set(c) for c in runner.commands[:3])
-    assert _subjects(emails) == ["PitchRank cleanup: 6 change(s) to review"]
+    assert all({"--publish", "--execute"} <= set(c) for c in runner.commands[:4])
+    assert _subjects(emails) == ["PitchRank cleanup: 8 change(s) to review"]
     assert "https://www.pitchrank.io/mission-control/cleanup" in emails[0][2] and "Sunday 6:00 PM" in emails[0][2]
 
     _tick(monkeypatch, store, _reviewing(), runner, BEFORE_WINDOW + timedelta(hours=1))
@@ -490,7 +492,27 @@ def test_once_the_owner_marks_done_the_choices_are_collected_applied_and_the_run
         str(store),
     ]
     assert read_run(store, RUN)["status"] == "done"
-    assert _subjects(emails) == ["PitchRank cleanup: 6 change(s) to review", f"PitchRank cleanup {RUN} is finished"]
+    assert _subjects(emails) == ["PitchRank cleanup: 8 change(s) to review", f"PitchRank cleanup {RUN} is finished"]
+
+
+def test_within_a_tick_each_lane_reaches_merges_after_the_other_stages(tmp_path, monkeypatch, emails):
+    store = tmp_path / "store"
+    _proposed(store)
+    runner = _Runner(store)
+
+    _tick(monkeypatch, store, _reviewing("2026-10-24T17:00:00Z"), runner, IN_WINDOW)
+
+    applies = [(stage, lane) for script, stage, lane in runner.ran() if script == "apply_stage.py"]
+    assert applies == [
+        ("clubs", "auto"),
+        ("states", "auto"),
+        ("ages", "auto"),
+        ("merges", "auto"),
+        ("clubs", None),
+        ("states", None),
+        ("ages", None),
+        ("merges", None),
+    ]
 
 
 def test_choices_marked_done_before_the_window_are_collected_and_wait_for_it(tmp_path, monkeypatch, emails):
@@ -750,7 +772,7 @@ def test_an_owner_without_an_address_is_emailed_on_a_later_tick(tmp_path, monkey
 
     monkeypatch.setenv("CLEANUP_OWNER_EMAIL", "owner@example.test")
     _tick(monkeypatch, store, _reviewing(), runner, BEFORE_WINDOW + timedelta(hours=1))
-    assert _subjects(emails) == ["PitchRank cleanup: 6 change(s) to review"]
+    assert _subjects(emails) == ["PitchRank cleanup: 8 change(s) to review"]
 
 
 def test_a_summary_that_failed_to_send_is_sent_by_a_later_tick(tmp_path, monkeypatch, emails):

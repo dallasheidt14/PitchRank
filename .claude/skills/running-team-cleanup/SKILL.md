@@ -1,6 +1,6 @@
 ---
 name: running-team-cleanup
-description: "Runs PitchRank's weekly team-cleanup loop for clubs, states and ages: the hourly autopilot that proposes, applies and closes each week, the owner's review page at /mission-control/cleanup, and the by-hand fallback (pages, collecting choices, owner-run applies and undo, closing the run). Use when asked about this week's team cleanup, whether the autopilot ran or why it is stuck, to pause or resume it, to start, propose, check or close a team-cleanup run, to build or publish the cleanup pages, to collect the owner's choices, or to apply or undo a team-cleanup stage."
+description: "Runs PitchRank's weekly team-cleanup loop for clubs, states, ages and duplicate-team merges: the hourly autopilot that proposes, applies and closes each week, the owner's review page at /mission-control/cleanup, and the by-hand fallback (pages, collecting choices, owner-run applies and undo, closing the run). Use when asked about this week's team cleanup, whether the autopilot ran or why it is stuck, to pause or resume it, to start, propose, check or close a team-cleanup run, to build or publish the cleanup pages, to collect the owner's choices, or to apply or undo a team-cleanup stage."
 ---
 
 # Running the weekly team-cleanup loop
@@ -18,8 +18,7 @@ anything" now covers only the changes that reach a card. Which changes count as 
 and a change a lane undo put back is never sent to the automatic lane again.
 
 The loop has five stages in order: reconcile, clubs, states, ages, merges. Each week's run proposes
-only clubs, states and ages. Reconcile is run by hand (the `reconcile-gotsport` skill), and merges
-wait while the duplicate scans are frozen; the run notes both as `not run`.
+every stage but reconcile, which is run by hand (the `reconcile-gotsport` skill) and noted `not run`.
 
 Talk to the owner in plain English and Arizona time (UTC−7); times the scripts print are UTC. Name
 teams and outcomes, not scripts, markers or flags.
@@ -52,6 +51,28 @@ proposing on older code. It never abandons a run. Emails need `CLEANUP_OWNER_EMA
 Done is per run, not per stage, and nothing clears it: after Done the page takes no more choices and
 no stage page is rebuilt once it has published cards, so a card found wrong after Done waits for next
 week, or is reversed by undoing its whole lane after the apply; an undo cannot take back one card.
+
+## Merges
+
+The merges stage runs both duplicate scans of `merging-duplicate-teams` each week: the cross-provider
+scan (Doorway C) over the run's scope (the country for ALL) and the squad-key scan (Doorway D) per
+state, into `<run>/merges/scans/`. Their proposed pairs become `<run>/merges/pairs.json`. A pair is
+left out when either scan holds or rejects it (the cross-provider review tiers, a competing partner
+or a fused registration, are holds), another stage proposes to change one of its teams this week, or
+one of its teams pairs with a second row; `<run>/merges/scans.json` counts each by why, and the page
+manifest carries the counts as `scanned`.
+
+Only a cross-provider pair in the `1_provably_safe` tier merges on its own: the row it retires holds
+no games, still none when the page is built, and its provider alias already points at the row it
+keeps. Every other pair is a card, at most 100 a week (`page_caps.merges`): pairs with a followed team
+first, then the cross-provider scan's before the squad-key scan's, each by the fewest games on the row
+it retires. **Merge them** applies it; **Keep separate** records a decision both scans honour from then
+on; **Not sure** brings it back next week; **Keep the other one** flips which row survives.
+
+Its apply runs the merge applier on a pilot of 25 and then the rest, each batch followed by
+`exclude_merge_duplicate_games.py` over that batch's merges, so the survivor's doubled fixtures are
+hidden before Monday's ranking run. A pair either of whose rows another stage of the run changed waits
+for next week.
 
 ## Watching, pausing and resuming
 
@@ -131,13 +152,14 @@ Run `status.py`.
   run to review. Read `<store>/runs/<run>/logs/health.log` if there is one. A health report that
   timed out reading games while a rankings run is going will pass once it ends.
 - **`proposing`, a stage at an earlier step, no note.** The propose is running or was killed. Ask the
-  owner which before a retry; a second propose refuses while the first holds its lock.
+  owner which before a retry; a second propose refuses while the first holds its lock. Merges also sits
+  there, with no note, behind another stage's `failed:` note, and proposes on that stage's retry.
 - **`failed: ...` note.** A step broke. Read the log the note names. If the note names a missing club
   log, run the `gh run view` command it gives from Git Bash: PowerShell's `>` saves the log as UTF-16,
   which the club scan refuses.
 - **`skill_stale: ...` note.** That stage's self-check failed, so its skill (clubs:
-  `normalizing-club-names`, states: `assigning-team-states`, ages: `correcting-team-age-groups`) no
-  longer matches the code. The stage has nothing to apply this week; the others carry on. The skill
+  `normalizing-club-names`, states: `assigning-team-states`, ages: `correcting-team-age-groups`,
+  merges: `merging-duplicate-teams`) no longer matches the code. The stage has nothing to apply this week; the others carry on. The skill
   says to fix its prose, but under this loop ask the owner first: a skill change is theirs to approve.
 - **`not run: ...` note.** Nothing to do this week.
 
@@ -181,7 +203,8 @@ The website shows each stage's newest published build: send the owner
 `https://www.pitchrank.io/mission-control/cleanup` with a short plain summary per stage, how many
 changes apply on their own and how many need their call (for example "41 teams get their club name
 fixed automatically, 9 need your call"), and that the applies run in the window. When the website
-cannot be used, publish the stage's `page.html` as an Artifact instead (load the
+cannot be used, publish the stage's `page.html` as an Artifact instead (every stage but merges, which
+writes no `page.html` and waits for the website; load the
 `artifact-capabilities` skill; copy the page byte for byte to
 `<scratchpad>/<run>-<stage>-<page run>.html`, publish with `capabilities: {"db": {}}`, and check each
 returned link differs from every link already sent) and collect with `--decisions` in Step 4.
@@ -208,10 +231,12 @@ automatic lane to collect. A stage with no card collects with `--decisions` and 
 which it does not read, so it needs no Done: when every stage of a run has no card the website shows
 no Done button, and this is how such a run finishes.
 
-Then read the Apply rows (`<stage>/vetted.csv`, or `<stage>/vetted.json` for states) against the
-checks the stage skill leaves to a person, which no script enforces: for clubs the branch rule under
-**Hold rather than write** in `normalizing-club-names`, for states reading each as a person would
-(`assigning-team-states` Step 4). For a state Apply whose name does not plainly back the change, read
+Then read the Apply rows (`<stage>/vetted.csv`, or `<stage>/vetted.json` for states and merges, the
+latter each pair the way round the owner chose) against the checks the stage skill leaves to a person,
+which no script enforces: for clubs the branch rule under **Hold rather than write** in
+`normalizing-club-names`, for states reading each as a person would (`assigning-team-states` Step 4),
+for merges the checks under **Hand the owner what review could not settle** in
+`merging-duplicate-teams`. For a state Apply whose name does not plainly back the change, read
 who the team played (its opponents' stored states), where its club-mates sit, and a recent `mapped`
 GotSport answer that names a third state, never the unset default `AL`; together they caught four
 wrong changes in one Nevada run. Each state card carries them, as the owner sees them on the page,
@@ -233,8 +258,9 @@ python scripts/team_cleanup/apply_stage.py --run 2026-10-21-all --stage clubs --
 ```
 
 It reads the database and writes nothing. It prints the decisions it would record and
-`Would apply N change(s)`, with the pilot split when there are more than 50. For states it also
-prints the hold step and one line per queued card it would settle; N plus those queued Apply lines
+`Would apply N change(s)`, with the pilot split when there are more than 50 (25 for merges). For
+states it also prints the hold step and one line per queued card it would settle; N plus those queued
+Apply lines
 should equal the collect's apply count. The apply runs every other-writer check only with
 `--execute`, so before handing one over read `apply_stage.pre_apply_problems()` yourself (unfinished
 writer workflows, and every Python process on this machine running an applier, your own jobs
@@ -249,8 +275,9 @@ python scripts/team_cleanup/apply_stage.py --run 2026-10-21-all --stage clubs --
 An exit 75 means wait and try again: outside the window, another writer running, another apply
 holding the run (a lease names the holder and a UTC time, and a killed apply holds it until then), or for
 states the other lane's last batch under four minutes old. Explain it plainly. It applies a pilot of
-50, reads it back, applies the rest, reads those back, and stops on a batch it cannot confirm. For
-states it holds back unsafe applies first and settles the queued cards last. A states apply that says
+50 (25 for merges), reads it back, applies the rest, reads those back, and stops on a batch it cannot
+confirm, or for merges on a batch whose doubled fixtures it could not hide. For states it holds back
+unsafe applies first and settles the queued cards last. A states apply that says
 the snapshot was "decided under rules" other than the code's cannot finish this run: the stage waits
 for next week, and the run closes by abandoning it.
 
@@ -261,7 +288,7 @@ applier log, what was held or not written, the review-queue results for states, 
 A stage reads `finished` in `status.py` once the owner's lane, and the automatic lane if its page sent
 it any change, are applied. Then read a handful of the
 written teams from the database (the `supabase-pitchrank` skill) and confirm each holds the value
-chosen.
+chosen; for a merge, that the retired row is deprecated and `team_merge_map` maps it to the kept one.
 
 Tell the owner, by team, every Apply choice the record lists as held or not written, with its reason,
 and follow the stage skill on held rows: for states, candidates for a `--team` probe in
@@ -314,7 +341,8 @@ python scripts/team_cleanup/apply_stage.py --run 2026-10-21-all --stage states -
 ```
 
 It undoes the whole lane, under the apply's window and other-writer checks. Clubs and ages restore only
-rows that still hold the value the batch wrote. States wait (exit 75) until two minutes after a batch ended,
+rows that still hold the value the batch wrote. Merges show each batch's hidden games again, then
+undo its merges, newest batch first. States wait (exit 75) until two minutes after a batch ended,
 and when a window holds another writer's change or one of their own writes falls outside the saved
 windows. The result is appended to the lane's `<lane folder>/REVERT.md`. State review-queue cards it
 settled stay settled, and the owner's recorded decisions stay as they were. A change the undo put back

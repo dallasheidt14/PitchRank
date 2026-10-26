@@ -28,10 +28,12 @@ import yaml
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
+from scripts import apply_vetted_team_merges as merger  # noqa: E402
 from scripts import assign_team_states as ats  # noqa: E402
 from scripts import fix_band_cohorts as bands  # noqa: E402
 from scripts import hold_unsafe_state_applies as hold  # noqa: E402
 from scripts import repair_swapped_club_names as swapped  # noqa: E402
+from scripts.find_cross_provider_duplicates import resolver  # noqa: E402
 from scripts.team_cleanup import apply_stage as ap  # noqa: E402
 from scripts.team_cleanup import collect as col  # noqa: E402
 from scripts.team_cleanup import end_run, status  # noqa: E402
@@ -51,6 +53,7 @@ from scripts.team_cleanup.run_store import (  # noqa: E402
     stage_progress,
     write_run,
 )
+from scripts.team_cleanup.vetted import changed_since_vetted, stamp  # noqa: E402
 from src.tournaments.storage._file_lock import _acquire_file_lock  # noqa: E402
 from src.tournaments.storage._io import read_json, write_json  # noqa: E402
 from tests.unit import test_team_state_provenance_migration as provenance  # noqa: E402
@@ -128,6 +131,7 @@ COLUMNS = {
         "applied_by",
         "reason",
     },
+    "team_merge_map": {"id", "deprecated_team_id", "canonical_team_id"},
 }
 ROW_CAP = 1000
 # The unique indexes an upsert can name as its conflict target: Postgres refuses any other column set.
@@ -198,6 +202,7 @@ class _Query:
         return self
 
     def range(self, start, end):
+        assert self._range is None, "postgrest-py adds a second offset and limit rather than replacing the first"
         self._range = (start, end)
         return self
 
@@ -308,6 +313,14 @@ class _Db:
         return _Rpc(self, name, params)
 
     def insert(self, table, row):
+        if table == "team_cleanup_decisions" and row["stage"] == "merges":
+            pair = sorted((row["team_id_master"], row.get("other_team_id") or ""))
+            if not row.get("other_team_id") or row["other_team_id"] == row["team_id_master"]:
+                raise _api_error("23514", "new row violates check constraint team_cleanup_decisions_merge_names_a_pair")
+            if row["subject_key"] != "|".join(pair):
+                raise _api_error("23514", "new row violates check constraint merge_key_is_the_sorted_pair")
+        elif table == "team_cleanup_decisions" and row["decision"] == "keep_separate":
+            raise _api_error("23514", "new row violates check constraint keep_separate_is_a_merge_decision")
         if table == "team_cleanup_decisions" and any(
             (r["stage"], r["subject_key"]) == (row["stage"], row["subject_key"]) and r["superseded_at"] is None
             for r in self.tables[table]
@@ -412,7 +425,8 @@ class _Runner:
 
     def __init__(self, db, codes=None, provenance=None, during=None):
         self.db, self.codes, self.provenance, self.during = db, codes or {}, provenance or {}, during or {}
-        self.commands, self.at, self.logs = [], [], 0
+        self.commands, self.at, self.logs, self.excluded = [], [], 0, set()
+        self.fail, self.merged_again = set(), set()
 
     def __call__(self, command, log):
         script = Path(command[0]).stem
@@ -471,6 +485,68 @@ class _Runner:
             else:
                 row["result"] = "skipped_moved"
         bands.write_csv(rows, self._log_path(command, "fix_band_cohorts_apply"), bands.APPLY_LOG_FIELDS)
+        return 0
+
+    def apply_vetted_team_merges(self, command, log):
+        """As the applier: each pair followed through team_merge_map first, one already merged passed over;
+        the whole run refused, writing no log, while any pair's row is deprecated; a pair whose rows no longer
+        carry what the list recorded refused alone and unlogged. The log is written whole with its own writer
+        once the run ends, so it never holds the partial log a stopped run leaves. A merge of a row in ``fail``
+        is logged failed and the run exits 1. Its --revert puts each logged merge back, leaving a row in
+        ``merged_again`` merged, as the real one leaves a merge reverted and redone since."""
+        if "--revert" in command:
+            for entry in reversed(merger.read_log(_arg(command, "--revert"))):
+                team = self.db.team(entry["merge_id"])
+                if "--execute" in command and team["is_deprecated"] and entry["merge_id"] not in self.merged_again:
+                    team["is_deprecated"] = False
+                    rows = self.db.tables["team_merge_map"]
+                    self.db.tables["team_merge_map"] = [r for r in rows if r["id"] != entry["map_id"]]
+            return 0
+        out, actor = _arg(command, "--out"), command[command.index("--actor") + 1]
+        assert not out.exists(), "the applier refuses an --out that is already there"
+        mapped = {r["deprecated_team_id"]: r["canonical_team_id"] for r in self.db.tables["team_merge_map"]}
+        canonical = resolver(mapped)
+        pairs = [
+            {**pair, "merge_id": canonical(pair["merge_id"]), "keep_id": canonical(pair["keep_id"])}
+            for pair in json.loads(_arg(command, "--file").read_text(encoding="utf-8"))
+        ]
+        pairs = [pair for pair in pairs if pair["merge_id"] != pair["keep_id"]]
+        if any(self.db.team(pair[side])["is_deprecated"] for pair in pairs for side in ("merge_id", "keep_id")):
+            log.write_text("REFUSING: pairs are stale (row missing or already deprecated).\n", encoding="utf-8")
+            return 1
+        entries, code = [], 0
+        for pair in pairs:
+            merge, keep = self.db.team(pair["merge_id"]), self.db.team(pair["keep_id"])
+            if changed_since_vetted(pair, merge, keep):
+                continue
+            logged = {key: pair[key] for key in merger.LOGGED}
+            if pair["merge_id"] in self.fail:
+                entries.append({**logged, "result": {"success": False, "error": "refused"}, "merged_by": actor})
+                entries[-1]["map_id"] = None
+                code = 1
+                continue
+            merge["is_deprecated"] = True
+            self.db.ids += 1
+            row = {"id": self.db.ids, "deprecated_team_id": pair["merge_id"], "canonical_team_id": pair["keep_id"]}
+            self.db.tables["team_merge_map"].append(row)
+            entries.append({**logged, "result": {"success": True}, "merged_by": actor, "map_id": row["id"]})
+        merger.write_log(out, [{**e, "map_read": True, "incoming_ids": [], "alias_ids": []} for e in entries])
+        return code
+
+    def exclude_merge_duplicate_games(self, command, log):
+        """Hides one doubled fixture per survivor the merge log names; its --revert shows them again."""
+        if "--revert" in command:
+            path = _arg(command, "--revert")
+            logged = json.loads(path.read_text(encoding="utf-8"))
+            if "--execute" in command:
+                self.excluded -= {row["id"] for row in logged["rows"]}
+                merger.write_log(path, {**logged, "reverted_at": "2026-10-17T02:00:00+00:00"})
+            return 0
+        out = _arg(command, "--out")
+        assert not out.exists(), "the exclusion refuses an --out that is already there"
+        rows = [{"id": f"doubled-{e['keep_id']}"} for e in merger.read_log(_arg(command, "--merge-log"))]
+        self.excluded |= {row["id"] for row in rows}
+        merger.write_log(out, {"applied": True, "confirmed": len(rows), "sent": len(rows), "rows": rows})
         return 0
 
     def hold_unsafe_state_applies(self, command, log):
@@ -4186,3 +4262,413 @@ def test_a_queued_state_card_to_settle_still_waits_for_another_writer(tmp_path, 
         _main(monkeypatch, capsys, store, "states", "--execute")
 
     assert caught.value.code == 75 and _decisions(db) == []
+
+
+# --- the merges stage: pairs, each batch's doubled fixtures, and their undo ------------------------------
+
+MERGE_APPLIER, EXCLUSION = "scripts/apply_vetted_team_merges.py", "scripts/exclude_merge_duplicate_games.py"
+
+
+def _pair(merge, keep, *, tier="2_both_have_games"):
+    """A merges proposal as propose_week writes it, vetted against the rows _team builds."""
+    record = {
+        "merge_id": _id(merge),
+        "keep_id": _id(keep),
+        "merge_name": f"Team {merge}",
+        "keep_name": f"Team {keep}",
+        "club": "Las Vegas Sports Academy",
+        **stamp(_team(merge), _team(keep)),
+    }
+    found = {"tier": tier, "provider": "tgs", "alias_already_points_at_gotsport": tier == "1_provably_safe"}
+    return pw.pair_row(record, "C", **found)
+
+
+def _merges(tmp_path, store, pairs, picks):
+    """The merges stage built and collected, ``picks`` keyed by the retiring team's name: a decision, or a
+    (decision, swap) pair."""
+    folder = stage_dir(store, RUN, "merges")
+    folder.mkdir(parents=True, exist_ok=True)
+    write_json(folder / pw.MERGE_PAIRS, pairs, indent=1)
+    _page(folder, "merges", pairs)
+    manifest = read_json(folder / MANIFEST_FILE)
+    saved = tmp_path / "out" / "merges" / f"decisions-{PAGE_RUN}"
+    saved.mkdir(parents=True, exist_ok=True)
+    ids = {p["team_id_master"]: cid for cid, p in manifest["cards"].items()}
+    for name, pick in picks.items():
+        decision, swap = pick if isinstance(pick, tuple) else (pick, False)
+        doc = {"id": ids[_id(name)], "data": {"decision": decision, "note": f"note on {name}", "swap": swap}}
+        (saved / f"{ids[_id(name)]}.json").write_text(json.dumps(doc), encoding="utf-8")
+    col.collect(store, RUN, "merges", tmp_path / "out" / "merges")
+    return folder
+
+
+def _merge_week(tmp_path, n=30):
+    store = _store(tmp_path)
+    names = [f"m{i:02d}" for i in range(n)]
+    _merges(tmp_path, store, [_pair(name, f"k{name}") for name in names], {name: "apply" for name in names})
+    db = _Db(teams=[_team(name) for name in names] + [_team(f"k{name}") for name in names])
+    return store, db, names
+
+
+def _merged_into(db):
+    return {r["deprecated_team_id"]: r["canonical_team_id"] for r in db.tables["team_merge_map"]}
+
+
+def test_merges_apply_a_pilot_of_25_then_the_rest_each_batch_followed_by_its_own_exclusion(
+    tmp_path, monkeypatch, capsys
+):
+    store, db, names = _merge_week(tmp_path)
+    runner = _Runner(db)
+    _wire(monkeypatch, db, runner)
+
+    code, out = _main(monkeypatch, capsys, store, "merges", "--execute")
+
+    logs = run_dir(store, RUN) / "merges" / "logs"
+    pilot, rest = logs / "merge_pilot_1.json", logs / "merge_rest_1.json"
+    assert code == 0
+    assert [c[0] for c in runner.commands] == [MERGE_APPLIER, EXCLUSION, MERGE_APPLIER, EXCLUSION]
+    assert runner.commands[0] == [
+        MERGE_APPLIER,
+        "--file",
+        str(stage_dir(store, RUN, "merges") / "pilot.json"),
+        "--execute",
+        "--actor",
+        ACTOR,
+        "--out",
+        str(pilot),
+    ]
+    assert runner.commands[1] == [
+        EXCLUSION,
+        "--merge-log",
+        str(pilot),
+        "--execute",
+        "--out",
+        str(logs / "merge_pilot_1_exclude_1.json"),
+    ]
+    assert _arg(runner.commands[3], "--merge-log") == rest
+    assert [len(merger.read_log(log)) for log in (pilot, rest)] == [25, 5]
+    assert _merged_into(db) == {_id(name): _id(f"k{name}") for name in names}
+    assert runner.excluded == {f"doubled-{_id(f'k{name}')}" for name in names}
+    assert {(r["field"], r["old_value"], r["applier"], r["actor"]) for r in _ledger(db)} == {
+        ("merged_into", None, "scripts/apply_vetted_team_merges.py", ACTOR)
+    }
+    assert {(r["team_id_master"], r["new_value"], r["log_file"]) for r in _ledger(db)} == {
+        (_id(name), _id(f"k{name}"), str(pilot if n < 25 else rest)) for n, name in enumerate(sorted(names, key=_id))
+    }
+    assert "pilot: 25 written, 25 verified from the database and ledgered" in out
+
+
+def test_a_pair_s_choices_are_recorded_and_a_swapped_merge_retires_the_other_row(tmp_path, monkeypatch, capsys):
+    store = _store(tmp_path)
+    pairs = [_pair("a", "ka"), _pair("b", "kb"), _pair("c", "kc"), _pair("d", "kd")]
+    _merges(tmp_path, store, pairs, {"a": "apply", "b": ("apply", True), "c": "dont_apply", "d": "unsure"})
+    db = _Db(teams=[_team(t) for t in ("a", "ka", "b", "kb", "c", "kc", "d", "kd")])
+    _wire(monkeypatch, db, _Runner(db))
+
+    code, _ = _main(monkeypatch, capsys, store, "merges", "--execute")
+
+    assert code == 0
+    assert _merged_into(db) == {_id("a"): _id("ka"), _id("kb"): _id("b")}
+    ledgered = {(r["team_id_master"], r["new_value"]) for r in _ledger(db)}
+    assert ledgered == {(_id("a"), _id("ka")), (_id("kb"), _id("b"))}
+    recorded = {(r["team_id_master"], r["other_team_id"], r["decision"]) for r in _decisions(db)}
+    assert recorded == {
+        (_id("a"), _id("ka"), "apply"),
+        (_id("kb"), _id("b"), "apply"),
+        (_id("c"), _id("kc"), "keep_separate"),
+        (_id("d"), _id("kd"), "unsure"),
+    }
+    assert {r["subject_key"] for r in _decisions(db)} == {
+        "|".join(sorted((_id(x), _id(f"k{x}")))) for x in ("a", "b", "c", "d")
+    }
+
+
+def test_a_pair_another_stage_of_the_run_changed_waits_for_next_week(tmp_path, monkeypatch, capsys):
+    """Either row changed by this run's other stages holds the pair; a change made by another run does not."""
+    store = _store(tmp_path)
+    names = ("a", "b", "c", "d")
+    _merges(tmp_path, store, [_pair(x, f"k{x}") for x in names], {x: "apply" for x in names})
+    db = _Db(teams=[_team(t) for x in names for t in (x, f"k{x}")])
+    changes = ((RUN, "states", "kb"), (RUN, "clubs", "c"), ("2026-10-07-nv", "ages", "kd"))
+    for n, (run, stage, team) in enumerate(changes):
+        changed = {"run_id": run, "stage": stage, "team_id_master": _id(team), "field": "state_code"}
+        db.tables["team_cleanup_changes"].append({**changed, "id": n, "old_value": None, "new_value": "NV"})
+    _wire(monkeypatch, db, _Runner(db))
+
+    code, _ = _main(monkeypatch, capsys, store, "merges", "--execute")
+
+    record = (stage_dir(store, RUN, "merges") / "RECORD.md").read_text(encoding="utf-8")
+    assert code == 0
+    assert _merged_into(db) == {_id("a"): _id("ka"), _id("d"): _id("kd")}
+    assert "- 'Team b' into 'Team kb': held, changed this week by the run's states stage" in record
+    assert "- 'Team c' into 'Team kc': held, changed this week by the run's clubs stage" in record
+
+
+def test_an_exclusion_that_fails_stops_the_stage_once_its_batch_is_ledgered_and_a_rerun_finishes_it(
+    tmp_path, monkeypatch, capsys
+):
+    store, db, names = _merge_week(tmp_path)
+    runner = _Runner(db, codes={"exclude_merge_duplicate_games": [1]})
+    _wire(monkeypatch, db, runner)
+
+    refusal = _refused(monkeypatch, capsys, store, "merges", "--execute")
+
+    assert "Stopped after the pilot batch: the doubled-fixture exclusion over the pilot batch exited 1" in refusal
+    assert len(_ledger(db)) == 25 and runner.excluded == set()
+
+    code, _ = _main(monkeypatch, capsys, store, "merges", "--execute")
+
+    logs = run_dir(store, RUN) / "merges" / "logs"
+    assert code == 0
+    assert [c[0] for c in runner.commands] == [MERGE_APPLIER, EXCLUSION, EXCLUSION, MERGE_APPLIER, EXCLUSION]
+    assert _arg(runner.commands[2], "--out") == logs / "merge_pilot_1_exclude_2.json"
+    assert len(_ledger(db)) == 30 and len(runner.excluded) == 30
+    runner.commands.clear()
+
+    code, _ = _main(monkeypatch, capsys, store, "merges", "--revert", "--execute")
+
+    # The failed first exclusion wrote no log, so it hid nothing and has nothing to replay.
+    assert code == 0
+    assert [(c[0], Path(c[2]).name) for c in runner.commands] == [
+        (EXCLUSION, "merge_rest_1_exclude_1.json"),
+        (MERGE_APPLIER, "merge_rest_1.json"),
+        (EXCLUSION, "merge_pilot_1_exclude_2.json"),
+        (MERGE_APPLIER, "merge_pilot_1.json"),
+    ]
+    assert _merged_into(db) == {} and runner.excluded == set()
+
+
+def test_reverting_merges_shows_each_batch_s_fixtures_again_then_undoes_its_merges_newest_batch_first(
+    tmp_path, monkeypatch, capsys
+):
+    store, db, names = _merge_week(tmp_path)
+    runner = _Runner(db)
+    _wire(monkeypatch, db, runner)
+    _main(monkeypatch, capsys, store, "merges", "--execute")
+    runner.commands.clear()
+
+    code, out = _main(monkeypatch, capsys, store, "merges", "--revert", "--execute")
+
+    logs = run_dir(store, RUN) / "merges" / "logs"
+    assert code == 0
+    assert runner.commands == [
+        [EXCLUSION, "--revert", str(logs / "merge_rest_1_exclude_1.json"), "--execute"],
+        [MERGE_APPLIER, "--revert", str(logs / "merge_rest_1.json"), "--execute"],
+        [EXCLUSION, "--revert", str(logs / "merge_pilot_1_exclude_1.json"), "--execute"],
+        [MERGE_APPLIER, "--revert", str(logs / "merge_pilot_1.json"), "--execute"],
+    ]
+    assert _merged_into(db) == {} and runner.excluded == set()
+    assert not any(db.team(_id(name))["is_deprecated"] for name in names)
+    assert all(r["reverted_at"] for r in _ledger(db))
+    assert "Stamped reverted_at on 30 ledger row(s); 0 whose team is not back at its old value." in out
+
+
+def test_a_merges_dry_run_lists_a_pilot_of_25_and_the_exclusion_after_each_batch(tmp_path, monkeypatch, capsys):
+    store, db, _ = _merge_week(tmp_path)
+    runner = _Runner(db)
+    _wire(monkeypatch, db, runner)
+
+    code, out = _main(monkeypatch, capsys, store, "merges")
+
+    assert code == 0 and runner.commands == [] and db.writes() == []
+    assert "Would apply 30 change(s), less any pair another stage changed: a pilot of 25, then the rest:" in out
+    assert out.count("then scripts/exclude_merge_duplicate_games.py --merge-log <its log> --execute") == 2
+    assert "    apply      'Team m00' into 'Team km00'" in out
+
+
+def _two_pairs(tmp_path):
+    store = _store(tmp_path)
+    _merges(tmp_path, store, [_pair("a", "ka"), _pair("b", "kb")], {"a": "apply", "b": "apply"})
+    return store, _Db(teams=[_team(t) for t in ("a", "ka", "b", "kb", "elsewhere")])
+
+
+def _remapped(db):
+    for row in db.tables["team_merge_map"]:
+        if row["deprecated_team_id"] == _id("a"):
+            row["canonical_team_id"] = _id("elsewhere")
+
+
+@pytest.mark.parametrize(
+    "undo",
+    [
+        lambda db: db.team(_id("a")).update(is_deprecated=False),
+        _remapped,
+        lambda db: db.team(_id("ka")).update(is_deprecated=True),
+    ],
+    ids=["retired-row-live-again", "mapped-elsewhere", "kept-row-retired"],
+)
+def test_a_logged_merge_the_database_does_not_hold_stops_the_stage_unledgered(tmp_path, monkeypatch, capsys, undo):
+    store, db = _two_pairs(tmp_path)
+    _wire(monkeypatch, db, _Runner(db, during={"apply_vetted_team_merges": undo}))
+
+    refusal = _refused(monkeypatch, capsys, store, "merges", "--execute")
+
+    assert f"Stopped after the pilot batch: 1 written change(s) the database does not hold: {_id('a')}" in refusal
+    assert [r["team_id_master"] for r in _ledger(db)] == [_id("b")]
+
+
+def test_an_applier_refusing_a_stale_batch_stops_the_stage_before_any_exclusion(tmp_path, monkeypatch, capsys):
+    store, db = _two_pairs(tmp_path)
+    db.team(_id("kb"))["is_deprecated"] = True
+    runner = _Runner(db)
+    _wire(monkeypatch, db, runner)
+
+    refusal = _refused(monkeypatch, capsys, store, "merges", "--execute")
+
+    assert "Stopped after the pilot batch: its applier exited 1" in refusal
+    assert [c[0] for c in runner.commands] == [MERGE_APPLIER]
+    assert _ledger(db) == [] and _merged_into(db) == {}
+
+
+def test_pairs_the_applier_refuses_are_recorded_and_a_batch_that_merged_nothing_needs_no_exclusion(
+    tmp_path, monkeypatch, capsys
+):
+    store, db = _two_pairs(tmp_path)
+    for keep in ("ka", "kb"):
+        db.team(_id(keep))["club_name"] = "Another Club"
+    runner = _Runner(db)
+    _wire(monkeypatch, db, runner)
+
+    code, _ = _main(monkeypatch, capsys, store, "merges", "--execute")
+
+    record = (stage_dir(store, RUN, "merges") / "RECORD.md").read_text(encoding="utf-8")
+    output = run_dir(store, RUN) / "merges" / "logs" / "apply_pilot_1.log"
+    assert code == 0 and [c[0] for c in runner.commands] == [MERGE_APPLIER]
+    assert _ledger(db) == [] and runner.excluded == set()
+    assert f"- 'Team a' into 'Team ka': refused by the merge applier's checks; see {output}" in record
+    assert f"- 'Team b' into 'Team kb': refused by the merge applier's checks; see {output}" in record
+
+
+def test_a_failed_merge_stops_the_stage_and_its_rerun_leaves_nothing_merged_listed_as_not_written(
+    tmp_path, monkeypatch, capsys
+):
+    store, db = _two_pairs(tmp_path)
+    runner = _Runner(db)
+    runner.fail.add(_id("b"))
+    _wire(monkeypatch, db, runner)
+
+    refusal = _refused(monkeypatch, capsys, store, "merges", "--execute")
+
+    assert "Stopped after the pilot batch: its applier exited 1" in refusal
+    assert _merged_into(db) == {_id("a"): _id("ka")} and [c[0] for c in runner.commands] == [MERGE_APPLIER, EXCLUSION]
+
+    runner.fail.clear()
+    code, _ = _main(monkeypatch, capsys, store, "merges", "--execute")
+
+    record = (stage_dir(store, RUN, "merges") / "RECORD.md").read_text(encoding="utf-8")
+    assert code == 0
+    assert [c[0] for c in runner.commands] == [MERGE_APPLIER, EXCLUSION, MERGE_APPLIER, EXCLUSION]
+    assert _merged_into(db) == {_id("a"): _id("ka"), _id("b"): _id("kb")}
+    assert "## Held or not written\n\nNone." in record
+
+
+def test_a_resumed_apply_runs_no_exclusion_twice(tmp_path, monkeypatch, capsys):
+    store, db, _ = _merge_week(tmp_path)
+    runner = _Runner(db, codes={"apply_vetted_team_merges": [None, 1]})
+    _wire(monkeypatch, db, runner)
+    refusal = _refused(monkeypatch, capsys, store, "merges", "--execute")
+    assert "Stopped after the rest batch: its applier exited 1" in refusal
+    runner.commands.clear()
+
+    code, _ = _main(monkeypatch, capsys, store, "merges", "--execute")
+
+    assert code == 0
+    assert [(c[0], _arg(c, "--out").name) for c in runner.commands] == [
+        (MERGE_APPLIER, "merge_rest_2.json"),
+        (EXCLUSION, "merge_rest_2_exclude_1.json"),
+    ]
+    assert len(_ledger(db)) == 30 and len(runner.excluded) == 30
+
+
+def test_an_exclusion_with_no_recorded_end_stops_a_rerun_and_a_revert(tmp_path, monkeypatch, capsys):
+    store, db, _ = _merge_week(tmp_path)
+    runner = _Runner(db, codes={"apply_vetted_team_merges": [None, 1]})
+    _wire(monkeypatch, db, runner)
+    _refused(monkeypatch, capsys, store, "merges", "--execute")
+    folder = stage_dir(store, RUN, "merges")
+    progress = read_json(folder / ap.APPLY_PROGRESS_FILE)
+    progress["batches"][0]["excludes"][0].update(exit=None, ended_at=None)
+    write_json(folder / ap.APPLY_PROGRESS_FILE, progress, indent=1)
+    runner.commands.clear()
+
+    for flags in (("--execute",), ("--revert", "--execute")):
+        message = _refused(monkeypatch, capsys, store, "merges", *flags)
+        assert "The doubled-fixture exclusion over the pilot batch's merges, started " in message
+        assert "has no recorded end" in message
+    assert runner.commands == []
+
+
+def test_a_revert_refuses_while_a_finished_exclusion_s_log_is_gone(tmp_path, monkeypatch, capsys):
+    store, db, names = _merge_week(tmp_path)
+    runner = _Runner(db)
+    _wire(monkeypatch, db, runner)
+    _main(monkeypatch, capsys, store, "merges", "--execute")
+    gone = run_dir(store, RUN) / "merges" / "logs" / "merge_pilot_1_exclude_1.json"
+    gone.unlink()
+    runner.commands.clear()
+
+    message = _refused(monkeypatch, capsys, store, "merges", "--revert", "--execute")
+
+    assert f"the doubled-fixture exclusion over the pilot batch finished, but its log {gone} is gone" in message
+    assert runner.commands == [] and len(_merged_into(db)) == 30
+
+
+def test_a_merge_its_revert_leaves_in_place_is_not_stamped_reverted(tmp_path, monkeypatch, capsys):
+    store, db, names = _merge_week(tmp_path)
+    runner = _Runner(db)
+    _wire(monkeypatch, db, runner)
+    _main(monkeypatch, capsys, store, "merges", "--execute")
+    runner.merged_again.add(_id(names[0]))
+
+    code, out = _main(monkeypatch, capsys, store, "merges", "--revert", "--execute")
+
+    assert code == 0
+    assert "Stamped reverted_at on 29 ledger row(s); 1 whose team is not back at its old value." in out
+    assert [r["team_id_master"] for r in _ledger(db) if r["reverted_at"] is None] == [_id(names[0])]
+
+
+def test_a_merges_batch_stopped_part_way_keeps_its_log_so_a_rerun_ledgers_and_excludes_its_merges(
+    tmp_path, monkeypatch, capsys
+):
+    store, db, _ = _merge_week(tmp_path)
+    runner = _Runner(db)
+
+    def stopped_once_written(command, log):
+        runner(command, log)
+        raise KeyboardInterrupt
+
+    _wire(monkeypatch, db, stopped_once_written)
+    with pytest.raises(KeyboardInterrupt):
+        _main(monkeypatch, capsys, store, "merges", "--execute")
+    monkeypatch.setattr(ap, "run_step", runner)
+    folder = stage_dir(store, RUN, "merges")
+    progress = read_json(folder / ap.APPLY_PROGRESS_FILE)
+    pilot = progress["batches"][0]
+    assert (pilot["exit"], pilot["logs"]) == (None, [str(folder / "logs" / "merge_pilot_1.json")])
+    message = _refused(monkeypatch, capsys, store, "merges", "--execute")
+    assert "removing the log from its logs if no such file exists" in message
+
+    pilot.update(exit=1, ended_at="2026-10-17T01:05:00+00:00")
+    write_json(folder / ap.APPLY_PROGRESS_FILE, progress, indent=1)
+    code, _ = _main(monkeypatch, capsys, store, "merges", "--execute")
+
+    assert code == 0 and len(_ledger(db)) == 30 and len(runner.excluded) == 30
+
+
+def test_a_merge_the_applier_redirected_is_undone_and_stamped_under_the_row_it_merged(tmp_path, monkeypatch, capsys):
+    """Another writer merged a into a2 after the page was built: the applier merges a2, and the undo follows it."""
+    store, db = _two_pairs(tmp_path)
+    db.tables["teams"].append(_team("a2"))
+    db.team(_id("a"))["is_deprecated"] = True
+    db.tables["team_merge_map"].append({"id": 1, "deprecated_team_id": _id("a"), "canonical_team_id": _id("a2")})
+    _wire(monkeypatch, db, _Runner(db))
+    _main(monkeypatch, capsys, store, "merges", "--execute")
+    assert {r["team_id_master"] for r in _ledger(db)} == {_id("a2"), _id("b")}
+
+    record = (stage_dir(store, RUN, "merges") / "RECORD.md").read_text(encoding="utf-8")
+    assert "## Held or not written\n\nNone." in record
+
+    code, out = _main(monkeypatch, capsys, store, "merges", "--revert", "--execute")
+
+    assert code == 0 and not db.team(_id("a2"))["is_deprecated"]
+    assert "Stamped reverted_at on 2 ledger row(s); 0 whose team is not back at its old value." in out

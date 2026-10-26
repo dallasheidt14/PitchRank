@@ -14,7 +14,7 @@ root, with the service-role key in the environment; an agent never does. In orde
      machine runs a team applier, unless it has no team to write and no queued state card to settle.
   4. Records every decided card in team_cleanup_decisions, Don't apply and Not sure included, before
      anything else is written.
-  5. Applies the cards chosen Apply, a pilot of 50 and then the rest, each a cut file written beside
+  5. Applies the cards chosen Apply, a pilot of 50 (25 for merges) and then the rest, each a cut file written beside
      the vetted file and run through the stage's applier as team-cleanup:<run>. After each batch it
      writes one team_cleanup_changes row per change the applier's log (for states, team_state_audit)
      records and the database holds, and stops on a confirmed change the database lacks or, for
@@ -25,6 +25,11 @@ root, with the service-role key in the environment; an agent never does. In orde
         states  hold_unsafe_state_applies.py splits the stage's national_snapshot.json first and the
                 cuts leave out what it held; then assign_team_states.py --execute --snapshot <cut>,
                 which records its own actor, assign_team_states
+        merges  apply_vetted_team_merges.py --file <cut> --execute --actor ... --out <its log>, then
+                exclude_merge_duplicate_games.py --merge-log <that log> --execute --out <its own log>,
+                so each survivor's doubled fixtures are hidden before the next ranking run. The cuts
+                leave out a pair either of whose rows another stage of the run changed. A merge is
+                ledgered as merged_into, once the retired row is deprecated and mapped to the kept one
   6. States only: checks the window and the other writers again, then settles each card the rules only
      queued as the dashboard's State Review Queue would. Apply approves the card's pending review row,
      unless a later sweep refiled it from another state, read again just before the approval, and
@@ -37,9 +42,10 @@ exited 0 is not run again, and every attempt's changes are verified and ledgered
 
 --revert undoes the lane (the owner's choices, unless --lane auto), newest batch first, under the same
 window and checks. Clubs and ages replay their applier's own --revert of each batch's own log, the one
-written as team-cleanup:<run> for the batch's cut. States refuse while one of the lane's own writes lies
-outside the windows apply.json saves, wait until every batch's and review-queue step's window has
-closed, and refuse when a window holds a write that is not the lane's own, before calling
+written as team-cleanup:<run> for the batch's cut; merges replay the exclusion's own --revert of each of
+the batch's exclusion logs, then the merge applier's of its merge log. States refuse while one of the
+lane's own writes lies outside the windows apply.json saves, wait until every batch's and review-queue
+step's window has closed, and refuse when a window holds a write that is not the lane's own, before calling
 revert_team_states over each window. It then stamps reverted_at on each ledger row of the lane's teams
 whose team holds its old value again, and appends what it did to the lane's REVERT.md.
 A run already done or abandoned can still be reverted: no lease can be taken on it, so the revert holds
@@ -78,6 +84,7 @@ from postgrest.exceptions import APIError
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
+from scripts.apply_vetted_team_merges import read_log as read_merge_log  # noqa: E402
 from scripts.assign_team_states import ACTOR as STATE_SWEEP_ACTOR  # noqa: E402
 from scripts.assign_team_states import (  # noqa: E402
     SNAPSHOT_RULES,
@@ -86,18 +93,21 @@ from scripts.assign_team_states import (  # noqa: E402
     queue_payload,
     snapshot_reason,
 )
-from scripts.find_cross_provider_duplicates import batched, get_client, page  # noqa: E402
+from scripts.find_cross_provider_duplicates import SUBJECT_BATCH, batched, get_client, page  # noqa: E402
 from scripts.fix_band_cohorts import UNCONFIRMED, read_our_csv  # noqa: E402
 from scripts.repair_swapped_club_names import csv_unsafe, write_log  # noqa: E402
-from scripts.team_cleanup.collect import DECISIONS_FILE, VETTED, check_unchanged  # noqa: E402
+from scripts.team_cleanup.collect import DECISIONS_FILE, VETTED, change_text, check_unchanged  # noqa: E402
 from scripts.team_cleanup.decisions import (  # noqa: E402
     APPLY,
     CHANGES_TABLE,
     DECISIONS_TABLE,
     DONT_APPLY,
+    MERGES,
+    pair_decision_row,
     resolve_execute,
     team_decision_row,
 )
+from scripts.team_cleanup.pairs import as_chosen  # noqa: E402
 from scripts.team_cleanup.propose_week import (  # noqa: E402
     AGES,
     APPLIER_INPUTS,
@@ -143,9 +153,11 @@ from src.tournaments.storage._io import read_json, utc_now_iso, write_json  # no
 
 APPLY_SCRIPT = "scripts/team_cleanup/apply_stage.py"
 AGE_FIXER = "scripts/fix_band_cohorts.py"
+MERGE_APPLIER = "scripts/apply_vetted_team_merges.py"
+EXCLUDE_GAMES = "scripts/exclude_merge_duplicate_games.py"
 HOLD_STATES = "scripts/hold_unsafe_state_applies.py"
 NATIONAL_STATES = "national_snapshot.json"
-APPLIERS = {CLUBS: SWAPPED_CLUBS, STATES: ASSIGN_STATES, AGES: AGE_FIXER}
+APPLIERS = {CLUBS: SWAPPED_CLUBS, STATES: ASSIGN_STATES, AGES: AGE_FIXER, MERGES: MERGE_APPLIER}
 # Each CSV applier's log, named by local time to the second, and read as its own --revert reads it.
 APPLIER_LOGS = {CLUBS: "repair_swapped_club_names_log_*.csv", AGES: "fix_band_cohorts_apply_*.csv"}
 LOG_READERS = {CLUBS: _read_csv, AGES: read_our_csv}
@@ -166,6 +178,10 @@ REVERT_FILE = "REVERT.md"
 SAFE_FILE, HELD_FILE = "safe.json", "held.json"
 PILOT, REST = "pilot", "rest"
 PILOT_ROWS = 50
+# A merge retires a team and repoints its history, so its first batch is smaller.
+STAGE_PILOT_ROWS = {MERGES: 25}
+MERGE_MAP = "team_merge_map"
+CHANGED_THIS_WEEK = "changed this week by the run's {stage} stage"
 LEDGER_CHUNK = 500
 STATE_REVERT_PAGE = 500
 # A state batch is found by its time window, and this machine's clock and the database's can disagree.
@@ -532,15 +548,22 @@ def vetted_changes(folder: Path, stage: str) -> list[dict]:
         return []
     if stage == STATES:
         return sorted((d for d in read_json(path)["decisions"] if d["action"] == "apply"), key=lambda d: d["team_id"])
+    if stage == MERGES:
+        return sorted(read_json(path), key=lambda pair: pair["merge_id"])
     return sorted(_read_csv(path), key=lambda row: row["team_id_master"])
 
 
-def pilot_and_rest(changes: list[dict]) -> list[tuple[str, list[dict]]]:
-    return [(name, part) for name, part in ((PILOT, changes[:PILOT_ROWS]), (REST, changes[PILOT_ROWS:])) if part]
+def pilot_rows(stage: str) -> int:
+    return STAGE_PILOT_ROWS.get(stage, PILOT_ROWS)
+
+
+def pilot_and_rest(stage: str, changes: list[dict]) -> list[tuple[str, list[dict]]]:
+    rows = pilot_rows(stage)
+    return [(name, part) for name, part in ((PILOT, changes[:rows]), (REST, changes[rows:])) if part]
 
 
 def cut_name(stage: str, name: str) -> str:
-    return f"{name}.json" if stage == STATES else f"{name}.csv"
+    return f"{name}.json" if stage in (STATES, MERGES) else f"{name}.csv"
 
 
 def write_cut(folder: Path, stage: str, name: str, changes: list[dict]) -> Path:
@@ -549,13 +572,18 @@ def write_cut(folder: Path, stage: str, name: str, changes: list[dict]) -> Path:
     path = folder / cut_name(stage, name)
     if stage == STATES:
         write_json(path, {**read_json(folder / VETTED[STATES]), "decisions": changes}, indent=1)
+    elif stage == MERGES:
+        write_json(path, changes, indent=1)
     else:
         write_log(changes, path)
     return path
 
 
-def applier_command(stage: str, cut: Path, store: Path, run_id: str) -> list[str]:
+def applier_command(stage: str, cut: Path, store: Path, run_id: str, log: Path | None = None) -> list[str]:
+    """The stage's applier over one cut. The merge applier writes its log to ``log``, which must not exist."""
     exports, actor = str(store / "exports"), actor_for(run_id)
+    if stage == MERGES:
+        return [MERGE_APPLIER, "--file", str(cut), "--execute", "--actor", actor, "--out", str(log)]
     if stage == CLUBS:
         return [SWAPPED_CLUBS, "--execute", str(cut), "--exports-dir", exports, "--actor", actor]
     if stage == AGES:
@@ -573,9 +601,18 @@ def hold_command(folder: Path) -> list[str]:
     return [HOLD_STATES, str(national), str(folder / SAFE_FILE), str(folder / HELD_FILE)]
 
 
+def exclude_command(merge_log: str, out: Path) -> list[str]:
+    """The doubled-fixture exclusion over the clusters one batch's merges went into."""
+    return [EXCLUDE_GAMES, "--merge-log", merge_log, "--execute", "--out", str(out)]
+
+
 def revert_command(stage: str, log: str, execute: bool) -> list[str]:
     """The applier's own --revert of one batch's log; without --execute it previews, writing nothing."""
     return [APPLIERS[stage], "--revert", log, *(["--execute"] if execute else [])]
+
+
+def exclude_revert_command(log: str, execute: bool) -> list[str]:
+    return [EXCLUDE_GAMES, "--revert", log, *(["--execute"] if execute else [])]
 
 
 def load_progress(folder: Path, marker: dict) -> dict:
@@ -598,8 +635,14 @@ def save_progress(folder: Path, progress: dict) -> None:
 
 
 def no_recorded_end(folder: Path, store: Path, batch: dict) -> str:
-    return (
-        f"The {batch['batch']} batch started {batch['started_at']} has no recorded end: an apply was stopped "
+    stopped = f"The {batch['batch']} batch started {batch['started_at']} has no recorded end: an apply was stopped "
+    if "excludes" in batch:
+        return stopped + (
+            f"while its applier ran. Find what it wrote (its output {batch['output']}, and the log its logs name) "
+            f"and record in {folder / APPLY_PROGRESS_FILE} its exit and its ended_at, a full ISO time with its "
+            "offset, removing the log from its logs if no such file exists, before applying or reverting again."
+        )
+    return stopped + (
         f"while its applier ran. Find what it wrote (its output {batch['output']}, and its log in "
         f"{store / 'exports'}) and record in {folder / APPLY_PROGRESS_FILE} its exit and its ended_at, a full ISO "
         "time with its offset, and for clubs or ages its log's path in its logs, the only log the revert replays, "
@@ -625,18 +668,27 @@ def check_ledger(sb) -> None:
     sb.table(CHANGES_TABLE).select("id").limit(1).execute()
 
 
+def decision_row(stage: str, row: dict) -> dict:
+    return pair_decision_row(as_chosen(row)) if stage == MERGES else team_decision_row(stage, row)
+
+
 def plan_decisions(sb, stage: str, rows: list[dict]) -> list[tuple[dict, dict, dict | None]]:
     """(card, its row for team_cleanup_decisions, the active row it replaces) for each decided card not
     already recorded with the same decision from the same page. Refuses when a later decision is
     recorded for a card, which recording this one would overturn."""
+    records = [(row, decision_row(stage, row)) for row in rows]
+    # A pair's decision may name either row first, so pairs are looked up by their key.
+    if stage == MERGES:
+        column, keys, size = "subject_key", {record["subject_key"] for _, record in records}, SUBJECT_BATCH
+    else:
+        column, keys, size = "team_id_master", {row["team_id_master"] for row in rows}, 100
     active = {}
-    for batch in batched(sorted({row["team_id_master"] for row in rows})):
+    for batch in batched(sorted(keys), size):
         query = sb.table(DECISIONS_TABLE).select(ACTIVE_DECISION_COLS).eq("stage", stage)
-        for found in query.is_("superseded_at", "null").in_("team_id_master", batch).execute().data:
+        for found in query.is_("superseded_at", "null").in_(column, batch).execute().data:
             active[found["subject_key"]] = found
     planned, later = [], []
-    for row in rows:
-        record = team_decision_row(stage, row)
+    for row, record in records:
         current = active.get(record["subject_key"])
         if current and (current["decision"], current["source"]) == (record["decision"], record["source"]):
             continue
@@ -926,9 +978,17 @@ def unreachable_text(folder: Path, unreachable: list[str]) -> str:
 def own_log(stage: str, batch: dict, run_id: str) -> str | None:
     """The batch's own log among the new ones in the exports folder: the one holding rows, each written
     as this run for a team in the batch's cut. Another writer's log landing there meanwhile is not, and
-    when none or more than one passes, no log is the batch's own."""
-    cut = {row["team_id_master"] for row in _read_csv(Path(batch["cut"]))}
+    when none or more than one passes, no log is the batch's own. A merges batch names its log, which is
+    its own when every merge in it is this run's; an empty one merged nothing."""
     actor = actor_for(run_id)
+    if stage == MERGES:
+        own = [
+            log
+            for log in batch["logs"]
+            if Path(log).exists() and all(e.get("merged_by") == actor for e in read_merge_log(Path(log)))
+        ]
+        return own[0] if len(own) == 1 else None
+    cut = {row["team_id_master"] for row in _read_csv(Path(batch["cut"]))}
     own = []
     for log in batch["logs"]:
         rows = LOG_READERS[stage](Path(log))
@@ -989,7 +1049,28 @@ def _age_log_changes(log: str, batch: dict, finished: bool) -> tuple[list[dict],
     return changes, skipped
 
 
-LOG_CHANGES = {CLUBS: _club_log_changes, AGES: _age_log_changes}
+def _merge_log_changes(log: str, batch: dict, finished: bool) -> tuple[list[dict], list[list[str]]]:
+    """A merge the applier saw succeed is confirmed once it finished; one whose answer it never saw counts
+    once the database shows it. A pair of the cut it never logged was refused by its checks before its own
+    merge was sent, as its output says. The applier follows a pair through any merge since its page was
+    built, so its log can name either row by another id; each team is in one pair, so either row matches."""
+    changes, skipped = [], []
+    entries = read_merge_log(Path(log))
+    for entry in entries:
+        result = entry["result"] or {}
+        if not (result.get("success") or result.get("pending")):
+            skipped.append([entry["merge_id"], f"failed: {result.get('error')}"])
+            continue
+        confirmed = finished and bool(result.get("success"))
+        changes.append(_logged_change(entry["merge_id"], None, entry["keep_id"], batch, log, confirmed))
+    logged = {team for entry in entries for team in (entry["merge_id"], entry["keep_id"])}
+    why = f"refused by the merge applier's checks; see {batch['output']}"
+    cut = read_json(Path(batch["cut"]))
+    skipped += [[pair["merge_id"], why] for pair in cut if not {pair["merge_id"], pair["keep_id"]} & logged]
+    return changes, skipped
+
+
+LOG_CHANGES = {CLUBS: _club_log_changes, AGES: _age_log_changes, MERGES: _merge_log_changes}
 
 
 def batch_changes(sb, run_id: str, stage: str, batch: dict) -> tuple[list[dict], list[list[str]]]:
@@ -1055,11 +1136,36 @@ def write_ledger(sb, rows: list[dict], retry: str) -> None:
         raise SystemExit(refused(f"Could not write {CHANGES_TABLE}", exc, retry)) from None
 
 
+def verify_merges(sb, changes: list[dict]) -> tuple[list[dict], list[dict]]:
+    """The merges the database holds now, the retired row deprecated and mapped onto the kept one, which is
+    live; and the confirmed ones it does not."""
+    retired = sorted({change["team_id_master"] for change in changes})
+    teams = fetch_teams(sb, sorted({*retired, *(change["new_value"] for change in changes)}))
+    mapped = {}
+    for batch in batched(retired):
+        query = sb.table(MERGE_MAP).select("deprecated_team_id,canonical_team_id").in_("deprecated_team_id", batch)
+        mapped.update({row["deprecated_team_id"]: row["canonical_team_id"] for row in query.execute().data})
+    holding, missing = [], []
+    for change in changes:
+        merge, keep = teams.get(change["team_id_master"]), teams.get(change["new_value"])
+        if (
+            merge is not None
+            and merge["is_deprecated"]
+            and mapped.get(change["team_id_master"]) == change["new_value"]
+            and keep is not None
+            and not keep["is_deprecated"]
+        ):
+            holding.append(change)
+        elif change["confirmed"]:
+            missing.append(change)
+    return holding, missing
+
+
 def settle_batch(sb, run_id: str, stage: str, batch: dict, retry: str) -> list[dict]:
     """Verify one attempt's changes, ledger the ones the database holds, and keep its counts in the
     attempt's record. Returns the confirmed changes the database does not hold."""
     changes, skipped = batch_changes(sb, run_id, stage, batch)
-    holding, missing = verify(sb, FIELDS[stage], changes)
+    holding, missing = verify_merges(sb, changes) if stage == MERGES else verify(sb, FIELDS[stage], changes)
     actor = STATE_SWEEP_ACTOR if stage == STATES else actor_for(run_id)
     write_ledger(sb, ledger_rows(run_id, stage, holding, APPLIERS[stage], actor), retry)
     batch["counts"] = {"written": len(changes), "verified": len(holding), "not_verified": len(missing)}
@@ -1098,12 +1204,10 @@ def settle_unaudited(sb, attempts: list[dict]) -> None:
 def batch_problem(stage: str, batch: dict, missing: list[dict], run_id: str) -> str | None:
     if batch["exit"] != 0:
         return f"its applier exited {batch['exit']}; see {batch['output']}:\n    {_tail(Path(batch['output']))}"
-    if stage in APPLIER_LOGS and own_log(stage, batch, run_id) is None:
+    if stage in LOG_CHANGES and own_log(stage, batch, run_id) is None:
         found = ", ".join(batch["logs"]) or "none"
-        return (
-            f"expected one new {APPLIER_LOGS[stage]} in the exports folder written as {actor_for(run_id)} for "
-            f"the {batch['batch']} cut, found {found}"
-        )
+        expected = "its merge log" if stage == MERGES else f"one new {APPLIER_LOGS[stage]} in the exports folder"
+        return f"expected {expected} written as {actor_for(run_id)} for the {batch['batch']} cut, found {found}"
     if missing:
         listed = ", ".join(f"{c['team_id_master']} ({c['new_value']!r})" for c in missing[:10])
         return f"{len(missing)} written change(s) the database does not hold: {listed}"
@@ -1113,9 +1217,20 @@ def batch_problem(stage: str, batch: dict, missing: list[dict], run_id: str) -> 
 # --- the apply -----------------------------------------------------------------------------------
 
 
-def prepare_cuts(folder: Path, stage: str, progress: dict) -> dict[str, Path]:
+def changed_this_run(sb, run_id: str) -> dict[str, str]:
+    """{team: stage} for each team another stage of the run changed, as its ledger records."""
+
+    def build():
+        return sb.table(CHANGES_TABLE).select("id,team_id_master,stage").eq("run_id", run_id).neq("stage", MERGES)
+
+    return {row["team_id_master"]: row["stage"] for row in page(build, "id")}
+
+
+def prepare_cuts(sb, folder: Path, run_id: str, stage: str, progress: dict) -> dict[str, Path]:
     """The pilot and rest cut files, written once, so a re-run replays the files the first attempt
-    wrote. States run the hold script over the national run first and leave out what it held."""
+    wrote. States run the hold script over the national run first and leave out what it held; merges
+    leave out a pair either of whose rows another stage of the run changed, which waits for next week's
+    scan."""
     if progress["cuts"] is not None:
         cuts = {name: folder / cut["file"] for name, cut in progress["cuts"].items()}
         changed = [path.name for name, path in cuts.items() if file_hash(path) != progress["cuts"][name]["sha256"]]
@@ -1132,8 +1247,18 @@ def prepare_cuts(folder: Path, stage: str, progress: dict) -> dict[str, Path]:
         chosen = {(d["team_id"], d["proposed"]) for d in changes}
         progress["held"] = [d for key, d in held.items() if key in chosen]
         changes = [d for d in changes if (d["team_id"], d["proposed"]) not in held]
+    if stage == MERGES and changes:
+        changed, kept = changed_this_run(sb, run_id), []
+        for pair in changes:
+            moved = [team for team in (pair["merge_id"], pair["keep_id"]) if team in changed]
+            if moved:
+                held_because = CHANGED_THIS_WEEK.format(stage=changed[moved[0]])
+                progress["held"].append({"team_id": pair["merge_id"], "held_because": held_because})
+            else:
+                kept.append(pair)
+        changes = kept
     cuts, progress["cuts"] = {}, {}
-    for name, part in pilot_and_rest(changes):
+    for name, part in pilot_and_rest(stage, changes):
         cuts[name] = write_cut(folder, stage, name, part)
         progress["cuts"][name] = {"file": cuts[name].name, "rows": len(part), "sha256": file_hash(cuts[name])}
     save_progress(folder, progress)
@@ -1148,20 +1273,104 @@ def run_batch(folder: Path, store: Path, run_id: str, stage: str, name: str, cut
     before = _log_stamps(exports, pattern)
     attempt = sum(1 for b in progress["batches"] if b["batch"] == name) + 1
     output = folder / LOGS / f"apply_{name}_{attempt}.log"
-    command = applier_command(stage, cut, store, run_id)
+    log = folder / LOGS / f"merge_{name}_{attempt}.json" if stage == MERGES else None
+    command = applier_command(stage, cut, store, run_id, log)
     batch = {"batch": name, "cut": str(cut), "command": command, "output": str(output), "started_at": utc_now_iso()}
-    batch.update({"ended_at": None, "exit": None, "logs": []})
+    # The merge applier logs each merge before sending it, so a merges batch names its log before it runs: an
+    # apply stopped part way still knows where its merges are recorded.
+    merges = {"logs": [str(log)], "excludes": []} if log is not None else {"logs": []}
+    batch.update({"ended_at": None, "exit": None, **merges})
     progress["batches"].append(batch)
     save_progress(folder, progress)
     batch["exit"] = run_step(command, output)
     batch["ended_at"] = utc_now_iso()
-    after = _log_stamps(exports, pattern)
-    batch["logs"] = [str(path) for path in sorted(after) if before.get(path) != after[path]]
+    if log is not None:
+        batch["logs"] = [str(log)] if log.exists() else []
+    else:
+        after = _log_stamps(exports, pattern)
+        batch["logs"] = [str(path) for path in sorted(after) if before.get(path) != after[path]]
     save_progress(folder, progress)
     # Both CSV appliers name their log by the second: the clubs one refuses a name taken, and the ages
     # one overwrites it, which the stamps above still catch.
     time.sleep(1)
     return batch
+
+
+def no_recorded_exclusion_end(folder: Path, batch: dict, step: dict) -> str:
+    return (
+        f"The doubled-fixture exclusion over the {batch['batch']} batch's merges, started {step['started_at']}, has "
+        f"no recorded end: an apply was stopped while it ran. Find what it wrote (its output {step['output']}, and "
+        f"its log {step['log']}) and record in {folder / APPLY_PROGRESS_FILE} its exit and its ended_at, a full ISO "
+        "time with its offset, before applying or reverting again."
+    )
+
+
+def run_exclusion(folder: Path, batch: dict, log: str, progress: dict) -> dict:
+    """Hide the doubled fixtures in the clusters the batch's merges went into, recording the attempt before it
+    starts and once it ends."""
+    n = len(batch["excludes"]) + 1
+    out, output = (folder / LOGS / f"{Path(log).stem}_exclude_{n}{suffix}" for suffix in (".json", ".log"))
+    step = {"command": exclude_command(log, out), "output": str(output), "log": str(out), "started_at": utc_now_iso()}
+    step.update({"ended_at": None, "exit": None})
+    batch["excludes"].append(step)
+    save_progress(folder, progress)
+    step["exit"] = run_step(step["command"], output)
+    step["ended_at"] = utc_now_iso()
+    save_progress(folder, progress)
+    return step
+
+
+def exclusion_due(batch: dict, run_id: str) -> str | None:
+    """The batch's merge log, when it records merges no exclusion has finished over yet."""
+    log = own_log(MERGES, batch, run_id)
+    if log is None or not read_merge_log(Path(log)) or any(step["exit"] == 0 for step in batch["excludes"]):
+        return None
+    return log
+
+
+def exclude_doubled(sb, folder: Path, run_id: str, attempts: list[dict], progress: dict, holder, outside_window, retry):
+    """Run the exclusion over each attempt's merges that no exclusion has finished over yet, checking the
+    window and the other writers before each, since a resumed apply may come back to it much later."""
+    for batch in attempts:
+        unended = [step for step in batch["excludes"] if step["exit"] is None]
+        if unended:
+            raise SystemExit(no_recorded_exclusion_end(folder, batch, unended[0]))
+        log = exclusion_due(batch, run_id)
+        if log is None:
+            continue
+        check_window(outside_window)
+        check_other_writers()
+        keep_lease(sb, run_id, holder, f"the {batch['batch']} batch's doubled fixtures were not excluded", retry)
+        run_exclusion(folder, batch, log, progress)
+
+
+def exclusion_problem(attempts: list[dict], run_id: str) -> str | None:
+    """Why an attempt's merges may still leave doubled fixtures: its last exclusion did not finish cleanly."""
+    for batch in attempts:
+        if exclusion_due(batch, run_id) is None:
+            continue
+        if not batch["excludes"]:
+            return f"the {batch['batch']} batch's doubled fixtures were not excluded"
+        last = batch["excludes"][-1]
+        return (
+            f"the doubled-fixture exclusion over the {batch['batch']} batch exited {last['exit']}; see "
+            f"{last['output']}:\n    {_tail(Path(last['output']))}"
+        )
+    return None
+
+
+def settle_merged(attempts: list[dict], run_id: str) -> None:
+    """Drop from each attempt's ``skipped`` the pairs an attempt merged: a re-run's applier passes over, as
+    already merged, what an earlier attempt of the batch merged."""
+    merged = {
+        entry["merge_id"]
+        for batch in attempts
+        if (log := own_log(MERGES, batch, run_id))
+        for entry in read_merge_log(Path(log))
+        if (entry["result"] or {}).get("success")
+    }
+    for batch in attempts:
+        batch["skipped"] = [[team, why] for team, why in batch.get("skipped", []) if team not in merged]
 
 
 def _log_stamps(exports: Path, pattern: str | None) -> dict[Path, tuple[int, int]]:
@@ -1211,7 +1420,7 @@ def apply_batches(
     outside_window: bool,
     retry: str,
 ):
-    for name, cut in prepare_cuts(folder, stage, progress).items():
+    for name, cut in prepare_cuts(sb, folder, run_id, stage, progress).items():
         attempts = [b for b in progress["batches"] if b["batch"] == name]
         unfinished = [b for b in attempts if b["exit"] is None]
         if unfinished:
@@ -1224,10 +1433,15 @@ def apply_batches(
             check_other_writers()
             keep_lease(sb, run_id, holder, f"the {name} was not applied", retry)
             attempts.append(run_batch(folder, store, run_id, stage, name, cut, progress))
+        if stage == MERGES:
+            exclude_doubled(sb, folder, run_id, attempts, progress, holder, outside_window, retry)
         # Every attempt is ledgered, and the newest decides whether the apply goes on.
         for batch in attempts[:-1]:
             settle_batch(sb, run_id, stage, batch, retry)
         problem = batch_problem(stage, attempts[-1], settle_batch(sb, run_id, stage, attempts[-1], retry), run_id)
+        if stage == MERGES:
+            settle_merged(attempts, run_id)
+            problem = problem or exclusion_problem(attempts, run_id)
         if stage == STATES and not problem:
             settle_unaudited(sb, attempts)
             unreachable = unreachable_writes(sb, run_id, progress)
@@ -1307,7 +1521,10 @@ def apply_stage(sb, store: Path, run_id: str, stage: str, lane: str, outside_win
 def write_record(
     folder: Path, store: Path, run_id: str, stage: str, lane: str, marker: dict, rows: list, progress: dict
 ) -> Path:
-    names = {row["team_id_master"]: row["team_name"] for row in rows}
+    if stage == MERGES:
+        names = {team: change_text(row) for row in rows for team in (row["merge_id"], row["keep_id"])}
+    else:
+        names = {team: repr(name) for team, name in ((row["team_id_master"], row["team_name"]) for row in rows)}
     counts = ", ".join(f"{decision} {count}" for decision, count in marker["counts"].items())
     applied_as = (
         f"{STATE_SWEEP_ACTOR}, review-queue approvals as {actor_for(run_id)}" if stage == STATES else actor_for(run_id)
@@ -1323,21 +1540,28 @@ def write_record(
         "",
     ]
     if not progress["batches"]:
-        lines.append("Nothing to apply: no card was chosen Apply, or the hold script held every one.")
+        held = "every pair was held, as listed below" if stage == MERGES else "the hold script held every one"
+        lines.append(f"Nothing to apply: no card was chosen Apply, or {held}.")
     for batch in progress["batches"]:
         c = batch.get("counts", {})
         lines.append(
             f"- {batch['batch']} ({Path(batch['cut']).name}), {batch['started_at']} to {batch['ended_at']}: exit "
             f"{batch['exit']}, {c.get('written', 0)} written, {c.get('verified', 0)} verified and ledgered"
         )
-        own = own_log(stage, batch, run_id) if stage in APPLIER_LOGS else None
+        own = own_log(stage, batch, run_id) if stage in LOG_CHANGES else None
         lines += [
             f"  - applier log: {log}" if log == own else f"  - another writer's log, not this batch's: {log}"
             for log in batch["logs"]
         ]
         lines.append(f"  - applier output: {batch['output']}")
-    held = [f"- {names.get(d['team_id'], d['team_id'])!r}: held, {d['held_because']}" for d in progress["held"]]
-    held += [f"- {names.get(team, team)!r}: {why}" for b in progress["batches"] for team, why in b.get("skipped", [])]
+        lines += [
+            f"  - doubled-fixture exclusion: exit {step['exit']}, log {step['log']}, output {step['output']}"
+            for step in batch.get("excludes", [])
+        ]
+    held = [f"- {names.get(d['team_id'], repr(d['team_id']))}: held, {d['held_because']}" for d in progress["held"]]
+    held += [
+        f"- {names.get(team, repr(team))}: {why}" for b in progress["batches"] for team, why in b.get("skipped", [])
+    ]
     lines += ["", "## Held or not written", "", *(held or ["None."])]
     if stage == STATES:
         cards = [card for queued in progress["queue"] for card in queued["cards"]]
@@ -1385,9 +1609,24 @@ def foreign_writes(sb, run_id: str, progress: dict) -> list[str]:
     return found
 
 
-def revert_logs(stage: str, progress: dict, run_id: str) -> list[tuple[str, str]]:
-    """Each batch's own log, newest first."""
-    return [(b["batch"], log) for b in reversed(progress["batches"]) if (log := own_log(stage, b, run_id))]
+def batch_reverts(folder: Path, stage: str, progress: dict, run_id: str, execute: bool) -> list[tuple]:
+    """Each replay a revert runs, as (batch, command, the log it replays, output), newest batch first: the
+    applier's own --revert of the batch's own log, after, on merges, the exclusion's own --revert of each log
+    it wrote over them. An exclusion that wrote no log hid nothing; one that finished always writes one."""
+    steps = []
+    for batch in reversed(progress["batches"]):
+        log = own_log(stage, batch, run_id)
+        if not log:
+            continue
+        label = batch["batch"]
+        replays = [
+            (exclude_revert_command(step["log"], execute), step["log"])
+            for step in reversed(batch.get("excludes", []))
+            if Path(step["log"]).exists()
+        ]
+        for command, replayed in [*replays, (revert_command(stage, log, execute), log)]:
+            steps.append((label, command, replayed, folder / LOGS / f"revert_{label}_{Path(replayed).stem}.log"))
+    return steps
 
 
 class NotYet(str):
@@ -1396,8 +1635,9 @@ class NotYet(str):
 
 def revert_refusal(sb, store: Path, folder: Path, run_id: str, stage: str, progress: dict) -> str | None:
     """Why the stage cannot be reverted yet, if it cannot: a batch or a review-queue step with no recorded
-    end, a batch whose new logs are not told apart as its own, or for states one of its own writes outside
-    the windows the revert reads, or a window still open or holding another writer's write."""
+    end, a batch whose new logs are not told apart as its own, for merges a doubled-fixture exclusion with
+    no recorded end or a finished one whose log is gone, or for states one of its own writes outside the
+    windows the revert reads, or a window still open or holding another writer's write."""
     unfinished = [b for b in progress["batches"] if b["exit"] is None]
     if unfinished:
         return no_recorded_end(folder, store, unfinished[0])
@@ -1405,6 +1645,18 @@ def revert_refusal(sb, store: Path, folder: Path, run_id: str, stage: str, progr
     if unended:
         return no_recorded_queue_end(folder, unended[0])
     if stage != STATES:
+        steps = [(b, step) for b in progress["batches"] for step in b.get("excludes", [])]
+        unended = [(b, step) for b, step in steps if step["exit"] is None]
+        if unended:
+            return no_recorded_exclusion_end(folder, *unended[0])
+        gone = [(b, step) for b, step in steps if step["exit"] == 0 and not Path(step["log"]).exists()]
+        if gone:
+            b, step = gone[0]
+            return (
+                f"Not reverting: the doubled-fixture exclusion over the {b['batch']} batch finished, but its log "
+                f"{step['log']} is gone, so the games it hid could not be shown again. Put the log back and re-run; "
+                "until then this refusal repeats"
+            )
         # An attempt that failed before writing a log wrote nothing; one that finished wrote its changes.
         lost = [b for b in progress["batches"] if not b["logs"] and b["exit"] == 0]
         if lost:
@@ -1473,9 +1725,22 @@ def lane_teams(stage: str, progress: dict) -> set[str]:
     for cut in {Path(batch["cut"]) for batch in progress["batches"]}:
         if stage == STATES:
             teams |= {d["team_id"] for d in read_json(cut)["decisions"]}
+        elif stage == MERGES:
+            teams |= {team for pair in read_json(cut) for team in (pair["merge_id"], pair["keep_id"])}
         else:
             teams |= {row["team_id_master"] for row in _read_csv(cut)}
+    if stage == MERGES:
+        # The applier merges a pair through any merge since its page was built, so its log can name another row.
+        logs = [Path(log) for batch in progress["batches"] for log in batch["logs"]]
+        teams |= {entry["merge_id"] for log in logs if log.exists() for entry in read_merge_log(log)}
     return teams
+
+
+def put_back(stage: str, row: dict, team: dict) -> bool:
+    """Whether a ledger row's team holds its old value again; a merge's, that the retired team is live."""
+    if stage == MERGES:
+        return not team["is_deprecated"]
+    return _same(row["field"], team[row["field"]], row["old_value"])
 
 
 def stamp_reverted(sb, run_id: str, stage: str, own: set[str]) -> tuple[int, int]:
@@ -1496,8 +1761,7 @@ def stamp_reverted(sb, run_id: str, stage: str, own: set[str]) -> tuple[int, int
     back = [
         row["id"]
         for row in rows
-        if (team := teams.get(row["team_id_master"])) is not None
-        and _same(row["field"], team[row["field"]], row["old_value"])
+        if (team := teams.get(row["team_id_master"])) is not None and put_back(stage, row, team)
     ]
     stamp = {"reverted_at": utc_now_iso()}
     for ids in batched(back):
@@ -1538,11 +1802,12 @@ def revert_stage(sb, store: Path, run_id: str, stage: str, lane: str, outside_wi
                     )
                     print(lines[-1][2:])
             else:
-                for step, (label, log) in enumerate(revert_logs(stage, progress, run_id)):
+                for step, (label, command, log, output) in enumerate(
+                    batch_reverts(folder, stage, progress, run_id, True)
+                ):
                     before(step, label)
-                    output = folder / LOGS / f"revert_{label}_{Path(log).stem}.log"
-                    code = run_step(revert_command(stage, log, execute=True), output)
-                    lines.append(f"- {label}: {APPLIERS[stage]} --revert {log} exited {code}; see {output}")
+                    code = run_step(command, output)
+                    lines.append(f"- {label}: {command[0]} --revert {log} exited {code}; see {output}")
                     print(lines[-1][2:])
                     if code != 0:
                         raise SystemExit(
@@ -1576,8 +1841,8 @@ def dry_run_revert(sb, store: Path, run_id: str, stage: str, lane: str) -> None:
         for actor, window, label in reversed(state_windows(run_id, progress)):
             print(f"  {label}: revert_team_states('{actor}', '{window[0]}', '{window[1]}', ...)")
     else:
-        for label, log in revert_logs(stage, progress, run_id):
-            print(f"  {label}: python {subprocess.list2cmdline(revert_command(stage, log, execute=False))}")
+        for label, command, _, _ in batch_reverts(folder, stage, progress, run_id, execute=False):
+            print(f"  {label}: python {subprocess.list2cmdline(command)}")
     refusal = revert_refusal(sb, store, folder, run_id, stage, progress)
     if refusal:
         print(f"It would refuse. {refusal}")
@@ -1601,16 +1866,19 @@ def dry_run(sb, run_id: str, stage: str, lane: str, folder: Path, marker: dict) 
     )
     for row, _, current in planned:
         replaces = f"  (replaces {current['decision']} from {current['source']})" if current else ""
-        print(f"    {row['decision']:<10} {row['team_name']!r}: {row['old_value']!r} -> {row['new_value']!r}{replaces}")
+        print(f"    {row['decision']:<10} {change_text(row)}{replaces}")
     changes = vetted_changes(folder, stage)
     if changes:
-        held = ", before the hold script's split" if stage == STATES else ""
-        rest = ", then the rest" if len(changes) > PILOT_ROWS else ""
-        print(f"Would apply {len(changes)} change(s){held}: a pilot of {min(len(changes), PILOT_ROWS)}{rest}:")
+        held = {STATES: ", before the hold script's split", MERGES: ", less any pair another stage changed"}
+        pilot = min(len(changes), pilot_rows(stage))
+        rest = ", then the rest" if len(changes) > pilot else ""
+        print(f"Would apply {len(changes)} change(s){held.get(stage, '')}: a pilot of {pilot}{rest}:")
         if stage == STATES:
             print(f"  python {subprocess.list2cmdline(hold_command(folder))}")
-        for name, part in pilot_and_rest(changes):
+        for name, part in pilot_and_rest(stage, changes):
             print(f"  {name}: {APPLIERS[stage]} over {folder / cut_name(stage, name)}    ({len(part)} rows)")
+            if stage == MERGES:
+                print(f"    then {EXCLUDE_GAMES} --merge-log <its log> --execute, over the clusters it merged into")
         print(f"  each batch verified from the database and ledgered in {CHANGES_TABLE}")
     else:
         print("Nothing to apply: no card was chosen Apply.")

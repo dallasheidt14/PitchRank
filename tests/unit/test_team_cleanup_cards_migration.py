@@ -17,7 +17,7 @@ from pathlib import Path
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from scripts.team_cleanup.decisions import MERGES, TEAM_DECISIONS, new_page_run  # noqa: E402
+from scripts.team_cleanup.decisions import TEAM_DECISIONS, new_page_run  # noqa: E402
 from scripts.team_cleanup.propose_week import PROPOSED_STAGES  # noqa: E402
 from scripts.team_cleanup.review_page import card_id  # noqa: E402
 
@@ -112,9 +112,8 @@ def test_a_card_s_columns_carry_the_not_nulls_its_checks_rely_on():
 
 def test_a_card_s_stage_and_decision_are_the_ones_the_loop_uses():
     """The loop writes the stage and reads the decision back through these constants, and the table
-    refuses anything else; a value added on one side only fails against the live table. The table admits merges
-    ahead of the loop proposing it."""
-    assert _stage_values(TABLE) == (*PROPOSED_STAGES, MERGES) == ("clubs", "states", "ages", "merges")
+    refuses anything else; a value added on one side only fails against the live table."""
+    assert _stage_values(TABLE) == PROPOSED_STAGES == ("clubs", "states", "ages", "merges")
     assert _in_list("decision") == TEAM_DECISIONS == ("apply", "dont_apply", "unsure")
 
 

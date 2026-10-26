@@ -4,11 +4,11 @@
 Takes the stage's page.manifest.json, which pages.py wrote, and the page's saved choices, read back
 from its `decisions-<run>` collection with the ArtifactData tool: the folder `out_dir` saved them to
 (or the `decisions-<run>` folder inside it), or a JSON list of documents. Ids come only from the
-manifest; a saved choice contributes its decision and a note. It refuses, rather than guessing, a
-choice naming a card the page never showed, a duplicate or mislabelled document, a decision or
-note of the wrong kind, finding no choices at all, and a stage whose files changed after the page
-was built. A card saved with no decision (a note typed before choosing, or a choice cleared) is
-undecided.
+manifest; a saved choice contributes its decision, a note and, on a pair card, its swap. It refuses,
+rather than guessing, a choice naming a card the page never showed, a duplicate or mislabelled
+document, a decision, note or swap of the wrong kind, finding no choices at all, and a stage whose
+files changed after the page was built. A card saved with no decision (a note typed before choosing,
+or a choice cleared) is undecided.
 
 Into the stage folder it writes:
 
@@ -20,17 +20,20 @@ Into the stage folder it writes:
                      step settles it through its review row instead of replaying it, as the
                      dashboard's State Review Queue does
              ages    the plan's rows for them
-  decisions.json             every decided card's choice and note, for the apply step to record
+             merges  each pair as the merge applier reads it, turned so the row the owner chose
+                     survives; refused when two chosen merges disagree about a survivor, or
+                     would join two rows the page keeps separate
+  decisions.json             every decided card's choice, note and pair swap, for the apply step to record
                              before it writes anything
   collected.json             the collection: the page run, the counts and the files' hashes
 
 With --from-db it reads the choices from the page's published cards in team_cleanup_cards instead,
-the website's, taking a decision, a note and the time it was saved from each owner card, once
-team_cleanup_runs marks the run's review done (owner_done_at) and the choices stop changing. It refuses
-a build the table saved later whose files are missing, a choice saved on an earlier build this one
-replaced, a card of the build with no row, a row under the build's page run that it never made, a row
-in the other lane, and a decision and its time not set together; with every row there, no decision
-at all is a page left undecided.
+the website's, taking a decision, a note, on a pair card its swap, and the time it was saved from each
+owner card, once team_cleanup_runs marks the run's review done (owner_done_at) and the choices stop
+changing. It refuses a build the table saved later whose files are missing, a choice saved on an
+earlier build this one replaced, a card of the build with no row, a row under the build's page run
+that it never made, a row in the other lane, and a decision and its time not set together; with every
+row there, no decision at all is a page left undecided.
 Those reads are its only database access. Collecting again, while the run is in review and the stage is
 not applied, replaces all three files; while an apply holds the run on this machine, it refuses.
 
@@ -59,7 +62,16 @@ sys.path.insert(0, str(ROOT))
 
 from scripts.find_cross_provider_duplicates import get_client, page  # noqa: E402
 from scripts.repair_swapped_club_names import write_log  # noqa: E402
-from scripts.team_cleanup.decisions import APPLY, CARD_COLS, CARDS_TABLE, TEAM_DECISIONS, page_built_at  # noqa: E402
+from scripts.team_cleanup.decisions import (  # noqa: E402
+    APPLY,
+    CARD_COLS,
+    CARDS_TABLE,
+    DONT_APPLY,
+    MERGES,
+    TEAM_DECISIONS,
+    page_built_at,
+)
+from scripts.team_cleanup.pairs import SWAPPED, as_chosen, refuse_conflicts, refuse_kept_apart_joins  # noqa: E402
 from scripts.team_cleanup.propose_week import (  # noqa: E402
     AGES,
     APPLIER_INPUTS,
@@ -94,7 +106,7 @@ from scripts.team_cleanup.run_store import (  # noqa: E402
 from src.tournaments.storage._io import read_json, utc_now_iso, write_json  # noqa: E402
 
 DECISIONS_FILE = "decisions.json"
-VETTED = {CLUBS: "vetted.csv", STATES: "vetted.json", AGES: "vetted.csv"}
+VETTED = {CLUBS: "vetted.csv", STATES: "vetted.json", AGES: "vetted.csv", MERGES: "vetted.json"}
 # How each lane's decisions name where they came from.
 LANE_SOURCES = {OWNER: "page", AUTO: AUTO}
 
@@ -117,8 +129,9 @@ def check_choices(manifest: dict, choices: dict[str, dict]) -> None:
             choice.get("decision") not in (*TEAM_DECISIONS, None)
             or not isinstance(note, (str, type(None)))
             or "\x00" in (note or "")
+            or not isinstance(choice.get("swap", False), bool)
         ):
-            raise SystemExit(f"saved choice {card_id} holds a decision or note the page never writes: {choice}")
+            raise SystemExit(f"saved choice {card_id} holds a decision, swap or note the page never writes: {choice}")
 
 
 def fetch_cards(sb, **match) -> list[dict]:
@@ -189,7 +202,7 @@ def db_choices(sb, manifest: dict) -> tuple[dict[str, dict], dict[str, str]]:
         if (row["decision"] is None) != (row["decided_at"] is None):
             raise SystemExit(f"card {card_id} holds a decision without the time it was saved, or a time without one")
         if lanes[card_id] == OWNER and row["decision"] is not None:
-            choices[card_id] = {"decision": row["decision"], "note": row["note"]}
+            choices[card_id] = {"decision": row["decision"], "note": row["note"], "swap": row["swap"]}
             decided[card_id] = row["decided_at"]
     return choices, decided
 
@@ -204,19 +217,37 @@ def decision_rows(manifest: dict, choices: dict[str, dict], lane: str = OWNER, d
         if choice.get("decision"):
             note = (choice.get("note") or "").strip() or None
             decided_at = (decided or {}).get(card_id) or built_at
-            rows.append(
-                {**proposal, "decision": choice["decision"], "note": note, "decided_at": decided_at, "source": source}
-            )
+            row = {**proposal, "decision": choice["decision"], "note": note, "decided_at": decided_at, "source": source}
+            rows.append({**row, "swap": choice.get("swap", False)} if manifest["stage"] == MERGES else row)
     return rows
 
 
-def write_vetted(folder: Path, stage: str, approved: set[str]) -> Path | None:
-    """The stage file's rows for the approved teams, copied as it holds them, so the applier reads
-    its own escaping back. A stage proposes one change per team, so a team id names one row."""
+def chosen_merges(rows: list[dict]) -> list[dict]:
+    """The pairs chosen Merge, as the applier reads them, each the way round the owner chose. Refused when
+    they disagree about a survivor, or two of them join a pair the page keeps separate, since the applier
+    would drop or chain those merges rather than land the owner's choice."""
+    merges = []
+    for row in rows:
+        if row["decision"] == APPLY:
+            chosen = as_chosen(row)
+            merges.append({key: chosen[key] for key in SWAPPED})
+    refuse_conflicts(merges)
+    refuse_kept_apart_joins(merges, [row for row in rows if row["decision"] == DONT_APPLY])
+    return merges
+
+
+def write_vetted(folder: Path, stage: str, rows: list[dict]) -> Path | None:
+    """The stage file's rows for the changes chosen Apply, copied as it holds them, so the applier reads
+    its own escaping back; merges write the chosen pairs, each turned as the owner chose. A stage proposes
+    one change per team, so a team id names one row."""
     path, inputs = folder / VETTED[stage], inputs_dir(folder)
     path.unlink(missing_ok=True)
+    approved = {row["team_id_master"] for row in rows if row["decision"] == APPLY}
     if not approved:
         return None
+    if stage == MERGES:
+        write_json(path, chosen_merges(rows), indent=1)
+        return path
     if stage == STATES:
         snapshot = read_json(inputs / APPLIER_INPUTS[STATES])
         decisions = [d for d in snapshot["decisions"] if d["team_id"] in approved]
@@ -225,6 +256,13 @@ def write_vetted(folder: Path, stage: str, approved: set[str]) -> Path | None:
     rows = [row for row in _read_csv(inputs / APPLIER_INPUTS[stage]) if row["team_id_master"] in approved]
     write_log([{**row, "approved": "true"} for row in rows] if stage == CLUBS else rows, path)
     return path
+
+
+def change_text(row: dict) -> str:
+    if "merge_id" in row:
+        chosen = as_chosen(row)
+        return f"{chosen['merge_name']!r} into {chosen['keep_name']!r}"
+    return f"{row['team_name']!r}: {row['old_value']!r} -> {row['new_value']!r}"
 
 
 def collected(stage: str, lane: str) -> str:
@@ -260,9 +298,8 @@ def _collect(store: Path, run_id: str, stage: str, decisions: Path | None, lane:
         check_choices(manifest, choices)
 
     rows = decision_rows(manifest, choices, lane, decided)
-    approved = {row["team_id_master"] for row in rows if row["decision"] == APPLY}
     folder.mkdir(exist_ok=True)
-    vetted = write_vetted(folder, stage, approved)
+    vetted = write_vetted(folder, stage, rows)
     write_json(folder / DECISIONS_FILE, rows, indent=1)
     counts = Counter(row["decision"] for row in rows)
     marker = {
@@ -308,7 +345,7 @@ def main() -> int:
     for row in result["rows"]:
         if row["decision"] != APPLY or row["note"]:
             note = f"  note: {row['note']!r}" if row["note"] else ""
-            print(f"    {row['decision']:<10} {row['team_name']!r}: {row['old_value']!r} -> {row['new_value']!r}{note}")
+            print(f"    {row['decision']:<10} {change_text(row)}{note}")
     print(f"wrote {folder / marker['vetted']}" if marker["vetted"] else "nothing to apply")
     print(f"wrote {folder / DECISIONS_FILE}")
     return 0

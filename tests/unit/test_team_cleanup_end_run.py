@@ -20,17 +20,18 @@ from src.tournaments.storage._file_lock import _acquire_file_lock  # noqa: E402
 from tests.unit.test_team_cleanup_run_store import RUN, _api_error, _Db, _row, _stamp  # noqa: E402
 
 OTHER = "2026-10-07-nv"
-NOT_RUN = {"reconcile": "not run: reconcile is run by hand", "merges": "not run: the duplicate scans are frozen"}
+NOT_RUN = {"reconcile": "not run: reconcile is run by hand"}
+PROPOSED = ("clubs", "states", "ages", "merges")
 APPLIED = ("preflight.json", "propose_done", "page.json", "collected.json", "RECORD.md")
 
 
-def _store(tmp_path, status="reviewing", applied=("clubs", "states", "ages"), notes=None):
-    """Of clubs, states and ages, the listed ones are applied and the rest have passed only their
-    self-check; reconcile and merges are noted as not run."""
+def _store(tmp_path, status="reviewing", applied=PROPOSED, notes=None):
+    """Of the proposed stages, the listed ones are applied and the rest have passed only their
+    self-check; reconcile is noted as not run."""
     store = tmp_path / "store"
     stages = {**NOT_RUN, **(notes or {})}
     write_run(store, {"run_id": RUN, "scope": {"states": ["NV"]}, "status": status, "budgets": {}, "stages": stages})
-    for stage in ("clubs", "states", "ages"):
+    for stage in PROPOSED:
         folder = stage_dir(store, RUN, stage)
         folder.mkdir(parents=True, exist_ok=True)
         for marker in APPLIED if stage in applied else APPLIED[:1]:
@@ -72,6 +73,7 @@ def test_a_dry_run_says_what_it_would_do_and_opens_nothing(tmp_path, monkeypatch
         "DRY RUN -- would move run 2026-10-14-nv from reviewing to abandoned.\n"
         + unapplied.format("states")
         + unapplied.format("ages")
+        + unapplied.format("merges")
         + "Re-run with --execute to move it.\n"
     )
     assert read_run(store, RUN)["status"] == "reviewing"
@@ -79,7 +81,7 @@ def test_a_dry_run_says_what_it_would_do_and_opens_nothing(tmp_path, monkeypatch
 
 @pytest.mark.parametrize("flags", [(), ("--execute", "--dry-run")], ids=["no-execute", "dry-run-wins"])
 def test_a_dry_run_refuses_what_execute_would(tmp_path, monkeypatch, capsys, flags):
-    store = _store(tmp_path, applied=("clubs", "ages"))
+    store = _store(tmp_path, applied=("clubs", "ages", "merges"))
 
     with pytest.raises(SystemExit, match="so it is not done; finish them or use --abandon:\n  states: next, write"):
         _main(monkeypatch, capsys, store, None, "--done", *flags)
@@ -107,7 +109,7 @@ def test_abandoning_moves_the_row_and_run_json_and_records_why(tmp_path, monkeyp
 
 
 def test_done_is_refused_while_a_stage_is_unapplied(tmp_path, monkeypatch, capsys):
-    store = _store(tmp_path, applied=("clubs", "ages"))
+    store = _store(tmp_path, applied=("clubs", "ages", "merges"))
     db = _Db(_row())
 
     with pytest.raises(SystemExit, match="finish them or use --abandon:\n  states: next, write the stage's proposals$"):
@@ -117,7 +119,8 @@ def test_done_is_refused_while_a_stage_is_unapplied(tmp_path, monkeypatch, capsy
 
 def test_a_stage_that_failed_to_propose_is_not_finished(tmp_path, monkeypatch, capsys):
     """A failed stage is kept open to be retried."""
-    store = _store(tmp_path, applied=("clubs", "ages"), notes={"states": "failed: assign_team_states.py exited 1"})
+    failed = {"states": "failed: assign_team_states.py exited 1"}
+    store = _store(tmp_path, applied=("clubs", "ages", "merges"), notes=failed)
     db = _Db(_row(status="proposing"))
 
     with pytest.raises(SystemExit, match="\n  states: failed: assign_team_states.py exited 1$"):
@@ -127,7 +130,7 @@ def test_a_stage_that_failed_to_propose_is_not_finished(tmp_path, monkeypatch, c
 
 @pytest.mark.parametrize("note", ["skill_stale: check exited 1", "skill_stale"], ids=["with-reason", "bare"])
 def test_done_closes_a_run_whose_stages_are_applied_or_have_nothing_to_apply(tmp_path, monkeypatch, capsys, note):
-    store = _store(tmp_path, applied=("clubs", "ages"), notes={"states": note})
+    store = _store(tmp_path, applied=("clubs", "ages", "merges"), notes={"states": note})
     db = _Db(_row(status="applying"))
 
     code, _ = _main(monkeypatch, capsys, store, db, "--done", "--execute")

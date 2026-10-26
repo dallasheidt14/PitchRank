@@ -36,11 +36,16 @@ def changes(before: dict[str, list], after: dict[str, list]) -> dict[str, dict[s
 
 def stale(proposals: list[dict], moved: dict[str, dict[str, list]]) -> list[dict]:
     """The proposals whose team changed in the proposed field or in is_deprecated (merged, restored,
-    created or deleted in the window)."""
+    created or deleted in the window). A pair is judged on both its rows as they stood, so either one
+    changing in any guarded field makes it stale."""
     found = []
     for proposal in proposals:
-        diff = moved.get(proposal["team_id_master"], {})
-        why = {field: values for field, values in diff.items() if field in (proposal["field"], DEPRECATED)}
+        if "merge_id" in proposal:
+            sides = (("merge", proposal["merge_id"]), ("keep", proposal["keep_id"]))
+            why = {f"{side} {field}": values for side, team in sides for field, values in moved.get(team, {}).items()}
+        else:
+            diff = moved.get(proposal["team_id_master"], {})
+            why = {field: values for field, values in diff.items() if field in (proposal["field"], DEPRECATED)}
         if why:
             found.append({**proposal, "changed": why})
     return found

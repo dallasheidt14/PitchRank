@@ -3,6 +3,6 @@
     "start": {"weekday": "Wednesday", "time": "11:00"},
     "end": {"weekday": "Sunday", "time": "22:00"}
   },
-  "page_caps": {"cards": 2000, "auto": 50},
+  "page_caps": {"cards": 2000, "auto": 50, "merges": {"cards": 100, "auto": 50}},
   "review_deadline": {"weekday": "Sunday", "time": "18:00"}
 }

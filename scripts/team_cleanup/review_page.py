@@ -31,6 +31,25 @@ def fetch_teams(sb, ids) -> dict[str, dict]:
     return teams
 
 
+def team_block(t, ev, providers) -> dict:
+    """A team as a card shows it, its games read under its surviving row."""
+    tid = t["team_id_master"]
+    dates = ev.dates[tid]
+    return {
+        "name": t["team_name"],
+        "original": t["team_name_original"],
+        "club": t["club_name"],
+        "state": (t["state_code"] or "").strip() or None,
+        "age": t["age_group"],
+        "gender": t["gender"],
+        "provider": providers.get(t["provider_id"]),
+        "games": ev.games[tid],
+        "excluded": ev.excluded[tid],
+        "first": min(dates, default=None),
+        "last": max(dates, default=None),
+    }
+
+
 def card_id(run: str, key: str) -> str:
     """The run keeps a choice saved on another build from being read as this one's, and a short
     hash keeps the file a choice is saved to inside Windows' path limit."""

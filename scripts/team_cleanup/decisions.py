@@ -10,11 +10,11 @@ from datetime import datetime, timezone
 DECISIONS_TABLE = "team_cleanup_decisions"
 CHANGES_TABLE = "team_cleanup_changes"
 CARDS_TABLE = "team_cleanup_cards"
-CARD_COLS = "card_id,page_run,lane,decision,note,decided_at,created_at"
+CARD_COLS = "card_id,page_run,lane,decision,note,decided_at,created_at,swap"
 MERGES = "merges"
 KEEP_SEPARATE = "keep_separate"
 KEEP_SEPARATE_COLS = "id,team_id_master,other_team_id,decided_at,superseded_at"
-# A single-team proposal's decisions, as a page saves them and the table records them.
+# Every card's decisions as a page saves them; the table records a pair's dont_apply as keep_separate.
 APPLY, DONT_APPLY, UNSURE = "apply", "dont_apply", "unsure"
 TEAM_DECISIONS = (APPLY, DONT_APPLY, UNSURE)
 DONT_APPLY_COLS = "id,team_id_master,field,proposed_value,decided_at,superseded_at"
@@ -108,6 +108,13 @@ def card_rows(run_id: str, stage: str, page_run: str, built_at: str, lanes: dict
         for lane, cards in lanes.items()
         for c in cards
     ]
+
+
+def pair_decision_row(card: dict) -> dict:
+    """A pair card's decision, from its decisions.json row turned the way round the owner chose. Don't apply
+    is the owner's Keep separate."""
+    row = keep_separate_row(card["merge_id"], card["keep_id"], card["note"], card["decided_at"], card["source"])
+    return row if card["decision"] == DONT_APPLY else {**row, "decision": card["decision"]}
 
 
 def team_decision_row(stage: str, card: dict) -> dict:

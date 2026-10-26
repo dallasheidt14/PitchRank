@@ -25,7 +25,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from scripts.find_cross_provider_duplicates import get_client, load_merge_map, resolver  # noqa: E402
-from scripts.team_cleanup.collect import DECISIONS_FILE  # noqa: E402
+from scripts.team_cleanup.collect import DECISIONS_FILE, change_text  # noqa: E402
 from scripts.team_cleanup.decisions import APPLY, DONT_APPLY, UNSURE, DecisionsUnavailable  # noqa: E402
 from scripts.team_cleanup.propose_week import (  # noqa: E402
     AGE_REVIEW_FILE,
@@ -61,7 +61,8 @@ def stage_cards(store: Path, run_id: str, stage: str) -> list[tuple[dict, str]] 
 def replay(sb, store: Path, run_ids: list[str]) -> tuple[dict[str, Counter], list[str]]:
     """Per stage, (sure or not, the owner's decision) -> cards; and the sure cards the owner did not
     want. Each card is judged as its team stands today, so a team merged since its run is read under
-    its surviving id, as the undo ledger and the live teams are."""
+    its surviving id, as the undo ledger and the live teams are. It reads no games, so a provably safe
+    pair its page held back to a card because the retiring row had played since the scan replays as sure."""
     canonical = resolver(load_merge_map(sb))
     tables, unwanted, paged = {}, [], set()
     for stage in PROPOSED_STAGES:
@@ -78,6 +79,7 @@ def replay(sb, store: Path, run_ids: list[str]) -> tuple[dict[str, Counter], lis
                 table["sure" if why else "conflict", decision] += 1
                 if why and decision in (DONT_APPLY, UNSURE):
                     change = f"{p['team_name']!r} {p['old_value']} -> {p['new_value']}"
+                    change = change_text(p) if "merge_id" in p else change
                     unwanted.append(f"{run_id} {stage}: {change} ({decision})")
         tables[stage] = table
     if unpaged := [run_id for run_id in run_ids if run_id not in paged]:
