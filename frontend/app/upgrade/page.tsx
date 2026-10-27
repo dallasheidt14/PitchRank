@@ -75,14 +75,19 @@ function UpgradePageContent() {
 
   // The team the parent tapped, named so the paywall does not look like a wrong link.
   const tappedTeamId = TEAM_PATH.exec(searchParams.get('next') ?? '')?.[1] ?? null;
-  const [tappedTeam, setTappedTeam] = useState<Awaited<ReturnType<typeof api.getPaywallTeamPreview>>>(null);
+  // Keyed by id, so a banner loaded for one team is never shown for another destination.
+  const [loadedTeam, setLoadedTeam] = useState<{
+    id: string;
+    team: Awaited<ReturnType<typeof api.getPaywallTeamPreview>>;
+  } | null>(null);
+  const tappedTeam = loadedTeam && loadedTeam.id === tappedTeamId ? loadedTeam.team : null;
   useEffect(() => {
     if (!tappedTeamId) return;
     let cancelled = false;
     api
       .getPaywallTeamPreview(tappedTeamId)
       .then((team) => {
-        if (!cancelled) setTappedTeam(team);
+        if (!cancelled) setLoadedTeam({ id: tappedTeamId, team });
       })
       .catch(() => {});
     return () => {

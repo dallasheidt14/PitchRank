@@ -96,4 +96,20 @@ describe('UpgradePage paywall', () => {
     const hrefs = Array.from(container.querySelectorAll('a')).map((a) => a.getAttribute('href'));
     expect(hrefs).toContain(`/login?next=${encodeURIComponent(`/teams/${TEAM_ID}`)}`);
   });
+
+  it('drops the old team banner when the destination is no longer a team', async () => {
+    state.next = `/teams/${TEAM_ID}`;
+    mockPreview.mockResolvedValue({
+      team_name: 'Phoenix Rising 2014',
+      club_name: null,
+      age: 12,
+      gender: 'M',
+      rank_in_cohort_final: 7,
+    });
+    await render();
+    expect(container.textContent).toContain('Phoenix Rising 2014');
+    state.next = '/compare';
+    await render();
+    expect(container.textContent).not.toContain('Phoenix Rising 2014');
+  });
 });
