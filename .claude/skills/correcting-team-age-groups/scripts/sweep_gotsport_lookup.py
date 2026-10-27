@@ -9,7 +9,7 @@ ids = [r['team_id'] for r, b, why in d['rest'] if not why.startswith('move would
 OUTP = r'C:\PitchRank\data\exports\all_gotsport_fresh.csv'
 done = set()
 if os.path.exists(OUTP):
-    done = {x['team_id'] for x in csv.DictReader(open(OUTP, encoding='utf-8'))}
+    done = {x['team_id'] for x in csv.DictReader(open(OUTP, encoding='utf-8')) if x['status'] != 'empty_or_blocked'}
 meta = {}
 for i in range(0, len(ids), 100):
     for m in c.table('teams').select('team_id_master,provider_id,provider_team_id').in_('team_id_master', ids[i:i+100]).execute().data:

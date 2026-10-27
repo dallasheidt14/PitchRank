@@ -1,5 +1,5 @@
 """Stage 1 (read-only): features + tier-1 and GotSport-agrees plans for every non-CA team the review flagged."""
-import csv, importlib.util, sys, collections, pickle
+import csv, importlib.util, sys, collections, pickle, re
 sys.path.insert(0, r'C:\PitchRank')
 SK = r'C:\PitchRank\.claude\skills\correcting-team-age-groups\scripts\review_age_labels.py'
 spec = importlib.util.spec_from_file_location('ral', SK)
@@ -61,6 +61,8 @@ for i in range(0, len(opp_ids), 100):
 print('opp names', len(names), flush=True)
 
 PF = ral.PLAN_FIELDS
+# a name carrying a past-season marker may state last season's label
+STALE = re.compile(r'(spring|fall|summer|winter)\s*20\d\d|\b2[0-9]\s*/\s*2[0-9]\b|\b20(2[0-5])\b', re.I)
 tier = {'band': 'A_own_name_band', 'ulabel': 'U_own_name_ulabel_opponent_confirmed', 'year': 'Y_single_year'}
 
 
@@ -105,6 +107,8 @@ for r in rows:
             best = dict(P=P, sup=sup, con=con, ok=ok, ind=cnt['ind_P'], lab_P=cnt['lab_P'], lab_S=cnt['lab_S'], ind_S=cnt['ind_S'], score=score)
     if not g:
         hold_H.append((r, 'no_games_since_aug1')); continue
+    if r['cat'] == 'held_duplicate_landing':
+        rest.append((r, best)); continue
     if r['group'] in ('1', '2', '3') and r['proposed']:
         plan1.append(prow(r, r['proposed'], f"review_group_{r['group']}")); continue
     if r['group'] == '4' and r['proposed'] and (r['proposed'] in (r['band_opps_say'], r['div_says']) or (best and best['ok'] and best['P'] == r['proposed'])):
@@ -121,9 +125,9 @@ for r, best in rest:
     if not best:
         rest2.append((r, best, 'no candidate')); continue
     G = r['gotsport_age']; P = best['P']; S = r['stored']
-    backS = (best['lab_S'] + best['ind_S']) >= 3 and best['lab_S'] + best['ind_S'] > best['sup']
+    backS = best['lab_S'] + best['ind_S'] > 0 and best['lab_S'] + best['ind_S'] >= best['sup']
     play_up = r['cat'] == 'ulabel_plays_up'
-    if G and G == P and (not backS or play_up):
+    if G and G == P and (not backS or play_up) and not STALE.search(r['name']):
         plan_gs.append(prow(r, P, 'name+gotsport agree', 'U_own_name_ulabel_gotsport_agrees'))
     else:
         rest2.append((r, best, ''))
