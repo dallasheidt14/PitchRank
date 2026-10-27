@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { checkRateLimit } from '@/lib/api/rateLimit';
 import { requirePremium } from '@/lib/api/requirePremium';
+import { notifyAdmin } from '@/lib/notifications/admin';
 
 export async function POST(request: NextRequest) {
   try {
@@ -98,6 +99,13 @@ export async function POST(request: NextRequest) {
       console.error('[scrape-missing-game] Database error:', insertError);
       return NextResponse.json({ error: 'Failed to create scrape request' }, { status: 500 });
     }
+
+    const escapedTeamName = String(teamName).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    await notifyAdmin(
+      `Missing game requested: <b>${escapedTeamName}</b> (game date ${gameDate})
+https://www.pitchrank.io/teams/${encodeURIComponent(teamId)}`,
+      process.env.TELEGRAM_MISSING_GAMES_CHAT_ID
+    );
 
     return NextResponse.json({
       success: true,

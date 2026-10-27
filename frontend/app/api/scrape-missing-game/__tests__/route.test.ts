@@ -11,7 +11,9 @@ const { mockRequirePremium, mockCheckRateLimit, mockCreateClient } = vi.hoisted(
 vi.mock('@/lib/api/requirePremium', () => ({ requirePremium: mockRequirePremium }));
 vi.mock('@/lib/api/rateLimit', () => ({ checkRateLimit: mockCheckRateLimit }));
 vi.mock('@supabase/supabase-js', () => ({ createClient: mockCreateClient }));
+vi.mock('@/lib/notifications/admin', () => ({ notifyAdmin: vi.fn().mockResolvedValue(undefined) }));
 
+import { notifyAdmin } from '@/lib/notifications/admin';
 import { POST } from '../route';
 
 function makeRequest(body: unknown) {
@@ -53,6 +55,29 @@ describe('POST /api/scrape-missing-game', () => {
       'enqueue_scrape_request',
       expect.objectContaining({ p_team_id_master: validBody.teamId, p_priority: 1 })
     );
+  });
+
+  it('alerts the missing-games chat once the request is queued', async () => {
+    process.env.TELEGRAM_MISSING_GAMES_CHAT_ID = '-100123';
+    svc.queueFrom('teams', { data: { provider_id: 1, provider_team_id: '9999' }, error: null });
+    svc.queueRpc({ data: 'request-1', error: null });
+
+    await POST(makeRequest({ ...validBody, teamName: 'A&B <FC>' }));
+
+    expect(vi.mocked(notifyAdmin)).toHaveBeenCalledWith(
+      expect.stringContaining('<b>A&amp;B &lt;FC&gt;</b>'),
+      '-100123'
+    );
+  });
+
+  it('sends no alert when the enqueue fails', async () => {
+    svc.queueFrom('teams', { data: { provider_id: 1, provider_team_id: '9999' }, error: null });
+    svc.queueRpc({ data: null, error: { message: 'boom' } });
+
+    const res = await POST(makeRequest(validBody));
+
+    expect(res.status).toBe(500);
+    expect(vi.mocked(notifyAdmin)).not.toHaveBeenCalled();
   });
 
   it('returns the requirePremium error and never touches the database for a free user', async () => {
