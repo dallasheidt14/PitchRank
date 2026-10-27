@@ -234,6 +234,27 @@ per-team triage. Both lanes write through the same applier as this audit, so the
 above guard them too. Neither lane fixes a band-named team that GotSport files one group old;
 this audit is how those get fixed.
 
+## Sweeping many teams at once
+
+Used 2026-10-26 on every state: about 5,500 teams moved, 1,185 left for the owner. The two scripts
+are the sweep as run, with their paths hardcoded to that session's files: read them and adjust
+before reuse. Both read a review CSV, so run Step 1 first.
+
+- **Evidence.** Only games from Aug 1 of the season count. Teams with no games since then are set
+  aside, not listed.
+- **Tier 1, move.** Opponent witnesses agree (`scripts/sweep_stage1.py`): at least 4 supporting
+  games across 3 opponents, none backing the stored group, at least one witness a band or birth year.
+- **Tier 2, move.** The team's own name and GotSport's cohort agree, no opponents back the stored
+  group, and the name carries no last-season marker (`Spring 2026`, `25/26`). A U-label alone can be
+  last season's, so it never moves a team on its own.
+- **Everything else goes to the owner's list**, sorted by reason: GotSport says a third age, no
+  GotSport id, GotSport agrees but opponents back stored, move would duplicate a team.
+- **GotSport lookups** (`scripts/sweep_gotsport_lookup.py`): `team_details` is free but gets a
+  403 block. Space requests 3 seconds apart, abort after 10 failures in a row, and resume from the
+  output CSV. A block cleared on its own after a pause.
+- **Applying.** Pilot 50, read back from the database, then the rest, as in Step 5. Each batch keeps
+  its own apply log for `--revert`.
+
 ## Reporting a batch
 
 Give the count with its population and what remains — "3,700 of 22,800, the rest waiting for
