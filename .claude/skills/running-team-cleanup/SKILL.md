@@ -64,7 +64,7 @@ manifest carries the counts as `scanned`.
 
 Only a cross-provider pair in the `1_provably_safe` tier merges on its own: the row it retires holds
 no games, still none when the page is built, and its provider alias already points at the row it
-keeps. Every other pair is a card, at most 100 a week (`page_caps.merges`): pairs with a followed team
+keeps. Every other pair is a card, at most 1,000 a week (`page_caps.merges`): pairs with a followed team
 first, then the cross-provider scan's before the squad-key scan's, each by the fewest games on the row
 it retires. **Merge them** applies it; **Keep separate** records a decision both scans honour from then
 on; **Not sure** brings it back next week; **Keep the other one** flips which row survives.

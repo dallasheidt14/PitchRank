@@ -2198,8 +2198,8 @@ def test_the_merges_cap_keeps_the_cross_provider_pairs_retiring_the_fewest_games
     assert [p["merge_id"] for p in manifest["overflow"]] == ["d-empty"]
 
 
-def test_the_shipped_merges_caps_are_a_hundred_cards_and_fifty_automatic_merges():
-    assert LOAD_CAPS(stage="merges") == pages.Caps(cards=100, auto=50)
+def test_the_shipped_merges_caps_are_a_thousand_cards_and_fifty_automatic_merges():
+    assert LOAD_CAPS(stage="merges") == pages.Caps(cards=1000, auto=50)
     assert LOAD_CAPS(stage="states") == LOAD_CAPS() == pages.Caps(cards=2000, auto=50)
 
 
