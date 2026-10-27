@@ -2462,3 +2462,43 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: the `'Score'` entry of `games_df` in the `with games_tab:` block of `dashboard.py`
 - **Why**: Read on `origin/main` 2026-10-22. `g.get('home_score', '-')` only falls back when the key is absent, and supabase-py returns the key with `None`, so an unscored fixture reads `None - None` while its Result column now shows a dash. Treat `None` as unscored in the cell.
 - **Noted**: 2026-10-22
+
+### Act on the value an owner's note names on a declined cleanup card
+
+- **ID**: IMP-382
+- **Status**: open
+- **Type**: plan
+- **Category**: feature
+- **Where**: `scripts/team_cleanup/decisions.py` `keep_separate_row` and the `note` column `CARD_COLS` reads; `scripts/team_cleanup/collect.py`
+- **Why**: Read 2026-10-27: a declined card's note is stored with its decision, but nothing in `scripts/team_cleanup/` reads it back as a correction. Owner notes on declined state cards name the right value ("this should be CA"), so that value is lost and the owner is asked again.
+- **Noted**: 2026-10-27
+
+### Settle the age changes the weekly cleanup holds every week
+
+- **ID**: IMP-383
+- **Status**: open
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: the `held_name_contradicts` hold in `scripts/weekly_age_recheck.py` and `scripts/fix_band_cohorts.py`, as the cleanup's ages stage applies it
+- **Why**: Session notes from 2026-10-26 report the same five age changes held every week (unverified this session). A hold with no way to settle it returns as the same cards every run.
+- **Noted**: 2026-10-27
+
+### Decide whether undoing the merges automatic lane also retires its Keep separate rows
+
+- **ID**: IMP-384
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `scripts/team_cleanup/apply_stage.py` `revert_stage`; `team_cleanup_decisions`
+- **Why**: Read 2026-10-27: the merges automatic lane records each upheld reviewer reject as Keep separate, and `revert_stage`'s body never names `team_cleanup_decisions`, so after an undo both duplicate scans still refuse those pairs. Whether an undo should bring them back is the owner's call.
+- **Noted**: 2026-10-27
+
+### Re-probe the duplicate reviewers' sandbox when the Claude Code CLI changes
+
+- **ID**: IMP-385
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `scripts/team_cleanup/review_merges.py` `reviewer_command` and `reviewer_env`; `scripts/team_cleanup/advance.py` review step
+- **Why**: The sandbox rests on CLI behaviour measured on 2.1.311 on 2026-10-27 (dontAsk refusals, `Edit(/...)` anchoring, `blockReadsOutsideWorkingDirectories`, `--strict-mcp-config`, the auto-memory variable), not a documented contract, and an auto-update could loosen it silently. A one-run probe (outside write and read, `cd` then write, the stream-json init event) run when the CLI version changes, refusing the review on failure, would catch that.
+- **Noted**: 2026-10-27

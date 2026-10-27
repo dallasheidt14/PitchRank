@@ -26,6 +26,7 @@ from scripts.team_cleanup.run_store import (  # noqa: E402
     PREFLIGHT_MARKER,
     PROPOSALS_FILE,
     PROPOSE_MARKER,
+    REVIEW_DIR,
     STALE_FILE,
     run_dir,
     stage_dir,
@@ -35,6 +36,7 @@ from scripts.team_cleanup.run_store import (  # noqa: E402
 from scripts.team_cleanup.vetted import as_vetted, stamp  # noqa: E402
 from src.tournaments.storage._file_lock import _acquire_file_lock  # noqa: E402
 from src.tournaments.storage._io import write_json  # noqa: E402
+from src.utils.team_utils import _soccer_season_year  # noqa: E402
 from tests.unit import test_team_cleanup_cards_migration as cards_migration  # noqa: E402
 
 LOAD_CAPS = pages.load_caps
@@ -45,6 +47,16 @@ def _every_settled_change_a_card(monkeypatch):
     """The page's caps, whatever config/team_cleanup.json ships: 150 cards and an empty automatic lane, unless a
     test gives the lane a cap."""
     monkeypatch.setattr(pages, "load_caps", lambda **_: pages.Caps(cards=150, auto=0))
+
+
+IDLE = pages.idle
+
+
+@pytest.fixture(autouse=True)
+def _every_pair_plays_this_season(monkeypatch):
+    """No pair is left off for want of a game this season, so a pair's fixture needs no schedule, unless a test
+    puts the real rule back."""
+    monkeypatch.setattr(pages, "idle", lambda p, ev: False)
 
 
 RUN = "2026-10-14-nv"
@@ -1341,8 +1353,16 @@ def test_the_configured_caps_send_one_pilot_batch_a_stage_to_the_automatic_lane_
 
 @pytest.mark.parametrize(
     "caps",
-    [{"cards": 150}, {"cards": -1, "auto": 0}, {"cards": 150, "auto": True}, {"cards": "150", "auto": 0}, [150, 0]],
-    ids=["missing", "negative", "a-bool", "a-string", "a-list"],
+    [
+        {"cards": 150},
+        {"cards": -1, "auto": 0},
+        {"cards": 150, "auto": True},
+        {"cards": "150", "auto": 0},
+        [150, 0],
+        {"cards": 150, "auto": 0, "review": -1},
+        {"cards": 150, "auto": 0, "review": 1.5},
+    ],
+    ids=["missing", "negative", "a-bool", "a-string", "a-list", "a-negative-review", "a-fractional-review"],
 )
 def test_caps_that_are_missing_or_not_whole_numbers_from_0_are_refused(tmp_path, caps):
     config = tmp_path / "team_cleanup.json"
@@ -2041,6 +2061,8 @@ SIDE_KEYS = {
     "last",
 }
 EVIDENCE_KEYS = {"doorway", "shared_opponents", "shared_opponent_names", "shared_dates", "opponent_overlap"}
+# What a reviewed pair's automatic card adds; its swap goes to the row's own column.
+AUTO_PAIR_KEYS = {"keep_separate"}
 
 
 def _ts_fields(name):
@@ -2076,12 +2098,15 @@ def _merges(store, pairs, stale=()):
 
 
 def _merge_week(tmp_path, monkeypatch, pairs, *, teams, games=(), cards=150, auto=0):
+    """A merges stage under the shipped review cap, its review folder as a review of no pair leaves it."""
     store = tmp_path / "store"
     _reviewing(store)
-    _merges(store, pairs)
+    (_merges(store, pairs) / REVIEW_DIR).mkdir()
     db = _Db(teams=teams, games=list(games))
     monkeypatch.setattr(
-        pages, "load_caps", lambda **kw: pages.Caps(cards, auto) if kw.get("stage") == "merges" else pages.Caps(1, 1)
+        pages,
+        "load_caps",
+        lambda **kw: pages.Caps(cards, auto, 1000) if kw.get("stage") == "merges" else pages.Caps(1, 1),
     )
     return store, db
 
@@ -2094,7 +2119,7 @@ def _decide_pair(db, merge, decision, *, swap=False, note=None, at="2026-10-15T0
 
 
 def test_a_pair_card_carries_exactly_the_fields_the_website_s_pair_card_reads():
-    assert CARD_KEYS == _ts_fields("PairCard")
+    assert CARD_KEYS | AUTO_PAIR_KEYS == _ts_fields("PairCard")
     assert SIDE_KEYS == _ts_fields("PairSide")
     assert EVIDENCE_KEYS == _ts_fields("PairEvidence")
 
@@ -2198,8 +2223,8 @@ def test_the_merges_cap_keeps_the_cross_provider_pairs_retiring_the_fewest_games
     assert [p["merge_id"] for p in manifest["overflow"]] == ["d-empty"]
 
 
-def test_the_shipped_merges_caps_are_a_thousand_cards_and_fifty_automatic_merges():
-    assert LOAD_CAPS(stage="merges") == pages.Caps(cards=1000, auto=50)
+def test_the_shipped_merges_caps_are_a_thousand_cards_a_thousand_automatic_and_a_thousand_reviewed():
+    assert LOAD_CAPS(stage="merges") == pages.Caps(cards=1000, auto=1000, review=1000)
     assert LOAD_CAPS(stage="states") == LOAD_CAPS() == pages.Caps(cards=2000, auto=50)
 
 
@@ -2361,3 +2386,162 @@ def test_the_automatic_lane_collects_its_pairs_unswapped(tmp_path, monkeypatch, 
     vetted = json.loads((stage_dir(store, RUN, "merges") / "auto" / "vetted.json").read_text(encoding="utf-8"))
     assert code == 0
     assert [(p["merge_id"], p["keep_id"]) for p in vetted] == [("safe", "keep")]
+
+
+# --- the week's review of the pairs ------------------------------------------------------------------
+
+
+def _reviewed(store, pairs, verdicts):
+    """The review as review_merges.py leaves it: the pairs it queued in a slice, and each one's verdict in the
+    slice's review, which copies the pair row for row."""
+    review = stage_dir(store, RUN, "merges") / REVIEW_DIR
+    rows = [{**p, "pair": f"P{n:04d}"} for n, p in enumerate(pairs, 1)]
+    write_json(review / "slice_01.json", rows, indent=1)
+    final = [
+        {**r, "verdict": verdict, "swap": swap, "reason": f"because {r['merge_id']}"}
+        for r, (verdict, swap) in zip(rows, verdicts)
+    ]
+    write_json(review / "slice_01_review.json", final, indent=1)
+
+
+def test_a_review_sends_cleared_pairs_and_two_teams_to_the_automatic_lane_and_holds_to_cards(
+    tmp_path, monkeypatch, capsys
+):
+    """A cleared pair merges, the way round the review chose; two teams are kept separate, still an Apply row in the
+    table, which holds every automatic card so; a held pair is a card giving the reviewers' reason; and a pair the
+    review did not reach waits, unless the scan finds it provably safe."""
+    pairs = [
+        _pair("cleared", "c-keep"),
+        _pair("apart", "a-keep"),
+        _pair("held", "h-keep"),
+        _pair("unread", "u-keep"),
+        _pair("safe", "s-keep", tier="1_provably_safe"),
+    ]
+    teams = [_team(t) for p in pairs for t in (p["merge_id"], p["keep_id"])]
+    store, db = _merge_week(tmp_path, monkeypatch, pairs, teams=teams, auto=50)
+    _reviewed(store, pairs[:3], [("merge", True), ("reject", False), ("hold", False)])
+
+    _publish(monkeypatch, capsys, store, db, "--publish", "--execute", stage="merges")
+
+    manifest = _read(store, "merges", MANIFEST_FILE)
+    assert sorted(p["merge_id"] for p in manifest["auto"].values()) == ["apart", "cleared", "safe"]
+    assert [p["merge_id"] for p in manifest["cards"].values()] == ["held"]
+    assert [p["merge_id"] for p in manifest["overflow"]] == ["unread"]
+    auto = {r["card"]["merge"]["team_id"]: r for r in db.cards(lane="auto")}
+    assert {m: (r["decision"], r["swap"], r["card"]["keep_separate"]) for m, r in auto.items() if m != "safe"} == {
+        "cleared": ("apply", True, False),
+        "apart": ("apply", False, True),
+    }
+    assert set(auto["apart"]["card"]) == CARD_KEYS | AUTO_PAIR_KEYS
+    assert auto["apart"]["card"]["sure"] == "reviewers found two teams: because apart"
+    assert db.cards(lane="owner")[0]["card"]["why"] == "Reviewers held it: because held"
+
+    code, _ = _collect_auto(monkeypatch, capsys, store, "merges")
+
+    lane = stage_dir(store, RUN, "merges") / "auto"
+    decided = {r["merge_id"]: (r["decision"], r["swap"]) for r in json.loads((lane / "decisions.json").read_text())}
+    vetted = json.loads((lane / "vetted.json").read_text(encoding="utf-8"))
+    assert code == 0
+    assert decided == {"cleared": ("apply", True), "apart": ("dont_apply", False), "safe": ("apply", False)}
+    assert sorted((m["merge_id"], m["keep_id"]) for m in vetted) == [("c-keep", "cleared"), ("safe", "s-keep")]
+
+
+@pytest.mark.parametrize(
+    "verdict, why",
+    [("merge", "Reviewers cleared it: because cleared"), ("reject", "Reviewers found two teams: because cleared")],
+)
+def test_a_reviewed_pair_undone_the_other_way_round_is_a_card_again(tmp_path, monkeypatch, capsys, verdict, why):
+    pairs = [_pair("cleared", "c-keep")]
+    store, db = _merge_week(tmp_path, monkeypatch, pairs, teams=[_team("cleared"), _team("c-keep")], auto=50)
+    _reviewed(store, pairs, [(verdict, False)])
+    db.tables["team_cleanup_changes"] = [
+        {"id": 1, "stage": "merges", "team_id_master": "c-keep", "field": "merged_into", "new_value": "cleared",
+         "reverted_at": "2026-10-10T00:00:00+00:00"}
+    ]
+
+    _publish(monkeypatch, capsys, store, db, "--publish", "--execute", stage="merges")
+
+    manifest = _read(store, "merges", MANIFEST_FILE)
+    assert (list(manifest["auto"]), [p["merge_id"] for p in manifest["cards"].values()]) == ([], ["cleared"])
+    assert db.cards(lane="owner")[0]["card"]["why"] == why
+
+
+def test_a_review_whose_verdict_the_review_never_writes_stops_the_build(tmp_path, monkeypatch, capsys):
+    pairs = [_pair("odd", "o-keep")]
+    store, db = _merge_week(tmp_path, monkeypatch, pairs, teams=[_team("odd"), _team("o-keep")])
+    _reviewed(store, pairs, [("maybe", False)])
+
+    with pytest.raises(SystemExit, match="a verdict or swap the review never writes"):
+        _build(monkeypatch, capsys, store, db, stage="merges")
+
+
+def test_a_pair_with_no_game_this_season_is_left_off_unless_it_is_provably_safe(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(pages, "idle", IDLE)
+    season = _soccer_season_year()
+    pairs = [
+        _pair("live", "l-keep"),
+        _pair("scheduled", "sc-keep"),
+        _pair("stale", "st-keep"),
+        _pair("safe", "s-keep", tier="1_provably_safe"),
+    ]
+    teams = [*(_team(t) for p in pairs for t in (p["merge_id"], p["keep_id"])), _team("o1")]
+    games = [
+        _game(1, "l-keep", "o1", f"{season}-09-01"),
+        _game(2, "o1", "scheduled", f"{season + 1}-03-01"),
+        _game(3, "st-keep", "o1", f"{season}-07-31"),
+    ]
+    store, db = _merge_week(tmp_path, monkeypatch, pairs, teams=teams, games=games, auto=50)
+
+    _build(monkeypatch, capsys, store, db, stage="merges")
+
+    manifest = _read(store, "merges", MANIFEST_FILE)
+    assert [p["merge_id"] for p in manifest["cards"].values()] == ["live", "scheduled"]
+    assert [p["merge_id"] for p in manifest["auto"].values()] == ["safe"]
+    assert [(p["merge_id"], p["why"]) for p in manifest["left_out"]] == [("stale", pages.IDLE_WHY)]
+
+
+def test_a_cleared_pair_whose_rows_have_since_played_on_one_day_or_each_other_is_a_card(tmp_path, monkeypatch, capsys):
+    """The scans refuse two rows that played on one day, or each other, as two squads; a review that cleared them
+    before it happened never saw it. Two teams found apart stay apart however they have played."""
+    pairs = [_pair("same-day", "sd-keep"), _pair("met", "m-keep"), _pair("apart", "a-keep"), _pair("two", "t-keep")]
+    teams = [*(_team(t) for p in pairs for t in (p["merge_id"], p["keep_id"])), _team("o1"), _team("o2")]
+    games = [
+        _game(1, "same-day", "o1", "2026-09-05"),
+        _game(2, "sd-keep", "o2", "2026-09-05"),
+        _game(3, "met", "m-keep", "2026-09-12"),
+        _game(4, "apart", "o1", "2026-09-05"),
+        _game(5, "a-keep", "o2", "2026-09-06"),
+        _game(6, "two", "o1", "2026-09-05"),
+        _game(7, "t-keep", "o2", "2026-09-05"),
+    ]
+    store, db = _merge_week(tmp_path, monkeypatch, pairs, teams=teams, games=games, auto=50)
+    _reviewed(store, pairs, [("merge", True)] * 3 + [("reject", False)])
+
+    _publish(monkeypatch, capsys, store, db, "--publish", "--execute", stage="merges")
+
+    manifest = _read(store, "merges", MANIFEST_FILE)
+    auto = {p["merge_id"]: p["review"]["verdict"] for p in manifest["auto"].values()}
+    assert auto == {"apart": "merge", "two": "reject"}
+    assert {p["merge_id"]: (p["review"]["verdict"], p["review"]["swap"]) for p in manifest["cards"].values()} == {
+        "same-day": ("hold", False),
+        "met": ("hold", False),
+    }
+    assert {r["card"]["merge"]["team_id"]: r["card"]["why"] for r in db.cards(lane="owner")}["met"] == (
+        "Reviewers cleared it (because met), but the page held it: the two have since played on the same day"
+    )
+
+
+def test_a_merges_page_waits_for_its_review_to_be_queued(tmp_path, monkeypatch, capsys):
+    """Built before the review, every pair would be a card and the week's review would never run."""
+    pairs = [_pair("m1", "k1")]
+    store, db = _merge_week(tmp_path, monkeypatch, pairs, teams=[_team("m1"), _team("k1")])
+    (stage_dir(store, RUN, "merges") / REVIEW_DIR).rmdir()
+
+    with pytest.raises(SystemExit, match="its pairs are not reviewed yet"):
+        _build(monkeypatch, capsys, store, db, stage="merges")
+
+    (stage_dir(store, RUN, "merges") / REVIEW_DIR).mkdir()
+    code, _ = _build(monkeypatch, capsys, store, db, stage="merges")
+
+    assert code == 0
+

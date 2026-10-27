@@ -603,9 +603,18 @@ function StageView({
   );
 }
 
-/** An automatic merge on one line: the team merged away, then the one it is kept as. */
+/** An automatic merge on one line: the team merged away, then the one it is kept as; or the two teams the
+ * reviewers found to be different, kept separate. */
 function AutoPair({ row }: { row: PairCardRow }) {
   const [kept, merged] = survivorFirst(row.card, row.swap);
+  if (row.card.keep_separate) {
+    return (
+      <>
+        <span className="font-medium">{merged.name || '(no name)'}</span> and{' '}
+        <span className="font-medium">{kept.name || '(no name)'}</span> kept separate
+      </>
+    );
+  }
   return (
     <>
       <span className="font-medium">{merged.name || '(no name)'}</span> → kept as{' '}

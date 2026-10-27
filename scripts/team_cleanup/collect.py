@@ -20,7 +20,7 @@ Into the stage folder it writes:
                      step settles it through its review row instead of replaying it, as the
                      dashboard's State Review Queue does
              ages    the plan's rows for them
-             merges  each pair as the merge applier reads it, turned so the row the owner chose
+             merges  each pair as the merge applier reads it, turned so the row chosen
                      survives; refused when two chosen merges disagree about a survivor, or
                      would join two rows the page keeps separate
   decisions.json             every decided card's choice, note and pair swap, for the apply step to record
@@ -38,7 +38,8 @@ Those reads are its only database access. Collecting again, while the run is in 
 not applied, replaces all three files; while an apply holds the run on this machine, it refuses.
 
 With --lane auto it collects the stage's automatic lane instead, into auto/: every change the
-manifest's `auto` lists, decided Apply with no choice to read, under the same three files.
+manifest's `auto` lists, decided Apply with no choice to read, under the same three files. A pair the
+week's review settled takes the review's choice: Keep separate for two teams, and its swap.
 
     python scripts/team_cleanup/collect.py --run 2026-10-14-nv --stage states --decisions <out_dir>
     python scripts/team_cleanup/collect.py --run 2026-10-14-nv --stage states --from-db
@@ -71,7 +72,13 @@ from scripts.team_cleanup.decisions import (  # noqa: E402
     TEAM_DECISIONS,
     page_built_at,
 )
-from scripts.team_cleanup.pairs import SWAPPED, as_chosen, refuse_conflicts, refuse_kept_apart_joins  # noqa: E402
+from scripts.team_cleanup.pairs import (  # noqa: E402
+    SWAPPED,
+    as_chosen,
+    refuse_conflicts,
+    refuse_kept_apart_joins,
+    review_choice,
+)
 from scripts.team_cleanup.propose_week import (  # noqa: E402
     AGES,
     APPLIER_INPUTS,
@@ -223,7 +230,7 @@ def decision_rows(manifest: dict, choices: dict[str, dict], lane: str = OWNER, d
 
 
 def chosen_merges(rows: list[dict]) -> list[dict]:
-    """The pairs chosen Merge, as the applier reads them, each the way round the owner chose. Refused when
+    """The pairs chosen Merge, as the applier reads them, each the way round chosen. Refused when
     they disagree about a survivor, or two of them join a pair the page keeps separate, since the applier
     would drop or chain those merges rather than land the owner's choice."""
     merges = []
@@ -238,7 +245,7 @@ def chosen_merges(rows: list[dict]) -> list[dict]:
 
 def write_vetted(folder: Path, stage: str, rows: list[dict]) -> Path | None:
     """The stage file's rows for the changes chosen Apply, copied as it holds them, so the applier reads
-    its own escaping back; merges write the chosen pairs, each turned as the owner chose. A stage proposes
+    its own escaping back; merges write the chosen pairs, each turned as chosen. A stage proposes
     one change per team, so a team id names one row."""
     path, inputs = folder / VETTED[stage], inputs_dir(folder)
     path.unlink(missing_ok=True)
@@ -287,7 +294,9 @@ def _collect(store: Path, run_id: str, stage: str, decisions: Path | None, lane:
     manifest = read_json(inputs_dir(folder) / MANIFEST_FILE)
     cards, decided = manifest[LANE_CARDS[lane]], None
     if lane == AUTO:
-        choices = {card_id: {"decision": APPLY} for card_id in cards}
+        choices = {
+            card_id: review_choice(p) if stage == MERGES else {"decision": APPLY} for card_id, p in cards.items()
+        }
     elif sb is not None:
         choices, decided = db_choices(sb, manifest)
         check_choices(manifest, choices)

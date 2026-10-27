@@ -1,7 +1,8 @@
 """Which of a stage's proposed changes the evidence already settles.
 
-A sure change is one the weekly loop could apply without asking the owner. Each rule reuses evidence
-the stage's own code already reads; replay_sure.py checks them against how the owner decided past pages:
+A sure change is one the weekly loop could apply without asking the owner. Each rule but the merges
+review reuses evidence the stage's own code already reads, and replay_sure.py checks those against how the
+owner decided past pages; the review's verdicts are its reviewers' own:
 
   clubs   a change the scan approves (a provider, swap, word or bracket tier)
   states  a blank state the rules would apply from the team's club (tier B), which the hold check does
@@ -11,8 +12,11 @@ the stage's own code already reads; replay_sure.py checks them against how the o
   ages    a move to the band in the team's own name, or to a U-age label the review's opponents
           confirmed (never a play-up) when the league's division, its opponents' bands or GotSport say
           that age too, or the move is two groups or fewer
-  merges  a pair the cross-provider scan finds provably safe: the row it retires holds no games, still
-          none when the page is built, and that row's provider alias already points at the row it keeps
+  merges  a pair the week's review cleared or found to be two teams (review_merges.py), the second as
+          Keep separate, unless the page held a cleared pair because its rows have since played on the same
+          day (pages.with_reviews); or, unreviewed, a pair the cross-provider scan finds provably safe: the
+          row it retires holds no games, still none when the page is built, and that row's provider alias
+          already points at the row it keeps
 
 Everything else is a conflict, every state correction included: a club count can move a team out of
 its own state. A change the loop applied and an undo reversed is never sure again, nor is a merge of
@@ -32,6 +36,7 @@ from scripts.fix_band_cohorts import age_num
 from scripts.hold_unsafe_state_applies import split
 from scripts.review_state_queue_by_name import name_reading, provider_states
 from scripts.team_cleanup.decisions import CHANGES_TABLE, MERGES, DecisionsUnavailable
+from scripts.team_cleanup.pairs import MERGE, REJECT, REVIEW_WORDS, VERDICTS
 from scripts.team_cleanup.propose_week import (
     AGES,
     APPLIER_INPUTS,
@@ -41,9 +46,12 @@ from scripts.team_cleanup.propose_week import (
     PROVABLY_SAFE,
     STATES,
 )
+from scripts.team_cleanup.run_store import REVIEW_DIR, REVIEW_SUFFIX
 from src.tournaments.storage._io import read_json
 
 BAND_TIER = "A_own_name_band"
+# What a review settles without the owner: a merge, and two teams kept separate; a hold is a card.
+REVIEW_SETTLES = (MERGE, REJECT)
 ULABEL_TIER = "U_own_name_ulabel_opponent_confirmed"
 NEAR_GROUPS = 2
 
@@ -120,6 +128,22 @@ def held_fills(sb, folder: Path, proposals) -> set[str]:
     return {d["team_id"] for d in held}
 
 
+def merge_reviews(folder: Path) -> dict[tuple[str, str], dict] | None:
+    """{(merge row, keep row): its review's verdict, swap and reason} for each pair the week's review reached;
+    None when the review queued no pair, and each pair then routes by the rules alone: a provably safe pair to the
+    automatic lane, the rest as cards."""
+    review = folder / REVIEW_DIR
+    if not any(review.glob("slice_*.json")):
+        return None
+    reviews = {}
+    for path in sorted(review.glob(f"*{REVIEW_SUFFIX}")):
+        for row in read_json(path):
+            if row["verdict"] not in VERDICTS or not isinstance(row["swap"], bool):
+                raise ValueError(f"{path.name} gives {row['merge_id']} a verdict or swap the review never writes")
+            reviews[row["merge_id"], row["keep_id"]] = {k: row[k] for k in ("verdict", "swap", "reason")}
+    return reviews
+
+
 def load_signals(sb, stage: str, folder: Path, proposals, evidence: StateEvidence | None, canonical) -> Signals:
     held = held_fills(sb, folder, proposals) if stage == STATES else set()
     return Signals(reverted_changes(sb, stage, canonical), held, evidence)
@@ -163,11 +187,21 @@ def _sure_state(p: dict, signals: Signals) -> str | None:
 
 
 def _sure_merge(p: dict, signals: Signals) -> str | None:
-    if (p["keep_id"], FIELDS[MERGES], p["merge_id"]) in signals.reverted or p["merge_id"] in signals.held:
+    if (p["keep_id"], FIELDS[MERGES], p["merge_id"]) in signals.reverted:
         return None
-    if p["doorway"] == CROSS_PROVIDER_DOORWAY and p["tier"] == PROVABLY_SAFE:
+    review = p.get("review")
+    if review:
+        settled = review["verdict"] in REVIEW_SETTLES
+        return f"{REVIEW_WORDS[review['verdict']]}: {review['reason']}" if settled else None
+    if provably_safe(p) and p["merge_id"] not in signals.held:
         return "the row it retires holds no games, and its provider alias already points at the row it keeps"
     return None
+
+
+def provably_safe(p: dict) -> bool:
+    """Whether the pair is in the cross-provider scan's provably safe tier, which merges unreviewed while its
+    retiring row still holds no games (Signals.held says whether it does)."""
+    return p["doorway"] == CROSS_PROVIDER_DOORWAY and p["tier"] == PROVABLY_SAFE
 
 
 def _sure_age(p: dict) -> str | None:
