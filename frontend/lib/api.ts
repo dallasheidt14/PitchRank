@@ -1322,6 +1322,30 @@ export const api = {
   },
 
   /**
+   * The free facts about one team, for the pricing page to name the team a parent tapped.
+   * Returns null when the team is unranked or unknown, so the caller shows nothing.
+   */
+  async getPaywallTeamPreview(teamId: string): Promise<{
+    team_name: string;
+    club_name: string | null;
+    age: number | null;
+    gender: string | null;
+    rank_in_cohort_final: number | null;
+  } | null> {
+    const { data, error } = await supabase
+      .from('rankings_view')
+      .select('team_name, club_name, age, gender, rank_in_cohort_final')
+      .eq('team_id_master', teamId)
+      .maybeSingle();
+
+    if (error) {
+      console.error('[api.getPaywallTeamPreview] Error:', error.message);
+      return null;
+    }
+    return data;
+  },
+
+  /**
    * Get database statistics for the homepage
    * @returns Object with totalGames and totalTeams counts
    */

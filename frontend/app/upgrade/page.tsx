@@ -12,6 +12,7 @@ import { useUser } from '@/hooks/useUser';
 import { trackUpgradePageViewed, trackPlanSelected, trackCheckoutInitiated } from '@/lib/events';
 import { api } from '@/lib/api';
 import { formatCountShort } from '@/lib/utils';
+import { formatGender } from '@/lib/constants';
 
 // Price IDs from Stripe Dashboard (configured via environment variables)
 const PRICE_IDS = {
@@ -31,9 +32,13 @@ const FEATURES = [
   { icon: Pencil, title: 'Edit Access', text: 'Merge duplicate teams and find missing game history' },
 ];
 
+// Only a team page is worth naming; anything else in `next` is ignored.
+const TEAM_PATH = /^\/teams\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
+
 export default function UpgradePage() {
   return (
-    <Suspense>
+    // Holds the page's height while search params resolve, so the footer does not jump.
+    <Suspense fallback={<div className="min-h-screen" aria-hidden />}>
       <UpgradePageContent />
     </Suspense>
   );
@@ -67,6 +72,28 @@ function UpgradePageContent() {
 
   const source = searchParams.get('next') || searchParams.get('source') || 'direct';
   const pageViewTracked = useRef(false);
+
+  // The team the parent tapped, named so the paywall does not look like a wrong link.
+  const tappedTeamId = TEAM_PATH.exec(searchParams.get('next') ?? '')?.[1] ?? null;
+  // Keyed by id, so a banner loaded for one team is never shown for another destination.
+  const [loadedTeam, setLoadedTeam] = useState<{
+    id: string;
+    team: Awaited<ReturnType<typeof api.getPaywallTeamPreview>>;
+  } | null>(null);
+  const tappedTeam = loadedTeam && loadedTeam.id === tappedTeamId ? loadedTeam.team : null;
+  useEffect(() => {
+    if (!tappedTeamId) return;
+    let cancelled = false;
+    api
+      .getPaywallTeamPreview(tappedTeamId)
+      .then((team) => {
+        if (!cancelled) setLoadedTeam({ id: tappedTeamId, team });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [tappedTeamId]);
 
   // Track page view once per mount, regardless of param changes
   useEffect(() => {
@@ -108,6 +135,36 @@ function UpgradePageContent() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-background to-muted/30">
       <div className="container mx-auto px-4 py-12 md:py-16">
+        {!userLoading && !user && (
+          <p className="text-right text-sm mb-4">
+            <span className="text-muted-foreground">Already a member? </span>
+            <Link
+              href={`/login?next=${encodeURIComponent(tappedTeamId ? `/teams/${tappedTeamId}` : '/upgrade')}`}
+              className="text-primary font-medium hover:underline"
+            >
+              Sign in
+            </Link>
+          </p>
+        )}
+
+        {tappedTeam && (
+          <div className="max-w-xl mx-auto mb-8 rounded-lg border border-primary/30 bg-primary/5 p-4 text-center">
+            <p className="text-xs uppercase tracking-wide text-muted-foreground mb-1">You were looking at</p>
+            <p className="text-lg font-bold font-display">{tappedTeam.team_name}</p>
+            <p className="text-sm text-muted-foreground">
+              {[
+                tappedTeam.club_name,
+                tappedTeam.age ? `U${tappedTeam.age}` : null,
+                tappedTeam.gender ? formatGender(tappedTeam.gender) : null,
+                tappedTeam.rank_in_cohort_final ? `#${tappedTeam.rank_in_cohort_final} nationally` : null,
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            </p>
+            <p className="text-sm mt-2">Start your free trial to open this team&apos;s full page.</p>
+          </div>
+        )}
+
         {/* Header */}
         <div className="text-center mb-10">
           <Badge variant="secondary" className="mb-4">
@@ -173,7 +230,7 @@ function UpgradePageContent() {
           <Card
             variant="elevated"
             interactive
-            className={`relative ${selectedPlan === 'monthly' ? 'ring-2 ring-primary' : ''}`}
+            className={`relative ${selectedPlan === 'monthly' ? 'ring-2 ring-primary' : 'hidden md:block'}`}
             onClick={() => setSelectedPlan('monthly')}
           >
             <CardHeader>
@@ -232,7 +289,7 @@ function UpgradePageContent() {
           <Card
             variant="primary"
             interactive
-            className={`relative ${selectedPlan === 'yearly' ? 'ring-2 ring-primary' : ''}`}
+            className={`relative ${selectedPlan === 'yearly' ? 'ring-2 ring-primary' : 'hidden md:block'}`}
             onClick={() => setSelectedPlan('yearly')}
           >
             <div className="absolute -top-3 left-1/2 -translate-x-1/2">
