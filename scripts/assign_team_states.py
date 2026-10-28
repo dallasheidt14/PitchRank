@@ -32,13 +32,14 @@ whatever recorded it. That is what makes the sweep converge: a fill changes the 
 distribution the next run's Tier B reads, so without the test a second run rewrites what
 the first just wrote, forever. Equal authority loses, so a tier never overturns its own
 earlier answer on evidence that is no better -- except Tier A against its own record,
-whose input is a registration bought fresh rather than a recount. An operator's answer
+whose input is the provider's per-team registration rather than a recount. An operator's answer
 outranks every tier and is read from the ledger, because ``approve_team_state`` stamps
 ``state_source`` with the tier that proposed the value rather than the person who ratified
 it. A state with no ``state_source`` predates this tool and is correctable as before.
 
 Usage:
     python scripts/assign_team_states.py --out run.json                  # dry run
+    python scripts/assign_team_states.py --no-tier-a --reuse-answers --out run.json  # free: answers on file
     python scripts/assign_team_states.py --execute --snapshot run.json [--limit 50]
     python scripts/assign_team_states.py --team <uuid> [--execute]       # one team
     python scripts/assign_team_states.py --team <uuid> --set OH --reason '...' --execute
@@ -292,9 +293,10 @@ PROVIDER_FAILURE_OUTCOMES = TRANSIENT_OUTCOMES + ("no such team (404)",)
 MIN_BATCH_FOR_SHARE = 20
 MIN_MAPPED_SHARE = 0.2
 
-# How long a durable outcome stands before the team is asked again. A registration moves
-# at a season boundary at most, and the backlog drains in one uncapped run, so this only
-# has to outlast the gap between capped runs.
+# How long a durable outcome stands: a team is not asked again inside it, and a
+# --reuse-answers sweep decides Tier A from it. A registration moves at a season boundary
+# at most, and the backlog drains in one uncapped run, so for re-asking this only has to
+# outlast the gap between capped runs.
 REPROBE_AFTER_DAYS = 90
 
 # How many club-mates may answer without a state before the club is given up on: the
@@ -457,6 +459,10 @@ def fetch_queue_rows(sb) -> Dict[Tuple[str, str], Dict]:
         if len(rows) < PAGE_SIZE:
             return rows_by_key
         offset += PAGE_SIZE
+
+
+def recent_answers(sb, days: int) -> Dict[str, Tuple[str, Optional[str]]]:
+    return fetch_recent_probes(sb, datetime.now(timezone.utc) - timedelta(days=days))
 
 
 def fetch_recent_probes(sb, cutoff: datetime) -> Dict[str, Tuple[str, Optional[str]]]:
@@ -876,8 +882,8 @@ def anchor_candidates(
 def bought_answers(
     recent: Dict[str, Tuple[str, Optional[str]]], selected: Set[str]
 ) -> Dict[str, str]:
-    """The selected teams' answers already in the ledger, used whether or not the budget
-    would have covered them, so a run aborted after paying still decides on the retry."""
+    """The selected teams' mapped answers already in the ledger. An answered-only mode uses them whether
+    or not its budget would have covered them, so a run aborted after paying still decides on the retry."""
     return {
         team_id: state
         for team_id, (outcome, state) in recent.items()
@@ -1212,9 +1218,9 @@ def decide(
     # A correction has to outrank whatever recorded the state it replaces, or this tool
     # overwrites itself forever -- a fill moves the clubmate distribution the next run's
     # Tier B counts. Equal authority loses, because re-reading evidence the sweep itself
-    # moved is not new evidence. Tier A is exempt against its own record: its input is a
-    # freshly bought per-team registration, so a changed answer is a changed fact rather
-    # than a recount. See failure-modes.md, "A sweep that argues with itself".
+    # moved is not new evidence. Tier A is exempt against its own record: its input is the
+    # provider's per-team registration, so a changed answer is a changed fact rather than a
+    # recount. See failure-modes.md, "A sweep that argues with itself".
     recorded = (team.get("state_source") or "").strip()
     authority = SOURCE_AUTHORITY.get(recorded, 0.0)
     wrote_it = f"{recorded} wrote the stored value"
@@ -1299,6 +1305,7 @@ def build_snapshot(
     reprobe_after_days: Optional[int] = None,
     anchor_clubs: bool = False,
     probe_unclubbed: bool = False,
+    reuse_answers: bool = False,
 ) -> Dict:
     """Decide every live team against one reading of the database.
 
@@ -1314,6 +1321,10 @@ def build_snapshot(
     audit has an anchor to hold the rest against; ``probe_unclubbed`` asks the teams no
     anchor can reach. Both write only what the provider answered, like the audit, and a
     bought answer that agrees is written as a confirm rather than dropped.
+
+    ``reuse_answers`` seeds a sweep's Tier A with the answers its candidates already hold in the probe
+    ledger, inside the reprobe window; with ``use_tier_a`` off, as ``--reuse-answers`` runs it, no call is
+    bought.
     """
     console.print("[bold]Reading teams[/bold]")
     teams = fetch_live_teams(sb)
@@ -1378,8 +1389,7 @@ def build_snapshot(
                 "--reprobe-after-days is ignored; this team is asked regardless[/yellow]"
             )
     elif answered_only:
-        window = reprobe_after_days if reprobe_after_days is not None else REPROBE_AFTER_DAYS
-        recent = fetch_recent_probes(sb, datetime.now(timezone.utc) - timedelta(days=window))
+        recent = recent_answers(sb, reprobe_after_days if reprobe_after_days is not None else REPROBE_AFTER_DAYS)
         if auditing:
             # Two passes elsewhere; here the first is skipped outright, since it walks every
             # team to build a disputed set this mode never consults.
@@ -1438,6 +1448,9 @@ def build_snapshot(
         stateless = {t["team_id_master"] for t in teams if not (t.get("state_code") or "").strip()}
         candidates = sorted(disputed | stateless)
         to_probe = candidates
+        if reuse_answers:
+            cached = bought_answers(recent_answers(sb, REPROBE_AFTER_DAYS), set(candidates))
+            console.print(f"  {len(cached):,} of {len(candidates):,} candidates answered by GotSport already")
 
     association_states: Dict[str, str] = dict(cached)
     aliases: Dict[str, str] = {}
@@ -1563,14 +1576,16 @@ def build_snapshot(
         "rules": SNAPSHOT_RULES,
         "mode": mode,
         "live_teams": len(teams),
-        # In the answered-only modes this counts cache-seeded answers too, so it is not a
-        # paid-call count. ``aliases_found`` is.
+        # Answers taken from the ledger count here too (the answered-only modes, and a
+        # --reuse-answers sweep), so it is not a paid-call count.
         "tier_a_probed": len(association_states),
         "tier_d_available": tier_d_ready,
         "undecidable": len(undecided),
         "undecidable_and_visible": stranded,
         "decisions": decisions,
     }
+    if reuse_answers:
+        snapshot["cached_answers"] = len(cached)
     if answered_only:
         snapshot.update(
             {
@@ -1923,7 +1938,6 @@ def summarize(snapshot: Dict) -> None:
         )
     if not snapshot["tier_d_available"]:
         console.print("[yellow]Tier D did not fire: it is not implemented[/yellow]")
-
     mode = snapshot.get("mode", "normal")
     if mode == "audit":
         _summarize_audit(snapshot, decisions)
@@ -1934,6 +1948,11 @@ def summarize(snapshot: Dict) -> None:
         console.print(f"[dim]Undecidable teams are not examined in {mode} mode.[/dim]")
         return
 
+    if "cached_answers" in snapshot:
+        console.print(
+            f"{snapshot['cached_answers']:,} candidates already had a GotSport answer from the last "
+            f"{REPROBE_AFTER_DAYS} days, which was used; no call was made."
+        )
     stranded = snapshot.get("undecidable_and_visible") or []
     console.print(
         f"[dim]{snapshot.get('undecidable', 0):,} teams have no state and no tier that can "
@@ -2198,6 +2217,14 @@ def main() -> None:
     parser.add_argument("--reason", help="Why, recorded in the ledger beside a --set")
     parser.add_argument("--no-tier-a", action="store_true", help="Skip the GotSport probe")
     parser.add_argument(
+        "--reuse-answers",
+        action="store_true",
+        help=(
+            f"A sweep that decides Tier A from the GotSport answers its candidates got in the last "
+            f"{REPROBE_AFTER_DAYS} days and buys no new one"
+        ),
+    )
+    parser.add_argument(
         "--audit-contradictions",
         action="store_true",
         help=(
@@ -2263,6 +2290,12 @@ def main() -> None:
             "nothing to ask[/red]"
         )
         sys.exit(1)
+    if args.reuse_answers and (population_flags or args.team):
+        console.print(
+            "[red]ERROR: --reuse-answers is for a sweep; "
+            f"{population_flags[0] if population_flags else '--team'} chooses its own answers[/red]"
+        )
+        sys.exit(1)
     if args.probe_limit is not None and not population_flags:
         console.print(
             "[red]ERROR: --probe-limit only bounds --audit-contradictions, --anchor-clubs or "
@@ -2310,7 +2343,7 @@ def main() -> None:
 
     snapshot = build_snapshot(
         sb,
-        use_tier_a=not args.no_tier_a,
+        use_tier_a=not (args.no_tier_a or args.reuse_answers),
         workers=args.workers,
         only_team=args.team,
         audit_contradictions=args.audit_contradictions,
@@ -2318,6 +2351,7 @@ def main() -> None:
         reprobe_after_days=args.reprobe_after_days,
         anchor_clubs=args.anchor_clubs,
         probe_unclubbed=args.probe_unclubbed,
+        reuse_answers=args.reuse_answers,
     )
 
     if args.team:

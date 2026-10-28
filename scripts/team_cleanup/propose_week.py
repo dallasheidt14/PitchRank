@@ -8,7 +8,8 @@ fields, then runs each stage's skill self-check and proposal step into
   clubs   repair_swapped_club_names.py over the country, cut to the scope, reading the saved
           logs in <store>/inputs/abbreviation_logs/, which must hold <GitHub run id>.log for each
           of its default runs (GitHub deletes a run's log after 90 days)
-  states  assign_team_states.py --no-tier-a over the country, cut to the scope
+  states  assign_team_states.py --no-tier-a --reuse-answers over the country, cut to the scope: Tier A from
+          the GotSport answers of the last 90 days, and no call bought
   ages    review_age_labels.py review --state <scope>, then write-plan --groups 1,2,3 (groups 4
           and 5 are owner questions, not plan rows)
   merges  find_cross_provider_duplicates.py over the country (per state for a narrower scope) and
@@ -187,8 +188,9 @@ def stage_commands(stage: str, folder: Path, states: list[str], store: Path) -> 
         ]
         return [[SWAPPED_CLUBS, "--exports-dir", str(folder / "national"), *logs]]
     if stage == STATES:
-        # A dry run with Tier A on still spends paid probes and logs each one to the database.
-        return [[ASSIGN_STATES, "--no-tier-a", "--out", str(folder / "national_snapshot.json")]]
+        # A dry run with Tier A on still spends paid probes and logs each one to the database, so Tier A
+        # reads only the answers already bought.
+        return [[ASSIGN_STATES, "--no-tier-a", "--reuse-answers", "--out", str(folder / "national_snapshot.json")]]
     if stage == MERGES:
         scans = folder / MERGE_SCANS
         if states == [ALL]:

@@ -43,7 +43,8 @@ changes per stage). Each hourly tick, at :17, takes the open run as far as it ca
    applies them inside the window, closes the run (`end_run.py --done`) and emails a summary.
 
 A step that must wait (exit 75: outside the window, another writer running, another holder of the
-run, or for states the other lane's batch under four minutes old) holds only its own stage until a
+run, for states the other lane's batch under four minutes old, or for merges a review with slices
+left for the next tick) holds only its own stage until a
 later tick. A step that fails fails the tick and is retried. Anything blocked for a day, the week's
 start included, emails the owner once; a failed move to `origin/main` holds the week rather than
 proposing on older code. It never abandons a run. Emails need `CLEANUP_OWNER_EMAIL` and
@@ -70,7 +71,7 @@ built, and its provider alias already points at the row it keeps.
 
 Before the page, `scripts/team_cleanup/review_merges.py` reviews the rest (`merging-duplicate-teams`
 Step 5, run unattended), up to
-`page_caps.merges.review` (1,000) a week in the page's order: pairs with a followed team first, then
+`page_caps.merges.review` (100,000, so in practice every pair) a week in the page's order: pairs with a followed team first, then
 the cross-provider scan's before the squad-key scan's, each by the fewest games on the row it retires.
 It writes the evidence for 50 pairs at a time into `<run>/merges/review/` and runs headless Claude Code
 (`claude -p`, opus) on each slice, ten at once. Each reviewer works in its own folder: it loads none
@@ -80,14 +81,16 @@ lookups), and its environment holds only the public database key. Each pair gets
 the opposite prior, which never sees the first one's answer, and one it does not uphold becomes a hold.
 A slice whose reviewer fails is retried on the next tick; after three failures across its two
 reviewers its pairs are holds, except that when only the second reviewer kept failing, the pairs the
-first one cleared still merge. A review runs once a tick and can take an hour or more; the page refuses to build before it.
+first one cleared still merge. A review runs once a tick, at most 20 slices (1,000 pairs) a run so it
+finishes inside the step's four hours, and the rest wait for the next tick; the page refuses to build
+before it is done.
 
 The page then routes each reviewed pair: **merge** to the automatic lane, turned as the reviewer
 chose, unless the two rows have since played on the same day (each other included), which makes it a
 card saying the reviewers cleared it and why the page held it;
 **reject** to the automatic lane as Keep separate, which both scans honour from then on (the cards
 table holds it as Apply, the card's `keep_separate` saying what is applied); **hold** to a card giving
-the reviewers' reason. A pair the review did not reach waits for next week's. On a card,
+the reviewers' reason. A pair past the review cap waits for next week's. On a card,
 **Merge them** applies it; **Keep separate** records the decision; **Not sure** brings it back next
 week; **Keep the other one** flips which row survives.
 
@@ -194,8 +197,8 @@ python scripts/team_cleanup/propose_week.py --states ALL --date 2026-10-21
 ### Step 2: Build and publish every proposed stage's page
 
 Review the duplicate pairs before their page. The first command says what it would queue or review;
-the second, the owner's to run, queues and reviews them (an hour or more; rerun it while it reports
-slices waiting for a retry). The reviewers' lookups read `SUPABASE_URL` and the public `SUPABASE_KEY`,
+the second, the owner's to run, queues and reviews them, at most 20 slices (1,000 pairs) a run (an hour
+or more each; rerun it while it reports slices waiting for a retry or for the next run). The reviewers' lookups read `SUPABASE_URL` and the public `SUPABASE_KEY`,
 so both must be set:
 
 ```bash
@@ -228,7 +231,9 @@ for a later run, with teams users follow first.
 
 Build every proposed stage, even one with nothing to propose: a 0-card stage still has to be collected
 and applied before the run can close. A rebuild starts a new page run and is refused once a lane has
-collected. Once a stage has published cards, a rebuild must publish at least one card, and it is
+collected, which on the autopilot is the tick that publishes the page whenever it sends the automatic
+lane a change, so such a page is never rebuilt; a change to the caps or the merges review reaches the
+autopilot at the next week's start (**When something breaks**). Once a stage has published cards, a rebuild must publish at least one card, and it is
 refused once the owner has decided any of its cards or the review is marked done; a stage with nothing
 published can still be built after Done. Rebuild only when a page is wrong.
 

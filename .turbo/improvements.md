@@ -2502,3 +2502,23 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `scripts/team_cleanup/review_merges.py` `reviewer_command` and `reviewer_env`; `scripts/team_cleanup/advance.py` review step
 - **Why**: The sandbox rests on CLI behaviour measured on 2.1.311 on 2026-10-27 (dontAsk refusals, `Edit(/...)` anchoring, `blockReadsOutsideWorkingDirectories`, `--strict-mcp-config`, the auto-memory variable), not a documented contract, and an auto-update could loosen it silently. A one-run probe (outside write and read, `cd` then write, the stream-json init event) run when the CLI version changes, refusing the review on failure, would catch that.
 - **Noted**: 2026-10-27
+
+### Keep GotSport's confirmation of a team's held state past the 90-day reprobe window
+
+- **ID**: IMP-386
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `scripts/assign_team_states.py` `build_snapshot` (the `--reuse-answers` branch, `recent_answers`, `REPROBE_AFTER_DAYS`) and the R9 rule in `decide`
+- **Why**: A review's live dry run of `--no-tier-a --reuse-answers` on 2026-10-28 found about 430 of that week's 779 state cards drop only because a GotSport answer from 2026-09-01..09-23 names the state the team already holds. Those answers leave the 90-day window between 2026-11-30 and 2026-12-22, and the weekly cleanup never buys answers, so the same cards return then. The owner chose to fix it before 2026-11-30.
+- **Noted**: 2026-10-28
+
+### Reuse a merged-away row's GotSport answer for the team it was merged into
+
+- **ID**: IMP-387
+- **Status**: open
+- **Type**: plan
+- **Category**: feature
+- **Where**: `scripts/assign_team_states.py` `fetch_recent_probes` and `bought_answers` (keyed by raw `team_id_master`); `scripts/team_cleanup/sure.py` `provider_states`
+- **Why**: Measured 2026-10-28: 293 live teams' only mapped GotSport answer in the 90-day window sits on a row since merged into them, so a sweep does not use it and those teams fall to owner cards. No live team has a newer merged-away answer naming a different state, so resolving through `team_merge_map` would change no team's answer today.
+- **Noted**: 2026-10-28

@@ -11,7 +11,7 @@ import os
 import re
 import sys
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -426,9 +426,9 @@ def test_an_approval_protects_the_state_approved_rather_than_the_team():
 
 
 def test_the_provider_may_refresh_its_own_record():
-    """Tier A's input is a registration bought fresh from GotSport, so a changed answer is
-    a changed fact rather than a recount of what this tool wrote. The sweep re-probes every
-    disputed team each run with no recency filter, so this path is live for 6,442 teams."""
+    """Tier A's input is GotSport's per-team registration, bought this run or reused from the
+    reprobe window, so a changed answer is a changed fact rather than a recount of what this
+    tool wrote."""
     result = decision(
         team(state_code="NV", state_source="tier_a", club_name="clean club"),
         CLEAN_CLUB,
@@ -1931,6 +1931,94 @@ def test_a_meaningless_flag_combination_is_refused_by_name(monkeypatch, capsys, 
 
     assert code == 1
     assert expected in out
+
+
+@pytest.mark.parametrize("argv", [("--audit-contradictions",), ("--anchor-clubs",), ("--team", "t1")])
+def test_reusing_answers_is_refused_outside_a_sweep(monkeypatch, capsys, argv):
+    code, out = run_cli(monkeypatch, capsys, "--reuse-answers", *argv)
+
+    assert code == 1
+    assert "--reuse-answers is for a sweep" in out
+
+
+def test_a_sweep_reusing_answers_decides_tier_a_from_the_ledger_and_buys_nothing(monkeypatch):
+    """The weekly cleanup's sweep: a disputed team GotSport answered within the window is decided by that answer,
+    and nothing is probed or looked up. The window is the reprobe window, measured from now."""
+    windows = []
+
+    def recent(sb, cutoff):
+        windows.append(cutoff)
+        return {"wrong1": ("mapped", "OH"), "anchor1": ("mapped", "OH"), "wrong2": ("no association in payload", None)}
+
+    def bought(*args, **kwargs):
+        raise AssertionError("a sweep reusing answers buys no call")
+
+    monkeypatch.setattr(assign, "fetch_live_teams", lambda sb: audit_teams())
+    monkeypatch.setattr(assign, "fetch_revert_blocks", lambda sb: set())
+    monkeypatch.setattr(assign, "fetch_approved_states", lambda sb: set())
+    monkeypatch.setattr(assign, "ranked_and_active", lambda sb, ids: [])
+    monkeypatch.setattr(assign, "fetch_recent_probes", recent)
+    monkeypatch.setattr(assign, "probe_associations", bought)
+    monkeypatch.setattr(assign, "fetch_gotsport_aliases", bought)
+    monkeypatch.setattr(assign, "write_probe_log", bought)
+    before = datetime.now(timezone.utc)
+
+    snapshot = assign.build_snapshot(None, use_tier_a=False, workers=1, reuse_answers=True)
+
+    tiers = {d["team_id"]: (d["tier"], d["proposed"], d["action"]) for d in snapshot["decisions"]}
+    assert tiers["wrong1"] == ("A", "OH", "apply")
+    assert tiers["wrong2"][0] != "A"
+    assert snapshot["cached_answers"] == 1
+    assert len(windows) == 1
+    assert before - timedelta(days=90, seconds=5) <= windows[0] <= datetime.now(timezone.utc) - timedelta(days=90)
+
+
+def test_reusing_answers_alone_buys_no_call(monkeypatch, capsys):
+    """Without --no-tier-a beside it, the flag still keeps the sweep's probe off."""
+    seen = {}
+
+    def build(sb, **kwargs):
+        seen.update(kwargs)
+        raise SystemExit(0)
+
+    monkeypatch.setattr(assign, "build_snapshot", build)
+    run_cli(monkeypatch, capsys, "--reuse-answers", credentials=("https://x.supabase.co", "key"))
+
+    assert (seen["use_tier_a"], seen["reuse_answers"]) == (False, True)
+
+
+def test_a_sweep_that_does_not_reuse_answers_never_reads_the_ledger(monkeypatch):
+    monkeypatch.setattr(assign, "fetch_live_teams", lambda sb: audit_teams())
+    monkeypatch.setattr(assign, "fetch_revert_blocks", lambda sb: set())
+    monkeypatch.setattr(assign, "fetch_approved_states", lambda sb: set())
+    monkeypatch.setattr(assign, "ranked_and_active", lambda sb, ids: [])
+    monkeypatch.setattr(assign, "fetch_recent_probes", lambda sb, cutoff: pytest.fail("read the ledger"))
+
+    snapshot = assign.build_snapshot(None, use_tier_a=False, workers=1)
+
+    assert "cached_answers" not in snapshot and not any(d["tier"] == "A" for d in snapshot["decisions"])
+
+
+def test_the_weekly_cleanup_s_states_command_passes_validation(monkeypatch, capsys):
+    """propose_week runs exactly this; a refusal that caught the pair would stop every week's states stage."""
+    code, out = run_cli(monkeypatch, capsys, "--no-tier-a", "--reuse-answers")
+
+    assert code == 1
+    assert "Missing SUPABASE_URL" in out
+
+
+def test_a_sweep_that_reused_answers_says_how_many_and_that_it_bought_none(capsys):
+    assign.summarize(audit_snapshot(mode="normal", cached_answers=37))
+    reused = re.sub(r"\s+", " ", capsys.readouterr().out)
+    # The fixture carries the answered-only modes' cached_answers; a sweep run without --reuse-answers
+    # has none.
+    assign.summarize({key: v for key, v in audit_snapshot(mode="normal").items() if key != "cached_answers"})
+    plain = capsys.readouterr().out
+
+    assert (
+        "37 candidates already had a GotSport answer from the last 90 days, which was used; no call was made."
+    ) in reused
+    assert "GotSport answer from the last" not in plain
 
 
 def test_an_ordinary_invocation_passes_validation(monkeypatch, capsys):

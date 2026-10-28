@@ -82,6 +82,12 @@ are kept deliberately so a later run reuses the answer rather than re-buying it.
 `--no-tier-a` makes the run genuinely write-free, at the cost of deciding without the
 provider. The batch's own undo, `revert_team_states`, belongs to Step 5.
 
+`--reuse-answers` gives such a run back the answers earlier runs bought: a team the sweep would
+ask about whose latest GotSport answer in the last 90 days named a state takes it as Tier A,
+under the same rules as a fresh one, and no call is made. Without it, a team whose club, name
+and town disagree is only queued (R9), since only an answer settles that. The weekly team
+cleanup proposes states this way because it runs unattended, where nothing may be bought.
+
 ## Step 2: Take a snapshot with a dry run
 
 ```bash
@@ -115,9 +121,10 @@ on a sweep an agreement is visible nowhere else: it changes no state, so nothing
 (Steps 2a and 2b are different — there an agreement becomes a confirm, which is ledgered.)
 See [references/evidence-tiers.md](references/evidence-tiers.md).
 
-**A sweep never reads that ledger back.** Only the modes below do. Two sweeps a day apart buy
-the same disputed teams twice, so if the question is "what did the provider say", ask it once
-with a sweep and thereafter through Step 2a or 2b, which reuse an answer for 90 days.
+**A paying sweep never reads that ledger back.** `--reuse-answers` and the modes below do. Two
+paying sweeps a day apart buy the same disputed teams twice, so if the question is "what did the
+provider say", ask it once with a sweep and thereafter through `--reuse-answers` or Step 2a or 2b,
+which reuse an answer for 90 days.
 
 ## Step 2a: Or audit the contradictions instead
 
@@ -253,7 +260,7 @@ alias", as the anchor pass reports its clubs under "passed over (clubs)".
 
 Order the three: anchor, audit, unclubbed. All three share `--probe-limit`,
 `--reprobe-after-days` and Step 2a's blocked-probe behaviour, and none may be combined with
-another or with `--no-tier-a`.
+another, with `--no-tier-a` or with `--reuse-answers`, which `--team` refuses too.
 
 ## Step 3: Read the evidence before writing anything
 
