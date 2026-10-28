@@ -1,6 +1,7 @@
 import { RankingsPageContent } from '@/components/RankingsPageContent';
 import type { Metadata } from 'next';
-import { US_STATES, BASE_URL, formatGender } from '@/lib/constants';
+import { notFound, permanentRedirect } from 'next/navigation';
+import { US_STATES, AGE_GROUPS, BASE_URL, formatGender } from '@/lib/constants';
 import { api } from '@/lib/api';
 import { formatPowerScore, publishedRank, teamDisplayName } from '@/lib/utils';
 import { safeJsonLd } from '@/lib/schema-utils';
@@ -20,6 +21,11 @@ export async function generateStaticParams() {
     ageGroups.flatMap((ageGroup) => genders.map((gender) => ({ region, ageGroup, gender })))
   );
 }
+
+// The boards the sitemap lists. Anything else is not a board, so it must not render as one.
+const VALID_REGIONS: ReadonlySet<string> = new Set(['national', ...US_STATES.map((state) => state.code)]);
+const VALID_AGE_GROUPS: ReadonlySet<string> = new Set(AGE_GROUPS);
+const VALID_GENDERS: ReadonlySet<string> = new Set(['male', 'female']);
 
 interface RankingsPageProps {
   params: Promise<{
@@ -107,6 +113,15 @@ export default async function RankingsPage({ params }: RankingsPageProps) {
   const resolvedParams = await params;
   const { region, ageGroup, gender } = resolvedParams;
 
+  const lowered = [region.toLowerCase(), ageGroup.toLowerCase(), gender.toLowerCase()];
+  if (!VALID_REGIONS.has(lowered[0]) || !VALID_AGE_GROUPS.has(lowered[1]) || !VALID_GENDERS.has(lowered[2])) {
+    notFound();
+  }
+  // /rankings/AZ/... is the same board as /rankings/az/...; send it there instead of serving a duplicate.
+  if (lowered[0] !== region || lowered[1] !== ageGroup || lowered[2] !== gender) {
+    permanentRedirect(`/rankings/${lowered.join('/')}`);
+  }
+
   // key prop forces React to unmount/remount the component when route params change
   // This ensures fresh data fetching on client-side navigation between different rankings pages
   const routeKey = `${region}-${ageGroup}-${gender}`;
@@ -124,6 +139,10 @@ export default async function RankingsPage({ params }: RankingsPageProps) {
     ]);
   } catch (e) {
     console.warn(`[ISR] Failed to fetch teams for ${region}/${ageGroup}/${gender}:`, e);
+    // After the build, a failed hourly refresh must throw: Next then keeps serving the last good page and
+    // retries on the next visit, where returning an empty board would replace it and cache the blank for
+    // an hour. The build has no earlier page to keep, so it still tolerates the failure.
+    if (process.env.NEXT_PHASE !== 'phase-production-build') throw e;
   }
   // Ranked teams only, numbered by their published rank: a state board's rows arrive in PowerScore order with
   // unranked teams mixed in.

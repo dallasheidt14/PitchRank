@@ -1,8 +1,17 @@
 import { describe, expect, it, vi } from 'vitest';
+import { notFound, permanentRedirect } from 'next/navigation';
 import type { ReactElement } from 'react';
 
 const { mockGetRankings } = vi.hoisted(() => ({ mockGetRankings: vi.fn() }));
 
+vi.mock('next/navigation', () => ({
+  notFound: vi.fn(() => {
+    throw new Error('NEXT_NOT_FOUND');
+  }),
+  permanentRedirect: vi.fn((url: string) => {
+    throw new Error(`NEXT_REDIRECT ${url}`);
+  }),
+}));
 vi.mock('@/lib/api', () => ({
   api: {
     getRankings: mockGetRankings,
@@ -106,5 +115,51 @@ describe('RankingsPage layout', () => {
       );
 
     expect(ldTypes).toEqual(['RankingTable']);
+  });
+});
+
+describe('RankingsPage URL validation', () => {
+  const render = (region: string, ageGroup: string, gender: string) =>
+    RankingsPage({ params: Promise.resolve({ region, ageGroup, gender }) });
+
+  it.each([
+    ['xx', 'u13', 'male'],
+    ['az', 'u13', 'boys'],
+    ['az', 'u9', 'male'],
+    ['az', 'u18', 'female'],
+  ])('returns not found for /rankings/%s/%s/%s', async (region, ageGroup, gender) => {
+    mockGetRankings.mockResolvedValue(STATE_BOARD);
+    await expect(render(region, ageGroup, gender)).rejects.toThrow('NEXT_NOT_FOUND');
+    expect(notFound).toHaveBeenCalled();
+  });
+
+  it('sends an upper-case URL to the lower-case board', async () => {
+    mockGetRankings.mockResolvedValue(STATE_BOARD);
+    await expect(render('AZ', 'U13', 'Male')).rejects.toThrow('NEXT_REDIRECT /rankings/az/u13/male');
+    expect(permanentRedirect).toHaveBeenCalledWith('/rankings/az/u13/male');
+  });
+
+  it('renders every board the sitemap lists', async () => {
+    mockGetRankings.mockResolvedValue(STATE_BOARD);
+    await expect(render('national', 'u19', 'female')).resolves.toBeDefined();
+    await expect(render('wy', 'u10', 'male')).resolves.toBeDefined();
+  });
+});
+
+describe('RankingsPage failed fetch', () => {
+  it('throws after the build so a failed refresh keeps the last good page', async () => {
+    mockGetRankings.mockRejectedValue(new Error('statement timeout'));
+    await expect(
+      RankingsPage({ params: Promise.resolve({ region: 'national', ageGroup: 'u13', gender: 'male' }) })
+    ).rejects.toThrow('statement timeout');
+  });
+
+  it('still renders an empty board during the build, which has no earlier page to keep', async () => {
+    vi.stubEnv('NEXT_PHASE', 'phase-production-build');
+    mockGetRankings.mockRejectedValue(new Error('statement timeout'));
+    await expect(
+      RankingsPage({ params: Promise.resolve({ region: 'national', ageGroup: 'u13', gender: 'male' }) })
+    ).resolves.toBeDefined();
+    vi.unstubAllEnvs();
   });
 });
