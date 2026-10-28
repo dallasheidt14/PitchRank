@@ -9,7 +9,8 @@ and writes nothing to the run or the database; --execute does it.
                 run over every team (propose_week.py --states ALL), unless it already exists; with
                 --pin-code the checkout first moves to origin/main, and the run keeps that code
   proposing     propose again, which resumes where the last attempt stopped
-  reviewing     each stage: build and publish its page, then collect and apply its automatic lane
+  reviewing     each stage: build and publish its page (merges once review_merges.py has reviewed its
+                pairs, which can take hours), then collect and apply its automatic lane
                 once every page is up: email the owner that the review is ready
                 at the review deadline (config/team_cleanup.json), mark the review done for the owner,
                 so the choices made stand and the rest come back next week
@@ -65,7 +66,7 @@ from scripts.team_cleanup.apply_stage import (  # noqa: E402
     lane_flags,
     load_window,
 )
-from scripts.team_cleanup.decisions import TABLE_MISSING, resolve_execute  # noqa: E402
+from scripts.team_cleanup.decisions import MERGES, TABLE_MISSING, resolve_execute  # noqa: E402
 from scripts.team_cleanup.end_run import unfinished  # noqa: E402
 from scripts.team_cleanup.propose_week import ALL, PROPOSED_STAGES, run_id_for, run_step  # noqa: E402
 from scripts.team_cleanup.run_store import (  # noqa: E402
@@ -80,6 +81,8 @@ from scripts.team_cleanup.run_store import (  # noqa: E402
     MANIFEST_FILE,
     OPEN_STATUSES,
     OWNER,
+    REVIEW,
+    REVIEW_DIR,
     RUN_FILE,
     RUNS_TABLE,
     SHARED_STEPS,
@@ -105,6 +108,7 @@ STUCK_AFTER = timedelta(days=1)
 MAX_STEPS = 50
 
 PROPOSE = "scripts/team_cleanup/propose_week.py"
+REVIEW_MERGES = "scripts/team_cleanup/review_merges.py"
 PAGES = "scripts/team_cleanup/pages.py"
 COLLECT = "scripts/team_cleanup/collect.py"
 APPLY = "scripts/team_cleanup/apply_stage.py"
@@ -205,6 +209,7 @@ class Tick:
         self.blocked: list[str] = []
         self.steps = 0
         self.last_log: Path | None = None
+        self.reviewed: set[str] = set()
 
     # --- running a step ------------------------------------------------------------------------
 
@@ -337,6 +342,13 @@ class Tick:
             return Action(what, [script, "--run", run_id, "--stage", stage, *flags, "--store", str(self.store)], stage)
 
         for stage, p in progress.items():
+            if stage == MERGES and p.next_step is not None and self.review_due(run_id, p.next_step.name):
+                # A review can run for hours, so a tick runs it at most once, even when it reports done
+                # and leaves a slice waiting.
+                if run_id in self.reviewed:
+                    continue
+                self.reviewed.add(run_id)
+                return step(f"review the {stage} pairs", REVIEW_MERGES, stage, "--execute")
             if p.next_step is not None and p.next_step.name == "page":
                 return step(f"build and publish the {stage} page", PAGES, stage, "--publish", "--execute")
         for stage, p in progress.items():
@@ -352,6 +364,12 @@ class Tick:
             if p.next_step is not None and p.next_step.name == "apply" and window_open:
                 return step(f"apply the owner's {stage} choices", APPLY, stage, "--execute")
         return None
+
+    def review_due(self, run_id: str, next_step: str) -> bool:
+        """Whether the merges review runs next: its slices wait for reviewers, or it was never queued and the
+        page is next."""
+        queued = (stage_dir(self.store, run_id, MERGES) / REVIEW_DIR).exists()
+        return next_step == REVIEW.name or (next_step == "page" and not queued)
 
     def page_up(self, run_id: str, stage: str) -> bool:
         step = stage_progress(self.store, run_id, stage).next_step
@@ -539,8 +557,10 @@ def summary_email(store: Path, run_id: str, stages: list[str], undone: list[str]
     for stage in stages:
         owner = _collected(stage_dir(store, run_id, stage) / COLLECTED_MARKER)
         auto = _collected(stage_dir(store, run_id, stage) / AUTO / COLLECTED_MARKER)
+        # A pair the review found to be two teams is settled too, as Keep separate.
+        settled = auto.get("apply", 0) + auto.get("dont_apply", 0)
         rows.append(
-            f"<li>{html.escape(stage)}: {owner.get('apply', 0)} you chose to apply, {auto.get('apply', 0)} the "
+            f"<li>{html.escape(stage)}: {owner.get('apply', 0)} you chose to apply, {settled} the "
             f"evidence settled, {owner.get('undecided', 0)} left for next week</li>"
         )
     body = f"<p>This week's team cleanup ({html.escape(run_id)}) is finished.</p><ul>{''.join(rows)}</ul>"

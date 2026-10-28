@@ -521,6 +521,37 @@ describe('the team cleanup review page', () => {
     );
   });
 
+  it('lists an automatic merge the review turned round with the row it keeps last', async () => {
+    const swapped = pairs();
+    const [stage] = swapped.stages;
+    stage.auto = stage.auto.map((row) => ({
+      ...row,
+      swap: true,
+      card: { ...row.card, sure: 'reviewers cleared it: one squad registered twice' },
+    })) as typeof stage.auto;
+    serve(swapped);
+    await render();
+
+    expect(container!.querySelector('[data-testid="cleanup-auto"] li')!.textContent).toBe(
+      `${KEEP} → kept as ${MERGE} (reviewers cleared it: one squad registered twice)`
+    );
+  });
+
+  it('lists a pair the reviewers found to be two teams as kept separate', async () => {
+    const separate = pairs();
+    const [stage] = separate.stages;
+    stage.auto = stage.auto.map((row) => ({
+      ...row,
+      card: { ...row.card, keep_separate: true, sure: 'reviewers found two teams: 2008 and 2009' },
+    })) as typeof stage.auto;
+    serve(separate);
+    await render();
+
+    expect(container!.querySelector('[data-testid="cleanup-auto"] li')!.textContent).toBe(
+      `${MERGE} and ${KEEP} kept separate (reviewers found two teams: 2008 and 2009)`
+    );
+  });
+
   it("asks for a lane's undo once confirmed, then shows it waiting and offers it no more", async () => {
     await render();
     const undo = container!.querySelector<HTMLElement>('[data-testid="cleanup-undo"]')!;

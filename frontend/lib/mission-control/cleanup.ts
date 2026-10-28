@@ -161,12 +161,14 @@ export interface TeamCard extends CardBase {
   evidence?: StateCardEvidence;
 }
 
-/** Two rows that may be one team, on the merges stage: merging retires `merge` into `keep`, unless the owner
- * swaps them. */
+/** Two rows that may be one team, on the merges stage: merging retires `merge` into `keep`, unless the row's
+ * swap turns them (the owner's, or on an automatic card the review's). */
 export interface PairCard extends CardBase {
   merge: PairSide;
   keep: PairSide;
   evidence: PairEvidence;
+  /** On an automatic card: the week's review found two teams, so the loop keeps them separate. */
+  keep_separate?: boolean;
 }
 
 export type CleanupCard = TeamCard | PairCard;
@@ -180,7 +182,8 @@ interface CardRowOf<S extends CleanupStage, C extends CleanupCard> {
   card: C;
   decision: CleanupDecision | null;
   note: string | null;
-  /** True when the owner keeps the row a pair card would retire; false on every other card. */
+  /** True when a pair's surviving row is the one its card would retire: the owner's swap on a card, the
+   * review's on an automatic one; false on every other card. */
   swap: boolean;
   decided_at: string | null;
   created_at: string;

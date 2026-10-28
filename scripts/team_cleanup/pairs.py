@@ -6,9 +6,14 @@ from __future__ import annotations
 
 from collections import Counter
 
-from scripts.team_cleanup.decisions import keep_separate_row, page_built_at
+from scripts.team_cleanup.decisions import APPLY, DONT_APPLY, keep_separate_row, page_built_at
 from scripts.team_cleanup.review_page import team_block
 from scripts.team_cleanup.vetted import KEEP_AS_VETTED, MERGE_AS_VETTED
+
+# The weekly review's verdicts on a pair (review_merges.py).
+MERGE, HOLD, REJECT = "merge", "hold", "reject"
+VERDICTS = (MERGE, HOLD, REJECT)
+REVIEW_WORDS = {MERGE: "reviewers cleared it", HOLD: "reviewers held it", REJECT: "reviewers found two teams"}
 
 SWAPPED = {
     "merge_id": "keep_id",
@@ -26,8 +31,16 @@ def swapped(pair: dict) -> dict:
 
 
 def as_chosen(pair: dict) -> dict:
-    """The pair the way round the owner chose: swapped where the card says so."""
+    """The pair the way round its decision chose (the owner's on a card, the review's on the automatic lane):
+    swapped where it says so."""
     return swapped(pair) if pair.get("swap") else pair
+
+
+def review_choice(pair: dict) -> dict:
+    """The automatic lane's choice on a pair: Keep separate when its review found two teams, else Merge,
+    turned the way the review chose."""
+    review = pair.get("review") or {}
+    return {"decision": DONT_APPLY if review.get("verdict") == REJECT else APPLY, "swap": bool(review.get("swap"))}
 
 
 def side(tid, teams, ev, providers) -> dict:

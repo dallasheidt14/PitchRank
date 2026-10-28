@@ -195,6 +195,14 @@ class _Runner:
         lane = "auto" if _arg(command, "--lane") == "auto" else "owner"
         if script == "propose_week.py":
             _proposed(self.store, f"{_arg(command, '--date')}-all", "reviewing")
+        elif script == "review_merges.py":
+            # Queues the review on its first run, then reviews every slice still waiting.
+            review = stage_dir(self.store, run_id, stage) / "review"
+            review.mkdir(parents=True, exist_ok=True)
+            for path in [p for p in review.glob("slice_*.json") if not p.stem.endswith("_review")]:
+                rows = json.loads(path.read_text(encoding="utf-8"))
+                verdicts = [{**row, "verdict": "hold", "swap": False, "reason": "held"} for row in rows]
+                _write(review / f"{path.stem}_review.json", verdicts)
         elif script == "pages.py":
             folder = stage_dir(self.store, run_id, stage)
             _write(folder / "page.json", {"run": "20261021T190000Z-a1b2c3", "auto": self.auto, "published": True})
@@ -442,13 +450,15 @@ def test_every_page_is_built_and_published_and_the_owner_emailed_once(tmp_path, 
         ("pages.py", "clubs", None),
         ("pages.py", "states", None),
         ("pages.py", "ages", None),
+        ("review_merges.py", "merges", None),
         ("pages.py", "merges", None),
         ("collect.py", "clubs", "auto"),
         ("collect.py", "states", "auto"),
         ("collect.py", "ages", "auto"),
         ("collect.py", "merges", "auto"),
     ]
-    assert all({"--publish", "--execute"} <= set(c) for c in runner.commands[:4])
+    pages_built = [c for c in runner.commands if Path(c[0]).name == "pages.py"]
+    assert len(pages_built) == 4 and all({"--publish", "--execute"} <= set(c) for c in pages_built)
     assert _subjects(emails) == ["PitchRank cleanup: 8 change(s) to review"]
     assert "https://www.pitchrank.io/mission-control/cleanup" in emails[0][2] and "Sunday 6:00 PM" in emails[0][2]
 
@@ -478,6 +488,7 @@ def test_once_the_owner_marks_done_the_choices_are_collected_applied_and_the_run
     _tick(monkeypatch, store, _reviewing("2026-10-24T17:00:00Z"), runner, IN_WINDOW)
 
     assert [r for r in runner.ran() if r[0] != "pages.py"] == [
+        ("review_merges.py", "merges", None),
         *[step for stage in STAGES for step in (("collect.py", stage, "auto"), ("apply_stage.py", stage, "auto"))],
         *[step for stage in STAGES for step in (("collect.py", stage, "from-db"), ("apply_stage.py", stage, None))],
         ("end_run.py", None, None),
@@ -546,6 +557,17 @@ def test_a_failed_close_sends_no_summary(tmp_path, monkeypatch, emails):
     assert _tick(monkeypatch, store, _reviewing("2026-10-24T17:00:00Z"), runner, IN_WINDOW) == 1
 
     assert f"PitchRank cleanup {RUN} is finished" not in _subjects(emails)
+
+
+def test_the_summary_counts_pairs_kept_separate_as_settled_by_the_evidence(tmp_path):
+    store = tmp_path / "store"
+    folder = stage_dir(store, RUN, "merges")
+    _write(folder / advance.COLLECTED_MARKER, {"counts": {"apply": 1, "dont_apply": 2, "undecided": 4}})
+    _write(folder / advance.AUTO / advance.COLLECTED_MARKER, {"counts": {"apply": 3, "dont_apply": 2}})
+
+    _, body = advance.summary_email(store, RUN, ["merges"])
+
+    assert "<li>merges: 1 you chose to apply, 5 the evidence settled, 4 left for next week</li>" in body
 
 
 def test_a_stage_noted_as_not_run_this_week_is_left_alone(tmp_path, monkeypatch, emails):
@@ -890,3 +912,51 @@ def test_a_tick_leaves_the_run_to_another_tick_already_running(tmp_path, monkeyp
     with _acquire_file_lock(store / "advance.lock", timeout=0.0):
         assert _main(monkeypatch, store, "--execute") == 0
     assert "Another tick holds" in capsys.readouterr().out
+
+
+def test_the_merges_pairs_are_reviewed_once_before_the_merges_page_is_built(tmp_path, monkeypatch, emails):
+    store = tmp_path / "store"
+    _proposed(store)
+    runner = _Runner(store)
+
+    _tick(monkeypatch, store, _reviewing(), runner, IN_WINDOW)
+
+    merges = [script for script, stage, lane in runner.ran() if stage == "merges" and lane is None]
+    assert merges[:2] == ["review_merges.py", "pages.py"]
+    assert merges.count("review_merges.py") == 1
+    assert ["--execute"] == [c for c in runner.commands if Path(c[0]).name == "review_merges.py"][0][5:6]
+
+
+def test_a_review_still_waiting_on_a_slice_holds_the_merges_page_and_runs_again_next_tick(
+    tmp_path, monkeypatch, emails
+):
+    store = tmp_path / "store"
+    _proposed(store)
+    pair = {"merge_id": "m", "keep_id": "k", "merge_name": "M", "keep_name": "K"}
+    _write(stage_dir(store, RUN, "merges") / "review" / "slice_01.json", [pair])
+    runner = _Runner(store, codes={("review_merges.py", "merges"): [1]})
+
+    _tick(monkeypatch, store, _reviewing(), runner, IN_WINDOW)
+
+    assert ("pages.py", "merges", None) not in runner.ran()
+    assert ("pages.py", "states", None) in runner.ran()
+
+    _tick(monkeypatch, store, _reviewing(), runner, IN_WINDOW)
+
+    assert runner.ran().count(("review_merges.py", "merges", None)) == 2
+    assert ("pages.py", "merges", None) in runner.ran()
+
+
+def test_a_review_that_leaves_a_slice_waiting_runs_once_a_tick(tmp_path, monkeypatch, emails):
+    """A review can run for hours, so a tick never runs it twice, even when it reports done and still leaves a
+    slice waiting."""
+    store = tmp_path / "store"
+    _proposed(store)
+    _write(stage_dir(store, RUN, "merges") / "review" / "slice_01.json", [{"merge_id": "m", "keep_id": "k"}])
+    runner = _Runner(store)
+
+    _tick(monkeypatch, store, _reviewing(), runner, IN_WINDOW)
+
+    assert runner.ran().count(("review_merges.py", "merges", None)) == 1
+    assert ("pages.py", "merges", None) not in runner.ran()
+

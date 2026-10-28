@@ -93,9 +93,12 @@ A Keep separate chosen on a review page counts only once it is recorded in that 
 collector in Step 5 does when the owner runs it with `--execute`.
 
 The weekly team cleanup (the `running-team-cleanup` skill) runs Doorways C and D every week and puts
-their pairs on the cleanup review page; a Keep separate chosen there reaches that table when the
-stage applies. It merges on its own only Doorway C's `1_provably_safe` tier; every other pair waits
-for the owner's card. Check that week's run before merging a pair by hand.
+their pairs through Step 5 unattended (`scripts/team_cleanup/review_merges.py`). A pair its reviewers
+clear merges with no person looking, a reject a second reviewer upholds is recorded as Keep separate, and
+a held pair reaches the owner's card on the cleanup review page, whose Keep separate reaches
+`team_cleanup_decisions` when the stage applies; that skill's **Merges** section has the exceptions.
+Doorway C's `1_provably_safe` tier merges unreviewed, and a pair with no game this season on either row
+is left off, since the owner does not merge those. Check that week's run before merging a pair by hand.
 
 **Doorway A — name similarity.** `scripts/find_fuzzy_duplicate_teams.py`, called in-process by
 `decide_team_merges.py`. This is the recall ceiling for everything in Step 3: a pair it cannot
@@ -747,7 +750,11 @@ birth year to a team with two birth years or a U as thats the new format." Only 
 year the stored cohort contradicts ranks last. Then,
 between equally named rows, keep the one holding more games, and after that the one that played
 last. Game count is a stand-in for the live schedule, not the same thing: where a busy row has
-gone quiet and a thinner one holds this season's fixtures, keep the live one. Games follow the
+gone quiet and a thinner one holds this season's fixtures, keep the live one. Every reviewer
+brief written from this skill states this whole order as written here,
+`scripts/team_cleanup/assets/merge_review_brief.md` included, whose `swap` the weekly review
+applies with no person looking: ranking a U-age last when the stored cohort disagrees has crept
+back into a brief before. Games follow the
 survivor through `team_merge_map`; columns do not. Where the better-named row lacks a value the
 other holds — a state, a club, a distinction — keep the name and list the gap in Step 8, for the
 state or club-name workflow to settle. Doorway D's script applies the

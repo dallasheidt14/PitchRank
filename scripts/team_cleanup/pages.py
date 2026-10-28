@@ -12,7 +12,12 @@ missing-game teams) are kept inside the caps first and lead their group; past th
 are listed and left for next week's scan, which proposes them again. The merges caps keep followed
 teams' pairs first, then the cross-provider scan's before the squad-key scan's, each by the fewest
 games on the row it retires, and each pair card shows the two rows' shared opponents and same-day
-games.
+games. A pair neither of whose rows has a game this season is left off unless the scan finds it provably
+safe. Once review_merges.py has reviewed the pairs, a pair it cleared goes to the automatic lane turned as the
+review chose, one it found to be two teams goes there as Keep separate, one it held is a card giving the
+reviewers' reason, and one it did not reach waits past the cap for a later week's review; a cleared pair
+whose rows have since played on one day, or each other, is held instead. The page refuses to build while a
+review is due and has not been queued.
 
 The changes sure.py finds the evidence already settles go to the stage's automatic lane, with no
 card, up to page_caps.auto in config/team_cleanup.json; past it they stay cards, as every one does
@@ -82,6 +87,7 @@ from scripts.find_cross_provider_duplicates import (  # noqa: E402
     page,
     resolver,
 )
+from scripts.fix_band_cohorts import SEASON_START  # noqa: E402
 from scripts.review_state_queue_by_name import (  # noqa: E402
     affiliate_contradicts,
     classify,
@@ -100,7 +106,7 @@ from scripts.team_cleanup.decisions import (  # noqa: E402
     new_page_run,
     resolve_execute,
 )
-from scripts.team_cleanup.pairs import side  # noqa: E402
+from scripts.team_cleanup.pairs import HOLD, MERGE, REVIEW_WORDS, review_choice, side  # noqa: E402
 from scripts.team_cleanup.propose_week import (  # noqa: E402
     AGES,
     APPLIER_INPUTS,
@@ -121,6 +127,7 @@ from scripts.team_cleanup.run_store import (  # noqa: E402
     OWNER,
     PAGE_MARKER,
     PROPOSALS_FILE,
+    REVIEW_DIR,
     RUNS_TABLE,
     STALE_FILE,
     ApplyLockError,
@@ -137,7 +144,15 @@ from scripts.team_cleanup.run_store import (  # noqa: E402
     stage_due,
     store_dir,
 )
-from scripts.team_cleanup.sure import keeps_state, load_signals, state_evidence, sure_because  # noqa: E402
+from scripts.team_cleanup.sure import (  # noqa: E402
+    Signals,
+    keeps_state,
+    load_signals,
+    merge_reviews,
+    provably_safe,
+    state_evidence,
+    sure_because,
+)
 from scripts.team_cleanup.vetted import changed_since_vetted  # noqa: E402
 from src.tournaments.storage._io import read_json, utc_now_iso, write_json  # noqa: E402
 from src.utils.us_states import STATE_CODE_TO_NAME  # noqa: E402
@@ -154,24 +169,27 @@ WHOLE_TIERS = {
 # A pair's group names the scan that found it; same-name pairs across two providers come first.
 PAIR_GROUPS = {CROSS_PROVIDER_DOORWAY: "C identical name", SQUAD_KEY_DOORWAY: "D squad key"}
 SHARED_NAMES_SHOWN = 5
+IDLE_WHY = "neither team has a game this season"
 
 
 @dataclass(frozen=True)
 class Caps:
     cards: int
     auto: int
+    review: int = 0
 
 
 def load_caps(path: Path = CLEANUP_CONFIG, stage: str | None = None) -> Caps:
-    """The configured caps on a page's cards and on its automatic lane, each a whole number from 0: the
-    stage's own caps when page_caps names the stage, else the shared ones."""
+    """The configured caps on a page's cards, on its automatic lane and, for merges, on the pairs a week's review
+    takes, each a whole number from 0: the stage's own caps when page_caps names the stage, else the shared
+    ones, which review none."""
     try:
         spec = json.loads(path.read_text(encoding="utf-8"))["page_caps"]
         spec = spec.get(stage, spec)
-        caps = Caps(spec["cards"], spec["auto"])
+        caps = Caps(spec["cards"], spec["auto"], spec.get("review", 0))
     except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
         raise ValueError(f"{path} holds no readable page_caps ({type(exc).__name__}: {exc})") from None
-    if not all(type(cap) is int and cap >= 0 for cap in (caps.cards, caps.auto)):
+    if not all(type(cap) is int and cap >= 0 for cap in (caps.cards, caps.auto, caps.review)):
         raise ValueError(f"{path}'s page_caps must be whole numbers from 0: {spec}")
     return caps
 
@@ -387,7 +405,13 @@ def card(stage, run, p, team, ev, providers, interest, facts=None) -> dict:
 
 
 def pair_why(p: dict) -> str:
-    """Why the scan paired the two rows; neither scan gives a proposed pair a reason of its own."""
+    """What the reviewers found, else why the scan paired the two rows; neither scan gives a proposed pair a reason
+    of its own."""
+    review = p.get("review")
+    if review and review.get("held"):
+        return f"Reviewers cleared it ({review['reason']}), but the page held it: {review['held']}"
+    if review:
+        return f"{REVIEW_WORDS[review['verdict']].capitalize()}: {review['reason']}"
     if p["doorway"] == CROSS_PROVIDER_DOORWAY:
         return f"Both are named {p['keep_name']!r}, one on gotsport and one on {p['provider']}"
     return f"Both are {p['club']}'s {p['squad_key']!r} squad of one age group, the name written two ways"
@@ -419,6 +443,13 @@ def pair_card(run, p, teams, ev, providers, interest, names) -> dict:
     }
 
 
+def auto_pair(p: dict) -> dict:
+    """What an automatic pair's card adds: the review's swap, and whether the lane keeps the two rows separate
+    rather than merging them. The table holds every automatic card as Apply, the loop carrying out its call."""
+    choice = review_choice(p)
+    return {"swap": choice["swap"], "keep_separate": choice["decision"] == DONT_APPLY}
+
+
 def read_evidence(sb, team_ids, merge_map, canonical):
     """The teams' games, read under every row merged into them."""
     rows = fetch_games(sb, sorted(merged_into(team_ids, merge_map, canonical)))
@@ -429,6 +460,13 @@ def shared_opponent_names(sb, pairs, ev) -> dict[str, str]:
     """{opponent: name} for every opponent both rows of a pair played."""
     shared = set().union(*(ev.opponents[p["merge_id"]] & ev.opponents[p["keep_id"]] for p in pairs))
     return {tid: team["team_name"] for tid, team in fetch_teams(sb, sorted(shared)).items()}
+
+
+def idle(p: dict, ev) -> bool:
+    """A pair neither of whose rows has a game this season, played or scheduled: merging it changes nothing this
+    season's boards show, and the owner leaves such pairs alone (2026-10-21) unless the scan finds them provably
+    safe, which costs no one's time."""
+    return not provably_safe(p) and not any(day >= SEASON_START for team in teams_of(p) for day in ev.dates[team])
 
 
 def pair_cap_order(interest: set[str], ev):
@@ -478,13 +516,23 @@ def check_undecided(sb, run_id: str, stage: str, publish: bool, empty: bool) -> 
         )
 
 
-def build(
-    sb, store: Path, run_id: str, stage: str, publish: bool = False, execute: bool = False, dry_run: bool = False
-) -> dict:
-    """The page's build, its files written unless it is a dry run, and its cards inserted when published."""
-    run = read_run(store, run_id)
-    folder = buildable(store, run_id, stage)
-    caps = load_caps(stage=stage)
+@dataclass(frozen=True)
+class Selection:
+    """A stage's proposals once those the evidence answers are left off: the ones the page shows, a merges page's
+    in the order its caps keep them, and what was read to choose them."""
+
+    shown: list
+    left_out: list
+    teams: dict
+    merge_map: dict
+    canonical: object
+    interest: set
+    evidence: object
+    ev: object
+
+
+def select(sb, folder: Path, stage: str) -> Selection:
+    """The proposals a build starts from, which the merges review takes too, so it reviews the pairs the page shows."""
     proposals = read_json(folder / PROPOSALS_FILE)
     stale = read_json(folder / STALE_FILE)
     ids = sorted({team for p in proposals for team in teams_of(p)})
@@ -496,23 +544,68 @@ def build(
     answered = load_answered(proposals, evidence)
     teams = fetch_teams(sb, ids)
     shown, left_out = sort_out(stage, proposals, stale, declined, answered, teams, canonical, interest)
-    signals = load_signals(sb, stage, folder, shown, evidence, canonical)
     ev = None
     if stage == MERGES:
-        # The cap orders pairs by their retiring row's games, so the evidence is read before it; a retiring
-        # row that has played since the scan keeps its pair out of the automatic lane.
+        # The cap orders pairs by their retiring row's games, so the evidence is read before it.
         ev = read_evidence(sb, [team for p in shown for team in teams_of(p)], merge_map, canonical)
-        shown.sort(key=pair_cap_order(interest, ev))
-        signals = replace(signals, held={p["merge_id"] for p in shown if ev.games[p["merge_id"]]})
+        left_out += [{**p, "why": IDLE_WHY} for p in shown if idle(p, ev)]
+        shown = sorted((p for p in shown if not idle(p, ev)), key=pair_cap_order(interest, ev))
+    return Selection(shown, left_out, teams, merge_map, canonical, interest, evidence, ev)
+
+
+def merge_signals(sb, folder: Path, chosen: Selection) -> Signals:
+    """The merges rules' signals, with each retiring row that has played since the scan, which keeps an
+    unreviewed pair out of the automatic lane."""
+    signals = load_signals(sb, MERGES, folder, chosen.shown, None, chosen.canonical)
+    return replace(signals, held={p["merge_id"] for p in chosen.shown if chosen.ev.games[p["merge_id"]]})
+
+
+def with_reviews(shown: list[dict], reviews: dict, ev) -> list[dict]:
+    """Each pair with its review, where it has one. A pair the reviewers cleared whose two rows now played on one
+    day (a game between them among those) is held for the owner instead, its review marked so: the scans refuse
+    such a pair as two squads, so the day came after the scan, and it may be one game recorded twice or two squads."""
+    reviewed = []
+    for p in shown:
+        merge, keep = p["merge_id"], p["keep_id"]
+        review = reviews.get((merge, keep))
+        if review and review["verdict"] == MERGE and ev.dates[merge] & ev.dates[keep]:
+            review = {**review, "verdict": HOLD, "swap": False, "held": "the two have since played on the same day"}
+        reviewed.append({**p, "review": review} if review else p)
+    return reviewed
+
+
+def build(
+    sb, store: Path, run_id: str, stage: str, publish: bool = False, execute: bool = False, dry_run: bool = False
+) -> dict:
+    """The page's build, its files written unless it is a dry run, and its cards inserted when published."""
+    run = read_run(store, run_id)
+    folder = buildable(store, run_id, stage)
+    caps = load_caps(stage=stage)
+    if stage == MERGES and caps.review and not (folder / REVIEW_DIR).exists():
+        raise ValueError("its pairs are not reviewed yet: run review_merges.py --execute first, as the autopilot does")
+    selection = select(sb, folder, stage)
+    shown, left_out, teams, ev = selection.shown, selection.left_out, selection.teams, selection.ev
+    interest, evidence, reviews = selection.interest, selection.evidence, None
+    if stage == MERGES:
+        signals = merge_signals(sb, folder, selection)
+        reviews = merge_reviews(folder)
+        if reviews is not None:
+            shown = with_reviews(shown, reviews, ev)
+    else:
+        signals = load_signals(sb, stage, folder, shown, evidence, selection.canonical)
     settled = {proposal_key(p): why for p in shown if (why := sure_because(stage, p, signals))}
     auto = [p for p in shown if proposal_key(p) in settled][: caps.auto]
     sent = {proposal_key(p) for p in auto}
     shown = [p for p in shown if proposal_key(p) not in sent]
-    shown, overflow = shown[: caps.cards], shown[caps.cards :]
+    # Once a review ran, only reviewed pairs are cards (those it held, and any it settled past page_caps.auto);
+    # a pair it did not reach waits for a later week's review.
+    unreviewed = [p for p in shown if "review" not in p] if reviews is not None else []
+    shown = [p for p in shown if reviews is None or "review" in p]
+    shown, overflow = shown[: caps.cards], shown[caps.cards :] + unreviewed
 
     page_ids = [team for p in (*shown, *auto) for team in teams_of(p)]
     providers = {p["id"]: p["code"] for p in sb.table("providers").select("id,code").execute().data}
-    ev = ev or read_evidence(sb, page_ids, merge_map, canonical)
+    ev = ev or read_evidence(sb, page_ids, selection.merge_map, selection.canonical)
     shown.sort(key=display_order(stage, interest, ev))
     auto.sort(key=display_order(stage, interest, ev))
     facts = state_facts(evidence, ev, teams, page_ids)
@@ -529,6 +622,7 @@ def build(
                 ),
                 "n": n,
                 "sure": settled.get(proposal_key(p)),
+                **(auto_pair(p) if stage == MERGES and lane == AUTO else {}),
             }
             for n, p in enumerate(chosen, 1)
         ]

@@ -92,7 +92,8 @@ def keep_separate_row(merge_id: str, keep_id: str, note: str, decided_at: str, s
 
 def card_rows(run_id: str, stage: str, page_run: str, built_at: str, lanes: dict[str, list[dict]]) -> list[dict]:
     """Each card of a page build as team_cleanup_cards holds it, the automatic lane's decided Apply at the
-    build. ``lanes`` maps a lane to its cards."""
+    build. A reviewed pair's automatic card carries the review's swap, which goes to its own column.
+    ``lanes`` maps a lane to its cards."""
     return [
         {
             "card_id": c["id"],
@@ -101,9 +102,10 @@ def card_rows(run_id: str, stage: str, page_run: str, built_at: str, lanes: dict
             "lane": lane,
             "page_run": page_run,
             "position": c["n"],
-            "card": c,
+            "card": {key: value for key, value in c.items() if key != "swap"},
             "decision": APPLY if lane == "auto" else None,
             "decided_at": built_at if lane == "auto" else None,
+            "swap": c.get("swap", False),
         }
         for lane, cards in lanes.items()
         for c in cards
@@ -111,8 +113,8 @@ def card_rows(run_id: str, stage: str, page_run: str, built_at: str, lanes: dict
 
 
 def pair_decision_row(card: dict) -> dict:
-    """A pair card's decision, from its decisions.json row turned the way round the owner chose. Don't apply
-    is the owner's Keep separate."""
+    """A pair card's decision, from its decisions.json row turned the way round chosen. Don't apply is a Keep
+    separate, the owner's or the review's."""
     row = keep_separate_row(card["merge_id"], card["keep_id"], card["note"], card["decided_at"], card["source"])
     return row if card["decision"] == DONT_APPLY else {**row, "decision": card["decision"]}
 

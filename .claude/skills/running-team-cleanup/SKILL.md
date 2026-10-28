@@ -33,7 +33,8 @@ changes per stage). Each hourly tick, at :17, takes the open run as far as it ca
    `origin/main` and proposes the week over every team (`propose_week.py --states ALL`, run
    `<date>-all`). The run keeps that commit; a merge mid-week does not change its rules.
 2. **Each stage:** builds its page and publishes it to the website (`pages.py --publish --execute`),
-   then collects and, inside the window, applies the automatic lane (`--lane auto`). Once every page
+   merges only once its pairs are reviewed (`review_merges.py --execute`, below), then collects and,
+   inside the window, applies the automatic lane (`--lane auto`). Once every page
    is up it emails the owner that the review is ready.
 3. **The owner** decides the cards at `https://www.pitchrank.io/mission-control/cleanup` and presses
    **Mark review done**. At the deadline the tick marks it done for them: what they decided applies,
@@ -62,12 +63,33 @@ or a fused registration, are holds), another stage proposes to change one of its
 one of its teams pairs with a second row; `<run>/merges/scans.json` counts each by why, and the page
 manifest carries the counts as `scanned`.
 
-Only a cross-provider pair in the `1_provably_safe` tier merges on its own: the row it retires holds
-no games, still none when the page is built, and its provider alias already points at the row it
-keeps. Every other pair is a card, at most 1,000 a week (`page_caps.merges`): pairs with a followed team
-first, then the cross-provider scan's before the squad-key scan's, each by the fewest games on the row
-it retires. **Merge them** applies it; **Keep separate** records a decision both scans honour from then
-on; **Not sure** brings it back next week; **Keep the other one** flips which row survives.
+A pair neither of whose rows has a game this season (since Aug 1, played or scheduled) is left off:
+the owner does not merge those (2026-10-21). A cross-provider pair in the `1_provably_safe` tier
+merges on its own whatever its schedule: the row it retires holds no games, still none when the page is
+built, and its provider alias already points at the row it keeps.
+
+Before the page, `scripts/team_cleanup/review_merges.py` reviews the rest (`merging-duplicate-teams`
+Step 5, run unattended), up to
+`page_caps.merges.review` (1,000) a week in the page's order: pairs with a followed team first, then
+the cross-provider scan's before the squad-key scan's, each by the fewest games on the row it retires.
+It writes the evidence for 50 pairs at a time into `<run>/merges/review/` and runs headless Claude Code
+(`claude -p`, opus) on each slice, ten at once. Each reviewer works in its own folder: it loads none
+of the user's settings, MCP servers or memory, reads only its folder and `scripts/team_cleanup/`, writes
+only its one answer, runs no program but `scripts/team_cleanup/review_lookup.py` (the read-only
+lookups), and its environment holds only the public database key. Each pair gets merge, hold or reject; every reject goes to a second reviewer with
+the opposite prior, which never sees the first one's answer, and one it does not uphold becomes a hold.
+A slice whose reviewer fails is retried on the next tick; after three failures across its two
+reviewers its pairs are holds, except that when only the second reviewer kept failing, the pairs the
+first one cleared still merge. A review runs once a tick and can take an hour or more; the page refuses to build before it.
+
+The page then routes each reviewed pair: **merge** to the automatic lane, turned as the reviewer
+chose, unless the two rows have since played on the same day (each other included), which makes it a
+card saying the reviewers cleared it and why the page held it;
+**reject** to the automatic lane as Keep separate, which both scans honour from then on (the cards
+table holds it as Apply, the card's `keep_separate` saying what is applied); **hold** to a card giving
+the reviewers' reason. A pair the review did not reach waits for next week's. On a card,
+**Merge them** applies it; **Keep separate** records the decision; **Not sure** brings it back next
+week; **Keep the other one** flips which row survives.
 
 Its apply runs the merge applier on a pilot of 25 and then the rest, each batch followed by
 `exclude_merge_duplicate_games.py` over that batch's merges, so the survivor's doubled fixtures are
@@ -171,6 +193,18 @@ python scripts/team_cleanup/propose_week.py --states ALL --date 2026-10-21
 
 ### Step 2: Build and publish every proposed stage's page
 
+Review the duplicate pairs before their page. The first command says what it would queue or review;
+the second, the owner's to run, queues and reviews them (an hour or more; rerun it while it reports
+slices waiting for a retry). The reviewers' lookups read `SUPABASE_URL` and the public `SUPABASE_KEY`,
+so both must be set:
+
+```bash
+python scripts/team_cleanup/review_merges.py --run 2026-10-21-all --stage merges
+python scripts/team_cleanup/review_merges.py --run 2026-10-21-all --stage merges --execute
+```
+
+Then build each stage's page:
+
 ```bash
 python scripts/team_cleanup/pages.py --run 2026-10-21-all --stage clubs --publish
 python scripts/team_cleanup/pages.py --run 2026-10-21-all --stage clubs --publish --execute
@@ -183,7 +217,8 @@ published cards reads as built, so the autopilot never publishes that stage and 
 fails every tick. The plain build is for the Artifact fallback alone. The build prints the card
 count, how many changes go to the automatic lane, and the **page run** id
 (`YYYYMMDDTHHMMSSZ-<6 hex>`). It leaves off cards whose team is gone, merged or moved since the
-propose, ones the owner already declined, for clubs the guesses the scan lists without approving
+propose, ones the owner already declined, for merges each pair neither of whose rows has a game this
+season, for clubs the guesses the scan lists without approving
 (the `Listed` tiers in `normalizing-club-names`), and for states each change that a recent `mapped`
 GotSport answer other than the unset default `AL`, or the team's name or club name as
 `assigning-team-states` Step 6's name pass reads it, already answers with the state the team holds.
@@ -232,7 +267,7 @@ which it does not read, so it needs no Done: when every stage of a run has no ca
 no Done button, and this is how such a run finishes.
 
 Then read the Apply rows (`<stage>/vetted.csv`, or `<stage>/vetted.json` for states and merges, the
-latter each pair the way round the owner chose) against the checks the stage skill leaves to a person,
+latter each pair the way round the owner, or on the automatic lane the reviewer, chose) against the checks the stage skill leaves to a person,
 which no script enforces: for clubs the branch rule under **Hold rather than write** in
 `normalizing-club-names`, for states reading each as a person would (`assigning-team-states` Step 4),
 for merges the checks under **Hand the owner what review could not settle** in
@@ -345,7 +380,9 @@ rows that still hold the value the batch wrote. Merges show each batch's hidden 
 undo its merges, newest batch first. States wait (exit 75) until two minutes after a batch ended,
 and when a window holds another writer's change or one of their own writes falls outside the saved
 windows. The result is appended to the lane's `<lane folder>/REVERT.md`. State review-queue cards it
-settled stay settled, and the owner's recorded decisions stay as they were. A change the undo put back
+settled stay settled, and every recorded decision stays as it was, including the Keep separate a merges
+automatic lane recorded for pairs its reviewers found to be two teams: an undo does not bring those
+pairs back to the scans. A change the undo put back
 is never sent to the automatic lane again. A closed or abandoned run can still be undone.
 
 An undone lane is over for this run: never hand its apply over again, because depending on where it
@@ -356,5 +393,6 @@ closes only by abandoning it.
 ## Not in code
 
 A second lap (re-proposing what a stage's writes uncovered), the post-Monday check of how the week's
-rankings moved the changed teams, and reviewer subagents for proposals do not exist in code. Do not
-improvise them; tell the owner when a request needs one.
+rankings moved the changed teams, and reviewers for the clubs, states and ages proposals do not exist
+in code; only merges has them (`review_merges.py`, under **Merges**). Do not improvise them; tell the
+owner when a request needs one.
