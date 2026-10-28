@@ -326,6 +326,26 @@ def test_a_live_run_imports_games_between_linked_teams_and_holds_the_rest(tmp_pa
     assert "games_added=1" in capsys.readouterr().out
 
 
+def test_a_stored_game_with_a_changed_score_still_reaches_the_import_csv(tmp_path, monkeypatch, capsys):
+    today = date.today().isoformat()
+    games = [_game(date=today, hs="5", as_="1")]
+    _write(tmp_path / "games.csv", list(games[0]), games)
+    squads = list(SQUADS.values())
+    _write(tmp_path / "squads.csv", list(squads[0]), squads)
+    db = _live_db([_alias(1, "10:2026", "M1"), _alias(2, "11:2026", "M2")])
+    db.rows["games"].append(
+        {"id": 1, "game_date": today, "home_team_master_id": "M1", "away_team_master_id": "M2", "home_score": 3, "away_score": 4}
+    )
+    monkeypatch.setattr(build, "_new_client", lambda: db)
+    assert build.main(["--in-dir", str(tmp_path)]) == 0
+    imported = list(csv.DictReader((tmp_path / "import.csv").open(encoding="utf-8")))
+    assert [(r["team_id"], r["goals_for"], r["goals_against"]) for r in imported] == [
+        ("10:2026", "5", "1"),
+        ("11:2026", "1", "5"),
+    ]
+    assert "already_stored=1" in capsys.readouterr().out
+
+
 def test_a_live_link_to_a_team_on_another_board_holds_that_squads_games(tmp_path, monkeypatch, capsys):
     games = [_game(date=date.today().isoformat())]
     _write(tmp_path / "games.csv", list(games[0]), games)

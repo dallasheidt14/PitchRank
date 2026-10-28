@@ -106,7 +106,7 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}
         run: |
           set -euo pipefail
-          python scripts/import_games_enhanced.py data/mlsnext_kitman/import.csv mlsnext_kitman
+          python scripts/import_games_enhanced.py data/mlsnext_kitman/import.csv mlsnext_kitman | tee import_counts.txt
 
       - name: Upload MLS NEXT output
         if: always()
@@ -126,6 +126,10 @@ jobs:
             echo "- Match report: $(cat match_counts.txt 2>/dev/null || echo 'did not finish')"
             echo "- Links: $(cat link_counts.txt 2>/dev/null || echo 'not run')"
             echo "- Import impact: $(cat impact.txt 2>/dev/null || echo 'not run')"
+            if [ -f import_counts.txt ]; then
+              echo "- Scores corrected: $(grep '^IMPORT_RESULT:' import_counts.txt | grep -o '"scores_corrected": [0-9]*' | grep -o '[0-9]*$' || true)"
+              echo "- Score corrections failed: $(grep '^IMPORT_RESULT:' import_counts.txt | grep -o '"scores_correct_failed": [0-9]*' | grep -o '[0-9]*$' || true)"
+            fi
             if [ -f data/mlsnext_kitman/handback.csv ]; then
               echo "- Squads held for a missing club state: $(grep -c ',needs state,' data/mlsnext_kitman/handback.csv || true)"
             fi
