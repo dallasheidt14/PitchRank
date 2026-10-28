@@ -33,9 +33,13 @@ Also set `swap: true` when the merge is right but the other row should survive (
 - **Never across tiers:** ECNL vs ECNL-RL, HD vs AD, MLS NEXT vs anything else. A Modular11 or MLS NEXT
   alias on either row is a hold.
 - {cohorts} A U-label in a name
-  (`U12`, `BU11`) is the current season's age unless the row is old. A name's stated age decides that
-  row's cohort, even against its own stored cohort, which is then the value in error: say so. If the two
-  names state different cohorts, reject.
+  (`U12`, `BU11`) is the current season's age unless the row is old. A two-year band or a U-age states
+  one cohort; a bare birth year (`2014`, `14B`) fits two, the one the table gives and the one below it,
+  since it is the younger year of one two-year band and the older year of the next. A name's stated age
+  decides that row's cohort, even against its own stored cohort, which is then the value in error: say
+  so. Reject on cohort only when no reading of the two names gives them one cohort. When a bare year
+  fits the other name under one reading, settle it from this season's opponents, and hold when they do
+  not settle it.
 - **Gender.** Registered names or opponents of opposite genders: reject.
 - **Two squads at once.** Games on the same date, or adjacent days, in different events or leagues, by
   both rows: two squads. Exception: the same opponent and score on the same date is one game imported
@@ -64,7 +68,7 @@ lookup's own folder, nothing more:
     python {lookup} club <text> <age group> <gender>
     python {lookup} name <text> <age group> <gender>
 
-`team` prints the row (an id merged away prints the row it went into), its aliases, the rows merged
+`team` prints the row (an id merged away prints the row it went into), the rows merged
 into it, and its games newest first, at most 200, each with the registration that played it; it says how
 many older ones it left out. `club` and `name` list up to 60 live rows of a cohort (any state) whose club
 name, or name or registered name, holds the text, by club and name, and say when more hold it: use them to find a competing

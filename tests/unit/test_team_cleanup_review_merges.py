@@ -707,16 +707,20 @@ def test_a_team_lookup_reads_a_merged_away_id_as_its_survivor_newest_game_first_
         teams=[_team(KEEP_ID, "2016 Kraze Black U11"), _team(GONE_ID, "16 Kraze Black", deprecated=True),
                _team("opp", "Rivals 2016", club="Rivals")],  # fmt: skip
         team_merge_map=[{"id": 1, "deprecated_team_id": GONE_ID, "canonical_team_id": KEEP_ID}],
-        team_alias_map=[],
         games=[_game(1, _day(9, 6), "opp", GONE_ID, score=(3, 1)), _game(2, _day(10, 4), KEEP_ID, "opp")],
     )
+    read, table = [], db.table
+    monkeypatch.setattr(db, "table", lambda name: read.append(name) or table(name))
     monkeypatch.setattr(lookup, "GAMES_SHOWN", 1)
 
     lines = _lookup(monkeypatch, capsys, db, "team", GONE_ID).splitlines()
 
     assert lines[0] == f"{GONE_ID} was merged into {KEEP_ID}; showing that row"
-    assert lines[2].startswith(f"  merged into it: {GONE_ID} | 16 Kraze Black")
-    assert lines[3:] == [
+    # The public key reads no row of team_alias_map, so the lookup says it shows none rather than listing none.
+    assert lines[2] == "  aliases: not readable with the public key; the slice's evidence lists each pair's"
+    assert "team_alias_map" not in read
+    assert lines[3].startswith(f"  merged into it: {GONE_ID} | 16 Kraze Black")
+    assert lines[4:] == [
         "  games: 2, newest first; the oldest 1 are not shown",
         f"    {_day(10, 4)} as 1 vs Rivals 2016 [u11 M] 1-0 League",
     ]

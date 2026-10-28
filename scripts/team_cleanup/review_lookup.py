@@ -3,15 +3,15 @@
 
 A reviewer may run this and no other program, so each lookup is a fixed read:
 
-  team <team id>                       the row (a merged-away id is read as the row it went into), its
-                                       provider aliases, the rows merged into it, and its games
-                                       (merge-resolved), newest first, each with the registration that
-                                       played it
+  team <team id>                       the row (a merged-away id is read as the row it went into), the
+                                       rows merged into it, and its games (merge-resolved), newest
+                                       first, each with the registration that played it
   club <text> <age group> <gender>     live rows of that cohort whose club name holds the text, any state
   name <text> <age group> <gender>     live rows of that cohort whose name or registered name holds it
 
 A list longer than it shows says so. Each read is a SELECT, made with the public key alone, whatever else the
-checkout's .env holds.
+checkout's .env holds. That key cannot read team_alias_map, so no lookup lists aliases, and the team lookup says
+so; the slice's evidence, built with the full key, lists each pair's.
 
     python scripts/team_cleanup/review_lookup.py team 602b9dba-a36e-422d-94b7-0809049ef928
     python scripts/team_cleanup/review_lookup.py club "Kraze" u11 Male
@@ -46,6 +46,7 @@ GENDERS = ("Male", "Female")
 # A search text is a plain fragment of a name: wildcards and PostgREST's list syntax are not part of one.
 SEARCH = re.compile(r"^[^%*,()\\]{3,60}$")
 ROWS_SHOWN = 60
+ALIASES_UNREAD = "not readable with the public key; the slice's evidence lists each pair's"
 GAMES_SHOWN = 200
 
 
@@ -78,11 +79,7 @@ def show_team(sb, asked: str, providers: dict) -> None:
         print("no such team")
         return
     print(team_line(rows[0], providers))
-    for a in (
-        sb.table("team_alias_map").select("provider_id,provider_team_id,match_method").eq("team_id_master", team_id)
-        .execute().data
-    ):
-        print(f"  alias {providers.get(a['provider_id'], '?')}:{a['provider_team_id']} ({a['match_method']})")
+    print(f"  aliases: {ALIASES_UNREAD}")
     absorbed = [d for d in merge_map if d != team_id and canonical(d) == team_id]
     for batch in batched(absorbed):
         for t in sb.table("teams").select(TEAM_COLS).in_("team_id_master", batch).execute().data:
