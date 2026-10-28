@@ -238,6 +238,26 @@ async def import_batch_with_retry(
                     raise
 
 
+def import_result_summary(metrics) -> Dict:
+    """The counts printed on the IMPORT_RESULT line, for callers that parse it."""
+    return {
+        "games_processed": metrics.games_processed,
+        "games_accepted": metrics.games_accepted,
+        "duplicates_skipped": metrics.duplicates_skipped,
+        "duplicates_found": metrics.duplicates_found,
+        "games_quarantined": metrics.games_quarantined,
+        "failed_games_count": metrics.failed_games_count,
+        "duplicate_key_violations": metrics.duplicate_key_violations,
+        "skipped_empty_provider_ids": metrics.skipped_empty_provider_ids,
+        "skipped_empty_game_date": metrics.skipped_empty_game_date,
+        "skipped_empty_scores": metrics.skipped_empty_scores,
+        "duplicate_links_backfilled": metrics.duplicate_links_backfilled,
+        "scores_corrected": metrics.scores_corrected,
+        "scores_correct_failed": metrics.scores_correct_failed,
+        "scores_correct_held": metrics.scores_correct_held,
+    }
+
+
 async def main():
     parser = argparse.ArgumentParser(description="Import games with enhanced pipeline")
     parser.add_argument("file", help="JSON/JSONL/CSV file containing games data")
@@ -531,6 +551,9 @@ async def main():
                             aggregated_metrics.duplicate_links_backfilled += result.duplicate_links_backfilled
                             aggregated_metrics.matched_games_count += result.matched_games_count
                             aggregated_metrics.partial_games_count += result.partial_games_count
+                            aggregated_metrics.scores_corrected += result.scores_corrected
+                            aggregated_metrics.scores_correct_failed += result.scores_correct_failed
+                            aggregated_metrics.scores_correct_held += result.scores_correct_held
                             aggregated_metrics.errors.extend(result.errors)
                             completed_batches += 1
 
@@ -570,6 +593,9 @@ async def main():
                         aggregated_metrics.duplicate_links_backfilled += result.duplicate_links_backfilled
                         aggregated_metrics.matched_games_count += result.matched_games_count
                         aggregated_metrics.partial_games_count += result.partial_games_count
+                        aggregated_metrics.scores_corrected += result.scores_corrected
+                        aggregated_metrics.scores_correct_failed += result.scores_correct_failed
+                        aggregated_metrics.scores_correct_held += result.scores_correct_held
                         aggregated_metrics.errors.extend(result.errors)
                         completed_batches += 1
 
@@ -678,19 +704,7 @@ async def main():
         # Output machine-readable summary for callers to parse
         import json as _json
 
-        _summary = _json.dumps({
-            "games_processed": aggregated_metrics.games_processed,
-            "games_accepted": aggregated_metrics.games_accepted,
-            "duplicates_skipped": aggregated_metrics.duplicates_skipped,
-            "duplicates_found": aggregated_metrics.duplicates_found,
-            "games_quarantined": aggregated_metrics.games_quarantined,
-            "failed_games_count": aggregated_metrics.failed_games_count,
-            "duplicate_key_violations": aggregated_metrics.duplicate_key_violations,
-            "skipped_empty_provider_ids": aggregated_metrics.skipped_empty_provider_ids,
-            "skipped_empty_game_date": aggregated_metrics.skipped_empty_game_date,
-            "skipped_empty_scores": aggregated_metrics.skipped_empty_scores,
-            "duplicate_links_backfilled": aggregated_metrics.duplicate_links_backfilled,
-        })
+        _summary = _json.dumps(import_result_summary(aggregated_metrics))
         print(f"IMPORT_RESULT:{_summary}")
 
         # Exit code based on success/failure

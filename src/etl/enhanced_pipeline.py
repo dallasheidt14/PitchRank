@@ -30,9 +30,9 @@ from supabase import Client, create_client  # noqa: E402
 logger = logging.getLogger(__name__)
 
 
-# Providers whose re-scraped score replaces a different stored one. GotSport and TGS edit scores
+# Providers whose re-scraped score replaces a different stored one. GotSport, TGS and Kitman edit scores
 # after posting them (placeholders, mid-tournament entries, later fixes); the others are not verified.
-SCORE_CORRECTION_PROVIDERS = frozenset({"gotsport", "tgs"})
+SCORE_CORRECTION_PROVIDERS = frozenset({"gotsport", "tgs", "mlsnext_kitman"})
 
 # Providers whose changed score is held when both sides moved and the pair is not just the stored
 # one the other way round: TGS has shown a correct result replaced by an unrelated one.
@@ -41,7 +41,7 @@ HOLD_BOTH_SIDES_CHANGED_PROVIDERS = frozenset({"tgs"})
 # Providers whose stored row for a changed score is found by provider team ids as well as master
 # ids, whatever game_uid it carries. A merge repoints master ids and leaves the games saved under
 # the old ones, so the same game then sits under an id the re-scrape no longer produces.
-PROVIDER_ID_CORRECTION_PROVIDERS = frozenset({"tgs"})
+PROVIDER_ID_CORRECTION_PROVIDERS = frozenset({"tgs", "mlsnext_kitman"})
 
 
 @dataclass
