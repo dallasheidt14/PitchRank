@@ -1310,7 +1310,8 @@ def test_a_state_card_shows_the_name_reading_the_name_pass_keeps_and_no_placehol
 
 
 def _sure_week(tmp_path, monkeypatch, auto):
-    """Three fills nothing disputes and a correction, which is never sure, with ``auto`` the lane's cap."""
+    """Three fills nothing disputes and a club (Tier B) correction, which is never sure, with ``auto`` the
+    lane's cap."""
     store = tmp_path / "store"
     _reviewing(store)
     _states(store, [_decision(t, None, "NV") for t in ("a", "b", "c")] + [_decision("fix", "UT", "NV")])
@@ -1344,11 +1345,6 @@ def test_settled_changes_go_to_the_automatic_lane_up_to_its_cap_and_the_rest_sta
     assert stage_progress(store, RUN, "states").auto_step.next_action == "collect the automatic lane"
     assert "the evidence already settles 3: 2 go to the automatic lane, the rest stay cards" in out
     assert f"collect.py --run {RUN} --stage states --lane auto, then apply_stage.py" in out
-
-
-def test_the_configured_caps_send_one_pilot_batch_a_stage_to_the_automatic_lane_and_show_the_backlog():
-    # 2,000 cards a stage clears the backlog in one review; it goes back to a weekly size once that is done.
-    assert LOAD_CAPS() == pages.Caps(cards=2000, auto=50)
 
 
 @pytest.mark.parametrize(
@@ -2098,7 +2094,7 @@ def _merges(store, pairs, stale=()):
 
 
 def _merge_week(tmp_path, monkeypatch, pairs, *, teams, games=(), cards=150, auto=0):
-    """A merges stage under the shipped review cap, its review folder as a review of no pair leaves it."""
+    """A merges stage under a review cap of 1000, its review folder as a review of no pair leaves it."""
     store = tmp_path / "store"
     _reviewing(store)
     (_merges(store, pairs) / REVIEW_DIR).mkdir()
@@ -2223,9 +2219,10 @@ def test_the_merges_cap_keeps_the_cross_provider_pairs_retiring_the_fewest_games
     assert [p["merge_id"] for p in manifest["overflow"]] == ["d-empty"]
 
 
-def test_the_shipped_merges_caps_are_a_thousand_cards_a_thousand_automatic_and_a_thousand_reviewed():
-    assert LOAD_CAPS(stage="merges") == pages.Caps(cards=1000, auto=1000, review=1000)
-    assert LOAD_CAPS(stage="states") == LOAD_CAPS() == pages.Caps(cards=2000, auto=50)
+def test_the_shipped_caps_leave_every_stage_and_the_merges_review_uncapped():
+    # Deliberately uncapped, the owner's call: a week's run settles and shows everything it proposes.
+    assert LOAD_CAPS(stage="merges") == pages.Caps(cards=100000, auto=100000, review=100000)
+    assert LOAD_CAPS(stage="states") == LOAD_CAPS(stage="clubs") == LOAD_CAPS() == pages.Caps(100000, 100000)
 
 
 def test_only_a_provably_safe_pair_merges_on_its_own_and_a_moved_or_retired_row_keeps_a_pair_off(

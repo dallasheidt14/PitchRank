@@ -261,7 +261,7 @@ def test_an_answer_already_given_is_not_bought_again_and_a_failed_recheck_holds_
     assert [r["verdict"] for r in _final(review)] == ["merge", "hold"]
 
 
-def test_the_queue_reviews_every_waiting_slice_and_keeps_each_one_s_failures(tmp_path):
+def test_the_queue_reviews_the_waiting_slices_and_keeps_each_one_s_failures(tmp_path):
     rows = _rows(("m1", "k1"))
     review = _slice(tmp_path, rows)
     second = _rows(("m2", "k2"))
@@ -660,6 +660,27 @@ def test_a_slice_left_for_a_retry_exits_1_and_a_run_not_in_review_is_refused(tmp
     code, _ = _main(monkeypatch, capsys, store, None, _Reviewers([]), "--execute")
 
     assert isinstance(code, str) and "is applying" in code
+
+
+def test_a_run_reviews_two_waves_and_leaves_the_rest_waiting_for_the_next(tmp_path, monkeypatch, capsys):
+    """Two waves stay inside the autopilot step's four hours, so no run is stopped with reviewers at work; the
+    slices past them wait for the next run, which the autopilot reads as waiting rather than failed."""
+    assert rm.RUN_SLICES == 20
+    monkeypatch.setattr(rm, "RUN_SLICES", 1)
+    store = tmp_path / "store"
+    pt._reviewing(store)
+    folder = pt._merges(store, [pt._pair("m1", "k1", doorway="D"), pt._pair("m2", "k2", doorway="D")])
+    first, second = _rows(("m1", "k1")), _rows(("m2", "k2"))
+    _slice(folder, first)
+    (folder / "review" / "slice_02.json").write_text(json.dumps(second), encoding="utf-8")
+    (folder / "review" / "slice_02.md").write_text("## evidence of slice_02", encoding="utf-8")
+    reviewers = _Reviewers([[_answer(first[0], "hold")]])
+
+    code, out = _main(monkeypatch, capsys, store, None, reviewers, "--execute")
+
+    assert (code, len(reviewers.commands)) == (75, 1)
+    assert "1 slice(s) wait for the next run: slice_02" in out
+    assert rm.waiting(folder / "review") == ["slice_02"]
 
 
 # --- the lookups ----------------------------------------------------------------------------------------

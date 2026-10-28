@@ -3,7 +3,8 @@
 
 This is Step 5 of the merging-duplicate-teams skill, run unattended: reviewers judge every pair from its
 evidence, so the owner sees only the pairs they could not settle. The first run queues the review into
-<run>/merges/review/; each run then reviews what is still queued:
+<run>/merges/review/; each run then reviews up to RUN_SLICES of the slices still queued, the rest waiting
+for the next run:
 
   BRIEF.md, RECHECK.md      the reviewers' briefs, from assets/, with this season's cohorts and the lookup
   slice_NN.json             up to 50 pairs, in the order the page's caps keep them, each labelled
@@ -55,6 +56,7 @@ from scripts.team_cleanup.pages import Selection, buildable, load_caps, merge_si
 from scripts.team_cleanup.pairs import HOLD, MERGE, REJECT, VERDICTS  # noqa: E402
 from scripts.team_cleanup.review_lookup import GAME_COLS, TEAM_COLS, event_of, label  # noqa: E402
 from scripts.team_cleanup.run_store import (  # noqa: E402
+    BUSY,
     MERGE_REVIEW_KEYS,
     REVIEW,
     REVIEW_DIR,
@@ -79,8 +81,10 @@ OUTPUT = {"review": "verdicts.json", "recheck": "recheck.json"}
 SLICE_PAIRS = 50
 PARALLEL = 10
 ATTEMPTS = 3
-# Two waves of ten slices, each reviewed and rechecked, stay inside the autopilot step's four hours.
 REVIEWER_TIMEOUT_SECONDS = 40 * 60
+# Slices one run reviews: two waves, each reviewed and rechecked, stay inside the autopilot step's four hours even
+# at the reviewer timeout, so no run is stopped with its reviewers still at work; the rest wait for the next run.
+RUN_SLICES = 2 * PARALLEL
 MODEL = "opus"
 LOOKUP = (Path(__file__).resolve().parent / "review_lookup.py").as_posix()
 # The lookup's own folder is a working directory too: with reads outside them blocked, Claude Code also
@@ -498,10 +502,10 @@ def waiting(review: Path) -> list[str]:
 
 
 def review_queued(review: Path, claude: str, runner=run_reviewer) -> list[str]:
-    """Review every waiting slice, up to PARALLEL at once; the slices still waiting afterwards."""
+    """Review the first RUN_SLICES waiting slices, up to PARALLEL at once; those of them still waiting afterwards."""
     attempts_path = review / ANSWERS_DIR / ATTEMPTS_FILE
     attempts = read_json(attempts_path) if attempts_path.exists() else {}
-    names = waiting(review)
+    names = waiting(review)[:RUN_SLICES]
     with ThreadPoolExecutor(max_workers=PARALLEL) as pool:
         results = list(pool.map(lambda name: review_slice(review, name, attempts.get(name, 0), claude, runner), names))
     for name, (_, failures) in zip(names, results):
@@ -542,7 +546,9 @@ def main() -> int:
                 print(f"queued {queue(get_client(), folder, cap)} pair(s) for review in {review}")
             names = waiting(review)
             if not execute:
-                print(f"DRY RUN -- would review {len(names)} slice(s): {', '.join(names) or 'none'}")
+                now = names[:RUN_SLICES]
+                listed = ", ".join(now) or "none"
+                print(f"DRY RUN -- would review {len(now)} of {len(names)} waiting slice(s): {listed}")
                 return 0
             claude = shutil.which("claude")
             if names and not claude:
@@ -560,6 +566,10 @@ def main() -> int:
     if left:
         print(f"{len(left)} slice(s) wait for a retry: {', '.join(left)}")
         return 1
+    later = waiting(review)
+    if later:
+        print(f"{len(later)} slice(s) wait for the next run: {', '.join(later)}")
+        return BUSY
     print(f"next: build the page, pages.py --run {args.run} --stage {MERGES} --publish --execute")
     return 0
 

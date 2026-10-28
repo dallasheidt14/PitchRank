@@ -36,7 +36,13 @@ from scripts.team_cleanup.propose_week import (  # noqa: E402
     with_age_evidence,
 )
 from scripts.team_cleanup.run_store import MANIFEST_FILE, read_run, stage_dir, store_dir  # noqa: E402
-from scripts.team_cleanup.sure import Signals, held_fills, reverted_changes, state_evidence, sure_because  # noqa: E402
+from scripts.team_cleanup.sure import (  # noqa: E402
+    Signals,
+    held_changes,
+    reverted_changes,
+    state_evidence,
+    sure_because,
+)
 from src.tournaments.storage._io import read_json  # noqa: E402
 
 UNDECIDED = "undecided"
@@ -72,7 +78,8 @@ def replay(sb, store: Path, run_ids: list[str]) -> tuple[dict[str, Counter], lis
         reverted = reverted_changes(sb, stage, canonical)
         table = Counter()
         for run_id, cards in runs.items():
-            held = held_fills(sb, stage_dir(store, run_id, stage), [p for p, _ in cards]) if stage == STATES else set()
+            folder = stage_dir(store, run_id, stage)
+            held = held_changes(sb, folder, [p for p, _ in cards]) if stage == STATES else set()
             signals = Signals(reverted, {canonical(team) for team in held}, evidence)
             for p, decision in cards:
                 why = sure_because(stage, {**p, "team_id_master": canonical(p["team_id_master"])}, signals)

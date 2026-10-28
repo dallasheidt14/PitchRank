@@ -102,10 +102,38 @@ def test_a_blank_state_filled_from_the_club_is_sure():
         "fill-for-a-team-no-longer-live",
     ],
 )
-def test_every_state_correction_and_every_disputed_fill_is_the_owner_s(proposal, team, answers, held):
-    """A correction is never sure, however many club-mates back it, and a fill is sure only when
-    nothing disputes it."""
+def test_every_club_correction_and_every_disputed_fill_is_the_owner_s(proposal, team, answers, held):
+    """A correction from the club is never sure, however many club-mates back it, and a fill is sure only
+    when nothing disputes it."""
     signals = _signals([team] if team else [], answers, held)
+
+    assert sure.sure_because("states", proposal, signals) is None
+
+
+def test_a_correction_gotsport_s_own_record_gives_is_sure():
+    signals = _signals([_team("record", state="NV")], {"record": "UT"})
+
+    assert sure.sure_because("states", _state("record", "NV", "UT", tier="A"), signals) == (
+        "GotSport's own record of the team gives this state"
+    )
+
+
+@pytest.mark.parametrize(
+    "proposal, answers, held, reverted",
+    [
+        (_state("other", "NV", "UT", tier="A"), {"other": "AZ"}, (), ()),
+        (_state("none", "NV", "UT", tier="A"), {}, (), ()),
+        (_state("queued", "NV", "UT", tier="A", action="queue"), {"queued": "UT"}, (), ()),
+        (_state("held", "NV", "UT", tier="A"), {"held": "UT"}, ("held",), ()),
+        (_state("undone", "NV", "UT", tier="A"), {"undone": "UT"}, (), (("undone", "state_code", "UT"),)),
+    ],
+    ids=["latest-answer-names-another-state", "no-recent-answer", "the-rules-only-queue", "held", "undone"],
+)
+def test_a_gotsport_correction_is_the_owner_s_unless_its_latest_answer_still_gives_it(
+    proposal, answers, held, reverted
+):
+    tid = proposal["team_id_master"]
+    signals = _signals([_team(tid, state="NV")], answers, held, reverted)
 
     assert sure.sure_because("states", proposal, signals) is None
 
@@ -260,15 +288,20 @@ def test_an_unreadable_ledger_stops_rather_than_reads_every_undo_as_none():
         sure.reverted_changes(db, "ages", SAME)
 
 
-def test_the_hold_check_reads_each_fill_against_the_provenance_its_team_carries(tmp_path):
-    """A fill over a team an operator answered is held, as the applier's own hold step holds it."""
+def test_the_hold_check_reads_each_change_the_automatic_lane_may_take_against_its_team_s_provenance(tmp_path):
+    """A fill, or a GotSport correction, over a team an operator answered is held, as the applier's own hold step
+    holds it; a correction from the club never reaches the automatic lane, so it is not read."""
     store = tmp_path / "store"
     _reviewing(store)
-    _states(store, [_decision("answered", None, "NV"), _decision("open", None, "NV"), _decision("moved", "UT", "NV")])
-    db = _Db(teams=[{**_team("answered", state=None), "state_source": "operator"}, _team("open", state=None)])
-    proposals = [_state("answered", None, "NV"), _state("open", None, "NV"), _state("moved", "UT", "NV")]
+    _states(store, [_decision("answered", None, "NV"), _decision("open", None, "NV"), _decision("moved", "UT", "NV"),
+                    _decision("set", "UT", "NV", tier="A")])  # fmt: skip
+    db = _Db(teams=[{**_team("answered", state=None), "state_source": "operator"}, _team("open", state=None),
+                    {**_team("moved", state="UT"), "state_source": "operator"},
+                    {**_team("set", state="UT"), "state_source": "operator"}])  # fmt: skip
+    proposals = [_state("answered", None, "NV"), _state("open", None, "NV"), _state("moved", "UT", "NV"),
+                 _state("set", "UT", "NV", tier="A")]  # fmt: skip
 
-    assert sure.held_fills(db, stage_dir(store, RUN, "states"), proposals) == {"answered"}
+    assert sure.held_changes(db, stage_dir(store, RUN, "states"), proposals) == {"answered", "set"}
 
 
 def test_a_page_of_lock_cards_reads_no_state_evidence():

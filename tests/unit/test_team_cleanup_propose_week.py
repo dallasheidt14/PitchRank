@@ -866,6 +866,7 @@ def _expected(store):
         "states": [
             "scripts/assign_team_states.py",
             "--no-tier-a",
+            "--reuse-answers",
             "--out",
             str(folder / "states" / "national_snapshot.json"),
         ],
@@ -1040,7 +1041,7 @@ def test_no_step_writes_teams_or_spends_paid_probes(monkeypatch, capsys, tmp_pat
     }
     assert not any(flag in command for command in runner.commands for flag in ("--execute", "--apply", "--revert"))
     states = next(c for c in runner.commands if Path(c[0]).name == "assign_team_states.py")
-    assert "--no-tier-a" in states
+    assert "--no-tier-a" in states and "--reuse-answers" in states
 
 
 def test_another_open_run_is_refused_before_anything_runs(monkeypatch, capsys, tmp_path):
@@ -1329,7 +1330,7 @@ def test_a_dry_run_prints_each_step_quoted_and_touches_nothing(monkeypatch, caps
 
     snapshot = run_dir(store, RUN) / "states" / "national_snapshot.json"
     assert code == 0 and "DRY RUN" in out
-    assert f'python scripts/assign_team_states.py --no-tier-a --out "{snapshot}"' in out
+    assert f'python scripts/assign_team_states.py --no-tier-a --reuse-answers --out "{snapshot}"' in out
     assert runner.commands == [] and db.executes == [] and sorted(str(p) for p in store.rglob("*")) == before
 
 

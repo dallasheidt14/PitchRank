@@ -5,10 +5,11 @@ review reuses evidence the stage's own code already reads, and replay_sure.py ch
 owner decided past pages; the review's verdicts are its reviewers' own:
 
   clubs   a change the scan approves (a provider, swap, word or bracket tier)
-  states  a blank state the rules would apply from the team's club (tier B), which the hold check does
-          not hold, whose latest recent GotSport answer, if there is one, names the same state, and
-          which neither its name nor its club name places elsewhere, points two ways, or names a
-          state it cannot place
+  states  a state the rules would apply from GotSport's own record of the team (tier A), which the hold
+          check does not hold and its latest recent answer still names; or a blank state the rules would
+          apply from the team's club (tier B), which the hold check does not hold, whose latest recent
+          GotSport answer, if there is one, names the same state, and which neither its name nor its club
+          name places elsewhere, points two ways, or names a state it cannot place
   ages    a move to the band in the team's own name, or to a U-age label the review's opponents
           confirmed (never a play-up) when the league's division, its opponents' bands or GotSport say
           that age too, or the move is two groups or fewer
@@ -18,8 +19,8 @@ owner decided past pages; the review's verdicts are its reviewers' own:
           row it retires holds no games, still none when the page is built, and that row's provider alias
           already points at the row it keeps
 
-Everything else is a conflict, every state correction included: a club count can move a team out of
-its own state. A change the loop applied and an undo reversed is never sure again, nor is a merge of
+Everything else is a conflict, every other state correction included: a club count can move a team out
+of its own state. A change the loop applied and an undo reversed is never sure again, nor is a merge of
 the same two rows the other way round, either row read as the one it has since been merged into.
 
 Reading is all it does; nothing here writes.
@@ -69,7 +70,8 @@ class StateEvidence:
 @dataclass(frozen=True)
 class Signals:
     """What a stage's rules read beyond each proposal: the changes an undo reversed, the teams held back
-    (a state fill the hold check holds, a pair's retiring row that has played since its scan), and the
+    (a state fill or Tier A correction the hold check holds, a pair's retiring row that has played since
+    its scan), and the
     states skill's evidence."""
 
     reverted: set[tuple] = field(default_factory=set)
@@ -118,13 +120,14 @@ def reverted_changes(sb, stage: str, canonical) -> set[tuple]:
     }
 
 
-def held_fills(sb, folder: Path, proposals) -> set[str]:
-    """The teams whose state fill the hold check would hold before it is written."""
-    fills = {p["team_id_master"] for p in proposals if p["old_value"] is None}
-    if not fills:
+def held_changes(sb, folder: Path, proposals) -> set[str]:
+    """The teams whose change the automatic lane may take, a fill or a Tier A correction, that the hold check would
+    hold before it is written."""
+    changes = {p["team_id_master"] for p in proposals if p["old_value"] is None or p["tier"] == "A"}
+    if not changes:
         return set()
-    decisions = [d for d in read_json(folder / APPLIER_INPUTS[STATES])["decisions"] if d["team_id"] in fills]
-    _, held = split(decisions, fetch_state_sources(sb, sorted(fills)))
+    decisions = [d for d in read_json(folder / APPLIER_INPUTS[STATES])["decisions"] if d["team_id"] in changes]
+    _, held = split(decisions, fetch_state_sources(sb, sorted(changes)))
     return {d["team_id"] for d in held}
 
 
@@ -145,7 +148,7 @@ def merge_reviews(folder: Path) -> dict[tuple[str, str], dict] | None:
 
 
 def load_signals(sb, stage: str, folder: Path, proposals, evidence: StateEvidence | None, canonical) -> Signals:
-    held = held_fills(sb, folder, proposals) if stage == STATES else set()
+    held = held_changes(sb, folder, proposals) if stage == STATES else set()
     return Signals(reverted_changes(sb, stage, canonical), held, evidence)
 
 
@@ -172,9 +175,14 @@ def _sure_club(p: dict) -> str | None:
 
 def _sure_state(p: dict, signals: Signals) -> str | None:
     tid, new = p["team_id_master"], p["new_value"]
-    if p["old_value"] is not None or p["tier"] != "B" or p["action"] != "apply" or tid in signals.held:
+    # No evidence is read for a page whose every card keeps the state its team holds, and such a card changes nothing.
+    if signals.evidence is None or p["action"] != "apply" or tid in signals.held:
         return None
     answer = signals.evidence.answers.get(tid)
+    if p["tier"] == "A":
+        return "GotSport's own record of the team gives this state" if answer == new else None
+    if p["old_value"] is not None or p["tier"] != "B":
+        return None
     if answer and answer != new:
         return None
     team = signals.evidence.by_id.get(tid)

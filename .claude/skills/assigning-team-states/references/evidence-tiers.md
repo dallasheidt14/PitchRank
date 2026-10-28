@@ -70,10 +70,12 @@ The anchor and unclubbed passes are stricter than the audit in one place: a club
 correction on a team whose record was the unset default is queued rather than applied. Their
 populations are stated in SKILL.md Step 2b.
 
-**It never runs unattended.** `fill-team-states-weekly.yml` passes `--no-tier-a`, so the
-scheduled job stops at the free tiers and this one fires only when a person runs the sweep.
-That is why the cost is bounded, and why a sweep can afford to abort outright on a blocked
-probe: there is always someone watching it. An audit run decides from the answers it already
+**The paid probe never runs unattended.** `fill-team-states-weekly.yml` passes `--no-tier-a` and
+stops at the free tiers; the weekly team cleanup passes `--no-tier-a --reuse-answers`, so its
+Tier A reads only answers already on file and buys none. A call is bought only when a person
+runs the tool with Tier A on: a sweep without those flags, Step 2a or 2b, or `--team`. That is
+why the cost is bounded, and why a sweep can afford to abort outright on a blocked probe:
+someone is watching it. An audit run decides from the answers it already
 holds before it stops, because those were paid for.
 
 A probe run is also a long foreground command an operator may interrupt, so anything it has
