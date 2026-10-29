@@ -39,7 +39,9 @@ import shutil
 import subprocess
 import sys
 from collections import Counter, defaultdict
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -102,12 +104,12 @@ SIBLINGS_SHOWN = 15
 LAST_GAMES_SHOWN = 5
 
 
-def reviewable(store: Path, run_id: str) -> Path:
-    """The merges folder, while its review is queued, or while its page may still be built."""
-    progress = stage_progress(store, run_id, MERGES)
+def reviewable(store: Path, run_id: str, stage: str = MERGES) -> Path:
+    """The stage's folder, while its review is queued, or while its page may still be built."""
+    progress = stage_progress(store, run_id, stage)
     if progress.next_step is not None and progress.next_step.name == REVIEW.name:
-        return stage_due(store, read_run(store, run_id), MERGES, (REVIEW.name,))
-    return buildable(store, run_id, MERGES)
+        return stage_due(store, read_run(store, run_id), stage, (REVIEW.name,))
+    return buildable(store, run_id, stage)
 
 
 # --- choosing the pairs -----------------------------------------------------------------------------
@@ -392,9 +394,9 @@ def review_prompt(name: str) -> str:
     )
 
 
-def recheck_prompt(name: str, labels: list[str]) -> str:
+def recheck_prompt(name: str, labels: list[str], noun: str = "pairs") -> str:
     return (
-        f"Read RECHECK.md in this folder and follow it. Recheck these pairs from {name}.md: {', '.join(labels)}. "
+        f"Read RECHECK.md in this folder and follow it. Recheck these {noun} from {name}.md: {', '.join(labels)}. "
         f"Write your answers to {OUTPUT['recheck']} in this folder."
     )
 
@@ -425,16 +427,16 @@ def read_verdicts(path: Path, rows: list[dict]) -> list[dict]:
     return answers
 
 
-def read_recheck(path: Path, labels: list[str]) -> dict[str, dict]:
+def read_recheck(path: Path, labels: list[str], label: str = "pair") -> dict[str, dict]:
     """The second reviewer's answer on each reject, by label, or ValueError."""
     answers = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(answers, list) or [a.get("pair") if isinstance(a, dict) else None for a in answers] != labels:
+    if not isinstance(answers, list) or [a.get(label) if isinstance(a, dict) else None for a in answers] != labels:
         raise ValueError(f"{path.name} does not answer the rejects {', '.join(labels)} in order")
     for answer in answers:
         reason = answer.get("reason")
         if not isinstance(answer.get("upheld"), bool) or not isinstance(reason, str) or not reason.strip():
-            raise ValueError(f"{path.name} gives {answer['pair']} no upheld flag or no reason")
-    return {answer["pair"]: answer for answer in answers}
+            raise ValueError(f"{path.name} gives {answer[label]} no upheld flag or no reason")
+    return {answer[label]: answer for answer in answers}
 
 
 def final_rows(rows: list[dict], verdicts: list[dict], recheck: dict[str, dict]) -> list[dict]:
@@ -457,57 +459,78 @@ def held_rows(rows: list[dict], why: str) -> list[dict]:
     return [{**row, "verdict": HOLD, "swap": False, "reason": why} for row in rows]
 
 
-def review_slice(review: Path, name: str, failures: int, claude: str, runner=run_reviewer) -> tuple[bool, int]:
+@dataclass(frozen=True)
+class Kind:
+    """What one review's slices and answers carry: the keys its review copies (the run store's contract), the key
+    each answer names its row by, what the recheck prompt calls them, and how answers become review rows."""
+
+    keys: tuple[str, ...]
+    label: str
+    noun: str
+    read_verdicts: Callable[[Path, list[dict]], list[dict]]
+    final_rows: Callable[[list[dict], list[dict], dict], list[dict]]
+    held_rows: Callable[[list[dict], str], list[dict]]
+
+
+PAIRS = Kind(MERGE_REVIEW_KEYS, "pair", "pairs", read_verdicts, final_rows, held_rows)
+
+
+def review_slice(
+    review: Path, name: str, failures: int, claude: str, runner=run_reviewer, kind: Kind = PAIRS
+) -> tuple[bool, int]:
     """Review one slice, writing its review once settled; (settled, this slice's failed attempts). An answer
     already in a reviewer's own folder is that reviewer's, so a retry reads it rather than buying it again."""
     rows = read_json(review / f"{name}.json")
 
-    def attempt(kind: str, prompt: str, read):
+    def attempt(role: str, prompt: str, read):
         nonlocal failures
-        work = workspace(review, name, kind)
-        path = work / OUTPUT[kind]
+        work = workspace(review, name, role)
+        path = work / OUTPUT[role]
         try:
             return read(path)
         except (OSError, ValueError):
             pass
-        log = review / ANSWERS_DIR / f"{name}-{kind}-{failures + 1}.log"
-        code = runner(reviewer_command(claude, prompt, OUTPUT[kind]), work, log)
+        log = review / ANSWERS_DIR / f"{name}-{role}-{failures + 1}.log"
+        code = runner(reviewer_command(claude, prompt, OUTPUT[role]), work, log)
         try:
             return read(path)
         except (OSError, ValueError) as exc:
             failures += 1
-            print(f"  {name}: the {kind} reviewer failed (exit {code}): {exc}; see {log}")
+            print(f"  {name}: the {role} reviewer failed (exit {code}): {exc}; see {log}")
             return None
 
-    verdicts = attempt("review", review_prompt(name), lambda path: read_verdicts(path, rows))
+    verdicts = attempt("review", review_prompt(name), lambda path: kind.read_verdicts(path, rows))
     if verdicts is None:
         if failures < ATTEMPTS:
             return False, failures
-        held = held_rows(rows, f"the automatic review failed {failures} times")
+        held = kind.held_rows(rows, f"the automatic review failed {failures} times")
         write_json(review / f"{name}{REVIEW_SUFFIX}", held, indent=1)
         return True, failures
-    rejects = [row["pair"] for row, answer in zip(rows, verdicts) if answer["verdict"] == REJECT]
+    rejects = [answer[kind.label] for answer in verdicts if answer["verdict"] == REJECT]
     recheck = {}
     if rejects:
-        recheck = attempt("recheck", recheck_prompt(name, rejects), lambda path: read_recheck(path, rejects))
+        prompt = recheck_prompt(name, rejects, kind.noun)
+        recheck = attempt("recheck", prompt, lambda path: read_recheck(path, rejects, kind.label))
         if recheck is None and failures < ATTEMPTS:
             return False, failures
-    write_json(review / f"{name}{REVIEW_SUFFIX}", final_rows(rows, verdicts, recheck or {}), indent=1)
+    write_json(review / f"{name}{REVIEW_SUFFIX}", kind.final_rows(rows, verdicts, recheck or {}), indent=1)
     return True, failures
 
 
-def waiting(review: Path) -> list[str]:
+def waiting(review: Path, keys: tuple[str, ...] = MERGE_REVIEW_KEYS) -> list[str]:
     """The slices with no review that copies them, as the run store reads them."""
-    return list(check_reviews(review, MERGE_REVIEW_KEYS)[0])
+    return list(check_reviews(review, keys)[0])
 
 
-def review_queued(review: Path, claude: str, runner=run_reviewer) -> list[str]:
+def review_queued(review: Path, claude: str, runner=run_reviewer, kind: Kind = PAIRS) -> list[str]:
     """Review the first RUN_SLICES waiting slices, up to PARALLEL at once; those of them still waiting afterwards."""
     attempts_path = review / ANSWERS_DIR / ATTEMPTS_FILE
     attempts = read_json(attempts_path) if attempts_path.exists() else {}
-    names = waiting(review)[:RUN_SLICES]
+    names = waiting(review, kind.keys)[:RUN_SLICES]
     with ThreadPoolExecutor(max_workers=PARALLEL) as pool:
-        results = list(pool.map(lambda name: review_slice(review, name, attempts.get(name, 0), claude, runner), names))
+        results = list(
+            pool.map(lambda name: review_slice(review, name, attempts.get(name, 0), claude, runner, kind), names)
+        )
     for name, (_, failures) in zip(names, results):
         attempts[name] = failures
     write_json(attempts_path, attempts, indent=1)
@@ -518,10 +541,20 @@ def counts(review: Path) -> Counter:
     return Counter(row["verdict"] for path in review.glob(f"*{REVIEW_SUFFIX}") for row in read_json(path))
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--run", required=True, help="The run id, e.g. 2026-10-28-all")
-    ap.add_argument("--stage", required=True, choices=(MERGES,))
+def review_main(
+    doc: str,
+    stage: str,
+    what: str,
+    kind: Kind,
+    plan: Callable[[Path, int], str],
+    queue_review: Callable[[Path, int], str],
+    tally: Callable[[Path], str],
+) -> int:
+    """A review's command: queue the stage's review on its first run, then review up to RUN_SLICES of its waiting
+    slices. 0 when done, 1 while a slice waits for a retry, BUSY while slices wait for the next run."""
+    ap = argparse.ArgumentParser(description=doc, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--run", required=True, help="The run id, e.g. 2026-11-04-all")
+    ap.add_argument("--stage", required=True, choices=(stage,))
     ap.add_argument(
         "--store",
         type=Path,
@@ -531,20 +564,19 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true", help="Write nothing; wins over --execute")
     args = ap.parse_args()
     execute = resolve_execute(args.execute, args.dry_run)
-    what = f"Cannot review the duplicate pairs of {args.run}"
+    cannot = f"Cannot review {what} of {args.run}"
     with reporting_busy():
         try:
             store = store_dir(args.store)
-            folder = reviewable(store, args.run)
+            folder = reviewable(store, args.run, stage)
             review = folder / REVIEW_DIR
             if not review.exists():
-                cap = load_caps(stage=MERGES).review
+                cap = load_caps(stage=stage).review
                 if not execute:
-                    pairs, _ = review_pairs(get_client(), folder, cap)
-                    print(f"DRY RUN -- would queue {len(pairs)} pair(s) for review, {SLICE_PAIRS} a reviewer")
+                    print(f"DRY RUN -- would queue {plan(folder, cap)}")
                     return 0
-                print(f"queued {queue(get_client(), folder, cap)} pair(s) for review in {review}")
-            names = waiting(review)
+                print(f"queued {queue_review(folder, cap)} for review in {review}")
+            names = waiting(review, kind.keys)
             if not execute:
                 now = names[:RUN_SLICES]
                 listed = ", ".join(now) or "none"
@@ -552,26 +584,40 @@ def main() -> int:
                 return 0
             claude = shutil.which("claude")
             if names and not claude:
-                raise SystemExit(f"{what}: the claude command is not on PATH, so no reviewer can run")
-            left = review_queued(review, claude, run_reviewer) if names else []
+                raise SystemExit(f"{cannot}: the claude command is not on PATH, so no reviewer can run")
+            left = review_queued(review, claude, run_reviewer, kind) if names else []
         except DecisionsUnavailable as exc:
             waits = "The review waits until the owner's earlier decisions can be read."
-            raise SystemExit(f"{what}: {exc}\n{waits}") from exc
+            raise SystemExit(f"{cannot}: {exc}\n{waits}") from exc
         except (OSError, ValueError) as exc:
-            raise SystemExit(f"{what}: {exc}") from None
+            raise SystemExit(f"{cannot}: {exc}") from None
         except (APIError, httpx.HTTPError) as exc:
-            raise SystemExit(refused(what, exc, shlex.join(["python", *sys.argv]))) from None
-    tally = counts(review)
-    print(f"reviewed: {tally[MERGE]} merge, {tally[HOLD]} hold, {tally[REJECT]} reject")
+            raise SystemExit(refused(cannot, exc, shlex.join(["python", *sys.argv]))) from None
+    print(tally(review))
     if left:
         print(f"{len(left)} slice(s) wait for a retry: {', '.join(left)}")
         return 1
-    later = waiting(review)
+    later = waiting(review, kind.keys)
     if later:
         print(f"{len(later)} slice(s) wait for the next run: {', '.join(later)}")
         return BUSY
-    print(f"next: build the page, pages.py --run {args.run} --stage {MERGES} --publish --execute")
+    print(f"next: build the page, pages.py --run {args.run} --stage {stage} --publish --execute")
     return 0
+
+
+def main() -> int:
+    def plan(folder: Path, cap: int) -> str:
+        pairs, _ = review_pairs(get_client(), folder, cap)
+        return f"{len(pairs)} pair(s) for review, {SLICE_PAIRS} a reviewer"
+
+    def tally(review: Path) -> str:
+        found = counts(review)
+        return f"reviewed: {found[MERGE]} merge, {found[HOLD]} hold, {found[REJECT]} reject"
+
+    def queued(folder: Path, cap: int) -> str:
+        return f"{queue(get_client(), folder, cap)} pair(s)"
+
+    return review_main(__doc__, MERGES, "the duplicate pairs", PAIRS, plan, queued, tally)
 
 
 if __name__ == "__main__":

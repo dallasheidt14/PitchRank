@@ -159,6 +159,8 @@ export interface TeamCard extends CardBase {
   team: CardTeam;
   /** On state cards of a page that changes a state. */
   evidence?: StateCardEvidence;
+  /** On an automatic club card: the week's review found the stored club right, so the loop keeps it. */
+  keep_as_is?: boolean;
 }
 
 /** Two rows that may be one team, on the merges stage: merging retires `merge` into `keep`, unless the row's

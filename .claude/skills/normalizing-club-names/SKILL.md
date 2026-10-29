@@ -149,12 +149,18 @@ those are the conflicts and the names the `team_name` source could not parse. An
 `recased` row, because that tier cannot tell a club the cleanup re-cased from a squad label
 that happens to read like one.
 
+Under the weekly team-cleanup loop the listed rows that propose a club, and any `needs_review` row of a
+deciding tier, go to unattended reviewers first (`scripts/team_cleanup/review_clubs.py`, the `running-team-cleanup` skill's
+**Clubs**). They judge each distinct change once by this skill's rules: a change they approve applies on
+its own, one they find wrong (upheld by a second reviewer) is recorded Don't apply, which the loop's page
+and review then leave off, and one they hold is the owner's card.
+
 **There is no pilot flag.** The other hygiene tools take `--limit` and apply the first N;
 this one applies exactly the rows marked approved. The pilot is therefore a choice about
 rows: approve a handful of a tier, apply, verify, then approve the rest of it.
 
 Under the weekly team-cleanup loop the apply (`scripts/team_cleanup/apply_stage.py`) writes the
-rows of the lane (the owner's choices, or the changes the automatic lane settled) into two cut files, a pilot of the first 50 by team id and a rest, and
+Apply rows of the lane (the owner's or the automatic lane's) into two cut files, a pilot of the first 50 by team id and a rest, and
 replays each in turn, reading each batch back from the database and stopping before the rest
 when a write it expected is missing.
 

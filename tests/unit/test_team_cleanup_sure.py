@@ -2,6 +2,7 @@
 the replay that checks them against the owner's own decisions."""
 
 import ast
+import json
 import os
 import sys
 
@@ -64,6 +65,45 @@ def _signals(teams=(), answers=None, held=(), reverted=(), index=None):
 )
 def test_a_club_change_is_sure_only_when_the_scan_approves_it(proposal, settled):
     assert bool(sure.sure_because("clubs", proposal, sure.Signals())) is settled
+
+
+@pytest.mark.parametrize(
+    "verdict, sure_text",
+    [
+        ("apply", "reviewers approved it: the club writes it so"),
+        ("reject", "reviewers found the stored club right: the club writes it so"),
+        ("hold", None),
+    ],
+)
+def test_a_reviewed_club_change_is_sure_by_its_verdict_whatever_the_scan_approved(verdict, sure_text):
+    review = {"verdict": verdict, "reason": "the club writes it so"}
+    listed = {**_club("listed", approved=False, tier="capital"), "review": review}
+    trusted = {**_club("trusted"), "review": review}
+
+    assert sure.sure_because("clubs", listed, _signals()) == sure_text
+    assert sure.sure_because("clubs", trusted, _signals()) == sure_text
+
+
+def test_an_undone_reviewed_club_change_is_never_sure_again():
+    listed = {**_club("t", approved=False, tier="capital"), "review": {"verdict": "apply", "reason": "x"}}
+
+    assert sure.sure_because("clubs", listed, _signals(reverted=[("t", "club_name", "Colorado EDGE")])) is None
+
+
+def test_the_club_review_is_read_by_change_and_a_verdict_it_never_writes_stops_the_page(tmp_path):
+    review = tmp_path / "review"
+    review.mkdir()
+    assert sure.change_reviews(tmp_path) is None
+    row = {**_club("t", approved=False, tier="capital"), "item": "C0001", "verdict": "apply", "reason": "x"}
+    (review / "slice_01.json").write_text(json.dumps([row]), encoding="utf-8")
+    (review / "slice_01_review.json").write_text(json.dumps([row]), encoding="utf-8")
+
+    assert sure.change_reviews(tmp_path) == {("t", "club_name", "colorado edge", "Colorado EDGE"): {
+        "verdict": "apply", "reason": "x"}}  # fmt: skip
+
+    (review / "slice_01_review.json").write_text(json.dumps([{**row, "verdict": "merge"}]), encoding="utf-8")
+    with pytest.raises(ValueError, match="slice_01_review.json gives t a verdict the review never writes"):
+        sure.change_reviews(tmp_path)
 
 
 def test_a_blank_state_filled_from_the_club_is_sure():

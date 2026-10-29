@@ -33,7 +33,8 @@ changes per stage). Each hourly tick, at :17, takes the open run as far as it ca
    `origin/main` and proposes the week over every team (`propose_week.py --states ALL`, run
    `<date>-all`). The run keeps that commit; a merge mid-week does not change its rules.
 2. **Each stage:** builds its page and publishes it to the website (`pages.py --publish --execute`),
-   merges only once its pairs are reviewed (`review_merges.py --execute`, below), then collects and,
+   clubs only once its guesses are reviewed (`review_clubs.py --execute`) and merges once its pairs are
+   (`review_merges.py --execute`), both below, then collects and,
    inside the window, applies the automatic lane (`--lane auto`). Once every page
    is up it emails the owner that the review is ready.
 3. **The owner** decides the cards at `https://www.pitchrank.io/mission-control/cleanup` and presses
@@ -43,8 +44,8 @@ changes per stage). Each hourly tick, at :17, takes the open run as far as it ca
    applies them inside the window, closes the run (`end_run.py --done`) and emails a summary.
 
 A step that must wait (exit 75: outside the window, another writer running, another holder of the
-run, for states the other lane's batch under four minutes old, or for merges a review with slices
-left for the next tick) holds only its own stage until a
+run, for states the other lane's batch under four minutes old, or for clubs or merges a review with
+slices left for the next tick) holds only its own stage until a
 later tick. A step that fails fails the tick and is retried. Anything blocked for a day, the week's
 start included, emails the owner once; a failed move to `origin/main` holds the week rather than
 proposing on older code. It never abandons a run. Emails need `CLEANUP_OWNER_EMAIL` and
@@ -53,6 +54,21 @@ proposing on older code. It never abandons a run. Emails need `CLEANUP_OWNER_EMA
 Done is per run, not per stage, and nothing clears it: after Done the page takes no more choices and
 no stage page is rebuilt once it has published cards, so a card found wrong after Done waits for next
 week, or is reversed by undoing its whole lane after the apply; an undo cannot take back one card.
+
+## Clubs
+
+The club scan (`repair_swapped_club_names.py`) lists three tiers it cannot approve (the `Listed` rows of
+`normalizing-club-names`: `capital`, `recased`, `unclear`); a guess proposing no club is left off.
+
+Before the page, `scripts/team_cleanup/review_clubs.py` reviews the listed guesses, and any trusted-tier
+change the scan left unapproved because two sources disagree, up to `page_caps.clubs.review` changes a
+week. It judges each distinct change once, however many teams carry it (a team whose sources disagree is a
+change of its own, its losing offer read from the propose log), and runs the same locked-down reviewers as
+merges, from `scripts/team_cleanup/assets/club_review_brief.md`; each change gets apply, hold or reject, and a reject goes to a
+second reviewer with the opposite prior. The page then routes each reviewed change: **apply** to the
+automatic lane; **reject** to the automatic lane kept as it is (the card's `keep_as_is`), recorded Don't apply
+so the scan's guess stops coming back; **hold** to a card giving the reviewers' reason. A listed guess the
+review did not reach waits for next week's. A change declined, stale, moved or undone is never reviewed.
 
 ## Merges
 
@@ -196,12 +212,14 @@ python scripts/team_cleanup/propose_week.py --states ALL --date 2026-10-21
 
 ### Step 2: Build and publish every proposed stage's page
 
-Review the duplicate pairs before their page. The first command says what it would queue or review;
-the second, the owner's to run, queues and reviews them, at most 20 slices (1,000 pairs) a run (an hour
-or more each; rerun it while it reports slices waiting for a retry or for the next run). The reviewers' lookups read `SUPABASE_URL` and the public `SUPABASE_KEY`,
-so both must be set:
+Review the club guesses and the duplicate pairs before their pages. Each first command says what it
+would queue or review; each second, the owner's to run, queues and reviews them, at most 20 slices a run
+(an hour or more each; rerun it while it reports slices waiting for a retry or for the next run). The
+reviewers' lookups read `SUPABASE_URL` and the public `SUPABASE_KEY`, so both must be set:
 
 ```bash
+python scripts/team_cleanup/review_clubs.py --run 2026-10-21-all --stage clubs
+python scripts/team_cleanup/review_clubs.py --run 2026-10-21-all --stage clubs --execute
 python scripts/team_cleanup/review_merges.py --run 2026-10-21-all --stage merges
 python scripts/team_cleanup/review_merges.py --run 2026-10-21-all --stage merges --execute
 ```
@@ -221,8 +239,8 @@ fails every tick. The plain build is for the Artifact fallback alone. The build 
 count, how many changes go to the automatic lane, and the **page run** id
 (`YYYYMMDDTHHMMSSZ-<6 hex>`). It leaves off cards whose team is gone, merged or moved since the
 propose, ones the owner already declined, for merges each pair neither of whose rows has a game this
-season, for clubs the guesses the scan lists without approving
-(the `Listed` tiers in `normalizing-club-names`), and for states each change that a recent `mapped`
+season, for clubs each guess proposing no club and each guess the scan lists without approving (the
+`Listed` tiers in `normalizing-club-names`) that the week's club review did not reach, and for states each change that a recent `mapped`
 GotSport answer other than the unset default `AL`, or the team's name or club name as
 `assigning-team-states` Step 6's name pass reads it, already answers with the state the team holds.
 `<stage>/page.manifest.json` lists each with its reason. Past the automatic cap in
@@ -232,7 +250,7 @@ for a later run, with teams users follow first.
 Build every proposed stage, even one with nothing to propose: a 0-card stage still has to be collected
 and applied before the run can close. A rebuild starts a new page run and is refused once a lane has
 collected, which on the autopilot is the tick that publishes the page whenever it sends the automatic
-lane a change, so such a page is never rebuilt; a change to the caps or the merges review reaches the
+lane a change, so such a page is never rebuilt; a change to the caps or to a review reaches the
 autopilot at the next week's start (**When something breaks**). Once a stage has published cards, a rebuild must publish at least one card, and it is
 refused once the owner has decided any of its cards or the review is marked done; a stage with nothing
 published can still be built after Done. Rebuild only when a page is wrong.
@@ -242,7 +260,8 @@ published can still be built after Done. Rebuild only when a page is wrong.
 The website shows each stage's newest published build: send the owner
 `https://www.pitchrank.io/mission-control/cleanup` with a short plain summary per stage, how many
 changes apply on their own and how many need their call (for example "41 teams get their club name
-fixed automatically, 9 need your call"), and that the applies run in the window. When the website
+fixed automatically, 9 need your call"; the clubs automatic lane also counts guesses the reviewers turned
+down, which keep their club, so leave those out), and that the applies run in the window. When the website
 cannot be used, publish the stage's `page.html` as an Artifact instead (every stage but merges, which
 writes no `page.html` and waits for the website; load the
 `artifact-capabilities` skill; copy the page byte for byte to
@@ -386,8 +405,8 @@ undo its merges, newest batch first. States wait (exit 75) until two minutes aft
 and when a window holds another writer's change or one of their own writes falls outside the saved
 windows. The result is appended to the lane's `<lane folder>/REVERT.md`. State review-queue cards it
 settled stay settled, and every recorded decision stays as it was, including the Keep separate a merges
-automatic lane recorded for pairs its reviewers found to be two teams: an undo does not bring those
-pairs back to the scans. A change the undo put back
+automatic lane recorded for pairs its reviewers found to be two teams, and the Don't apply a clubs automatic
+lane recorded for guesses they found wrong: an undo does not bring those back. A change the undo put back
 is never sent to the automatic lane again. A closed or abandoned run can still be undone.
 
 An undone lane is over for this run: never hand its apply over again, because depending on where it
@@ -398,6 +417,6 @@ closes only by abandoning it.
 ## Not in code
 
 A second lap (re-proposing what a stage's writes uncovered), the post-Monday check of how the week's
-rankings moved the changed teams, and reviewers for the clubs, states and ages proposals do not exist
-in code; only merges has them (`review_merges.py`, under **Merges**). Do not improvise them; tell the
-owner when a request needs one.
+rankings moved the changed teams, and reviewers for the states and ages proposals do not exist in
+code; only clubs and merges have them (`review_clubs.py` and `review_merges.py`, under **Clubs** and
+**Merges**). Do not improvise them; tell the owner when a request needs one.

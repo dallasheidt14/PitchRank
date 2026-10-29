@@ -125,8 +125,9 @@ class _Result:
 
 class _Query:
     """Records each read at execute(), where the real builder sends it. It answers at most ROW_CAP
-    rows, refuses an unknown column and a ranged page with no order. A page build writes only by
-    publishing, an insert (_CardsInsert), so there is no update or delete to call."""
+    rows, refuses an unknown column, a ranged page with no order, and a list value postgrest-py sends
+    unquoted. A page build writes only by publishing, an insert (_CardsInsert), so there is no update or
+    delete to call."""
 
     def __init__(self, db, table, columns):
         for column in columns:
@@ -145,6 +146,9 @@ class _Query:
     def in_(self, column, values):
         values = list(values)
         assert len(values) <= 100, "an id list this long overflows the URL"
+        assert not any(isinstance(v, str) and ('"' in v or "\\" in v) for v in values), (
+            "postgrest-py does not quote a double quote or a backslash in a list"
+        )
         return self._where(column, lambda x: x in values)
 
     def gte(self, column, value):
@@ -2219,10 +2223,10 @@ def test_the_merges_cap_keeps_the_cross_provider_pairs_retiring_the_fewest_games
     assert [p["merge_id"] for p in manifest["overflow"]] == ["d-empty"]
 
 
-def test_the_shipped_caps_leave_every_stage_and_the_merges_review_uncapped():
+def test_the_shipped_caps_leave_every_stage_and_both_reviews_uncapped():
     # Deliberately uncapped, the owner's call: a week's run settles and shows everything it proposes.
-    assert LOAD_CAPS(stage="merges") == pages.Caps(cards=100000, auto=100000, review=100000)
-    assert LOAD_CAPS(stage="states") == LOAD_CAPS(stage="clubs") == LOAD_CAPS() == pages.Caps(100000, 100000)
+    assert LOAD_CAPS(stage="merges") == LOAD_CAPS(stage="clubs") == pages.Caps(100000, 100000, 100000)
+    assert LOAD_CAPS(stage="states") == LOAD_CAPS(stage="ages") == LOAD_CAPS() == pages.Caps(100000, 100000)
 
 
 def test_only_a_provably_safe_pair_merges_on_its_own_and_a_moved_or_retired_row_keeps_a_pair_off(

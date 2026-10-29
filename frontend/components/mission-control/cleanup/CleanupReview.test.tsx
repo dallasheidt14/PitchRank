@@ -552,6 +552,30 @@ describe('the team cleanup review page', () => {
     );
   });
 
+  it('lists a club guess the reviewers turned down as kept, not changed', async () => {
+    const kept = review();
+    const [stage] = kept.stages;
+    stage.auto = [
+      makeCleanupCardRow({
+        card_id: 'a1',
+        lane: 'auto',
+        decision: 'apply',
+        card: {
+          team: team('Concorde Fire 2013B'),
+          change: { field: 'club_name', old: 'Concorde Fire', new: 'CF' },
+          keep_as_is: true,
+          sure: 'reviewers found the stored club right: CF is a squad label',
+        },
+      }),
+    ];
+    serve(kept);
+    await render();
+
+    expect(container!.querySelector('[data-testid="cleanup-auto"] li')!.textContent).toBe(
+      'Concorde Fire 2013B: Club kept as Concorde Fire, not CF (reviewers found the stored club right: CF is a squad label)'
+    );
+  });
+
   it("asks for a lane's undo once confirmed, then shows it waiting and offers it no more", async () => {
     await render();
     const undo = container!.querySelector<HTMLElement>('[data-testid="cleanup-undo"]')!;
