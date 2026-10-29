@@ -90,7 +90,9 @@ def test_an_academy_label_must_carry_ad_and_a_homegrown_label_must_not():
     assert "disagrees with the HD feed" in unreadable["20"]
 
 
-@pytest.mark.parametrize("label", ["U17B", "U16 AD*", "U12", "U18", "", "U16\n", "U１６", "U16 ad"])
+@pytest.mark.parametrize(
+    "label", ["U17b", "U17 B", "U17BB", "U17C", "U16 AD*", "U19 AD**", "U12", "U18", "", "U16\n", "U１６", "U16 ad"]
+)
 def test_a_label_that_is_not_a_board_age_is_left_out_and_reported(label):
     event = _event(home=(30, label, 300, "Odd FC"))
     squads, games, unreadable = scrape.build([("HD", [event])], 2026)
@@ -98,10 +100,63 @@ def test_a_label_that_is_not_a_board_age_is_left_out_and_reported(label):
     assert games[0]["home_key"] == "" and games[0]["home_squad_id"] == ""
 
 
+def test_a_b_squad_is_its_own_squad_on_the_base_age_board():
+    event = _event(home=(30, "U17B", 300, "FC Dallas"), away=(31, "U17", 301, "Alpha SC"))
+    squads, games, unreadable = scrape.build([("HD", [event])], 2026)
+    assert unreadable == {}
+    assert squads["30"] == scrape.Squad("30", "300", "FC Dallas", "u17", "HD", "B")
+    assert squads["30"].display_name == "FC Dallas U17 HD II"
+    assert squads["31"].suffix == "" and squads["31"].display_name == "Alpha SC U17 HD"
+    assert (games[0]["age_group"], games[0]["home_key"], games[0]["away_key"]) == ("u17", "30:2026", "31:2026")
+
+
+def test_a_b_suffix_on_an_academy_label_is_not_guessed_at():
+    event = _event(home=(50, "U17B AD", 500, "Odd FC"), away=(51, "U17 AD", 501, "Even FC"))
+    squads, _, unreadable = scrape.build([("AD", [event])], 2026)
+    assert set(squads) == {"51"} and "is not a board age" in unreadable["50"]
+
+
+def test_an_academy_label_keeps_its_age_and_takes_no_suffix():
+    event = _event(home=(40, "U16 AD", 400, "Gamma"), away=(41, "U16 AD", 401, "Delta"))
+    squads, _, _ = scrape.build([("AD", [event])], 2026)
+    assert (squads["40"].age_group, squads["40"].division, squads["40"].suffix) == ("u16", "AD", "")
+    assert squads["40"].display_name == "Gamma U16 AD"
+
+
+def test_the_squads_file_carries_the_suffix(tmp_path, monkeypatch):
+    flex = [_event(2, home=(30, "U17B", 300, "FC Dallas"), away=(31, "U17", 301, "Alpha SC"))]
+    academy = [_event(3, home=(20, "U14 AD", 200, "Gamma"), away=(21, "U14 AD", 201, "Delta"))]
+    feeds = {"mls-next-league": [_event()], "mls-next-flex": flex, "mls-next-2-academy-division": academy}
+    _run(tmp_path, feeds, date(2026, 10, 1), monkeypatch)
+    rows = {r["provider_team_id"]: r for r in csv.DictReader((tmp_path / "squads.csv").open(encoding="utf-8"))}
+    squad = rows["30"]
+    assert (squad["suffix"], squad["display_name"], squad["age_group"]) == ("B", "FC Dallas U17 HD II", "u17")
+    assert (rows["31"]["suffix"], rows["31"]["display_name"]) == ("", "Alpha SC U17 HD")
+
+
+def test_the_suffixed_name_survives_the_normalizer_and_stays_a_separate_squad():
+    from scripts._team_distinction import should_skip_pair as merge_gate_skips_pair
+    from scripts.normalize_team_names import normalize_team_name
+    from src.utils.team_name_utils import resolve_distinction, should_skip_pair
+
+    plain, suffixed, club = "FC Dallas U17 HD", "FC Dallas U17 HD II", "FC Dallas"
+    assert merge_gate_skips_pair(plain, suffixed, club_name=club) is True
+    assert normalize_team_name(plain) == plain and normalize_team_name(suffixed) == suffixed
+    assert resolve_distinction(plain, club, None) == "hd"
+    assert resolve_distinction(suffixed, club, None) == "ii|hd"
+    assert should_skip_pair(plain, suffixed) is True
+
+
 def test_one_squad_id_under_two_clubs_is_an_error():
     clash = _event(2, home=(10, "U16", 999, "Other FC"))
     with pytest.raises(scrape.ScrapeError, match="squad 10 seen as"):
         scrape.build([("HD", [_event(), clash])], 2026)
+
+
+def test_one_squad_id_labelled_with_and_without_the_suffix_is_an_error():
+    relabelled = _event(2, home=(30, "U17B", 300, "FC Dallas"))
+    with pytest.raises(scrape.ScrapeError, match="squad 30 seen as"):
+        scrape.build([("HD", [_event(home=(30, "U17", 300, "FC Dallas")), relabelled])], 2026)
 
 
 def test_a_completed_game_with_a_missing_score_is_not_played():

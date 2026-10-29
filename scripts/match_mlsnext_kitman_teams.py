@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Report which MLS NEXT squads from Kitman match teams PitchRank already holds. Read-only.
 
-A squad is bridged to a live boys team already holding MLS NEXT, by club name, age and division.
+A squad is bridged to a live boys team already holding MLS NEXT, by club name, age, division and squad
+suffix (a club's "U17B" squad matches only the team this pipeline created for it).
 That team carries an approved ``modular11`` alias (``{club}_U{age}_{HD|AD}``) or, for a team this
 pipeline created in an earlier season, a Kitman alias. Only an exact club name makes a link confident; a
 near spelling or a club branch goes to review, because near spellings include different clubs
@@ -31,12 +32,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from scripts.find_cross_provider_duplicates import load_merge_map, normalize, page, resolver  # noqa: E402
 from scripts.match_modular11_ea_teams import _club_words, club_relation  # noqa: E402
+from scripts.scrape_mlsnext_kitman import SUFFIX_NUMERALS  # noqa: E402
 from src.models.mlsnext_kitman_keys import club_state_or_blank, refuse_raw_keys, split_kitman_key  # noqa: E402
 from src.models.mlsnext_kitman_matcher import PROVIDER_CODE  # noqa: E402
 from supabase import create_client  # noqa: E402
 
 BRIDGE_PROVIDER = "modular11"
 ALIAS_RE = re.compile(r"[0-9]{1,9}_U[0-9]{1,2}_(HD|AD)", re.IGNORECASE)
+NUMERAL_SUFFIXES = {numeral: suffix for suffix, numeral in SUFFIX_NUMERALS.items()}
+TEAM_SUFFIX_RE = re.compile(r" (?:HD|AD) (?P<numeral>[IVX]+)$")
 DIVISIONS = ("HD", "AD")
 BATCH = 100
 REPORT_COLUMNS = [
@@ -79,6 +83,12 @@ def _near_club(squad_club: str, team: dict) -> bool:
     return bool(shared) and club_relation(squad_club, team.get("club_name"), team["team_name"]) in ("same", "branch")
 
 
+def _team_suffix(team_name: str) -> str:
+    """The squad suffix a team this pipeline created carries in its name, or ``""``."""
+    found = TEAM_SUFFIX_RE.search(team_name or "")
+    return NUMERAL_SUFFIXES.get(found.group("numeral"), "") if found else ""
+
+
 def classify(
     squads: list[dict],
     bridge: list[dict],
@@ -106,7 +116,13 @@ def classify(
             tagged[key] = ("linked", [team_by_id[links[key]]], "already linked")
             continue
         season = split_kitman_key(key)[1]
-        pool = [t for t in bridge if t["age_group"] == squad["age_group"] and squad["division"] in t["divisions"]]
+        pool = [
+            t
+            for t in bridge
+            if t["age_group"] == squad["age_group"]
+            and squad["division"] in t["divisions"]
+            and t.get("suffix", "") == squad.get("suffix", "")
+        ]
         exact = [t for t in pool if normalize(t["club_name"]) == normalize(squad["club_name"])]
         free = [
             t
@@ -135,7 +151,12 @@ def classify(
                     and normalize(t["club_name"]) == normalize(squad["club_name"])
                 ]
                 known = any(normalize(t["club_name"]) == normalize(squad["club_name"]) for t in bridge)
-                reason = "club has no team at this age and division" if known else "club not in our MLS NEXT data"
+                no_team = (
+                    "no team for this squad suffix at this age and division"
+                    if squad.get("suffix")
+                    else "club has no team at this age and division"
+                )
+                reason = no_team if known else "club not in our MLS NEXT data"
                 tagged[key] = ("new", same_club, reason)
     claims: dict[str, set[str]] = defaultdict(set)
     for key, (bucket, candidates, _) in tagged.items():
@@ -174,6 +195,9 @@ def fetch_bridge(sb, provider_ids: dict[str, str]) -> list[dict]:
     A team holds MLS NEXT through a ``modular11`` alias (division in the id) or, from a
     previous season's run, a Kitman alias (division on the row). Without the second, a team this
     pipeline created would never be a candidate and the next season would create it again.
+
+    A team this pipeline created also carries the squad suffix read back from its name; any other team
+    reads as plain, since its name was not written here and the alias table holds no name to read one from.
     """
     canonical = resolver(load_merge_map(sb))
     divisions: dict[str, set[str]] = defaultdict(set)
@@ -194,7 +218,7 @@ def fetch_bridge(sb, provider_ids: dict[str, str]) -> list[dict]:
     for start in range(0, len(ids), BATCH):
         teams += (
             sb.table("teams")
-            .select("team_id_master, team_name, club_name, state_code, age_group, gender, is_deprecated")
+            .select("team_id_master, team_name, club_name, state_code, age_group, gender, is_deprecated, provider_id")
             .in_("team_id_master", ids[start : start + BATCH])
             .execute()
             .data
@@ -205,6 +229,7 @@ def fetch_bridge(sb, provider_ids: dict[str, str]) -> list[dict]:
             "age_group": (t["age_group"] or "").lower(),
             "divisions": divisions[t["team_id_master"]],
             "provider_code": via[t["team_id_master"]],
+            "suffix": _team_suffix(t["team_name"]) if kitman_id and t.get("provider_id") == kitman_id else "",
         }
         for t in teams
         if t.get("gender") == "Male" and t.get("is_deprecated") is not True

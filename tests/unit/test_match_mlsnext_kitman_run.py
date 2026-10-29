@@ -234,6 +234,22 @@ def test_a_kitman_alias_without_a_division_adds_no_division(tmp_path):
     assert bridge["T5"]["divisions"] == {"HD"} and bridge["T5"]["provider_code"] == "mlsnext_kitman"
 
 
+def test_the_bridge_reads_a_squad_suffix_only_from_a_team_this_pipeline_created():
+    db = _db()
+    db.rows["teams"] += [
+        _team("K2", "Delta FC", provider=KITMAN, name="Delta FC U16 HD II"),
+        _team("M2", "Capital FC", name="Capital FC U16 HD II"),
+        _team("M3", "Loudoun", name="Loudoun U14B MLS Next AD"),
+    ]
+    db.rows["team_alias_map"] += [
+        {**_alias(30, KITMAN, "79:2025", "K2"), "division": "HD"},
+        _alias(31, M11, "70_U16_HD", "M2"),
+        _alias(32, M11, "71_U14_AD", "M3"),
+    ]
+    bridge = {t["team_id_master"]: t for t in match.fetch_bridge(db, {"modular11": M11, "mlsnext_kitman": KITMAN})}
+    assert {tid: bridge[tid]["suffix"] for tid in ("K2", "T5", "M2", "M3")} == {"K2": "B", "T5": "", "M2": "", "M3": ""}
+
+
 def test_last_seasons_link_does_not_block_this_seasons_squad_end_to_end(tmp_path):
     db = _db()
     db.rows["team_alias_map"].append(_alias(20, KITMAN, "10:2025", "T1"))
