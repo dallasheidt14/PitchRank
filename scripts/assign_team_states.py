@@ -1167,10 +1167,18 @@ def decide(
         association_state = None
 
     if len(set(voted.values())) > 1 and not association_state:
+        proposed = club_state or place_state or name_state
+        # Proposing the stored state asks a person to vouch for it. Once an operator has
+        # approved it, or the record or an operator stamped it, asking again only brings the
+        # same answered card back every week.
+        if proposed == stored and (
+            (team_id, stored) in approved_states or vouched_for(team.get("state_source"))
+        ):
+            return None
         disagreement = ", ".join(f"{label} says {state}" for label, state in sorted(voted.items()))
         return _decision(
             team,
-            proposed=club_state or place_state or name_state,
+            proposed=proposed,
             tier="R9",
             action="queue",
             reason=disagreement,

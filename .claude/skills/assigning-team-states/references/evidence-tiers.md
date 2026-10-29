@@ -180,7 +180,7 @@ Stated pairwise rather than as one ordering, because the intents genuinely diffe
 | Rule | Effect | Outranks |
 |---|---|---|
 | A stored Canadian province | no tier corrects it | everything |
-| Two readings disagreeing | queue, cascade not run | the whole cascade, unless Tier A answered |
+| Two readings disagreeing | queue, cascade not run; nothing when the proposal is a stored state an operator approved, or one stamped `tier_a` or `operator` | the whole cascade, unless Tier A answered |
 | A stored `DC` | queue | Tier A's exemption below |
 | A curated club | Tiers B, C, E queue | applies when nothing above fired |
 | A stored value that was *reported* | a non-A correction queues | Tiers B, C, E |

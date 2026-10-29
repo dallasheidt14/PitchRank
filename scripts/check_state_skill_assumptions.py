@@ -339,6 +339,19 @@ def check_decision_rules(r: Result) -> None:
         "approve_team_state stamps tier_e, so the ledger is what protects the approval",
     )
     r.check(
+        "a disagreement over a state an operator already approved is not raised again",
+        decide(
+            _team(state_code="WY", state_source="tier_r9", team_name="BTT 17 Boise Timbers", club_name="boise club"),
+            {"boise club": Counter({"WY": 5})},
+            locality,
+            {},
+            set(),
+            {("t", "WY")},
+        )
+        is None,
+        "club says WY, name says Boise, WY approved -> nothing queued",
+    )
+    r.check(
         "the provider may refresh its own record",
         (
             decide(
