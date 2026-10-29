@@ -2524,3 +2524,19 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `scripts/assign_team_states.py` `fetch_recent_probes` and `bought_answers` (keyed by raw `team_id_master`); `scripts/team_cleanup/sure.py` `provider_states`
 - **Why**: Measured 2026-10-28: 293 live teams' only mapped GotSport answer in the 90-day window sits on a row since merged into them, so a sweep does not use it and those teams fall to owner cards. No live team has a newer merged-away answer naming a different state, so resolving through `team_merge_map` would change no team's answer today.
 - **Noted**: 2026-10-28
+
+### Cut the Team Insights and Clutch Factor card load further with one cohort-stats query and a shared user hook
+
+- **Type**: plan
+- **Category**: performance
+- **Where**: `frontend/app/api/insights/[teamId]/route.ts` (`GET`, the two `fetchAllRows` cohort scans over `rankings_view`); `frontend/components/TeamInsightsCard.tsx` (`TeamInsightsCard`), `frontend/components/ClutchFactorCard.tsx` (`ClutchFactorCard`), `frontend/hooks/useUser.ts` (`useUser`)
+- **Why**: Running the route's reads together (this branch) leaves the cohort scans as the longest step. `rankings_view` derives age and gender with a regex and `CASE`, so Postgres cannot use an index and scans `rankings_full` at about 165 ms per 1,000-row page, up to about 6 pages for the largest cohort (u12 Male, about 5,800 teams); an aggregate on `rankings_full` filtered by `age_group`, `gender` and `status` used `idx_rankings_full_age_gender` and took about 42 ms. One aggregate RPC returning cohort count, median, percentile and state rank would take about 1.2 s of database time to roughly 50-100 ms (estimated from those timings, not measured end to end) and needs a migration and the owner's approval. Separately, each card calls `useUser()` (a `getSession` plus a `user_profiles` fetch with up to 3 retries) and a plain `fetch` in `useEffect` with no caching, so the two cards repeat the same user lookup and neither is cached; one shared user hook plus React Query is frontend-only.
+- **Noted**: 2026-10-29
+
+### Fix the cohort paging order in the Team Insights route and refresh its stale comments
+
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `frontend/app/api/insights/[teamId]/route.ts` (`GET`: `fetchAllRows`, `cohortPageSize`, the two `rankings_view` cohort queries ordered by `power_score_final`)
+- **Why**: Pages are ordered by `power_score_final`, which is not unique, so ties at a 1,000-row boundary can skip or repeat rows. The descending `.order(...)` sets no nulls option, and Postgres sorts nulls first on a descending order, so an Active team with a null score would be counted ahead of the team in the state-rank `findIndex` (whether any Active row has a null score was not checked). The comment saying PostgREST caps un-ranged selects at 1,000 rows is wrong for the hosted project (200,000; `CLAUDE.md` Common Pitfalls) and the "v53e" wording in the Active-teams comments is stale now that production runs Glicko-2. `cohortPageSize` is camelCase where sibling constants are UPPER_SNAKE. All of this predates the parallel-queries change, which moved the code unchanged.
+- **Noted**: 2026-10-29

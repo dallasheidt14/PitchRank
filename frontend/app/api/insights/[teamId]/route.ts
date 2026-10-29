@@ -27,51 +27,31 @@ export async function GET(req: Request, { params }: { params: Promise<{ teamId: 
       return NextResponse.json({ error: 'Invalid team ID' }, { status: 400 });
     }
 
-    // Fetch team data
-    const { data: team, error: teamError } = await supabase
-      .from('teams')
-      .select('team_id_master, team_name, state_code, gender')
-      .eq('team_id_master', teamId)
-      .single();
+    // These depend only on teamId, so they go out together.
+    const [teamResult, rankingResult, { teamIdsToQuery, teamIdList, canonicalTeamId }] = await Promise.all([
+      supabase
+        .from('teams')
+        .select('team_id_master, team_name, state_code, gender')
+        .eq('team_id_master', teamId)
+        .single(),
+      supabase
+        .from('rankings_view')
+        .select('*, offense_norm, defense_norm, perf_centered')
+        .eq('team_id_master', teamId)
+        .single(),
+      // Resolved so games stored under deprecated IDs are included (without this,
+      // streak/consistency stop at the first pre-merge gap).
+      resolveMergedTeamIds(supabase, teamId),
+    ]);
 
+    const { data: team, error: teamError } = teamResult;
     if (teamError || !team) {
       return NextResponse.json({ error: 'Team not found' }, { status: 404 });
     }
 
-    // Fetch ranking data including v53e metrics (offense_norm, defense_norm, perf_centered)
-    const { data: ranking, error: rankingError } = await supabase
-      .from('rankings_view')
-      .select('*, offense_norm, defense_norm, perf_centered')
-      .eq('team_id_master', teamId)
-      .single();
-
+    const { data: ranking, error: rankingError } = rankingResult;
     if (rankingError && rankingError.code !== 'PGRST116') {
       console.error('Error fetching ranking:', rankingError);
-    }
-
-    // Resolve merged team IDs so games stored under deprecated IDs are included
-    // (without this, streak/consistency stop at the first pre-merge gap).
-    const { teamIdsToQuery, teamIdList, canonicalTeamId } = await resolveMergedTeamIds(supabase, teamId);
-
-    // Fetch games with opponent rankings (across canonical + all merged team IDs)
-    const orConditions = teamIdList
-      .map((tid) => `home_team_master_id.eq.${tid},away_team_master_id.eq.${tid}`)
-      .join(',');
-    // Scheduled fixtures sort ahead of every result on game_date, so leaving them in
-    // spends the 50-row budget on games that have not been played and shrinks the
-    // window each generator walks newest-first.
-    const { data: games, error: gamesError } = await supabase
-      .from('games')
-      .select('game_date, home_team_master_id, away_team_master_id, home_score, away_score')
-      .or(orConditions)
-      .eq('is_excluded', false)
-      .not('home_score', 'is', null)
-      .not('away_score', 'is', null)
-      .order('game_date', { ascending: false })
-      .limit(50);
-
-    if (gamesError) {
-      console.error('Error fetching games:', gamesError);
     }
 
     // Define types for the database responses
@@ -101,68 +81,63 @@ export async function GET(req: Request, { params }: { params: Promise<{ teamId: 
       power_score_final: number | null;
     };
 
-    // Get opponent team IDs for ranking lookup
-    // Use the merged-id set so a game scraped under a deprecated id still
-    // identifies the opponent correctly.
-    const opponentIds = new Set<string>();
-    ((games || []) as GameRow[]).forEach((game: GameRow) => {
-      const homeIsTeam = game.home_team_master_id !== null && teamIdsToQuery.has(game.home_team_master_id);
-      const oppId = homeIsTeam ? game.away_team_master_id : game.home_team_master_id;
-      if (oppId) opponentIds.add(oppId);
-    });
+    async function fetchGamesWithOpponentRankings() {
+      const orConditions = teamIdList
+        .map((tid) => `home_team_master_id.eq.${tid},away_team_master_id.eq.${tid}`)
+        .join(',');
 
-    // Fetch opponent rankings (guard: empty .in() returns all rows in PostgREST)
-    let opponentRankings: OpponentRankingRow[] | null = null;
-    let oppRankError: { message: string } | null = null;
-    if (opponentIds.size > 0) {
-      const result = await supabase
-        .from('rankings_view')
-        .select('team_id_master, rank_in_cohort_final, power_score_final')
-        .in('team_id_master', Array.from(opponentIds));
-      opponentRankings = result.data as OpponentRankingRow[] | null;
-      oppRankError = result.error;
+      // Scheduled fixtures sort ahead of every result on game_date, so leaving them in
+      // spends the 50-row budget on games that have not been played and shrinks the
+      // window each generator walks newest-first.
+      const { data: games, error: gamesError } = await supabase
+        .from('games')
+        .select('game_date, home_team_master_id, away_team_master_id, home_score, away_score')
+        .or(orConditions)
+        .eq('is_excluded', false)
+        .not('home_score', 'is', null)
+        .not('away_score', 'is', null)
+        .order('game_date', { ascending: false })
+        .limit(50);
+
+      if (gamesError) {
+        console.error('Error fetching games:', gamesError);
+      }
+
+      // Get opponent team IDs for ranking lookup
+      // Use the merged-id set so a game scraped under a deprecated id still
+      // identifies the opponent correctly.
+      const opponentIds = new Set<string>();
+      ((games || []) as GameRow[]).forEach((game: GameRow) => {
+        const homeIsTeam = game.home_team_master_id !== null && teamIdsToQuery.has(game.home_team_master_id);
+        const oppId = homeIsTeam ? game.away_team_master_id : game.home_team_master_id;
+        if (oppId) opponentIds.add(oppId);
+      });
+
+      // Fetch opponent rankings (guard: empty .in() returns all rows in PostgREST)
+      let opponentRankings: OpponentRankingRow[] | null = null;
+      let oppRankError: { message: string } | null = null;
+      if (opponentIds.size > 0) {
+        const result = await supabase
+          .from('rankings_view')
+          .select('team_id_master, rank_in_cohort_final, power_score_final')
+          .in('team_id_master', Array.from(opponentIds));
+        opponentRankings = result.data as OpponentRankingRow[] | null;
+        oppRankError = result.error;
+      }
+
+      if (oppRankError) {
+        console.error('Error fetching opponent rankings:', oppRankError);
+      }
+
+      const oppRankMap = new Map(
+        ((opponentRankings || []) as OpponentRankingRow[]).map((opp: OpponentRankingRow) => [
+          opp.team_id_master,
+          { rank: opp.rank_in_cohort_final, power: opp.power_score_final },
+        ])
+      );
+
+      return { games, oppRankMap };
     }
-
-    if (oppRankError) {
-      console.error('Error fetching opponent rankings:', oppRankError);
-    }
-
-    const oppRankMap = new Map(
-      ((opponentRankings || []) as OpponentRankingRow[]).map((opp: OpponentRankingRow) => [
-        opp.team_id_master,
-        { rank: opp.rank_in_cohort_final, power: opp.power_score_final },
-      ])
-    );
-
-    // Fetch ranking history across the merged-ID set, for the same reason the games query
-    // uses it: ranking_history is keyed by the raw team_id and a merge never rewrites those
-    // rows, so reading teamId alone loses every snapshot filed under an absorbed ID.
-    const { data: rankingHistoryRows, error: historyError } = await supabase
-      .from('ranking_history')
-      .select('team_id, snapshot_date, rank_in_cohort, rank_in_cohort_ml, rank_in_cohort_final, power_score_final')
-      .in('team_id', teamIdList)
-      .order('snapshot_date', { ascending: false })
-      .limit(30 * teamIdList.length);
-
-    if (historyError && historyError.code !== 'PGRST116') {
-      console.error('Error fetching ranking history:', historyError);
-    }
-
-    // Weeks before a merge hold one snapshot per team, so keep a single row per date —
-    // the canonical team's own rank where it has one — before taking the most recent 30.
-    const seenSnapshotDates = new Set<string>();
-    const rankingHistory = ((rankingHistoryRows || []) as Array<RankingHistoryRow & { team_id: string }>)
-      .sort((a, b) =>
-        a.snapshot_date === b.snapshot_date
-          ? Number(b.team_id === canonicalTeamId) - Number(a.team_id === canonicalTeamId)
-          : b.snapshot_date.localeCompare(a.snapshot_date)
-      )
-      .filter((row) => {
-        if (seenSnapshotDates.has(row.snapshot_date)) return false;
-        seenSnapshotDates.add(row.snapshot_date);
-        return true;
-      })
-      .slice(0, 30);
 
     // PostgREST caps un-ranged selects at 1,000 rows, which silently truncates
     // large cohorts and skews totals/percentiles/medians — page through the set
@@ -184,6 +159,70 @@ export async function GET(req: Request, { params }: { params: Promise<{ teamId: 
       return rows;
     }
 
+    const hasCohort = Boolean(ranking?.age && ranking?.gender);
+
+    // These need only the reads above, not each other, so they go out together.
+    const [{ games, oppRankMap }, historyResult, cohortData, stateCohortData] = await Promise.all([
+      fetchGamesWithOpponentRankings(),
+      // Ranking history across the merged-ID set, for the same reason the games query
+      // uses it: ranking_history is keyed by the raw team_id and a merge never rewrites those
+      // rows, so reading teamId alone loses every snapshot filed under an absorbed ID.
+      supabase
+        .from('ranking_history')
+        .select('team_id, snapshot_date, rank_in_cohort, rank_in_cohort_ml, rank_in_cohort_final, power_score_final')
+        .in('team_id', teamIdList)
+        .order('snapshot_date', { ascending: false })
+        .limit(30 * teamIdList.length),
+      // Only include Active teams in cohort stats to match v53e ranking logic
+      // v53e only assigns rank_in_cohort to Active teams (8+ games in 180 days)
+      hasCohort
+        ? fetchAllRows<CohortRow>((from, to) =>
+            supabase
+              .from('rankings_view')
+              .select('power_score_final')
+              .eq('age', ranking.age)
+              .eq('gender', ranking.gender)
+              .eq('status', 'Active')
+              .order('power_score_final', { ascending: false })
+              .range(from, to)
+          )
+        : null,
+      hasCohort && team.state_code
+        ? fetchAllRows<{ team_id_master: string; power_score_final: number | null }>((from, to) =>
+            supabase
+              .from('rankings_view')
+              .select('team_id_master, power_score_final')
+              .eq('age', ranking.age)
+              .eq('gender', ranking.gender)
+              .eq('state', team.state_code)
+              .eq('status', 'Active')
+              .order('power_score_final', { ascending: false })
+              .range(from, to)
+          )
+        : null,
+    ]);
+
+    const { data: rankingHistoryRows, error: historyError } = historyResult;
+    if (historyError && historyError.code !== 'PGRST116') {
+      console.error('Error fetching ranking history:', historyError);
+    }
+
+    // Weeks before a merge hold one snapshot per team, so keep a single row per date —
+    // the canonical team's own rank where it has one — before taking the most recent 30.
+    const seenSnapshotDates = new Set<string>();
+    const rankingHistory = ((rankingHistoryRows || []) as Array<RankingHistoryRow & { team_id: string }>)
+      .sort((a, b) =>
+        a.snapshot_date === b.snapshot_date
+          ? Number(b.team_id === canonicalTeamId) - Number(a.team_id === canonicalTeamId)
+          : b.snapshot_date.localeCompare(a.snapshot_date)
+      )
+      .filter((row) => {
+        if (seenSnapshotDates.has(row.snapshot_date)) return false;
+        seenSnapshotDates.add(row.snapshot_date);
+        return true;
+      })
+      .slice(0, 30);
+
     // Get cohort statistics for context
     let cohortStats = {
       totalTeams: 100,
@@ -191,61 +230,31 @@ export async function GET(req: Request, { params }: { params: Promise<{ teamId: 
       percentile: 50,
     };
 
-    if (ranking?.age && ranking?.gender) {
-      // Only include Active teams in cohort stats to match v53e ranking logic
-      // v53e only assigns rank_in_cohort to Active teams (8+ games in 180 days)
-      const cohortData = await fetchAllRows<CohortRow>((from, to) =>
-        supabase
-          .from('rankings_view')
-          .select('power_score_final')
-          .eq('age', ranking.age)
-          .eq('gender', ranking.gender)
-          .eq('status', 'Active')
-          .order('power_score_final', { ascending: false })
-          .range(from, to)
-      );
+    if (cohortData && cohortData.length > 0) {
+      const scores = (cohortData as CohortRow[])
+        .map((d: CohortRow) => d.power_score_final)
+        .filter((s: number | null): s is number => s !== null);
+      const totalTeams = scores.length;
+      const medianPowerScore = scores[Math.floor(scores.length / 2)] || 50;
 
-      if (cohortData && cohortData.length > 0) {
-        const scores = (cohortData as CohortRow[])
-          .map((d: CohortRow) => d.power_score_final)
-          .filter((s: number | null): s is number => s !== null);
-        const totalTeams = scores.length;
-        const medianPowerScore = scores[Math.floor(scores.length / 2)] || 50;
+      // Calculate percentile of current team
+      const currentPower = ranking?.power_score_final || 0;
+      const teamsBelow = scores.filter((s: number) => s < currentPower).length;
+      const percentile = Math.round((teamsBelow / totalTeams) * 100);
 
-        // Calculate percentile of current team
-        const currentPower = ranking?.power_score_final || 0;
-        const teamsBelow = scores.filter((s: number) => s < currentPower).length;
-        const percentile = Math.round((teamsBelow / totalTeams) * 100);
-
-        cohortStats = {
-          totalTeams,
-          medianPowerScore,
-          percentile,
-        };
-      }
+      cohortStats = {
+        totalTeams,
+        medianPowerScore,
+        percentile,
+      };
     }
 
     // State-cohort rank (for state-leaderboard persona trait)
     let stateCohort: InsightInputData['stateCohort'] = null;
-    if (team.state_code && ranking?.age && ranking?.gender) {
-      const stateCohortData = await fetchAllRows<{ team_id_master: string; power_score_final: number | null }>(
-        (from, to) =>
-          supabase
-            .from('rankings_view')
-            .select('team_id_master, power_score_final')
-            .eq('age', ranking.age)
-            .eq('gender', ranking.gender)
-            .eq('state', team.state_code)
-            .eq('status', 'Active')
-            .order('power_score_final', { ascending: false })
-            .range(from, to)
-      );
-
-      if (stateCohortData && stateCohortData.length >= 5) {
-        const idx = stateCohortData.findIndex((r) => r.team_id_master === teamId);
-        if (idx >= 0) {
-          stateCohort = { rank: idx + 1, totalTeams: stateCohortData.length };
-        }
+    if (stateCohortData && stateCohortData.length >= 5) {
+      const idx = stateCohortData.findIndex((r) => r.team_id_master === teamId);
+      if (idx >= 0) {
+        stateCohort = { rank: idx + 1, totalTeams: stateCohortData.length };
       }
     }
 
