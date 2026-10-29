@@ -39,7 +39,8 @@ not applied, replaces all three files; while an apply holds the run on this mach
 
 With --lane auto it collects the stage's automatic lane instead, into auto/: every change the
 manifest's `auto` lists, decided Apply with no choice to read, under the same three files. A pair the
-week's review settled takes the review's choice: Keep separate for two teams, and its swap.
+week's review settled takes the review's choice: Keep separate for two teams, and its swap. A club guess
+the week's review found wrong is decided Don't apply.
 
     python scripts/team_cleanup/collect.py --run 2026-10-14-nv --stage states --decisions <out_dir>
     python scripts/team_cleanup/collect.py --run 2026-10-14-nv --stage states --from-db
@@ -63,6 +64,7 @@ sys.path.insert(0, str(ROOT))
 
 from scripts.find_cross_provider_duplicates import get_client, page  # noqa: E402
 from scripts.repair_swapped_club_names import write_log  # noqa: E402
+from scripts.team_cleanup.club_changes import change_choice  # noqa: E402
 from scripts.team_cleanup.decisions import (  # noqa: E402
     APPLY,
     CARD_COLS,
@@ -288,15 +290,22 @@ def collect(store: Path, run_id: str, stage: str, decisions: Path | None, lane: 
         raise SystemExit(f"Cannot collect {collected(stage, lane)} for {run_id}: {exc}") from None
 
 
+def auto_choice(stage: str, proposal: dict) -> dict:
+    """The automatic lane's choice on a change: the week's review's, where one decided it, else Apply."""
+    if stage == MERGES:
+        return review_choice(proposal)
+    if stage == CLUBS:
+        return change_choice(proposal)
+    return {"decision": APPLY}
+
+
 def _collect(store: Path, run_id: str, stage: str, decisions: Path | None, lane: str, sb) -> dict:
     folder = stage_due(store, read_run(store, run_id), stage, ("collect", "apply"), lane)
     check_unchanged(inputs_dir(folder))
     manifest = read_json(inputs_dir(folder) / MANIFEST_FILE)
     cards, decided = manifest[LANE_CARDS[lane]], None
     if lane == AUTO:
-        choices = {
-            card_id: review_choice(p) if stage == MERGES else {"decision": APPLY} for card_id, p in cards.items()
-        }
+        choices = {card_id: auto_choice(stage, p) for card_id, p in cards.items()}
     elif sb is not None:
         choices, decided = db_choices(sb, manifest)
         check_choices(manifest, choices)

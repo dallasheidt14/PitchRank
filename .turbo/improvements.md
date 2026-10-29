@@ -2310,6 +2310,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `scripts/repair_swapped_club_names.py` (`merge_proposals`, called from `build_snapshot`); `scripts/team_cleanup/pages.py` (`sort_out`)
 - **Why**: When two sources propose different clubs for one team, `merge_proposals` keeps `proposals[0]` in source order (provider, then team_name, then abbreviation) and marks it `needs_review`. A `recased` or `unclear` team-name guess can therefore win the row over a trusted `word` or `bracket` abbreviation fix, which then exists only in the scan's printed CONFLICT line, and the weekly club page leaves the row off because its tier is a listed guess. Keep the trusted-tier proposal on a conflict (or carry both offers) so the row keeps its card. Reach on 2026-10-15: 0 CONFLICT lines in the national scan (2,018 rows). Raised in review of #1315.
 - **Noted**: 2026-10-15
+- **Update (2026-10-28)**: The weekly club review (`scripts/team_cleanup/review_clubs.py`) now reviews a team whose sources disagree as a change of its own, its evidence carrying both offers read back from the club scan's log (`conflicts`), so the row no longer drops off the page unseen. The reviewers can only apply, hold or reject the proposal the scan kept, so a trusted offer that lost still cannot be applied without this fix.
 
 ### Resolve two SincSports DCSC-named teams filed under the wrong club, and the DC-vs-MD question behind them
 
@@ -2502,6 +2503,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `scripts/team_cleanup/review_merges.py` `reviewer_command` and `reviewer_env`; `scripts/team_cleanup/advance.py` review step
 - **Why**: The sandbox rests on CLI behaviour measured on 2.1.311 on 2026-10-27 (dontAsk refusals, `Edit(/...)` anchoring, `blockReadsOutsideWorkingDirectories`, `--strict-mcp-config`, the auto-memory variable), not a documented contract, and an auto-update could loosen it silently. A one-run probe (outside write and read, `cd` then write, the stream-json init event) run when the CLI version changes, refusing the review on failure, would catch that.
 - **Noted**: 2026-10-27
+- **Update (2026-10-28)**: The club-name review (`scripts/team_cleanup/review_clubs.py`) runs the same reviewers through `review_merges.review_main`, so a loosened sandbox would reach both reviews.
 
 ### Keep GotSport's confirmation of a team's held state past the 90-day reprobe window
 

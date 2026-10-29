@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only lookups for the weekly duplicate review's reviewers (review_merges.py).
+"""Read-only lookups for the weekly reviews' reviewers.
 
 A reviewer may run this and no other program, so each lookup is a fixed read:
 
@@ -8,13 +8,16 @@ A reviewer may run this and no other program, so each lookup is a fixed read:
                                        first, each with the registration that played it
   club <text> <age group> <gender>     live rows of that cohort whose club name holds the text, any state
   name <text> <age group> <gender>     live rows of that cohort whose name or registered name holds it
+  spellings <text> [<state>]           every club name of a live team holding the text, with its teams by
+                                       state, the most used first
 
 A list longer than it shows says so. Each read is a SELECT, made with the public key alone, whatever else the
 checkout's .env holds. That key cannot read team_alias_map, so no lookup lists aliases, and the team lookup says
-so; the slice's evidence, built with the full key, lists each pair's.
+so; a duplicate review's slice, built with the full key, lists each pair's.
 
     python scripts/team_cleanup/review_lookup.py team 602b9dba-a36e-422d-94b7-0809049ef928
     python scripts/team_cleanup/review_lookup.py club "Kraze" u11 Male
+    python scripts/team_cleanup/review_lookup.py spellings "Socal" CA
 """
 
 from __future__ import annotations
@@ -24,6 +27,7 @@ import logging
 import os
 import re
 import sys
+from collections import Counter, defaultdict
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -46,7 +50,9 @@ GENDERS = ("Male", "Female")
 # A search text is a plain fragment of a name: wildcards and PostgREST's list syntax are not part of one.
 SEARCH = re.compile(r"^[^%*,()\\]{3,60}$")
 ROWS_SHOWN = 60
-ALIASES_UNREAD = "not readable with the public key; the slice's evidence lists each pair's"
+STATE = re.compile(r"^[A-Z]{2}$")
+SPELLINGS_READ = 5000
+ALIASES_UNREAD = "not readable with the public key; a duplicate review's slice lists each pair's"
 GAMES_SHOWN = 200
 
 
@@ -128,6 +134,32 @@ def show_search(sb, column: str, text: str, age: str, gender: str, providers: di
         print(f"{len(shown)} row(s)")
 
 
+def state_label(code: str | None) -> str:
+    return (code or "").strip() or "--"
+
+
+def by_state(counts: Counter) -> str:
+    """Teams by state, the most first."""
+    return ", ".join(f"{state} {n}" for state, n in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))) or "none"
+
+
+def show_spellings(sb, text: str, state: str | None) -> None:
+    query = sb.table("teams").select("team_id_master,club_name,state_code").ilike("club_name", f"%{text}%")
+    query = query.eq("is_deprecated", False)
+    if state:
+        query = query.eq("state_code", state)
+    rows = query.order("team_id_master").limit(SPELLINGS_READ + 1).execute().data
+    spellings: dict[str, Counter] = defaultdict(Counter)
+    for row in rows[:SPELLINGS_READ]:
+        spellings[row["club_name"]][state_label(row["state_code"])] += 1
+    for name, states in sorted(spellings.items(), key=lambda kv: (-sum(kv[1].values()), kv[0])):
+        print(f"{sum(states.values()):>5}  {name!r}  ({by_state(states)})")
+    if len(rows) > SPELLINGS_READ:
+        print(f"more than {SPELLINGS_READ} teams hold the text; the counts cover the first {SPELLINGS_READ} by id")
+    else:
+        print(f"{len(spellings)} spelling(s), {len(rows)} team(s)")
+
+
 def public_client():
     """A client on the public key: importing the scan loads the checkout's .env, private key included."""
     url, key = os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_KEY")
@@ -138,14 +170,18 @@ def public_client():
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("what", choices=("team", "club", "name"))
+    ap.add_argument("what", choices=("team", "club", "name", "spellings"))
     ap.add_argument("text", help="A team id, or the text to search for")
-    ap.add_argument("age_group", nargs="?")
+    ap.add_argument("age_group", nargs="?", help="An age group like u12, or for spellings a state like CA")
     ap.add_argument("gender", nargs="?", choices=GENDERS)
     args = ap.parse_args()
     if args.what == "team" and not UUID.match(args.text):
         ap.error("team takes a team id")
-    if args.what != "team" and not (
+    if args.what == "spellings" and not (
+        SEARCH.match(args.text) and (args.age_group is None or STATE.match(args.age_group)) and args.gender is None
+    ):
+        ap.error("spellings takes a text of 3 to 60 plain characters and, if you like, a state like CA")
+    if args.what in ("club", "name") and not (
         SEARCH.match(args.text) and args.age_group and AGE.match(args.age_group) and args.gender
     ):
         ap.error(f"{args.what} takes a text of 3 to 60 plain characters, an age group like u12, and Male or Female")
@@ -154,6 +190,8 @@ def main() -> int:
     providers = {p["id"]: p["code"] for p in sb.table("providers").select("id,code").execute().data}
     if args.what == "team":
         show_team(sb, args.text, providers)
+    elif args.what == "spellings":
+        show_spellings(sb, args.text, args.age_group)
     else:
         show_search(sb, args.what, args.text, args.age_group, args.gender, providers)
     return 0

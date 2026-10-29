@@ -1,10 +1,11 @@
 """Which of a stage's proposed changes the evidence already settles.
 
-A sure change is one the weekly loop could apply without asking the owner. Each rule but the merges
-review reuses evidence the stage's own code already reads, and replay_sure.py checks those against how the
+A sure change is one the weekly loop could apply without asking the owner. Each rule but a week's review
+reuses evidence the stage's own code already reads, and replay_sure.py checks those against how the
 owner decided past pages; the review's verdicts are its reviewers' own:
 
-  clubs   a change the scan approves (a provider, swap, word or bracket tier)
+  clubs   a change the week's review approved or found wrong (review_clubs.py), the second as declined; or,
+          unreviewed, a change the scan approves (a provider, swap, word or bracket tier)
   states  a state the rules would apply from GotSport's own record of the team (tier A), which the hold
           check does not hold and its latest recent answer still names; or a blank state the rules would
           apply from the team's club (tier B), which the hold check does not hold, whose latest recent
@@ -36,7 +37,8 @@ from scripts.find_cross_provider_duplicates import page
 from scripts.fix_band_cohorts import age_num
 from scripts.hold_unsafe_state_applies import split
 from scripts.review_state_queue_by_name import name_reading, provider_states
-from scripts.team_cleanup.decisions import CHANGES_TABLE, MERGES, DecisionsUnavailable
+from scripts.team_cleanup.club_changes import CLUB_REVIEW_WORDS, CLUB_VERDICTS, change_key
+from scripts.team_cleanup.decisions import APPLY, CHANGES_TABLE, MERGES, DecisionsUnavailable
 from scripts.team_cleanup.pairs import MERGE, REJECT, REVIEW_WORDS, VERDICTS
 from scripts.team_cleanup.propose_week import (
     AGES,
@@ -53,6 +55,8 @@ from src.tournaments.storage._io import read_json
 BAND_TIER = "A_own_name_band"
 # What a review settles without the owner: a merge, and two teams kept separate; a hold is a card.
 REVIEW_SETTLES = (MERGE, REJECT)
+# And for a club change: one approved, and one found wrong, which records the decline.
+CLUB_REVIEW_SETTLES = (APPLY, REJECT)
 ULABEL_TIER = "U_own_name_ulabel_opponent_confirmed"
 NEAR_GROUPS = 2
 
@@ -71,8 +75,7 @@ class StateEvidence:
 class Signals:
     """What a stage's rules read beyond each proposal: the changes an undo reversed, the teams held back
     (a state fill or Tier A correction the hold check holds, a pair's retiring row that has played since
-    its scan), and the
-    states skill's evidence."""
+    its scan), and the states skill's evidence."""
 
     reverted: set[tuple] = field(default_factory=set)
     held: set[str] = field(default_factory=set)
@@ -147,6 +150,21 @@ def merge_reviews(folder: Path) -> dict[tuple[str, str], dict] | None:
     return reviews
 
 
+def change_reviews(folder: Path) -> dict[tuple, dict] | None:
+    """{(team, field, old value, new value): its review's verdict and reason} for each change the week's club
+    review reached; None when the review queued no change, and each change then routes by the rules alone."""
+    review = folder / REVIEW_DIR
+    if not any(review.glob("slice_*.json")):
+        return None
+    reviews = {}
+    for path in sorted(review.glob(f"*{REVIEW_SUFFIX}")):
+        for row in read_json(path):
+            if row["verdict"] not in CLUB_VERDICTS:
+                raise ValueError(f"{path.name} gives {row['team_id_master']} a verdict the review never writes")
+            reviews[change_key(row)] = {k: row[k] for k in ("verdict", "reason")}
+    return reviews
+
+
 def load_signals(sb, stage: str, folder: Path, proposals, evidence: StateEvidence | None, canonical) -> Signals:
     held = held_changes(sb, folder, proposals) if stage == STATES else set()
     return Signals(reverted_changes(sb, stage, canonical), held, evidence)
@@ -168,6 +186,10 @@ def sure_because(stage: str, proposal: dict, signals: Signals) -> str | None:
 
 
 def _sure_club(p: dict) -> str | None:
+    review = p.get("review")
+    if review:
+        settled = review["verdict"] in CLUB_REVIEW_SETTLES
+        return f"{CLUB_REVIEW_WORDS[review['verdict']]}: {review['reason']}" if settled else None
     if p["approved"]:  # the scan unapproves a team two sources propose different clubs for
         return f"the scan approves its {p['tier']} reading"
     return None

@@ -3,6 +3,11 @@
     "start": {"weekday": "Wednesday", "time": "11:00"},
     "end": {"weekday": "Sunday", "time": "22:00"}
   },
-  "page_caps": {"cards": 100000, "auto": 100000, "merges": {"cards": 100000, "auto": 100000, "review": 100000}},
+  "page_caps": {
+    "cards": 100000,
+    "auto": 100000,
+    "clubs": {"cards": 100000, "auto": 100000, "review": 100000},
+    "merges": {"cards": 100000, "auto": 100000, "review": 100000}
+  },
   "review_deadline": {"weekday": "Sunday", "time": "18:00"}
 }

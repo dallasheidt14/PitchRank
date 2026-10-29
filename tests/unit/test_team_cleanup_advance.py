@@ -195,7 +195,7 @@ class _Runner:
         lane = "auto" if _arg(command, "--lane") == "auto" else "owner"
         if script == "propose_week.py":
             _proposed(self.store, f"{_arg(command, '--date')}-all", "reviewing")
-        elif script == "review_merges.py":
+        elif script in ("review_clubs.py", "review_merges.py"):
             # Queues the review on its first run, then reviews every slice still waiting.
             review = stage_dir(self.store, run_id, stage) / "review"
             review.mkdir(parents=True, exist_ok=True)
@@ -447,6 +447,7 @@ def test_every_page_is_built_and_published_and_the_owner_emailed_once(tmp_path, 
 
     assert code == 0
     assert runner.ran() == [
+        ("review_clubs.py", "clubs", None),
         ("pages.py", "clubs", None),
         ("pages.py", "states", None),
         ("pages.py", "ages", None),
@@ -488,6 +489,7 @@ def test_once_the_owner_marks_done_the_choices_are_collected_applied_and_the_run
     _tick(monkeypatch, store, _reviewing("2026-10-24T17:00:00Z"), runner, IN_WINDOW)
 
     assert [r for r in runner.ran() if r[0] != "pages.py"] == [
+        ("review_clubs.py", "clubs", None),
         ("review_merges.py", "merges", None),
         *[step for stage in STAGES for step in (("collect.py", stage, "auto"), ("apply_stage.py", stage, "auto"))],
         *[step for stage in STAGES for step in (("collect.py", stage, "from-db"), ("apply_stage.py", stage, None))],
@@ -827,7 +829,7 @@ def test_a_dry_run_runs_nothing_writes_nothing_and_emails_no_one(tmp_path, monke
     out = capsys.readouterr().out
     assert code == 0 and runner.commands == [] and db.writes == [] and emails == []
     assert not (run_dir(store, RUN) / "autopilot.json").exists()
-    assert "DRY RUN -- would build and publish the clubs page" in out
+    assert "DRY RUN -- would review the clubs guesses" in out
     assert "DRY RUN -- would mark run 2026-10-21-all's review done at the deadline" in out
 
 
@@ -959,4 +961,21 @@ def test_a_review_that_leaves_a_slice_waiting_runs_once_a_tick(tmp_path, monkeyp
 
     assert runner.ran().count(("review_merges.py", "merges", None)) == 1
     assert ("pages.py", "merges", None) not in runner.ran()
+
+
+def test_each_stage_s_review_runs_once_a_tick_and_neither_holds_back_the_other(tmp_path, monkeypatch, emails):
+    """Both reviews leave a slice waiting: each runs once in the tick, the clubs one first, and neither page is
+    built until its own review is done."""
+    store = tmp_path / "store"
+    _proposed(store)
+    _write(stage_dir(store, RUN, "clubs") / "review" / "slice_01.json", [{"team_id_master": "t"}])
+    _write(stage_dir(store, RUN, "merges") / "review" / "slice_01.json", [{"merge_id": "m", "keep_id": "k"}])
+    runner = _Runner(store)
+
+    _tick(monkeypatch, store, _reviewing(), runner, IN_WINDOW)
+
+    reviews = [r for r in runner.ran() if r[0].startswith("review_")]
+    assert reviews == [("review_clubs.py", "clubs", None), ("review_merges.py", "merges", None)]
+    assert not {("pages.py", "clubs", None), ("pages.py", "merges", None)} & set(runner.ran())
+    assert ["--execute"] == [c for c in runner.commands if Path(c[0]).name == "review_clubs.py"][0][5:6]
 

@@ -131,6 +131,11 @@ PROVABLY_SAFE = "1_provably_safe"
 # fused registration, are held with the squad-key scan's held pairs.
 CROSS_PROVIDER_TIERS = (PROVABLY_SAFE, "2_both_have_games", "3_other_side_empty", FLIP_TIER, "5_both_empty")
 APPLIER_INPUTS = {CLUBS: SCOPED_CLUBS, STATES: SCOPED_STATES, AGES: AGE_PLAN, MERGES: MERGE_PAIRS}
+# The stages whose page waits for a review: the script that runs it, and what it reviews.
+REVIEWERS = {
+    CLUBS: ("scripts/team_cleanup/review_clubs.py", "guesses"),
+    MERGES: ("scripts/team_cleanup/review_merges.py", "pairs"),
+}
 AGE_GROUPS_TO_APPLY = "1,2,3"
 STATE_CHANGES = ("apply", "queue")
 STEP_TIMEOUT_SECONDS = 4 * 60 * 60
@@ -235,6 +240,10 @@ def run_step(command: list[str], log: Path) -> int:
         except subprocess.TimeoutExpired:
             out.write(f"\nStopped after {STEP_TIMEOUT_SECONDS} seconds.\n")
             return -1
+
+
+def step_log(folder: Path, number: int, script: str) -> Path:
+    return folder / LOGS / f"{number}_{Path(script).stem}.log"
 
 
 def _read_csv(path: Path) -> list[dict]:
@@ -449,7 +458,7 @@ def propose(stage: str, folder: Path, states: list[str], store: Path) -> str | N
     for scans in ("national", MERGE_SCANS):
         shutil.rmtree(folder / scans, ignore_errors=True)
     for number, command in enumerate(stage_commands(stage, folder, states, store), 1):
-        log = folder / LOGS / f"{number}_{Path(command[0]).stem}.log"
+        log = step_log(folder, number, command[0])
         code = run_step(command, log)
         if code != 0:
             return f"failed: {Path(command[0]).name} exited {code}; see {log}"

@@ -4,7 +4,8 @@
 Reads the stage's proposals.json and stale.json from the run store and leaves off every proposal
 the owner already declined (an active dont_apply in team_cleanup_decisions naming the same new
 value), every one the write guard listed as stale, every one whose team is gone or whose field
-has moved since, every club change from a tier the scan lists without approving, and every state
+has moved since, every club change proposing no club, every club change from a tier the scan lists
+without approving that the week's review (review_clubs.py) did not reach, and every state
 change that a recent GotSport answer or the team's name or club name already answers with the state
 the team holds. A pair is left off when either row is gone or merged away, or has changed its age
 group, gender, state or club since the scan read it. Teams users follow (watchlisted, report-card or
@@ -16,8 +17,10 @@ games. A pair neither of whose rows has a game this season is left off unless th
 safe. Once review_merges.py has reviewed the pairs, a pair it cleared goes to the automatic lane turned as the
 review chose, one it found to be two teams goes there as Keep separate, one it held is a card giving the
 reviewers' reason, and one it did not reach waits past the cap for a later week's review; a cleared pair
-whose rows have since played on one day, or each other, is held instead. The page refuses to build while a
-review is due and has not been queued.
+whose rows have since played on one day, or each other, is held instead. Once review_clubs.py has reviewed the
+club guesses, a change it approved goes to the automatic lane, one it found wrong goes there as declined, and
+one it held is a card giving the reviewers' reason. The page refuses to build while a review is due and has not
+been queued.
 
 The changes sure.py finds the evidence already settles go to the stage's automatic lane, with no
 card, up to page_caps.auto in config/team_cleanup.json; past it they stay cards, as every one does
@@ -94,6 +97,7 @@ from scripts.review_state_queue_by_name import (  # noqa: E402
     name_reading,
     names_a_place,
 )
+from scripts.team_cleanup.club_changes import CLUB_REVIEW_WORDS, change_choice, change_key  # noqa: E402
 from scripts.team_cleanup.collect import fetch_cards  # noqa: E402
 from scripts.team_cleanup.decisions import (  # noqa: E402
     CARDS_TABLE,
@@ -113,6 +117,7 @@ from scripts.team_cleanup.propose_week import (  # noqa: E402
     CLUBS,
     CROSS_PROVIDER_DOORWAY,
     PROPOSED_STAGES,
+    REVIEWERS,
     SCAN_COUNTS,
     SQUAD_KEY_DOORWAY,
     STATES,
@@ -146,6 +151,7 @@ from scripts.team_cleanup.run_store import (  # noqa: E402
 )
 from scripts.team_cleanup.sure import (  # noqa: E402
     Signals,
+    change_reviews,
     keeps_state,
     load_signals,
     merge_reviews,
@@ -161,7 +167,8 @@ TEMPLATE = Path(__file__).resolve().parent / "assets" / "stage-page.html"
 PAGE_FILE = "page.html"
 TITLES = {CLUBS: "Club names", STATES: "States", AGES: "Age groups", MERGES: "Duplicate teams"}
 # The tiers trusted to apply whole. Every age-plan row (review groups 1-3) is, so ages has no entry.
-# A club proposal from any other tier is a guess the scan lists unapproved, and gets no card.
+# A club proposal from any other tier is a guess the scan lists unapproved, which reaches the page only
+# through the week's club review.
 WHOLE_TIERS = {
     CLUBS: {"provider", "swap", "word", "bracket"},
     STATES: {"B fill"},
@@ -170,6 +177,7 @@ WHOLE_TIERS = {
 PAIR_GROUPS = {CROSS_PROVIDER_DOORWAY: "C identical name", SQUAD_KEY_DOORWAY: "D squad key"}
 SHARED_NAMES_SHOWN = 5
 IDLE_WHY = "neither team has a game this season"
+BLANK_CLUB_WHY = "the scan proposes no club"
 
 
 @dataclass(frozen=True)
@@ -180,9 +188,9 @@ class Caps:
 
 
 def load_caps(path: Path = CLEANUP_CONFIG, stage: str | None = None) -> Caps:
-    """The configured caps on a page's cards, on its automatic lane and, for merges, on the pairs a week's review
-    takes, each a whole number from 0: the stage's own caps when page_caps names the stage, else the shared
-    ones, which review none."""
+    """The configured caps on a page's cards, on its automatic lane and on what a week's review takes, each a
+    whole number from 0: the stage's own caps when page_caps names the stage, else
+    the shared ones, which review none."""
     try:
         spec = json.loads(path.read_text(encoding="utf-8"))["page_caps"]
         spec = spec.get(stage, spec)
@@ -301,17 +309,19 @@ def pair_moved(p: dict, teams: dict, canonical) -> str | None:
     return changed_since_vetted(p, *rows)
 
 
-def sort_out(stage, proposals, stale, declined, answered, teams, canonical, interest):
+def sort_out(stage, proposals, stale, declined, answered, teams, canonical, interest, listed=False):
     """The proposals not left off, interest teams first so the caps keep them, and each one left off
-    with why."""
+    with why. ``listed`` keeps the club guesses the scan lists without approving, for the week's review."""
     stale_keys = {(s["team_id_master"], s["field"]): s["changed"] for s in stale}
     shown, left_out = [], []
     for p in proposals:
         tid, field = p["team_id_master"], p["field"]
         team = teams.get(tid)
         why = None
-        if stage == CLUBS and p["tier"] not in WHOLE_TIERS[CLUBS]:
-            why = f"the scan lists {p['tier']} guesses without approving them"
+        if stage == CLUBS and not (p["new_value"] or "").strip():
+            why = BLANK_CLUB_WHY
+        elif stage == CLUBS and p["tier"] not in WHOLE_TIERS[CLUBS] and not listed:
+            why = listed_why(p)
         elif (tid, field) in stale_keys:
             why = f"changed while the week was proposed: {stale_keys[tid, field]}"
         elif stage == MERGES:
@@ -330,6 +340,10 @@ def sort_out(stage, proposals, stale, declined, answered, teams, canonical, inte
             shown.append(p)
     shown.sort(key=lambda p: (not interested(p, interest), group_rank(stage, p), name_key(p)))
     return shown, left_out
+
+
+def listed_why(p: dict) -> str:
+    return f"the scan lists {p['tier']} guesses without approving them"
 
 
 def alike_key(group: str, p, team) -> str | None:
@@ -398,10 +412,18 @@ def card(stage, run, p, team, ev, providers, interest, facts=None) -> dict:
         "alike": alike_key(group, p, team),
         "interest": tid in interest,
         "change": {"field": p["field"], "old": p["old_value"], "new": p["new_value"]},
-        "why": p.get("reason") or "",
+        "why": change_why(p),
         "team": team_block(team, ev, providers),
         **({"evidence": facts[tid]} if facts and tid in facts else {}),
     }
+
+
+def change_why(p: dict) -> str:
+    """What the reviewers found, where the week's club review reached the change, else the proposal's reason."""
+    review = p.get("review")
+    if review:
+        return f"{CLUB_REVIEW_WORDS[review['verdict']].capitalize()}: {review['reason']}"
+    return p.get("reason") or ""
 
 
 def pair_why(p: dict) -> str:
@@ -448,6 +470,12 @@ def auto_pair(p: dict) -> dict:
     rather than merging them. The table holds every automatic card as Apply, the loop carrying out its call."""
     choice = review_choice(p)
     return {"swap": choice["swap"], "keep_separate": choice["decision"] == DONT_APPLY}
+
+
+def auto_change(p: dict) -> dict:
+    """What an automatic club card adds: whether the lane keeps the stored club, the review having found the
+    guess wrong, rather than writing the new one. The table holds every automatic card as Apply."""
+    return {"keep_as_is": change_choice(p)["decision"] == DONT_APPLY}
 
 
 def read_evidence(sb, team_ids, merge_map, canonical):
@@ -531,8 +559,9 @@ class Selection:
     ev: object
 
 
-def select(sb, folder: Path, stage: str) -> Selection:
-    """The proposals a build starts from, which the merges review takes too, so it reviews the pairs the page shows."""
+def select(sb, folder: Path, stage: str, listed: bool = False) -> Selection:
+    """The proposals a build starts from, which each review takes too, so it reviews what the page would show;
+    ``listed`` keeps the club guesses the scan lists without approving."""
     proposals = read_json(folder / PROPOSALS_FILE)
     stale = read_json(folder / STALE_FILE)
     ids = sorted({team for p in proposals for team in teams_of(p)})
@@ -543,7 +572,7 @@ def select(sb, folder: Path, stage: str) -> Selection:
     evidence = state_evidence(sb, stage, proposals)
     answered = load_answered(proposals, evidence)
     teams = fetch_teams(sb, ids)
-    shown, left_out = sort_out(stage, proposals, stale, declined, answered, teams, canonical, interest)
+    shown, left_out = sort_out(stage, proposals, stale, declined, answered, teams, canonical, interest, listed)
     ev = None
     if stage == MERGES:
         # The cap orders pairs by their retiring row's games, so the evidence is read before it.
@@ -574,6 +603,21 @@ def with_reviews(shown: list[dict], reviews: dict, ev) -> list[dict]:
     return reviewed
 
 
+def with_change_reviews(shown: list[dict], reviews: dict) -> tuple[list[dict], list[dict]]:
+    """Each club change with its review, where it has one; a guess the review did not reach is left off, as it is
+    with no review."""
+    kept, left_out = [], []
+    for p in shown:
+        review = reviews.get(change_key(p))
+        if review:
+            kept.append({**p, "review": review})
+        elif p["tier"] in WHOLE_TIERS[CLUBS]:
+            kept.append(p)
+        else:
+            left_out.append({**p, "why": listed_why(p)})
+    return kept, left_out
+
+
 def build(
     sb, store: Path, run_id: str, stage: str, publish: bool = False, execute: bool = False, dry_run: bool = False
 ) -> dict:
@@ -581,9 +625,12 @@ def build(
     run = read_run(store, run_id)
     folder = buildable(store, run_id, stage)
     caps = load_caps(stage=stage)
-    if stage == MERGES and caps.review and not (folder / REVIEW_DIR).exists():
-        raise ValueError("its pairs are not reviewed yet: run review_merges.py --execute first, as the autopilot does")
-    selection = select(sb, folder, stage)
+    if stage in REVIEWERS and caps.review and not (folder / REVIEW_DIR).exists():
+        script, what = REVIEWERS[stage]
+        script = Path(script).name
+        raise ValueError(f"its {what} are not reviewed yet: run {script} --execute first, as the autopilot does")
+    changes = change_reviews(folder) if stage == CLUBS else None
+    selection = select(sb, folder, stage, changes is not None)
     shown, left_out, teams, ev = selection.shown, selection.left_out, selection.teams, selection.ev
     interest, evidence, reviews = selection.interest, selection.evidence, None
     if stage == MERGES:
@@ -593,11 +640,14 @@ def build(
             shown = with_reviews(shown, reviews, ev)
     else:
         signals = load_signals(sb, stage, folder, shown, evidence, selection.canonical)
+        if changes is not None:
+            shown, unreached = with_change_reviews(shown, changes)
+            left_out = left_out + unreached
     settled = {proposal_key(p): why for p in shown if (why := sure_because(stage, p, signals))}
     auto = [p for p in shown if proposal_key(p) in settled][: caps.auto]
     sent = {proposal_key(p) for p in auto}
     shown = [p for p in shown if proposal_key(p) not in sent]
-    # Once a review ran, only reviewed pairs are cards (those it held, and any it settled past page_caps.auto);
+    # Once the merges review ran, only reviewed pairs are cards (those it held, and any it settled past page_caps.auto);
     # a pair it did not reach waits for a later week's review.
     unreviewed = [p for p in shown if "review" not in p] if reviews is not None else []
     shown = [p for p in shown if reviews is None or "review" in p]
@@ -623,6 +673,7 @@ def build(
                 "n": n,
                 "sure": settled.get(proposal_key(p)),
                 **(auto_pair(p) if stage == MERGES and lane == AUTO else {}),
+                **(auto_change(p) if stage == CLUBS and lane == AUTO else {}),
             }
             for n, p in enumerate(chosen, 1)
         ]

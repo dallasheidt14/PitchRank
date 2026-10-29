@@ -37,6 +37,7 @@ import {
   type PairCardRow,
   type PreviousRun,
   type StageReview,
+  type TeamCardRow,
   type UndoRequest,
 } from '@/lib/mission-control/cleanup';
 import { CleanupCardView, DECISION_TONE } from './CleanupCardView';
@@ -561,15 +562,7 @@ function StageView({
           <ul className="mt-2.5 space-y-2 text-sm">
             {stage.auto.map((row) => (
               <li key={row.card_id} className="break-words">
-                {isPairRow(row) ? (
-                  <AutoPair row={row} />
-                ) : (
-                  <>
-                    <span className="font-medium">{row.card.team.name || '(no name)'}</span>:{' '}
-                    {fieldLabel(row.card.change.field)} {changeValue(row.card.change.old)} →{' '}
-                    {changeValue(row.card.change.new)}
-                  </>
-                )}
+                {isPairRow(row) ? <AutoPair row={row} /> : <AutoChange row={row} />}
                 {row.card.sure && <span className="text-muted-foreground"> ({row.card.sure})</span>}
               </li>
             ))}
@@ -619,6 +612,23 @@ function AutoPair({ row }: { row: PairCardRow }) {
     <>
       <span className="font-medium">{merged.name || '(no name)'}</span> → kept as{' '}
       <span className="font-medium">{kept.name || '(no name)'}</span>
+    </>
+  );
+}
+
+function AutoChange({ row }: { row: TeamCardRow }) {
+  const { team, change } = row.card;
+  const name = <span className="font-medium">{team.name || '(no name)'}</span>;
+  if (row.card.keep_as_is) {
+    return (
+      <>
+        {name}: {fieldLabel(change.field)} kept as {changeValue(change.old)}, not {changeValue(change.new)}
+      </>
+    );
+  }
+  return (
+    <>
+      {name}: {fieldLabel(change.field)} {changeValue(change.old)} → {changeValue(change.new)}
     </>
   );
 }

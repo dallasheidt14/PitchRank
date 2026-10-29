@@ -738,7 +738,7 @@ def test_a_team_lookup_reads_a_merged_away_id_as_its_survivor_newest_game_first_
 
     assert lines[0] == f"{GONE_ID} was merged into {KEEP_ID}; showing that row"
     # The public key reads no row of team_alias_map, so the lookup says it shows none rather than listing none.
-    assert lines[2] == "  aliases: not readable with the public key; the slice's evidence lists each pair's"
+    assert lines[2] == "  aliases: not readable with the public key; a duplicate review's slice lists each pair's"
     assert "team_alias_map" not in read
     assert lines[3].startswith(f"  merged into it: {GONE_ID} | 16 Kraze Black")
     assert lines[4:] == [
