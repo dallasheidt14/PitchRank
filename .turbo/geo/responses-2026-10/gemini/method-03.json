@@ -1,0 +1,19 @@
+{
+  "engine": "gemini",
+  "prompt_id": "method-03",
+  "category": "methodology",
+  "prompt": "What rating system best handles teams that rarely play each other?",
+  "response_text": "For rating systems that best handle teams that rarely play each other, **Glicko-2** and **TrueSkill** are generally considered superior to the traditional Elo system. These systems are designed to account for the uncertainty inherent in infrequent matches and can adapt more effectively to sparse data.\n\nHere's a breakdown of why these systems are well-suited:\n\n*   **Glicko-2** is particularly effective because it tracks not only a player's (or team's) rating but also their \"rating deviation\" (RD) and rating volatility. The RD quantifies the uncertainty of a rating; it increases when a team is inactive, meaning the system becomes less confident in their rating over time. Conversely, the RD decreases as a team plays more games, increasing the system's confidence. This mechanism directly addresses the challenge of infrequent play by allowing the system to adjust how much a rating changes based on how certain it is of that rating. Glicko-2 is ideal for \"sparse schedules\" and handles \"irregular participation\" by design.\n\n*   **TrueSkill**, developed by Microsoft Research for Xbox Live, is another robust option, especially if the \"teams\" aspect involves varying team compositions or more than two sides. TrueSkill models each team's skill as a distribution (a mean skill and a standard deviation, or uncertainty, known as sigma). This uncertainty naturally accounts for periods of inactivity, as the sigma value can expand. When a team plays, the system updates both their estimated skill (mu) and the confidence in that skill (sigma). TrueSkill was designed for multiplayer and team-based scenarios, which gives it an advantage over Elo and Glicko in such contexts. It also tends to converge faster for new players by directly modeling uncertainty.\n\nIn contrast, the **Elo rating system** struggles with infrequent play because it treats every rating as equally certain, regardless of how many games have contributed to it or how recently they were played. This means an inactive team's rating might not accurately reflect their current skill level, and new teams or those with few games could have misleadingly stable ratings.",
+  "brand_mentioned": false,
+  "brand_first_position": null,
+  "competitors_mentioned": [],
+  "citation_urls": [
+    "https://elote.mcginniscommawill.com/rating_systems/elo_vs_glicko_vs_trueskill.html",
+    "https://metricgate.com/blogs/elo-vs-glicko-rating-system/",
+    "https://teamupgg.com/blog/glicko-vs-elo-vs-trueskill-rating-systems",
+    "https://metricgate.com/blogs/trueskill-bayesian-rating-system/"
+  ],
+  "latency_ms": 18738,
+  "error": null,
+  "model": "gemini-2.5-flash"
+}

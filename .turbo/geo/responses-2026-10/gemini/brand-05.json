@@ -1,0 +1,30 @@
+{
+  "engine": "gemini",
+  "prompt_id": "brand-05",
+  "category": "brand",
+  "prompt": "How is PitchRank different from GotSport or SoccerWire rankings?",
+  "response_text": "PitchRank, GotSport, and SoccerWire each offer distinct approaches to ranking youth soccer teams and clubs, differing significantly in their methodologies, the scope of their data, and what they ultimately aim to measure.\n\n**PitchRank**\nPitchRank focuses on ranking individual youth soccer teams (U10-U19, boys and girls) across all 50 states using a data-driven, transparent algorithmic model. Its \"PowerScore\" is derived from a 13-layer system that analyzes every game result, considering opponent quality, strength of schedule, competitiveness, and performance trends.\n\nKey differentiators for PitchRank include:\n*   **Machine Learning-Enhanced Algorithm**: It uses a two-layer approach with a core rating engine and a machine learning layer that identifies trending teams and adjusts for hot/cold streaks.\n*   **Comprehensive Data Sources**: PitchRank collects verified game results from multiple platforms, including tournaments, leagues, showcases, and cross-state events, rather than being locked into a single data source. This provides broader coverage and allows for cross-state comparisons.\n*   **True Strength of Schedule (SOS)**: PitchRank recursively calculates SOS, looking several layers deep into opponent networks to accurately assess even teams in smaller regions if they play quality opponents. Approximately 50% of the PowerScore comes from strength of schedule.\n*   **Transparency**: PitchRank openly explains its methodology, aiming to provide a clear understanding of how rankings are determined.\n*   **Focus on Game Results**: It emphasizes head-to-head game results rather than solely tournament placement, with recent games carrying more weight. Rankings update weekly.\n\n**GotSport Rankings**\nGotSport (formerly GotSoccer) is a dominant tournament management platform, and its ranking system is primarily point-based, focusing on individual teams.\n\nKey aspects of GotSport rankings include:\n*   **Point-Based System**: Teams earn points based on tournament placement. Each tournament flight is assigned a \"Flight Value\" based on the national ranking percentile of its top five teams. Champions receive 100% of that value, finalists 50%, and so on.\n*   **Tournament Data Focus**: Points are primarily accumulated from GotSport-hosted events. While they may include some non-GotSport events, their inclusion is not guaranteed and often relies on manual data entry. League play results are generally excluded or only included after the league is completed and all results are correctly reported.\n*   **Team Deduction**: A 20% deduction of a team's current national ranking points is applied, meaning higher-ranked teams need bigger results to gain points.\n*   **Limitations**: Critics argue that GotSport's system can reward teams for quantity of games over quality of opponents and may not adequately account for who a team beats.\n\n**SoccerWire Rankings**\nSoccerWire distinguishes itself by ranking the **Top 100 clubs**, not individual teams, for boys and girls in U13-U19 age groups.\n\nKey characteristics of SoccerWire rankings include:\n*   **Club-Focused**: Unlike PitchRank and GotSport, SoccerWire evaluates entire clubs rather than individual teams.\n*   **Proprietary \"SoccerWire Points\" System**: Their rankings are based on a formula that combines several factors: league standings on a points-per-game basis, league playoff results, national championship performance, and national team call-ups or verified professional signings within a three-year window.\n*   **Elite League Emphasis**: SoccerWire primarily considers results from elite national leagues such as ECNL, MLS NEXT, and Girls Academy, explicitly excluding tournament-based rankings like GotSport.\n*   **Development-Oriented Philosophy**: SoccerWire aims to reward clubs that focus on player development, producing national-level players and professional prospects, rather than just short-term tournament wins.\n\nIn summary, PitchRank offers a data-driven, transparent algorithm for individual team rankings with broad data coverage and a strong emphasis on strength of schedule. GotSport relies on a point-based system primarily from its own tournament data for individual team rankings. SoccerWire, conversely, ranks clubs based on performance in elite leagues and player development outcomes, deliberately moving away from individual team tournament results.",
+  "brand_mentioned": true,
+  "brand_first_position": 0,
+  "competitors_mentioned": [
+    "GotSport",
+    "SoccerWire",
+    "GotSoccer"
+  ],
+  "citation_urls": [
+    "https://www.pitchrank.io/methodology",
+    "https://www.pitchrank.io/blog/youth-soccer-rankings-complete-guide",
+    "https://www.pitchrank.io/blog/best-youth-soccer-ranking-websites-2026",
+    "https://www.pitchrank.io/rankings",
+    "https://www.pitchrank.io/blog/what-is-powerscore-youth-soccer",
+    "https://www.pitchrank.io/blog/what-predicts-winning-beyond-goals",
+    "https://www.soccerwire.com/soccer-blog/how-youth-soccer-tournaments-use-gotsoccer-points-to-evaluate-teams/",
+    "https://support.gotsport.com/how-are-gotsoccer-ranking-points-calculated",
+    "https://support.gotsport.com/what-events-are-ranked",
+    "https://support.gotsport.com/when-will-a-league-be-ranked-",
+    "https://www.soccerwire.com/resources/soccerwire-points-and-club-rankings-formula-explained/"
+  ],
+  "latency_ms": 14259,
+  "error": null,
+  "model": "gemini-2.5-flash"
+}

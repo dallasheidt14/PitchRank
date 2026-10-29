@@ -1,0 +1,14 @@
+{
+  "engine": "gemini",
+  "prompt_id": "parent-01",
+  "category": "parent",
+  "prompt": "How good is my kid's youth soccer team compared to others in our state?",
+  "response_text": "I'm sorry, but I can't determine how good your kid's youth soccer team is compared to others in your state without more specific information. To give you a helpful comparison, I would need to know:\n\n*   **Which state are you in?**\n*   **What is the name of your kid's team?**\n*   **What is their age group or league (e.g., U10, U12, recreational, competitive)?**\n*   **What kind of information are you looking for to define \"good\" (e.g., win/loss records, league standings, tournament performance, competitive level of their league)?**\n\nOnce I have these details, I can try to find information on state soccer association websites, league standings, or youth soccer ranking sites to give you a better idea.",
+  "brand_mentioned": false,
+  "brand_first_position": null,
+  "competitors_mentioned": [],
+  "citation_urls": [],
+  "latency_ms": 4224,
+  "error": null,
+  "model": "gemini-2.5-flash"
+}

@@ -1,0 +1,24 @@
+{
+  "engine": "gemini",
+  "prompt_id": "parent-02",
+  "category": "parent",
+  "prompt": "Where can I look up youth soccer team rankings in Texas?",
+  "response_text": "To look up youth soccer team rankings in Texas, you have several reliable online resources:\n\n*   **PitchRank** is a prominent platform that provides weekly updated rankings for Texas youth soccer clubs, encompassing over 9,500 teams. These rankings are generated using a \"PowerScore\" derived from real game results, factoring in strength of schedule, game outcomes, and opponent quality. You can find rankings for various age groups, including U10, U12, U13, and U14 for both boys and girls teams.\n*   **USA Rank** also offers Texas youth soccer rankings, allowing you to search by different competitive levels (Gold, Silver, Bronze, Red, Blue, Green) and providing a team's national rank.\n*   While not a ranking site itself, **Golazo IQ Blog** mentions providing state-wide youth soccer rankings, including for Texas, rebuilt from official match results and rated weekly.\n\nThese platforms aim to provide comprehensive and regularly updated insights into the competitive landscape of youth soccer in Texas, a state recognized as a significant powerhouse in the sport. You'll find top clubs frequently mentioned in these rankings include Albion Hurricanes FC, Lonestar, FC Dallas, Solar SC, Challenge SC, HTX, Sting Soccer Club, and Dallas Texans Soccer Club, among others.\n\nIt's important to note that different ranking systems may use varying criteria, so a club's standing can differ slightly across platforms. However, consistent high rankings across multiple sources generally indicate a strong program.",
+  "brand_mentioned": true,
+  "brand_first_position": 99,
+  "competitors_mentioned": [],
+  "citation_urls": [
+    "https://www.pitchrank.io/blog/texas-youth-soccer-rankings-guide",
+    "https://www.pitchrank.io/rankings/tx",
+    "https://www.pitchrank.io/rankings/tx/u10/male",
+    "https://usarank.com/rank/F/TX/2016",
+    "https://usarank.com/rank/M/TX/2011",
+    "https://golazoiq.com/blog/",
+    "https://ussoccerparent.com/top-ranked-clubs",
+    "https://girlssoccernetwork.com/top-5-youth-clubs-in-texas-you-should-know-about/",
+    "https://www.villarrealhouston.com/post/best-youth-soccer-clubs-in-texas"
+  ],
+  "latency_ms": 8885,
+  "error": null,
+  "model": "gemini-2.5-flash"
+}

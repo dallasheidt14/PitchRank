@@ -1,0 +1,16 @@
+{
+  "engine": "openai",
+  "prompt_id": "brand-03",
+  "category": "brand",
+  "prompt": "Is PitchRank free to use?",
+  "response_text": "It depends on which \u201cPitchRank\u201d you mean, but I believe you're referring to *PitchRank* as it applies to youth soccer rankings (rather than other similarly-named services). Here's what I found:\n\n---\n\n### \u26bd PitchRank (Youth Soccer Rankings)\n\n- **Free Access:** Yes \u2014 *PitchRank*\u2019s youth soccer rankings are publicly viewable at no cost. Anyone can search for a team by age group and state, see where they rank nationally, and review details like strength of schedule, game results, and performance trends. ([pitchrank.io](https://www.pitchrank.io/methodology?utm_source=openai))  \n- **No Paid Plan Mentioned:** I couldn\u2019t find any information that suggests users pay to access additional features or data. There are no references to premium tiers or locked content. All the key functionality seems available for free. ([pitchrank.io](https://www.pitchrank.io/methodology?utm_source=openai))  \n\n---\n\nIf you had a different *PitchRank* in mind (for example, a tool for presentations, startups, etc.), I can look into that version too. But as far as youth soccer rankings go \u2014 yes, it's free to use.",
+  "brand_mentioned": true,
+  "brand_first_position": 21,
+  "competitors_mentioned": [],
+  "citation_urls": [
+    "https://www.pitchrank.io/methodology?utm_source=openai"
+  ],
+  "latency_ms": 8797,
+  "error": null,
+  "model": "gpt-5-search-api"
+}

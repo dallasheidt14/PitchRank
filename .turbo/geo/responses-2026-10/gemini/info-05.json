@@ -1,0 +1,29 @@
+{
+  "engine": "gemini",
+  "prompt_id": "info-05",
+  "category": "informational",
+  "prompt": "How do I find rankings for ECNL, NAL, and MLS Next teams in the same view?",
+  "response_text": "Finding a single, unified view for rankings across ECNL, NAL, and MLS Next teams can be challenging as these are distinct youth soccer leagues, each with its own ranking system. However, several platforms offer partial or aggregated rankings that might help you compare teams across these leagues.\n\nHere's how you can approach finding these rankings:\n\n**1. Third-Party Aggregators for Combined or Cross-League Rankings:**\n\n*   **SoccerAnalytix:** This platform appears to offer \"Unified MLS NEXT & ECNL Boys\" rankings by clubs for past seasons. They also provide separate nationwide rankings for MLS Next and ECNL Boys by both clubs and teams, and by various metrics like points-per-game, goals-for-per-game, and goal-differential-per-game.\n*   **PitchRank:** For specific age groups, such as U13 Boys, PitchRank provides national soccer rankings that include teams from ECNL, NAL, and MLS Next, calculated using an algorithm that weighs strength of schedule, margin of victory, and opponent quality.\n\n**2. Individual League Rankings:**\n\n*   **ECNL (Elite Clubs National League):**\n    *   The official ECNL website publishes overall club championship rankings.\n    *   Other soccer-specific websites, like SoCal Soccer, may provide regional ECNL power rankings and standings.\n    *   Footy Access also offers independent ECNL Team Rankings across various age groups (U15, U16, U17, and U19).\n*   **MLS Next:**\n    *   The official Major League Soccer (MLS) Next website provides detailed standings for its Academy Division and Allstate Homegrown Division across various age groups (U13, U14, U15, U16, U17, U19).\n    *   Footy Access also provides MLS Next Team Rankings.\n*   **NAL (National Academy League):**\n    *   The NAL website provides information on participating clubs and conferences, along with archives of past results, but a direct national ranking system for the current season isn't explicitly highlighted in the search snippets. You may need to navigate their site to find specific team standings or results.\n\n**Important Considerations:**\n\n*   **Ranking Methodologies:** Be aware that different platforms and leagues may use varying criteria and algorithms to generate their rankings. This can lead to discrepancies when comparing across different sources.\n*   **Age Groups:** Rankings are often broken down by specific age groups (e.g., U13, U14, U15, etc.), so ensure you are looking at the relevant age bracket.\n*   **Subscription Services:** Some detailed or aggregated ranking information, especially from independent analytical sites, might require a subscription to access fully.\n\nWhile a single \"same view\" across all three leagues for all age groups simultaneously is generally not available, combining information from specialized third-party sites and the official league websites will provide the most comprehensive understanding of team performance across ECNL, NAL, and MLS Next.",
+  "brand_mentioned": true,
+  "brand_first_position": 747,
+  "competitors_mentioned": [],
+  "citation_urls": [
+    "https://www.socceranalytix.com/mls-next-nationwide-rankings-by-teams-2526-01/",
+    "https://www.socceranalytix.com/nationwide-rankings-by-teams/",
+    "https://www.socceranalytix.com/mls-next-ecnl-boys-combined-nationwide-rankings-2526-01/",
+    "https://www.pitchrank.io/rankings/national/u13/male",
+    "https://theecnl.com/news/2026/8/6/ecnl-boys-xf-academy-named-ecnl-boys-overall-club-champion-for-third-year-in-a-row-top-25-clubs-revealed.aspx",
+    "https://socalsoccer.com/threads/2025-26-ecnl-power-rankings.21887/",
+    "https://www.footyaccess.com/rankings/ecnl",
+    "https://www.mlssoccer.com/mlsnext/standings/academy_division/",
+    "https://www.mlssoccer.com/mlsnext/standings/u14/",
+    "https://www.mlssoccer.com/mlsnext/standings/homegrown_division/",
+    "https://matchcenter.mlsnextpro.com/mlsnext/standings/academy_division/",
+    "https://www.nationalacademyleague.com/nal-boys-2025-2026.html",
+    "https://www.nationalacademyleague.com/nal-girls-2025-2026.html",
+    "https://www.nationalacademyleague.com/"
+  ],
+  "latency_ms": 14630,
+  "error": null,
+  "model": "gemini-2.5-flash"
+}
