@@ -1,0 +1,17 @@
+{
+  "engine": "gemini",
+  "prompt_id": "brand-04",
+  "category": "brand",
+  "prompt": "Who runs PitchRank?",
+  "response_text": "PitchRank is run by PitchRank LLC. The company is located at 14426 N 50th St, Scottsdale, AZ 85254, United States. For inquiries, PitchRank LLC can be contacted via email at pitchrankio@gmail.com.",
+  "brand_mentioned": true,
+  "brand_first_position": 0,
+  "competitors_mentioned": [],
+  "citation_urls": [
+    "https://www.pitchrank.io/terms-of-service",
+    "https://www.pitchrank.io/privacy-policy"
+  ],
+  "latency_ms": 5098,
+  "error": null,
+  "model": "gemini-2.5-flash"
+}

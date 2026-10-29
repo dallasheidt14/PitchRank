@@ -1,0 +1,29 @@
+{
+  "engine": "gemini",
+  "prompt_id": "method-02",
+  "category": "methodology",
+  "prompt": "How should youth soccer teams be rated when they play across different leagues?",
+  "response_text": "To effectively rate youth soccer teams playing across different leagues, a rating system should account for varying levels of competition and provide a standardized way to compare teams. Traditional league standings are insufficient as they only reflect performance within a single league. Modern algorithmic ranking systems aim to provide a more objective measure of competitive strength across different clubs, leagues, and regions.\n\nKey approaches and considerations for rating youth soccer teams across different leagues include:\n\n*   **Elo Rating System** The Elo rating system, originally for chess, is widely adapted for sports to dynamically evaluate team performance. Each team starts with a rating, which adjusts after every match based on the outcome and the relative strength of the opponents. If a higher-rated team wins against a lower-rated team, fewer points are exchanged. However, if a lower-rated team achieves an upset, they gain more points, and the higher-rated team loses more. This ensures that beating a stronger team is more impactful than beating a weaker one.\n\n*   **Glicko Rating System** An advancement over Elo, the Glicko rating system incorporates a \"rating deviation\" (RD) alongside the rating. The RD quantifies the uncertainty in a team's rating; a higher RD means less certainty, leading to quicker rating adjustments after games. Inactivity causes the RD to increase, reflecting growing uncertainty about a team's current skill level. This system is particularly useful for youth soccer, where teams might have inconsistent game schedules. Glicko can also group matches into \"rating periods,\" treating them as if they occurred simultaneously, which can be useful for reducing calculation time and establishing context.\n\n*   **Multi-Factor Rating Systems** Some platforms, like PitchRank, employ a two-part rating system that considers several factors beyond just win/loss, including:\n    *   **Opponent Quality:** Results are weighted by the strength of the opponents, meaning a win against a top-ranked team carries more significance than a win against an unranked team.\n    *   **Competitiveness:** A narrow victory against a strong opponent might be valued more than a dominant win against a much weaker team.\n    *   **Schedule Strength:** The overall difficulty of a team's schedule is taken into account.\n    *   **Performance Trends:** Recent performance and consistency are also factored into the rating.\n    These systems typically collect verified game results from various sources, including tournaments, league play, and cross-state events, to ensure comprehensive and accurate data.\n\n*   **Club-Focused Rankings** Some ranking systems, like SoccerWire Points, focus on club performance rather than individual team rankings, emphasizing player development. These systems consider team performance in top national leagues, national team call-ups, and professional contract signings, rewarding clubs that develop players for higher levels of competition.\n\nWhen implementing a rating system for youth soccer teams across different leagues, it's crucial to:\n*   **Collect comprehensive data:** Gather results from all participating leagues and tournaments to provide a broad overview of team performance.\n*   **Regularly update ratings:** Ratings should be adjusted frequently to reflect current form and ensure accuracy.\n*   **Consider rating deviation (RD):** Especially in youth sports, where team rosters and player availability can fluctuate, incorporating RD can provide a more reliable measure of a team's true skill level.\n*   **Emphasize opponent strength:** This is fundamental to any fair ranking system that compares teams across different competitive environments.",
+  "brand_mentioned": true,
+  "brand_first_position": 1815,
+  "competitors_mentioned": [
+    "SoccerWire"
+  ],
+  "citation_urls": [
+    "https://www.pitchrank.io/blog/youth-soccer-rankings-complete-guide",
+    "https://pmc.ncbi.nlm.nih.gov/articles/PMC11798493/",
+    "https://www.iahssca.org/rankings/bound-s-elo-ranking-system",
+    "https://dubstat.com/elo-ratings-the-ultimate-sports-ranking-system/",
+    "https://en.wikipedia.org/wiki/Elo_rating_system",
+    "https://metricgate.com/docs/glicko-rating-system/",
+    "https://guess-games.com/glicko-rating",
+    "https://en.wikipedia.org/wiki/Glicko_rating_system",
+    "https://eltiodeldato.medium.com/glicko-rating-system-a-new-method-of-evaluating-sprinting-performance-15b0bcb50318",
+    "https://towardsdatascience.com/rating-sports-teams-maximizing-a-generic-system-772144574a07/",
+    "https://www.pitchrank.io/methodology",
+    "https://www.soccerwire.com/resources/soccerwire-points-and-club-rankings-formula-explained/"
+  ],
+  "latency_ms": 17036,
+  "error": null,
+  "model": "gemini-2.5-flash"
+}

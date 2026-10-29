@@ -1,0 +1,19 @@
+{
+  "engine": "gemini",
+  "prompt_id": "brand-03",
+  "category": "brand",
+  "prompt": "Is PitchRank free to use?",
+  "response_text": "PitchRank offers free access to its youth soccer rankings. Users can browse rankings for any state, age group, or team without requiring an account or payment. The platform also provides a \"Free Team Report Card,\" which is a PDF containing a team's national and state rank, PowerScore, record, and last five games.\n\nWhile browsing rankings and obtaining team report cards are free, PitchRank's Terms of Service mention a \"digital subscription platform\" and \"subscription access controls\", and it refers to \"advanced features for registered users\". This suggests that there may be premium features or a paid subscription tier available beyond the free offerings, although the core ranking data remains free to view.",
+  "brand_mentioned": true,
+  "brand_first_position": 0,
+  "competitors_mentioned": [],
+  "citation_urls": [
+    "https://www.pitchrank.io/rankings",
+    "https://www.pitchrank.io/report-card",
+    "https://www.pitchrank.io/",
+    "https://www.pitchrank.io/terms-of-service"
+  ],
+  "latency_ms": 6956,
+  "error": null,
+  "model": "gemini-2.5-flash"
+}

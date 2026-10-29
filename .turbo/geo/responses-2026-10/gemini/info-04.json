@@ -1,0 +1,29 @@
+{
+  "engine": "gemini",
+  "prompt_id": "info-04",
+  "category": "informational",
+  "prompt": "What's the most accurate way to compare youth soccer teams across leagues?",
+  "response_text": "The most accurate way to compare youth soccer teams across leagues involves a multi-faceted approach that goes beyond simple win-loss records. Due to the complex and fragmented nature of youth soccer in the United States, with multiple governing bodies and leagues, a single definitive ranking is elusive. However, several platforms and methodologies aim to provide a more reliable comparison by considering various performance indicators.\n\nKey elements for accurate comparison include:\n\n*   **Algorithmic Ranking Systems:** Specialized platforms like Golazo IQ and PitchRank utilize algorithms to rate and rank teams. These systems often consider factors such as:\n    *   **Rating Strength and Rank:** Each team is assigned an overall score and a national or state rank, derived from actual game results. This allows for fair comparisons even between teams that haven't directly played each other.\n    *   **Common Opponents:** When two teams have faced the same opponent, that shared result acts as a bridge for comparison.\n    *   **Recent Form:** A team's performance over the last few weeks can be a better indicator of current strength than their season-long record.\n    *   **Schedule Strength:** The difficulty of a team's schedule is taken into account. A tough schedule can explain more losses, while an easy one might inflate a shiny record.\n    *   **Goal Differential:** Some systems, like those mentioned for the \"soccer rankings\" app, factor in offensive and defensive ratings.\n\n*   **Top-Tier Leagues:** The level of competition within a league is a significant indicator. In the U.S., leagues like MLS NEXT (boys), Elite Clubs National League (ECNL) (boys and girls), and Girls Academy (GA) (girls) are generally considered the highest tiers, attracting top talent and offering strong college exposure. Playing in these leagues often signifies a higher level of team quality.\n\n*   **Club Rankings vs. Team Rankings:** It's important to differentiate between rankings for individual teams and overall club rankings. Some systems, like SoccerWire's, focus on club performance based on team results in national leagues, U.S. National Team call-ups, and professional contract signings, rather than individual team rankings. This provides a broader picture of a club's player development success.\n\n*   **Challenges and Considerations:**\n    *   **No Single Definitive List:** Different ranking systems use varying criteria, sample sizes, and timeframes, meaning a club can be highly ranked in one age group but unremarkable in another.\n    *   **Focus Beyond Rankings:** While rankings offer a starting point, factors like coaching quality, club culture, player development philosophy, and playing time for individual players are often more crucial for a child's growth than a team's rank.\n    *   **League Structure Complexity:** The U.S. youth soccer landscape includes parallel ladders from different governing bodies (US Youth Soccer and US Club Soccer), making direct comparisons across all leagues difficult.\n\nIn conclusion, while no single method provides absolute accuracy due to the decentralized nature of youth soccer, utilizing advanced algorithmic ranking platforms that consider multiple performance metrics, coupled with an understanding of the prestige and competition level of different leagues, offers the most accurate way to compare youth soccer teams across leagues. Parents and coaches often use apps that provide state and national rankings, results, schedules, and game predictions as valuable tools.",
+  "brand_mentioned": true,
+  "brand_first_position": 566,
+  "competitors_mentioned": [
+    "SoccerWire",
+    "US Club Soccer"
+  ],
+  "citation_urls": [
+    "https://ussoccerparent.com/top-ranked-clubs",
+    "https://www.pitchrank.io/blog/youth-soccer-levels-explained",
+    "https://golazoiq.com/compare/",
+    "https://www.reddit.com/r/youthsoccer/comments/1skn7bg/websites_for_club_team_rankings_by_state_and_us/",
+    "https://www.soccerwire.com/resources/soccerwire-points-and-club-rankings-formula-explained/",
+    "https://myclubscout.com/blog/compare-youth-soccer-leagues",
+    "https://beastmodesoccer.com/navigating-the-alphabet-soup-of-youth-soccer-ecnl-ga-npl-mls-next-mls-next-pro-etc/",
+    "https://guide-internespo.com/us-youth-soccer-leagues/",
+    "https://traceup.com/academy/mls-next-vs-ecnl-vs-ga-best-youth-soccer-league",
+    "https://www.villarrealhouston.com/post/soccer-levels-of-competition",
+    "https://apps.apple.com/us/app/soccer-rankings/id1638526916"
+  ],
+  "latency_ms": 13424,
+  "error": null,
+  "model": "gemini-2.5-flash"
+}

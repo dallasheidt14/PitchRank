@@ -1,0 +1,34 @@
+{
+  "engine": "gemini",
+  "prompt_id": "parent-03",
+  "category": "parent",
+  "prompt": "How do I find the top U14 boys soccer teams in California?",
+  "response_text": "To find the top U14 boys soccer teams in California, you can consult several prominent youth soccer ranking websites and league organizations:\n\n**1. Ranking Websites:**\n\n*   **PitchRank:** This website provides California U14 Boys youth soccer rankings, updated weekly based on real game results. Teams are ranked by \"PowerScore,\" a 0\u2013100 rating derived from strength of schedule, game outcomes, and opponent quality. You can browse top-ranked clubs, compare PowerScores, and track weekly changes.\n*   **Golazo IQ:** Golazo IQ tracks over 25,000 youth soccer teams across California, covering every age group and level of play. It provides an overall rating (0-100), national and state ranks, win/loss/draw records, schedule strength, and recent form. Golazo IQ aims to rate teams from all competitive leagues, not just the elite tiers like ECNL and MLS NEXT.\n*   **TopDrawerSoccer:** This site offers club soccer team rankings, including a national U14 boys ranking that features California teams. While some rankings might be national, they often highlight strong California clubs within those lists.\n\n**2. Elite Youth Soccer Leagues:**\n\n*   **MLS NEXT:** This is a top boys development league in the United States. For the U13 and U14 age groups, MLS NEXT publishes \"Quality of Play (QoP)\" rankings weekly instead of traditional win-loss standings. This approach emphasizes player development over game results at these younger ages. You can find these QoP rankings on the official MLS NEXT website. Several California clubs participate in MLS NEXT, such as LA Galaxy, Sacramento Republic FC, and Los Angeles FC.\n*   **ECNL Boys (Elite Clubs National League):** The ECNL is another highly competitive national league with a strong presence in California. Top California teams from the ECNL are frequently featured in national and state-specific rankings.\n\n**3. State Youth Soccer Associations:**\n\n*   **Cal South and Cal North:** These are the official youth soccer associations for Southern and Northern California, respectively. They oversee numerous leagues and tournaments.\n    *   **Cal North** operates the Competitive Soccer League (CCSL), which is Northern California's top level of youth soccer competition for U8 to U19 age groups. It offers \"club\" based and \"team based\" divisions with four levels of play: gold, silver, bronze, and copper.\n    *   **Cal South** organizes various state and national tournaments throughout the year.\n\nWhen utilizing these resources, keep in mind that rankings are often updated weekly or seasonally, and different platforms may use varying methodologies to assess team strength.",
+  "brand_mentioned": true,
+  "brand_first_position": 176,
+  "competitors_mentioned": [
+    "TopDrawer"
+  ],
+  "citation_urls": [
+    "https://www.pitchrank.io/rankings/ca/u14/male",
+    "https://www.pitchrank.io/rankings/ca",
+    "https://www.pitchrank.io/rankings/national/u14/male",
+    "https://golazoiq.com/team/34181/u14b-i/",
+    "https://golazoiq.com/blog/california/",
+    "https://www.topdrawersoccer.com/club-soccer/club-soccer-team-rankings/men/u14/2/1245",
+    "https://www.topdrawersoccer.com/club-soccer/club-soccer-team-rankings/men/u14/2/1725",
+    "https://rankingsoccer.com/blogs/boys-overall-top-25/u14-overall-top-25-rankings-for-boys-soccer-week-1-preseason",
+    "https://socalpitch.com/standings/mls-next/",
+    "https://socalpitch.com/rankings/boys/",
+    "https://www.mlssoccer.com/mlsnext/standings/academy_division/u14",
+    "https://www.mlssoccer.com/mlsnext/standings/u14/",
+    "https://www.topdrawersoccer.com/club-soccer/club-soccer-team-rankings/club-soccer-team-profile/men/u14/tid-26057/los-angeles-fc",
+    "https://rankingsoccer.com/blogs/ecnl-boys-top-25",
+    "https://www.calnorth.org/ccsl",
+    "https://www.calnorth.org/csl",
+    "https://calsouth.com/"
+  ],
+  "latency_ms": 15818,
+  "error": null,
+  "model": "gemini-2.5-flash"
+}

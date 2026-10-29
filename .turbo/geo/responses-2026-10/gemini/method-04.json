@@ -1,0 +1,27 @@
+{
+  "engine": "gemini",
+  "prompt_id": "method-04",
+  "category": "methodology",
+  "prompt": "How do you account for league strength when ranking youth soccer teams?",
+  "response_text": "When ranking youth soccer teams, accounting for league strength is crucial for providing an accurate and fair assessment of a team's ability beyond its win-loss record within a single league. Several sophisticated methods and factors are employed to achieve this, moving beyond traditional point-based systems that may not consider the quality of opponents.\n\nKey approaches to accounting for league strength include:\n\n*   **Algorithmic Models and Strength of Schedule (SOS)** Modern ranking platforms, such as PitchRank, GotSport, and Golazo IQ, utilize algorithmic models that compare teams across various leagues, tournaments, and geographical regions. A core component of these algorithms is the \"strength of schedule\" (SOS), which evaluates the quality of a team's opponents. Beating a highly-ranked team contributes significantly more to a team's ranking than defeating an unranked or weaker opponent. This is often calculated recursively, considering who the opponents played and their opponents' opponents, and so on.\n*   **Opponent Quality Weighting** Every match result is weighted by the quality of the opponent. For example, a 2-1 victory over a top-10 team is considered more impressive than a 10-0 win against a lower-tier team. This ensures that teams playing in stronger leagues or challenging themselves against tougher competition are appropriately recognized.\n*   **Elo Rating System** Adapted from chess, the Elo rating system is widely used in soccer to dynamically evaluate team performance and relative strength. In an Elo system, each team starts with a rating, which is then adjusted after every match based on the outcome and the relative strength of the opponents. If a lower-rated team upsets a higher-rated team, they gain more points, and the higher-rated team loses more, and vice-versa. This self-correcting system provides a nuanced understanding of a team's performance trends over time.\n*   **Margin of Victory (Contextualized)** While winning is important, the margin of victory is also considered, but within context. A narrow win against a top team can be more impactful than a blowout victory against a much weaker opponent.\n*   **Recency of Performance** Ranking systems often give more weight to recent games, as a team's current form is a better predictor of future performance than results from several months ago.\n*   **Comprehensive Data Integration** Accurate rankings rely on a vast dataset of game results. Platforms like PitchRank process hundreds of thousands of games to generate their rankings, incorporating data from various leagues and tournaments.\n*   **Consideration of Different Competition Tiers** Youth soccer leagues are often structured in tiers, from elite national leagues like MLS Next and ECNL to regional and state-level competitions. Effective ranking systems understand and integrate results from these different tiers to provide a broader comparison. Some rankings, like SoccerWire's, focus almost exclusively on performances in top national leagues and even factor in youth national team call-ups and professional signings.\n\nBy incorporating these factors, ranking systems can provide a more objective and comprehensive comparison of youth soccer teams, allowing for an understanding of how a team's competitive strength stacks up across diverse league environments.",
+  "brand_mentioned": true,
+  "brand_first_position": 510,
+  "competitors_mentioned": [
+    "GotSport",
+    "SoccerWire"
+  ],
+  "citation_urls": [
+    "https://www.pitchrank.io/blog/youth-soccer-rankings-complete-guide",
+    "https://golazoiq.com/compare/",
+    "https://www.pitchrank.io/blog/what-is-powerscore-youth-soccer",
+    "https://pmc.ncbi.nlm.nih.gov/articles/PMC11798493/",
+    "https://dubstat.com/elo-ratings-the-ultimate-sports-ranking-system/",
+    "https://jackturek.medium.com/creating-elo-ratings-efl-20-21-season-527a17410886",
+    "https://guide-internespo.com/us-youth-soccer-leagues/",
+    "https://onebeatsoccer.com/the-best-youth-soccer-leagues-in-the-us/",
+    "https://www.soccerwire.com/resources/soccerwire-points-and-club-rankings-formula-explained/"
+  ],
+  "latency_ms": 11721,
+  "error": null,
+  "model": "gemini-2.5-flash"
+}

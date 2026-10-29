@@ -1,0 +1,22 @@
+{
+  "engine": "gemini",
+  "prompt_id": "brand-01",
+  "category": "brand",
+  "prompt": "What is PitchRank and what does it do?",
+  "response_text": "PitchRank is a data-driven ranking system primarily known for its comprehensive youth soccer team rankings across the United States. It also offers global football (soccer) power rankings based on betting market data.\n\nFor **youth soccer**, PitchRank aims to provide fair, accurate, and transparent rankings for U10 to U19 boys and girls teams nationwide. It differentiates itself from traditional point-based systems by looking beyond just wins and losses, focusing on the quality and context of games played.\n\nHere's what PitchRank does for youth soccer:\n*   **Analyzes Games from Multiple Angles**: It uses a two-part rating system that considers opponent quality, competitiveness, schedule strength, and performance trends.\n*   **Calculates a \"PowerScore\"**: At its core, PitchRank generates a PowerScore, a single number between 0 and 1 that represents a team's strength. This score is derived from a multi-layered algorithm (v53e plus a machine-learning layer) that takes into account offensive and defensive strength, and significantly, strength of schedule (accounting for approximately 50% of the PowerScore).\n*   **Considers Key Performance Indicators**: The system evaluates:\n    *   **Quality of Opponents**: Wins against highly-ranked teams carry more weight than those against unranked opponents.\n    *   **Competitiveness**: The margin of victory and the context of the game are considered. A close 1-0 win against a strong team is more indicative than a 10-0 blowout against a weaker one.\n    *   **Strength of Schedule (SOS)**: This is a crucial factor, accounting for who a team has played and the quality of those opponents, even recursively through opponents' opponents.\n    *   **Offensive & Defensive Behavior**: Performance patterns beyond just the final score, such as creating scoring opportunities and limiting opponents, are recognized.\n    *   **Recency**: More recent games are given greater weight to reflect a team's current form.\n    *   **Stability**: The system is designed to reward consistent performance over time and avoid overreacting to single, anomalous results.\n*   **Collects Extensive Data**: PitchRank gathers verified game results daily from various sources, including tournaments, league play, showcases, and cross-state events, across all 50 states. This broad data collection ensures comprehensive coverage, regardless of the league a team plays in.\n*   **Utilizes Machine Learning**: A machine-learning layer identifies trending teams and adjusts for hot or cold streaks, providing a dynamic element to the rankings.\n*   **Provides Transparency**: PitchRank openly explains its methodology, allowing users to understand how rankings are calculated.\n*   **Offers Various Tools**: Beyond rankings, PitchRank provides features like free team report cards, head-to-head statistics, win probabilities, match predictions, and the ability to track favorite teams.\n\nFor **global football (soccer)**, PitchRank provides power rankings that offer a consistent view of professional teams' true strengths. These ratings are derived from betting lines set by efficient betting markets, with data available for major European leagues and MLS. This system is used to compare teams between leagues and track performance across seasons.",
+  "brand_mentioned": true,
+  "brand_first_position": 0,
+  "competitors_mentioned": [],
+  "citation_urls": [
+    "https://www.pitchrank.io/",
+    "https://pitchrank.fyi/",
+    "https://www.pitchrank.fyi/details",
+    "https://www.pitchrank.io/methodology",
+    "https://www.pitchrank.io/blog/youth-soccer-rankings-complete-guide",
+    "https://www.pitchrank.io/blog/what-is-powerscore-youth-soccer",
+    "https://www.pitchrank.io/blog/youth-soccer-levels-explained"
+  ],
+  "latency_ms": 12758,
+  "error": null,
+  "model": "gemini-2.5-flash"
+}

@@ -1,0 +1,17 @@
+{
+  "engine": "openai",
+  "prompt_id": "brand-04",
+  "category": "brand",
+  "prompt": "Who runs PitchRank?",
+  "response_text": "PitchRank is run by a small, independent team based in Arizona. ([pitchrank.io](https://www.pitchrank.io/authors/pitchrank-team?utm_source=openai)) They describe themselves as a \u201cdata-first\u201d operation focused on youth soccer rankings\u2014building their own rating engine, applying machine learning to track team performance trends, and publishing weekly rankings across age groups and all 50 states. ([pitchrank.io](https://www.pitchrank.io/methodology?utm_source=openai))\n\nSo, in short: there isn\u2019t a single founder or large organization publicly tied to PitchRank; it\u2019s built by a tight-knit team operating out of Arizona dedicated to transparent, objective youth soccer rankings. ([pitchrank.io](https://www.pitchrank.io/authors/pitchrank-team?utm_source=openai))",
+  "brand_mentioned": true,
+  "brand_first_position": 0,
+  "competitors_mentioned": [],
+  "citation_urls": [
+    "https://www.pitchrank.io/authors/pitchrank-team?utm_source=openai",
+    "https://www.pitchrank.io/methodology?utm_source=openai"
+  ],
+  "latency_ms": 5009,
+  "error": null,
+  "model": "gpt-5-search-api"
+}

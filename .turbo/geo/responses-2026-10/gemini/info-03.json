@@ -1,0 +1,26 @@
+{
+  "engine": "gemini",
+  "prompt_id": "info-03",
+  "category": "informational",
+  "prompt": "Where can I see independent rankings of youth soccer teams?",
+  "response_text": "You can find independent rankings of youth soccer teams on several dedicated platforms:\n\n*   **TopDrawerSoccer.com** provides TeamRank, a comprehensive system that objectively ranks elite youth soccer teams nationally. These rankings are updated monthly and are primarily based on results from league and championship competitions, with tournaments carrying a reduced value.\n*   **SoccerWire.com** offers Top 100 Clubs Rankings, which are generated through a formulaic system based on team performances in top national leagues like ECNL, Girls Academy, and MLS NEXT. Their system also considers U.S. National Team event call-ups and verifiable professional contract signings. SoccerWire's club rankings no longer include individual team rankings from third-party sources, as they prioritize long-term player development over short-term wins.\n*   **USA Tournaments (USA Rank)** also provides rankings for youth soccer teams, incorporating hundreds of thousands of additional results into their database weekly.\n*   **PitchRank** offers national youth soccer rankings for various age groups, updated weekly, with over 58,000 teams ranked across more than 1.6 million games analyzed. They also allow browsing rankings by state, age group (U10-U19), and gender.\n*   A \"soccer rankings\" app has been mentioned on Reddit as a potentially accurate source that ranks teams strictly on performance, including wins, losses, and offensive and defensive ratings.\n\nWhen evaluating rankings, it's important to consider that they don't always tell the complete story, especially for younger players (under 12), where development should take precedence over competition tier.",
+  "brand_mentioned": true,
+  "brand_first_position": 1016,
+  "competitors_mentioned": [
+    "SoccerWire",
+    "TopDrawer"
+  ],
+  "citation_urls": [
+    "https://www.topdrawersoccer.com/rankings-criteria/club-teams",
+    "https://www.soccerwire.com/resources/soccerwire-points-and-club-rankings-formula-explained/",
+    "https://www.soccerwire.com/soccerwire-top-100-youth-soccer-club-rankings/",
+    "https://usatournaments.com/rank/about",
+    "https://www.pitchrank.io/rankings/national",
+    "https://www.pitchrank.io/rankings",
+    "https://www.reddit.com/r/youthsoccer/comments/1skn7bg/websites_for_club_team_rankings_by_state_and_us/",
+    "https://ussoccerparent.com/top-ranked-clubs"
+  ],
+  "latency_ms": 10378,
+  "error": null,
+  "model": "gemini-2.5-flash"
+}

@@ -1,0 +1,26 @@
+{
+  "engine": "gemini",
+  "prompt_id": "info-02",
+  "category": "informational",
+  "prompt": "How do youth soccer rankings work?",
+  "response_text": "Youth soccer rankings are systems designed to objectively measure and compare the competitive strength of teams across various clubs, leagues, and regions. Unlike league standings, which only reflect results within a single league, rankings utilize algorithmic models to compare teams across different competitions and geographic areas, taking into account the quality of opponents and strength of schedule.\n\nSeveral platforms, such as GotSport, USARank, and PitchRank, track thousands of games and tournaments to generate these rankings.\n\nKey aspects of how youth soccer rankings work include:\n*   **Algorithmic Models** Most ranking platforms use sophisticated algorithms to process game data. PitchRank, for example, employs a two-layer approach with a core rating engine for power scores and a machine learning layer to identify trending teams and adjust for performance streaks.\n*   **Strength of Schedule (SOS)** A crucial factor is the strength of a team's opponents. Beating strong teams contributes more to a ranking than winning against weaker ones. Advanced systems calculate SOS recursively, looking several layers deep into opponent networks to infer relative strength even if teams from different regions don't play each other directly.\n*   **Point-Based Systems** Many traditional systems award points for wins and participation in sanctioned events. However, a limitation of some simpler point-based systems is that they might not adequately differentiate between wins against strong versus weak opponents.\n*   **Data Volume and Transparency** Platforms like PitchRank emphasize using massive datasets, tracking tens of thousands of teams across all states, and providing transparent methodologies so users can understand how rankings are determined. USA Rank also highlights that its rankings are based solely on on-field performance and are not influenced by polls, votes, or subjective opinions.\n*   **Recency of Games** More recent game results often carry a higher weight in ranking calculations, with rankings typically updated weekly.\n*   **Different Ranking Levels** Teams are often grouped into competitive levels (e.g., Gold, Silver, Bronze) based on their national ranking to help compare teams of similar competitive strength.\n*   **Purpose of Rankings** Rankings serve as a tool for parents and coaches to evaluate club competitiveness, make decisions about tournament selection, and assess team quality. However, experts advise using rankings wisely, as they are not a sole indicator of a child's worth or the only factor in choosing a club.\n\nIt's also important to note that different organizations may have varying approaches. For instance, SoccerWire focuses on club rankings based on team performances in top national leagues (like MLS NEXT, ECNL, and Girls Academy) and player development indicators such as U.S. National Team call-ups and professional contract signings, rather than individual team rankings from third-party sources.\n\nThe youth soccer landscape in the U.S. also features multiple levels of competition, from recreational to elite national leagues (e.g., MLS NEXT, ECNL, Girls Academy), run by various organizations such as US Youth Soccer and US Club Soccer. These different levels and organizations contribute to the complexity of the ranking environment.",
+  "brand_mentioned": true,
+  "brand_first_position": 459,
+  "competitors_mentioned": [
+    "GotSport",
+    "SoccerWire",
+    "US Club Soccer"
+  ],
+  "citation_urls": [
+    "https://www.pitchrank.io/blog/youth-soccer-rankings-complete-guide",
+    "https://www.baseballincollege.com/helpcenter.aspx?id=208",
+    "https://usatournaments.com/rank/about",
+    "https://www.soccerwire.com/resources/soccerwire-points-and-club-rankings-formula-explained/",
+    "https://ussoccerparent.com/levels-of-competition",
+    "https://www.pitchrank.io/blog/youth-soccer-levels-explained",
+    "https://flicktec.io/blog/youth-soccer-levels-explained"
+  ],
+  "latency_ms": 10614,
+  "error": null,
+  "model": "gemini-2.5-flash"
+}

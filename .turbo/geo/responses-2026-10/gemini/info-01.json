@@ -1,0 +1,24 @@
+{
+  "engine": "gemini",
+  "prompt_id": "info-01",
+  "category": "informational",
+  "prompt": "What are the best youth soccer team ranking sites in the US?",
+  "response_text": "When seeking to evaluate and compare youth soccer teams in the United States, several reputable ranking sites provide comprehensive data and analysis. These platforms often utilize algorithms based on game results, strength of schedule, and other performance indicators to generate their rankings.\n\nAmong the best youth soccer team ranking sites in the US are:\n\n*   **PitchRank** is a widely recognized platform that ranks over 58,000 youth soccer teams weekly across all 50 states, covering age groups from U10 through U19 for both boys and girls. Their PowerScore rating system is built on a 13-layer algorithm that processes real game results, including wins, losses, margin of victory, and opponent strength. PitchRank analyzes over 1.6 million games each season to produce its rankings, which are updated every Monday.\n\n*   **Golazo IQ** offers live national rankings for top youth soccer teams from U8 through U18. These rankings are rebuilt nightly using official match results from across all 50 states, providing up-to-date performance insights.\n\n*   **USA Sport Statistics (Soccer Rankings App)** provides youth soccer rankings, live score updates, player statistics, and competition flighting. The platform tracks teams from U8 to U18 across the USA, with basic rankings available for free and a PRO version offering full access to deeper insights. Their rankings are based on results and the strength of the competition, aiming to reflect real performance.\n\n*   **SoccerWire** publishes Top 100 Youth Soccer Club Rankings, utilizing a formula that considers the overall competitiveness of a club's top teams in U13-U19 age groups. This includes factors such as U.S. Youth National Team call-ups and success in elite events like the U.S. Soccer Development Academy Playoffs, as well as the production of professional players and college prospects.\n\n*   **National Soccer Network** features the \"NSN Top 100 Boys Youth Soccer Clubs in America,\" a monthly list recognizing outstanding youth soccer organizations. While not a live ranking of individual teams, it evaluates clubs based on national and regional performance, strength across multiple age groups, consistency, and player development pathways.",
+  "brand_mentioned": true,
+  "brand_first_position": 368,
+  "competitors_mentioned": [
+    "SoccerWire"
+  ],
+  "citation_urls": [
+    "https://www.pitchrank.io/rankings",
+    "https://www.pitchrank.io/",
+    "https://www.pitchrank.io/rankings/national",
+    "https://golazoiq.com/rankings/",
+    "https://usasportstatistics.net/",
+    "https://www.soccerwire.com/soccerwire-top-100-youth-soccer-club-rankings/",
+    "https://www.nationalsoccernetwork.tv/page/top100boysclubs"
+  ],
+  "latency_ms": 8839,
+  "error": null,
+  "model": "gemini-2.5-flash"
+}

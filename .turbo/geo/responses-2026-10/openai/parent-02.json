@@ -1,0 +1,23 @@
+{
+  "engine": "openai",
+  "prompt_id": "parent-02",
+  "category": "parent",
+  "prompt": "Where can I look up youth soccer team rankings in Texas?",
+  "response_text": "If you're looking to find rankings for youth soccer teams in Texas, there are several trusted sources that track teams by age group, league, and performance. Here are some of the best places to check, along with what type of rankings they provide:\n\n---\n\n### \ud83d\udcca Top Sources for Youth Team Rankings in Texas\n\n| Website | What They Cover | Why It\u2019s Useful |\n|---|---|---|\n| **PitchRank** | State-level rankings across U10\u2013U19 for both boys and girls. It includes over 1,600 teams in specific Texas age brackets, with rankings updated weekly. ([pitchrank.io](https://www.pitchrank.io/rankings/tx?utm_source=openai)) | Great for seeing how your team stacks up against teams across Texas. Useful for comparison across age groups and gender. |\n| **Golazo IQ** | Covers every competitive level (not just elite) from U8 through U18 in Texas. Measures performance using real results: opponent strength, schedule difficulty, goal margins, etc. ([golazoiq.com](https://golazoiq.com/blog/texas/?utm_source=openai)) | Excellent for getting a complete picture\u2014including developmental teams\u2014rather than just the elite level squads. |\n| **ElevenUp** | Ranks thousands of teams by age group, gender, and league (ECNL, MLS NEXT, etc.). As of August 2026, it lists nearly 3,800 Texas teams. ([elevenup.ai](https://elevenup.ai/guides/texas-youth-soccer-rankings.html?utm_source=openai)) | Good for seeing where teams fall within elite circuits and comparing across leagues. |\n| **USYS Rankings (Official Youth Soccer)** | National rankings that include many Texas teams across U13\u2013U19 age groups. Rankings are based on tournament and league play. ([usysrankings.com](https://usysrankings.com/?utm_source=openai)) | Best if you want to see how Texas teams compare nationally, or want to find teams that are in the top tier at the U13\u2013U19 level. |\n\n---\n\n### \ud83c\udfeb High School Soccer Rankings\n\nIf you're interested in high school rather than club or travel teams, here are some reliable sources:\n\n- **MaxPreps** \u2014 Covers high school teams across Texas: schedules, game results, rankings, and seasonal information. ([maxpreps.com](https://www.maxpreps.com/tx/soccer/?utm_source=openai))  \n- **United Soccer Coaches** \u2014 National and regional rankings for high school boys\u2019 and girls\u2019 soccer, released weekly during the season. ([unitedsoccercoaches.org](https://unitedsoccercoaches.org/high-school-awards-and-rankings/?utm_source=openai))  \n\n---\n\n### \u2705 Tips for Using Rankings Wisely\n\n- **Check the Age/Liability**: Be sure you\u2019re looking at the right age group and gender. Some platforms group ages (e.g., U10/U11).\n- **Understand the Rankings System**: Many rankings are based on wins, opponent quality, margin of victory, etc. Systems like Golazo IQ and PitchRank also factor in how challenging the schedule is. ([golazoiq.com](https://golazoiq.com/blog/texas/?utm_source=openai))  \n- **Update Frequency**: Weekly or daily updates mean recent games matter. A team on a hot streak or recent setbacks may not yet be reflected everywhere. ([pitchrank.io](https://www.pitchrank.io/rankings/tx?utm_source=openai))  \n- **League Type Matters**: Elite clubs (ECNL, MLS NEXT, etc.) often dominate, but other rankings (like Golazo IQ) include all competitive clubs for a broader view. ([golazoiq.com](https://golazoiq.com/blog/texas/?utm_source=openai))  \n\n---\n\nIf you tell me your club name or age group (like U12 boys or U14 girls) and whether you're focused on club or high school level, I can help pull up your team\u2019s ranking specifically!",
+  "brand_mentioned": true,
+  "brand_first_position": 372,
+  "competitors_mentioned": [
+    "USYS"
+  ],
+  "citation_urls": [
+    "https://www.pitchrank.io/rankings/tx?utm_source=openai",
+    "https://golazoiq.com/blog/texas/?utm_source=openai",
+    "https://elevenup.ai/guides/texas-youth-soccer-rankings.html?utm_source=openai",
+    "https://usysrankings.com/?utm_source=openai",
+    "https://www.maxpreps.com/tx/soccer/?utm_source=openai",
+    "https://unitedsoccercoaches.org/high-school-awards-and-rankings/?utm_source=openai"
+  ],
+  "latency_ms": 7287,
+  "error": null,
+  "model": "gpt-5-search-api"
+}

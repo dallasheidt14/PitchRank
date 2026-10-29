@@ -1,0 +1,23 @@
+{
+  "engine": "gemini",
+  "prompt_id": "method-01",
+  "category": "methodology",
+  "prompt": "What is Glicko-2 and how is it used for sports rankings?",
+  "response_text": "The Glicko-2 rating system is a sophisticated method for assessing the skill levels of players or teams in competitive, zero-sum two-player games. Developed by Mark Glickman as an enhancement to the Elo rating system, Glicko-2 is widely utilized in various competitive environments, including chess, esports, and sports analytics.\n\nUnlike the simpler Elo system, Glicko-2 represents each competitor with three key metrics:\n*   **Rating (r or \u03bc):** This is the core measure of a player's skill, often initialized around 1500.\n*   **Rating Deviation (RD or \u03d5):** This quantifies the uncertainty of a player's rating. A high RD indicates that the rating is less certain (e.g., for new players or those with long periods of inactivity), while a low RD suggests a more accurate and reliable rating. The true skill of a player is expected to fall within a range calculated by their rating \u00b1 1.96 times their RD (for a 95% confidence interval). The RD decreases after a player competes in a game but slowly increases over time during inactivity.\n*   **Rating Volatility (\u03c3):** Introduced in Glicko-2, volatility measures the expected fluctuation in a player's performance. A high volatility indicates inconsistent performance, while a low volatility suggests more stable results. This parameter allows the system to adapt more effectively to abrupt changes in skill or unexpected match outcomes.\n\n**How Glicko-2 is Used for Sports Rankings:**\n\nGlicko-2 provides a more dynamic and accurate ranking system for sports due to its ability to account for uncertainty and performance fluctuations:\n\n*   **Dynamic Skill Assessment:** Glicko-2 continuously updates a player's rating, rating deviation, and volatility after each match or rating period. This makes it particularly suitable for environments where player skill can change over time.\n*   **Handling Uncertainty:** The Rating Deviation (RD) is crucial for new players or those returning after a break. When a player has a high RD, their rating will change more dramatically with each game, allowing the system to quickly establish a more accurate rating. Conversely, a player with a low RD will experience smaller rating changes, as their skill is already considered well-established.\n*   **Adapting to Performance Swings:** The volatility parameter helps the system adjust to players who might have sudden improvements or declines in skill, or whose performance is inherently more erratic. This prevents a player's rating from becoming stagnant or inaccurately reflecting their current ability.\n*   **Improved Prediction Accuracy:** By incorporating all three metrics, Glicko-2 offers better predictive accuracy for match outcomes compared to systems like Elo, especially in competitive gaming and sports. This also helps in creating fair matchmaking systems.\n*   **Beyond Binary Outcomes:** While standard Glicko-2 primarily handles win/loss scenarios, extensions have been developed to accommodate draws, home advantage, and even margin of victory, which are common in many sports like football. This allows for a more nuanced and accurate reflection of match results.\n\nExamples of its application include chess federations, various online game servers (like Counter-Strike 2, Dota 2, and Lichess), and sports analytics for disciplines such as sprinting and football.",
+  "brand_mentioned": false,
+  "brand_first_position": null,
+  "competitors_mentioned": [],
+  "citation_urls": [
+    "https://en.wikipedia.org/wiki/Glicko_rating_system",
+    "https://www.emergentmind.com/topics/glicko2-rating-system",
+    "https://eltiodeldato.medium.com/glicko-rating-system-a-new-method-of-evaluating-sprinting-performance-15b0bcb50318",
+    "https://lichess.org/forum/general-chess-discussion/how-does-glicko-2-rating-works",
+    "https://metricgate.com/docs/glicko-2-rating/",
+    "https://gist.github.com/gpluscb/302d6b71a8d0fe9f4350d45bc828f802",
+    "https://arxiv.org/html/2607.01722v1",
+    "https://www.emergentmind.com/topics/glicko-2-rating-system"
+  ],
+  "latency_ms": 11409,
+  "error": null,
+  "model": "gemini-2.5-flash"
+}
