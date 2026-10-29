@@ -6,9 +6,11 @@ JSON files. Each file is ``{events, linked_competition_seasons, synced_at}`` and
 whole season. Writes ``<out-dir>/squads.csv``, ``games.csv`` and ``unreadable_squads.csv`` and never touches the
 database.
 
-A squad is one club at one age in one division. The file decides the division (the league and flex
-files are Homegrown, the academy file is Academy); the squad label ("U16", "U16 AD") only has to
-agree with it. MLS NEXT is boys-only and the files carry no gender field.
+A squad is one club's team at one age in one division. A club can field a second Homegrown squad at
+an age, labelled with a B ("U17B"): it plays on the base age's board and is named with a "II". The file
+decides the division (the league and flex files are Homegrown, the academy file is Academy); the
+squad label ("U16", "U17B", "U16 AD") only has to agree with it. MLS NEXT is boys-only and the files
+carry no gender field.
 
 Usage:
     python scripts/scrape_mlsnext_kitman.py
@@ -35,7 +37,8 @@ from src.models.mlsnext_kitman_keys import kitman_key, season_start_year  # noqa
 BASE_URL = "https://mls-assist.theintelligenceplatform.com/data/schedule"
 HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; PitchRank/1.0)"}
 FEEDS = (("mls-next-league", "HD", 3000), ("mls-next-flex", "HD", 1000), ("mls-next-2-academy-division", "AD", 5000))
-SQUAD_RE = re.compile(r"U(13|14|15|16|17|19)( AD)?")
+SQUAD_RE = re.compile(r"U(?P<age>13|14|15|16|17|19)(?P<suffix>B(?! AD))?(?P<ad> AD)?")
+SUFFIX_NUMERALS = {"B": "II"}
 IN_SEASON_FROM = (9, 20)
 SQUAD_COLUMNS = [
     "provider_team_id",
@@ -45,6 +48,7 @@ SQUAD_COLUMNS = [
     "display_name",
     "age_group",
     "division",
+    "suffix",
     "gender",
     "season",
 ]
@@ -75,10 +79,12 @@ class Squad:
     club_name: str
     age_group: str
     division: str
+    suffix: str = ""
 
     @property
     def display_name(self) -> str:
-        return f"{self.club_name} U{self.age_group[1:]} {self.division}"
+        name = f"{self.club_name} U{self.age_group[1:]} {self.division}"
+        return f"{name} {SUFFIX_NUMERALS[self.suffix]}" if self.suffix else name
 
 
 def season_suffix(season: int) -> str:
@@ -122,12 +128,13 @@ def _side(event: dict, side: str, division: str) -> tuple[Squad | None, str]:
     match = SQUAD_RE.fullmatch(label)
     if match is None:
         return None, f"squad label {label!r} is not a board age"
-    if bool(match.group(2)) != (division == "AD"):
+    if bool(match.group("ad")) != (division == "AD"):
         return None, f"squad label {label!r} disagrees with the {division} feed"
     squad_id, club_id = event.get(f"{side}_squad_id"), org.get("id")
     if squad_id is None or club_id is None or not org.get("name"):
         return None, "squad or club id missing"
-    return Squad(str(squad_id), str(club_id), str(org["name"]).strip(), f"u{match.group(1)}", division), ""
+    age_group, suffix = f"u{match.group('age')}", match.group("suffix") or ""
+    return Squad(str(squad_id), str(club_id), str(org["name"]).strip(), age_group, division, suffix), ""
 
 
 def build(feeds: list[tuple[str, list[dict]]], season: int) -> tuple[dict[str, Squad], list[dict], dict[str, str]]:
@@ -199,6 +206,7 @@ def run(out_dir: Path, session, today: date) -> dict[str, int]:
                 "display_name": s.display_name,
                 "age_group": s.age_group,
                 "division": s.division,
+                "suffix": s.suffix,
                 "gender": "Male",
                 "season": season,
             }

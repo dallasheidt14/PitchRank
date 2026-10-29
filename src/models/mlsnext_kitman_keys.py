@@ -1,6 +1,6 @@
 """MLS NEXT Kitman season keys and the club -> state table.
 
-A Kitman squad id names one club at one age in one division. Whether it survives into next
+A Kitman squad id names one club's team at one age in one division. Whether it survives into next
 season is unknown, so PitchRank stores `<squad id>:<season>` and a link is only true for the
 season that wrote it.
 

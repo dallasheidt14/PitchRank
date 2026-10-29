@@ -3,21 +3,23 @@
 import pytest
 
 from scripts import match_mlsnext_kitman_teams as match
+from scripts import scrape_mlsnext_kitman as scrape
 from src.models import mlsnext_kitman_keys as keys
 
 
-def _squad(sid="10", club="Alpha SC", age="u16", division="HD", season=2026):
+def _squad(sid="10", club="Alpha SC", age="u16", division="HD", season=2026, suffix=""):
     return {
         "provider_team_id": sid,
         "key": f"{sid}:{season}",
         "club_name": club,
-        "display_name": f"{club} U{age[1:]} {division}",
+        "display_name": f"{club} U{age[1:]} {division}" + (" II" if suffix else ""),
         "age_group": age,
         "division": division,
+        "suffix": suffix,
     }
 
 
-def _team(tid="T1", club="Alpha SC", name=None, age="u16", divisions=("HD",), state="AZ"):
+def _team(tid="T1", club="Alpha SC", name=None, age="u16", divisions=("HD",), state="AZ", suffix=""):
     return {
         "team_id_master": tid,
         "team_name": name or f"{club} U16 HD",
@@ -26,6 +28,7 @@ def _team(tid="T1", club="Alpha SC", name=None, age="u16", divisions=("HD",), st
         "divisions": set(divisions),
         "state_code": state,
         "provider_code": "modular11",
+        "suffix": suffix,
     }
 
 
@@ -164,3 +167,39 @@ def test_a_squad_linked_to_a_team_no_longer_in_the_live_bridge_goes_to_review():
     verdict, rows = _one([_squad("10")], [_team()], links={"10:2026": "MERGED"})
     assert verdict == [("review", "its linked team is no longer live")]
     assert rows[0].candidates[0]["team_id_master"] == "MERGED"
+
+
+def test_a_suffixed_squad_does_not_take_the_plain_team():
+    verdict, rows = _one([_squad(age="u17", suffix="B")], [_team(age="u17")])
+    assert verdict[0][0] == "new"
+    assert rows[0].candidates == ()
+
+
+def test_a_plain_squad_does_not_take_a_suffixed_team():
+    verdict, _ = _one([_squad(age="u17")], [_team(age="u17", suffix="B")])
+    assert verdict[0][0] == "new"
+
+
+def test_in_a_later_season_each_squad_matches_the_team_of_its_own_suffix():
+    squads = [_squad("10", age="u17", season=2027), _squad("11", age="u17", season=2027, suffix="B")]
+    bridge = [_team("T1", age="u17"), _team("T2", age="u17", suffix="B")]
+    links = {"10:2026": "T1", "11:2026": "T2"}
+    verdict, rows = _one(squads, bridge, links)
+    assert [v[0] for v in verdict] == ["confident", "confident"]
+    assert [r.candidates[0]["team_id_master"] for r in rows] == ["T1", "T2"]
+
+
+def test_a_new_suffixed_squad_is_not_told_its_club_has_no_team_when_it_has_a_plain_one():
+    verdict, _ = _one([_squad(age="u17", suffix="B")], [_team(age="u17")])
+    assert verdict == [("new", "no team for this squad suffix at this age and division")]
+    verdict, _ = _one([_squad(age="u15")], [_team(age="u17")])
+    assert verdict == [("new", "club has no team at this age and division")]
+    verdict, _ = _one([_squad(club="Other FC", age="u17", suffix="B")], [_team(age="u17")])
+    assert verdict == [("new", "club not in our MLS NEXT data")]
+
+
+def test_the_suffix_the_scraper_writes_into_a_name_is_the_one_the_matcher_reads_back():
+    suffixed = scrape.Squad("30", "300", "FC Dallas", "u17", "HD", "B")
+    plain = scrape.Squad("31", "301", "FC Dallas", "u17", "HD")
+    assert match._team_suffix(suffixed.display_name) == "B"
+    assert match._team_suffix(plain.display_name) == ""

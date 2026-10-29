@@ -573,16 +573,22 @@ and only placeholder AD fixtures this season.
   JSON and check `linked_competition_seasons[].key` rather than trusting the status.
 - Shape `{events, linked_competition_seasons, synced_at}`. An event has `id`, `start_time` (UTC) with
   `local_timezone`, `home_squad_id` and `away_squad_id`, and likewise `_squad_name` (`U16` for HD, `U16 AD`
-  for AD; oddities `U17B`, `U16 AD*`), `_organisation {id, name}` and `_score`, then `completed` and
+  for AD, `U17B` for a club's second HD squad at that age; oddity `U16 AD*`), `_organisation {id, name}`
+  and `_score`, then `completed` and
   `competition {name}`. No gender
   (boys only) and no state. Take the date in `local_timezone`, not UTC.
-- A squad id is one club at one age in one division, and a club has different ids for HD and AD. The same
+- A squad id is one squad of a club at one age in one division (usually its only one there; a `U17B` squad
+  is a second), and a club has different ids for HD and AD. The same
   club can carry a different name per division, so key on the squad id.
 - Club ids are unrelated to Modular11's academy ids. The bridge to existing teams is the exact normalised
-  club name + age + division: a `modular11` alias (`{club}_U{age}_{HD|AD}`) marks a team as MLS NEXT and
+  club name + age + division + squad suffix: a `modular11` alias (`{club}_U{age}_{HD|AD}`) marks a team as MLS NEXT and
   gives its division, while age and club come from the team row (u19 teams carry both `_U18_` and
   `_U19_` aliases). Near spellings include different clubs (Los Angeles Sports Club vs Soccer Club, GFI Academy
   North/South), so they go to review.
+- A `U17B` squad goes on the u17 board as `<Club> U17 HD II` (`suffix` = `B` in `squads.csv`). It never
+  bridges to a plain team, nor a plain squad to a suffixed one. A team's suffix is read from its name only
+  when `teams.provider_id` is Kitman, so a Modular11 team always counts as the plain squad and a club's
+  first `U17B` squad lands as new.
 - Some rows are `completed` with scores but dated weeks ahead (28 on 2026-10-14);
   `build_mlsnext_kitman_games_csv.py` holds them until their date, and also holds a game whose two squads
   are on different boards.

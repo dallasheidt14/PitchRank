@@ -309,6 +309,26 @@ def test_live_links_stop_when_the_provider_is_not_seeded():
         build.live_links(_Db())
 
 
+def test_a_u17_game_against_a_u17b_squad_scraped_from_the_feed_becomes_two_import_rows(tmp_path, monkeypatch):
+    from tests.unit.test_scrape_mlsnext_kitman import _event
+    from tests.unit.test_scrape_mlsnext_kitman import _run as scrape_run
+
+    league = [_event(1, home=(30, "U17B", 300, "FC Dallas"), away=(31, "U17", 301, "Alpha SC"), scores=(2, 1))]
+    academy = [_event(3, home=(20, "U14 AD", 200, "Gamma"), away=(21, "U14 AD", 201, "Delta"))]
+    feeds = {"mls-next-league": league, "mls-next-flex": [_event(2)], "mls-next-2-academy-division": academy}
+    scrape_run(tmp_path, feeds, date(2026, 10, 14), monkeypatch)
+    squads = {r["provider_team_id"]: r for r in build._read_csv(tmp_path / "squads.csv")}
+    games = [g for g in build._read_csv(tmp_path / "games.csv") if g["event_id"] == "1"]
+
+    rows, held = build.build_rows(games, squads, {"30:2026": "M30", "31:2026": "M31"}, SINCE, TODAY)
+
+    assert held == []
+    assert [(r["team_id"], r["team_name"], r["age_group"]) for r in rows] == [
+        ("30:2026", "FC Dallas U17 HD II", "u17"),
+        ("31:2026", "Alpha SC U17 HD", "u17"),
+    ]
+
+
 def test_a_live_run_imports_games_between_linked_teams_and_holds_the_rest(tmp_path, monkeypatch, capsys):
     today = date.today().isoformat()
     games = [_game(date=today), _game(home="10", away="13", date=today)]

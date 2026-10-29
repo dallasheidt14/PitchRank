@@ -237,6 +237,24 @@ def test_the_league_follows_the_division(alias_calls, tmp_path):
     assert db.rows["teams"][0]["league"] == "MLS_NEXT_HD"
 
 
+def test_a_suffixed_squad_with_no_match_is_created_as_its_own_team(alias_calls, tmp_path, monkeypatch):
+    monkeypatch.setitem(keys.CLUB_STATES, "FC Dallas", "TX")
+    squad = {**_squad("30", club="FC Dallas", age="u17"), "display_name": "FC Dallas U17 HD II", "suffix": "B"}
+    plan = _plan([squad], [_row("30", "new", "")])
+    assert [(a.action, a.state_code) for a in plan] == [("create", "TX")]
+    db = _Db()
+    counts, _ = _apply(db, plan, tmp_path)
+    assert counts["teams_created"] == 1
+    team = db.rows["teams"][0]
+    assert {k: team[k] for k in ("team_name", "club_name", "age_group", "state_code", "distinction")} == {
+        "team_name": "FC Dallas U17 HD II",
+        "club_name": "FC Dallas",
+        "age_group": "u17",
+        "state_code": "TX",
+        "distinction": "ii|hd",
+    }
+
+
 def test_a_province_code_creates_a_team_without_a_state_name(alias_calls, tmp_path):
     db = _Db()
     _apply(db, [_create_action(state="ON")], tmp_path)
