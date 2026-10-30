@@ -403,6 +403,7 @@ import, so a process running across Aug 1 keeps last season's map until restart.
 | Affinity UT | `affinity_ut` | HTML scraping | Utah (UYSA) leagues through the OR scraper; games filed by team-name age, keeps unplayed fixtures |
 | Soccer Events Group | `soccereventsgroup` | JSON API + bracket HTML | Tournament brackets only (pool play is unpublished); operator-run per event via `scripts/import_soccereventsgroup_event.py` |
 | Athletes2Events | `athletes2events` | HTML scraping | White-label tournament sites, one subdomain per host club; operator-run per event via `scripts/import_athletes2events_event.py`, which takes the event URL and reads the host from it |
+| Demosphere | `demosphere` | HTML scraping | "Elements" league sites, one site id per league: NCSL (Northern Virginia, with DC and Maryland clubs) is `80738`; scored games only; weekly via `demosphere-scraper.yml`, which runs `scripts/import_demosphere.py`: it walks outward from a seed club |
 | YSSL | `yssl` | HTML scraping | Chicago-area boys league (Young Sportsmen's), walked club by club; teams take their club's state from the club map (IL, plus four NW Indiana clubs as IN), scored games only, weekly via `yssl-scraper.yml`. Clubs translate through the reviewed `config/yssl_club_map.csv` |
 | Tourney Central | `tourneycentral` | HTML scraping | Ohio/Michigan tournament host, one subdomain per tournament, current year only; operator-run per tournament via `scripts/import_tourneycentral_event.py`, which takes any page of the tournament and reads the host from it |
 
@@ -679,6 +680,7 @@ two-line edit in `.github/workflows/claude-code-review.yml`.
 | `wa-scraper.yml` | Mon 6:00 + 7:00 AM UTC | Affinity WA tournament scrape + import |
 | `or-scraper.yml` | Mon 6:30 + 7:30 AM UTC | Affinity OR (OYSA) league scrape + import — keeps unplayed fixtures |
 | `ut-scraper.yml` | Mon 5:30 + 6:30 AM UTC | Affinity UT (UYSA) league scrape + import — keeps unplayed fixtures |
+| `demosphere-scraper.yml` | Mon 5:23 AM UTC (Sun 10:23 PM Arizona) | NCSL (Demosphere) scrape, roster pass and import — scored games only; teams whose link matches another squad's team are held and reported without turning the run red; red when a link errored, a played game could not be read, the site lists neither the current season nor the one before it, or an in-season run read no scored games |
 | `yssl-scraper.yml` | Mon 8:15 AM UTC | YSSL scrape, roster pass and import — scored games only; red when a team has no decided club-map row, a team's link errored or conflicted, a played game could not be read (rainouts excepted), or an in-season run read no scored games |
 | `mlsnext-kitman-scraper.yml` | Mon 5:45 AM UTC | MLS NEXT (Homegrown (HD) + Academy (AD)) scrape + import from Kitman's public schedule files; links exact-club teams, creates teams for clubs with a state in `config/mlsnext_kitman_club_states.json`, holds review squads, and new squads whose club has no state. Manual runs write nothing unless `execute` is set |
 | `ea-scraper.yml` | Mon 5:00 AM UTC | Modular11 Elite Academy League scrape + import, u11–u17 one after another (u19 manual until its first-import cleanup); links confident teams, creates no-match teams, holds review teams and their games. Manual runs take one age |
@@ -786,7 +788,8 @@ the derivation is invisible at the call site.
 `tgs-event-scrape-import.yml`, `modular11-weekly-scrape.yml`,
 `modular11-events-weekly-scrape.yml`,
 `playmetrics-tournament-scrape-import.yml`, `wa-scraper.yml`, `or-scraper.yml`,
-`ut-scraper.yml`, `yssl-scraper.yml`, `ea-scraper.yml`, `mlsnext-kitman-scraper.yml`. Do it
+`ut-scraper.yml`, `yssl-scraper.yml`, `demosphere-scraper.yml`, `ea-scraper.yml`,
+`mlsnext-kitman-scraper.yml`. Do it
 before Aug 1;
 lift it again only once the relabel migration is applied and the boards verified.
 
