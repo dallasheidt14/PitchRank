@@ -1039,6 +1039,7 @@ class TestRunMain:
             stored={},
             asked=[],
             regions=[],
+            club_pages={},
             division=_fixture("division_116702955.html"),
             today=self.FixedDate,
             season="Fall2026",
@@ -1069,7 +1070,8 @@ class TestRunMain:
             if "/teams/club/15599479" in url:
                 return _fixture("club_15599479.html")
             if "/teams/club/" in url:
-                return '<h1 class="dii-hdr-cb">Another Club</h1>'
+                name = state.club_pages.get(url.rsplit("/", 1)[-1][: -len(".html")], "Another Club")
+                return f'<h1 class="dii-hdr-cb">{name}</h1>'
             if "/schedules/" in url:
                 return state.division
             raise AssertionError(f"unexpected fetch {url}")
@@ -1166,6 +1168,13 @@ class TestRunMain:
         assert len(run_main.asked) == 1
         assert "VISTA Warriors" in run_main.asked[0]
         assert "VA Indpt Soccer Team Assoc - Travel" not in run_main.asked[0]
+
+    def test_a_club_the_owner_renamed_is_filed_under_the_new_name_and_state(self, run_main):
+        run_main.club_pages = {"15599453": "Takoma Park"}
+        run_main.run()
+        loud = [r for r in run_main.rows("teams") if r["team_name"].startswith("LOUD U13G")]
+        assert loud
+        assert {(r["club_name"], r["state_code"]) for r in loud} == {("Takoma Park Soccer Club", "MD")}
 
     def test_stored_club_states_are_read_inside_the_leagues_region(self, run_main):
         run_main.run()
@@ -1297,7 +1306,9 @@ class TestClubForRules:
         ("listed", "stored"),
         [
             ("Herndon Youth Soccer Assoc - Travel", "Herndon Youth Soccer"),
-            ("Arlington Soccer Association", "Arlington Soccer"),
+            ("Arlington Soccer Association", "Arlington Soccer Association"),
+            ("Sterling Youth Soccer Assoc - Travel", "Sterling Youth Soccer"),
+            ("Potomac Soccer Association", "Potomac Soccer Association"),
             ("Manassas United - N1", "Manassas United"),
             ("Fairfax Police Youth Club - Travel", "Fairfax Police Youth Club"),
             ("Montgomery Soccer Inc.", "Montgomery Soccer Inc."),
@@ -1306,7 +1317,7 @@ class TestClubForRules:
             ("Takoma Park", "Takoma Park"),
         ],
     )
-    def test_a_listed_club_loses_its_travel_tag_and_a_closing_association(self, listed, stored):
+    def test_a_listed_club_loses_its_travel_tag_and_a_closing_assoc(self, listed, stored):
         assert dm.stored_club(listed) == stored
 
     def test_a_listed_club_is_used_even_when_the_name_shares_none_of_its_words(self):
@@ -1606,3 +1617,61 @@ class TestClubCodeExpansion:
         with patch.object(TourneyCentralGameMatcher, "_fuzzy_match_team", return_value=None) as base:
             matcher._fuzzy_match_team("HERN NCSL B2011/12 White", "u15", "Male", "Herndon Youth Soccer", "VA")
         base.assert_called_once_with("Herndon NCSL B2011/12 White", "u15", "Male", "Herndon Youth Soccer", "VA")
+
+
+class TestOwnerClubDecisions:
+    @pytest.mark.parametrize(
+        ("listed", "club", "state"),
+        [
+            ("Prince William Courage - Travel", "Prince William Soccer Inc", None),
+            ("Bethesda Soccer Club", "Bethesda SC", "MD"),
+            ("FC Charles", "FC Charles 1658", "MD"),
+            ("Montgomery Soccer Inc.", "Montgomery Soccer (MSI)", "MD"),
+            ("Northern Virginia Soccer Club - Travel", "NVSC", None),
+            ("NPC Futbol and Futsal", "NPC Futbol & Futsal", None),
+            ("Potomac Soccer Association", "Potomac Soccer Association", "MD"),
+            ("South County Athletic Association", "South County Athletic Association", None),
+            ("St Mary's Soccer", "St. Mary's Soccer", "MD"),
+            ("Springfield South County Youth - Travel", "Springfield SYC", None),
+            ("Takoma Park", "Takoma Park Soccer Club", "MD"),
+            ("The St. James FC - Travel", "The St. James Football Club", None),
+            ("Virginia Soccer Association - Travel", "Virginia Soccer Association", None),
+            ("Herndon Youth Soccer Assoc - Travel", "Herndon Youth Soccer", None),
+        ],
+    )
+    def test_each_club_is_filed_under_the_name_and_state_the_owner_set(self, listed, club, state):
+        overrides = dm.LEAGUES["80738"].club_overrides
+        stub = _stub("11", "ABC U13G White", club="9")
+        (row,), _ = dm.build_roster(
+            {"11": stub}, {"9": listed}, lambda names: {}, "80738", "Fall2026", "VA", 2026, (), overrides
+        )
+        assert row.club_name == club
+        assert (row.state_code, row.state_source) == ((state, "set for the club") if state else ("VA", "league state"))
+
+    def test_the_decided_clubs_are_exactly_these_eleven(self):
+        assert dm.NCSL_CLUBS == {
+            "Prince William Courage": ("Prince William Soccer Inc", None),
+            "Bethesda Soccer Club": ("Bethesda SC", "MD"),
+            "FC Charles": ("FC Charles 1658", "MD"),
+            "Montgomery Soccer Inc.": ("Montgomery Soccer (MSI)", "MD"),
+            "Northern Virginia Soccer Club": ("NVSC", None),
+            "NPC Futbol and Futsal": ("NPC Futbol & Futsal", None),
+            "Potomac Soccer Association": ("Potomac Soccer Association", "MD"),
+            "St Mary's Soccer": ("St. Mary's Soccer", "MD"),
+            "Springfield South County Youth": ("Springfield SYC", None),
+            "Takoma Park": ("Takoma Park Soccer Club", "MD"),
+            "The St. James FC": ("The St. James Football Club", None),
+        }
+
+    def test_a_club_state_set_for_the_club_outranks_what_its_stored_teams_say(self):
+        assert dm.resolve_state("ABC U13G", "Bethesda SC", {"Bethesda SC": "VA"}, "VA", "MD") == (
+            "MD",
+            "set for the club",
+        )
+
+    def test_a_tag_that_matches_the_clubs_own_state_is_no_reason_to_hold(self):
+        assert dm.resolve_state("Takoma U13G (MD)", "Takoma Park Soccer Club", {}, "VA", "MD")[0] == "MD"
+
+    def test_a_tag_that_disagrees_with_the_clubs_own_state_is_held(self):
+        state, reason = dm.resolve_state("Takoma U13G (VA)", "Takoma Park Soccer Club", {}, "VA", "MD")
+        assert (state, reason) == (None, "name carries the VA tag, not MD")

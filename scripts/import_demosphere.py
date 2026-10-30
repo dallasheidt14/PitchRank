@@ -24,7 +24,7 @@ behind it does not, so a new season's team has no link yet and re-matches by nam
 
 A team's age comes from its own name, bounded by its division: the division fills in where
 the name gives no usable age and settles a bare year that could be two cohorts. Its club is
-the one the site lists, without its "- Travel" or "- N1" tag and a closing "Association", except
+the one the site lists, without its "- Travel" or "- N1" tag or a closing "Assoc", except
 where the site lists an umbrella such as VISTA as the club of teams from many clubs: those take
 the club cut from the name. Its state is the one its club's stored teams agree on, else the league's; a team
 is left out when those teams disagree or its name carries another state's tag.
@@ -203,7 +203,7 @@ _TEAM_LINK = re.compile(r"/teams/(\d+)/(\d+)-(\d+)/TEAM\.html")
 _SEASON_LABEL = re.compile(r"(Fall|Spring)(20[0-9]{2})")
 _STATE_TAG = re.compile(r"\(([A-Z]{2})\)")
 _LISTED_CLUB_SUFFIX = re.compile(r"\s+-\s+(?:Travel|N1)$", re.IGNORECASE)
-_ASSOCIATION_WORD = re.compile(r"\s+(?:Association|Assoc\.?|Assn\.?)$", re.IGNORECASE)
+_ASSOC_ABBREVIATION = re.compile(r"\s+Assoc\.?$", re.IGNORECASE)
 _GENDERS = {"B": "Male", "G": "Female"}
 
 
@@ -214,10 +214,27 @@ class League:
     seed_clubs: Tuple[str, ...]
     association_clubs: Tuple[str, ...] = ()
     states: Tuple[str, ...] = ()
+    club_overrides: Dict[str, Tuple[str, Optional[str]]] = field(default_factory=dict, compare=False)
 
+
+# The club a listed name is filed under, and the state it is in where that differs from the league's:
+# decided by the owner on 2026-10-30. Keyed by the listed name without its "- Travel"/"- N1" tag.
+NCSL_CLUBS: Dict[str, Tuple[str, Optional[str]]] = {
+    "Prince William Courage": ("Prince William Soccer Inc", None),
+    "Bethesda Soccer Club": ("Bethesda SC", "MD"),
+    "FC Charles": ("FC Charles 1658", "MD"),
+    "Montgomery Soccer Inc.": ("Montgomery Soccer (MSI)", "MD"),
+    "Northern Virginia Soccer Club": ("NVSC", None),
+    "NPC Futbol and Futsal": ("NPC Futbol & Futsal", None),
+    "Potomac Soccer Association": ("Potomac Soccer Association", "MD"),
+    "St Mary's Soccer": ("St. Mary's Soccer", "MD"),
+    "Springfield South County Youth": ("Springfield SYC", None),
+    "Takoma Park": ("Takoma Park Soccer Club", "MD"),
+    "The St. James FC": ("The St. James Football Club", None),
+}
 
 LEAGUES: Dict[str, League] = {
-    "80738": League("NCSL", "VA", ("15599479",), ("15599479",), ("VA", "MD", "DC", "WV", "DE"))
+    "80738": League("NCSL", "VA", ("15599479",), ("15599479",), ("VA", "MD", "DC", "WV", "DE"), NCSL_CLUBS)
 }
 
 
@@ -461,8 +478,8 @@ def provider_team_id(site_id: str, season_label: str, team_key: str) -> str:
 
 
 def stored_club(listed_club: str) -> str:
-    """The club a listed name is filed under, without the site's "- Travel" or "- N1" tag or a closing "Association"."""
-    return _ASSOCIATION_WORD.sub("", _LISTED_CLUB_SUFFIX.sub("", listed_club).strip()).strip()
+    """The club a listed name is filed under, without the site's "- Travel" or "- N1" tag or a closing "Assoc"."""
+    return _ASSOC_ABBREVIATION.sub("", _LISTED_CLUB_SUFFIX.sub("", listed_club).strip()).strip()
 
 
 def _before_age(name: str) -> str:
@@ -473,7 +490,12 @@ def _before_age(name: str) -> str:
     return name[: min(cuts)].strip(" -,") or name
 
 
-def club_for(listed_club: str, team_name: str, association: bool = False) -> Tuple[Optional[str], Optional[str], str]:
+def club_for(
+    listed_club: str,
+    team_name: str,
+    association: bool = False,
+    overrides: Optional[Dict[str, Tuple[str, Optional[str]]]] = None,
+) -> Tuple[Optional[str], Optional[str], str]:
     """``(club as stored, club as the name writes it, source)`` for one team.
 
     The club is the one the site lists, so a team written ``HERN NCSL`` is filed under its
@@ -485,7 +507,8 @@ def club_for(listed_club: str, team_name: str, association: bool = False) -> Tup
         guessed = _before_age(guessed)
     written = club_before_squad_marks(guessed)
     if listed_club and not association:
-        return stored_club(listed_club), written, "listed club"
+        listed = stored_club(listed_club)
+        return (overrides or {}).get(listed, (listed, None))[0], written, "listed club"
     return guessed, written, "cut from name"
 
 
@@ -573,16 +596,24 @@ def club_states(supabase, club_names: List[str], region: Tuple[str, ...] = ()) -
 
 
 def resolve_state(
-    team_name: str, club_name: Optional[str], stored: Dict[str, Optional[str]], league_state: str
+    team_name: str,
+    club_name: Optional[str],
+    stored: Dict[str, Optional[str]],
+    league_state: str,
+    forced_state: Optional[str] = None,
 ) -> Tuple[Optional[str], str]:
     """``(state, source)``; state None means the team is held back, with the reason as the source.
 
-    A club with no stored state takes the league's. A club whose stored teams disagree is held
-    instead: a guess here becomes the value every later heuristic agrees with.
+    A state set for the club wins. Otherwise a club with no stored state takes the league's, and a
+    club whose stored teams disagree is held instead: a guess here becomes the value every later
+    heuristic agrees with.
     """
     tag = _STATE_TAG.search(team_name)
-    if tag and tag.group(1) in STATE_CODE_TO_NAME and tag.group(1) != league_state:
-        return None, f"name carries the {tag.group(1)} tag, not {league_state}"
+    expected = forced_state or league_state
+    if tag and tag.group(1) in STATE_CODE_TO_NAME and tag.group(1) != expected:
+        return None, f"name carries the {tag.group(1)} tag, not {expected}"
+    if forced_state:
+        return forced_state, "set for the club"
     if club_name and club_name in stored:
         if stored[club_name] is None:
             return None, "the club's stored teams disagree on state"
@@ -599,12 +630,16 @@ def build_roster(
     league_state: str,
     board_season: int,
     association_clubs: Tuple[str, ...] = (),
+    club_overrides: Optional[Dict[str, Tuple[str, Optional[str]]]] = None,
 ) -> Tuple[List[TeamRow], List[TeamRow]]:
     """Split the walked teams into those to register and those left out, with a reason."""
     event_season = season_start_year(season_label)
     ordered = sorted(teams.items(), key=lambda item: int(item[0]))
+    overrides = club_overrides or {}
     clubs = {
-        team_key: club_for(club_names.get(stub.club_key, ""), stub.team_name, stub.club_key in association_clubs)
+        team_key: club_for(
+            club_names.get(stub.club_key, ""), stub.team_name, stub.club_key in association_clubs, overrides
+        )
         for team_key, stub in ordered
     }
     stored_states = lookup_states(sorted({club[0] for club in clubs.values() if club[0]}))
@@ -616,7 +651,9 @@ def build_roster(
         birth_year, age_source = team_age(stub.team_name, stub.division_name, event_season)
         cohort = team_cohort(birth_year, age_source, board_season)
         gender = team_gender(stub.division_name, stub.team_code)
-        state_code, state_source = resolve_state(stub.team_name, club_name, stored_states, league_state)
+        listed_name = stored_club(listed_club) if listed_club and stub.club_key not in association_clubs else ""
+        forced_state = overrides.get(listed_name, (None, None))[1]
+        state_code, state_source = resolve_state(stub.team_name, club_name, stored_states, league_state, forced_state)
         row = TeamRow(
             provider_team_id=provider_team_id(site_id, season_label, team_key),
             team_key=team_key,
@@ -964,6 +1001,7 @@ def main() -> int:
         league.state_code,
         _soccer_season_year(),
         league.association_clubs,
+        league.club_overrides,
     )
     console.print(
         f"[bold]{escape(league.name)} {args.season}[/bold] — {len(clubs)} clubs, {len(divisions)} divisions, "
