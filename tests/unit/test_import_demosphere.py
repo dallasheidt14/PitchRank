@@ -352,6 +352,21 @@ class TestTeamGender:
         assert dm.team_gender("BU13 Division 1", "NG13128") == "Male"
 
 
+class TestSeasonCandidates:
+    @pytest.mark.parametrize(
+        ("today", "expected"),
+        [
+            (date(2026, 10, 29), ["Fall2026", "Spring2026"]),
+            (date(2026, 8, 1), ["Fall2026", "Spring2026"]),
+            (date(2026, 12, 31), ["Fall2026", "Spring2026"]),
+            (date(2027, 1, 1), ["Spring2027", "Fall2026"]),
+            (date(2027, 7, 31), ["Spring2027", "Fall2026"]),
+        ],
+    )
+    def test_the_current_season_is_tried_first_and_the_one_before_it_second(self, today, expected):
+        assert dm.season_candidates(today) == expected
+
+
 class TestSeasonLabel:
     @pytest.mark.parametrize(("label", "year"), [("Fall2026", 2026), ("Spring2027", 2026), ("Spring2026", 2025)])
     def test_fall_and_the_following_spring_are_one_season(self, label, year):
@@ -1040,6 +1055,8 @@ class TestRunMain:
             asked=[],
             regions=[],
             club_pages={},
+            fetched=[],
+            site_season=None,
             division=_fixture("division_116702955.html"),
             today=self.FixedDate,
             season="Fall2026",
@@ -1065,8 +1082,9 @@ class TestRunMain:
                 )
 
         def pages(url):
+            state.fetched.append(url)
             if "/clubs/schedule/15599479" in url:
-                return _schedule_page(state.season)
+                return _schedule_page(state.site_season or state.season)
             if "/teams/club/15599479" in url:
                 return _fixture("club_15599479.html")
             if "/teams/club/" in url:
@@ -1198,7 +1216,7 @@ class TestRunMain:
     def test_two_teams_linking_to_one_team_are_conflicts_and_neither_is_written(self, run_main):
         fuzzy = {"matched": True, "team_id": "same", "method": "fuzzy_auto", "confidence": 0.95}
         run_main.results = {"80738-Fall2026-116796872": fuzzy, "80738-Fall2026-116796835": fuzzy}
-        assert run_main.run("--execute") == 1
+        assert run_main.run("--execute") == 0
         writer = next(m for m in run_main.matchers if not m.dry_run)
         assert "80738-Fall2026-116796872" not in writer.calls
         assert "80738-Fall2026-116796835" not in writer.calls
@@ -1294,6 +1312,28 @@ class TestRunMain:
         warriors = next(r for r in report.values() if r["team_name"] == "VISTA Warriors U13G")
         assert warriors["demosphere_club"] == "VA Indpt Soccer Team Assoc - Travel"
         assert warriors["club_name"] == "VISTA Warriors"
+
+    def test_a_run_with_no_season_falls_back_to_the_one_the_site_still_shows(self, run_main):
+        run_main.site_season = "Spring2026"
+        run_main.division = _fixture("division_116702955.html").replace("Sat, September 12, 2026", "Sat, March 7, 2026")
+        assert run_main.run() == 0
+        assert "demosphere-80738-11635852" in {r["schedule_id"] for r in run_main.rows("games")}
+        assert any("Spring2026" in url for url in run_main.fetched)
+
+    def test_a_run_with_no_season_stops_when_the_site_lists_neither(self, run_main):
+        run_main.site_season = "Winter2030"
+        assert run_main.run() == 1
+        assert run_main.matchers == []
+        assert run_main.imports == []
+
+    def test_teams_in_conflict_are_held_but_do_not_fail_the_run(self, run_main):
+        fuzzy = {"matched": True, "team_id": "same", "method": "fuzzy_auto", "confidence": 0.95}
+        run_main.results = {"80738-Fall2026-116796872": fuzzy, "80738-Fall2026-116796835": fuzzy}
+        assert run_main.run() == 0
+
+    def test_a_team_whose_link_errored_still_fails_the_run(self, run_main):
+        run_main.results = {"80738-Fall2026-116796872": {"method": "no_match"}}
+        assert run_main.run() == 1
 
     def test_a_season_label_the_driver_cannot_read_stops_before_anything_is_fetched(self, run_main):
         assert run_main.run("--season", "winter2026") == 1

@@ -35,7 +35,7 @@ is ordinary, and each side resolves through its own alias.
 Dry run by default; ``--execute`` writes teams, aliases, review rows and games.
 
 Usage:
-    python scripts/import_demosphere.py --site-id 80738 --season Fall2026 [--execute]
+    python scripts/import_demosphere.py --site-id 80738 [--season Fall2026] [--execute]
 """
 
 from __future__ import annotations
@@ -303,6 +303,10 @@ class ScrapeFetchError(RuntimeError):
     """
 
 
+class SeasonNotListedError(ScrapeFetchError):
+    """The seed club's schedule page links no division of the requested season."""
+
+
 # ── Fetching ───────────────────────────────────────────────────────────────────
 
 
@@ -434,7 +438,7 @@ def collect_league(
     seed_schedule = fetch_html(f"{base}/clubs/schedule/{seed_clubs[0]}.html")
     pause()
     if f"/schedules/{season_label}/" not in seed_schedule:
-        raise ScrapeFetchError(f"club {seed_clubs[0]}'s schedule links no {season_label} divisions")
+        raise SeasonNotListedError(f"club {seed_clubs[0]}'s schedule links no {season_label} divisions")
     key = season_key(seed_schedule)
     if key is None:
         raise ScrapeFetchError(f"club {seed_clubs[0]} links no teams; cannot tell the {season_label} season key")
@@ -478,6 +482,18 @@ def current_season_label(today: Optional[date] = None) -> str:
     """The season label the site is showing now."""
     today = today or date.today()
     return f"{'Fall' if today.month >= 8 else 'Spring'}{today.year}"
+
+
+def season_candidates(today: Optional[date] = None) -> List[str]:
+    """The seasons a run with no ``--season`` tries in order: the current one, then the one before it.
+
+    The site keeps showing the last season until the next one is published, so from January the
+    spring label is not listed yet and the fall still is.
+    """
+    today = today or date.today()
+    current = current_season_label(today)
+    previous = f"Spring{today.year}" if current.startswith("Fall") else f"Fall{today.year - 1}"
+    return [current, previous]
 
 
 def provider_team_id(site_id: str, season_label: str, team_key: str) -> str:
@@ -942,7 +958,11 @@ def report_rows(
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--site-id", default="80738", choices=sorted(LEAGUES), help="Demosphere site id (default NCSL)")
-    p.add_argument("--season", default=current_season_label(), help="Season label on the schedule pages, e.g. Fall2026")
+    p.add_argument(
+        "--season",
+        default=None,
+        help="Season label on the schedule pages, e.g. Fall2026 (default: the current season, else the one before)",
+    )
     p.add_argument("--since", type=date.fromisoformat, default=None, help="Import games on or after this date")
     p.add_argument("--max-divisions", type=int, default=None, help="Walk at most this many divisions (pilots)")
     p.add_argument("--output-dir", type=Path, default=OUTPUT_DIR, help="Where the CSVs and team report go")
@@ -959,12 +979,13 @@ def main() -> int:
     dry_run = not args.execute
 
     league = LEAGUES[args.site_id]
-    try:
-        season_start = season_start_year(args.season)
-    except ValueError as e:
-        console.print(f"[red]{escape(str(e))}[/red]")
-        return 1
-    since = args.since or date(season_start, 8, 1)
+    if args.season:
+        try:
+            season_start_year(args.season)
+        except ValueError as e:
+            console.print(f"[red]{escape(str(e))}[/red]")
+            return 1
+    seasons = [args.season] if args.season else season_candidates(date.today())
 
     supabase_url = os.getenv("SUPABASE_URL")
     supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
@@ -983,18 +1004,28 @@ def main() -> int:
     def pause() -> None:
         time.sleep(random.uniform(args.delay_min, args.delay_max))
 
-    try:
-        clubs, divisions, problems = collect_league(
-            lambda url: _get(session, url).text,
-            args.site_id,
-            args.season,
-            list(league.seed_clubs),
-            pause,
-            args.max_divisions,
-        )
-    except ScrapeFetchError as e:
-        console.print(f"[red]{escape(str(e))}[/red]")
+    for season in seasons:
+        try:
+            clubs, divisions, problems = collect_league(
+                lambda url: _get(session, url).text,
+                args.site_id,
+                season,
+                list(league.seed_clubs),
+                pause,
+                args.max_divisions,
+            )
+        except SeasonNotListedError as e:
+            console.print(f"[yellow]{escape(str(e))}[/yellow]")
+            continue
+        except ScrapeFetchError as e:
+            console.print(f"[red]{escape(str(e))}[/red]")
+            return 1
+        break
+    else:
+        console.print(f"[red]The site lists none of: {', '.join(seasons)}[/red]")
         return 1
+    args.season = season
+    since = args.since or date(season_start_year(season), 8, 1)
     teams = merge_teams(divisions)
     games = [game for key in sorted(divisions) for game in divisions[key].games]
     played = [game for game in games if game.home_score is not None]
@@ -1060,7 +1091,8 @@ def main() -> int:
     write_csv(cross_age_csv, CROSS_AGE_COLUMNS, _for_spreadsheets(cross_age))
     write_csv(report_csv, REPORT_COLUMNS, _for_spreadsheets(report_rows(in_scope, left_out, outcomes, names)))
 
-    failed = sorted(key for key, o in outcomes.items() if o.status in ("error", "conflict"))
+    failed = sorted(key for key, o in outcomes.items() if o.status == "error")
+    conflicted = sorted(key for key, o in outcomes.items() if o.status == "conflict")
     must_fail = bool(failed or problems)
     summary = Table(title=f"{league.name} (Demosphere)")
     summary.add_column("")
@@ -1078,8 +1110,13 @@ def main() -> int:
         console.print(f"  [yellow]{escape(problem)}[/yellow]")
     console.print(f"Team report:   {report_csv}\nGames CSV:     {games_csv}")
     console.print(f"Held games:    {held_csv}\nCross-age CSV: {cross_age_csv}")
+    if conflicted:
+        console.print(
+            f"[yellow]{len(conflicted)} teams matched a team another NCSL squad matched and are held; "
+            f"see the team report: {', '.join(conflicted)}[/yellow]"
+        )
     if failed:
-        console.print(f"[red]{len(failed)} teams errored or conflicted; see the team report: {', '.join(failed)}[/red]")
+        console.print(f"[red]{len(failed)} teams errored; see the team report: {', '.join(failed)}[/red]")
     if problems:
         console.print(f"[red]{len(problems)} rows could not be read and were left out; see the problems above.[/red]")
 

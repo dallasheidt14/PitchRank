@@ -849,8 +849,10 @@ Warrior Fall Classic (`wfc.`) is the event it was built against.
 Demosphere ("Elements", `elements.demosphere.com`) hosts league sites keyed by a numeric site id. NCSL
 (Northern Virginia, with some DC and Maryland clubs) is `80738`; Fall 2026 is the season the driver was built
 against. Pages are server-rendered HTML and answer `requests` sent with a browser User-Agent, no proxy and no bot
-challenge. `scripts/import_demosphere.py` is the driver; its `LEAGUES` map holds each site's league name, state and
-seed club. `robots.txt` disallows `/scripts/` and `/_sin/`, and venue links point into `/scripts/`: never follow one.
+challenge. `scripts/import_demosphere.py` is the driver and `demosphere-scraper.yml` runs it every Sunday night
+(Arizona); its `LEAGUES` map holds each site's league name, state and seed club. A run with no `--season` tries the
+current season and then the one before it, because the site keeps showing the last season until the next is
+published. Teams held as conflicts are reported and do not turn the run red; a failed link or an unreadable row does. `robots.txt` disallows `/scripts/` and `/_sin/`, and venue links point into `/scripts/`: never follow one.
 
 ### Pages and ids
 
