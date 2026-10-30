@@ -6,6 +6,7 @@ import re
 from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 import requests
@@ -14,6 +15,8 @@ from bs4 import BeautifulSoup
 from scripts import import_demosphere as dm
 from scripts import import_games_enhanced
 from scripts.import_athletes2events_event import Outcome
+from src.models.demosphere_matcher import DemosphereGameMatcher, expand_club_code
+from src.models.tourneycentral_matcher import TourneyCentralGameMatcher
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "demosphere"
 FALL_SEASON_KEY = "116702823"
@@ -198,13 +201,18 @@ class TestClubFor:
         assert written == "Villarreal VA Azul"
 
     def test_an_association_is_not_the_club_of_the_teams_under_it(self):
-        club, _, source = dm.club_for("VA Indpt Soccer Team Assoc - Travel", "VISTA HL92 Soccer Academy U11G Pink")
+        club, _, source = dm.club_for(
+            "VA Indpt Soccer Team Assoc - Travel", "VISTA HL92 Soccer Academy U11G Pink", association=True
+        )
         assert source == "cut from name"
         assert club == "VISTA HL92 Soccer Academy"
 
-    def test_generic_words_do_not_make_a_club_the_listed_one(self):
-        _, _, source = dm.club_for("Springfield Soccer Club", "Soccer Stars U12B")
-        assert source == "cut from name"
+    def test_a_team_written_with_a_club_code_is_filed_under_the_clubs_full_listed_name(self):
+        assert dm.club_for("Herndon Youth Soccer Assoc - Travel", "HERN NCSL B2011/12 White") == (
+            "Herndon Youth Soccer",
+            "HERN NCSL",
+            "listed club",
+        )
 
     @pytest.mark.parametrize(
         ("name", "club"),
@@ -406,7 +414,7 @@ def _stub(key, name, club="1", code="NG13100", division="GU13 Division 4"):
     return dm.TeamStub(key, club, code, name, division)
 
 
-def _roster(stubs, clubs=None, stored=None, asked=None):
+def _roster(stubs, clubs=None, stored=None, asked=None, association=()):
     def lookup(names):
         if asked is not None:
             asked.append(names)
@@ -420,6 +428,7 @@ def _roster(stubs, clubs=None, stored=None, asked=None):
         "Fall2026",
         "VA",
         2026,
+        association,
     )
 
 
@@ -473,19 +482,20 @@ class TestBuildRoster:
             [_stub("11", "VISTA HL92 Soccer Academy U13G", club="2"), _stub("12", "Loudoun U13G White")],
             clubs={"1": "Loudoun Soccer", "2": "VA Indpt Soccer Team Assoc - Travel"},
             asked=asked,
+            association=("2",),
         )
         assert asked == [["Loudoun Soccer", "VISTA HL92 Soccer Academy"]]
 
     def test_an_association_teams_club_state_comes_from_the_club_cut_from_its_name(self):
         stub = _stub("11", "VISTA HL92 Soccer Academy U13G", club="2")
         clubs = {"2": "VA Indpt Soccer Team Assoc - Travel"}
-        (row,), _ = _roster([stub], clubs=clubs, stored={"VISTA HL92 Soccer Academy": "MD"})
+        (row,), _ = _roster([stub], clubs=clubs, stored={"VISTA HL92 Soccer Academy": "MD"}, association=("2",))
         assert (row.state_code, row.state_source) == ("MD", "club's stored teams")
 
     def test_a_club_whose_stored_teams_disagree_leaves_its_team_out(self):
         stub = _stub("11", "VISTA HL92 Soccer Academy U13G", club="2")
         clubs = {"2": "VA Indpt Soccer Team Assoc - Travel"}
-        in_scope, (row,) = _roster([stub], clubs=clubs, stored={"VISTA HL92 Soccer Academy": None})
+        in_scope, (row,) = _roster([stub], clubs=clubs, stored={"VISTA HL92 Soccer Academy": None}, association=("2",))
         assert in_scope == []
         assert "disagree" in row.skip_reason
 
@@ -1263,12 +1273,31 @@ class TestRunMain:
 
 
 class TestClubForRules:
-    def test_a_listed_club_that_shares_only_a_later_word_is_not_the_club(self):
+    @pytest.mark.parametrize(
+        ("listed", "stored"),
+        [
+            ("Herndon Youth Soccer Assoc - Travel", "Herndon Youth Soccer"),
+            ("Arlington Soccer Association", "Arlington Soccer"),
+            ("Manassas United - N1", "Manassas United"),
+            ("Fairfax Police Youth Club - Travel", "Fairfax Police Youth Club"),
+            ("Montgomery Soccer Inc.", "Montgomery Soccer Inc."),
+            ("Travel Soccer Club", "Travel Soccer Club"),
+            ("Association Football Club", "Association Football Club"),
+            ("Takoma Park", "Takoma Park"),
+        ],
+    )
+    def test_a_listed_club_loses_its_travel_tag_and_a_closing_association(self, listed, stored):
+        assert dm.stored_club(listed) == stored
+
+    def test_a_listed_club_is_used_even_when_the_name_shares_none_of_its_words(self):
         assert dm.club_for("Loudoun Soccer", "Ashburn Loudoun U13G") == (
+            "Loudoun Soccer",
             "Ashburn Loudoun",
-            "Ashburn Loudoun",
-            "cut from name",
+            "listed club",
         )
+
+    def test_only_the_listed_association_falls_back_to_the_name(self):
+        assert dm.LEAGUES["80738"].association_clubs == ("15599479",)
 
     def test_a_listed_club_is_kept_whole_when_the_name_opens_with_one_of_its_words(self):
         assert dm.club_for("Virginia Rush", "Rush U13G Blue") == ("Virginia Rush", "Rush", "listed club")
@@ -1277,7 +1306,7 @@ class TestClubForRules:
         assert dm.club_for("", "NPSC United Elite 2014 Boys")[:2] == ("NPSC United Elite", "NPSC United")
 
     def test_a_name_that_opens_with_its_age_has_no_club(self):
-        assert dm.club_for("Loudoun Soccer", "U13G Blue") == (None, None, "cut from name")
+        assert dm.club_for("", "U13G Blue") == (None, None, "cut from name")
 
     def test_the_before_age_cut_stops_at_a_band_and_falls_back_to_the_whole_name_when_nothing_is_left(self):
         assert dm._before_age("Loudoun 13/14 Red") == "Loudoun"
@@ -1292,7 +1321,7 @@ class TestRosterRules:
         assert (row.club_name, row.club_as_written) == ("Villarreal Virginia Academy", "Villarreal VA Azul")
 
     def test_a_team_with_no_readable_club_is_left_out(self):
-        in_scope, (row,) = _roster([_stub("11", "U13G Blue")])
+        in_scope, (row,) = _roster([_stub("11", "U13G Blue")], clubs={"1": ""})
         assert in_scope == []
         assert row.skip_reason == "no club could be read from the name"
 
@@ -1531,3 +1560,29 @@ class TestOutcomesAndLinks:
     def test_a_stored_team_with_no_gender_is_not_refused_for_its_gender(self):
         row = _row("1")
         assert dm.off_board_links([row], _linked(row), {"master-1": {"age_group": "u13", "gender": None}}) == {}
+
+
+class TestClubCodeExpansion:
+    @pytest.mark.parametrize(
+        ("name", "club", "expected"),
+        [
+            ("HERN NCSL B2011/12 White", "Herndon Youth Soccer", "Herndon NCSL B2011/12 White"),
+            ("ARL 2013/14G Black", "Arlington Soccer", "Arlington 2013/14G Black"),
+            ("LOUD U13G White", "Loudoun Soccer", "Loudoun U13G White"),
+            ("MCLN U11 Girls Gold", "McLean Youth Soccer", "MCLN U11 Girls Gold"),
+            ("Herndon NCSL G2010/11", "Herndon Youth Soccer", "Herndon NCSL G2010/11"),
+            ("HE NCSL B2011/12", "Herndon Youth Soccer", "HE NCSL B2011/12"),
+            ("HERN", "Herndon Youth Soccer", "HERN"),
+            ("HERN NCSL B2011/12", None, "HERN NCSL B2011/12"),
+        ],
+    )
+    def test_a_leading_club_code_is_spelled_out_only_when_it_is_a_prefix_of_the_stored_clubs_first_word(
+        self, name, club, expected
+    ):
+        assert expand_club_code(name, club) == expected
+
+    def test_the_matcher_matches_on_the_spelled_out_name(self):
+        matcher = object.__new__(DemosphereGameMatcher)
+        with patch.object(TourneyCentralGameMatcher, "_fuzzy_match_team", return_value=None) as base:
+            matcher._fuzzy_match_team("HERN NCSL B2011/12 White", "u15", "Male", "Herndon Youth Soccer", "VA")
+        base.assert_called_once_with("Herndon NCSL B2011/12 White", "u15", "Male", "Herndon Youth Soccer", "VA")

@@ -24,9 +24,9 @@ behind it does not, so a new season's team has no link yet and re-matches by nam
 
 A team's age comes from its own name, bounded by its division: the division fills in where
 the name gives no usable age and settles a bare year that could be two cohorts. Its club is
-the one the site lists when the team name opens with one of that club's words, otherwise the
-club cut from the name: an association such as VISTA lists itself as the club of teams from
-many clubs. Its state is the one its club's stored teams agree on, else the league's; a team
+the one the site lists, without its "- Travel" or "- N1" tag and a closing "Association", except
+where the site lists an umbrella such as VISTA as the club of teams from many clubs: those take
+the club cut from the name. Its state is the one its club's stored teams agree on, else the league's; a team
 is left out when those teams disagree or its name carries another state's tag.
 
 A game between two boards is imported and also listed in a cross-age file: a team playing up
@@ -202,7 +202,8 @@ _CODE_GENDER = re.compile(r"^N([BG])\d", re.IGNORECASE)
 _TEAM_LINK = re.compile(r"/teams/(\d+)/(\d+)-(\d+)/TEAM\.html")
 _SEASON_LABEL = re.compile(r"(Fall|Spring)(20[0-9]{2})")
 _STATE_TAG = re.compile(r"\(([A-Z]{2})\)")
-_GENERIC_CLUB_WORDS = frozenset({"fc", "sc", "soccer", "club", "football", "futbol", "united", "youth", "the"})
+_LISTED_CLUB_SUFFIX = re.compile(r"\s+-\s+(?:Travel|N1)$", re.IGNORECASE)
+_ASSOCIATION_WORD = re.compile(r"\s+(?:Association|Assoc\.?|Assn\.?)$", re.IGNORECASE)
 _GENDERS = {"B": "Male", "G": "Female"}
 
 
@@ -211,9 +212,10 @@ class League:
     name: str
     state_code: str
     seed_clubs: Tuple[str, ...]
+    association_clubs: Tuple[str, ...] = ()
 
 
-LEAGUES: Dict[str, League] = {"80738": League("NCSL", "VA", ("15599479",))}
+LEAGUES: Dict[str, League] = {"80738": League("NCSL", "VA", ("15599479",), ("15599479",))}
 
 
 @dataclass
@@ -455,8 +457,9 @@ def provider_team_id(site_id: str, season_label: str, team_key: str) -> str:
     return f"{site_id}-{season_label}-{team_key}"
 
 
-def _significant_words(text: str) -> Set[str]:
-    return {w for w in re.findall(r"[a-z0-9]+", text.lower()) if w not in _GENERIC_CLUB_WORDS}
+def stored_club(listed_club: str) -> str:
+    """The club a listed name is filed under, without the site's "- Travel" or "- N1" tag or a closing "Association"."""
+    return _ASSOCIATION_WORD.sub("", _LISTED_CLUB_SUFFIX.sub("", listed_club).strip()).strip()
 
 
 def _before_age(name: str) -> str:
@@ -467,20 +470,19 @@ def _before_age(name: str) -> str:
     return name[: min(cuts)].strip(" -,") or name
 
 
-def club_for(listed_club: str, team_name: str) -> Tuple[Optional[str], Optional[str], str]:
+def club_for(listed_club: str, team_name: str, association: bool = False) -> Tuple[Optional[str], Optional[str], str]:
     """``(club as stored, club as the name writes it, source)`` for one team.
 
-    The site's club is the stored club when the team name opens with one of its words;
-    an association's name shares none with the clubs under it, so there the club is cut
-    from the name itself.
+    The club is the one the site lists, so a team written ``HERN NCSL`` is filed under its
+    full club name. Where the site lists an association (VISTA) the listed name is not a club
+    any of its teams belong to, so the club is cut from the team name itself.
     """
     guessed, _ = split_club(respell_ages(_before_age(team_name)), "")
     if guessed:
         guessed = _before_age(guessed)
     written = club_before_squad_marks(guessed)
-    first = re.match(r"[A-Za-z0-9]+", team_name)
-    if listed_club and first and first.group(0).lower() in _significant_words(listed_club):
-        return listed_club, written, "listed club"
+    if listed_club and not association:
+        return stored_club(listed_club), written, "listed club"
     return guessed, written, "cut from name"
 
 
@@ -591,11 +593,15 @@ def build_roster(
     season_label: str,
     league_state: str,
     board_season: int,
+    association_clubs: Tuple[str, ...] = (),
 ) -> Tuple[List[TeamRow], List[TeamRow]]:
     """Split the walked teams into those to register and those left out, with a reason."""
     event_season = season_start_year(season_label)
     ordered = sorted(teams.items(), key=lambda item: int(item[0]))
-    clubs = {team_key: club_for(club_names.get(stub.club_key, ""), stub.team_name) for team_key, stub in ordered}
+    clubs = {
+        team_key: club_for(club_names.get(stub.club_key, ""), stub.team_name, stub.club_key in association_clubs)
+        for team_key, stub in ordered
+    }
     stored_states = lookup_states(sorted({club[0] for club in clubs.values() if club[0]}))
     in_scope: List[TeamRow] = []
     left_out: List[TeamRow] = []
@@ -952,6 +958,7 @@ def main() -> int:
         args.season,
         league.state_code,
         _soccer_season_year(),
+        league.association_clubs,
     )
     console.print(
         f"[bold]{escape(league.name)} {args.season}[/bold] — {len(clubs)} clubs, {len(divisions)} divisions, "
