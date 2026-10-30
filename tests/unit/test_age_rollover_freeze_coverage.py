@@ -35,6 +35,8 @@ AGE_DERIVING_SCRIPTS = (
     # Writes teams with the age Kitman labels them for this season; only with --execute.
     "link_mlsnext_kitman_teams.py",
     "import_yssl.py",
+    # Writes teams with the age the NCSL team names state for this season; only with --execute.
+    "import_demosphere.py",
 )
 
 # Scripts with no safe default: they write unless a flag opts OUT, or they exist
@@ -127,6 +129,7 @@ def test_the_scan_finds_the_known_writing_steps():
     assert "data-hygiene-weekly.yml" in workflows
     assert "auto-merge-queue.yml" in workflows
     assert "yssl-scraper.yml" in workflows
+    assert "demosphere-scraper.yml" in workflows
 
 
 def test_every_exemption_still_exists():
