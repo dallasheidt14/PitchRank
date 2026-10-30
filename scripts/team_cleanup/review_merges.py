@@ -565,7 +565,8 @@ class Kind:
 
 
 def merges_a_held_pair(row: dict, answer: dict) -> bool:
-    return answer["verdict"] == MERGE and row["held_before"]
+    """A slice queued before ``held_before`` was recorded reads as no earlier hold, as its run's code reviewed it."""
+    return answer["verdict"] == MERGE and row.get("held_before", False)
 
 
 PAIRS = Kind(MERGE_REVIEW_KEYS, "pair", "pairs", read_verdicts, final_rows, held_rows, merges_a_held_pair)
