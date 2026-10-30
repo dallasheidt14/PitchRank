@@ -77,7 +77,7 @@ Before the page, `scripts/team_cleanup/review_states.py` reviews every state cha
 a person, up to `page_caps.states.review` a week: the club-count corrections no rule makes sure, the
 changes the sweep only queues, and the disagreements that propose the state a team already holds. Its
 reviewers are the merges' locked-down ones, judging by the `assigning-team-states` skill itself, packed
-into `review/skill/` as merges pack theirs, and above all by its **Deciding without a person**: a state
+into `<run>/states/review/skill/` as merges pack theirs, and above all by its **Deciding without a person**: a state
 is settled unattended only by the owner's own answer or the team's or club's own name (owner,
 2026-10-28/29). The evidence is written into each slice with the full key, since the lookups' public key
 cannot read GotSport's answers, the review queue, the state ledger or the owner's earlier choices; where
