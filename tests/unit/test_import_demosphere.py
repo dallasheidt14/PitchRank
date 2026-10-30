@@ -1628,8 +1628,13 @@ class TestOwnerClubDecisions:
             ("FC Charles", "FC Charles 1658", "MD"),
             ("Montgomery Soccer Inc.", "Montgomery Soccer (MSI)", "MD"),
             ("Northern Virginia Soccer Club - Travel", "NVSC", None),
-            ("NPC Futbol and Futsal", "NPC Futbol & Futsal", None),
+            ("NPC Futbol and Futsal", "NPC Futbol & Futsal", "VA"),
             ("Potomac Soccer Association", "Potomac Soccer Association", "MD"),
+            ("Alexandria Soccer Association - Travel", "Alexandria SA", None),
+            ("Arlington Soccer Association", "Arlington SA", None),
+            ("BVBIA - PAC Northern Virginia", "Premier AC", None),
+            ("Cipriani Sports Academy", "Cipriani Accademia FC", None),
+            ("Clarke County Soccer", "Clarke County Soccer League", None),
             ("South County Athletic Association", "South County Athletic Association", None),
             ("St Mary's Soccer", "St. Mary's Soccer", "MD"),
             ("Springfield South County Youth - Travel", "Springfield SYC", None),
@@ -1648,19 +1653,38 @@ class TestOwnerClubDecisions:
         assert row.club_name == club
         assert (row.state_code, row.state_source) == ((state, "set for the club") if state else ("VA", "league state"))
 
-    def test_the_decided_clubs_are_exactly_these_eleven(self):
+    def test_vista_hl92_teams_are_filed_under_the_spelled_out_association(self):
+        overrides = dm.LEAGUES["80738"].club_overrides
+        club, written, source = dm.club_for(
+            "VA Indpt Soccer Team Assoc - Travel", "VISTA HL92 Soccer Academy U12B Blue", True, overrides
+        )
+        assert (club, source) == ("Virginia Independent Soccer Team Association", "cut from name")
+        assert written == "VISTA HL92 Soccer"
+
+    def test_the_other_vista_clubs_keep_the_club_cut_from_their_names(self):
+        overrides = dm.LEAGUES["80738"].club_overrides
+        listed = "VA Indpt Soccer Team Assoc - Travel"
+        assert dm.club_for(listed, "VISTA Warriors U13G", True, overrides)[0] == "VISTA Warriors"
+
+    def test_the_decided_clubs_are_exactly_these(self):
         assert dm.NCSL_CLUBS == {
             "Prince William Courage": ("Prince William Soccer Inc", None),
             "Bethesda Soccer Club": ("Bethesda SC", "MD"),
             "FC Charles": ("FC Charles 1658", "MD"),
             "Montgomery Soccer Inc.": ("Montgomery Soccer (MSI)", "MD"),
             "Northern Virginia Soccer Club": ("NVSC", None),
-            "NPC Futbol and Futsal": ("NPC Futbol & Futsal", None),
+            "NPC Futbol and Futsal": ("NPC Futbol & Futsal", "VA"),
             "Potomac Soccer Association": ("Potomac Soccer Association", "MD"),
             "St Mary's Soccer": ("St. Mary's Soccer", "MD"),
             "Springfield South County Youth": ("Springfield SYC", None),
             "Takoma Park": ("Takoma Park Soccer Club", "MD"),
             "The St. James FC": ("The St. James Football Club", None),
+            "Alexandria Soccer Association": ("Alexandria SA", None),
+            "Arlington Soccer Association": ("Arlington SA", None),
+            "BVBIA - PAC Northern Virginia": ("Premier AC", None),
+            "Cipriani Sports Academy": ("Cipriani Accademia FC", None),
+            "Clarke County Soccer": ("Clarke County Soccer League", None),
+            "VISTA HL92 Soccer Academy": ("Virginia Independent Soccer Team Association", None),
         }
 
     def test_a_club_state_set_for_the_club_outranks_what_its_stored_teams_say(self):

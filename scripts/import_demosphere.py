@@ -225,12 +225,19 @@ NCSL_CLUBS: Dict[str, Tuple[str, Optional[str]]] = {
     "FC Charles": ("FC Charles 1658", "MD"),
     "Montgomery Soccer Inc.": ("Montgomery Soccer (MSI)", "MD"),
     "Northern Virginia Soccer Club": ("NVSC", None),
-    "NPC Futbol and Futsal": ("NPC Futbol & Futsal", None),
     "Potomac Soccer Association": ("Potomac Soccer Association", "MD"),
     "St Mary's Soccer": ("St. Mary's Soccer", "MD"),
     "Springfield South County Youth": ("Springfield SYC", None),
     "Takoma Park": ("Takoma Park Soccer Club", "MD"),
     "The St. James FC": ("The St. James Football Club", None),
+    "Alexandria Soccer Association": ("Alexandria SA", None),
+    "Arlington Soccer Association": ("Arlington SA", None),
+    "BVBIA - PAC Northern Virginia": ("Premier AC", None),
+    "Cipriani Sports Academy": ("Cipriani Accademia FC", None),
+    "Clarke County Soccer": ("Clarke County Soccer League", None),
+    # A club cut from the name of a team the site lists under an association (VISTA), not a listed name.
+    "VISTA HL92 Soccer Academy": ("Virginia Independent Soccer Team Association", None),
+    "NPC Futbol and Futsal": ("NPC Futbol & Futsal", "VA"),
 }
 
 LEAGUES: Dict[str, League] = {
@@ -509,7 +516,7 @@ def club_for(
     if listed_club and not association:
         listed = stored_club(listed_club)
         return (overrides or {}).get(listed, (listed, None))[0], written, "listed club"
-    return guessed, written, "cut from name"
+    return (overrides or {}).get(guessed or "", (guessed, None))[0], written, "cut from name"
 
 
 def team_age(team_name: str, division_name: str, event_season: int) -> Tuple[Optional[int], str]:
