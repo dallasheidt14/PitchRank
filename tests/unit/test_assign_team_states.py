@@ -270,6 +270,40 @@ def test_a_place_that_contradicts_the_club_stops_the_write():
     assert result["tier"] == "R9"
 
 
+BOISE = team(state_code="WY", team_name="BTT 17 Boise Timbers", club_name="boise club")
+BOISE_CLUB = {"boise club": Counter({"WY": 5})}
+
+
+@pytest.mark.parametrize(
+    "source,approved",
+    [("tier_r9", {("t", "WY")}), ("operator", set()), ("tier_a", set())],
+)
+def test_a_disagreement_proposing_a_vouched_for_stored_state_is_not_raised_again(source, approved):
+    """The R9 card proposing the state the team holds asks a person to vouch for it. An
+    approval stamps ``tier_r9``, so the ledger is what records it; ``operator`` and
+    ``tier_a`` vouch on their own."""
+    result = decision(
+        {**BOISE, "state_source": source}, BOISE_CLUB, locality={"boise": "ID"}, approved=approved
+    )
+    assert result is None
+
+
+def test_an_unvouched_stored_state_still_raises_the_disagreement():
+    result = decision(
+        {**BOISE, "state_source": "tier_b"}, BOISE_CLUB, locality={"boise": "ID"}, approved={("t", "ID")}
+    )
+    assert (result["tier"], result["proposed"], result["action"]) == ("R9", "WY", "queue")
+
+
+def test_a_vouched_for_state_still_raises_a_disagreement_proposing_another():
+    result = decision(
+        team(state_code="ID", state_source="operator", team_name="BTT 17 Boise Timbers", club_name="boise club"),
+        BOISE_CLUB,
+        locality={"boise": "ID"},
+    )
+    assert (result["tier"], result["proposed"]) == ("R9", "WY")
+
+
 def test_the_provider_record_settles_a_disagreement_rather_than_queueing_it():
     result = decision(
         team(state_code="WY", team_name="BTT 17 Boise Timbers", club_name="boise club"),
