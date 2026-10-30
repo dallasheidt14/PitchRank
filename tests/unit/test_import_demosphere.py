@@ -880,6 +880,20 @@ class TestClubStates:
         assert found == {"Big": None}
         assert len(executed) == 2
 
+    def test_teams_stored_outside_the_leagues_region_do_not_vote(self):
+        rows = [{"club_name": "Stafford Soccer Club", "state_code": "NJ", "is_deprecated": False}] * 3
+        rows += [{"club_name": "Mixed", "state_code": s, "is_deprecated": False} for s in ("NJ", "VA", "VA")]
+        rows += [{"club_name": "Split", "state_code": s, "is_deprecated": False} for s in ("MD", "VA", "NJ")]
+        found = dm.club_states(_Recorder(rows, []), ["Stafford Soccer Club", "Mixed", "Split"], ("VA", "MD", "DC"))
+        assert found == {"Mixed": "VA", "Split": None}
+
+    def test_without_a_region_every_stored_state_votes(self):
+        rows = [{"club_name": "Stafford Soccer Club", "state_code": "NJ", "is_deprecated": False}]
+        assert dm.club_states(_Recorder(rows, []), ["Stafford Soccer Club"]) == {"Stafford Soccer Club": "NJ"}
+
+    def test_ncsl_is_filed_in_its_own_region(self):
+        assert dm.LEAGUES["80738"].states == ("VA", "MD", "DC", "WV", "DE")
+
     def test_a_placeholder_club_is_never_asked_about(self):
         executed = []
         rows = [{"club_name": "No Club Selection", "state_code": "CA", "is_deprecated": False}]
@@ -1024,6 +1038,7 @@ class TestRunMain:
             linked_teams={},
             stored={},
             asked=[],
+            regions=[],
             division=_fixture("division_116702955.html"),
             today=self.FixedDate,
             season="Fall2026",
@@ -1062,8 +1077,9 @@ class TestRunMain:
         def existing(supabase, provider_id, ids):
             return state.aliases(ids)
 
-        def club_states(supabase, names):
+        def club_states(supabase, names, region=()):
             state.asked.append(names)
+            state.regions.append(region)
             return state.stored
 
         def fake_run(command, check):
@@ -1150,6 +1166,10 @@ class TestRunMain:
         assert len(run_main.asked) == 1
         assert "VISTA Warriors" in run_main.asked[0]
         assert "VA Indpt Soccer Team Assoc - Travel" not in run_main.asked[0]
+
+    def test_stored_club_states_are_read_inside_the_leagues_region(self, run_main):
+        run_main.run()
+        assert run_main.regions == [("VA", "MD", "DC", "WV", "DE")]
 
     def test_an_association_teams_club_state_is_the_one_stored_for_its_cut_club(self, run_main):
         run_main.stored = {"VISTA Warriors": "MD"}

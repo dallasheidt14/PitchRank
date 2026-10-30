@@ -213,9 +213,12 @@ class League:
     state_code: str
     seed_clubs: Tuple[str, ...]
     association_clubs: Tuple[str, ...] = ()
+    states: Tuple[str, ...] = ()
 
 
-LEAGUES: Dict[str, League] = {"80738": League("NCSL", "VA", ("15599479",), ("15599479",))}
+LEAGUES: Dict[str, League] = {
+    "80738": League("NCSL", "VA", ("15599479",), ("15599479",), ("VA", "MD", "DC", "WV", "DE"))
+}
 
 
 @dataclass
@@ -533,11 +536,13 @@ def team_gender(division_name: str, team_code: str) -> Optional[str]:
     return _GENDERS[code.group(1).upper()] if code else None
 
 
-def club_states(supabase, club_names: List[str]) -> Dict[str, Optional[str]]:
+def club_states(supabase, club_names: List[str], region: Tuple[str, ...] = ()) -> Dict[str, Optional[str]]:
     """Club name -> the one state its stored teams state; None when they disagree.
 
     A club with no stated team is absent, as is a placeholder such as "No Club Selection",
-    which pools unrelated teams and says nothing about any one of them.
+    which pools unrelated teams and says nothing about any one of them. A club name is not an
+    identity: with a ``region``, teams stored outside it are another club that shares the name
+    (a New Jersey Stafford Soccer Club beside Stafford, Virginia), and do not vote.
     """
     found: Dict[str, Optional[str]] = {}
     for club in sorted(set(club_names)):
@@ -561,7 +566,7 @@ def club_states(supabase, club_names: List[str]) -> Dict[str, Optional[str]]:
             if len(page) < STATE_PAGE_SIZE:
                 break
             offset += STATE_PAGE_SIZE
-        states = {row["state_code"] for row in rows}
+        states = {row["state_code"] for row in rows if not region or row["state_code"] in region}
         if states:
             found[club] = states.pop() if len(states) == 1 else None
     return found
@@ -953,7 +958,7 @@ def main() -> int:
     in_scope, left_out = build_roster(
         teams,
         clubs,
-        lambda names: club_states(supabase, names),
+        lambda names: club_states(supabase, names, league.states),
         args.site_id,
         args.season,
         league.state_code,
