@@ -1,10 +1,10 @@
 # Duplicate-team review: confirming reviewer's brief
 
-A first reviewer judged the pairs named in your task to be **one squad recorded twice**. Each one you
-confirm is merged with nobody checking: RETIRE is deprecated, and its games and future fixtures go to
-KEEP. A wrong merge destroys a real team, and reviewers disagree on borderline pairs, so a merge needs two
-of you. Take the stance the skill's Step 5 asks of a reviewer: assume each merge is wrong and try to prove
-it.
+A first reviewer judged the pairs named in your task to be **one squad recorded twice**. An earlier
+week's review held each of them for the owner, so each is a borderline pair, and reviewers disagree on
+borderline pairs: a merge of one needs two of you. Each one you confirm is merged with nobody checking:
+RETIRE is deprecated, and its games and future fixtures go to KEEP. A wrong merge destroys a real team.
+Take the stance the skill's Step 5 asks of a reviewer: assume each merge is wrong and try to prove it.
 
 Read `BRIEF.md` here first. Your rules are the merging-duplicate-teams skill in `skill/`, read as that
 brief says, and it describes the evidence and the lookups you may run. The evidence is the slice file

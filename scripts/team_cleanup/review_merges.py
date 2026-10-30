@@ -22,11 +22,12 @@ The review takes the pairs the page would show that need one (page_caps.merges.r
 for a later week. A reviewer is headless Claude Code (`claude -p`) working in its own folder: it loads none of
 the user's settings, MCP servers or memory, reads only its folder and scripts/team_cleanup/, writes only its one
 answer, runs no program but the read-only lookups (review_lookup.py), and its environment holds only the public
-database key. Each merge goes to a second reviewer who assumes it is wrong, and each reject to one with the
-opposite prior; neither sees the first one's answer, and a merge it does not confirm, or a reject it does not
+database key. A merge of a pair an earlier run's review held goes to a second reviewer who assumes it is wrong,
+since a held pair comes back every week and one lucky run could otherwise merge it, and each reject to one with
+the opposite prior; neither sees the first one's answer, and a merge it does not confirm, or a reject it does not
 uphold, becomes a hold. A slice whose reviewer fails is retried on the next run; after three failed attempts, a
 slice whose review never came back is all holds, and one whose second reviewers never came back holds the merges
-and rejects they did not answer, so the week goes on and nothing one reviewer alone cleared merges.
+and rejects they did not answer, so the week goes on.
 
 Without --execute it reads the pairs and says what it would do, writing nothing.
 
@@ -366,11 +367,26 @@ def skill_version(review: Path) -> str | None:
     return path.read_text(encoding="utf-8").strip() if path.exists() else None
 
 
+def held_before(folder: Path) -> set[frozenset[str]]:
+    """The pairs, each as its two rows either way round, that an earlier run's review of this stage held for the
+    owner, read from the run store."""
+    held = set()
+    for path in folder.parent.parent.glob(f"*/{folder.name}/{REVIEW_DIR}/*{REVIEW_SUFFIX}"):
+        if path.parents[2].name == folder.parent.name:
+            continue
+        held |= {frozenset((row["merge_id"], row["keep_id"])) for row in read_json(path) if row["verdict"] == HOLD}
+    return held
+
+
 def queue(sb, folder: Path, cap: int) -> int:
     """Write the review's slices and briefs; the number of pairs queued. A review of no pair still leaves the
     folder, so the autopilot moves on to the page, which then has no review to route by."""
     pairs, chosen = review_pairs(sb, folder, cap)
-    labelled = [{**p, "pair": f"P{n:04d}"} for n, p in enumerate(pairs, 1)]
+    earlier = held_before(folder)
+    labelled = [
+        {**p, "pair": f"P{n:04d}", "held_before": frozenset((p["merge_id"], p["keep_id"])) in earlier}
+        for n, p in enumerate(pairs, 1)
+    ]
     blocks = evidence_blocks(sb, labelled, chosen)
     review = folder / REVIEW_DIR
     (review / ANSWERS_DIR).mkdir(parents=True, exist_ok=True)
@@ -513,13 +529,13 @@ def read_recheck(path: Path, labels: list[str], label: str = "pair") -> dict[str
 
 
 def final_rows(rows: list[dict], verdicts: list[dict], seconds: dict[str, dict]) -> list[dict]:
-    """Each pair with its final verdict: a merge the second reviewer did not confirm and a reject it did not uphold
-    are holds, and only a merge keeps a swap."""
+    """Each pair with its final verdict: a merge of a pair held before that the second reviewer did not confirm, and
+    a reject it did not uphold, are holds, and only a merge keeps a swap."""
     found = {MERGE: "one squad", REJECT: "two teams"}
     final = []
     for row, answer in zip(rows, verdicts):
         verdict, reason = answer["verdict"], answer["reason"].strip()
-        if verdict in found:
+        if verdict == REJECT or merges_a_held_pair(row, answer):
             second = seconds.get(row["pair"])
             if second is None or not second["upheld"]:
                 answered = f": {second['reason'].strip()}" if second else ""
@@ -537,7 +553,7 @@ def held_rows(rows: list[dict], why: str) -> list[dict]:
 class Kind:
     """What one review's slices and answers carry: the keys its review copies (the run store's contract), the key
     each answer names its row by, what the second reviewers' prompts call them, how answers become review rows,
-    and the verdicts a second reviewer must confirm before they stand (every reject is rechecked)."""
+    and which answers a second reviewer must confirm before they stand (every reject is rechecked)."""
 
     keys: tuple[str, ...]
     label: str
@@ -545,10 +561,14 @@ class Kind:
     read_verdicts: Callable[[Path, list[dict]], list[dict]]
     final_rows: Callable[[list[dict], list[dict], dict], list[dict]]
     held_rows: Callable[[list[dict], str], list[dict]]
-    confirmed: tuple[str, ...] = ()
+    confirmed: Callable[[dict, dict], bool] = lambda row, answer: False
 
 
-PAIRS = Kind(MERGE_REVIEW_KEYS, "pair", "pairs", read_verdicts, final_rows, held_rows, (MERGE,))
+def merges_a_held_pair(row: dict, answer: dict) -> bool:
+    return answer["verdict"] == MERGE and row["held_before"]
+
+
+PAIRS = Kind(MERGE_REVIEW_KEYS, "pair", "pairs", read_verdicts, final_rows, held_rows, merges_a_held_pair)
 
 
 def review_slice(
@@ -583,11 +603,12 @@ def review_slice(
         write_json(review / f"{name}{REVIEW_SUFFIX}", held, indent=1)
         return True, failures
     seconds = {}
+    rows_by_label = {row[kind.label]: row for row in rows}
     for role, needed, prompt in (
-        ("confirm", lambda verdict: verdict in kind.confirmed, confirm_prompt),
-        ("recheck", lambda verdict: verdict == REJECT, recheck_prompt),
+        ("confirm", kind.confirmed, confirm_prompt),
+        ("recheck", lambda row, answer: answer["verdict"] == REJECT, recheck_prompt),
     ):
-        labels = [answer[kind.label] for answer in verdicts if needed(answer["verdict"])]
+        labels = [answer[kind.label] for answer in verdicts if needed(rows_by_label[answer[kind.label]], answer)]
         if not labels:
             continue
         answered = attempt(

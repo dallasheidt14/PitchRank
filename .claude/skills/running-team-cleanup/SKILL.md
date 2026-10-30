@@ -91,7 +91,7 @@ Step 5, run unattended), up to
 the cross-provider scan's before the squad-key scan's, each by the fewest games on the row it retires.
 It writes the evidence for 50 pairs at a time into `<run>/merges/review/` and runs headless Claude Code
 (`claude -p`, opus) on each slice, ten at once. The reviewers' rules are the `merging-duplicate-teams`
-skill itself: the review copies its `SKILL.md` and `references/` into `review/skill/` once, with a
+skill itself: the review copies its SKILL.md and reference files into `<run>/merges/review/skill/` once, with a
 `VERSION` naming the commit and a hash, so a skill change reaches the next week's run (which starts on
 `origin/main`) and the review's tally names the version it judged by. The brief
 (`scripts/team_cleanup/assets/merge_review_brief.md`) says only which sections to read, what each verdict
@@ -99,14 +99,15 @@ does, how the skill's words map onto merge, hold and reject, and how to answer. 
 of the user's settings, MCP servers or memory, reads only its folder and `scripts/team_cleanup/`, writes
 only its one answer, runs no program but `scripts/team_cleanup/review_lookup.py` (the read-only
 lookups), and its environment holds only the public database key. Each pair gets merge, hold or reject.
-Every merge goes to a second reviewer who assumes it is wrong (`merge_confirm_brief.md`), because runs
-disagree on borderline pairs (owner, 2026-10-29: two must agree), and every reject to one with the
-opposite prior; neither sees the first one's answer, and a merge it does not confirm, or a reject it
-does not uphold, becomes a hold. A slice whose reviewer fails is retried on the next tick; after three
-failures across its reviewers, the pairs no reviewer settled are holds, so nothing one reviewer alone
-cleared merges. A review runs once a tick, at most 10 slices (500 pairs) a run so its three rounds
-finish inside the step's four hours, and the rest wait for the next tick; the page refuses to build
-before it is done.
+A merge of a pair an earlier week's review held goes to a second reviewer who assumes it is wrong
+(`merge_confirm_brief.md`): reviewers disagree on borderline pairs, and a held pair comes back every week,
+so one lucky run could otherwise merge it (owner, 2026-10-30: two must agree on a repeat pair only; a
+second reviewer refused half of a week's first-time merges, none of which a full audit found wrong).
+Every reject goes to one with the opposite prior. Neither sees the first one's answer, and a merge it
+does not confirm, or a reject it does not uphold, becomes a hold. A slice whose reviewer fails is retried
+on the next tick; after three failures across its reviewers, the pairs no reviewer settled are holds. A
+review runs once a tick, at most 10 slices (500 pairs) a run so its three rounds finish inside the step's
+four hours, and the rest wait for the next tick; the page refuses to build before it is done.
 
 The page then routes each reviewed pair: **merge** to the automatic lane, turned as the reviewer
 chose, unless the two rows have since played on the same day (each other included), which makes it a
