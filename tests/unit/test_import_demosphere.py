@@ -69,7 +69,7 @@ class TestParseDivisionPage:
         assert division.teams["108348806"].team_name == "ALEX 2013-14 Girls Red"
 
     def test_a_game_with_no_readable_date_is_reported_not_dropped_silently(self):
-        html = _fixture("division_116702955.html").replace("Sat, September 12, 2026", "TBD")
+        html = _fixture("division_116702955.html").replace("Sat, September 12, 2026", "NEXT WEEK")
         page = dm.parse_division_page(html, "116702955", DIVISION_URL)
         assert any("unreadable" in problem for problem in page.problems)
         assert len(page.games) < 45
@@ -1344,11 +1344,11 @@ def _division(replace=None, pattern=None):
 
 class TestDivisionParserEdges:
     def test_an_unreadable_later_day_header_drops_its_games_instead_of_keeping_the_previous_date(self):
-        page = dm.parse_division_page(_division({"Sun, September 13, 2026": "TBD"}), "116702955", DIVISION_URL)
+        page = dm.parse_division_page(_division({"Sun, September 13, 2026": "NEXT WEEK"}), "116702955", DIVISION_URL)
         assert len(page.games) == 40
         assert sum(1 for g in page.games if g.game_date == date(2026, 9, 12)) == 2
         assert all(g.game_date != date(2026, 9, 13) for g in page.games)
-        assert "116702955: unreadable day header 'TBD'" in page.problems
+        assert "116702955: unreadable day header 'NEXT WEEK'" in page.problems
 
     def test_an_away_cell_with_no_team_key_is_reported_and_adds_no_team(self):
         page = dm.parse_division_page(
@@ -1392,6 +1392,31 @@ class TestDivisionParserEdges:
     def test_a_division_with_a_name_and_no_games_is_not_a_problem(self):
         page = dm.parse_division_page("<script>var tgname = 'GU13 Division 9';</script>", "116702999", DIVISION_URL)
         assert (page.problems, page.games, page.name) == ([], [], "GU13 Division 9")
+
+
+class TestForfeitsAndUnscheduledGames:
+    @pytest.mark.parametrize("score", ["3-0 FFT", "0-3 FFT", "2-10 FFT", "FFT", "ff", "Forfeit"])
+    def test_a_forfeit_with_or_without_an_awarded_score_is_counted_not_scored(self, score):
+        page = dm.parse_division_page(_division({" 2-1 ": f" {score} "}), "116702955", DIVISION_URL)
+        assert page.forfeits == ["11635852"]
+        assert page.problems == []
+        assert page.games[0].home_score is None
+
+    @pytest.mark.parametrize("header", ["TBD", "tbd", "To Be Determined", "Unscheduled"])
+    def test_an_undated_section_is_skipped_without_a_problem(self, header):
+        page = dm.parse_division_page(_division({"Sun, September 13, 2026": header}), "116702955", DIVISION_URL)
+        assert page.problems == []
+        assert len(page.games) == 40
+        assert all(g.game_date != date(2026, 9, 13) for g in page.games)
+
+    def test_a_team_in_an_undated_section_is_still_a_team(self):
+        html = _division({"Sat, September 12, 2026": "TBD"})
+        page = dm.parse_division_page(html, "116702955", DIVISION_URL)
+        assert "114577143" in page.teams
+
+    def test_the_undated_section_ends_at_the_next_dated_header(self):
+        page = dm.parse_division_page(_division({"Sun, September 13, 2026": "TBD"}), "116702955", DIVISION_URL)
+        assert any(g.game_date == date(2026, 9, 19) for g in page.games)
 
 
 class TestCollectLeagueEdges:

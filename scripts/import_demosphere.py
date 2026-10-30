@@ -189,7 +189,8 @@ HEADERS = {
 _DAY = re.compile(r"^[A-Za-z]{3,9},\s+([A-Za-z]+\s+\d{1,2},\s+\d{4})$")
 _SCORE = re.compile(r"^(\d{1,2})\s*-\s*(\d{1,2})$")
 _UNPLAYED = frozenset({"", "vs", "vs.", "--", "-"})
-_FORFEIT = frozenset({"fft", "ff", "forfeit"})
+_FORFEIT = re.compile(r"(?:\d{1,2}\s*-\s*\d{1,2}\s+)?(?:fft|ff|forfeit)", re.IGNORECASE)
+_UNSCHEDULED = re.compile(r"tbd|to be determined|unscheduled", re.IGNORECASE)
 _GENDER_WORD = re.compile(r"\b(?:Boys?|Girls?)\b", re.IGNORECASE)
 _KEY = re.compile(r"[0-9]{1,12}")
 _TEAM_CODE = re.compile(r"^[A-Z]{1,3}\d+$")
@@ -340,12 +341,14 @@ def parse_division_page(html: str, division_key: str, source_url: str) -> Divisi
     page = DivisionPage(name=_clean_name(name_match.group(1)) if name_match else "")
     soup = BeautifulSoup(html, "lxml")
     day: Optional[date] = None
+    unscheduled = False
     for row in soup.select("table#tblListGames2 tr"):
         classes = row.get("class") or []
         if "gm-hdr-5d1h" in classes:
             header = _DAY.match(_text(row))
+            unscheduled = bool(_UNSCHEDULED.fullmatch(_text(row)))
             day = datetime.strptime(header.group(1), "%B %d, %Y").date() if header else None
-            if not header:
+            if not header and not unscheduled:
                 page.problems.append(f"{division_key}: unreadable day header {_text(row)!r}")
             continue
         if "sch-main-gm" not in classes:
@@ -355,14 +358,16 @@ def parse_division_page(html: str, division_key: str, source_url: str) -> Divisi
         home_stub = _team_stub(home, page.name) if home is not None else None
         away_stub = _team_stub(away, page.name) if away is not None else None
         game_key = row.get("data-gamekey", "")
-        if not (home_stub and away_stub and _KEY.fullmatch(game_key) and day):
+        if not (home_stub and away_stub and _KEY.fullmatch(game_key)) or (day is None and not unscheduled):
             page.problems.append(f"{division_key}: unreadable game row {game_key or _text(row)[:40]!r}")
             continue
         page.teams.setdefault(home_stub.team_key, home_stub)
         page.teams.setdefault(away_stub.team_key, away_stub)
+        if day is None:
+            continue
         score_text = _text(row.select_one("td.sch-main-sc"))
         score = _SCORE.match(score_text)
-        if not score and score_text.lower() in _FORFEIT:
+        if not score and _FORFEIT.fullmatch(score_text):
             page.forfeits.append(game_key)
         elif not score and score_text.lower() not in _UNPLAYED:
             page.problems.append(f"{division_key} game {game_key}: unreadable score {score_text!r}")
