@@ -268,7 +268,10 @@ def test_the_evidence_shows_what_settles_a_state_and_leaves_out_where_the_team_p
         team_cleanup_decisions=[
             {**pt._declined("weak", "UT", decision="apply", n=1), "source": "page:2026-10-21", "note": "club says UT"},
             {**pt._declined("mate", "NV", decision="apply", n=2), "source": "page:2026-10-21", "note": None},
+            {**pt._declined("old-weak", "NV", n=3), "source": "page:2026-10-14", "note": None},
+            {**pt._declined("old-mate", "NV", decision="apply", n=4), "source": "page:2026-10-14", "note": None},
         ],
+        team_merge_map=[pt._merged("old-weak", "weak", n=1), pt._merged("old-mate", "mate", n=2)],
         team_state_review_queue=[{"id": 1, "team_id_master": "weak", "current_state_code": "NV",
                                   "proposed_state_code": "UT", "status": "pending", "reviewed_at": None}],
         team_state_audit=[{"id": 1, "team_id_master": "weak", "action": "apply", "old_state_code": None,
@@ -291,8 +294,12 @@ def test_the_evidence_shows_what_settles_a_state_and_leaves_out_where_the_team_p
     assert lines[5].startswith("GotSport's own record: no state (no_association), asked ")
     assert lines[6] == "club registry: not listed"
     assert lines[7] == "club-mates' stored states (4 teams): NV 4 (unstamped 3, operator 1)"
-    assert lines[8] == "the owner's earlier choices on this club's teams: apply NV x1"
-    assert lines[9] == 'earlier choices on this team: 2026-10-01 the owner: apply UT "club says UT"'
+    # A decision outlives a merge of its team, so one made on a row merged away since reads as its survivor's.
+    assert lines[8] == "the owner's earlier choices on this club's teams: apply NV x2"
+    assert lines[9] == (
+        'earlier choices on this team: 2026-10-01 the owner: apply UT "club says UT"; '
+        "2026-10-01 the owner: dont_apply NV"
+    )
     assert lines[10] == "review queue: pending UT from NV"
     assert lines[11] == 'state history: 2026-09-02 assign_team_states apply -- -> NV "fill from tier B"'
     assert lines[12] == "hold check: passes"

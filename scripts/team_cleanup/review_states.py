@@ -154,7 +154,7 @@ def evidence_blocks(sb, rows: list[dict], chosen: Selection, evidence, folder: P
     decisions = defaultdict(list)
     for d in page(lambda: sb.table(DECISIONS_TABLE).select(DECISION_COLS).eq("stage", STATES), "id"):
         if d["superseded_at"] is None:
-            decisions[d["team_id_master"]].append(d)
+            decisions[chosen.canonical(d["team_id_master"])].append(d)  # a decision outlives a merge of its team
     held = held_because(sb, folder, ids)
 
     blocks = []
