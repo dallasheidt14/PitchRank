@@ -4085,6 +4085,25 @@ def test_the_automatic_lane_s_hold_reads_the_stage_s_national_run_into_its_own_f
     assert {n: db.team(_id(n))["state_code"] for n in ("sure", "card")} == {"sure": "NV", "card": None}
 
 
+def test_the_automatic_lane_never_approves_a_state_change_the_rules_only_queued(tmp_path, monkeypatch, capsys):
+    """approve_team_state records the owner's approval, which the sweep ranks above every tier, so only the owner's
+    lane may give one; a queued change the automatic lane declines is still settled."""
+    store = _store(tmp_path)
+    decisions = [_decision("queued", "UT", "NV", action="queue"), _decision("fill", None, "NV")]
+    _states(tmp_path, store, decisions, {}, auto=("queued", "fill"))
+    db = _Db(teams=[_team("queued", state="UT"), _team("fill", state=None)])
+    runner = _Runner(db)
+    _wire(monkeypatch, db, runner)
+
+    message = _refused(monkeypatch, capsys, store, "states", "--lane", "auto", "--execute")
+
+    assert message == (
+        "Stopped: the automatic lane would approve a state change the rules only queued, which only the owner may: "
+        "'Team queued'"
+    )
+    assert runner.commands == [] and _decisions(db) == [] and db.tables["team_state_review_queue"] == []
+
+
 @pytest.mark.parametrize("lane", ["auto", "owner"])
 def test_choices_collected_from_another_build_of_the_page_are_refused(tmp_path, monkeypatch, capsys, lane):
     store, db = _club_lanes(tmp_path, auto=("a1",), owner=("o1",))

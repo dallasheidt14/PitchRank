@@ -620,9 +620,11 @@ function AutoChange({ row }: { row: TeamCardRow }) {
   const { team, change } = row.card;
   const name = <span className="font-medium">{team.name || '(no name)'}</span>;
   if (row.card.keep_as_is) {
+    const declined = change.new === change.old ? '' : `, not ${changeValue(change.new)}`;
     return (
       <>
-        {name}: {fieldLabel(change.field)} kept as {changeValue(change.old)}, not {changeValue(change.new)}
+        {name}: {fieldLabel(change.field)} kept as {changeValue(change.old)}
+        {declined}
       </>
     );
   }

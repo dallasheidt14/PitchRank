@@ -6,11 +6,13 @@ owner decided past pages; the review's verdicts are its reviewers' own:
 
   clubs   a change the week's review approved or found wrong (review_clubs.py), the second as declined; or,
           unreviewed, a change the scan approves (a provider, swap, word or bracket tier)
-  states  a state the rules would apply from GotSport's own record of the team (tier A), which the hold
-          check does not hold and its latest recent answer still names; or a blank state the rules would
-          apply from the team's club (tier B), which the hold check does not hold, whose latest recent
-          GotSport answer, if there is one, names the same state, and which neither its name nor its club
-          name places elsewhere, points two ways, or names a state it cannot place
+  states  a change the week's review (review_states.py) approved, which the hold check does not hold, or found
+          wrong, the second as declined; or, unreviewed, a state the rules would apply from GotSport's own
+          record of the team (tier A), which the hold check does not hold and its latest recent answer still
+          names; or a blank state the rules would apply from the team's club (tier B), which the hold check
+          does not hold, whose latest recent GotSport answer, if there is one, names the same state, and
+          which neither its name nor its club name places elsewhere, points two ways, or names a state it
+          cannot place
   ages    a move to the band in the team's own name, or to a U-age label the review's opponents
           confirmed (never a play-up) when the league's division, its opponents' bands or GotSport say
           that age too, or the move is two groups or fewer
@@ -50,12 +52,13 @@ from scripts.team_cleanup.propose_week import (
     STATES,
 )
 from scripts.team_cleanup.run_store import REVIEW_DIR, REVIEW_SUFFIX
+from scripts.team_cleanup.state_changes import STATE_REVIEW_WORDS
 from src.tournaments.storage._io import read_json
 
 BAND_TIER = "A_own_name_band"
 # What a review settles without the owner: a merge, and two teams kept separate; a hold is a card.
 REVIEW_SETTLES = (MERGE, REJECT)
-# And for a club change: one approved, and one found wrong, which records the decline.
+# And for a club or state change: one approved, and one found wrong, which records the decline.
 CLUB_REVIEW_SETTLES = (APPLY, REJECT)
 ULABEL_TIER = "U_own_name_ulabel_opponent_confirmed"
 NEAR_GROUPS = 2
@@ -92,6 +95,10 @@ def state_evidence(sb, stage: str, proposals) -> StateEvidence | None:
     proposal changes a state, so a page of lock cards skips these reads."""
     if stage != STATES or all(keeps_state(p) for p in proposals):
         return None
+    return read_state_evidence(sb)
+
+
+def read_state_evidence(sb) -> StateEvidence:
     answers = provider_states(sb)
     live = fetch_live_teams(sb)
     return StateEvidence(answers, {t["team_id_master"]: t for t in live}, build_locality_index(live))
@@ -124,14 +131,15 @@ def reverted_changes(sb, stage: str, canonical) -> set[tuple]:
 
 
 def held_changes(sb, folder: Path, proposals) -> set[str]:
-    """The teams whose change the automatic lane may take, a fill or a Tier A correction, that the hold check would
-    hold before it is written."""
-    changes = {p["team_id_master"] for p in proposals if p["old_value"] is None or p["tier"] == "A"}
+    """The teams whose change the rules would apply that the hold check holds before it is written, read as the
+    applier reads it, over the whole snapshot, since a club sent to two states is held whichever team is asked."""
+    changes = {p["team_id_master"] for p in proposals if p["action"] == "apply"}
     if not changes:
         return set()
-    decisions = [d for d in read_json(folder / APPLIER_INPUTS[STATES])["decisions"] if d["team_id"] in changes]
-    _, held = split(decisions, fetch_state_sources(sb, sorted(changes)))
-    return {d["team_id"] for d in held}
+    decisions = read_json(folder / APPLIER_INPUTS[STATES])["decisions"]
+    applied = sorted({d["team_id"] for d in decisions if d["action"] == "apply"})
+    _, held = split(decisions, fetch_state_sources(sb, applied))
+    return {d["team_id"] for d in held} & changes
 
 
 def merge_reviews(folder: Path) -> dict[tuple[str, str], dict] | None:
@@ -151,15 +159,15 @@ def merge_reviews(folder: Path) -> dict[tuple[str, str], dict] | None:
 
 
 def change_reviews(folder: Path) -> dict[tuple, dict] | None:
-    """{(team, field, old value, new value): its review's verdict and reason} for each change the week's club
-    review reached; None when the review queued no change, and each change then routes by the rules alone."""
+    """{(team, field, old value, new value): its review's verdict and reason} for each change the week's club or
+    state review reached; None when the review queued no change, and each change then routes by the rules alone."""
     review = folder / REVIEW_DIR
     if not any(review.glob("slice_*.json")):
         return None
     reviews = {}
     for path in sorted(review.glob(f"*{REVIEW_SUFFIX}")):
         for row in read_json(path):
-            if row["verdict"] not in CLUB_VERDICTS:
+            if row["verdict"] not in CLUB_VERDICTS:  # the state review gives the same three
                 raise ValueError(f"{path.name} gives {row['team_id_master']} a verdict the review never writes")
             reviews[change_key(row)] = {k: row[k] for k in ("verdict", "reason")}
     return reviews
@@ -197,6 +205,10 @@ def _sure_club(p: dict) -> str | None:
 
 def _sure_state(p: dict, signals: Signals) -> str | None:
     tid, new = p["team_id_master"], p["new_value"]
+    review = p.get("review")
+    if review:
+        settled = review["verdict"] == REJECT or (review["verdict"] == APPLY and tid not in signals.held)
+        return f"{STATE_REVIEW_WORDS[review['verdict']]}: {review['reason']}" if settled else None
     # No evidence is read for a page whose every card keeps the state its team holds, and such a card changes nothing.
     if signals.evidence is None or p["action"] != "apply" or tid in signals.held:
         return None

@@ -2223,10 +2223,11 @@ def test_the_merges_cap_keeps_the_cross_provider_pairs_retiring_the_fewest_games
     assert [p["merge_id"] for p in manifest["overflow"]] == ["d-empty"]
 
 
-def test_the_shipped_caps_leave_every_stage_and_both_reviews_uncapped():
+def test_the_shipped_caps_leave_every_stage_and_every_review_uncapped():
     # Deliberately uncapped, the owner's call: a week's run settles and shows everything it proposes.
-    assert LOAD_CAPS(stage="merges") == LOAD_CAPS(stage="clubs") == pages.Caps(100000, 100000, 100000)
-    assert LOAD_CAPS(stage="states") == LOAD_CAPS(stage="ages") == LOAD_CAPS() == pages.Caps(100000, 100000)
+    reviewed = [LOAD_CAPS(stage=stage) for stage in ("clubs", "states", "merges")]
+    assert reviewed == [pages.Caps(100000, 100000, 100000)] * 3
+    assert LOAD_CAPS(stage="ages") == LOAD_CAPS() == pages.Caps(100000, 100000)
 
 
 def test_only_a_provably_safe_pair_merges_on_its_own_and_a_moved_or_retired_row_keeps_a_pair_off(

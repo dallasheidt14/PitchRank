@@ -18,9 +18,9 @@ safe. Once review_merges.py has reviewed the pairs, a pair it cleared goes to th
 review chose, one it found to be two teams goes there as Keep separate, one it held is a card giving the
 reviewers' reason, and one it did not reach waits past the cap for a later week's review; a cleared pair
 whose rows have since played on one day, or each other, is held instead. Once review_clubs.py has reviewed the
-club guesses, a change it approved goes to the automatic lane, one it found wrong goes there as declined, and
-one it held is a card giving the reviewers' reason. The page refuses to build while a review is due and has not
-been queued.
+club guesses, or review_states.py the state changes, a change it approved goes to the automatic lane, one it found
+wrong goes there as declined, and one it held is a card giving the reviewers' reason; a state change it did not
+reach is a card as before. The page refuses to build while a review is due and has not been queued.
 
 The changes sure.py finds the evidence already settles go to the stage's automatic lane, with no
 card, up to page_caps.auto in config/team_cleanup.json; past it they stay cards, as every one does
@@ -149,6 +149,7 @@ from scripts.team_cleanup.run_store import (  # noqa: E402
     stage_due,
     store_dir,
 )
+from scripts.team_cleanup.state_changes import STATE_REVIEW_WORDS  # noqa: E402
 from scripts.team_cleanup.sure import (  # noqa: E402
     Signals,
     change_reviews,
@@ -364,6 +365,24 @@ def held_state(team: dict) -> str | None:
     return (team.get("state_code") or "").strip() or None
 
 
+def name_place(team: dict, locality_index: dict[str, str]) -> tuple[str | None, str]:
+    """The state a team's name places it in, as the states skill's name pass reads it, and how (``team``, ``club``,
+    ``town``, ``conflict``, ``unplaced`` or ``none``)."""
+    state, how = name_reading(team, locality_index)
+    # A town word can point outside the US (ON, Ontario), which the name pass reads as no state.
+    if state and state not in STATE_CODE_TO_NAME:
+        return None, "none"
+    # A state word the name pass's own checks set aside (a place called after another state, an affiliate marker
+    # naming one) is no reading; shown as one, it would argue against a right card.
+    if state and (
+        names_a_place(team, state)
+        or affiliate_contradicts(team.get("team_name"), state)
+        or affiliate_contradicts(team.get("club_name"), state)
+    ):
+        return None, "unplaced"
+    return state, how
+
+
 def state_facts(evidence, ev, teams, team_ids) -> dict[str, dict]:
     """What the states skill reads beside each state card's proposal, for the owner to see and never to decide
     it: its opponents' and club-mates' stored states, GotSport's recent answer, and the state its name points
@@ -380,18 +399,7 @@ def state_facts(evidence, ev, teams, team_ids) -> dict[str, dict]:
         mates = Counter(clubs.get(club_key(live.get("club_name")), {}))
         if held_state(live):
             mates[held_state(live)] -= 1
-        state, how = name_reading(team, evidence.locality_index)
-        # A town word can point outside the US (ON, Ontario), which the name pass reads as no state.
-        if state and state not in STATE_CODE_TO_NAME:
-            state, how = None, "none"
-        # A state word the name pass's own checks set aside (a place called after another state, an
-        # affiliate marker naming one) is no reading; shown as one, it would argue against a right card.
-        if state and (
-            names_a_place(team, state)
-            or affiliate_contradicts(team.get("team_name"), state)
-            or affiliate_contradicts(team.get("club_name"), state)
-        ):
-            state, how = None, "unplaced"
+        state, how = name_place(team, evidence.locality_index)
         facts[tid] = {
             "opponents": dict(Counter(s for s in opponents if s).most_common()),
             "opponents_total": len(opponents),
@@ -412,17 +420,19 @@ def card(stage, run, p, team, ev, providers, interest, facts=None) -> dict:
         "alike": alike_key(group, p, team),
         "interest": tid in interest,
         "change": {"field": p["field"], "old": p["old_value"], "new": p["new_value"]},
-        "why": change_why(p),
+        "why": change_why(stage, p),
         "team": team_block(team, ev, providers),
         **({"evidence": facts[tid]} if facts and tid in facts else {}),
     }
 
 
-def change_why(p: dict) -> str:
-    """What the reviewers found, where the week's club review reached the change, else the proposal's reason."""
+def change_why(stage: str, p: dict) -> str:
+    """What the reviewers found, where the week's club or state review reached the change, else the proposal's
+    reason."""
     review = p.get("review")
     if review:
-        return f"{CLUB_REVIEW_WORDS[review['verdict']].capitalize()}: {review['reason']}"
+        words = STATE_REVIEW_WORDS if stage == STATES else CLUB_REVIEW_WORDS
+        return f"{words[review['verdict']].capitalize()}: {review['reason']}"
     return p.get("reason") or ""
 
 
@@ -473,8 +483,8 @@ def auto_pair(p: dict) -> dict:
 
 
 def auto_change(p: dict) -> dict:
-    """What an automatic club card adds: whether the lane keeps the stored club, the review having found the
-    guess wrong, rather than writing the new one. The table holds every automatic card as Apply."""
+    """What an automatic club or state card adds: whether the lane keeps the stored value, the review having found
+    the change wrong, rather than writing the new one. The table holds every automatic card as Apply."""
     return {"keep_as_is": change_choice(p)["decision"] == DONT_APPLY}
 
 
@@ -603,15 +613,15 @@ def with_reviews(shown: list[dict], reviews: dict, ev) -> list[dict]:
     return reviewed
 
 
-def with_change_reviews(shown: list[dict], reviews: dict) -> tuple[list[dict], list[dict]]:
-    """Each club change with its review, where it has one; a guess the review did not reach is left off, as it is
-    with no review."""
+def with_change_reviews(stage: str, shown: list[dict], reviews: dict) -> tuple[list[dict], list[dict]]:
+    """Each club or state change with its review, where it has one; a club guess the review did not reach is left
+    off, as it is with no review, and any other change it did not reach routes by the rules alone."""
     kept, left_out = [], []
     for p in shown:
         review = reviews.get(change_key(p))
         if review:
             kept.append({**p, "review": review})
-        elif p["tier"] in WHOLE_TIERS[CLUBS]:
+        elif stage != CLUBS or p["tier"] in WHOLE_TIERS[CLUBS]:
             kept.append(p)
         else:
             left_out.append({**p, "why": listed_why(p)})
@@ -629,7 +639,7 @@ def build(
         script, what = REVIEWERS[stage]
         script = Path(script).name
         raise ValueError(f"its {what} are not reviewed yet: run {script} --execute first, as the autopilot does")
-    changes = change_reviews(folder) if stage == CLUBS else None
+    changes = change_reviews(folder) if stage in (CLUBS, STATES) else None
     selection = select(sb, folder, stage, changes is not None)
     shown, left_out, teams, ev = selection.shown, selection.left_out, selection.teams, selection.ev
     interest, evidence, reviews = selection.interest, selection.evidence, None
@@ -641,7 +651,7 @@ def build(
     else:
         signals = load_signals(sb, stage, folder, shown, evidence, selection.canonical)
         if changes is not None:
-            shown, unreached = with_change_reviews(shown, changes)
+            shown, unreached = with_change_reviews(stage, shown, changes)
             left_out = left_out + unreached
     settled = {proposal_key(p): why for p in shown if (why := sure_because(stage, p, signals))}
     auto = [p for p in shown if proposal_key(p) in settled][: caps.auto]
@@ -673,7 +683,7 @@ def build(
                 "n": n,
                 "sure": settled.get(proposal_key(p)),
                 **(auto_pair(p) if stage == MERGES and lane == AUTO else {}),
-                **(auto_change(p) if stage == CLUBS and lane == AUTO else {}),
+                **(auto_change(p) if stage in (CLUBS, STATES) and lane == AUTO else {}),
             }
             for n, p in enumerate(chosen, 1)
         ]

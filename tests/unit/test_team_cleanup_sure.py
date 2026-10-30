@@ -90,6 +90,33 @@ def test_an_undone_reviewed_club_change_is_never_sure_again():
     assert sure.sure_because("clubs", listed, _signals(reverted=[("t", "club_name", "Colorado EDGE")])) is None
 
 
+@pytest.mark.parametrize(
+    "verdict, held, sure_text",
+    [
+        ("apply", (), "reviewers found its own name settles it: the club name says Nevada"),
+        ("apply", ("t",), None),
+        ("reject", ("t",), "reviewers found the stored state right: the club name says Nevada"),
+        ("hold", (), None),
+    ],
+    ids=["apply", "apply-held", "reject", "hold"],
+)
+def test_a_reviewed_state_change_is_sure_by_its_verdict_and_an_apply_the_hold_check_holds_is_not(
+    verdict, held, sure_text
+):
+    """No evidence is read for a page of lock cards, so a review reaches the lane without it."""
+    reviewed = {**_state("t", "UT", "NV", tier="E", action="queue"), "review": {"verdict": verdict,
+                                                                                "reason": "the club name says Nevada"}}
+    lock_cards = sure.Signals(set(), set(held), None)
+
+    assert sure.sure_because("states", reviewed, lock_cards) == sure_text
+
+
+def test_an_undone_reviewed_state_change_is_never_sure_again():
+    reviewed = {**_state("t", "UT", "NV"), "review": {"verdict": "apply", "reason": "x"}}
+
+    assert sure.sure_because("states", reviewed, _signals(reverted=[("t", "state_code", "NV")])) is None
+
+
 def test_the_club_review_is_read_by_change_and_a_verdict_it_never_writes_stops_the_page(tmp_path):
     review = tmp_path / "review"
     review.mkdir()
@@ -328,20 +355,28 @@ def test_an_unreadable_ledger_stops_rather_than_reads_every_undo_as_none():
         sure.reverted_changes(db, "ages", SAME)
 
 
-def test_the_hold_check_reads_each_change_the_automatic_lane_may_take_against_its_team_s_provenance(tmp_path):
-    """A fill, or a GotSport correction, over a team an operator answered is held, as the applier's own hold step
-    holds it; a correction from the club never reaches the automatic lane, so it is not read."""
+def test_the_hold_check_reads_every_change_the_rules_would_apply_against_the_whole_snapshot(tmp_path):
+    """A change over a team an operator answered is held, as the applier's own hold step holds it, a club
+    correction included, since the week's review can send one to the automatic lane; a club the snapshot sends to
+    two states is held though only one of its teams is proposed; a change the rules only queue is not read."""
     store = tmp_path / "store"
     _reviewing(store)
     _states(store, [_decision("answered", None, "NV"), _decision("open", None, "NV"), _decision("moved", "UT", "NV"),
-                    _decision("set", "UT", "NV", tier="A")])  # fmt: skip
+                    _decision("set", "UT", "NV", tier="A"), _decision("queued", "UT", "NV", action="queue"),
+                    {**_decision("split-a", "UT", "NV"), "club_name": "Split FC"},
+                    {**_decision("split-b", "NV", "UT"), "club_name": "Split FC"}])  # fmt: skip
     db = _Db(teams=[{**_team("answered", state=None), "state_source": "operator"}, _team("open", state=None),
                     {**_team("moved", state="UT"), "state_source": "operator"},
-                    {**_team("set", state="UT"), "state_source": "operator"}])  # fmt: skip
+                    {**_team("set", state="UT"), "state_source": "operator"},
+                    {**_team("queued", state="UT"), "state_source": "operator"},
+                    _team("split-a", state="UT"), _team("split-b", state="NV")])  # fmt: skip
     proposals = [_state("answered", None, "NV"), _state("open", None, "NV"), _state("moved", "UT", "NV"),
-                 _state("set", "UT", "NV", tier="A")]  # fmt: skip
+                 _state("set", "UT", "NV", tier="A"), _state("queued", "UT", "NV", action="queue"),
+                 _state("split-a", "UT", "NV")]  # fmt: skip
 
-    assert sure.held_changes(db, stage_dir(store, RUN, "states"), proposals) == {"answered", "set"}
+    held = sure.held_changes(db, stage_dir(store, RUN, "states"), proposals)
+
+    assert held == {"answered", "moved", "set", "split-a"}
 
 
 def test_a_page_of_lock_cards_reads_no_state_evidence():
