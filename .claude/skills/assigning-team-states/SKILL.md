@@ -416,6 +416,9 @@ actor and the run's window puts the teams back, but not the queue: the rows it a
 rejected stay settled, and the sweep will not raise those proposals again until a person
 reopens them.
 
+The weekly cleanup's unattended reviewers work this queue with no person to ask, and judge by
+**Deciding without a person** below.
+
 ## Step 7: Record what ran, and what you could not decide
 
 Note the actor and the time window you used, so the batch can be found later. Then look at
@@ -432,6 +435,32 @@ rather than overwriting a held row you agreed with. Use it when the evidence a
 person would use is not evidence the tool may act on — who a team plays is the clearest
 example, and it is excluded from the tiers precisely because acting on it is what filled this
 database with wrong states.
+
+## Deciding without a person
+
+The owner overruled four of five automated state calls checked on 2026-10-28, each made from
+evidence the tiers count as strong: where a team played, a GotSport answer, a league tag in its
+name. A state is settled unattended only two ways:
+
+- **The owner's own answer**: an operator's `--set`, an approved queue row, or the owner's
+  earlier choice on the cleanup page, for the team or for its club.
+- **The team's or club's own name**, as the name pass reads it (`team` or `club`, never only a
+  town word). A club named for its state beats every other signal, a conference tag in the
+  team name included.
+
+Everything else is weaker unattended than its tier suggests: where the team played (teams
+travel to tournaments), a lone GotSport answer (it can be stale), the club's own count (a
+uniformly mislabelled club agrees with itself), a town word, and a league or conference tag (a
+club can play in a neighbour's conference). So with no person deciding:
+
+- make a change only when one of the two settles the proposed state;
+- decline a move nothing settles when the stored state agrees with the club's own name or with
+  the owner's answers on its other teams;
+- leave everything else for a person.
+
+This outranks the tier order of [references/evidence-tiers.md](references/evidence-tiers.md)
+whenever nobody decides. It leaves the sweep's own rules lane alone: a Tier A correction from
+GotSport's record still applies on its own (owner, 2026-10-29).
 
 ## References
 

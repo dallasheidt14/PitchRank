@@ -134,6 +134,7 @@ APPLIER_INPUTS = {CLUBS: SCOPED_CLUBS, STATES: SCOPED_STATES, AGES: AGE_PLAN, ME
 # The stages whose page waits for a review: the script that runs it, and what it reviews.
 REVIEWERS = {
     CLUBS: ("scripts/team_cleanup/review_clubs.py", "guesses"),
+    STATES: ("scripts/team_cleanup/review_states.py", "state changes"),
     MERGES: ("scripts/team_cleanup/review_merges.py", "pairs"),
 }
 AGE_GROUPS_TO_APPLY = "1,2,3"

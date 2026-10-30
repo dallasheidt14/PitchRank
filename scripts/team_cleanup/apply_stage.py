@@ -1508,6 +1508,13 @@ def apply_stage(sb, store: Path, run_id: str, stage: str, lane: str, outside_win
     with acquire_apply_lock(sb, store, run_id) as holder:
         folder, marker = open_stage(store, run_id, stage, lane)
         rows = read_json(folder / DECISIONS_FILE)
+        # approve_team_state records the owner's approval, which the sweep then ranks above every tier.
+        approving = [row["team_name"] for row in queue_cards(rows) if lane == AUTO and row["decision"] == APPLY]
+        if approving:
+            raise SystemExit(
+                f"Stopped: the automatic lane would approve a state change the rules only queued, which only the "
+                f"owner may: {', '.join(repr(name) for name in approving[:10])}"
+            )
         # With no team to write and no queued card to settle, the apply writes only decision rows, and the
         # other-writer check guards team, state and game writes.
         if vetted_changes(folder, stage) or (stage == STATES and queue_cards(rows)):

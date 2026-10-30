@@ -10,7 +10,8 @@ and writes nothing to the run or the database; --execute does it.
                 --pin-code the checkout first moves to origin/main, and the run keeps that code
   proposing     propose again, which resumes where the last attempt stopped
   reviewing     each stage: build and publish its page (clubs once review_clubs.py has reviewed its guesses,
-                merges once review_merges.py has reviewed its pairs, which can take hours), then collect and
+                states once review_states.py has reviewed its changes, merges once review_merges.py has
+                reviewed its pairs, which can take hours), then collect and
                 apply its automatic lane
                 once every page is up: email the owner that the review is ready
                 at the review deadline (config/team_cleanup.json), mark the review done for the owner,

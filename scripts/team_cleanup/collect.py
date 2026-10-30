@@ -40,7 +40,7 @@ not applied, replaces all three files; while an apply holds the run on this mach
 With --lane auto it collects the stage's automatic lane instead, into auto/: every change the
 manifest's `auto` lists, decided Apply with no choice to read, under the same three files. A pair the
 week's review settled takes the review's choice: Keep separate for two teams, and its swap. A club guess
-the week's review found wrong is decided Don't apply.
+or state change the week's review found wrong is decided Don't apply.
 
     python scripts/team_cleanup/collect.py --run 2026-10-14-nv --stage states --decisions <out_dir>
     python scripts/team_cleanup/collect.py --run 2026-10-14-nv --stage states --from-db
@@ -294,7 +294,7 @@ def auto_choice(stage: str, proposal: dict) -> dict:
     """The automatic lane's choice on a change: the week's review's, where one decided it, else Apply."""
     if stage == MERGES:
         return review_choice(proposal)
-    if stage == CLUBS:
+    if stage in (CLUBS, STATES):
         return change_choice(proposal)
     return {"decision": APPLY}
 

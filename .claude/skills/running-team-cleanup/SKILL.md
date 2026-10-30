@@ -33,8 +33,9 @@ changes per stage). Each hourly tick, at :17, takes the open run as far as it ca
    `origin/main` and proposes the week over every team (`propose_week.py --states ALL`, run
    `<date>-all`). The run keeps that commit; a merge mid-week does not change its rules.
 2. **Each stage:** builds its page and publishes it to the website (`pages.py --publish --execute`),
-   clubs only once its guesses are reviewed (`review_clubs.py --execute`) and merges once its pairs are
-   (`review_merges.py --execute`), both below, then collects and,
+   clubs only once its guesses are reviewed (`review_clubs.py --execute`), states once its changes are
+   (`review_states.py --execute`) and merges once its pairs are (`review_merges.py --execute`), all
+   below, then collects and,
    inside the window, applies the automatic lane (`--lane auto`). Once every page
    is up it emails the owner that the review is ready.
 3. **The owner** decides the cards at `https://www.pitchrank.io/mission-control/cleanup` and presses
@@ -44,8 +45,8 @@ changes per stage). Each hourly tick, at :17, takes the open run as far as it ca
    applies them inside the window, closes the run (`end_run.py --done`) and emails a summary.
 
 A step that must wait (exit 75: outside the window, another writer running, another holder of the
-run, for states the other lane's batch under four minutes old, or for clubs or merges a review with
-slices left for the next tick) holds only its own stage until a
+run, for states the other lane's batch under four minutes old, or for clubs, states or merges a review
+with slices left for the next tick) holds only its own stage until a
 later tick. A step that fails fails the tick and is retried. Anything blocked for a day, the week's
 start included, emails the owner once; a failed move to `origin/main` holds the week rather than
 proposing on older code. It never abandons a run. Emails need `CLEANUP_OWNER_EMAIL` and
@@ -69,6 +70,29 @@ second reviewer with the opposite prior. The page then routes each reviewed chan
 automatic lane; **reject** to the automatic lane kept as it is (the card's `keep_as_is`), recorded Don't apply
 so the scan's guess stops coming back; **hold** to a card giving the reviewers' reason. A listed guess the
 review did not reach waits for next week's. A change declined, stale, moved or undone is never reviewed.
+
+## States
+
+Before the page, `scripts/team_cleanup/review_states.py` reviews every state change the rules leave to
+a person, up to `page_caps.states.review` a week: the club-count corrections no rule makes sure, the
+changes the sweep only queues, and the disagreements that propose the state a team already holds. Its
+reviewers are the merges' locked-down ones, judging by the `assigning-team-states` skill itself, packed
+into `<run>/states/review/skill/` as merges pack theirs, and above all by its **Deciding without a person**: a state
+is settled unattended only by the owner's own answer or the team's or club's own name (owner,
+2026-10-28/29). The evidence is written into each slice with the full key, since the lookups' public key
+cannot read GotSport's answers, the review queue, the state ledger or the owner's earlier choices; where
+the team played is left out.
+
+Each change says what its reviewer may answer, and `read_verdicts` turns anything else into a hold: an
+**apply** only where the rules would apply the change themselves and the name pass places the team there,
+never on a change the rules only queue, since `approve_team_state` records the owner's approval, which
+the sweep ranks above every tier (`apply_stage.py` also refuses one in the automatic lane); and no
+**reject** of a blank state the rules fill, since the Wednesday fill job writes it whatever is declined.
+A reject goes to a second reviewer with the opposite prior. The page then routes each reviewed change:
+**apply** to the automatic lane unless the hold check holds it; **reject** to the automatic lane kept as
+it is, recorded Don't apply, which for a queued change also rejects its review row so the sweep stops
+filing it; **hold** to a card giving the reviewers' reason. A change the review did not reach is a card as
+before. Tier A's changes from GotSport's own record stay sure and are not reviewed (owner, 2026-10-29).
 
 ## Merges
 
@@ -220,7 +244,7 @@ python scripts/team_cleanup/propose_week.py --states ALL --date 2026-10-21
 
 ### Step 2: Build and publish every proposed stage's page
 
-Review the club guesses and the duplicate pairs before their pages. Each first command says what it
+Review the club guesses, the state changes and the duplicate pairs before their pages. Each first command says what it
 would queue or review; each second, the owner's to run, queues and reviews them, at most 10 slices a run
 (an hour or more each; rerun it while it reports slices waiting for a retry or for the next run). The
 reviewers' lookups read `SUPABASE_URL` and the public `SUPABASE_KEY`, so both must be set:
@@ -228,6 +252,8 @@ reviewers' lookups read `SUPABASE_URL` and the public `SUPABASE_KEY`, so both mu
 ```bash
 python scripts/team_cleanup/review_clubs.py --run 2026-10-21-all --stage clubs
 python scripts/team_cleanup/review_clubs.py --run 2026-10-21-all --stage clubs --execute
+python scripts/team_cleanup/review_states.py --run 2026-10-21-all --stage states
+python scripts/team_cleanup/review_states.py --run 2026-10-21-all --stage states --execute
 python scripts/team_cleanup/review_merges.py --run 2026-10-21-all --stage merges
 python scripts/team_cleanup/review_merges.py --run 2026-10-21-all --stage merges --execute
 ```
@@ -425,6 +451,6 @@ closes only by abandoning it.
 ## Not in code
 
 A second lap (re-proposing what a stage's writes uncovered), the post-Monday check of how the week's
-rankings moved the changed teams, and reviewers for the states and ages proposals do not exist in
-code; only clubs and merges have them (`review_clubs.py` and `review_merges.py`, under **Clubs** and
-**Merges**). Do not improvise them; tell the owner when a request needs one.
+rankings moved the changed teams, and a reviewer for the ages proposals do not exist in code; clubs,
+states and merges have them (`review_clubs.py`, `review_states.py` and `review_merges.py`, under
+**Clubs**, **States** and **Merges**). Do not improvise them; tell the owner when a request needs one.

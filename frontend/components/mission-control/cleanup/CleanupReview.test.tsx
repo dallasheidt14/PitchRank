@@ -576,6 +576,30 @@ describe('the team cleanup review page', () => {
     );
   });
 
+  it('lists a flagged state the reviewers found right as kept, naming it once', async () => {
+    const kept = review();
+    const [stage] = kept.stages;
+    stage.auto = [
+      makeCleanupCardRow({
+        card_id: 'a1',
+        lane: 'auto',
+        decision: 'apply',
+        card: {
+          team: team('Sting Royal 2012G'),
+          change: { field: 'state_code', old: 'ID', new: 'ID' },
+          keep_as_is: true,
+          sure: 'reviewers found the stored state right: the club name says Idaho',
+        },
+      }),
+    ];
+    serve(kept);
+    await render();
+
+    expect(container!.querySelector('[data-testid="cleanup-auto"] li')!.textContent).toBe(
+      'Sting Royal 2012G: State kept as ID (reviewers found the stored state right: the club name says Idaho)'
+    );
+  });
+
   it("asks for a lane's undo once confirmed, then shows it waiting and offers it no more", async () => {
     await render();
     const undo = container!.querySelector<HTMLElement>('[data-testid="cleanup-undo"]')!;
