@@ -301,6 +301,17 @@ def test_a_first_time_pair_s_merge_needs_no_second_reviewer(tmp_path):
     assert [r["verdict"] for r in _final(review)] == ["merge", "hold"]
 
 
+def test_a_slice_queued_before_earlier_holds_were_recorded_still_settles_its_merges_on_one_reviewer(tmp_path):
+    """A review the previous version queued and this one resumes: its rows carry no ``held_before``."""
+    rows = [{k: v for k, v in row.items() if k != "held_before"} for row in _rows(("m1", "k1"))]
+    review = _slice(tmp_path, rows)
+    reviewers = _Reviewers([[_answer(rows[0])]])
+
+    assert rm.review_slice(review, "slice_01", 0, CLAUDE, reviewers) == (True, 0)
+    assert reviewers.kinds() == ["review"]
+    assert [r["verdict"] for r in _final(review)] == ["merge"]
+
+
 def test_the_pairs_held_before_are_an_earlier_run_s_holds_either_way_round(tmp_path):
     runs = tmp_path / "runs"
     for run, rows in (
