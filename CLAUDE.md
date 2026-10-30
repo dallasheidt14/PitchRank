@@ -403,6 +403,7 @@ import, so a process running across Aug 1 keeps last season's map until restart.
 | Affinity UT | `affinity_ut` | HTML scraping | Utah (UYSA) leagues through the OR scraper; games filed by team-name age, keeps unplayed fixtures |
 | Soccer Events Group | `soccereventsgroup` | JSON API + bracket HTML | Tournament brackets only (pool play is unpublished); operator-run per event via `scripts/import_soccereventsgroup_event.py` |
 | Athletes2Events | `athletes2events` | HTML scraping | White-label tournament sites, one subdomain per host club; operator-run per event via `scripts/import_athletes2events_event.py`, which takes the event URL and reads the host from it |
+| Demosphere | `demosphere` | HTML scraping | "Elements" league sites, one site id per league: NCSL (Northern Virginia, with DC and Maryland clubs) is `80738`; scored games only; operator-run via `scripts/import_demosphere.py`, which walks outward from a seed club |
 | YSSL | `yssl` | HTML scraping | Chicago-area boys league (Young Sportsmen's), walked club by club; teams take their club's state from the club map (IL, plus four NW Indiana clubs as IN), scored games only, weekly via `yssl-scraper.yml`. Clubs translate through the reviewed `config/yssl_club_map.csv` |
 | Tourney Central | `tourneycentral` | HTML scraping | Ohio/Michigan tournament host, one subdomain per tournament, current year only; operator-run per tournament via `scripts/import_tourneycentral_event.py`, which takes any page of the tournament and reads the host from it |
 

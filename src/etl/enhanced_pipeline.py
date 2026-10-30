@@ -380,6 +380,17 @@ class EnhancedETLPipeline:
                 alias_cache=self.alias_cache,
                 dry_run=self.dry_run,
             )
+        elif self.provider_code.lower() == "demosphere":
+            from src.models.demosphere_matcher import DemosphereGameMatcher
+
+            # No registration_mode: only the roster pass in import_demosphere.py creates teams.
+            logger.info("Using DemosphereGameMatcher (alias-only; teams come from the roster pass)")
+            self.matcher = DemosphereGameMatcher(
+                self.supabase,
+                provider_id=self.provider_id,
+                alias_cache=self.alias_cache,
+                dry_run=self.dry_run,
+            )
         elif self.provider_code.lower() == "playmetrics":
             from src.models.playmetrics_matcher import PlayMetricsGameMatcher
 

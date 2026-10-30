@@ -844,6 +844,57 @@ Warrior Fall Classic (`wfc.`) is the event it was built against.
   leaves them in the name, so the club's stored squads read as other squads and duplicate. The
   matcher gates candidates on the club field and, when that matches none, on the written club.
 
+## Demosphere Pages
+
+Demosphere ("Elements", `elements.demosphere.com`) hosts league sites keyed by a numeric site id. NCSL
+(Northern Virginia, with some DC and Maryland clubs) is `80738`; Fall 2026 is the season the driver was built
+against. Pages are server-rendered HTML and answer `requests` sent with a browser User-Agent, no proxy and no bot
+challenge. `scripts/import_demosphere.py` is the driver; its `LEAGUES` map holds each site's league name, state and
+seed club. `robots.txt` disallows `/scripts/` and `/_sin/`, and venue links point into `/scripts/`: never follow one.
+
+### Pages and ids
+
+- `/<site>/schedules/<Season>/<division key>.html` is the source. `td.hdr` and a `var tgname` carry the division
+  name (`GU13 Division 4`), a `tr.gm-hdr-5d1h` row dates each day ("Sat, September 12, 2026"), and each
+  `tr.sch-main-gm` is a game with `data-gamekey`. Team cells are `td.schedtm1` (home) and `td.schedtm2` (away)
+  with `data-tmkey` (team key) and `data-cbkey` (club key); the text is the team code and the full name
+  (`NG14107 Villarreal VA Azul G2013/14`). The score cell reads `2-1`, `FFT` for a forfeit, or `vs` or nothing
+  for an unplayed game.
+- `/<site>/teams/club/<club key>.html` names the club (`h1.dii-hdr-cb`, the first text node) and links every
+  team as `/teams/<season key>/<team key>-<division key>/TEAM.html`. It lists two seasons' teams; only the
+  links carrying the current season key, read from the seed club's schedule page, are walked.
+- `/<site>/clubs/schedule/<seed club key>.html` is fetched once, for the seed club only. It supplies the season
+  key and proves the site is showing the requested `--season`: the driver stops when it links no
+  `/schedules/<Season>/` division.
+- A bare directory (`/<site>/schedules/<Season>`) answers 403 and `/<Season>.html` answers 300. Neither is a
+  block, and neither lists divisions. NCSL has no league-wide division index that plain `requests` can read, so
+  the driver walks outward from the seed club: a division page carries each team's club key, and a club page
+  links its divisions.
+- No page has a state field.
+
+### Reading a Demosphere team
+
+- **Age** comes from the team name, read through the label key in CLAUDE.md; the division's U-age fills in only
+  where the name gives no usable age (owner ruling 2026-10-29). The division also bounds the name, as in
+  Athletes2Events: a team plays up and never down, so a `B12` tag in a BU12 division is U12 (not birth year 2012)
+  and a bare `2014` there is 2015, while a bare `2014` in a GU13 division could be U13 or U12 and stays U13. A
+  four-digit `B2012` older than its division, a name older than its division and a name with two U-ages leave the
+  team out.
+- **The listed club is not always the club.** VISTA is an association whose listed club ("VA Indpt Soccer Team
+  Assoc - Travel") shares no distinctive word with the clubs under it ("VISTA HL92 Soccer Academy"). The driver
+  uses the listed club only when the team name opens with one of its distinctive words (Soccer, FC and United
+  do not count) and otherwise cuts the club from the name, after cutting a glued birth year (`2011G`, `14B`) or
+  band (`13-14`) off it.
+- **State.** A team takes its club's state when the club's stored teams agree on one, and the league's when none
+  is stored. A name carrying another state's tag (`(MD)`), or a club whose stored teams disagree with each
+  other, is held for a person: NCSL spans Virginia, Maryland and DC clubs.
+- A game between two boards is imported and also listed in `*_cross_age.csv`, as in Importing Athletes2Events
+  games above. `off_board_links` refuses a link whose stored board differs from the one this run files the team on.
+- The provider team id is `<site>-<Season>-<team key>` (`80738-Fall2026-114577143`). The season label is in it
+  because a team key may outlive the squad behind it, so each season starts unlinked and re-matches by name.
+- Fixtures under `tests/fixtures/demosphere/` have club contacts' names, emails and phone numbers replaced by
+  placeholders; a test fails on any contact detail that is not a placeholder.
+
 ## Provider Matcher Name Parsing
 
 Rules for a provider matcher that gates fuzzy candidates on the team name

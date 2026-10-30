@@ -719,10 +719,11 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Status**: deferred
 - **Type**: investigate
 - **Category**: feature
-- **Where**: new scraper against `https://elements.demosphere.com/74274/schedules/Fall2026/`
+- **Where**: `scripts/import_demosphere.py` (a `LEAGUES` row for `74274`)
 - **Why**: A WA league PitchRank does not ingest, on Demosphere (OttoSport) rather than Affinity. The public page `northpugetsoundleague.ottosport.ai/fall-2026-schedule` renders nothing server-side; the content is an embedded Demosphere element at the URL above, which is clean static HTML needing no JS — an index of ~50 divisions (BU9-BU19, GU9-GU19) each linking to a per-division schedule page. Division labels are U-age with no birth year (`BU13 Division 1`), and the season is unambiguous from the URL path, so cohorting is safe. **Blocked on scores**: the game tables carry only `GAME# | Time | Home | Away | Location` — no score column exists, so there is nothing to import yet. Season opens 2026-09-12; re-check a week or two after to see whether scores land in the same table or a separate results view, which decides the scope. Verified live 2026-08-31.
 - **Noted**: 2026-08-31
 - **Trigger**: Demosphere publishes played scores for North Puget Sound League. The season opens 2026-09-12 and the schedule endpoint returned HTTP 403 on 2026-09-08, so there is nothing to import yet. Confirmed 2026-09-08 that no Demosphere/OttoSport scraper exists anywhere in the repo, so this is not a duplicate.
+- **Update (2026-10-29)**: `scripts/import_demosphere.py` takes a site id and walks outward from a seed club, so it needs no division index; NCSL (`80738`) is its only `LEAGUES` entry, and this league needs a row with a seed club key. NCSL also answers 403 for a bare directory (`/80738/schedules/Fall2026`), so the 2026-09-08 403 here is likely the site's normal answer for that path rather than a block. Still blocked on scores: a game row with no score cell reads as unplayed, so a run against this site today would import nothing and exit 0.
 
 ### Settle whether subscription items are read as a list or as `data[0]`
 
@@ -2540,3 +2541,25 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `frontend/app/api/insights/[teamId]/route.ts` (`GET`: `fetchAllRows`, `cohortPageSize`, the two `rankings_view` cohort queries ordered by `power_score_final`)
 - **Why**: Pages are ordered by `power_score_final`, which is not unique, so ties at a 1,000-row boundary can skip or repeat rows. The descending `.order(...)` sets no nulls option, and Postgres sorts nulls first on a descending order, so an Active team with a null score would be counted ahead of the team in the state-rank `findIndex` (whether any Active row has a null score was not checked). The comment saying PostgREST caps un-ranged selects at 1,000 rows is wrong for the hosted project (200,000; `CLAUDE.md` Common Pitfalls) and the "v53e" wording in the Active-teams comments is stale now that production runs Glicko-2. `cohortPageSize` is camelCase where sibling constants are UPPER_SNAKE. All of this predates the parallel-queries change, which moved the code unchanged.
 - **Noted**: 2026-10-29
+
+### Share the club-name cut and the age-reason wording across the roster-pass drivers
+
+- **ID**: IMP-388
+- **Status**: open
+- **Type**: plan
+- **Category**: refactor
+- **Where**: `scripts/import_demosphere.py` (`_before_age`, `club_for`, `team_age`), `scripts/import_tourneycentral_event.py` (`club_for`), `scripts/import_athletes2events_event.py` (`split_club`, `NO_AGE_IN_NAME`, `ODD_YEAR_SPAN`)
+- **Why**: `split_club` stops at a U-age token or a two-year band but not at a glued birth year or a Boys/Girls word, so each driver patches its output its own way. Measured 2026-10-30 on two names: `VISTA Blackwatch 2011G` gives the club `VISTA Blackwatch 2011G` in both the Tourney Central and Athletes2Events drivers and `VISTA Blackwatch` in Demosphere's; `GSC Boys 13/14 Premier` gives `GSC Boys` in Tourney Central, the whole name in Athletes2Events, and `GSC` in Demosphere. `age_from_name` also reports its outcome only as free text ("B12 read as U12", "birth year 2014 could be ..."), which the Demosphere driver tests with `startswith` and a regex-free prefix; rewording it there would silently turn that rule off.
+- **Noted**: 2026-10-30
+- **Trigger**: The next change to club extraction in any of the three drivers, or a duplicate team created under a club carrying an age fragment.
+
+### Move the roster-pass helpers copied across the provider drivers into one module
+
+- **ID**: IMP-389
+- **Status**: open
+- **Type**: plan
+- **Category**: refactor
+- **Where**: `register_teams`, `off_board_links`, `pending_reviews`, `shared_links` and `_for_spreadsheets` in `scripts/import_yssl.py`, `import_tourneycentral_event.py`, `import_athletes2events_event.py`, `import_soccereventsgroup_event.py` and `import_demosphere.py`
+- **Why**: Each driver keeps its own copy because the row type differs (`a2e_team_id`, `tc_team_id`, `team_code`, `provider_team_id`) and the provider code and wording are module constants. The copies already drift: the Demosphere driver imports the Tourney Central spreadsheet guard and age-reason wording but keeps its own `shared_links` and `pending_reviews`, and the Athletes2Events `shared_links` names Athletes2Events in a reason shown for other providers. A shared module keyed on a `provider_team_id` attribute and a provider-code parameter would remove five copies of each.
+- **Noted**: 2026-10-30
+- **Trigger**: A fix to any of these functions that has to land in more than one driver.
