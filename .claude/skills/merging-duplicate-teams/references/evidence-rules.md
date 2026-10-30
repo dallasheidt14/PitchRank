@@ -106,6 +106,13 @@ A U-age covers **two** birth years. `normalize_team_names._resolve_band` defines
 2016/2015, the cohort also written `15/16`, `2015/16` and `2015/2016`. `U19` additionally
 covers 2009 under the U18 fold.
 
+A bare birth year (`2014`, `14B`) fits two cohorts: it is the younger year of one two-year band and
+the older year of the next. A two-year band or a current U-age states one. A name's stated age decides
+that row's cohort even against its own stored cohort, which is then the value in error. So two names
+are different cohorts only when no reading of them gives one cohort; when a bare year fits the other
+name under one reading, settle it from this season's opponents: two rows whose opponents this season
+sit in different cohorts are two squads, and a pair whose opponents do not settle it is held.
+
 `cohort_of` resolves a label to `(SEASON+1) − N` alone, the band's younger year, for each
 season that side's games fall in. Compare the resulting birth-year sets with that in mind: a
 label against a written band overlaps where it should equal, and the pair reaches review rather
