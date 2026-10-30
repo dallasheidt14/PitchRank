@@ -6,22 +6,28 @@ evidence, so the owner sees only the pairs they could not settle. The first run 
 <run>/merges/review/; each run then reviews up to RUN_SLICES of the slices still queued, the rest waiting
 for the next run:
 
-  BRIEF.md, RECHECK.md      the reviewers' briefs, from assets/, with this season's cohorts and the lookup
+  BRIEF.md, CONFIRM.md,     the reviewers' briefs, from assets/, with this season's cohorts and the lookup
+  RECHECK.md
+  skill/                    the reviewers' rules: the merging-duplicate-teams skill's text as the run's checkout
+                            held it, SKILL.md and references/, and VERSION naming which
   slice_NN.json             up to 50 pairs, in the order the page's caps keep them, each labelled
   slice_NN.md               their evidence
   slice_NN_review.json      each pair with its final verdict (merge, hold or reject) and swap, which
                             pages.py routes by
-  answers/                  a folder per reviewer (slice_NN-review/, slice_NN-recheck/) holding what it
-                            reads and the one answer it writes, the failed attempts, and every reviewer's log
+  answers/                  a folder per reviewer (slice_NN-review/, slice_NN-confirm/, slice_NN-recheck/)
+                            holding what it reads and the one answer it writes, the failed attempts, and every
+                            reviewer's log
 
 The review takes the pairs the page would show that need one (page_caps.merges.review a week); the rest wait
 for a later week. A reviewer is headless Claude Code (`claude -p`) working in its own folder: it loads none of
 the user's settings, MCP servers or memory, reads only its folder and scripts/team_cleanup/, writes only its one
 answer, runs no program but the read-only lookups (review_lookup.py), and its environment holds only the public
-database key. Each reject goes to a second reviewer with the opposite prior, which never sees the first one's
-answer, and a reject it does not uphold becomes a hold, never a merge. A slice whose reviewer fails is retried
-on the next run; after three failed attempts, a slice whose review never came back is all holds, and one whose
-recheck never came back holds its rejects, so the week goes on and nothing unreviewed merges.
+database key. A merge of a pair an earlier run's review held goes to a second reviewer who assumes it is wrong,
+since a held pair comes back every week and one lucky run could otherwise merge it, and each reject to one with
+the opposite prior; neither sees the first one's answer, and a merge it does not confirm, or a reject it does not
+uphold, becomes a hold. A slice whose reviewer fails is retried on the next run; after three failed attempts, a
+slice whose review never came back is all holds, and one whose second reviewers never came back holds the merges
+and rejects they did not answer, so the week goes on.
 
 Without --execute it reads the pairs and says what it would do, writing nothing.
 
@@ -32,6 +38,7 @@ Without --execute it reads the pairs and says what it would do, writing nothing.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shlex
@@ -75,18 +82,27 @@ from scripts.team_cleanup.sure import sure_because  # noqa: E402
 from src.tournaments.storage._io import read_json, write_json  # noqa: E402
 
 ASSETS = Path(__file__).resolve().parent / "assets"
-BRIEFS = {"BRIEF.md": ASSETS / "merge_review_brief.md", "RECHECK.md": ASSETS / "merge_recheck_brief.md"}
+BRIEFS = {
+    "BRIEF.md": ASSETS / "merge_review_brief.md",
+    "CONFIRM.md": ASSETS / "merge_confirm_brief.md",
+    "RECHECK.md": ASSETS / "merge_recheck_brief.md",
+}
+SKILLS = ROOT / ".claude" / "skills"
+MERGE_SKILL = "merging-duplicate-teams"
+SKILL_DIR = "skill"
+VERSION_FILE = "VERSION"
 ANSWERS_DIR = "answers"
 ATTEMPTS_FILE = "attempts.json"
-READS = {"review": ("BRIEF.md",), "recheck": ("BRIEF.md", "RECHECK.md")}
-OUTPUT = {"review": "verdicts.json", "recheck": "recheck.json"}
+READS = {"review": ("BRIEF.md",), "confirm": ("BRIEF.md", "CONFIRM.md"), "recheck": ("BRIEF.md", "RECHECK.md")}
+OUTPUT = {"review": "verdicts.json", "confirm": "confirm.json", "recheck": "recheck.json"}
 SLICE_PAIRS = 50
 PARALLEL = 10
 ATTEMPTS = 3
 REVIEWER_TIMEOUT_SECONDS = 40 * 60
-# Slices one run reviews: two waves, each reviewed and rechecked, stay inside the autopilot step's four hours even
-# at the reviewer timeout, so no run is stopped with its reviewers still at work; the rest wait for the next run.
-RUN_SLICES = 2 * PARALLEL
+# Slices one run reviews: one wave, each slice reviewed, its merges confirmed and its rejects rechecked, stays inside
+# the autopilot step's four hours even at the reviewer timeout, so no run is stopped with its reviewers still at work;
+# the rest wait for the next run.
+RUN_SLICES = PARALLEL
 MODEL = "opus"
 LOOKUP = (Path(__file__).resolve().parent / "review_lookup.py").as_posix()
 # The lookup's own folder is a working directory too: with reads outside them blocked, Claude Code also
@@ -161,9 +177,10 @@ def evidence_blocks(sb, pairs: list[dict], chosen: Selection) -> list[str]:
     for a in _fetch(sb, "team_alias_map", alias_cols, "team_id_master", ids, "id"):
         aliases[a["team_id_master"]].append(f"{providers.get(a['provider_id'], '?')}:{a['provider_team_id']}")
     # A row that already absorbed another cohort's registration is two squads before this merge adds a third.
-    absorbed = defaultdict(list)
+    absorbed, absorbed_name = defaultdict(list), {}
     for t in _fetch(sb, "teams", TEAM_COLS, "team_id_master", read_ids - ids, "team_id_master"):
-        absorbed[canonical(t["team_id_master"])].append(t["team_name_original"] or t["team_name"])
+        absorbed_name[t["team_id_master"]] = t["team_name_original"] or t["team_name"]
+        absorbed[canonical(t["team_id_master"])].append(absorbed_name[t["team_id_master"]])
 
     played, self_play = defaultdict(list), Counter()
     opponents = set()
@@ -172,14 +189,14 @@ def evidence_blocks(sb, pairs: list[dict], chosen: Selection) -> list[str]:
         if home and home == away:
             self_play[home] += 1
             continue
-        for me, them, mine, theirs, registration in (
-            (home, away, g["home_score"], g["away_score"], g["home_provider_id"]),
-            (away, home, g["away_score"], g["home_score"], g["away_provider_id"]),
+        for me, raw, them, mine, theirs, registration in (
+            (home, g["home_team_master_id"], away, g["home_score"], g["away_score"], g["home_provider_id"]),
+            (away, g["away_team_master_id"], home, g["away_score"], g["home_score"], g["away_provider_id"]),
         ):
             if me in ids:
                 played[me].append(
                     {"date": g["game_date"], "opponent": them, "score": f"{mine}-{theirs}", "event": event_of(g),
-                     "excluded": g["is_excluded"], "registration": registration}
+                     "excluded": g["is_excluded"], "registration": registration, "via": None if raw == me else raw}
                 )  # fmt: skip
                 if them:
                     opponents.add(them)
@@ -202,7 +219,11 @@ def evidence_blocks(sb, pairs: list[dict], chosen: Selection) -> list[str]:
         for g in counted[team]:
             events_on[team][g["date"]].add(g["event"])
 
-    def row_lines(role: str, team_id: str) -> list[str]:
+    def game_line(g: dict) -> str:
+        opponent = json.dumps(label(others.get(g["opponent"])))
+        return f"     {g['date']} vs {opponent} {g['score']} {json.dumps(g['event'])}"
+
+    def row_lines(role: str, team_id: str, shared: list[str]) -> list[str]:
         t = teams.get(team_id)
         if t is None:
             return [f"{role}: row not found"]
@@ -221,22 +242,31 @@ def evidence_blocks(sb, pairs: list[dict], chosen: Selection) -> list[str]:
                 registrations_on[g["date"]].add(g["registration"])
         doubled = sorted(d for d, on in events_on[team_id].items() if len(on) > 1)
         split = sorted(d for d, on in registrations_on.items() if len(on) > 1)
+        events_of_day = {d: " / ".join(json.dumps(e) for e in sorted(events_on[team_id][d])) for d in doubled[:3]}
         lines = [
-            f"{role}: {t['team_name']} | registered: {t['team_name_original'] or '-'} | club: {t['club_name']} "
-            f"| {providers.get(t['provider_id'], '?')}:{t['provider_team_id']} "
+            f"{role}: {json.dumps(t['team_name'])} | registered: {json.dumps(t['team_name_original'])} "
+            f"| club: {json.dumps(t['club_name'])} | {providers.get(t['provider_id'], '?')}:{t['provider_team_id']} "
             f"| stored {t['age_group']} {t['gender']} {t['state_code']} "
             f"| aliases: {', '.join(aliases[team_id]) or '-'}",
             f"   games {len(mine)} (this season {sum(g['date'] >= SEASON_START for g in mine)}, "
             f"excluded {len(played[team_id]) - len(mine)}) {span} | self-play {self_play[team_id]} "
-            f"| events: {'; '.join(f'{e} x{n}' for e, n in events) or '-'} "
+            f"| events: {'; '.join(f'{json.dumps(e)} x{n}' for e, n in events) or '-'} "
             f"| opponent cohorts: {', '.join(f'{c} x{n}' for c, n in cohorts) or '-'}",
-            f"   merged into it earlier: {'; '.join(absorbed[team_id]) or 'none'} "
+            f"   merged into it earlier: {'; '.join(json.dumps(name) for name in absorbed[team_id]) or 'none'} "
             f"| days it played in two events: {len(doubled)} "
-            + "; ".join(f"{d} ({' / '.join(sorted(events_on[team_id][d]))})" for d in doubled[:3])
+            + "; ".join(f"{d} ({events})" for d, events in events_of_day.items())
             + f" | days two of its registrations played: {len(split)} {split[:3]}",
         ]
-        for g in sorted(mine, key=lambda g: g["date"])[-LAST_GAMES_SHOWN:]:
-            lines.append(f"     {g['date']} vs {label(others.get(g['opponent']))} {g['score']} {g['event']}")
+        # Step 4's test for a day in question reads its games: the same opponent and score is one game recorded
+        # twice, and a game that came in with a row merged earlier belongs to that row.
+        questioned = set(doubled[:3]) | set(shared)
+        if questioned:
+            lines.append("   its games on those days and the shared dates:")
+        for g in sorted((g for g in mine if g["date"] in questioned), key=lambda g: (g["date"], g["event"])):
+            via = f" | via {json.dumps(absorbed_name.get(g['via'], g['via']))}" if g["via"] else ""
+            lines.append(f"{game_line(g)} | registration {g['registration'] or '-'}{via}")
+        lines.append("   last games:")
+        lines += [game_line(g) for g in sorted(mine, key=lambda g: g["date"])[-LAST_GAMES_SHOWN:]]
         return lines
 
     blocks = []
@@ -259,16 +289,16 @@ def evidence_blocks(sb, pairs: list[dict], chosen: Selection) -> list[str]:
             "\n".join(
                 [
                     f"## {p['pair']} merge_id={merge} keep_id={keep}",
-                    f"doorway {p['doorway']} {p.get('tier') or ''} | squad key: {p.get('squad_key') or '-'} "
-                    f"| club: {p['club']}",
-                    *row_lines("RETIRE", merge),
-                    *row_lines("KEEP", keep),
+                    f"doorway {p['doorway']} {p.get('tier') or ''} | squad key: {json.dumps(p.get('squad_key'))} "
+                    f"| club: {json.dumps(p['club'])}",
+                    *row_lines("RETIRE", merge, shared[:4]),
+                    *row_lines("KEEP", keep, shared[:4]),
                     f"head-to-head {head_to_head} | shared dates {len(shared)} {shared[:4]} "
                     f"| adjacent-day different events {adjacent[:4]} | opponent overlap {overlap}",
                     "other live rows of the club in this cohort: "
                     + (
                         "; ".join(
-                            f"{s['team_name']} (last played {str(s['last_played_at'])[:10]})"
+                            f"{json.dumps(s['team_name'])} (last played {str(s['last_played_at'])[:10]})"
                             for s in mates[:SIBLINGS_SHOWN]
                         )
                         or "none"
@@ -304,17 +334,66 @@ def render_brief(text: str, season: int) -> str:
     return text.replace("{lookup}", LOOKUP).replace("{cohorts}", cohort_rules(season))
 
 
+def skill_commit(name: str) -> str:
+    """The commit the checkout holds, marked when the skill's files differ from it."""
+    git = ["git", "-C", str(ROOT)]
+    try:
+        head = subprocess.run([*git, "rev-parse", "--short", "HEAD"], capture_output=True, text=True, check=True)
+        edits = subprocess.run(
+            [*git, "status", "--porcelain", "--", f".claude/skills/{name}"], capture_output=True, text=True, check=True
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return "an unknown commit"
+    return head.stdout.strip() + (" with local edits" if edits.stdout.strip() else "")
+
+
+def pack_skill(review: Path, name: str, skills: Path = SKILLS) -> str:
+    """Copy the skill's text into review/skill/, SKILL.md and references/*.md but none of its scripts, in its own
+    layout so its links resolve in every reviewer's folder; the version the reviewers judge by, kept in VERSION."""
+    source, target = skills / name, review / SKILL_DIR
+    digest = hashlib.sha256()
+    for path in [source / "SKILL.md", *sorted((source / "references").glob("*.md"))]:
+        relative, text = path.relative_to(source), path.read_bytes()
+        (target / relative).parent.mkdir(parents=True, exist_ok=True)
+        (target / relative).write_bytes(text)
+        digest.update(relative.as_posix().encode() + b"\0" + text)
+    version = f"{name} at {skill_commit(name)}, sha256 {digest.hexdigest()[:12]}"
+    (target / VERSION_FILE).write_text(version + "\n", encoding="utf-8")
+    return version
+
+
+def skill_version(review: Path) -> str | None:
+    path = review / SKILL_DIR / VERSION_FILE
+    return path.read_text(encoding="utf-8").strip() if path.exists() else None
+
+
+def held_before(folder: Path) -> set[frozenset[str]]:
+    """The pairs, each as its two rows either way round, that an earlier run's review of this stage held for the
+    owner, read from the run store."""
+    held = set()
+    for path in folder.parent.parent.glob(f"*/{folder.name}/{REVIEW_DIR}/*{REVIEW_SUFFIX}"):
+        if path.parents[2].name == folder.parent.name:
+            continue
+        held |= {frozenset((row["merge_id"], row["keep_id"])) for row in read_json(path) if row["verdict"] == HOLD}
+    return held
+
+
 def queue(sb, folder: Path, cap: int) -> int:
     """Write the review's slices and briefs; the number of pairs queued. A review of no pair still leaves the
     folder, so the autopilot moves on to the page, which then has no review to route by."""
     pairs, chosen = review_pairs(sb, folder, cap)
-    labelled = [{**p, "pair": f"P{n:04d}"} for n, p in enumerate(pairs, 1)]
+    earlier = held_before(folder)
+    labelled = [
+        {**p, "pair": f"P{n:04d}", "held_before": frozenset((p["merge_id"], p["keep_id"])) in earlier}
+        for n, p in enumerate(pairs, 1)
+    ]
     blocks = evidence_blocks(sb, labelled, chosen)
     review = folder / REVIEW_DIR
     (review / ANSWERS_DIR).mkdir(parents=True, exist_ok=True)
     season = int(SEASON_START[:4])
     for name, source in BRIEFS.items():
         (review / name).write_text(render_brief(source.read_text(encoding="utf-8"), season), encoding="utf-8")
+    pack_skill(review, MERGE_SKILL)
     for n, start in enumerate(range(0, len(labelled), SLICE_PAIRS), 1):
         name = slice_name(n)
         (review / f"{name}.md").write_text("\n".join(blocks[start : start + SLICE_PAIRS]), encoding="utf-8")
@@ -401,13 +480,23 @@ def recheck_prompt(name: str, labels: list[str], noun: str = "pairs") -> str:
     )
 
 
+def confirm_prompt(name: str, labels: list[str], noun: str = "pairs") -> str:
+    return (
+        f"Read CONFIRM.md in this folder and follow it. Confirm or refuse these {noun} from {name}.md: "
+        f"{', '.join(labels)}. Write your answers to {OUTPUT['confirm']} in this folder."
+    )
+
+
 def workspace(review: Path, name: str, kind: str) -> Path:
-    """The reviewer's own folder: its brief and its slice's evidence, copied in afresh, and nothing another
-    reviewer wrote."""
+    """The reviewer's own folder: its brief, the skill it judges by when the review packed one, and its slice's
+    evidence, copied in afresh, and nothing another reviewer wrote."""
     work = review / ANSWERS_DIR / f"{name}-{kind}"
     work.mkdir(parents=True, exist_ok=True)
     for source in (*READS[kind], f"{name}.md"):
         shutil.copyfile(review / source, work / source)
+    if (review / SKILL_DIR).is_dir():
+        shutil.rmtree(work / SKILL_DIR, ignore_errors=True)
+        shutil.copytree(review / SKILL_DIR, work / SKILL_DIR)
     return work
 
 
@@ -428,10 +517,10 @@ def read_verdicts(path: Path, rows: list[dict]) -> list[dict]:
 
 
 def read_recheck(path: Path, labels: list[str], label: str = "pair") -> dict[str, dict]:
-    """The second reviewer's answer on each reject, by label, or ValueError."""
+    """A second reviewer's answer on each verdict it was given, by label, or ValueError."""
     answers = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(answers, list) or [a.get(label) if isinstance(a, dict) else None for a in answers] != labels:
-        raise ValueError(f"{path.name} does not answer the rejects {', '.join(labels)} in order")
+        raise ValueError(f"{path.name} does not answer {', '.join(labels)} in order")
     for answer in answers:
         reason = answer.get("reason")
         if not isinstance(answer.get("upheld"), bool) or not isinstance(reason, str) or not reason.strip():
@@ -439,18 +528,19 @@ def read_recheck(path: Path, labels: list[str], label: str = "pair") -> dict[str
     return {answer[label]: answer for answer in answers}
 
 
-def final_rows(rows: list[dict], verdicts: list[dict], recheck: dict[str, dict]) -> list[dict]:
-    """Each pair with its final verdict: a reject the second reviewer did not uphold is a hold, and only a
-    merge keeps a swap."""
+def final_rows(rows: list[dict], verdicts: list[dict], seconds: dict[str, dict]) -> list[dict]:
+    """Each pair with its final verdict: a merge of a pair held before that the second reviewer did not confirm, and
+    a reject it did not uphold, are holds, and only a merge keeps a swap."""
+    found = {MERGE: "one squad", REJECT: "two teams"}
     final = []
     for row, answer in zip(rows, verdicts):
         verdict, reason = answer["verdict"], answer["reason"].strip()
-        if verdict == REJECT:
-            second = recheck.get(row["pair"])
+        if verdict == REJECT or merges_a_held_pair(row, answer):
+            second = seconds.get(row["pair"])
             if second is None or not second["upheld"]:
-                verdict = HOLD
                 answered = f": {second['reason'].strip()}" if second else ""
-                reason = f"one reviewer found two teams ({reason}), and a second did not uphold it{answered}"
+                reason = f"one reviewer found {found[verdict]} ({reason}), and a second did not agree{answered}"
+                verdict = HOLD
         final.append({**row, "verdict": verdict, "swap": answer["swap"] and verdict == MERGE, "reason": reason})
     return final
 
@@ -462,7 +552,8 @@ def held_rows(rows: list[dict], why: str) -> list[dict]:
 @dataclass(frozen=True)
 class Kind:
     """What one review's slices and answers carry: the keys its review copies (the run store's contract), the key
-    each answer names its row by, what the recheck prompt calls them, and how answers become review rows."""
+    each answer names its row by, what the second reviewers' prompts call them, how answers become review rows,
+    and which answers a second reviewer must confirm before they stand (every reject is rechecked)."""
 
     keys: tuple[str, ...]
     label: str
@@ -470,9 +561,15 @@ class Kind:
     read_verdicts: Callable[[Path, list[dict]], list[dict]]
     final_rows: Callable[[list[dict], list[dict], dict], list[dict]]
     held_rows: Callable[[list[dict], str], list[dict]]
+    confirmed: Callable[[dict, dict], bool] = lambda row, answer: False
 
 
-PAIRS = Kind(MERGE_REVIEW_KEYS, "pair", "pairs", read_verdicts, final_rows, held_rows)
+def merges_a_held_pair(row: dict, answer: dict) -> bool:
+    """A slice queued before ``held_before`` was recorded reads as no earlier hold, as its run's code reviewed it."""
+    return answer["verdict"] == MERGE and row.get("held_before", False)
+
+
+PAIRS = Kind(MERGE_REVIEW_KEYS, "pair", "pairs", read_verdicts, final_rows, held_rows, merges_a_held_pair)
 
 
 def review_slice(
@@ -506,14 +603,22 @@ def review_slice(
         held = kind.held_rows(rows, f"the automatic review failed {failures} times")
         write_json(review / f"{name}{REVIEW_SUFFIX}", held, indent=1)
         return True, failures
-    rejects = [answer[kind.label] for answer in verdicts if answer["verdict"] == REJECT]
-    recheck = {}
-    if rejects:
-        prompt = recheck_prompt(name, rejects, kind.noun)
-        recheck = attempt("recheck", prompt, lambda path: read_recheck(path, rejects, kind.label))
-        if recheck is None and failures < ATTEMPTS:
+    seconds = {}
+    rows_by_label = {row[kind.label]: row for row in rows}
+    for role, needed, prompt in (
+        ("confirm", kind.confirmed, confirm_prompt),
+        ("recheck", lambda row, answer: answer["verdict"] == REJECT, recheck_prompt),
+    ):
+        labels = [answer[kind.label] for answer in verdicts if needed(rows_by_label[answer[kind.label]], answer)]
+        if not labels:
+            continue
+        answered = attempt(
+            role, prompt(name, labels, kind.noun), lambda path, labels=labels: read_recheck(path, labels, kind.label)
+        )
+        if answered is None and failures < ATTEMPTS:
             return False, failures
-    write_json(review / f"{name}{REVIEW_SUFFIX}", kind.final_rows(rows, verdicts, recheck or {}), indent=1)
+        seconds.update(answered or {})
+    write_json(review / f"{name}{REVIEW_SUFFIX}", kind.final_rows(rows, verdicts, seconds), indent=1)
     return True, failures
 
 
@@ -612,7 +717,8 @@ def main() -> int:
 
     def tally(review: Path) -> str:
         found = counts(review)
-        return f"reviewed: {found[MERGE]} merge, {found[HOLD]} hold, {found[REJECT]} reject"
+        rules = skill_version(review) or "the brief alone"
+        return f"reviewed: {found[MERGE]} merge, {found[HOLD]} hold, {found[REJECT]} reject, judged by {rules}"
 
     def queued(folder: Path, cap: int) -> str:
         return f"{queue(get_client(), folder, cap)} pair(s)"

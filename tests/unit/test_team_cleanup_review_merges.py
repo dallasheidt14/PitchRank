@@ -25,11 +25,13 @@ def _day(month, day, year=SEASON):
     return f"{year}-{month:02d}-{day:02d}"
 
 
-def _rows(*pairs):
+def _rows(*pairs, held=()):
+    """A slice's pairs as queue() labels them, those whose retiring row is in ``held`` held by an earlier run."""
     return [
-        {"pair": f"P{n:04d}", "merge_id": m, "keep_id": k, "merge_name": f"Team {m}", "keep_name": f"Team {k}"}
+        {"pair": f"P{n:04d}", "merge_id": m, "keep_id": k, "merge_name": f"Team {m}", "keep_name": f"Team {k}",
+         "held_before": m in held}
         for n, (m, k) in enumerate(pairs, 1)
-    ]
+    ]  # fmt: skip
 
 
 def _answer(row, verdict="merge", swap=False, reason="same squad"):
@@ -72,7 +74,7 @@ class _Reviewers:
         return 0
 
     def kinds(self):
-        return ["recheck" if "RECHECK.md" in c[2] else "review" for c in self.commands]
+        return [next((k for k in ("confirm", "recheck") if f"{k.upper()}.md" in c[2]), "review") for c in self.commands]
 
 
 def _final(review, name="slice_01"):
@@ -156,55 +158,67 @@ def test_an_answer_that_skips_reorders_or_invents_is_refused(tmp_path, spoil, me
         rm.read_verdicts(path, rows)
 
 
-def test_a_recheck_must_answer_the_rejects_in_order_with_a_flag_and_a_reason(tmp_path):
+def test_a_second_reviewer_must_answer_its_pairs_in_order_with_a_flag_and_a_reason(tmp_path):
     path = tmp_path / "recheck.json"
     path.write_text(json.dumps([{"pair": "P0002", "upheld": True, "reason": "x"}]), encoding="utf-8")
-    with pytest.raises(ValueError, match="does not answer the rejects P0001"):
+    with pytest.raises(ValueError, match="does not answer P0001 in order"):
         rm.read_recheck(path, ["P0001"])
     path.write_text(json.dumps([{"pair": "P0001", "upheld": "yes", "reason": "x"}]), encoding="utf-8")
     with pytest.raises(ValueError, match="no upheld flag"):
         rm.read_recheck(path, ["P0001"])
 
 
-def test_only_an_upheld_reject_stays_a_reject_and_only_a_merge_keeps_a_swap():
-    rows = _rows(("m1", "k1"), ("m2", "k2"), ("m3", "k3"), ("m4", "k4"))
+def test_a_reject_or_a_held_pair_s_merge_stands_only_when_a_second_reviewer_agrees_and_only_a_merge_keeps_a_swap():
+    rows = _rows(("m1", "k1"), ("m2", "k2"), ("m3", "k3"), ("m4", "k4"), ("m5", "k5"), ("m6", "k6"),
+                 held=("m4", "m5"))  # fmt: skip
     verdicts = [
         _answer(rows[0], "reject", reason="2008 vs 2009"),
         _answer(rows[1], "reject", reason="Blue vs Red"),
         _answer(rows[2], "hold", swap=True),
         _answer(rows[3], "merge", swap=True),
+        _answer(rows[4], "merge", swap=True, reason="one squad re-registered"),
+        _answer(rows[5], "merge", swap=True),
     ]
-    recheck = {"P0001": {"pair": "P0001", "upheld": True, "reason": "x"},
-               "P0002": {"pair": "P0002", "upheld": False, "reason": "colour is a kit"}}  # fmt: skip
+    seconds = {"P0001": {"pair": "P0001", "upheld": True, "reason": "x"},
+               "P0002": {"pair": "P0002", "upheld": False, "reason": "colour is a kit"},
+               "P0004": {"pair": "P0004", "upheld": True, "reason": "same squad"},
+               "P0005": {"pair": "P0005", "upheld": False, "reason": "a II squad exists"}}  # fmt: skip
 
-    final = rm.final_rows(rows, verdicts, recheck)
+    final = rm.final_rows(rows, verdicts, seconds)
 
     assert [(r["verdict"], r["swap"]) for r in final] == [
-        ("reject", False), ("hold", False), ("hold", False), ("merge", True)
+        ("reject", False), ("hold", False), ("hold", False), ("merge", True), ("hold", False), ("merge", True)
     ]  # fmt: skip
     assert final[1]["reason"] == (
-        "one reviewer found two teams (Blue vs Red), and a second did not uphold it: colour is a kit"
+        "one reviewer found two teams (Blue vs Red), and a second did not agree: colour is a kit"
     )
+    assert final[4]["reason"] == (
+        "one reviewer found one squad (one squad re-registered), and a second did not agree: a II squad exists"
+    )
+    assert [r["verdict"] for r in rm.final_rows(rows[3:4], verdicts[3:4], {})] == ["hold"]
     assert rm.final_rows(rows[:1], verdicts[:1], {})[0]["verdict"] == "hold"
 
 
 def test_each_reviewer_works_in_its_own_folder_and_the_second_never_sees_the_first_s_answer(tmp_path):
-    rows = _rows(("m1", "k1"), ("m2", "k2"))
+    rows = _rows(("m1", "k1"), ("m2", "k2"), held=("m1",))
     review = _slice(tmp_path, rows)
     reviewers = _Reviewers([
         [_answer(rows[0]), _answer(rows[1], "reject", reason="2008 vs 2009")],
+        [{"pair": "P0001", "upheld": True, "reason": "one squad"}],
         [{"pair": "P0002", "upheld": True, "reason": "the bands differ"}],
     ])  # fmt: skip
 
     settled, failures = rm.review_slice(review, "slice_01", 0, CLAUDE, reviewers)
 
-    first, second = reviewers.folders
+    first, confirmer, rechecker = reviewers.folders
     assert (settled, failures) == (True, 0)
-    assert reviewers.kinds() == ["review", "recheck"]
-    assert (first.name, second.name) == ("slice_01-review", "slice_01-recheck")
+    assert reviewers.kinds() == ["review", "confirm", "recheck"]
+    assert [f.name for f in reviewers.folders] == ["slice_01-review", "slice_01-confirm", "slice_01-recheck"]
     assert sorted(p.name for p in first.iterdir()) == ["BRIEF.md", "slice_01.md", "verdicts.json"]
-    assert sorted(p.name for p in second.iterdir()) == ["BRIEF.md", "RECHECK.md", "recheck.json", "slice_01.md"]
-    assert "P0002" in reviewers.commands[1][2] and "P0001" not in reviewers.commands[1][2]
+    assert sorted(p.name for p in confirmer.iterdir()) == ["BRIEF.md", "CONFIRM.md", "confirm.json", "slice_01.md"]
+    assert sorted(p.name for p in rechecker.iterdir()) == ["BRIEF.md", "RECHECK.md", "recheck.json", "slice_01.md"]
+    assert "P0001" in reviewers.commands[1][2] and "P0002" not in reviewers.commands[1][2]
+    assert "P0002" in reviewers.commands[2][2] and "P0001" not in reviewers.commands[2][2]
     assert [r["verdict"] for r in _final(review)] == ["merge", "reject"]
     assert check_reviews(review, MERGE_REVIEW_KEYS) == ((), ())
 
@@ -247,18 +261,73 @@ def test_a_reviewer_that_writes_nothing_is_retried_and_after_three_failures_ever
     assert check_reviews(review, MERGE_REVIEW_KEYS) == ((), ())
 
 
-def test_an_answer_already_given_is_not_bought_again_and_a_failed_recheck_holds_the_rejects(tmp_path):
-    rows = _rows(("m1", "k1"), ("m2", "k2"))
+def test_an_answer_already_given_is_not_bought_again_and_second_reviewers_that_fail_hold_what_they_did_not_answer(
+    tmp_path,
+):
+    rows = _rows(("m1", "k1"), ("m2", "k2"), held=("m1",))
     review = _slice(tmp_path, rows)
     own = review / rm.ANSWERS_DIR / "slice_01-review"
     own.mkdir()
     (own / "verdicts.json").write_text(json.dumps([_answer(rows[0]), _answer(rows[1], "reject")]), encoding="utf-8")
     reviewers = _Reviewers([])
 
-    assert rm.review_slice(review, "slice_01", 2, CLAUDE, reviewers) == (True, 3)
+    assert rm.review_slice(review, "slice_01", 2, CLAUDE, reviewers) == (True, 4)
 
-    assert reviewers.kinds() == ["recheck"]
+    assert reviewers.kinds() == ["confirm", "recheck"]
+    assert [r["verdict"] for r in _final(review)] == ["hold", "hold"]
+
+
+def test_a_held_pair_s_merge_waits_for_its_confirmation_before_the_slice_settles(tmp_path):
+    rows = _rows(("m1", "k1"), held=("m1",))
+    review = _slice(tmp_path, rows)
+    reviewers = _Reviewers([[_answer(rows[0])]])
+
+    assert rm.review_slice(review, "slice_01", 0, CLAUDE, reviewers) == (False, 1)
+    assert not (review / f"slice_01{rm.REVIEW_SUFFIX}").exists()
+
+    reviewers.answers.append([{"pair": "P0001", "upheld": True, "reason": "one squad"}])
+    assert rm.review_slice(review, "slice_01", 1, CLAUDE, reviewers) == (True, 1)
+    assert reviewers.kinds() == ["review", "confirm", "confirm"]
+    assert [r["verdict"] for r in _final(review)] == ["merge"]
+
+
+def test_a_first_time_pair_s_merge_needs_no_second_reviewer(tmp_path):
+    rows = _rows(("m1", "k1"), ("m2", "k2"), held=("m2",))
+    review = _slice(tmp_path, rows)
+    reviewers = _Reviewers([[_answer(rows[0]), _answer(rows[1], "hold")]])
+
+    assert rm.review_slice(review, "slice_01", 0, CLAUDE, reviewers) == (True, 0)
+    assert reviewers.kinds() == ["review"]
     assert [r["verdict"] for r in _final(review)] == ["merge", "hold"]
+
+
+def test_a_slice_queued_before_earlier_holds_were_recorded_still_settles_its_merges_on_one_reviewer(tmp_path):
+    """A review the previous version queued and this one resumes: its rows carry no ``held_before``."""
+    rows = [{k: v for k, v in row.items() if k != "held_before"} for row in _rows(("m1", "k1"))]
+    review = _slice(tmp_path, rows)
+    reviewers = _Reviewers([[_answer(rows[0])]])
+
+    assert rm.review_slice(review, "slice_01", 0, CLAUDE, reviewers) == (True, 0)
+    assert reviewers.kinds() == ["review"]
+    assert [r["verdict"] for r in _final(review)] == ["merge"]
+
+
+def test_the_pairs_held_before_are_an_earlier_run_s_holds_either_way_round(tmp_path):
+    runs = tmp_path / "runs"
+    for run, rows in (
+        ("2026-10-21-all", [{"merge_id": "a", "keep_id": "b", "verdict": "hold"},
+                            {"merge_id": "c", "keep_id": "d", "verdict": "merge"}]),
+        ("2026-10-28-all", [{"merge_id": "f", "keep_id": "e", "verdict": "hold"}]),
+        ("2026-11-04-all", [{"merge_id": "g", "keep_id": "h", "verdict": "hold"}]),
+    ):  # fmt: skip
+        review = runs / run / "merges" / "review"
+        review.mkdir(parents=True)
+        (review / f"slice_01{rm.REVIEW_SUFFIX}").write_text(json.dumps(rows), encoding="utf-8")
+    (runs / "2026-10-28-all" / "states" / "review").mkdir(parents=True)
+
+    held = rm.held_before(runs / "2026-11-04-all" / "merges")
+
+    assert held == {frozenset(("a", "b")), frozenset(("e", "f"))}
 
 
 def test_the_queue_reviews_the_waiting_slices_and_keeps_each_one_s_failures(tmp_path):
@@ -294,6 +363,8 @@ def test_queueing_writes_slices_of_fifty_their_evidence_and_briefs_for_this_seas
     assert "The 2027-28 season: birth year 2019 = U9" in brief and "`15B` is birth year 2015, boys, = U13" in brief
     assert "{lookup}" not in brief and "{cohorts}" not in brief
     assert (review / rm.ANSWERS_DIR).is_dir() and rm.waiting(review) == ["slice_01", "slice_02"]
+    assert (review / rm.SKILL_DIR / "SKILL.md").read_bytes() == (rm.SKILLS / rm.MERGE_SKILL / "SKILL.md").read_bytes()
+    assert rm.skill_version(review).startswith(f"{rm.MERGE_SKILL} at ")
 
 
 def test_the_cohort_rules_name_this_season_s_bands():
@@ -303,6 +374,82 @@ def test_the_cohort_rules_name_this_season_s_bands():
         "  `14B` is birth year 2014, boys, = U13. A two-year band is named by its YOUNGER year:\n"
         "  `2014/15`, `14/15`, `2015/2014` are all U12 (2026 - 2015 + 1); `2013/14` is U13."
     )
+
+
+def _skill(skills, name="a-skill"):
+    """A skill as the repository holds one: its text, a reference it links, and a script no reviewer gets."""
+    skill = skills / name
+    (skill / "references").mkdir(parents=True)
+    (skill / "scripts").mkdir()
+    (skill / "SKILL.md").write_text("Read [the rules](references/rules.md).", encoding="utf-8")
+    (skill / "references" / "rules.md").write_text("rules", encoding="utf-8")
+    (skill / "scripts" / "tool.py").write_text("print()", encoding="utf-8")
+    return skill
+
+
+def test_the_skill_pack_holds_the_skill_s_text_in_its_layout_and_none_of_its_scripts(tmp_path):
+    _skill(tmp_path / "skills")
+    review = tmp_path / "review"
+
+    version = rm.pack_skill(review, "a-skill", tmp_path / "skills")
+
+    packed = sorted(p.relative_to(review).as_posix() for p in review.rglob("*") if p.is_file())
+    assert packed == ["skill/SKILL.md", "skill/VERSION", "skill/references/rules.md"]
+    assert (review / "skill" / "references" / "rules.md").read_text(encoding="utf-8") == "rules"
+    assert rm.skill_version(review) == version and version.startswith("a-skill at ")
+    assert check_reviews(review, MERGE_REVIEW_KEYS) == ((), ())
+
+
+def test_the_skill_s_version_follows_its_text(tmp_path):
+    skill = _skill(tmp_path / "skills")
+    first = rm.pack_skill(tmp_path / "one", "a-skill", tmp_path / "skills")
+
+    assert rm.pack_skill(tmp_path / "two", "a-skill", tmp_path / "skills") == first
+    (skill / "references" / "rules.md").write_text("rules, edited", encoding="utf-8")
+    assert rm.pack_skill(tmp_path / "three", "a-skill", tmp_path / "skills") != first
+
+
+def test_every_link_between_the_merging_skill_s_files_resolves_in_the_pack(tmp_path):
+    rm.pack_skill(tmp_path, rm.MERGE_SKILL)
+    packed = tmp_path / rm.SKILL_DIR
+
+    links = [
+        (page.parent / target)
+        for page in packed.rglob("*.md")
+        for target in re.findall(r"\]\(([\w./-]+\.md)", page.read_text(encoding="utf-8"))
+    ]
+    assert links and all(link.is_file() for link in links), [str(link) for link in links if not link.is_file()]
+
+
+def test_every_reviewer_folder_gets_the_packed_skill(tmp_path):
+    rows = _rows(("m1", "k1"), ("m2", "k2"), held=("m1",))
+    review = _slice(tmp_path, rows)
+    rm.pack_skill(review, "a-skill", _skill(tmp_path / "skills").parent)
+    reviewers = _Reviewers([
+        [_answer(rows[0]), _answer(rows[1], "reject")],
+        [{"pair": "P0001", "upheld": True, "reason": "one squad"}],
+        [{"pair": "P0002", "upheld": True, "reason": "the bands differ"}],
+    ])  # fmt: skip
+
+    rm.review_slice(review, "slice_01", 0, CLAUDE, reviewers)
+
+    assert reviewers.kinds() == ["review", "confirm", "recheck"]
+    for folder in reviewers.folders:
+        assert (folder / "skill" / "references" / "rules.md").read_text(encoding="utf-8") == "rules"
+        assert (folder / "skill" / "VERSION").is_file()
+
+
+def test_every_section_the_brief_sends_a_reviewer_to_is_in_the_skill():
+    brief = rm.BRIEFS["BRIEF.md"].read_text(encoding="utf-8")
+    reading = brief.split("before your slice:\n", 1)[1].split("\n\n", 1)[0]
+    named = re.findall(r"`skill/([^`]+)`: (.+?)(?=\n- `|\Z)", reading, re.S)
+    skill = rm.SKILLS / rm.MERGE_SKILL
+
+    assert [path for path, _ in named] == ["SKILL.md", "references/evidence-rules.md", "references/failure-modes.md"]
+    for path, sections in named:
+        headings = re.findall(r"^#+ (.+)$", (skill / path).read_text(encoding="utf-8"), re.M)
+        for section in re.findall(r'"([^"]+)"', sections):
+            assert section in headings, f"{path} has no section {section!r}"
 
 
 def test_a_review_of_no_pair_leaves_its_folder_so_the_autopilot_moves_on(tmp_path, monkeypatch):
@@ -449,12 +596,16 @@ def test_the_evidence_names_rows_merged_in_days_two_registrations_played_and_the
     block = rm.evidence_blocks(db, [pair], _selection({"absorbed": "keep"}))[0]
 
     keep = block.split("KEEP: ", 1)[1]
-    assert "merged into it earlier: B2015 Kraze Black" in keep
-    assert f"days it played in two events: 1 {_day(9, 6)} (Cup / League)" in keep
+    assert 'merged into it earlier: "B2015 Kraze Black"' in keep
+    assert f'days it played in two events: 1 {_day(9, 6)} ("Cup" / "League")' in keep
     assert f"days two of its registrations played: 1 ['{_day(9, 6)}']" in keep
     assert "aliases: gotsport:655599" in keep
-    assert "other live rows of the club in this cohort: 2016 Kraze Blue" in block
-    assert "Rivals 2016 [u11 M]" in keep
+    assert 'other live rows of the club in this cohort: "2016 Kraze Blue"' in block
+    on_the_day = keep.split("its games on those days and the shared dates:\n", 1)[1].split("   last games:", 1)[0]
+    assert on_the_day == (
+        f'     {_day(9, 6)} vs "Rivals 2016 [u11 M]" 1-0 "Cup" | registration 381917 | via "B2015 Kraze Black"\n'
+        f'     {_day(9, 6)} vs "Rivals 2016 [u11 M]" 1-0 "League" | registration 655599\n'
+    )
 
 
 def test_the_evidence_compares_the_two_rows_and_counts_as_the_card_does():
@@ -478,15 +629,17 @@ def test_the_evidence_compares_the_two_rows_and_counts_as_the_card_does():
 
     block = rm.evidence_blocks(db, [pair], _selection({}))[0]
 
-    assert block.startswith("## P0001 merge_id=retire keep_id=keep\ndoorway D  | squad key: black | club: Kraze\n")
+    assert block.startswith(
+        '## P0001 merge_id=retire keep_id=keep\ndoorway D  | squad key: "black" | club: "Kraze"\n'
+    )
     assert "Friendly" not in block
     retire, keep = block.split("RETIRE: ", 1)[1].split("KEEP: ", 1)
-    assert retire.startswith("16B Kraze Black |")
+    assert retire.startswith('"16B Kraze Black" | registered: null |')
     assert f"games 2 (this season 2, excluded 2) {_day(9, 30)[:7]}..{_day(10, 4)[:7]} | self-play 1" in retire
-    assert f"     {_day(10, 4)} vs 2016 Kraze Black U11 [u11 M] 2-1 Cup" in retire
-    assert keep.startswith("2016 Kraze Black U11 |")
+    assert f'     {_day(10, 4)} vs "2016 Kraze Black U11 [u11 M]" 2-1 "Cup" | registration 1\n' in retire
+    assert keep.startswith('"2016 Kraze Black U11" |')
     assert f"games 4 (this season 3, excluded 1) {_day(5, 1)[:7]}..{_day(10, 18)[:7]} | self-play 0" in keep
-    assert f"     {_day(10, 4)} vs 16B Kraze Black [u11 M] 1-2 Cup" in keep
+    assert f'     {_day(10, 4)} vs "16B Kraze Black [u11 M]" 1-2 "Cup" | registration x\n' in keep
     assert (
         f"head-to-head 1 | shared dates 1 ['{_day(10, 4)}'] | adjacent-day different events ['{_day(9, 30)}'] "
         "| opponent overlap 0.25"
@@ -538,12 +691,12 @@ def _main(monkeypatch, capsys, store, db, runner, *flags):
 
 
 class _Panel:
-    """Headless reviewers answering each pair by its retiring row: ``verdicts`` maps it to (verdict, swap), and every
-    reject is upheld. Each reads only the evidence copied into its own folder and writes only the file its command
-    allows there."""
+    """Headless reviewers answering each pair by its retiring row: ``verdicts`` maps it to (verdict, swap), every
+    reject is upheld, and every merge is confirmed but those of ``doubted``. Each reads only the evidence copied
+    into its own folder and writes only the file its command allows there."""
 
-    def __init__(self, verdicts):
-        self.verdicts, self.folders, self.commands = verdicts, [], []
+    def __init__(self, verdicts, doubted=()):
+        self.verdicts, self.doubted, self.folders, self.commands = verdicts, set(doubted), [], []
 
     def __call__(self, command, cwd, log):
         work = Path(cwd)
@@ -552,6 +705,7 @@ class _Panel:
         log.write_text("ran", encoding="utf-8")
         name, kind = work.name.rsplit("-", 1)
         evidence = (work / f"{name}.md").read_text(encoding="utf-8")
+        retiring = dict(re.findall(r"^## (P\d{4}) merge_id=(\S+) keep_id=\S+$", evidence, re.M))
         if kind == "review":
             answer = [
                 {"pair": label, "merge_id": merge, "keep_id": keep, "verdict": self.verdicts[merge][0],
@@ -560,7 +714,8 @@ class _Panel:
             ]  # fmt: skip
         else:
             labels = re.search(r"from \S+\.md: (.+)\. Write", command[2]).group(1).split(", ")
-            answer = [{"pair": label, "upheld": True, "reason": "two teams"} for label in labels]
+            answer = [{"pair": label, "upheld": retiring[label] not in self.doubted, "reason": f"{kind}ed"}
+                      for label in labels]  # fmt: skip
         (work / _allowed(command)).write_text(json.dumps(answer), encoding="utf-8")
         return 0
 
@@ -568,39 +723,55 @@ class _Panel:
 def test_the_review_takes_the_pairs_the_page_shows_and_its_verdicts_reach_the_lanes(tmp_path, monkeypatch, capsys):
     """Selection, evidence, reviewers and the page together: a provably safe pair whose retiring row holds no games
     merges unreviewed, an idle pair is left off, and a reviewed pair goes where its verdict sends it, a provably safe
-    pair whose retiring row has played since the scan among them."""
+    pair whose retiring row has played since the scan among them, and a merge the second reviewer did not confirm
+    among the cards."""
     pairs = [
         pt._pair("cleared", "c-keep", doorway="D"),
         pt._pair("safe", "s-keep", tier="1_provably_safe"),
         pt._pair("idle", "i-keep", doorway="D"),
         pt._pair("played", "p-keep", tier="1_provably_safe"),
         pt._pair("held", "h-keep", doorway="D"),
+        pt._pair("doubted", "d-keep", doorway="D"),
     ]
     teams = [*(t for p in pairs for t in (p["merge_id"], p["keep_id"])), "o1"]
     games = [
         ("cleared", "o1", _day(9, 1)), ("c-keep", "o1", _day(9, 2)), ("s-keep", "o1", _day(9, 3)),
         ("played", "o1", _day(9, 4)), ("held", "o1", _day(9, 5)), ("h-keep", "o1", _day(9, 6)),
+        ("doubted", "o1", _day(9, 7)), ("d-keep", "o1", _day(9, 8)),
     ]  # fmt: skip
     store = tmp_path / "store"
     pt._reviewing(store)
     pt._merges(store, pairs)
+    earlier = pt.stage_dir(store, "2026-10-07-nv", "merges") / "review"
+    earlier.mkdir(parents=True)
+    (earlier / f"slice_01{rm.REVIEW_SUFFIX}").write_text(
+        json.dumps([{"merge_id": "d-keep", "keep_id": "doubted", "verdict": "hold"}]), encoding="utf-8"
+    )
     db = _week_db(monkeypatch, teams, games)
-    panel = _Panel({"cleared": ("merge", True), "played": ("reject", False), "held": ("hold", False)})
+    panel = _Panel(
+        {"cleared": ("merge", True), "played": ("reject", False), "held": ("hold", False), "doubted": ("merge", True)},
+        doubted={"doubted", "cleared"},
+    )
 
     code, out = _main(monkeypatch, capsys, store, db, panel, "--execute")
 
-    assert code == 0 and "reviewed: 1 merge, 1 hold, 1 reject" in out
-    assert {f.name for f in panel.folders} == {"slice_01-review", "slice_01-recheck"}
+    assert code == 0 and "reviewed: 1 merge, 2 hold, 1 reject" in out
+    assert {f.name for f in panel.folders} == {"slice_01-review", "slice_01-confirm", "slice_01-recheck"}
     reviewed = json.loads((pt.stage_dir(store, pt.RUN, "merges") / "review" / "slice_01.json").read_text())
-    assert [r["merge_id"] for r in reviewed] == ["played", "cleared", "held"]
+    assert sorted(r["merge_id"] for r in reviewed) == ["cleared", "doubted", "held", "played"]
 
     code, _ = pt._build(monkeypatch, capsys, store, db, stage="merges")
 
     manifest = pt._read(store, "merges", MANIFEST_FILE)
     auto = {p["merge_id"]: (p.get("review") or {}).get("verdict") for p in manifest["auto"].values()}
+    cards = {p["merge_id"]: p["review"] for p in manifest["cards"].values()}
     assert code == 0
     assert auto == {"safe": None, "played": "reject", "cleared": "merge"}
-    assert [p["merge_id"] for p in manifest["cards"].values()] == ["held"]
+    assert sorted(cards) == ["doubted", "held"]
+    assert cards["doubted"]["reason"] == (
+        "one reviewer found one squad (because doubted), and a second did not agree: confirmed"
+    )
+    assert cards["doubted"]["swap"] is False
     assert [(p["merge_id"], p["why"]) for p in manifest["left_out"]] == [("idle", pages.IDLE_WHY)]
     assert manifest["overflow"] == []
 
@@ -662,10 +833,12 @@ def test_a_slice_left_for_a_retry_exits_1_and_a_run_not_in_review_is_refused(tmp
     assert isinstance(code, str) and "is applying" in code
 
 
-def test_a_run_reviews_two_waves_and_leaves_the_rest_waiting_for_the_next(tmp_path, monkeypatch, capsys):
-    """Two waves stay inside the autopilot step's four hours, so no run is stopped with reviewers at work; the
-    slices past them wait for the next run, which the autopilot reads as waiting rather than failed."""
-    assert rm.RUN_SLICES == 20
+def test_a_run_reviews_one_wave_and_leaves_the_rest_waiting_for_the_next(tmp_path, monkeypatch, capsys):
+    """One wave of three reviewers a slice stays inside the autopilot step's four hours, so no run is stopped with
+    reviewers at work; the slices past it wait for the next run, which the autopilot reads as waiting rather than
+    failed."""
+    assert (rm.RUN_SLICES, rm.PARALLEL) == (10, 10)
+    assert len(rm.OUTPUT) * rm.REVIEWER_TIMEOUT_SECONDS <= 4 * 60 * 60
     monkeypatch.setattr(rm, "RUN_SLICES", 1)
     store = tmp_path / "store"
     pt._reviewing(store)

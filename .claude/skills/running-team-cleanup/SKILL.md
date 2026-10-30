@@ -90,16 +90,24 @@ Step 5, run unattended), up to
 `page_caps.merges.review` (100,000, so in practice every pair) a week in the page's order: pairs with a followed team first, then
 the cross-provider scan's before the squad-key scan's, each by the fewest games on the row it retires.
 It writes the evidence for 50 pairs at a time into `<run>/merges/review/` and runs headless Claude Code
-(`claude -p`, opus) on each slice, ten at once. Each reviewer works in its own folder: it loads none
+(`claude -p`, opus) on each slice, ten at once. The reviewers' rules are the `merging-duplicate-teams`
+skill itself: the review copies its SKILL.md and reference files into `<run>/merges/review/skill/` once, with a
+`VERSION` naming the commit and a hash, so a skill change reaches the next week's run (which starts on
+`origin/main`) and the review's tally names the version it judged by. The brief
+(`scripts/team_cleanup/assets/merge_review_brief.md`) says only which sections to read, what each verdict
+does, how the skill's words map onto merge, hold and reject, and how to answer. Each reviewer works in its own folder: it loads none
 of the user's settings, MCP servers or memory, reads only its folder and `scripts/team_cleanup/`, writes
 only its one answer, runs no program but `scripts/team_cleanup/review_lookup.py` (the read-only
-lookups), and its environment holds only the public database key. Each pair gets merge, hold or reject; every reject goes to a second reviewer with
-the opposite prior, which never sees the first one's answer, and one it does not uphold becomes a hold.
-A slice whose reviewer fails is retried on the next tick; after three failures across its two
-reviewers its pairs are holds, except that when only the second reviewer kept failing, the pairs the
-first one cleared still merge. A review runs once a tick, at most 20 slices (1,000 pairs) a run so it
-finishes inside the step's four hours, and the rest wait for the next tick; the page refuses to build
-before it is done.
+lookups), and its environment holds only the public database key. Each pair gets merge, hold or reject.
+A merge of a pair an earlier week's review held goes to a second reviewer who assumes it is wrong
+(`merge_confirm_brief.md`): reviewers disagree on borderline pairs, and a held pair comes back every week,
+so one lucky run could otherwise merge it (owner, 2026-10-30: two must agree on a repeat pair only; a
+second reviewer refused half of a week's first-time merges, none of which a full audit found wrong).
+Every reject goes to one with the opposite prior. Neither sees the first one's answer, and a merge it
+does not confirm, or a reject it does not uphold, becomes a hold. A slice whose reviewer fails is retried
+on the next tick; after three failures across its reviewers, the pairs no reviewer settled are holds. A
+review runs once a tick, at most 10 slices (500 pairs) a run so its three rounds finish inside the step's
+four hours, and the rest wait for the next tick; the page refuses to build before it is done.
 
 The page then routes each reviewed pair: **merge** to the automatic lane, turned as the reviewer
 chose, unless the two rows have since played on the same day (each other included), which makes it a
@@ -213,7 +221,7 @@ python scripts/team_cleanup/propose_week.py --states ALL --date 2026-10-21
 ### Step 2: Build and publish every proposed stage's page
 
 Review the club guesses and the duplicate pairs before their pages. Each first command says what it
-would queue or review; each second, the owner's to run, queues and reviews them, at most 20 slices a run
+would queue or review; each second, the owner's to run, queues and reviews them, at most 10 slices a run
 (an hour or more each; rerun it while it reports slices waiting for a retry or for the next run). The
 reviewers' lookups read `SUPABASE_URL` and the public `SUPABASE_KEY`, so both must be set:
 

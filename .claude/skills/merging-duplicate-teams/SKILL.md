@@ -589,6 +589,15 @@ Doorway D measured worse than both: about one approved pair in seven was held or
   Pre-ECNL weekend the I squad played Union KC *Navy* while II played Union KC *Red*.
 - **Tier number** — Crossfire's `RCL 1` vs `RCL 2` is a competitive level.
 - **Coach surname** — `Beach FC 2014 Pre-ECNL 1 Dominguez` names one specific squad.
+- **Sub-site code** — `EC` vs `WC` (Doorway C's cautions).
+- **Level word** — `Pre-ECNL` vs `ECNL`, `Pre-Academy` vs `Academy`, `Elite` vs `Premier`, `Gold` vs
+  `Silver`.
+
+A qualifier one name carries and the other lacks names a squad too when the club fields another squad
+that carries it: hold that pair rather than merge it. Never merge across tiers — ECNL vs ECNL-RL, HD vs
+AD, MLS NEXT vs anything else — and hold a pair where either row carries a Modular11 or MLS NEXT
+registration. A row that is not a youth team at all (adult, over-30 or over-35, futsal, college) is a
+different team from any youth row.
 
 Split the approved pairs into disjoint slices, sized so each agent examines its slice pair by
 pair rather than sampling. Launch all agents in a single message. Run them in the foreground so
@@ -605,8 +614,8 @@ large batch examinable pair by pair; on three pairs it is pure overhead.
 
 Read [references/failure-modes.md](references/failure-modes.md) for the shapes already known, and
 direct review at what per-pair name comparison structurally cannot see — two rows in different
-flights of one league, a club-specific squad qualifier the other row lacks, a surviving row
-nothing has ever confirmed the identity of.
+flights of one league, or in different events on the same weekend, a club-specific squad qualifier
+the other row lacks, a surviving row nothing has ever confirmed the identity of.
 
 Rows carrying three or more registrations from one provider are already routed to `REVIEW` and
 will not appear here. The residual risk is a **two**-registration fusion.
@@ -623,10 +632,18 @@ flight twice where siblings play them once, and carries **two game rows naming i
 away team** (2025-10-29, 2025-11-18). It is two squads already fused. Merging a third into it
 would have buried the problem further.
 
-So before applying, reject any pair where either row:
+So before applying, hold back any pair where either row — not as two teams, but until the row is
+split:
 
-- appears in a game with `home_team_master_id = away_team_master_id`, or
-- carries a game count far out of line with its sibling squads in the same club and cohort.
+- appears in a game with `home_team_master_id = away_team_master_id`,
+- carries a game count far out of line with its sibling squads in the same club and cohort,
+- had two of its own registrations play different events on one day, the fused-row signature in
+  [references/failure-modes.md](references/failure-modes.md), or
+- already absorbed, through an earlier merge, a row whose name states another cohort or squad.
+
+A day a row played two events proves nothing until Step 4's test has read its games: the same
+opponent and score twice is one game recorded twice, two names of one tournament are one event, and a
+game that came in with a row merged earlier is a question about that merge.
 
 Self-play is not exotic: **1,028 game rows across 552 live teams**, mostly GotSport (measured
 2026-09-12). Those rows also reach the ranking engine, which is a separate defect worth its own
@@ -662,7 +679,8 @@ proposed partner is the best one rather than merely *a* match.
 
 Where the pair has zero games on **both** sides, say so: the merge cannot affect rankings either
 way, so it is shell tidying, and picking the wrong survivor costs nothing but is also worth no
-risk.
+risk. Nothing confirms such a pair's cohort but its names, so hold it unless both names plainly
+state the same one.
 
 ### Hand the owner what review could not settle
 
@@ -750,11 +768,10 @@ birth year to a team with two birth years or a U as thats the new format." Only 
 year the stored cohort contradicts ranks last. Then,
 between equally named rows, keep the one holding more games, and after that the one that played
 last. Game count is a stand-in for the live schedule, not the same thing: where a busy row has
-gone quiet and a thinner one holds this season's fixtures, keep the live one. Every reviewer
-brief written from this skill states this whole order as written here,
-`scripts/team_cleanup/assets/merge_review_brief.md` included, whose `swap` the weekly review
-applies with no person looking: ranking a U-age last when the stored cohort disagrees has crept
-back into a brief before. Games follow the
+gone quiet and a thinner one holds this season's fixtures, keep the live one. The weekly review's
+reviewers read this order from this skill rather than from a copy, and their `swap` applies with no
+person looking, so change it here deliberately: ranking a U-age last when the stored cohort disagrees
+once crept into a copied brief. Games follow the
 survivor through `team_merge_map`; columns do not. Where the better-named row lacks a value the
 other holds — a state, a club, a distinction — keep the name and list the gap in Step 8, for the
 state or club-name workflow to settle. Doorway D's script applies the
