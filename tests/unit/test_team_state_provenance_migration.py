@@ -18,6 +18,8 @@ guard stops covering its object the moment anyone redefines it.
 import re
 from pathlib import Path
 
+import pytest
+
 MIGRATIONS = Path(__file__).resolve().parents[2] / "supabase" / "migrations"
 
 AUDIT_TABLE = "team_state_audit"
@@ -25,6 +27,8 @@ QUEUE_TABLE = "team_state_review_queue"
 EVENTS_TABLE = "tgs_events"
 PROBE_LOG_TABLE = "team_state_probe_log"
 NEW_TABLES = (AUDIT_TABLE, QUEUE_TABLE, EVENTS_TABLE, PROBE_LOG_TABLE)
+# The BIGSERIAL sequences of the ledgers, whose default grants a table REVOKE does not reach.
+STATE_SEQUENCES = (f"{AUDIT_TABLE}_id_seq", f"{QUEUE_TABLE}_id_seq", f"{PROBE_LOG_TABLE}_id_seq")
 
 TRIGGER_FUNCTION = "log_team_state_change"
 CLEAR_FUNCTION = "clear_external_state_provenance"
@@ -503,17 +507,36 @@ def test_the_probe_logs_only_read_has_an_index():
     ), "the probe log's (team_id_master, probed_at DESC) index is missing"
 
 
-def test_the_probe_log_revokes_the_default_table_grants():
-    """RLS covers SELECT/INSERT/UPDATE/DELETE and not TRUNCATE, so the deny-all policy
-    leaves the TRUNCATE in pg_default_acl's grant to anon untouched. This ledger is
-    append-only and every row was paid for, so emptying it is unrecoverable.
+def _grants_on(relation: str) -> list[str]:
+    """Every GRANT or REVOKE on ``relation``, oldest migration first, each flattened; a function's
+    grant never counts, though its argument list may name the table."""
+    found = []
+    for path in _migrations():
+        for statement in _flat(path.read_text(encoding="utf-8")).split(";"):
+            statement = statement.strip()
+            if (
+                re.match(r"(?i)(grant|revoke)\b", statement)
+                and not re.search(r"(?i)\bon\s+(all\s+)?functions?\b", statement)
+                and re.search(rf"(?i)\bon\b.*\b(?:public\.)?{relation}\b", statement)
+            ):
+                found.append(statement)
+    return found
 
-    Scoped to this table alone, deliberately: the three older tables here ship no REVOKE,
-    so a loop over NEW_TABLES would fail for all of them and could only be made to pass by
-    weakening it to nothing.
+
+@pytest.mark.parametrize("relation", [*NEW_TABLES, *STATE_SEQUENCES])
+def test_every_state_table_and_sequence_ends_revoked_from_the_public_roles(relation):
+    """RLS covers SELECT/INSERT/UPDATE/DELETE and not TRUNCATE or REFERENCES, so a deny-all
+    policy leaves those in pg_default_acl's grant to anon and authenticated. Emptying the
+    probe log loses paid-for answers; emptying the audit ledger loses what revert_team_states
+    restores from. A table REVOKE does not reach a sequence, so each carries its own.
+
+    Read as the newest statement naming the relation, so a later direct GRANT back fails here;
+    a schema-wide grant or one inside a DO block does not name it and goes unseen.
     """
-    tree = _flat("\n".join(p.read_text(encoding="utf-8") for p in _migrations()))
-    assert f"REVOKE ALL ON public.{PROBE_LOG_TABLE} FROM anon, authenticated;" in tree
+    statements = _grants_on(relation)
+    kind = "SEQUENCE " if relation in STATE_SEQUENCES else ""
+    assert statements, f"no migration revokes the default grants on {relation}"
+    assert statements[-1] == f"REVOKE ALL ON {kind}public.{relation} FROM anon, authenticated"
 
 
 def test_nothing_later_reshapes_the_probe_log_behind_its_guards():
