@@ -27,7 +27,7 @@ function RunChanges({ run, onUndo }: { run: AppliedRun; onUndo: (change: Applied
     <div className="space-y-2" data-testid="applied-run">
       <h3 className="font-bold">
         {run.open ? 'This week' : 'Last run'} ({run.runId}): {run.changes.length} change
-        {run.changes.length === 1 ? '' : 's'} applied
+        {run.changes.length === 1 ? '' : 's'}
       </h3>
       <input
         type="search"
@@ -65,7 +65,7 @@ function RunChanges({ run, onUndo }: { run: AppliedRun; onUndo: (change: Applied
   );
 }
 
-/** Each change the run in review and the last finished run applied, any one of which can be undone alone. */
+/** Each change the run in review and the last finished run apply, any one of which can be undone alone. */
 export function AppliedChanges() {
   const [runs, setRuns] = useState<AppliedRun[] | null>(null);
   const [status, setStatus] = useState<string | null>(null);
@@ -116,7 +116,8 @@ export function AppliedChanges() {
     <section id="undo-one-change" aria-label="Undo one change" className="space-y-3 pt-6">
       <h2 className="font-display text-2xl font-bold tracking-tight">Undo one change</h2>
       <p className="text-sm text-muted-foreground">
-        Find a team to undo just its change. The next hourly run in the apply window puts it back.
+        Find a team to undo just its change. The next hourly run in the apply window puts it back, once the change has
+        applied.
       </p>
       {status && (
         <p className="text-sm text-muted-foreground" role="status">

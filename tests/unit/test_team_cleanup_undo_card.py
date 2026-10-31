@@ -8,6 +8,7 @@ import json
 import sys
 from pathlib import Path
 
+import httpx
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -16,7 +17,7 @@ sys.path.insert(0, str(ROOT))
 from scripts import apply_vetted_team_merges as merger  # noqa: E402
 from scripts.team_cleanup import undo_card as uc  # noqa: E402
 from scripts.team_cleanup.propose_week import _read_csv  # noqa: E402
-from scripts.team_cleanup.run_store import stage_dir  # noqa: E402
+from scripts.team_cleanup.run_store import read_run, stage_dir, write_run  # noqa: E402
 from src.tournaments.storage._io import read_json  # noqa: E402
 from tests.unit.test_team_cleanup_apply_stage import (  # noqa: E402
     ACTOR,
@@ -175,6 +176,42 @@ def test_a_decline_a_later_decision_would_overturn_refuses_before_undoing_anythi
 
     assert "a later decision is already recorded" in message
     assert len(runner.commands) == ran and db.team(_id("c01"))["club_name"] == "Club c01"
+
+
+def test_a_decline_that_fails_to_record_leaves_the_change_for_a_retry_to_finish(tmp_path, monkeypatch, capsys):
+    store, db, _, _ = _applied_clubs(tmp_path, monkeypatch, capsys)
+    card = _card(store, "clubs", "c01")
+    db.refuse[("team_cleanup_decisions", "insert")] = httpx.ReadTimeout("timed out")
+
+    message = _refused(monkeypatch, capsys, store, card, "--decline", "--execute")
+
+    assert "Could not record the owner's decision" in message
+    assert db.team(_id("c01"))["club_name"] == "LVSA" and _undone(db) == []
+
+    assert _undo(monkeypatch, capsys, store, card, "--decline", "--execute")[0] == 0
+
+    assert _active(db, "c01") == [("dont_apply", f"undo:{card}")] and _undone(db) == [_id("c01")]
+
+
+def test_a_card_its_open_run_s_lane_has_not_applied_yet_waits_for_it(tmp_path, monkeypatch, capsys):
+    store, db = _club_lanes(tmp_path, auto=("a1",), owner=("o1",))
+    _wired(monkeypatch, db, _Runner(db))
+
+    with pytest.raises(SystemExit) as caught:
+        _undo(monkeypatch, capsys, store, _card(store, "clubs", "a1", lane="auto"), "--execute")
+
+    assert caught.value.code == 75 and "waits until the clubs automatic lane has applied it" in str(caught.value)
+
+
+def test_once_the_run_is_done_a_card_its_lane_never_applied_is_refused(tmp_path, monkeypatch, capsys):
+    store, db = _club_lanes(tmp_path, auto=("a1",), owner=("o1",))
+    write_run(store, {**read_run(store, RUN), "status": "done"})
+    _wired(monkeypatch, db, _Runner(db))
+
+    with pytest.raises(SystemExit) as caught:
+        _undo(monkeypatch, capsys, store, _card(store, "clubs", "a1", lane="auto"), "--execute")
+
+    assert caught.value.code != 75 and "none was applied, or it is undone" in str(caught.value)
 
 
 def test_a_card_on_no_page_of_the_run_is_refused(tmp_path, monkeypatch, capsys):

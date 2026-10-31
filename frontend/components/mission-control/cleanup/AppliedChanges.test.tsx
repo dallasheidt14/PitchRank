@@ -85,7 +85,7 @@ describe('AppliedChanges', () => {
   it('lists nothing until a team is searched for, then the changes naming it', async () => {
     await render();
 
-    expect(container!.querySelector('h3')!.textContent).toBe(`Last run (${RUN}): 3 changes applied`);
+    expect(container!.querySelector('h3')!.textContent).toBe(`Last run (${RUN}): 3 changes`);
     expect(matches()).toHaveLength(0);
 
     await search('storm');

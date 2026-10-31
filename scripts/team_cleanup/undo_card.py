@@ -15,7 +15,9 @@ that change back the way the lane's own revert would, for that one team:
 The copies are written under <lane>/undo/<card>/, never beside the applier's own logs in the exports folder,
 which the lane's revert reads. It then checks the database holds the old value again, stamps reverted_at on
 the change in team_cleanup_changes, and with --decline records Don't apply (Keep separate for a pair) under
-source undo:<card>, so the change is not proposed again. Each undo is added to the lane's REVERT.md.
+source undo:<card>, so the change is not proposed again, before the stamp, so a retry can still find the change
+and record it. Each undo is added to the lane's REVERT.md. While the run is open and the lane has not finished
+applying, a change it has not applied yet waits (exit 75) rather than being refused.
 
 Like the lane's revert it refuses what that revert would refuse, holds the run's apply lease (a closed run's
 file lock alone), and runs --execute only inside the apply window unless --outside-window. A dry run, the
@@ -70,7 +72,7 @@ from scripts.team_cleanup.pairs import as_chosen  # noqa: E402
 from scripts.team_cleanup.propose_week import FIELDS, LOGS, PROPOSED_STAGES, STATES, run_step  # noqa: E402
 from scripts.team_cleanup.review_page import fetch_teams  # noqa: E402
 from scripts.team_cleanup.run_store import (  # noqa: E402
-    APPLY_PROGRESS_FILE,
+    APPLY_MARKER,
     LANE_CARDS,
     LANES,
     MANIFEST_FILE,
@@ -125,11 +127,21 @@ def find_card(store: Path, run_id: str, card_id: str) -> tuple[str, str, dict]:
 
 
 def card_change(sb, store: Path, run_id: str, card_id: str) -> Change:
-    """The card's applied change, refused when its lane changed nothing for it or the change is undone."""
+    """The card's applied change, refused when its lane changed nothing for it or the change is undone. While the
+    run is open and the lane has not finished applying, a change not applied yet waits for it (Busy)."""
     stage, lane, proposal = find_card(store, run_id, card_id)
     folder = lane_dir(store, run_id, stage, lane)
-    if not (folder / APPLY_PROGRESS_FILE).exists():
-        raise ValueError(f"{lane_name(stage, lane)} has applied nothing, so card {card_id} changed nothing yet")
+    waits = read_run(store, run_id)["status"] in OPEN_STATUSES and not (folder / APPLY_MARKER).exists()
+
+    def not_yet(why: str) -> Exception:
+        return (
+            Busy(f"card {card_id} waits until {lane_name(stage, lane)} has applied it: {why}")
+            if waits
+            else ValueError(why)
+        )
+
+    if not (folder / DECISIONS_FILE).exists():
+        raise not_yet(f"{lane_name(stage, lane)} has collected no choices, so card {card_id} changed nothing yet")
     if stage == MERGES:
         key = (proposal["merge_id"], proposal["keep_id"])
         rows = [r for r in read_json(folder / DECISIONS_FILE) if (r["merge_id"], r["keep_id"]) == key]
@@ -157,7 +169,7 @@ def card_change(sb, store: Path, run_id: str, card_id: str) -> Change:
         .data
     )
     if not ledger:
-        raise ValueError(
+        raise not_yet(
             f"team_cleanup_changes holds no change of card {card_id} still in place: none was applied, or it is undone"
         )
     return Change(stage, lane, card_id, team, kept, row, ledger[0])
@@ -342,13 +354,14 @@ def undo_card(sb, store: Path, run_id: str, card_id: str, declined: bool, outsid
                 raise SystemExit(
                     f"Stopped: card {card_id}'s team does not hold its old value again; something changed it since"
                 )
-            stamped, _ = stamp_reverted(sb, run_id, change.stage, {change.team})
-            lines.append(f"Stamped reverted_at on {stamped} ledger row(s).")
-            print(lines[-1])
+            # The stamp comes last: a retry finds the change by its unstamped row, so a lost decline is recorded then.
             if declined:
                 record_decisions(sb, planned, retry)
                 lines.append(f"Recorded {declined_name(change.stage)} under undo:{card_id}.")
                 print(lines[-1])
+            stamped, _ = stamp_reverted(sb, run_id, change.stage, {change.team})
+            lines.append(f"Stamped reverted_at on {stamped} ledger row(s).")
+            print(lines[-1])
         except (APIError, httpx.HTTPError) as exc:
             lines.append(f"Stopped: {exc}")
             raise SystemExit(refused(f"Could not finish undoing card {card_id}", exc, retry)) from None
@@ -374,7 +387,7 @@ def dry_run(sb, store: Path, run_id: str, card_id: str, declined: bool) -> None:
         return
     if declined:
         declined_decision(sb, change)
-        print(f"Then it stamps reverted_at on the change and records {declined_name(change.stage)}.")
+        print(f"Then it records {declined_name(change.stage)} and stamps reverted_at on the change.")
     else:
         print("Then it stamps reverted_at on the change.")
     print("Re-run with --execute to undo it.")

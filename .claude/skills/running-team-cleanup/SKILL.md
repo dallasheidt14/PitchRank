@@ -460,15 +460,16 @@ each automatic change, and the owner's Apply cards once the review is done. A se
 one, and its **Undo** files a request in `team_cleanup_card_undos`, with **Don't propose this change
 again** (for a merge, **Keep these two teams separate from now on**) ticked by default. The autopilot
 runs each request inside the apply window with `undo_card.py`, records it done or failed, holds an open
-run's close while one waits, and lists them in the run's summary email.
+run's close while one waits, and lists them in the run's summary email. A change its lane has not applied
+yet, as an automatic one is for a few hours after the page goes up, waits for it.
 
 `undo_card.py` puts back that one change the way the lane's revert would: the applier's own revert of a
 copy of the batch log cut to the team; for a merge, the hidden games naming the retired row and then that
 merge alone; for a state, `revert_team_states` over the lane's windows read from just before the team's
 id, after a dry run of the same call names the team. It refuses what the lane's revert refuses, checks the
-team holds its old value again, stamps the change reverted in `team_cleanup_changes`, and with `--decline`
-records Don't apply (Keep separate for a pair) under `undo:<card>`. A whole-lane undo afterwards passes
-over the change. By hand:
+team holds its old value again, with `--decline` records Don't apply (Keep separate for a pair) under
+`undo:<card>`, and last stamps the change reverted in `team_cleanup_changes`, so a retry after a failure
+finds the change and finishes. A whole-lane undo afterwards passes over the change. By hand:
 
 ```bash
 python scripts/team_cleanup/undo_card.py --run 2026-11-04-all --card <card id>
