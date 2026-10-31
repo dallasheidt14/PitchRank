@@ -451,6 +451,9 @@ function StageView({
   const alike = useMemo(() => alikeSets(stage.cards), [stage.cards]);
   const counts = tally(stage.cards, choices);
   const undecided = (ids: string[]) => ids.filter((id) => !choices[id]?.decision);
+  const cleared = undecided(
+    stage.cards.filter((row) => isPairRow(row) && row.card.capped === 'merge').map((row) => row.card_id)
+  );
   const visible = (row: CardRow) =>
     (show !== 'open' || !choices[row.card_id]?.decision) && (!show.startsWith('g:') || show === `g:${row.card.group}`);
 
@@ -496,6 +499,18 @@ function StageView({
           ))}
           <span className="rounded-full bg-muted px-2 py-0.5">{counts.undecided} left</span>
         </div>
+        {cleared.length > 0 && (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={!editable || bulkBusy}
+            onClick={() => void onDecideOpen(stage, cleared, 'apply')}
+          >
+            {cleared.length === 1
+              ? 'Merge the one the reviewers cleared'
+              : `Merge all ${cleared.length} the reviewers cleared`}
+          </Button>
+        )}
       </div>
 
       {groups.map((g) => {

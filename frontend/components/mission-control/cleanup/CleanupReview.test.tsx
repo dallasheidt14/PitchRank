@@ -512,6 +512,45 @@ describe('the team cleanup review page', () => {
     expect(button(container!, 'Apply every undecided card here')).toBeUndefined();
   });
 
+  it('merges every undecided card the reviewers cleared past the cap in one save, each the way they chose', async () => {
+    const capped = pairs();
+    const [stage] = capped.stages;
+    stage.cards = [
+      makePairCardRow({ card_id: 'p1', page_run: MERGES_PAGE, swap: true, card: { capped: 'merge' } }),
+      makePairCardRow({ card_id: 'p2', page_run: MERGES_PAGE, card: { capped: 'merge' } }),
+      makePairCardRow({ card_id: 'p3', page_run: MERGES_PAGE, decision: 'dont_apply', card: { capped: 'merge' } }),
+      makePairCardRow({ card_id: 'p4', page_run: MERGES_PAGE, card: { capped: 'reject' } }),
+      makePairCardRow({ card_id: 'p5', page_run: MERGES_PAGE }),
+    ];
+    serve(capped);
+    await render();
+
+    await click(button(container!, 'Merge all 2 the reviewers cleared'));
+
+    expect(posts.map((p) => p.body)).toEqual([
+      {
+        runId: RUN,
+        stage: 'merges',
+        pageRun: MERGES_PAGE,
+        cardIds: ['p1', 'p2'],
+        decision: 'apply',
+        onlyUndecided: true,
+      },
+    ]);
+    expect([stored.p1, stored.p2]).toEqual([
+      { decision: 'apply', note: '', swap: true },
+      { decision: 'apply', note: '', swap: false },
+    ]);
+    expect([stored.p3.decision, stored.p4.decision, stored.p5.decision]).toEqual(['dont_apply', null, null]);
+  });
+
+  it('offers no one-click merge when no card the reviewers cleared is left undecided', async () => {
+    serve(pairs({ card: { capped: 'reject' } }));
+    await render();
+
+    expect(container!.textContent).not.toContain('the reviewers cleared');
+  });
+
   it('lists an automatic merge on one line, the team merged away first', async () => {
     serve(pairs());
     await render();

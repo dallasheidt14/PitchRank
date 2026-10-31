@@ -139,7 +139,11 @@ chose, unless the two rows have since played on the same day (each other include
 card saying the reviewers cleared it and why the page held it;
 **reject** to the automatic lane as Keep separate, which both scans honour from then on (the cards
 table holds it as Apply, the card's `keep_separate` saying what is applied); **hold** to a card giving
-the reviewers' reason. A pair past the review cap waits for next week's. On a card,
+the reviewers' reason. A pair past the review cap waits for next week's. The automatic lane takes at most
+`page_caps.merges.auto` (300; owner, 2026-10-31: double it only after four straight weeks with no bad merge in the
+spot-checks and nothing merge-caused in the post-Monday check). A settled pair past that cap is a card
+carrying the reviewers' verdict (`capped`) and swap, and **Merge all N the reviewers cleared** decides every
+undecided cleared one in one click, each the way the reviewers turned it. On a card,
 **Merge them** applies it; **Keep separate** records the decision; **Not sure** brings it back next
 week; **Keep the other one** flips which row survives.
 

@@ -171,6 +171,9 @@ export interface PairCard extends CardBase {
   evidence: PairEvidence;
   /** On an automatic card: the week's review found two teams, so the loop keeps them separate. */
   keep_separate?: boolean;
+  /** On a card the week's review settled but the automatic lane's cap left to the owner: the reviewers' verdict.
+   * The row's swap is theirs too, so merging it keeps the row they chose. */
+  capped?: 'merge' | 'reject';
 }
 
 export type CleanupCard = TeamCard | PairCard;

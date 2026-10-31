@@ -24,7 +24,9 @@ reach is a card as before. The page refuses to build while a review is due and h
 
 The changes sure.py finds the evidence already settles go to the stage's automatic lane, with no
 card, up to page_caps.auto in config/team_cleanup.json; past it they stay cards, as every one does
-while it is 0. `collect.py --lane auto` and `apply_stage.py --lane auto` collect and apply that lane.
+while it is 0. A pair the week's review settled that the cap leaves a card carries the reviewers' verdict
+(`capped`) and their swap, so the website can merge every cleared one in one click the way they chose.
+`collect.py --lane auto` and `apply_stage.py --lane auto` collect and apply that lane.
 page_caps.cards caps the cards, and page_caps.<stage> gives a stage caps of its own. The build writes
 three files into the stage folder (two for merges), under the run's file lock and only while neither
 lane has collected from the page:
@@ -482,6 +484,14 @@ def auto_pair(p: dict) -> dict:
     return {"swap": choice["swap"], "keep_separate": choice["decision"] == DONT_APPLY}
 
 
+def capped_pair(p: dict) -> dict:
+    """What a pair the week's review settled adds when the automatic lane's cap left it a card: the reviewers'
+    verdict, by which the website merges every cleared one in one click, and their swap, so a merge keeps the row
+    they chose. A pair the rules settled unreviewed adds nothing."""
+    review = p.get("review")
+    return {"capped": review["verdict"], "swap": review_choice(p)["swap"]} if review else {}
+
+
 def auto_change(p: dict) -> dict:
     """What an automatic club or state card adds: whether the lane keeps the stored value, the review having found
     the change wrong, rather than writing the new one. The table holds every automatic card as Apply."""
@@ -683,6 +693,7 @@ def build(
                 "n": n,
                 "sure": settled.get(proposal_key(p)),
                 **(auto_pair(p) if stage == MERGES and lane == AUTO else {}),
+                **(capped_pair(p) if stage == MERGES and lane == OWNER and proposal_key(p) in settled else {}),
                 **(auto_change(p) if stage in (CLUBS, STATES) and lane == AUTO else {}),
             }
             for n, p in enumerate(chosen, 1)
