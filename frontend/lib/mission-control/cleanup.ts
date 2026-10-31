@@ -367,9 +367,8 @@ export const SPOT_VERDICTS = ['right', 'wrong'] as const;
 export type SpotVerdict = (typeof SPOT_VERDICTS)[number];
 /** Clean weeks in a row before page_caps.merges.auto may double: the owner's rule. */
 export const CLEAN_WEEKS_TO_RAISE = 4;
-/** How many runs' samples the page shows, newest first; each holds at most ten merges. */
-export const SPOT_CHECK_RUNS = 8;
-export const SPOT_CHECK_SIZE = 10;
+/** How many cleanup weeks' samples the page shows, newest first. */
+export const SPOT_CHECK_WEEKS = 8;
 
 export function isSpotVerdict(value: unknown): value is SpotVerdict {
   return (SPOT_VERDICTS as readonly unknown[]).includes(value);
@@ -395,16 +394,38 @@ export interface SpotCheckReview {
   cleanWeeks: number;
 }
 
+/** The cleanup week a run belongs to, named by its Wednesday, the day each week's run is proposed. */
+export function cleanupWeek(runId: string): string {
+  const day = new Date(`${runId.slice(0, 10)}T00:00:00Z`);
+  day.setUTCDate(day.getUTCDate() - ((day.getUTCDay() + 4) % 7));
+  return day.toISOString().slice(0, 10);
+}
+
+function weekBefore(week: string): string {
+  const day = new Date(`${week}T00:00:00Z`);
+  day.setUTCDate(day.getUTCDate() - 7);
+  return day.toISOString().slice(0, 10);
+}
+
 /**
- * Weeks in a row, newest first, whose whole sample was judged right. The newest week while it is still being
- * judged is passed over; a week further back left unjudged, or any week with a merge judged wrong, ends the count.
+ * Cleanup weeks in a row, newest first, whose every sampled merge was judged right; the runs of one week count
+ * as one. The newest week while it is still being judged is passed over. A week with no sample, a week further
+ * back left unjudged, or any week with a merge judged wrong ends the count.
  */
 export function cleanWeeks(runs: readonly SpotCheckRun[]): number {
-  let weeks = 0;
-  for (const [i, run] of runs.entries()) {
-    const judged = run.checks.every((check) => check.verdict !== null);
-    if (run.checks.some((check) => check.verdict === 'wrong') || (!judged && i > 0)) break;
-    if (judged) weeks += 1;
+  const weeks = new Map<string, SpotCheck[]>();
+  for (const run of runs) {
+    const week = cleanupWeek(run.runId);
+    weeks.set(week, [...(weeks.get(week) ?? []), ...run.checks]);
   }
-  return weeks;
+  let clean = 0;
+  let expected: string | null = null;
+  for (const [i, [week, checks]] of [...weeks].sort(([a], [b]) => b.localeCompare(a)).entries()) {
+    const judged = checks.every((check) => check.verdict !== null);
+    if (expected !== null && week !== expected) break;
+    if (checks.some((check) => check.verdict === 'wrong') || (!judged && i > 0)) break;
+    if (judged) clean += 1;
+    expected = weekBefore(week);
+  }
+  return clean;
 }

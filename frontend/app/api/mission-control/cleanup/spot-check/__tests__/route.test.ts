@@ -16,7 +16,20 @@ const OLDER = '2026-10-28-all';
 const NEWER = '2026-11-04-all';
 
 function sampled(runId: string, position: number, cardId: string, verdict: string | null = null): MockRow {
-  return { run_id: runId, position, card_id: cardId, verdict, note: null, judged_at: null, judged_by_user_id: null };
+  return {
+    id: `${runId}-${position}`,
+    run_id: runId,
+    position,
+    card_id: cardId,
+    verdict,
+    note: null,
+    judged_at: null,
+    judged_by_user_id: null,
+  };
+}
+
+function cardRow(id: string, swap = false): MockRow {
+  return { card_id: id, card: makePairCard({ id, why: `Reviewers cleared it: ${id}` }), swap };
 }
 
 function judge(body: unknown) {
@@ -41,11 +54,7 @@ beforeEach(() => {
     sampled(NEWER, 2, 'n2'),
     sampled(NEWER, 1, 'n1', 'wrong'),
   ];
-  db.tableRows.team_cleanup_cards = ['o1', 'n1', 'n2'].map((id) => ({
-    card_id: id,
-    card: makePairCard({ id, why: `Reviewers cleared it: ${id}` }),
-    swap: id === 'n1',
-  }));
+  db.tableRows.team_cleanup_cards = ['o1', 'n1', 'n2'].map((id) => cardRow(id, id === 'n1'));
 });
 
 describe('GET /api/mission-control/cleanup/spot-check', () => {
@@ -74,6 +83,28 @@ describe('GET /api/mission-control/cleanup/spot-check', () => {
     ]);
     expect(body.runs[0].checks[0].card.why).toBe('Reviewers cleared it: n1');
     expect(body.cleanWeeks).toBe(0);
+  });
+
+  it("shows the newest eight weeks' samples whole, and counts the clean weeks across all of them", async () => {
+    // Ten weekly runs, the newest sampling three merges and the rest ten each, every one judged right.
+    const weeks = Array.from({ length: 10 }, (_, i) => {
+      const day = new Date(Date.UTC(2026, 10, 11 - 7 * i));
+      return `${day.toISOString().slice(0, 10)}-all`;
+    });
+    const size = (runId: string) => (runId === weeks[0] ? 3 : 10);
+    db.tableRows.team_cleanup_spot_checks = weeks.flatMap((runId) =>
+      Array.from({ length: size(runId) }, (_, n) => sampled(runId, n + 1, `${runId}-c${n}`, 'right'))
+    );
+    db.tableRows.team_cleanup_cards = weeks.flatMap((runId) =>
+      Array.from({ length: size(runId) }, (_, n) => cardRow(`${runId}-c${n}`))
+    );
+
+    const body = (await (await GET()).json()) as SpotCheckReview;
+
+    expect(body.runs.map((run) => [run.runId, run.checks.length])).toEqual(
+      weeks.slice(0, 8).map((runId) => [runId, size(runId)])
+    );
+    expect(body.cleanWeeks).toBe(10);
   });
 
   it('shows no sample, rather than an error, before the table exists', async () => {

@@ -3,10 +3,11 @@ import { requireAdmin } from '@/lib/supabase/admin';
 import { createServiceSupabase } from '@/lib/supabase/service';
 import { parseJsonBody } from '@/lib/api/parseJsonBody';
 import {
+  MAX_CARDS_PER_WRITE,
   MAX_NOTE_LENGTH,
-  SPOT_CHECK_RUNS,
-  SPOT_CHECK_SIZE,
+  SPOT_CHECK_WEEKS,
   cleanWeeks,
+  cleanupWeek,
   isId,
   isSpotVerdict,
   type PairCard,
@@ -19,6 +20,7 @@ export const dynamic = 'force-dynamic';
 
 /** PostgREST's answer for a table no migration has created yet. */
 const TABLE_MISSING = 'PGRST205';
+const PAGE_SIZE = 1000;
 
 /** The newest runs' samples of their automatic merges, with the owner's verdicts and the clean weeks in a row. */
 export async function GET() {
@@ -35,46 +37,61 @@ export async function GET() {
 
 async function readSpotChecks() {
   const supabase = createServiceSupabase();
-  const { data: rows, error } = await supabase
-    .from('team_cleanup_spot_checks')
-    .select('run_id, position, card_id, verdict, note')
-    .order('run_id', { ascending: false })
-    .limit(SPOT_CHECK_RUNS * SPOT_CHECK_SIZE);
-  if (error?.code === TABLE_MISSING) {
-    return NextResponse.json({ runs: [], cleanWeeks: 0 } satisfies SpotCheckReview);
-  }
-  if (error) {
-    console.error('[cleanup] Reading the spot-checks failed:', error.message);
-    return NextResponse.json({ error: 'Could not read the spot-checks' }, { status: 500 });
+  // Every check, so each run's sample is whole: a run holds ten at most, and the loop files one run a week.
+  const rows: Array<Record<string, unknown>> = [];
+  for (let offset = 0; ; offset += PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from('team_cleanup_spot_checks')
+      .select('id, run_id, position, card_id, verdict, note')
+      .order('id')
+      .range(offset, offset + PAGE_SIZE - 1);
+    if (error?.code === TABLE_MISSING) {
+      return NextResponse.json({ runs: [], cleanWeeks: 0 } satisfies SpotCheckReview);
+    }
+    if (error) {
+      console.error('[cleanup] Reading the spot-checks failed:', error.message);
+      return NextResponse.json({ error: 'Could not read the spot-checks' }, { status: 500 });
+    }
+    rows.push(...(data ?? []));
+    if (!data || data.length < PAGE_SIZE) break;
   }
 
-  const ids = (rows ?? []).map((row) => row.card_id as string);
-  const { data: cards, error: cardError } = ids.length
-    ? await supabase.from('team_cleanup_cards').select('card_id, card, swap').in('card_id', ids)
-    : { data: [], error: null };
-  if (cardError) {
-    console.error('[cleanup] Reading the spot-checked cards failed:', cardError.message);
-    return NextResponse.json({ error: 'Could not read the spot-checks' }, { status: 500 });
+  const ids = rows.map((row) => row.card_id as string);
+  const byId = new Map<string, { card: PairCard; swap: boolean }>();
+  for (let i = 0; i < ids.length; i += MAX_CARDS_PER_WRITE) {
+    const { data: cards, error } = await supabase
+      .from('team_cleanup_cards')
+      .select('card_id, card, swap')
+      .in('card_id', ids.slice(i, i + MAX_CARDS_PER_WRITE));
+    if (error) {
+      console.error('[cleanup] Reading the spot-checked cards failed:', error.message);
+      return NextResponse.json({ error: 'Could not read the spot-checks' }, { status: 500 });
+    }
+    for (const row of cards ?? []) byId.set(row.card_id as string, { card: row.card as PairCard, swap: row.swap });
   }
-  const byId = new Map((cards ?? []).map((row) => [row.card_id as string, row]));
 
   const runs = new Map<string, SpotCheckRun>();
-  for (const row of rows ?? []) {
-    const found = byId.get(row.card_id);
+  for (const row of rows) {
+    const runId = row.run_id as string;
+    const found = byId.get(row.card_id as string);
     if (!found) continue;
-    if (!runs.has(row.run_id)) runs.set(row.run_id, { runId: row.run_id, checks: [] });
-    runs.get(row.run_id)!.checks.push({
-      cardId: row.card_id,
-      position: row.position,
-      card: found.card as PairCard,
-      swap: found.swap as boolean,
+    if (!runs.has(runId)) runs.set(runId, { runId, checks: [] });
+    runs.get(runId)!.checks.push({
+      cardId: row.card_id as string,
+      position: row.position as number,
+      card: found.card,
+      swap: found.swap,
       verdict: row.verdict as SpotVerdict | null,
-      note: row.note,
+      note: row.note as string | null,
     });
   }
   const ordered = [...runs.values()].sort((a, b) => b.runId.localeCompare(a.runId));
   for (const run of ordered) run.checks.sort((a, b) => a.position - b.position);
-  return NextResponse.json({ runs: ordered, cleanWeeks: cleanWeeks(ordered) } satisfies SpotCheckReview);
+  const shown = new Set([...new Set(ordered.map((run) => cleanupWeek(run.runId)))].slice(0, SPOT_CHECK_WEEKS));
+  return NextResponse.json({
+    runs: ordered.filter((run) => shown.has(cleanupWeek(run.runId))),
+    cleanWeeks: cleanWeeks(ordered),
+  } satisfies SpotCheckReview);
 }
 
 /**
