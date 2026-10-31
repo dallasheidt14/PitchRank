@@ -486,16 +486,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: `stored_states` is built from `fetch_live_teams`, which filters `is_deprecated = false`, but the `only_team` branch sets `candidates = [only_team]` with no membership check against it. `team_alias_map` carries no such filter, so a deprecated id still resolves a GotSport alias and is still probed. The resulting `team_state_probe_log` row records `stored_state_code` NULL and so `agreed` NULL, which reads as "we asked and it had no state" rather than "it was not in the snapshot" — and the contradiction audit that consumes this ledger cannot tell those apart. Measured 2026-08-31: exactly 2 deprecated teams carry a GotSport alias and both have a `state_code`, so the blast radius is small today, but a row is permanent once written. Fix: check membership in `stored_states` in the `only_team` branch and warn-and-skip rather than probing, which also saves a wasted paid ZenRows call. Raised by two independent reviewers on the probe-ledger branch and kept out of that change to keep it scoped to the ledger.
 - **Noted**: 2026-08-31
 
-### Three tables in the team-state provenance migration still carry anon's default grants
-
-- **ID**: IMP-152
-- **Status**: open
-- **Type**: direct
-- **Category**: reliability
-- **Where**: `supabase/migrations/20260829120000_add_team_state_provenance.sql` — `team_state_audit`, `team_state_review_queue`, `tgs_events`
-- **Why**: `pg_default_acl` grants anon and authenticated `arwdDxtm` on every new public relation here, and RLS governs SELECT/INSERT/UPDATE/DELETE but not TRUNCATE or REFERENCES — so a deny-all policy leaves those two intact. Verified live 2026-08-31: all three read `anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres` in `pg_class.relacl`, while the two tables shipping `REVOKE ALL ON public.<table> FROM anon, authenticated` (`20260801000000_age_group_rollover_2026_27.sql:84-85`) read only `postgres` and `service_role` — the remedy works and does not lock out the ETL writer. `team_state_audit` is the append-only ledger every state write lands in; emptying it destroys the provenance `revert_team_states` depends on. `team_state_probe_log` ships the REVOKE plus a test scoped to itself, because widening that assertion to all four would fail for these three. Fix: one REVOKE per table in a follow-up migration, then widen the test to loop over `NEW_TABLES`. Worth deciding at the same time whether the REVOKE belongs in the shared RLS convention so new tables get it by default. Raised during the probe-ledger review and kept out of that change to keep it scoped.
-- **Noted**: 2026-08-31
-
 ### anon retains DELETE and TRUNCATE on public.user_profiles
 
 - **ID**: IMP-153

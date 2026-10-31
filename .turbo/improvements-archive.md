@@ -1863,3 +1863,15 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Why**: It builds one `.or_()` filter naming every master team on a date (`home_team_master_id.eq.X,away_team_master_id.eq.X` per team) and sends it in a single request. `_check_duplicates_by_master_ids` batches the same query with `self._chunks(..., 50)`; this second copy does not. A date with enough teams can exceed the URI limit, and the method's broad `except` then logs a warning and skips the date, so a new copy of an already-excluded game is inserted live (failure mode reported by review, not reproduced). Apply the same batching, with a test whose two teams fall in different batches.
 - **Noted**: 2026-09-24
 - **Refs**: branch `fix/exclusion-propagation-batch-ids` (PR #1331); `tests/unit/test_enhanced_pipeline_exclusion_propagation.py`
+
+### Three tables in the team-state provenance migration still carry anon's default grants
+
+- **ID**: IMP-152
+- **Status**: done
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `supabase/migrations/20260829120000_add_team_state_provenance.sql` — `team_state_audit`, `team_state_review_queue`, `tgs_events`
+- **Why**: `pg_default_acl` grants anon and authenticated `arwdDxtm` on every new public relation here, and RLS governs SELECT/INSERT/UPDATE/DELETE but not TRUNCATE or REFERENCES — so a deny-all policy leaves those two intact. Verified live 2026-08-31: all three read `anon=arwdDxtm/postgres,authenticated=arwdDxtm/postgres` in `pg_class.relacl`, while the two tables shipping `REVOKE ALL ON public.<table> FROM anon, authenticated` (`20260801000000_age_group_rollover_2026_27.sql:84-85`) read only `postgres` and `service_role` — the remedy works and does not lock out the ETL writer. `team_state_audit` is the append-only ledger every state write lands in; emptying it destroys the provenance `revert_team_states` depends on. `team_state_probe_log` ships the REVOKE plus a test scoped to itself, because widening that assertion to all four would fail for these three. Fix: one REVOKE per table in a follow-up migration, then widen the test to loop over `NEW_TABLES`. Worth deciding at the same time whether the REVOKE belongs in the shared RLS convention so new tables get it by default. Raised during the probe-ledger review and kept out of that change to keep it scoped.
+- **Noted**: 2026-08-31
+- **Update (2026-10-31)**: `20261031120000_revoke_public_grants_on_state_ledger_tables.sql` revokes all three tables and the three ledger sequences (`team_state_audit_id_seq`, `team_state_review_queue_id_seq`, `team_state_probe_log_id_seq`) from anon and authenticated; a table REVOKE does not reach a sequence, and `tgs_events` has none. The test now loops over `NEW_TABLES` plus the sequences and reads each relation's newest GRANT or REVOKE, so a later grant back fails it. Hand-applied by the owner.
+- **Refs**: branch `feat/state-ledger-revoke`
