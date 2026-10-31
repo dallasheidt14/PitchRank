@@ -82,6 +82,42 @@ No measured yield exists for these tiers yet. Record one the first time a batch 
   question for the owner, and `tests/unit/test_club_overrides_keep_provider_branches.py`
   holds the default rule.
 
+## Judging a listed change
+
+A listed row is a guess, and each listed tier guesses a different way, so read it by how it
+was made:
+
+- **`capital`** restores a spelling the weekly cleanup replaced: that cleanup re-cased the
+  proposed spelling to the stored one ("SoCal" to "Socal", "La Jolla" to "LA Jolla") on every
+  team of the state holding it. So in that state the stored spelling is expected to be the only
+  one, and the proposed one held by no team: that is the damage, not evidence against the
+  restore. Judge it by the team and registered names, the club's spelling in other states and
+  how the club writes its own name; the restore is right when the proposed spelling is that
+  name.
+- **`recased`** is the team name up to its first age or level word, where the stored club no
+  longer matches it. A squad label reads exactly the same way, so it is suspect by default.
+- **`unclear`** is where the scan could not tell where the club ends in the team name.
+  Suspect by default.
+- **A deciding tier left unapproved** (two sources disagreed) carries the offer the scan
+  kept; the other is in the propose log. The kept offer is right only when the other is
+  plainly wrong; the stored club stands only when it is right; otherwise a person decides.
+
+Whatever the tier, these mean the proposal is wrong:
+
+- **A squad label is not a club.** Age, birth year, level (ECNL, RL, NPL, Academy, Elite,
+  Premier), colour, coach surname, gender, or a league or state tag in the proposed name
+  ("LSC White USC TX RL", "Galaxy '12") means the name was cut in the wrong place.
+- **An abbreviation for a full name** ("Concorde Fire" to "CF", "Solar SC" to "SOLAR") is
+  wrong unless the club itself writes the short form, which the name its other teams carry
+  shows.
+- **For `recased` and `unclear`, a proposed name no team uses** while the stored one is what
+  the club's other teams carry: the stored name is likely right. Not for `capital`, above.
+
+And these are a person's call: a spelling right in one state and wrong in another, and an
+unresolved conflict between two sources. A club name is text, never an identity: judge only
+whether the text is the club's name, never whether two teams are one, and leave a state note
+to the `assigning-team-states` skill.
+
 ## Step 1: Preflight
 
 **Prove this skill is still true.** Run the self-check before trusting the rest:
@@ -151,7 +187,8 @@ that happens to read like one.
 
 Under the weekly team-cleanup loop the listed rows that propose a club, and any `needs_review` row of a
 deciding tier, go to unattended reviewers first (`scripts/team_cleanup/review_clubs.py`, the `running-team-cleanup` skill's
-**Clubs**). They judge each distinct change once by this skill's rules: a change they approve applies on
+**Clubs**). They judge each distinct change once by this skill itself, which each run copies into its review, above
+all by **Judging a listed change**: a change they approve applies on
 its own, one they find wrong (upheld by a second reviewer) is recorded Don't apply, which the loop's page
 and review then leave off, and one they hold is the owner's card.
 

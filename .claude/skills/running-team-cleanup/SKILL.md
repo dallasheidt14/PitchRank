@@ -65,7 +65,8 @@ Before the page, `scripts/team_cleanup/review_clubs.py` reviews the listed guess
 change the scan left unapproved because two sources disagree, up to `page_caps.clubs.review` changes a
 week. It judges each distinct change once, however many teams carry it (a team whose sources disagree is a
 change of its own, its losing offer read from the propose log), and runs the same locked-down reviewers as
-merges, from `scripts/team_cleanup/assets/club_review_brief.md`; each change gets apply, hold or reject, and a reject goes to a
+merges, judging by the `normalizing-club-names` skill itself (above all its **Judging a listed change**), packed
+into `<run>/clubs/review/skill/` as merges pack theirs; each change gets apply, hold or reject, and a reject goes to a
 second reviewer with the opposite prior. The page then routes each reviewed change: **apply** to the
 automatic lane; **reject** to the automatic lane kept as it is (the card's `keep_as_is`), recorded Don't apply
 so the scan's guess stops coming back; **hold** to a card giving the reviewers' reason. A listed guess the
