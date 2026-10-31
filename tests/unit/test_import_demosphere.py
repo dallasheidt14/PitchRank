@@ -89,6 +89,8 @@ class TestParseDivisionPage:
         assert page.problems == []
         forfeited = next(g for g in page.games if g.game_key == "11635852")
         assert (forfeited.home_score, forfeited.away_score) == (None, None)
+        assert forfeited.forfeit
+        assert not any(g.forfeit for g in page.games if g.game_key != "11635852")
 
     @pytest.mark.parametrize(
         ("old", "new"),
@@ -542,7 +544,7 @@ def _row(key, age="u13", gender="Female", name=None):
     )
 
 
-def _game(key="100", day=date(2026, 9, 12), home="1", away="2", score=(2, 1)):
+def _game(key="100", day=date(2026, 9, 12), home="1", away="2", score=(2, 1), forfeit=False):
     return dm.RawGame(
         game_key=key,
         game_date=day,
@@ -553,6 +555,7 @@ def _game(key="100", day=date(2026, 9, 12), home="1", away="2", score=(2, 1)):
         venue="Field 1",
         division_name="GU13 Division 4",
         source_url=DIVISION_URL,
+        forfeit=forfeit,
     )
 
 
@@ -652,6 +655,11 @@ class TestBuildCsvRows:
     def test_a_past_game_without_a_score_is_still_dropped_with_a_forward_window(self):
         a, b = _row("1"), _row("2")
         assert _csv([_game(score=None)], [a, b], _linked(a, b), days_forward=14) == ([], [], [])
+
+    def test_a_forfeit_inside_the_forward_window_is_not_a_scheduled_game(self):
+        a, b = _row("1"), _row("2")
+        game = _game(day=date(2026, 11, 7), score=None, forfeit=True)
+        assert _csv([game], [a, b], _linked(a, b), days_forward=14) == ([], [], [])
 
     def test_a_scheduled_game_with_an_unlinked_side_is_dropped_not_held(self):
         a, b = _row("1"), _row("2")

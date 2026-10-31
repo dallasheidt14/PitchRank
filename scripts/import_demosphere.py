@@ -266,6 +266,7 @@ class RawGame:
     venue: str
     division_name: str
     source_url: str
+    forfeit: bool = False
 
 
 @dataclass
@@ -401,7 +402,8 @@ def parse_division_page(html: str, division_key: str, source_url: str) -> Divisi
             continue
         score_text = _text(row.select_one("td.sch-main-sc"))
         score = _SCORE.match(score_text)
-        if not score and _FORFEIT.fullmatch(score_text):
+        forfeit = not score and bool(_FORFEIT.fullmatch(score_text))
+        if forfeit:
             page.forfeits.append(game_key)
         elif not score and score_text.lower() not in _UNPLAYED:
             page.problems.append(f"{division_key} game {game_key}: unreadable score {score_text!r}")
@@ -416,6 +418,7 @@ def parse_division_page(html: str, division_key: str, source_url: str) -> Divisi
                 venue=_text(row.select_one("span.gm-fac")),
                 division_name=page.name,
                 source_url=source_url,
+                forfeit=forfeit,
             )
         )
     if soup.select_one("table#tblListGames2") is None and not name_match:
@@ -851,7 +854,7 @@ def build_csv_rows(
     held: List[Dict] = []
     cross_age: List[Dict] = []
     for game in games:
-        fixture = game.home_score is None and game.away_score is None
+        fixture = game.home_score is None and game.away_score is None and not game.forfeit
         if fixture:
             if not today < game.game_date <= today + timedelta(days=days_forward):
                 continue
