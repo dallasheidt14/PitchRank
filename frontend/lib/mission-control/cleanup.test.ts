@@ -1,6 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { makeCleanupCardRow } from '@/test/fixtures';
-import { alikeSets, evidenceLines, groupCards, newestBuild, pairEvidenceLines, stageReviews, tally } from './cleanup';
+import { makeCleanupCardRow, makePairCard } from '@/test/fixtures';
+import {
+  alikeSets,
+  cleanWeeks,
+  evidenceLines,
+  groupCards,
+  newestBuild,
+  pairEvidenceLines,
+  stageReviews,
+  tally,
+  type SpotCheckRun,
+  type SpotVerdict,
+} from './cleanup';
 
 describe('evidenceLines', () => {
   const none = { opponents: {}, opponents_total: 0, club: {}, gotsport: null, name: { state: null, how: 'none' } };
@@ -109,5 +120,35 @@ describe('groups, look-alikes and the tally', () => {
       unsure: 0,
       undecided: 2,
     });
+  });
+});
+
+describe('cleanWeeks', () => {
+  function week(...verdicts: Array<SpotVerdict | null>): SpotCheckRun {
+    return {
+      runId: 'r',
+      checks: verdicts.map((verdict, i) => ({
+        cardId: `c${i}`,
+        position: i + 1,
+        card: makePairCard(),
+        swap: false,
+        verdict,
+        note: null,
+      })),
+    };
+  }
+
+  it('counts the weeks in a row, newest first, whose every merge was judged right', () => {
+    expect(cleanWeeks([week('right', 'right'), week('right'), week('wrong'), week('right')])).toBe(2);
+  });
+
+  it('passes over the newest week while it is still being judged, but not an older one', () => {
+    expect(cleanWeeks([week('right', null), week('right'), week('right')])).toBe(2);
+    expect(cleanWeeks([week('right'), week(null), week('right')])).toBe(1);
+  });
+
+  it('counts none when the newest week holds a merge judged wrong, judged in full or not', () => {
+    expect(cleanWeeks([week('wrong', null), week('right')])).toBe(0);
+    expect(cleanWeeks([])).toBe(0);
   });
 });

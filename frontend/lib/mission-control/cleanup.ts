@@ -361,3 +361,50 @@ export function tally(cards: readonly CardRow[], choices: Readonly<Record<string
   }
   return counts;
 }
+
+/** team_cleanup_spot_checks' verdicts on an automatic merge the loop sampled. */
+export const SPOT_VERDICTS = ['right', 'wrong'] as const;
+export type SpotVerdict = (typeof SPOT_VERDICTS)[number];
+/** Clean weeks in a row before page_caps.merges.auto may double: the owner's rule. */
+export const CLEAN_WEEKS_TO_RAISE = 4;
+/** How many runs' samples the page shows, newest first; each holds at most ten merges. */
+export const SPOT_CHECK_RUNS = 8;
+export const SPOT_CHECK_SIZE = 10;
+
+export function isSpotVerdict(value: unknown): value is SpotVerdict {
+  return (SPOT_VERDICTS as readonly unknown[]).includes(value);
+}
+
+/** One sampled merge: its automatic card, turned by `swap` as it applied, and the owner's verdict on it. */
+export interface SpotCheck {
+  cardId: string;
+  position: number;
+  card: PairCard;
+  swap: boolean;
+  verdict: SpotVerdict | null;
+  note: string | null;
+}
+
+export interface SpotCheckRun {
+  runId: string;
+  checks: SpotCheck[];
+}
+
+export interface SpotCheckReview {
+  runs: SpotCheckRun[];
+  cleanWeeks: number;
+}
+
+/**
+ * Weeks in a row, newest first, whose whole sample was judged right. The newest week while it is still being
+ * judged is passed over; a week further back left unjudged, or any week with a merge judged wrong, ends the count.
+ */
+export function cleanWeeks(runs: readonly SpotCheckRun[]): number {
+  let weeks = 0;
+  for (const [i, run] of runs.entries()) {
+    const judged = run.checks.every((check) => check.verdict !== null);
+    if (run.checks.some((check) => check.verdict === 'wrong') || (!judged && i > 0)) break;
+    if (judged) weeks += 1;
+  }
+  return weeks;
+}

@@ -53,7 +53,12 @@ COLUMNS = {
         "handled_at",
         "result",
     },
+    "team_cleanup_spot_checks": {"run_id", "position", "card_id"},
+    "team_cleanup_changes": {"id", "run_id", "stage", "team_id_master", "new_value", "reverted_at"},
+    "team_cleanup_cards": {"card_id", "card", "swap"},
 }
+# The spot-checks' unique indexes: one merge per position, and each merge once, in a run.
+UNIQUE = {"team_cleanup_spot_checks": (("run_id", "position"), ("run_id", "card_id"))}
 
 
 def _config(folder, **changes):
@@ -68,17 +73,20 @@ class _Result:
 
 
 class _Runs:
-    """team_cleanup_runs and team_cleanup_requests: a select or an update, filtered by eq() and is_(col,
-    "null") and ordered by order(), recorded at execute(). Like PostgREST it refuses a column the table lacks;
-    ``broken`` is the error every execute() raises."""
+    """The cleanup tables a tick reads: a select, an update or an insert, filtered by eq(), in_() and
+    is_(col, "null"), ordered by order() and sliced by range(), recorded at execute(). Like PostgREST it
+    refuses a column the table lacks, and an insert a unique index holds; ``broken`` is the error every
+    execute() raises, ``failing`` the error a table's do."""
 
-    def __init__(self, rows=(), requests=()):
-        self.tables = {
-            "team_cleanup_runs": [dict(r) for r in rows],
-            "team_cleanup_requests": [dict(r) for r in requests],
-        }
+    def __init__(self, rows=(), requests=(), **tables):
+        self.tables = {name: [] for name in COLUMNS}
+        self.tables["team_cleanup_runs"] = [dict(r) for r in rows]
+        self.tables["team_cleanup_requests"] = [dict(r) for r in requests]
+        for name, table_rows in tables.items():
+            self.tables[name] = [dict(r) for r in table_rows]
         self.writes = []
         self.broken = None
+        self.failing = {}
         # Tables a migration has not created yet: PostgREST answers PGRST205 for them.
         self.missing = set()
 
@@ -98,6 +106,7 @@ class _Runs:
 class _RunsQuery:
     def __init__(self, db, name):
         self.db, self.name, self.filters, self.payload, self.columns, self.ordered = db, name, [], None, None, None
+        self.inserting, self.within = None, None
 
     def _known(self, *columns):
         assert set(columns) <= COLUMNS[self.name], f"PostgREST refuses unknown columns {sorted(columns)}"
@@ -110,6 +119,22 @@ class _RunsQuery:
     def update(self, payload):
         self._known(*payload)
         self.payload = payload
+        return self
+
+    def insert(self, rows):
+        for row in rows:
+            self._known(*row)
+        self.inserting = [dict(r) for r in rows]
+        return self
+
+    def in_(self, column, values):
+        self._known(column)
+        assert len(values) <= 100, "PostgREST URIs hold at most 100 ids"
+        self.filters.append((column, set(values)))
+        return self
+
+    def range(self, start, end):
+        self.within = (start, end)
         return self
 
     def eq(self, column, value):
@@ -128,14 +153,30 @@ class _RunsQuery:
         self.ordered = column
         return self
 
+    def _matches(self, row):
+        return all(row.get(c) in v if isinstance(v, set) else row.get(c) == v for c, v in self.filters)
+
     def execute(self):
         if self.db.broken:
             raise self.db.broken
+        if self.name in self.db.failing:
+            raise self.db.failing[self.name]
         if self.name in self.db.missing:
             raise APIError({"code": "PGRST205", "message": f"no table {self.name}", "details": None, "hint": None})
-        rows = [r for r in self.db.tables[self.name] if all(r.get(c) == v for c, v in self.filters)]
+        stored = self.db.tables[self.name]
+        if self.inserting is not None:
+            for key in UNIQUE.get(self.name, ()):
+                held = {tuple(r[c] for c in key) for r in stored}
+                if any(tuple(r[c] for c in key) in held for r in self.inserting):
+                    raise APIError({"code": "23505", "message": "duplicate key", "details": None, "hint": None})
+            self.db.writes.append(self.inserting)
+            stored.extend(self.inserting)
+            return _Result([dict(r) for r in self.inserting])
+        rows = [r for r in stored if self._matches(r)]
         if self.ordered:
             rows.sort(key=lambda r: r[self.ordered])
+        if self.within:
+            rows = rows[self.within[0] : self.within[1] + 1]
         if self.payload is not None:
             self.db.writes.append(self.payload)
             for row in rows:
@@ -156,6 +197,8 @@ class _Runner:
 
     def __init__(self, store, codes=None):
         self.store, self.codes, self.commands, self.auto = store, codes or {}, [], 1
+        # The merges page's automatic pairs, by card id, when a test needs the review's verdicts on them.
+        self.pairs = None
         self.db, self.now, self.window = None, None, None
 
     def __call__(self, command, log):
@@ -206,7 +249,9 @@ class _Runner:
         elif script == "pages.py":
             folder = stage_dir(self.store, run_id, stage)
             _write(folder / "page.json", {"run": "20261021T190000Z-a1b2c3", "auto": self.auto, "published": True})
-            auto = {f"a{n}": {} for n in range(self.auto)}
+            auto = (
+                self.pairs if stage == "merges" and self.pairs is not None else {f"a{n}": {} for n in range(self.auto)}
+            )
             _write(folder / "page.manifest.json", {"cards": {"c1": {}, "c2": {}}, "auto": auto})
         elif script == "collect.py":
             folder = stage_dir(self.store, run_id, stage) / ("auto" if lane == "auto" else "")
@@ -572,6 +617,167 @@ def test_the_summary_counts_pairs_kept_separate_as_settled_by_the_evidence(tmp_p
     _, body = advance.summary_email(store, RUN, ["merges"])
 
     assert "<li>merges: 1 you chose to apply, 5 the evidence settled, 4 left for next week</li>" in body
+
+
+# --- the spot-check of the automatic merges --------------------------------------------------------------
+
+
+def _pair(n, verdict="merge", swap=False):
+    """An automatic pair the week's review judged, as the merges page's manifest lists it."""
+    return {"merge_id": f"m{n}", "keep_id": f"k{n}", "review": {"verdict": verdict, "swap": swap, "reason": f"why {n}"}}
+
+
+def _side(team_id, name, games):
+    return {
+        "team_id": team_id,
+        "name": name,
+        "games": games,
+        "club": "Club",
+        "state": "AZ",
+        "age": "u12",
+        "gender": "Male",
+        "provider": "gotsport",
+    }
+
+
+def _card(n, swap=False):
+    """A pair's automatic card as team_cleanup_cards holds it."""
+    card = {"merge": _side(f"m{n}", f"Merged {n}", 3), "keep": _side(f"k{n}", f"Kept {n}", 9)}
+    return {"card_id": f"p{n}", "card": {**card, "why": f"Reviewers cleared it: why {n}"}, "swap": swap}
+
+
+def _merged(n, retired=None, kept=None, reverted_at=None):
+    """A merge the run applied, as team_cleanup_changes ledgers it."""
+    retired, kept = retired or f"m{n}", kept or f"k{n}"
+    return {
+        "id": f"x{n}",
+        "run_id": RUN,
+        "stage": "merges",
+        "team_id_master": retired,
+        "new_value": kept,
+        "reverted_at": reverted_at,
+    }
+
+
+def _done_reviewing(**tables):
+    run = {"run_id": RUN, "status": "reviewing", "owner_done_at": "2026-10-24T17:00:00Z", "owner_done_by": "owner"}
+    return _Runs([run], **tables)
+
+
+def _picked(db):
+    return [r["card_id"] for r in sorted(db.tables["team_cleanup_spot_checks"], key=lambda r: r["position"])]
+
+
+def _listed(body):
+    return body.count('<li><a href="https://www.pitchrank.io/teams/')
+
+
+def test_the_summary_lists_ten_of_the_merges_and_files_them_once(tmp_path, monkeypatch, emails, capsys):
+    store = tmp_path / "store"
+    _proposed(store)
+    runner = _Runner(store)
+    runner.pairs = {f"p{n}": _pair(n) for n in range(14)}
+    db = _done_reviewing(
+        team_cleanup_changes=[_merged(n) for n in range(14)], team_cleanup_cards=[_card(n) for n in range(14)]
+    )
+
+    _tick(monkeypatch, store, db, runner, IN_WINDOW)
+
+    picked = _picked(db)
+    assert len(set(picked)) == 10 and set(picked) <= set(runner.pairs)
+    assert [r["position"] for r in db.tables["team_cleanup_spot_checks"]] == list(range(1, 11))
+    subject, body = emails[-1][1:]
+    assert subject == f"PitchRank cleanup {RUN} is finished" and _listed(body) == 10
+    assert "https://www.pitchrank.io/mission-control/cleanup#spot-check" in body
+
+    writes = len(db.writes), capsys.readouterr()
+    assert advance.sample_section(db, store, RUN, False) == advance.sample_section(db, store, RUN, True)
+    assert len(db.writes) == writes[0] and _picked(db) == picked and "would file" not in capsys.readouterr().out
+
+
+def test_only_merges_the_reviewers_cleared_and_the_run_still_holds_are_drawn(tmp_path, monkeypatch, emails):
+    store = tmp_path / "store"
+    _proposed(store)
+    runner = _Runner(store)
+    # Cleared and held; cleared and undone since; found to be two teams; settled by the rules with no reviewer;
+    # cleared and held, its card never published.
+    runner.pairs = {
+        "p1": _pair(1),
+        "p2": _pair(2),
+        "p3": _pair(3, verdict="reject"),
+        "p4": {"merge_id": "m4", "keep_id": "k4"},
+        "p5": _pair(5),
+    }
+    ledger = [_merged(1), _merged(2, reverted_at="2026-10-25T00:00:00Z"), _merged(3), _merged(4), _merged(5)]
+    db = _done_reviewing(team_cleanup_changes=ledger, team_cleanup_cards=[_card(n) for n in range(1, 5)])
+
+    _tick(monkeypatch, store, db, runner, IN_WINDOW)
+
+    assert _picked(db) == ["p1"] and _listed(emails[-1][2]) == 1
+
+
+def test_a_merge_the_review_turned_is_judged_the_way_it_applied(tmp_path, monkeypatch, emails):
+    store = tmp_path / "store"
+    _proposed(store)
+    runner = _Runner(store)
+    runner.pairs = {"p1": _pair(1, swap=True), "p2": _pair(2)}
+    # The first merge applied the way the review turned it; the second is ledgered the other way round, so it
+    # is not the merge its card shows.
+    ledger = [_merged(1, retired="k1", kept="m1"), _merged(2, retired="k2", kept="m2")]
+    db = _done_reviewing(team_cleanup_changes=ledger, team_cleanup_cards=[_card(1, swap=True), _card(2)])
+
+    _tick(monkeypatch, store, db, runner, IN_WINDOW)
+
+    body = emails[-1][2]
+    assert _picked(db) == ["p1"]
+    assert '<a href="https://www.pitchrank.io/teams/m1">Merged 1</a> (3 games;' in body
+    assert "with Kept 1 (9 games; Club, AZ, u12 Male, gotsport) merged into it" in body
+
+
+def test_a_spot_check_that_cannot_be_read_holds_the_summary_for_a_later_tick(tmp_path, monkeypatch, emails):
+    store = tmp_path / "store"
+    _proposed(store)
+    runner = _Runner(store)
+    runner.pairs = {"p1": _pair(1)}
+    db = _done_reviewing(team_cleanup_changes=[_merged(1)], team_cleanup_cards=[_card(1)])
+    db.failing["team_cleanup_spot_checks"] = APIError({"code": "57014", "message": "timeout", "details": None})
+
+    assert _tick(monkeypatch, store, db, runner, IN_WINDOW) == 1
+
+    assert read_run(store, RUN)["status"] == "done"
+    assert f"PitchRank cleanup {RUN} is finished" not in _subjects(emails)
+
+    del db.failing["team_cleanup_spot_checks"]
+    assert _tick(monkeypatch, store, db, runner, IN_WINDOW + timedelta(hours=1)) == 0
+
+    assert _subjects(emails)[-1] == f"PitchRank cleanup {RUN} is finished" and _listed(emails[-1][2]) == 1
+
+
+def test_a_spot_check_table_not_yet_created_leaves_a_note_and_sends_the_summary(tmp_path, monkeypatch, emails):
+    store = tmp_path / "store"
+    _proposed(store)
+    runner = _Runner(store)
+    runner.pairs = {"p1": _pair(1)}
+    db = _done_reviewing(team_cleanup_changes=[_merged(1)], team_cleanup_cards=[_card(1)])
+    db.missing.add("team_cleanup_spot_checks")
+
+    assert _tick(monkeypatch, store, db, runner, IN_WINDOW) == 0
+
+    assert "No spot-check: team_cleanup_spot_checks does not exist yet" in emails[-1][2]
+
+
+def test_a_dry_run_files_no_spot_check(tmp_path, monkeypatch, emails, capsys):
+    store = tmp_path / "store"
+    _proposed(store, status="done")
+    advance.write_state(store, RUN, {"code": "abc1234"})
+    _write(stage_dir(store, RUN, "merges") / "page.manifest.json", {"cards": {}, "auto": {"p1": _pair(1)}})
+    run = {"run_id": RUN, "status": "done", "owner_done_at": "2026-10-24T17:00:00Z", "owner_done_by": "owner"}
+    db = _Runs([run], team_cleanup_changes=[_merged(1)], team_cleanup_cards=[_card(1)])
+
+    _tick(monkeypatch, store, db, _Runner(store), IN_WINDOW, execute=False)
+
+    assert db.tables["team_cleanup_spot_checks"] == [] and db.writes == [] and emails == []
+    assert f"DRY RUN -- would file 1 automatic merge(s) of run {RUN} for the spot-check" in capsys.readouterr().out
 
 
 def test_a_stage_noted_as_not_run_this_week_is_left_alone(tmp_path, monkeypatch, emails):
