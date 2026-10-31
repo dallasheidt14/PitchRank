@@ -17,7 +17,8 @@ and writes nothing to the run or the database; --execute does it.
                 at the review deadline (config/team_cleanup.json), mark the review done for the owner,
                 so the choices made stand and the rest come back next week
                 once the review is done: collect each stage's choices and apply them
-                once a lane has applied: undo it when the owner asked to on the page
+                once a lane has applied: undo it when the owner asked to on the page, and one card's change
+                the owner asked to undo (undo_card.py)
                 once every stage is finished and no undo waits: close the run and email the owner a summary
 
 An apply waits for the apply window, whose end the review deadline must fall before, so the choices it
@@ -114,8 +115,10 @@ PAGES = "scripts/team_cleanup/pages.py"
 COLLECT = "scripts/team_cleanup/collect.py"
 APPLY = "scripts/team_cleanup/apply_stage.py"
 END_RUN = "scripts/team_cleanup/end_run.py"
+UNDO_CARD = "scripts/team_cleanup/undo_card.py"
 STATUS_COMMAND = "python scripts/team_cleanup/advance.py"
 REQUESTS_TABLE = "team_cleanup_requests"
+CARD_UNDOS_TABLE = "team_cleanup_card_undos"
 
 
 @dataclass(frozen=True)
@@ -267,6 +270,7 @@ class Tick:
         for run_id in self.waiting_runs():
             if run_id in finished:
                 self.undo(run_id, open_stages(finished[run_id]))
+                self.undo_cards(run_id)
         run = next((run for run in runs if run["status"] in OPEN_STATUSES), None)
         if run is None:
             self.summarize_closed(runs)
@@ -323,7 +327,8 @@ class Tick:
                 held.add(action.stage)
         if all(self.page_up(run_id, stage) for stage in stages):
             self.email_once(run_id, state, "ready", *ready_email(self.store, run_id, stages, self.deadline(run_id)))
-        undo_waits = self.undo(run_id, stages)
+        lane_waits, card_waits = self.undo(run_id, stages), self.undo_cards(run_id)
+        undo_waits = lane_waits or card_waits
         if not unfinished(self.store, run) and not undo_waits:
             close = [END_RUN, "--run", run_id, "--done", "--execute", "--store", str(self.store)]
             if self.run(run_id, Action(f"close run {run_id}", close)) == 0:
@@ -431,16 +436,63 @@ class Tick:
         except (APIError, httpx.HTTPError) as exc:
             self.blocked_by(refused(f"Recording an undo request in {REQUESTS_TABLE}", exc, STATUS_COMMAND))
 
-    def waiting_runs(self) -> list[str]:
-        """The runs an undo request still waits on; none when the requests cannot be read."""
+    def undo_cards(self, run_id: str) -> bool:
+        """Run each one-card undo the owner asked for on the page (undo_card.py), recording how it went; whether
+        one still waits, as one outside the apply window does, which holds the run open."""
         try:
-            rows = self.sb.table(REQUESTS_TABLE).select("run_id").eq("status", "pending").execute().data
-        except (APIError, httpx.HTTPError):
-            return []
-        return sorted({r["run_id"] for r in rows})
+            requests = (
+                self.sb.table(CARD_UNDOS_TABLE)
+                .select("id,card_id,decline")
+                .eq("run_id", run_id)
+                .eq("status", "pending")
+                .order("requested_at")
+                .execute()
+                .data
+            )
+        except (APIError, httpx.HTTPError) as exc:
+            if isinstance(exc, APIError) and exc.code == TABLE_MISSING:
+                return False
+            self.blocked_by(refused(f"Reading run {run_id}'s card undos from {CARD_UNDOS_TABLE}", exc, STATUS_COMMAND))
+            return True
+        waits = False
+        for request in requests:
+            command = [UNDO_CARD, "--run", run_id, "--card", request["card_id"]]
+            command += [*(["--decline"] if request["decline"] else []), "--execute", "--store", str(self.store)]
+            code = self.run(run_id, Action(f"undo card {request['card_id']}", command))
+            if code is None or code == BUSY:
+                waits = True
+            else:
+                self.settle_card(request, "done" if code == 0 else "failed", _tail(self.last_log, 12) or "no output")
+        return waits
+
+    def settle_card(self, request: dict, status: str, result: str) -> None:
+        """Record a one-card undo as handled, unless something else already has."""
+        if not self.execute:
+            print(f"DRY RUN -- would record the undo of card {request['card_id']} as {status}: {result}")
+            return
+        try:
+            self.sb.table(CARD_UNDOS_TABLE).update(
+                {"status": status, "handled_at": _utc_stamp(self.now), "result": result[:2000]}
+            ).eq("id", request["id"]).eq("status", "pending").execute()
+        except (APIError, httpx.HTTPError) as exc:
+            self.blocked_by(refused(f"Recording a card undo in {CARD_UNDOS_TABLE}", exc, STATUS_COMMAND))
+
+    def waiting_runs(self) -> list[str]:
+        """The runs an undo request, of a lane or of one card, still waits on; none for a table that cannot be
+        read."""
+        runs = set()
+        for table in (REQUESTS_TABLE, CARD_UNDOS_TABLE):
+            try:
+                rows = self.sb.table(table).select("run_id").eq("status", "pending").execute().data
+            except (APIError, httpx.HTTPError):
+                continue
+            runs |= {r["run_id"] for r in rows}
+        return sorted(runs)
 
     def undone(self, run_id: str) -> list[str]:
-        """How each undo the owner asked for on the run went, for the summary; none when they cannot be read."""
+        """How each undo the owner asked for on the run went, a lane's and then one card's, for the summary; none of
+        a kind that cannot be read."""
+        lines = []
         try:
             rows = (
                 self.sb.table(REQUESTS_TABLE)
@@ -450,13 +502,22 @@ class Tick:
                 .execute()
                 .data
             )
+            lines += [f"Undo of {lane_name(r['stage'], r['lane'])}: {r['status']}" + _failure(r) for r in rows]
         except (APIError, httpx.HTTPError):
-            return []
-        return [
-            f"Undo of {lane_name(r['stage'], r['lane'])}: {r['status']}"
-            + (f" ({(r['result'] or '').strip()})" if r["status"] == "failed" else "")
-            for r in rows
-        ]
+            pass
+        try:
+            rows = (
+                self.sb.table(CARD_UNDOS_TABLE)
+                .select("card_id,status,result")
+                .eq("run_id", run_id)
+                .order("requested_at")
+                .execute()
+                .data
+            )
+            lines += [f"Undo of card {r['card_id']}: {r['status']}" + _failure(r) for r in rows]
+        except (APIError, httpx.HTTPError):
+            pass
+        return lines
 
     def blocked_by(self, problem: str) -> None:
         self.failed = True
@@ -522,6 +583,10 @@ class Tick:
         if state:
             summary = summary_email(self.store, run_id, open_stages(runs[0]), self.undone(run_id))
             self.email_once(run_id, state, "closed", *summary)
+
+
+def _failure(request: dict) -> str:
+    return f" ({(request['result'] or '').strip()})" if request["status"] == "failed" else ""
 
 
 def _counts(store: Path, run_id: str, stage: str) -> tuple[int, int]:
