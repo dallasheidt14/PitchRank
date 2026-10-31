@@ -50,7 +50,7 @@ import sys
 import time
 from collections import Counter, deque
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Set, Tuple
 
@@ -103,6 +103,7 @@ else:
 
 PROVIDER_CODE = "demosphere"
 STATE_PAGE_SIZE = 1000
+DAYS_FORWARD = 28
 BASE_URL = "https://elements.demosphere.com"
 OUTPUT_DIR = Path("data/raw/demosphere")
 
@@ -265,6 +266,7 @@ class RawGame:
     venue: str
     division_name: str
     source_url: str
+    forfeit: bool = False
 
 
 @dataclass
@@ -400,7 +402,8 @@ def parse_division_page(html: str, division_key: str, source_url: str) -> Divisi
             continue
         score_text = _text(row.select_one("td.sch-main-sc"))
         score = _SCORE.match(score_text)
-        if not score and _FORFEIT.fullmatch(score_text):
+        forfeit = not score and bool(_FORFEIT.fullmatch(score_text))
+        if forfeit:
             page.forfeits.append(game_key)
         elif not score and score_text.lower() not in _UNPLAYED:
             page.problems.append(f"{division_key} game {game_key}: unreadable score {score_text!r}")
@@ -415,6 +418,7 @@ def parse_division_page(html: str, division_key: str, source_url: str) -> Divisi
                 venue=_text(row.select_one("span.gm-fac")),
                 division_name=page.name,
                 source_url=source_url,
+                forfeit=forfeit,
             )
         )
     if soup.select_one("table#tblListGames2") is None and not name_match:
@@ -831,8 +835,13 @@ def build_csv_rows(
     league_name: str,
     since: date,
     today: date,
+    days_forward: int = 0,
 ) -> Tuple[List[Dict], List[Dict], List[Dict]]:
     """Two importer rows per played game between ``since`` and ``today`` whose teams are both linked.
+
+    A game after ``today`` and within ``days_forward`` days with no score on either side is a
+    fixture: it gets the same rows with blank goals and result ``U``, and is dropped quietly
+    when a team is not linked, since it is not a result anyone is waiting on.
 
     Returns ``(records, held, cross_age)``. A game with a team that is left out or not linked is
     held with its reason. A team playing up is ordinary youth soccer, so a cross-age game is
@@ -845,7 +854,11 @@ def build_csv_rows(
     held: List[Dict] = []
     cross_age: List[Dict] = []
     for game in games:
-        if game.home_score is None or game.away_score is None or not since <= game.game_date <= today:
+        fixture = game.home_score is None and game.away_score is None and not game.forfeit
+        if fixture:
+            if not today < game.game_date <= today + timedelta(days=days_forward):
+                continue
+        elif game.home_score is None or game.away_score is None or not since <= game.game_date <= today:
             continue
         home = rows_by_key.get(game.home_key)
         away = rows_by_key.get(game.away_key)
@@ -878,9 +891,10 @@ def build_csv_rows(
             "source_url": game.source_url,
         }
         if reason:
-            held.append({"reason": reason, **summary})
+            if not fixture:
+                held.append({"reason": reason, **summary})
             continue
-        if home.age_group != away.age_group or home.gender != away.gender:
+        if not fixture and (home.age_group != away.age_group or home.gender != away.gender):
             cross_age.append(summary)
         base = {
             "provider": PROVIDER_CODE,
@@ -899,6 +913,8 @@ def build_csv_rows(
             (home, away, game.home_score, game.away_score, "H"),
             (away, home, game.away_score, game.home_score, "A"),
         ):
+            if fixture:
+                goals_for = goals_against = ""
             records.append(
                 {
                     **base,
@@ -915,7 +931,7 @@ def build_csv_rows(
                     "home_away": home_away,
                     "goals_for": goals_for,
                     "goals_against": goals_against,
-                    "result": _compute_result(goals_for, goals_against),
+                    "result": "U" if fixture else _compute_result(goals_for, goals_against),
                 }
             )
     return records, held, cross_age
@@ -964,6 +980,12 @@ def parse_args() -> argparse.Namespace:
         help="Season label on the schedule pages, e.g. Fall2026 (default: the current season, else the one before)",
     )
     p.add_argument("--since", type=date.fromisoformat, default=None, help="Import games on or after this date")
+    p.add_argument(
+        "--days-forward",
+        type=int,
+        default=DAYS_FORWARD,
+        help="Also import unplayed games dated up to this many days ahead, as scheduled games (0 for none)",
+    )
     p.add_argument("--max-divisions", type=int, default=None, help="Walk at most this many divisions (pilots)")
     p.add_argument("--output-dir", type=Path, default=OUTPUT_DIR, help="Where the CSVs and team report go")
     p.add_argument("--delay-min", type=float, default=1.0, help="Minimum seconds between page fetches")
@@ -1077,7 +1099,7 @@ def main() -> int:
         outcomes[team_id] = Outcome("error", outcomes[team_id].team_id_master, reason=reason)
 
     records, held, cross_age = build_csv_rows(
-        games, in_scope, outcomes, args.site_id, args.season, league.name, since, date.today()
+        games, in_scope, outcomes, args.site_id, args.season, league.name, since, date.today(), args.days_forward
     )
 
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -1100,7 +1122,8 @@ def main() -> int:
     for status in ("already_linked", "linked_existing", "relinked", "created", "review", "conflict", "error"):
         summary.add_row(status, str(sum(1 for o in outcomes.values() if o.status == status)))
     summary.add_row("teams left out", str(len(left_out)))
-    summary.add_row("games to import", str(len(records) // 2))
+    summary.add_row("games to import", str(sum(1 for r in records if r["result"] != "U") // 2))
+    summary.add_row("upcoming games to import", str(sum(1 for r in records if r["result"] == "U") // 2))
     summary.add_row("games held back", str(len(held)))
     summary.add_row("cross-age games imported", str(len(cross_age)))
     summary.add_row("forfeits (no score, not imported)", str(sum(len(page.forfeits) for page in divisions.values())))
