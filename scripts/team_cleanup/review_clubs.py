@@ -9,6 +9,8 @@ could not settle. The first run queues the review into <run>/clubs/review/; each
 RUN_SLICES of the slices still queued, the rest waiting for the next run:
 
   BRIEF.md, RECHECK.md      the reviewers' briefs, from assets/, with the lookup
+  skill/                    the reviewers' rules: the normalizing-club-names skill's text as the run's checkout
+                            held it, and VERSION naming which
   slice_NN.json             up to 50 changes, one row per team, each labelled with its change (C0001 ...)
   slice_NN.md               their evidence, one block per change
   slice_NN_review.json      each team with its change's final verdict (apply, hold or reject), which pages.py
@@ -52,6 +54,7 @@ from scripts.team_cleanup.sure import load_signals, sure_because  # noqa: E402
 from src.tournaments.storage._io import read_json, write_json  # noqa: E402
 
 BRIEFS = {"BRIEF.md": rm.ASSETS / "club_review_brief.md", "RECHECK.md": rm.ASSETS / "club_recheck_brief.md"}
+CLUB_SKILL = "normalizing-club-names"
 SLICE_ITEMS = 50
 SAMPLE_TEAMS = 8
 # Club names run long, so a spelling count asks for a few at a time to keep the URL short.
@@ -199,6 +202,7 @@ def queue(sb, folder: Path, cap: int) -> tuple[int, int]:
     (review / rm.ANSWERS_DIR).mkdir(parents=True, exist_ok=True)
     for name, source in BRIEFS.items():
         (review / name).write_text(render_brief(source.read_text(encoding="utf-8")), encoding="utf-8")
+    rm.pack_skill(review, CLUB_SKILL)
     for n, start in enumerate(range(0, len(groups), SLICE_ITEMS), 1):
         name = rm.slice_name(n)
         (review / f"{name}.md").write_text("\n".join(blocks[start : start + SLICE_ITEMS]), encoding="utf-8")
@@ -266,7 +270,8 @@ def main() -> int:
 
     def tally(review: Path) -> str:
         found = counts(review)
-        return f"reviewed changes: {found[APPLY]} apply, {found[HOLD]} hold, {found[REJECT]} reject"
+        rules = rm.skill_version(review) or "the brief alone"
+        return f"reviewed changes: {found[APPLY]} apply, {found[HOLD]} hold, {found[REJECT]} reject, judged by {rules}"
 
     def queued(folder: Path, cap: int) -> str:
         changes, teams = queue(get_client(), folder, cap)

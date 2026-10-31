@@ -201,6 +201,21 @@ def test_a_change_never_splits_across_slices_and_the_briefs_name_the_lookup(tmp_
     brief = (review / "BRIEF.md").read_text(encoding="utf-8")
     assert f"python {rm.LOOKUP} spellings <text> [<state>]" in brief and "{lookup}" not in brief
     assert rm.waiting(review, CHANGE_REVIEW_KEYS) == ["slice_01", "slice_02", "slice_03", "slice_04"]
+    assert (review / "skill" / "SKILL.md").read_bytes() == (rm.SKILLS / rc.CLUB_SKILL / "SKILL.md").read_bytes()
+    assert rm.skill_version(review).startswith(f"{rc.CLUB_SKILL} at ")
+
+
+def test_every_section_the_club_brief_sends_a_reviewer_to_is_in_the_skill():
+    brief = rc.BRIEFS["BRIEF.md"].read_text(encoding="utf-8")
+    reading = brief.split("before your slice:\n", 1)[1].split("\n\n", 1)[0]
+    named = re.findall(r"`skill/([^`]+)`: (.+?)(?=\n- `|\Z)", reading, re.S)
+    skill = rm.SKILLS / rc.CLUB_SKILL
+
+    assert [path for path, _ in named] == ["SKILL.md"]
+    headings = re.findall(r"^#+ (.+)$", (skill / "SKILL.md").read_text(encoding="utf-8"), re.M)
+    for section in re.findall(r'"([^"]+)"', named[0][1]):
+        assert section in headings, f"SKILL.md has no section {section!r}"
+    assert '"Judging a listed change" is the rule you apply' in brief
 
 
 def test_the_evidence_shows_each_spelling_s_live_teams_by_state_and_what_the_change_covers(tmp_path):
