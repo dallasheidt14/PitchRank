@@ -3620,18 +3620,25 @@ def test_a_closed_run_s_revert_waits_for_another_holder_of_its_file_lock(tmp_pat
 # --- resuming, and the gates the apply opens with --------------------------------------------------
 
 
-def test_choices_collected_again_after_the_pilot_are_refused(tmp_path, monkeypatch, capsys):
-    store, db, names = _club_week(tmp_path, n=55)
-    runner = _Runner(db, codes={"repair_swapped_club_names": [None, 1]})
+@pytest.mark.parametrize("lane", ["owner", "auto"])
+def test_choices_are_not_collected_again_once_their_lane_began_applying(tmp_path, monkeypatch, capsys, lane):
+    store, db = _club_lanes(tmp_path, auto=("a1",) if lane == "auto" else (), owner=("o1",))
+    name, flags = ("a1", ("--lane", "auto")) if lane == "auto" else ("o1", ())
+    runner = _Runner(db, codes={"repair_swapped_club_names": [1]})
     _wire(monkeypatch, db, runner)
-    _refused(monkeypatch, capsys, store, "clubs", "--execute")
-    in_rest = max(names, key=_id)
-    _choose(tmp_path / "again", store, "clubs", {n: "dont_apply" if n == in_rest else "apply" for n in names})
+    _refused(monkeypatch, capsys, store, "clubs", *flags, "--execute")
+    folder = stage_dir(store, RUN, "clubs") / ("auto" if lane == "auto" else "")
+    collected = {path: path.read_bytes() for path in folder.glob("*") if path.name != "apply.json" and path.is_file()}
 
-    message = _refused(monkeypatch, capsys, store, "clubs", "--execute")
+    with pytest.raises(ValueError, match=r"began applying \(see .*apply\.json\) and resumes from the choices"):
+        if lane == "auto":
+            col.collect(store, RUN, "clubs", None, "auto")
+        else:
+            _choose(tmp_path / "again", store, "clubs", {name: "dont_apply"})
 
-    assert "the choices were collected again after this stage began applying" in message
-    assert db.team(_id(in_rest))["club_name"] == "LVSA" and len(runner.commands) == 2
+    assert {path: path.read_bytes() for path in collected} == collected
+    assert _main(monkeypatch, capsys, store, "clubs", *flags, "--execute")[0] == 0
+    assert db.team(_id(name))["club_name"] == f"Club {name}"
 
 
 def test_a_cut_file_edited_between_attempts_is_refused(tmp_path, monkeypatch, capsys):

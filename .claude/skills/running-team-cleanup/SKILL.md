@@ -342,8 +342,8 @@ under `evidence` in `<stage>/page.html`'s cards and in `team_cleanup_cards.card`
 owner, never a state to propose: opponents agreeing with a stored state prove nothing inside a
 mislabelled cluster, and club-mates are what proposed a Tier B correction. After Done the page takes
 no new choice, so a card that fails here can only be taken back by undoing its whole lane after the
-apply, the owner's call. Collecting again is safe only before `<stage>/apply.json` (or `<stage>/auto/apply.json`)
-exists.
+apply, the owner's call. `collect.py` refuses to collect a lane again once its `<stage>/apply.json` (or
+`<stage>/auto/apply.json`) exists.
 
 ### Step 5: In the apply window, dry-run each lane's apply and hand it over
 
