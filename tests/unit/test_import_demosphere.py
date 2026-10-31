@@ -556,8 +556,8 @@ def _game(key="100", day=date(2026, 9, 12), home="1", away="2", score=(2, 1)):
     )
 
 
-def _csv(games, roster, outcomes, since=date(2026, 8, 1), today=date(2026, 10, 29)):
-    return dm.build_csv_rows(games, roster, outcomes, "80738", "Fall2026", "NCSL", since, today)
+def _csv(games, roster, outcomes, since=date(2026, 8, 1), today=date(2026, 10, 29), days_forward=0):
+    return dm.build_csv_rows(games, roster, outcomes, "80738", "Fall2026", "NCSL", since, today, days_forward)
 
 
 def _linked(*rows):
@@ -619,6 +619,62 @@ class TestBuildCsvRows:
         a, b = _row("1"), _row("2")
         records, _, _ = _csv([_game(day=date(2026, 11, 7))], [a, b], _linked(a, b))
         assert records == []
+
+    def test_a_future_game_without_a_score_is_a_scheduled_game_with_blank_goals(self):
+        a, b = _row("1"), _row("2")
+        game = _game(day=date(2026, 11, 7), score=None)
+        records, held, cross_age = _csv([game], [a, b], _linked(a, b), days_forward=14)
+        assert (held, cross_age) == ([], [])
+        assert [
+            (r["schedule_id"], r["team_id"], r["home_away"], r["goals_for"], r["goals_against"], r["result"])
+            for r in records
+        ] == [
+            ("demosphere-80738-100", "80738-Fall2026-1", "H", "", "", "U"),
+            ("demosphere-80738-100", "80738-Fall2026-2", "A", "", "", "U"),
+        ]
+        assert records[0]["game_date"] == "2026-11-07"
+
+    def test_a_scheduled_game_is_only_taken_inside_the_forward_window(self):
+        a, b = _row("1"), _row("2")
+        edge = _csv([_game(day=date(2026, 11, 5), score=None)], [a, b], _linked(a, b), days_forward=7)[0]
+        beyond = _csv([_game(day=date(2026, 11, 6), score=None)], [a, b], _linked(a, b), days_forward=7)[0]
+        assert (len(edge), beyond) == (2, [])
+
+    def test_no_forward_window_means_no_scheduled_games(self):
+        a, b = _row("1"), _row("2")
+        assert _csv([_game(day=date(2026, 11, 7), score=None)], [a, b], _linked(a, b)) == ([], [], [])
+
+    def test_a_game_today_without_a_score_is_not_a_scheduled_game(self):
+        a, b = _row("1"), _row("2")
+        today = date(2026, 10, 29)
+        assert _csv([_game(day=today, score=None)], [a, b], _linked(a, b), days_forward=14)[0] == []
+
+    def test_a_past_game_without_a_score_is_still_dropped_with_a_forward_window(self):
+        a, b = _row("1"), _row("2")
+        assert _csv([_game(score=None)], [a, b], _linked(a, b), days_forward=14) == ([], [], [])
+
+    def test_a_scheduled_game_with_an_unlinked_side_is_dropped_not_held(self):
+        a, b = _row("1"), _row("2")
+        outcomes = {**_linked(a), b.provider_team_id: Outcome("review")}
+        game = _game(day=date(2026, 11, 7), score=None)
+        assert _csv([game], [a, b], outcomes, days_forward=14) == ([], [], [])
+
+    def test_a_scheduled_game_with_a_side_left_out_is_dropped_not_held(self):
+        a = _row("1")
+        game = _game(home="1", away="9", day=date(2026, 11, 7), score=None)
+        assert _csv([game], [a], _linked(a), days_forward=14) == ([], [], [])
+
+    def test_a_future_game_with_only_one_score_is_not_a_scheduled_game(self):
+        a, b = _row("1"), _row("2")
+        game = _game(day=date(2026, 11, 7), score=None)
+        game.home_score = 2
+        assert _csv([game], [a, b], _linked(a, b), days_forward=14) == ([], [], [])
+
+    def test_a_cross_age_scheduled_game_is_imported_but_not_listed_as_a_result(self):
+        a, b = _row("1", age="u13"), _row("2", age="u12")
+        game = _game(day=date(2026, 11, 7), score=None)
+        records, held, cross_age = _csv([game], [a, b], _linked(a, b), days_forward=14)
+        assert (len(records), held, cross_age) == (2, [], [])
 
     def test_a_game_with_an_unlinked_side_is_held(self):
         a, b = _row("1"), _row("2")
@@ -1148,8 +1204,15 @@ class TestRunMain:
         run_main.run()
         assert len(run_main.rows("teams")) == 10
         games = run_main.rows("games")
-        assert len(games) == 2 * 34
+        assert len(games) == 2 * 45
+        assert sum(row["result"] == "U" for row in games) == 2 * 11
         assert {row["schedule_id"] for row in games} >= {"demosphere-80738-11635852"}
+
+    def test_the_forward_window_flag_turns_scheduled_games_off(self, run_main):
+        run_main.run("--days-forward", "0")
+        games = run_main.rows("games")
+        assert len(games) == 2 * 34
+        assert "U" not in {row["result"] for row in games}
 
     def test_execute_previews_then_writes_then_imports_once_under_the_provider_code(self, run_main):
         assert run_main.run("--execute") == 0
