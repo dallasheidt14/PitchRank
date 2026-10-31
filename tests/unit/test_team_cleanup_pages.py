@@ -2063,6 +2063,7 @@ SIDE_KEYS = {
 EVIDENCE_KEYS = {"doorway", "shared_opponents", "shared_opponent_names", "shared_dates", "opponent_overlap"}
 # What a reviewed pair's automatic card adds; its swap goes to the row's own column.
 AUTO_PAIR_KEYS = {"keep_separate"}
+CAPPED_PAIR_KEYS = {"capped"}
 
 
 def _ts_fields(name):
@@ -2119,7 +2120,7 @@ def _decide_pair(db, merge, decision, *, swap=False, note=None, at="2026-10-15T0
 
 
 def test_a_pair_card_carries_exactly_the_fields_the_website_s_pair_card_reads():
-    assert CARD_KEYS | AUTO_PAIR_KEYS == _ts_fields("PairCard")
+    assert CARD_KEYS | AUTO_PAIR_KEYS | CAPPED_PAIR_KEYS == _ts_fields("PairCard")
     assert SIDE_KEYS == _ts_fields("PairSide")
     assert EVIDENCE_KEYS == _ts_fields("PairEvidence")
 
@@ -2223,10 +2224,11 @@ def test_the_merges_cap_keeps_the_cross_provider_pairs_retiring_the_fewest_games
     assert [p["merge_id"] for p in manifest["overflow"]] == ["d-empty"]
 
 
-def test_the_shipped_caps_leave_every_stage_and_every_review_uncapped():
-    # Deliberately uncapped, the owner's call: a week's run settles and shows everything it proposes.
-    reviewed = [LOAD_CAPS(stage=stage) for stage in ("clubs", "states", "merges")]
-    assert reviewed == [pages.Caps(100000, 100000, 100000)] * 3
+def test_the_shipped_caps_leave_every_stage_uncapped_but_the_automatic_merges():
+    # The owner's calls: a week's run shows everything it proposes and reviews every change, but merges at most 300
+    # on its own (2026-10-31), raised only after four clean weeks of spot-checks and post-Monday checks.
+    assert [LOAD_CAPS(stage=stage) for stage in ("clubs", "states")] == [pages.Caps(100000, 100000, 100000)] * 2
+    assert LOAD_CAPS(stage="merges") == pages.Caps(100000, 300, 100000)
     assert LOAD_CAPS(stage="ages") == LOAD_CAPS() == pages.Caps(100000, 100000)
 
 
@@ -2446,6 +2448,31 @@ def test_a_review_sends_cleared_pairs_and_two_teams_to_the_automatic_lane_and_ho
     assert code == 0
     assert decided == {"cleared": ("apply", True), "apart": ("dont_apply", False), "safe": ("apply", False)}
     assert sorted((m["merge_id"], m["keep_id"]) for m in vetted) == [("c-keep", "cleared"), ("safe", "s-keep")]
+
+
+def test_a_pair_the_review_settled_past_the_automatic_cap_is_a_card_carrying_the_verdict_and_the_swap(
+    tmp_path, monkeypatch, capsys
+):
+    """The lane takes the first settled pairs up to its cap; each settled pair past it is the owner's card, carrying
+    the reviewers' verdict for the website's one-click merge of the cleared ones and their swap in the row's column,
+    so a merge keeps the row they chose. A held pair carries neither."""
+    pairs = [_pair("aaa", "aaa-keep"), _pair("cleared", "c-keep"), _pair("apart", "a-keep"), _pair("held", "h-keep")]
+    teams = [_team(t) for p in pairs for t in (p["merge_id"], p["keep_id"])]
+    store, db = _merge_week(tmp_path, monkeypatch, pairs, teams=teams, auto=1)
+    _reviewed(store, pairs, [("merge", False), ("merge", True), ("reject", False), ("hold", False)])
+
+    _publish(monkeypatch, capsys, store, db, "--publish", "--execute", stage="merges")
+
+    manifest = _read(store, "merges", MANIFEST_FILE)
+    assert [p["merge_id"] for p in manifest["auto"].values()] == ["aaa"]
+    owner = {r["card"]["merge"]["team_id"]: r for r in db.cards(lane="owner")}
+    assert {m: (r["card"].get("capped"), r["swap"]) for m, r in owner.items()} == {
+        "cleared": ("merge", True),
+        "apart": ("reject", False),
+        "held": (None, False),
+    }
+    assert set(owner["cleared"]["card"]) == CARD_KEYS | CAPPED_PAIR_KEYS
+    assert set(owner["held"]["card"]) == CARD_KEYS
 
 
 @pytest.mark.parametrize(
