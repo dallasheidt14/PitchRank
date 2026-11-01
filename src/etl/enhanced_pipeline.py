@@ -22,7 +22,11 @@ from src.etl.bulk_ops import (  # noqa: E402
     call_rpc_with_fallback,
 )
 from src.etl.game_corrections import apply_score_correction, moves_both_sides  # noqa: E402
-from src.models.game_matcher import REMATCH_PROVIDERS, GameHistoryMatcher  # noqa: E402
+from src.models.game_matcher import (  # noqa: E402
+    REMATCH_PROVIDERS,
+    SCHEDULE_ID_SUFFIX_PROVIDERS,
+    GameHistoryMatcher,
+)
 from src.utils.enhanced_validators import EnhancedDataValidator, parse_game_date  # noqa: E402
 from src.utils.provider_ids import PROVIDER_ID_GAME_UID, clean_provider_id, is_blank_provider_id  # noqa: E402
 from supabase import Client, create_client  # noqa: E402
@@ -114,21 +118,22 @@ class ImportMetrics:
 
 
 
+def matched_schedule_id(matched_game: dict) -> str:
+    """The schedule_id of a matched game: ``match_game_history`` returns it only inside ``raw_data``."""
+    raw_row = matched_game.get("raw_data") or {}
+    return str(matched_game.get("schedule_id") or raw_row.get("schedule_id") or "").strip()
+
+
 def rematch_game_uid(provider_code: str, master_game_uid: str, matched_game: dict) -> str:
     """Re-append the schedule_id suffix the master-id regeneration would strip.
 
     Bracket play puts the same two teams on the pitch twice in a day, and these
-    providers give every match its own schedule_id. Without the suffix both games
+    providers give each such meeting its own schedule_id. Without the suffix both games
     regenerate onto one uid and the unique index drops the second result.
-
-    The suffix is read from the row the matcher matched: ``match_game_history``
-    returns schedule_id only inside ``raw_data``, so reading its result alone
-    yields None and loses the rematch silently.
     """
-    if not (provider_code and provider_code.lower() in REMATCH_PROVIDERS):
+    if not (provider_code and provider_code.lower() in SCHEDULE_ID_SUFFIX_PROVIDERS):
         return master_game_uid
-    raw_row = matched_game.get("raw_data") or {}
-    suffix = str(matched_game.get("schedule_id") or raw_row.get("schedule_id") or "").strip()
+    suffix = matched_schedule_id(matched_game)
     return f"{master_game_uid}:{suffix}" if suffix else master_game_uid
 
 
@@ -1341,10 +1346,10 @@ class EnhancedETLPipeline:
                     f"{sorted_teams[0]}:{sorted_teams[1]}:"
                     f"{age_group_key}:{division_key}"
                 )
-            elif provider_code and provider_code.lower() in REMATCH_PROVIDERS:
+            elif provider_code and provider_code.lower() in SCHEDULE_ID_SUFFIX_PROVIDERS:
                 # Bracket play has same teams playing twice on one day (pool +
-                # final / consolation). Each provider gives a unique schedule_id
-                # per match; without it in the key, rematches collapse to one.
+                # final / consolation). Each provider gives such a meeting its own
+                # schedule_id; without it in the key, rematches collapse to one.
                 # Mirror of the Modular11 branch above.
                 schedule_id_key = (game.get("schedule_id") or "").strip()
                 if schedule_id_key:
@@ -1381,7 +1386,7 @@ class EnhancedETLPipeline:
             # Suffix the persistent game_uid with the same field that
             # disambiguates the dedup key above, so DB-side dedup matches
             # batch-side dedup.
-            if provider_code and provider_code.lower() in REMATCH_PROVIDERS:
+            if provider_code and provider_code.lower() in SCHEDULE_ID_SUFFIX_PROVIDERS:
                 schedule_id_suffix = (game.get("schedule_id") or "").strip()
                 if schedule_id_suffix:
                     game_uid = f"{game_uid}:{schedule_id_suffix}"
@@ -1531,7 +1536,7 @@ class EnhancedETLPipeline:
             return set(), {}
 
         # CRITICAL: Use small batch size (100) to avoid Supabase URL length limit.
-        # Master-id UIDs carry two UUIDs, and REMATCH_PROVIDERS append a
+        # Master-id UIDs carry two UUIDs, and SCHEDULE_ID_SUFFIX_PROVIDERS append a
         # schedule_id ("playmetrics_tournament:2026-10-03:<uuid>:<uuid>:233329",
         # ~114 chars). 200 of those are rejected with a 400; 150 pass.
         existing = set()
@@ -1872,7 +1877,11 @@ class EnhancedETLPipeline:
                     # PROVIDER_ID_CORRECTION_PROVIDERS, under master ids a merge left behind) is the
                     # same game; inserting it would store the game twice. Only when it is the pair's
                     # single game that day and the batch reports it once. A result that matches the
-                    # stored score is a duplicate, not a correction.
+                    # stored score is a duplicate, not a correction. For a provider whose schedule_id
+                    # names one meeting, a result carrying one is an identified meeting of a repeat day,
+                    # even when its batch reports no other: the pair's other scored row is taken to be the
+                    # other meeting, not a stale copy of this one. TGS's schedule_id is its division, so
+                    # its corrections are untouched.
                     if (
                         not fills_disabled
                         and self.provider_code
@@ -1881,6 +1890,9 @@ class EnhancedETLPipeline:
                         and a_score is not None
                         and not unscored_fixtures.get(sorted_ids)
                         and len(reported_results.get(sorted_ids, ())) == 1
+                        and not (
+                            self.provider_code.lower() in SCHEDULE_ID_SUFFIX_PROVIDERS and matched_schedule_id(game)
+                        )
                         and self.provider_id
                     ):
                         target = self._scored_row_to_correct(
@@ -2050,7 +2062,7 @@ class EnhancedETLPipeline:
     ) -> List[Dict]:
         """One game per game_uid whose single reported score differs from the stored one.
 
-        A game_uid outside REMATCH_PROVIDERS is date plus team pair, so two meetings the same day (a
+        A game_uid without a schedule_id suffix is date plus team pair, so two meetings the same day (a
         pool game and a final) share one. A uid the batch reports with two different scores cannot be told apart
         from a changed score, so it is left alone, and so is a pair whose second meeting validation
         dropped (``result_conflicts``).

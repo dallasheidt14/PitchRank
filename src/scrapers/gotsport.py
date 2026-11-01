@@ -83,6 +83,17 @@ _WAF_COOLDOWN_DEFAULT = 300
 MATCHES_PER_PAGE = 100
 
 
+def _utc_match_date(match_date: str) -> date:
+    """A match's calendar date in UTC, the one a scraped game is stored under.
+
+    Takes "2025-11-07T00:00:00Z", "2025-11-07T00:00:00+00:00" or "2025-11-07".
+    """
+    if "T" in match_date:
+        dt = datetime.fromisoformat(match_date.replace("Z", "+00:00"))
+        return dt.astimezone(timezone.utc).date() if dt.tzinfo is not None else dt.date()
+    return datetime.strptime(match_date, "%Y-%m-%d").date()
+
+
 class TeamNotFoundError(Exception):
     """Raised when a team ID returns 404 from the provider API"""
 
@@ -496,6 +507,7 @@ class GotSportScraper(BaseScraper):
                         pass
 
                     logger.info(f"API returned {len(matches)} matches for team {normalized_team_id}")
+                    repeat_day_ids = self._repeat_day_match_ids(matches)
 
                     # OPTIMIZATION: Parse matches with early exit
                     # Since matches are sorted newest first, we can stop parsing once we hit a date before our cutoff
@@ -504,15 +516,7 @@ class GotSportScraper(BaseScraper):
                         match_date_str = match.get("match_date", "")
                         if match_date_str:
                             try:
-                                # Parse date in UTC to avoid timezone conversion issues
-                                if "T" in match_date_str:
-                                    dt = datetime.fromisoformat(match_date_str.replace("Z", "+00:00"))
-                                    if dt.tzinfo is not None:
-                                        game_date = dt.astimezone(timezone.utc).date()
-                                    else:
-                                        game_date = dt.date()
-                                else:
-                                    game_date = datetime.strptime(match_date_str, "%Y-%m-%d").date()
+                                game_date = _utc_match_date(match_date_str)
                                 # If this game is before our cutoff, stop parsing (all remaining will be older)
                                 if since_date_obj is not None and game_date < since_date_obj:
                                     logger.debug(
@@ -527,6 +531,9 @@ class GotSportScraper(BaseScraper):
                         # Full parse (includes date filtering as backup)
                         game = self._parse_api_match(match, normalized_team_id, since_date_obj, club_name)
                         if game:
+                            match_id = clean_provider_id(match.get("id"))
+                            if match_id in repeat_day_ids:
+                                game.meta["schedule_id"] = match_id
                             games.append(game)
 
                     break  # Success, exit retry loop
@@ -665,6 +672,29 @@ class GotSportScraper(BaseScraper):
             logger.debug(f"Failed to extract club name for team {team_id}: {e}")
             return self.club_cache.get(str(team_id), "")
 
+    @staticmethod
+    def _repeat_day_match_ids(matches: List[Dict]) -> Set[str]:
+        """Ids of the matches whose two teams meet more than once on that date.
+
+        A pool game and a final share a date and a team pair, so only GotSport's own match id tells
+        them apart. Read over the team's whole list, scored or not, so the answer does not depend on
+        the 30-match cap and does not change when a pending meeting gets its score. A match that
+        cannot be read is left out rather than allowed to fail the team's scrape.
+        """
+        ids_by_meeting: Dict[Tuple[date, frozenset], Set[str]] = {}
+        for match in matches:
+            try:
+                match_id = clean_provider_id(match.get("id"))
+                home_id = clean_provider_id((match.get("homeTeam") or {}).get("team_id"))
+                away_id = clean_provider_id((match.get("awayTeam") or {}).get("team_id"))
+                game_date = _utc_match_date(match.get("match_date") or "")
+            except (AttributeError, TypeError, ValueError):
+                continue
+            if not (re.fullmatch(r"[0-9]+", match_id) and home_id and away_id):
+                continue
+            ids_by_meeting.setdefault((game_date, frozenset((home_id, away_id))), set()).add(match_id)
+        return {match_id for ids in ids_by_meeting.values() if len(ids) >= 2 for match_id in ids}
+
     def _parse_api_match(self, match: Dict, team_id: int, since_date: date, club_name: str = "") -> Optional[GameData]:
         """Parse a match from the GotSport API response"""
         try:
@@ -713,21 +743,7 @@ class GotSportScraper(BaseScraper):
                 return None
 
             try:
-                # Parse the date string - handle both ISO format with timezone and date-only format
-                # IMPORTANT: Extract date in UTC to avoid timezone conversion issues
-                if "T" in match_date:
-                    # ISO format with time: "2025-11-07T00:00:00Z" or "2025-11-07T00:00:00+00:00"
-                    # Parse as UTC and extract date without timezone conversion
-                    dt = datetime.fromisoformat(match_date.replace("Z", "+00:00"))
-                    # Use UTC date directly (don't convert to local timezone)
-                    # If timezone-aware, convert to UTC first, then get date
-                    if dt.tzinfo is not None:
-                        game_date = dt.astimezone(timezone.utc).date()
-                    else:
-                        game_date = dt.date()
-                else:
-                    # Date-only format: "2025-11-07"
-                    game_date = datetime.strptime(match_date, "%Y-%m-%d").date()
+                game_date = _utc_match_date(match_date)
             except (ValueError, TypeError) as e:
                 logger.warning(f"Invalid date format: {match_date}, error: {e}")
                 return None
@@ -852,6 +868,7 @@ class GotSportScraper(BaseScraper):
         """Convert GameData to import format dictionary, including club names"""
         meta = game.meta or {}
         base_dict = super()._game_data_to_dict(game, team_id)
+        base_dict["schedule_id"] = meta.get("schedule_id", "")
         # Add club names from meta
         base_dict["club_name"] = meta.get("club_name", "")
         base_dict["opponent_club_name"] = meta.get("opponent_club_name", "")
