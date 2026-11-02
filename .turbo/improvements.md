@@ -2554,3 +2554,13 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: Each driver keeps its own copy because the row type differs (`a2e_team_id`, `tc_team_id`, `team_code`, `provider_team_id`) and the provider code and wording are module constants. The copies already drift: the Demosphere driver imports the Tourney Central spreadsheet guard and age-reason wording but keeps its own `shared_links` and `pending_reviews`, and the Athletes2Events `shared_links` names Athletes2Events in a reason shown for other providers. A shared module keyed on a `provider_team_id` attribute and a provider-code parameter would remove five copies of each.
 - **Noted**: 2026-10-30
 - **Trigger**: A fix to any of these functions that has to land in more than one driver.
+
+### A lapsed states Don't apply never brings a queued state change back
+
+- **ID**: IMP-391
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: the queue-card settling in `scripts/team_cleanup/apply_stage.py` and the sweep's reading of rejected rows in `scripts/assign_team_states.py`
+- **Why**: A states reviewer's reject also rejects the change's `team_state_review_queue` row, and the sweep stops filing a change whose review row was rejected. The reviewer's Don't apply lapses at the eighth weekly run (`expire_decisions.py`), as the owner asked of reviewer refusals, but the rejected queue row keeps that queued change from ever being proposed again. Let the queue row's rejection lapse with the decision, or record the reviewer's rejection apart from the owner's.
+- **Noted**: 2026-11-02

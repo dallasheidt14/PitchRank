@@ -854,6 +854,7 @@ def _expected(store):
     folder = run_dir(store, RUN)
     age_review = ".claude/skills/correcting-team-age-groups/scripts/review_age_labels.py"
     return {
+        "lapse": ["scripts/team_cleanup/expire_decisions.py", "--run", RUN, "--store", str(store), "--execute"],
         "club_check": ["scripts/check_club_skill_assumptions.py", "--code-only"],
         "clubs": [
             "scripts/repair_swapped_club_names.py",
@@ -1028,6 +1029,7 @@ def test_no_step_writes_teams_or_spends_paid_probes(monkeypatch, capsys, tmp_pat
 
     scripts = {Path(command[0]).name for command in runner.commands}
     assert scripts == {
+        "expire_decisions.py",
         "check_club_skill_assumptions.py",
         "repair_swapped_club_names.py",
         "check_state_skill_assumptions.py",
@@ -1039,7 +1041,9 @@ def test_no_step_writes_teams_or_spends_paid_probes(monkeypatch, capsys, tmp_pat
         "find_squad_key_duplicates.py",
         "health.py",
     }
-    assert not any(flag in command for command in runner.commands for flag in ("--execute", "--apply", "--revert"))
+    # Letting the reviewers' old refusals lapse writes team_cleanup_decisions alone.
+    steps = [command for command in runner.commands if Path(command[0]).name != "expire_decisions.py"]
+    assert not any(flag in command for command in steps for flag in ("--execute", "--apply", "--revert"))
     states = next(c for c in runner.commands if Path(c[0]).name == "assign_team_states.py")
     assert "--no-tier-a" in states and "--reuse-answers" in states
 
@@ -1225,6 +1229,23 @@ def test_a_failing_self_check_marks_the_stage_stale_and_the_others_go_on(
     assert _json(store, "write_guard.json")["stale"] == others
 
 
+def test_a_failed_lapse_stops_the_week_before_the_snapshot_and_a_retry_runs_it_first(monkeypatch, capsys, tmp_path):
+    store, db = _store(tmp_path), _Db(_teams())
+
+    code, out = _week(monkeypatch, capsys, store, db, _Runner(db, codes={"expire_decisions.py": [1]}))
+
+    log = run_dir(store, RUN) / "logs" / "expire_decisions.log"
+    assert code == 1
+    assert f"Letting the reviewers' old refusals lapse failed (exit 2); see {log}. Retry with: {_retry(store)}" in out
+    assert db.team_reads() == [] and not (run_dir(store, RUN) / "write_guard_before.json").exists()
+    assert read_run(store, RUN)["status"] == "proposing"
+
+    second = _Runner(db)
+    code, _ = _week(monkeypatch, capsys, store, db, second)
+
+    assert code == 0 and second.commands == list(_expected(store).values())
+
+
 def test_a_failed_health_report_is_retried_alone_without_reading_the_teams_again(monkeypatch, capsys, tmp_path):
     store, db = _store(tmp_path), _Db(_teams())
 
@@ -1331,6 +1352,7 @@ def test_a_dry_run_prints_each_step_quoted_and_touches_nothing(monkeypatch, caps
     snapshot = run_dir(store, RUN) / "states" / "national_snapshot.json"
     assert code == 0 and "DRY RUN" in out
     assert f'python scripts/assign_team_states.py --no-tier-a --reuse-answers --out "{snapshot}"' in out
+    assert f'  lapse: python scripts/team_cleanup/expire_decisions.py --run {RUN} --store "{store}"\n' in out
     assert runner.commands == [] and db.executes == [] and sorted(str(p) for p in store.rglob("*")) == before
 
 

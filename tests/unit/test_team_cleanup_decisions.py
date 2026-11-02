@@ -10,10 +10,11 @@ from scripts.team_cleanup import decisions as dec  # noqa: E402
 from scripts.team_cleanup.pairs import as_chosen  # noqa: E402
 
 REASON = "the owner chose Keep separate on 2026-09-25"
+PAGE = "page:20260925T063742Z-a1b2c3"
 
 
-def decision(team_id, other_team_id, decided_at="2026-09-25T06:37:42+00:00"):
-    return dec.KeepSeparate(team_id, other_team_id, decided_at)
+def decision(team_id, other_team_id, decided_at="2026-09-25T06:37:42+00:00", source=PAGE):
+    return dec.KeepSeparate(team_id, other_team_id, decided_at, source)
 
 
 def row(team_id, other_team_id, *, superseded_at=None):
@@ -22,6 +23,7 @@ def row(team_id, other_team_id, *, superseded_at=None):
         "team_id_master": team_id,
         "other_team_id": other_team_id,
         "decided_at": "2026-09-25T06:37:42+00:00",
+        "source": PAGE,
         "superseded_at": superseded_at,
     }
 
@@ -58,6 +60,12 @@ def test_a_decision_is_found_from_either_side():
     canonical = resolver({})
     index = dec.keep_separate_index([decision("a", "b")], canonical)
     assert dec.kept_apart_reason(index, canonical, "b", "a") == REASON
+
+
+def test_a_keep_separate_the_week_s_review_recorded_names_the_reviewers():
+    canonical = resolver({})
+    index = dec.keep_separate_index([decision("a", "b", source="auto:20261028T170126Z-0c3ec2")], canonical)
+    assert dec.kept_apart_reason(index, canonical, "a", "b") == "the reviewers chose Keep separate on 2026-09-25"
 
 
 def test_a_pair_merged_together_anyway_holds_nothing():

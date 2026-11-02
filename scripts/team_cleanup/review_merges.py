@@ -369,12 +369,14 @@ def skill_version(review: Path) -> str | None:
 
 def held_before(folder: Path) -> set[frozenset[str]]:
     """The pairs, each as its two rows either way round, that an earlier run's review of this stage held for the
-    owner, read from the run store."""
+    owner or found to be two teams (a pair that comes back only once that Keep separate lapses), read from the
+    run store."""
     held = set()
     for path in folder.parent.parent.glob(f"*/{folder.name}/{REVIEW_DIR}/*{REVIEW_SUFFIX}"):
         if path.parents[2].name == folder.parent.name:
             continue
-        held |= {frozenset((row["merge_id"], row["keep_id"])) for row in read_json(path) if row["verdict"] == HOLD}
+        rows = read_json(path)
+        held |= {frozenset((row["merge_id"], row["keep_id"])) for row in rows if row["verdict"] in (HOLD, REJECT)}
     return held
 
 

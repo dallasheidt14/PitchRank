@@ -20,8 +20,8 @@ Screens, each decisive:
   - the two registered names state opposite genders, reading a B/G affix as well as the word
   - the rows played each other, shared a game date, or either carries a self-play row
   - opponent Jaccard above --jaccard-max, opponents resolved through team_merge_map
-  - the owner chose Keep separate for the pair (team_cleanup_decisions, both ids resolved
-    through team_merge_map); the scan refuses to run at all when those cannot be read
+  - the owner or the reviewers chose Keep separate for the pair (team_cleanup_decisions, both ids
+    resolved through team_merge_map); the scan refuses to run at all when those cannot be read
 
 Club equality decides who may pair; `are_same_club` decides only who competes, at a threshold
 deliberately lower than the matchers' gates because a false competitor costs a review where a
@@ -217,9 +217,9 @@ def load_merge_map(sb) -> dict[str, str]:
 
 
 def load_keep_separate(sb) -> list[KeepSeparate]:
-    """The owner's active Keep-separate decisions on merges.
+    """The active Keep-separate decisions on merges, the owner's and the reviewers'.
 
-    Any failure to read raises: an empty answer would re-propose every pair the owner kept apart.
+    Any failure to read raises: an empty answer would re-propose every pair kept apart.
     """
     try:
         rows = page(lambda: sb.table(DECISIONS_TABLE).select(KEEP_SEPARATE_COLS).eq("decision", KEEP_SEPARATE), "id")

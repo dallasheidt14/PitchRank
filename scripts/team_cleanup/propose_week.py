@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Propose a week's team cleanup for a scope of states, unattended. Writes no team.
 
-It opens the run in team_cleanup_runs (one open run at a time), snapshots every team's guarded
-fields, then runs each stage's skill self-check and proposal step into
+It opens the run in team_cleanup_runs (one open run at a time), lets the reviewers' refusals whose eighth
+weekly run this is lapse (expire_decisions.py, its one write besides the run's row), snapshots every team's
+guarded fields, then runs each stage's skill self-check and proposal step into
 <store>/runs/<run_id>/<stage>/:
 
   clubs   repair_swapped_club_names.py over the country, cut to the scope, reading the saved
@@ -103,6 +104,7 @@ AGE_REVIEW = ".claude/skills/correcting-team-age-groups/scripts/review_age_label
 CROSS_PROVIDER = "scripts/find_cross_provider_duplicates.py"
 SQUAD_KEY = "scripts/find_squad_key_duplicates.py"
 HEALTH = "scripts/team_cleanup/health.py"
+EXPIRE = "scripts/team_cleanup/expire_decisions.py"
 # --code-only: the state check's database half only measures, so it can crash the check but never fail it;
 # the club and age checks read no database and take the flag for symmetry.
 SELF_CHECKS = {
@@ -241,6 +243,10 @@ def run_step(command: list[str], log: Path) -> int:
         except subprocess.TimeoutExpired:
             out.write(f"\nStopped after {STEP_TIMEOUT_SECONDS} seconds.\n")
             return -1
+
+
+def expire_command(store: Path, run_id: str, execute: bool) -> list[str]:
+    return [EXPIRE, "--run", run_id, "--store", str(store), *(["--execute"] if execute else [])]
 
 
 def step_log(folder: Path, number: int, script: str) -> Path:
@@ -548,6 +554,7 @@ def retry_command(store: Path, states: list[str], day: date) -> str:
 
 def dry_run(store: Path, run_id: str, states: list[str]) -> None:
     print(f"Run {run_id} in {run_dir(store, run_id)}")
+    print(f"  lapse: python {subprocess.list2cmdline(expire_command(store, run_id, execute=False))}")
     for stage, note in NOT_RUN.items():
         print(f"  {stage}: {note}")
     for stage in PROPOSED_STAGES:
@@ -593,6 +600,11 @@ def propose_week(sb, store: Path, run_id: str, states: list[str], day: date) -> 
     # unproposed (its self-check failed) waits for next week: proposed now, nothing would guard it.
     if not (folder / GUARD_DONE).exists():
         if not (folder / GUARD_BEFORE).exists():
+            log = folder / LOGS / "expire_decisions.log"
+            code = run_step(expire_command(store, run_id, execute=True), log)
+            if code != 0:
+                print(f"Letting the reviewers' old refusals lapse failed (exit {code}); see {log}. Retry with: {retry}")
+                return 1
             snapshot = {"taken_at": utc_now_iso(), "teams": write_guard.snapshot(sb)}
             write_json(folder / GUARD_BEFORE, snapshot, indent=None)
         failed = propose_stages(store, run, states)

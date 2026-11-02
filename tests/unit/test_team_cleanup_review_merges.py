@@ -312,12 +312,13 @@ def test_a_slice_queued_before_earlier_holds_were_recorded_still_settles_its_mer
     assert [r["verdict"] for r in _final(review)] == ["merge"]
 
 
-def test_the_pairs_held_before_are_an_earlier_run_s_holds_either_way_round(tmp_path):
+def test_the_pairs_held_before_are_an_earlier_run_s_holds_and_rejects_either_way_round(tmp_path):
     runs = tmp_path / "runs"
     for run, rows in (
         ("2026-10-21-all", [{"merge_id": "a", "keep_id": "b", "verdict": "hold"},
                             {"merge_id": "c", "keep_id": "d", "verdict": "merge"}]),
-        ("2026-10-28-all", [{"merge_id": "f", "keep_id": "e", "verdict": "hold"}]),
+        ("2026-10-28-all", [{"merge_id": "f", "keep_id": "e", "verdict": "hold"},
+                            {"merge_id": "i", "keep_id": "j", "verdict": "reject"}]),
         ("2026-11-04-all", [{"merge_id": "g", "keep_id": "h", "verdict": "hold"}]),
     ):  # fmt: skip
         review = runs / run / "merges" / "review"
@@ -327,7 +328,7 @@ def test_the_pairs_held_before_are_an_earlier_run_s_holds_either_way_round(tmp_p
 
     held = rm.held_before(runs / "2026-11-04-all" / "merges")
 
-    assert held == {frozenset(("a", "b")), frozenset(("e", "f"))}
+    assert held == {frozenset(("a", "b")), frozenset(("e", "f")), frozenset(("i", "j"))}
 
 
 def test_the_queue_reviews_the_waiting_slices_and_keeps_each_one_s_failures(tmp_path):

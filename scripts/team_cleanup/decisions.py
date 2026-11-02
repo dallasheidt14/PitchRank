@@ -13,11 +13,14 @@ CARDS_TABLE = "team_cleanup_cards"
 CARD_COLS = "card_id,page_run,lane,decision,note,decided_at,created_at,swap"
 MERGES = "merges"
 KEEP_SEPARATE = "keep_separate"
-KEEP_SEPARATE_COLS = "id,team_id_master,other_team_id,decided_at,superseded_at"
+KEEP_SEPARATE_COLS = "id,team_id_master,other_team_id,decided_at,source,superseded_at"
 # Every card's decisions as a page saves them; the table records a pair's dont_apply as keep_separate.
 APPLY, DONT_APPLY, UNSURE = "apply", "dont_apply", "unsure"
 TEAM_DECISIONS = (APPLY, DONT_APPLY, UNSURE)
 DONT_APPLY_COLS = "id,team_id_master,field,proposed_value,decided_at,superseded_at"
+# The prefix of auto:<page run>, the source of every decision the automatic lane records, whose refusals are all
+# the reviewers'; every other source is the owner's.
+REVIEWED_SOURCE = "auto:"
 
 # PostgREST's answer when the table is not in its schema cache, i.e. the migration is not applied.
 TABLE_MISSING = "PGRST205"
@@ -47,6 +50,7 @@ class KeepSeparate:
     team_id: str
     other_team_id: str
     decided_at: str
+    source: str
 
 
 def pair_subject(team_id: str, other_team_id: str) -> str:
@@ -136,7 +140,7 @@ def team_decision_row(stage: str, card: dict) -> dict:
 
 def active_keep_separate(rows) -> list[KeepSeparate]:
     return [
-        KeepSeparate(r["team_id_master"], r["other_team_id"], r["decided_at"])
+        KeepSeparate(r["team_id_master"], r["other_team_id"], r["decided_at"], r["source"])
         for r in rows
         if r["superseded_at"] is None
     ]
@@ -159,4 +163,7 @@ def keep_separate_index(decisions, canonical) -> dict[frozenset, KeepSeparate]:
 
 def kept_apart_reason(index, canonical, team_id: str, other_team_id: str) -> str | None:
     decision = index.get(frozenset((canonical(team_id), canonical(other_team_id))))
-    return f"the owner chose Keep separate on {decision.decided_at[:10]}" if decision else None
+    if not decision:
+        return None
+    who = "the reviewers" if decision.source.startswith(REVIEWED_SOURCE) else "the owner"
+    return f"{who} chose Keep separate on {decision.decided_at[:10]}"

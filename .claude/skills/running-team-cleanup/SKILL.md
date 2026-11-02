@@ -31,7 +31,10 @@ changes per stage). Each hourly tick, at :17, takes the open run as far as it ca
 
 1. **Wednesday 11:00 until that week's deadline, no open run:** it moves `C:\pitchrank-weekly` to
    `origin/main` and proposes the week over every team (`propose_week.py --states ALL`, run
-   `<date>-all`). The run keeps that commit; a merge mid-week does not change its rules.
+   `<date>-all`). The run keeps that commit; a merge mid-week does not change its rules. Before the
+   scans, every Keep separate and Don't apply a week's review recorded lapses at the eighth weekly run after
+   its own (`expire_decisions.py`; owner, 2026-10-31), so the pair or change can be proposed and reviewed again;
+   the run's summary lists them. The owner's own decisions never lapse.
 2. **Each stage:** builds its page and publishes it to the website (`pages.py --publish --execute`),
    clubs only once its guesses are reviewed (`review_clubs.py --execute`), states once its changes are
    (`review_states.py --execute`) and merges once its pairs are (`review_merges.py --execute`), all
@@ -72,7 +75,7 @@ merges, judging by the `normalizing-club-names` skill itself (above all its **Ju
 into `<run>/clubs/review/skill/` as merges pack theirs; each change gets apply, hold or reject, and a reject goes to a
 second reviewer with the opposite prior. The page then routes each reviewed change: **apply** to the
 automatic lane; **reject** to the automatic lane kept as it is (the card's `keep_as_is`), recorded Don't apply
-so the scan's guess stops coming back; **hold** to a card giving the reviewers' reason. A listed guess the
+so the scan's guess stops coming back until it lapses; **hold** to a card giving the reviewers' reason. A listed guess the
 review did not reach waits for next week's. A change declined, stale, moved or undone is never reviewed.
 
 ## States
@@ -127,9 +130,9 @@ does, how the skill's words map onto merge, hold and reject, and how to answer. 
 of the user's settings, MCP servers or memory, reads only its folder and `scripts/team_cleanup/`, writes
 only its one answer, runs no program but `scripts/team_cleanup/review_lookup.py` (the read-only
 lookups), and its environment holds only the public database key. Each pair gets merge, hold or reject.
-A merge of a pair an earlier week's review held goes to a second reviewer who assumes it is wrong
-(`merge_confirm_brief.md`): reviewers disagree on borderline pairs, and a held pair comes back every week,
-so one lucky run could otherwise merge it (owner, 2026-10-30: two must agree on a repeat pair only; a
+A merge of a pair an earlier week's review held, or found to be two teams before that Keep separate lapsed,
+goes to a second reviewer who assumes it is wrong (`merge_confirm_brief.md`): reviewers disagree on borderline
+pairs, and a held pair comes back every week, so one lucky run could otherwise merge it (owner, 2026-10-30: two must agree on a repeat pair only; a
 second reviewer refused half of a week's first-time merges, none of which a full audit found wrong).
 Every reject goes to one with the opposite prior. Neither sees the first one's answer, and a merge it
 does not confirm, or a reject it does not uphold, becomes a hold. A slice whose reviewer fails is retried
@@ -140,7 +143,7 @@ four hours, and the rest wait for the next tick; the page refuses to build befor
 The page then routes each reviewed pair: **merge** to the automatic lane, turned as the reviewer
 chose, unless the two rows have since played on the same day (each other included), which makes it a
 card saying the reviewers cleared it and why the page held it;
-**reject** to the automatic lane as Keep separate, which both scans honour from then on (the cards
+**reject** to the automatic lane as Keep separate, which both scans honour until it lapses (the cards
 table holds it as Apply, the card's `keep_separate` saying what is applied); **hold** to a card giving
 the reviewers' reason. A pair past the review cap waits for next week's. The automatic lane takes at most
 `page_caps.merges.auto` (300; owner, 2026-10-31: double it only after four straight weeks whose spot-checked
@@ -227,13 +230,17 @@ Run `status.py`.
   python scripts/team_cleanup/propose_week.py --states ALL
   ```
 
-  The real run writes no team but opens the run's row in the database, and only one run can be open.
+  The real run writes no team but opens the run's row in the database and lets the reviewers' refusals
+  eight or more weeks old lapse (`expire_decisions.py --run <run>` without `--execute` lists them), and only
+  one run can be open.
 - **`proposing`, every proposed stage at `next: build the owner's review page`, no note.** Every stage
   proposed, but a step after them failed: the stale-proposal check, the health report, or moving the
   run to review. Read `<store>/runs/<run>/logs/health.log` if there is one. A health report that
   timed out reading games while a rankings run is going will pass once it ends.
-- **`proposing`, a stage at an earlier step, no note.** The propose is running or was killed. Ask the
-  owner which before a retry; a second propose refuses while the first holds its lock. Merges also sits
+- **`proposing`, a stage at an earlier step, no note.** The propose is running, was killed, or failed
+  before its first stage. If `<store>/runs/<run>/logs/expire_decisions.log` ends in an error, letting the
+  reviewers' old refusals lapse failed, and a retry runs it again. Otherwise ask the owner whether the
+  propose is still running before a retry; a second propose refuses while the first holds its lock. Merges also sits
   there, with no note, behind another stage's `failed:` note, and proposes on that stage's retry.
 - **`failed: ...` note.** A step broke. Read the log the note names. If the note names a missing club
   log, run the `gh run view` command it gives from Git Bash: PowerShell's `>` saves the log as UTF-16,
