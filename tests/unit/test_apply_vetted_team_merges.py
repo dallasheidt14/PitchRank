@@ -53,7 +53,8 @@ def pair(merge_id, keep_id, **stamps):
 def keep_separate(team_id, other_team_id, superseded_at=None):
     return {
         "id": f"d-{team_id[:4]}-{other_team_id[:4]}", "team_id_master": team_id, "other_team_id": other_team_id,
-        "decision": "keep_separate", "decided_at": "2026-09-24T00:00:00+00:00", "superseded_at": superseded_at,
+        "decision": "keep_separate", "decided_at": "2026-09-24T00:00:00+00:00", "source": "page:20260924T000000Z-a1",
+        "superseded_at": superseded_at,
     }
 
 

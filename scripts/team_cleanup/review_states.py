@@ -24,8 +24,8 @@ settled unattended only by the owner's own answer or the team's or club's own na
 change only where the rules would apply it themselves and the name pass places the team there; never one the rules
 only queue, whose approval the sweep would read as the owner's; and may not decline a blank state the rules would
 fill, which the weekly fill job writes whatever is declined. Any such answer becomes a hold. A reject a second
-reviewer with the opposite prior upholds is recorded as declined, so the change stops coming back; anything else
-is a hold, the owner's card.
+reviewer with the opposite prior upholds is recorded as declined, so the change stays away until that decline
+lapses at the eighth weekly run (expire_decisions.py); anything else is a hold, the owner's card.
 
 Without --execute it reads the changes and says what it would do, writing nothing.
 
@@ -48,7 +48,7 @@ from scripts.find_cross_provider_duplicates import batched, get_client, page  # 
 from scripts.hold_unsafe_state_applies import split  # noqa: E402
 from scripts.team_cleanup import review_merges as rm  # noqa: E402
 from scripts.team_cleanup.apply_stage import AUDIT_COLS, AUDIT_TABLE, QUEUE_TABLE, REVIEW_COLS  # noqa: E402
-from scripts.team_cleanup.decisions import APPLY, DECISIONS_TABLE  # noqa: E402
+from scripts.team_cleanup.decisions import APPLY, DECISIONS_TABLE, REVIEWED_SOURCE  # noqa: E402
 from scripts.team_cleanup.pages import Selection, name_place, select  # noqa: E402
 from scripts.team_cleanup.pairs import HOLD, REJECT  # noqa: E402
 from scripts.team_cleanup.propose_week import APPLIER_INPUTS, STATES  # noqa: E402
@@ -131,7 +131,7 @@ def held_because(sb, folder: Path, ids: set[str]) -> dict[str, str]:
 
 
 def decided_by(source: str) -> str:
-    return "the automatic lane" if source.startswith("auto:") else "the owner"
+    return "the automatic lane" if source.startswith(REVIEWED_SOURCE) else "the owner"
 
 
 def evidence_blocks(sb, rows: list[dict], chosen: Selection, evidence, folder: Path) -> list[str]:

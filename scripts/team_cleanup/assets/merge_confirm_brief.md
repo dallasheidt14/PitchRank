@@ -1,7 +1,7 @@
 # Duplicate-team review: confirming reviewer's brief
 
 A first reviewer judged the pairs named in your task to be **one squad recorded twice**. An earlier
-week's review held each of them for the owner, so each is a borderline pair, and reviewers disagree on
+week's review held each of them for the owner or found it to be two teams, so each is a borderline pair, and reviewers disagree on
 borderline pairs: a merge of one needs two of you. Each one you confirm is merged with nobody checking:
 RETIRE is deprecated, and its games and future fixtures go to KEEP. A wrong merge destroys a real team.
 Take the stance the skill's Step 5 asks of a reviewer: assume each merge is wrong and try to prove it.

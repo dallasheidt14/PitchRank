@@ -2564,4 +2564,13 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Category**: reliability
 - **Where**: `load_declined` in `scripts/team_cleanup/pages.py` (keyed per team, field and proposed value) and the clubs automatic lane
 - **Why**: A decline is recorded per team, so the weekly automatic lane still applies the identical club re-spelling to the club's teams the owner was not shown, and Monday's majority-spelling step in `update-missing-club-and-state.yml` flips them back, so the change recurs every week. Seen 2026-10-29: a re-spelling declined on 117 of a club's teams was applied to its other 50 on 10-20 and 10-28. Treat a decline of a club's old-to-new spelling as covering every team of that club, or hold the rest as cards.
+
+### A lapsed states Don't apply never brings a queued state change back
+
+- **ID**: IMP-391
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: the queue-card settling in `scripts/team_cleanup/apply_stage.py` and the sweep's reading of rejected rows in `scripts/assign_team_states.py`
+- **Why**: A states reviewer's reject also rejects the change's `team_state_review_queue` row, and the sweep stops filing a change whose review row was rejected. The reviewer's Don't apply lapses at the eighth weekly run (`expire_decisions.py`), as the owner asked of reviewer refusals, but the rejected queue row keeps that queued change from ever being proposed again. Let the queue row's rejection lapse with the decision, or record the reviewer's rejection apart from the owner's.
 - **Noted**: 2026-11-02

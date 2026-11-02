@@ -21,8 +21,8 @@ The review takes the changes the page would otherwise leave off as guesses, and 
 the scan left unapproved because two sources disagree; never one proposing no club, nor one declined, stale,
 moved or undone (page_caps.clubs.review changes a week). The reviewers are the duplicate review's, run the same
 way (review_merges.py): a change they approve applies on its own, a reject a second reviewer with the opposite
-prior upholds is recorded as declined, so the scan's guess stops coming back, and anything else is a hold, the
-owner's card.
+prior upholds is recorded as declined, so the scan's guess stays away until that decline lapses at the eighth
+weekly run (expire_decisions.py), and anything else is a hold, the owner's card.
 
 Without --execute it reads the guesses and says what it would do, writing nothing.
 

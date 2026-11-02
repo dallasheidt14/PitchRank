@@ -12,9 +12,9 @@ teams.is_deprecated = TRUE -- plus a full snapshot in team_merge_audit. Game row
 rewritten; they resolve to the surviving team at read time through team_merge_map. That makes
 a merge reversible.
 
-It refuses a pair the owner chose Keep separate, read from team_cleanup_decisions with both
-teams resolved through team_merge_map and through the merges this run plans before it, and will
-not run at all while that table cannot be read.
+It refuses a pair the owner or the reviewers chose Keep separate, read from team_cleanup_decisions
+with both teams resolved through team_merge_map and through the merges this run plans before it,
+and will not run at all while that table cannot be read.
 It also refuses a pair whose age group, gender, state or club no longer matches what the list
 recorded when it was built, or that does not record them in full, checking again immediately
 before each merge.

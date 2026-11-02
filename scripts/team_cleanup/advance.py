@@ -21,6 +21,7 @@ and writes nothing to the run or the database; --execute does it.
                 the owner asked to undo (undo_card.py)
                 once every stage is finished and no undo waits: close the run and email the owner a summary,
                 with up to ten of the automatic merges for the owner to mark right or wrong (spot_check.py)
+                and the reviewers' refusals that lapsed as the week was proposed (expire_decisions.py)
 
 An apply waits for the apply window, whose end the review deadline must fall before, so the choices it
 marks done apply that week. A step that exits 75 (another writer at work, the run held by another
@@ -72,6 +73,7 @@ from scripts.team_cleanup.apply_stage import (  # noqa: E402
 )
 from scripts.team_cleanup.decisions import TABLE_MISSING, resolve_execute  # noqa: E402
 from scripts.team_cleanup.end_run import unfinished  # noqa: E402
+from scripts.team_cleanup.expire_decisions import lapsed_section  # noqa: E402
 from scripts.team_cleanup.propose_week import ALL, PROPOSED_STAGES, REVIEWERS, run_id_for, run_step  # noqa: E402
 from scripts.team_cleanup.run_store import (  # noqa: E402
     APPLY_MARKER,
@@ -650,7 +652,7 @@ def summary_email(
     body = f"<p>This week's team cleanup ({html.escape(run_id)}) is finished.</p><ul>{''.join(rows)}</ul>"
     if undone:
         body += "<p>Undo requests:</p><ul>" + "".join(f"<li>{html.escape(line)}</li>" for line in undone) + "</ul>"
-    return f"PitchRank cleanup {run_id} is finished", body + sample
+    return f"PitchRank cleanup {run_id} is finished", body + lapsed_section(store, run_id) + sample
 
 
 def _collected(marker: Path) -> dict:

@@ -31,8 +31,8 @@ A live row that already resolves to another through team_merge_map is left out: 
 in effect, and pairing it would propose merges into a row that is going away.
 
 Screens, each decisive: opposite genders in the registered names, a head-to-head game, a
-shared game date, a self-play row, and the owner having chosen Keep separate for the pair
-(team_cleanup_decisions, both ids resolved through team_merge_map) -- the scan refuses to run
+shared game date, a self-play row, and the owner or the reviewers having chosen Keep separate for
+the pair (team_cleanup_decisions, both ids resolved through team_merge_map) -- the scan refuses to run
 at all when those decisions cannot be read. A row pairing cleanly with more than one other row is held
 rather than guessed at, and so is a pair neither of whose names fits the stored age group.
 The survivor is the row whose name states a band or a U-age, even one the stored cohort
