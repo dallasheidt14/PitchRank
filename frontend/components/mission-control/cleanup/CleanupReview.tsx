@@ -469,7 +469,8 @@ function StageView({
         <p className="max-w-prose text-sm text-muted-foreground">
           {stage.cards.length} proposed change{stage.cards.length === 1 ? '' : 's'}. Choose Apply, Don&apos;t apply or
           Not sure on each, and add a note if you know something the data doesn&apos;t. Don&apos;t apply is remembered,
-          so the same change is not proposed again. Choices save as you go.
+          so the same change is not proposed again, except an age read from a single birth year in the name, which is
+          asked again each week. Choices save as you go.
         </p>
       )}
 

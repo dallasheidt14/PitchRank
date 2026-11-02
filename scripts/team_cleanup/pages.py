@@ -3,13 +3,15 @@
 
 Reads the stage's proposals.json and stale.json from the run store and leaves off every proposal
 the owner already declined (an active dont_apply in team_cleanup_decisions naming the same new
-value), every one the write guard listed as stale, every one whose team is gone or whose field
-has moved since, every club change proposing no club, every club change from a tier the scan lists
-without approving that the week's review (review_clubs.py) did not reach, and every state
-change that a recent GotSport answer or the team's name or club name already answers with the state
-the team holds. A pair is left off when either row is gone or merged away, or has changed its age
-group, gender, state or club since the scan read it. Teams users follow (watchlisted, report-card or
-missing-game teams) are kept inside the caps first and lead their group; past the card cap the rest
+value; for an age change read from a lone birth year, only one an undo recorded), every age change
+read from a lone birth year for a team with no game this season, every one the write guard listed
+as stale, every one whose team is gone or whose field has moved since, every club change proposing
+no club, every club change from a tier the scan lists without approving that the week's review
+(review_clubs.py) did not reach, and every state change that a recent GotSport answer or the team's
+name or club name already answers with the state the team holds. A pair is left off when either row
+is gone or merged away, or has changed its age group, gender, state or club since the scan read it.
+Teams users follow (watchlisted, report-card or missing-game teams) are kept inside the caps first
+and lead their group; past the card cap the rest
 are listed and left for next week's scan, which proposes them again. The merges caps keep followed
 teams' pairs first, then the cross-provider scan's before the squad-key scan's, each by the fewest
 games on the row it retires, and each pair card shows the two rows' shared opponents and same-day
@@ -107,6 +109,7 @@ from scripts.team_cleanup.decisions import (  # noqa: E402
     DONT_APPLY,
     DONT_APPLY_COLS,
     MERGES,
+    UNDO_SOURCE,
     DecisionsUnavailable,
     card_rows,
     new_page_run,
@@ -114,6 +117,7 @@ from scripts.team_cleanup.decisions import (  # noqa: E402
 )
 from scripts.team_cleanup.pairs import HOLD, MERGE, REVIEW_WORDS, review_choice, side  # noqa: E402
 from scripts.team_cleanup.propose_week import (  # noqa: E402
+    AGE_GAMES,
     AGES,
     APPLIER_INPUTS,
     CLUBS,
@@ -153,6 +157,9 @@ from scripts.team_cleanup.run_store import (  # noqa: E402
 )
 from scripts.team_cleanup.state_changes import STATE_REVIEW_WORDS  # noqa: E402
 from scripts.team_cleanup.sure import (  # noqa: E402
+    BAND_TIER,
+    ULABEL_TIER,
+    YEAR_TIER,
     Signals,
     change_reviews,
     keeps_state,
@@ -169,17 +176,20 @@ from src.utils.us_states import STATE_CODE_TO_NAME  # noqa: E402
 TEMPLATE = Path(__file__).resolve().parent / "assets" / "stage-page.html"
 PAGE_FILE = "page.html"
 TITLES = {CLUBS: "Club names", STATES: "States", AGES: "Age groups", MERGES: "Duplicate teams"}
-# The tiers trusted to apply whole. Every age-plan row (review groups 1-3) is, so ages has no entry.
+# The tiers trusted to apply whole. An age change read from a lone birth year or from a U-label on a team that
+# plays up (review groups 4 and 5) is never offered to apply as a whole group.
 # A club proposal from any other tier is a guess the scan lists unapproved, which reaches the page only
 # through the week's club review.
 WHOLE_TIERS = {
     CLUBS: {"provider", "swap", "word", "bracket"},
     STATES: {"B fill"},
+    AGES: {BAND_TIER, ULABEL_TIER},
 }
 # A pair's group names the scan that found it; same-name pairs across two providers come first.
 PAIR_GROUPS = {CROSS_PROVIDER_DOORWAY: "C identical name", SQUAD_KEY_DOORWAY: "D squad key"}
 SHARED_NAMES_SHOWN = 5
 IDLE_WHY = "neither team has a game this season"
+AGE_IDLE_WHY = "no game this season"
 BLANK_CLUB_WHY = "the scan proposes no club"
 
 
@@ -220,7 +230,7 @@ def group_of(stage: str, proposal: dict) -> str:
 
 
 def whole(stage: str, group: str) -> bool:
-    return stage == AGES or group in WHOLE_TIERS.get(stage, ())
+    return group in WHOLE_TIERS.get(stage, ())
 
 
 def group_rank(stage: str, proposal: dict) -> tuple:
@@ -246,9 +256,9 @@ def interested(proposal: dict, interest: set[str]) -> bool:
     return any(team in interest for team in teams_of(proposal))
 
 
-def load_declined(sb, stage: str, canonical) -> dict[tuple, str]:
-    """{(team, field, proposed value): decided_at} for the stage's active dont_apply decisions, keyed
-    on each team's surviving row, since a decision outlives a merge of its team.
+def load_declined(sb, stage: str, canonical) -> dict[tuple, dict]:
+    """{(team, field, proposed value): {decided_at, source}} for the stage's active dont_apply decisions,
+    keyed on each team's surviving row, since a decision outlives a merge of its team.
 
     Any failure to read raises: an empty answer would put every declined change back on the page.
     """
@@ -260,7 +270,10 @@ def load_declined(sb, stage: str, canonical) -> dict[tuple, str]:
     except Exception as exc:
         raise DecisionsUnavailable(f"could not read {DECISIONS_TABLE}: {exc}") from exc
     return {
-        (canonical(r["team_id_master"]), r["field"], r["proposed_value"]): r["decided_at"]
+        (canonical(r["team_id_master"]), r["field"], r["proposed_value"]): {
+            "decided_at": r["decided_at"],
+            "source": r["source"],
+        }
         for r in rows
         if r["superseded_at"] is None
     }
@@ -312,6 +325,13 @@ def pair_moved(p: dict, teams: dict, canonical) -> str | None:
     return changed_since_vetted(p, *rows)
 
 
+def asked_again(stage: str, proposal: dict, decline: dict) -> bool:
+    """A lone birth year in a name fits two age groups, and the owner asked to see that change at every audit
+    however it was answered on the page (2026-09-19); an undo asking not to propose it again still holds
+    (2026-11-02)."""
+    return stage == AGES and proposal["tier"] == YEAR_TIER and not decline["source"].startswith(UNDO_SOURCE)
+
+
 def sort_out(stage, proposals, stale, declined, answered, teams, canonical, interest, listed=False):
     """The proposals not left off, interest teams first so the caps keep them, and each one left off
     with why. ``listed`` keeps the club guesses the scan lists without approving, for the week's review."""
@@ -320,6 +340,7 @@ def sort_out(stage, proposals, stale, declined, answered, teams, canonical, inte
     for p in proposals:
         tid, field = p["team_id_master"], p["field"]
         team = teams.get(tid)
+        decline = declined.get((tid, field, p["new_value"]))
         why = None
         if stage == CLUBS and not (p["new_value"] or "").strip():
             why = BLANK_CLUB_WHY
@@ -333,8 +354,10 @@ def sort_out(stage, proposals, stale, declined, answered, teams, canonical, inte
             why = "no longer a live team"
         elif not unmoved(field, team[field], p["old_value"]):
             why = f"{field} is now {team[field]!r}, not {p['old_value']!r}"
-        elif (tid, field, p["new_value"]) in declined:
-            why = f"declined on {declined[tid, field, p['new_value']][:10]}"
+        elif decline and not asked_again(stage, p, decline):
+            why = f"declined on {decline['decided_at'][:10]}"
+        elif stage == AGES and p["tier"] == YEAR_TIER and not p.get(AGE_GAMES):
+            why = AGE_IDLE_WHY
         elif tid in answered:
             why = answered[tid]
         if why:

@@ -61,6 +61,7 @@ REVIEW_SETTLES = (MERGE, REJECT)
 # And for a club or state change: one approved, and one found wrong, which records the decline.
 CLUB_REVIEW_SETTLES = (APPLY, REJECT)
 ULABEL_TIER = "U_own_name_ulabel_opponent_confirmed"
+YEAR_TIER = "Y_single_year"
 NEAR_GROUPS = 2
 
 

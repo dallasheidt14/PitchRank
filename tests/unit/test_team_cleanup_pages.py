@@ -86,6 +86,7 @@ COLUMNS = {
         "proposed_value",
         "decision",
         "decided_at",
+        "source",
         "superseded_at",
     },
     "team_cleanup_changes": {"id", "stage", "team_id_master", "field", "new_value", "reverted_at"},
@@ -301,7 +302,9 @@ def _merged(deprecated, canonical, n=1):
     return {"id": n, "deprecated_team_id": deprecated, "canonical_team_id": canonical}
 
 
-def _declined(tid, value, *, n=1, superseded=None, stage="states", field="state_code", decision="dont_apply"):
+def _declined(
+    tid, value, *, n=1, superseded=None, stage="states", field="state_code", decision="dont_apply", source=None
+):
     return {
         "id": f"d{n}",
         "stage": stage,
@@ -311,6 +314,7 @@ def _declined(tid, value, *, n=1, superseded=None, stage="states", field="state_
         "proposed_value": value,
         "decision": decision,
         "decided_at": "2026-10-01T12:00:00+00:00",
+        "source": source or "page:20261001T120000Z-a1b2c3",
         "superseded_at": superseded,
     }
 
@@ -675,11 +679,47 @@ def test_teams_users_follow_are_kept_inside_the_cap_and_shown_first_in_their_gro
         ("states", {"tier": "B", "old_value": "WA", "action": "apply"}, "B correction", False),
         ("states", {"tier": "E", "old_value": None, "action": "apply"}, "E fill", False),
         ("ages", {"tier": "U_own_name_ulabel_opponent_confirmed"}, "U_own_name_ulabel_opponent_confirmed", True),
+        ("ages", {"tier": "A_own_name_band"}, "A_own_name_band", True),
+        ("ages", {"tier": "Y_single_year"}, "Y_single_year", False),
+        ("ages", {"tier": "U_own_name_ulabel_plays_up"}, "U_own_name_ulabel_plays_up", False),
     ],
 )
 def test_only_the_tiers_a_skill_already_trusts_can_be_applied_whole(stage, proposal, group, whole):
     assert pages.group_of(stage, proposal) == group
     assert pages.whole(stage, group) is whole
+
+
+def test_a_declined_birth_year_age_card_comes_back_unless_undone_and_waits_for_a_game(tmp_path, monkeypatch, capsys):
+    """Owner, 2026-09-19 and 2026-11-02."""
+    store = tmp_path / "store"
+    _reviewing(store)
+    year, up = "Y_single_year", "U_own_name_ulabel_plays_up"
+    tiers = {"year": year, "undone": year, "idle": year, "up": up, "up_idle": up}
+    plan = [_plan_row(tid, "u13", "u12", tier=tier) for tid, tier in tiers.items()]
+    review = [{"team_id": tid, "games_this_season": "0" if tid.endswith("idle") else "4"} for tid in tiers]
+    _folder(store, "ages", pw.age_proposals(plan, review))
+    db = _Db(
+        teams=[_team(tid, age="u13") for tid in tiers],
+        team_cleanup_decisions=[
+            _declined("year", "u12", n=1, stage="ages", field="age_group"),
+            _declined("undone", "u12", n=2, stage="ages", field="age_group", source="undo:c-undone"),
+            _declined("up", "u12", n=3, stage="ages", field="age_group"),
+        ],
+    )
+
+    code, _ = _build(monkeypatch, capsys, store, db, "ages")
+
+    manifest = _read(store, "ages", MANIFEST_FILE)
+    assert code == 0 and [p["team_id_master"] for p in manifest["cards"].values()] == ["up_idle", "year"]
+    assert [(p["team_id_master"], p["why"]) for p in manifest["left_out"]] == [
+        ("undone", "declined on 2026-10-01"),
+        ("idle", "no game this season"),
+        ("up", "declined on 2026-10-01"),
+    ]
+    assert [(card["group"], card["whole"]) for card in _cards(store, "ages")] == [
+        ("U_own_name_ulabel_plays_up", False),
+        ("Y_single_year", False),
+    ]
 
 
 # --- when a page cannot be built -------------------------------------------------------------------
@@ -1199,7 +1239,8 @@ def test_an_ages_page_settles_a_far_u_label_move_only_where_the_review_saw_a_sec
         bands.PLAN_FIELDS,
     )
     (folder / pw.AGE_REVIEW_FILE).write_text(
-        "team_id,gotsport_age,div_says,band_opps_say,year_witness\nconfirmed,,,u9,A 3:0\nlone,,,,A 3:0\n",
+        "team_id,gotsport_age,div_says,band_opps_say,year_witness,kind,key_age,stored\n"
+        "confirmed,,,u9,A 3:0,ulabel,u9,u17\nlone,,,,A 3:0,ulabel,u9,u17\n",
         encoding="utf-8",
     )
     _folder(store, "ages", pw.scoped_proposals("ages", folder, ["NV"]))

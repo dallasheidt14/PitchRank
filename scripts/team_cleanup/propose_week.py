@@ -11,8 +11,8 @@ guarded fields, then runs each stage's skill self-check and proposal step into
           of its default runs (GitHub deletes a run's log after 90 days)
   states  assign_team_states.py --no-tier-a --reuse-answers over the country, cut to the scope: Tier A from
           the GotSport answers of the last 90 days, and no call bought
-  ages    review_age_labels.py review --state <scope>, then write-plan --groups 1,2,3 (groups 4
-          and 5 are owner questions, not plan rows)
+  ages    review_age_labels.py review --state <scope>, then write-plan --groups 1,2,3,4,5 (groups 4
+          and 5, a lone birth year and a U-label on a team that plays up, are only ever cards)
   merges  find_cross_provider_duplicates.py over the country (per state for a narrower scope) and
           find_squad_key_duplicates.py per state, into merges/scans/
 
@@ -121,6 +121,14 @@ AGE_REVIEW_FILE = "age_label_review.csv"
 # The age review's evidence each age proposal carries: what the league's division, the opponents'
 # bands and GotSport each say the age is, and how the opponents' single birth years vote.
 AGE_EVIDENCE = ("gotsport_age", "div_says", "band_opps_say", "year_witness")
+# The sources an age card's reason names first, each with the words it is read by.
+AGE_SAYS = (
+    ("key_age", "name says"),
+    ("gotsport_age", "GotSport says"),
+    ("div_says", "its division says"),
+    ("band_opps_say", "its opponents' bands say"),
+)
+AGE_GAMES = "games_this_season"
 MERGE_SCANS = "scans"
 MERGE_PAIRS = "pairs.json"
 SCAN_COUNTS = "scans.json"
@@ -139,7 +147,7 @@ REVIEWERS = {
     STATES: ("scripts/team_cleanup/review_states.py", "state changes"),
     MERGES: ("scripts/team_cleanup/review_merges.py", "pairs"),
 }
-AGE_GROUPS_TO_APPLY = "1,2,3"
+AGE_GROUPS_TO_APPLY = "1,2,3,4,5"
 STATE_CHANGES = ("apply", "queue")
 STEP_TIMEOUT_SECONDS = 4 * 60 * 60
 
@@ -315,12 +323,44 @@ def age_proposals(plan: list[dict], review: list[dict]) -> list[dict]:
 
 
 def with_age_evidence(proposals: list[dict], review: list[dict]) -> list[dict]:
-    """Each age proposal with what the review read about its team, a blank reading as none."""
+    """Each age proposal with what the review read about its team, a blank reading as none, the team's games
+    this season, and that reading as the reason its card shows."""
     evidence = {row["team_id"]: row for row in review}
-    return [
-        {**p, **{key: evidence.get(p["team_id_master"], {}).get(key) or None for key in AGE_EVIDENCE}}
-        for p in proposals
-    ]
+    return [with_reading(p, evidence.get(p["team_id_master"], {})) for p in proposals]
+
+
+def with_reading(proposal: dict, row: dict) -> dict:
+    return {
+        **proposal,
+        **{key: row.get(key) or None for key in AGE_EVIDENCE},
+        AGE_GAMES: int(row.get(AGE_GAMES) or 0),
+        "reason": age_reason(row),
+    }
+
+
+def opponents_years_say(row: dict) -> str | None:
+    """The age group the opponents' single birth years point to, with the count each way, read as the review
+    reads its witness: A backs the name's age (of a lone birth year's two, the younger) and B the other."""
+    verdict, _, counts = (row.get("year_witness") or "").partition(" ")
+    if verdict not in ("A", "B"):
+        return None
+    if row.get("kind") == "year":
+        ages = sorted(row["key_age"].split("/"), key=lambda age: int(age[1:]))
+    else:
+        ages = [row["key_age"], row["stored"]]
+    return f"{ages[0] if verdict == 'A' else ages[1]} ({counts})"
+
+
+def age_reason(row: dict) -> str:
+    parts = [f"{source} {row[key]}" for key, source in AGE_SAYS if row.get(key)]
+    years = opponents_years_say(row)
+    if years:
+        parts.append(f"its opponents' birth years point to {years}")
+    games = row.get(AGE_GAMES)
+    if games:
+        parts.append(f"{games} game{'' if games == '1' else 's'} this season")
+    reason = "; ".join(parts)
+    return reason[:1].upper() + reason[1:]
 
 
 def pair_row(record: dict, doorway: str, **found) -> dict:
