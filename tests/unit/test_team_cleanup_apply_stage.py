@@ -542,7 +542,8 @@ class _Runner:
         return code
 
     def exclude_merge_duplicate_games(self, command, log):
-        """Hides one doubled fixture per survivor the merge log names; its --revert shows them again."""
+        """Hides one doubled fixture per merge the merge log names, the copy naming the retired row, logged as
+        the script logs it; its --revert shows them again."""
         if "--revert" in command:
             path = _arg(command, "--revert")
             logged = json.loads(path.read_text(encoding="utf-8"))
@@ -552,7 +553,17 @@ class _Runner:
             return 0
         out = _arg(command, "--out")
         assert not out.exists(), "the exclusion refuses an --out that is already there"
-        rows = [{"id": f"doubled-{e['keep_id']}"} for e in merger.read_log(_arg(command, "--merge-log"))]
+        rows = [
+            {
+                "id": f"doubled-{e['merge_id']}",
+                "game_date": "2026-10-10",
+                "kept_id": f"kept-{e['merge_id']}",
+                "home_team_master_id": e["merge_id"],
+                "away_team_master_id": _id("opponent"),
+                "score": "2-1",
+            }
+            for e in merger.read_log(_arg(command, "--merge-log"))
+        ]
         self.excluded |= {row["id"] for row in rows}
         merger.write_log(out, {"applied": True, "confirmed": len(rows), "sent": len(rows), "rows": rows})
         return 0
@@ -4382,7 +4393,7 @@ def test_merges_apply_a_pilot_of_25_then_the_rest_each_batch_followed_by_its_own
     assert _arg(runner.commands[3], "--merge-log") == rest
     assert [len(merger.read_log(log)) for log in (pilot, rest)] == [25, 5]
     assert _merged_into(db) == {_id(name): _id(f"k{name}") for name in names}
-    assert runner.excluded == {f"doubled-{_id(f'k{name}')}" for name in names}
+    assert runner.excluded == {f"doubled-{_id(name)}" for name in names}
     assert {(r["field"], r["old_value"], r["applier"], r["actor"]) for r in _ledger(db)} == {
         ("merged_into", None, "scripts/apply_vetted_team_merges.py", ACTOR)
     }

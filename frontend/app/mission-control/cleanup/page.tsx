@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { AppliedChanges } from '@/components/mission-control/cleanup/AppliedChanges';
 import { CleanupReview } from '@/components/mission-control/cleanup/CleanupReview';
 import { SpotCheckReview } from '@/components/mission-control/cleanup/SpotCheckReview';
 
@@ -19,6 +20,7 @@ export default function TeamCleanupPage() {
         <h1 className="font-display text-3xl font-bold tracking-tight">Team cleanup review</h1>
         <CleanupReview />
         <SpotCheckReview />
+        <AppliedChanges />
       </div>
     </div>
   );

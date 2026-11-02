@@ -53,6 +53,7 @@ COLUMNS = {
         "handled_at",
         "result",
     },
+    "team_cleanup_card_undos": {"id", "run_id", "card_id", "decline", "requested_at", "status", "handled_at", "result"},
     "team_cleanup_spot_checks": {"run_id", "position", "card_id"},
     "team_cleanup_changes": {"id", "run_id", "stage", "team_id_master", "new_value", "reverted_at"},
     "team_cleanup_cards": {"card_id", "card", "swap"},
@@ -78,10 +79,11 @@ class _Runs:
     refuses a column the table lacks, and an insert a unique index holds; ``broken`` is the error every
     execute() raises, ``failing`` the error a table's do."""
 
-    def __init__(self, rows=(), requests=(), **tables):
+    def __init__(self, rows=(), requests=(), card_undos=(), **tables):
         self.tables = {name: [] for name in COLUMNS}
         self.tables["team_cleanup_runs"] = [dict(r) for r in rows]
         self.tables["team_cleanup_requests"] = [dict(r) for r in requests]
+        self.tables["team_cleanup_card_undos"] = [dict(r) for r in card_undos]
         for name, table_rows in tables.items():
             self.tables[name] = [dict(r) for r in table_rows]
         self.writes = []
@@ -229,6 +231,8 @@ class _Runner:
                 return 1, "nothing of it was applied"
             if not in_window(self.window, self.now):
                 return 75, "Outside the apply window"
+        elif script == "undo_card.py" and not in_window(self.window, self.now):
+            return 75, "Outside the apply window"
         elif script == "end_run.py" and unfinished(self.store, read_run(self.store, run_id)):
             return 1, "a stage is unfinished"
         return None
@@ -895,6 +899,95 @@ def test_a_requests_table_not_yet_created_holds_no_run_open(tmp_path, monkeypatc
     _proposed(store)
     db = _reviewing("2026-10-24T17:00:00Z")
     db.missing.add("team_cleanup_requests")
+
+    assert _tick(monkeypatch, store, db, _Runner(store), IN_WINDOW) == 0
+
+    assert read_run(store, RUN)["status"] == "done"
+
+
+def _card_undo(card, decline=True, n=1, run_id=RUN):
+    """A one-card undo the owner asked for on the page, as the website files it."""
+    return {
+        "id": f"u{n}",
+        "run_id": run_id,
+        "card_id": card,
+        "decline": decline,
+        "requested_at": f"2026-10-24T17:0{n}:00Z",
+        "status": "pending",
+        "handled_at": None,
+        "result": None,
+    }
+
+
+def _card_undos(runner):
+    return [c for c in runner.commands if Path(c[0]).name == "undo_card.py"]
+
+
+def test_a_card_undo_runs_in_the_window_and_is_recorded_done_before_the_run_closes(tmp_path, monkeypatch, emails):
+    store = tmp_path / "store"
+    _proposed(store)
+    runner = _Runner(store)
+    run = {"run_id": RUN, "status": "reviewing", "owner_done_at": "2026-10-24T17:00:00Z", "owner_done_by": "owner"}
+    db = _Runs([run], card_undos=[_card_undo("c9"), _card_undo("c8", decline=False, n=2)])
+
+    _tick(monkeypatch, store, db, runner, IN_WINDOW)
+
+    undo = "scripts/team_cleanup/undo_card.py"
+    assert _card_undos(runner) == [
+        [undo, "--run", RUN, "--card", "c9", "--decline", "--execute", "--store", str(store)],
+        [undo, "--run", RUN, "--card", "c8", "--execute", "--store", str(store)],
+    ]
+    assert [r["status"] for r in db.tables["team_cleanup_card_undos"]] == ["done", "done"]
+    assert runner.ran()[-1] == ("end_run.py", None, None) and read_run(store, RUN)["status"] == "done"
+    assert "<li>Undo of card c9: done</li>" in emails[-1][2]
+
+
+def test_a_card_undo_outside_the_window_waits_and_holds_the_run_open(tmp_path, monkeypatch, emails):
+    store = tmp_path / "store"
+    _proposed(store)
+    runner = _Runner(store)
+    _tick(monkeypatch, store, _reviewing("2026-10-24T17:00:00Z"), runner, IN_WINDOW)
+    write_run(store, {**read_run(store, RUN), "status": "reviewing"})
+    run = {"run_id": RUN, "status": "reviewing", "owner_done_at": "2026-10-24T17:00:00Z", "owner_done_by": "owner"}
+    db = _Runs([run], card_undos=[_card_undo("c9")])
+    runner.commands.clear()
+
+    assert _tick(monkeypatch, store, db, runner, PAST_DEADLINE + timedelta(hours=4)) == 0
+
+    assert len(_card_undos(runner)) == 1 and db.tables["team_cleanup_card_undos"][0]["status"] == "pending"
+    assert ("end_run.py", None, None) not in runner.ran()
+
+
+def test_a_failed_card_undo_is_recorded_with_what_it_said(tmp_path, monkeypatch, emails):
+    store = tmp_path / "store"
+    _proposed(store)
+    runner = _Runner(store, codes={("undo_card.py", None): [1]})
+    run = {"run_id": RUN, "status": "reviewing", "owner_done_at": "2026-10-24T17:00:00Z", "owner_done_by": "owner"}
+    db = _Runs([run], card_undos=[_card_undo("c9")])
+
+    assert _tick(monkeypatch, store, db, runner, IN_WINDOW) == 1
+
+    request = db.tables["team_cleanup_card_undos"][0]
+    assert (request["status"], request["result"]) == ("failed", "the step's own refusal")
+
+
+def test_a_card_undo_of_the_last_finished_run_is_run_by_the_next_tick(tmp_path, monkeypatch, emails):
+    store = tmp_path / "store"
+    _proposed(store, status="done")
+    runner = _Runner(store)
+    run = {"run_id": RUN, "status": "done", "owner_done_at": "2026-10-24T17:00:00Z", "owner_done_by": "owner"}
+    db = _Runs([run], card_undos=[_card_undo("c9")])
+
+    _tick(monkeypatch, store, db, runner, IN_WINDOW)
+
+    assert len(_card_undos(runner)) == 1 and db.tables["team_cleanup_card_undos"][0]["status"] == "done"
+
+
+def test_a_card_undos_table_not_yet_created_holds_no_run_open(tmp_path, monkeypatch, emails):
+    store = tmp_path / "store"
+    _proposed(store)
+    db = _reviewing("2026-10-24T17:00:00Z")
+    db.missing.add("team_cleanup_card_undos")
 
     assert _tick(monkeypatch, store, db, _Runner(store), IN_WINDOW) == 0
 

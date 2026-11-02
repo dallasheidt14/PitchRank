@@ -362,6 +362,58 @@ export function tally(cards: readonly CardRow[], choices: Readonly<Record<string
   return counts;
 }
 
+/** A one-card undo's latest request, as the page shows it. */
+export interface CardUndo {
+  status: 'pending' | 'done' | 'failed';
+  /** requested_at and handled_at in the business timezone, which only the server knows. */
+  requestedLabel: string;
+  handledLabel: string | null;
+  result: string | null;
+}
+
+/** One change a run applied, which the page offers to undo on its own. */
+export interface AppliedChange {
+  cardId: string;
+  stage: CleanupStage;
+  lane: CleanupLane;
+  text: string;
+  undo: CardUndo | null;
+}
+
+export interface AppliedRun {
+  runId: string;
+  /** The run in review, rather than the last finished one. */
+  open: boolean;
+  changes: AppliedChange[];
+}
+
+/**
+ * Whether a card's lane changed something for it: the automatic lane's unless the week's review kept the stored
+ * value or the two teams separate, the owner's once the review is done and an Apply stands.
+ */
+export function appliedChange(row: CardRow, ownerDone: boolean): boolean {
+  if (row.decision !== 'apply') return false;
+  if (row.lane === 'owner') return ownerDone;
+  return isPairRow(row) ? !row.card.keep_separate : !row.card.keep_as_is;
+}
+
+/** A change on one line: a team's field from its old value to its new one, or a merge into the team kept. */
+export function changeText(row: CardRow): string {
+  if (isPairRow(row)) {
+    const [kept, merged] = survivorFirst(row.card, row.swap);
+    return `${merged.name || '(no name)'} merged into ${kept.name || '(no name)'}`;
+  }
+  const { team, change } = row.card;
+  return `${team.name || '(no name)'}: ${fieldLabel(change.field)} ${changeValue(change.old)} → ${changeValue(change.new)}`;
+}
+
+export function cardUndoStatus(undo: CardUndo | null): string | null {
+  if (!undo) return null;
+  if (undo.status === 'pending') return `Undo asked ${undo.requestedLabel}, waiting for the next hourly run.`;
+  if (undo.status === 'done') return `Undone ${undo.handledLabel}.`;
+  return `Undo failed ${undo.handledLabel}${undo.result ? ` (${undo.result})` : ''}. You can ask again.`;
+}
+
 /** team_cleanup_spot_checks' verdicts on an automatic merge the loop sampled. */
 export const SPOT_VERDICTS = ['right', 'wrong'] as const;
 export type SpotVerdict = (typeof SPOT_VERDICTS)[number];

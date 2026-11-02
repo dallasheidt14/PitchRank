@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { makeCleanupCardRow, makePairCard } from '@/test/fixtures';
+import { makeCleanupCardRow, makePairCard, makePairCardRow } from '@/test/fixtures';
 import {
   alikeSets,
+  appliedChange,
+  changeText,
   cleanWeeks,
   cleanupWeek,
   evidenceLines,
@@ -121,6 +123,32 @@ describe('groups, look-alikes and the tally', () => {
       unsure: 0,
       undecided: 2,
     });
+  });
+});
+
+describe('appliedChange', () => {
+  it('counts an automatic change unless the review kept the stored value or the two teams apart', () => {
+    expect(appliedChange(makeCleanupCardRow({ lane: 'auto', decision: 'apply' }), false)).toBe(true);
+    expect(
+      appliedChange(makeCleanupCardRow({ lane: 'auto', decision: 'apply', card: { keep_as_is: true } }), false)
+    ).toBe(false);
+    expect(
+      appliedChange(makePairCardRow({ lane: 'auto', decision: 'apply', card: { keep_separate: true } }), false)
+    ).toBe(false);
+  });
+
+  it("counts the owner's Apply only once the review is done", () => {
+    expect(appliedChange(makeCleanupCardRow({ lane: 'owner', decision: 'apply' }), false)).toBe(false);
+    expect(appliedChange(makeCleanupCardRow({ lane: 'owner', decision: 'apply' }), true)).toBe(true);
+    expect(appliedChange(makeCleanupCardRow({ lane: 'owner', decision: 'dont_apply' }), true)).toBe(false);
+  });
+});
+
+describe('changeText', () => {
+  it('names a merge the way it applied, the swap turning which row was kept', () => {
+    const row = makePairCardRow({ lane: 'auto', decision: 'apply' });
+    expect(changeText(row)).toBe('Phoenix Rising B13 Premier merged into Phoenix Rising 2013 Boys');
+    expect(changeText({ ...row, swap: true })).toBe('Phoenix Rising 2013 Boys merged into Phoenix Rising B13 Premier');
   });
 });
 

@@ -57,7 +57,7 @@ proposing on older code. It never abandons a run. Emails need `CLEANUP_OWNER_EMA
 
 Done is per run, not per stage, and nothing clears it: after Done the page takes no more choices and
 no stage page is rebuilt once it has published cards, so a card found wrong after Done waits for next
-week, or is reversed by undoing its whole lane after the apply; an undo cannot take back one card.
+week, or is reversed after the apply by undoing that one change or its whole lane.
 
 ## Clubs
 
@@ -344,9 +344,9 @@ wrong changes in one Nevada run. Each state card carries them, as the owner sees
 under `evidence` in `<stage>/page.html`'s cards and in `team_cleanup_cards.card`. Each is a reason to raise a card with the
 owner, never a state to propose: opponents agreeing with a stored state prove nothing inside a
 mislabelled cluster, and club-mates are what proposed a Tier B correction. After Done the page takes
-no new choice, so a card that fails here can only be taken back by undoing its whole lane after the
-apply, the owner's call. `collect.py` refuses to collect a lane again once its `<stage>/apply.json` (or
-`<stage>/auto/apply.json`) exists.
+no new choice, so a card that fails here can only be taken back after the apply, by undoing that one
+change or its whole lane, the owner's call. `collect.py` refuses to collect a lane again once its
+`<stage>/apply.json` (or `<stage>/auto/apply.json`) exists.
 
 ### Step 5: In the apply window, dry-run each lane's apply and hand it over
 
@@ -455,6 +455,29 @@ An undone lane is over for this run: never hand its apply over again, because de
 stopped a re-run refuses, stops on the reverted rows, or writes them again. `status.py` does not show
 an undo, so check the lane's `<lane folder>/REVERT.md`. When the undone lane had not finished, the run
 closes only by abandoning it.
+
+## Undoing one change
+
+**Undo one change** on the review page lists what the run in review and the last finished run applied:
+each automatic change, and the owner's Apply cards once the review is done. A search by team name finds
+one, and its **Undo** files a request in `team_cleanup_card_undos`, with **Don't propose this change
+again** (for a merge, **Keep these two teams separate from now on**) ticked by default. The autopilot
+runs each request inside the apply window with `undo_card.py`, records it done or failed, holds an open
+run's close while one waits, and lists them in the run's summary email. A change its lane has not applied
+yet, as an automatic one is for a few hours after the page goes up, waits for it.
+
+`undo_card.py` puts back that one change the way the lane's revert would: the applier's own revert of a
+copy of the batch log cut to the team; for a merge, the hidden games naming the retired row and then that
+merge alone; for a state, `revert_team_states` over the lane's windows read from just before the team's
+id, after a dry run of the same call names the team. It refuses what the lane's revert refuses, checks the
+team holds its old value again, with `--decline` records Don't apply (Keep separate for a pair) under
+`undo:<card>`, and last stamps the change reverted in `team_cleanup_changes`, so a retry after a failure
+finds the change and finishes. A whole-lane undo afterwards passes over the change. By hand:
+
+```bash
+python scripts/team_cleanup/undo_card.py --run 2026-11-04-all --card <card id>
+python scripts/team_cleanup/undo_card.py --run 2026-11-04-all --card <card id> --decline --execute
+```
 
 ## Not in code
 
