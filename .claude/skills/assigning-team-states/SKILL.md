@@ -290,7 +290,7 @@ placeholder like TGS's "No Club Selection", the largest `club_name` here;
 **What the run says it cannot decide is as important as what it decides.** Teams no tier
 reaches cannot be queued either, because a review row carries a proposal. The run counts them
 and names any that are ranked Active, which means they are on a state board right now with no
-state. Those need `--set`.
+state. Those need the owner's answer, recorded with `--set` (Step 7).
 
 ## Step 4: Apply a small batch and verify it against the database
 
@@ -423,18 +423,22 @@ The weekly cleanup's unattended reviewers work this queue with no person to ask,
 
 Note the actor and the time window you used, so the batch can be found later. Then look at
 what the run reported as undecidable. A team that is ranked and Active with no state is
-visible on a board today; use `--set` with the reason:
+visible on a board today; ask the owner for its state, then record the answer with `--set`:
 
 ```bash
-python scripts/assign_team_states.py --team <uuid> --set OH --reason "why you know this" --execute
+python scripts/assign_team_states.py --team <uuid> --set OH --reason "owner: <their words>" --execute
 ```
 
-That writes your answer at confidence 1.0, stamped `operator` — also when the team already
+It writes the answer at confidence 1.0, stamped `operator` — also when the team already
 holds that value, as a confirm, so the stamp lands and the next anchor pass defers to it
-rather than overwriting a held row you agreed with. Use it when the evidence a
-person would use is not evidence the tool may act on — who a team plays is the clearest
-example, and it is excluded from the tiers precisely because acting on it is what filled this
-database with wrong states.
+rather than overwriting a held row the owner agreed with. The stamp makes it the owner's own
+answer, which every weekly rule and reviewer then defers to, so write it only on the owner's
+word, quoted in `--reason`. Before asking, check the owner's earlier answers for the team and
+its club: approved review-queue rows, earlier `--set` answers, and the cleanup page's
+decisions. A team or club name that seems to settle it goes into the question as the
+suggested answer, never into `--set`: a name is Tier C's evidence (Step 6), and a club name
+naming a state is often a false friend. Weaker evidence, such as who a team plays, where it
+travelled, a lone GotSport answer or a league tag, goes into the question the same way.
 
 ## Deciding without a person
 

@@ -204,6 +204,14 @@ ECNL and ECNL-RL squads sharing one row, fused at the **alias** layer with no me
 history. Concurrent registrations in different competitions are the signature; sequential ones
 are ordinary season re-registration. Merging into such a row compounds an existing error.
 
+**A recreational squad name reused each season.** A recreational club can give a name with no
+age in it (a mascot such as `Venom` or `Mayhem`) to a new group of children every season, so a
+shared name is no evidence that two rows a season apart are one squad; two such merges were
+undone in October 2026. Compare the stored cohorts of each row's opponents, as for "A provider
+record reused for a younger squad" under Regional shapes: where the earlier row's opponents sit
+a cohort above the later row's, they are two squads. Where they agree, nothing separates a new
+group from a re-registered one, so hold the pair.
+
 **Inherited history read as empty.** A row that is itself the canonical target of earlier
 merges holds games filed under absorbed ids. Counting raw ids makes it look empty and removes
 the evidence that would have refused the merge.
