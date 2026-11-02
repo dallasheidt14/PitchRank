@@ -23,9 +23,11 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 MIGRATIONS = Path(__file__).resolve().parents[2] / "supabase" / "migrations"
 
 # The three functions that must carry the rule, and the two that must never.
-# find_recently_active_teams and find_yesterday_null_score_teams are the only
-# automated producers that can re-enqueue a team that has started playing again;
-# filtering either is what would make this a one-way door.
+# find_recently_active_teams and the yesterday-games job are the only automated
+# producers that can re-enqueue a team that has started playing again; filtering
+# either is what would make this a one-way door. The job selects in Python, so
+# test_enqueue_yesterday_games guards it there; find_yesterday_null_score_teams
+# stays listed because it is still deployed and the job mirrors its filters.
 GATED_FUNCTIONS = ("find_stale_teams", "find_discovery_teams", "find_topup_teams")
 REVIVAL_FUNCTIONS = ("find_recently_active_teams", "find_yesterday_null_score_teams")
 

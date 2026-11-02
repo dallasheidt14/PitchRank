@@ -53,6 +53,7 @@ from enqueue_user_interest_teams import (  # noqa: E402
 
 from scripts.enqueue_helpers import (  # noqa: E402
     _chunks,
+    expand_to_aliases,
     load_team_rows,
     resolve_merges,
 )
@@ -84,32 +85,6 @@ def season_start(today):
     Mirrors src/utils/team_utils._soccer_season_year, which the ranking side uses.
     """
     return date(today.year if today.month >= 8 else today.year - 1, 8, 1)
-
-
-def expand_to_aliases(supabase, canonical):
-    """Extend a raw-id -> canonical map to cover every deprecated alias of each target.
-
-    A merge leaves games on the pre-merge id, and the interest signals usually name
-    the survivor rather than the id its games are filed under. Resolving only the
-    ids we started with therefore misses the predecessors' games entirely, so look
-    the merge map up a second time by canonical_team_id.
-    """
-    full = dict(canonical)
-    targets = sorted(set(canonical.values()))
-    for batch in _chunks(targets):
-        rows = (
-            supabase.table("team_merge_map")
-            .select("deprecated_team_id,canonical_team_id")
-            .in_("canonical_team_id", batch)
-            .execute()
-            .data
-            or []
-        )
-        for r in rows:
-            full[r["deprecated_team_id"]] = r["canonical_team_id"]
-    for target in targets:
-        full.setdefault(target, target)
-    return full
 
 
 def fetch_game_facts(supabase, alias_map, today):

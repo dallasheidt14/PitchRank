@@ -255,6 +255,9 @@ short, and refuse a `range()` or `limit()` with no `order()`. Store fixture rows
 so a scan ordered by anything but its cursor skips or repeats rows. `_Query` in
 `tests/unit/test_team_cleanup_health.py` does all three; `_Supabase` in
 `tests/unit/test_find_cross_provider_duplicates.py` caps reads and refuses an unordered `range()`.
+When a test shrinks a page size to force paging, patch every module that reads it:
+`from scripts.enqueue_helpers import PAGE_SIZE` copies the value, so patching one copy leaves a
+pager that reads the other fetching the whole fixture in one request, and its paging never runs.
 
 **A zero-row `.single()` raises; it does not come back empty.** PostgREST answers
 `APIError({"code": "PGRST116", ...})`, and that is the *normal* path for an existence check on a
