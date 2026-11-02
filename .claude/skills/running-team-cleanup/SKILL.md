@@ -101,6 +101,19 @@ it is, recorded Don't apply, which for a queued change also rejects its review r
 filing it; **hold** to a card giving the reviewers' reason. A change the review did not reach is a card as
 before. Tier A's changes from GotSport's own record stay sure and are not reviewed (owner, 2026-10-29).
 
+## Ages
+
+The week proposes all five of the age review's groups (owner, 2026-10-31). A move to the band in the team's own
+name (groups 1 and 2), or to a U-label its opponents confirm (group 3) when its division, its opponents' bands or
+GotSport say that age too or the move is two groups or fewer, goes to the automatic lane. Group 4 (a lone birth
+year in the name, which fits two age groups) and group 5 (a U-label on a team whose opponents are a group older)
+are always cards, never offered as a whole group, and a group-4 card waits off the page until its team has a
+game this season, played or scheduled (owner, 2026-11-02). A group-4 change the owner turns down on the page
+comes back the next week (owner, 2026-09-19: "Ask again at every audit"); one the owner applied and then undid
+with Don't propose this change again stays off (owner, 2026-11-02). Every other decline stands. Each age card's
+reason gives what each source says the age is and the team's games this season, which is all the owner decides
+groups 4 and 5 from.
+
 ## Merges
 
 The merges stage runs both duplicate scans of `merging-duplicate-teams` each week: the cross-provider
@@ -287,7 +300,8 @@ published cards reads as built, so the autopilot never publishes that stage and 
 fails every tick. The plain build is for the Artifact fallback alone. The build prints the card
 count, how many changes go to the automatic lane, and the **page run** id
 (`YYYYMMDDTHHMMSSZ-<6 hex>`). It leaves off cards whose team is gone, merged or moved since the
-propose, ones the owner already declined, for merges each pair neither of whose rows has a game this
+propose, ones the owner already declined (a group-4 age change only when an undo declined it; see **Ages**),
+for ages each group-4 change for a team with no game this season, for merges each pair neither of whose rows has a game this
 season, for clubs each guess proposing no club and each guess the scan lists without approving (the
 `Listed` tiers in `normalizing-club-names`) that the week's club review did not reach, and for states each change that a recent `mapped`
 GotSport answer other than the unset default `AL`, or the team's name or club name as

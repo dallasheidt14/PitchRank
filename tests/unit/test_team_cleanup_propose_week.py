@@ -298,7 +298,8 @@ def test_an_age_plan_row_reads_as_an_age_group_change_carrying_the_review_s_evid
         for team in ("a", "b")
     ]
     review = [
-        {"team_id": "a", "gotsport_age": "u12", "div_says": "", "band_opps_say": "u12", "year_witness": "A 3:0"},
+        {"team_id": "a", "gotsport_age": "u12", "div_says": "", "band_opps_say": "u12", "year_witness": "A 3:0",
+         "kind": "ulabel", "key_age": "u12", "stored": "u13", "games_this_season": "7"},
         {"team_id": "z", "gotsport_age": "u9", "div_says": "u9", "band_opps_say": "u9", "year_witness": "A 4:0"},
     ]
 
@@ -314,6 +315,11 @@ def test_an_age_plan_row_reads_as_an_age_group_change_carrying_the_review_s_evid
             "div_says": None,
             "band_opps_say": "u12",
             "year_witness": "A 3:0",
+            "games_this_season": 7,
+            "reason": (
+                "Name says u12; GotSport says u12; its opponents' bands say u12; "
+                "its opponents' birth years point to u12 (3:0); 7 games this season"
+            ),
         },
         {
             "team_id_master": "b",
@@ -326,8 +332,38 @@ def test_an_age_plan_row_reads_as_an_age_group_change_carrying_the_review_s_evid
             "div_says": None,
             "band_opps_say": None,
             "year_witness": None,
+            "games_this_season": 0,
+            "reason": "",
         },
     ]
+
+
+@pytest.mark.parametrize(
+    "row, reason",
+    [
+        (
+            {"kind": "year", "key_age": "u12/u13", "stored": "u15", "gotsport_age": "u15",
+             "year_witness": "B 0:3", "games_this_season": "17"},
+            "Name says u12/u13; GotSport says u15; its opponents' birth years point to u13 (0:3); 17 games this season",
+        ),
+        (
+            {"kind": "year", "key_age": "u9/u10", "stored": "u11", "year_witness": "A 4:0", "games_this_season": "1"},
+            "Name says u9/u10; its opponents' birth years point to u9 (4:0); 1 game this season",
+        ),
+        (
+            {"kind": "ulabel", "key_age": "u12", "stored": "u13", "div_says": "u13", "year_witness": "B 1:4",
+             "games_this_season": "6"},
+            "Name says u12; its division says u13; its opponents' birth years point to u13 (1:4); 6 games this season",
+        ),
+        (
+            {"kind": "band", "key_age": "u13", "stored": "u14", "year_witness": "thin 1:0", "games_this_season": "0"},
+            "Name says u13; 0 games this season",
+        ),
+    ],
+    ids=["lone-year-older", "lone-year-younger", "u-label-stored", "thin-witness"],
+)  # fmt: skip
+def test_an_age_card_s_reason_says_which_group_each_source_points_to(row, reason):
+    assert pw.age_reason(row) == reason
 
 
 def test_the_club_stage_reads_the_newest_scan_and_a_scan_that_found_nothing_proposes_nothing(tmp_path):
@@ -887,7 +923,7 @@ def _expected(store):
             "write-plan",
             str(folder / "ages" / "age_label_review.csv"),
             "--groups",
-            "1,2,3",
+            "1,2,3,4,5",
             "--out",
             str(folder / "ages" / "plan.csv"),
         ],

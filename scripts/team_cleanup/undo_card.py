@@ -67,7 +67,14 @@ from scripts.team_cleanup.apply_stage import (  # noqa: E402
     state_windows,
 )
 from scripts.team_cleanup.collect import DECISIONS_FILE  # noqa: E402
-from scripts.team_cleanup.decisions import APPLY, CHANGES_TABLE, DONT_APPLY, MERGES, resolve_execute  # noqa: E402
+from scripts.team_cleanup.decisions import (  # noqa: E402
+    APPLY,
+    CHANGES_TABLE,
+    DONT_APPLY,
+    MERGES,
+    UNDO_SOURCE,
+    resolve_execute,
+)
 from scripts.team_cleanup.pairs import as_chosen  # noqa: E402
 from scripts.team_cleanup.propose_week import FIELDS, LOGS, PROPOSED_STAGES, STATES, run_step  # noqa: E402
 from scripts.team_cleanup.review_page import fetch_teams  # noqa: E402
@@ -305,7 +312,7 @@ def declined_decision(sb, change: Change) -> list:
     """Don't apply (Keep separate for a pair) on the change, so it is not proposed again, planned against the
     active decisions: refused when a later decision is already recorded."""
     row = {**change.decision, "decision": DONT_APPLY, "note": UNDONE_NOTE}
-    row.update({"decided_at": utc_now_iso(), "source": f"undo:{change.card_id}"})
+    row.update({"decided_at": utc_now_iso(), "source": f"{UNDO_SOURCE}{change.card_id}"})
     return plan_decisions(sb, change.stage, [row])
 
 
@@ -357,7 +364,7 @@ def undo_card(sb, store: Path, run_id: str, card_id: str, declined: bool, outsid
             # The stamp comes last: a retry finds the change by its unstamped row, so a lost decline is recorded then.
             if declined:
                 record_decisions(sb, planned, retry)
-                lines.append(f"Recorded {declined_name(change.stage)} under undo:{card_id}.")
+                lines.append(f"Recorded {declined_name(change.stage)} under {UNDO_SOURCE}{card_id}.")
                 print(lines[-1])
             stamped, _ = stamp_reverted(sb, run_id, change.stage, {change.team})
             lines.append(f"Stamped reverted_at on {stamped} ledger row(s).")

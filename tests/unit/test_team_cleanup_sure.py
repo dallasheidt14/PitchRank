@@ -15,13 +15,14 @@ from scripts.assign_team_states import build_locality_index  # noqa: E402
 from scripts.team_cleanup import replay_sure, sure  # noqa: E402
 from scripts.team_cleanup.collect import DECISIONS_FILE  # noqa: E402
 from scripts.team_cleanup.decisions import DecisionsUnavailable  # noqa: E402
-from scripts.team_cleanup.propose_week import AGE_EVIDENCE, AGE_REVIEW_FILE, ROOT  # noqa: E402
+from scripts.team_cleanup.propose_week import AGE_EVIDENCE, AGE_GAMES, AGE_REVIEW_FILE, AGE_SAYS, ROOT  # noqa: E402
 from scripts.team_cleanup.run_store import MANIFEST_FILE, stage_dir, write_run  # noqa: E402
 from src.tournaments.storage._io import write_json  # noqa: E402
 from tests.unit.test_team_cleanup_pages import RUN, _Db, _decision, _merged, _reviewing, _states, _team  # noqa: E402
 
 # The age review's own tier names, as its write-plan step writes them into the plan.
 BAND, ULABEL, PLAYS_UP = "A_own_name_band", "U_own_name_ulabel_opponent_confirmed", "U_own_name_ulabel_plays_up"
+YEAR = "Y_single_year"
 SAME = lambda team: team  # noqa: E731 -- no team merged
 
 
@@ -230,6 +231,7 @@ def test_a_fill_gotsport_agrees_with_is_sure():
         (_age("three-groups", "u12", "u9", year_witness="A 4:0"), False),
         (_age("other-witness", "u17", "u9", band_opps_say="u10", gotsport_age="u12"), False),
         (_age("plays-up", "u13", "u12", tier=PLAYS_UP, gotsport_age="u12"), False),
+        (_age("lone-birth-year", "u13", "u12", tier=YEAR, gotsport_age="u12", div_says="u12"), False),
         (_age("blank", None, "u12"), False),
     ],
     ids=[
@@ -242,6 +244,7 @@ def test_a_fill_gotsport_agrees_with_is_sure():
         "u-label-three-groups",
         "u-label-witnesses-name-other-ages",
         "u-label-plays-up",
+        "lone-birth-year",
         "no-stored-age",
     ],
 )
@@ -266,7 +269,30 @@ def test_the_age_evidence_names_are_columns_the_age_review_writes():
         if isinstance(node, ast.Assign) and any(getattr(t, "id", None) == "fields" for t in node.targets)
     )
 
-    assert {"team_id", *AGE_EVIDENCE} <= set(fields)
+    assert {"team_id", "kind", "stored", *AGE_EVIDENCE, *(key for key, _ in AGE_SAYS), AGE_GAMES} <= set(fields)
+
+
+def test_the_age_tiers_the_pages_route_by_are_the_ones_the_age_review_writes():
+    """The pages and sure.py settle, offer whole and ask again by these names alone: a plays-up row written under
+    the confirmed U-label tier would reach the automatic lane, and a renamed birth-year tier would stop being
+    asked again and stop waiting for a game."""
+    script = ROOT / ".claude" / "skills" / "correcting-team-age-groups" / "scripts" / "review_age_labels.py"
+    write_plan = next(
+        node
+        for node in ast.walk(ast.parse(script.read_text(encoding="utf-8")))
+        if isinstance(node, ast.FunctionDef) and node.name == "write_plan"
+    )
+    maps = {
+        target.id: ast.literal_eval(node.value)
+        for node in ast.walk(write_plan)
+        if isinstance(node, ast.Assign)
+        for target in node.targets
+        if getattr(target, "id", None) in ("tier", "tier_by_cat")
+    }
+
+    assert maps["tier"] == {"band": BAND, "ulabel": ULABEL, "year": YEAR}
+    assert maps["tier_by_cat"] == {"ulabel_plays_up": PLAYS_UP}
+    assert (sure.BAND_TIER, sure.ULABEL_TIER, sure.YEAR_TIER) == (BAND, ULABEL, YEAR)
 
 
 @pytest.mark.parametrize(
@@ -402,8 +428,9 @@ def _replay_run(store, run_id, cards, decisions, *, stage="ages", review=None):
     if decisions is not None:
         write_json(folder / DECISIONS_FILE, [{**cards[c], "decision": d} for c, d in decisions.items()])
     if stage == "ages":
-        header = "team_id," + ",".join(AGE_EVIDENCE)
-        rows = [f"{tid}," + ",".join(e.get(k, "") for k in AGE_EVIDENCE) for tid, e in (review or {}).items()]
+        columns = ("kind", "key_age", "stored", *AGE_EVIDENCE)
+        header = "team_id," + ",".join(columns)
+        rows = [f"{tid}," + ",".join(e.get(k, "") for k in columns) for tid, e in (review or {}).items()]
         (folder / AGE_REVIEW_FILE).write_text("\n".join([header, *rows]) + "\n", encoding="utf-8")
     return folder
 
@@ -484,7 +511,7 @@ def test_each_decision_is_matched_to_its_own_team_not_to_another_card_with_the_s
 def test_a_run_proposed_before_proposals_carried_the_evidence_takes_it_from_its_review(tmp_path, monkeypatch, capsys):
     store = tmp_path / "store"
     older = {"c1": _change("old", "age_group", "u17", "u9", tier=ULABEL)}
-    _replay_run(store, RUN, older, {"c1": "apply"}, review={"old": {"band_opps_say": "u9", "year_witness": "A 3:0"}})
+    _replay_run(store, RUN, older, {"c1": "apply"}, review={"old": {"kind": "ulabel", "key_age": "u9", "stored": "u17", "band_opps_say": "u9", "year_witness": "A 3:0"}})
 
     code, out = _replay(monkeypatch, capsys, store, _Db())
 
