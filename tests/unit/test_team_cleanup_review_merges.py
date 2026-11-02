@@ -11,6 +11,7 @@ import pytest
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
+from scripts.find_cross_provider_duplicates import resolver  # noqa: E402
 from scripts.team_cleanup import pages  # noqa: E402
 from scripts.team_cleanup import review_lookup as lookup  # noqa: E402
 from scripts.team_cleanup import review_merges as rm  # noqa: E402
@@ -312,23 +313,43 @@ def test_a_slice_queued_before_earlier_holds_were_recorded_still_settles_its_mer
     assert [r["verdict"] for r in _final(review)] == ["merge"]
 
 
+def _earlier_reviews(runs, reviews):
+    for run, rows in reviews:
+        review = runs / run / "merges" / "review"
+        review.mkdir(parents=True)
+        (review / f"slice_01{rm.REVIEW_SUFFIX}").write_text(json.dumps(rows), encoding="utf-8")
+
+
 def test_the_pairs_held_before_are_an_earlier_run_s_holds_and_rejects_either_way_round(tmp_path):
     runs = tmp_path / "runs"
-    for run, rows in (
+    _earlier_reviews(runs, (
         ("2026-10-21-all", [{"merge_id": "a", "keep_id": "b", "verdict": "hold"},
                             {"merge_id": "c", "keep_id": "d", "verdict": "merge"}]),
         ("2026-10-28-all", [{"merge_id": "f", "keep_id": "e", "verdict": "hold"},
                             {"merge_id": "i", "keep_id": "j", "verdict": "reject"}]),
         ("2026-11-04-all", [{"merge_id": "g", "keep_id": "h", "verdict": "hold"}]),
-    ):  # fmt: skip
-        review = runs / run / "merges" / "review"
-        review.mkdir(parents=True)
-        (review / f"slice_01{rm.REVIEW_SUFFIX}").write_text(json.dumps(rows), encoding="utf-8")
+    ))  # fmt: skip
     (runs / "2026-10-28-all" / "states" / "review").mkdir(parents=True)
 
-    held = rm.held_before(runs / "2026-11-04-all" / "merges")
+    held = rm.held_before(runs / "2026-11-04-all" / "merges", resolver({"i": "i2", "i2": "i3"}))
 
-    assert held == {frozenset(("a", "b")), frozenset(("e", "f")), frozenset(("i", "j"))}
+    assert held == {frozenset(("a", "b")), frozenset(("e", "f")), frozenset(("i3", "j"))}
+
+
+def test_a_returning_pair_whose_row_was_merged_since_still_needs_two_reviewers(tmp_path, monkeypatch):
+    runs = tmp_path / "runs"
+    _earlier_reviews(runs, [("2026-10-28-all", [{"merge_id": "a", "keep_id": "b", "verdict": "reject"}])])
+    folder = runs / "2026-12-23-all" / "merges"
+    # The earlier review saw a, merged into c since; this week's scan saw x, merged into c after it.
+    pairs = [{"merge_id": "x", "keep_id": "b", "merge_name": "X", "keep_name": "B"}]
+    chosen = SimpleNamespace(canonical=resolver({"a": "c", "x": "c"}))
+    monkeypatch.setattr(rm, "review_pairs", lambda sb, folder, cap: (pairs, chosen))
+    monkeypatch.setattr(rm, "evidence_blocks", lambda sb, labelled, chosen: ["## P0001"])
+
+    assert rm.queue(None, folder, 1000) == 1
+
+    (row,) = json.loads((folder / rm.REVIEW_DIR / "slice_01.json").read_text(encoding="utf-8"))
+    assert row["held_before"] is True
 
 
 def test_the_queue_reviews_the_waiting_slices_and_keeps_each_one_s_failures(tmp_path):
@@ -348,7 +369,7 @@ def test_the_queue_reviews_the_waiting_slices_and_keeps_each_one_s_failures(tmp_
 
 def test_queueing_writes_slices_of_fifty_their_evidence_and_briefs_for_this_season(tmp_path, monkeypatch):
     pairs = [{"merge_id": f"m{n}", "keep_id": f"k{n}", "merge_name": "a", "keep_name": "b"} for n in range(51)]
-    monkeypatch.setattr(rm, "review_pairs", lambda sb, folder, cap: (pairs[:cap], None))
+    monkeypatch.setattr(rm, "review_pairs", lambda sb, folder, cap: (pairs[:cap], SimpleNamespace(canonical=str)))
     monkeypatch.setattr(rm, "evidence_blocks", lambda sb, labelled, chosen: [f"## {p['pair']}" for p in labelled])
     monkeypatch.setattr(rm, "SEASON_START", "2027-08-01")
 
@@ -454,7 +475,7 @@ def test_every_section_the_brief_sends_a_reviewer_to_is_in_the_skill():
 
 
 def test_a_review_of_no_pair_leaves_its_folder_so_the_autopilot_moves_on(tmp_path, monkeypatch):
-    monkeypatch.setattr(rm, "review_pairs", lambda sb, folder, cap: ([], None))
+    monkeypatch.setattr(rm, "review_pairs", lambda sb, folder, cap: ([], SimpleNamespace(canonical=str)))
     monkeypatch.setattr(rm, "evidence_blocks", lambda *_: [])
 
     assert rm.queue(None, tmp_path, 1000) == 0

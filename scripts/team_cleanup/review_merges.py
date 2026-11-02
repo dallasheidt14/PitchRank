@@ -367,26 +367,30 @@ def skill_version(review: Path) -> str | None:
     return path.read_text(encoding="utf-8").strip() if path.exists() else None
 
 
-def held_before(folder: Path) -> set[frozenset[str]]:
+def held_before(folder: Path, canonical) -> set[frozenset[str]]:
     """The pairs, each as its two rows either way round, that an earlier run's review of this stage held for the
     owner or found to be two teams (a pair that comes back only once that Keep separate lapses), read from the
-    run store."""
+    run store, each row followed to the one it was merged into since."""
     held = set()
     for path in folder.parent.parent.glob(f"*/{folder.name}/{REVIEW_DIR}/*{REVIEW_SUFFIX}"):
         if path.parents[2].name == folder.parent.name:
             continue
         rows = read_json(path)
-        held |= {frozenset((row["merge_id"], row["keep_id"])) for row in rows if row["verdict"] in (HOLD, REJECT)}
+        held |= {pair_of(row, canonical) for row in rows if row["verdict"] in (HOLD, REJECT)}
     return held
+
+
+def pair_of(row: dict, canonical) -> frozenset[str]:
+    return frozenset((canonical(row["merge_id"]), canonical(row["keep_id"])))
 
 
 def queue(sb, folder: Path, cap: int) -> int:
     """Write the review's slices and briefs; the number of pairs queued. A review of no pair still leaves the
     folder, so the autopilot moves on to the page, which then has no review to route by."""
     pairs, chosen = review_pairs(sb, folder, cap)
-    earlier = held_before(folder)
+    earlier = held_before(folder, chosen.canonical)
     labelled = [
-        {**p, "pair": f"P{n:04d}", "held_before": frozenset((p["merge_id"], p["keep_id"])) in earlier}
+        {**p, "pair": f"P{n:04d}", "held_before": pair_of(p, chosen.canonical) in earlier}
         for n, p in enumerate(pairs, 1)
     ]
     blocks = evidence_blocks(sb, labelled, chosen)
