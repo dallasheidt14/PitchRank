@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { CleanupReview } from '@/components/mission-control/cleanup/CleanupReview';
+import { SpotCheckReview } from '@/components/mission-control/cleanup/SpotCheckReview';
 
 // Admin gate is enforced by frontend/middleware.ts (ADMIN_ROUTES), and by requireAdmin on every route it calls.
 export const metadata = { title: 'Team cleanup', robots: { index: false, follow: false } };
@@ -17,6 +18,7 @@ export default function TeamCleanupPage() {
         </div>
         <h1 className="font-display text-3xl font-bold tracking-tight">Team cleanup review</h1>
         <CleanupReview />
+        <SpotCheckReview />
       </div>
     </div>
   );
