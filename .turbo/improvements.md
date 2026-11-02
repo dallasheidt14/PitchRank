@@ -2574,3 +2574,11 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: the queue-card settling in `scripts/team_cleanup/apply_stage.py` and the sweep's reading of rejected rows in `scripts/assign_team_states.py`
 - **Why**: A states reviewer's reject also rejects the change's `team_state_review_queue` row, and the sweep stops filing a change whose review row was rejected. The reviewer's Don't apply lapses at the eighth weekly run (`expire_decisions.py`), as the owner asked of reviewer refusals, but the rejected queue row keeps that queued change from ever being proposed again. Let the queue row's rejection lapse with the decision, or record the reviewer's rejection apart from the owner's.
 - **Noted**: 2026-11-02
+
+### Correct two queue-job docstrings that still say enqueue_scrape_request re-dates a row
+
+- **Type**: plan
+- **Category**: docs
+- **Where**: `teams_with_pending_user_request` in `scripts/enqueue_helpers.py`; `enqueue_team` in `scripts/enqueue_active_teams.py`
+- **Why**: Both docstrings say re-queuing a team rewrites its pending row's `game_date`. The current `enqueue_scrape_request_once` (`supabase/migrations/20261020020000_atomic_matchbalance_refresh.sql`) reuses an active row and only promotes its priority ("Never rewrite an adopted request's registration, date, or FIFO position"), raising 23505 on a conflicting date or registration. The helper's stated reason for protecting a user's pending priority-1 row no longer holds as written, and it reads only canonical ids, so it misses a row stored under a merged-away id. Fix both docstrings and decide whether the helper is still needed. Found by a consistency review on 2026-11-02.
+- **Noted**: 2026-11-02

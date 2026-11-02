@@ -661,7 +661,7 @@ two-line edit in `.github/workflows/claude-code-review.yml`.
 | `ci.yml` | Every PR + push to `main` | **The merge gate** — Python Lint; Python Tests aggregate (full Linux suite + MatchBalance Windows Export Tests); Frontend Lint, Format, Typecheck, Tests, and llms.txt Drift Check |
 | `scrape-games.yml` | Manual dispatch | Bulk GotSport scrape (bootstrap, recovery) |
 | `enqueue-viewed-teams.yml` | Daily 05:47 UTC | Queue teams a signed-in subscriber opened in the last 36h (priority 2) |
-| `enqueue-yesterday-games.yml` | Daily 07:13 UTC | Queue teams whose yesterday games have null scores (priority 2) |
+| `enqueue-yesterday-games.yml` | Daily 07:13 UTC | Queue one team per yesterday game with a null score (priority 2) |
 | `enqueue-active-teams.yml` | Daily 10:28 UTC | Queue teams active in the last 3 days (priority 2) |
 | `enqueue-discovery.yml` | Sun 14:41 UTC | Queue teams with no future games (priority 3) |
 | `enqueue-safety-net.yml` | Sun 16:56 UTC | Queue never-scraped / 90d+ teams (priority 4) |
@@ -864,7 +864,7 @@ workflow is now a manual escape hatch for bootstrap and recovery only.
 | `frontend/app/api/create-team` | Admin creates a team | 1 | The new team, GotSport only |
 | `frontend/app/api/watchlist/add` | User watchlists a team | 1 | That team — skipped when it has no `provider_id`, and capped at 100 distinct teams per user per hour so a scripted sweep cannot starve the shared priority-1 lane. Fires on the localStorage-watchlist migration too, which is the only signal for a team a user starred before subscribing |
 | `enqueue_viewed_teams.py` | Daily | 2 | Teams a signed-in subscriber opened in the last 36h, GotSport-servable only — admin views excluded, and skips any team already holding a pending user click |
-| `enqueue_yesterday_games.py` | Daily | 2 | Teams whose yesterday games have null scores, excluding any already scraped today |
+| `enqueue_yesterday_games.py` | Daily | 2 | One team per yesterday game with a null score — a greedy cover, not both sides — excluding any already scraped today or holding a conflicting queue row |
 | `enqueue_active_teams.py` | Daily | 2 | Teams that played in the last 3 days |
 | `enqueue_discovery_teams.py` | Weekly | 3 | Teams with no future games on record |
 | `discover_teams_from_opponents.py` | Weekly | 3 | Teams it newly creates while resolving "Unknown" opponents (run by `unknown-opponent-hygiene-weekly.yml`) |
@@ -876,8 +876,9 @@ That is every caller of `enqueue_scrape_request`. The two `new_team` paths and t
 watchlist route are easy to miss when tracing why a team entered the queue, because none
 of them lives in an `enqueue_*.py` script; `enqueue_stranded_merge_fixtures.py` is easy to miss for the
 opposite reason — it is shaped like the scheduled enqueue jobs but only an operator runs
-it. The RPC keeps at most one pending row per team and promotes
-priority via `LEAST`. Consumers:
+it. The RPC keeps at most one active (pending or processing) row per team: it reuses a
+compatible one, promoting its priority via `LEAST`, and refuses a conflicting registration
+or date. Consumers:
 
 **A non-GotSport team is not unservable.** `process_missing_games` looks up an approved
 GotSport row in `team_alias_map` when the canonical provider has no scraper, and scrapes

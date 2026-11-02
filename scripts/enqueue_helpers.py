@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
 """
-Shared helpers for the enqueue scripts that read behavioural tables directly.
+Shared helpers for the enqueue scripts that select teams from tables directly.
 
-The RPC-driven selectors (enqueue_active_teams, enqueue_yesterday_games,
-enqueue_discovery_teams, enqueue_safety_net) get paging, merge resolution and
-the provider fields handed to them by their find_* RPC. A script that selects
-from a table instead has to do all of it itself, so it lives here rather than in
-any one caller.
+A find_* RPC hands its caller paging, merge resolution and the provider fields;
+a script that reads a table itself has to do all of that, so it lives here rather
+than in any one caller.
 """
 
 PAGE_SIZE = 1000
@@ -28,7 +26,8 @@ def _paged(query_builder):
     boundary. That is the whole guarantee: three of the four tables read here key
     on gen_random_uuid(), so a row inserted mid-read still lands at a random
     position and can displace another. A total order fixes the boundary, not
-    concurrency.
+    concurrency. Offsets also shift when rows leave the filter during the read (a
+    NULL score being filled, say); such a read needs keyset paging (id > last id).
     """
     rows, offset = [], 0
     while True:
@@ -64,13 +63,39 @@ def resolve_merges(supabase, team_ids):
     return {t: canonical.get(t, t) for t in team_ids}
 
 
-def load_team_rows(supabase, team_ids):
-    """Fetch the provider fields enqueue_scrape_request needs, keyed by master id."""
+def expand_to_aliases(supabase, canonical):
+    """Extend a raw-id -> canonical map to cover every deprecated alias of each target.
+
+    A merge leaves rows filed under the pre-merge id, while a caller usually starts
+    from the survivor or from whichever single id it happened to see. Resolving only
+    the ids it started with misses the other predecessors, so look the merge map up a
+    second time by canonical_team_id. Every target maps to itself.
+    """
+    full = dict(canonical)
+    targets = sorted(set(canonical.values()))
+    for batch in _chunks(targets):
+        rows = (
+            supabase.table("team_merge_map")
+            .select("deprecated_team_id,canonical_team_id")
+            .in_("canonical_team_id", batch)
+            .execute()
+            .data
+            or []
+        )
+        for r in rows:
+            full[r["deprecated_team_id"]] = r["canonical_team_id"]
+    for target in targets:
+        full.setdefault(target, target)
+    return full
+
+
+def load_team_rows(supabase, team_ids, columns=TEAM_ROW_COLUMNS):
+    """Fetch team rows keyed by master id; by default the provider fields enqueue_scrape_request needs."""
     teams = {}
     for batch in _chunks(sorted(team_ids)):
         rows = (
             supabase.table("teams")
-            .select(TEAM_ROW_COLUMNS)
+            .select(columns)
             .in_("team_id_master", batch)
             .execute()
             .data

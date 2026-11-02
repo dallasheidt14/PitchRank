@@ -70,7 +70,9 @@ other producer looks at NULL scores.
 RPCs through `team_merge_map`, and is applied — verified 2026-08-31, both function bodies
 confirmed to read `team_merge_map`. The paragraph above is therefore history, not current
 behaviour. `scripts/enqueue_stranded_merge_fixtures.py` remains only for fixtures stranded
-before that date.
+before that date. The yesterday-games job no longer calls its RPC; it resolves merges in Python
+(`resolve_merges` in `scripts/enqueue_helpers.py`), while `find_recently_active_teams` still
+does it in SQL.
 
 What a merge still leaves behind is the *played* fixture recorded twice; see
 `scripts/exclude_merge_duplicate_games.py` and Step 7 of the skill.

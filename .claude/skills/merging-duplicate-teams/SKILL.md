@@ -877,7 +877,10 @@ side satisfied after a merge.
 `supabase/migrations/20260822000000_resolve_merges_in_scrape_enqueue_rpcs.sql` closes that at the
 source and **is applied** — verified 2026-08-31 against `schema_migrations`, with both
 `find_yesterday_null_score_teams` and `find_recently_active_teams` confirmed to read
-`team_merge_map`. So a merge no longer strands anything and this step does not run.
+`team_merge_map`. So a merge no longer strands anything and this step does not run. The
+yesterday-games job has since stopped calling its RPC and resolves merges in Python
+(`resolve_merges` in `scripts/enqueue_helpers.py`); `find_recently_active_teams` still does it
+in SQL.
 
 `scripts/enqueue_stranded_merge_fixtures.py` survives as a repair tool for fixtures stranded
 before that date; it takes `--since`, `--merged-by` and `--include-past`. Re-confirm the
