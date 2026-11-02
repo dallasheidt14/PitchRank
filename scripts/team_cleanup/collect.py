@@ -34,8 +34,9 @@ changing. It refuses a build the table saved later whose files are missing, a ch
 earlier build this one replaced, a card of the build with no row, a row under the build's page run
 that it never made, a row in the other lane, and a decision and its time not set together; with every
 row there, no decision at all is a page left undecided.
-Those reads are its only database access. Collecting again, while the run is in review and the stage is
-not applied, replaces all three files; while an apply holds the run on this machine, it refuses.
+Those reads are its only database access. Collecting again, while the run is in review, replaces all three
+files until the lane begins applying; once the lane's apply.json exists, or while an apply holds the run on
+this machine, it refuses.
 
 With --lane auto it collects the stage's automatic lane instead, into auto/: every change the
 manifest's `auto` lists, decided Apply with no choice to read, under the same three files. A pair the
@@ -91,6 +92,7 @@ from scripts.team_cleanup.propose_week import (  # noqa: E402
 )
 from scripts.team_cleanup.review_page import load_choices  # noqa: E402
 from scripts.team_cleanup.run_store import (  # noqa: E402
+    APPLY_PROGRESS_FILE,
     AUTO,
     COLLECTED_MARKER,
     LANE_CARDS,
@@ -301,6 +303,12 @@ def auto_choice(stage: str, proposal: dict) -> dict:
 
 def _collect(store: Path, run_id: str, stage: str, decisions: Path | None, lane: str, sb) -> dict:
     folder = stage_due(store, read_run(store, run_id), stage, ("collect", "apply"), lane)
+    if (folder / APPLY_PROGRESS_FILE).exists():
+        raise ValueError(
+            f"{lane_name(stage, lane)} began applying (see {folder / APPLY_PROGRESS_FILE}) and resumes from the "
+            "choices collected then, so they stay as they are; to start over, undo what it applied "
+            "(apply_stage.py --revert), then remove that file and collect again"
+        )
     check_unchanged(inputs_dir(folder))
     manifest = read_json(inputs_dir(folder) / MANIFEST_FILE)
     cards, decided = manifest[LANE_CARDS[lane]], None
