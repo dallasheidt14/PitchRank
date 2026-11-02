@@ -42,7 +42,10 @@ changes per stage). Each hourly tick, at :17, takes the open run as far as it ca
    **Mark review done**. At the deadline the tick marks it done for them: what they decided applies,
    and undecided cards come back next week.
 4. **Once done:** it collects each stage's choices from the database (`collect.py --from-db`),
-   applies them inside the window, closes the run (`end_run.py --done`) and emails a summary.
+   applies them inside the window, closes the run (`end_run.py --done`) and emails a summary. The
+   summary lists up to ten of the automatic merges the reviewers cleared and the run still holds
+   (`spot_check.py`, filed once in `team_cleanup_spot_checks`), which the owner marks right or wrong
+   under **Spot-check** on the same page.
 
 A step that must wait (exit 75: outside the window, another writer running, another holder of the
 run, for states the other lane's batch under four minutes old, or for clubs, states or merges a review
@@ -140,8 +143,8 @@ card saying the reviewers cleared it and why the page held it;
 **reject** to the automatic lane as Keep separate, which both scans honour from then on (the cards
 table holds it as Apply, the card's `keep_separate` saying what is applied); **hold** to a card giving
 the reviewers' reason. A pair past the review cap waits for next week's. The automatic lane takes at most
-`page_caps.merges.auto` (300; owner, 2026-10-31: double it only after four straight weeks with no bad merge in the
-spot-checks and nothing merge-caused in the post-Monday check). A settled pair past that cap is a card
+`page_caps.merges.auto` (300; owner, 2026-10-31: double it only after four straight weeks whose spot-checked
+merges were all marked right, the count the page's **Spot-check** shows). A settled pair past that cap is a card
 carrying the reviewers' verdict (`capped`) and swap, and **Merge all N the reviewers cleared** decides every
 undecided cleared one in one click, each the way the reviewers turned it. On a card,
 **Merge them** applies it; **Keep separate** records the decision; **Not sure** brings it back next
@@ -342,8 +345,8 @@ under `evidence` in `<stage>/page.html`'s cards and in `team_cleanup_cards.card`
 owner, never a state to propose: opponents agreeing with a stored state prove nothing inside a
 mislabelled cluster, and club-mates are what proposed a Tier B correction. After Done the page takes
 no new choice, so a card that fails here can only be taken back after the apply, by undoing that one
-change or its whole lane, the owner's call. Collecting again is safe only before `<stage>/apply.json` (or `<stage>/auto/apply.json`)
-exists.
+change or its whole lane, the owner's call. `collect.py` refuses to collect a lane again once its
+`<stage>/apply.json` (or `<stage>/auto/apply.json`) exists.
 
 ### Step 5: In the apply window, dry-run each lane's apply and hand it over
 
@@ -478,7 +481,7 @@ python scripts/team_cleanup/undo_card.py --run 2026-11-04-all --card <card id> -
 
 ## Not in code
 
-A second lap (re-proposing what a stage's writes uncovered), the post-Monday check of how the week's
-rankings moved the changed teams, and a reviewer for the ages proposals do not exist in code; clubs,
-states and merges have them (`review_clubs.py`, `review_states.py` and `review_merges.py`, under
-**Clubs**, **States** and **Merges**). Do not improvise them; tell the owner when a request needs one.
+A second lap (re-proposing what a stage's writes uncovered) and a reviewer for the ages proposals do
+not exist in code; clubs, states and merges have them (`review_clubs.py`, `review_states.py` and
+`review_merges.py`, under **Clubs**, **States** and **Merges**). Do not improvise them; tell the owner
+when a request needs one.

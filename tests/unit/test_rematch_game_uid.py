@@ -1,7 +1,7 @@
 """A tournament rematch keeps its own game_uid through the master-id regeneration.
 
 Bracket play puts the same two teams on the pitch twice in a day (a pool game and
-then a final or consolation). Each such provider gives every match its own
+then a final or consolation). Each such provider gives each of those meetings its own
 ``schedule_id``, and both the in-batch dedup key and the first ``game_uid`` are
 suffixed with it. The pipeline then regenerates the uid from the two master ids
 and has to re-append that suffix, or both games collapse onto one uid and the
@@ -53,8 +53,16 @@ def test_the_suffix_is_found_where_the_matcher_actually_leaves_it(provider):
     assert from_raw == from_result
 
 
-def test_a_provider_without_rematches_is_unsuffixed():
-    assert _regenerate("gotsport", _matched("whatever")) == "gotsport:2026-09-06:master-a:master-b"
+def test_a_provider_outside_the_suffix_set_is_unsuffixed():
+    assert _regenerate("tgs", _matched("whatever")) == "tgs:2026-09-06:master-a:master-b"
+
+
+def test_a_gotsport_repeat_day_game_keeps_its_match_id():
+    assert _regenerate("gotsport", _matched("27873104")) == "gotsport:2026-09-06:master-a:master-b:27873104"
+
+
+def test_a_gotsport_game_without_a_schedule_id_keeps_its_uid():
+    assert _regenerate("gotsport", _matched("")) == "gotsport:2026-09-06:master-a:master-b"
 
 
 def test_the_matcher_still_leaves_schedule_id_only_in_raw_data():

@@ -1,15 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import { makeCleanupCardRow, makePairCardRow } from '@/test/fixtures';
+import { makeCleanupCardRow, makePairCard, makePairCardRow } from '@/test/fixtures';
 import {
   alikeSets,
   appliedChange,
   changeText,
+  cleanWeeks,
+  cleanupWeek,
   evidenceLines,
   groupCards,
   newestBuild,
   pairEvidenceLines,
   stageReviews,
   tally,
+  type SpotCheckRun,
+  type SpotVerdict,
 } from './cleanup';
 
 describe('evidenceLines', () => {
@@ -145,5 +149,68 @@ describe('changeText', () => {
     const row = makePairCardRow({ lane: 'auto', decision: 'apply' });
     expect(changeText(row)).toBe('Phoenix Rising B13 Premier merged into Phoenix Rising 2013 Boys');
     expect(changeText({ ...row, swap: true })).toBe('Phoenix Rising 2013 Boys merged into Phoenix Rising B13 Premier');
+  });
+});
+
+describe('cleanupWeek', () => {
+  it('names a run by the Wednesday on or before its date', () => {
+    expect(['2026-10-28-all', '2026-10-31-ca', '2026-11-03-all'].map(cleanupWeek)).toEqual([
+      '2026-10-28',
+      '2026-10-28',
+      '2026-10-28',
+    ]);
+    expect(cleanupWeek('2026-11-04-all')).toBe('2026-11-04');
+  });
+});
+
+describe('cleanWeeks', () => {
+  function run(runId: string, ...verdicts: Array<SpotVerdict | null>): SpotCheckRun {
+    return {
+      runId,
+      checks: verdicts.map((verdict, i) => ({
+        cardId: `${runId}-${i}`,
+        position: i + 1,
+        card: makePairCard(),
+        swap: false,
+        verdict,
+        note: null,
+      })),
+    };
+  }
+
+  it('counts the weeks in a row, newest first, whose every merge was judged right', () => {
+    expect(
+      cleanWeeks([
+        run('2026-11-04-all', 'right', 'right'),
+        run('2026-10-28-all', 'right'),
+        run('2026-10-21-all', 'wrong'),
+        run('2026-10-14-all', 'right'),
+      ])
+    ).toBe(2);
+  });
+
+  it("counts a week's runs as one week, and one merge judged wrong spoils the whole week", () => {
+    expect(
+      cleanWeeks([run('2026-10-31-ca', 'right'), run('2026-10-29-all', 'right'), run('2026-10-28-all', 'right')])
+    ).toBe(1);
+    expect(cleanWeeks([run('2026-10-29-all', 'right'), run('2026-10-28-all', 'wrong')])).toBe(0);
+  });
+
+  it('stops at a week with no sample', () => {
+    expect(cleanWeeks([run('2026-11-04-all', 'right'), run('2026-10-21-all', 'right')])).toBe(1);
+  });
+
+  it('passes over the newest week while it is still being judged, but not an older one', () => {
+    expect(
+      cleanWeeks([run('2026-11-04-all', 'right', null), run('2026-10-28-all', 'right'), run('2026-10-21-all', 'right')])
+    ).toBe(2);
+    expect(
+      cleanWeeks([run('2026-11-04-all', 'right'), run('2026-10-28-all', null), run('2026-10-21-all', 'right')])
+    ).toBe(1);
+  });
+
+  it('counts none when the newest week holds a merge judged wrong, judged in full or not', () => {
+    expect(cleanWeeks([run('2026-11-04-all', 'wrong', null), run('2026-10-28-all', 'right')])).toBe(0);
+    expect(cleanWeeks([])).toBe(0);
   });
 });

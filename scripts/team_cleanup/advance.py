@@ -19,7 +19,8 @@ and writes nothing to the run or the database; --execute does it.
                 once the review is done: collect each stage's choices and apply them
                 once a lane has applied: undo it when the owner asked to on the page, and one card's change
                 the owner asked to undo (undo_card.py)
-                once every stage is finished and no undo waits: close the run and email the owner a summary
+                once every stage is finished and no undo waits: close the run and email the owner a summary,
+                with up to ten of the automatic merges for the owner to mark right or wrong (spot_check.py)
 
 An apply waits for the apply window, whose end the review deadline must fall before, so the choices it
 marks done apply that week. A step that exits 75 (another writer at work, the run held by another
@@ -99,6 +100,7 @@ from scripts.team_cleanup.run_store import (  # noqa: E402
     stage_progress,
     store_dir,
 )
+from scripts.team_cleanup.spot_check import sample_section  # noqa: E402
 from src.tournaments.storage._file_lock import FileLockError, _acquire_file_lock  # noqa: E402
 from src.tournaments.storage._io import read_json, write_json  # noqa: E402
 from src.utils.resend_email import send_email  # noqa: E402
@@ -332,8 +334,7 @@ class Tick:
         if not unfinished(self.store, run) and not undo_waits:
             close = [END_RUN, "--run", run_id, "--done", "--execute", "--store", str(self.store)]
             if self.run(run_id, Action(f"close run {run_id}", close)) == 0:
-                summary = summary_email(self.store, run_id, stages, self.undone(run_id))
-                self.email_once(run_id, state, "closed", *summary)
+                self.email_summary(run_id, stages, state)
                 return
         self.settle_blockage(run_id, state)
 
@@ -581,8 +582,21 @@ class Tick:
         run_id = runs[0]["run_id"]
         state = read_state(self.store, run_id)
         if state:
-            summary = summary_email(self.store, run_id, open_stages(runs[0]), self.undone(run_id))
-            self.email_once(run_id, state, "closed", *summary)
+            self.email_summary(run_id, open_stages(runs[0]), state)
+
+    def email_summary(self, run_id: str, stages: list[str], state: dict) -> None:
+        """Email the run's summary once, its spot-check of the automatic merges picked first; when the database
+        cannot give the spot-check, the summary waits for a later tick."""
+        if (state.get("emailed") or {}).get("closed"):
+            return
+        try:
+            sample = sample_section(self.sb, self.store, run_id, self.execute)
+        except (APIError, httpx.HTTPError) as exc:
+            self.failed = True
+            print(refused(f"Picking run {run_id}'s spot-check", exc, STATUS_COMMAND))
+            return
+        summary = summary_email(self.store, run_id, stages, self.undone(run_id), sample)
+        self.email_once(run_id, state, "closed", *summary)
 
 
 def _failure(request: dict) -> str:
@@ -619,7 +633,9 @@ def _arizona_time(moment: datetime) -> str:
     return f"{local:%A} {local.hour % 12 or 12}:{local:%M} {'AM' if local.hour < 12 else 'PM'}"
 
 
-def summary_email(store: Path, run_id: str, stages: list[str], undone: list[str] = ()) -> tuple[str, str]:
+def summary_email(
+    store: Path, run_id: str, stages: list[str], undone: list[str] = (), sample: str = ""
+) -> tuple[str, str]:
     rows = []
     for stage in stages:
         owner = _collected(stage_dir(store, run_id, stage) / COLLECTED_MARKER)
@@ -634,7 +650,7 @@ def summary_email(store: Path, run_id: str, stages: list[str], undone: list[str]
     body = f"<p>This week's team cleanup ({html.escape(run_id)}) is finished.</p><ul>{''.join(rows)}</ul>"
     if undone:
         body += "<p>Undo requests:</p><ul>" + "".join(f"<li>{html.escape(line)}</li>" for line in undone) + "</ul>"
-    return f"PitchRank cleanup {run_id} is finished", body
+    return f"PitchRank cleanup {run_id} is finished", body + sample
 
 
 def _collected(marker: Path) -> dict:

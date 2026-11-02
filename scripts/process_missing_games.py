@@ -259,6 +259,7 @@ class MissingGamesProcessor:
                             "venue": game.venue or "",
                             "source_url": game.meta.get("source_url", "") if game.meta else "",
                             "scraped_at": datetime.now().isoformat(),
+                            "schedule_id": game.meta.get("schedule_id", "") if game.meta else "",
                         }
                         filtered_games.append(game_dict)
                         logger.info(f"Including game on {original_game_date} (within window, parsed as {game_dt})")

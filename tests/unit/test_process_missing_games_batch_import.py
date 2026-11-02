@@ -12,6 +12,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 from unittest.mock import Mock
 
 from scripts.process_missing_games import MissingGamesProcessor
+from src.base import GameData
 
 
 def _request(idx):
@@ -156,3 +157,33 @@ def test_failed_import_moves_the_row_out_of_successful_stats():
 
     assert stats["successful"] == 0
     assert stats["failed"] == 1
+
+
+def _scraped(goals_for, goals_against, meta):
+    return GameData(
+        provider_id="gotsport",
+        team_id="647111",
+        opponent_id="250383",
+        team_name="",
+        opponent_name="G2014/15 Elite",
+        game_date="2026-10-11",
+        home_away="H",
+        goals_for=goals_for,
+        goals_against=goals_against,
+        result=None,
+        competition="",
+        venue="",
+        meta=meta,
+    )
+
+
+def test_the_import_row_keeps_a_repeat_day_schedule_id():
+    """This drainer builds its own row instead of calling _game_data_to_dict, so it must copy the id too."""
+    processor = MissingGamesProcessor(Mock(), dry_run=False)
+    processor.scrapers["gotsport"].scrape_team_games = Mock(
+        return_value=[_scraped(1, 0, {"schedule_id": "27873104"}), _scraped(2, 0, {})]
+    )
+
+    rows = processor.scrape_games_for_date("gotsport", "647111", "2026-10-11")
+
+    assert [(r["goals_for"], r["schedule_id"]) for r in rows] == [(1, "27873104"), (2, "")]
