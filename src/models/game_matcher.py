@@ -468,9 +468,17 @@ class MatchResult:
 
 # Tournament providers whose bracket play puts the same two teams on the pitch
 # twice in a day (pool game plus final or consolation). Each gives every match a
-# unique schedule_id; without it in the key, the rematch collapses into the first
-# game and its result is dropped.
+# unique schedule_id. Membership also turns off fixture fills and score corrections
+# for their imports, makes their stored rows block other providers' fills and
+# corrections that day, and exempts them from exclude_unscored_fixture_twins.py.
+# A provider that only needs schedule_id in the key and uid belongs in
+# SCHEDULE_ID_SUFFIX_PROVIDERS alone.
 REMATCH_PROVIDERS = frozenset({"playmetrics_tournament", "athletes2events", "tourneycentral"})
+
+# Providers whose schedule_id, when present, goes into the import pipeline's dedup key and game_uid. GotSport is
+# not a rematch provider: its team scraper sets schedule_id (the GotSport match id) only on a day the
+# same two teams met more than once, so every other GotSport game keeps the uid it already has.
+SCHEDULE_ID_SUFFIX_PROVIDERS = REMATCH_PROVIDERS | {"gotsport"}
 
 
 # Namespace for dry-run team ids. Fixed so a simulated team keeps one identity

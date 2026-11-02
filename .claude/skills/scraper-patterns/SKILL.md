@@ -308,6 +308,15 @@ games.
   - `200` + empty list → ambiguous (brand-new team, or stale id). Treat as unresolved.
   - `404` → `{id}` is a registration ID, not an API team ID. Deterministic.
 - Resolver lives at `src/scrapers/gotsport.py:_resolve_api_team_id_from_event_page` and routes through the module-level `_zenrows_get` helper. It sends `js_render=false` since this is a JSON endpoint, but also `premium_proxy=true` (`gotsport.py:1033-1038`), so it bills at the premium-proxy tier — see the ZenRows section above for what that costs.
+- Each match's `id` is GotSport's own per-game id, the only field that tells two same-day meetings
+  of one pair apart. The same match carries the same `id` in both teams' lists (verified 2026-10-31
+  on a pool game and final between two teams), so either team's scrape gives a meeting the same uid.
+  The team scraper sends it as `schedule_id` only on repeat-day games
+  (`GotSportScraper._repeat_day_match_ids`), so every other GotSport game keeps the uid it is already
+  stored under.
+- `GotSportScraper.scrape_team_games` fetches every page before it applies its 30-match cap and its
+  `since_date` cutoff. A decision that needs the team's whole schedule belongs before the cap,
+  over the full `matches` list.
 
 ### HTML-CAPTCHA failure vs API-resolution failure
 
@@ -390,6 +399,16 @@ events return a province (`ON`, `BC`), not a US state.
 
 `scrape_tgs_event.get_event_details` already fetches this payload on every event and keeps
 only `name`, so the other fields cost no extra request.
+
+### TGS `schedule_id` is a division, not a game
+
+`scrape_tgs_event.py` writes the flight's division id as `schedule_id` on every TGS row
+(`:597`), and the CSV loaders keep it. For the rematch providers, and for GotSport repeat days,
+the same field names one game. So a rule keyed on "this row has a `schedule_id`" catches every
+TGS row. Gate any such rule on the provider set where the field names a game
+(`SCHEDULE_ID_SUFFIX_PROVIDERS` in `src/models/game_matcher.py`). Left ungated, it switches off
+every TGS score correction. A TGS test fixture must carry a `schedule_id` the way real rows do, or
+the tests cannot see that.
 
 ### Flights, games, and undated games
 
@@ -1269,6 +1288,15 @@ def safe_int(value) -> Optional[int]:
     except (ValueError, TypeError):
         return None
 ```
+
+### Decide cross-row facts in the scraper, not the importer
+
+`import_games_enhanced.py` streams a `.jsonl` file (and a large CSV) in fixed-size chunks
+(`stream_games_jsonl`, 1,000 lines by default) and runs `EnhancedETLPipeline.import_games` once per
+chunk. A cross-row decision in `_validate_and_dedup` therefore sees only its own chunk, and two rows
+that belong together can land in different chunks. When a rule needs every row for a team or a pair,
+such as "this pair met twice today", decide it in the scraper, where the team's whole list is in
+hand, and write the answer onto each row.
 
 ## Output Format
 

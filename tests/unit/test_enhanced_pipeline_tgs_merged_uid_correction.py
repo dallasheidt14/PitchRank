@@ -26,6 +26,8 @@ HOME_PROVIDER_TEAM = "471854"
 AWAY_PROVIDER_TEAM = "483752"
 CURRENT_UID = f"tgs:{DATE}:{AFC}:{GREMIO}"
 MERGED_UID = f"tgs:{DATE}:{OLD_AFC}:{OLD_GREMIO}"
+# TGS rows carry their division id as schedule_id
+DIVISION_ID = "98765"
 
 
 def _stored(home, away, home_score, away_score, uid=MERGED_UID, provider_id=TGS_PROVIDER_ID, excluded=False):
@@ -37,7 +39,12 @@ def _stored(home, away, home_score, away_score, uid=MERGED_UID, provider_id=TGS_
 
 
 def _tgs_incoming(home_score, away_score, result="W", home=GREMIO, away=AFC, swapped_provider_ids=False):
-    game = {**_incoming(home, away, home_score, away_score, result=result), "game_uid": CURRENT_UID, "provider": "tgs"}
+    game = {
+        **_incoming(home, away, home_score, away_score, result=result),
+        "game_uid": CURRENT_UID,
+        "provider": "tgs",
+        "schedule_id": DIVISION_ID,
+    }
     if swapped_provider_ids:
         game["home_provider_id"], game["away_provider_id"] = AWAY_PROVIDER_TEAM, HOME_PROVIDER_TEAM
     return game
