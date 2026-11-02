@@ -1080,6 +1080,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Noted**: 2026-09-15
 - **Update (2026-09-23)**: Recurred on #1208 and was relayed to the user as "Codex did not review this PR" while the review had completed 5m42s after open with a 👍 and no findings. Two things this narrows for whoever fixes it: `CODEX_LOGIN` is *not* the cause (it carries the `[bot]` suffix REST returns and matches correctly), and the summary comment is created within ~10s of the PR opening but only reaches `Completed` minutes later, so presence of the comment is not the signal -- parse its status cell. The workaround note has now failed to prevent this twice, which is the argument for fixing the script rather than documenting it again.
 - **Update (2026-10-14)**: Recurred on #1294 (2026-10-13), as before.
+- **Update (2026-10-31)**: Recurred on #1381: the owner was told Codex skipped it while its summary comment was there, and the report had to be corrected.
 
 ### A game import exits 0 when its inserts fail
 
@@ -2554,6 +2555,15 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: Each driver keeps its own copy because the row type differs (`a2e_team_id`, `tc_team_id`, `team_code`, `provider_team_id`) and the provider code and wording are module constants. The copies already drift: the Demosphere driver imports the Tourney Central spreadsheet guard and age-reason wording but keeps its own `shared_links` and `pending_reviews`, and the Athletes2Events `shared_links` names Athletes2Events in a reason shown for other providers. A shared module keyed on a `provider_team_id` attribute and a provider-code parameter would remove five copies of each.
 - **Noted**: 2026-10-30
 - **Trigger**: A fix to any of these functions that has to land in more than one driver.
+
+### A club-name decline on some of a club's teams does not stop the same change on its other teams
+
+- **ID**: IMP-390
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `load_declined` in `scripts/team_cleanup/pages.py` (keyed per team, field and proposed value) and the clubs automatic lane
+- **Why**: A decline is recorded per team, so the weekly automatic lane still applies the identical club re-spelling to the club's teams the owner was not shown, and Monday's majority-spelling step in `update-missing-club-and-state.yml` flips them back, so the change recurs every week. Seen 2026-10-29: a re-spelling declined on 117 of a club's teams was applied to its other 50 on 10-20 and 10-28. Treat a decline of a club's old-to-new spelling as covering every team of that club, or hold the rest as cards.
 
 ### A lapsed states Don't apply never brings a queued state change back
 
