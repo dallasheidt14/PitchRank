@@ -2,19 +2,28 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NextResponse } from 'next/server';
 import { serviceClientMock } from '@/test/supabase-mock';
 
-const { mockRequirePremium, mockResolveDefaultWatchlist, mockCheckRateLimit, mockCreateServiceSupabase } = vi.hoisted(
-  () => ({
-    mockRequirePremium: vi.fn(),
-    mockResolveDefaultWatchlist: vi.fn(),
-    mockCheckRateLimit: vi.fn(),
-    mockCreateServiceSupabase: vi.fn(),
-  })
-);
+const {
+  mockRequirePremium,
+  mockResolveDefaultWatchlist,
+  mockCheckRateLimit,
+  mockCreateServiceSupabase,
+  mockPromoteWaitingScrapeRequest,
+} = vi.hoisted(() => ({
+  mockRequirePremium: vi.fn(),
+  mockResolveDefaultWatchlist: vi.fn(),
+  mockCheckRateLimit: vi.fn(),
+  mockCreateServiceSupabase: vi.fn(),
+  mockPromoteWaitingScrapeRequest: vi.fn(),
+}));
 
 vi.mock('@/lib/api/requirePremium', () => ({ requirePremium: mockRequirePremium }));
 vi.mock('@/lib/api/watchlist', () => ({ resolveDefaultWatchlist: mockResolveDefaultWatchlist }));
 vi.mock('@/lib/api/rateLimit', () => ({ checkRateLimit: mockCheckRateLimit }));
 vi.mock('@/lib/supabase/service', () => ({ createServiceSupabase: mockCreateServiceSupabase }));
+vi.mock('@/lib/api/scrapeQueue', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/api/scrapeQueue')>()),
+  promoteWaitingScrapeRequest: mockPromoteWaitingScrapeRequest,
+}));
 
 import { POST } from '../route';
 
@@ -57,6 +66,7 @@ beforeEach(() => {
   mockResolveDefaultWatchlist.mockResolvedValue({ watchlist: { id: 'wl-1' }, error: null });
   mockCheckRateLimit.mockReturnValue(true);
   mockCreateServiceSupabase.mockReturnValue(svc.client);
+  mockPromoteWaitingScrapeRequest.mockResolvedValue({ requestId: 'waiting', error: null });
 });
 
 afterEach(() => {
@@ -116,6 +126,20 @@ describe('POST /api/watchlist/add', () => {
 
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ success: true, teamIdMaster: TEAM_ID });
+    expect(mockPromoteWaitingScrapeRequest).not.toHaveBeenCalled();
+  });
+
+  it("moves the team's waiting request to the front when the queue refuses the enqueue", async () => {
+    queueSuccessfulAdd();
+    svc.queueRpc({
+      data: null,
+      error: { code: '23505', message: 'An active scrape uses a different source or date; request unchanged' },
+    });
+
+    const res = await POST(makeRequest({ teamIdMaster: TEAM_ID }));
+
+    expect(res.status).toBe(200);
+    expect(mockPromoteWaitingScrapeRequest).toHaveBeenCalledWith(svc.client, TEAM_ID);
   });
 
   it('still adds the team when the enqueue rate limit is hit, and skips only the scrape', async () => {

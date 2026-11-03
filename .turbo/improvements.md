@@ -1291,6 +1291,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: Counts verified by grep on 2026-09-17, and the guard-helper spread is wider than it looks -- 7 files define `_executable` while only 3 define `_tree`, so the copies have already drifted. CLAUDE.md requires a test double to refuse what production refuses; that rule now has 8 homes, and a fix to how the double pages or rejects a call has to reach every one, with any copy left behind still passing for the wrong reason. The same holds for the guards' comment-stripping: correcting it in one leaves the others matching commented-out SQL. Pre-existing duplication that the English-team exclusion work extended by one copy of each rather than introduced.
 - **Noted**: 2026-09-17
 - **Update (2026-10-12)**: `tests/unit/test_server_side_team_search_migration.py` adds another `_executable` and newest-function-by-name helper.
+- **Update (2026-11-02)**: The enqueue jobs' `FakeSupabase` double now has four near-copies (`test_enqueue_yesterday_games.py`, `test_enqueue_viewed_teams.py`, `test_enqueue_helpers.py`, `test_enqueue_user_interest_teams.py`), and they have drifted: in `test_enqueue_user_interest_teams.py`, `rpc_calls` records every attempt and a failure raises postgrest's `APIError`; in the yesterday-games and viewed-teams copies it records only successes and a failure raises `RuntimeError`.
 
 ### Catch English-league teams that arrive after the exclusion list was built
 
@@ -2602,4 +2603,20 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Category**: reliability
 - **Where**: `EnhancedETLPipeline._log_build_metrics` in `src/etl/enhanced_pipeline.py`
 - **Why**: It inserts or updates a `build_logs` row with no `dry_run` check, so `import_games_enhanced.py --dry-run` writes to the database while printing "Dry run completed - no changes were made". Pre-existing on main; a write-guarded smoke test caught the POST on both main and this branch. The row records `dry_run` in its own `parameters`, so logging dry runs may be deliberate: decide whether a dry run should leave a build log, and gate the write if not, since CLAUDE.md asks every writer to honour `dry_run`.
+- **Noted**: 2026-11-02
+
+### Count a "find missing game" click that only moved an existing request forward
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `collect_user_requested_teams` in `scripts/enqueue_user_interest_teams.py`; `promoteWaitingScrapeRequest` in `frontend/lib/api/scrapeQueue.ts`
+- **Why**: The weekly user-interest job finds clicks by `request_type = 'missing_game'` on `scrape_requests`. When a click lands on a team's existing waiting request, both the queue RPC's reuse path and the website's promote path only raise its priority and keep the existing row's `request_type`, so the click leaves no `missing_game` row (`collect_user_requested_teams`'s docstring already names this as a known gap). Record a click separately from the queue row it lands on.
+- **Noted**: 2026-11-02
+
+### Install the pinned Supabase client in the scheduled queue workflows
+
+- **Type**: direct
+- **Category**: reliability
+- **Where**: the `pip install supabase python-dotenv` steps in `.github/workflows/enqueue-active-teams.yml`, `enqueue-discovery.yml`, `enqueue-safety-net.yml`, `enqueue-viewed-teams.yml`, `enqueue-yesterday-games.yml` and `process-missing-games.yml`
+- **Why**: Those six steps install the newest `supabase` (verified by grep 2026-11-02), while CI installs `requirements.lock` (`supabase==2.18.1`), so the queue jobs run a different client from the one their tests pass against — a newer postgrest major (2.33.0 resolved on 2026-11-02, reported by review). An exception class or response shape that changes between majors would pass CI and break only in the scheduled run. Install the lock file, or pin the same versions, in those steps.
 - **Noted**: 2026-11-02

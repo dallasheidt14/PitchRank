@@ -500,6 +500,7 @@ def test_shared_api_utility_files_match_the_directory() -> None:
     )
     assert documented, "no lib/api/*.ts references found in either CLAUDE.md"
     assert documented <= on_disk, f"documented but absent from lib/api/: {sorted(documented - on_disk)}"
+    assert on_disk <= documented, f"in lib/api/ but not documented: {sorted(on_disk - documented)}"
 
 
 # --------------------------------------------------------------------------- #

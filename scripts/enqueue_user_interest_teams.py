@@ -2,6 +2,8 @@
 """
 User-interest enqueue: re-enqueue every team a real user has shown interest in,
 at priority 1, via the enqueue_scrape_request RPC (idempotent UPSERT-with-LEAST).
+When the RPC refuses a team because its waiting request uses another registration
+or date, that request is moved to priority 1 instead.
 
 Three interest signals, unioned:
   - watchlist_items      a premium user saved the team
@@ -35,6 +37,7 @@ except ImportError:
     pass
 
 from dotenv import load_dotenv  # noqa: E402
+from postgrest.exceptions import APIError  # noqa: E402
 
 from supabase import create_client  # noqa: E402
 
@@ -46,6 +49,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from scripts.enqueue_helpers import (  # noqa: E402
     USER_CLICK_REQUEST_TYPE,
     _paged,
+    expand_to_aliases,
     load_team_rows,
     resolve_merges,
     teams_with_pending_user_request,
@@ -64,6 +68,10 @@ REQUEST_TYPE = "retention_hygiene"
 # A watchlist entry is standing interest; a single click is a one-off. Age the
 # click out after a full season-and-then-some so the batch stops growing forever.
 CLICK_WINDOW_DAYS = 365
+
+# enqueue_scrape_request raises unique_violation when the team's active request
+# uses another GotSport registration or date, and leaves that request unchanged.
+SCRAPE_REQUEST_REFUSED = "23505"
 
 
 def collect_watchlisted_teams(supabase):
@@ -85,8 +93,9 @@ def collect_user_requested_teams(supabase, window_days=CLICK_WINDOW_DAYS):
     ever grows.
 
     Known gap: a click on a team that already holds a lower-priority pending row
-    takes the RPC's UPDATE branch, which promotes priority but leaves
-    request_type as the automatic producer wrote it. That click is invisible
+    either takes the RPC's UPDATE branch or is refused and promoted directly; both
+    raise priority but leave request_type as the automatic producer wrote it. That
+    click is invisible
     here. The team is still scraped at click time, and is still collected if it
     is watchlisted or has a report-card lead; it just does not join the weekly
     set on the strength of the click alone. Closing it needs the click recorded
@@ -124,6 +133,37 @@ def enqueue_team(supabase, team):
             "p_priority": PRIORITY_USER_INTEREST,
         },
     ).execute()
+
+
+def promote_waiting_request(supabase, team_id):
+    """Move the team's waiting request to priority 1, returning the rows moved.
+
+    Takes a canonical team id and looks under its whole merge group, as
+    enqueue_scrape_request does, because a request can be filed under an id from
+    before a merge. Moves nothing when the active request is already being scraped.
+    """
+    team_ids = sorted(expand_to_aliases(supabase, {team_id: team_id}))
+    return (
+        supabase.table("scrape_requests")
+        .update({"priority": PRIORITY_USER_INTEREST})
+        .in_("team_id_master", team_ids)
+        .eq("status", "pending")
+        .execute()
+        .data
+        or []
+    )
+
+
+def enqueue_or_promote(supabase, team):
+    try:
+        enqueue_team(supabase, team)
+        return "enqueued"
+    except APIError as e:
+        if e.code != SCRAPE_REQUEST_REFUSED:
+            raise
+    if promote_waiting_request(supabase, team["team_id_master"]):
+        return "promoted"
+    return "already_running"
 
 
 def main():
@@ -197,16 +237,19 @@ def main():
         logger.info(f"...({len(targets)} total)")
         return
 
-    success, fail = 0, 0
+    outcomes = {"enqueued": 0, "promoted": 0, "already_running": 0, "failed": 0}
     for t in targets:
         try:
-            enqueue_team(supabase, t)
-            success += 1
+            outcomes[enqueue_or_promote(supabase, t)] += 1
         except Exception as e:
             logger.warning(f"Failed to enqueue {t['team_id_master']}: {e}")
-            fail += 1
+            outcomes["failed"] += 1
 
-    logger.info(f"Enqueued {success} teams at priority {PRIORITY_USER_INTEREST}, {fail} failed")
+    logger.info(
+        f"Enqueued {outcomes['enqueued']} teams at priority {PRIORITY_USER_INTEREST}, "
+        f"moved {outcomes['promoted']} teams' waiting requests to the front, "
+        f"{outcomes['already_running']} teams already being scraped, {outcomes['failed']} failed"
+    )
 
 
 if __name__ == "__main__":

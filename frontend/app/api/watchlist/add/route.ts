@@ -1,5 +1,6 @@
 import { checkRateLimit } from '@/lib/api/rateLimit';
 import { requirePremium } from '@/lib/api/requirePremium';
+import { promoteWaitingScrapeRequest, SCRAPE_REQUEST_REFUSED } from '@/lib/api/scrapeQueue';
 import { resolveDefaultWatchlist } from '@/lib/api/watchlist';
 import { createServiceSupabase } from '@/lib/supabase/service';
 import { isValidUuid } from '@/lib/validation';
@@ -127,9 +128,11 @@ export async function POST(req: Request) {
  * starred while they were free and therefore have no view row at all.
  *
  * Priority 1, matching the other user-driven producers (missing_game, new_team).
- * The RPC is an idempotent UPSERT keyed on one pending row per team and promotes
- * priority via LEAST, so re-adding a team costs nothing. A team already holding a
- * pending priority-1 row is left alone — see the comment on the lookup below.
+ * The RPC keeps one active row per team and promotes priority via LEAST, so
+ * re-adding a team costs nothing; when it refuses because that row uses another
+ * registration or date, the team's waiting row is moved to the front instead. A
+ * team already holding a pending priority-1 row is left alone — see the comment on
+ * the lookup below.
  *
  * Never fatal: the team is already on the watchlist by the time this runs, and a
  * missed enqueue is picked up by the weekly interest pass.
@@ -170,9 +173,9 @@ async function enqueueWatchlistScrape(
     // Priority 1 is the proxy for "a user chose this date", exactly as
     // scripts/enqueue_helpers.teams_with_pending_user_request reasons: the UPDATE
     // branch does not touch request_type, so a row's type cannot be trusted to say
-    // who wrote it. The other priority-1 producers all anchor on today, so skipping
-    // them costs nothing beyond a re-anchor the team does not need — it is already
-    // at the front of the queue.
+    // who wrote it. No other priority-1 row carries a date a user chose (the other
+    // producers anchor on today, and a promoted row keeps its automatic date), so
+    // skipping them costs nothing — the team is already at the front of the queue.
     const { data: pending, error: pendingError } = await supabase
       .from('scrape_requests')
       .select('id')
@@ -189,7 +192,7 @@ async function enqueueWatchlistScrape(
     }
     if (pending && pending.length > 0) return;
 
-    const { error } = await supabase.rpc('enqueue_scrape_request', {
+    let { error } = await supabase.rpc('enqueue_scrape_request', {
       p_team_id_master: team.team_id_master,
       p_team_name: team.team_name,
       p_provider_id: team.provider_id,
@@ -200,6 +203,9 @@ async function enqueueWatchlistScrape(
       p_request_type: 'watchlist_add',
       p_priority: 1,
     });
+    if (error?.code === SCRAPE_REQUEST_REFUSED) {
+      ({ error } = await promoteWaitingScrapeRequest(supabase, team.team_id_master));
+    }
     if (error) {
       console.error('[Watchlist Add] Enqueue failed (non-fatal):', error);
     }

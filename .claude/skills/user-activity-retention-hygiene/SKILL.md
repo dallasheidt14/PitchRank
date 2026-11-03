@@ -61,6 +61,12 @@ off the date the user asked about. Pending rows from the automatic producers are
 promoted to priority 1 as normal — they anchor on today anyway, so promoting
 them costs nothing and moves an interest team ahead of the lower tiers.
 
+When the queue refuses a team because its waiting request uses another
+registration or date, the job moves that request to priority 1 itself. Either
+way the reused or moved request keeps its own `request_type`, so the audit's
+"Previous batch" counts only teams that got a new row; the job's summary line
+counts the moved ones.
+
 `process_missing_games` drains 40 teams every 15 minutes — 160 an hour — so
 divide the batch size by that for the drain time. It holds the front of the
 queue while it drains, and live user clicks land at the same priority behind it.
