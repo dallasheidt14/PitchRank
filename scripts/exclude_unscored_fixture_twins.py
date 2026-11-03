@@ -3,7 +3,9 @@
 
 A fixture saved before both teams were linked keeps a game_uid built from provider team ids. When
 the result arrived fully matched, its master-id game_uid missed the fixture, and the importer added
-a second row, so the team page lists the game twice: once blank, once with the score.
+a second row, so the team page lists the game twice: once blank, once with the score. A fixture
+saved under a team since merged away was missed the same way, because games keep the ids they were
+saved under; teams are therefore paired through team_merge_map, as the team page shows them.
 
 A past-dated (date, team pair) group qualifies when it holds at least one unscored row and no more
 unscored rows than scored ones; each unscored row there is a stale fixture of a game that has a
@@ -13,7 +15,7 @@ rematch provider, which can hold two same-day games for one pair, is never a twi
 
 Games are immutable, so this sets is_excluded, which the team page and the ranking loader skip.
 Excluding a row fires trg_propagate_game_exclusion, which also excludes every other game on that
-date with the same pair and aligned scores. An unscored row only aligns with other unscored rows,
+date with the same saved pair and aligned scores. An unscored row only aligns with other unscored rows,
 so a scored result is never caught; the script still checks and refuses --execute on a collision.
 
 Usage:
@@ -38,6 +40,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 load_dotenv(Path(__file__).resolve().parent.parent / ".env.local", override=True)
 
+from scripts.exclude_merge_duplicate_games import load_merge_map  # noqa: E402
 from scripts.exclude_none_opponent_games import cascade_collisions  # noqa: E402
 from src.models.game_matcher import REMATCH_PROVIDERS  # noqa: E402
 from supabase import create_client  # noqa: E402
@@ -83,7 +86,7 @@ def fetch_unscored(sb, since: str | None, until: str) -> list[dict]:
 
 
 def fetch_scored_for(sb, game_date: str, team_ids: list[str]) -> list[dict]:
-    """Every team of a candidate pair is in team_ids, so a result is found whichever side is home."""
+    """Every id a candidate pair's teams are saved under is in team_ids, so a result is found whichever side is home."""
     rows: dict[str, dict] = {}
     for i in range(0, len(team_ids), ID_BATCH):
         batch = team_ids[i : i + ID_BATCH]
@@ -97,11 +100,14 @@ def fetch_scored_for(sb, game_date: str, team_ids: list[str]) -> list[dict]:
     return _linked(list(rows.values()))
 
 
-def pair_key(game: dict) -> tuple:
-    return (game["game_date"], *sorted((game["home_team_master_id"], game["away_team_master_id"])))
+def pair_key(game: dict, merge_map: dict[str, str]) -> tuple:
+    teams = (game["home_team_master_id"], game["away_team_master_id"])
+    return (game["game_date"], *sorted(merge_map.get(t, t) for t in teams))
 
 
-def select_twins(unscored: list[dict], scored: list[dict], rematch_provider_ids: set[str]) -> list[dict]:
+def select_twins(
+    unscored: list[dict], scored: list[dict], rematch_provider_ids: set[str], merge_map: dict[str, str]
+) -> list[dict]:
     """Unscored rows whose (date, pair) holds at least as many scored rows.
 
     Rematch providers can put one pair on the pitch twice in a day, so their rows are neither twins
@@ -110,12 +116,14 @@ def select_twins(unscored: list[dict], scored: list[dict], rematch_provider_ids:
     """
     unscored_ids = {g["id"] for g in unscored}
     results = Counter(
-        pair_key(g) for g in scored if g["id"] not in unscored_ids and g["provider_id"] not in rematch_provider_ids
+        pair_key(g, merge_map)
+        for g in scored
+        if g["id"] not in unscored_ids and g["provider_id"] not in rematch_provider_ids
     )
     fixtures: dict[tuple, list[dict]] = defaultdict(list)
     for g in unscored:
         if g["provider_id"] not in rematch_provider_ids:
-            fixtures[pair_key(g)].append(g)
+            fixtures[pair_key(g, merge_map)].append(g)
     return [g for key, rows in fixtures.items() if len(rows) <= results[key] for g in rows]
 
 
@@ -131,27 +139,35 @@ def main() -> int:
     rematch_provider_ids = {
         p["id"] for p in sb.table("providers").select("id").in_("code", sorted(REMATCH_PROVIDERS)).execute().data or []
     }
+    merge_map = load_merge_map(sb)
+    absorbed: dict[str, set[str]] = defaultdict(set)
+    for deprecated, canonical in merge_map.items():
+        absorbed[canonical].add(deprecated)
     unscored = fetch_unscored(sb, args.since, date.today().isoformat())
     teams_by_date: dict[str, set[str]] = defaultdict(set)
     for g in unscored:
-        teams_by_date[g["game_date"]].update((g["home_team_master_id"], g["away_team_master_id"]))
+        for team in (g["home_team_master_id"], g["away_team_master_id"]):
+            canonical = merge_map.get(team, team)
+            teams_by_date[g["game_date"]].update((canonical, *absorbed[canonical]))
     scored: list[dict] = []
     for game_date, teams in sorted(teams_by_date.items()):
         scored.extend(fetch_scored_for(sb, game_date, sorted(teams)))
 
-    to_exclude = select_twins(unscored, scored, rematch_provider_ids)
+    to_exclude = select_twins(unscored, scored, rematch_provider_ids, merge_map)
     collisions = cascade_collisions(to_exclude, unscored + scored)
+    under_merged = sum(1 for g in to_exclude if {g["home_team_master_id"], g["away_team_master_id"]} & merge_map.keys())
 
     print(f"unscored past games scanned: {len(unscored):,}")
     print(f"unscored twins of a scored result: {len(to_exclude):,}")
+    print(f"   saved under a team since merged away: {under_merged:,}")
     for month, n in sorted(Counter(g["game_date"][:7] for g in to_exclude).items()):
         print(f"   {month}: {n:,}")
     print(f"cascade collisions: {len(collisions):,}")
     for g in collisions:
         print(f"   {g['game_date']}  {g['id']}  {g['home_score']}-{g['away_score']}")
-    results = {pair_key(g): g for g in scored}
+    results = {pair_key(g, merge_map): g for g in scored}
     for g in to_exclude[:5]:
-        r = results[pair_key(g)]
+        r = results[pair_key(g, merge_map)]
         print(f"   {g['game_date']}  exclude {g['id'][:8]}  "
               f"{g['home_team_master_id'][:8]} vs {g['away_team_master_id'][:8]}  "
               f"(kept {r['id'][:8]} {r['home_score']}-{r['away_score']})")

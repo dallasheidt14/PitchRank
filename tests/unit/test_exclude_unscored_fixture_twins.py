@@ -42,21 +42,21 @@ def test_a_fixture_beside_its_result_is_selected_whichever_side_is_home():
     fixture = _game("fx")
     result = _game("res", home=AWAY, away=HOME, home_score=3, away_score=0)
 
-    assert [g["id"] for g in select_twins([fixture], [result], set())] == ["fx"]
+    assert [g["id"] for g in select_twins([fixture], [result], set(), {})] == ["fx"]
 
 
 def test_more_fixtures_than_results_is_left_alone():
     fixtures = [_game("fx1"), _game("fx2")]
     result = _game("res", home_score=3, away_score=0)
 
-    assert select_twins(fixtures, [result], set()) == []
+    assert select_twins(fixtures, [result], set(), {}) == []
 
 
 def test_a_fixture_without_a_result_for_its_own_pair_is_left_alone():
     fixture = _game("fx")
     other_pair = _game("res", away=THIRD, home_score=3, away_score=0)
 
-    assert select_twins([fixture], [other_pair], set()) == []
+    assert select_twins([fixture], [other_pair], set(), {}) == []
 
 
 class _Query:
@@ -210,7 +210,7 @@ def test_a_fixture_scored_between_the_two_reads_is_not_its_own_twin():
     fixture = _game("fx")
     same_row_now_scored = _game("fx", home_score=2, away_score=0)
 
-    assert select_twins([fixture], [same_row_now_scored], set()) == []
+    assert select_twins([fixture], [same_row_now_scored], set(), {}) == []
 
 
 def test_a_rematch_provider_fixture_is_left_alone(monkeypatch, tmp_path):
@@ -261,5 +261,89 @@ def test_a_rematch_provider_result_is_not_evidence_for_a_gotsport_fixture(monkey
     db = _DB([_game("fx"), _game("res", home_score=3, away_score=0, provider="prov-pm-tournament")])
 
     assert _run_main(monkeypatch, db, ["--execute", "--out", str(tmp_path / "log.json")]) == 0
+
+    assert _excluded(db) == []
+
+
+# A merge leaves games saved under the merged-away team's id
+
+OLD_HOME = "0d000000-0000-0000-0000-000000000000"
+OLD_AWAY = "0a000000-0000-0000-0000-000000000000"
+
+
+def _merged_db(games):
+    db = _DB(games)
+    db.rows["team_merge_map"] = [{"deprecated_team_id": OLD_HOME, "canonical_team_id": HOME}]
+    return db
+
+
+def test_a_fixture_under_a_merged_away_team_is_hidden_beside_its_result_under_the_survivor(
+    monkeypatch, tmp_path, capsys
+):
+    # The result's home side is the survivor, so it is read only once the survivor's id is looked up
+    db = _merged_db([_game("fx", home=OLD_HOME), _game("res", home=HOME, away=AWAY, home_score=3, away_score=0)])
+    log = tmp_path / "log.json"
+
+    assert _run_main(monkeypatch, db, ["--execute", "--out", str(log)]) == 0
+
+    assert _excluded(db) == ["fx"]
+    assert json.loads(log.read_text(encoding="utf-8"))["game_ids"] == ["fx"]
+    assert "saved under a team since merged away: 1" in capsys.readouterr().out
+
+
+def test_a_fixture_under_the_survivor_is_hidden_beside_its_result_under_a_merged_away_team(
+    monkeypatch, tmp_path, capsys
+):
+    # The result's home side is the merged-away team, so it is read only once the survivor's
+    # merged-away ids are looked up
+    db = _merged_db([_game("fx"), _game("res", home=OLD_HOME, away=AWAY, home_score=3, away_score=0)])
+
+    assert _run_main(monkeypatch, db, ["--execute", "--out", str(tmp_path / "log.json")]) == 0
+
+    assert _excluded(db) == ["fx"]
+    assert "saved under a team since merged away: 0" in capsys.readouterr().out
+
+
+def test_a_fixture_with_both_teams_merged_away_counts_once(monkeypatch, tmp_path, capsys):
+    db = _merged_db(
+        [_game("fx", home=OLD_HOME, away=OLD_AWAY), _game("res", home=HOME, away=AWAY, home_score=3, away_score=0)]
+    )
+    db.rows["team_merge_map"].append({"deprecated_team_id": OLD_AWAY, "canonical_team_id": AWAY})
+
+    assert _run_main(monkeypatch, db, ["--execute", "--out", str(tmp_path / "log.json")]) == 0
+
+    assert _excluded(db) == ["fx"]
+    assert "saved under a team since merged away: 1" in capsys.readouterr().out
+
+
+def test_a_fixture_under_a_merged_away_team_without_a_result_is_left_alone(monkeypatch, tmp_path):
+    db = _merged_db([_game("fx", home=OLD_HOME), _game("res", home=HOME, away=THIRD, home_score=3, away_score=0)])
+
+    assert _run_main(monkeypatch, db, ["--execute", "--out", str(tmp_path / "log.json")]) == 0
+
+    assert _excluded(db) == []
+
+
+def test_a_rematch_provider_result_under_the_survivor_is_not_evidence(monkeypatch, tmp_path):
+    db = _merged_db(
+        [_game("fx", home=OLD_HOME), _game("res", home=HOME, home_score=3, away_score=0, provider="prov-pm-tournament")]
+    )
+
+    assert _run_main(monkeypatch, db, ["--execute", "--out", str(tmp_path / "log.json")]) == 0
+
+    assert _excluded(db) == []
+
+
+def test_a_fixture_whose_exclusion_would_cascade_to_another_blank_is_refused(monkeypatch, tmp_path):
+    # The trigger matches raw ids, so the rematch provider's blank under the same saved pair would go too
+    db = _merged_db(
+        [
+            _game("fx", home=OLD_HOME),
+            _game("fx-tournament", home=OLD_HOME, provider="prov-pm-tournament"),
+            _game("res", home=HOME, home_score=3, away_score=0),
+        ]
+    )
+
+    assert _run_main(monkeypatch, db, ["--execute", "--out", str(tmp_path / "log.json")]) == 1
 
     assert _excluded(db) == []

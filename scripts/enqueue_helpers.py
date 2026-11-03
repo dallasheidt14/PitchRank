@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Shared helpers for the enqueue scripts that select teams from tables directly.
+Shared helpers for code that selects teams from tables directly.
 
 A find_* RPC hands its caller paging, merge resolution and the provider fields;
-a script that reads a table itself has to do all of that, so it lives here rather
+code that reads a table itself has to do all of that, so it lives here rather
 than in any one caller.
 """
 

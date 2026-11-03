@@ -5,6 +5,7 @@ result arrives with a master-id game_uid, so only the (date, team pair) lookup c
 """
 
 import asyncio
+import logging
 from types import SimpleNamespace
 
 import pytest
@@ -16,6 +17,18 @@ GREMIO = "b54514dc-0454-4c7f-932b-7aa644a69efc"
 AFC = "5b6b37ce-031b-4e77-83eb-9a5b4e667c2f"
 FIXTURE_UID = f"gotsport:{DATE}:471854:483752"
 RESULT_UID = f"gotsport:{DATE}:{AFC}:{GREMIO}"
+
+
+@pytest.fixture(autouse=True)
+def _no_swallowed_dedup_error(caplog):
+    """The master-id stage logs and swallows its own exceptions, so a crash there reads as an insert.
+
+    Read the call phase's records: pytest resets ``caplog.text`` for teardown, where it is always empty.
+    """
+    caplog.set_level(logging.WARNING, logger="src.etl.enhanced_pipeline")
+    yield
+    swallowed = [r for r in caplog.get_records("call") if "Error in master-level dedup check" in r.getMessage()]
+    assert swallowed == []
 
 
 GOTSPORT_ID = "prov-gotsport"
@@ -78,7 +91,9 @@ class _Query:
         self._db.executed.append((self._table, "select"))
         if self._table == "providers" and self._db.providers_error:
             raise self._db.providers_error
-        source = self._db.games if self._table == "games" else PROVIDERS
+        if self._table == "team_merge_map" and self._db.merges_error:
+            raise self._db.merges_error
+        source = {"games": self._db.games, "providers": PROVIDERS, "team_merge_map": self._db.merges}[self._table]
         rows = [r for r in source if all(p(r) for p in self._predicates)]
         return SimpleNamespace(data=[{c: r[c] for c in self._columns} for r in rows])
 
@@ -108,9 +123,14 @@ class _DB:
         self.executed = []
         self.rpc_calls = []
         self.providers_error = None
+        self.merges = []
+        self.merges_error = None
+
+    def merge(self, deprecated, canonical):
+        self.merges.append({"deprecated_team_id": deprecated, "canonical_team_id": canonical})
 
     def table(self, name):
-        assert name in ("games", "providers"), name
+        assert name in ("games", "providers", "team_merge_map"), name
         return _Query(self, name)
 
     def rpc(self, name, params):
@@ -392,3 +412,177 @@ def test_fills_are_withheld_when_the_rematch_providers_cannot_be_loaded(monkeypa
 
     assert [(g["home_score"], g["away_score"]) for g in inserted] == [(0, 3)]
     assert db.rpc_calls == []
+
+
+# A merge leaves games saved under the merged-away team's id
+
+OLD_GREMIO = "11111111-1111-4111-8111-111111111111"
+OLD_AFC = "22222222-2222-4222-8222-222222222222"
+MERGED_FIXTURE_UID = f"gotsport:{DATE}:{OLD_GREMIO}:{AFC}"
+
+
+def _merged_db(rows):
+    db = _DB(rows)
+    db.merge(OLD_GREMIO, GREMIO)
+    db.merge(OLD_AFC, AFC)
+    return db
+
+
+def test_a_result_fills_its_fixture_saved_under_a_merged_away_team(monkeypatch):
+    fixture = _row(MERGED_FIXTURE_UID, OLD_GREMIO, AFC)
+    db = _merged_db([fixture])
+
+    inserted = _import(monkeypatch, db, _incoming(GREMIO, AFC, 0, 3))
+
+    assert inserted == []
+    assert [[u["game_uid"] for u in call] for call in db.rpc_calls] == [[MERGED_FIXTURE_UID]]
+    assert (fixture["home_score"], fixture["away_score"]) == (0, 3)
+
+
+def test_a_fixture_with_both_teams_merged_away_is_found_and_filled(monkeypatch):
+    fixture = _row(FIXTURE_UID, OLD_GREMIO, OLD_AFC)
+    db = _merged_db([fixture])
+
+    inserted = _import(monkeypatch, db, _incoming(GREMIO, AFC, 0, 3))
+
+    assert inserted == []
+    assert (fixture["home_score"], fixture["away_score"]) == (0, 3)
+
+
+def test_a_merged_away_fixture_stored_the_other_way_round_gets_the_scores_on_its_own_sides(monkeypatch):
+    # AFC sorts first: the stored home side matches the sorted pair only once OLD_AFC is resolved
+    fixture = _row(FIXTURE_UID, OLD_AFC, GREMIO)
+    db = _merged_db([fixture])
+
+    _import(monkeypatch, db, _incoming(GREMIO, AFC, 0, 3))
+
+    assert (fixture["home_score"], fixture["away_score"]) == (3, 0)
+
+
+def test_a_result_carrying_a_merged_away_id_fills_the_fixture_under_the_surviving_team(monkeypatch):
+    fixture = _row(FIXTURE_UID, GREMIO, AFC)
+    db = _merged_db([fixture])
+
+    inserted = _import(monkeypatch, db, _incoming(OLD_GREMIO, AFC, 0, 3))
+
+    assert inserted == []
+    assert (fixture["home_score"], fixture["away_score"]) == (0, 3)
+
+
+def test_a_result_naming_both_teams_by_merged_away_ids_finds_the_fixture_under_the_survivors(monkeypatch):
+    fixture = _row(FIXTURE_UID, GREMIO, AFC)
+    db = _merged_db([fixture])
+
+    inserted = _import(monkeypatch, db, _incoming(OLD_GREMIO, OLD_AFC, 0, 3))
+
+    assert inserted == []
+    assert (fixture["home_score"], fixture["away_score"]) == (0, 3)
+
+
+def test_the_fixture_under_the_surviving_teams_is_filled_beside_a_copy_under_a_merged_away_one(monkeypatch):
+    fixture = _row(FIXTURE_UID, GREMIO, AFC)
+    copy = _row(MERGED_FIXTURE_UID, OLD_GREMIO, AFC)
+    db = _merged_db([fixture, copy])
+
+    inserted = _import(monkeypatch, db, _incoming(GREMIO, AFC, 0, 3))
+
+    assert inserted == []
+    assert (fixture["home_score"], fixture["away_score"]) == (0, 3)
+    assert (copy["home_score"], copy["away_score"]) == (None, None)
+
+
+def test_the_fixture_under_the_surviving_teams_is_filled_whichever_order_its_copies_come_in(monkeypatch):
+    copies = [_row(MERGED_FIXTURE_UID, OLD_GREMIO, AFC), _row(f"gotsport:{DATE}:{GREMIO}:{OLD_AFC}", GREMIO, OLD_AFC)]
+    fixture = _row(FIXTURE_UID, GREMIO, AFC)
+    db = _merged_db([*copies, fixture])
+
+    inserted = _import(monkeypatch, db, _incoming(GREMIO, AFC, 0, 3))
+
+    assert inserted == []
+    assert (fixture["home_score"], fixture["away_score"]) == (0, 3)
+    assert [(c["home_score"], c["away_score"]) for c in copies] == [(None, None), (None, None)]
+
+
+def test_a_fixture_stored_the_other_way_round_beside_a_copy_is_still_the_one_filled(monkeypatch):
+    fixture = _row(FIXTURE_UID, AFC, GREMIO)
+    db = _merged_db([fixture, _row(MERGED_FIXTURE_UID, OLD_GREMIO, AFC)])
+
+    inserted = _import(monkeypatch, db, _incoming(GREMIO, AFC, 0, 3))
+
+    assert inserted == []
+    assert (fixture["home_score"], fixture["away_score"]) == (3, 0)
+
+
+def test_two_fixtures_under_the_surviving_teams_beside_a_copy_are_not_guessed_between(monkeypatch):
+    first = _row(FIXTURE_UID, GREMIO, AFC)
+    second = _row("gotsport:x:second", GREMIO, AFC)
+    db = _merged_db([first, second, _row(MERGED_FIXTURE_UID, OLD_GREMIO, AFC)])
+
+    inserted = _import(monkeypatch, db, _incoming(GREMIO, AFC, 0, 3))
+
+    assert [(g["home_score"], g["away_score"]) for g in inserted] == [(0, 3)]
+    assert db.rpc_calls == []
+
+
+def test_a_result_naming_a_merged_away_team_fills_the_fixture_saved_under_those_ids(monkeypatch):
+    fixture = _row(FIXTURE_UID, GREMIO, AFC)
+    saved_alike = _row(MERGED_FIXTURE_UID, OLD_GREMIO, AFC)
+    db = _merged_db([fixture, saved_alike])
+
+    inserted = _import(monkeypatch, db, _incoming(OLD_GREMIO, AFC, 0, 3))
+
+    assert inserted == []
+    assert (saved_alike["home_score"], saved_alike["away_score"]) == (0, 3)
+    assert (fixture["home_score"], fixture["away_score"]) == (None, None)
+
+
+def test_copies_under_merged_away_ids_alone_are_not_guessed_between(monkeypatch):
+    first = _row(MERGED_FIXTURE_UID, OLD_GREMIO, AFC)
+    second = _row(f"gotsport:{DATE}:{GREMIO}:{OLD_AFC}", GREMIO, OLD_AFC)
+    db = _merged_db([first, second])
+
+    inserted = _import(monkeypatch, db, _incoming(GREMIO, AFC, 0, 3))
+
+    assert [(g["home_score"], g["away_score"]) for g in inserted] == [(0, 3)]
+    assert db.rpc_calls == []
+
+
+@pytest.mark.parametrize(
+    ("stored", "incoming"),
+    [
+        pytest.param(_row(MERGED_FIXTURE_UID, OLD_GREMIO, AFC), _incoming(GREMIO, AFC, None, None), id="unscored"),
+        pytest.param(_row(MERGED_FIXTURE_UID, OLD_GREMIO, AFC, 0, 3), _incoming(AFC, GREMIO, 3, 0), id="scored"),
+    ],
+)
+def test_an_unchanged_game_scraped_again_after_a_merge_is_not_stored_twice(monkeypatch, stored, incoming):
+    db = _merged_db([stored])
+
+    inserted, pipeline = _import_pipeline(monkeypatch, db, [incoming])
+
+    assert inserted == []
+    assert db.rpc_calls == []
+    assert pipeline.metrics.duplicates_found == 1
+
+
+def test_a_scored_game_under_a_merged_away_team_blocks_the_fill(monkeypatch):
+    fixture = _row(FIXTURE_UID, GREMIO, AFC)
+    played = _row(MERGED_FIXTURE_UID, OLD_GREMIO, AFC, 1, 1)
+    db = _merged_db([fixture, played])
+
+    inserted = _import(monkeypatch, db, _incoming(GREMIO, AFC, 0, 3))
+
+    assert [(g["home_score"], g["away_score"]) for g in inserted] == [(0, 3)]
+    assert db.rpc_calls == []
+    assert (fixture["home_score"], fixture["away_score"]) == (None, None)
+
+
+def test_unreadable_merges_fall_back_to_the_saved_ids(monkeypatch, caplog):
+    merged = _row(MERGED_FIXTURE_UID, OLD_GREMIO, AFC)
+    db = _merged_db([merged])
+    db.merges_error = RuntimeError("team_merge_map unavailable")
+
+    inserted = _import(monkeypatch, db, _incoming(GREMIO, AFC, 0, 3))
+
+    assert [(g["home_score"], g["away_score"]) for g in inserted] == [(0, 3)]
+    assert db.rpc_calls == []
+    assert "Could not load team merges" in caplog.text

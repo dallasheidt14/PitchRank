@@ -203,6 +203,15 @@ into it: `resolveMergedTeamIds` (`frontend/lib/team-merge.ts`) on the website, `
 then `expand_to_aliases` (`scripts/enqueue_helpers.py`) in Python. Filtering on the raw id alone
 missed this twice on 2026-11-02, with 43 pending rows sitting under merged-away ids.
 
+**Matching one incoming game to a stored row needs one rule more than an aggregate.** Resolve
+merges on both sides as above; that also gathers the copies a merge left under other ids onto the
+real row's pair. Wherever several stored rows share the resolved pair, let the rows saved under the
+incoming game's own team ids decide which fixture to fill and which scored row to correct, and let
+a blank block a correction only when it sits under the game's own ids or a scored row's. Resolving
+alone, without that rule, broke all three. `_check_duplicates_by_master_ids` in
+`src/etl/enhanced_pipeline.py` carries the rule through `UnscoredFixture.own_pair` and its
+`_own_pair` helper.
+
 ### `quarantine_games`
 ```sql
 id             UUID PRIMARY KEY

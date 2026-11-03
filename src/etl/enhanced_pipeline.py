@@ -8,7 +8,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 # Ensure project root is on path (needed for direct script execution only)
 _project_root = str(Path(__file__).parent.parent.parent)
@@ -16,6 +16,7 @@ if _project_root not in sys.path:
     sys.path.append(_project_root)
 
 from config.settings import BUILD_ID, MATCHING_CONFIG  # noqa: E402
+from scripts.enqueue_helpers import expand_to_aliases, resolve_merges  # noqa: E402
 from src.etl.bulk_ops import (  # noqa: E402
     bulk_backfill_null_scores,
     bulk_update_last_scraped_at,
@@ -43,9 +44,16 @@ SCORE_CORRECTION_PROVIDERS = frozenset({"gotsport", "tgs", "mlsnext_kitman"})
 HOLD_BOTH_SIDES_CHANGED_PROVIDERS = frozenset({"tgs"})
 
 # Providers whose stored row for a changed score is found by provider team ids as well as master
-# ids, whatever game_uid it carries. A merge repoints master ids and leaves the games saved under
-# the old ones, so the same game then sits under an id the re-scrape no longer produces.
+# ids, whatever game_uid it carries. Provider team ids, which a merge does not change, find a stored
+# row the merge-resolved master-id lookup misses, such as when team_merge_map cannot be read.
 PROVIDER_ID_CORRECTION_PROVIDERS = frozenset({"tgs", "mlsnext_kitman"})
+
+
+@dataclass(frozen=True)
+class UnscoredFixture:
+    game_uid: Optional[str]
+    home_first: bool  # the stored home team is the pair's sorted-first team, once merges are resolved
+    own_pair: tuple  # the row's own two master ids, sorted, before merges are resolved
 
 
 @dataclass
@@ -1660,13 +1668,15 @@ class EnhancedETLPipeline:
 
         After team matching has resolved master IDs, this method checks for
         existing games with matching (game_date, master team pair, scores)
-        regardless of which provider_team_ids were used.
+        regardless of which provider_team_ids were used. Stored and incoming team ids are both read
+        through the merge map, so a row saved under a team since merged away pairs with its game too.
 
         Marks duplicates with '_master_dedup_skip' = True for filtering by caller. A scored result
-        whose pair has one unscored fixture and no other game that day is tagged
-        '_fixture_score_update' instead, for the caller to write as a score backfill; it is not
-        counted as a duplicate. A result that disagrees on score with the pair's one scored row,
-        saved under a provider-id uid, is tagged '_scored_row_correction' for the caller to
+        whose pair has one unscored fixture (of several, only those saved under the result's own ids)
+        and no other game that day is tagged '_fixture_score_update' instead, for the caller to write
+        as a score backfill; it is not counted as a duplicate. A result that disagrees on score with
+        the pair's one scored row (of several, the one saved under the result's own ids), saved under
+        a provider-id uid, is tagged '_scored_row_correction' for the caller to
         apply as a score correction. For a provider in PROVIDER_ID_CORRECTION_PROVIDERS that
         row may carry any uid and is also found by the pair's provider team ids; a result that
         matches its score is a duplicate. ``reported_games`` is the whole batch before earlier duplicate
@@ -1691,6 +1701,9 @@ class EnhancedETLPipeline:
                 return int(float(val))
             except (ValueError, TypeError):
                 return None
+
+        def _own_pair(game_row):
+            return tuple(sorted([game_row["home_team_master_id"], game_row["away_team_master_id"]]))
 
         # Group incoming games by date for efficient querying
         games_by_date: Dict[str, List[Dict]] = {}
@@ -1727,14 +1740,32 @@ class EnhancedETLPipeline:
                 logger.warning(f"Could not load rematch provider ids, fixture fills disabled: {e}")
                 fills_disabled = True
 
+        merge_map = self._merge_map_for(
+            {
+                g[side]
+                for games in (*games_by_date.values(), *reported_by_date.values())
+                for g in games
+                for side in ("home_team_master_id", "away_team_master_id")
+            }
+        )
+
+        def resolve(team_id):
+            return merge_map.get(team_id, team_id)
+
+        team_ids_under: Dict[str, set] = {}
+        for team_id, canonical in merge_map.items():
+            team_ids_under.setdefault(canonical, set()).add(team_id)
+
         # Query DB for existing games on each date
         for game_date, incoming_games in games_by_date.items():
             try:
-                # Collect all master IDs involved in incoming games for this date
-                master_ids = set()
-                for g in incoming_games:
-                    master_ids.add(g["home_team_master_id"])
-                    master_ids.add(g["away_team_master_id"])
+                # Every id the incoming teams' games can be saved under, merged-away ones included
+                master_ids = {
+                    team_id
+                    for g in incoming_games
+                    for side in ("home_team_master_id", "away_team_master_id")
+                    for team_id in team_ids_under.get(resolve(g[side]), {g[side]})
+                }
 
                 # Query existing games on this date involving any of these master teams,
                 # 50 teams (100 or-terms) per call to stay inside the URI limit
@@ -1766,13 +1797,13 @@ class EnhancedETLPipeline:
                 # Build a set of existing master-level keys from DB
                 # Key: (sorted_master_id_1, sorted_master_id_2, score_for_id_1, score_for_id_2)
                 existing_master_keys = set()
-                # Per sorted pair: count of scored rows, and unscored fixtures as (game_uid, home is sorted-first)
+                # Keyed by the merge-resolved sorted pair
                 scored_pairs: Dict[tuple, int] = {}
-                unscored_fixtures: Dict[tuple, List[tuple]] = {}
+                unscored_fixtures: Dict[tuple, List[UnscoredFixture]] = {}
                 scored_rows: Dict[tuple, List[Dict]] = {}
                 for row in rows_by_id.values():
-                    h_master = row.get("home_team_master_id")
-                    a_master = row.get("away_team_master_id")
+                    h_master = resolve(row.get("home_team_master_id"))
+                    a_master = resolve(row.get("away_team_master_id"))
                     h_score = _safe_int(row.get("home_score"))
                     a_score = _safe_int(row.get("away_score"))
 
@@ -1782,10 +1813,17 @@ class EnhancedETLPipeline:
                             key = (sorted_ids[0], sorted_ids[1], h_score, a_score)
                         else:
                             key = (sorted_ids[0], sorted_ids[1], a_score, h_score)
-                        existing_master_keys.add(key)
 
                         if row.get("is_excluded"):
+                            # Only under its own ids: a hidden copy a merge left must not swallow a
+                            # changed result that corrects the live row
+                            saved_home, saved_away = row["home_team_master_id"], row["away_team_master_id"]
+                            if saved_home < saved_away:
+                                existing_master_keys.add((saved_home, saved_away, h_score, a_score))
+                            else:
+                                existing_master_keys.add((saved_away, saved_home, a_score, h_score))
                             continue
+                        existing_master_keys.add(key)
                         if row.get("provider_id") in rematch_provider_ids:
                             # One of possibly several same-day games for the pair: never a fill target,
                             # and its presence makes the pair's day ambiguous
@@ -1793,7 +1831,7 @@ class EnhancedETLPipeline:
                             scored_rows.setdefault(sorted_ids, []).append(row)
                         elif h_score is None and a_score is None:
                             unscored_fixtures.setdefault(sorted_ids, []).append(
-                                (row.get("game_uid"), sorted_ids[0] == h_master)
+                                UnscoredFixture(row.get("game_uid"), sorted_ids[0] == h_master, _own_pair(row))
                             )
                         elif h_score is not None and a_score is not None:
                             scored_pairs[sorted_ids] = scored_pairs.get(sorted_ids, 0) + 1
@@ -1803,8 +1841,9 @@ class EnhancedETLPipeline:
                 # the pair met twice, so none of them can be read as a changed score
                 reported_results: Dict[tuple, set] = {}
                 for game in reported_by_date.get(game_date, []):
-                    pair = tuple(sorted([game["home_team_master_id"], game["away_team_master_id"]]))
-                    first_home = pair[0] == game["home_team_master_id"]
+                    home_id = resolve(game["home_team_master_id"])
+                    pair = tuple(sorted([home_id, resolve(game["away_team_master_id"])]))
+                    first_home = pair[0] == home_id
                     home_score, away_score = _safe_int(game.get("home_score")), _safe_int(game.get("away_score"))
                     reported_results.setdefault(pair, set()).add(
                         (home_score, away_score) if first_home else (away_score, home_score)
@@ -1817,8 +1856,8 @@ class EnhancedETLPipeline:
                     if game.get("_master_dedup_skip"):
                         continue  # Already marked
 
-                    h_master = game.get("home_team_master_id")
-                    a_master = game.get("away_team_master_id")
+                    h_master = resolve(game.get("home_team_master_id"))
+                    a_master = resolve(game.get("away_team_master_id"))
                     h_score = _safe_int(game.get("home_score"))
                     a_score = _safe_int(game.get("away_score"))
 
@@ -1840,22 +1879,27 @@ class EnhancedETLPipeline:
                         continue
 
                     # A result whose fixture was saved under a different game_uid (a partial
-                    # match at the time keeps the provider-id uid). Fill that fixture in rather
-                    # than add a second row, but only when it is the pair's only non-excluded game that day:
-                    # two fixtures, or one already scored, may be a same-day rematch. Rematch
-                    # providers give each same-day game its own uid, so a different uid there
-                    # is a different game.
+                    # match at the time keeps the provider-id uid; a merge leaves one naming the
+                    # merged-away team). Fill that fixture in rather than add a second row, but only
+                    # when it is the pair's only non-excluded game that day: two fixtures, or one
+                    # already scored, may be a same-day rematch. Rematch providers give each same-day
+                    # game its own uid, so a different uid there is a different game. Where merges
+                    # gather several fixtures onto the pair, only those saved under the result's own
+                    # ids count; a scored row under any of the pair's ids still blocks.
+                    own_pair = _own_pair(game)
                     fixtures = unscored_fixtures.get(sorted_ids, [])
+                    if len(fixtures) > 1:
+                        fixtures = [f for f in fixtures if f.own_pair == own_pair]
                     if (
                         not fills_disabled
                         and h_score is not None
                         and a_score is not None
                         and len(fixtures) == 1
-                        and fixtures[0][0]
+                        and fixtures[0].game_uid
                         and not scored_pairs.get(sorted_ids)
                     ):
-                        fixture_uid, fixture_home_first = fixtures[0]
-                        same_orientation = fixture_home_first == (sorted_ids[0] == h_master)
+                        fixture_uid = fixtures[0].game_uid
+                        same_orientation = fixtures[0].home_first == (sorted_ids[0] == h_master)
                         game["_fixture_score_update"] = {
                             **game,
                             "game_uid": fixture_uid,
@@ -1874,21 +1918,27 @@ class EnhancedETLPipeline:
                         continue
 
                     # A result whose stored row sits under another uid (or, for
-                    # PROVIDER_ID_CORRECTION_PROVIDERS, under master ids a merge left behind) is the
+                    # PROVIDER_ID_CORRECTION_PROVIDERS, is found by its provider team ids) is the
                     # same game; inserting it would store the game twice. Only when it is the pair's
-                    # single game that day and the batch reports it once. A result that matches the
-                    # stored score is a duplicate, not a correction. For a provider whose schedule_id
-                    # names one meeting, a result carrying one is an identified meeting of a repeat day,
-                    # even when its batch reports no other: the pair's other scored row is taken to be the
-                    # other meeting, not a stale copy of this one. TGS's schedule_id is its division, so
-                    # its corrections are untouched.
+                    # single game that day and the batch reports it once; where merges gather rows from
+                    # several saved ids, only scored rows saved under the result's own ids count, and only
+                    # blanks saved under the result's or a scored row's ids (any other is a copy a merge
+                    # left). A result that matches the stored score is a duplicate, not a correction. For
+                    # a provider whose schedule_id names one meeting, a result carrying one is an
+                    # identified meeting of a repeat day, even when its batch reports no other: the pair's
+                    # other scored row is taken to be the other meeting, not a stale copy of this one.
+                    # TGS's schedule_id is its division, so its corrections are untouched.
+                    pair_rows = scored_rows.get(sorted_ids, [])
+                    live_pairs = {own_pair} | {_own_pair(r) for r in pair_rows}
+                    if len(pair_rows) > 1:
+                        pair_rows = [r for r in pair_rows if _own_pair(r) == own_pair]
                     if (
                         not fills_disabled
                         and self.provider_code
                         and self.provider_code.lower() in SCORE_CORRECTION_PROVIDERS
                         and h_score is not None
                         and a_score is not None
-                        and not unscored_fixtures.get(sorted_ids)
+                        and not any(f.own_pair in live_pairs for f in unscored_fixtures.get(sorted_ids, []))
                         and len(reported_results.get(sorted_ids, ())) == 1
                         and not (
                             self.provider_code.lower() in SCHEDULE_ID_SUFFIX_PROVIDERS and matched_schedule_id(game)
@@ -1898,11 +1948,12 @@ class EnhancedETLPipeline:
                         target = self._scored_row_to_correct(
                             game,
                             sorted_ids,
-                            scored_rows.get(sorted_ids, []),
+                            pair_rows,
                             provider_id_rows.get(
                                 frozenset((game.get("home_provider_id"), game.get("away_provider_id"))), []
                             ),
                             by_provider_ids,
+                            resolve,
                         )
                         if target is None:
                             continue
@@ -1945,6 +1996,17 @@ class EnhancedETLPipeline:
 
         return duplicates_found
 
+    def _merge_map_for(self, team_ids: set) -> Dict[str, str]:
+        """Each team id, its survivor, and every team merged into that survivor, mapped to the survivor.
+
+        Reads only these teams' merges: MergeResolver loads all of team_merge_map.
+        """
+        try:
+            return expand_to_aliases(self.supabase, resolve_merges(self.supabase, team_ids))
+        except Exception as e:
+            logger.warning(f"Could not load team merges, pairing stored games on their saved ids: {e}")
+            return {team_id: team_id for team_id in team_ids}
+
     def _scored_row_to_correct(
         self,
         game: Dict,
@@ -1952,11 +2014,13 @@ class EnhancedETLPipeline:
         pair_rows: List[Dict],
         provider_rows: List[Dict],
         by_provider_ids: bool,
+        resolve: Callable[[str], str],
     ) -> Optional[Tuple[Dict, bool]]:
         """The stored row a changed result corrects, and whether it is stored on the incoming sides.
 
-        ``pair_rows`` are the pair's scored rows under its current master ids, ``provider_rows`` those
-        found by its provider team ids, which a merge leaves untouched.
+        ``pair_rows`` are the pair's scored rows under its merge-resolved master ids (of several, those
+        saved under the result's own ids), ``provider_rows`` those found by its provider team ids,
+        which a merge leaves untouched.
         """
         if len(pair_rows) == 1:
             row = pair_rows[0]
@@ -1964,8 +2028,8 @@ class EnhancedETLPipeline:
                 return None
             if not (by_provider_ids or PROVIDER_ID_GAME_UID.match(row.get("game_uid") or "")):
                 return None
-            incoming_first = sorted_ids[0] == game["home_team_master_id"]
-            return row, (sorted_ids[0] == row["home_team_master_id"]) == incoming_first
+            incoming_first = sorted_ids[0] == resolve(game["home_team_master_id"])
+            return row, (sorted_ids[0] == resolve(row["home_team_master_id"])) == incoming_first
         if pair_rows or not by_provider_ids or len(provider_rows) != 1:
             return None
         row = provider_rows[0]
