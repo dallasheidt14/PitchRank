@@ -59,6 +59,12 @@ def _every_pair_plays_this_season(monkeypatch):
     monkeypatch.setattr(pages, "idle", lambda p, ev: False)
 
 
+@pytest.fixture(autouse=True)
+def _every_club_team_plays_this_season(monkeypatch):
+    """No club card is left off for want of a game this season either, so a club fixture needs no schedule."""
+    monkeypatch.setattr(pages, "idle_club_card", lambda p, ev: False)
+
+
 RUN = "2026-10-14-nv"
 ROW_CAP = 1000
 COLUMNS = {

@@ -305,8 +305,20 @@ def test_the_review_s_verdicts_reach_the_lanes_and_a_found_wrong_guess_is_record
 ):
     """Selection, evidence, reviewers, the page and the automatic lane's collect together: an approved change
     and an approved tier apply on their own, an upheld reject goes to the lane kept as it is and is recorded
-    Don't apply, a hold is a card, and a blank or declined guess never reaches a reviewer."""
-    store, db = _week(tmp_path, GUESSES, TEAMS, team_cleanup_decisions=DECLINED)
+    Don't apply, an owner card is shown only for a team with a game this season while the automatic lane takes its
+    changes regardless (owner, 2026-11-03), and a blank or declined guess never reaches a reviewer. No team in the
+    automatic lane has a game; unc's one game is recorded under a row since merged into it, idle's falls the day
+    before the season, and und's trusted-tier change, undone before, would be a card no review reached."""
+    rows = [*GUESSES, pt._scan_row("idle", "Concorde Fire", "CF", tier="unclear"),
+            pt._scan_row("und", "LAS VEGAS SPORTS ACADEMY", "Las Vegas Sports Academy")]  # fmt: skip
+    teams = [*TEAMS, pt._team("idle", club="Concorde Fire"), pt._team("und", club="LAS VEGAS SPORTS ACADEMY")]
+    season = pt._soccer_season_year()
+    games = [pt._game(1, "opp", "unc-old", f"{season}-08-01"), pt._game(2, "idle", "opp", f"{season}-07-31")]
+    undone = {**UNDONE, "id": 2, "team_id_master": "und", "new_value": "Las Vegas Sports Academy"}
+    store, db = _week(
+        tmp_path, rows, teams, team_cleanup_decisions=DECLINED, games=games,
+        team_merge_map=[pt._merged("unc-old", "unc")], team_cleanup_changes=[undone],
+    )  # fmt: skip
     panel = _ClubPanel({"United SoCal": "apply", "LSC White": "reject", "CF": "hold"})
 
     code, out = _main(monkeypatch, capsys, store, db, panel, "--execute")
@@ -323,6 +335,8 @@ def test_the_review_s_verdicts_reach_the_lanes_and_a_found_wrong_guess_is_record
     assert {p["team_id_master"]: p["why"] for p in manifest["left_out"]} == {
         "blank": "the scan proposes no club",
         "dec": "declined on 2026-10-01",
+        "idle": "no game this season",
+        "und": "no game this season",
     }
     kept = {r["card"]["change"]["new"]: r["card"]["keep_as_is"] for r in db.cards(lane="auto")}
     assert kept == {"United SoCal": False, "LSC White": True, "Las Vegas Sports Academy": False}

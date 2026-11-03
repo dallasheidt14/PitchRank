@@ -190,7 +190,7 @@ deciding tier, go to unattended reviewers first (`scripts/team_cleanup/review_cl
 **Clubs**). They judge each distinct change once by this skill itself, which each run copies into its review, above
 all by **Judging a listed change**: a change they approve applies on
 its own, one they find wrong (upheld by a second reviewer) is recorded Don't apply, which the loop's page
-and review then leave off, and one they hold is the owner's card.
+and review then leave off, and one they hold is left for the owner to decide.
 
 **There is no pilot flag.** The other hygiene tools take `--limit` and apply the first N;
 this one applies exactly the rows marked approved. The pilot is therefore a choice about

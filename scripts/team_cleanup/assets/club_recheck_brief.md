@@ -15,7 +15,7 @@ Uphold the reject only on proof the skill's "Judging a listed change" accepts th
 a squad label, a branch shortened to its parent, an abbreviation the club does not use, a `recased` or
 `unclear` name no team uses beside a stored name the club's other teams carry (for `capital` that is the
 cleanup's damage, not proof), or a value that is not a club name at all. Anything short of proof is not
-upheld: the change then goes to the owner, not to a decline.
+upheld: the change is then held for the owner, not declined.
 
 ## Output
 
