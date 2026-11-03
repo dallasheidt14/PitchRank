@@ -201,6 +201,24 @@ it only stops writes: do it when the owner asks, or before any by-hand step on t
 resumes the writes, so that is the owner's to run. Registering the task
 (`scripts/team_cleanup/windows/register_team_cleanup.ps1`) is the owner's, once.
 
+**Starting the week early.** When the owner asks for the week's run before Wednesday 11:00 Arizona, leave the
+autopilot unpaused so it carries the run. A tick moves `C:\pitchrank-weekly` to `origin/main` only when it starts a
+week itself, and a run keeps the code that proposed it, so first hand the owner the move:
+`cd "C:\pitchrank-weekly" && git fetch -q origin && git checkout -q --detach origin/main`. Then, from that checkout
+(with the `.env` prefix in **Where to run**), dry-run the propose and hand over the real one, both dated the coming
+Wednesday:
+
+```bash
+python scripts/team_cleanup/propose_week.py --states ALL --date <the coming Wednesday> --dry-run
+python scripts/team_cleanup/propose_week.py --states ALL --date <the coming Wednesday>
+```
+
+With that date the run is the week's own: the autopilot carries it and proposes no second one, and its review
+deadline is that week's. Its code is the commit the checkout was moved to, which `<store>/runs/<run>/autopilot.json` records only when
+a tick fires during the propose; such a tick fails on the propose lock, and the next one carries on. Every apply
+still waits for the apply window, which opens Wednesday 11:00. A run dated another day leaves the Wednesday run's id
+free, so if it closes before the review deadline the autopilot proposes the Wednesday run too.
+
 **When something breaks.** A code fix goes through a branch and a PR to `main`; the autopilot picks
 it up at the next week's start, and a by-hand run's checkout only after the merge. Never patch a
 run's checkout. A change to the run's files or the database, including a hand edit of
@@ -248,6 +266,9 @@ Run `status.py`.
   python scripts/team_cleanup/propose_week.py --states ALL --dry-run
   python scripts/team_cleanup/propose_week.py --states ALL
   ```
+
+  For a run before Wednesday that the autopilot is to carry, leave it unpaused and date the propose the
+  coming Wednesday; see **Starting the week early**.
 
   The real run writes no team but opens the run's row in the database and lets the reviewers' refusals
   eight or more weeks old lapse (`expire_decisions.py --run <run>` without `--execute` lists them), and only
