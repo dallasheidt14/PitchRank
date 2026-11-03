@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextResponse, type NextRequest } from 'next/server';
-import { serviceClientMock } from '@/test/supabase-mock';
+import { filteringClientMock, serviceClientMock } from '@/test/supabase-mock';
 
 const { mockRequirePremium, mockCheckRateLimit, mockCreateClient } = vi.hoisted(() => ({
   mockRequirePremium: vi.fn(),
@@ -78,6 +78,119 @@ describe('POST /api/scrape-missing-game', () => {
 
     expect(res.status).toBe(500);
     expect(vi.mocked(notifyAdmin)).not.toHaveBeenCalled();
+  });
+
+  describe('when the queue refuses the click because another request is already waiting', () => {
+    const refused = {
+      data: null,
+      error: { code: '23505', message: 'An active scrape uses a different source or date; request unchanged' },
+    };
+
+    const MERGED_AWAY = '33333333-3333-3333-3333-333333333333';
+
+    function refusingClient(scrapeRequests: Record<string, unknown>[], merges: Record<string, unknown>[] = []) {
+      const db = filteringClientMock({
+        // A merged-away team keeps its row, so a stale page can still post its id.
+        teams: [
+          { team_id_master: validBody.teamId, provider_id: 1, provider_team_id: '383011' },
+          { team_id_master: MERGED_AWAY, provider_id: 1, provider_team_id: '461215' },
+        ],
+        team_merge_map: merges,
+        scrape_requests: scrapeRequests,
+      });
+      const rpc = vi.fn().mockResolvedValue(refused);
+      mockCreateClient.mockReturnValue({ from: db.client.from, rpc });
+      return db;
+    }
+
+    // Filed under the team's other GotSport registration and a different date, which is
+    // what the RPC refuses to rewrite.
+    const waitingRequest = (id: string, teamIdMaster: string) => ({
+      id,
+      team_id_master: teamIdMaster,
+      status: 'pending',
+      priority: 2,
+      request_type: 'yesterday_game',
+      provider_id: 1,
+      provider_team_id: '461215',
+      game_date: '2026-11-01',
+    });
+
+    it("moves the team's waiting request to the front and reports success", async () => {
+      const db = refusingClient([
+        waitingRequest('waiting', validBody.teamId),
+        { id: 'finished', team_id_master: validBody.teamId, status: 'completed', priority: 3 },
+        { id: 'other-team', team_id_master: '22222222-2222-2222-2222-222222222222', status: 'pending', priority: 2 },
+      ]);
+
+      const res = await POST(makeRequest(validBody));
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ success: true, requestId: 'waiting' });
+      expect(db.tableRows.scrape_requests).toEqual([
+        { ...waitingRequest('waiting', validBody.teamId), priority: 1 },
+        { id: 'finished', team_id_master: validBody.teamId, status: 'completed', priority: 3 },
+        { id: 'other-team', team_id_master: '22222222-2222-2222-2222-222222222222', status: 'pending', priority: 2 },
+      ]);
+      expect(vi.mocked(notifyAdmin)).toHaveBeenCalledTimes(1);
+    });
+
+    it('moves a waiting request filed under a team merged into this one, and no other merged team', async () => {
+      const otherMerged = '44444444-4444-4444-4444-444444444444';
+      const db = refusingClient(
+        [waitingRequest('before-merge', MERGED_AWAY), waitingRequest('unrelated-merge', otherMerged)],
+        [
+          { deprecated_team_id: MERGED_AWAY, canonical_team_id: validBody.teamId },
+          { deprecated_team_id: otherMerged, canonical_team_id: '55555555-5555-5555-5555-555555555555' },
+        ]
+      );
+
+      const res = await POST(makeRequest(validBody));
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ success: true, requestId: 'before-merge' });
+      expect(db.tableRows.scrape_requests).toEqual([
+        { ...waitingRequest('before-merge', MERGED_AWAY), priority: 1 },
+        waitingRequest('unrelated-merge', otherMerged),
+      ]);
+    });
+
+    it("moves the surviving team's waiting request when the click names a merged-away team", async () => {
+      const db = refusingClient(
+        [waitingRequest('survivor', validBody.teamId)],
+        [{ deprecated_team_id: MERGED_AWAY, canonical_team_id: validBody.teamId }]
+      );
+
+      const res = await POST(makeRequest({ ...validBody, teamId: MERGED_AWAY }));
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ success: true, requestId: 'survivor' });
+      expect(db.tableRows.scrape_requests[0].priority).toBe(1);
+    });
+
+    it('still reports success when the waiting request is already being scraped', async () => {
+      const db = refusingClient([
+        { id: 'running', team_id_master: validBody.teamId, status: 'processing', priority: 2 },
+      ]);
+
+      const res = await POST(makeRequest(validBody));
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ success: true, requestId: null });
+      expect(db.tableRows.scrape_requests[0].priority).toBe(2);
+      expect(vi.mocked(notifyAdmin)).toHaveBeenCalledTimes(1);
+    });
+
+    it('reports the failure and sends no alert when the request cannot be moved', async () => {
+      const db = refusingClient([waitingRequest('waiting', validBody.teamId)]);
+      db.failing.scrape_requests = { code: '57014', message: 'canceling statement due to statement timeout' };
+
+      const res = await POST(makeRequest(validBody));
+
+      expect(res.status).toBe(500);
+      expect(db.tableRows.scrape_requests[0].priority).toBe(2);
+      expect(vi.mocked(notifyAdmin)).not.toHaveBeenCalled();
+    });
   });
 
   it('returns the requirePremium error and never touches the database for a free user', async () => {

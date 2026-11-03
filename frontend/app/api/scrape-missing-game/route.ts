@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { checkRateLimit } from '@/lib/api/rateLimit';
 import { requirePremium } from '@/lib/api/requirePremium';
+import { promoteWaitingScrapeRequest, SCRAPE_REQUEST_REFUSED } from '@/lib/api/scrapeQueue';
 import { notifyAdmin } from '@/lib/notifications/admin';
 
 export async function POST(request: NextRequest) {
@@ -82,10 +83,9 @@ export async function POST(request: NextRequest) {
     }
 
     // Enqueue via RPC so repeated user clicks on the same team are idempotent
-    // (one pending row per team — partial unique index on team_id_master WHERE
-    // status='pending'). Priority 1 always wins via LEAST, so user clicks
-    // promote any existing pending row from a lower-priority auto-enqueue.
-    const { data: requestId, error: insertError } = await supabase.rpc('enqueue_scrape_request', {
+    // (one active row per team). Priority 1 always wins via LEAST, so a click
+    // promotes a compatible pending row from a lower-priority auto-enqueue.
+    let { data: requestId, error: insertError } = await supabase.rpc('enqueue_scrape_request', {
       p_team_id_master: teamId,
       p_team_name: teamName,
       p_provider_id: team.provider_id,
@@ -94,6 +94,10 @@ export async function POST(request: NextRequest) {
       p_request_type: 'missing_game',
       p_priority: 1,
     });
+
+    if (insertError?.code === SCRAPE_REQUEST_REFUSED) {
+      ({ requestId, error: insertError } = await promoteWaitingScrapeRequest(supabase, teamId));
+    }
 
     if (insertError) {
       console.error('[scrape-missing-game] Database error:', insertError);
