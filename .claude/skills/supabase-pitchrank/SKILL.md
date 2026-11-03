@@ -195,6 +195,14 @@ One hop suffices, by design rather than by luck: `execute_team_merge` step 4
 `team_merge_map` rows at the new canonical, flattening chains as it goes. A chain can only
 appear from a direct insert that bypasses the RPC.
 
+`scrape_requests` rows stay under pre-merge ids too, and `enqueue_scrape_request` treats them as
+the survivor's: through `enqueue_scrape_request_once` (`20261020020000`) it resolves its input to
+the canonical id, then matches active rows on `coalesce(canonical_team_id, team_id_master)`. Code that reads or updates a team's queue rows
+must cover the same set — resolve the id it was given to the survivor, then add every id merged
+into it: `resolveMergedTeamIds` (`frontend/lib/team-merge.ts`) on the website, `resolve_merges`
+then `expand_to_aliases` (`scripts/enqueue_helpers.py`) in Python. Filtering on the raw id alone
+missed this twice on 2026-11-02, with 43 pending rows sitting under merged-away ids.
+
 ### `quarantine_games`
 ```sql
 id             UUID PRIMARY KEY
@@ -258,6 +266,12 @@ so a scan ordered by anything but its cursor skips or repeats rows. `_Query` in
 When a test shrinks a page size to force paging, patch every module that reads it:
 `from scripts.enqueue_helpers import PAGE_SIZE` copies the value, so patching one copy leaves a
 pager that reads the other fetching the whole fixture in one request, and its paging never runs.
+
+supabase-py sends RPC params through httpx `json=`, which raises `TypeError` on a `date` or
+`datetime`, and a job that catches its per-call exceptions then exits green having written
+nothing. Pass `.isoformat()` strings, have the double `json.dumps` its RPC params before
+recording the call, and seed date columns as ISO strings, which is how PostgREST returns them.
+`_RpcBuilder` in `tests/unit/test_enqueue_yesterday_games.py` does this.
 
 **A zero-row `.single()` raises; it does not come back empty.** PostgREST answers
 `APIError({"code": "PGRST116", ...})`, and that is the *normal* path for an existence check on a
