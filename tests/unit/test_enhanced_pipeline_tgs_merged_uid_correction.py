@@ -166,6 +166,20 @@ def test_a_scored_copy_under_a_merged_away_id_does_not_stop_the_live_rows_correc
     assert (copy["home_score"], copy["away_score"]) == (2, 0)
 
 
+def test_a_hidden_copy_under_a_merged_away_id_does_not_swallow_the_live_rows_correction(monkeypatch):
+    live = _stored(GREMIO, AFC, 2, 0, uid=f"tgs:{DATE}:{HOME_PROVIDER_TEAM}:{AWAY_PROVIDER_TEAM}")
+    # Saved under the merged-away team's own provider id, so the unique index does not tie the two rows
+    hidden = {**_stored(OLD_GREMIO, AFC, 3, 0, excluded=True), "id": "row-hidden", "home_provider_id": "3012345"}
+    db = _CorrectionsDB([live, hidden])
+    db.merge(OLD_GREMIO, GREMIO)
+
+    inserted, _ = _run(monkeypatch, db, [_tgs_incoming(3, 0)])
+
+    assert inserted == []
+    assert (live["home_score"], live["away_score"]) == (3, 0)
+    assert len(db.corrections) == 1
+
+
 def test_a_blank_saved_under_the_results_own_ids_blocks_the_correction(monkeypatch):
     # The blank may be the meeting this result reports, not a copy of the scored one
     stored = _stored(OLD_GREMIO, AFC, 2, 0)

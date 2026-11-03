@@ -1813,10 +1813,17 @@ class EnhancedETLPipeline:
                             key = (sorted_ids[0], sorted_ids[1], h_score, a_score)
                         else:
                             key = (sorted_ids[0], sorted_ids[1], a_score, h_score)
-                        existing_master_keys.add(key)
 
                         if row.get("is_excluded"):
+                            # Only under its own ids: a hidden copy a merge left must not swallow a
+                            # changed result that corrects the live row
+                            saved_home, saved_away = row["home_team_master_id"], row["away_team_master_id"]
+                            if saved_home < saved_away:
+                                existing_master_keys.add((saved_home, saved_away, h_score, a_score))
+                            else:
+                                existing_master_keys.add((saved_away, saved_home, a_score, h_score))
                             continue
+                        existing_master_keys.add(key)
                         if row.get("provider_id") in rematch_provider_ids:
                             # One of possibly several same-day games for the pair: never a fill target,
                             # and its presence makes the pair's day ambiguous
