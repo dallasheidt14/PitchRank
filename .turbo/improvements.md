@@ -368,6 +368,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Update (2026-08-31)**: Decided in favour of `is_excluded`, and the existing backlog is cleared. `scripts/exclude_merge_duplicate_games.py` groups every game in a merge cluster by merge-resolved `(home, away, date, home_score, away_score)`, keeps the copy naming the surviving row and excludes the rest. Applied 2,135 exclusions (50 verified, then 2,085); merge-created duplicates now measure 0, all 2,135 kept counterparts verified still live. The full 639-merge batch held 2,062 of them, not the 604 the 200-merge sample projected. What remains open is prevention: this is a manual repair that must be remembered after every merge batch, and it belongs in `execute_team_merge` or a post-merge workflow step, the way `20260822000000` closed the stranded-fixture hole at the source. Two findings for whoever takes that on — the discriminator is that the two rows carry *different* raw master ids, since a genuine same-day rematch recorded once carries identical ones; and the grouping key must keep home/away orientation or it collapses real reverse fixtures. Separately, 842 same-date same-score groups sharing identical raw ids remain untouched here: those are the pre-existing double-import class `cleanup_dupe_games_by_composite.py` targets, not merge damage.
 - **Update (2026-08-31, second)**: `is_excluded` **cannot** fix that same-id class, and the attempt was reverted. `EnhancedETLPipeline`'s auto-exclude cascade (`src/etl/enhanced_pipeline.py:1899-1926`) keys on `(sorted raw master ids, scores)` for a `game_date`, which both copies of a same-id duplicate share exactly. Excluding one therefore makes the next import touching that fixture exclude its twin, and the match leaves the rankings entirely. Measured: 50 rows excluded 2026-08-31, 48 twins gone within minutes (`process-missing-games` runs every 15 min); all 100 restored, `games.is_excluded` back to 8,088. The merge-damage class is immune only because its two copies carry differing raw ids, so the excluded copy's cascade key never matches the survivor's — the same property that distinguishes the two classes. `scripts/exclude_merge_duplicate_games.py` now refuses the same-id class at every scope and prints `SAME_ID_NOTE` explaining why. Fixing it needs the source: a `game_uid` stable across recipe changes and across a team holding two provider ids, or an importer matching on merge-resolved fixture identity. Diagnosis of the 842: ~97% modular11, whose uid moved from integer team ids to UUIDs so an Apr 2026 re-scrape did not collide with its own Dec 2025 rows; the rest gotsport/tgs where one team held both a registration id and a real team id.
 - **Update (2026-09-08)**: Verified — the repair half shipped (`scripts/exclude_merge_duplicate_games.py`, `2d84ab056`, PR #1068). The prevention half has not: a repo-wide search finds no caller at all — no merge script and no workflow invokes it — so it is still a manually-remembered step after every merge batch.
+- **Update (2026-11-02)**: A neighbouring import-time source is closed: `EnhancedETLPipeline._check_duplicates_by_master_ids` now pairs stored and incoming games on merge-resolved team ids, so a game imported after a merge fills or matches the row saved under the merged-away id instead of adding another copy. Rows already doubled before a merge, and the same-id class above, are untouched: `exclude_merge_duplicate_games.py` is still the manual repair after a merge batch, so this entry stays open.
 
 ### Modular11 import files some U13 fixtures onto the U14 team row
 
@@ -2581,4 +2582,24 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Category**: docs
 - **Where**: `teams_with_pending_user_request` in `scripts/enqueue_helpers.py`; `enqueue_team` in `scripts/enqueue_active_teams.py`
 - **Why**: Both docstrings say re-queuing a team rewrites its pending row's `game_date`. The current `enqueue_scrape_request_once` (`supabase/migrations/20261020020000_atomic_matchbalance_refresh.sql`) reuses an active row and only promotes its priority ("Never rewrite an adopted request's registration, date, or FIFO position"), raising 23505 on a conflicting date or registration. The helper's stated reason for protecting a user's pending priority-1 row no longer holds as written, and it reads only canonical ids, so it misses a row stored under a merged-away id. Fix both docstrings and decide whether the helper is still needed. Found by a consistency review on 2026-11-02.
+- **Noted**: 2026-11-02
+
+### MergeResolver pages team_merge_map without an order, so a ranking run can miss merges
+
+- **ID**: IMP-392
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `MergeResolver.load_merge_map` in `src/utils/merge_resolver.py`
+- **Why**: It reads `team_merge_map` in 1,000-row `.range()` pages with no `.order()`, so Postgres may order each page differently and a page boundary can skip or repeat rows; the table held 27,129 rows on 2026-11-02, about 28 pages. `scripts/calculate_rankings.py` builds a `MergeResolver`, so a skipped row leaves that merged-away team's games unresolved for the run. Order by the unique `deprecated_team_id`, as `load_merge_map` in `scripts/exclude_merge_duplicate_games.py` does. A ranking-engine change, so it needs the ranking-change review. Distinct from IMP-260, which is about the spread of merge resolvers rather than this defect. Found by a consistency review on 2026-11-02.
+- **Noted**: 2026-11-02
+
+### A dry-run game import still writes a build_logs row
+
+- **ID**: IMP-393
+- **Status**: open
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `EnhancedETLPipeline._log_build_metrics` in `src/etl/enhanced_pipeline.py`
+- **Why**: It inserts or updates a `build_logs` row with no `dry_run` check, so `import_games_enhanced.py --dry-run` writes to the database while printing "Dry run completed - no changes were made". Pre-existing on main; a write-guarded smoke test caught the POST on both main and this branch. The row records `dry_run` in its own `parameters`, so logging dry runs may be deliberate: decide whether a dry run should leave a build log, and gate the write if not, since CLAUDE.md asks every writer to honour `dry_run`.
 - **Noted**: 2026-11-02

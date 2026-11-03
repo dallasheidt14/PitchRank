@@ -1,9 +1,10 @@
 """A changed TGS score must correct the stored row even when a team merge changed the game's ids.
 
 The re-scrape builds its game_uid and master ids from the teams as they are now. A game saved before
-the merge keeps the old ones, so neither the uid check nor the master-id pair lookup finds it, and the
-changed score would land as a second live row beside it. The stored row is found by the provider
-team ids, which a merge does not change.
+the merge keeps the old ones, so the uid check misses it and the changed score would land as a second
+live row beside it. The master-id pair lookup finds it through team_merge_map; the provider team ids,
+which a merge does not change, find a row that map does not resolve, which the tests storing OLD_* ids
+without recording a merge exercise.
 """
 
 import pytest
@@ -13,15 +14,16 @@ from tests.unit.test_enhanced_pipeline_fixture_score_fill import (
     AFC,
     DATE,
     GREMIO,
+    OLD_AFC,
+    OLD_GREMIO,
     _import_pipeline,
     _incoming,
+    _no_swallowed_dedup_error,  # noqa: F401 -- autouse: a swallowed dedup crash also reads as "not corrected"
     _row,
 )
 from tests.unit.test_enhanced_pipeline_legacy_uid_correction import _MasterMatcher, _perspective
 
 TGS_PROVIDER_ID = "prov-tgs"
-OLD_GREMIO = "11111111-1111-4111-8111-111111111111"
-OLD_AFC = "22222222-2222-4222-8222-222222222222"
 HOME_PROVIDER_TEAM = "471854"
 AWAY_PROVIDER_TEAM = "483752"
 CURRENT_UID = f"tgs:{DATE}:{AFC}:{GREMIO}"
@@ -67,6 +69,133 @@ def test_a_row_saved_under_merged_away_master_ids_is_corrected_not_duplicated(mo
     [correction] = db.corrections
     assert correction["original_game_uid"] == MERGED_UID
     assert (pipeline.metrics.scores_corrected, pipeline.metrics.scores_correct_failed) == (1, 0)
+
+
+def test_a_row_under_merged_away_ids_found_through_the_merges_lands_the_scores_on_its_own_sides(monkeypatch):
+    # AFC sorts first: the stored home side matches the sorted pair only once OLD_AFC is resolved
+    stored = _stored(OLD_AFC, OLD_GREMIO, 0, 2)
+    db = _CorrectionsDB([stored])
+    db.merge(OLD_GREMIO, GREMIO)
+    db.merge(OLD_AFC, AFC)
+
+    inserted, _ = _run(monkeypatch, db, [_tgs_incoming(3, 0)])
+
+    assert inserted == []
+    [correction] = db.corrections
+    assert correction["original_game_uid"] == MERGED_UID
+    assert (stored["home_score"], stored["away_score"]) == (0, 3)
+
+
+def test_a_changed_result_carrying_a_merged_away_id_corrects_the_row_under_the_survivor(monkeypatch):
+    stored = _stored(GREMIO, AFC, 2, 0)
+    db = _CorrectionsDB([stored])
+    db.merge(OLD_GREMIO, GREMIO)
+
+    inserted, _ = _run(monkeypatch, db, [_tgs_incoming(3, 0, home=OLD_GREMIO)])
+
+    assert inserted == []
+    assert (stored["home_score"], stored["away_score"]) == (3, 0)
+
+
+def test_a_changed_result_whose_home_is_the_sorted_first_team_merged_away_keeps_its_sides(monkeypatch):
+    # AFC sorts first: the incoming home side matches the sorted pair only once OLD_AFC is resolved
+    stored = _stored(GREMIO, AFC, 2, 0)
+    db = _CorrectionsDB([stored])
+    db.merge(OLD_AFC, AFC)
+
+    inserted, _ = _run(monkeypatch, db, [_tgs_incoming(0, 3, result="L", home=OLD_AFC, away=GREMIO)])
+
+    assert inserted == []
+    assert (stored["home_score"], stored["away_score"]) == (3, 0)
+
+
+def test_both_perspectives_of_a_result_under_a_merged_away_id_are_read_as_one_result(monkeypatch):
+    stored = _stored(GREMIO, AFC, 2, 0)
+    db = _CorrectionsDB([stored])
+    db.merge(OLD_AFC, AFC)
+    perspectives = [
+        _tgs_incoming(0, 3, result="L", home=OLD_AFC, away=GREMIO),
+        _tgs_incoming(3, 0, home=GREMIO, away=OLD_AFC),
+    ]
+
+    inserted, _ = _run(monkeypatch, db, perspectives)
+
+    assert inserted == []
+    assert (stored["home_score"], stored["away_score"]) == (3, 0)
+
+
+def test_a_changed_score_after_a_fill_corrects_the_filled_fixture_despite_a_merged_away_copy(monkeypatch):
+    fixture = _stored(GREMIO, AFC, None, None, uid=f"tgs:{DATE}:{HOME_PROVIDER_TEAM}:{AWAY_PROVIDER_TEAM}")
+    copy = {**_stored(OLD_GREMIO, AFC, None, None), "id": "row-copy"}
+    db = _CorrectionsDB([fixture, copy])
+    db.merge(OLD_GREMIO, GREMIO)
+
+    first, _ = _run(monkeypatch, db, [_tgs_incoming(0, 3)])
+    second, _ = _run(monkeypatch, db, [_tgs_incoming(1, 3)])
+
+    assert (first, second) == ([], [])
+    assert (fixture["home_score"], fixture["away_score"]) == (1, 3)
+    assert (copy["home_score"], copy["away_score"]) == (None, None)
+    assert len(db.corrections) == 1
+
+
+def test_a_blank_saved_under_the_scored_rows_ids_still_blocks_its_correction(monkeypatch):
+    # Sharing the scored row's saved ids, the blank may be that day's other meeting
+    stored = _stored(OLD_GREMIO, AFC, 2, 0)
+    blank = {**_stored(OLD_GREMIO, AFC, None, None, uid=f"{MERGED_UID}:blank"), "id": "row-blank"}
+    db = _CorrectionsDB([stored, blank])
+    db.merge(OLD_GREMIO, GREMIO)
+
+    inserted, _ = _run(monkeypatch, db, [_tgs_incoming(3, 0)])
+
+    assert db.corrections == []
+    assert (stored["home_score"], stored["away_score"]) == (2, 0)
+    assert [(g["home_score"], g["away_score"]) for g in inserted] == [(3, 0)]
+
+
+def test_a_scored_copy_under_a_merged_away_id_does_not_stop_the_live_rows_correction(monkeypatch):
+    live = _stored(GREMIO, AFC, 2, 0, uid=f"tgs:{DATE}:{HOME_PROVIDER_TEAM}:{AWAY_PROVIDER_TEAM}")
+    copy = {**_stored(OLD_GREMIO, AFC, 2, 0), "id": "row-copy"}
+    db = _CorrectionsDB([live, copy])
+    db.merge(OLD_GREMIO, GREMIO)
+
+    inserted, _ = _run(monkeypatch, db, [_tgs_incoming(3, 0)])
+
+    assert inserted == []
+    assert (live["home_score"], live["away_score"]) == (3, 0)
+    assert (copy["home_score"], copy["away_score"]) == (2, 0)
+
+
+def test_a_blank_saved_under_the_results_own_ids_blocks_the_correction(monkeypatch):
+    # The blank may be the meeting this result reports, not a copy of the scored one
+    stored = _stored(OLD_GREMIO, AFC, 2, 0)
+    blank = {**_stored(GREMIO, AFC, None, None, uid=f"tgs:{DATE}:blank"), "id": "row-blank"}
+    db = _CorrectionsDB([stored, blank])
+    db.merge(OLD_GREMIO, GREMIO)
+
+    _run(monkeypatch, db, [_tgs_incoming(3, 0)])
+
+    assert db.corrections == []
+    assert (stored["home_score"], stored["away_score"]) == (2, 0)
+
+
+@pytest.mark.parametrize(
+    ("blank_home", "scored_home"),
+    [
+        pytest.param(OLD_GREMIO, GREMIO, id="blank-under-the-results-merged-away-ids"),
+        pytest.param(GREMIO, GREMIO, id="blank-under-the-scored-rows-ids"),
+    ],
+)
+def test_a_blank_blocks_the_correction_of_a_result_naming_a_merged_away_team(monkeypatch, blank_home, scored_home):
+    stored = _stored(scored_home, AFC, 2, 0)
+    blank = {**_stored(blank_home, AFC, None, None, uid=f"tgs:{DATE}:blank"), "id": "row-blank"}
+    db = _CorrectionsDB([stored, blank])
+    db.merge(OLD_GREMIO, GREMIO)
+
+    _run(monkeypatch, db, [_tgs_incoming(3, 0, home=OLD_GREMIO)])
+
+    assert db.corrections == []
+    assert (stored["home_score"], stored["away_score"]) == (2, 0)
 
 
 def test_a_row_saved_under_a_stale_uid_but_current_master_ids_is_corrected(monkeypatch):
