@@ -78,6 +78,12 @@ automatic lane; **reject** to the automatic lane kept as it is (the card's `keep
 so the scan's guess stops coming back until it lapses; **hold** to a card giving the reviewers' reason. A listed guess the
 review did not reach waits for next week's. A change declined, stale, moved or undone is never reviewed.
 
+Every club card (a hold, a trusted-tier change the rules do not settle, or a settled change the automatic cap leaves
+a card) is shown only when its team has a game this season, played or scheduled; the rest are left off as "no game
+this season", proposed again each week, and reach the page once the team plays. The automatic lane is not filtered:
+a change inside the automatic cap applies, or is kept as it is, whatever the team's schedule (owner, 2026-11-03, for
+both).
+
 ## States
 
 Before the page, `scripts/team_cleanup/review_states.py` reviews every state change the rules leave to
@@ -302,8 +308,9 @@ count, how many changes go to the automatic lane, and the **page run** id
 (`YYYYMMDDTHHMMSSZ-<6 hex>`). It leaves off cards whose team is gone, merged or moved since the
 propose, ones the owner already declined (a group-4 age change only when an undo declined it; see **Ages**),
 for ages each group-4 change for a team with no game this season, for merges each pair neither of whose rows has a game this
-season, for clubs each guess proposing no club and each guess the scan lists without approving (the
-`Listed` tiers in `normalizing-club-names`) that the week's club review did not reach, and for states each change that a recent `mapped`
+season, for clubs each guess proposing no club, each guess the scan lists without approving (the
+`Listed` tiers in `normalizing-club-names`) that the week's club review did not reach, and each card whose team has
+no game this season (see **Clubs**); and for states each change that a recent `mapped`
 GotSport answer other than the unset default `AL`, or the team's name or club name as
 `assigning-team-states` Step 6's name pass reads it, already answers with the state the team holds.
 `<stage>/page.manifest.json` lists each with its reason. Past the automatic cap in
