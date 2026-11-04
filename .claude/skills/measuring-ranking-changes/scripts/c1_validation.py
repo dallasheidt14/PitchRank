@@ -150,6 +150,7 @@ def validate_run(run: Path, freeze: Path) -> dict:
         raise InvalidRun("Unpinned calculation timestamps")
     allowed = {
         "team_merge_map.select(deprecated_team_id,canonical_team_id).range",
+        "team_merge_map.select(deprecated_team_id,canonical_team_id).order(deprecated_team_id).range",
         "teams.select(team_id_master,state_code,league).in_(team_id_master)",
         "teams.select(team_id_master).in_(team_id_master).eq(is_deprecated)",
     }
