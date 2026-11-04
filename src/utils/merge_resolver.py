@@ -69,6 +69,7 @@ class MergeResolver:
                 response = (
                     self.client.table("team_merge_map")
                     .select("deprecated_team_id, canonical_team_id")
+                    .order("deprecated_team_id")
                     .range(offset, offset + page_size - 1)
                     .execute()
                 )
