@@ -80,10 +80,11 @@ def _live(page):
 
 
 def _page(store, db):
-    """Build the states page, every settled change a card whatever caps config/team_cleanup.json ships, and
-    return it with each team's card id and the page's collection."""
+    """Build the states page, every settled change a card whatever caps config/team_cleanup.json ships and none
+    left off for want of a game, and return it with each team's card id and the page's collection."""
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(pages, "load_caps", lambda **_: pages.Caps(cards=150, auto=0))
+        patch.setattr(pages, "idle_a_year", lambda p, ev: False)
         pages.build(db, store, RUN, "states")
     folder = stage_dir(store, RUN, "states")
     manifest = json.loads((folder / MANIFEST_FILE).read_text(encoding="utf-8"))

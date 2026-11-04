@@ -2,14 +2,15 @@
 """Build the owner's review page for one stage of a weekly team-cleanup run.
 
 Reads the stage's proposals.json and stale.json from the run store and leaves off every proposal
+whose team has no game in the past year, played or scheduled (for a pair, neither row has one), every one
 the owner already declined (an active dont_apply in team_cleanup_decisions naming the same new
 value; for an age change read from a lone birth year, only one an undo recorded), every age change
 read from a lone birth year for a team with no game this season, every one the write guard listed
 as stale, every one whose team is gone or whose field has moved since, every club change proposing
 no club, every club change from a tier the scan lists without approving that the week's review
-(review_clubs.py) did not reach, every club card for a team with no game this season (never one in the
-automatic lane), and every state change that a recent GotSport answer or the team's name or club name already
-answers with the state the team holds. A pair is left off when either row
+(review_clubs.py) did not reach, every club card for a team with no game this season (the automatic
+lane needs only a game in the past year), and every state change that a recent GotSport answer or the
+team's name or club name already answers with the state the team holds. A pair is left off when either row
 is gone or merged away, or has changed its age group, gender, state or club since the scan read it.
 Teams users follow (watchlisted, report-card or missing-game teams) are kept inside the caps first
 and lead their group; past the card cap the rest
@@ -17,7 +18,8 @@ are listed and left for next week's scan, which proposes them again. The merges 
 teams' pairs first, then the cross-provider scan's before the squad-key scan's, each by the fewest
 games on the row it retires, and each pair card shows the two rows' shared opponents and same-day
 games. A pair neither of whose rows has a game this season is left off unless the scan finds it provably
-safe. Once review_merges.py has reviewed the pairs, a pair it cleared goes to the automatic lane turned as the
+safe and one of its rows has a game in the past year. Once review_merges.py has reviewed the pairs, a pair it
+cleared goes to the automatic lane turned as the
 review chose, one it found to be two teams goes there as Keep separate, one it held is a card giving the
 reviewers' reason, and one it did not reach waits past the cap for a later week's review; a cleared pair
 whose rows have since played on one day, or each other, is held instead. Once review_clubs.py has reviewed the
@@ -71,6 +73,7 @@ import shlex
 import sys
 from collections import Counter
 from dataclasses import dataclass, replace
+from datetime import date, timedelta
 from pathlib import Path
 
 import httpx
@@ -191,6 +194,9 @@ PAIR_GROUPS = {CROSS_PROVIDER_DOORWAY: "C identical name", SQUAD_KEY_DOORWAY: "D
 SHARED_NAMES_SHOWN = 5
 IDLE_WHY = "neither team has a game this season"
 NO_GAME_WHY = "no game this season"
+# Fixed at import, as SEASON_START is.
+A_YEAR_AGO = (date.today() - timedelta(days=365)).isoformat()
+IDLE_YEAR_WHY = "no game in the past year"
 BLANK_CLUB_WHY = "the scan proposes no club"
 
 
@@ -534,22 +540,28 @@ def shared_opponent_names(sb, pairs, ev) -> dict[str, str]:
     return {tid: team["team_name"] for tid, team in fetch_teams(sb, sorted(shared)).items()}
 
 
-def plays_this_season(p: dict, ev) -> bool:
+def plays_since(p: dict, ev, day: str) -> bool:
     """A scheduled game counts as well as a played one."""
-    return any(day >= SEASON_START for team in teams_of(p) for day in ev.dates[team])
+    return any(game_day >= day for team in teams_of(p) for game_day in ev.dates[team])
+
+
+def idle_a_year(p: dict, ev) -> bool:
+    """A change whose team has no game in the past year (for a pair, neither row has one): the owner leaves the whole
+    cleanup off such teams, the automatic lane included (2026-11-03)."""
+    return not plays_since(p, ev, A_YEAR_AGO)
 
 
 def idle(p: dict, ev) -> bool:
     """A pair neither of whose rows has a game this season: merging it changes nothing this season's boards show,
     and the owner leaves such pairs alone (2026-10-21) unless the scan finds them provably safe, which costs no
     one's time."""
-    return not provably_safe(p) and not plays_this_season(p, ev)
+    return not provably_safe(p) and not plays_since(p, ev, SEASON_START)
 
 
 def idle_club_card(p: dict, ev) -> bool:
     """A club card for a team with no game this season: the owner decides club cards only for teams that play
     (2026-11-03)."""
-    return not plays_this_season(p, ev)
+    return not plays_since(p, ev, SEASON_START)
 
 
 def pair_cap_order(interest: set[str], ev):
@@ -628,10 +640,10 @@ def select(sb, folder: Path, stage: str, listed: bool = False) -> Selection:
     answered = load_answered(proposals, evidence)
     teams = fetch_teams(sb, ids)
     shown, left_out = sort_out(stage, proposals, stale, declined, answered, teams, canonical, interest, listed)
-    ev = None
+    ev = read_evidence(sb, [team for p in shown for team in teams_of(p)], merge_map, canonical)
+    left_out += [{**p, "why": IDLE_YEAR_WHY} for p in shown if idle_a_year(p, ev)]
+    shown = [p for p in shown if not idle_a_year(p, ev)]
     if stage == MERGES:
-        # The cap orders pairs by their retiring row's games, so the evidence is read before it.
-        ev = read_evidence(sb, [team for p in shown for team in teams_of(p)], merge_map, canonical)
         left_out += [{**p, "why": IDLE_WHY} for p in shown if idle(p, ev)]
         shown = sorted((p for p in shown if not idle(p, ev)), key=pair_cap_order(interest, ev))
     return Selection(shown, left_out, teams, merge_map, canonical, interest, evidence, ev)
@@ -707,16 +719,14 @@ def build(
     unreviewed = [p for p in shown if "review" not in p] if reviews is not None else []
     shown = [p for p in shown if reviews is None or "review" in p]
     if stage == CLUBS:
-        # The owner leaves the automatic lane unfiltered (2026-11-03), so only cards are, before the cap so an idle team
-        # takes no card's place. Read for the automatic lane too: the cards below reuse this evidence.
-        ev = read_evidence(sb, [p["team_id_master"] for p in (*shown, *auto)], selection.merge_map, selection.canonical)
+        # Only a card needs a game this season, the automatic lane a game in the past year (owner, 2026-11-03),
+        # filtered before the cap so an idle team takes no card's place.
         left_out = left_out + [{**p, "why": NO_GAME_WHY} for p in shown if idle_club_card(p, ev)]
         shown = [p for p in shown if not idle_club_card(p, ev)]
     shown, overflow = shown[: caps.cards], shown[caps.cards :] + unreviewed
 
     page_ids = [team for p in (*shown, *auto) for team in teams_of(p)]
     providers = {p["id"]: p["code"] for p in sb.table("providers").select("id,code").execute().data}
-    ev = ev or read_evidence(sb, page_ids, selection.merge_map, selection.canonical)
     shown.sort(key=display_order(stage, interest, ev))
     auto.sort(key=display_order(stage, interest, ev))
     facts = state_facts(evidence, ev, teams, page_ids)
