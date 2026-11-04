@@ -2620,3 +2620,27 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: the `pip install supabase python-dotenv` steps in `.github/workflows/enqueue-active-teams.yml`, `enqueue-discovery.yml`, `enqueue-safety-net.yml`, `enqueue-viewed-teams.yml`, `enqueue-yesterday-games.yml` and `process-missing-games.yml`
 - **Why**: Those six steps install the newest `supabase` (verified by grep 2026-11-02), while CI installs `requirements.lock` (`supabase==2.18.1`), so the queue jobs run a different client from the one their tests pass against — a newer postgrest major (2.33.0 resolved on 2026-11-02, reported by review). An exception class or response shape that changes between majors would pass CI and break only in the scheduled run. Install the lock file, or pin the same versions, in those steps.
 - **Noted**: 2026-11-02
+
+### Raise the supabase floor so an old client cannot cut paged reads to 999 rows
+
+- **Type**: direct
+- **Category**: reliability
+- **Where**: the `supabase>=2.0.0` line in `requirements.txt`; every `_paged`-style loop that stops on `len(rows) < PAGE`, e.g. `_paged` in `scripts/exclude_unscored_fixture_twins.py` and `load_merge_map` in `scripts/exclude_merge_duplicate_games.py`
+- **Why**: The floor admits supabase 2.0.0–2.8.0, which resolve postgrest 0.10.8–0.15.0; per the api-usage reviewer's reading of those wheels (2026-11-04, unverified here), their `.range(start, end)` sends an exclusive end, so each loop returns after its first 999 rows with no error. `requirements.lock` pins `supabase==2.18.1`, so CI and a lock install are unaffected; only `pip install -r requirements.txt` over an old install is. Raise the floor to `supabase>=2.8.1`.
+- **Noted**: 2026-11-04
+
+### Stop a rescheduled GotSport game leaving its original-date fixture behind
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: the GotSport team scrape and the import's duplicate and fixture-fill checks (`_check_duplicates` and the master-level dedup in `src/etl/enhanced_pipeline.py`)
+- **Why**: A league schedule is saved before it is played. When a game moves, its result arrives on the new date under a new `game_uid` and is saved as a second row, and nothing removes the blank on the original date, so the team page lists a game that never happened. GotSport's team feed returns played games only (since 2026-10-01), so no later scrape can see the fixture disappear. `scripts/exclude_rescheduled_fixture_leftovers.py` is the one-off cleanup; the owner chose cleanup only on 2026-11-04, so prevention is deferred here.
+- **Noted**: 2026-11-04
+
+### Share one rollback-log helper across the exclude cleanups
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: the inline log-then-update `--execute` blocks in `scripts/exclude_rescheduled_fixture_leftovers.py`, `scripts/exclude_unscored_fixture_twins.py`, `scripts/exclude_none_opponent_games.py`, `scripts/exclude_english_teams.py` and `scripts/reconcile_tgs_scores.py`; `new_log` / `write_log` in `scripts/apply_vetted_team_merges.py`
+- **Why**: Five scripts carry the same block (they share the "already exists and is the only rollback record" message), and each rewrites its only rollback record with plain `write_text` in `finally`, so a hard kill mid-write can truncate it. `write_log` already swaps a temp file in with `os.replace`, and `scripts/exclude_merge_duplicate_games.py` uses it. Raised by a consistency review on 2026-11-04.
+- **Noted**: 2026-11-04
