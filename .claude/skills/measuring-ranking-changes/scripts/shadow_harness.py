@@ -323,6 +323,7 @@ class FrozenClient:
     TEAMS_METADATA = "teams.select(team_id_master,state_code,league).in_(team_id_master)"
     TEAMS_DEPRECATED = "teams.select(team_id_master).in_(team_id_master).eq(is_deprecated)"
     MERGE_PAGE = "team_merge_map.select(deprecated_team_id,canonical_team_id).range"
+    MERGE_PAGE_ORDERED = "team_merge_map.select(deprecated_team_id,canonical_team_id).order(deprecated_team_id).range"
 
     def __init__(self, teams: pd.DataFrame, merge_map: pd.DataFrame):
         # PostgREST returns JSON null, never NaN: a NaN state_code is truthy and would
@@ -343,7 +344,7 @@ class FrozenClient:
         raise BlockedCall(f"client attribute {name!r} is not served")
 
     def serve(self, table: str, shape: str, query: FrozenQuery) -> list[dict]:
-        if shape == self.MERGE_PAGE:
+        if shape in (self.MERGE_PAGE, self.MERGE_PAGE_ORDERED):
             start, end = query._range
             return [{c: r[c] for c in query._columns} for r in self._merges[start : end + 1]]
         if shape in (self.TEAMS_METADATA, self.TEAMS_DEPRECATED):

@@ -2585,16 +2585,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: Both docstrings say re-queuing a team rewrites its pending row's `game_date`. The current `enqueue_scrape_request_once` (`supabase/migrations/20261020020000_atomic_matchbalance_refresh.sql`) reuses an active row and only promotes its priority ("Never rewrite an adopted request's registration, date, or FIFO position"), raising 23505 on a conflicting date or registration. The helper's stated reason for protecting a user's pending priority-1 row no longer holds as written, and it reads only canonical ids, so it misses a row stored under a merged-away id. Fix both docstrings and decide whether the helper is still needed. Found by a consistency review on 2026-11-02.
 - **Noted**: 2026-11-02
 
-### MergeResolver pages team_merge_map without an order, so a ranking run can miss merges
-
-- **ID**: IMP-392
-- **Status**: open
-- **Type**: direct
-- **Category**: reliability
-- **Where**: `MergeResolver.load_merge_map` in `src/utils/merge_resolver.py`
-- **Why**: It reads `team_merge_map` in 1,000-row `.range()` pages with no `.order()`, so Postgres may order each page differently and a page boundary can skip or repeat rows; the table held 27,129 rows on 2026-11-02, about 28 pages. `scripts/calculate_rankings.py` builds a `MergeResolver`, so a skipped row leaves that merged-away team's games unresolved for the run. Order by the unique `deprecated_team_id`, as `load_merge_map` in `scripts/exclude_merge_duplicate_games.py` does. A ranking-engine change, so it needs the ranking-change review. Distinct from IMP-260, which is about the spread of merge resolvers rather than this defect. Found by a consistency review on 2026-11-02.
-- **Noted**: 2026-11-02
-
 ### A dry-run game import still writes a build_logs row
 
 - **ID**: IMP-393

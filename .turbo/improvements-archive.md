@@ -1875,3 +1875,15 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Noted**: 2026-08-31
 - **Update (2026-10-31)**: `20261031120000_revoke_public_grants_on_state_ledger_tables.sql` revokes all three tables and the three ledger sequences (`team_state_audit_id_seq`, `team_state_review_queue_id_seq`, `team_state_probe_log_id_seq`) from anon and authenticated; a table REVOKE does not reach a sequence, and `tgs_events` has none. The test now loops over `NEW_TABLES` plus the sequences and reads each relation's newest GRANT or REVOKE, so a later grant back fails it. Hand-applied by the owner.
 - **Refs**: branch `feat/state-ledger-revoke`
+
+### MergeResolver pages team_merge_map without an order, so a ranking run can miss merges
+
+- **ID**: IMP-392
+- **Status**: done
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `MergeResolver.load_merge_map` in `src/utils/merge_resolver.py`
+- **Why**: It reads `team_merge_map` in 1,000-row `.range()` pages with no `.order()`, so Postgres may order each page differently and a page boundary can skip or repeat rows; the table held 27,129 rows on 2026-11-02, about 28 pages. `scripts/calculate_rankings.py` builds a `MergeResolver`, so a skipped row leaves that merged-away team's games unresolved for the run. Order by the unique `deprecated_team_id`, as `load_merge_map` in `scripts/exclude_merge_duplicate_games.py` does. A ranking-engine change, so it needs the ranking-change review. Distinct from IMP-260, which is about the spread of merge resolvers rather than this defect. Found by a consistency review on 2026-11-02.
+- **Noted**: 2026-11-02
+- **Update (2026-11-04)**: Order each page by the unique `deprecated_team_id`. Five loader regressions cover unstable row order, exact/partial page boundaries, refresh, and a failed later page; removing ordering or ordering by the nonunique canonical ID fails the completeness regression. The read-only live check loaded all 27,132 mappings across 28 pages. The same frozen-input reader comparison retained every mapping and resolved game field; the full 18-board local run completed with no database writes.
+- **Refs**: branch `fix/merge-map-pagination-20261104`; `tests/unit/test_merge_resolver.py`
