@@ -2621,6 +2621,14 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: Those six steps install the newest `supabase` (verified by grep 2026-11-02), while CI installs `requirements.lock` (`supabase==2.18.1`), so the queue jobs run a different client from the one their tests pass against — a newer postgrest major (2.33.0 resolved on 2026-11-02, reported by review). An exception class or response shape that changes between majors would pass CI and break only in the scheduled run. Install the lock file, or pin the same versions, in those steps.
 - **Noted**: 2026-11-02
 
+### Stop a change the cleanup page always drops from holding back a merge pair every week
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: the `changing` set in `merge_proposals` in `scripts/team_cleanup/propose_week.py`; `select` in `scripts/team_cleanup/pages.py`
+- **Why**: `changing` takes every team in the clubs, states and ages `proposals.json`, so a pair touching one is left off as "another stage proposes to change one of its teams this week" so as not to race that write. A change the page always drops (for example no game in the past year, or a club guess proposing no club) is proposed again every week and never applied, so its pair never reaches the page. A review agent measured it read-only on the 2026-11-04 run: 57 pairs held back by `changing`, 6 of them only by a team with no game in a year, 2 of those held only by the past-year filter. Build `changing` only from changes the page would show.
+- **Noted**: 2026-11-03
+
 ### Raise the supabase floor so an old client cannot cut paged reads to 999 rows
 
 - **Type**: direct

@@ -76,19 +76,21 @@ into `<run>/clubs/review/skill/` as merges pack theirs; each change gets apply, 
 second reviewer with the opposite prior. The page then routes each reviewed change: **apply** to the
 automatic lane; **reject** to the automatic lane kept as it is (the card's `keep_as_is`), recorded Don't apply
 so the scan's guess stops coming back until it lapses; **hold** to a card giving the reviewers' reason. A listed guess the
-review did not reach waits for next week's. A change declined, stale, moved or undone is never reviewed.
+review did not reach waits for next week's. A change declined, stale, moved or undone, or one whose team has no game
+in the past year, is never reviewed.
 
 Every club card (a hold, a trusted-tier change the rules do not settle, or a settled change the automatic cap leaves
 a card) is shown only when its team has a game this season, played or scheduled; the rest are left off as "no game
-this season", proposed again each week, and reach the page once the team plays. The automatic lane is not filtered:
-a change inside the automatic cap applies, or is kept as it is, whatever the team's schedule (owner, 2026-11-03, for
-both).
+this season" (or "no game in the past year", for a team idle that long), proposed again each week, and reach the
+page once the team plays. The automatic lane needs only the game in the past year every stage needs (see Step 2's
+build), so a change inside the automatic cap applies, or is kept as it is, for a team with no game yet this season
+(owner, 2026-11-03, for both).
 
 ## States
 
 Before the page, `scripts/team_cleanup/review_states.py` reviews every state change the rules leave to
-a person, up to `page_caps.states.review` a week: the club-count corrections no rule makes sure, the
-changes the sweep only queues, and the disagreements that propose the state a team already holds. Its
+a person, up to `page_caps.states.review` a week (none for a team with no game in the past year): the
+club-count corrections no rule makes sure, the changes the sweep only queues, and the disagreements that propose the state a team already holds. Its
 reviewers are the merges' locked-down ones, judging by the `assigning-team-states` skill itself, packed
 into `<run>/states/review/skill/` as merges pack theirs, and above all by its **Deciding without a person**: a state
 is settled unattended only by the owner's own answer or the team's or club's own name (owner,
@@ -132,8 +134,9 @@ manifest carries the counts as `scanned`.
 
 A pair neither of whose rows has a game this season (since Aug 1, played or scheduled) is left off:
 the owner does not merge those (2026-10-21). A cross-provider pair in the `1_provably_safe` tier
-merges on its own whatever its schedule: the row it retires holds no games, still none when the page is
-built, and its provider alias already points at the row it keeps.
+merges on its own even with no game this season, since the row it retires holds no games, still none when the
+page is built, and its provider alias already points at the row it keeps; like every change, it still needs a
+game in the past year on one of its rows (see Step 2's build).
 
 Before the page, `scripts/team_cleanup/review_merges.py` reviews the rest (`merging-duplicate-teams`
 Step 5, run unattended), up to
@@ -326,7 +329,11 @@ build without `--publish` on a run the website or the autopilot serves: a page o
 published cards reads as built, so the autopilot never publishes that stage and its collect then
 fails every tick. The plain build is for the Artifact fallback alone. The build prints the card
 count, how many changes go to the automatic lane, and the **page run** id
-(`YYYYMMDDTHHMMSSZ-<6 hex>`). It leaves off cards whose team is gone, merged or moved since the
+(`YYYYMMDDTHHMMSSZ-<6 hex>`). In every stage and both lanes it first leaves off, as "no game in the past
+year", each change whose team has no game, played or scheduled, in the past year, counting the games of every
+row merged into it; a pair is left off only when neither row has one (owner, 2026-11-03: "Whole cleanup").
+The reviews start from the same selection, so no reviewer sees such a change, and the scan proposes it again
+each week until the team has a game. It leaves off cards whose team is gone, merged or moved since the
 propose, ones the owner already declined (a group-4 age change only when an undo declined it; see **Ages**),
 for ages each group-4 change for a team with no game this season, for merges each pair neither of whose rows has a game this
 season, for clubs each guess proposing no club, each guess the scan lists without approving (the
