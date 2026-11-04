@@ -18,6 +18,13 @@ from scripts.team_cleanup.run_store import CHANGE_REVIEW_KEYS, MANIFEST_FILE, ch
 from tests.unit import test_team_cleanup_pages as pt  # noqa: E402
 from tests.unit.test_team_cleanup_review_merges import CLAUDE, _allowed, _Reviewers  # noqa: E402
 
+
+@pytest.fixture(autouse=True)
+def _every_team_plays_within_a_year(monkeypatch):
+    """No change is left off for want of a game in the past year."""
+    monkeypatch.setattr(pages, "idle_a_year", lambda p, ev: False)
+
+
 QUEUED_APPLY = "the rules only queued it, and an approval given unattended would count as the owner's"
 FILL_DECLINE = "the weekly fill job writes a blank state the rules fill, whatever is declined"
 UNNAMED = "nothing in its own name or its club's name places it in NV"

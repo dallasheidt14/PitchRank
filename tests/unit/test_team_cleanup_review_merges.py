@@ -744,9 +744,10 @@ class _Panel:
 
 def test_the_review_takes_the_pairs_the_page_shows_and_its_verdicts_reach_the_lanes(tmp_path, monkeypatch, capsys):
     """Selection, evidence, reviewers and the page together: a provably safe pair whose retiring row holds no games
-    merges unreviewed, an idle pair is left off, and a reviewed pair goes where its verdict sends it, a provably safe
-    pair whose retiring row has played since the scan among them, and a merge the second reviewer did not confirm
-    among the cards."""
+    merges unreviewed, an idle pair is left off, a pair neither of whose rows has a game in the past year never
+    reaches a reviewer, and a reviewed pair goes where its verdict sends it, a provably safe pair whose retiring row
+    has played since the scan among them, and a merge the second reviewer did not confirm among the cards."""
+    monkeypatch.setattr(pages, "A_YEAR_AGO", f"{SEASON - 1}-11-01")
     pairs = [
         pt._pair("cleared", "c-keep", doorway="D"),
         pt._pair("safe", "s-keep", tier="1_provably_safe"),
@@ -754,12 +755,14 @@ def test_the_review_takes_the_pairs_the_page_shows_and_its_verdicts_reach_the_la
         pt._pair("played", "p-keep", tier="1_provably_safe"),
         pt._pair("held", "h-keep", doorway="D"),
         pt._pair("doubted", "d-keep", doorway="D"),
+        pt._pair("dormant", "dm-keep", tier="1_provably_safe"),
     ]
     teams = [*(t for p in pairs for t in (p["merge_id"], p["keep_id"])), "o1"]
     games = [
         ("cleared", "o1", _day(9, 1)), ("c-keep", "o1", _day(9, 2)), ("s-keep", "o1", _day(9, 3)),
         ("played", "o1", _day(9, 4)), ("held", "o1", _day(9, 5)), ("h-keep", "o1", _day(9, 6)),
-        ("doubted", "o1", _day(9, 7)), ("d-keep", "o1", _day(9, 8)),
+        ("doubted", "o1", _day(9, 7)), ("d-keep", "o1", _day(9, 8)), ("i-keep", "o1", _day(7, 31)),
+        ("dormant", "o1", _day(10, 31, SEASON - 1)),
     ]  # fmt: skip
     store = tmp_path / "store"
     pt._reviewing(store)
@@ -794,7 +797,9 @@ def test_the_review_takes_the_pairs_the_page_shows_and_its_verdicts_reach_the_la
         "one reviewer found one squad (because doubted), and a second did not agree: confirmed"
     )
     assert cards["doubted"]["swap"] is False
-    assert [(p["merge_id"], p["why"]) for p in manifest["left_out"]] == [("idle", pages.IDLE_WHY)]
+    assert [(p["merge_id"], p["why"]) for p in manifest["left_out"]] == [
+        ("dormant", pages.IDLE_YEAR_WHY), ("idle", pages.IDLE_WHY),
+    ]  # fmt: skip
     assert manifest["overflow"] == []
 
 

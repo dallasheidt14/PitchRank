@@ -17,13 +17,13 @@ RUN_SLICES of the slices still queued, the rest waiting for the next run:
                             routes by
   answers/                  a folder per reviewer, the failed attempts, and every reviewer's log
 
-The review takes the changes the page would otherwise leave off as guesses, and any change of a trusted tier
-the scan left unapproved because two sources disagree; never one proposing no club, nor one declined, stale,
-moved or undone (page_caps.clubs.review changes a week). The reviewers are the duplicate review's, run the same
-way (review_merges.py): a change they approve applies on its own, a reject a second reviewer with the opposite
-prior upholds is recorded as declined, so the scan's guess stays away until that decline lapses at the eighth
-weekly run (expire_decisions.py), and anything else is a hold, the owner's card if its team has a game this
-season.
+The review takes the changes the page would otherwise leave off as guesses, and any change of a trusted tier the
+scan left unapproved because two sources disagree; never one proposing no club, nor one declined, stale, moved or
+undone, nor one whose team has no game in the past year (page_caps.clubs.review changes a week). The reviewers are
+the duplicate review's, run the same way (review_merges.py): a change they approve applies on its own, a reject a
+second reviewer with the opposite prior upholds is recorded as declined, so the scan's guess stays away until that
+decline lapses at the eighth weekly run (expire_decisions.py), and anything else is a hold, the owner's card if its
+team has a game this season.
 
 Without --execute it reads the guesses and says what it would do, writing nothing.
 

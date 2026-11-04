@@ -97,8 +97,9 @@ their pairs through Step 5 unattended (`scripts/team_cleanup/review_merges.py`).
 clear merges with no person looking, a reject a second reviewer upholds is recorded as Keep separate, and
 a held pair reaches the owner's card on the cleanup review page, whose Keep separate reaches
 `team_cleanup_decisions` when the stage applies; that skill's **Merges** section has the exceptions.
-Doorway C's `1_provably_safe` tier merges unreviewed, and a pair with no game this season on either row
-is left off, since the owner does not merge those. Check that week's run before merging a pair by hand.
+Every pair with no game this season on either row is left off, since the owner does not merge those, except
+one in Doorway C's `1_provably_safe` tier, which merges unreviewed so long as one of its rows has a game in the
+past year. Check that week's run before merging a pair by hand.
 
 **Doorway A — name similarity.** `scripts/find_fuzzy_duplicate_teams.py`, called in-process by
 `decide_team_merges.py`. This is the recall ceiling for everything in Step 3: a pair it cannot

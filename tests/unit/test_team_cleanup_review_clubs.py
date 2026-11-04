@@ -22,6 +22,12 @@ from tests.unit.test_team_cleanup_review_merges import _Db as _LookupDb  # noqa:
 from tests.unit.test_team_cleanup_review_merges import _team as _lookup_team  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def _every_team_plays_within_a_year(monkeypatch):
+    """No change is left off for want of a game in the past year, unless a test puts the real rule back."""
+    monkeypatch.setattr(pt.pages, "idle_a_year", lambda p, ev: False)
+
+
 def _row(item, tid, old, new, tier="capital"):
     return {
         "item": item, "team_id_master": tid, "team_name": f"Team {tid}", "field": "club_name", "old_value": old,
@@ -147,12 +153,22 @@ UNDONE = {"id": 1, "stage": "clubs", "team_id_master": "undone", "field": "club_
           "reverted_at": "2026-10-10T00:00:00+00:00"}  # fmt: skip
 
 
-def test_the_review_takes_each_guess_once_never_one_settled_blank_declined_undone_stale_gone_or_moved(tmp_path):
-    late = [pt._scan_row(tid, "Lonestar", f"LSC {tid}", tier="recased") for tid in ("stale", "gone", "moved")]
+def test_the_review_takes_each_guess_once_never_one_settled_blank_declined_undone_stale_gone_moved_or_idle(
+    tmp_path, monkeypatch
+):
+    """A team with no game since a year ago is left off before the review reads it."""
+    monkeypatch.setattr(pt.pages, "idle_a_year", pt.IDLE_A_YEAR)
+    monkeypatch.setattr(pt.pages, "A_YEAR_AGO", "2025-11-01")
+    late = [pt._scan_row(tid, "Lonestar", f"LSC {tid}", tier="recased") for tid in ("stale", "gone", "moved", "idle")]
     rows = [*GUESSES, pt._scan_row("undone", "Lonestar", "LSC Blue", tier="recased"), *late]
     teams = [*TEAMS, pt._team("undone", club="Lonestar"), pt._team("stale", club="Lonestar"),
-             pt._team("moved", club="Lonestar FC")]  # fmt: skip
-    store, db = _week(tmp_path, rows, teams, team_cleanup_decisions=DECLINED, team_cleanup_changes=[UNDONE])
+             pt._team("moved", club="Lonestar FC"), pt._team("idle", club="Lonestar")]  # fmt: skip
+    games = [pt._game(1, "cap1", "opp", "2025-11-01"), pt._game(2, "opp", "cap2", "2026-11-14"),
+             pt._game(3, "rec", "opp", "2026-03-01"), pt._game(4, "unc", "opp", "2026-09-05"),
+             pt._game(5, "idle", "opp", "2025-10-31")]  # fmt: skip
+    store, db = _week(
+        tmp_path, rows, teams, games=games, team_cleanup_decisions=DECLINED, team_cleanup_changes=[UNDONE]
+    )
     folder = pt.stage_dir(store, pt.RUN, "clubs")
     pt.write_json(folder / pt.STALE_FILE, [{"team_id_master": "stale", "field": "club_name", "changed": "renamed"}])
 
@@ -306,9 +322,10 @@ def test_the_review_s_verdicts_reach_the_lanes_and_a_found_wrong_guess_is_record
     """Selection, evidence, reviewers, the page and the automatic lane's collect together: an approved change
     and an approved tier apply on their own, an upheld reject goes to the lane kept as it is and is recorded
     Don't apply, an owner card is shown only for a team with a game this season while the automatic lane takes its
-    changes regardless (owner, 2026-11-03), and a blank or declined guess never reaches a reviewer. No team in the
-    automatic lane has a game; unc's one game is recorded under a row since merged into it, idle's falls the day
-    before the season, and und's trusted-tier change, undone before, would be a card no review reached."""
+    changes whatever the team's schedule this season (owner, 2026-11-03), and a blank or declined guess never reaches
+    a reviewer. No team in the automatic lane has a game this season (the past-year rule is stubbed off here); unc's
+    one game is recorded under a row since merged into it, idle's falls the day before the season, and und's
+    trusted-tier change, undone before, would be a card no review reached."""
     rows = [*GUESSES, pt._scan_row("idle", "Concorde Fire", "CF", tier="unclear"),
             pt._scan_row("und", "LAS VEGAS SPORTS ACADEMY", "Las Vegas Sports Academy")]  # fmt: skip
     teams = [*TEAMS, pt._team("idle", club="Concorde Fire"), pt._team("und", club="LAS VEGAS SPORTS ACADEMY")]

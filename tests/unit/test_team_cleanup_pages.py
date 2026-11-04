@@ -65,6 +65,15 @@ def _every_club_team_plays_this_season(monkeypatch):
     monkeypatch.setattr(pages, "idle_club_card", lambda p, ev: False)
 
 
+IDLE_A_YEAR = pages.idle_a_year
+
+
+@pytest.fixture(autouse=True)
+def _every_team_plays_within_a_year(monkeypatch):
+    """No change is left off for want of a game in the past year either, unless a test puts the real rule back."""
+    monkeypatch.setattr(pages, "idle_a_year", lambda p, ev: False)
+
+
 RUN = "2026-10-14-nv"
 ROW_CAP = 1000
 COLUMNS = {
@@ -1399,6 +1408,55 @@ def test_settled_changes_go_to_the_automatic_lane_up_to_its_cap_and_the_rest_sta
 
 
 @pytest.mark.parametrize(
+    ("auto", "lanes"),
+    [(3, (["a", "b"], ["fix"])), (0, ([], ["a", "b", "fix"]))],
+    ids=["automatic-lane", "cards"],
+)
+def test_a_change_whose_team_has_no_game_in_the_past_year_is_left_off_either_lane(
+    tmp_path, monkeypatch, capsys, auto, lanes
+):
+    """A game on the day a year ago counts, a scheduled one does, and so does one played under a row merged in."""
+    monkeypatch.setattr(pages, "idle_a_year", IDLE_A_YEAR)
+    monkeypatch.setattr(pages, "A_YEAR_AGO", "2025-11-01")
+    store, db = _sure_week(tmp_path, monkeypatch, auto=auto)
+    db.tables["games"] = [
+        _game(1, "a", "o1", "2025-11-01"),
+        _game(2, "o1", "b-old", "2025-12-06"),
+        _game(3, "c", "o1", "2025-10-31"),
+        _game(4, "fix", "o1", (date.today() + timedelta(days=120)).isoformat()),
+    ]
+    db.tables["team_merge_map"] = [_merged("b-old", "b")]
+
+    code, _ = _build(monkeypatch, capsys, store, db)
+
+    manifest = _read(store, "states", MANIFEST_FILE)
+    assert code == 0
+    assert tuple([p["team_id_master"] for p in manifest[lane].values()] for lane in ("auto", "cards")) == lanes
+    assert [(p["team_id_master"], p["why"]) for p in manifest["left_out"]] == [("c", "no game in the past year")]
+
+
+def test_an_ages_change_whose_team_has_no_game_in_the_past_year_is_left_off(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(pages, "idle_a_year", IDLE_A_YEAR)
+    monkeypatch.setattr(pages, "A_YEAR_AGO", "2025-11-01")
+    store = tmp_path / "store"
+    _reviewing(store)
+    _ages(store, [_plan_row("live", "u10", "u9"), _plan_row("idle", "u10", "u9")])
+    games = [_game(1, "live", "o1", "2026-09-05"), _game(2, "idle", "o1", "2025-10-31")]
+    db = _Db(teams=[_team("live", age="u10"), _team("idle", age="u10")], games=games)
+
+    code, _ = _build(monkeypatch, capsys, store, db, "ages")
+
+    manifest = _read(store, "ages", MANIFEST_FILE)
+    assert code == 0 and [p["team_id_master"] for p in manifest["cards"].values()] == ["live"]
+    assert [(p["team_id_master"], p["why"]) for p in manifest["left_out"]] == [("idle", "no game in the past year")]
+
+
+def test_the_past_year_starts_365_days_back():
+    """A run that crosses midnight between the import and this check reads one day more."""
+    assert (date.today() - date.fromisoformat(pages.A_YEAR_AGO)).days in (365, 366)
+
+
+@pytest.mark.parametrize(
     "caps",
     [
         {"cards": 150},
@@ -2553,7 +2611,9 @@ def test_a_review_whose_verdict_the_review_never_writes_stops_the_build(tmp_path
 
 def test_a_pair_with_no_game_this_season_is_left_off_unless_it_is_provably_safe(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(pages, "idle", IDLE)
+    monkeypatch.setattr(pages, "idle_a_year", IDLE_A_YEAR)
     season = _soccer_season_year()
+    monkeypatch.setattr(pages, "A_YEAR_AGO", f"{season - 1}-11-01")
     pairs = [
         _pair("live", "l-keep"),
         _pair("scheduled", "sc-keep"),
@@ -2565,6 +2625,7 @@ def test_a_pair_with_no_game_this_season_is_left_off_unless_it_is_provably_safe(
         _game(1, "l-keep", "o1", f"{season}-09-01"),
         _game(2, "o1", "scheduled", f"{season + 1}-03-01"),
         _game(3, "st-keep", "o1", f"{season}-07-31"),
+        _game(4, "s-keep", "o1", f"{season}-07-30"),
     ]
     store, db = _merge_week(tmp_path, monkeypatch, pairs, teams=teams, games=games, auto=50)
 
