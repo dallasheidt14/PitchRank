@@ -18,6 +18,7 @@ FIXTURE_DATE = "2026-09-20"
 PLAYED_DATE = "2026-09-13"
 SCHEDULED_AT = "2026-08-10T22:02:59.681194+00:00"
 RESCHEDULED_AT = "2026-09-11T08:09:25.669007+00:00"
+SINCE = "2026-08-01"
 
 
 def _game(
@@ -109,6 +110,13 @@ def test_a_fixture_with_two_results_is_selected_once():
     assert _selected([_game("fx")], results) == [("fx", "res-1")]
 
 
+def test_a_match_stored_twice_explains_only_one_fixture():
+    fixtures = [_game("fx-near", game_date="2026-09-20"), _game("fx-far", game_date="2026-09-27")]
+    copies = [_played("res-copy-1"), _played("res-copy-2")]
+
+    assert _selected(fixtures, copies) == [("fx-near", "res-copy-1")]
+
+
 def test_a_result_on_a_date_the_pair_was_already_scheduled_is_the_other_leg():
     # Leg one's result was saved beside its own fixture, after leg two's fixture was listed
     leg_two = _game("fx-leg2", game_date="2026-10-04")
@@ -154,7 +162,8 @@ def _excluded(db):
 
 
 def _execute(monkeypatch, tmp_path, db, *argv):
-    return _run_main(monkeypatch, db, [*argv, "--execute", "--out", str(tmp_path / "log.json")])
+    since = [] if "--since" in argv else ["--since", SINCE]
+    return _run_main(monkeypatch, db, [*since, *argv, "--execute", "--out", str(tmp_path / "log.json")])
 
 
 def test_default_run_is_a_dry_run(monkeypatch, tmp_path):
@@ -180,7 +189,7 @@ def test_execute_hides_only_the_leftover_and_logs_it(monkeypatch, tmp_path):
     )
     log = tmp_path / "log.json"
 
-    assert _run_main(monkeypatch, db, ["--execute", "--out", str(log)]) == 0
+    assert _run_main(monkeypatch, db, ["--since", SINCE, "--execute", "--out", str(log)]) == 0
 
     assert _excluded(db) == ["fx"]
     assert json.loads(log.read_text(encoding="utf-8")) == {"applied": True, "game_ids": ["fx"], "games_excluded": 1}
@@ -199,7 +208,7 @@ def test_the_rollback_log_is_written_before_the_first_update(monkeypatch, tmp_pa
     db = _DB([_game("fx"), _played()])
     monkeypatch.setattr(db, "table", lambda name: _Watching(db, name))
 
-    assert _run_main(monkeypatch, db, ["--execute", "--out", str(log)]) == 0
+    assert _run_main(monkeypatch, db, ["--since", SINCE, "--execute", "--out", str(log)]) == 0
 
     assert seen == [{"applied": False, "game_ids": ["fx"]}]
 
@@ -326,7 +335,7 @@ def test_an_already_hidden_fixture_is_not_logged_again(monkeypatch, tmp_path):
     )
     log = tmp_path / "log.json"
 
-    assert _run_main(monkeypatch, db, ["--execute", "--out", str(log)]) == 0
+    assert _run_main(monkeypatch, db, ["--since", SINCE, "--execute", "--out", str(log)]) == 0
 
     assert json.loads(log.read_text(encoding="utf-8"))["game_ids"] == ["fx"]
 
@@ -345,13 +354,24 @@ def test_a_result_scheduled_on_its_own_date_before_the_since_window_is_still_see
     assert _excluded(db) == ["fx-own-date"]
 
 
+def test_execute_needs_since(monkeypatch, tmp_path):
+    db = _DB([_game("fx"), _played()])
+    log = tmp_path / "log.json"
+
+    with pytest.raises(SystemExit, match="--since"):
+        _run_main(monkeypatch, db, ["--execute", "--out", str(log)])
+
+    assert db.executed == []
+    assert not log.exists()
+
+
 def test_execute_refuses_to_overwrite_a_rollback_log(monkeypatch, tmp_path):
     db = _DB([_game("fx"), _played()])
     log = tmp_path / "log.json"
     log.write_text("{}", encoding="utf-8")
 
     with pytest.raises(SystemExit):
-        _run_main(monkeypatch, db, ["--execute", "--out", str(log)])
+        _run_main(monkeypatch, db, ["--since", SINCE, "--execute", "--out", str(log)])
 
     assert _excluded(db) == []
     assert log.read_text(encoding="utf-8") == "{}"

@@ -15,7 +15,9 @@ date already held a blank for the pair by the time the fixture was saved, which 
 scheduled there. Each result explains one fixture, nearest date first, so a pair with more
 fixtures than results keeps the rest; a fixture hidden by an earlier run claims its result first,
 so a re-run over the same --since cannot spend one twice. Rows from the last MIN_AGE_DAYS are left
-alone, because their own result may still be on its way.
+alone, because their own result may still be on its way. Results on one date count once, so a match
+stored twice cannot explain two fixtures. --execute needs --since: the rule was checked for one
+season, and earlier tournament weekends held real games it would hide.
 
 Games are immutable, so this sets is_excluded, which the team page and the ranking loader skip.
 Nothing in the import path clears it: should a hidden fixture's game turn up on its own date
@@ -27,7 +29,7 @@ saved pair and aligned scores; the script refuses --execute on a collision.
 Usage:
     python scripts/exclude_rescheduled_fixture_leftovers.py                      # dry run
     python scripts/exclude_rescheduled_fixture_leftovers.py --since 2026-08-01   # one season
-    python scripts/exclude_rescheduled_fixture_leftovers.py --execute --out log.json
+    python scripts/exclude_rescheduled_fixture_leftovers.py --since 2026-08-01 --execute --out log.json
 """
 
 from __future__ import annotations
@@ -132,10 +134,13 @@ def select_leftovers(
             for r in results[key]
             if moved_here(f, r, key)
         )
-        claimed: set[str] = set()
-        for _live, _gap, fixture_id, result_id, fixture, result in candidates:
-            if fixture_id not in claimed and result_id not in claimed:
-                claimed.update((fixture_id, result_id))
+        claimed_fixtures: set[str] = set()
+        # By date, not row: one match stored twice must not explain two fixtures
+        claimed_dates: set[str] = set()
+        for _live, _gap, fixture_id, _result_id, fixture, result in candidates:
+            if fixture_id not in claimed_fixtures and result["game_date"] not in claimed_dates:
+                claimed_fixtures.add(fixture_id)
+                claimed_dates.add(result["game_date"])
                 chosen.append((fixture, result))
     return chosen
 
@@ -147,6 +152,9 @@ def main() -> int:
     ap.add_argument("--out", default=None, help="where to write the rollback log")
     args = ap.parse_args()
     dry_run = not args.execute
+    if args.execute and not args.since:
+        # The rule was checked against GotSport for one season; earlier tournaments broke it
+        raise SystemExit("--execute needs --since, the first game_date to hide (e.g. 2026-08-01)")
 
     sb = get_client()
     gotsport_id = sb.table("providers").select("id").eq("code", "gotsport").execute().data[0]["id"]
