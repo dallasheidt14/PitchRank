@@ -66,6 +66,11 @@ event_name        TEXT
 -- Never UPDATE game data; team links and corrections only (see below)
 ```
 
+`created_at` is a table-rebuild artifact for older games, as on `teams`: its minimum is 2025-11-06
+(read 2026-11-04) while `game_date` reaches back to 2020-08-29, so older games carry the rebuild's
+stamp, not when they were first saved. Treat `created_at` as a save time, and compare two games by it, only when both
+values are later than 2025-11-06.
+
 `result` (`W`/`L`/`D`/`U`) is from the **scraping team's** side, not the home side: a `W` row can be
 a home loss. When filling scores onto an unscored fixture (the `batch_backfill_null_scores` RPC)
 whose home and away are the other way round from the incoming result, swap the scores and keep
@@ -493,6 +498,16 @@ excluding.
 
 At about 13 ms per row on a typical date (measured 2026-09-14), a 100-id `.in_()` batch takes
 roughly 1.5 s warm, inside the 8-second budget.
+
+Nothing in the import path clears `is_excluded` again. `_check_duplicates`
+(`src/etl/enhanced_pipeline.py`) finds an existing row by `game_uid` whether or not it is hidden,
+and `batch_backfill_null_scores` fills its null scores without touching the flag. So if a hidden
+blank's real result arrives later under the same `game_uid`, the score lands on the hidden row and
+stays off the team page and out of rankings; a result under a different uid is inserted as a new
+row instead. Un-hiding means setting `is_excluded = false` on the ids in the run's rollback log:
+`scripts/exclude_merge_duplicate_games.py --revert` replays its own log, and the other exclude
+scripts print that manual step. Before hiding unscored rows in bulk, keep that log and plan a
+later re-check of its ids for rows that have gained a score.
 
 ## NEVER DO
 
