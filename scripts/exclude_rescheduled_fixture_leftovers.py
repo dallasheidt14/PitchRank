@@ -110,8 +110,13 @@ def select_leftovers(
     fixture is among them, so a result on the fixture's own date is ruled out as scheduled there.
     """
     results: dict[tuple, list[dict]] = defaultdict(list)
+    # A match stored twice was first saved when its earliest copy was
+    first_saved: dict[tuple, datetime] = {}
     for g in scored:
-        results[resolved_pair(g, merge_map)].append(g)
+        key = resolved_pair(g, merge_map)
+        results[key].append(g)
+        day = (g["game_date"], key)
+        first_saved[day] = min(first_saved.get(day, _saved_at(g)), _saved_at(g))
     scheduled: dict[tuple, list[datetime]] = defaultdict(list)
     for g in blanks:
         scheduled[(g["game_date"], resolved_pair(g, merge_map))].append(_saved_at(g))
@@ -122,7 +127,7 @@ def select_leftovers(
     def moved_here(fixture: dict, result: dict, key: tuple) -> bool:
         return (
             _days_apart(fixture, result) <= WINDOW_DAYS
-            and _saved_at(result) - _saved_at(fixture) >= MIN_SAVED_GAP
+            and first_saved[(result["game_date"], key)] - _saved_at(fixture) >= MIN_SAVED_GAP
             and not any(saved <= _saved_at(fixture) for saved in scheduled[(result["game_date"], key)])
         )
 

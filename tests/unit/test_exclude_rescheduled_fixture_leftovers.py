@@ -117,6 +117,14 @@ def test_a_match_stored_twice_explains_only_one_fixture():
     assert _selected(fixtures, copies) == [("fx-near", "res-copy-1")]
 
 
+def test_a_later_copy_of_a_result_saved_before_the_fixture_does_not_count():
+    fixture = _game("fx", created_at="2026-09-15T00:00:00+00:00")
+    original = _played("res-original", created_at="2026-09-14T00:00:00+00:00")
+    later_copy = _played("res-copy", created_at="2026-09-17T00:00:00+00:00")
+
+    assert _selected([fixture], [original, later_copy]) == []
+
+
 def test_a_result_on_a_date_the_pair_was_already_scheduled_is_the_other_leg():
     # Leg one's result was saved beside its own fixture, after leg two's fixture was listed
     leg_two = _game("fx-leg2", game_date="2026-10-04")
