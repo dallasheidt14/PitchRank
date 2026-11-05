@@ -1,6 +1,6 @@
 ---
 name: normalizing-club-names
-description: "Restores and standardizes PitchRank teams' club_name from the provider, the team's own name and the weekly cleanup's log rather than one heuristic, with every write compared against the value it read and reversible from its log. Use when asked to fix a club name, repair swapped, all-caps or mis-cased club names, restore names the importer overwrote, review or approve club-name proposals, undo a club-name batch, decide which club a team belongs to, check whether the weekly club cleanup damaged a name, or investigate why a team is filed under a club it does not belong to."
+description: "Restores and standardizes PitchRank teams' club_name from the provider, the team's own name and the weekly cleanup's log rather than one heuristic, with every write compared against the value it read and reversible from its log. Use when asked to fix a club name, repair swapped, all-caps or mis-cased club names, restore names the importer overwrote, review or approve club-name proposals, undo a club-name batch, decide which club a team belongs to, check whether the weekly club cleanup damaged a name, settle the spelling groups the club-name variant scan still lists, or investigate why a team is filed under a club it does not belong to."
 ---
 
 # Normalizing club names
@@ -340,7 +340,9 @@ and have no `--execute`, so pass `--dry-run` when running either by hand (the wo
 it only on a dispatch with `dry_run` set). The third step standardizes spellings through
 `scripts/full_club_analysis.py`, which carries its own canonical overrides and casing rules.
 
-So a naming rule decided here belongs in that script. A rule applied to rows alone is
+So a naming rule decided here belongs in that script; a spelling decided from one state's teams goes in
+`SPELLING_GROUP_OVERRIDES`, which the no-state pass (`analyze_no_state_teams`, which applies overrides to
+teams with no state) skips. A rule applied to rows alone is
 re-derived away the following Monday, and the only visible symptom is the same repair
 proposing the same names again.
 
@@ -352,3 +354,40 @@ directly and only on an all-caps name.
 
 So put a casing rule in `merge_case_variants`, or in `apply_provider_rules` for the provider
 pass, and test it on a group holding two spellings of one club.
+
+## Settling leftover spelling groups
+
+`scripts/scan_club_name_variants.py` lists the spelling groups each state still holds once the
+Monday pass has run; `--json <file>` also saves them. Its fold is deliberately loose, so each group is a question: branches,
+different clubs and placeholder values sit beside true variants.
+
+1. **Pre-judge every group.** A variant is the same club when it differs only by case,
+   punctuation, accents, a tag repeating the state or the club's own initials, or an equivalent
+   organisation word, and its teams' names agree. Its target is the canonical an existing
+   override already gives that club in that state, else the state's most common spelling that is
+   neither all-caps nor tagged. A branch, a tag naming another state, and a different
+   organisation word fielding different squads stay apart. A value listed in
+   `src/utils/placeholder_clubs.py` gets no spelling entry.
+2. **Ask the owner one question per group**, not per row: the name the club should carry, or keep
+   apart. Read any answer that is not a spelling ("leave for now", "different club") as leave
+   alone, and trim and collapse the whitespace in what is typed.
+3. **Check every typed name against the spellings that state already holds**, near matches
+   included, and ask about every new one in a single batch. A typed name is most often a typo or
+   near miss of an existing club ("Sozos FC" beside "Sozo FC").
+4. **Write each decision into `SPELLING_GROUP_OVERRIDES`.** Its patterns are in
+   `STATE_ONLY_PATTERNS`; an entry inline in `CLUB_CANONICAL_OVERRIDES` is also applied by the
+   no-state pass to stateless teams holding that spelling whenever its pattern names one
+   canonical in every state listing it. When a decision retires a
+   canonical other entries point at, redirect them in the same change: the chain and shadowing
+   tests in `tests/unit/test_full_club_analysis.py` fail otherwise.
+5. **Verify on the live table.** `scripts/full_club_analysis.py --dry-run` still writes the
+   tracked `scripts/club_name_fixes_male_all_states.sql` and a logs folder under the working
+   directory, so run it from a `git archive` export with the uncommitted candidate copied in,
+   credentials supplied from the checkout's root `.env` (`python -m dotenv -f <path> run --`), and
+   an HTTP guard that refuses every request but GET. Run the origin/main control and the
+   candidate back to back, since another session may be writing `club_name`. Expect the
+   intended renames on top of the control's fixes, except that a no-state fix whose pattern a
+   new entry shares drops out, since `STATE_ONLY_PATTERNS` is keyed by pattern. Then run
+   `analyze_state` again over the teams with each run's fixes overlaid: the candidate's second
+   pass may show only what the control's own second pass shows, and nothing touching a spelling
+   the new entries name or produce.

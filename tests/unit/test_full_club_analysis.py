@@ -411,6 +411,26 @@ def test_no_override_names_a_canonical_that_another_override_renames_back():
     assert not loops, "reciprocal overrides swap their two spellings on every run: " + "; ".join(loops)
 
 
+def test_no_override_is_taken_first_by_an_earlier_entry_naming_another_canonical():
+    """`analyze_state` lets the first entry that renames a club claim it, so a later entry whose
+    spelling an earlier same-state entry already renames to a different canonical never takes
+    effect: the decision it records is silently ignored every week. Exact and norm
+    entries name a spelling; regex and prefix entries do not, so only the first two are tested."""
+    by_state = {}
+    for entry in fca.CLUB_CANONICAL_OVERRIDES:
+        by_state.setdefault(entry[0], []).append(entry)
+    taken = []
+    for state, entries in by_state.items():
+        for i, (_, mtype, pattern, canonical) in enumerate(entries):
+            if mtype not in ("exact", "norm"):
+                continue
+            for _, m2, p2, out2 in entries[:i]:
+                if out2 not in (canonical, pattern) and fca._matches_override(pattern, m2, p2):
+                    taken.append(f"{state}: {pattern!r}->{canonical!r}, taken first by {p2!r}->{out2!r}")
+                    break
+    assert not taken, "these entries never take effect: " + "; ".join(taken)
+
+
 def test_no_override_names_a_canonical_that_another_override_moves_on_from():
     """A canonical some other entry renames is a spelling that has been retired.
 
@@ -449,18 +469,26 @@ def test_every_uysa_override_is_kept_out_of_the_no_state_pass():
     assert not missing, f"these UYSA patterns would reach a stateless team nationally: {missing}"
 
 
-@pytest.mark.parametrize(
-    "club", ["Blast", "Liverpool FC International Academy", "Impact Aspire", "Celtic GA"]
-)
+@pytest.mark.parametrize("club", ["Blast Blue", "Liverpool FC International Academy", "Impact Aspire", "Celtic GA"])
 def test_the_no_state_pass_leaves_a_generic_utah_name_alone(club):
     """The behaviour the exclusion exists for, driven through the pass the weekly run calls
     rather than asserted against the pattern set.
 
     Every name here is a UYSA override pattern, so each case dies when the exclusion is
-    dropped. A name the list does not hold -- a bare "Avalanche" or "Strikers", which the
-    docstring above cites as real clubs elsewhere -- would pass this test either way, since
-    the pass never had a rule to apply to it.
+    dropped. A name the list does not hold -- a bare "Avalanche", which the docstring above
+    cites as a real club elsewhere -- would pass this test either way, since the pass never
+    had a rule to apply to it.
     """
+    assert analyze_no_state_teams([_team("t0", club, None)]) == []
+
+
+@pytest.mark.parametrize(
+    "club", ["DASC", "Forza Youth FC", "Lincoln Youth Soccer", "LINCOLN YOUTH SOCCER (LYS)", "Herndon Football Club"]
+)
+def test_the_no_state_pass_leaves_an_owner_spelling_decision_alone(club):
+    """Each owner spelling decision was made from one state's teams, so none may rename a
+    stateless team: "DASC" is also a Nebraska club value, and a Lincoln Youth Soccer with no
+    state could be any of several Lincolns. Each case dies when the exclusion is dropped."""
     assert analyze_no_state_teams([_team("t0", club, None)]) == []
 
 
@@ -651,6 +679,17 @@ def test_a_short_word_the_database_writes_in_lowercase_keeps_the_majority_case()
 def test_colorado_edge_in_colorado_is_the_override_output():
     fixes, _ = _caps_fixes("CO", "Colorado Edge", "Colorado Edge", "Colorado Edge", "Colorado EDGE")
     assert fixes == {("Colorado EDGE", "Colorado Edge")}
+
+
+def test_every_spelling_of_tennessee_sc_its_state_tag_included_becomes_tennessee_sc():
+    """The owner's example, 2026-11-04: "TENNESSEE SOCCER CLUB (TN)" and "Tennessee Soccer Club" are Tennessee SC."""
+    clubs = ["Tennessee SC", "Tennessee Soccer Club (TN)", "TENNESSEE SOCCER CLUB (TN)", "Tennessee Soccer Club"]
+    fixes, _, _ = analyze_state([_team(f"t{i}", club, "TN") for i, club in enumerate(clubs)], "TN", VOCAB)
+    assert {(f["from"], f["to"]) for f in fixes} == {
+        ("Tennessee Soccer Club (TN)", "Tennessee SC"),
+        ("TENNESSEE SOCCER CLUB (TN)", "Tennessee SC"),
+        ("Tennessee Soccer Club", "Tennessee SC"),
+    }
 
 
 def test_a_five_letter_word_keeps_the_majority_case():

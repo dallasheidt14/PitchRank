@@ -206,8 +206,10 @@ The pair qualifies when **all** of:
    `normalize_club_for_comparison` in
    `src/utils/team_name_utils.py` is stronger, collapsing `X SC` onto `X Soccer Club`, but it
    too keeps `X` apart from `X SC`. **The repair is a data fix, not a detector change**: add the
-   variant to `CLUB_CANONICAL_OVERRIDES` in `scripts/full_club_analysis.py`, whose weekly run
-   rewrites the rows, and the pairs then appear on the next scan. Fixing only the rows is undone
+   variant to `SPELLING_GROUP_OVERRIDES` in `scripts/full_club_analysis.py`, whose weekly run
+   rewrites the rows, and the pairs then appear on the next scan. An entry written inline in
+   `CLUB_CANONICAL_OVERRIDES` instead also reaches every stateless team holding that spelling,
+   in any state. Fixing only the rows is undone
    the following Monday — see the normalizing-club-names skill.
 4. Normalised team names **identical**, minimum length 8. Containment is a separate, weaker tier;
    see the warning below.
