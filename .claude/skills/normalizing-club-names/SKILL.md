@@ -1,6 +1,6 @@
 ---
 name: normalizing-club-names
-description: "Restores and standardizes PitchRank teams' club_name from the provider, the team's own name and the weekly cleanup's log rather than one heuristic, with every write compared against the value it read and reversible from its log. Use when asked to fix a club name, repair swapped, all-caps or mis-cased club names, restore names the importer overwrote, review or approve club-name proposals, undo a club-name batch, decide which club a team belongs to, check whether the weekly club cleanup damaged a name, or investigate why a team is filed under a club it does not belong to."
+description: "Restores and standardizes PitchRank teams' club_name from the provider, the team's own name and the weekly cleanup's log rather than one heuristic, with every write compared against the value it read and reversible from its log. Use when asked to fix a club name, repair swapped, all-caps or mis-cased club names, restore names the importer overwrote, review or approve club-name proposals, undo a club-name batch, decide which club a team belongs to, check whether the weekly club cleanup damaged a name, settle the spelling groups the club-name variant scan still lists, or investigate why a team is filed under a club it does not belong to."
 ---
 
 # Normalizing club names
@@ -277,6 +277,58 @@ guard. It needs `SUPABASE_SERVICE_ROLE_KEY` even for a dry run, read from `.env.
 working directory when that file exists, else from `.env` there. The weekly team-cleanup loop
 does not run it, but its apply refuses to start while it is running.
 
+## When club_name holds a squad name
+
+A team whose `club_name` is its own squad name ("AFC United U12 Boys Black") sits outside every
+source above: `playmetrics` and `team_name` read only teams whose club is a canonical club, and
+`abbreviation` only restores a spelling the cleanup lowered. Propose the club by hand and apply it
+through `scripts/apply_vetted_club_names.py`.
+
+**Select on a squad label in `club_name`, not on `club_name` equal to `team_name`.** Equality also
+catches every real club whose one team is named for it. These mark a squad: U12, BU12, U-12; B13,
+G2015; 13B, 2015B; 13U, B11U; a two-year band (07/08, 2013/14); a bare birth year in the current
+cohort range; "8th Grade"; "12s". Leave out a bare two-digit number, a year outside that range, and
+Boys, Girls or Women on their own: real clubs carry them ("Upper 90 FC", "1974 Newark FC", "Bowie
+Boys and Girls Club"). Select from `teams` rather than the cleanup's `age_gender` review list, which
+covers only `PROVIDER_RULE_CODES` and whose `has_age_or_gender_text` misses most of these forms.
+
+**Read the club from the text before the first squad label, within the team's state.** The rules
+below stand in for a person's team-by-team call only because each needs a club other teams already
+carry. Read every state-and-club group before writing, and name the rule in each entry's `evidence`.
+The checks under **Judging a listed change** that hold whatever the tier apply to every club chosen
+here, as does the branch rule. Using the helpers in `scripts/full_club_analysis.py`, these decide:
+
+1. `CLUB_CANONICAL_OVERRIDES` maps the text for that state. This one wins, because the cleanup
+   rewrites the other spellings to it.
+2. Other teams in the state already use that club, compared case-insensitively or through
+   `normalize_for_grouping` or `normalized_club`. Take their most-used spelling.
+3. An in-state club is the text plus only club-suffix words (SC, FC, Soccer Club, SA).
+4. The text matches one of the above once trailing level, colour, gender or league words, or the
+   club's own initials, are dropped.
+
+When rules 2 to 4 name different clubs, or one of them fits two clubs, list the team. List a team
+with no state as well, since it has no in-state evidence.
+
+Take a branch club over its parent when the squad name carries the branch's words ("Alabama FC U11B
+Academy South White" is the Alabama FC South branch). League and level words (GA, ECNL, RL, N1,
+SCCL) name a league, never a branch. A match on the branch's initials alone goes to a person,
+because squad names also carry coach initials.
+
+**List the rest for a person**, each with its candidate: a match on initials alone (often a
+different club with the same letters), a shorter name that drops a place or branch word, a longer
+in-state club the text begins, and a name that opens with the age. Give the owner one row per state
+and club text, with a per-team override beside it, so one answer settles every team of that club.
+
+**Check the owner's answers before applying them.** Snap an answer to the state's existing spelling
+when it differs only in case, in how it writes the same suffix (SC, Soccer Club), or by a trailing
+tag, so the club does not split into two spellings. Keep the owner's spelling when the state's is
+one the cleanup re-cased (`capital`, above). An answer no team in the state uses may be another
+state's club whose initials match: look it up, and when an in-state club fits the same initials and
+naming, hold those teams and ask with both.
+
+`scripts/apply_vetted_club_names.py` has no pilot flag, so the pilot is a smaller list: apply it,
+verify it from the database, then apply the rest, with one log per batch.
+
 ## Keeping the weekly cleanup in agreement
 
 `update-missing-club-and-state.yml` runs every Monday and its club steps are live. Two of
@@ -288,7 +340,9 @@ and have no `--execute`, so pass `--dry-run` when running either by hand (the wo
 it only on a dispatch with `dry_run` set). The third step standardizes spellings through
 `scripts/full_club_analysis.py`, which carries its own canonical overrides and casing rules.
 
-So a naming rule decided here belongs in that script. A rule applied to rows alone is
+So a naming rule decided here belongs in that script; a spelling decided from one state's teams goes in
+`SPELLING_GROUP_OVERRIDES`, which the no-state pass (`analyze_no_state_teams`, which applies overrides to
+teams with no state) skips. A rule applied to rows alone is
 re-derived away the following Monday, and the only visible symptom is the same repair
 proposing the same names again.
 
@@ -300,3 +354,40 @@ directly and only on an all-caps name.
 
 So put a casing rule in `merge_case_variants`, or in `apply_provider_rules` for the provider
 pass, and test it on a group holding two spellings of one club.
+
+## Settling leftover spelling groups
+
+`scripts/scan_club_name_variants.py` lists the spelling groups each state still holds once the
+Monday pass has run; `--json <file>` also saves them. Its fold is deliberately loose, so each group is a question: branches,
+different clubs and placeholder values sit beside true variants.
+
+1. **Pre-judge every group.** A variant is the same club when it differs only by case,
+   punctuation, accents, a tag repeating the state or the club's own initials, or an equivalent
+   organisation word, and its teams' names agree. Its target is the canonical an existing
+   override already gives that club in that state, else the state's most common spelling that is
+   neither all-caps nor tagged. A branch, a tag naming another state, and a different
+   organisation word fielding different squads stay apart. A value listed in
+   `src/utils/placeholder_clubs.py` gets no spelling entry.
+2. **Ask the owner one question per group**, not per row: the name the club should carry, or keep
+   apart. Read any answer that is not a spelling ("leave for now", "different club") as leave
+   alone, and trim and collapse the whitespace in what is typed.
+3. **Check every typed name against the spellings that state already holds**, near matches
+   included, and ask about every new one in a single batch. A typed name is most often a typo or
+   near miss of an existing club ("Sozos FC" beside "Sozo FC").
+4. **Write each decision into `SPELLING_GROUP_OVERRIDES`.** Its patterns are in
+   `STATE_ONLY_PATTERNS`; an entry inline in `CLUB_CANONICAL_OVERRIDES` is also applied by the
+   no-state pass to stateless teams holding that spelling whenever its pattern names one
+   canonical in every state listing it. When a decision retires a
+   canonical other entries point at, redirect them in the same change: the chain and shadowing
+   tests in `tests/unit/test_full_club_analysis.py` fail otherwise.
+5. **Verify on the live table.** `scripts/full_club_analysis.py --dry-run` still writes the
+   tracked `scripts/club_name_fixes_male_all_states.sql` and a logs folder under the working
+   directory, so run it from a `git archive` export with the uncommitted candidate copied in,
+   credentials supplied from the checkout's root `.env` (`python -m dotenv -f <path> run --`), and
+   an HTTP guard that refuses every request but GET. Run the origin/main control and the
+   candidate back to back, since another session may be writing `club_name`. Expect the
+   intended renames on top of the control's fixes, except that a no-state fix whose pattern a
+   new entry shares drops out, since `STATE_ONLY_PATTERNS` is keyed by pattern. Then run
+   `analyze_state` again over the teams with each run's fixes overlaid: the candidate's second
+   pass may show only what the control's own second pass shows, and nothing touching a spelling
+   the new entries name or produce.

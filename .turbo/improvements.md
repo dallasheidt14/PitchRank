@@ -2667,3 +2667,11 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `GameHistoryMatcher._match_team` no-match branch in `src/models/game_matcher.py`, and `AffinityORGameMatcher._match_team` in `src/models/affinity_or_matcher.py`
 - **Why**: The base method queues a `no_match` review row, then the Affinity override creates the team and an approved alias anyway. On 2026-11-05 all 674 pending `affinity_ut` rows had an approved alias, so the queue holds work that is already settled. A first Hawaii import would add one row per created team the same way.
 - **Noted**: 2026-11-05
+
+### Widen the provider pass's age/gender check so it lists every squad-name club
+
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `_AGE_OR_GENDER` and `has_age_or_gender_text` in `scripts/full_club_analysis.py`, read by `apply_provider_rules` for its `age_gender` listing
+- **Why**: The pattern matches U12/BU12, G2015 and Boys/Girls, so it misses 2015B, 13B, 13U/B11U, B13, two-digit bands (07/08), "8th Grade" and "12s". Measured read-only on 2026-11-04: it flagged 681 live SincSports clubs where a squad-label pattern flagged 861, so the Monday review list undercounts. Keep the `PROVIDER_RULE_CODES` scoping: its Boys/Girls words flag real clubs elsewhere ("Bowie Boys and Girls Club").
+- **Noted**: 2026-11-05

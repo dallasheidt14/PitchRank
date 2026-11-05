@@ -4,12 +4,14 @@ Every US state now has a deliberate pass. What follows is everything the passes 
 to decide, grouped by the kind of decision rather than by state, because most of these
 answer in bulk — the first group alone settled eleven items in one sentence.
 
-Each is commented in place beside its own state in `CLUB_CANONICAL_OVERRIDES`;
-`grep -n "open question" scripts/full_club_analysis.py` lists the blocks.
+This is the list as it stood on 2026-09-22, and it is not kept current. The live record is
+`scripts/full_club_analysis.py`: a question still open is commented beside its own state
+(`grep -n "open question"` lists them), and a group the owner has since joined is an entry in
+`SPELLING_GROUP_OVERRIDES`. Check there before re-asking anything below.
 
 **Sections 1, 2 and the WSA entry in section 4 were decided on 2026-09-22 and are
 applied.** They are kept here with their answers, because the reasoning is what the next
-pass needs; everything else is still open.
+pass needs.
 
 ---
 
