@@ -2642,3 +2642,11 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: the inline log-then-update `--execute` blocks in `scripts/exclude_rescheduled_fixture_leftovers.py`, `scripts/exclude_unscored_fixture_twins.py`, `scripts/exclude_none_opponent_games.py`, `scripts/exclude_english_teams.py` and `scripts/reconcile_tgs_scores.py`; `new_log` / `write_log` in `scripts/apply_vetted_team_merges.py`
 - **Why**: Five scripts carry the same block (they share the "already exists and is the only rollback record" message), and each rewrites its only rollback record with plain `write_text` in `finally`, so a hard kill mid-write can truncate it. `write_log` already swaps a temp file in with `os.replace`, and `scripts/exclude_merge_duplicate_games.py` uses it. Raised by a consistency review on 2026-11-04.
 - **Noted**: 2026-11-04
+
+### Widen the provider pass's age/gender check so it lists every squad-name club
+
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `_AGE_OR_GENDER` and `has_age_or_gender_text` in `scripts/full_club_analysis.py`, read by `apply_provider_rules` for its `age_gender` listing
+- **Why**: The pattern matches U12/BU12, G2015 and Boys/Girls, so it misses 2015B, 13B, 13U/B11U, B13, two-digit bands (07/08), "8th Grade" and "12s". Measured read-only on 2026-11-04: it flagged 681 live SincSports clubs where a squad-label pattern flagged 861, so the Monday review list undercounts. Keep the `PROVIDER_RULE_CODES` scoping: its Boys/Girls words flag real clubs elsewhere ("Bowie Boys and Girls Club").
+- **Noted**: 2026-11-05

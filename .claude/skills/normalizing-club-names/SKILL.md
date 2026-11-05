@@ -277,6 +277,58 @@ guard. It needs `SUPABASE_SERVICE_ROLE_KEY` even for a dry run, read from `.env.
 working directory when that file exists, else from `.env` there. The weekly team-cleanup loop
 does not run it, but its apply refuses to start while it is running.
 
+## When club_name holds a squad name
+
+A team whose `club_name` is its own squad name ("AFC United U12 Boys Black") sits outside every
+source above: `playmetrics` and `team_name` read only teams whose club is a canonical club, and
+`abbreviation` only restores a spelling the cleanup lowered. Propose the club by hand and apply it
+through `scripts/apply_vetted_club_names.py`.
+
+**Select on a squad label in `club_name`, not on `club_name` equal to `team_name`.** Equality also
+catches every real club whose one team is named for it. These mark a squad: U12, BU12, U-12; B13,
+G2015; 13B, 2015B; 13U, B11U; a two-year band (07/08, 2013/14); a bare birth year in the current
+cohort range; "8th Grade"; "12s". Leave out a bare two-digit number, a year outside that range, and
+Boys, Girls or Women on their own: real clubs carry them ("Upper 90 FC", "1974 Newark FC", "Bowie
+Boys and Girls Club"). Select from `teams` rather than the cleanup's `age_gender` review list, which
+covers only `PROVIDER_RULE_CODES` and whose `has_age_or_gender_text` misses most of these forms.
+
+**Read the club from the text before the first squad label, within the team's state.** The rules
+below stand in for a person's team-by-team call only because each needs a club other teams already
+carry. Read every state-and-club group before writing, and name the rule in each entry's `evidence`.
+The checks under **Judging a listed change** that hold whatever the tier apply to every club chosen
+here, as does the branch rule. Using the helpers in `scripts/full_club_analysis.py`, these decide:
+
+1. `CLUB_CANONICAL_OVERRIDES` maps the text for that state. This one wins, because the cleanup
+   rewrites the other spellings to it.
+2. Other teams in the state already use that club, compared case-insensitively or through
+   `normalize_for_grouping` or `normalized_club`. Take their most-used spelling.
+3. An in-state club is the text plus only club-suffix words (SC, FC, Soccer Club, SA).
+4. The text matches one of the above once trailing level, colour, gender or league words, or the
+   club's own initials, are dropped.
+
+When rules 2 to 4 name different clubs, or one of them fits two clubs, list the team. List a team
+with no state as well, since it has no in-state evidence.
+
+Take a branch club over its parent when the squad name carries the branch's words ("Alabama FC U11B
+Academy South White" is the Alabama FC South branch). League and level words (GA, ECNL, RL, N1,
+SCCL) name a league, never a branch. A match on the branch's initials alone goes to a person,
+because squad names also carry coach initials.
+
+**List the rest for a person**, each with its candidate: a match on initials alone (often a
+different club with the same letters), a shorter name that drops a place or branch word, a longer
+in-state club the text begins, and a name that opens with the age. Give the owner one row per state
+and club text, with a per-team override beside it, so one answer settles every team of that club.
+
+**Check the owner's answers before applying them.** Snap an answer to the state's existing spelling
+when it differs only in case, in how it writes the same suffix (SC, Soccer Club), or by a trailing
+tag, so the club does not split into two spellings. Keep the owner's spelling when the state's is
+one the cleanup re-cased (`capital`, above). An answer no team in the state uses may be another
+state's club whose initials match: look it up, and when an in-state club fits the same initials and
+naming, hold those teams and ask with both.
+
+`scripts/apply_vetted_club_names.py` has no pilot flag, so the pilot is a smaller list: apply it,
+verify it from the database, then apply the rest, with one log per batch.
+
 ## Keeping the weekly cleanup in agreement
 
 `update-missing-club-and-state.yml` runs every Monday and its club steps are live. Two of
