@@ -210,6 +210,7 @@ WRITER_WORKFLOWS = (
     "ea-scraper.yml",
     "mlsnext-kitman-scraper.yml",
     "ut-scraper.yml",
+    "hi-scraper.yml",
     "wa-scraper.yml",
     "or-scraper.yml",
     "playmetrics-scrape-import.yml",
