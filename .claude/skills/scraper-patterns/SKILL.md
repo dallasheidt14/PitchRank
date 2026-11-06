@@ -403,8 +403,8 @@ only `name`, so the other fields cost no extra request.
 ### TGS `schedule_id` is a division, not a game
 
 `scrape_tgs_event.py` writes the flight's division id as `schedule_id` on every TGS row
-(`:597`), and the CSV loaders keep it. For the rematch providers, and for GotSport repeat days,
-the same field names one game. So a rule keyed on "this row has a `schedule_id`" catches every
+(`:597`), and the CSV loaders keep it. For the rematch providers, and for GotSport and SincSports
+repeat days, the same field names one game. So a rule keyed on "this row has a `schedule_id`" catches every
 TGS row. Gate any such rule on the provider set where the field names a game
 (`SCHEDULE_ID_SUFFIX_PROVIDERS` in `src/models/game_matcher.py`). Left ungated, it switches off
 every TGS score correction. A TGS test fixture must carry a `schedule_id` the way real rows do, or
@@ -507,6 +507,10 @@ teams sit on u12, where the SincSports reading puts them on u13.
   carry `year=`, the event year; of that year and the years either side, the right one puts the
   date on the printed weekday (`_sched2_day_date`). Read it from team links only: other links can
   carry an older year ahead of them (`TTCheckIn.aspx`).
+- Two teams can meet twice on one date (pool game, then final). Where a pair's games on a date carry
+  different game numbers, `mark_repeat_day_games` gives them a `schedule_id` from the number, which
+  repeats across an event's divisions and can read `Playoff #1`. Every other game keeps the uid it is
+  already stored under.
 - `Jan 1` is the site's placeholder for games with no real date, printed under either `MON` or
   the event year's own weekday, and it can carry a score (a 0-0 marked played).
   `parse_division_pages` leaves every 1 January game undated so none of them import.

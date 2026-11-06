@@ -172,7 +172,14 @@ def _sched2_day(dow: str, day: str, *games: str) -> str:
     )
 
 
-def _sched2_game(home_score: str = "2", away_score: str = "1", extra: str = "", num: str = "7") -> str:
+def _sched2_game(
+    home_score: str = "2",
+    away_score: str = "1",
+    extra: str = "",
+    num: str = "7",
+    home: str = "NCM14001",
+    away: str = "NCM14002",
+) -> str:
     def team(team_id: str, name: str, score: str) -> str:
         return (
             f"<div class='sched2-team'><a class='sched2-follow' href='#' data-team='{team_id}'></a>"
@@ -182,7 +189,7 @@ def _sched2_game(home_score: str = "2", away_score: str = "1", extra: str = "", 
 
     return (
         f"<div class='sched2-game'><span class='sched2-game-num'>#{num}</span>"
-        f"{team('NCM14001', 'Home FC', home_score)}{team('NCM14002', 'Away FC', away_score)}"
+        f"{team(home, 'Home FC', home_score)}{team(away, 'Away FC', away_score)}"
         f"<div class='sched2-game-field'>{extra}</div></div>"
     )
 
@@ -669,6 +676,86 @@ class TestCleanEventName:
         assert (record["competition"], record["division_name"]) == ("Under 12 Boys", None)
 
 
+class TestMarkRepeatDayGames:
+    """Only a date the same two teams meet twice gets schedule ids, so no other game changes uid."""
+
+    def _marked(self, games: list) -> list:
+        driver.mark_repeat_day_games(games)
+        return [g.schedule_id for g in games]
+
+    def _ids(self, *games_html: str) -> list:
+        return self._marked(parse_division(_sched2_page(_sched2_day("SAT", "Aug 22", *games_html)), "T", "U12M01"))
+
+    def test_two_numbered_meetings_on_one_date_are_both_marked(self):
+        assert self._ids(_sched2_game("2", "1", num="7"), _sched2_game("0", "3", num="8")) == ["T-7", "T-8"]
+
+    def test_three_meetings_are_all_marked(self):
+        games = (_sched2_game(num="7"), _sched2_game("0", "3", num="8"), _sched2_game("1", "1", num="9"))
+        assert self._ids(*games) == ["T-7", "T-8", "T-9"]
+
+    def test_a_rematch_with_sides_swapped_marks_both(self):
+        swapped = _sched2_game("0", "3", num="8", home="NCM14002", away="NCM14001")
+        assert self._ids(_sched2_game(num="7"), swapped) == ["T-7", "T-8"]
+
+    def test_every_repeat_pair_is_marked_not_only_the_first(self):
+        other = {"home": "NCM15001", "away": "NCM15002"}
+        assert self._ids(
+            _sched2_game(num="1"),
+            _sched2_game(num="5", **other),
+            _sched2_game("0", "3", num="2"),
+            _sched2_game("0", "3", num="6", **other),
+        ) == ["T-1", "T-5", "T-2", "T-6"]
+
+    def test_a_single_meeting_stays_unmarked(self):
+        assert self._ids(_sched2_game()) == [None]
+
+    def test_two_different_pairs_on_one_date_stay_unmarked(self):
+        other = _sched2_game("0", "3", num="8", home="NCM15001", away="NCM15002")
+        assert self._ids(_sched2_game(num="7"), other) == [None, None]
+
+    @pytest.mark.parametrize("opponent", [{"home": "NCM15001"}, {"away": "NCM15002"}])
+    def test_one_team_against_two_opponents_stays_unmarked(self, opponent):
+        assert self._ids(_sched2_game(num="7"), _sched2_game("0", "3", num="8", **opponent)) == [None, None]
+
+    def test_a_real_page_marks_nothing(self):
+        games = parse_division(_fixture("sched2_carchles_u12m01_p1.html"), "CARCHLES", "U12M01")
+        assert self._marked(games) == [None] * 50
+
+    def test_a_game_number_with_words_is_kept_as_letters_and_digits(self):
+        assert self._ids(_sched2_game(num="7"), _sched2_game("0", "3", num="Playoff #1")) == ["T-7", "T-Playoff1"]
+
+    def test_a_very_long_game_number_is_cut_to_fit_the_uid(self):
+        assert self._ids(_sched2_game(num="7"), _sched2_game("0", "3", num="9" * 40)) == ["T-7", "T-" + "9" * 32]
+
+    def test_a_pending_meeting_still_marks_the_played_one(self):
+        assert self._ids(_sched2_game(num="7"), _sched2_game("", "", num="8")) == ["T-7", "T-8"]
+
+    def test_the_same_pair_on_two_dates_stays_unmarked(self):
+        page = _sched2_page(
+            _sched2_day("SAT", "Aug 22", _sched2_game(num="7")),
+            _sched2_day("SUN", "Aug 23", _sched2_game(num="8")),
+        )
+        assert self._marked(parse_division(page, "T", "U12M01")) == [None, None]
+
+    def test_one_game_on_two_division_pages_stays_unmarked(self):
+        html = _sched2_page(_sched2_day("SAT", "Aug 22", _sched2_game(num="7")))
+        games = parse_division(html, "T", "U12M01") + parse_division(html, "T", "U13M01")
+        assert self._marked(games) == [None, None]
+
+    def test_one_pair_in_two_events_of_a_bundle_stays_unmarked(self):
+        def page(num: str) -> str:
+            return _sched2_page(_sched2_day("SAT", "Aug 22", _sched2_game(num=num)))
+
+        games = parse_division(page("7"), "T1", "U12M01") + parse_division(page("8"), "T2", "U12M01")
+        assert self._marked(games) == [None, None]
+
+    def test_a_game_with_no_number_stays_unmarked(self):
+        day = _sched2_day("SAT", "Aug 22", _sched2_game(num="7"), _sched2_game("0", "3", num="8"))
+        games = parse_division(_sched2_page(day), "T", "U12M01")
+        games[1].game_num = None
+        assert self._marked(games) == [None, None]
+
+
 class TestDriverFromBundle:
     def _run(self, monkeypatch, tmp_path, *argv: str) -> int:
         monkeypatch.setattr(driver, "RAW_DIR", tmp_path / "raw")
@@ -689,6 +776,38 @@ class TestDriverFromBundle:
         assert {(r["competition"], r["division_name"]) for r in rows} == {
             ("Carolina Champions League - Spring", "U12M01")
         }
+
+    def test_a_repeat_day_reaches_the_import_file_and_a_plain_day_does_not(self, monkeypatch, tmp_path):
+        page = _sched2_page(
+            _sched2_day("SAT", "Aug 22", _sched2_game("2", "1", num="7"), _sched2_game("0", "3", num="8")),
+            _sched2_day("SUN", "Aug 23", _sched2_game("1", "1", num="9")),
+        )
+        path = _bundle(tmp_path, page)
+        assert self._run(monkeypatch, tmp_path, "--from-bundle", str(path), "--no-check-aliases") == 0
+        assert [(r["game_date"], r["schedule_id"]) for r in self._rows(tmp_path)] == [
+            ("2026-08-22", "CARCHLES-7"),
+            ("2026-08-22", "CARCHLES-8"),
+            ("2026-08-23", ""),
+        ]
+
+    def test_a_played_game_is_marked_when_its_rematch_is_still_pending(self, monkeypatch, tmp_path):
+        page = _sched2_page(_sched2_day("SAT", "Aug 22", _sched2_game(num="7"), _sched2_game("", "", num="8")))
+        path = _bundle(tmp_path, page)
+        assert self._run(monkeypatch, tmp_path, "--from-bundle", str(path), "--no-check-aliases") == 0
+        assert [r["schedule_id"] for r in self._rows(tmp_path)] == ["CARCHLES-7"]
+
+    def test_a_live_tournament_fetch_marks_a_repeat_day_too(self, monkeypatch, tmp_path):
+        page = _sched2_page(_sched2_day("SAT", "Aug 22", _sched2_game(num="7"), _sched2_game("0", "3", num="8")))
+
+        class FakeScraper:
+            errors: list = []
+
+            def fetch_tournament(self, tid: str, year=None) -> list:
+                return parse_division(page, tid, "U12M01")
+
+        monkeypatch.setattr(driver, "SincSportsScheduleScraper", FakeScraper)
+        assert self._run(monkeypatch, tmp_path, "--tid", "TZ1", "--no-check-aliases") == 0
+        assert [r["schedule_id"] for r in self._rows(tmp_path)] == ["TZ1-7", "TZ1-8"]
 
     def test_bundle_checks_aliases_unless_told_not_to(self, monkeypatch, tmp_path):
         path = _bundle(tmp_path, *_fixtures(*CARCHLES_U12))

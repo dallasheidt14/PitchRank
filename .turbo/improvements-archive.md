@@ -1887,3 +1887,15 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Noted**: 2026-11-02
 - **Update (2026-11-04)**: Order each page by the unique `deprecated_team_id`. Five loader regressions cover unstable row order, exact/partial page boundaries, refresh, and a failed later page; removing ordering or ordering by the nonunique canonical ID fails the completeness regression. The read-only live check loaded all 27,132 mappings across 28 pages. The same frozen-input reader comparison retained every mapping and resolved game field; the full 18-board local run completed with no database writes.
 - **Refs**: branch `fix/merge-map-pagination-20261104`; `tests/unit/test_merge_resolver.py`
+
+### Keep a SincSports team pair's second game of the day
+
+- **ID**: IMP-394
+- **Status**: done
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `SCHEDULE_ID_SUFFIX_PROVIDERS` in `src/models/game_matcher.py`; `rematch_game_uid` in `src/etl/enhanced_pipeline.py`; `perspective_record` in `scripts/scrape_sincsports_tournament_schedule.py`
+- **Why**: A game's uid is date plus team pair and SincSports is not in that set, so a same-day rematch such as a group game then a final takes the first game's uid and is dropped. Measured 2026-11-05 by comparing captures with stored rows: 44 games across the October and September 2026 imports. `TournamentGame.game_num` already reaches the game row and may serve as the schedule id.
+- **Noted**: 2026-11-05
+- **Update (2026-11-05)**: The schedule driver gives each game a schedule_id on a date its two teams have two differently numbered games, and SincSports joined `SCHEDULE_ID_SUFFIX_PROVIDERS` without joining `REMATCH_PROVIDERS`. Different-score rematches only; same-score repeats behave as for GotSport, recorded on IMP-213.
+- **Refs**: branch `fix/sincsports-same-day-rematches`; `tests/unit/test_enhanced_pipeline_sincsports_rematch.py`

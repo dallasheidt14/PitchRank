@@ -104,8 +104,8 @@ def _rows(inserted):
     return sorted((g["game_uid"], g["home_score"], g["away_score"]) for g in inserted)
 
 
-def _validated_uids(games):
-    pipeline = EnhancedETLPipeline(_CorrectionsDB([]), "gotsport")
+def _validated_uids(games, provider="gotsport"):
+    pipeline = EnhancedETLPipeline(_CorrectionsDB([]), provider)
     valid, _, _ = asyncio.run(pipeline._validate_and_dedup(games, run_validation=False))
     return sorted(g["game_uid"] for g in valid)
 

@@ -141,9 +141,9 @@ Example: "Phoenix Premier FC 14B Black"
 ## Game Identification
 
 ### game_uid
-- Deterministic hash of game properties
-- Prevents duplicate imports
-- Format: Hash of (provider, teams, date, score)
+- Prevents duplicate imports: the ids are sorted, so either team's copy of a game builds the same uid
+- Format: `{provider}:{date}:{team_id}:{team_id}`, no score. Set once at import: master ids if both teams matched, provider ids if not
+- A provider in `SCHEDULE_ID_SUFFIX_PROVIDERS` appends `:{schedule_id}` when the row has one. Modular11's partial rows keep `:{age}:{division}`
 
 ### Immutability
 - Games are NEVER updated after import
