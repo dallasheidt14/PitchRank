@@ -110,6 +110,12 @@ merged together. Re-point every owner pair at the survivors first: a pair whose 
 into a survivor is still a question, about that survivor. Drop a pair whose two rows now point at
 the same survivor; the batch has already joined them.
 
+Then re-test every owner pair against its merged schedules, re-pointed or not. A survivor now
+carries the games of every row retired into it, so two rows that shared no date before the apply
+can share one after it. Run Step 4's four-step test on each new clash: one that stands takes the
+card off the page, and one that came in with a row this batch retired also questions that merge.
+On the 2026-11-06 SincSports run that moved 3 of 86 cards off the page, 2 of them never re-pointed.
+
 When the collector refuses with "these merges disagree about which team survives" because the
 owner chose Merge on every card of a cluster, the owner has said the rows are one squad. Keep one
 survivor for the whole cluster, chosen by Step 6's order with the owner's name choice first, and
