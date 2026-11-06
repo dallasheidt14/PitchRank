@@ -2714,7 +2714,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Type**: plan
 - **Category**: reliability
 - **Where**: `find_discovery_teams` and `find_stale_teams` (SQL functions), called by `scripts/enqueue_discovery_teams.py` and `scripts/enqueue_safety_net.py`
-- **Why**: Both filter on `teams.provider_id`, so a live non-GotSport row holding an approved GotSport alias never reaches them, though the drainer can serve it. Merges widen this, because the survivor rule often keeps a SincSports row over a GotSport one. Measured 2026-11-06: 5,570 such teams, 2,088 not scraped in 90+ days or ever, 27 of them from one merge run. Needs a migration and the owner's OK.
+- **Why**: Both filter on `teams.provider_id`, so a live row from another provider holding an approved GotSport alias never reaches them, though the drainer can serve it. Measured 2026-11-06: 4,825 such teams outside SincSports, 3,821 of them TGS, 1,686 not scraped in 90+ days or ever. SincSports rows are left out by owner decision, since SincSports does not work the way GotSport does. Needs a migration and the owner's OK.
 - **Noted**: 2026-11-06
 
 ### Add a one-field-off pass to the squad-key scan
