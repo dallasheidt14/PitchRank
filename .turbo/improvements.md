@@ -1842,6 +1842,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `src/models/affinity_ut_matcher.py`, `src/models/affinity_or_matcher.py`, `src/models/affinity_wa_matcher.py`, `src/models/playmetrics_matcher.py` (each one's new-team write), against the values `scripts/assign_team_states.py` writes
 - **Why**: Four provider imports stamp a `state_code` on team creation and all leave `state_source` NULL -- confirmed 2026-10-02 against the 675 teams of the first `affinity_ut` run. CLAUDE.md already warns that an audit of "what writes state" has to count these, and a NULL source makes a provider-stamped guess indistinguishable from a value no tool chose. The blocker is vocabulary rather than plumbing: the only values in use are `tier_a`, `tier_b` and `tier_e`, which belong to the ranked-evidence tiers in `assign_team_states.py`, so a provider constant needs a new value agreed across all four writers and across whatever reads the column -- not one invented per matcher. Related to the existing constant-state-provenance entry.
 - **Noted**: 2026-10-02
+- **Update (2026-11-05)**: The writers are now six, not four: CLAUDE.md's list adds `yssl-scraper.yml` and `hi-scraper.yml`. Hawaii creates teams through the OR create helper and Utah's `_state_for_new_team`, so a fix in those two files covers it without a change to `src/models/affinity_hi_matcher.py`.
 
 ### Run the locked October confirmation of dampening off plus the gender-mask fix
 
@@ -2643,6 +2644,30 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: the inline log-then-update `--execute` blocks in `scripts/exclude_rescheduled_fixture_leftovers.py`, `scripts/exclude_unscored_fixture_twins.py`, `scripts/exclude_none_opponent_games.py`, `scripts/exclude_english_teams.py` and `scripts/reconcile_tgs_scores.py`; `new_log` / `write_log` in `scripts/apply_vetted_team_merges.py`
 - **Why**: Five scripts carry the same block (they share the "already exists and is the only rollback record" message), and each rewrites its only rollback record with plain `write_text` in `finally`, so a hard kill mid-write can truncate it. `write_log` already swaps a temp file in with `os.replace`, and `scripts/exclude_merge_duplicate_games.py` uses it. Raised by a consistency review on 2026-11-04.
 - **Noted**: 2026-11-04
+
+### Skip layout rows in the WA scraper's discover_flights
+
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `discover_flights` in `scripts/scrape_affinity_wa_tournament.py`
+- **Why**: The WA scraper has its own copy of the loop fixed in `scripts/scrape_affinity_or_tournament.py`: the first schedule link in a layout row belongs to the first division, and the loop marks that flight seen before reading the label, so the division's real row is skipped. On 2026-11-05 both live WA lists had 3 layout rows, but their first divisions are U8 and U9, which `wa-scraper.yml`'s ages 10-19 loop never scrapes, so nothing is lost today. A list opening at U10 or older would lose that division. The fix is the same `row.find("table")` skip, plus wrapping the rows of the WA test's page in a layout table as on the live page.
+- **Noted**: 2026-11-05
+
+### Decode Affinity pages as UTF-8
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `_fetch` in `scripts/scrape_affinity_or_tournament.py`
+- **Why**: It returns `r.text`, and the live Oahu League page answered `Content-Type: text/html` with no charset on 2026-11-05, so `requests` decodes it as ISO-8859-1. No Oahu team name is non-ASCII today, so nothing is garbled yet, but a name with an okina or kahako would be. The name feeds `_team_hash`, so count the non-ASCII names already scraped in Oregon and Utah first: changing the decode changes their team ids.
+- **Noted**: 2026-11-05
+
+### Stop queueing a review row for a team the Affinity matcher then creates
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `GameHistoryMatcher._match_team` no-match branch in `src/models/game_matcher.py`, and `AffinityORGameMatcher._match_team` in `src/models/affinity_or_matcher.py`
+- **Why**: The base method queues a `no_match` review row, then the Affinity override creates the team and an approved alias anyway. On 2026-11-05 all 674 pending `affinity_ut` rows had an approved alias, so the queue holds work that is already settled. A first Hawaii import would add one row per created team the same way.
+- **Noted**: 2026-11-05
 
 ### Widen the provider pass's age/gender check so it lists every squad-name club
 

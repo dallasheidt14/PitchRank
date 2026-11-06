@@ -140,6 +140,7 @@ class AffinityUTGameMatcher(AffinityORGameMatcher):
 
     state_code = "UT"
     state_name = "Utah"
+    region = _REGION
     refuse_tied_best = True
 
     def __init__(self, supabase, provider_id=None, alias_cache=None, dry_run=False):
@@ -147,7 +148,7 @@ class AffinityUTGameMatcher(AffinityORGameMatcher):
         self._ut_club_states: Dict[str, Counter] = {}
 
     def _club_states(self, club_name: Optional[str]) -> Counter:
-        """How many of the club's stored teams sit in each state of the region."""
+        """How many of the club's stored teams sit in each state of the league's region."""
         if not club_name or is_placeholder_club(club_name) or _LIKE_WILDCARDS.search(club_name):
             return Counter()
         if club_name not in self._ut_club_states:
@@ -157,7 +158,7 @@ class AffinityUTGameMatcher(AffinityORGameMatcher):
                     self.db.table("teams")
                     .select("state_code")
                     .ilike("club_name", club_name)
-                    .in_("state_code", list(_REGION))
+                    .in_("state_code", list(self.region))
                     .limit(1000)
                     .execute()
                 )
@@ -172,7 +173,7 @@ class AffinityUTGameMatcher(AffinityORGameMatcher):
         return counts.most_common(1)[0][0] if counts else None
 
     def _state_for_new_team(self, club_name: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
-        """The region state every stored team of the club agrees on; NULL when they disagree; else Utah."""
+        """The region state every stored team of the club agrees on; NULL when they disagree; else ``state_code``."""
         counts = self._club_states(club_name)
         if len(counts) == 1:
             code = next(iter(counts))

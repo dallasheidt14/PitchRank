@@ -401,6 +401,7 @@ import, so a process running across Aug 1 keeps last season's map until restart.
 | Affinity WA | `affinity_wa` | HTML scraping | Washington RCL + state leagues |
 | Affinity OR | `affinity_or` | HTML scraping | Oregon (OYSA) leagues, keeps unplayed fixtures |
 | Affinity UT | `affinity_ut` | HTML scraping | Utah (UYSA) leagues through the OR scraper; games filed by team-name age, keeps unplayed fixtures |
+| Affinity HI | `affinity_hi` | HTML scraping | Hawaii (HYSA) Oahu League through the OR scraper; games filed by the age label each team name starts with (`13UB - …`), games from 2026-08-01 only, keeps unplayed fixtures |
 | Soccer Events Group | `soccereventsgroup` | JSON API + bracket HTML | Tournament brackets only (pool play is unpublished); operator-run per event via `scripts/import_soccereventsgroup_event.py` |
 | Athletes2Events | `athletes2events` | HTML scraping | White-label tournament sites, one subdomain per host club; operator-run per event via `scripts/import_athletes2events_event.py`, which takes the event URL and reads the host from it |
 | Demosphere | `demosphere` | HTML scraping | "Elements" league sites, one site id per league: NCSL (Northern Virginia, with DC and Maryland clubs) is `80738`; played games plus the next 28 days of unscored fixtures (blank goals, result `U`, shown under a team's Upcoming Games); weekly via `demosphere-scraper.yml`, which runs `scripts/import_demosphere.py`: it walks outward from a seed club |
@@ -680,6 +681,7 @@ two-line edit in `.github/workflows/claude-code-review.yml`.
 | `wa-scraper.yml` | Mon 6:00 + 7:00 AM UTC | Affinity WA tournament scrape + import |
 | `or-scraper.yml` | Mon 6:30 + 7:30 AM UTC | Affinity OR (OYSA) league scrape + import — keeps unplayed fixtures |
 | `ut-scraper.yml` | Mon 5:30 + 6:30 AM UTC | Affinity UT (UYSA) league scrape + import — keeps unplayed fixtures |
+| `hi-scraper.yml` | Mon 9:30 AM UTC | Affinity HI (HYSA Oahu League) scrape + import — keeps unplayed fixtures |
 | `demosphere-scraper.yml` | Mon 5:23 AM UTC (Sun 10:23 PM Arizona) | NCSL (Demosphere) scrape, roster pass and import — played games and the next 28 days of fixtures (`--days-forward`); teams whose link matches another squad's team are held and reported without turning the run red; red when a link errored, a played game could not be read, the site lists neither the current season nor the one before it, or an in-season run read no scored games |
 | `yssl-scraper.yml` | Mon 8:15 AM UTC | YSSL scrape, roster pass and import — scored games only; red when a team has no decided club-map row, a team's link errored or conflicted, a played game could not be read (rainouts excepted), or an in-season run read no scored games |
 | `mlsnext-kitman-scraper.yml` | Mon 5:45 AM UTC | MLS NEXT (Homegrown (HD) + Academy (AD)) scrape + import from Kitman's public schedule files; links exact-club teams, creates teams for clubs with a state in `config/mlsnext_kitman_club_states.json`, holds review squads, and new squads whose club has no state. Manual runs write nothing unless `execute` is set |
@@ -739,10 +741,11 @@ by the `assigning-team-states` skill, and reaching a schedule through `fill-team
 (fills only, never corrections). **Do not re-enable a disabled step to fix a missing state** — a
 comment elsewhere in the tree may still point at one of them (`scrape_tgs_event.py:587` does).
 
-**Five provider imports still stamp a state on team creation, on a schedule**, which is a
+**Six provider imports still stamp a state on team creation, on a schedule**, which is a
 different thing from a backfill and is not covered by the above: `wa-scraper.yml` runs the
 Affinity WA matcher, which hardcodes `"WA"` (`src/models/affinity_wa_matcher.py:26`, written at
-`:390`), `or-scraper.yml` and `ut-scraper.yml` run the Affinity OR matcher and its Utah subclass, and
+`:390`), `or-scraper.yml`, `ut-scraper.yml` and `hi-scraper.yml` run the Affinity OR matcher and its
+Utah and Hawaii subclasses, and
 `playmetrics-scrape-import.yml` runs the PlayMetrics matcher, which writes the CSV row's
 `state_code` — a per-league constant the scraper derives from the governing body
 (`src/models/playmetrics_matcher.py`, in `_create_new_playmetrics_team`), and `yssl-scraper.yml`
@@ -753,12 +756,14 @@ provenance tracks the fix.
 
 **Affinity OR is no longer a hardcode, and this file used to say it was.** `state_code = "OR"`
 (`src/models/affinity_or_matcher.py:107`) is now only a fallback: `_create_new_affinity_or_team`
-calls `_state_for_new_team(club_name)` (`:154`) at `:553`, which resolves the state from the club's
-existing rows and falls back to OR only when unanimous evidence is absent. Verified 2026-10-01.
+calls `_state_for_new_team(club_name)` (`:153`) at `:552`, which resolves the state from the club's
+existing rows and falls back to OR only when unanimous evidence is absent. Verified 2026-11-05.
 `AffinityUTGameMatcher` (`src/models/affinity_ut_matcher.py`, run by `ut-scraper.yml`) subclasses
 it with its own rule: a new team takes the state its club's stored teams agree on, counted only within
 UT/ID/WY/NV/CO/AZ, NULL when they disagree, and Utah when the club has none there. Asked nationally,
 a generic club word such as `Avalanche` (stored only in Virginia) sent Utah teams to Virginia.
+`AffinityHIGameMatcher` (`src/models/affinity_hi_matcher.py`, run by `hi-scraper.yml`) applies the
+same rule with Hawaii as the only state counted, so every team it creates is stored HI.
 
 ### `AGE_ROLLOVER_FREEZE` (currently LIFTED)
 
@@ -788,7 +793,7 @@ the derivation is invisible at the call site.
 `tgs-event-scrape-import.yml`, `modular11-weekly-scrape.yml`,
 `modular11-events-weekly-scrape.yml`,
 `playmetrics-tournament-scrape-import.yml`, `wa-scraper.yml`, `or-scraper.yml`,
-`ut-scraper.yml`, `yssl-scraper.yml`, `demosphere-scraper.yml`, `ea-scraper.yml`,
+`ut-scraper.yml`, `hi-scraper.yml`, `yssl-scraper.yml`, `demosphere-scraper.yml`, `ea-scraper.yml`,
 `mlsnext-kitman-scraper.yml`. Do it
 before Aug 1;
 lift it again only once the relabel migration is applied and the boards verified.

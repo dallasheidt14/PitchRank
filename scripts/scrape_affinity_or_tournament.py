@@ -31,7 +31,7 @@ import re
 import sys
 import time
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -144,6 +144,12 @@ def _parse_date_header(text: str) -> Optional[datetime]:
     return None
 
 
+def _min_game_date(tournament: Dict) -> Optional[date]:
+    """The earliest game date a tournament imports, when it sets one ('2026-08-01')."""
+    floor = tournament.get("min_game_date")
+    return date.fromisoformat(floor) if floor else None
+
+
 def _compute_result(gf: Optional[int], ga: Optional[int]) -> str:
     if gf is None or ga is None:
         return "U"
@@ -169,11 +175,22 @@ def _age_u_to_birth_year(age_u: int, season_year: int) -> int:
     return season_year - age_u + 1
 
 
+_GENDER_FIRST_DIVISION = re.compile(r"^\s*([BG])(\d{1,2})(?:\s*-\s*(\d{1,2}))?U\b", re.IGNORECASE)
+
+
+def _pair_cohort(first: int, second: Optional[int]) -> Optional[int]:
+    """The cohort a one- or two-age label names; a pair is one cohort only when both ages fold into u19."""
+    if second is None:
+        return first
+    return 19 if min(first, second) >= 18 else None
+
+
 def _extract_age_gender_from_division(div_name: str) -> Tuple[Optional[str], Optional[int]]:
     """
     Parse 'BU13 RCL North 2' → (gender='Male', age_u=13).
-    Also handles the spelled-out Affinity form, 'Boys Under 12 Div 1', and
-    UYSA's 'Boys 12U Premier' and 'Boys 18/19U Premier'.
+    Also handles the spelled-out Affinity form, 'Boys Under 12 Div 1',
+    UYSA's 'Boys 12U Premier' and 'Boys 18/19U Premier', and HYSA's
+    'B12U', 'B14U R1' and 'G15-19U'.
 
     ``age_u`` is the cohort directly; OYSA and PitchRank number the Aug 1 -
     Jul 31 band the same way.
@@ -183,14 +200,17 @@ def _extract_age_gender_from_division(div_name: str) -> Tuple[Optional[str], Opt
         gender = "Male" if compact.group(1).upper() == "B" else "Female"
         return gender, int(compact.group(2))
 
+    gender_first = _GENDER_FIRST_DIVISION.match(div_name)
+    if gender_first:
+        gender = "Male" if gender_first.group(1).upper() == "B" else "Female"
+        second = gender_first.group(3)
+        return gender, _pair_cohort(int(gender_first.group(2)), int(second) if second else None)
+
     trailing = re.match(r"^\s*(Boys|Girls)\s+(\d{1,2})(?:\s*/\s*(\d{1,2}))?U?\b", div_name, re.I)
     if trailing:
         gender = "Male" if trailing.group(1).lower() == "boys" else "Female"
-        first = int(trailing.group(2))
-        if trailing.group(3) is None:
-            return gender, first
-        # A two-age label is one cohort only when both ages fold into u19.
-        return gender, 19 if min(first, int(trailing.group(3))) >= 18 else None
+        second = trailing.group(3)
+        return gender, _pair_cohort(int(trailing.group(2)), int(second) if second else None)
 
     gender = None
     if re.search(r"\bBoys?\b", div_name, re.I):
@@ -233,6 +253,11 @@ def _respell_glued_band(name: str) -> str:
     return _GLUED_BAND.sub(respell, name)
 
 
+def _same_board(readings: List[Tuple[int, str]]) -> Optional[Tuple[int, str]]:
+    """The first of two ``(birth_year, age_group)`` readings when both land on one board, else None."""
+    return readings[0] if readings[0][1] == readings[1][1] else None
+
+
 def _board_from_team_names(
     home_name: str, away_name: str, division_birth_year: int, season_year: int
 ) -> Optional[Tuple[int, str]]:
@@ -252,9 +277,45 @@ def _board_from_team_names(
         if board is None:
             return None
         readings.append((birth_year, board))
-    if readings[0][1] != readings[1][1]:
-        return None
-    return readings[0]
+    return _same_board(readings)
+
+
+_NAME_AGE_PREFIX = re.compile(r"^\s*(\d{1,2})U([BG])\s*-\s*", re.IGNORECASE)
+
+
+def _board_from_name_prefixes(
+    home_name: str, away_name: str, flight_gender: str, season_year: int
+) -> Optional[Tuple[int, str]]:
+    """``(birth_year, age_group)`` both teams' own age labels put the game on, else None.
+
+    HYSA starts every team name with that team's age and gender ('13UB - HSC Bulls
+    13/14B - II'), and one division holds several of them ('B19U' fields 17UB, 18UB
+    and 19UB teams), so the label is the team's and never the division's. An age
+    written later in the name can only veto the label, and a name it cannot read
+    vetoes nothing. A game is held back, as in ``_board_from_team_names``, when a
+    name has no label, its label names the other gender or no board, or the two
+    names land on different boards.
+    """
+    from scripts.import_athletes2events_event import age_from_name, board_cohort, respell_ages
+
+    readings = []
+    for name in (home_name, away_name):
+        label = _NAME_AGE_PREFIX.match(name)
+        if not label or _gender_label_to_canonical(label.group(2)) != flight_gender:
+            return None
+        birth_year = _age_u_to_birth_year(int(label.group(1)), season_year)
+        board = board_cohort(birth_year, season_year)
+        later, _ = age_from_name(respell_ages(name[label.end() :]), None, season_year)
+        if board is None or (later and board_cohort(later, season_year) != board):
+            return None
+        readings.append((birth_year, board))
+    return _same_board(readings)
+
+
+def _youngest_division_age(div_name: str) -> Optional[int]:
+    """The youngest age of a range spanning boards ('G15-19U' is 15), the pass that scrapes it."""
+    match = _GENDER_FIRST_DIVISION.match(div_name)
+    return int(match.group(2)) if match else None
 
 
 # ── Network ────────────────────────────────────────────────────────────────────
@@ -313,6 +374,11 @@ def discover_flights(tournament: Dict, target_age: int, target_gender: str) -> L
     seen_guids: set = set()
 
     for row in soup.find_all("tr"):
+        # A row holding a table is page layout. Its first link belongs to the
+        # first division, so taking it here would mark that flight seen under the
+        # layout's text and skip the division's own row.
+        if row.find("table"):
+            continue
         schedule_link = row.find("a", href=re.compile(r"schedule_results2\.asp", re.I))
         if not schedule_link:
             continue
@@ -333,6 +399,8 @@ def discover_flights(tournament: Dict, target_age: int, target_gender: str) -> L
             continue
 
         gender, age_u = _extract_age_gender_from_division(div_text)
+        if age_u is None and tournament.get("age_from_name_prefix"):
+            age_u = _youngest_division_age(div_text)
 
         if gender is None:
             gender = target_gender
@@ -365,7 +433,7 @@ def scrape_flight_games(
     min_date: datetime,
     max_date: datetime,
 ) -> List[Dict]:
-    """Fetch schedule_results2 page and extract games within the date window.
+    """Fetch schedule_results2 page and extract games within the date window, from any ``min_game_date`` on.
 
     Unplayed fixtures are emitted with both scores empty; the importer keeps
     the future-dated ones as scheduled games.  Rows where only one score is
@@ -383,6 +451,7 @@ def scrape_flight_games(
     soup = BeautifulSoup(html, "lxml")
     records: List[Dict] = []
     held_by_name = 0
+    floor = _min_game_date(tournament)
 
     current_date: Optional[datetime] = None
 
@@ -397,6 +466,8 @@ def scrape_flight_games(
             continue
 
         if current_date < min_date or current_date > max_date:
+            continue
+        if floor and current_date.date() < floor:
             continue
 
         rows = element.find_all("tr")
@@ -457,10 +528,14 @@ def scrape_flight_games(
 
             if tournament.get("age_from_team_name"):
                 named = _board_from_team_names(home_name, away_name, birth_year, tournament["season_year"])
-                if named is None:
-                    held_by_name += 1
-                    continue
-                birth_year, age_group = named
+            elif tournament.get("age_from_name_prefix"):
+                named = _board_from_name_prefixes(home_name, away_name, flight["gender"], tournament["season_year"])
+            else:
+                named = (birth_year, age_group)
+            if named is None:
+                held_by_name += 1
+                continue
+            birth_year, age_group = named
 
             gender_display = "Boys" if flight["gender"] == "Male" else "Girls"
             provider = tournament["provider"]
@@ -561,6 +636,9 @@ def main(tournaments: List[Dict] = TOURNAMENTS):
 
     for tournament in tournaments:
         print(f"\n  Tournament: {tournament['name']}")
+        floor = _min_game_date(tournament)
+        if floor:
+            print(f"  Games from: {floor.isoformat()}")
         flights = discover_flights(tournament, target_age, target_gender)
         print(f"  Matched flights: {len(flights)}")
         print(f"FLIGHTS_MATCHED:{len(flights)}:{tournament['name']}")

@@ -923,6 +923,45 @@ published. Teams held as conflicts are reported and do not turn the run red; a f
 - Fixtures under `tests/fixtures/demosphere/` have club contacts' names, emails and phone numbers replaced by
   placeholders; a test fails on any contact detail that is not a placeholder.
 
+## Sports Affinity Pages
+
+Each state association has a site at `<site>.sportsaffinity.com`, public HTML behind Incapsula. The first hit answers
+a 302 to the same URL plus cookies, so use `requests`, which keeps cookies across a redirect; `curl` without a cookie
+jar loops. `scripts/scrape_affinity_or_tournament.py` is the shared engine, and the WA scraper is a separate copy.
+
+### Finding a state's leagues
+
+- The site's league directory is `https://<site>.sportsaffinity.com/tour/public/info/tournamentlist.asp?section=gaming`.
+  Add `&tourtab=past` for past seasons, and drop `section` for the Tournaments tab. Each row links `accepted_list.asp`
+  with a `tournamentguid`, sometimes on a league subdomain (`gs-fall26schedule.`) that serves the same pages.
+- No list of sites exists: the certificate is a wildcard and search engines do not index these pages. Try likely
+  names. An unknown subdomain answers 200 with an empty `<title>`; a real one puts the association in the title.
+- Use that directory, not `sctour.sportsaffinity.com`, which opens one league by organization and tournament id and
+  lists no organization's leagues.
+
+### Pages
+
+- `accepted_list.asp` takes `&show=boys` or `&show=girls`. Division rows sit inside layout tables, and a layout row
+  holds every division link, the first division's first. Skip any row holding a table, or that division is lost.
+- Division labels differ by site (`BU13`, `Boys 12U Premier`, `B12U`, `G15-19U`). A form the parser cannot read
+  matches no flights. The workflows' stale-GUID error fires only when a whole league matches none, so one unread form
+  beside readable ones loses its divisions in a green run. When adding a league, compare the `Matched flights` counts
+  in the log with the site's division list.
+- `schedule_results2.asp` marks a forfeit in the score cell (`2F`) and with `Forfeited Game` in the team cell. `2F` is
+  not a result, so import nothing: keep the engine's digits-only score test, which drops the game.
+- Pages answer `Content-Type: text/html` with no charset, so `_fetch`, which returns `r.text`, gets ISO-8859-1. Apply
+  *Decoding an HTML response* under Request Pattern, but first count the non-ASCII names already scraped: a name feeds
+  `_team_hash`, so changing the decode changes those teams' provider ids.
+
+### Competitive or rec
+
+List only a competitive league; PitchRank never imports rec (*Rec, small-sided and adult play* under SincSports). A
+league's name does not settle it, so read its team names first. Club names with age labels mark a competitive league
+(`13UB - HSC Bulls 13/14B - II`), even when a squad goes by a nickname or a coach's surname (`RUSH Azul`). A town or
+rec program, or a nickname or surname with no club behind it, marks rec (`XFRec BU13 Blue Falcons`,
+`Duvall B07 Love Hulking Zombie Pig Dogs`). Grade-based divisions (`Grade 3/4 Boys D1`) are town leagues too. Check
+the games as well: a league can carry many divisions with no scored games.
+
 ## Provider Matcher Name Parsing
 
 Rules for a provider matcher that gates fuzzy candidates on the team name
@@ -960,7 +999,10 @@ Rules for a provider matcher that gates fuzzy candidates on the team name
 To test matching against production without writes, construct the matcher with
 `dry_run=True` and a provider id that has no aliases, so every team goes through fuzzy
 matching. Teams an earlier real run created then appear as existing candidates, so the
-replay's link counts overstate what a first run on a fresh event does.
+replay's link counts overstate what a first run on a fresh event does. A dry run creates
+nothing, so it also cannot show a team linking to one created earlier in the same import.
+Check that offline: group the provider's teams by club, board, gender and the words the
+matcher compares. Any group of two or more can fuse into one team on a real run.
 
 Run that replay before shipping any matcher, and above all one reused from a sibling
 league. Wrap the client so every insert, update, upsert and delete is recorded and
@@ -998,7 +1040,15 @@ where Oregon does not. Diff the link list between runs and judge each added or r
   set true by the Utah subclass.
 - **Ask a club's state only within the league's region.** Asked nationally, a generic
   club word answers for another state (`Avalanche` resolved to Virginia and sent Utah teams
-  there). Treat a club containing an ilike wildcard (`%`, `_`, `*`, `\`) as unknown.
+  there). Treat a club containing an ilike wildcard (`%`, `_`, `*`, `\`) as unknown. The
+  region is the `region` class attribute on the Utah matcher, which a subclass overrides.
+
+Where a league names squads in words no gate reads (`RUSH Azul`, Albion's `HNL` and `WND`),
+replace Utah's coach-initial and squad-number checks, as `_squads_conflict` does in
+`src/models/affinity_hi_matcher.py`, a subclass of the Utah matcher: any difference in a squad's
+own words, one-sided included, is a different squad. U18 and U19 share the u19 board, so compare
+stated U-ages too, but not birth-year bands, because HYSA labels an `08/09` squad either 18UB or
+19UB.
 
 Each refusal costs a duplicate the merging-duplicate-teams skill can fold; each wrong link
 fuses two squads. Lean toward refusing.

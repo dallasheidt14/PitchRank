@@ -56,6 +56,7 @@ _SUBCLASS_PATHS = [
     ("src.models.affinity_wa_matcher", "AffinityWAGameMatcher"),
     ("src.models.affinity_or_matcher", "AffinityORGameMatcher"),
     ("src.models.affinity_ut_matcher", "AffinityUTGameMatcher"),
+    ("src.models.affinity_hi_matcher", "AffinityHIGameMatcher"),
     ("src.models.playmetrics_matcher", "PlayMetricsGameMatcher"),
     ("src.models.tgs_matcher", "TGSGameMatcher"),
     ("src.models.sincsports_matcher", "SincSportsGameMatcher"),

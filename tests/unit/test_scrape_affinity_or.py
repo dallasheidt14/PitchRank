@@ -211,7 +211,11 @@ class TestScoreShapes:
 
 
 def _accepted_list_html(divisions):
-    """Build an accepted_list page shaped like OYSA's, one row per division."""
+    """Build an accepted_list page shaped like OYSA's, one row per division.
+
+    As on the live page, the division rows sit inside a layout table, whose own row
+    holds the instructions and every division link, the first division's first.
+    """
     rows = "".join(
         "<tr>"
         f"<td>{name}</td>"
@@ -221,7 +225,10 @@ def _accepted_list_html(divisions):
         "</tr>"
         for name, guid in divisions
     )
-    return f"<html><body><table>{rows}</table></body></html>"
+    return (
+        "<html><body><table><tr><td>Follow the link below for the appropriate age group."
+        f"<table>{rows}</table></td></tr></table></body></html>"
+    )
 
 
 DIVISIONS = [
