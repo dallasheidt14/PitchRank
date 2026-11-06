@@ -454,8 +454,10 @@ first two letters are the state. So link teams first:
 1. `python scripts/discover_sincsports_via_tournament.py --from-bundle <bundle> --dry-run`, then
    again without `--dry-run`. The dry run runs the matcher and reports what it would link, create
    and hold. Compare the real run's created teams with the dry run's: a team the dry run linked
-   but the real run created is a duplicate to merge, because a real run's own new rows join the
-   candidates for every later team in it while a dry run's never do. Merge one with the
+   but the real run created is a duplicate to merge: a real run's new rows join the candidates
+   for every later team and none can be linked to (see the same-event rule under Provider
+   Matcher Name Parsing), so a later team matching one gets a new row too, even where the dry
+   run, which has no such rows, linked it to a stored team. Merge one with the
    `execute_team_merge` RPC, which also repoints its aliases; deleting the duplicate `teams` row
    instead has timed out. The RPC raises a JSON serialization error even when it commits, so read
    `"success": true` from the error text as `scripts/apply_vetted_team_merges.py` does.
@@ -501,9 +503,10 @@ teams sit on u12, where the SincSports reading puts them on u13.
   (`Forfeit`, `Canceled - Weather`, `Blackout - Postponed`), often beside a recorded score such as
   4-0. Take status from it; `.sched2-mark` and `.sched2-typechip` never carry it, so a forfeit read
   from those looks played. `.sched2-gstat-note` (`Kicks from the Mark`) is informational.
-- sched2 day headers print a weekday and "Mon D" with no year. The team links carry `year=`, the
-  event year; of that year and the years either side, the right one puts the date on the printed
-  weekday (`_sched2_day_date`).
+- sched2 day headers print a weekday and "Mon D" with no year. Team links (`/team/team.aspx`)
+  carry `year=`, the event year; of that year and the years either side, the right one puts the
+  date on the printed weekday (`_sched2_day_date`). Read it from team links only: other links can
+  carry an older year ahead of them (`TTCheckIn.aspx`).
 - `Jan 1` is the site's placeholder for games with no real date, printed under either `MON` or
   the event year's own weekday, and it can carry a score (a 0-0 marked played).
   `parse_division_pages` leaves every 1 January game undated so none of them import.
@@ -945,6 +948,10 @@ Rules for a provider matcher that gates fuzzy candidates on the team name
 - When two teams registered in one event link to the same PitchRank team, they are two squads:
   hold each new fuzzy link to it as a conflict, and keep a link that was already approved or
   whose team row carries the provider team id (`import_soccereventsgroup_event.shared_links`).
+  SincSports discovery cannot hold a link (its `held` list is only for names that settle no
+  age), so the matcher refuses: a fuzzy match that would auto-link to a team in
+  `SincSportsGameMatcher.claimed_team_ids` gets its own row, which a merge can repair. A
+  registration already linked keeps its team; otherwise the first in the list to match it does.
 
 To test matching against production without writes, construct the matcher with
 `dry_run=True` and a provider id that has no aliases, so every team goes through fuzzy

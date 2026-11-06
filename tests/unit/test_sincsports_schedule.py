@@ -317,6 +317,16 @@ class TestParseSched2Division:
         html = _sched2_day("SAT", "Aug 22", _sched2_game())
         assert [g.date for g in parse_division(html, "T", "U12M01")] == [None]
 
+    def test_event_year_skips_an_earlier_year_on_another_link(self):
+        """HVSLDI's pages open with a 2024 check-in link, and Sep 5 is a Saturday in no year near 2024."""
+        stale = "<a href='https://soccer.sincsports.com/TTCheckIn.aspx?tid=T&year=2024'>Check In</a>"
+        html = stale + _sched2_page(_sched2_day("SAT", "Sep 5", _sched2_game()))
+        assert [g.date for g in parse_division(html, "T", "U12M01")] == ["9/5/2026"]
+
+    def test_year_on_a_link_that_is_not_a_team_is_not_the_event_year(self):
+        html = "<a href='TTScores.aspx?tid=T&year=2026'>Scores</a>" + _sched2_day("SAT", "Aug 22", _sched2_game())
+        assert [g.date for g in parse_division(html, "T", "U12M01")] == [None]
+
     def test_status_branches(self):
         html = _sched2_page(
             _sched2_day(

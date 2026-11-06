@@ -5,10 +5,12 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 import scripts.discover_sincsports_via_tournament as driver
+from src.models.sincsports_matcher import SincSportsGameMatcher
 from src.scrapers.sincsports_clubs import TeamRecord
 from src.scrapers.sincsports_events import CANONICAL_AGE_GROUPS
 from tests.unit.test_sincsports_schedule import _sched2_day, _sched2_game, _sched2_page
@@ -185,7 +187,7 @@ class TestDryRun:
         monkeypatch.setenv("SUPABASE_URL", "http://supabase.test")
         monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "service-role")
         monkeypatch.setattr(driver, "EXPORTS_DIR", tmp_path / "exports")
-        monkeypatch.setattr(driver, "create_client", lambda url, key: object())
+        monkeypatch.setattr(driver, "create_client", lambda url, key: _Db())
         monkeypatch.setattr(driver, "ensure_provider_exists", lambda supabase, dry_run: "pid")
         monkeypatch.setattr(driver, "bulk_existing_aliases", lambda supabase, pid, ids: {})
         monkeypatch.setattr(driver, "SincSportsGameMatcher", _FakeMatcher)
@@ -223,7 +225,7 @@ class TestDryRun:
         monkeypatch.setenv("SUPABASE_URL", "http://supabase.test")
         monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "service-role")
         monkeypatch.setattr(driver, "EXPORTS_DIR", tmp_path / "exports")
-        monkeypatch.setattr(driver, "create_client", lambda url, key: object())
+        monkeypatch.setattr(driver, "create_client", lambda url, key: _Db())
         monkeypatch.setattr(driver, "ensure_provider_exists", lambda supabase, dry_run: "pid")
         monkeypatch.setattr(driver, "bulk_existing_aliases", lambda supabase, pid, ids: {})
         monkeypatch.setattr(driver, "SincSportsGameMatcher", _FakeMatcher)
@@ -252,7 +254,7 @@ class TestDryRun:
         monkeypatch.setenv("SUPABASE_URL", "http://supabase.test")
         monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "service-role")
         monkeypatch.setattr(driver, "EXPORTS_DIR", tmp_path / "exports")
-        monkeypatch.setattr(driver, "create_client", lambda url, key: object())
+        monkeypatch.setattr(driver, "create_client", lambda url, key: _Db())
         monkeypatch.setattr(driver, "ensure_provider_exists", lambda supabase, dry_run: "pid")
         monkeypatch.setattr(driver, "bulk_existing_aliases", lambda supabase, pid, ids: {})
         monkeypatch.setattr(driver, "SincSportsGameMatcher", _FakeMatcher)
@@ -262,6 +264,150 @@ class TestDryRun:
         assert driver.main() == 0
         (matcher,) = _FakeMatcher.instances
         assert [(m["provider_team_id"], m["age_group"]) for m in matcher.matched] == [("NCM15006D6", "u12")]
+
+
+class _Query:
+    """Serves the rows as they stand when the query is built, applying only ``eq``."""
+
+    def __init__(self, rows: list):
+        self.rows = rows
+
+    def eq(self, column, value):
+        return _Query([row for row in self.rows if row.get(column) == value])
+
+    def __getattr__(self, method):
+        return lambda *args, **kwargs: self
+
+    def execute(self):
+        return SimpleNamespace(data=list(self.rows))
+
+
+class _Db:
+    """``teams`` is live, so a row one registration creates is a candidate for the next."""
+
+    def __init__(self, teams=(), merges=(), broken=()):
+        self.tables = {"teams": list(teams), "team_merge_map": list(merges)}
+        self.broken = broken
+
+    def table(self, name):
+        if name in self.broken:
+            raise RuntimeError(f"{name} unavailable")
+        return _Query(self.tables.get(name, []))
+
+
+class TestTwoRegistrationsOfOneEvent:
+    """Beachfest 2026: "ACES 2015B" fuzzy-linked to the "ACES 14/15" row made moments earlier,
+    filing one squad's games under the other. The real matcher runs here, because the failure
+    needs a row one call writes to reach the next call's candidates."""
+
+    CLUB = "ACES Soccer Club (FL)"
+    NAME = "ACES U12 Boys Blue"
+    MERGED = [{"deprecated_team_id": "merged", "canonical_team_id": "survivor"}]
+
+    def _row(self, team_id, name=NAME, is_deprecated=False):
+        return {
+            "team_id_master": team_id,
+            "team_name": name,
+            "club_name": self.CLUB,
+            "age_group": "u12",
+            "gender": "Male",
+            "state_code": "FL",
+            "is_deprecated": is_deprecated,
+        }
+
+    def _record(self, team_id, name=NAME):
+        return TeamRecord(
+            provider_team_id=team_id,
+            team_name=name,
+            club_name=self.CLUB,
+            age_group="u12",
+            gender="Male",
+            state_code="FL",
+            division_ages=(),
+        )
+
+    def _wire(self, monkeypatch, tmp_path, db, records, aliases=None):
+        aliases = aliases or {}
+        links = {}
+
+        def create(matcher, **kwargs):
+            team_id = f"new-{kwargs['provider_team_id']}"
+            db.tables["teams"].append(self._row(team_id, kwargs["team_name"]))
+            return team_id, True
+
+        def alias(matcher, **kwargs):
+            links[kwargs["provider_team_id"]] = kwargs["team_id_master"]
+
+        monkeypatch.setattr(driver, "_soccer_season_year", lambda today=None: SEASON)
+        monkeypatch.setenv("SUPABASE_URL", "http://supabase.test")
+        monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "service-role")
+        monkeypatch.setattr(driver, "EXPORTS_DIR", tmp_path / "exports")
+        monkeypatch.setattr(driver, "create_client", lambda url, key: db)
+        monkeypatch.setattr(driver, "ensure_provider_exists", lambda supabase, dry_run: "pid")
+        monkeypatch.setattr(
+            driver, "bulk_existing_aliases", lambda supabase, pid, ids: {i: aliases[i] for i in ids if i in aliases}
+        )
+        monkeypatch.setattr(driver, "load_bundle_teams", lambda path: [(r, SEASON) for r in records])
+        monkeypatch.setattr(SincSportsGameMatcher, "_match_by_provider_id", lambda self, *args: None)
+        monkeypatch.setattr(SincSportsGameMatcher, "_match_by_alias", lambda self, *args: None)
+        monkeypatch.setattr(SincSportsGameMatcher, "_create_new_sincsports_team", create)
+        monkeypatch.setattr(SincSportsGameMatcher, "_create_alias", alias)
+        argv = ["discover_sincsports_via_tournament.py", "--from-bundle", str(tmp_path / "b.json")]
+        monkeypatch.setattr(sys, "argv", argv)
+        return links
+
+    def _run(self, monkeypatch, tmp_path, db, records, aliases=None):
+        links = self._wire(monkeypatch, tmp_path, db, records, aliases)
+        assert driver.main() == 0
+        return links
+
+    def test_a_team_created_this_run_is_not_linked_to_by_the_next(self, monkeypatch, tmp_path):
+        records = [self._record("FLM1"), self._record("FLM2")]
+        links = self._run(monkeypatch, tmp_path, _Db(), records)
+        assert links == {"FLM1": "new-FLM1", "FLM2": "new-FLM2"}
+
+    def test_two_registrations_cannot_both_link_to_one_free_team(self, monkeypatch, tmp_path):
+        records = [self._record("FLM1"), self._record("FLM2")]
+        links = self._run(monkeypatch, tmp_path, _Db(teams=[self._row("free")]), records)
+        assert links == {"FLM1": "free", "FLM2": "new-FLM2"}
+
+    def test_a_team_a_linked_registration_holds_is_not_linked_to(self, monkeypatch, tmp_path):
+        records = [self._record("FLM1"), self._record("FLM2")]
+        links = self._run(monkeypatch, tmp_path, _Db(teams=[self._row("held")]), records, {"FLM1": "held"})
+        assert links == {"FLM2": "new-FLM2"}
+
+    def test_a_registration_left_out_for_its_age_still_claims_its_team(self, monkeypatch, tmp_path):
+        records = [self._record("FLM1", "ACES Boys Blue"), self._record("FLM2")]
+        links = self._run(monkeypatch, tmp_path, _Db(teams=[self._row("held")]), records, {"FLM1": "held"})
+        assert links == {"FLM2": "new-FLM2"}
+
+    def test_the_survivor_of_a_merged_alias_is_claimed(self, monkeypatch, tmp_path):
+        records = [self._record("FLM1"), self._record("FLM2")]
+        db = _Db(teams=[self._row("survivor")], merges=self.MERGED)
+        links = self._run(monkeypatch, tmp_path, db, records, {"FLM1": "merged"})
+        assert links == {"FLM2": "new-FLM2"}
+
+    def test_a_merged_away_row_of_a_claimed_team_is_not_linked_to(self, monkeypatch, tmp_path):
+        records = [self._record("FLM1"), self._record("FLM2")]
+        db = _Db(teams=[self._row("merged", is_deprecated=True)], merges=self.MERGED)
+        links = self._run(monkeypatch, tmp_path, db, records, {"FLM1": "survivor"})
+        assert links == {"FLM2": "new-FLM2"}
+
+    def test_a_team_no_registration_holds_still_links(self, monkeypatch, tmp_path):
+        records = [self._record("FLM1"), self._record("FLM2")]
+        links = self._run(monkeypatch, tmp_path, _Db(teams=[self._row("free")]), records, {"FLM1": "other"})
+        assert links == {"FLM2": "free"}
+
+    def test_a_failed_merge_map_read_stops_before_anything_is_written(self, monkeypatch, tmp_path):
+        db = _Db(teams=[self._row("survivor")], broken=["team_merge_map"])
+        links = self._wire(monkeypatch, tmp_path, db, [self._record("FLM2")])
+        with pytest.raises(SystemExit, match="Merge map failed to load"):
+            driver.main()
+        assert links == {}
+
+    def test_a_failed_alias_read_is_not_swallowed(self):
+        with pytest.raises(RuntimeError, match="team_alias_map unavailable"):
+            driver.bulk_existing_aliases(_Db(broken=["team_alias_map"]), "pid", ["FLM1"])
 
 
 class TestEnsureProviderExists:
