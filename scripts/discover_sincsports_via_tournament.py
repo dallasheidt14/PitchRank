@@ -37,7 +37,7 @@ import os
 import sys
 from datetime import date, datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 sys.path.append(str(Path(__file__).parent.parent))
 
@@ -56,8 +56,10 @@ from scripts.import_athletes2events_event import (  # noqa: E402
 )
 from scripts.scrape_sincsports_tournament_schedule import load_bundle, parse_date_iso  # noqa: E402
 from src.models.sincsports_matcher import SincSportsGameMatcher  # noqa: E402
+from src.rankings.data_adapter import MERGE_MAP_LOAD_FAILED  # noqa: E402
 from src.scrapers.sincsports_clubs import TeamRecord  # noqa: E402
 from src.scrapers.sincsports_events import SincSportsEventsScraper  # noqa: E402
+from src.utils.merge_resolver import MergeResolver  # noqa: E402
 from src.utils.team_utils import _soccer_season_year  # noqa: E402
 from supabase import create_client  # noqa: E402
 
@@ -168,19 +170,29 @@ def bulk_existing_aliases(supabase, provider_id: str, provider_team_ids: List[st
     existing: Dict[str, str] = {}
     for i in range(0, len(provider_team_ids), 100):
         batch = provider_team_ids[i : i + 100]
-        try:
-            result = (
-                supabase.table("team_alias_map")
-                .select("provider_team_id, team_id_master")
-                .eq("provider_id", provider_id)
-                .in_("provider_team_id", batch)
-                .execute()
-            )
-            for row in result.data or []:
-                existing[str(row["provider_team_id"])] = row["team_id_master"]
-        except Exception as e:
-            logger.warning(f"Error checking existing aliases (batch {i // 100 + 1}): {e}")
+        result = (
+            supabase.table("team_alias_map")
+            .select("provider_team_id, team_id_master")
+            .eq("provider_id", provider_id)
+            .in_("provider_team_id", batch)
+            .execute()
+        )
+        for row in result.data or []:
+            existing[str(row["provider_team_id"])] = row["team_id_master"]
     return existing
+
+
+def teams_claimed_by_event(supabase, existing: Dict[str, str]) -> Set[str]:
+    """The live teams this event's linked registrations stand on.
+
+    A bundle holding several events counts as one here: a team registered twice across
+    them gets a second row, which a merge can repair, rather than fusing two squads.
+    """
+    merges = MergeResolver(supabase)
+    merges.load_merge_map()
+    if merges.version == MERGE_MAP_LOAD_FAILED:
+        raise SystemExit("Merge map failed to load; re-run rather than matching against unresolved ids")
+    return {merges.resolve(team_id) for team_id in existing.values()}
 
 
 def append_low_confidence_row(path: Path, row: Dict) -> None:
@@ -311,8 +323,9 @@ def main() -> int:
         return 1
 
     matcher = SincSportsGameMatcher(supabase, provider_id=provider_id, discovery_mode=True, dry_run=args.dry_run)
-    existing = bulk_existing_aliases(supabase, provider_id, [r.provider_team_id for r in records])
+    existing = bulk_existing_aliases(supabase, provider_id, [record.provider_team_id for record, _ in listed])
     console.print(f"[yellow]{len(existing)} teams already aliased - skipping create path.[/yellow]")
+    matcher.claimed_team_ids = teams_claimed_by_event(supabase, existing)
 
     buckets = {
         "direct_alias_hit": 0,
@@ -338,6 +351,9 @@ def main() -> int:
             logger.error(f"match error for {record.provider_team_id}: {e}")
             buckets["errors"] += 1
             continue
+
+        if result.get("team_id"):
+            matcher.claimed_team_ids.add(result["team_id"])
 
         created = result.get("created", False)
         method = result.get("method")
@@ -377,7 +393,7 @@ def main() -> int:
     summary.add_column("Count", justify="right")
     summary.add_row("Teams parsed", str(len(records)))
     summary.add_row("Held for review", str(len(held)))
-    summary.add_row("Skipped (existing alias)", str(len(existing)))
+    summary.add_row("Skipped (existing alias)", str(len(records) - len(to_match)))
     for k, v in buckets.items():
         summary.add_row(k, str(v))
     console.print(summary)

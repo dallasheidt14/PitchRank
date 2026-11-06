@@ -118,6 +118,9 @@ class SincSportsGameMatcher(GameHistoryMatcher):
         # decisions the subclass is about to auto-resolve. Game-import flows
         # keep discovery_mode=False (default) so their review queue is intact.
         self.discovery_mode = discovery_mode
+        # Teams another registration of the event under discovery already holds. Two
+        # registrations in one event are two squads, so none of these is auto-linked to.
+        self.claimed_team_ids: Set[str] = set()
         logger.info(
             f"Initialized SincSportsGameMatcher with enhanced fuzzy matching "
             f"(fuzzy: {self.fuzzy_threshold}, auto-approve: {self.auto_approve_threshold}, "
@@ -340,7 +343,7 @@ class SincSportsGameMatcher(GameHistoryMatcher):
         - Club-filtered query first (gated funnel)
         - Distinction-based hard rejection before scoring
         - Lower threshold (0.75) for more matches
-        - Deterministic tie-breaking on (variant_match, club_sim)
+        - Deterministic tie-breaking on (claimed, variant_match, club_sim)
 
         ``state_code`` flows into the provider_team scoring dict so the base
         score's location component sees the discovered team's state instead of
@@ -371,6 +374,7 @@ class SincSportsGameMatcher(GameHistoryMatcher):
                     .select("team_id_master, team_name, club_name, age_group, gender, state_code")
                     .eq("age_group", age_group_normalized)
                     .eq("gender", gender)
+                    .eq("is_deprecated", False)
                 )
                 if club:
                     query = query.ilike("club_name", club)
@@ -381,13 +385,13 @@ class SincSportsGameMatcher(GameHistoryMatcher):
                 return query.order("team_id_master").limit(2000).execute()
 
             # The club's own rows are scored first. The broad pool follows whenever they hold
-            # no match, since rows a run has just created for the club's other teams would
-            # otherwise hide the club's existing team and duplicate it.
+            # no match or only a claimed one, since rows a run has just created for the club's
+            # other teams would otherwise hide the club's existing team and duplicate it.
             pools = (pool(club) for club in ([club_name] if club_name else []) + [None])
 
             best_match = None
             best_score = 0.0
-            best_tiebreak = (False, 0.0)
+            best_tiebreak = (False, False, 0.0)
 
             provider_team = {
                 "team_name": team_name,
@@ -447,7 +451,9 @@ class SincSportsGameMatcher(GameHistoryMatcher):
                         else:
                             club_sim = self._calculate_similarity(club_name, cand_club)
 
-                    tiebreak = (variant_match, club_sim)
+                    # Scores saturate within a club, so a claimed row must win a tie for
+                    # the refusal below not to depend on row order.
+                    tiebreak = (team.get("team_id_master") in self.claimed_team_ids, variant_match, club_sim)
 
                     if score >= self.fuzzy_threshold:
                         tied = abs(score - best_score) <= 0.001
@@ -459,8 +465,16 @@ class SincSportsGameMatcher(GameHistoryMatcher):
                                 "team_name": team["team_name"],
                                 "confidence": round(score, 3),
                             }
-                if best_match:
+                if best_match and best_match["team_id"] not in self.claimed_team_ids:
                     break
+
+            if (
+                best_match
+                and best_match["team_id"] in self.claimed_team_ids
+                and best_match["confidence"] >= self.auto_approve_threshold
+            ):
+                logger.info(f"'{team_name}' gets its own team: another registration holds '{best_match['team_name']}'")
+                return None
 
             if best_match:
                 logger.debug(

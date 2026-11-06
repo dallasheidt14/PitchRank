@@ -341,7 +341,7 @@ class TestStateCodeCascade:
         the broad fallback (no ``ilike``, ordered). Both carry the state filter
         (``.or_``), since every caller here passes a state.
         """
-        chain = mock_db.table.return_value.select.return_value.eq.return_value.eq.return_value
+        chain = mock_db.table.return_value.select.return_value.eq.return_value.eq.return_value.eq.return_value
         if clubbed:
             return chain.ilike.return_value.or_.return_value.limit.return_value.execute
         return chain.or_.return_value.order.return_value.limit.return_value.execute
@@ -460,6 +460,10 @@ class TestStateScopedCandidates:
         assert ("ilike", ("club_name", "Sample")) in club_query
         assert ("or_", ("state_code.eq.NC,state_code.is.null",)) in club_query
 
+    def test_merged_away_rows_are_never_candidates(self):
+        queries = self._run("NC", [[], []])
+        assert [("eq", ("is_deprecated", False)) in query for query in queries] == [True, True]
+
     def test_fallback_is_scoped_and_ordered(self):
         club_query, fallback = self._run("nc", [[], []])
         assert ("or_", ("state_code.eq.NC,state_code.is.null",)) in fallback
@@ -471,9 +475,9 @@ class TestStateScopedCandidates:
         columns = ("team_id_master, team_name, club_name, age_group, gender, state_code",)
         assert self._run(state_code, [[], []]) == [
             [("select", columns), ("eq", ("age_group", "u12")), ("eq", ("gender", "Male")),
-             ("ilike", ("club_name", "Sample")), ("limit", (100,))],
+             ("eq", ("is_deprecated", False)), ("ilike", ("club_name", "Sample")), ("limit", (100,))],
             [("select", columns), ("eq", ("age_group", "u12")), ("eq", ("gender", "Male")),
-             ("order", ("team_id_master",)), ("limit", (2000,))],
+             ("eq", ("is_deprecated", False)), ("order", ("team_id_master",)), ("limit", (2000,))],
         ]
 
 
@@ -504,6 +508,60 @@ class TestClubRowsWithoutAMatch:
 
         assert match["team_id"] == "old"
         assert len(db.executed) == 1
+
+
+class TestClaimedTeams:
+    """Two registrations in one event are two squads, so a team one holds is never auto-linked to the other."""
+
+    def _team(self, team_id, name):
+        return {
+            "team_id_master": team_id,
+            "team_name": name,
+            "club_name": "Sample FC",
+            "age_group": "u12",
+            "state_code": "NC",
+        }
+
+    def _match(self, rows, claimed=(), score=None):
+        m = _make_matcher(supabase=_RecordingDb([rows, rows]))
+        m.claimed_team_ids = set(claimed)
+        if score is not None:
+            m._calculate_match_score = lambda provider_team, candidate: score
+        return m._fuzzy_match_team("Sample FC U12 Red", "u12", "Male", "Sample FC", state_code="NC")
+
+    def test_unclaimed_team_matches(self):
+        assert self._match([self._team("free", "Sample FC U12 Red")])["team_id"] == "free"
+
+    @pytest.mark.parametrize("order", [("held", "other"), ("other", "held")])
+    def test_a_claimed_best_match_is_not_traded_for_a_row_it_ties(self, order):
+        rows = [self._team(team_id, "Sample FC U12 Red") for team_id in order]
+        assert self._match(rows, claimed=["held"]) is None
+
+    def test_a_better_unclaimed_row_still_links(self):
+        rows = [self._team("held", "Sample FC U12 Red"), self._team("free", "Sample FC U12 Red")]
+        scores = iter([0.92, 0.98])
+        m = _make_matcher(supabase=_RecordingDb([rows]))
+        m.claimed_team_ids = {"held"}
+        m._calculate_match_score = lambda provider_team, candidate: next(scores)
+        match = m._fuzzy_match_team("Sample FC U12 Red", "u12", "Male", "Sample FC", state_code="NC")
+        assert match["team_id"] == "free"
+
+    def test_a_refused_club_row_leaves_the_broad_pool_open(self):
+        sibling = self._team("new", "Sample FC U12 Red")
+        stored = {**self._team("old", "Sample FC U12 Red"), "club_name": "Sample Soccer Club"}
+        scores = iter([0.92, 0.92, 0.98])
+        m = _make_matcher(supabase=_RecordingDb([[sibling], [sibling, stored]]))
+        m.claimed_team_ids = {"new"}
+        m._calculate_match_score = lambda provider_team, candidate: next(scores)
+        match = m._fuzzy_match_team("Sample FC U12 Red", "u12", "Male", "Sample FC", state_code="NC")
+        assert match["team_id"] == "old"
+
+    def test_a_claimed_match_below_the_auto_link_bar_stays_for_the_audit(self):
+        match = self._match([self._team("held", "Sample FC U12 Red")], claimed=["held"], score=0.8)
+        assert (match["team_id"], match["confidence"]) == ("held", 0.8)
+
+    def test_nothing_is_claimed_by_default(self):
+        assert _make_matcher().claimed_team_ids == set()
 
 
 class TestBackwardCompatibility:
