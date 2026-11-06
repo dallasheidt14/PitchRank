@@ -2708,3 +2708,19 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: the `extract_distinctions(team_name)` call in `src/models/sincsports_matcher.py`; `Athletes2EventsGameMatcher._without_club` is the model
 - **Why**: The gate reads the raw name, so club words left inside it read as squad marks and a real match is refused (`LR Rangers` against `Little Rock Rangers`). In October 2026's pre-map dry run, 153 proposed new teams looked like existing ones and this gate blocked 99 of them, against 42 blocked by club spelling. Each refusal becomes a duplicate team. Athletes2Events already strips the club from both sides.
 - **Noted**: 2026-11-05
+
+### Make the discovery and safety-net selectors follow a GotSport alias
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `find_discovery_teams` and `find_stale_teams` (SQL functions), called by `scripts/enqueue_discovery_teams.py` and `scripts/enqueue_safety_net.py`
+- **Why**: Both filter on `teams.provider_id`, so a live non-GotSport row holding an approved GotSport alias never reaches them, though the drainer can serve it. Merges widen this, because the survivor rule often keeps a SincSports row over a GotSport one. Measured 2026-11-06: 5,570 such teams, 2,088 not scraped in 90+ days or ever, 27 of them from one merge run. Needs a migration and the owner's OK.
+- **Noted**: 2026-11-06
+
+### Add a one-field-off pass to the squad-key scan
+
+- **Type**: plan
+- **Category**: feature
+- **Where**: `pairing_key` and the pairing loop in `scripts/find_squad_key_duplicates.py`
+- **Why**: The scan pairs inside one stored age group, so one squad filed one age apart can never pair, and that is the main shape after an import. A hand-built pass from the import's new rows on the same key, allowing stored age one step apart and a near club spelling or a differing state, supplied 175 of 247 candidates and 25 of 64 applied merges on the 2026-11-06 SincSports import. It exists only as a one-off outside the repo. Its pairs need the same-day clash test, since a club can field one birth year at two ages.
+- **Noted**: 2026-11-06

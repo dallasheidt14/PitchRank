@@ -339,6 +339,17 @@ age tokens throws away the one thing separating `2012 Westy Elite` from `2013 We
 sit on the u19 board. Measured on Colorado 2026-09-23: with the test disabled, 81 of 634
 proposals paired two squads a year apart. The script's `--help` states the cohort rules.
 
+**Pairing inside one stored age hides one squad filed one age apart.** Doorways A, C and D all
+pair inside one stored age group, so `U11 Yellow` (u11) and `15G Yellow` (u12) never meet, and that
+is the main shape after a bulk import. After one, run a one-off pass from the import's new rows on
+the same `pairing_key`, allowing stored age one step apart and a near club spelling or a differing
+state, never club and state together. Keep the cohort test and the scan's other refusals, skip pairs
+the owner chose Keep separate, record `merge_as_vetted` and `keep_as_vetted`, and send the pairs
+through Steps 4 to 6 as Doorway D's. On the 2026-11-06 SincSports import it supplied 175 of 247
+candidates and 25 of 64 merges, after 423 of its 655 raw pairs failed the cohort test (one-off
+counts). Neither a stored age difference nor a name settles this class: a club can field one birth
+year at two ages, and most of those pairs were held or proven apart by a same-day clash.
+
 Measured on Colorado, 2026-09-23 (one-off counts, not tracked by the checker):
 
 - **Replay against the owner's 36 hand merges.** The key matched 28. None of the 36 was refused
@@ -708,6 +719,13 @@ scan writes them, or `tier` and `rejected_reason` as the cross-provider scan doe
 leaves out any pair whose row is no longer live, and any pair listed twice. It writes
 `<page>.manifest.json` beside the page; keep it, because the owner's choices mean nothing
 without it.
+
+Orient every pair by Step 6's survivor order before building. Doorway D's scan orients its own
+pairs, but the builder shows any pair in the direction it is given and reviewers rarely set `swap`
+on a held pair, so a pair from another list keeps that list's order and **Merge them** can keep the
+worse name: 58 of 81 cards on 2026-11-06, all from a one-off pass. The builder prints each reason
+verbatim too, so reword pair labels and reviewer shorthand, and write out both sides of a
+disagreement. Read the built page before publishing; that caught both.
 
 Publish the page with the Artifact tool and `capabilities: {"db": {}}`, as a new artifact for each
 build rather than over an earlier one, since the page's database keeps every build's choices and
