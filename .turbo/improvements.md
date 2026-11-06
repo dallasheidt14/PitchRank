@@ -2650,3 +2650,27 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `_AGE_OR_GENDER` and `has_age_or_gender_text` in `scripts/full_club_analysis.py`, read by `apply_provider_rules` for its `age_gender` listing
 - **Why**: The pattern matches U12/BU12, G2015 and Boys/Girls, so it misses 2015B, 13B, 13U/B11U, B13, two-digit bands (07/08), "8th Grade" and "12s". Measured read-only on 2026-11-04: it flagged 681 live SincSports clubs where a squad-label pattern flagged 861, so the Monday review list undercounts. Keep the `PROVIDER_RULE_CODES` scoping: its Boys/Girls words flag real clubs elsewhere ("Bowie Boys and Girls Club").
 - **Noted**: 2026-11-05
+
+### Keep a SincSports team pair's second game of the day
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `SCHEDULE_ID_SUFFIX_PROVIDERS` in `src/models/game_matcher.py`; `rematch_game_uid` in `src/etl/enhanced_pipeline.py`; `perspective_record` in `scripts/scrape_sincsports_tournament_schedule.py`
+- **Why**: A game's uid is date plus team pair and SincSports is not in that set, so a same-day rematch such as a group game then a final takes the first game's uid and is dropped. Measured 2026-11-05 by comparing captures with stored rows: 44 games across the October and September 2026 imports. `TournamentGame.game_num` already reaches the game row and may serve as the schedule id.
+- **Noted**: 2026-11-05
+
+### Update a stored SincSports score when the site changes it
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `SCORE_CORRECTION_PROVIDERS` in `src/etl/enhanced_pipeline.py`
+- **Why**: SincSports is not in that set, so a score the site changes after import stays wrong. Measured 2026-11-05: 4 of the 1,270 September games stored on 09-13/14 differ from a fresh capture. TGS has shown unrelated results replacing correct ones, so check whether SincSports needs the same hold before adding it.
+- **Noted**: 2026-11-05
+
+### Let a SincSports bundle import past an unpublished page
+
+- **Type**: direct
+- **Category**: dx
+- **Where**: `load_bundle` and the `problems` refusal in `main` in `scripts/scrape_sincsports_tournament_schedule.py`
+- **Why**: One "schedule not available yet" division page or one removed team page refuses the whole event, though dropping those pages loses no games. Three of October 2026's events needed them dropped by hand. Telling those pages apart from a challenge or error page is the part to get right.
+- **Noted**: 2026-11-05
