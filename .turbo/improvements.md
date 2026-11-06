@@ -912,6 +912,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Noted**: 2026-09-12
 - **Update (2026-10-14)**: `athletes2events` and `tourneycentral` now fold `schedule_id` in too, through `REMATCH_PROVIDERS`, so they keep a same-day rematch whose scores differ. The composite constraint and the orientation-blind master-id check in `_check_duplicates_by_master_ids` still drop a final that repeats its pool game's score.
 - **Update (2026-10-31)**: GotSport team-scraped repeat days are now kept when their scores differ. A live 2026-10-11 pool game was lost this way, and a 60-team sample found 7 such second meetings in 690 games. `GotSportScraper.scrape_team_games` sets `schedule_id` to GotSport's own match id only on the matches `_repeat_day_match_ids` finds sharing a date and team pair across the team's full list, and `SCHEDULE_ID_SUFFIX_PROVIDERS` lets the key and uid branches use it without joining `REMATCH_PROVIDERS`, so GotSport keeps its fixture fills and score corrections and every other GotSport game keeps its uid. Same-score repeats with the same home side still keep one row (composite key, `idx_games_unique`). A same-score repeat with home and away swapped is kept as two rows when both reach the same `import_games` call (one chunk of an import) and stays one row when one was already stored; the two are separate GotSport records that may be one game entered twice. Kept rematches now also appear in the Thursday `report_double_stored_games.py` report, as "different" or "reversed" pairs (or "identical" for a swapped-side same-score repeat), so a rise in its counts is expected; the kind alone does not separate a kept rematch from a double store, so check each GotSport pair against GotSport, as the report says, before excluding either row. One known path still stores a game twice: a team scraped mid-tournament-day, before its second meeting is posted, stores the first meeting under the plain uid; if GotSport later edits that meeting's score, the suffixed re-scrape matches no stored key and is not corrected, so it lands beside the stale row. Owner accepted it on 2026-10-31 with no code; rows stored before this change are in the same position.
+- **Update (2026-11-05)**: SincSports tournament-schedule imports now keep a repeat day when the scores differ. `mark_repeat_day_games` in `scripts/scrape_sincsports_tournament_schedule.py` sets `schedule_id` from the site's game number only on a date a pair has two differently numbered games, and SincSports joined `SCHEDULE_ID_SUFFIX_PROVIDERS` without joining `REMATCH_PROVIDERS`, so it keeps its fixture fills and every other SincSports game keeps its uid. Same-score repeats behave as for GotSport: the same home side keeps one row, and swapped sides keep two rows when both reach one `import_games` call. The same double-store path applies: when the site edits the score of a first meeting stored under the plain uid, a re-import of that event matches no stored key and lands beside the stale row. Owner accepted it on 2026-11-05 with no code. No workflow runs this importer, and the 76 stored rows on repeat pairs across every saved capture all matched a played meeting that day. The Thursday double-stored report defaults to GotSport, so it would not surface a SincSports case.
 
 ### SincSports live tournament scrape imports a partial event
 
@@ -2651,14 +2652,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: The pattern matches U12/BU12, G2015 and Boys/Girls, so it misses 2015B, 13B, 13U/B11U, B13, two-digit bands (07/08), "8th Grade" and "12s". Measured read-only on 2026-11-04: it flagged 681 live SincSports clubs where a squad-label pattern flagged 861, so the Monday review list undercounts. Keep the `PROVIDER_RULE_CODES` scoping: its Boys/Girls words flag real clubs elsewhere ("Bowie Boys and Girls Club").
 - **Noted**: 2026-11-05
 
-### Keep a SincSports team pair's second game of the day
-
-- **Type**: plan
-- **Category**: reliability
-- **Where**: `SCHEDULE_ID_SUFFIX_PROVIDERS` in `src/models/game_matcher.py`; `rematch_game_uid` in `src/etl/enhanced_pipeline.py`; `perspective_record` in `scripts/scrape_sincsports_tournament_schedule.py`
-- **Why**: A game's uid is date plus team pair and SincSports is not in that set, so a same-day rematch such as a group game then a final takes the first game's uid and is dropped. Measured 2026-11-05 by comparing captures with stored rows: 44 games across the October and September 2026 imports. `TournamentGame.game_num` already reaches the game row and may serve as the schedule id.
-- **Noted**: 2026-11-05
-
 ### Update a stored SincSports score when the site changes it
 
 - **Type**: plan
@@ -2673,4 +2666,20 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Category**: dx
 - **Where**: `load_bundle` and the `problems` refusal in `main` in `scripts/scrape_sincsports_tournament_schedule.py`
 - **Why**: One "schedule not available yet" division page or one removed team page refuses the whole event, though dropping those pages loses no games. Three of October 2026's events needed them dropped by hand. Telling those pages apart from a challenge or error page is the part to get right.
+- **Noted**: 2026-11-05
+
+### Let the merge-duplicate cleanup see every provider's per-match id
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `_has_distinct_match_ids` in `scripts/exclude_merge_duplicate_games.py`
+- **Why**: It answers True only for `playmetrics_tournament:` uids, while every provider in `SCHEDULE_ID_SUFFIX_PROVIDERS` now writes a per-match suffix. So two same-score meetings stored under two team rows that are later merged read as one match, and one can be hidden. Read from the code on 2026-11-05. No GitHub workflow names the script, but `scripts/team_cleanup/apply_stage.py` runs it with `--execute` after every merge batch, so the weekly cleanup reaches it unattended. `decide_team_merges.py` refuses a pair that both played on one day, so only a hand-promoted merge can create this shape. A fix has to compare the suffixes: the rows this script collapses always carry two uids, so testing the provider prefix alone would stop the cleanup. The docstring's "Only that provider mints a per-match discriminator" is out of date the same way.
+- **Noted**: 2026-11-05
+
+### Strip the club from SincSports team names before the distinction gate
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: the `extract_distinctions(team_name)` call in `src/models/sincsports_matcher.py`; `Athletes2EventsGameMatcher._without_club` is the model
+- **Why**: The gate reads the raw name, so club words left inside it read as squad marks and a real match is refused (`LR Rangers` against `Little Rock Rangers`). In October 2026's pre-map dry run, 153 proposed new teams looked like existing ones and this gate blocked 99 of them, against 42 blocked by club spelling. Each refusal becomes a duplicate team. Athletes2Events already strips the club from both sides.
 - **Noted**: 2026-11-05

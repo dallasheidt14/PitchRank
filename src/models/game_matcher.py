@@ -475,10 +475,10 @@ class MatchResult:
 # SCHEDULE_ID_SUFFIX_PROVIDERS alone.
 REMATCH_PROVIDERS = frozenset({"playmetrics_tournament", "athletes2events", "tourneycentral"})
 
-# Providers whose schedule_id, when present, goes into the import pipeline's dedup key and game_uid. GotSport is
-# not a rematch provider: its team scraper sets schedule_id (the GotSport match id) only on a day the
-# same two teams met more than once, so every other GotSport game keeps the uid it already has.
-SCHEDULE_ID_SUFFIX_PROVIDERS = REMATCH_PROVIDERS | {"gotsport"}
+# Providers whose schedule_id, when present, goes into the import pipeline's dedup key and game_uid. GotSport
+# and SincSports are not rematch providers: their scrapers set schedule_id only on a day the same two teams
+# met more than once, so every other game of theirs keeps the uid it already has.
+SCHEDULE_ID_SUFFIX_PROVIDERS = REMATCH_PROVIDERS | {"gotsport", "sincsports"}
 
 
 # Namespace for dry-run team ids. Fixed so a simulated team keeps one identity

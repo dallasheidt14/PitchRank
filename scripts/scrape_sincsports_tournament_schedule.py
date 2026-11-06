@@ -56,6 +56,9 @@ _EXCLUDED_PLAY_RE = re.compile(
 # Schedule - Columbia, SC | Youth Soccer" on the new one.
 _TITLE_PREFIX_RE = re.compile(r"^Schedules?\s*-\s*", re.IGNORECASE)
 _TITLE_SUFFIX_RE = re.compile(r"\s+(?:Schedules?|Team List)\s+-\s+[^|]*\|.*$", re.IGNORECASE)
+# game_uid is a VARCHAR(255) key, so a game number goes in as letters and digits, capped.
+_GAME_NUMBER_NOISE_RE = re.compile(r"[^A-Za-z0-9]+")
+_GAME_NUMBER_MAX_LEN = 32
 
 sys.path.append(str(Path(__file__).parent.parent))
 
@@ -139,6 +142,7 @@ def perspective_record(g: TournamentGame, *, perspective: str) -> dict:
         "result": result,
         "competition": (g.event_name or g.division_name or g.division_code or "").strip(),
         "division_name": g.division_code if g.event_name else None,
+        "schedule_id": g.schedule_id or "",
         "venue": g.venue,
         "club_name": "",
         "opponent_club_name": "",
@@ -153,6 +157,25 @@ def perspective_record(g: TournamentGame, *, perspective: str) -> dict:
             "game_num": g.game_num,
         },
     }
+
+
+def mark_repeat_day_games(games: List[TournamentGame]) -> None:
+    """Give each game a schedule_id on a date its two teams have two numbered games in one event.
+
+    A pool game and a final share a date and a team pair, so only the site's game number tells
+    them apart. Read over every numbered game, played or not, so the answer does not change when a
+    pending meeting gets its score. One game listed on two division pages keeps one number, so it
+    stays unmarked and keeps its plain uid.
+    """
+    meetings: Dict[Tuple[str, str, frozenset], List[TournamentGame]] = defaultdict(list)
+    for g in games:
+        if g.date and g.game_num:
+            meetings[(g.tournament_id, g.date, frozenset((g.home_id, g.away_id)))].append(g)
+    for meeting in meetings.values():
+        if len({g.game_num for g in meeting}) >= 2:
+            for g in meeting:
+                number = _GAME_NUMBER_NOISE_RE.sub("", g.game_num)[:_GAME_NUMBER_MAX_LEN]
+                g.schedule_id = f"{g.tournament_id}-{number}"
 
 
 def load_bundle(path: Path) -> Tuple[List[TournamentGame], List[str]]:
@@ -327,6 +350,8 @@ def main() -> int:
             f"[cyan]Tournament {args.tid} ({args.year}): {len(all_games)} games "
             f"({dict(by_status)})  errors: {len(scraper.errors)}[/cyan]"
         )
+
+    mark_repeat_day_games(all_games)
 
     keep = [
         g
