@@ -1843,6 +1843,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: Four provider imports stamp a `state_code` on team creation and all leave `state_source` NULL -- confirmed 2026-10-02 against the 675 teams of the first `affinity_ut` run. CLAUDE.md already warns that an audit of "what writes state" has to count these, and a NULL source makes a provider-stamped guess indistinguishable from a value no tool chose. The blocker is vocabulary rather than plumbing: the only values in use are `tier_a`, `tier_b` and `tier_e`, which belong to the ranked-evidence tiers in `assign_team_states.py`, so a provider constant needs a new value agreed across all four writers and across whatever reads the column -- not one invented per matcher. Related to the existing constant-state-provenance entry.
 - **Noted**: 2026-10-02
 - **Update (2026-11-05)**: The writers are now six, not four: CLAUDE.md's list adds `yssl-scraper.yml` and `hi-scraper.yml`. Hawaii creates teams through the OR create helper and Utah's `_state_for_new_team`, so a fix in those two files covers it without a change to `src/models/affinity_hi_matcher.py`.
+- **Update (2026-11-06)**: `ga-scraper.yml` is another. Georgia creates teams through the same OR create helper and Utah's `_state_for_new_team`.
 
 ### Run the locked October confirmation of dampening off plus the gender-mask fix
 
@@ -2708,3 +2709,35 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: the `extract_distinctions(team_name)` call in `src/models/sincsports_matcher.py`; `Athletes2EventsGameMatcher._without_club` is the model
 - **Why**: The gate reads the raw name, so club words left inside it read as squad marks and a real match is refused (`LR Rangers` against `Little Rock Rangers`). In October 2026's pre-map dry run, 153 proposed new teams looked like existing ones and this gate blocked 99 of them, against 42 blocked by club spelling. Each refusal becomes a duplicate team. Athletes2Events already strips the club from both sides.
 - **Noted**: 2026-11-05
+
+### Match each Utah team at its own age so its two-age games import
+
+- **Type**: plan
+- **Category**: feature
+- **Where**: `_board_from_team_names` and `_same_board` in `scripts/scrape_affinity_or_tournament.py`; `AffinityUTGameMatcher` in `src/models/affinity_ut_matcher.py`
+- **Why**: Utah still holds a game between teams on two boards: 12 games across 8 flights in its 2026-11-02 weekly run (run 41481607693, read from its log). Hawaii and Georgia match each team at its own age through `AffinityStateLeagueMatcher._match_team`, which the owner approved for those two states only. Utah's names are read by `age_from_name`, and it has no `_own_board`.
+- **Noted**: 2026-11-06
+
+### Keep deprecated rows out of the Affinity fuzzy candidates
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: the candidate query in `AffinityORGameMatcher._fuzzy_match_team` in `src/models/affinity_or_matcher.py`, which filters age group, gender and state but not `is_deprecated`, unlike `AffinityUTGameMatcher._squad_key_match` beside it
+- **Why**: On 2026-11-06 a deprecated `Savannah United 10B Blue` tied with the live `Savannah United 09/10B Blue` (u17 Male GA) and `refuse_tied_best` refused both, which would have created a duplicate. Georgia's exact-name lookup covers that case and two ties between live rows, which this filter would not fix, so the lookup stays either way. Oregon, Utah and Hawaii still share the query. Filtering changes which teams those leagues link to, so measure that first.
+- **Noted**: 2026-11-06
+
+### Check the other Affinity leagues for same-day rematches
+
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `SCHEDULE_ID_SUFFIX_PROVIDERS` in `src/models/game_matcher.py`; the `game_key` in `_validate_and_dedup` in `src/etl/enhanced_pipeline.py`
+- **Why**: A provider outside that set keys a game on date and two teams, so the second game of a doubleheader is dropped with no count reporting it. Georgia joined before its first import after two doubleheaders appeared in its 389 games on 2026-11-06. Hawaii had none in 993 games that day; Oregon, Utah and Washington are not measured. Joining changes the uid of every stored game, so count the rematches first.
+- **Noted**: 2026-11-06
+
+### Escape the team name in the report card email
+
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `buildReportCardHtml` in `frontend/lib/email/report-card.ts`, which interpolates `teamName` unescaped; `escapeHtml` in `frontend/lib/email/feedback.ts` is the helper to share
+- **Why**: Read on 2026-11-06: a team name scraped from any league reaches this HTML, so markup in one would land in an email PitchRank sends. Reported by a review as reachable through `/api/reports/team-card` once a team has a published rank; the route was not traced here. Email clients run no scripts, so the exposure is links and images. It predates the Georgia provider.
+- **Noted**: 2026-11-06

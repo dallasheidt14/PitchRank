@@ -68,9 +68,9 @@ jobs:
 
           tmp_files=()
 
-          # A pass scrapes the divisions of its age; each game is then filed by
-          # its teams' own age labels. HYSA's 9U divisions have no board, so the
-          # sweep starts at 10.
+          # A pass scrapes the divisions of its age; a game's row carries the
+          # home team's age label and the matcher reads each team's own. HYSA's
+          # 9U divisions have no board, so the sweep starts at 10.
           for age in 10 11 12 13 14 15 16 17 18 19; do
             for gender in male female; do
               out_file="${OUT_DIR}/affinity_hi_u${age}_${gender}_${TIMESTAMP}.csv"

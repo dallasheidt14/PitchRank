@@ -176,6 +176,7 @@ def _age_u_to_birth_year(age_u: int, season_year: int) -> int:
 
 
 _GENDER_FIRST_DIVISION = re.compile(r"^\s*([BG])(\d{1,2})(?:\s*-\s*(\d{1,2}))?U\b", re.IGNORECASE)
+_AGE_FIRST_DIVISION = re.compile(r"^\s*(\d{1,2})(?:/(\d{1,2}))?U([BG])\b", re.IGNORECASE)
 
 
 def _pair_cohort(first: int, second: Optional[int]) -> Optional[int]:
@@ -189,8 +190,9 @@ def _extract_age_gender_from_division(div_name: str) -> Tuple[Optional[str], Opt
     """
     Parse 'BU13 RCL North 2' → (gender='Male', age_u=13).
     Also handles the spelled-out Affinity form, 'Boys Under 12 Div 1',
-    UYSA's 'Boys 12U Premier' and 'Boys 18/19U Premier', and HYSA's
-    'B12U', 'B14U R1' and 'G15-19U'.
+    UYSA's 'Boys 12U Premier' and 'Boys 18/19U Premier', HYSA's 'B12U',
+    'B14U R1' and 'G15-19U', and Georgia Soccer's '12UB Pre GPL', '13/14UG
+    GPL/CH' and '17/19UB CH/CF North'.
 
     ``age_u`` is the cohort directly; OYSA and PitchRank number the Aug 1 -
     Jul 31 band the same way.
@@ -205,6 +207,12 @@ def _extract_age_gender_from_division(div_name: str) -> Tuple[Optional[str], Opt
         gender = "Male" if gender_first.group(1).upper() == "B" else "Female"
         second = gender_first.group(3)
         return gender, _pair_cohort(int(gender_first.group(2)), int(second) if second else None)
+
+    age_first = _AGE_FIRST_DIVISION.match(div_name)
+    if age_first:
+        gender = "Male" if age_first.group(3).upper() == "B" else "Female"
+        second = age_first.group(2)
+        return gender, _pair_cohort(int(age_first.group(1)), int(second) if second else None)
 
     trailing = re.match(r"^\s*(Boys|Girls)\s+(\d{1,2})(?:\s*/\s*(\d{1,2}))?U?\b", div_name, re.I)
     if trailing:
@@ -286,15 +294,15 @@ _NAME_AGE_PREFIX = re.compile(r"^\s*(\d{1,2})U([BG])\s*-\s*", re.IGNORECASE)
 def _board_from_name_prefixes(
     home_name: str, away_name: str, flight_gender: str, season_year: int
 ) -> Optional[Tuple[int, str]]:
-    """``(birth_year, age_group)`` both teams' own age labels put the game on, else None.
+    """``(birth_year, age_group)`` of the home team's own age label, for the game's row, else None.
 
     HYSA starts every team name with that team's age and gender ('13UB - HSC Bulls
     13/14B - II'), and one division holds several of them ('B19U' fields 17UB, 18UB
     and 19UB teams), so the label is the team's and never the division's. An age
     written later in the name can only veto the label, and a name it cannot read
     vetoes nothing. A game is held back, as in ``_board_from_team_names``, when a
-    name has no label, its label names the other gender or no board, or the two
-    names land on different boards.
+    name has no label or its label names the other gender or no board. A game
+    between two boards is kept, because the matcher reads each team's own label.
     """
     from scripts.import_athletes2events_event import age_from_name, board_cohort, respell_ages
 
@@ -309,13 +317,16 @@ def _board_from_name_prefixes(
         if board is None or (later and board_cohort(later, season_year) != board):
             return None
         readings.append((birth_year, board))
-    return _same_board(readings)
+    return readings[0]
 
 
 def _youngest_division_age(div_name: str) -> Optional[int]:
-    """The youngest age of a range spanning boards ('G15-19U' is 15), the pass that scrapes it."""
-    match = _GENDER_FIRST_DIVISION.match(div_name)
-    return int(match.group(2)) if match else None
+    """The youngest age of a range spanning boards ('G15-19U' and '15/16UB' are 15), the pass that scrapes it."""
+    gender_first = _GENDER_FIRST_DIVISION.match(div_name)
+    if gender_first:
+        return int(gender_first.group(2))
+    age_first = _AGE_FIRST_DIVISION.match(div_name)
+    return int(age_first.group(1)) if age_first else None
 
 
 # ── Network ────────────────────────────────────────────────────────────────────
@@ -397,9 +408,11 @@ def discover_flights(tournament: Dict, target_age: int, target_gender: str) -> L
         div_text = first_cell.get_text(strip=True)
         if not div_text:
             continue
+        if set(re.findall(r"\w+", div_text.upper())) & set(tournament.get("skip_divisions", ())):
+            continue
 
         gender, age_u = _extract_age_gender_from_division(div_text)
-        if age_u is None and tournament.get("age_from_name_prefix"):
+        if age_u is None and tournament.get("mixed_age_divisions"):
             age_u = _youngest_division_age(div_text)
 
         if gender is None:
@@ -594,7 +607,7 @@ def scrape_flight_games(
             records.append(away_record)
 
     if held_by_name:
-        print(f"(held {held_by_name} whose team names disagree on age)", end=" ")
+        print(f"(held {held_by_name} by their team names)", end=" ")
     return records
 
 

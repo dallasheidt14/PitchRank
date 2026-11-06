@@ -1,7 +1,7 @@
 """Tests for the Affinity HI (HYSA Oahu League) scraper.
 
 The HI scraper runs the OR scraper's engine, so these cover only what Hawaii adds:
-HYSA's division labels and forfeit marks, filing a game by each team's own age
+HYSA's division labels and forfeit marks, filing a game under the home team's age
 label, the season floor, and the tournament config.
 """
 
@@ -82,7 +82,7 @@ ACCEPTED_LIST = _accepted_list_html(
 
 
 class TestRangeDivisions:
-    """A range spanning boards is scraped once, on its youngest age's pass, and only where names set the age."""
+    """A range spanning boards is scraped once, on its youngest age's pass, where a league sets the flag."""
 
     def _flights(self, monkeypatch, tournament, age):
         monkeypatch.setattr(engine, "_fetch", lambda url, retries=3: ACCEPTED_LIST)
@@ -95,13 +95,13 @@ class TestRangeDivisions:
         assert self._flights(monkeypatch, TOURNAMENT, 16) == []
 
     def test_a_league_filed_by_division_skips_it(self, monkeypatch):
-        by_division = {k: v for k, v in TOURNAMENT.items() if k != "age_from_name_prefix"}
+        by_division = {k: v for k, v in TOURNAMENT.items() if k != "mixed_age_divisions"}
 
         assert self._flights(monkeypatch, by_division, 15) == []
 
 
 class TestAgeFromNameLabels:
-    """A game is filed by each team's own age label, never by the division it is played in."""
+    """A game is filed under the home team's age label, never the division it is played in."""
 
     def test_names_that_agree_are_filed_by_their_label(self, monkeypatch):
         records = _scrape(
@@ -182,11 +182,22 @@ class TestAgeFromNameLabels:
     def test_a_name_without_a_label_is_held(self, monkeypatch, home, away):
         assert _scrape(monkeypatch, [_game(home, away)], _flight("B13U R1", 13)) == []
 
-    def test_teams_on_different_boards_are_held_and_counted(self, monkeypatch, capsys):
-        records = _scrape(monkeypatch, [_game("17UB - FC Hawaii Red", "18UB - BVB IA Hawaii")], _flight("B19U", 19))
+    @pytest.mark.parametrize(
+        "home, away, age_group, age_year",
+        [
+            ("17UB - FC Hawaii Red", "18UB - BVB IA Hawaii", "u17", 2010),
+            ("18UB - BVB IA Hawaii", "17UB - FC Hawaii Red", "u19", 2009),
+        ],
+    )
+    def test_teams_on_different_boards_are_filed_under_the_home_teams_label(
+        self, monkeypatch, capsys, home, away, age_group, age_year
+    ):
+        """The row carries one age; the matcher reads each team's own label."""
+        records = _scrape(monkeypatch, [_game(home, away)], _flight("B19U", 19))
 
-        assert records == []
-        assert "(held 1 whose team names disagree on age)" in capsys.readouterr().out
+        assert len(records) == 2
+        assert {(r["age_group"], r["age_year"]) for r in records} == {(age_group, age_year)}
+        assert "held" not in capsys.readouterr().out
 
 
 class TestForfeits:
@@ -232,6 +243,7 @@ class TestTournamentConfig:
                 "state_code": "HI",
                 "season_year": 2026,
                 "age_from_name_prefix": True,
+                "mixed_age_divisions": True,
                 "min_game_date": "2026-08-01",
             }
         ]

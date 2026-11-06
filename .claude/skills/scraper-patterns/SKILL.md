@@ -403,8 +403,8 @@ only `name`, so the other fields cost no extra request.
 ### TGS `schedule_id` is a division, not a game
 
 `scrape_tgs_event.py` writes the flight's division id as `schedule_id` on every TGS row
-(`:597`), and the CSV loaders keep it. For the rematch providers, and for GotSport and SincSports
-repeat days, the same field names one game. So a rule keyed on "this row has a `schedule_id`" catches every
+(`:597`), and the CSV loaders keep it. For the rematch providers, Affinity GA, and GotSport and
+SincSports repeat days, the same field names one game. So a rule keyed on "this row has a `schedule_id`" catches every
 TGS row. Gate any such rule on the provider set where the field names a game
 (`SCHEDULE_ID_SUFFIX_PROVIDERS` in `src/models/game_matcher.py`). Left ungated, it switches off
 every TGS score correction. A TGS test fixture must carry a `schedule_id` the way real rows do, or
@@ -927,7 +927,9 @@ published. Teams held as conflicts are reported and do not turn the run red; a f
 
 Each state association has a site at `<site>.sportsaffinity.com`, public HTML behind Incapsula. The first hit answers
 a 302 to the same URL plus cookies, so use `requests`, which keeps cookies across a redirect; `curl` without a cookie
-jar loops. `scripts/scrape_affinity_or_tournament.py` is the shared engine, and the WA scraper is a separate copy.
+jar loops. `scripts/scrape_affinity_or_tournament.py` is the shared engine, and the WA scraper is a separate copy. A new
+state runs weekly on Sunday night by default, as a copy of `hi-scraper.yml`. Its cron has to fire at or after `HARD_STOP_AT`
+(`scripts/team_cleanup/apply_stage.py`), and the workflow joins `WRITER_WORKFLOWS` there.
 
 ### Finding a state's leagues
 
@@ -943,12 +945,18 @@ jar loops. `scripts/scrape_affinity_or_tournament.py` is the shared engine, and 
 
 - `accepted_list.asp` takes `&show=boys` or `&show=girls`. Division rows sit inside layout tables, and a layout row
   holds every division link, the first division's first. Skip any row holding a table, or that division is lost.
-- Division labels differ by site (`BU13`, `Boys 12U Premier`, `B12U`, `G15-19U`). A form the parser cannot read
-  matches no flights. The workflows' stale-GUID error fires only when a whole league matches none, so one unread form
+- Division labels differ by site (`BU13`, `Boys 12U Premier`, `B12U`, `G15-19U`, `12UB Pre GPL`,
+  `17/19UB CH/CF North`). A form the parser cannot read matches no flights. The workflows' stale-GUID error fires only when a whole league matches none, so one unread form
   beside readable ones loses its divisions in a green run. When adding a league, compare the `Matched flights` counts
   in the log with the site's division list.
-- `schedule_results2.asp` marks a forfeit in the score cell (`2F`) and with `Forfeited Game` in the team cell. `2F` is
-  not a result, so import nothing: keep the engine's digits-only score test, which drops the game.
+- A division spanning two boards (15/16UB) is no cohort, so a pass skips it unless the tournament sets
+  `mixed_age_divisions`, which scrapes it once on its youngest age's pass. Set it only with a matcher that reads each
+  team's own age, such as `AffinityStateLeagueMatcher`: the plain OR and UT matchers would file every team at that
+  youngest age. `skip_divisions`, a tuple of whole uppercase words, drops a division such as Georgia's rec `19U BOYS RIAS`. The parser reads no age from that
+  label, so test the skip on one it does, or the test passes with the skip deleted.
+- `schedule_results2.asp` marks a forfeit in the score cell (`2F`, `4 F`) and with `Forfeited Game` in the team cell, and
+  a game called off with `0 CC` or `CSC`. None is a result, so import nothing: keep the engine's digits-only score test,
+  which drops the game.
 - Pages answer `Content-Type: text/html` with no charset, so `_fetch`, which returns `r.text`, gets ISO-8859-1. Apply
   *Decoding an HTML response* under Request Pattern, but first count the non-ASCII names already scraped: a name feeds
   `_team_hash`, so changing the decode changes those teams' provider ids.
@@ -1041,14 +1049,56 @@ where Oregon does not. Diff the link list between runs and judge each added or r
 - **Ask a club's state only within the league's region.** Asked nationally, a generic
   club word answers for another state (`Avalanche` resolved to Virginia and sent Utah teams
   there). Treat a club containing an ilike wildcard (`%`, `_`, `*`, `\`) as unknown. The
-  region is the `region` class attribute on the Utah matcher, which a subclass overrides.
+  region is the `region` class attribute on the Utah matcher. `AffinityStateLeagueMatcher` replaces
+  it in `__init__` with the league's own state, so a class attribute on its subclasses has no effect.
 
 Where a league names squads in words no gate reads (`RUSH Azul`, Albion's `HNL` and `WND`),
 replace Utah's coach-initial and squad-number checks, as `_squads_conflict` does in
-`src/models/affinity_hi_matcher.py`, a subclass of the Utah matcher: any difference in a squad's
-own words, one-sided included, is a different squad. U18 and U19 share the u19 board, so compare
-stated U-ages too, but not birth-year bands, because HYSA labels an `08/09` squad either 18UB or
-19UB.
+`src/models/affinity_state_league_matcher.py`, a subclass of the Utah matcher: any difference in a
+squad's own words, one-sided included, is a different squad. U18 and U19 share the u19 board, so
+compare stated U-ages too, but not birth-year bands, because HYSA labels an `08/09` squad either
+18UB or 19UB.
+
+**An Affinity state league matches each team at its own age.** A division mixes ages and a team can
+play up, and `match_game_history` hands both teams the row's one age. Looked up at the other team's
+age, a team misses its stored row and is created as a duplicate on the wrong board; it is not
+half-matched. So `AffinityStateLeagueMatcher._match_team` swaps in `_own_board(team_name)`, and the
+row's age stands in only for a name stating no board's age. Storage needs nothing: `games.age_group`
+stays blank on Affinity rows, and rankings read each team's age from `teams`. Utah's scraper holds
+these games instead.
+
+**Check a new league for same-day rematches before its first import.** An Affinity provider outside
+`SCHEDULE_ID_SUFFIX_PROVIDERS` keys a game on its date and two teams, so the second game of a doubleheader
+is dropped, counted only among the ordinary perspective duplicates, and Georgia had two. Joining that set
+changes every uid, so do it before any game is stored.
+
+**In a state league matcher's `_own_board`, read a name's age with `read_label`**
+(`src/tournaments/cohort_labels.py`), not `age_from_name`, which reads `B17U` as born 2017. Run it over every real name beside a hand reading
+before trusting it, and respell what it misses in the matcher's `_prepared` hook: Georgia's `BA12U`,
+`COS CREW14U` and bare `B14`, which `read_label` takes as a birth year. Respell `B14U` and `13UG` as
+well, since `_AGE_MARK` misses them: without that the UT club reader takes the whole name as the club
+for any club missing from the map, in a green run. Pin the season in any test of a birth-year name,
+because `read_label` defaults to the wall clock.
+
+**A written club stops short of a branch.** Every word of a club spelling is struck from the squad,
+so `Hinesville Waycross` as a spelling makes Waycross the same squad as Hinesville. Map `Hinesville`,
+and `Waycross` stays a squad word. A club the UT reader cuts wrongly still needs an entry mapping
+to itself: `Champions FC Boys 13U` would be club `Champions FC Boys`.
+
+**Read every new team beside its stored clubmates, not only the links.** A clean guarded run says no
+link is wrong; it cannot say a link was missed. Two causes of a refused real squad show in no safety
+count:
+
+- OR's variant gate reads league tags (`GPL`, `CH/CF`), the letter of `U15 B` and the `SC-` of
+  `SC-U15B` as squads. Georgia sets `_affinity_variant_gate_required = False` in `__init__`, after
+  `super().__init__()` assigns it, because the squad-word rule is the stricter one on real differences.
+  Hawaii keeps the gate.
+- `refuse_tied_best` refuses a tie, so a stored duplicate can block the right row: `Savannah United
+  12B West` tied with `Savannah United 11/12B West`, and OR's fuzzy candidates include deprecated rows,
+  so a merged-away row can do the same. Georgia takes the club's one live row under the league's exact
+  name first, checking the club because the create path strips a club prefix, so a short stored name such
+  as `U13B` is not unique. A test of this has to show the rows tie: with the lookup removed it must find
+  no match, not a lower confidence.
 
 Each refusal costs a duplicate the merging-duplicate-teams skill can fold; each wrong link
 fuses two squads. Lean toward refusing.
@@ -1516,7 +1566,9 @@ unreadable division over guessing its cohort.
 **Reject labels that name more than one cohort.** `U13-U19` and `U15 - U18` are
 catch-alls, not cohorts; filing their teams under the first age listed puts
 every older team in the youngest group. Accept a multi-age label only when every
-age it lists collapses to the same cohort (`GU18/19`, since U18 folds into U19).
+age it lists collapses to the same cohort (`GU18/19`, since U18 folds into U19), or
+when the matcher reads each team's own age, so the label's age stands in only for a
+name stating none (`mixed_age_divisions` under Sports Affinity Pages).
 
 **Resolve gender from the provider's own field where one exists.** Prefix
 sniffing misses age-first labels (`U11 Girls` has no leading `G`), and an
@@ -1535,8 +1587,8 @@ event's own season, sends a not-yet-linked team to the review queue instead of l
 creating it. The name never sets that driver's ages
 (`import_soccereventsgroup_event.name_age_mismatch`).
 
-**Read a new driver's ages from the team's own name; the division sets nothing.** Call
-`age_from_name(name, None, season)` from `scripts/import_athletes2events_event.py`. Passing `None`
+**Read a new operator-run driver's ages from the team's own name; the division sets
+nothing.** Call `age_from_name(name, None, season)` from `scripts/import_athletes2events_event.py`. Passing `None`
 makes the division neither a bound nor a fallback, and a name with no age, an odd year span or two
 U-ages returns no birth year: leave that team out for a person to decide (owner, 2026-10-08: "it
 DOESNT matter what Divison they are in in the tournament at all"). Map `NO_AGE_IN_NAME` and

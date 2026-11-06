@@ -1,8 +1,9 @@
 """Tests for the Affinity HI (HYSA Oahu League) matcher.
 
-The HI matcher is the UT matcher with Hawaii's state and HYSA's name spellings, so
-these cover only what Hawaii adds: the age label, the club spellings, what makes two
-names one squad, the Hawaii-only club state, and the path the importer takes through them.
+The HI matcher is the state league matcher with Hawaii's state and HYSA's name spellings,
+so these cover what Hawaii adds and the rules that base holds: the age label, the club
+spellings, what makes two names one squad, the Hawaii-only club state, and the path the
+importer takes through them.
 """
 
 from types import SimpleNamespace
@@ -57,6 +58,8 @@ class TestClub:
             ("12UB - Arsenal FC", "Arsenal FC Hawaii"),
             ("11UB - Ke Ahi O Pele FC", "Ke Ahi O Pele FC"),
             ("10UB - Some Club U10B", "Some Club"),
+            ("13UB - Hawai'i Soccer", "Hawai'i Soccer"),
+            ("13UB - Ke I Ola FC", "Ke I Ola FC"),
         ],
     )
     def test_the_club_is_read_as_pitchrank_stores_it(self, team_name, club):

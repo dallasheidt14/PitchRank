@@ -18,6 +18,7 @@ import pytest
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 
 from src.etl import enhanced_pipeline
+from src.models.affinity_ga_matcher import AffinityGAGameMatcher
 from src.models.affinity_hi_matcher import AffinityHIGameMatcher
 from src.models.affinity_or_matcher import AffinityORGameMatcher
 from src.models.affinity_ut_matcher import AffinityUTGameMatcher
@@ -39,6 +40,7 @@ AUTOCREATING_MATCHERS = [
     ("affinity_or", AffinityORGameMatcher),
     ("affinity_ut", AffinityUTGameMatcher),
     ("affinity_hi", AffinityHIGameMatcher),
+    ("affinity_ga", AffinityGAGameMatcher),
     ("playmetrics", PlayMetricsGameMatcher),
     ("modular11", Modular11GameMatcher),
     ("soccereventsgroup", SoccerEventsGroupGameMatcher),
@@ -96,6 +98,7 @@ def test_pipeline_builds_each_providers_own_matcher(provider, cls):
         ("affinity_or", AffinityORGameMatcher, "_create_new_affinity_or_team"),
         ("affinity_ut", AffinityUTGameMatcher, "_create_new_affinity_or_team"),
         ("affinity_hi", AffinityHIGameMatcher, "_create_new_affinity_or_team"),
+        ("affinity_ga", AffinityGAGameMatcher, "_create_new_affinity_or_team"),
         ("soccereventsgroup", SoccerEventsGroupGameMatcher, "_create_new_soccereventsgroup_team"),
         ("athletes2events", Athletes2EventsGameMatcher, "_create_new_athletes2events_team"),
         ("yssl", YSSLGameMatcher, "_create_new_athletes2events_team"),

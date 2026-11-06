@@ -135,8 +135,8 @@ def matched_schedule_id(matched_game: dict) -> str:
 def rematch_game_uid(provider_code: str, master_game_uid: str, matched_game: dict) -> str:
     """Re-append the schedule_id suffix the master-id regeneration would strip.
 
-    Bracket play puts the same two teams on the pitch twice in a day, and these
-    providers give each such meeting its own schedule_id. Without the suffix both games
+    A bracket or a league doubleheader puts the same two teams on the pitch twice in a day, and
+    these providers give each such meeting its own schedule_id. Without the suffix both games
     regenerate onto one uid and the unique index drops the second result.
     """
     if not (provider_code and provider_code.lower() in SCHEDULE_ID_SUFFIX_PROVIDERS):
@@ -334,6 +334,16 @@ class EnhancedETLPipeline:
 
             logger.info("Using AffinityHIGameMatcher (HI normalization, HI default state + auto-create)")
             self.matcher = AffinityHIGameMatcher(
+                self.supabase,
+                provider_id=self.provider_id,
+                alias_cache=self.alias_cache,
+                dry_run=self.dry_run,
+            )
+        elif self.provider_code.lower() == "affinity_ga":
+            from src.models.affinity_ga_matcher import AffinityGAGameMatcher
+
+            logger.info("Using AffinityGAGameMatcher (GA normalization, GA default state + auto-create)")
+            self.matcher = AffinityGAGameMatcher(
                 self.supabase,
                 provider_id=self.provider_id,
                 alias_cache=self.alias_cache,
@@ -1365,8 +1375,8 @@ class EnhancedETLPipeline:
                     f"{age_group_key}:{division_key}"
                 )
             elif provider_code and provider_code.lower() in SCHEDULE_ID_SUFFIX_PROVIDERS:
-                # Bracket play has same teams playing twice on one day (pool +
-                # final / consolation). Each provider gives such a meeting its own
+                # A bracket (pool + final / consolation) or a league doubleheader has the
+                # same teams playing twice on one day. Each provider gives such a meeting its own
                 # schedule_id; without it in the key, rematches collapse to one.
                 # Mirror of the Modular11 branch above.
                 schedule_id_key = (game.get("schedule_id") or "").strip()

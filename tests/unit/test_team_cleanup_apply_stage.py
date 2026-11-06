@@ -932,6 +932,7 @@ EXEMPT_SCRIPTS = {
     "maintain_tgs_direct_id_aliases.py": "writes only team_alias_map",
     "match_modular11_ea_teams.py": "reads teams into a match report",
     "match_mlsnext_kitman_teams.py": "reads teams into a match report",
+    "scrape_affinity_ga_tournament.py": "scrapes into a CSV that import_games_enhanced.py imports",
     "scrape_affinity_hi_tournament.py": "scrapes into a CSV that import_games_enhanced.py imports",
     "scrape_affinity_or_tournament.py": "scrapes into a CSV that import_games_enhanced.py imports",
     "scrape_affinity_ut_tournament.py": "scrapes into a CSV that import_games_enhanced.py imports",
@@ -1018,6 +1019,7 @@ def _fires_after_propose(cron):
 def test_the_cron_scan_reads_live_crons_and_skips_a_commented_one():
     assert _crons("ut-scraper.yml") == ["30 5 * * 1", "30 6 * * 1"]
     assert _crons("hi-scraper.yml") == ["30 9 * * 1"]
+    assert _crons("ga-scraper.yml") == ["15 6 * * 1"]
     assert _crons("modular11-events-weekly-scrape.yml") == []
     assert _fires_after_propose("0 5 * * 1") == {ap._after_propose(6, 22 * 60)}
 
