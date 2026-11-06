@@ -93,7 +93,16 @@ from src.utils.provider_ids import is_blank_provider_id  # noqa: E402
 from supabase import create_client  # noqa: E402
 
 PRIMARY_PROVIDER = "gotsport"
-SECONDARY_PROVIDERS = ("tgs", "sincsports", "playmetrics", "affinity_wa", "affinity_or", "affinity_ut", "affinity_hi")
+SECONDARY_PROVIDERS = (
+    "tgs",
+    "sincsports",
+    "playmetrics",
+    "affinity_wa",
+    "affinity_or",
+    "affinity_ut",
+    "affinity_hi",
+    "affinity_ga",
+)
 
 TEAM_COLS = (
     "team_id_master,team_name,team_name_original,club_name,age_group,gender,"

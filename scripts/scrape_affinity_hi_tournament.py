@@ -5,8 +5,8 @@ Scrape Hawaii Youth Soccer's Oahu League game results from Sports Affinity.
 HYSA's public pages share the Oregon layout, so this runs the OR scraper over
 the Oahu League.  HYSA labels divisions ``B12U``, ``B14U R1`` and ``G15-19U``,
 and starts every team name with that team's own age and gender
-(``13UB - HSC Bulls 13/14B - II``), so a game is filed by those labels rather
-than its division.
+(``13UB - HSC Bulls 13/14B - II``).  A game's row carries the home team's label,
+and the matcher reads each team's own, so the division sets no team's age.
 
 Usage:
     python scripts/scrape_affinity_hi_tournament.py \
@@ -37,6 +37,7 @@ TOURNAMENTS = [
         # A division holds teams of several ages ('B19U' fields 17UB, 18UB and
         # 19UB), and each name states its own.
         "age_from_name_prefix": True,
+        "mixed_age_divisions": True,
         # Games before the 2026-27 season are out, however wide the window.
         "min_game_date": "2026-08-01",
     },

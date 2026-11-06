@@ -440,7 +440,9 @@ tournament keys, so Oregon and Utah output is unchanged. Hawaii needs four thing
 ## Known gaps
 
 - **26 games are held**: 17 in `G15-19U` and 9 in `B19U`, each between teams on two different
-  boards. The importer files a game under one age group, so an import would half-match it.
+  boards. The importer looks both teams up at one age group, so the team on the other board would
+  miss its stored row and be created as a duplicate on the wrong board. The Georgia change matches
+  each team at its own label, which lifts this hold and brings these 26 in.
 - **Some clubs have no stored rows** (`Ka oi SC`, `Ke Ahi O Pele FC`, `Inter Hawaii`). Their teams
   will mostly be created new.
 - **A real import adds a pending review row for each team it creates** (read from the code; the

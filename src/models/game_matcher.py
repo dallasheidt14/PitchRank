@@ -477,8 +477,9 @@ REMATCH_PROVIDERS = frozenset({"playmetrics_tournament", "athletes2events", "tou
 
 # Providers whose schedule_id, when present, goes into the import pipeline's dedup key and game_uid. GotSport
 # and SincSports are not rematch providers: their scrapers set schedule_id only on a day the same two teams
-# met more than once, so every other game of theirs keeps the uid it already has.
-SCHEDULE_ID_SUFFIX_PROVIDERS = REMATCH_PROVIDERS | {"gotsport", "sincsports"}
+# met more than once, so every other game of theirs keeps the uid it already has. Affinity GA's scraper sets it
+# on every game, so every Georgia uid carries one.
+SCHEDULE_ID_SUFFIX_PROVIDERS = REMATCH_PROVIDERS | {"gotsport", "sincsports", "affinity_ga"}
 
 
 # Namespace for dry-run team ids. Fixed so a simulated team keeps one identity
