@@ -1070,7 +1070,11 @@ these games instead.
 **Check a new league for same-day rematches before its first import.** An Affinity provider outside
 `SCHEDULE_ID_SUFFIX_PROVIDERS` keys a game on its date and two teams, so the second game of a doubleheader
 is dropped, counted only among the ordinary perspective duplicates, and Georgia had two. Joining that set
-changes every uid, so do it before any game is stored.
+changes every uid, so do it before any game is stored. It does not cover everything: `_make_composite_key`
+and `idx_games_unique` hold no `schedule_id`, so two games with one home team and one scoreline, blank
+fixtures included, still collapse to one row. Georgia's swap home and away, so they stay two. Check that
+with `_make_composite_key` on the real scrape: `test_enhanced_pipeline_gotsport_rematch`'s `_run` stubs
+the insert, so a test on what it records cannot see this.
 
 **In a state league matcher's `_own_board`, read a name's age with `read_label`**
 (`src/tournaments/cohort_labels.py`), not `age_from_name`, which reads `B17U` as born 2017. Run it over every real name beside a hand reading

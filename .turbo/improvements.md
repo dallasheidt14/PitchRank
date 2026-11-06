@@ -2731,7 +2731,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Type**: investigate
 - **Category**: reliability
 - **Where**: `SCHEDULE_ID_SUFFIX_PROVIDERS` in `src/models/game_matcher.py`; the `game_key` in `_validate_and_dedup` in `src/etl/enhanced_pipeline.py`
-- **Why**: A provider outside that set keys a game on date and two teams, so the second game of a doubleheader is dropped with no count reporting it. Georgia joined before its first import after two doubleheaders appeared in its 389 games on 2026-11-06. Hawaii had none in 993 games that day; Oregon, Utah and Washington are not measured. Joining changes the uid of every stored game, so count the rematches first.
+- **Why**: A provider outside that set keys a game on date and two teams, so the second game of a doubleheader is dropped with no count reporting it. Georgia joined before its first import after two doubleheaders appeared in its 389 games on 2026-11-06. Hawaii had none in 993 games that day; Oregon, Utah and Washington are not measured. Joining changes the uid of every stored game, so count the rematches first. Joining is not enough for a doubleheader with one home team: `_make_composite_key` and `idx_games_unique` hold no `schedule_id`, so two blank fixtures, or two games with one scoreline, still collapse to one row. Georgia's two swap home and away, so they stay two.
 - **Noted**: 2026-11-06
 
 ### Escape the team name in the report card email

@@ -235,6 +235,8 @@ From the review:
 - **Georgia joined `SCHEDULE_ID_SUFFIX_PROVIDERS`.** Two doubleheaders in the league (Nov 7 and 8) would have lost
   their second games to the dedup key, with no count reporting it. Joining before the first import means no stored
   uid changes. A stored fixture keeps its uid, so its later score lands through the ordinary backfill (tested).
+  Codex then pointed out that `_bulk_insert_games` and `idx_games_unique` hold no `schedule_id`. Georgia's two
+  doubleheaders swap home and away, so their keys differ: the 389 real games give 389 distinct insert keys.
 - **Ages ending in a U are respelled in `_prepared`** (`B14U`, `BA12U`, `13UG`, `G19U`, `16U`), so the UT club
   reader cuts the name at the age. That removed nine club entries, and the next club writing `B14U` no
   longer becomes its whole name. `Champions FC` and a few others still map to themselves, where the reader cuts wrongly.
@@ -288,6 +290,9 @@ the from-data checks above. A stored-games count should reach 389 for Georgia, d
 - **Squad matching is strict.** A stored name that lacks a branch word will not link, so some Georgia
   teams will be created and left for the duplicate work. That is the safe direction.
 - **A real import adds a pending review row per created team**, as Utah's and Hawaii's do (backlogged).
+- **A doubleheader with one home team collapses at the insert.** Two blank fixtures, or two games with one
+  scoreline, share a key in `_bulk_insert_games` and `idx_games_unique`, so one row is lost. Neither of today's two does
+  this. Fixing it means changing that index. A test names the limit.
 - **A bare `B14` meets the base birth-year guard as written.** The guard reads the raw name as born 2014, so a
   stored `2013` row of the same squad would be refused and a duplicate created, with a review row pointing at it. None
   of the three bare names has such a row today, and it fails in the safe direction.
