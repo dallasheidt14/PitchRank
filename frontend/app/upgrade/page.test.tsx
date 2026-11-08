@@ -1,14 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import React from 'react';
+import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { act } from 'react-dom/test-utils';
 
 const TEAM_ID = '11111111-1111-1111-1111-111111111111';
 
-const { mockPreview, state } = vi.hoisted(() => ({
-  mockPreview: vi.fn(),
-  state: { next: null as string | null },
-}));
+const { mockPreview, mockStartCheckout, state } = vi.hoisted(() => {
+  process.env.NEXT_PUBLIC_STRIPE_PRICE_MONTHLY = 'price_monthly_test';
+  process.env.NEXT_PUBLIC_STRIPE_PRICE_YEARLY = 'price_yearly_test';
+  return {
+    mockPreview: vi.fn(),
+    mockStartCheckout: vi.fn(),
+    state: { next: null as string | null },
+  };
+});
 
 vi.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(state.next ? { next: state.next } : {}),
@@ -19,7 +23,7 @@ vi.mock('@/lib/events', () => ({
   trackPlanSelected: vi.fn(),
   trackCheckoutInitiated: vi.fn(),
 }));
-vi.mock('@/lib/stripe/client', () => ({ startCheckout: vi.fn() }));
+vi.mock('@/lib/stripe/client', () => ({ startCheckout: mockStartCheckout }));
 vi.mock('@/lib/api', () => ({
   api: {
     getDbStats: () => Promise.resolve({ totalTeams: 0, totalGames: 0 }),
@@ -36,6 +40,31 @@ async function render() {
   await act(async () => {
     root.render(<UpgradePage />);
   });
+}
+
+const MONTHLY_CARD = 'Month-to-month';
+const YEARLY_CARD = 'serious soccer families';
+
+function planCard(text: string) {
+  return Array.from(container.querySelectorAll<HTMLElement>('[data-slot="card"]')).find((card) =>
+    card.textContent?.includes(text)
+  )!;
+}
+
+function cardClasses(text: string) {
+  return planCard(text).className.split(/\s+/);
+}
+
+function hidingClasses(text: string) {
+  return cardClasses(text).filter((name) => /(^|:)hidden$/.test(name));
+}
+
+function planButton(name: string) {
+  return Array.from(container.querySelectorAll('button')).find((button) => button.textContent?.startsWith(name))!;
+}
+
+async function tap(element: HTMLElement) {
+  await act(async () => element.click());
 }
 
 beforeEach(() => {
@@ -82,11 +111,103 @@ describe('UpgradePage paywall', () => {
     expect(container.textContent).not.toContain('You were looking at');
   });
 
-  it('shows one plan card on phones: the unselected card is hidden below md', async () => {
+  it('shows both plan cards on phones, with Yearly first below md and highlighted', async () => {
     await render();
-    const hiddenOnPhone = Array.from(container.querySelectorAll('.hidden.md\\:block'));
-    expect(hiddenOnPhone).toHaveLength(1);
-    expect(hiddenOnPhone[0].textContent).toContain('Month-to-month');
+    expect(hidingClasses(MONTHLY_CARD)).toEqual([]);
+    expect(hidingClasses(YEARLY_CARD)).toEqual([]);
+    expect(cardClasses(YEARLY_CARD)).toEqual(expect.arrayContaining(['order-first', 'md:order-0', 'ring-2']));
+    expect(cardClasses(MONTHLY_CARD)).not.toContain('ring-2');
+  });
+
+  it('keeps Monthly ahead of Yearly in one grid, so computers show Monthly on the left', async () => {
+    await render();
+    const monthly = planCard(MONTHLY_CARD);
+    const yearly = planCard(YEARLY_CARD);
+    expect(monthly.parentElement).toBe(yearly.parentElement);
+    expect(monthly.parentElement!.className.split(/\s+/)).toEqual(expect.arrayContaining(['grid', 'md:grid-cols-2']));
+    expect(monthly.compareDocumentPosition(yearly) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(cardClasses(MONTHLY_CARD).filter((name) => /(^|:)order-/.test(name))).toEqual([]);
+    expect(cardClasses(YEARLY_CARD)).toContain('md:order-0');
+  });
+
+  it('brings the plan a button names to the top on phones, keeping the other visible', async () => {
+    await render();
+    await tap(planButton('Monthly'));
+    expect(cardClasses(MONTHLY_CARD)).toContain('ring-2');
+    expect(cardClasses(YEARLY_CARD)).not.toContain('ring-2');
+    expect(cardClasses(YEARLY_CARD)).not.toContain('order-first');
+    expect(hidingClasses(YEARLY_CARD)).toEqual([]);
+
+    await tap(planButton('Yearly'));
+    expect(cardClasses(YEARLY_CARD)).toEqual(expect.arrayContaining(['ring-2', 'order-first', 'md:order-0']));
+    expect(cardClasses(MONTHLY_CARD)).not.toContain('ring-2');
+    expect(hidingClasses(MONTHLY_CARD)).toEqual([]);
+  });
+
+  it('holds the card order when a plan button is tapped again', async () => {
+    await render();
+    await tap(planButton('Yearly'));
+    expect(cardClasses(YEARLY_CARD)).toContain('order-first');
+
+    await tap(planButton('Monthly'));
+    await tap(planButton('Monthly'));
+    expect(cardClasses(YEARLY_CARD)).not.toContain('order-first');
+  });
+
+  it('reorders from a plan button even when a card tap already chose that plan', async () => {
+    await render();
+    await tap(planCard(MONTHLY_CARD));
+    await tap(planButton('Monthly'));
+    expect(cardClasses(YEARLY_CARD)).not.toContain('order-first');
+
+    await tap(planCard(YEARLY_CARD));
+    await tap(planButton('Yearly'));
+    expect(cardClasses(YEARLY_CARD)).toContain('order-first');
+  });
+
+  it('highlights a tapped card without moving either card on phones', async () => {
+    await render();
+    await tap(planCard(MONTHLY_CARD));
+    expect(cardClasses(MONTHLY_CARD)).toContain('ring-2');
+    expect(cardClasses(YEARLY_CARD)).not.toContain('ring-2');
+    expect(cardClasses(YEARLY_CARD)).toContain('order-first');
+
+    await tap(planButton('Monthly'));
+    await tap(planCard(YEARLY_CARD));
+    expect(cardClasses(YEARLY_CARD)).toContain('ring-2');
+    expect(cardClasses(MONTHLY_CARD)).not.toContain('ring-2');
+    expect(cardClasses(YEARLY_CARD)).not.toContain('order-first');
+  });
+
+  it("starts Monthly from Monthly's own button while Yearly is selected, leaving the selection alone", async () => {
+    await render();
+    await tap(planCard(MONTHLY_CARD).querySelector('button')!);
+    expect(mockStartCheckout).toHaveBeenCalledTimes(1);
+    expect(mockStartCheckout).toHaveBeenCalledWith('price_monthly_test');
+    expect(cardClasses(YEARLY_CARD)).toContain('ring-2');
+  });
+
+  it("starts Yearly from Yearly's own button while Monthly is selected, leaving the selection alone", async () => {
+    await render();
+    await tap(planCard(MONTHLY_CARD));
+    await tap(planCard(YEARLY_CARD).querySelector('button')!);
+    expect(mockStartCheckout).toHaveBeenCalledTimes(1);
+    expect(mockStartCheckout).toHaveBeenCalledWith('price_yearly_test');
+    expect(cardClasses(MONTHLY_CARD)).toContain('ring-2');
+  });
+
+  it("brings a failed checkout's message into view", async () => {
+    const scrolledTo: Array<string | null> = [];
+    const scrollIntoView = vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(function (this: Element) {
+      scrolledTo.push(this.textContent);
+    });
+    mockStartCheckout.mockRejectedValueOnce(new Error('You already have an active subscription'));
+    await render();
+    expect(scrolledTo).toEqual([]);
+
+    await tap(planCard(MONTHLY_CARD).querySelector('button')!);
+    expect(scrolledTo).toEqual(['You already have an active subscription']);
+    scrollIntoView.mockRestore();
   });
 
   it('keeps the sign-in link pointed at the tapped team', async () => {
