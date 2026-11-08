@@ -43,13 +43,14 @@ export function RankHistoryChart({ teamId }: RankHistoryChartProps) {
   const chartData = useMemo(() => {
     if (!history || history.length === 0) return [];
 
-    return history.map((point) => {
+    return history.map((point, index) => {
       const d = new Date(point.snapshot_date + 'T00:00:00Z');
       const month = d.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' });
       const day = d.getUTCDate();
       const year = d.getUTCFullYear();
-      // Append 2-digit year on January labels so the Dec→Jan boundary is unambiguous.
-      const label = month === 'Jan' ? `${month} ${day} '${String(year).slice(2)}` : `${month} ${day}`;
+      // Append 2-digit year on January labels so the Dec→Jan boundary is unambiguous, and on the first
+      // label because the axis can hide January's.
+      const label = month === 'Jan' || index === 0 ? `${month} ${day} '${String(year).slice(2)}` : `${month} ${day}`;
       return {
         label,
         fullDate: point.snapshot_date,
@@ -59,7 +60,7 @@ export function RankHistoryChart({ teamId }: RankHistoryChartProps) {
     });
   }, [history]);
 
-  // One tick per month (first snapshot of each calendar month) — ~12 ticks for a year.
+  // First snapshot of each calendar month; the axis hides any that don't fit.
   const monthTicks = useMemo(() => {
     const seen = new Set<string>();
     const ticks: string[] = [];
@@ -178,14 +179,15 @@ export function RankHistoryChart({ teamId }: RankHistoryChartProps) {
         <div className="h-[180px] w-full" role="img" aria-label={ariaLabel}>
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={chartData} margin={{ top: 8, right: 8, left: 4, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+              <CartesianGrid vertical={false} strokeDasharray="3 3" className="stroke-muted" />
               <XAxis
                 dataKey="label"
                 tick={{ fontSize: 11 }}
                 tickLine={false}
                 axisLine={false}
                 ticks={monthTicks}
-                interval={0}
+                interval="preserveStartEnd"
+                minTickGap={8}
                 className="fill-muted-foreground"
               />
               <YAxis
