@@ -143,6 +143,17 @@ service ends, since Stripe does not document `canceled_at` for that path.
 `.turbo/reports/2026-09-04-stripe-month-projection-baseline.md` carries the dated figures and the
 derivation. Read numbers from there rather than from this file, and re-measure before quoting them.
 
+## Measuring a shift in the plan mix
+
+Count trials (subscriptions with a `trial_start`) by the item price's `recurring.interval`, in 7-day
+windows rather than one before-and-after average, and lead with the latest window. An average over
+the whole period understates a mix that is still moving. List with `status: 'all'`: the default list
+omits canceled subscriptions, so older windows lose trials the latest window still holds.
+
+Stripe records no device, so attribute a shift with GA: `plan_selected` events split by
+`customEvent:plan` and `deviceCategory`, reading a device whose layout did not change as the control.
+Clicks show the shape of the shift; take trial counts from Stripe.
+
 ## MRR
 
 Stripe's Billing MRR is the monthly-normalized value of `active` and `past_due` subscriptions,

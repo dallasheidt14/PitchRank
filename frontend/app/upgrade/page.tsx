@@ -11,7 +11,7 @@ import { startCheckout } from '@/lib/stripe/client';
 import { useUser } from '@/hooks/useUser';
 import { trackUpgradePageViewed, trackPlanSelected, trackCheckoutInitiated } from '@/lib/events';
 import { api } from '@/lib/api';
-import { formatCountShort } from '@/lib/utils';
+import { cn, formatCountShort } from '@/lib/utils';
 import { formatGender } from '@/lib/constants';
 
 // Price IDs from Stripe Dashboard (configured via environment variables)
@@ -49,7 +49,10 @@ function UpgradePageContent() {
   const searchParams = useSearchParams();
   const [loadingPlan, setLoadingPlan] = useState<'monthly' | 'yearly' | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const errorBanner = useRef<HTMLDivElement>(null);
   const [selectedPlan, setSelectedPlan] = useState<'monthly' | 'yearly'>('yearly');
+  // Set only by the plan buttons: a tap on a card must not move that card out from under the finger.
+  const [yearlyFirstOnPhones, setYearlyFirstOnPhones] = useState(true);
   const [teamsRanked, setTeamsRanked] = useState('59K+');
   const [gamesAnalyzed, setGamesAnalyzed] = useState('1.3M+');
 
@@ -101,6 +104,11 @@ function UpgradePageContent() {
     pageViewTracked.current = true;
     trackUpgradePageViewed({ source });
   }, [source]);
+
+  // The banner sits above the plan cards, so a failure from a button further down would otherwise show nothing.
+  useEffect(() => {
+    errorBanner.current?.scrollIntoView({ block: 'center' });
+  }, [error]);
 
   const handleUpgrade = async (plan: 'monthly' | 'yearly') => {
     // Wait for auth state to resolve (user or null)
@@ -192,15 +200,21 @@ function UpgradePageContent() {
 
         {/* Error Message */}
         {error && (
-          <div className="max-w-md mx-auto mb-8 p-4 bg-destructive/10 border border-destructive/20 rounded-lg text-center">
+          <div
+            ref={errorBanner}
+            className="max-w-md mx-auto mb-8 p-4 bg-destructive/10 border border-destructive/20 rounded-lg text-center"
+          >
             <p className="text-destructive text-sm">{error}</p>
           </div>
         )}
 
-        {/* Plan Toggle (Mobile-Friendly) */}
+        {/* Plan Buttons */}
         <div className="flex items-center justify-center gap-2 mb-8">
           <button
-            onClick={() => setSelectedPlan('monthly')}
+            onClick={() => {
+              setSelectedPlan('monthly');
+              setYearlyFirstOnPhones(false);
+            }}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
               selectedPlan === 'monthly'
                 ? 'bg-primary text-primary-foreground'
@@ -210,7 +224,10 @@ function UpgradePageContent() {
             Monthly
           </button>
           <button
-            onClick={() => setSelectedPlan('yearly')}
+            onClick={() => {
+              setSelectedPlan('yearly');
+              setYearlyFirstOnPhones(true);
+            }}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors relative ${
               selectedPlan === 'yearly'
                 ? 'bg-primary text-primary-foreground'
@@ -230,7 +247,7 @@ function UpgradePageContent() {
           <Card
             variant="elevated"
             interactive
-            className={`relative ${selectedPlan === 'monthly' ? 'ring-2 ring-primary' : 'hidden md:block'}`}
+            className={cn('relative', selectedPlan === 'monthly' && 'ring-2 ring-primary')}
             onClick={() => setSelectedPlan('monthly')}
           >
             <CardHeader>
@@ -289,7 +306,11 @@ function UpgradePageContent() {
           <Card
             variant="primary"
             interactive
-            className={`relative ${selectedPlan === 'yearly' ? 'ring-2 ring-primary' : 'hidden md:block'}`}
+            className={cn(
+              'relative',
+              yearlyFirstOnPhones && 'order-first md:order-0',
+              selectedPlan === 'yearly' && 'ring-2 ring-primary'
+            )}
             onClick={() => setSelectedPlan('yearly')}
           >
             <div className="absolute -top-3 left-1/2 -translate-x-1/2">
