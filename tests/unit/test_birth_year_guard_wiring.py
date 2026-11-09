@@ -84,6 +84,7 @@ _SUBCLASS_PATHS = [
     ("src.models.yssl_matcher", "YSSLGameMatcher"),
     ("src.models.tourneycentral_matcher", "TourneyCentralGameMatcher"),
     ("src.models.demosphere_matcher", "DemosphereGameMatcher"),
+    ("src.models.htgsports_matcher", "HtgSportsGameMatcher"),
 ]
 
 

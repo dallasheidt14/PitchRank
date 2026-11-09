@@ -424,6 +424,17 @@ class EnhancedETLPipeline:
                 alias_cache=self.alias_cache,
                 dry_run=self.dry_run,
             )
+        elif self.provider_code.lower() == "htgsports":
+            from src.models.htgsports_matcher import HtgSportsGameMatcher
+
+            # No registration_mode: only the roster pass in import_htgsports_event.py creates teams.
+            logger.info("Using HtgSportsGameMatcher (alias-only; teams come from the roster pass)")
+            self.matcher = HtgSportsGameMatcher(
+                self.supabase,
+                provider_id=self.provider_id,
+                alias_cache=self.alias_cache,
+                dry_run=self.dry_run,
+            )
         elif self.provider_code.lower() == "playmetrics":
             from src.models.playmetrics_matcher import PlayMetricsGameMatcher
 

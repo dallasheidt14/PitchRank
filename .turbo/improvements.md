@@ -916,6 +916,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Update (2026-10-14)**: `athletes2events` and `tourneycentral` now fold `schedule_id` in too, through `REMATCH_PROVIDERS`, so they keep a same-day rematch whose scores differ. The composite constraint and the orientation-blind master-id check in `_check_duplicates_by_master_ids` still drop a final that repeats its pool game's score.
 - **Update (2026-10-31)**: GotSport team-scraped repeat days are now kept when their scores differ. A live 2026-10-11 pool game was lost this way, and a 60-team sample found 7 such second meetings in 690 games. `GotSportScraper.scrape_team_games` sets `schedule_id` to GotSport's own match id only on the matches `_repeat_day_match_ids` finds sharing a date and team pair across the team's full list, and `SCHEDULE_ID_SUFFIX_PROVIDERS` lets the key and uid branches use it without joining `REMATCH_PROVIDERS`, so GotSport keeps its fixture fills and score corrections and every other GotSport game keeps its uid. Same-score repeats with the same home side still keep one row (composite key, `idx_games_unique`). A same-score repeat with home and away swapped is kept as two rows when both reach the same `import_games` call (one chunk of an import) and stays one row when one was already stored; the two are separate GotSport records that may be one game entered twice. Kept rematches now also appear in the Thursday `report_double_stored_games.py` report, as "different" or "reversed" pairs (or "identical" for a swapped-side same-score repeat), so a rise in its counts is expected; the kind alone does not separate a kept rematch from a double store, so check each GotSport pair against GotSport, as the report says, before excluding either row. One known path still stores a game twice: a team scraped mid-tournament-day, before its second meeting is posted, stores the first meeting under the plain uid; if GotSport later edits that meeting's score, the suffixed re-scrape matches no stored key and is not corrected, so it lands beside the stale row. Owner accepted it on 2026-10-31 with no code; rows stored before this change are in the same position.
 - **Update (2026-11-05)**: SincSports tournament-schedule imports now keep a repeat day when the scores differ. `mark_repeat_day_games` in `scripts/scrape_sincsports_tournament_schedule.py` sets `schedule_id` from the site's game number only on a date a pair has two differently numbered games, and SincSports joined `SCHEDULE_ID_SUFFIX_PROVIDERS` without joining `REMATCH_PROVIDERS`, so it keeps its fixture fills and every other SincSports game keeps its uid. Same-score repeats behave as for GotSport: the same home side keeps one row, and swapped sides keep two rows when both reach one `import_games` call. The same double-store path applies: when the site edits the score of a first meeting stored under the plain uid, a re-import of that event matches no stored key and lands beside the stale row. Owner accepted it on 2026-11-05 with no code. No workflow runs this importer, and the 76 stored rows on repeat pairs across every saved capture all matched a played meeting that day. The Thursday double-stored report defaults to GotSport, so it would not surface a SincSports case.
+- **Update (2026-11-09)**: `htgsports` joined `REMATCH_PROVIDERS`, so the HTG Sports driver's games keep a same-day rematch whose scores differ, through the game `Id` as `schedule_id`. The same-score limit applies: importing the 2026 Heartland Invitational (event 14130) lost one game this way, KCL Academy Red B15/16 v RFA 2015/2016 on 2026-11-08, 0-1 at 12:00 PM and again 0-1 at 5:30 PM, with the same home side both times.
 
 ### SincSports live tournament scrape imports a partial event
 
@@ -1086,6 +1087,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Update (2026-09-23)**: Recurred on #1208 and was relayed to the user as "Codex did not review this PR" while the review had completed 5m42s after open with a 👍 and no findings. Two things this narrows for whoever fixes it: `CODEX_LOGIN` is *not* the cause (it carries the `[bot]` suffix REST returns and matches correctly), and the summary comment is created within ~10s of the PR opening but only reaches `Completed` minutes later, so presence of the comment is not the signal -- parse its status cell. The workaround note has now failed to prevent this twice, which is the argument for fixing the script rather than documenting it again.
 - **Update (2026-10-14)**: Recurred on #1294 (2026-10-13), as before.
 - **Update (2026-10-31)**: Recurred on #1381: the owner was told Codex skipped it while its summary comment was there, and the report had to be corrected.
+- **Update (2026-11-09)**: Recurred on #1409, whose summary comment carried `has_any_findings: false` for the head commit while the script printed "Codex did not review this PR".
 
 ### A game import exits 0 when its inserts fail
 
@@ -2279,9 +2281,10 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Status**: open
 - **Type**: plan
 - **Category**: refactor
-- **Where**: `undo`, `_usable_target`, `_existing_team`, `_linked_team`, `_game_count`, `_read_csv` and `_new_client` in `scripts/link_mlsnext_kitman_teams.py` and `scripts/link_modular11_ea_teams.py`; `Modular11EaGameMatcher` and `MlsNextKitmanGameMatcher._match_team`; `hold_reason` in `scripts/build_mlsnext_kitman_games_csv.py`; `OUT_OF_SCOPE_PROVIDERS` in `scripts/find_squad_key_duplicates.py`; `fetch_db_teams` in `scripts/match_modular11_ea_teams.py`
+- **Where**: `undo`, `_usable_target`, `_existing_team`, `_linked_team`, `_game_count`, `_read_csv` and `_new_client` in `scripts/link_mlsnext_kitman_teams.py` and `scripts/link_modular11_ea_teams.py`; `Modular11EaGameMatcher` and `MlsNextKitmanGameMatcher._match_team`; `OUT_OF_SCOPE_PROVIDERS` in `scripts/find_squad_key_duplicates.py`; `fetch_db_teams` in `scripts/match_modular11_ea_teams.py`
 - **Why**: (1) The two linkers hold seven function bodies that an AST comparison finds identical, and the two alias-only matchers are the same `_match_team`; the safety-critical parts (undo, the importer's age/gender/deprecated acceptance test) now have to be fixed twice, and a shared module means editing the Modular11 EA files, which are out of scope by the owner's standing decision. (2) A game Kitman marks completed with scores but dates in the future is held only until its listed date and then imports under it; remembering such games needs persisted state (event ids seen early), a product decision. (3) Two Python guards that keep MLS NEXT out of matching test the provider code `modular11` alone, so teams created from Kitman rely on their HD/AD names to stay protected.
 - **Noted**: 2026-10-15
+- **Update (2026-11-09)**: Item (2) is settled. The owner chose to import a never-stored completed game with a future date on its listed date. A played event that is a stored game Kitman moved to a new date is now held instead of imported, by `moved_event_ids` in `scripts/build_mlsnext_kitman_games_csv.py` (IMP-395). Items (1) and (3) stay open.
 
 ### Guard the nine cleanup-skill facts no test or self-check pins
 
@@ -2564,6 +2567,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: Each driver keeps its own copy because the row type differs (`a2e_team_id`, `tc_team_id`, `team_code`, `provider_team_id`) and the provider code and wording are module constants. The copies already drift: the Demosphere driver imports the Tourney Central spreadsheet guard and age-reason wording but keeps its own `shared_links` and `pending_reviews`, and the Athletes2Events `shared_links` names Athletes2Events in a reason shown for other providers. A shared module keyed on a `provider_team_id` attribute and a provider-code parameter would remove five copies of each.
 - **Noted**: 2026-10-30
 - **Trigger**: A fix to any of these functions that has to land in more than one driver.
+- **Update (2026-11-09)**: The new HTG Sports driver (`scripts/import_htgsports_event.py`) imports the Tourney Central helper functions instead of copying them: `pending_reviews` and `build_csv_rows` gained a `provider_code` argument and `shared_links` and `register_teams` a `provider_name` argument, each defaulting to Tourney Central's value. HTG's `main` still repeats Tourney Central's registration sequence (preview, conflicts, writer, saved-link and saved-review checks, off-board check), a sixth copy of that sequence, and an omitted provider argument there silently takes Tourney Central's value; its tests pin each argument that changes behavior. The other four drivers still keep their own helper copies, and the shared functions still live in a driver rather than a module.
 
 ### A club-name decline on some of a club's teams does not stop the same change on its other teams
 
@@ -2762,14 +2766,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: Read on 2026-11-06: a team name scraped from any league reaches this HTML, so markup in one would land in an email PitchRank sends. Reported by a review as reachable through `/api/reports/team-card` once a team has a published rank; the route was not traced here. Email clients run no scripts, so the exposure is links and images. It predates the Georgia provider.
 - **Noted**: 2026-11-06
 
-### Stop re-dated Kitman games storing a second copy
-
-- **Type**: plan
-- **Category**: reliability
-- **Where**: `hold_reason` in `scripts/build_mlsnext_kitman_games_csv.py`; `unstored_rows` in `scripts/build_modular11_ea_games_csv.py`, which it imports
-- **Why**: Stored games match on date and teams, and Kitman re-dates games already stored, so a played game moved to a later date is held until that date and then imports as a new row. Compared all 6,739 stored rows with the standings files on 2026-11-08: 12 scored games now sit at a later date with the same score (7 land Nov 21-22, 5 in 2027), and 4 were reopened as unplayed and can double if replayed. The first import doubles none. Due before the Monday 2026-11-23 run, which would release those 7 and give 14 teams a duplicate game. One way: hold a played event whose squad pair has a stored game no current event explains.
-- **Noted**: 2026-11-08
-
 ### Find why the Kitman weekly run starts hours after its cron
 
 - **Type**: investigate
@@ -2824,4 +2820,28 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Category**: reliability
 - **Where**: `_create_new_tgs_team` in `src/models/tgs_matcher.py`, which sets `gender_normalized` from the game's `gender` argument (the division's)
 - **Why**: Seen in a dry-run smoke test on `fix/stop-opposite-gender-record-links`, 2026-11-09: a record whose name carries a G on its birth year, imported from a boys division, is now held off the boys row it matched, and TGS then creates its own team for it, stored Male while its name says girls. That beats the old outcome (its games fused onto the boys row), but the new row lands on the boys board. The owner's rule (2026-11-08) is that a name stating a gender settles it; writing a gender from the name at creation is a value write, which that branch's guards deliberately avoid, so it needs the owner's call.
+- **Noted**: 2026-11-09
+
+### Roster-pass matching skips an exact-name team when the club is abbreviated and the name has a nickname
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: the club gate in `Athletes2EventsGameMatcher._fuzzy_match_team` (`src/models/athletes2events_matcher.py`), inherited by `TourneyCentralGameMatcher`, `DemosphereGameMatcher` and `HtgSportsGameMatcher`
+- **Why**: `club_from_team_name` takes the words before the first age token, so the stored `SPORTING BV Real Madrid 16/17` reads club `SPORTING BV Real Madrid`; its `club_name` is `Sporting Blue Valley`; neither equals HTG's `SPORTING BV`, so the existing team is skipped and a duplicate is created. Measured 2026-11-09 on the two Heartland HTG events: 4 of 274 would-be new teams had an existing team of the same name (one with its words reordered, `North Surf ECNL RL B2013/14`, was left to be created), and two more a near-identical one (`SPORTING BV Academy 15`, `SPORTING BV Pre-NAL 15`). Accepting a stored name that starts with a 2+-word provider club linked only 6 more and sent 18 weak reviews pairing different Sporting BV nickname squads, so that variant is not the fix; five of these teams were linked by hand with `manual` aliases instead.
+- **Noted**: 2026-11-09
+
+### Pin that a roster-pass provider's pipeline branch never builds a team-creating matcher
+
+- **Type**: direct
+- **Category**: testing
+- **Where**: `test_pipeline_builds_each_providers_own_matcher` in `tests/unit/test_provider_matcher_dry_run.py`; the roster-pass branches (`tourneycentral`, `demosphere`, `htgsports`, `yssl`, `athletes2events`, `soccereventsgroup`) of `EnhancedETLPipeline._ensure_initialized` in `src/etl/enhanced_pipeline.py`
+- **Why**: The test checks only the class name, and no test reads `registration_mode` off a pipeline branch. A review mutation on 2026-11-09 added `registration_mode=True` to the `htgsports` branch, and the dry-run, birth-year and HTG suites stayed green. That would let a game import create teams that only the roster pass should create, for every roster-pass provider. Assert the branch passes no `registration_mode` for each provider in `REGISTRATION_MATCHERS`.
+- **Noted**: 2026-11-09
+
+### Un-hide a hidden game when its provider restores it with a real score
+
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `apply_score_correction` in `src/etl/game_corrections.py` and the `apply_game_correction` function in `supabase/migrations/20240201000001_add_game_corrections.sql`
+- **Why**: On 2026-11-09 the owner hid 9 `mlsnext_kitman` 0-0 games as suspected placeholders (undo log `C:\PitchRank\data\backups\hide_kitman_redated_zero_zero_2026-11-09.json`). If Kitman moves one back to its original date with a real score, the importer finds the stored row by uid and corrects its score, but `apply_game_correction` updates only the score, date and teams and never `is_excluded`, so the real result stays hidden and never counts. Read in the code; not run and not seen live.
 - **Noted**: 2026-11-09

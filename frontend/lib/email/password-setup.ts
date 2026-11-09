@@ -27,6 +27,8 @@ const PASSWORD_SETUP_HTML = (setupUrl: string) => `
 
   <p style="color: #6b7280; font-size: 14px;">This link works on any device and expires in 24 hours. If it expires, use the "Forgot password" option on the sign-in page.</p>
 
+  <p style="color: #6b7280; font-size: 14px;">If you were signed in automatically after paying, this link no longer works and you can ignore it. To add a password later, use the "Forgot password" option on the sign-in page.</p>
+
   <p style="margin-top: 30px; color: #444;">See you on the pitch!</p>
 
   <p style="color: #6b7280; font-size: 14px;">— The PitchRank Team</p>

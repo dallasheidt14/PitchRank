@@ -409,6 +409,7 @@ import, so a process running across Aug 1 keeps last season's map until restart.
 | Demosphere | `demosphere` | HTML scraping | "Elements" league sites, one site id per league: NCSL (Northern Virginia, with DC and Maryland clubs) is `80738`; played games plus the next 28 days of unscored fixtures (blank goals, result `U`, shown under a team's Upcoming Games); weekly via `demosphere-scraper.yml`, which runs `scripts/import_demosphere.py`: it walks outward from a seed club |
 | YSSL | `yssl` | HTML scraping | Chicago-area boys league (Young Sportsmen's), walked club by club; teams take their club's state from the club map (IL, plus four NW Indiana clubs as IN), scored games only, weekly via `yssl-scraper.yml`. Clubs translate through the reviewed `config/yssl_club_map.csv` |
 | Tourney Central | `tourneycentral` | HTML scraping | Ohio/Michigan tournament host, one subdomain per tournament, current year only; operator-run per tournament via `scripts/import_tourneycentral_event.py`, which takes any page of the tournament and reads the host from it |
+| HTG Sports | `htgsports` | JSON API | `events.htgsports.net`, one event id per tournament or league (Heartland Soccer's Kansas City events among them); operator-run per event via `scripts/import_htgsports_event.py --event-url "https://events.htgsports.net/?eventid=<id>"` |
 
 #### TGS U-age divisions are only resolvable from 2026-08-01
 
@@ -697,7 +698,7 @@ two-line edit in `.github/workflows/claude-code-review.yml`.
 | `weekly-prospective-settle-evaluate.yml` | Mon 4:00 PM UTC | Settle and score last week's prospective match predictions |
 | `weekly-prospective-refresh.yml` | Manual dispatch | Scrape upcoming GotSport events, prepare new prospective predictions (cron paused 2026-09-07 — see below) |
 | `smoke-infographics.yml` | Daily 1:17 PM UTC | Smoke-test the infographic OG routes |
-| `check-stuck-signups.yml` | Every 6 hours | Flag signups stuck mid-flow |
+| `check-stuck-signups.yml` | Every 6 hours | Flag signups stuck mid-flow, and send a fresh set-password link at 24h and 72h to new guest buyers who never signed in |
 | `reconcile-stripe-daily.yml` | Every 6 hours | Reconcile Stripe subscriptions against `user_profiles` |
 
 ### Prospective predictions are shelved, and event-page scraping is why
@@ -1087,7 +1088,7 @@ All routes under `/api` are excluded from middleware auth (the negative lookahea
 
 - Add a dry-run guard (`--dry-run` / `dry_run` param) to any new data-mutating method or script.
 - A dry run is only as good as its weakest writer. `EnhancedETLPipeline` must pass `dry_run` to every provider matcher it constructs, and each matcher subclass must gate its own autocreate writes — a subclass that skips either makes the base class's guards inert and the run writes while reporting "no changes were made". Verify a new provider's dry run against the database, not its summary output.
-- A dry run writes nothing, local files included. A guard that reads a file a previous run wrote is switched off by a dry run that rewrites that file: a team-cleanup page build's dry run once rewrote the page's `published` marker, and the next build's "the owner has decided cards" refusal stopped firing. Key a guard on the state that cannot be previewed away (the database rows), and make the dry run print what it would write instead.
+- A dry run writes nothing, local files included. A guard that reads a file a previous run wrote is switched off by a dry run that rewrites that file: a team-cleanup page build's dry run once rewrote the page's `published` marker, and the next build's "the owner has decided cards" refusal stopped firing. Key a guard on the state that cannot be previewed away (the database rows), and make the dry run print what it would write instead. The one owner-approved exception (2026-11-09) is the operator-run per-event importers (`import_tourneycentral_event.py`, `import_athletes2events_event.py`, `import_soccereventsgroup_event.py`, `import_htgsports_event.py`): their dry run writes new date-stamped games, cross-age and team-report CSVs under `data/raw/<provider>/`, which are the owner's review sheet before `--execute` and which nothing reads back.
 - A command a script prints for the owner to run next (a retry after a lost answer, an undo line in a record) is a code path too. Build it from the invocation's own mode, so a dry run never prints `--execute`. Point it at the tool's own guarded command, never at raw SQL; where it offers a lower-level command instead, say which of the tool's checks that command skips.
 - Run `python -m ruff check src/ scripts/ config/ tournament_intake.py dashboard.py` before committing Python changes — that path list is the python-lint CI job, and `ruff` is not on PATH on a stock Windows checkout. A Codex review bot also checks PRs (flags missing dry-run guards, lint, race conditions).
 - Do NOT run `ruff format` over a whole file. Repo-wide format enforcement is deliberately deferred (`.pre-commit-config.yaml` is lint-only), so formatting a file rewrites unrelated code and buries the real diff. Check `ruff format --diff` first and keep the reformatting to lines the change already touches.

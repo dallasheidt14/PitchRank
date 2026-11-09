@@ -3,16 +3,18 @@ import { getSupabaseAdmin } from '@/lib/supabase/service';
 import { optionalAuth } from '@/lib/api/optionalAuth';
 import { checkRateLimit, getClientIp } from '@/lib/api/rateLimit';
 import { gaClientIdFromCookie } from '@/lib/analyticsServer';
+import { safeTeamPath } from '@/lib/auth/emailTokens';
+import { newCheckoutBrowserKey } from '@/lib/stripe/checkoutBrowser';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import type Stripe from 'stripe';
 
-function baseSessionParams(priceId: string): Partial<Stripe.Checkout.SessionCreateParams> {
+function baseSessionParams(priceId: string, returnTo: string | null): Partial<Stripe.Checkout.SessionCreateParams> {
   return {
     mode: 'subscription',
     line_items: [{ price: priceId, quantity: 1 }],
     success_url: `${process.env.NEXT_PUBLIC_SITE_URL}/upgrade/success?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${process.env.NEXT_PUBLIC_SITE_URL}/upgrade`,
+    cancel_url: `${process.env.NEXT_PUBLIC_SITE_URL}/upgrade${returnTo ? `?next=${encodeURIComponent(returnTo)}` : ''}`,
     allow_promotion_codes: true,
     billing_address_collection: 'auto',
   };
@@ -29,7 +31,7 @@ export async function POST(req: Request) {
 
     const { user, supabase } = await optionalAuth();
 
-    const { priceId } = await req.json();
+    const { priceId, next } = await req.json();
 
     // Basic validation - ensure it looks like a Stripe price ID
     if (!priceId || typeof priceId !== 'string' || !priceId.startsWith('price_')) {
@@ -53,7 +55,11 @@ export async function POST(req: Request) {
     }
 
     const gaClientId = gaClientIdFromCookie((await cookies()).get('_ga')?.value);
-    const analyticsMetadata: Record<string, string> = gaClientId ? { ga_client_id: gaClientId } : {};
+    const returnTo = safeTeamPath(next);
+    const sessionMetadata: Record<string, string> = {
+      ...(gaClientId ? { ga_client_id: gaClientId } : {}),
+      ...(returnTo ? { return_to: returnTo } : {}),
+    };
 
     // --- Authenticated checkout: existing user ---
     if (user && supabase) {
@@ -120,9 +126,9 @@ export async function POST(req: Request) {
 
       // Create Stripe checkout session
       const session = await stripe.checkout.sessions.create({
-        ...baseSessionParams(priceId),
+        ...baseSessionParams(priceId, returnTo),
         customer: customerId,
-        metadata: { supabase_user_id: user.id, ...analyticsMetadata },
+        metadata: { supabase_user_id: user.id, ...sessionMetadata },
         subscription_data: {
           ...(hasHadSubscription ? {} : { trial_period_days: 7 }),
           metadata: { supabase_user_id: user.id },
@@ -138,16 +144,19 @@ export async function POST(req: Request) {
 
     // --- Anonymous checkout: no account yet ---
     // In subscription mode, Stripe automatically creates a customer when none is provided
+    const browserKey = newCheckoutBrowserKey();
     const session = await stripe.checkout.sessions.create({
-      ...baseSessionParams(priceId),
-      metadata: { anonymous_checkout: 'true', ...analyticsMetadata },
+      ...baseSessionParams(priceId, returnTo),
+      metadata: { anonymous_checkout: 'true', browser_key_hash: browserKey.keyHash, ...sessionMetadata },
       subscription_data: {
         trial_period_days: 7,
         metadata: { anonymous_checkout: 'true' },
       },
     });
 
-    return NextResponse.json({ url: session.url });
+    const response = NextResponse.json({ url: session.url });
+    response.cookies.set(browserKey.cookie);
+    return response;
   } catch (error) {
     console.error('Checkout session error:', error);
 

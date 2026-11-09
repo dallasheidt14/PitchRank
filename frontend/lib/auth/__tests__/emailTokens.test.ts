@@ -1,7 +1,30 @@
 import { describe, it, expect } from 'vitest';
-import { isVerifiableOtpType, safeNextPath } from '../emailTokens';
+import { isVerifiableOtpType, safeNextPath, safeTeamPath } from '../emailTokens';
 
 const BACKSLASH = String.fromCharCode(92);
+
+describe('safeTeamPath', () => {
+  const TEAM_PATH = '/teams/11111111-1111-1111-1111-111111111111';
+
+  it('keeps a team page', () => {
+    expect(safeTeamPath(TEAM_PATH)).toBe(TEAM_PATH);
+  });
+
+  it.each([
+    ['nothing', null],
+    ['an empty string', ''],
+    ['another page', '/rankings'],
+    ['another page with a team id', '/watch/11111111-1111-1111-1111-111111111111'],
+    ['an id that is not a uuid', '/teams/123'],
+    ['anything after the id', `${TEAM_PATH}/edit`],
+    ['a query', `${TEAM_PATH}?a=1`],
+    ['a trailing newline', `${TEAM_PATH}\n`],
+    ['an off-site path', `//evil.example${TEAM_PATH}`],
+    ['a value that only looks right as text', [TEAM_PATH]],
+  ])('refuses %s', (_name, raw) => {
+    expect(safeTeamPath(raw)).toBeNull();
+  });
+});
 
 describe('safeNextPath', () => {
   it('keeps a same-origin path and its query', () => {

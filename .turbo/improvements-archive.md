@@ -1899,3 +1899,15 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Noted**: 2026-11-05
 - **Update (2026-11-05)**: The schedule driver gives each game a schedule_id on a date its two teams have two differently numbered games, and SincSports joined `SCHEDULE_ID_SUFFIX_PROVIDERS` without joining `REMATCH_PROVIDERS`. Different-score rematches only; same-score repeats behave as for GotSport, recorded on IMP-213.
 - **Refs**: branch `fix/sincsports-same-day-rematches`; `tests/unit/test_enhanced_pipeline_sincsports_rematch.py`
+
+### Stop re-dated Kitman games storing a second copy
+
+- **ID**: IMP-395
+- **Status**: done
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `hold_reason`, `moved_event_ids` and `stored_games` in `scripts/build_mlsnext_kitman_games_csv.py`
+- **Why**: Stored games match on date and teams, and Kitman re-dates games already stored, so a played game moved to a later date is held until that date and then imports as a new row. Compared all 6,739 stored rows with the standings files on 2026-11-08: 12 scored games now sit at a later date with the same score (7 land Nov 21-22, 5 in 2027), and 4 were reopened as unplayed and can double if replayed. The first import doubles none. Due before the Monday 2026-11-23 run, which would release those 7 and give 14 teams a duplicate game. One way: hold a played event whose squad pair has a stored game no current event explains.
+- **Noted**: 2026-11-08
+- **Update (2026-11-09)**: 11 moved games, not 12: Woodside v Modesto's stored 0-1 and Kitman's June 2027 entry have opposite home teams, so they are treated as separate games, though they may be one fixture with the sides flipped. The builder holds a played event with the same home team, away team and score as a stored game no current event explains, hidden games included; the home team must match, or a same-result return leg would be lost for good. A different score imports as new. The owner hid the 9 of the 15 moved or reopened games that were 0-0; the undo log is `C:\PitchRank\data\backups\hide_kitman_redated_zero_zero_2026-11-09.json`, which is gitignored.
+- **Refs**: branch `kitman-hold-redated-games`; `moved_event_ids` in `scripts/build_mlsnext_kitman_games_csv.py`
