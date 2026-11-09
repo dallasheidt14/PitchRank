@@ -96,6 +96,11 @@ Budget `delay + ~0.35 s` per **call** — ~1,075 calls/hour at 3 s, and ~1,250 t
 ~85% of teams carry a resolvable alias and the rest cost no request. Raise the delay when chunk
 times drift upward rather than lowering it.
 
+**A short one-off loop needs the same pace.** On 2026-11-08 a curl loop on this endpoint, one
+process and one IP, sleeping 0.6 s per call got 403s after saving 233 answers. Resumed a minute or
+two after it stopped, with a 2.5 s sleep, it read 998 more with no 403, too few calls to show 2.5 s
+holds at the volumes above. Save each 200 and 404 so a tripped run resumes, and never save a 403.
+
 **Separate a provider block from a local network outage before reacting.**
 `TeamDetailsResolver` collapses a WAF 403, a timeout and a DNS failure into `{}` alike, and
 `reconcile_teams_with_gotsport.py` stops after `--abort-after` (default 10) consecutive
