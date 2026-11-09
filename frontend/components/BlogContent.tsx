@@ -1,4 +1,4 @@
-import Markdown from 'react-markdown';
+import Markdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Card, CardContent } from '@/components/ui/card';
 
@@ -7,6 +7,14 @@ interface BlogContentProps {
 }
 
 const REMARK_PLUGINS = [remarkGfm];
+
+const MARKDOWN_COMPONENTS: Components = {
+  table: ({ node: _node, ...props }) => (
+    <div className="overflow-x-auto" tabIndex={0}>
+      <table {...props} />
+    </div>
+  ),
+};
 
 const MARKDOWN_STYLES = [
   'markdown-body space-y-4',
@@ -31,7 +39,9 @@ export function BlogContent({ content }: BlogContentProps) {
         <article className="blog-content">
           {typeof content === 'string' ? (
             <div className={MARKDOWN_STYLES}>
-              <Markdown remarkPlugins={REMARK_PLUGINS}>{content}</Markdown>
+              <Markdown remarkPlugins={REMARK_PLUGINS} components={MARKDOWN_COMPONENTS}>
+                {content}
+              </Markdown>
             </div>
           ) : (
             content

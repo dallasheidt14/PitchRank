@@ -22,7 +22,9 @@ import {
   type RankingsSortField as SortField,
   type SortDirection,
 } from '@/hooks/useRankingsViewState';
+import { useIsClient } from '@/hooks/useIsClient';
 import { usePrefetchTeam } from '@/lib/hooks';
+import { differenceInCalendarDays } from 'date-fns';
 import Link from 'next/link';
 import { ArrowUp, ArrowDown, ArrowUpDown, ChevronRight, Search, X } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -464,22 +466,27 @@ export function RankingsTable({ region, ageGroup, gender, initialData }: Ranking
     return rankings[0].last_calculated;
   }, [rankings]);
 
+  const isClient = useIsClient();
+
   // Format timestamp for display
   const formattedLastCalculated = useMemo(() => {
     if (!lastCalculated) return null;
 
     try {
       const date = new Date(lastCalculated);
-      const now = new Date();
-      const diffMs = now.getTime() - date.getTime();
-      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
+      // Hydration must reproduce the cached server HTML, so both pin UTC and leave out the recency word.
+      // Every other render uses the viewer's own date and says how long ago it was.
       // Format: "Dec 15, 2024"
       const formatted = date.toLocaleDateString('en-US', {
         month: 'short',
         day: 'numeric',
         year: 'numeric',
+        timeZone: isClient ? undefined : 'UTC',
       });
+
+      if (!isClient) return formatted;
+      const diffDays = differenceInCalendarDays(new Date(), date);
 
       // Add recency indicator
       if (diffDays === 0) {
@@ -495,7 +502,7 @@ export function RankingsTable({ region, ageGroup, gender, initialData }: Ranking
       console.error('Error formatting last_calculated date:', error);
       return null;
     }
-  }, [lastCalculated]);
+  }, [lastCalculated, isClient]);
 
   if (isLoading) return <RankingsTableSkeleton />;
   if (isError) {

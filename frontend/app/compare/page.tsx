@@ -50,7 +50,7 @@ export default function ComparePage() {
     <>
       {/* Page Header - Athletic Editorial Style */}
       <div className="relative bg-secondary/30 border-b-2 border-primary py-8 sm:py-12">
-        <div className="absolute left-0 top-0 w-2 h-full bg-accent -skew-x-12" aria-hidden="true" />
+        <div className="absolute left-0 top-0 w-2 h-full bg-accent" aria-hidden="true" />
         <div className="container mx-auto px-4">
           <h1 className="font-display text-3xl sm:text-4xl md:text-5xl font-bold uppercase text-primary mb-2">
             Compare/Predict Teams

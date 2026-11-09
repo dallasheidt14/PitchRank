@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import React, { act } from 'react';
-import { createRoot, type Root } from 'react-dom/client';
+import { createRoot, hydrateRoot, type Root } from 'react-dom/client';
+import { renderToString } from 'react-dom/server';
 import { makeRankingRow } from '@/test/fixtures';
 import type { RankingRow } from '@/types/RankingRow';
 
@@ -91,6 +92,11 @@ function rowName(row: Element): string {
 
 function caption(): string {
   return container!.querySelector('[data-testid="rankings-showing-count"]')!.textContent!.replace(/\s+/g, ' ');
+}
+
+function updatedLabel(): string {
+  const header = container!.querySelector('[data-testid="rankings-title"]')!.parentElement!;
+  return Array.from(header.children).find((child) => child.textContent?.startsWith('Updated '))!.textContent!;
 }
 
 function showMoreButton(): HTMLButtonElement | null {
@@ -783,6 +789,95 @@ describe('RankingsTable', () => {
       const header = container!.querySelector('[data-testid="rankings-title"]')!.parentElement!;
 
       expect(header.textContent).not.toContain('Updated ');
+    });
+  });
+
+  describe('the updated date label', () => {
+    it('calls a late-night update "yesterday" the next morning, though only two hours have passed', async () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date(2026, 10, 6, 1, 0));
+      await renderTable([makeRankingRow({ last_calculated: new Date(2026, 10, 5, 23, 0).toISOString() })]);
+
+      expect(updatedLabel()).toBe('Updated Nov 5, 2026 (yesterday)');
+    });
+
+    it('calls an update 22 hours old "today" when the date has not changed', async () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date(2026, 10, 6, 23, 0));
+      await renderTable([makeRankingRow({ last_calculated: new Date(2026, 10, 6, 1, 0).toISOString() })]);
+
+      expect(updatedLabel()).toBe('Updated Nov 6, 2026 (today)');
+    });
+
+    it('leaves the recency word out of the server render, which cannot know what day it is for the viewer', () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2026-11-06T17:00:00Z'));
+      setRankings([makeRankingRow({ last_calculated: '2026-11-05T19:00:00Z' })]);
+
+      const html = renderToString(tableElement('M'));
+
+      expect(html).toContain('Updated Nov 5, 2026');
+      expect(html).not.toContain('(yesterday)');
+      expect(html).not.toContain('(today)');
+    });
+
+    it.each([
+      [3, 'Updated Nov 3, 2026 (3 days ago)'],
+      [7, 'Updated Oct 30, 2026'],
+    ])('labels an update %i days old', async (days, expected) => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date(2026, 10, 6, 9, 0));
+      await renderTable([makeRankingRow({ last_calculated: new Date(2026, 10, 6 - days, 9, 0).toISOString() })]);
+
+      expect(updatedLabel()).toBe(expected);
+    });
+
+    describe('taking over a board the server rendered', () => {
+      const originalZone = process.env.TZ;
+
+      afterEach(() => {
+        if (originalZone === undefined) delete process.env.TZ;
+        else process.env.TZ = originalZone;
+      });
+
+      async function hydrate(html: string): Promise<unknown[]> {
+        container = document.createElement('div');
+        document.body.appendChild(container);
+        container.innerHTML = html;
+        const recoverableErrors: unknown[] = [];
+        await act(async () => {
+          root = hydrateRoot(container!, tableElement('M'), {
+            onRecoverableError: (error) => recoverableErrors.push(error),
+          });
+        });
+        return recoverableErrors;
+      }
+
+      it('adds the recency word once the browser takes over', async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(new Date(2026, 10, 6, 1, 0));
+        setRankings([makeRankingRow({ last_calculated: new Date(2026, 10, 5, 23, 0).toISOString() })]);
+
+        const recoverableErrors = await hydrate(renderToString(tableElement('M')));
+
+        expect(recoverableErrors).toEqual([]);
+        expect(updatedLabel()).toBe('Updated Nov 5, 2026 (yesterday)');
+      });
+
+      it('matches a UTC server first, then shows an Arizona viewer their own date', async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(new Date('2026-11-06T17:00:00Z'));
+        setRankings([makeRankingRow({ last_calculated: '2026-11-03T01:18:15Z' })]);
+
+        process.env.TZ = 'UTC';
+        const html = renderToString(tableElement('M'));
+        expect(html).toContain('Updated Nov 3, 2026');
+        process.env.TZ = 'America/Phoenix';
+        const recoverableErrors = await hydrate(html);
+
+        expect(recoverableErrors).toEqual([]);
+        expect(updatedLabel()).toBe('Updated Nov 2, 2026 (4 days ago)');
+      });
     });
   });
 });

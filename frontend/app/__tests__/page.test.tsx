@@ -10,7 +10,6 @@ vi.mock('@/lib/api', () => ({
 vi.mock('@/components/HowWeRank', () => ({ HowWeRank: () => null }));
 vi.mock('@/components/FeatureShowcase', () => ({ FeatureShowcase: () => null }));
 vi.mock('@/components/RecentMovers', () => ({ RecentMovers: () => null }));
-vi.mock('@/components/SeasonRolloverNotice', () => ({ SeasonRolloverNotice: () => null }));
 
 import Home from '../page';
 import { FindYourTeamButton } from '@/components/FindYourTeamButton';

@@ -21,7 +21,7 @@ export function ReportCardPreview() {
             Team Report Card
           </p>
           <h3 className="font-display text-2xl font-bold tracking-wide mt-1">Phoenix Rising FC 2014B</h3>
-          <p className="text-white/80 text-sm">Phoenix, AZ · U12 Boys · 2026 Season</p>
+          <p className="text-white/80 text-sm">Phoenix, AZ · U13 Boys · 2026 Season</p>
         </div>
 
         {/* PowerScore + rank block */}
