@@ -9,11 +9,14 @@ import { Label } from '@/components/ui/label';
 import { CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { AuthCardShell } from '@/components/auth/AuthCardShell';
 import { Loader2, Lock, CheckCircle2 } from 'lucide-react';
+import { safeTeamPath } from '@/lib/auth/emailTokens';
 import { MIN_PASSWORD_LENGTH } from '@/lib/constants';
+import { useUser } from '@/hooks/useUser';
 import { updatePassword } from './actions';
 
 export default function ResetPasswordPage() {
   const router = useRouter();
+  const { user } = useUser();
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -53,6 +56,7 @@ export default function ResetPasswordPage() {
   };
 
   if (isSuccess) {
+    const teamPath = safeTeamPath(user?.app_metadata?.return_to);
     return (
       <AuthCardShell>
         <CardHeader className="space-y-1 text-center">
@@ -65,11 +69,11 @@ export default function ResetPasswordPage() {
         <CardFooter className="flex justify-center">
           <Button
             onClick={() => {
-              router.push('/rankings');
+              router.push(teamPath ?? '/rankings');
               router.refresh();
             }}
           >
-            Go to rankings
+            {teamPath ? 'Go to your team' : 'Go to rankings'}
           </Button>
         </CardFooter>
       </AuthCardShell>

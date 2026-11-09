@@ -96,6 +96,10 @@ function nextMaybeSingle() {
 // hashed_token the mocked admin generateLink returns. Set to null to simulate
 // Supabase returning no link (one of the set-password failure modes).
 let generateLinkHashedToken: string | null = 'test-hashed-token';
+const mockCreateUser = vi
+  .fn()
+  .mockResolvedValue({ data: { user: { id: 'new-user-id', email: 'test@example.com' } }, error: null });
+const mockUpdateUserById = vi.fn().mockResolvedValue({ data: { user: {} }, error: null });
 function setGenerateLinkHashedToken(value: string | null) {
   generateLinkHashedToken = value;
 }
@@ -119,9 +123,8 @@ vi.mock('@supabase/supabase-js', () => ({
     }),
     auth: {
       admin: {
-        createUser: vi
-          .fn()
-          .mockResolvedValue({ data: { user: { id: 'new-user-id', email: 'test@example.com' } }, error: null }),
+        createUser: (...args: unknown[]) => mockCreateUser(...args),
+        updateUserById: (...args: unknown[]) => mockUpdateUserById(...args),
         generateLink: vi.fn().mockImplementation(() =>
           Promise.resolve({
             data: { properties: generateLinkHashedToken ? { hashed_token: generateLinkHashedToken } : {} },
@@ -1217,7 +1220,7 @@ describe('Set-password email failure alerts an admin', () => {
 
   // New anonymous checkout: no profile by customer-id, none by email → the
   // route creates a user and tries to send the set-password email.
-  function fireNewSignup(): Promise<Response> {
+  function fireNewSignup(sessionOverrides: Record<string, unknown> = {}): Promise<Response> {
     queueMaybeSingle([null, null]);
     vi.mocked(stripe.subscriptions.retrieve).mockResolvedValueOnce({
       id: 'sub_new',
@@ -1229,7 +1232,15 @@ describe('Set-password email failure alerts an admin', () => {
     vi.mocked(stripe.webhooks.constructEvent).mockReturnValue({
       id: 'evt_new_signup',
       type: 'checkout.session.completed',
-      data: { object: { customer: 'cus_new', subscription: 'sub_new', payment_status: 'paid' } },
+      data: {
+        object: {
+          id: 'cs_new',
+          customer: 'cus_new',
+          subscription: 'sub_new',
+          payment_status: 'paid',
+          ...sessionOverrides,
+        },
+      },
     } as unknown as Stripe.Event);
     return POST(makeRequest('valid body'));
   }
@@ -1289,5 +1300,116 @@ describe('Set-password email failure alerts an admin', () => {
     expect(vi.mocked(sendPasswordSetupEmail)).not.toHaveBeenCalled();
     expect(vi.mocked(notifyAdmin)).toHaveBeenCalledWith(expect.stringContaining('Set-password email FAILED'));
     expect(vi.mocked(notifyAdmin)).toHaveBeenCalledWith(expect.stringContaining('no setup link generated'));
+  });
+
+  describe('marking the account this checkout created', () => {
+    const TEAM_PATH = '/teams/11111111-1111-1111-1111-111111111111';
+
+    it('flags it as an anonymous-checkout account when creating it', async () => {
+      await fireNewSignup();
+
+      expect(mockCreateUser).toHaveBeenCalledWith(
+        expect.objectContaining({ email: 'test@example.com', app_metadata: { anonymous_checkout: true } })
+      );
+    });
+
+    it('marks it after the set-password email, with the session and the tapped team', async () => {
+      await fireNewSignup({ metadata: { anonymous_checkout: 'true', return_to: TEAM_PATH } });
+
+      expect(mockUpdateUserById).toHaveBeenCalledTimes(1);
+      expect(mockUpdateUserById).toHaveBeenCalledWith('new-user-id', {
+        app_metadata: { checkout_session_id: 'cs_new', return_to: TEAM_PATH },
+      });
+      expect(vi.mocked(sendPasswordSetupEmail).mock.invocationCallOrder[0]).toBeLessThan(
+        mockUpdateUserById.mock.invocationCallOrder[0]
+      );
+    });
+
+    it('marks it when the email send fails', async () => {
+      vi.mocked(sendPasswordSetupEmail).mockResolvedValueOnce(false);
+
+      await fireNewSignup();
+
+      expect(mockUpdateUserById).toHaveBeenCalledWith('new-user-id', {
+        app_metadata: { checkout_session_id: 'cs_new' },
+      });
+    });
+
+    it('marks it when the email attempt throws', async () => {
+      vi.mocked(sendPasswordSetupEmail).mockRejectedValueOnce(new Error('resend down'));
+
+      await fireNewSignup();
+
+      expect(mockUpdateUserById).toHaveBeenCalledTimes(1);
+    });
+
+    it('marks it when no setup link could be generated', async () => {
+      setGenerateLinkHashedToken(null);
+
+      await fireNewSignup();
+
+      expect(mockUpdateUserById).toHaveBeenCalledTimes(1);
+    });
+
+    it('leaves out a stored path that is not a team page', async () => {
+      await fireNewSignup({ metadata: { anonymous_checkout: 'true', return_to: '//evil.example' } });
+
+      expect(mockUpdateUserById).toHaveBeenCalledWith('new-user-id', {
+        app_metadata: { checkout_session_id: 'cs_new' },
+      });
+    });
+
+    it('still answers 200 when the mark cannot be written, so Stripe does not retry', async () => {
+      mockUpdateUserById.mockResolvedValueOnce({ data: { user: null }, error: { code: 'unexpected_failure' } });
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      const res = await fireNewSignup();
+
+      expect(res.status).toBe(200);
+      vi.mocked(console.error).mockRestore();
+    });
+
+    it.each<[string, Array<Record<string, unknown> | null>, string]>([
+      ['a signed-in checkout', [{ id: 'user-1', subscription_status: null }], 'active'],
+      [
+        'a checkout linked to an existing account',
+        [null, { id: 'user-2', stripe_customer_id: null, stripe_subscription_id: null, subscription_status: null }],
+        'active',
+      ],
+      [
+        'a blocked second trial',
+        [
+          null,
+          { id: 'user-3', stripe_customer_id: 'cus_old', stripe_subscription_id: null, subscription_status: 'active' },
+        ],
+        'trialing',
+      ],
+      [
+        'a re-delivered blocked checkout',
+        [
+          null,
+          { id: 'user-3', stripe_customer_id: 'cus_old', stripe_subscription_id: null, subscription_status: 'active' },
+        ],
+        'canceled',
+      ],
+    ])('marks nothing on %s', async (_name, rows, status) => {
+      queueMaybeSingle(rows);
+      vi.mocked(stripe.subscriptions.retrieve).mockResolvedValueOnce({
+        id: 'sub_new',
+        status,
+        cancel_at: null,
+        cancel_at_period_end: false,
+        items: { data: [{ current_period_end: 1735689600 }] },
+      } as unknown as Stripe.Response<Stripe.Subscription>);
+      vi.mocked(stripe.webhooks.constructEvent).mockReturnValue({
+        id: 'evt_other',
+        type: 'checkout.session.completed',
+        data: { object: { id: 'cs_new', customer: 'cus_new', subscription: 'sub_new', payment_status: 'paid' } },
+      } as unknown as Stripe.Event);
+
+      await POST(makeRequest('valid body'));
+
+      expect(mockUpdateUserById).not.toHaveBeenCalled();
+    });
   });
 });

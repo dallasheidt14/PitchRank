@@ -126,7 +126,9 @@ frontend/
 
 ### Billing
 
-- `POST /api/stripe/checkout` (optionalAuth: signed-out visitors can check out before they have an account)
+- `POST /api/stripe/checkout` (optionalAuth: signed-out visitors can check out before they have an account; rate limited 5 req/min per IP)
+- `POST /api/stripe/checkout-login` (public: the Stripe session id plus the checkout browser's cookie is the proof, see pitfall 20; requires `Content-Type: application/json`; rate limited 10 req/min per IP)
+- `POST /api/stripe/sync` (optionalAuth: a signed-out buyer proves the purchase with the Stripe session id; rate limited 5 req/min per IP)
 - `POST /api/stripe/portal` (requireAuth)
 - `POST /api/stripe/webhook` (Stripe signature, no user auth)
 
@@ -493,3 +495,11 @@ RESEND_API_KEY
     `behavior: 'smooth'` overrides that. So `scrollIntoView` on the page omits `behavior`. Scrolling
     inside a list box (search results, selectors) gets no smoothness from that rule, so pass
     `behavior: scrollBehavior()` from `lib/utils.ts`.
+20. **Only `/api/stripe/checkout-login` grants a session without mailbox or password proof** — it may
+    reach only an account a guest checkout just created, from the browser that started that checkout:
+    a complete, settled guest session; an HttpOnly `checkout_browser` cookie whose SHA-256 matches the
+    session's `browser_key_hash`, both set by the checkout route; `app_metadata.checkout_session_id`
+    matching the session, which only the webhook writes and only on an account it created;
+    `last_sign_in_at` empty; the account under 30 minutes old; and no other account signed in on that
+    browser. The session id alone cannot grant a session, because it sits in Stripe's hosted checkout URL. An
+    account that existed before the checkout has no marker, so the route cannot reach it.

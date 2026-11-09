@@ -7,6 +7,7 @@ import { Check, Zap, Crown, Shield, TrendingUp, Star, Pencil, BarChart3, Eye, Ar
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { safeTeamPath } from '@/lib/auth/emailTokens';
 import { startCheckout } from '@/lib/stripe/client';
 import { useUser } from '@/hooks/useUser';
 import { trackUpgradePageViewed, trackPlanSelected, trackCheckoutInitiated } from '@/lib/events';
@@ -31,9 +32,6 @@ const FEATURES = [
   { icon: Eye, title: 'Watchlist', text: 'Track your favorite teams with real-time rank change alerts' },
   { icon: Pencil, title: 'Edit Access', text: 'Merge duplicate teams and find missing game history' },
 ];
-
-// Only a team page is worth naming; anything else in `next` is ignored.
-const TEAM_PATH = /^\/teams\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
 
 export default function UpgradePage() {
   return (
@@ -77,7 +75,8 @@ function UpgradePageContent() {
   const pageViewTracked = useRef(false);
 
   // The team the parent tapped, named so the paywall does not look like a wrong link.
-  const tappedTeamId = TEAM_PATH.exec(searchParams.get('next') ?? '')?.[1] ?? null;
+  const tappedTeamPath = safeTeamPath(searchParams.get('next'));
+  const tappedTeamId = tappedTeamPath?.slice('/teams/'.length) ?? null;
   // Keyed by id, so a banner loaded for one team is never shown for another destination.
   const [loadedTeam, setLoadedTeam] = useState<{
     id: string;
@@ -133,7 +132,7 @@ function UpgradePageContent() {
         throw new Error('Pricing is not configured. Please contact support.');
       }
       trackCheckoutInitiated({ plan, price: plan === 'monthly' ? 6.99 : 69.99 });
-      await startCheckout(priceId);
+      await startCheckout(priceId, tappedTeamPath);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong');
       setLoadingPlan(null);

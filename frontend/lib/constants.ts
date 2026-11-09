@@ -196,7 +196,8 @@ export const MIN_RANKED_GAMES = 10;
 /**
  * Bearer credentials that ride in a URL, and the pages that render carrying one.
  *
- * `session_id` authenticates /api/stripe/sync; `token_hash` is a Supabase auth
+ * `session_id` authenticates /api/stripe/sync and, with the checkout browser's
+ * cookie, signs a new buyer in through /api/stripe/checkout-login; `token_hash` is a Supabase auth
  * token that /auth/confirm deliberately leaves unredeemed, so it is live in the
  * URL while the page renders. A tag that reports document.location must not load
  * on these paths at all; one that builds its own URL must drop these params.

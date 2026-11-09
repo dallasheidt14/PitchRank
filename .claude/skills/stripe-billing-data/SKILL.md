@@ -193,6 +193,24 @@ discounts are subtracted, and whether a subscriber counts from the start of the 
 from the first payment. When a figure still differs from Stripe's after the rules above, ask the
 user how those two are configured.
 
+## A Checkout Session id does not prove who holds it
+
+The Stripe-hosted checkout URL carries the session id (`checkout.stripe.com/c/pay/cs_...`, as in
+Stripe's API reference example), so whoever started the checkout, anyone sent its link, and the
+browser's history all hold it. The id alone may read a session's state and sync what Stripe already
+says about it; it must never grant a sign-in. It is still the bearer credential for the sync route,
+so keep it out of logs and URLs. `/api/stripe/checkout-login` adds, among other gates listed in
+`frontend/CLAUDE.md` pitfall 20, the HttpOnly `checkout_browser` cookie, whose SHA-256 the
+checkout route stores on the session as `browser_key_hash`.
+
+That route rests on two Supabase behaviours:
+
+- **Minting a one-time link replaces the user's earlier one.** A magic link and a recovery link
+  share one stored token, so a set-password link emailed earlier stops working once a sign-in link
+  is minted. A live run on 2026-11-09 saw the emailed link rejected after a sign-in.
+- **Admin `updateUserById` merges `app_metadata` keys** rather than replacing the object (verified
+  on the same run), and only admin calls can write `app_metadata` at all.
+
 ## Where the code is
 
 | Concern | Location |
@@ -202,7 +220,8 @@ user how those two are configured.
 | Rates, projection, month cohorts, retention, lifetime churn (pure functions) | `frontend/lib/admin/month-projection.ts` |
 | Stripe fetching and assembly | `frontend/lib/admin/subscription-metrics.ts` |
 | Admin dashboard page | `frontend/app/mission-control/subscriptions/` |
-| Checkout, webhook, portal, sync routes | `frontend/app/api/stripe/` |
+| Checkout, checkout-login, webhook, portal, sync routes | `frontend/app/api/stripe/` |
+| Browser tie for the return sign-in | `frontend/lib/stripe/checkoutBrowser.ts` |
 | Reconciliation (every 6 hours) | `scripts/reconcile_stripe_subscriptions.py` |
 | Shared test doubles | `frontend/test/fixtures.ts` (`makeStripeSubscription`, `makeStripeInvoice`) |
 
@@ -226,3 +245,17 @@ Dashboard; compute yours from `stripe_api_read` REST lists and ask for theirs on
 `GetSubscriptions` and `GetInvoices` responses run to hundreds of KB and will overflow a tool
 result; they are written to a file instead. Analyse that file with `jq` or a Python script rather
 than reading it, and page with `starting_after` from the last id.
+
+## Exercising Stripe routes on a local production build
+
+No Stripe key exists locally, so set a placeholder `STRIPE_SECRET_KEY` (the client throws without
+one) and point the SDK at a fake. Preload a script with
+`NODE_OPTIONS=--require` that wraps `https.request` and sends `api.stripe.com` to a local HTTPS
+server. It must be HTTPS: the Node SDK waits for `secureConnect` before writing the request, so a
+plain-HTTP fake hangs, and the wrapper must trust the fake's self-signed certificate (an agent with
+`rejectUnauthorized: false` on the redirected request). Make that certificate with Python
+`cryptography`; Git Bash's `openssl req` fails for want of its config file. Chromium keeps `Secure` cookies on
+`http://localhost`, so cookie flags behave as in production.
+
+Any run that creates an account on live Supabase auth needs the owner's OK first and deletes the
+account in a `finally`.

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Use vi.hoisted so mock fns are available inside vi.mock factories (which are hoisted)
@@ -98,9 +99,42 @@ describe('POST /api/stripe/checkout', () => {
     expect(mockCheckoutSessionsCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         mode: 'subscription',
-        metadata: { anonymous_checkout: 'true' },
+        metadata: { anonymous_checkout: 'true', browser_key_hash: expect.any(String) },
       })
     );
+  });
+
+  it('ties a guest checkout to this browser with a cookie whose hash rides on the session', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    mockCheckoutSessionsCreate.mockResolvedValue({ url: 'https://checkout.stripe.com/anon' });
+
+    const res = await POST(makeRequest({ priceId: 'price_monthly' }));
+
+    const cookie = res.cookies.get('checkout_browser');
+    expect(cookie).toMatchObject({
+      httpOnly: true,
+      secure: true,
+      sameSite: 'lax',
+      path: '/api/stripe/checkout-login',
+      maxAge: 86400,
+    });
+    expect(cookie?.value).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(mockCheckoutSessionsCreate.mock.calls[0][0].metadata.browser_key_hash).toBe(
+      createHash('sha256').update(cookie!.value).digest('hex')
+    );
+    expect(mockCheckoutSessionsCreate.mock.calls[0][0].subscription_data.metadata).toEqual({
+      anonymous_checkout: 'true',
+    });
+  });
+
+  it('gives each guest checkout its own browser key', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    mockCheckoutSessionsCreate.mockResolvedValue({ url: 'https://checkout.stripe.com/anon' });
+
+    const first = (await POST(makeRequest({ priceId: 'price_monthly' }))).cookies.get('checkout_browser')?.value;
+    const second = (await POST(makeRequest({ priceId: 'price_monthly' }))).cookies.get('checkout_browser')?.value;
+
+    expect(first).not.toBe(second);
   });
 
   it("carries the visitor's analytics id into the checkout session, never onto the subscription", async () => {
@@ -112,7 +146,11 @@ describe('POST /api/stripe/checkout', () => {
 
     expect(mockCookieGet).toHaveBeenCalledWith('_ga');
     const params = mockCheckoutSessionsCreate.mock.calls[0][0];
-    expect(params.metadata).toEqual({ anonymous_checkout: 'true', ga_client_id: '123.456' });
+    expect(params.metadata).toEqual({
+      anonymous_checkout: 'true',
+      browser_key_hash: expect.any(String),
+      ga_client_id: '123.456',
+    });
     expect(params.subscription_data.metadata).toEqual({ anonymous_checkout: 'true' });
   });
 
@@ -145,7 +183,73 @@ describe('POST /api/stripe/checkout', () => {
 
     await POST(makeRequest({ priceId: 'price_monthly' }));
 
-    expect(mockCheckoutSessionsCreate.mock.calls[0][0].metadata).toEqual({ anonymous_checkout: 'true' });
+    expect(mockCheckoutSessionsCreate.mock.calls[0][0].metadata).toEqual({
+      anonymous_checkout: 'true',
+      browser_key_hash: expect.any(String),
+    });
+  });
+
+  describe('the tapped team', () => {
+    const TEAM_PATH = '/teams/11111111-1111-1111-1111-111111111111';
+
+    it('goes into a guest checkout session, never onto the subscription', async () => {
+      mockGetUser.mockResolvedValue({ data: { user: null } });
+      mockCheckoutSessionsCreate.mockResolvedValue({ url: 'https://checkout.stripe.com/anon' });
+
+      await POST(makeRequest({ priceId: 'price_monthly', next: TEAM_PATH }));
+
+      const params = mockCheckoutSessionsCreate.mock.calls[0][0];
+      expect(params.metadata).toEqual({
+        anonymous_checkout: 'true',
+        browser_key_hash: expect.any(String),
+        return_to: TEAM_PATH,
+      });
+      expect(params.subscription_data.metadata).toEqual({ anonymous_checkout: 'true' });
+    });
+
+    it('goes into a signed-in checkout session, never onto the subscription', async () => {
+      mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1', email: 'a@b.com' } } });
+      mockFrom.mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            single: vi.fn().mockResolvedValue({
+              data: { plan: 'free', subscription_status: null, stripe_customer_id: 'cus_existing' },
+              error: null,
+            }),
+          }),
+        }),
+      });
+      mockCheckoutSessionsCreate.mockResolvedValue({ url: 'https://checkout.stripe.com/authed' });
+
+      await POST(makeRequest({ priceId: 'price_monthly', next: TEAM_PATH }));
+
+      const params = mockCheckoutSessionsCreate.mock.calls[0][0];
+      expect(params.metadata).toEqual({ supabase_user_id: 'user-1', return_to: TEAM_PATH });
+      expect(params.subscription_data.metadata).toEqual({ supabase_user_id: 'user-1' });
+    });
+
+    it('brings a buyer who cancels back to that team on the paywall', async () => {
+      mockGetUser.mockResolvedValue({ data: { user: null } });
+      mockCheckoutSessionsCreate.mockResolvedValue({ url: 'https://checkout.stripe.com/anon' });
+
+      await POST(makeRequest({ priceId: 'price_monthly', next: TEAM_PATH }));
+
+      expect(mockCheckoutSessionsCreate.mock.calls[0][0].cancel_url).toMatch(
+        /\/upgrade\?next=%2Fteams%2F11111111-1111-1111-1111-111111111111$/
+      );
+    });
+
+    it('never sends a path that is not a team page to Stripe', async () => {
+      const next = '//evil.example';
+      mockGetUser.mockResolvedValue({ data: { user: null } });
+      mockCheckoutSessionsCreate.mockResolvedValue({ url: 'https://checkout.stripe.com/anon' });
+
+      await POST(makeRequest({ priceId: 'price_monthly', next }));
+
+      const params = mockCheckoutSessionsCreate.mock.calls[0][0];
+      expect(params.metadata).toEqual({ anonymous_checkout: 'true', browser_key_hash: expect.any(String) });
+      expect(params.cancel_url).toMatch(/\/upgrade$/);
+    });
   });
 
   it('returns 400 for missing price ID', async () => {

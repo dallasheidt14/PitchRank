@@ -4,13 +4,13 @@
  * Client-side helper to initiate Stripe checkout
  * Redirects user to Stripe's hosted checkout page
  */
-export async function startCheckout(priceId: string): Promise<void> {
+export async function startCheckout(priceId: string, next: string | null = null): Promise<void> {
   const res = await fetch('/api/stripe/checkout', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ priceId }),
+    body: JSON.stringify({ priceId, next }),
   });
 
   if (!res.ok) {

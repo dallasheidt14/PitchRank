@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef, Suspense } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { Check, Crown, ArrowRight, Sparkles, Search, Eye, BarChart3, Share2, Mail } from 'lucide-react';
+import { Check, Crown, ArrowRight, Sparkles, Search, Eye, BarChart3, Share2, Mail, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { launchConfetti } from '@/components/ui/confetti';
@@ -33,6 +33,28 @@ const ONBOARDING_STEPS = [
   },
 ];
 
+const SIGN_IN_RETRY_DELAYS_MS = [1000, 2000, 3000, 4000];
+
+/** Whether the buyer is being sent onward. The webhook may still be creating their account, so `pending` retries. */
+async function signInAfterCheckout(sessionId: string): Promise<boolean> {
+  for (const delay of [0, ...SIGN_IN_RETRY_DELAYS_MS]) {
+    if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+    const res = await fetch('/api/stripe/checkout-login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId }),
+    });
+    const data = await res.json();
+    if (data.status === 'signed_in') {
+      // A full load is what makes useUser pick up the new session.
+      window.location.replace(data.next);
+      return true;
+    }
+    if (data.status !== 'pending') return false;
+  }
+  return false;
+}
+
 export default function UpgradeSuccessPage() {
   return (
     <Suspense>
@@ -47,11 +69,12 @@ function UpgradeSuccessContent() {
   const [shareStatus, setShareStatus] = useState<string | null>(null);
   const confettiLaunched = useRef(false);
   const syncStarted = useRef(false);
+  const [signingIn, setSigningIn] = useState(() => searchParams.has('session_id'));
 
-  // Anonymous checkout creates the account but leaves the browser logged out.
-  // Until the password is set, premium is paid for but not reachable — claiming
-  // access here is what sends people back to check out a second time.
-  const needsPasswordSetup = !userLoading && !user;
+  // A buyer the return sign-in could not reach is paid up but still logged out.
+  // Claiming access here is what sends people back to check out a second time.
+  const needsPasswordSetup = !signingIn && !userLoading && !user;
+  const hasAccess = !signingIn && !needsPasswordSetup;
 
   // Sync subscription status from Stripe as webhook fallback.
   // Only fire confetti after sync confirms a real purchase.
@@ -61,10 +84,10 @@ function UpgradeSuccessContent() {
 
     syncStarted.current = true;
 
-    // The session_id is the bearer secret for /api/stripe/sync — scrub it from
-    // the URL immediately (before the sync round-trip) so history, referrers,
-    // and analytics pageviews don't carry it. The captured value keeps this
-    // in-flight sync working; the webhook remains the primary fulfillment path.
+    // The session_id is the bearer secret for /api/stripe/sync and, with the
+    // checkout browser's cookie, /api/stripe/checkout-login. Scrub it from the URL
+    // immediately (before either round-trip) so history, referrers, and analytics
+    // pageviews don't carry it. The captured value keeps both requests working.
     // router.replace to the bare path keeps the query on this prerendered page (vercel/next.js#91658).
     window.history.replaceState(null, '', '/upgrade/success');
 
@@ -87,6 +110,14 @@ function UpgradeSuccessContent() {
       })
       .catch((err) => {
         console.error('Sync fetch error:', err);
+      })
+      .then(() => signInAfterCheckout(sessionId))
+      .catch((err) => {
+        console.error('Sign-in fetch error:', err);
+        return false;
+      })
+      .then((leaving) => {
+        if (!leaving) setSigningIn(false);
       });
   }, [searchParams]);
 
@@ -138,13 +169,22 @@ function UpgradeSuccessContent() {
               Welcome to PitchRank+
             </CardTitle>
             <CardDescription className="text-base mt-2">
-              {needsPasswordSetup
-                ? 'Your payment went through. One quick step left before you can log in.'
-                : 'Your subscription is now active. You have full access to all premium features.'}
+              {signingIn
+                ? 'Your payment went through.'
+                : needsPasswordSetup
+                  ? 'Your payment went through. One quick step left before you can log in.'
+                  : 'Your subscription is now active. You have full access to all premium features.'}
             </CardDescription>
           </CardHeader>
 
           <CardContent className="space-y-6">
+            {signingIn && (
+              <div className="bg-primary/10 border border-primary/20 rounded-lg p-4 text-center">
+                <Loader2 className="w-6 h-6 text-primary mx-auto mb-2 animate-spin" />
+                <p className="text-sm font-medium">Setting up your account...</p>
+              </div>
+            )}
+
             {needsPasswordSetup && (
               <div className="bg-primary/10 border border-primary/20 rounded-lg p-4 text-center">
                 <Mail className="w-6 h-6 text-primary mx-auto mb-2" />
@@ -162,7 +202,7 @@ function UpgradeSuccessContent() {
             {/* Benefits Reminder */}
             <div className="bg-muted/50 rounded-lg p-4 text-left">
               <h3 className="font-semibold mb-3 text-sm">
-                {needsPasswordSetup ? 'Your subscription includes:' : 'You now have access to:'}
+                {hasAccess ? 'You now have access to:' : 'Your subscription includes:'}
               </h3>
               <ul className="space-y-2 text-sm text-muted-foreground">
                 <li className="flex items-center gap-2">
@@ -184,7 +224,7 @@ function UpgradeSuccessContent() {
               </ul>
             </div>
 
-            {!needsPasswordSetup && (
+            {hasAccess && (
               <p className="text-xs text-muted-foreground">
                 A receipt has been sent to your email address. You can manage your subscription at any time from your
                 account settings.
@@ -194,7 +234,7 @@ function UpgradeSuccessContent() {
         </Card>
 
         {/* Onboarding Steps (shown for authenticated users) */}
-        {(user || userLoading) && (
+        {hasAccess && (
           <div>
             <h3 className="text-lg font-semibold text-center mb-4">Get started in 3 steps</h3>
             <div className="grid gap-4 md:grid-cols-3">

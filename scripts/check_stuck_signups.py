@@ -4,9 +4,11 @@ Catch paying/trialing customers who can't log in.
 
 Guest checkout creates a password-less Supabase user and emails a single
 set-password link. When that email is slow, spam-filtered, mistyped, or
-opened after it expires, the customer is locked out. This monitor finds
+opened after it expires, and the buyer was not signed in on return, the
+customer is locked out. This monitor finds
 anyone who is paying/trialing but has never signed in and emails an admin
-digest naming them.
+digest naming them. New buyers among them also get up to two reminders, each
+with a fresh set-password link sent to the buyer alone.
 
 The digest carries no recovery link. Minting one here put a live 24h
 credential for a paid account into a shared mailbox, and from there into
@@ -15,8 +17,8 @@ The customer already has a working set-password link from checkout, and
 /forgot-password is the self-service path for anyone whose link has expired.
 
 Usage:
-    python scripts/check_stuck_signups.py            # Send admin digest if any
-    python scripts/check_stuck_signups.py --dry-run  # Report counts, do not send
+    python scripts/check_stuck_signups.py            # Send due buyer reminders, then the admin digest
+    python scripts/check_stuck_signups.py --dry-run  # Report counts, send nothing
 """
 
 import argparse
@@ -40,6 +42,7 @@ else:
 
 import requests  # noqa: E402
 
+from src.utils.resend_email import send_email  # noqa: E402
 from supabase import create_client  # noqa: E402
 
 logging.basicConfig(
@@ -57,6 +60,8 @@ SITE_URL = os.environ.get("NEXT_PUBLIC_SITE_URL", "https://pitchrank.io")
 # in yet (the set-password email is in flight), so don't flag it.
 STUCK_MIN_AGE = timedelta(hours=2)
 STUCK_STATUSES = ("active", "trialing", "past_due")
+# The age a buyer must reach for each reminder, in the order they are sent.
+REMINDER_AGES = (timedelta(hours=24), timedelta(hours=72))
 PER_PAGE = 200
 
 
@@ -145,6 +150,9 @@ def find_stuck_users(supabase):
                 "subscription_status": profile.get("subscription_status"),
                 "period_end": profile.get("subscription_period_end") or "—",
                 "source": (user.user_metadata or {}).get("source", "—"),
+                "user_id": user.id,
+                "age": now - created if created else None,
+                "app_metadata": user.app_metadata or {},
             }
         )
 
@@ -195,7 +203,7 @@ def build_digest_html(stuck: list) -> str:
 def send_alert_email(stuck: list) -> bool:
     """Send the admin digest via Resend HTTP API. Returns True only if delivered.
 
-    The digest is the monitor's sole remediation channel, so a delivery failure
+    The digest is the only report an admin gets, so a delivery failure
     means the locked-out customers went unreported — the caller fails the job.
     """
     api_key = os.environ.get("RESEND_API_KEY", "").strip()
@@ -230,12 +238,58 @@ def send_alert_email(stuck: list) -> bool:
         return False
 
 
+def reminder_due(entry: dict) -> bool:
+    """Only accounts the Stripe webhook created carry `anonymous_checkout` (set in
+    frontend/app/api/stripe/webhook/route.ts), which keeps reminders to new buyers."""
+    app_metadata = entry["app_metadata"]
+    if not app_metadata.get("anonymous_checkout") or entry["age"] is None:
+        return False
+    sent = app_metadata.get("setup_reminders_sent", 0)
+    return sent < len(REMINDER_AGES) and entry["age"] >= REMINDER_AGES[sent]
+
+
+def build_reminder_html(setup_url: str) -> str:
+    link = html.escape(setup_url, quote=True)
+    return f"""
+    <h2>Your PitchRank+ subscription is ready</h2>
+    <p>You subscribed to PitchRank+ but have not signed in yet. Set your password to start using it:</p>
+    <p><a href="{link}">Set your password</a></p>
+    <p style="color:#666; font-size:14px">This link works on any device and expires in 24 hours. If it
+       expires, use the "Forgot password" option on the sign-in page.</p>
+    """
+
+
+def send_setup_reminder(supabase, entry: dict) -> bool:
+    """Mint, send, then stamp, so a failed send is retried on the next run."""
+    link = supabase.auth.admin.generate_link({"type": "recovery", "email": entry["email"]})
+    # The same set-password link the Stripe webhook emails at checkout.
+    setup_url = f"{SITE_URL}/auth/confirm?token_hash={link.properties.hashed_token}&type=recovery&next=/reset-password"
+    if not send_email(entry["email"], "Set your password to start using PitchRank+", build_reminder_html(setup_url)):
+        return False
+    sent = entry["app_metadata"].get("setup_reminders_sent", 0)
+    supabase.auth.admin.update_user_by_id(entry["user_id"], {"app_metadata": {"setup_reminders_sent": sent + 1}})
+    return True
+
+
+def send_setup_reminders(supabase, due: list) -> int:
+    """Returns how many went out. One account's failure never stops the others."""
+    sent = 0
+    for entry in due:
+        try:
+            if send_setup_reminder(supabase, entry):
+                sent += 1
+        except Exception as exc:
+            # Only the exception's type: an auth error's message can quote the address.
+            logger.warning(f"A setup reminder failed: {type(exc).__name__}")
+    return sent
+
+
 def main():
     parser = argparse.ArgumentParser(description="Find paying/trialing customers who have never logged in")
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Report how many are stuck without sending the digest",
+        help="Report how many are stuck without sending the digest or any reminder",
     )
     args = parser.parse_args()
 
@@ -270,9 +324,14 @@ def main():
         logger.info("No stuck signups — everyone who paid has logged in.")
         return
 
+    due = [s for s in stuck if reminder_due(s)]
+    logger.info(f"Setup reminders due: {len(due)}")
+
     if args.dry_run:
         logger.info(f"\n=== Dry run — digest NOT sent ({len(stuck)} would be listed) ===")
         sys.exit(1)  # Signal "action needed" for dry-run
+
+    logger.info(f"Setup reminders sent: {send_setup_reminders(supabase, due)}")
 
     if not send_alert_email(stuck):
         logger.error(f"{len(stuck)} stuck signup(s) found but the admin alert could not be delivered")

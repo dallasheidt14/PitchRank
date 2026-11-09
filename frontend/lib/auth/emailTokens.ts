@@ -1,4 +1,5 @@
 import type { EmailOtpType } from '@supabase/supabase-js';
+import { isValidUuid } from '@/lib/validation';
 
 const VERIFIABLE_OTP_TYPES: readonly EmailOtpType[] = [
   'email',
@@ -11,6 +12,15 @@ const VERIFIABLE_OTP_TYPES: readonly EmailOtpType[] = [
 
 export function isVerifiableOtpType(value: string): value is EmailOtpType {
   return (VERIFIABLE_OTP_TYPES as readonly string[]).includes(value);
+}
+
+const TEAM_PREFIX = '/teams/';
+
+/** `raw` when it is exactly a team page, otherwise null. */
+export function safeTeamPath(raw: unknown): string | null {
+  return typeof raw === 'string' && raw.startsWith(TEAM_PREFIX) && isValidUuid(raw.slice(TEAM_PREFIX.length))
+    ? raw
+    : null;
 }
 
 // Unresolvable sentinel host: must never match a real origin.
