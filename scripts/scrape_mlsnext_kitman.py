@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""Scrape MLS NEXT (Homegrown and Academy Divisions) from Kitman's public schedule files.
+"""Scrape MLS NEXT (Homegrown and Academy Divisions) from Kitman's public standings files.
 
-From 2026-27 MLS NEXT publishes through Kitman Labs; the mlssoccer.com schedule pages embed these
-JSON files. Each file is ``{events, linked_competition_seasons, synced_at}`` and one GET fetches a
-whole season. Writes ``<out-dir>/squads.csv``, ``games.csv`` and ``unreadable_squads.csv`` and never touches the
-database.
+From 2026-27 MLS NEXT publishes through Kitman Labs. Each file is ``{version, competition_season, synced_at}``
+and one GET fetches a whole season: ``competition_season`` holds the events and the clubs and competitions they
+name by id. Do not go back to Kitman's ``/data/schedule`` files, which stopped updating in October 2026 and lost
+Flex. Writes ``<out-dir>/squads.csv``, ``games.csv`` and ``unreadable_squads.csv`` and never touches the database.
 
 A squad is one club's team at one age in one division. A club can field a second Homegrown squad at
 an age, labelled with a B ("U17B"): it plays on the base age's board and is named with a "II". The file
-decides the division (the league and flex files are Homegrown, the academy file is Academy); the
-squad label ("U16", "U17B", "U16 AD") only has to agree with it. MLS NEXT is boys-only and the files
+decides the division (the league file is Homegrown, Flex included; the academy file is Academy); the
+squad label ("U16", "U17B", "U16 AD") only has to agree with it. MLS NEXT is boys-only and the events
 carry no gender field.
 
 Usage:
@@ -34,12 +34,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.models.mlsnext_kitman_keys import kitman_key, season_start_year  # noqa: E402
 
-BASE_URL = "https://mls-assist.theintelligenceplatform.com/data/schedule"
+BASE_URL = "https://mls-assist.theintelligenceplatform.com/data/standings"
 HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; PitchRank/1.0)"}
-FEEDS = (("mls-next-league", "HD", 3000), ("mls-next-flex", "HD", 1000), ("mls-next-2-academy-division", "AD", 5000))
+FEEDS = (
+    ("mls-next-league", "HD", {"League": 3000, "League (Pro Player Pathway)": 200, "MLS NEXT Flex": 1000}),
+    ("mls-next-2-academy-division", "AD", {"Academy Division": 5000}),
+)
 SQUAD_RE = re.compile(r"U(?P<age>13|14|15|16|17|19)(?P<suffix>B(?! AD))?(?P<ad> AD)?")
 SUFFIX_NUMERALS = {"B": "II"}
 IN_SEASON_FROM = (9, 20)
+MAX_SYNC_AGE_DAYS = 8
 SQUAD_COLUMNS = [
     "provider_team_id",
     "key",
@@ -69,7 +73,7 @@ GAME_COLUMNS = [
 
 
 class ScrapeError(RuntimeError):
-    """A feed no longer has the shape this scraper reads, or is not the season it should be."""
+    """A feed this scraper cannot trust; the run stops before writing anything."""
 
 
 @dataclass(frozen=True)
@@ -95,21 +99,52 @@ def feed_url(stem: str, season: int) -> str:
     return f"{BASE_URL}/{stem}-{season_suffix(season)}.json"
 
 
-def parse_feed(content: bytes, stem: str, season: int, floor: int) -> list[dict]:
-    """The events of one feed. The host answers an unknown file with the site's HTML at status 200."""
+def _check_synced(synced_at: object, stem: str, today: date) -> None:
+    try:
+        synced = datetime.fromisoformat(str(synced_at).replace("Z", "+00:00")).date()
+    except ValueError as exc:
+        raise ScrapeError(f"{stem}: unreadable synced_at ({exc})") from exc
+    if (today - synced).days > MAX_SYNC_AGE_DAYS:
+        raise ScrapeError(f"{stem}: last synced {synced}, over {MAX_SYNC_AGE_DAYS} days ago")
+
+
+def parse_feed(content: bytes, stem: str, season: int, floors: dict[str, int], today: date) -> list[dict]:
+    """The events of one feed, each given the club and competition records it names by id.
+
+    The host answers an unknown file with the site's HTML at status 200. A floor counts only events whose clubs and
+    competition were all found, so a file that lost a competition or whose ids stopped matching is refused.
+    """
     try:
         data = json.loads(content)
     except ValueError as exc:
         raise ScrapeError(f"{stem}: response is not JSON ({exc})") from exc
-    if not isinstance(data, dict) or not isinstance(data.get("events"), list):
+    body = data.get("competition_season") if isinstance(data, dict) else None
+    if not isinstance(body, dict) or not isinstance(body.get("events"), list):
         raise ScrapeError(f"{stem}: no events array")
     key = f"{stem}-{season_suffix(season)}"
-    linked = {s.get("key") for s in data.get("linked_competition_seasons") or []}
-    if linked and key not in linked:
-        raise ScrapeError(f"{stem}: feed lists seasons {sorted(map(str, linked))}, not {key}")
-    if len(data["events"]) < floor:
-        raise ScrapeError(f"{stem}: {len(data['events'])} events is below the floor of {floor}")
-    return data["events"]
+    if body.get("key") != key:
+        raise ScrapeError(f"{stem}: feed is season {body.get('key')!r}, not {key}")
+    _check_synced(data.get("synced_at"), stem, today)
+    clubs = {club.get("id"): club for club in body.get("organisations") or []}
+    competitions = {competition.get("id"): competition for competition in body.get("competitions") or []}
+    events = [
+        {
+            **event,
+            "home_organisation": clubs.get(event.get("home_organisation_id")),
+            "away_organisation": clubs.get(event.get("away_organisation_id")),
+            "competition": competitions.get(event.get("competition_id")),
+        }
+        for event in body["events"]
+    ]
+    for name, floor in floors.items():
+        found = sum(
+            bool(event["home_organisation"] and event["away_organisation"])
+            and (event["competition"] or {}).get("name") == name
+            for event in events
+        )
+        if found < floor:
+            raise ScrapeError(f"{stem}: {found} readable {name} events is below the floor of {floor}")
+    return events
 
 
 def local_date(event: dict) -> str:
@@ -122,7 +157,7 @@ def local_date(event: dict) -> str:
 
 
 def _side(event: dict, side: str, division: str) -> tuple[Squad | None, str]:
-    """The squad on one side, or None with the reason the label cannot be read."""
+    """The squad on one side, or None with the reason it cannot be read."""
     org = event.get(f"{side}_organisation") or {}
     label = str(event.get(f"{side}_squad_name") or "")
     match = SQUAD_RE.fullmatch(label)
@@ -132,7 +167,7 @@ def _side(event: dict, side: str, division: str) -> tuple[Squad | None, str]:
         return None, f"squad label {label!r} disagrees with the {division} feed"
     squad_id, club_id = event.get(f"{side}_squad_id"), org.get("id")
     if squad_id is None or club_id is None or not org.get("name"):
-        return None, "squad or club id missing"
+        return None, "squad id missing or club not found"
     age_group, suffix = f"u{match.group('age')}", match.group("suffix") or ""
     return Squad(str(squad_id), str(club_id), str(org["name"]).strip(), age_group, division, suffix), ""
 
@@ -185,10 +220,10 @@ def _write_csv(path: Path, columns: list[str], rows: list[dict]) -> None:
 def run(out_dir: Path, session, today: date) -> dict[str, int]:
     season = season_start_year(today)
     feeds = []
-    for stem, division, floor in FEEDS:
+    for stem, division, floors in FEEDS:
         response = session.get(feed_url(stem, season), headers=HEADERS, timeout=60)
         response.raise_for_status()
-        feeds.append((division, parse_feed(response.content, stem, season, floor)))
+        feeds.append((division, parse_feed(response.content, stem, season, floors, today)))
     squads, games, unreadable = build(feeds, season)
     played = sum(g["status"] == "played" for g in games)
     if played == 0 and (today.month, today.day) >= IN_SEASON_FROM and today.year == season:

@@ -592,17 +592,26 @@ of `mlssoccer.com/mlsnext/schedule/homegrown-division/` and `/schedule/academy_d
 browser. The main `/mlsnext/schedule/` page still embeds the Modular11 frame, which returns no HD data
 and only placeholder AD fixtures this season.
 
-- Files: `https://mls-assist.theintelligenceplatform.com/data/schedule/<stem>-26-27.json` with stem
-  `mls-next-league` (HD), `mls-next-flex` (HD Flex) or `mls-next-2-academy-division` (AD); standings at
-  `/data/standings/mls-next-league-26-27.json`.
+- Files: `https://mls-assist.theintelligenceplatform.com/data/standings/<stem>-26-27.json` with stem
+  `mls-next-league` (HD, holding League, Pro Player Pathway and Flex) or `mls-next-2-academy-division` (AD).
+  On 2026-11-08 the homegrown-division page requested the League file and no `/data/schedule` file.
+  `FEEDS` sets a floor per competition, and `parse_feed` counts only events whose clubs and competition were all found
+  and refuses a file below a floor: a floor on the whole file passed with all of Flex gone, and a lookup that missed on
+  every event exited 0 with no squads.
+- Do not scrape from `/data/schedule/<stem>-26-27.json`. As of 2026-11-08 the League and Academy files still load but last
+  synced 2026-10-29, and `mls-next-flex` answers with HTML. A frozen file looks healthy until you check `synced_at`,
+  so the scraper refuses a standings file not synced in 8 days. When games stop arriving, check `synced_at` on the
+  schedule and standings files, then the pages' XHR requests, before concluding Kitman stopped publishing: on
+  2026-11-02 only the schedule files were read, and whether the standings files already held the games that day is
+  unknown.
 - An unknown file name (last season's `-25-26`) answers HTTP 200 with the site's HTML. Parse the bytes as
-  JSON and check `linked_competition_seasons[].key` rather than trusting the status.
-- Shape `{events, linked_competition_seasons, synced_at}`. An event has `id`, `start_time` (UTC) with
+  JSON and check `competition_season.key` rather than trusting the status.
+- Shape `{version, competition_season, synced_at}`, where `competition_season` holds `key`, `events`,
+  `organisations [{id, name}]` and `competitions [{id, name}]`. An event has `id`, `start_time` (UTC) with
   `local_timezone`, `home_squad_id` and `away_squad_id`, and likewise `_squad_name` (`U16` for HD, `U16 AD`
-  for AD, `U17B` for a club's second HD squad at that age; oddity `U16 AD*`), `_organisation {id, name}`
-  and `_score`, then `completed` and
-  `competition {name}`. No gender
-  (boys only) and no state. Take the date in `local_timezone`, not UTC.
+  for AD, `U17B` for a club's second HD squad at that age; oddities `U16 AD*`, `U19 AD**`, `U16 AD Inactive`),
+  `_organisation_id` and `_score`, then `completed` and `competition_id`. No gender (boys only) and no state.
+  Take the date in `local_timezone`, not UTC.
 - A squad id is one squad of a club at one age in one division (usually its only one there; a `U17B` squad
   is a second), and a club has different ids for HD and AD. The same
   club can carry a different name per division, so key on the squad id.
@@ -617,7 +626,9 @@ and only placeholder AD fixtures this season.
   first `U17B` squad lands as new.
 - Some rows are `completed` with scores but dated weeks ahead (28 on 2026-10-14);
   `build_mlsnext_kitman_games_csv.py` holds them until their date, and also holds a game whose two squads
-  are on different boards.
+  are on different boards. Kitman also re-dates games already stored, and stored games match on date and teams,
+  so such a game can store a second copy when its new date arrives (12 on 2026-11-08, plus 4 reopened as unplayed that
+  can double if replayed).
 - Pipeline, weekly through `mlsnext-kitman-scraper.yml`: `scripts/scrape_mlsnext_kitman.py`,
   `match_mlsnext_kitman_teams.py`, `link_mlsnext_kitman_teams.py`, `build_mlsnext_kitman_games_csv.py`, then
   `import_games_enhanced.py <csv> mlsnext_kitman`. An operator runs `prepare_mlsnext_kitman_club_states.py`
