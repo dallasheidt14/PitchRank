@@ -42,7 +42,8 @@ PitchRank uses Google Analytics 4 (GA4) for tracking user interactions. All even
 ### Event Tracking Architecture
 
 - **`lib/analytics.ts`**: Core GA4 helpers (`gtagEvent`, `gtagPageView`)
-- **`lib/events.ts`**: Typed tracking functions for each event
+- **`lib/events.ts`**: Typed tracking functions for each browser event
+- **`lib/analyticsServer.ts`**: `subscription_completed`, sent by the Stripe webhook
 - **`types/events.ts`**: TypeScript interfaces for event payloads
 
 ### Events Reference
@@ -108,4 +109,4 @@ trackTeamRowClicked({
 
 ### Development Mode
 
-In development mode (`NODE_ENV === 'development'`), events are logged to the console instead of being sent to GA4. This allows for debugging without polluting production analytics data.
+In development mode (`NODE_ENV === 'development'`), browser events are logged to the console instead of being sent to GA4, and the server-sent `subscription_completed` is dropped without a log. This allows for debugging without polluting production analytics data.

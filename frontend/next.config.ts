@@ -120,6 +120,16 @@ const nextConfig: NextConfig = {
           },
         ],
       },
+      {
+        // The same risk for the checkout session id, until this page removes it from the URL.
+        source: '/upgrade/success',
+        headers: [
+          {
+            key: 'Referrer-Policy',
+            value: 'no-referrer',
+          },
+        ],
+      },
     ];
   },
 };

@@ -2,12 +2,11 @@
 
 import { useEffect, useState, useRef, Suspense } from 'react';
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { Check, Crown, ArrowRight, Sparkles, Search, Eye, BarChart3, Share2, Mail } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { launchConfetti } from '@/components/ui/confetti';
-import { trackSubscriptionCompleted } from '@/lib/events';
 import { useUser } from '@/hooks/useUser';
 
 const ONBOARDING_STEPS = [
@@ -43,7 +42,6 @@ export default function UpgradeSuccessPage() {
 }
 
 function UpgradeSuccessContent() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const { user, isLoading: userLoading } = useUser();
   const [shareStatus, setShareStatus] = useState<string | null>(null);
@@ -56,7 +54,7 @@ function UpgradeSuccessContent() {
   const needsPasswordSetup = !userLoading && !user;
 
   // Sync subscription status from Stripe as webhook fallback.
-  // Only fire confetti + subscription_completed event after sync confirms a real purchase.
+  // Only fire confetti after sync confirms a real purchase.
   useEffect(() => {
     const sessionId = searchParams.get('session_id');
     if (!sessionId || syncStarted.current) return;
@@ -67,7 +65,8 @@ function UpgradeSuccessContent() {
     // the URL immediately (before the sync round-trip) so history, referrers,
     // and analytics pageviews don't carry it. The captured value keeps this
     // in-flight sync working; the webhook remains the primary fulfillment path.
-    router.replace('/upgrade/success', { scroll: false });
+    // router.replace to the bare path keeps the query on this prerendered page (vercel/next.js#91658).
+    window.history.replaceState(null, '', '/upgrade/success');
 
     fetch('/api/stripe/sync', {
       method: 'POST',
@@ -81,7 +80,6 @@ function UpgradeSuccessContent() {
           if (!confettiLaunched.current) {
             confettiLaunched.current = true;
             launchConfetti();
-            trackSubscriptionCompleted();
           }
         } else {
           console.error('Sync failed:', data.error);
@@ -90,7 +88,7 @@ function UpgradeSuccessContent() {
       .catch((err) => {
         console.error('Sync fetch error:', err);
       });
-  }, [searchParams, router]);
+  }, [searchParams]);
 
   const handleShare = async () => {
     const shareData = {
