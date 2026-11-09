@@ -411,6 +411,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: Every component of `core_ok` is spelled `!= "mismatch"`, so a missing provider field scores `"unknown"` and passes. A GotSport outage therefore disables the gate wholesale rather than closing it, and `apply_unknown_opponent_matches.py` then upserts `team_alias_map` and updates `games` FKs under the service-role key on matches nothing compared. Games are immutable, so a bad backfill is not cleanly reversible. Should require positive cohort evidence to approve rather than absence of contradiction. Related: IMP-144 makes the no-evidence path more likely. Round-two review measured the other side of the same gate: `team_association` agrees with stored `state_code` on only 91.3% of probes, so activating `state_check` demotes roughly one correct link in twelve to manual review. The verdict logic is inline in `main()` between two Supabase round trips and cannot be tested; lifting it into a pure `_verdict(unknown, team, ...)` is the precondition for measuring either effect.
 - **Noted**: 2026-08-30
 - **Update (2026-09-08)**: Exposure is higher than this entry assumes. CLAUDE.md's claim that only `export_unknown_opponents.py` builds a resolver on the weekly run is wrong: `due_diligence_unknown_opponents.py:282` and `discover_teams_from_opponents.py:543` both construct `GotSportResolver()` unconditionally, with no flag. Verified 2026-09-08. So the vacuous-approval gate at `due_diligence_unknown_opponents.py:429-439` is reachable on live weekly runs, not theoretical.
+- **Update (2026-11-09)**: Measured, and the gender component is fixed. In the 2026-11-03 weekly run's artifacts, the gate's own lookups answered 0 of 88 candidates while the export step had GotSport's answer for every one of them, so `club_check`, `age_check`, `state_check` and `tier_check` compare against nothing in production. `gender_check` no longer does: on `fix/stop-opposite-gender-record-links` it reads the export's gender through a new `unknown_provider_gender` match-report column, plus both teams' names, and holds a record nothing reads (`gender_check == "ok"` or `"coed"` is required). The other four checks still pass on absence.
 
 ### No GotSport resolver throttles, retries, or identifies itself
 
@@ -456,6 +457,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Noted**: 2026-08-30
 - **Update (2026-09-08)**: Verified — the state-staleness half is fixed (`discover_teams_from_opponents.py` now describes `unknown_state_used` correctly; no `top_known_team_*` reference remains there). The core ask is untouched: `UnknownProfile` (`scripts/auto_match_unknown_opponents.py:156-161`) still carries plain untagged `age_group`/`gender`/`state_code`, and `build_unknown_profile` still falls back to `top_known_team_*` with no tier tag and nothing refusing to persist it.
 - **Update (2026-11-08)**: Gender shows the same shape at scale. A census found 1,268 live teams whose name contradicted their stored gender, and GotSport's `display_gender` contradicted the column on 54 of 60 sampled and 23 of 24 created since 2026-10-01, well after `fix/opponent-cohort-inheritance`. Six boys teams from one U10 division were all stored as girls. The path is unproven: `_build_team_metadata` keeps the CSV's gender when its own lookup returns nothing, which fits but was not traced. The newest flagged row is from 2026-10-27, and none of the 2,092 rows created since 2026-11-01 is flagged, so it may have stopped.
+- **Update (2026-11-09)**: For gender, the provenance half now exists for the link gate. `auto_match_unknown_opponents.py` writes the export's own GotSport gender to `unknown_provider_gender`, separate from `unknown_gender_used`, and `due_diligence_unknown_opponents.py` reads only the former (`fix/stop-opposite-gender-record-links`). Age and state are still untagged, and discovery still persists `unknown_gender_used`.
 
 ### GotSport labels aged-out teams U21, and the chain now creates them
 
@@ -1146,6 +1148,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Noted**: 2026-09-15
 - **Refs**: review of branch `fix/playmetrics-nc-governing-body`
 - **Update (2026-10-14)**: `scripts/skill_check_offline.py`, shared by the club and reconcile skill self-checks, is a candidate base: its `Database` records at `execute()`, refuses undeclared columns and wrong function arguments, and inside `guarded()` refuses every process start and off-machine connection through an interpreter audit hook as well as at library level. It does not model `.single()`, which this entry needs. `scripts/check_age_skill_assumptions.py` has not moved onto it: it keeps `_offline` (unlike the shared `offline`, it refuses no child process or network and redirects no exports folder), `CREDENTIALS`, `Result`, `render` and `main` (shared: `CREDENTIALS`, `Result`, `render`, `run_checks`), and `_module`, whose twin in `scripts/check_reconcile_skill_assumptions.py` should move into the shared module first.
+- **Update (2026-11-09)**: Two more on `fix/stop-opposite-gender-record-links`. `tests/unit/test_due_diligence_gender_gate.py` `_DB` (shared by `test_auto_match_provider_gender.py`) applies filters, returns only selected columns and refuses unmodelled methods, but has no `.single()`. `tests/unit/test_game_matcher_gender_guard.py` `_DB` does raise on a `.single()` that finds other than one row and records at `execute()`, so it is another candidate base. Both new doubles' `ilike` strips `%` and compares for equality: right for a bare pattern such as `_fuzzy_match_team`'s `.ilike("club_name", club_name)`, wrong for `%…%`. `test_game_matcher_blank_provider_id.py`'s copy has the opposite trap, matching a substring for every pattern. No current test sends the new doubles a `%` pattern that reaches a row (`_match_by_alias` reads an empty `team_alias_map`).
 
 ### Merge the duplicate teams a cohort correction cannot move
 
@@ -2790,3 +2793,35 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `any_gender` in `scripts/fix_gender_from_registered_name.py`, a new script alongside it
 - **Why**: The 2026-11-08 cleanup corrected 1,232 teams with one-off scripts that compared each team's name with GotSport's `display_gender` and its opponents' names. It could not see a wrong label on a name with no gender in it, such as "FC Dallas Blue", since the census starts from the name. Reading GotSport for all of those is a large paced job, so it needs a resume cache and a limit. `any_gender` also reads "2009B Girls" as boys, because a letter beats the word once `spelled_gender` declines the mixed name.
 - **Noted**: 2026-11-08
+
+### Re-check a provider link when GotSport hands the record to a squad of the other gender
+
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `decide` in `scripts/reconcile_teams_with_gotsport.py`, `_match_by_provider_id` in `src/models/game_matcher.py`
+- **Why**: On 2026-11-09 three rows held a GotSport record that GotSport later reassigned to a squad of the other gender (La Masia SD, Saints, DSC G2011), so the new squad's games kept landing on the old squad's row. The gender guards added that day act only when a link is made, and an existing direct link carries no gender check for team-schedule games, which carry no gender. `decide` already sees the disagreement (`gender` is in `REPORTED_FIELDS`); it logs it and withholds the rename, but never flags the link.
+- **Noted**: 2026-11-09
+
+### Read a team's gender with one grammar instead of seven
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `name_gender` and `stored_gender` in `src/utils/team_gender.py`; `read_label` in `src/tournaments/cohort_labels.py`; `spelled_gender` and `any_gender` in `scripts/fix_gender_from_registered_name.py`; `spelled_gender` in `scripts/decide_team_merges.py`; `stated_gender` in `scripts/find_cross_provider_duplicates.py`; `gender_from_name` in `scripts/fix_team_gender_from_name.py`; value normalizers `_gender` in `src/utils/gotsport_team_details.py`, `_to_gender_full` in `scripts/auto_match_unknown_opponents.py`, `_normalize_gender` in `scripts/due_diligence_unknown_opponents.py`
+- **Why**: Seven name readers and four value normalizers answer the same question with different rules, so the link guards, intake and the cleanup scripts can disagree on one name. Checked 2026-11-09: `read_label` reads `U12F Select`, `U14 Men` and `Women U19` as gendered, which `name_gender` (the link guards' reader) does not, and the reverse for `2009B Girls`, where the owner's word-beats-letter rule (2026-11-08) says girls. A review counted about 100 live names of the first kind (unverified here); a guard gets no reading from them. Folding needs the owner's call on Men/Women and M/F letters, and a replay of live names through both readers first. IMP-275 covers only the scraper's division reader.
+- **Noted**: 2026-11-09
+
+### Skip a B/G twin in the provider matchers' own candidate searches too
+
+- **Type**: direct
+- **Category**: reliability
+- **Where**: the overriding `_fuzzy_match_team` loops in `src/models/tgs_matcher.py`, `sincsports_matcher.py`, `playmetrics_matcher.py`, `affinity_wa_matcher.py`, `affinity_or_matcher.py`, `athletes2events_matcher.py` and `soccereventsgroup_matcher.py`; the skip to copy is in `GameHistoryMatcher._fuzzy_match_team` (`src/models/game_matcher.py`)
+- **Why**: Checked 2026-11-09: none of the seven calls `super()._fuzzy_match_team` or reads a name's gender, so the twin skip added on `fix/stop-opposite-gender-record-links` covers the base search only. A review reproduced the cost: a boys-named twin stored under the record's gender, listed before the right girls row, wins TGS's search, the accept-point guard holds it, and TGS's create-on-unmatched fallback inserts a duplicate team instead of linking the right row. It needs a self-contradicting twin; the review estimated about 30 live rows (unverified). Owner chose to defer it, 2026-11-09.
+- **Noted**: 2026-11-09
+
+### Store a TGS-created team under the gender its name states, not its division's
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `_create_new_tgs_team` in `src/models/tgs_matcher.py`, which sets `gender_normalized` from the game's `gender` argument (the division's)
+- **Why**: Seen in a dry-run smoke test on `fix/stop-opposite-gender-record-links`, 2026-11-09: a record whose name carries a G on its birth year, imported from a boys division, is now held off the boys row it matched, and TGS then creates its own team for it, stored Male while its name says girls. That beats the old outcome (its games fused onto the boys row), but the new row lands on the boys board. The owner's rule (2026-11-08) is that a name stating a gender settles it; writing a gender from the name at creation is a value write, which that branch's guards deliberately avoid, so it needs the owner's call.
+- **Noted**: 2026-11-09

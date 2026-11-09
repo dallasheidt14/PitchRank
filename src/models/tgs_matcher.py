@@ -53,6 +53,11 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+class ReuseRefused(Exception):
+    """The row a TGS id already belongs to states the other gender from the incoming team name,
+    or could not be read to check."""
+
+
 class TGSGameMatcher(GameHistoryMatcher):
     """
     TGS-specific team matcher with enhanced fuzzy matching.
@@ -529,7 +534,8 @@ class TGSGameMatcher(GameHistoryMatcher):
         Strategy:
         1. Try base matching (direct ID, alias, fuzzy)
         2. If no match found, create new team
-        3. Return matched: True with new team ID
+        3. Return matched: True with new team ID, unless the row the TGS id already names fails
+           the gender guard (ReuseRefused), which leaves the game unmatched
         """
         # First, try base matching
         base_result = super()._match_team(provider_id, provider_team_id, team_name, age_group, gender, club_name)
@@ -576,6 +582,8 @@ class TGSGameMatcher(GameHistoryMatcher):
                     "method": match_method,  # Use same method as alias creation
                     "confidence": 1.0,
                 }
+            except ReuseRefused as e:
+                logger.info(f"[TGS] {e}; leaving the game unmatched for review")
             except Exception as e:
                 logger.error(f"[TGS] Error creating new team for {team_name}: {e}")
                 # Fall through to return base result
@@ -585,7 +593,7 @@ class TGSGameMatcher(GameHistoryMatcher):
                 f"team_name={bool(team_name)}, age_group={bool(age_group)}, gender={bool(gender)}"
             )
 
-        # Fallback: return base result (shouldn't happen if we have required fields)
+        # Reached when creation failed or ReuseRefused withheld the existing row: the game stays unmatched.
         return base_result
 
     def _create_new_tgs_team(
@@ -601,7 +609,8 @@ class TGSGameMatcher(GameHistoryMatcher):
         Create a new team in the teams table for TGS.
 
         If a team with the same provider_id and provider_team_id already exists,
-        return that team's ID instead of creating a duplicate.
+        return that team's ID instead of creating a duplicate, unless the gender guard refuses
+        it, which raises ReuseRefused.
 
         Returns the team_id_master UUID.
         """
@@ -616,6 +625,7 @@ class TGSGameMatcher(GameHistoryMatcher):
 
             # Check if team with this provider_id + provider_team_id already exists
             if provider_id:
+                found = None
                 try:
                     existing = (
                         self.db.table("teams")
@@ -631,10 +641,13 @@ class TGSGameMatcher(GameHistoryMatcher):
                             f"[TGS] Team with provider_team_id {provider_team_id} already exists, "
                             f"using existing team {existing.data['team_id_master']}"
                         )
-                        return existing.data["team_id_master"]
+                        found = existing.data["team_id_master"]
                 except Exception:
                     # No existing team found, continue to create new one
                     pass
+                # Outside the try, so the handler above cannot swallow ReuseRefused.
+                if found:
+                    return self._reusable(team_name, found)
 
             # Generate new UUID
             team_id_master = self._new_team_id_master(provider_id, provider_team_id, team_name, age_group, gender)
@@ -699,11 +712,14 @@ class TGSGameMatcher(GameHistoryMatcher):
 
             return team_id_master
 
+        except ReuseRefused:
+            raise
         except Exception as e:
             # If duplicate key error, try to find existing team
             if "duplicate key" in str(e).lower() or "23505" in str(e):
                 logger.debug(f"[TGS] Duplicate key error, looking up existing team: {e}")
                 if provider_id and provider_team_id:
+                    found = None
                     try:
                         existing = (
                             self.db.table("teams")
@@ -719,9 +735,23 @@ class TGSGameMatcher(GameHistoryMatcher):
                                 f"[TGS] Found existing team with provider_team_id {provider_team_id}, "
                                 f"using {existing.data['team_id_master']}"
                             )
-                            return existing.data["team_id_master"]
+                            found = existing.data["team_id_master"]
                     except Exception as lookup_error:
                         logger.error(f"[TGS] Error looking up existing team: {lookup_error}")
+                    # Outside the try, as above.
+                    if found:
+                        return self._reusable(team_name, found)
 
             logger.error(f"[TGS] Error creating new team: {e}")
             raise
+
+    def _reusable(self, team_name: str, team_id_master: str) -> str:
+        """Return a row this TGS id already belongs to, unless it states the other gender or
+        cannot be read.
+
+        Reusing that row is a link like any other; without this check, TGS's create-on-miss
+        would undo the base matcher's gender hold.
+        """
+        if self._genders_conflict(team_name, team_id_master):
+            raise ReuseRefused(f"Gender conflict, not reusing team {team_id_master} for {team_name!r}")
+        return team_id_master
