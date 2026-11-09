@@ -631,9 +631,14 @@ and only placeholder AD fixtures this season.
   first `U17B` squad lands as new.
 - Some rows are `completed` with scores but dated weeks ahead (28 on 2026-10-14);
   `build_mlsnext_kitman_games_csv.py` holds them until their date, and also holds a game whose two squads
-  are on different boards. Kitman also re-dates games already stored, and stored games match on date and teams,
-  so such a game can store a second copy when its new date arrives (12 on 2026-11-08, plus 4 reopened as unplayed that
-  can double if replayed).
+  are on different boards. Kitman also moves games already stored to a new date, and a stored game keys on date and
+  teams, so a moved game would store a second copy. The builder holds a played event with the same home team, away
+  team and score as a stored game no current event explains (11 on 2026-11-09, plus 4 reopened as unplayed). The home
+  team has to match, or a return leg at the other club with the same result would be taken for the moved game and never
+  count; the cost is that a fixture Kitman re-lists with the sides swapped imports as a second game (one possible case
+  on 2026-11-09). A different score imports as a new game. 9 of those 15 were 0-0, against 2.3% of past played games,
+  so read a moved 0-0 as a placeholder; those 9 are hidden, and hidden stored games still count, so hiding one does not
+  let its moved copy in.
 - Pipeline, weekly through `mlsnext-kitman-scraper.yml`: `scripts/scrape_mlsnext_kitman.py`,
   `match_mlsnext_kitman_teams.py`, `link_mlsnext_kitman_teams.py`, `build_mlsnext_kitman_games_csv.py`, then
   `import_games_enhanced.py <csv> mlsnext_kitman`. An operator runs `prepare_mlsnext_kitman_club_states.py`

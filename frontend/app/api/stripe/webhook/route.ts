@@ -7,6 +7,7 @@ import {
   updateUserProfile,
   isSessionPaymentSettled,
 } from '@/lib/stripe/server';
+import { safeTeamPath } from '@/lib/auth/emailTokens';
 import { getSupabaseAdmin } from '@/lib/supabase/service';
 import { headers } from 'next/headers';
 import { NextResponse } from 'next/server';
@@ -374,6 +375,9 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
         email,
         email_confirm: true,
         user_metadata: { source: 'stripe_checkout' },
+        // Written at creation, so an account whose webhook fails partway still gets the set-password
+        // reminders that scripts/check_stuck_signups.py sends.
+        app_metadata: { anonymous_checkout: true },
       });
 
       if (createError || !newUser?.user) {
@@ -394,8 +398,9 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
 
       console.log(`[webhook] Created new user ${newUser.user.id} for anonymous checkout`);
 
-      // Send password-setup email. If it can't be delivered the customer has
-      // no way to log in, so alert an admin to send a recovery link manually.
+      // Send password-setup email. If it can't be delivered, a buyer who isn't
+      // signed in on return has no link to log in with, so alert an admin to
+      // send a recovery link manually.
       // Non-fatal — the webhook still returns 200 so Stripe doesn't retry.
       const alertSetupFailed = (reason: string) =>
         notifyAdmin(
@@ -424,7 +429,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
           : undefined;
         const sent = setupUrl ? await sendPasswordSetupEmail(email, setupUrl) : false;
         if (!setupUrl) {
-          console.warn('[webhook] Could not generate password setup link');
+          console.error('[webhook] Could not generate password setup link');
         }
         if (!sent) {
           await alertSetupFailed(setupUrl ? 'email send failed' : 'no setup link generated');
@@ -432,6 +437,16 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
       } catch (emailError) {
         console.error('[webhook] Password setup email failed (non-fatal):', emailError);
         await alertSetupFailed('unexpected error');
+      }
+
+      // This marker is what lets /api/stripe/checkout-login sign the buyer in. It comes after the
+      // email because both links share one token slot: a sign-in minted first would be overwritten.
+      const returnTo = safeTeamPath(session.metadata?.return_to);
+      const { error: markError } = await getSupabaseAdmin().auth.admin.updateUserById(newUser.user.id, {
+        app_metadata: { checkout_session_id: session.id, ...(returnTo ? { return_to: returnTo } : {}) },
+      });
+      if (markError) {
+        console.error('[webhook] Could not mark the new account for sign-in on return:', markError.code);
       }
     }
   }

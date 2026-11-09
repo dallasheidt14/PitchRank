@@ -7,6 +7,8 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+import pytest
+
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from scripts.check_stuck_signups import (
@@ -29,13 +31,14 @@ LIVE_LINK = f"https://pitchrank.io/auth/confirm?token_hash={LIVE_TOKEN}&type=rec
 NOW = datetime.now(timezone.utc)
 
 
-def make_user(uid, email, last_sign_in_at=None, created_at=None, source="stripe_checkout"):
+def make_user(uid, email, last_sign_in_at=None, created_at=None, source="stripe_checkout", app_metadata=None):
     return SimpleNamespace(
         id=uid,
         email=email,
         last_sign_in_at=last_sign_in_at,
         created_at=created_at if created_at is not None else NOW - timedelta(hours=3),
         user_metadata={"source": source},
+        app_metadata=app_metadata,
     )
 
 
@@ -93,11 +96,10 @@ def test_flags_paying_customer_who_never_logged_in():
 
 
 def test_no_recovery_token_is_minted_for_a_stuck_user():
-    """The whole point of the monitor's redesign: it reports, it does not mint.
+    """Finding stuck users reports; it does not mint.
 
-    Dropping the rendered column alone would leave generation in place, and every run
-    would still put a live 24h credential into Supabase's flow_state and invalidate the
-    set-password link the customer already received at checkout.
+    A link minted here would land in the admin digest, a shared mailbox. Reminders mint
+    their own, sent to the buyer alone.
     """
     user = make_user("u1", "stuck@example.com")
     supabase = make_supabase([user], [billing_row("u1", "stuck@example.com")])
@@ -277,3 +279,118 @@ def test_dry_run_sends_nothing_and_signals_action_needed(monkeypatch, caplog):
 
     assert sent == [], "dry run sent the digest"
     assert code == 1
+
+
+
+def _marked_buyer(hours, sent=None, uid="u1", email="buyer@example.com", guest=True):
+    app_metadata = {"provider": "email"}
+    if guest:
+        app_metadata["anonymous_checkout"] = True
+    if sent is not None:
+        app_metadata["setup_reminders_sent"] = sent
+    return make_user(uid, email, created_at=NOW - timedelta(hours=hours), app_metadata=app_metadata)
+
+
+def _run_reminders(monkeypatch, caplog, users, argv=(), send_ok=True):
+    """Drive main() and record what the buyer-facing sender and the stamp actually received."""
+    import scripts.check_stuck_signups as mod
+
+    rows = [billing_row(u.id, u.email) for u in users]
+    supabase = make_supabase(users, rows)
+    emails: list = []
+
+    def fake_send(to, subject, html):
+        emails.append({"to": to, "subject": subject, "html": html})
+        return send_ok
+
+    monkeypatch.setattr(mod, "send_email", fake_send)
+    code, digests, log_text = _run_main(monkeypatch, caplog, supabase, list(argv))
+    return emails, supabase, code, digests, log_text
+
+
+@pytest.mark.parametrize(
+    "user, label",
+    [
+        (_marked_buyer(24, guest=False), "not an anonymous-checkout account"),
+        (_marked_buyer(23), "23 hours, none sent"),
+        (_marked_buyer(71, sent=1), "71 hours, one sent"),
+        (_marked_buyer(500, sent=2), "two sent"),
+    ],
+)
+def test_no_reminder_is_sent(monkeypatch, caplog, user, label):
+    emails, supabase, _, _, _ = _run_reminders(monkeypatch, caplog, [user])
+
+    assert emails == [], label
+    supabase.auth.admin.generate_link.assert_not_called()
+    supabase.auth.admin.update_user_by_id.assert_not_called()
+
+
+def test_first_reminder_at_24_hours_goes_to_the_buyer_with_a_fresh_link_and_is_stamped(monkeypatch, caplog):
+    import scripts.check_stuck_signups as mod
+
+    monkeypatch.setattr(mod, "SITE_URL", "https://www.pitchrank.io")
+    emails, supabase, _, _, _ = _run_reminders(monkeypatch, caplog, [_marked_buyer(24)])
+
+    assert [e["to"] for e in emails] == ["buyer@example.com"]
+    assert (
+        'href="https://www.pitchrank.io/auth/confirm?token_hash=hashed-xyz&amp;type=recovery&amp;next=/reset-password"'
+        in emails[0]["html"]
+    )
+    supabase.auth.admin.generate_link.assert_called_once_with({"type": "recovery", "email": "buyer@example.com"})
+    supabase.auth.admin.update_user_by_id.assert_called_once_with("u1", {"app_metadata": {"setup_reminders_sent": 1}})
+
+
+def test_second_reminder_at_72_hours_is_stamped_as_the_second(monkeypatch, caplog):
+    emails, supabase, _, _, _ = _run_reminders(monkeypatch, caplog, [_marked_buyer(72, sent=1)])
+
+    assert len(emails) == 1
+    supabase.auth.admin.update_user_by_id.assert_called_once_with("u1", {"app_metadata": {"setup_reminders_sent": 2}})
+
+
+def test_a_failed_send_is_not_stamped_so_the_next_run_retries(monkeypatch, caplog):
+    emails, supabase, _, _, log_text = _run_reminders(monkeypatch, caplog, [_marked_buyer(30)], send_ok=False)
+
+    assert len(emails) == 1
+    supabase.auth.admin.update_user_by_id.assert_not_called()
+    assert "Setup reminders sent: 0" in log_text
+
+
+def test_dry_run_mints_sends_and_stamps_nothing_but_reports_the_count(monkeypatch, caplog):
+    emails, supabase, code, digests, log_text = _run_reminders(
+        monkeypatch, caplog, [_marked_buyer(30)], argv=["--dry-run"]
+    )
+
+    assert emails == []
+    assert digests == []
+    supabase.auth.admin.generate_link.assert_not_called()
+    supabase.auth.admin.update_user_by_id.assert_not_called()
+    assert "Setup reminders due: 1" in log_text
+    assert code == 1
+
+
+def test_the_admin_digest_still_goes_out_and_carries_no_reminder_link(monkeypatch, caplog):
+    _, _, _, digests, _ = _run_reminders(monkeypatch, caplog, [_marked_buyer(30)])
+
+    assert len(digests) == 1
+    assert LIVE_TOKEN not in build_digest_html(digests[0])
+
+
+def test_one_accounts_failure_does_not_stop_the_others_and_logs_no_address(monkeypatch, caplog):
+    import scripts.check_stuck_signups as mod
+
+    users = [
+        _marked_buyer(30, uid="u1", email="first@example.com"),
+        _marked_buyer(30, uid="u2", email="second@example.com"),
+    ]
+    supabase = make_supabase(users, [billing_row(u.id, u.email) for u in users])
+    good_link = supabase.auth.admin.generate_link.return_value
+    supabase.auth.admin.generate_link.side_effect = [RuntimeError("no user first@example.com"), good_link]
+    emails: list = []
+    monkeypatch.setattr(mod, "send_email", lambda to, subject, html: emails.append(to) or True)
+
+    _, _, log_text = _run_main(monkeypatch, caplog, supabase, [])
+
+    assert emails == ["second@example.com"]
+    assert "Setup reminders sent: 1" in log_text
+    assert "@" not in log_text
+

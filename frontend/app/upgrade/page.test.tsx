@@ -183,7 +183,7 @@ describe('UpgradePage paywall', () => {
     await render();
     await tap(planCard(MONTHLY_CARD).querySelector('button')!);
     expect(mockStartCheckout).toHaveBeenCalledTimes(1);
-    expect(mockStartCheckout).toHaveBeenCalledWith('price_monthly_test');
+    expect(mockStartCheckout).toHaveBeenCalledWith('price_monthly_test', null);
     expect(cardClasses(YEARLY_CARD)).toContain('ring-2');
   });
 
@@ -192,8 +192,23 @@ describe('UpgradePage paywall', () => {
     await tap(planCard(MONTHLY_CARD));
     await tap(planCard(YEARLY_CARD).querySelector('button')!);
     expect(mockStartCheckout).toHaveBeenCalledTimes(1);
-    expect(mockStartCheckout).toHaveBeenCalledWith('price_yearly_test');
+    expect(mockStartCheckout).toHaveBeenCalledWith('price_yearly_test', null);
     expect(cardClasses(MONTHLY_CARD)).toContain('ring-2');
+  });
+
+  it('passes the tapped team into checkout', async () => {
+    state.next = `/teams/${TEAM_ID}`;
+    mockPreview.mockResolvedValue(null);
+    await render();
+    await tap(planCard(MONTHLY_CARD).querySelector('button')!);
+    expect(mockStartCheckout).toHaveBeenCalledWith('price_monthly_test', `/teams/${TEAM_ID}`);
+  });
+
+  it('passes nothing into checkout for a next that is not a team page', async () => {
+    state.next = '/watchlist';
+    await render();
+    await tap(planCard(MONTHLY_CARD).querySelector('button')!);
+    expect(mockStartCheckout).toHaveBeenCalledWith('price_monthly_test', null);
   });
 
   it("brings a failed checkout's message into view", async () => {

@@ -36,9 +36,12 @@ SQUADS = {
 LINKS = {"10:2026": "M1", "11:2026": "M2", "12:2026": "M3"}
 
 
-def _game(home="10", away="11", hs="3", as_="1", status="played", date="2026-09-12", division="HD", competition="League"):
+def _game(
+    home="10", away="11", hs="3", as_="1", status="played", date="2026-09-12",
+    division="HD", competition="League", eid="500",
+):
     return {
-        "event_id": "500",
+        "event_id": eid,
         "game_date": date,
         "status": status,
         "division": division,
@@ -53,8 +56,8 @@ def _game(home="10", away="11", hs="3", as_="1", status="played", date="2026-09-
     }
 
 
-def _build(games, links=LINKS, squads=SQUADS):
-    return build.build_rows(games, squads, links, SINCE, TODAY)
+def _build(games, links=LINKS, squads=SQUADS, moved=frozenset()):
+    return build.build_rows(games, squads, links, SINCE, TODAY, set(moved))
 
 
 def test_a_played_game_between_linked_teams_becomes_two_rows():
@@ -107,6 +110,118 @@ def test_a_game_is_held_when_only_the_away_squad_is_unlinked_and_when_only_the_h
 def test_the_future_check_comes_before_the_link_check():
     _, held = _build([_game(date="2026-12-01", away="13")])
     assert held[0]["hold_reason"] == "completed but dated in the future"
+
+
+def test_a_moved_game_is_held_and_the_rest_still_import():
+    rows, held = _build([_game(eid="1"), _game(eid="2", date="2026-09-19")], moved={"1"})
+    assert [(h["event_id"], h["hold_reason"]) for h in held] == [("1", "a stored game Kitman moved to this date")]
+    assert {r["game_date"] for r in rows} == {"2026-09-19"}
+
+
+def test_the_moved_check_comes_before_the_future_check():
+    _, held = _build([_game(date="2026-12-01")], moved={"500"})
+    assert held[0]["hold_reason"] == "a stored game Kitman moved to this date"
+
+
+def _stored(home="10", away="11", hs=3, as_=1, date="2026-09-12", gid=1, provider="prov-kitman", **extra):
+    return {
+        "id": gid,
+        "provider_id": provider,
+        "game_date": date,
+        "home_provider_id": f"{home}:2026",
+        "away_provider_id": f"{away}:2026",
+        "home_score": hs,
+        "away_score": as_,
+        **extra,
+    }
+
+
+@pytest.mark.parametrize(("hs", "as_"), [(3, 1), (0, 0), (1, 0), (0, 2)])
+def test_a_played_event_with_a_stored_games_teams_and_score_is_a_moved_game(hs, as_):
+    moved = _game(eid="M", date="2026-11-21", hs=str(hs), as_=str(as_))
+    assert build.moved_event_ids([moved], [_stored(hs=hs, as_=as_)]) == {"M"}
+
+
+def test_a_different_score_is_a_new_game():
+    moved = _game(eid="M", date="2026-11-21", hs="2", as_="1")
+    assert build.moved_event_ids([moved], [_stored()]) == set()
+
+
+@pytest.mark.parametrize(
+    ("hs", "as_"),
+    [("1", "1"), ("3", "3")],
+    ids=["only the away score matches", "only the home score matches"],
+)
+def test_one_matching_score_is_not_the_same_result(hs, as_):
+    moved = _game(eid="M", date="2026-11-21", hs=hs, as_=as_)
+    assert build.moved_event_ids([moved], [_stored()]) == set()
+
+
+@pytest.mark.parametrize(("hs", "as_"), [("1", "3"), ("3", "1")], ids=["same winner", "other winner"])
+def test_a_return_leg_at_the_other_teams_home_is_a_new_game(hs, as_):
+    return_leg = _game(home="11", away="10", hs=hs, as_=as_, eid="R", date="2026-11-21")
+    assert build.moved_event_ids([return_leg], [_stored()]) == set()
+
+
+@pytest.mark.parametrize(("home", "away"), [("10", "13"), ("13", "11")], ids=["another away team", "another home team"])
+def test_another_pair_with_the_same_score_is_not_the_moved_game(home, away):
+    other = _game(home=home, away=away, eid="O", date="2026-11-21")
+    assert build.moved_event_ids([other], [_stored()]) == set()
+
+
+@pytest.mark.parametrize("status", ["played", "scheduled"])
+def test_a_stored_game_with_an_event_on_its_date_explains_nothing_else(status):
+    on_its_date = _game(eid="A", status=status)
+    second_meeting = _game(eid="B", date="2026-10-03")
+    assert build.moved_event_ids([on_its_date, second_meeting], [_stored()]) == set()
+
+
+def test_a_home_and_away_swap_on_the_stored_date_is_still_that_game():
+    swapped = _game(home="11", away="10", hs="1", as_="3", eid="A")
+    second_meeting = _game(eid="B", date="2026-10-03")
+    assert build.moved_event_ids([swapped, second_meeting], [_stored()]) == set()
+
+
+def test_one_stored_game_accounts_for_one_event_the_earliest():
+    later, earlier = _game(eid="L", date="2027-02-07"), _game(eid="E", date="2026-11-21")
+    assert build.moved_event_ids([later, earlier], [_stored()]) == {"E"}
+
+
+def test_two_stored_games_account_for_two_events():
+    first, second = _game(eid="1", date="2026-11-21"), _game(eid="2", date="2027-02-07")
+    stored = [_stored(), _stored(gid=2, date="2026-09-19")]
+    assert build.moved_event_ids([first, second], stored) == {"1", "2"}
+
+
+def test_an_event_already_stored_on_its_own_date_uses_up_no_stored_game():
+    already, moved = _game(eid="A", date="2026-10-03"), _game(eid="M", date="2026-11-21")
+    stored = [_stored(), _stored(gid=2, date="2026-10-03")]
+    assert build.moved_event_ids([already, moved], stored) == {"M"}
+
+
+def test_a_game_reopened_as_unplayed_is_held_only_once_it_is_played_with_the_same_score():
+    reopened = _game(eid="R", date="2027-06-08", hs="", as_="", status="scheduled")
+    assert build.moved_event_ids([reopened], [_stored()]) == set()
+    played = _game(eid="R", date="2027-06-08")
+    assert build.moved_event_ids([played], [_stored()]) == {"R"}
+
+
+@pytest.mark.parametrize(("hs", "as_"), [(None, None), (None, 1), (3, None)], ids=["both", "home", "away"])
+def test_a_stored_game_missing_a_score_accounts_for_nothing(hs, as_):
+    event = _game(eid="E", date="2026-11-21")
+    assert build.moved_event_ids([event], [_stored(hs=hs, as_=as_)]) == set()
+
+
+@pytest.mark.parametrize("score", ["2.0", "TBD", ""])
+def test_a_score_that_is_not_a_whole_number_is_passed_over(score):
+    odd = _game(eid="O", date="2026-11-21", hs=score)
+    assert build.moved_event_ids([odd], [_stored(), _stored(gid=2, date="2026-09-19", hs=None, as_=None)]) == set()
+
+
+def test_an_unfinished_game_showing_the_stored_score_does_not_use_up_the_stored_game():
+    unfinished = _game(eid="U", date="2026-11-14", status="scheduled")
+    moved = _game(eid="M", date="2026-11-21")
+    assert build.moved_event_ids([unfinished, moved], [_stored()]) == {"M"}
 
 
 def _whitelist(function_name: str) -> set[str]:
@@ -196,7 +311,7 @@ def test_a_planned_run_writes_a_preview_file_not_an_importable_one(tmp_path, mon
         ["provider_team_id", "key", "action", "team_id_master"],
         [{"provider_team_id": sid, "key": f"{sid}:2026", "action": "create", "team_id_master": ""} for sid in SQUADS],
     )
-    monkeypatch.setattr(build, "_new_client", lambda: object())
+    monkeypatch.setattr(build, "_new_client", lambda: _live_db([]))
     assert build.main(["--in-dir", str(tmp_path), "--planned"]) == 0
     assert (tmp_path / "import_planned.csv").exists() and not (tmp_path / "import.csv").exists()
     assert (tmp_path / "held_games.csv").exists()
@@ -243,6 +358,7 @@ class _Query:
         return self
 
     def range(self, start, end):
+        assert self.window is None, "a query builder was reused"
         self.window = (start, end)
         return self
 
@@ -256,16 +372,22 @@ class _Query:
         if self.sort:
             rows = sorted(rows, key=lambda r: r[self.sort])
         if self.window:
+            assert self.sort, "a page read without an order can skip or repeat rows"
             rows = rows[self.window[0] : self.window[1] + 1]
         if self.cap is not None:
             rows = rows[: self.cap]
+        if self.db.max_rows is not None:
+            rows = rows[: self.db.max_rows]
         rows = [{c: r.get(c) for c in self.columns} if self.columns else dict(r) for r in rows]
         return _Result(rows, count=total if self.want_count else None)
 
 
 class _Db:
+    """max_rows plays the server's row cap, which answers a large range with fewer rows than asked."""
+
     def __init__(self, **tables):
         self.rows = {"providers": [], "team_alias_map": [], "teams": [], "team_merge_map": [], "games": [], **tables}
+        self.max_rows = None
 
     def table(self, name):
         return _Query(self, name)
@@ -309,6 +431,80 @@ def test_live_links_stop_when_the_provider_is_not_seeded():
         build.live_links(_Db())
 
 
+def test_stored_games_read_every_capped_page_of_this_providers_season_hidden_games_included():
+    db = _live_db([])
+    db.max_rows = 2
+    db.rows["games"] = [
+        _stored(gid=6, date="2026-08-01"),
+        _stored(gid=3, is_excluded=None),
+        _stored(gid=5, date="2026-07-31"),
+        _stored(gid=1, is_excluded=False),
+        _stored(gid=4, provider="another-provider"),
+        _stored(gid=2, is_excluded=True),
+    ]
+    assert [g["id"] for g in build.stored_games(db, "2026-08-01")] == [1, 2, 3, 6]
+
+
+def test_no_games_are_stored_before_the_provider_is_seeded():
+    assert build.stored_games(_Db(), "2026-08-01") == []
+
+
+RUN_DAY = "2026-11-09"
+
+
+class _RunDay(date):
+    @classmethod
+    def today(cls):
+        return cls.fromisoformat(RUN_DAY)
+
+
+def _live_run(tmp_path, monkeypatch, games, stored, planned=False):
+    monkeypatch.setattr(build, "date", _RunDay)
+    _write(tmp_path / "games.csv", list(games[0]), games)
+    squads = list(SQUADS.values())
+    _write(tmp_path / "squads.csv", list(squads[0]), squads)
+    db = _live_db([_alias(1, "10:2026", "M1"), _alias(2, "11:2026", "M2")])
+    db.rows["games"].extend(stored)
+    monkeypatch.setattr(build, "_new_client", lambda: db)
+    argv = ["--in-dir", str(tmp_path)]
+    if planned:
+        plan = [
+            {"provider_team_id": sid, "key": f"{sid}:2026", "action": "keep", "team_id_master": f"M{sid}"}
+            for sid in SQUADS
+        ]
+        _write(tmp_path / "link_plan.csv", list(plan[0]), plan)
+        argv.append("--planned")
+    assert build.main(argv) == 0
+    rows = build._read_csv(tmp_path / ("import_planned.csv" if planned else "import.csv"))
+    return rows, build._read_csv(tmp_path / "held_games.csv")
+
+
+@pytest.mark.parametrize("is_excluded", [False, True], ids=["visible", "hidden"])
+def test_a_live_run_keeps_a_moved_game_out_of_the_import(tmp_path, monkeypatch, capsys, is_excluded):
+    rows, held = _live_run(tmp_path, monkeypatch, [_game(date=RUN_DAY)], [_stored(is_excluded=is_excluded)])
+    assert rows == [] and [h["hold_reason"] for h in held] == ["a stored game Kitman moved to this date"]
+    out = capsys.readouterr().out
+    assert "games_added=0" in out and "moved=1" in out
+
+
+def test_a_live_run_imports_a_moved_game_with_a_new_score(tmp_path, monkeypatch, capsys):
+    rows, _ = _live_run(tmp_path, monkeypatch, [_game(date=RUN_DAY, hs="4", as_="2")], [_stored()])
+    assert [(r["team_id"], r["goals_for"]) for r in rows] == [("10:2026", "4"), ("11:2026", "2")]
+    assert "games_added=1" in capsys.readouterr().out
+
+
+def test_a_live_run_imports_a_rematch_while_the_stored_games_event_is_still_on_its_date(tmp_path, monkeypatch):
+    still_on_its_date = _game(eid="A", status="scheduled", hs="", as_="")
+    rematch = _game(eid="B", date=RUN_DAY)
+    rows, held = _live_run(tmp_path, monkeypatch, [still_on_its_date, rematch], [_stored()])
+    assert {r["game_date"] for r in rows} == {RUN_DAY} and held == []
+
+
+def test_a_planned_run_keeps_a_moved_game_out_of_the_preview(tmp_path, monkeypatch, capsys):
+    rows, _ = _live_run(tmp_path, monkeypatch, [_game(date=RUN_DAY)], [_stored()], planned=True)
+    assert rows == [] and "games_added=0" in capsys.readouterr().out
+
+
 def test_a_u17_game_against_a_u17b_squad_scraped_from_the_feed_becomes_two_import_rows(tmp_path, monkeypatch):
     from tests.unit.test_scrape_mlsnext_kitman import _event
     from tests.unit.test_scrape_mlsnext_kitman import _run as scrape_run
@@ -320,7 +516,7 @@ def test_a_u17_game_against_a_u17b_squad_scraped_from_the_feed_becomes_two_impor
     squads = {r["provider_team_id"]: r for r in build._read_csv(tmp_path / "squads.csv")}
     games = [g for g in build._read_csv(tmp_path / "games.csv") if g["event_id"] == "1"]
 
-    rows, held = build.build_rows(games, squads, {"30:2026": "M30", "31:2026": "M31"}, SINCE, TODAY)
+    rows, held = build.build_rows(games, squads, {"30:2026": "M30", "31:2026": "M31"}, SINCE, TODAY, set())
 
     assert held == []
     assert [(r["team_id"], r["team_name"], r["age_group"]) for r in rows] == [

@@ -697,7 +697,7 @@ two-line edit in `.github/workflows/claude-code-review.yml`.
 | `weekly-prospective-settle-evaluate.yml` | Mon 4:00 PM UTC | Settle and score last week's prospective match predictions |
 | `weekly-prospective-refresh.yml` | Manual dispatch | Scrape upcoming GotSport events, prepare new prospective predictions (cron paused 2026-09-07 — see below) |
 | `smoke-infographics.yml` | Daily 1:17 PM UTC | Smoke-test the infographic OG routes |
-| `check-stuck-signups.yml` | Every 6 hours | Flag signups stuck mid-flow |
+| `check-stuck-signups.yml` | Every 6 hours | Flag signups stuck mid-flow, and send a fresh set-password link at 24h and 72h to new guest buyers who never signed in |
 | `reconcile-stripe-daily.yml` | Every 6 hours | Reconcile Stripe subscriptions against `user_profiles` |
 
 ### Prospective predictions are shelved, and event-page scraping is why
