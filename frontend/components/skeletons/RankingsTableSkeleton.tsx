@@ -1,7 +1,5 @@
-import { useSyncExternalStore } from 'react';
 import { TableSkeleton } from '@/components/ui/skeletons';
-
-const emptySubscribe = () => () => {};
+import { useIsClient } from '@/hooks/useIsClient';
 
 /**
  * RankingsTableSkeleton - Loading skeleton for rankings table
@@ -11,11 +9,7 @@ const emptySubscribe = () => () => {};
  * The pulsing skeleton only appears after client hydration.
  */
 export function RankingsTableSkeleton({ rows = 10 }: { rows?: number }) {
-  const isClient = useSyncExternalStore(
-    emptySubscribe,
-    () => true,
-    () => false
-  );
+  const isClient = useIsClient();
 
   if (!isClient) return <div className="min-h-[660px]" />;
 

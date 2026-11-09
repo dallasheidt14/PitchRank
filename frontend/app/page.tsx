@@ -3,7 +3,6 @@ import { FeatureShowcase } from '@/components/FeatureShowcase';
 import { RecentMovers } from '@/components/RecentMovers';
 import { HomeStats } from '@/components/HomeStats';
 import { FindYourTeamButton } from '@/components/FindYourTeamButton';
-import { SeasonRolloverNotice } from '@/components/SeasonRolloverNotice';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { api } from '@/lib/api';
@@ -56,8 +55,7 @@ export default async function Home() {
       >
         {/* Diagonal stripe pattern overlay */}
         <div className="absolute inset-0 bg-diagonal-stripes opacity-50" aria-hidden="true" />
-        {/* Diagonal slash accent */}
-        <div className="absolute left-0 top-0 w-3 h-full bg-accent -skew-x-12" aria-hidden="true" />
+        <div className="absolute left-0 top-0 w-3 h-full bg-accent" aria-hidden="true" />
 
         <div className="container mx-auto px-4 sm:px-6 relative">
           <div className="max-w-4xl">
@@ -103,8 +101,6 @@ export default async function Home() {
         {/* Decorative gradient overlay */}
         <div className="absolute bottom-0 left-0 right-0 h-24 bg-gradient-to-t from-background to-transparent pointer-events-none" />
       </div>
-
-      <SeasonRolloverNotice />
 
       {/* Main Content */}
       <div className="container mx-auto py-8 sm:py-12 px-4 sm:px-6">

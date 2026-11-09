@@ -287,7 +287,7 @@ export default async function StateOverviewPage({ params }: StateOverviewPagePro
 
         {/* Page Header */}
         <div className="relative bg-secondary/30 border-b-2 border-primary py-8 sm:py-12 mb-8 -mx-4 px-4">
-          <div className="absolute left-0 top-0 w-2 h-full bg-accent -skew-x-12" aria-hidden="true" />
+          <div className="absolute left-0 top-0 w-2 h-full bg-accent" aria-hidden="true" />
           <h1 className="font-display text-3xl sm:text-4xl md:text-5xl font-bold uppercase text-primary mb-2">
             {isNational ? 'National' : stateInfo.name} Soccer Rankings
           </h1>
@@ -324,20 +324,18 @@ export default async function StateOverviewPage({ params }: StateOverviewPagePro
                 className="bg-card border border-border rounded-lg p-4 hover:border-primary transition-colors"
               >
                 <h3 className="font-bold text-lg mb-2">{age.toUpperCase()}</h3>
-                <div className="space-y-1">
-                  <Link
-                    href={`/rankings/${region.toLowerCase()}/${age}/male`}
-                    className="block text-sm text-primary hover:underline"
-                  >
-                    Boys →
-                  </Link>
-                  <Link
-                    href={`/rankings/${region.toLowerCase()}/${age}/female`}
-                    className="block text-sm text-primary hover:underline"
-                  >
-                    Girls →
-                  </Link>
-                </div>
+                <Link
+                  href={`/rankings/${region.toLowerCase()}/${age}/male`}
+                  className="flex min-h-11 items-center text-sm text-primary hover:underline"
+                >
+                  Boys →
+                </Link>
+                <Link
+                  href={`/rankings/${region.toLowerCase()}/${age}/female`}
+                  className="flex min-h-11 items-center text-sm text-primary hover:underline"
+                >
+                  Girls →
+                </Link>
               </div>
             ))}
           </div>
@@ -355,7 +353,7 @@ export default async function StateOverviewPage({ params }: StateOverviewPagePro
                     <h3 className="font-semibold">{age} Boys</h3>
                     <Link
                       href={`/rankings/${region.toLowerCase()}/${age.toLowerCase()}/male`}
-                      className="text-xs text-primary hover:underline"
+                      className="inline-flex min-h-11 items-center text-xs text-primary hover:underline"
                     >
                       View All →
                     </Link>
@@ -367,9 +365,9 @@ export default async function StateOverviewPage({ params }: StateOverviewPagePro
                           <span className="text-muted-foreground w-4">{idx + 1}.</span>
                           <Link
                             href={`/teams/${team.team_id_master}`}
-                            className="hover:text-primary line-clamp-2 break-words"
+                            className="flex min-h-11 min-w-0 items-center hover:text-primary"
                           >
-                            {team.team_name}
+                            <span className="line-clamp-2 break-words">{team.team_name}</span>
                           </Link>
                           <span className="text-xs text-muted-foreground ml-auto">
                             {formatPowerScore(team.power_score_final)}
@@ -395,7 +393,7 @@ export default async function StateOverviewPage({ params }: StateOverviewPagePro
                     <h3 className="font-semibold">{age} Girls</h3>
                     <Link
                       href={`/rankings/${region.toLowerCase()}/${age.toLowerCase()}/female`}
-                      className="text-xs text-primary hover:underline"
+                      className="inline-flex min-h-11 items-center text-xs text-primary hover:underline"
                     >
                       View All →
                     </Link>
@@ -407,9 +405,9 @@ export default async function StateOverviewPage({ params }: StateOverviewPagePro
                           <span className="text-muted-foreground w-4">{idx + 1}.</span>
                           <Link
                             href={`/teams/${team.team_id_master}`}
-                            className="hover:text-primary line-clamp-2 break-words"
+                            className="flex min-h-11 min-w-0 items-center hover:text-primary"
                           >
-                            {team.team_name}
+                            <span className="line-clamp-2 break-words">{team.team_name}</span>
                           </Link>
                           <span className="text-xs text-muted-foreground ml-auto">
                             {formatPowerScore(team.power_score_final)}
@@ -433,7 +431,7 @@ export default async function StateOverviewPage({ params }: StateOverviewPagePro
             <div className="flex flex-wrap gap-2">
               <Link
                 href="/rankings/national"
-                className="px-3 py-1.5 bg-primary text-primary-foreground rounded text-sm hover:bg-primary/90"
+                className="inline-flex min-h-11 items-center px-3 bg-primary text-primary-foreground rounded text-sm hover:bg-primary/90"
               >
                 National
               </Link>
@@ -441,7 +439,7 @@ export default async function StateOverviewPage({ params }: StateOverviewPagePro
                 <Link
                   key={state.code}
                   href={`/rankings/${state.code.toLowerCase()}`}
-                  className="px-3 py-1.5 bg-muted text-foreground rounded text-sm hover:bg-muted/80"
+                  className="inline-flex min-h-11 items-center px-3 bg-muted text-foreground rounded text-sm hover:bg-muted/80"
                 >
                   {state.name}
                 </Link>
@@ -458,7 +456,7 @@ export default async function StateOverviewPage({ params }: StateOverviewPagePro
                 <Link
                   key={state.code}
                   href={`/rankings/${state.code.toLowerCase()}`}
-                  className="px-3 py-2 bg-muted text-foreground rounded text-sm hover:bg-muted/80 text-center"
+                  className="flex min-h-11 items-center justify-center px-3 bg-muted text-foreground rounded text-sm hover:bg-muted/80 text-center"
                 >
                   {state.name}
                 </Link>
