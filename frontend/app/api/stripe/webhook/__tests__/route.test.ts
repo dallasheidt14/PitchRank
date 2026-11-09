@@ -55,6 +55,10 @@ vi.mock('@/lib/notifications/admin', () => ({
   notifyAdmin: vi.fn().mockResolvedValue(true),
 }));
 
+vi.mock('@/lib/analyticsServer', () => ({
+  sendSubscriptionCompleted: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock('@/lib/email/password-setup', () => ({
   sendPasswordSetupEmail: vi.fn().mockResolvedValue(true),
 }));
@@ -136,6 +140,7 @@ import { sendReturningSubscriberEmail } from '@/lib/email/returning-subscriber';
 import { sendDuplicateSubscriptionEmail } from '@/lib/email/duplicate-subscription';
 import { sendPasswordSetupEmail } from '@/lib/email/password-setup';
 import { notifyAdmin } from '@/lib/notifications/admin';
+import { sendSubscriptionCompleted } from '@/lib/analyticsServer';
 
 function makeRequest(body = ''): Request {
   return new Request('http://localhost/api/stripe/webhook', {
@@ -419,6 +424,7 @@ describe('POST /api/stripe/webhook', () => {
     expect(vi.mocked(notifyAdmin)).toHaveBeenCalledWith(expect.stringContaining('Duplicate checkout blocked'));
     // The first subscription keeps the profile; the duplicate never touches it.
     expect(vi.mocked(updateUserProfile)).not.toHaveBeenCalled();
+    expect(vi.mocked(sendSubscriptionCompleted)).not.toHaveBeenCalled();
     expect(vi.mocked(setLifecycle)).not.toHaveBeenCalled();
     expect(vi.mocked(enrollInAutomation)).not.toHaveBeenCalled();
   });
@@ -900,6 +906,7 @@ describe('Beehiiv automation enrollment', () => {
     expect(vi.mocked(setLifecycle)).not.toHaveBeenCalled();
     expect(vi.mocked(enrollInAutomation)).not.toHaveBeenCalled();
     expect(vi.mocked(stripe.subscriptions.retrieve)).not.toHaveBeenCalled();
+    expect(vi.mocked(sendSubscriptionCompleted)).not.toHaveBeenCalled();
   });
 
   it('fulfills async payments via checkout.session.async_payment_succeeded', async () => {
@@ -1015,6 +1022,134 @@ describe('Idempotency on Stripe webhook re-delivery', () => {
     expect(vi.mocked(setLifecycle)).toHaveBeenCalledWith('test@example.com', 'trialing');
   });
 
+  it('counts a signed-in buyer whose status another webhook already wrote', async () => {
+    setPriorState({ id: '1', subscription_status: 'trialing', cancel_at_period_end: false });
+    vi.mocked(stripe.subscriptions.retrieve).mockResolvedValueOnce({
+      id: 'sub_123',
+      status: 'trialing',
+      cancel_at: null,
+      cancel_at_period_end: false,
+      items: { data: [{ current_period_end: 1735689600 }] },
+    } as unknown as Stripe.Response<Stripe.Subscription>);
+
+    await fireEvent('checkout.session.completed', {
+      customer: 'cus_123',
+      subscription: 'sub_123',
+      payment_status: 'no_payment_required',
+    });
+
+    expect(vi.mocked(sendSubscriptionCompleted)).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves a live subscriber alone when a blocked duplicate is delivered again', async () => {
+    // Lookup by the duplicate customer finds nothing; lookup by email finds the subscriber.
+    queueMaybeSingle([
+      null,
+      {
+        id: 'user-live',
+        stripe_customer_id: 'cus_first',
+        stripe_subscription_id: 'sub_first',
+        subscription_status: 'active',
+      },
+    ]);
+    // The first delivery cancelled it, so this one reads as canceled.
+    vi.mocked(stripe.subscriptions.retrieve).mockResolvedValueOnce({
+      id: 'sub_second',
+      status: 'canceled',
+      cancel_at: null,
+      cancel_at_period_end: false,
+      items: { data: [{ current_period_end: 1735689600 }] },
+    } as unknown as Stripe.Response<Stripe.Subscription>);
+
+    const res = await fireEvent('checkout.session.completed', {
+      customer: 'cus_second',
+      subscription: 'sub_second',
+      payment_status: 'no_payment_required',
+    });
+
+    expect(res.status).toBe(200);
+    expect(vi.mocked(stripe.customers.update)).not.toHaveBeenCalled();
+    expect(vi.mocked(notifyAdmin)).not.toHaveBeenCalled();
+    expect(vi.mocked(sendSubscriptionCompleted)).not.toHaveBeenCalled();
+  });
+
+  function retrieveSubscription(status: string) {
+    vi.mocked(stripe.subscriptions.retrieve).mockResolvedValueOnce({
+      id: 'sub_second',
+      status,
+      cancel_at: null,
+      cancel_at_period_end: false,
+      items: { data: [{ current_period_end: 1735689600 }] },
+    } as unknown as Stripe.Response<Stripe.Subscription>);
+  }
+
+  const checkoutForCustomerSecond = {
+    customer: 'cus_second',
+    subscription: 'sub_second',
+    payment_status: 'no_payment_required',
+  };
+
+  it('does not count a checkout whose subscription has already ended', async () => {
+    setPriorState({ id: '1', subscription_status: null, cancel_at_period_end: false });
+    retrieveSubscription('canceled');
+
+    await fireEvent('checkout.session.completed', checkoutForCustomerSecond);
+
+    expect(vi.mocked(sendSubscriptionCompleted)).not.toHaveBeenCalled();
+  });
+
+  it('still links an ended subscription to an account that has never been billed', async () => {
+    queueMaybeSingle([
+      null,
+      { id: 'user-new', stripe_customer_id: null, stripe_subscription_id: null, subscription_status: null },
+    ]);
+    retrieveSubscription('canceled');
+
+    await fireEvent('checkout.session.completed', checkoutForCustomerSecond);
+
+    expect(vi.mocked(stripe.customers.update)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(sendSubscriptionCompleted)).not.toHaveBeenCalled();
+  });
+
+  it('still links a live subscription to an account with past billing', async () => {
+    queueMaybeSingle([
+      null,
+      {
+        id: 'user-returning',
+        stripe_customer_id: 'cus_first',
+        stripe_subscription_id: null,
+        subscription_status: 'canceled',
+      },
+    ]);
+    retrieveSubscription('active');
+
+    await fireEvent('checkout.session.completed', checkoutForCustomerSecond);
+
+    expect(vi.mocked(stripe.customers.update)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(sendSubscriptionCompleted)).toHaveBeenCalledTimes(1);
+  });
+
+  it("counts a new subscription once in Analytics, under the visitor's id from checkout", async () => {
+    setPriorState({ id: '1', subscription_status: null, cancel_at_period_end: false });
+    vi.mocked(stripe.subscriptions.retrieve).mockResolvedValueOnce({
+      id: 'sub_123',
+      status: 'trialing',
+      cancel_at: null,
+      cancel_at_period_end: false,
+      items: { data: [{ current_period_end: 1735689600 }] },
+    } as unknown as Stripe.Response<Stripe.Subscription>);
+
+    await fireEvent('checkout.session.completed', {
+      customer: 'cus_123',
+      subscription: 'sub_123',
+      payment_status: 'no_payment_required',
+      metadata: { ga_client_id: '123.456' },
+    });
+
+    expect(vi.mocked(sendSubscriptionCompleted)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(sendSubscriptionCompleted)).toHaveBeenCalledWith('123.456');
+  });
+
   it('skips Beehiiv sync when subscription.deleted re-delivers (already canceled)', async () => {
     process.env.BEEHIIV_TRIAL_CANCEL_AUTOMATION_ID = 'aut_test_trial_cancel';
     process.env.BEEHIIV_PAID_CANCEL_AUTOMATION_ID = 'aut_test_paid_cancel';
@@ -1098,6 +1233,12 @@ describe('Set-password email failure alerts an admin', () => {
     } as unknown as Stripe.Event);
     return POST(makeRequest('valid body'));
   }
+
+  it('counts a brand-new guest who pays straight away', async () => {
+    await fireNewSignup();
+
+    expect(vi.mocked(sendSubscriptionCompleted)).toHaveBeenCalledTimes(1);
+  });
 
   it('alerts admin and returns 200 when the set-password email send fails', async () => {
     vi.mocked(sendPasswordSetupEmail).mockResolvedValueOnce(false);

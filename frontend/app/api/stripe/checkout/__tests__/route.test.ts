@@ -1,19 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Use vi.hoisted so mock fns are available inside vi.mock factories (which are hoisted)
-const { mockGetUser, mockFrom, mockCustomersCreate, mockCheckoutSessionsCreate, mockCheckRateLimit } = vi.hoisted(
-  () => ({
+const { mockGetUser, mockFrom, mockCustomersCreate, mockCheckoutSessionsCreate, mockCheckRateLimit, mockCookieGet } =
+  vi.hoisted(() => ({
     mockGetUser: vi.fn(),
     mockFrom: vi.fn(),
     mockCustomersCreate: vi.fn(),
     mockCheckoutSessionsCreate: vi.fn(),
     mockCheckRateLimit: vi.fn(() => true),
-  })
-);
+    mockCookieGet: vi.fn(),
+  }));
 
-// Mock next/headers (needed by supabase/server)
 vi.mock('next/headers', () => ({
   cookies: vi.fn().mockResolvedValue({
+    get: mockCookieGet,
     getAll: vi.fn().mockReturnValue([]),
     set: vi.fn(),
   }),
@@ -101,6 +101,51 @@ describe('POST /api/stripe/checkout', () => {
         metadata: { anonymous_checkout: 'true' },
       })
     );
+  });
+
+  it("carries the visitor's analytics id into the checkout session, never onto the subscription", async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    mockCookieGet.mockReturnValueOnce({ value: 'GA1.1.123.456' });
+    mockCheckoutSessionsCreate.mockResolvedValue({ url: 'https://checkout.stripe.com/anon' });
+
+    await POST(makeRequest({ priceId: 'price_monthly' }));
+
+    expect(mockCookieGet).toHaveBeenCalledWith('_ga');
+    const params = mockCheckoutSessionsCreate.mock.calls[0][0];
+    expect(params.metadata).toEqual({ anonymous_checkout: 'true', ga_client_id: '123.456' });
+    expect(params.subscription_data.metadata).toEqual({ anonymous_checkout: 'true' });
+  });
+
+  it("carries the visitor's analytics id on a signed-in checkout, never onto the subscription", async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1', email: 'a@b.com' } } });
+    mockFrom.mockReturnValue({
+      select: vi.fn().mockReturnValue({
+        eq: vi.fn().mockReturnValue({
+          single: vi.fn().mockResolvedValue({
+            data: { plan: 'free', subscription_status: null, stripe_customer_id: 'cus_existing' },
+            error: null,
+          }),
+        }),
+      }),
+    });
+    mockCookieGet.mockReturnValueOnce({ value: 'GA1.1.123.456' });
+    mockCheckoutSessionsCreate.mockResolvedValue({ url: 'https://checkout.stripe.com/signed-in' });
+
+    await POST(makeRequest({ priceId: 'price_monthly' }));
+
+    const params = mockCheckoutSessionsCreate.mock.calls[0][0];
+    expect(params.metadata).toEqual({ supabase_user_id: 'user-1', ga_client_id: '123.456' });
+    expect(params.subscription_data.metadata).toEqual({ supabase_user_id: 'user-1' });
+  });
+
+  it('leaves out an analytics cookie it cannot read', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    mockCookieGet.mockReturnValueOnce({ value: 'not-a-ga-cookie' });
+    mockCheckoutSessionsCreate.mockResolvedValue({ url: 'https://checkout.stripe.com/anon' });
+
+    await POST(makeRequest({ priceId: 'price_monthly' }));
+
+    expect(mockCheckoutSessionsCreate.mock.calls[0][0].metadata).toEqual({ anonymous_checkout: 'true' });
   });
 
   it('returns 400 for missing price ID', async () => {

@@ -275,13 +275,6 @@ export function trackCheckoutInitiated(payload: UpgradeEventPayload): void {
 }
 
 /**
- * Track when subscription is completed (success page viewed)
- */
-export function trackSubscriptionCompleted(): void {
-  gtagEvent('subscription_completed', {});
-}
-
-/**
  * Track when a paywall/premium gate is shown to a free user
  */
 export function trackPaywallImpression(payload: PaywallImpressionPayload): void {

@@ -12,6 +12,7 @@ import { headers } from 'next/headers';
 import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { notifyAdmin } from '@/lib/notifications/admin';
+import { sendSubscriptionCompleted } from '@/lib/analyticsServer';
 import {
   tagSubscriber,
   untagSubscriber,
@@ -309,7 +310,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
       // Anonymous checkout always starts a 7-day trial (the email isn't known
       // until Stripe collects it), but trials are for first-time subscribers
       // only. Don't silently convert the promised trial into an immediate
-      // charge — cancel the subscription (no invoice exists during a trial,
+      // charge — cancel the subscription (a trial opens with a $0 invoice,
       // so nothing is charged), leave the profile untouched, and email them
       // to log in, where checkout offers monthly/annual without a trial.
       const hasBillingHistory = Boolean(profileByEmail.stripe_customer_id || profileByEmail.stripe_subscription_id);
@@ -348,8 +349,15 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
         return;
       }
 
-      // Existing account with no billing history (signed up but never
-      // subscribed) — first trial is legitimate; link the subscription.
+      // A re-delivered checkout that was blocked above now reads as canceled. Linking it
+      // would overwrite the subscription this account already has.
+      if (hasBillingHistory && baseUpdates.plan !== 'premium') {
+        console.warn(`[webhook] Ignored ${subscription.status} checkout for billed account ${profileByEmail.id}`);
+        return;
+      }
+
+      // A never-billed account, or a past subscriber whose checkout started
+      // with no trial: link the subscription.
       await getSupabaseAdmin()
         .from('user_profiles')
         .update({ ...anonymousUpdates, updated_at: new Date().toISOString() })
@@ -429,6 +437,10 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   }
 
   console.log(`[webhook] Subscription activated for customer ${customerId}`);
+
+  if (baseUpdates.plan === 'premium') {
+    await sendSubscriptionCompleted(session.metadata?.ga_client_id);
+  }
 
   // Notify admin of new signup — escape HTML to prevent injection via Stripe customer name
   const displayName = escapeHtml((customer as Stripe.Customer).name ?? 'Unknown');

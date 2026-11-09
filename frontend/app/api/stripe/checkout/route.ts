@@ -2,6 +2,8 @@ import { stripe, getStripePriceIds } from '@/lib/stripe/server';
 import { getSupabaseAdmin } from '@/lib/supabase/service';
 import { optionalAuth } from '@/lib/api/optionalAuth';
 import { checkRateLimit, getClientIp } from '@/lib/api/rateLimit';
+import { gaClientIdFromCookie } from '@/lib/analyticsServer';
+import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import type Stripe from 'stripe';
 
@@ -49,6 +51,9 @@ export async function POST(req: Request) {
     if (!VALID_PRICE_IDS.has(priceId)) {
       return NextResponse.json({ error: 'Invalid price ID' }, { status: 400 });
     }
+
+    const gaClientId = gaClientIdFromCookie((await cookies()).get('_ga')?.value);
+    const analyticsMetadata: Record<string, string> = gaClientId ? { ga_client_id: gaClientId } : {};
 
     // --- Authenticated checkout: existing user ---
     if (user && supabase) {
@@ -117,7 +122,7 @@ export async function POST(req: Request) {
       const session = await stripe.checkout.sessions.create({
         ...baseSessionParams(priceId),
         customer: customerId,
-        metadata: { supabase_user_id: user.id },
+        metadata: { supabase_user_id: user.id, ...analyticsMetadata },
         subscription_data: {
           ...(hasHadSubscription ? {} : { trial_period_days: 7 }),
           metadata: { supabase_user_id: user.id },
@@ -135,7 +140,7 @@ export async function POST(req: Request) {
     // In subscription mode, Stripe automatically creates a customer when none is provided
     const session = await stripe.checkout.sessions.create({
       ...baseSessionParams(priceId),
-      metadata: { anonymous_checkout: 'true' },
+      metadata: { anonymous_checkout: 'true', ...analyticsMetadata },
       subscription_data: {
         trial_period_days: 7,
         metadata: { anonymous_checkout: 'true' },

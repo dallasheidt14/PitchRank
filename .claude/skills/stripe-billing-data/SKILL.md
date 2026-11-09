@@ -154,6 +154,29 @@ Stripe records no device, so attribute a shift with GA: `plan_selected` events s
 `customEvent:plan` and `deviceCategory`, reading a device whose layout did not change as the control.
 Clicks show the shape of the shift; take trial counts from Stripe.
 
+## Subscription counts in Google Analytics
+
+`subscription_completed` comes from the Stripe webhook through the Measurement Protocol
+(`frontend/lib/analyticsServer.ts`), because the tag never loads on `/upgrade/success`. Without
+`GA_API_SECRET` it is skipped with only a log warning, so a sudden zero can be configuration. It is
+counted for any checkout ending in a premium status, trials included, and a Stripe duplicate or a
+manual resend counts twice. It carries no `source` parameter, so the upgrade-sources report files
+every subscription under `(not set)` and shows 0% for each real source.
+
+Keep the premium-status check (`plan === 'premium'`) rather than comparing against the stored
+`user_profiles.subscription_status`. `invoice.paid` and `checkout.session.completed` arrive in either
+order and both write that column, so when `invoice.paid` lands first, a signed-in buyer's checkout
+reads its own new status and a real subscription goes uncounted. A checkout whose subscription has
+already ended can pass the comparison too, and the premium check refuses it.
+
+A buyer with no readable `_ga` cookie goes out under a throwaway id, and Google's docs call an event
+valid only under a client id gtag.js has already used, so GA may drop those. Where it keeps them,
+cart abandonment, which divides by the browser-fired `checkout_initiated`, can go negative over a
+short window.
+
+Counts from 2026-08-19, when the tag came off this page, until the webhook began sending the event
+undercount heavily: read that span with Stripe.
+
 ## MRR
 
 Stripe's Billing MRR is the monthly-normalized value of `active` and `past_due` subscriptions,
