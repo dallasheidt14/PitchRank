@@ -1084,6 +1084,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Update (2026-09-23)**: Recurred on #1208 and was relayed to the user as "Codex did not review this PR" while the review had completed 5m42s after open with a 👍 and no findings. Two things this narrows for whoever fixes it: `CODEX_LOGIN` is *not* the cause (it carries the `[bot]` suffix REST returns and matches correctly), and the summary comment is created within ~10s of the PR opening but only reaches `Completed` minutes later, so presence of the comment is not the signal -- parse its status cell. The workaround note has now failed to prevent this twice, which is the argument for fixing the script rather than documenting it again.
 - **Update (2026-10-14)**: Recurred on #1294 (2026-10-13), as before.
 - **Update (2026-10-31)**: Recurred on #1381: the owner was told Codex skipped it while its summary comment was there, and the report had to be corrected.
+- **Update (2026-11-09)**: Recurred on #1409, whose summary comment carried `has_any_findings: false` for the head commit while the script printed "Codex did not review this PR".
 
 ### A game import exits 0 when its inserts fail
 
@@ -2276,9 +2277,10 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Status**: open
 - **Type**: plan
 - **Category**: refactor
-- **Where**: `undo`, `_usable_target`, `_existing_team`, `_linked_team`, `_game_count`, `_read_csv` and `_new_client` in `scripts/link_mlsnext_kitman_teams.py` and `scripts/link_modular11_ea_teams.py`; `Modular11EaGameMatcher` and `MlsNextKitmanGameMatcher._match_team`; `hold_reason` in `scripts/build_mlsnext_kitman_games_csv.py`; `OUT_OF_SCOPE_PROVIDERS` in `scripts/find_squad_key_duplicates.py`; `fetch_db_teams` in `scripts/match_modular11_ea_teams.py`
+- **Where**: `undo`, `_usable_target`, `_existing_team`, `_linked_team`, `_game_count`, `_read_csv` and `_new_client` in `scripts/link_mlsnext_kitman_teams.py` and `scripts/link_modular11_ea_teams.py`; `Modular11EaGameMatcher` and `MlsNextKitmanGameMatcher._match_team`; `OUT_OF_SCOPE_PROVIDERS` in `scripts/find_squad_key_duplicates.py`; `fetch_db_teams` in `scripts/match_modular11_ea_teams.py`
 - **Why**: (1) The two linkers hold seven function bodies that an AST comparison finds identical, and the two alias-only matchers are the same `_match_team`; the safety-critical parts (undo, the importer's age/gender/deprecated acceptance test) now have to be fixed twice, and a shared module means editing the Modular11 EA files, which are out of scope by the owner's standing decision. (2) A game Kitman marks completed with scores but dates in the future is held only until its listed date and then imports under it; remembering such games needs persisted state (event ids seen early), a product decision. (3) Two Python guards that keep MLS NEXT out of matching test the provider code `modular11` alone, so teams created from Kitman rely on their HD/AD names to stay protected.
 - **Noted**: 2026-10-15
+- **Update (2026-11-09)**: Item (2) is settled. The owner chose to import a never-stored completed game with a future date on its listed date. A played event that is a stored game Kitman moved to a new date is now held instead of imported, by `moved_event_ids` in `scripts/build_mlsnext_kitman_games_csv.py` (IMP-395). Items (1) and (3) stay open.
 
 ### Guard the nine cleanup-skill facts no test or self-check pins
 
@@ -2759,14 +2761,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: Read on 2026-11-06: a team name scraped from any league reaches this HTML, so markup in one would land in an email PitchRank sends. Reported by a review as reachable through `/api/reports/team-card` once a team has a published rank; the route was not traced here. Email clients run no scripts, so the exposure is links and images. It predates the Georgia provider.
 - **Noted**: 2026-11-06
 
-### Stop re-dated Kitman games storing a second copy
-
-- **Type**: plan
-- **Category**: reliability
-- **Where**: `hold_reason` in `scripts/build_mlsnext_kitman_games_csv.py`; `unstored_rows` in `scripts/build_modular11_ea_games_csv.py`, which it imports
-- **Why**: Stored games match on date and teams, and Kitman re-dates games already stored, so a played game moved to a later date is held until that date and then imports as a new row. Compared all 6,739 stored rows with the standings files on 2026-11-08: 12 scored games now sit at a later date with the same score (7 land Nov 21-22, 5 in 2027), and 4 were reopened as unplayed and can double if replayed. The first import doubles none. Due before the Monday 2026-11-23 run, which would release those 7 and give 14 teams a duplicate game. One way: hold a played event whose squad pair has a stored game no current event explains.
-- **Noted**: 2026-11-08
-
 ### Find why the Kitman weekly run starts hours after its cron
 
 - **Type**: investigate
@@ -2790,3 +2784,11 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `any_gender` in `scripts/fix_gender_from_registered_name.py`, a new script alongside it
 - **Why**: The 2026-11-08 cleanup corrected 1,232 teams with one-off scripts that compared each team's name with GotSport's `display_gender` and its opponents' names. It could not see a wrong label on a name with no gender in it, such as "FC Dallas Blue", since the census starts from the name. Reading GotSport for all of those is a large paced job, so it needs a resume cache and a limit. `any_gender` also reads "2009B Girls" as boys, because a letter beats the word once `spelled_gender` declines the mixed name.
 - **Noted**: 2026-11-08
+
+### Un-hide a hidden game when its provider restores it with a real score
+
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `apply_score_correction` in `src/etl/game_corrections.py` and the `apply_game_correction` function in `supabase/migrations/20240201000001_add_game_corrections.sql`
+- **Why**: On 2026-11-09 the owner hid 9 `mlsnext_kitman` 0-0 games as suspected placeholders (undo log `C:\PitchRank\data\backups\hide_kitman_redated_zero_zero_2026-11-09.json`). If Kitman moves one back to its original date with a real score, the importer finds the stored row by uid and corrects its score, but `apply_game_correction` updates only the score, date and teams and never `is_excluded`, so the real result stays hidden and never counts. Read in the code; not run and not seen live.
+- **Noted**: 2026-11-09
