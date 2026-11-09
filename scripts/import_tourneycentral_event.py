@@ -92,6 +92,7 @@ from rich.table import Table  # noqa: E402
 
 from scripts.import_athletes2events_event import (  # noqa: E402
     _BAND,
+    _BARE_YEAR,
     _LEADING_AGE,
     NO_AGE_IN_NAME,
     ODD_YEAR_SPAN,
@@ -205,7 +206,8 @@ LINKED_OUTCOMES = frozenset({"already_linked", "linked_existing", "relinked", "c
 MIN_BAND_NAMED_TEAMS = 5
 
 # ``age_from_name`` names the division it would have fallen back to; with no division
-# passed, these names state no age at all, and the team is left for a person to decide.
+# passed, these names state no age at all, and unless ``build_roster``'s division fallback
+# files the team, it is left for a person to decide.
 NAME_WITHOUT_AN_AGE = {
     NO_AGE_IN_NAME: "no age in the team name",
     ODD_YEAR_SPAN: "odd year span in the team name",
@@ -656,15 +658,20 @@ def build_roster(
     states: Optional[Dict[str, str]] = None,
     age_groups: Optional[Dict[str, str]] = None,
     genders: Optional[Dict[str, str]] = None,
+    division_age_fallback: bool = False,
 ) -> Tuple[List[TeamRow], List[TeamRow]]:
     """Split the tournament's teams into those to register and those skipped, with a reason.
 
-    The operator names teams by Tourney Central id: ``leave_out`` holds them back, such as a
+    The operator names teams by provider team id: ``leave_out`` holds them back, such as a
     name whose age only a person can settle, and ``states`` sets a team's state where its
     location is wrong (CUSC West entered Party on the Pitch from "Fairfield, AL"; Fairfield
     is a city in both states, so no rule can see it). ``age_groups`` files a team whose name
     states no age on the board a person named, and ``genders`` sets the gender of a girls or boys
     team entered in a division of the other gender.
+
+    With ``division_age_fallback``, a name that states no age (or an odd year span) takes its
+    division's age when the division is one cohort and the event lists the team at no other age;
+    a name with several birth years is left out, and a name that states an age keeps it.
     """
     states = states or {}
     age_groups = age_groups or {}
@@ -672,6 +679,9 @@ def build_roster(
     in_scope: List[TeamRow] = []
     skipped: List[TeamRow] = []
     seen: Set[str] = set()
+    listed_ages: Dict[str, Set[Tuple[int, int]]] = {}
+    for division, listing in listings:
+        listed_ages.setdefault(listing.tc_team_id, set()).add((division.young_age, division.old_age))
     for division, listing in sorted(listings, key=lambda item: int(item[1].tc_team_id or 0)):
         if not listing.tc_team_id or listing.tc_team_id in seen:
             continue
@@ -680,6 +690,10 @@ def build_roster(
         birth_year, age_source = (
             age_from_name(respell_ages(team_name), None, event.season) if team_name else (None, "unreadable team name")
         )
+        if division_age_fallback and age_source in NAME_WITHOUT_AN_AGE:
+            birth_year, age_source = _division_fallback(
+                team_name, age_source, division, listed_ages[listing.tc_team_id], event.season, board_season
+            )
         age_source = NAME_WITHOUT_AN_AGE.get(age_source, age_source)
         if listing.tc_team_id in age_groups:
             birth_year = _birth_year_on_board(age_groups[listing.tc_team_id], event.season)
@@ -720,12 +734,48 @@ def build_roster(
 
 
 def _birth_year_on_board(age_group: str, season: int) -> int:
-    """The band's younger year that sits on ``u10``-``u19`` in ``season``."""
+    """The younger year of the band ``age_group`` names in ``season``."""
     return season - int(age_group[1:]) + 1
 
 
+def _one_cohort_birth_year(division: Division, event_season: int, board_season: int) -> Optional[int]:
+    """The birth year a division's age names in the tournament's season, if its ages are one cohort.
+
+    U12 is one; U18/19 is one while both ages are on the boards, because U18 folds into U19;
+    U14/15 is two, and so is a high school division spanning U15 to U19, so neither gives a team
+    an age.
+    """
+    young, old = (_birth_year_on_board(f"u{age}", event_season) for age in (division.young_age, division.old_age))
+    if board_cohort(young, board_season) != board_cohort(old, board_season):
+        return None
+    return young
+
+
+def _division_fallback(
+    team_name: str,
+    age_source: str,
+    division: Division,
+    listed_ages: Set[Tuple[int, int]],
+    event_season: int,
+    board_season: int,
+) -> Tuple[Optional[int], str]:
+    """``(birth year or None, reason)`` for a team whose name ``age_from_name`` found no age in.
+
+    ``age_from_name`` reports two bare birth years ("Club 2012 Est 2019") as no age, and a team
+    the event lists in divisions of different ages would be filed by whichever is read first,
+    so neither takes a division's age.
+    """
+    reason = NAME_WITHOUT_AN_AGE[age_source]
+    if age_source == NO_AGE_IN_NAME and len(_BARE_YEAR.findall(respell_ages(team_name))) > 1:
+        return None, "name gives several birth years"
+    if len(listed_ages) > 1:
+        return None, f"{reason}, and it is listed in divisions of different ages"
+    birth_year = _one_cohort_birth_year(division, event_season, board_season)
+    return birth_year, reason + (", division's age used" if birth_year else ", and its division spans two ages")
+
+
 def existing_aliases(supabase, provider_id: str, tc_team_ids: List[str]) -> Dict[str, str]:
-    """Tourney Central team id -> team_id_master for teams already linked."""
+    """Provider team id -> team_id_master for teams with an approved alias under ``provider_id``."""
     found: Dict[str, str] = {}
     for i in range(0, len(tc_team_ids), 100):
         batch = tc_team_ids[i : i + 100]
@@ -742,8 +792,14 @@ def existing_aliases(supabase, provider_id: str, tc_team_ids: List[str]) -> Dict
     return found
 
 
-def register_teams(matcher, provider_id: str, roster: List[TeamRow], already: Dict[str, str]) -> Dict[str, Outcome]:
-    """Link or create every roster team; one :class:`Outcome` per Tourney Central team id."""
+def register_teams(
+    matcher,
+    provider_id: str,
+    roster: List[TeamRow],
+    already: Dict[str, str],
+    provider_name: str = "Tourney Central",
+) -> Dict[str, Outcome]:
+    """Link or create every roster team; one :class:`Outcome` per provider team id."""
     outcomes: Dict[str, Outcome] = {}
     for row in roster:
         if row.tc_team_id in already:
@@ -761,7 +817,7 @@ def register_teams(matcher, provider_id: str, roster: List[TeamRow], already: Di
                 written_club=row.club_as_written,
             )
         except Exception as e:
-            logger.error(f"match error for Tourney Central team {row.tc_team_id}: {e}")
+            logger.error(f"match error for {provider_name} team {row.tc_team_id}: {e}")
             outcomes[row.tc_team_id] = Outcome("error", reason=str(e))
             continue
 
@@ -793,14 +849,14 @@ def unsaved_links(outcomes: Dict[str, Outcome], saved: Dict[str, str]) -> Dict[s
     }
 
 
-def pending_reviews(supabase, tc_team_ids: List[str]) -> Set[str]:
-    """Tourney Central team ids with a pending review row."""
+def pending_reviews(supabase, tc_team_ids: List[str], provider_code: str = PROVIDER_CODE) -> Set[str]:
+    """Team ids of ``provider_code`` with a pending review row; the queue keys providers by code."""
     found: Set[str] = set()
     for i in range(0, len(tc_team_ids), 100):
         result = (
             supabase.table("team_match_review_queue")
             .select("provider_team_id")
-            .eq("provider_id", PROVIDER_CODE)
+            .eq("provider_id", provider_code)
             .eq("status", "pending")
             .in_("provider_team_id", tc_team_ids[i : i + 100])
             .execute()
@@ -822,7 +878,7 @@ def unsaved_reviews(outcomes: Dict[str, Outcome], pending: Set[str]) -> Dict[str
     }
 
 
-def shared_links(outcomes: Dict[str, Outcome]) -> Dict[str, str]:
+def shared_links(outcomes: Dict[str, Outcome], provider_name: str = "Tourney Central") -> Dict[str, str]:
     """Teams of this tournament that matched the same PitchRank team as another one.
 
     Two registrations in one tournament are two squads, so at most one of them can
@@ -840,7 +896,7 @@ def shared_links(outcomes: Dict[str, Outcome]) -> Dict[str, str]:
         for tc_team_id in tc_team_ids:
             if outcomes[tc_team_id].status == "linked_existing":
                 others = ", ".join(sorted(set(tc_team_ids) - {tc_team_id}))
-                conflicts[tc_team_id] = f"same PitchRank team as Tourney Central team {others}"
+                conflicts[tc_team_id] = f"same PitchRank team as {provider_name} team {others}"
     return conflicts
 
 
@@ -896,7 +952,11 @@ def _compute_result(goals_for: int, goals_against: int) -> str:
 
 
 def build_csv_rows(
-    games: List[EventGame], roster: List[TeamRow], outcomes: Dict[str, Outcome], event: Event
+    games: List[EventGame],
+    roster: List[TeamRow],
+    outcomes: Dict[str, Outcome],
+    event: Event,
+    provider_code: str = PROVIDER_CODE,
 ) -> Tuple[List[Dict], List[EventGame], List[Dict]]:
     """Two importer rows per game whose teams are both linked; the rest are held back.
 
@@ -939,7 +999,7 @@ def build_csv_rows(
                 }
             )
         base = {
-            "provider": PROVIDER_CODE,
+            "provider": provider_code,
             "scrape_run_id": SCRAPE_RUN_ID,
             "event_id": f"{event.subdomain}-{event.season}",
             "event_name": f"{event.name} - {game.division_code}",
