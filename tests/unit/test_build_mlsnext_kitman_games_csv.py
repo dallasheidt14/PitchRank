@@ -315,7 +315,7 @@ def test_a_u17_game_against_a_u17b_squad_scraped_from_the_feed_becomes_two_impor
 
     league = [_event(1, home=(30, "U17B", 300, "FC Dallas"), away=(31, "U17", 301, "Alpha SC"), scores=(2, 1))]
     academy = [_event(3, home=(20, "U14 AD", 200, "Gamma"), away=(21, "U14 AD", 201, "Delta"))]
-    feeds = {"mls-next-league": league, "mls-next-flex": [_event(2)], "mls-next-2-academy-division": academy}
+    feeds = {"mls-next-league": league, "mls-next-2-academy-division": academy}
     scrape_run(tmp_path, feeds, date(2026, 10, 14), monkeypatch)
     squads = {r["provider_team_id"]: r for r in build._read_csv(tmp_path / "squads.csv")}
     games = [g for g in build._read_csv(tmp_path / "games.csv") if g["event_id"] == "1"]

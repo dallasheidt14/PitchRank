@@ -1,4 +1,4 @@
-"""Reading Kitman's schedule files: shape guards, squad labels, local dates, played versus scheduled."""
+"""Reading Kitman's standings files: shape guards, squad labels, local dates, played versus scheduled."""
 
 import csv
 import json
@@ -8,10 +8,13 @@ import pytest
 
 from scripts import scrape_mlsnext_kitman as scrape
 
+SYNC_DAY = date(2026, 11, 9)
+
 
 def _event(eid=1, home=(10, "U16", 100, "Alpha SC"), away=(11, "U16", 101, "Beta FC"), scores=(2, 1), completed=True,
            start="2026-09-05T13:00:00Z", tz="America/New_York", competition="League"):
-    return {
+    """A game as ``parse_feed`` hands it on. Like the real files, an unplayed game has no score keys at all."""
+    event = {
         "id": eid,
         "start_time": start,
         "local_timezone": tz,
@@ -21,42 +24,206 @@ def _event(eid=1, home=(10, "U16", 100, "Alpha SC"), away=(11, "U16", 101, "Beta
         "away_squad_name": away[1],
         "home_organisation": {"id": home[2], "name": home[3]},
         "away_organisation": {"id": away[2], "name": away[3]},
-        "home_score": scores[0] if scores else None,
-        "away_score": scores[1] if scores else None,
         "completed": completed,
-        "competition": {"id": 1, "name": competition},
+        "competition": {"id": competition, "name": competition},
     }
+    if scores:
+        event["home_score"], event["away_score"] = scores
+    return event
 
 
-def _feed(events, stem="mls-next-league", season=2026):
-    return json.dumps(
-        {"events": events, "linked_competition_seasons": [{"key": f"{stem}-26-27"}], "synced_at": "x"}
-    ).encode()
+def _standings_file(**overrides):
+    """A standings file in the shape the host served on 2026-11-09: one game, with invented ids and scores."""
+    event = {
+        "id": 5737796,
+        "game_key": "26207",
+        "start_time": "2026-09-05T12:00:00Z",
+        "local_timezone": "America/New_York",
+        "home_squad_id": 7237,
+        "away_squad_id": 9729,
+        "home_squad_name": "U19",
+        "away_squad_name": "U19",
+        "competition_id": 1607,
+        "competition_bracket_id": 184,
+        "completed": True,
+        "home_organisation_id": 612,
+        "away_organisation_id": 1438,
+        "home_score": 3,
+        "away_score": 1,
+        "home_penalty_shootout_score": 0,
+        "away_penalty_shootout_score": 0,
+        "event_location_id": 10,
+        "game_event_id": 1,
+    }
+    body = {
+        "name": "League 26/27",
+        "key": "mls-next-league-26-27",
+        "kind": "season",
+        "competition_id": 1605,
+        "events": [event],
+        "organisations": [{"id": 612, "name": "Toronto FC", "logo_url": "x"}, {"id": 1438, "name": "Beta FC", "logo_url": "x"}],
+        "competitions": [{"id": 1605, "name": "League"}, {"id": 1607, "name": "MLS NEXT Flex"}],
+        **overrides,
+    }
+    return json.dumps({"version": 2, "competition_season": body, "synced_at": "2026-11-09T03:00:07Z"}).encode()
+
+
+def _feed(events, stem):
+    """``_event`` games written out as a standings file, naming their clubs and competitions by id."""
+    clubs, competitions, raw = {}, {}, []
+    for event in events:
+        event = dict(event)
+        for side in ("home", "away"):
+            club = event.pop(f"{side}_organisation")
+            clubs[club["id"]] = club
+            event[f"{side}_organisation_id"] = club["id"]
+        competition = event.pop("competition")
+        competitions[competition["id"]] = competition
+        event["competition_id"] = competition["id"]
+        raw.append(event)
+    return _standings_file(
+        key=f"{stem}-26-27", events=raw, organisations=list(clubs.values()), competitions=list(competitions.values())
+    )
 
 
 def test_urls_carry_the_season_suffix():
-    assert scrape.feed_url("mls-next-league", 2026).endswith("/schedule/mls-next-league-26-27.json")
+    assert scrape.feed_url("mls-next-league", 2026).endswith("/standings/mls-next-league-26-27.json")
     assert scrape.season_suffix(2099) == "99-00"
+
+
+def test_each_competition_has_its_own_floor():
+    assert scrape.FEEDS == (
+        ("mls-next-league", "HD", {"League": 3000, "League (Pro Player Pathway)": 200, "MLS NEXT Flex": 1000}),
+        ("mls-next-2-academy-division", "AD", {"Academy Division": 5000}),
+    )
 
 
 def test_an_html_page_served_at_status_200_is_refused():
     with pytest.raises(scrape.ScrapeError, match="not JSON"):
-        scrape.parse_feed(b"<!doctype html><html></html>", "mls-next-league", 2026, floor=1)
+        scrape.parse_feed(b"<!doctype html><html></html>", "mls-next-league", 2026, floors={}, today=SYNC_DAY)
 
 
-def test_a_feed_for_another_season_is_refused():
-    body = json.dumps({"events": [_event()], "linked_competition_seasons": [{"key": "mls-next-league-25-26"}]}).encode()
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"events": [_event()], "linked_competition_seasons": [{"key": "mls-next-league-26-27"}]},
+        {"competition_season": {"key": "mls-next-league-26-27", "events": None}},
+        {"competition_season": None},
+        [_event()],
+    ],
+    ids=["schedule shape", "null events", "null season", "top-level array"],
+)
+def test_a_file_with_no_events_array_is_refused(body):
+    with pytest.raises(scrape.ScrapeError, match="no events array"):
+        scrape.parse_feed(json.dumps(body).encode(), "mls-next-league", 2026, floors={}, today=SYNC_DAY)
+
+
+@pytest.mark.parametrize("key", ["mls-next-league-25-26", None], ids=["last season", "no key"])
+def test_a_feed_for_another_season_is_refused(key):
     with pytest.raises(scrape.ScrapeError, match="not mls-next-league-26-27"):
-        scrape.parse_feed(body, "mls-next-league", 2026, floor=1)
+        scrape.parse_feed(_standings_file(key=key), "mls-next-league", 2026, floors={}, today=SYNC_DAY)
+
+
+def test_a_season_key_is_escaped_in_the_refusal():
+    with pytest.raises(scrape.ScrapeError) as refused:
+        scrape.parse_feed(_standings_file(key="x\n::error::forged"), "mls-next-league", 2026, floors={}, today=SYNC_DAY)
+    assert "\n" not in str(refused.value)
+
+
+def test_a_file_synced_eight_days_ago_is_read():
+    events = scrape.parse_feed(_standings_file(), "mls-next-league", 2026, floors={}, today=date(2026, 11, 17))
+    assert len(events) == 1
+
+
+def test_a_file_synced_nine_days_ago_is_refused():
+    with pytest.raises(scrape.ScrapeError, match="last synced 2026-11-09, over 8 days ago"):
+        scrape.parse_feed(_standings_file(), "mls-next-league", 2026, floors={}, today=date(2026, 11, 18))
+
+
+@pytest.mark.parametrize("synced_at", [None, "not a time"], ids=["null", "text"])
+def test_a_file_with_an_unreadable_sync_time_is_refused(synced_at):
+    file = json.loads(_standings_file())
+    file["synced_at"] = synced_at
+    with pytest.raises(scrape.ScrapeError, match="unreadable synced_at"):
+        scrape.parse_feed(json.dumps(file).encode(), "mls-next-league", 2026, floors={}, today=SYNC_DAY)
+
+
+def test_a_file_with_no_sync_time_is_refused():
+    file = json.loads(_standings_file())
+    del file["synced_at"]
+    with pytest.raises(scrape.ScrapeError, match="unreadable synced_at"):
+        scrape.parse_feed(json.dumps(file).encode(), "mls-next-league", 2026, floors={}, today=SYNC_DAY)
 
 
 def test_a_truncated_feed_is_refused():
-    with pytest.raises(scrape.ScrapeError, match="below the floor"):
-        scrape.parse_feed(_feed([_event()]), "mls-next-league", 2026, floor=2)
+    with pytest.raises(scrape.ScrapeError, match="1 readable MLS NEXT Flex events is below the floor of 2"):
+        scrape.parse_feed(_standings_file(), "mls-next-league", 2026, floors={"MLS NEXT Flex": 2}, today=SYNC_DAY)
 
 
-def test_events_come_back_when_the_feed_is_sound():
-    assert len(scrape.parse_feed(_feed([_event(), _event(2)]), "mls-next-league", 2026, floor=2)) == 2
+@pytest.mark.parametrize("kept, lost", [("League", "MLS NEXT Flex"), ("MLS NEXT Flex", "League")])
+def test_a_file_that_lost_one_competition_is_refused_though_the_other_clears_its_floor(kept, lost):
+    body = _feed([_event(competition=kept)], "mls-next-league")
+    with pytest.raises(scrape.ScrapeError, match=f"0 readable {lost} events"):
+        scrape.parse_feed(body, "mls-next-league", 2026, floors={"League": 1, "MLS NEXT Flex": 1}, today=SYNC_DAY)
+
+
+@pytest.mark.parametrize(
+    "clubs",
+    [
+        [],
+        None,
+        [{"id": "612", "name": "Toronto FC"}, {"id": "1438", "name": "Beta FC"}],
+        [{"club_id": 612, "name": "Toronto FC"}, {"club_id": 1438, "name": "Beta FC"}],
+        [{"id": 612, "name": "Toronto FC"}],
+        [{"id": 1438, "name": "Beta FC"}],
+    ],
+    ids=["empty", "null", "ids as strings", "id key renamed", "away club lost", "home club lost"],
+)
+def test_a_file_whose_clubs_cannot_be_found_is_refused(clubs):
+    with pytest.raises(scrape.ScrapeError, match="0 readable MLS NEXT Flex events"):
+        scrape.parse_feed(_standings_file(organisations=clubs), "mls-next-league", 2026, floors={"MLS NEXT Flex": 1}, today=SYNC_DAY)
+
+
+@pytest.mark.parametrize(
+    "competitions",
+    [[], None, [{"id": "1607", "name": "MLS NEXT Flex"}]],
+    ids=["empty", "null", "ids as strings"],
+)
+def test_a_file_whose_competitions_cannot_be_found_is_refused(competitions):
+    with pytest.raises(scrape.ScrapeError, match="0 readable MLS NEXT Flex events"):
+        scrape.parse_feed(_standings_file(competitions=competitions), "mls-next-league", 2026, floors={"MLS NEXT Flex": 1}, today=SYNC_DAY)
+
+
+def test_a_game_reads_its_clubs_and_competition_from_the_lists_beside_it():
+    events = scrape.parse_feed(_standings_file(), "mls-next-league", 2026, floors={"MLS NEXT Flex": 1}, today=SYNC_DAY)
+    squads, games, unreadable = scrape.build([("HD", events)], 2026)
+    assert unreadable == {}
+    assert squads["7237"] == scrape.Squad("7237", "612", "Toronto FC", "u19", "HD")
+    assert squads["9729"] == scrape.Squad("9729", "1438", "Beta FC", "u19", "HD")
+    assert (games[0]["competition"], games[0]["home_score"], games[0]["away_score"]) == ("MLS NEXT Flex", 3, 1)
+
+
+@pytest.mark.parametrize(
+    "club_id, club_name, kept, lost, keys",
+    [
+        (612, "Toronto FC", "7237", "9729", ("7237:2026", "")),
+        (1438, "Beta FC", "9729", "7237", ("", "9729:2026")),
+    ],
+    ids=["away club missing", "home club missing"],
+)
+def test_one_club_the_list_does_not_hold_is_left_out_and_reported(club_id, club_name, kept, lost, keys):
+    clubs = [{"id": club_id, "name": club_name}]
+    events = scrape.parse_feed(_standings_file(organisations=clubs), "mls-next-league", 2026, floors={}, today=SYNC_DAY)
+    squads, games, unreadable = scrape.build([("HD", events)], 2026)
+    assert set(squads) == {kept} and unreadable == {lost: "squad id missing or club not found"}
+    assert (games[0]["home_key"], games[0]["away_key"]) == keys
+
+
+def test_one_competition_the_list_does_not_hold_leaves_that_games_label_blank():
+    competitions = [{"id": 1605, "name": "League"}]
+    events = scrape.parse_feed(_standings_file(competitions=competitions), "mls-next-league", 2026, floors={}, today=SYNC_DAY)
+    _, games, _ = scrape.build([("HD", events)], 2026)
+    assert (games[0]["status"], games[0]["competition"]) == ("played", "")
 
 
 def test_the_local_date_follows_the_games_own_timezone():
@@ -91,7 +258,8 @@ def test_an_academy_label_must_carry_ad_and_a_homegrown_label_must_not():
 
 
 @pytest.mark.parametrize(
-    "label", ["U17b", "U17 B", "U17BB", "U17C", "U16 AD*", "U19 AD**", "U12", "U18", "", "U16\n", "U１６", "U16 ad"]
+    "label",
+    ["U17b", "U17 B", "U17BB", "U17C", "U16 AD*", "U19 AD**", "U16 AD Inactive", "U12", "U18", "", "U16\n", "U１６", "U16 ad"],
 )
 def test_a_label_that_is_not_a_board_age_is_left_out_and_reported(label):
     event = _event(home=(30, label, 300, "Odd FC"))
@@ -124,9 +292,9 @@ def test_an_academy_label_keeps_its_age_and_takes_no_suffix():
 
 
 def test_the_squads_file_carries_the_suffix(tmp_path, monkeypatch):
-    flex = [_event(2, home=(30, "U17B", 300, "FC Dallas"), away=(31, "U17", 301, "Alpha SC"))]
+    league = [_event(2, home=(30, "U17B", 300, "FC Dallas"), away=(31, "U17", 301, "Alpha SC"))]
     academy = [_event(3, home=(20, "U14 AD", 200, "Gamma"), away=(21, "U14 AD", 201, "Delta"))]
-    feeds = {"mls-next-league": [_event()], "mls-next-flex": flex, "mls-next-2-academy-division": academy}
+    feeds = {"mls-next-league": league, "mls-next-2-academy-division": academy}
     _run(tmp_path, feeds, date(2026, 10, 1), monkeypatch)
     rows = {r["provider_team_id"]: r for r in csv.DictReader((tmp_path / "squads.csv").open(encoding="utf-8"))}
     squad = rows["30"]
@@ -164,6 +332,14 @@ def test_a_completed_game_with_a_missing_score_is_not_played():
     assert games[0]["status"] == "scheduled" and games[0]["home_score"] == ""
 
 
+@pytest.mark.parametrize("missing", ["home_score", "away_score"])
+def test_a_completed_game_with_one_score_is_not_played(missing):
+    event = _event()
+    del event[missing]
+    _, games, _ = scrape.build([("HD", [event])], 2026)
+    assert (games[0]["status"], games[0]["home_score"], games[0]["away_score"]) == ("scheduled", "", "")
+
+
 def test_an_uncompleted_game_with_a_score_is_not_played():
     _, games, _ = scrape.build([("HD", [_event(completed=False)])], 2026)
     assert games[0]["status"] == "scheduled"
@@ -174,8 +350,8 @@ def test_a_zero_zero_game_is_played():
     assert (games[0]["status"], games[0]["home_score"], games[0]["away_score"]) == ("played", 0, 0)
 
 
-def test_an_event_listed_in_two_files_is_one_game_and_the_first_listing_wins():
-    _, games, _ = scrape.build([("HD", [_event()]), ("HD", [_event(scores=(9, 9))])], 2026)
+def test_an_event_listed_twice_is_one_game_and_the_first_listing_wins():
+    _, games, _ = scrape.build([("HD", [_event(), _event(scores=(9, 9))])], 2026)
     assert [(g["home_score"], g["away_score"]) for g in games] == [(2, 1)]
 
 
@@ -198,26 +374,57 @@ class _Session:
 
 
 def _run(tmp_path, events_by_stem, today, monkeypatch):
-    monkeypatch.setattr(scrape, "FEEDS", tuple((s, d, 1) for s, d, _ in scrape.FEEDS))
+    monkeypatch.setattr(scrape, "FEEDS", tuple((s, d, {}) for s, d, _ in scrape.FEEDS))
     session = _Session(events_by_stem)
     return scrape.run(tmp_path, session, today), session
 
 
 def test_run_writes_squads_and_games_and_never_needs_the_database(tmp_path, monkeypatch):
+    flex = _event(2, scores=None, completed=False, competition="MLS NEXT Flex")
     academy = _event(3, home=(20, "U14 AD", 200, "Gamma"), away=(21, "U14 AD", 201, "Delta"))
     counts, session = _run(
         tmp_path,
-        {"mls-next-league": [_event()], "mls-next-flex": [_event(2, scores=None, completed=False)], "mls-next-2-academy-division": [academy]},
+        {"mls-next-league": [_event(), flex], "mls-next-2-academy-division": [academy]},
         date(2026, 10, 14),
         monkeypatch,
     )
     assert counts == {"squads": 4, "unreadable_squads": 0, "games": 3, "played": 2, "scheduled": 1}
+    games = {g["event_id"]: g for g in csv.DictReader((tmp_path / "games.csv").open(encoding="utf-8"))}
+    assert (games["2"]["competition"], games["2"]["division"]) == ("MLS NEXT Flex", "HD")
+    assert [url for url, _, _ in session.urls] == [
+        "https://mls-assist.theintelligenceplatform.com/data/standings/mls-next-league-26-27.json",
+        "https://mls-assist.theintelligenceplatform.com/data/standings/mls-next-2-academy-division-26-27.json",
+    ]
     squads = list(csv.DictReader((tmp_path / "squads.csv").open(encoding="utf-8")))
     assert {(s["provider_team_id"], s["key"], s["division"], s["gender"], s["season"]) for s in squads} >= {
         ("10", "10:2026", "HD", "Male", "2026"),
         ("20", "20:2026", "AD", "Male", "2026"),
     }
     assert all(timeout == 60 and "User-Agent" in headers for _, timeout, headers in session.urls)
+
+
+def test_a_run_refuses_a_file_below_the_real_floors_and_writes_nothing(tmp_path):
+    session = _Session({"mls-next-league": [_event()], "mls-next-2-academy-division": []})
+    with pytest.raises(scrape.ScrapeError, match="below the floor"):
+        scrape.run(tmp_path, session, date(2026, 10, 14))
+    assert not (tmp_path / "games.csv").exists()
+
+
+def test_a_run_refuses_a_frozen_file_and_writes_nothing(tmp_path, monkeypatch):
+    feeds = {"mls-next-league": [_event()], "mls-next-2-academy-division": []}
+    with pytest.raises(scrape.ScrapeError, match="last synced"):
+        _run(tmp_path, feeds, date(2026, 12, 1), monkeypatch)
+    assert not (tmp_path / "games.csv").exists()
+
+
+def test_main_exits_nonzero_when_a_file_is_refused(tmp_path, monkeypatch, capsys):
+    class _HtmlSession:
+        def get(self, url, headers=None, timeout=None):
+            return _Response(b"<!doctype html><html></html>")
+
+    monkeypatch.setattr(scrape.requests, "Session", _HtmlSession)
+    assert scrape.main(["--out-dir", str(tmp_path)]) == 1
+    assert "not JSON" in capsys.readouterr().err
 
 
 def test_a_season_with_no_scored_games_in_season_fails(tmp_path, monkeypatch):
@@ -240,7 +447,7 @@ def test_zero_scored_games_before_the_season_starts_is_fine(tmp_path, monkeypatc
 def test_a_side_missing_an_id_or_a_club_name_is_left_out_and_reported(home):
     squads, games, unreadable = scrape.build([("HD", [_event(home=home)])], 2026)
     assert "10" not in squads and set(squads) == {"11"}
-    assert list(unreadable.values()) == ["squad or club id missing"]
+    assert list(unreadable.values()) == ["squad id missing or club not found"]
     assert (games[0]["home_key"], games[0]["away_key"]) == ("", "11:2026")
 
 

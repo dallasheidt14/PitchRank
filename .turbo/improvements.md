@@ -2757,3 +2757,19 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `buildReportCardHtml` in `frontend/lib/email/report-card.ts`, which interpolates `teamName` unescaped; `escapeHtml` in `frontend/lib/email/feedback.ts` is the helper to share
 - **Why**: Read on 2026-11-06: a team name scraped from any league reaches this HTML, so markup in one would land in an email PitchRank sends. Reported by a review as reachable through `/api/reports/team-card` once a team has a published rank; the route was not traced here. Email clients run no scripts, so the exposure is links and images. It predates the Georgia provider.
 - **Noted**: 2026-11-06
+
+### Stop re-dated Kitman games storing a second copy
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `hold_reason` in `scripts/build_mlsnext_kitman_games_csv.py`; `unstored_rows` in `scripts/build_modular11_ea_games_csv.py`, which it imports
+- **Why**: Stored games match on date and teams, and Kitman re-dates games already stored, so a played game moved to a later date is held until that date and then imports as a new row. Compared all 6,739 stored rows with the standings files on 2026-11-08: 12 scored games now sit at a later date with the same score (7 land Nov 21-22, 5 in 2027), and 4 were reopened as unplayed and can double if replayed. The first import doubles none. Due before the Monday 2026-11-23 run, which would release those 7 and give 14 teams a duplicate game. One way: hold a played event whose squad pair has a stored game no current event explains.
+- **Noted**: 2026-11-08
+
+### Find why the Kitman weekly run starts hours after its cron
+
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: the `schedule` trigger in `.github/workflows/mlsnext-kitman-scraper.yml`
+- **Why**: Its cron is 05:45 UTC Monday and its comment says it runs before `calculate-rankings.yml`, but `gh run list` shows the last three scheduled runs created at 11:15 (10-19), 11:32 (10-26) and 13:49 UTC (11-02). Rankings start at 12:30 UTC, so on 11-02 the run started after them, and Monday's rankings can miss that week's MLS NEXT games.
+- **Noted**: 2026-11-08
