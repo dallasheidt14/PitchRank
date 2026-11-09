@@ -4,11 +4,14 @@
 Reads ``games.csv`` and ``squads.csv``. A played game dated from August 1 of the season up to today
 whose two squads are both linked to PitchRank, on the same board, becomes two importer rows (one per
 side); every other played game is written to ``held_games.csv`` with its reason and waits. A completed,
-scored game dated in the future is held until that date, then imports under it. Links come from the
+scored game dated in the future that PitchRank has not stored is held until that date, then imports under
+it. Links come from the
 live ``mlsnext_kitman`` aliases, or with ``--planned`` from ``link_plan.csv`` (a team the plan would
 create counts as linked), so the impact can be read before anything is written. A live link whose team
 the importer would reject (another age or gender, or deprecated) is dropped, so its games are held
-rather than imported with one side missing.
+rather than imported with one side missing. A played game that is a stored game Kitman moved to a new
+date (same home team, away team and score) is held, because a stored game keys on its date and importing
+it would store it twice; a different result, or the same teams the other way round, imports as a new game.
 
 Read-only against the database. Import the result of a live run with:
     python scripts/import_games_enhanced.py data/mlsnext_kitman/import.csv mlsnext_kitman
@@ -25,6 +28,7 @@ import argparse
 import csv
 import os
 import sys
+from collections import Counter
 from datetime import date, datetime, timezone
 from pathlib import Path
 
@@ -35,10 +39,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from scripts.build_modular11_ea_games_csv import (  # noqa: E402
     IMPORT_COLUMNS,
     PROVISIONAL_GAMES,
+    _fixture,
     _result,
     impact,
     unstored_rows,
 )
+from scripts.find_cross_provider_duplicates import page  # noqa: E402
 from scripts.scrape_mlsnext_kitman import BASE_URL  # noqa: E402
 from src.models.mlsnext_kitman_keys import refuse_raw_keys, season_start_year  # noqa: E402
 from src.models.mlsnext_kitman_matcher import PROVIDER_CODE  # noqa: E402
@@ -47,7 +53,46 @@ from supabase import create_client  # noqa: E402
 PAGE_SIZE = 1000
 
 
-def hold_reason(game: dict, squads: dict[str, dict], links: dict[str, str], since: str, today: str) -> str:
+def _meeting(row: dict) -> tuple:
+    return _fixture(row["game_date"], row["home_key"], row["away_key"])
+
+
+def _teams_and_score(row: dict) -> tuple | None:
+    """None when a score is missing or not a whole number."""
+    try:
+        return (row["home_key"], row["away_key"], int(row["home_score"]), int(row["away_score"]))
+    except (TypeError, ValueError):
+        return None
+
+
+def moved_event_ids(games: list[dict], stored: list[dict]) -> set[str]:
+    """Played events that are a stored game under a new date.
+
+    Stored games carry no event id, so a move is read from what it leaves behind: a stored game with no event
+    on its own date, and a played event not yet stored with the same home team, away team and score. Each
+    stored game accounts for the earliest such event. Nothing is remembered between runs, so a hold lifts once
+    an event appears on the stored game's date or an earlier matching event claims it.
+    """
+    stored = [{**s, "home_key": s["home_provider_id"], "away_key": s["away_provider_id"]} for s in stored]
+    current = {_meeting(g) for g in games}
+    stored_on = {_meeting(s) for s in stored}
+    left_behind = Counter(_teams_and_score(s) for s in stored if _meeting(s) not in current)
+    moved: set[str] = set()
+    for game in sorted(games, key=lambda g: (g["game_date"], g["event_id"])):
+        if game["status"] != "played" or _meeting(game) in stored_on:
+            continue
+        line = _teams_and_score(game)
+        if line and left_behind[line] > 0:
+            left_behind[line] -= 1
+            moved.add(game["event_id"])
+    return moved
+
+
+def hold_reason(
+    game: dict, squads: dict[str, dict], links: dict[str, str], since: str, today: str, moved: set[str]
+) -> str:
+    if game["event_id"] in moved:
+        return "a stored game Kitman moved to this date"
     if game["game_date"] > today:
         return "completed but dated in the future"
     if game["game_date"] < since:
@@ -63,7 +108,7 @@ def hold_reason(game: dict, squads: dict[str, dict], links: dict[str, str], sinc
 
 
 def build_rows(
-    games: list[dict], squads: dict[str, dict], links: dict[str, str], since: str, today: str
+    games: list[dict], squads: dict[str, dict], links: dict[str, str], since: str, today: str, moved: set[str]
 ) -> tuple[list[dict], list[dict]]:
     scraped_at = datetime.now(timezone.utc).isoformat()
     rows: list[dict] = []
@@ -71,7 +116,7 @@ def build_rows(
     for game in games:
         if game["status"] != "played":
             continue
-        why = hold_reason(game, squads, links, since, today)
+        why = hold_reason(game, squads, links, since, today, moved)
         if why:
             held.append({**game, "hold_reason": why})
             continue
@@ -126,7 +171,7 @@ def live_links(sb) -> dict[str, str]:
         raise SystemExit(f"ERROR: provider {PROVIDER_CODE!r} is missing; apply migration 20261015120000 first")
     links, offset = {}, 0
     while True:
-        page = (
+        chunk = (
             sb.table("team_alias_map")
             .select("provider_team_id, team_id_master")
             .eq("provider_id", provider[0]["id"])
@@ -136,12 +181,28 @@ def live_links(sb) -> dict[str, str]:
             .execute()
             .data
         )
-        links.update({row["provider_team_id"]: row["team_id_master"] for row in page})
-        if len(page) < PAGE_SIZE:
+        links.update({row["provider_team_id"]: row["team_id_master"] for row in chunk})
+        if len(chunk) < PAGE_SIZE:
             break
         offset += PAGE_SIZE
     refuse_raw_keys(links)
     return links
+
+
+def stored_games(sb, since: str) -> list[dict]:
+    """Hidden games count: hiding a game must not let its moved copy in."""
+    provider = sb.table("providers").select("id").eq("code", PROVIDER_CODE).execute().data
+    if not provider:
+        return []
+    return page(
+        lambda: (
+            sb.table("games")
+            .select("id, game_date, home_provider_id, away_provider_id, home_score, away_score")
+            .eq("provider_id", provider[0]["id"])
+            .gte("game_date", since)
+        ),
+        "id",
+    )
 
 
 def usable_links(sb, links: dict[str, str], ages: dict[str, str]) -> dict[str, str]:
@@ -207,14 +268,15 @@ def main(argv: list[str] | None = None) -> int:
         if len(links) < len(linked):
             dropped = len(linked) - len(links)
             print(f"Dropped {dropped} links: not a squad this season, or its team is another age/gender or deprecated")
-    rows, held = build_rows(games, squads, links, since, today.isoformat())
+    moved = moved_event_ids(games, stored_games(sb, since))
+    rows, held = build_rows(games, squads, links, since, today.isoformat(), moved)
     _write_csv(args.in_dir / ("import_planned.csv" if args.planned else "import.csv"), IMPORT_COLUMNS, rows)
     _write_csv(args.in_dir / "held_games.csv", [*(games[0] if games else {}), "hold_reason"], held)
     new_rows = unstored_rows(sb, rows, links)
     result = impact(sb, new_rows, links)
     print(
         f"games_added={result['games_added']} already_stored={(len(rows) - len(new_rows)) // 2} "
-        f"held={len(held)} teams_touched={result['teams_touched']} "
+        f"held={len(held)} moved={len(moved)} teams_touched={result['teams_touched']} "
         f"crossing_{PROVISIONAL_GAMES}_games={result['crossing_up']}"
     )
     return 0
