@@ -31,6 +31,8 @@ where a.team_id_master in (<row ids>);
 
 Count each id's games by season from `games`, grouping on the side's team and provider id (`home_provider_id` / `away_provider_id`) with `games.provider_id`. Include rows merged into the wrong row (`team_merge_map`), since games keep the pre-merge team id.
 
+When the row's ids look shifted to another age group, list every id the club uses this season before moving anything, and compare each id's name at the provider with the row its alias points at. For TGS, take event ids from `games.source_url` on the club's rows and flights as `scraper-patterns` describes, then read `hometeamID`/`homeTeam` and `awayteamID`/`awayTeam` from `get_games_for_flight` in `scripts/scrape_tgs_event.py`, filtering on `homeTeamClub`/`awayTeamClub`. It returns an empty list on any failed request, so re-read an empty active flight. A shift rarely stops at the rows reported: two reported Atletico Dallas Youth rows led to ten shifted ids, U10 to U16, and fixing only those two would have left the rows their games moved to still holding other squads' games.
+
 ## Step 2: Read each id's squad by season
 
 Run `list_id_games.py` per id with `--before` and `--since` set to the Aug 1 season start (arguments in Step 5). It prints opponent names and the event for each game. Opponent names that state a cohort (`G2011/12`, `ECNL RL 2012`) are the witnesses; opponents' stored `age_group` is circular, since the same imports set it. Two patterns decide the case:

@@ -229,6 +229,14 @@ look like two, and none shows in a single pair's names.
   to the next cohort down at the season change, so one row carries last season's squad and a
   younger squad's new schedule. Read the opponents' ages across the season boundary before
   treating the row as either squad.
+- **A provider record reused across genders (Texas, found 2026-11-08).** A GotSport record can keep
+  a girls team's games under a boys team's current name, so two rows can share a name and cohort
+  and still be two teams; if the boys row is also stored as girls, they share a stored gender too.
+  `team_name_original` can be NULL, as on both rows here, and `display_gender` from `team_details`
+  describes the current squad only. Read the opponents' names in each row's games: one row played
+  only girls teams, the other boys teams. Where that leaves a doubt, read the names on the record's
+  own match list (`/api/v1/teams/<id>/matches?past=true`). `Galaxy Elect FC '17 Girls` was merged
+  into a 16/17B boys row this way; the merge has since been undone.
 - **Colours reshuffled between seasons.** SA United (Texas) moved its 2014 boys squads to new
   colours, so last season's Black is this season's Gold. Pair by the original name and the
   schedule, not by the colour word.

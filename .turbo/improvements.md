@@ -455,6 +455,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: The derivation ladder ends in `top_known_team_age_group`, the cohort of the team this one played, and the CSV column that carries it downstream is indistinguishable from a cohort the team's own record supplied. `fix/opponent-cohort-inheritance` made the provider tier work so the fallback fires far less, but it is still reachable: a row with no provider data and an unparseable name is created in its opponent's cohort. The same applies to state, which is worse after that change — the export now writes the team's own mapped association into `unknown_state_used`, so discovery's comment calling it "the opponent's state" is stale and it discards authoritative data on a transient lookup failure. Tag each field with the tier that produced it, let candidate narrowing use an opponent-derived value, and refuse to persist one.
 - **Noted**: 2026-08-30
 - **Update (2026-09-08)**: Verified — the state-staleness half is fixed (`discover_teams_from_opponents.py` now describes `unknown_state_used` correctly; no `top_known_team_*` reference remains there). The core ask is untouched: `UnknownProfile` (`scripts/auto_match_unknown_opponents.py:156-161`) still carries plain untagged `age_group`/`gender`/`state_code`, and `build_unknown_profile` still falls back to `top_known_team_*` with no tier tag and nothing refusing to persist it.
+- **Update (2026-11-08)**: Gender shows the same shape at scale. A census found 1,268 live teams whose name contradicted their stored gender, and GotSport's `display_gender` contradicted the column on 54 of 60 sampled and 23 of 24 created since 2026-10-01, well after `fix/opponent-cohort-inheritance`. Six boys teams from one U10 division were all stored as girls. The path is unproven: `_build_team_metadata` keeps the CSV's gender when its own lookup returns nothing, which fits but was not traced. The newest flagged row is from 2026-10-27, and none of the 2,092 rows created since 2026-11-01 is flagged, so it may have stopped.
 
 ### GotSport labels aged-out teams U21, and the chain now creates them
 
@@ -2772,4 +2773,20 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Category**: reliability
 - **Where**: the `schedule` trigger in `.github/workflows/mlsnext-kitman-scraper.yml`
 - **Why**: Its cron is 05:45 UTC Monday and its comment says it runs before `calculate-rankings.yml`, but `gh run list` shows the last three scheduled runs created at 11:15 (10-19), 11:32 (10-26) and 13:49 UTC (11-02). Rankings start at 12:30 UTC, so on 11-02 the run started after them, and Monday's rankings can miss that week's MLS NEXT games.
+- **Noted**: 2026-11-08
+
+### Make team search ignore accents
+
+- **Type**: plan
+- **Category**: feature
+- **Where**: `search_teams` in `supabase/migrations/20261012120000_server_side_team_search.sql`, `parseTeamSearchQuery` in `frontend/lib/teamSearchQuery.ts`
+- **Why**: Checked on the live `/api/teams/search` 2026-11-08: "Inter Academy Yañez" returns nothing, and "Inter Academy Yanez" misses the 13/14B team named "A. Yañez" and returns only its 12/13B sibling, whose registered name happens to read "YANEZ". A parent typing a coach's name either way can fail to find their team. The function lowercases but does not fold accents, in the query or in the stored names.
+- **Noted**: 2026-11-08
+
+### Turn the team gender census into a repeatable job and check names with no gender in them
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `any_gender` in `scripts/fix_gender_from_registered_name.py`, a new script alongside it
+- **Why**: The 2026-11-08 cleanup corrected 1,232 teams with one-off scripts that compared each team's name with GotSport's `display_gender` and its opponents' names. It could not see a wrong label on a name with no gender in it, such as "FC Dallas Blue", since the census starts from the name. Reading GotSport for all of those is a large paced job, so it needs a resume cache and a limit. `any_gender` also reads "2009B Girls" as boys, because a letter beats the word once `spelled_gender` declines the mixed name.
 - **Noted**: 2026-11-08
