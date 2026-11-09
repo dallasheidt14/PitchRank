@@ -473,7 +473,7 @@ class MatchResult:
 # corrections that day, and exempts them from exclude_unscored_fixture_twins.py.
 # A provider that only needs schedule_id in the key and uid belongs in
 # SCHEDULE_ID_SUFFIX_PROVIDERS alone.
-REMATCH_PROVIDERS = frozenset({"playmetrics_tournament", "athletes2events", "tourneycentral"})
+REMATCH_PROVIDERS = frozenset({"playmetrics_tournament", "athletes2events", "tourneycentral", "htgsports"})
 
 # Providers whose schedule_id, when present, goes into the import pipeline's dedup key and game_uid. GotSport
 # and SincSports are not rematch providers: their scrapers set schedule_id only on a day the same two teams

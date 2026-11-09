@@ -886,6 +886,85 @@ Warrior Fall Classic (`wfc.`) is the event it was built against.
   leaves them in the name, so the club's stored squads read as other squads and duplicate. The
   matcher gates candidates on the club field and, when that matches none, on the written club.
 
+## HTG Sports Pages
+
+HTG Sports (`events.htgsports.net`) hosts tournaments and leagues, Heartland Soccer's Kansas City
+events among them, each under an event id: `https://events.htgsports.net/?eventid=14130`. The page
+is a single-page app; `https://events.htgsports.net/eventlist` lists current events with their ids
+(a boys and a girls side of one tournament are two events). `scripts/import_htgsports_event.py` is
+the driver; it takes `--event-url` and imports the Tourney Central driver's roster, conflict and CSV
+helper functions, passing their `provider_code` / `provider_name` arguments, rather than copying
+them. Its `main` repeats Tourney Central's registration sequence (IMP-389), so pass the provider
+argument at every call that takes one: each defaults to Tourney Central's. An omitted
+`provider_code` stamps Tourney Central on the games CSV or reads HTG's queued reviews as unsaved;
+an omitted `provider_name` names Tourney Central in a conflict reason. `HtgSportsGameMatcher` is `TourneyCentralGameMatcher` unchanged. The 2026
+Children's Mercy Heartland Invitational (boys 14130, girls 14129) is the event it was built against.
+Like its siblings, a dry run writes the games, cross-age and team-report CSVs, which are the
+review sheet before `--execute`; the owner kept that on 2026-11-09 against CLAUDE.md's "a dry run
+writes nothing" rule, because each run writes new dated files and nothing reads them back.
+
+### API and token
+
+- JSON lives at `https://events.htgsports.net/api/<path>?format=json`, served as
+  `application/json; charset=utf-8`. Every call needs the header `HTGSports-Token: <GUID>`; without
+  it the API answers **204 No Content** (measured 2026-11-09), which a reader that only checks
+  "2xx" would take for an event with nothing in it. The driver accepts 200 alone, and treats an
+  empty 200 body as an error too.
+- The token is a constant in the app's public bundle, which the event page loads as
+  `<script src="/app/main.js?<build>">`. It appears twice, as
+  `headers.common["HTGSports-Token"]="…"` and `{"HTGSports-Token":"…"}`. It is the same for every
+  visitor, so the driver reads it from the bundle on each run (`read_api_token`) and stores it
+  nowhere. Send it on each API request, never on the session, and refuse redirects: `requests`
+  carries a custom header across a host change.
+- `eventSummary2/<event>`: `Name`, `StartDateAsString` / `EndDateAsString` ("11/6/2026").
+  `StartDate` is a .NET `/Date(ms-0600)/` value; the strings are easier.
+- `divisions/<event>`: `{Name, Id, SizeDescr, Format, Publish, MaxDOB}`. Names read
+  `U12 Boys Blue (2014/15) 9v9`, `U10 Girls Red (17/18) 7v7`, `U14/15 Girls Green (2012/13) 11v11`,
+  `U18/19 Girls Red (2007/08) 11v11` and `High School Boys Blue 11v11`; `SizeDescr` is `7v7`, `9v9`
+  or `11v11`.
+- `standings/<event>/<division>/false`: one row per team: `Id` (the HTG team id), `Name`,
+  `ClubName`, `Location` (`Des Moines, IA`), `Coach`, `PoolName`. **Rows also carry
+  `CoachCellPhone`, `CoachHomePhone`, `CoachWorkPhone`, `Manager` and three `Mgr*Phone` fields.
+  Never read, log or commit them**; the fixtures blank them and a test checks.
+- `GamesForDivision/<event>/<division>`: `Id` (unique to the event, so it is the `schedule_id`),
+  `Team1Id`/`HomeTeam`/`HomeTeamScore`, `Team2Id`/`VisitingTeam`/`VisitingTeamScore` (`-1` until
+  played), `Date` ("11/07/2026"), `Time` (` 7:00PM`), `Field`, `Type` (`Pool`, `Final`), `Pool1ID`/
+  `Pool2ID`, and the flags `Forfeit1/2`, `NoShow1/2` and `IgnoreResult1/2`. A forfeit or no-show is
+  counted and not imported; an ignore-result game (left out of the site's standings) is imported and
+  counted. Games are read once by `Id`, and a game listed more than once is held when its copies
+  disagree or any copy flags a forfeit, regardless of which copy is read first. No `Id` appears twice
+  in the test fixtures' two divisions, where `DivisionID`/`DivisionID2` are 0 on every game, so this
+  is a guard rather than an observed shape.
+- Being in `REMATCH_PROVIDERS` keeps a pool game and a final between the same two teams apart.
+  Tourney Central's limits apply (IMP-213): the composite key loses a final that repeats its pool
+  game's orientation and score, and a later run's master-id check drops a swapped-side repeat, so
+  import an event once, after it finishes.
+- `coaches/<event>` is a list of people with dates of birth. Never fetch it.
+- **Verify a division from the API, not from the page.** The page redraws a beat after its division
+  picker changes, so a snapshot can show one division's table under the next one's id.
+
+### Reading an HTG team
+
+- The age comes from the team's own name by the label key ("14/15B" is U12, `BU12` is U12,
+  `2014` is U13). A name with no age, or an odd year span, takes its division's age when the
+  division is one cohort: U12, or U18/19, which folds into u19 (owner, 2026-11-09). In a division
+  spanning more than one cohort (`U14/15`, `High School`) such a team is left out for `--age`. A name that
+  states an age keeps it in any division, because teams play up (`SPORTING BV Pre-MLS Next 15/16`
+  played U12 Blue and is U11).
+- The club is `ClubName`, or the name's own club when that is blank; the state is the one US state
+  code in `Location`. Locations are written loosely (`Lenexa , KS`, `WAUKEE, IA`), which
+  `state_from_location` handles.
+- The fallback skips a team listed in divisions of different ages (which age it got would depend on
+  API order) and a name with two birth years (`Club 2012 Est 2019`, which `age_from_name` reports as
+  no age); each is left out with its own reason.
+- A standings slot named `TBD`, `TBA`, "to be determined", "to be announced" or `Bye` is reported
+  and never registered; the fallback would otherwise give it its division's age and create a team
+  of that name (event 14129's U14 Girls Red listed one).
+- The roster pass runs `respell_ages`, as Tourney Central's does, so a bare `05`-`19` in a name
+  reads as a birth year. Read the dry run's team report for bare-number names before `--execute`:
+  at the 2026 Heartland Invitational, CVSC wrote U-ages that way (`CVSC 10B` played U10 7v7 and
+  reads as born 2010), so each such team needs `--age`.
+
 ## Demosphere Pages
 
 Demosphere ("Elements", `elements.demosphere.com`) hosts league sites keyed by a numeric site id. NCSL
@@ -1198,6 +1277,30 @@ Collapsing them files a historical event's teams onto a stale board, and base al
 rejects the mismatched stored age (`src/models/game_matcher.py:1002-1009`). This is the same point
 *Reading a Provider's Age Labels* makes below — a label does not carry its own season — applied to
 the two places the season is consumed.
+
+### Check a roster pass's new teams for near-duplicates before `--execute`
+
+A dry run shows no wrong link was made, but not that a link was missed. Before each event's first
+`--execute`, take every row whose `outcome` in the dry run's team report is `created` and compare it
+with the live teams (`is_deprecated` false) on the same `age_group` and `gender`, and on the same
+`state_code` or none, as `_fetch_candidates` admits. One read-only `mcp__supabase__execute_sql`
+query does it: a `VALUES` CTE over the created rows, joined to `teams` on those columns and kept
+where `similarity(lower(t.team_name), lower(c.name)) >= 0.55`. Treat 0.55 as a starting point; it
+surfaced every pair confirmed among the created teams at the 2026 Heartland Invitational.
+
+A hit is a candidate the matcher's gates refused, not a confirmed duplicate: a club's other squads
+match by name as well. Five of the pairs confirmed there had failed the club gate alone, linking as
+soon as the gate also accepted a stored name that starts with the provider's club. HTG writes
+`SPORTING BV` where PitchRank stores the club as "Sporting Blue Valley", and the stored name carries a
+nickname before any age token, so neither the club read from the name (`SPORTING BV Real Madrid` from
+`SPORTING BV Real Madrid 16/17`) nor `club_name` passes `is_same_club` against the provider's club.
+
+Show the hits to the owner, and link each confirmed pair as *Resolving provider review items by hand*
+below says, checking too that the target has no `team_merge_map` row as `deprecated_team_id`. Two
+created rows hitting one stored team are two squads, and at most one may link to it: `shared_links`
+flags only fuzzy links, never two approved aliases to one team. Then re-run the dry run. Each linked
+team should read `already_linked`; one stored on another board reads `error` from `off_board_links`
+("linked team is on the uNN board") before anything is written.
 
 ### Resolving provider review items by hand
 
@@ -1619,4 +1722,6 @@ year; check the provider's names for squad numbers before opting in.
 `scripts/import_tourneycentral_event.py` and `discover_sincsports_via_tournament.resolve_team_age`
 follow this. The Athletes2Events driver (division as bound and fallback) and the Soccer Events
 Group driver keep their own rules; leave those drivers as they are and copy neither rule into a new
-one.
+one. **For a new driver, the one owner-approved exception is HTG Sports' division fallback**
+(never a bound; see HTG Sports Pages, owner 2026-11-09). Ask the owner before passing
+`division_age_fallback=True` to `build_roster` for another driver.

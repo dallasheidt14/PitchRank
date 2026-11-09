@@ -25,6 +25,7 @@ from src.models.affinity_ut_matcher import AffinityUTGameMatcher
 from src.models.affinity_wa_matcher import AffinityWAGameMatcher
 from src.models.athletes2events_matcher import Athletes2EventsGameMatcher
 from src.models.demosphere_matcher import DemosphereGameMatcher
+from src.models.htgsports_matcher import HtgSportsGameMatcher
 from src.models.modular11_matcher import Modular11GameMatcher
 from src.models.playmetrics_matcher import PlayMetricsGameMatcher
 from src.models.sincsports_matcher import SincSportsGameMatcher
@@ -48,6 +49,7 @@ AUTOCREATING_MATCHERS = [
     ("yssl", YSSLGameMatcher),
     ("tourneycentral", TourneyCentralGameMatcher),
     ("demosphere", DemosphereGameMatcher),
+    ("htgsports", HtgSportsGameMatcher),
 ]
 
 
@@ -104,6 +106,7 @@ def test_pipeline_builds_each_providers_own_matcher(provider, cls):
         ("yssl", YSSLGameMatcher, "_create_new_athletes2events_team"),
         ("tourneycentral", TourneyCentralGameMatcher, "_create_new_athletes2events_team"),
         ("demosphere", DemosphereGameMatcher, "_create_new_athletes2events_team"),
+        ("htgsports", HtgSportsGameMatcher, "_create_new_athletes2events_team"),
     ],
 )
 def test_autocreate_writes_nothing_in_dry_run(provider, cls, create):
@@ -160,7 +163,9 @@ class _EmptyDB:
 # The roster-pass providers create a team only from that pass,
 # and only for a team carrying a state. Without both, _match_team returns before any
 # creation and every identity assertion below holds vacuously on None.
-REGISTRATION_MATCHERS = frozenset({"soccereventsgroup", "athletes2events", "yssl", "tourneycentral", "demosphere"})
+REGISTRATION_MATCHERS = frozenset(
+    {"soccereventsgroup", "athletes2events", "yssl", "tourneycentral", "demosphere", "htgsports"}
+)
 
 
 def _match_thrice(cls, provider, db):
