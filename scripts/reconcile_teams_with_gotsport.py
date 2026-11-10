@@ -10,9 +10,10 @@ current registration, so this asks it again for a bounded slice.
 What it writes is deliberately narrower than what it reports:
 
 * ``team_name`` is overwritten whenever GotSport differs -- unless GotSport's cohort
-  disagrees with ours, its name is a retired-registration marker (``zz old - ...``),
-  or ours states our cohort by birth year and GotSport's would trade that for another
-  age or a name with no number. A record filed under another cohort is not describing this squad as it
+  disagrees with ours, the record's gender contradicts the row's, its name is a
+  retired-registration marker (``zz old - ...``), or ours states our cohort by birth
+  year and GotSport's would trade that for another age or a name with no number. A
+  record filed under another cohort or gender is not describing this squad as it
   plays today, clubs park dead squads under those markers, and a club's U-age label
   goes stale every Aug 1 where a birth year does not, so none is a name to take.
 * ``club_name`` and ``state_code`` are filled only where ours is absent. Where both
@@ -23,9 +24,10 @@ What it writes is deliberately narrower than what it reports:
   U14 and U12 for two teams of the same birth year, and nothing may write
   ``teams.age_group`` from any source until that is settled (IMP-145). They are
   compared and logged so the disagreement is visible, and they are deliberately kept
-  out of the ``conflicts_only`` count -- ``display_age_group`` is the registered
-  event cohort, so a month after an Aug 1 rollover they would bury the club and
-  state disagreements that count is for.
+  out of the club and state ``conflicts`` tuple, reaching ``conflicts_only`` only by
+  withholding a rename -- ``display_age_group`` is the registered event cohort, so a
+  month after an Aug 1 rollover they would bury the club and state disagreements
+  that tuple is for.
 
 Every write carries its pre-image as a predicate, so a row that moved between the
 read and the write is skipped and reported rather than overwritten. That matters
@@ -75,6 +77,7 @@ from src.utils.age_group import normalize_age_group  # noqa: E402
 from src.utils.gotsport_alias import fetch_gotsport_aliases  # noqa: E402
 from src.utils.gotsport_team_details import TeamDetailsResolver  # noqa: E402
 from src.utils.placeholder_clubs import is_placeholder_club  # noqa: E402
+from src.utils.team_gender import gender_verdict, name_gender, row_genders, stored_gender  # noqa: E402
 
 # Columns filled only where ours is absent; a disagreement is reported instead.
 FILL_ONLY_FIELDS = ("club_name", "state_code")
@@ -275,7 +278,10 @@ def fetch_target_teams(
     while True:
         query = (
             supabase.table("teams")
-            .select("team_id_master,team_name,club_name,state_code,age_group,gender,state_source,state_confidence")
+            .select(
+                "team_id_master,team_name,team_name_original,club_name,state_code,age_group,gender,"
+                "state_source,state_confidence"
+            )
             .eq("is_deprecated", False)
         )
         if age_groups:
@@ -394,11 +400,20 @@ def decide(
     # the IMP-145 moratorium: a wrong veto costs a skipped rename, not a bad row.
     stored_age = str(team.get("age_group") or "").strip()
     cohorts_disagree = bool(provider["age_group"] and stored_age and provider["age_group"] != stored_age)
+    # A record of the other gender describes another squad, so its name is not this row's.
+    # The row's own names count as well as its column, which can be wrong.
+    genders_disagree = (
+        gender_verdict(
+            (stored_gender(provider["gender"]), name_gender(provider["team_name"])),
+            row_genders(team),
+        )
+        == "mismatch"
+    )
     # Owner, 2026-10-12: keep a name of ours that states our age group by its birth year when
     # GotSport's would replace it with another age or none ("Saints International Academy 2014"
     # became "U11 Boys" on a u13 team in Sep 2026).
     if provider["team_name"] and provider["team_name"] != raw_name:
-        if cohorts_disagree or keeps_our_name(raw_name, provider["team_name"], stored_age):
+        if cohorts_disagree or genders_disagree or keeps_our_name(raw_name, provider["team_name"], stored_age):
             blocked.append("team_name")
         else:
             updates["team_name"] = provider["team_name"]
@@ -907,7 +922,8 @@ def main() -> int:
     if withheld_names - collisions > 0:
         print(
             f"{withheld_names - collisions} renames withheld: GotSport files those teams under a different "
-            "cohort, or its name would replace a birth year that fits ours with another age or no number."
+            "cohort or gender, or its name would replace a birth year that fits ours with another age or no "
+            "number."
         )
     if collisions:
         print(f"{collisions} renames withheld: the name would have been shared with another team in this slice.")

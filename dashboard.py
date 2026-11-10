@@ -5375,6 +5375,10 @@ elif section == "🛡️ Due Diligence Review":
             return "🔴 CONFLICT" if v == "true" else "✅ None"
         if col_name == "name_literal_check":
             return "✅ Match" if v == "true" else "⚠️ No match"
+        if col_name == "gender_check" and v == "unknown":
+            return "🔴 Unread"
+        if v == "coed":
+            return "✅ Coed"
         if v == "ok" or v == "exact":
             return "✅ OK"
         if v == "partial":
@@ -5398,6 +5402,8 @@ elif section == "🛡️ Due Diligence Review":
                 count = (dd_df[col].str.lower() == "true").sum()
             elif col == "name_literal_check":
                 count = (dd_df[col].str.lower() != "true").sum()
+            elif col == "gender_check":
+                count = dd_df[col].str.lower().isin(["mismatch", "unknown"]).sum()
             else:
                 count = (dd_df[col].str.lower() == "mismatch").sum()
             if count > 0:
@@ -5456,6 +5462,9 @@ elif section == "🛡️ Due Diligence Review":
                 failures.append("alias_conflict")
             elif col == "name_literal_check" and val != "true":
                 pass  # name check alone is not a hard failure
+            elif col == "gender_check" and val == "unknown":
+                # The gate holds a record whose gender nothing reads, not only a contradiction.
+                failures.append("gender unread")
             elif val == "mismatch":
                 failures.append(col.replace("_check", ""))
 
@@ -5496,6 +5505,15 @@ elif section == "🛡️ Due Diligence Review":
                     badge = _check_badge(col, val)
                     display_name = col.replace("_", " ").title()
                     st.markdown(f"**{display_name}**: {badge}")
+
+            # The stored gender column can be the wrong reading, which is what the gender hold
+            # exists to catch, so show every reading the gate compared.
+            record_readings = row.get("record_gender_readings", "")
+            row_readings = row.get("row_gender_readings", "")
+            if record_readings or row_readings:
+                st.text(
+                    f"Gender readings: record {record_readings or 'none'}  |  team {row_readings or 'none'}"
+                )
 
             st.text(f"Match score: {best_score}  |  Games impacted: {games}  |  Sides: {row.get('sides', '')}")
 

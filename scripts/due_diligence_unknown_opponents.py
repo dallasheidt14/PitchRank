@@ -10,7 +10,9 @@ Output:
 
 Checks per auto_link row:
   1) alias conflict (provider_team_id already mapped to another master team?)
-  2) metadata agreement with provider API (club/state/age/gender)
+  2) metadata agreement with provider API (club/state/age), and gender read from GotSport, both
+     teams' names and the matched team's stored gender; a record nothing reads is held unless
+     the export says GotSport files it as Coed
   3) cohort agreement from known linked opponents in those games (age/gender)
 
 Typical usage:
@@ -44,6 +46,7 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from src.utils.age_group import normalize_age_group  # noqa: E402
 from src.utils.team_association_map import to_state_code  # noqa: E402
+from src.utils.team_gender import gender_verdict, name_gender, row_genders, stored_gender  # noqa: E402
 
 IN_BATCH = 100  # URI length caps .in_() lists
 
@@ -313,7 +316,7 @@ def main() -> None:
             _execute_with_retry(
                 lambda mid=matched_team_id: (
                     supabase.table("teams")
-                    .select("team_id_master,team_name,club_name,age_group,gender,state_code")
+                    .select("team_id_master,team_name,team_name_original,club_name,age_group,gender,state_code")
                     .eq("team_id_master", mid)
                     .limit(1)
                     .execute()
@@ -353,11 +356,23 @@ def main() -> None:
         team_club = str(team.get("club_name") or "")
 
         age_check = "unknown" if not unknown_age or not team_age else ("ok" if unknown_age == team_age else "mismatch")
-        gender_check = (
-            "unknown"
-            if not unknown_gender or not team_gender
-            else ("ok" if unknown_gender == team_gender else "mismatch")
-        )
+        # unknown_gender_used is left out: the matcher fills it from the opponent's row when
+        # nothing else answers, and an opponent says nothing about this record. The export's own
+        # GotSport lookup is read instead, because this script's lookups go unanswered in CI.
+        record_genders = [
+            stored_gender(unknown_gender),
+            name_gender(unknown_name),
+            *(stored_gender(r.get("unknown_provider_gender")) for r in items),
+            *(name_gender(r.get("unknown_team_name_used")) for r in items),
+        ]
+        team_genders = row_genders(team)
+        gender_check = gender_verdict(record_genders, team_genders)
+        # GotSport files some young teams as Coed. The export's Coed is an answer, though not one
+        # gender, so it neither holds the record nor contradicts the row.
+        if gender_check == "unknown" and any(
+            str(r.get("unknown_provider_gender") or "").strip().lower() == "coed" for r in items
+        ):
+            gender_check = "coed"
         state_check = (
             "unknown" if not unknown_state or not team_state else ("ok" if unknown_state == team_state else "mismatch")
         )
@@ -426,12 +441,14 @@ def main() -> None:
         # NOTE: cohort_age_check excluded from verdict — playing up/down across
         # age groups is common in youth soccer tournaments, causing false negatives.
         # The direct age_check (GotSport API vs DB) is the reliable signal.
+        # A record whose gender nothing reads is held rather than linked (owner, 2026-11-09):
+        # its games stay unmatched, so next week's export proposes it again.
         core_ok = all(
             [
                 not alias_conflict,
                 club_check != "mismatch",
                 age_check != "mismatch",
-                gender_check != "mismatch",
+                gender_check in ("ok", "coed"),
                 state_check != "mismatch",
                 tier_check != "mismatch",
                 cohort_gender_check != "mismatch",
@@ -461,6 +478,8 @@ def main() -> None:
             "club_check": club_check,
             "age_check": age_check,
             "gender_check": gender_check,
+            "record_gender_readings": "/".join(g for g in record_genders if g),
+            "row_gender_readings": "/".join(g for g in team_genders if g),
             "state_check": state_check,
             "tier_check": tier_check,
             "cohort_age_check": cohort_age_check,

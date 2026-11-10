@@ -14,6 +14,7 @@ from config.settings import MATCHING_CONFIG
 from src.tournaments.alias_writer import REVIEW_QUEUE_CLAMP
 from src.utils.placeholder_clubs import is_placeholder_club
 from src.utils.provider_ids import clean_provider_id, is_blank_provider_id
+from src.utils.team_gender import gender_verdict, name_gender, row_genders
 from supabase import Client
 
 # Import rapidfuzz for better similarity scoring (handles word reordering)
@@ -921,8 +922,22 @@ class GameHistoryMatcher:
                         f"{team_name!r} vs {fuzzy_match.get('team_name')!r} (confidence {confidence:.2f})"
                     )
 
+                # Names that differ only by a B or G normalize alike, and the candidates were
+                # filtered by the division's gender, which a girls team playing a boys
+                # division does not share. So the matched row is read again before it links.
+                gender_conflict = (
+                    confidence >= self.auto_approve_threshold
+                    and not year_conflict
+                    and self._genders_conflict(team_name, fuzzy_match["team_id"])
+                )
+                if gender_conflict:
+                    logger.info(
+                        "Gender conflict, routing to review instead of alias: "
+                        f"{team_name!r} vs {fuzzy_match.get('team_name')!r} (confidence {confidence:.2f})"
+                    )
+
                 # Auto-approve high confidence matches (0.9+)
-                if confidence >= self.auto_approve_threshold and not year_conflict:
+                if confidence >= self.auto_approve_threshold and not year_conflict and not gender_conflict:
                     # Create alias automatically
                     self._create_alias(
                         provider_id=provider_id,
@@ -942,7 +957,8 @@ class GameHistoryMatcher:
                         "confidence": confidence,
                     }
 
-                # Flag for review if between 0.75-0.9, or when a birth-year guard held it back
+                # Flag for review if between 0.75-0.9, when a birth-year guard held it back, or when
+                # the gender guard held back a match that would have auto-approved
                 elif confidence >= self.review_threshold or year_conflict:
                     # Insert into review queue instead of creating alias
                     self._create_review_queue_entry(
@@ -1223,6 +1239,28 @@ class GameHistoryMatcher:
             # On error, be conservative and reject the match
             return False
 
+    def _genders_conflict(self, team_name: Optional[str], team_id_master: str) -> bool:
+        """A name stating no gender never conflicts; a row that cannot be read does, so the match
+        waits in review rather than linking unchecked."""
+        stated = name_gender(team_name)
+        if not stated:
+            return False
+        try:
+            rows = (
+                self.db.table("teams")
+                .select("team_name,team_name_original,gender")
+                .eq("team_id_master", team_id_master)
+                .execute()
+                .data
+                or []
+            )
+        except Exception as e:
+            logger.error(f"Error reading team {team_id_master} for the gender guard: {e}")
+            return True
+        if not rows:
+            return True
+        return gender_verdict((stated,), row_genders(rows[0])) == "mismatch"
+
     def _match_by_alias(
         self,
         provider_id: str,
@@ -1277,7 +1315,8 @@ class GameHistoryMatcher:
           1. Extract club from provider name if not supplied
           2. Extract structural distinctions + variant from provider name
           3. Retrieve candidates (club-first gate; broad fallback only
-             when club extraction itself fails)
+             when club extraction itself fails), skipping one whose name
+             states the other gender
           4. Gate 1 — distinction filter: reject if any structural
              distinction differs (color, direction, program, team number,
              location code, squad word, coach name)
@@ -1366,11 +1405,16 @@ class GameHistoryMatcher:
             best_tiebreak = (False, 0.0)  # (variant_match, club_sim)
 
             provider_team = {"team_name": team_name, "club_name": club_name, "age_group": age_group, "state_code": None}
+            provider_gender = name_gender(team_name)
 
             club_variant_boost = MATCHING_CONFIG.get("club_variant_match_boost", 0.15)
 
             for team in result.data:
                 cand_name = team.get("team_name", "")
+
+                # A B/G twin scores like the right row, so it must not win the search.
+                if gender_verdict((provider_gender,), (name_gender(cand_name),)) == "mismatch":
+                    continue
 
                 # --- Gate 1: Hard rejection via structured distinctions ---
                 if HAVE_TEAM_NAME_UTILS and provider_distinctions is not None:

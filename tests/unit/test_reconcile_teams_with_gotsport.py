@@ -345,6 +345,50 @@ def test_the_cohort_veto_never_blocks_a_club_or_state_fill():
     assert decision.blocked == ("team_name",)
 
 
+def test_a_name_is_withheld_when_the_registration_is_the_other_gender():
+    """Brazas, 2026-11-09: a boys row held a girls registration, and took its name."""
+    team = _team(team_name="BRAZAS FC 2014/2015 Boys Black")
+    decision = _decide(team, _resolved(name="Brazas 2015 Girls Black Pacifico", gender="Female"))
+    assert decision.updates == {}
+    assert decision.blocked == ("team_name",)
+
+
+def test_gotsport_s_gender_alone_withholds_a_name_that_states_none():
+    team = _team(team_name="Crossfire Premier Red")
+    assert _decide(team, _resolved(name="Crossfire Premier Blue")).updates == {"team_name": "Crossfire Premier Blue"}
+
+    decision = _decide(team, _resolved(name="Crossfire Premier Blue", gender="Female"))
+    assert decision.updates == {}
+    assert decision.blocked == ("team_name",)
+
+
+def test_the_registration_name_alone_can_state_the_other_gender():
+    """GotSport files some registrations as Coed, which says neither gender; the name still does."""
+    team = _team(team_name="Brazas FC Boys Black")
+    decision = _decide(team, _resolved(name="Brazas Girls Black Pacifico", gender="Coed"))
+    assert decision.updates == {}
+    assert decision.blocked == ("team_name",)
+
+
+def test_a_name_is_withheld_from_a_row_named_for_one_gender_and_stored_as_the_other():
+    """LFA's boys row was stored as girls, so the stored column alone agreed with a girls record."""
+    team = _team(team_name="LFA 17/18B Red Star Swift (2036)", gender="Female")
+    decision = _decide(team, _resolved(name="LFA 17/18G Red Star Swift (2036)", gender="Female"))
+    assert decision.blocked == ("team_name",)
+
+
+def test_a_name_is_taken_when_the_genders_agree():
+    decision = _decide(_team(team_name="Crossfire Premier Red"), _resolved(name="Crossfire Premier Boys Red"))
+    assert decision.updates == {"team_name": "Crossfire Premier Boys Red"}
+
+
+def test_the_gender_veto_never_blocks_a_club_or_state_fill():
+    team = _team(team_name="Crossfire Premier Red", club_name="", state_code="")
+    decision = _decide(team, _resolved(name="Crossfire Premier Girls Red", gender="Female"))
+    assert set(decision.updates) == {"club_name", "state_code"}
+    assert decision.blocked == ("team_name",)
+
+
 def test_a_real_name_is_never_replaced_by_a_placeholder():
     assert _decide(_team(), _resolved(name=f"unknown_{PID}")).updates == {}
 
@@ -423,12 +467,11 @@ def test_a_reported_field_is_never_written(name, provider_value):
 
 
 def test_a_reported_field_stays_out_of_an_update_that_happens_anyway():
-    """Gender never vetoes and never writes, so a rename proceeds beside a gender
-    disagreement and must not carry it into the payload."""
-    decision = _decide(_team(), _resolved(name="Crossfire Premier B12 Blue", age_group="u14", gender="Female"))
+    """Age and gender are read, and may withhold a rename, but are never written."""
+    decision = _decide(_team(), _resolved(name="Crossfire Premier B12 Blue", age_group="u14", gender="Male"))
     assert set(decision.updates) == {"team_name"}
     assert not set(decision.updates) & set(REPORTED_FIELDS)
-    assert decision.provider["gender"] == "Female"
+    assert decision.provider["gender"] == "Male"
 
 
 def test_a_reported_field_does_not_raise_a_conflict():
@@ -604,19 +647,23 @@ def test_a_landed_state_survives_a_refused_table_write():
 # --- name collisions within a slice ---------------------------------------------
 
 
-def _rename(team_name, club, new_name, team_id, age_group="u14"):
-    team = _team(team_id_master=team_id, team_name=team_name, club_name=club, age_group=age_group)
-    return _decide(team, _resolved(name=new_name, age_group=age_group))
+def _rename(team_name, club, new_name, team_id, age_group="u14", gender="Male"):
+    team = _team(team_id_master=team_id, team_name=team_name, club_name=club, age_group=age_group, gender=gender)
+    return _decide(team, _resolved(name=new_name, age_group=age_group, gender=gender))
+
+
+def _to_u13g_dpl(team_name, club, team_id):
+    return _rename(team_name, club, "U13G DPL", team_id, age_group="u13", gender="Female")
 
 
 def test_a_name_two_teams_would_share_is_given_to_neither():
     """Replays a live AZ u13 run: four teams from four different clubs were all
     renamed to `U13G DPL`, each from a name that had said which club it was."""
     decisions = [
-        _rename("AZ Arsenal 2014 Teal VN", "Arizona Arsenal Soccer Club", "U13G DPL", "t1", age_group="u13"),
-        _rename("Arizona Soccer Club 2014 Pre-DPL", "Arizona Soccer Club", "U13G DPL", "t2", age_group="u13"),
-        _rename("Excel Soccer Academy 2014 G", "Excel Soccer Academy", "U13G DPL", "t3", age_group="u13"),
-        _rename("PRFC West Valley 2014 Pre-Elite", "Phoenix Rising FC", "U13G DPL", "t4", age_group="u13"),
+        _to_u13g_dpl("AZ Arsenal 2014 Teal VN", "Arizona Arsenal Soccer Club", "t1"),
+        _to_u13g_dpl("Arizona Soccer Club 2014 Pre-DPL", "Arizona Soccer Club", "t2"),
+        _to_u13g_dpl("Excel Soccer Academy 2014 G", "Excel Soccer Academy", "t3"),
+        _to_u13g_dpl("PRFC West Valley 2014 Pre-Elite", "Phoenix Rising FC", "t4"),
     ]
     assert all(d.updates == {"team_name": "U13G DPL"} for d in decisions)
 
@@ -629,8 +676,11 @@ def test_a_name_two_teams_would_share_is_given_to_neither():
 
 def test_a_rename_onto_a_name_another_team_already_holds_is_withheld():
     decisions = [
-        _rename("Arizona SC 2014 Pre-GA ASPIRE", "Arizona Soccer Club", "ECNL RL G2013/14", "t1"),
-        _decide(_team(team_id_master="t2", team_name="ECNL RL G2013/14"), _resolved(name="ECNL RL G2013/14")),
+        _rename("Arizona SC 2014 Pre-GA ASPIRE", "Arizona Soccer Club", "ECNL RL G2013/14", "t1", gender="Female"),
+        _decide(
+            _team(team_id_master="t2", team_name="ECNL RL G2013/14", gender="Female"),
+            _resolved(name="ECNL RL G2013/14", gender="Female"),
+        ),
     ]
     assert drop_colliding_renames(decisions) == 1
     assert decisions[0].updates == {}
@@ -658,11 +708,14 @@ def test_two_teams_that_already_shared_a_name_are_left_alone():
 
 
 def test_a_collision_never_withholds_a_club_or_state_fill():
+    team = _team(
+        team_id_master="t1", team_name="Other Name", club_name="", state_code="", age_group="u13", gender="Female"
+    )
     decisions = [
-        _decide(_team(team_id_master="t1", club_name="", state_code=""), _resolved(name="U13G DPL")),
-        _rename("Other Team", "Other Club", "U13G DPL", "t2"),
+        _decide(team, _resolved(name="U13G DPL", age_group="u13", gender="Female")),
+        _to_u13g_dpl("Other Team", "Other Club", "t2"),
     ]
-    drop_colliding_renames(decisions)
+    assert drop_colliding_renames(decisions) == 2
     assert set(decisions[0].updates) == {"club_name", "state_code"}
     assert decisions[0].action == "updated"
 
@@ -707,8 +760,8 @@ def test_the_write_list_cannot_be_obtained_without_the_collision_pass():
     """The guard runs where `planned` is computed, so skipping it is not a silent
     omission — a caller would have to rebuild the filter to bypass it."""
     decisions = [
-        _rename("AZ Arsenal 2014 Teal VN", "Arizona Arsenal Soccer Club", "U13G DPL", "t1", age_group="u13"),
-        _rename("Excel Soccer Academy 2014 G", "Excel Soccer Academy", "U13G DPL", "t2", age_group="u13"),
+        _to_u13g_dpl("AZ Arsenal 2014 Teal VN", "Arizona Arsenal Soccer Club", "t1"),
+        _to_u13g_dpl("Excel Soccer Academy 2014 G", "Excel Soccer Academy", "t2"),
         _rename("2014 Hinds", "RSL Arizona South", "14B Hinds", "t3"),
     ]
     planned, collisions = plan_writes(decisions)
@@ -781,6 +834,19 @@ def test_a_fetched_team_carries_the_age_group_the_name_rule_reads():
     row = {**_teams_table(1)[0], "team_name": f"Saints International Academy {U13_YEAR}", "age_group": "u13"}
     teams, _ = fetch_target_teams(_FakeSupabase({"teams": [row]}), ["u13"], [], None)
     assert _decide(teams[0], _resolved(name="U11 Boys", age_group="u13")).blocked == ("team_name",)
+
+
+def test_a_fetched_team_carries_the_registered_name_the_gender_veto_reads():
+    """Only the registered name says boys here, so the slice's query has to select it."""
+    row = {
+        **_teams_table(1)[0],
+        "team_name": "Chicago Rush South Premier",
+        "team_name_original": "2019 Chicago Rush South Boys Premier",
+        "gender": "Female",
+    }
+    teams, _ = fetch_target_teams(_FakeSupabase({"teams": [row]}), [row["age_group"]], [], None)
+    resolved = _resolved(name="U10 Chicago Rush South Premier Girls", age_group=row["age_group"], gender="Female")
+    assert _decide(teams[0], resolved).blocked == ("team_name",)
 
 
 def test_an_offset_advances_past_a_batch_already_done():

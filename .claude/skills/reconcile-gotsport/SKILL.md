@@ -108,7 +108,8 @@ The log it names (`reconcile_teams_with_gotsport_<time>.csv`) is Step 2's input.
 after a WAF stop leaves several logs; pass them all to Step 2, oldest first.
 
 With `--execute` the same script also takes GotSport's name for a team, but not where GotSport files
-the team in another age group, or where our name's birth year fits our group and GotSport's name
+the team in another age group, where the registration's gender (GotSport's field or its name)
+contradicts ours (the stored column or either of our names), or where our name's birth year fits our group and GotSport's name
 would trade it for another age or no number (owner, 2026-10-12). The log shows each withheld rename
 as `team_name` in `blocked_fields`. A GotSport name that marks a retired or archived registration
 (`zz old`, `do not use`, `inactive`, `archive` and the like) is never taken: it is blanked before

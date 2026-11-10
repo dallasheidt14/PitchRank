@@ -530,6 +530,9 @@ def main() -> None:
                 "unknown_club_name_used": profile.club_name,
                 "unknown_age_group_used": profile.age_group or "",
                 "unknown_gender_used": profile.gender or "",
+                # The record's own GotSport gender from the export, and nothing else: the gate
+                # reads it as evidence, where unknown_gender_used may hold the opponent's.
+                "unknown_provider_gender": (row.get("unknown_gender") or "").strip(),
                 "unknown_state_used": profile.state_code or "",
                 "candidate_count": candidate_count,
                 "action": action,

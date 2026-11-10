@@ -52,6 +52,22 @@ def test_guard_is_wired_into_the_candidate_loop():
     assert "birth_years_conflict" in source, "candidate loop does not call the guard"
 
 
+def test_gender_guard_is_wired_into_the_accept_path():
+    """The gender guard shares the birth-year guard's accept point, so every subclass reaches it."""
+    from src.models.game_matcher import GameHistoryMatcher
+
+    source = inspect.getsource(GameHistoryMatcher._match_team)
+    assert "_genders_conflict" in source, "accept path does not call the gender guard"
+    assert "and not gender_conflict" in source, "auto-approve is not conditioned on the gender guard"
+
+
+def test_gender_guard_is_wired_into_the_candidate_loop():
+    from src.models.game_matcher import GameHistoryMatcher
+
+    source = inspect.getsource(GameHistoryMatcher._fuzzy_match_team)
+    assert "name_gender(cand_name)" in source, "candidate loop does not skip a B/G twin"
+
+
 _SUBCLASS_PATHS = [
     ("src.models.affinity_wa_matcher", "AffinityWAGameMatcher"),
     ("src.models.affinity_or_matcher", "AffinityORGameMatcher"),
