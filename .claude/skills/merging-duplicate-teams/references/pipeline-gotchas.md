@@ -110,7 +110,18 @@ row; SKILL.md Step 6 says how to settle that team by hand.
 
 `scripts/revert_fuzzy_auto_merges.py` is for merges with no such log: it un-deprecates the team,
 repoints `team_alias_map` and drops the `team_merge_map` row, reading the snapshot from
-`team_merge_audit`.
+`team_merge_audit`. None of its filters (date, actor, `--placeholders-only`,
+`--birth-year-conflicts`, `--limit`) names one merge; revert a single merge with
+`revert_team_merge` on its `team_merge_map` row.
+
+The 177 merges recorded as `cleany-auto` (the retired Cleany agent, all on 2026-01-31) have **no
+`team_merge_audit` row**, so neither script sees them. `revert_team_merge` still works on them: it
+clears `is_deprecated`, repoints the aliases whose ids appear in the restored row's own games,
+deletes the map row and records the revert. It moves no game sides. Afterwards check where the
+restored row's alias sits, repoint it with `splitting-fused-provider-ids`' `split_provider_ids.py
+--to-existing` if it is still on the survivor, and move the sides that landed on the survivor after
+`merged_at` carrying the restored row's `provider_team_id` with that skill's `move_game_sides.py
+--provider-team-id`, excluding the unscored fixtures it skips.
 
 **Pass the actor explicitly — the default is wrong for merges this skill applies.** The script
 hardcodes `pitchrank-bot`, which is what the weekly job records; `apply_vetted_team_merges.py`

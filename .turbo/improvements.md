@@ -2856,3 +2856,27 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `GotSportScraper.scrape_team_games`, `_parse_api_match` and `_repeat_day_match_ids` in `src/scrapers/gotsport.py`; `GameHistoryMatcher.generate_game_uid` in `src/models/game_matcher.py`; the past-dated no-score skip in `EnhancedETLPipeline._validate_and_dedup` in `src/etl/enhanced_pipeline.py`
 - **Why**: GotSport records a team's whole league schedule as 3-0s on a placeholder date, or a 3-0 weeks before kickoff, with no structured status field, and moves those matches between dates. Its free-text `description` sometimes gives the reason or a move (`Away team does not have enough players (ML)`, `9/20 rain out ER`; 85 of 2,366 matches in the 2026-11-09 sample), and `_parse_api_match` drops it, so it is a candidate signal the importer never sees. `scrape_team_games` keeps GotSport's match `id` only for same-day rematches, as a suffix after the date, and the uid is provider + date + team pair, so each move saves a new row and the old one stays (Supra United FC N1 B2012/13 Burciaga had 9 losses counted twice); a result GotSport later removes stays stored, because a past-dated unscored row is skipped at validation. `scripts/exclude_unplayed_forfeit_games.py` cleans the stored rows; nothing stops new ones. Finding the stored row by match id, whatever its date, is also the prevention the open entry "Stop a rescheduled GotSport game leaving its original-date fixture behind" defers, so the two share one fix. Two places in code say the `past=true` feed returns played games only, but past-dated unscored matches come back too (GotSport match 26961639): the comment above the request in `GotSportScraper.scrape_team_games` and the docstring of `scripts/exclude_rescheduled_fixture_leftovers.py`. Found 2026-11-09 on National 1 League event 54028.
 - **Noted**: 2026-11-09
+
+### Keep a team name's gender letter when the name cleanup rewrites its age token
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `normalize_team_name` in `scripts/normalize_team_names.py` (its docstring: "Gender words stripped EVERYWHERE (B/G in age tokens normalized, standalone words removed)")
+- **Why**: Rewriting `17G`/`18B` to `2017`/`2018` deletes the only gender marker many names carry, so every name-based gender check (`src/utils/team_gender.name_gender`, the weekly gate) goes blind to the row. On 2026-11-10, 33 Texas rows stored the wrong gender while `team_name_original` still held the letter (`FC Dallas Garcia 17G` -> `FC Dallas Garcia 2017`, stored Male, all 15 opponents girls).
+- **Noted**: 2026-11-10
+
+### Stop the weekly unknown-opponent job attaching one rec league's teams to one row
+
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: the matching in `scripts/auto_match_unknown_opponents.py` (and the export it reads, `scripts/export_unknown_opponents.py`), run by `unknown-opponent-hygiene-weekly.yml`
+- **Why**: On 2026-11-10, 93 Texas rows held other teams' GotSport records and played themselves (197 games); 196 of the 251 aliases involved were created on Tuesdays, the job's day. Small rec leagues reuse generic names, so one row ended up holding `Aces`, `Mustangs`, `Diablos`, `Mambas` and `MP Cowboys`. A check that refuses a link when the candidate record has played the row's own record (or another record on it) would have stopped each one. 84 rows were split by hand; the cause is inferred from link timestamps, not traced in code.
+- **Noted**: 2026-11-10
+
+### Ship a batch runner for fused-row splits with the splitting skill
+
+- **Type**: plan
+- **Category**: dx
+- **Where**: `.claude/skills/splitting-fused-provider-ids/scripts/` (`split_provider_ids.py`, `list_id_games.py`, `move_game_sides.py` are per-id)
+- **Why**: Splitting 84 rows on 2026-11-10 took about 370 script runs, driven by a throwaway plan-file runner: per row a guarded rename and age fix, an optional merge revert, then per moving record split -> list -> move, excluding the unscored fixtures the move skips, resumable with `--rows`/`--skip` after a mid-run kill. Committing it (with a dry run and a verifier that checks self-play, leftover records and moved sides from the database) would make the next state's cleanup repeatable.
+- **Noted**: 2026-11-10
