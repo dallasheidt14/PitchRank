@@ -303,6 +303,10 @@ games.
 - Round-robin standings matrix (NxN team grid). Cells contain `2-0`, `3-1`, `-`, etc.
 - **No per-game dates, no venues, no match IDs** — useless to the existing `_parse_games_from_schedule_page` parser.
 - Do not try to add this as a parser target.
+- `{X}` is the page's own group id. The payload's `schedule_id` field (not the match `id`) is a
+  different number: passed as `group` it opened another event's division (verified 2026-11-09,
+  event 54028). This page loaded without a CAPTCHA while that event's main and schedule pages
+  redirected to `verify_captchas`.
 
 ### Per-team page (`/schedules?team={REGISTRATION_ID}`)
 
@@ -330,6 +334,22 @@ games.
 - `GotSportScraper.scrape_team_games` fetches every page before it applies its 30-match cap and its
   `since_date` cutoff. A decision that needs the team's whole schedule belongs before the cap,
   over the full `matches` list.
+- `past=true` returns every match dated today or earlier, scored or not; future fixtures need a
+  login (verified 2026-11-09).
+- A match has no structured status field (`comments` `[]`, `activity_type` and `quality` null).
+  `description` is free text that some events use for the reason or a move
+  (`Away team does not have enough players (ML)`, `9/20 rain out ER`), and the scraper drops it.
+- GotSport records some matches that were not played as plain 3-0 or 0-3 results. Two shapes are
+  recognisable: a team's whole league slate on one date, often a placeholder such as the season's
+  first day, with no `venue_id` or `pitch_id`; or a score entered weeks before kickoff while the
+  fixture keeps its booked venue, so a venue does not show a game was played. Of 240 GotSport 3-0s
+  saved more than a day before their date in the year to 2026-11-09, 206 were saved before
+  2026-10-01, when the team feed stopped returning future fixtures. A forfeit recorded after its date, where the team played its other
+  games, looks like a real 3-0. `scripts/exclude_unplayed_forfeit_games.py` hides the two
+  recognisable shapes and their copies.
+- GotSport moves matches between dates, and each move reaches the importer as a new date, so a new
+  row. In every case checked a moved match kept its home team, while the return leg of a
+  home-and-away pair swaps it.
 
 ### HTML-CAPTCHA failure vs API-resolution failure
 
