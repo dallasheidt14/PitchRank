@@ -440,6 +440,14 @@ suggested answer, never into `--set`: a name is Tier C's evidence (Step 6), and 
 naming a state is often a false friend. Weaker evidence, such as who a team plays, where it
 travelled, a lone GotSport answer or a league tag, goes into the question the same way.
 
+For one team the owner asked to have filled, such as a merge survivor that lost the state its
+merged-away row held, run `--team <uuid>` with neither `--set` nor `--execute` to get a suggested
+answer. It decides that team from the tiers, Tier A probe included, and prints the decision
+without writing a state. It never reads the merged-away row, so name that row's state beside it in
+the question. Record the owner's answer with `--set` as above, never by re-running with
+`--execute`: that decides again from a second paid probe and can write a state the owner did not
+see.
+
 ## Deciding without a person
 
 The owner overruled four of five automated state calls checked on 2026-10-28, each made from
