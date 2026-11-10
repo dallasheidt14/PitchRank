@@ -42,9 +42,11 @@ Run `list_id_games.py` per id with `--before` and `--since` set to the Aug 1 sea
 
 An id whose opponents stay in one band is not reused; leave its games alone. A GotSport id belongs to a squad when its fixtures and scores match that squad's results on the provider's own team page.
 
+When neither pattern decides, search every season, not only the ranking window, and judge each season on its own. In a season, a head-to-head (`list_id_games.py` shows it as the row playing itself) or games on the same day at different events show the two ids were different squads that season; several games on one day at one tournament are normal for one squad. Run any same-day pair through `merging-duplicate-teams` Step 4's four-step test before believing it, and compare opponents rather than event names across providers, since TGS labels most events before late August 2026 `Event <number>`. Without such evidence, two ids whose own provider names in the same season differ by a squad word (mascot, colour, letter, numeral or coach surname, as in `merging-duplicate-teams` Step 5) are different squads; names that differ only in format are not evidence.
+
 ## Step 3: Draw the map
 
-Write one line per id and period: `<provider>:<id> <before/after Aug 1> -> <squad row>`. The alias follows the squad that uses the id now, so a reused id's alias goes to the new squad's row and its pre-Aug 1 games to the old squad's row. Existing live rows for the squad (same club, band, gender, ECNL vs RL) are targets; create a row only when none exists, named like its siblings (`<Club> ECNL G2011/12`, `<Club> ECNL RL G2011/12`) with the stored age group for that band.
+Write one line per id and period: `<provider>:<id> <before/after Aug 1> -> <squad row>`. The fused row keeps the squad its own `teams.provider_team_id` named when the row was created, not the squad its current name matches: `reconcile_teams_with_gotsport.py` copies the name of the row's highest-numbered approved GotSport alias whenever GotSport's age group and gender agree with the row, so the name can belong to a squad that moves. A reused id still leaves its pre-Aug 1 games with the old squad, though the provider now gives the id the younger squad's name. The alias follows the squad that uses the id now, so a reused id's alias goes to the new squad's row and its pre-Aug 1 games to the old squad's row. Existing live rows for the squad (same club, band, gender, ECNL vs RL) are targets; create a row only when none exists, named like its siblings (`<Club> ECNL G2011/12`, `<Club> ECNL RL G2011/12`) with the stored age group for that band.
 
 Present the map and the game counts to the user before Step 5 when any id is ambiguous or a squad's old games would join a row that already holds a season of its own, since that fuses two squads. Where nobody can say where the old squad went, leave those games in place and say so.
 
@@ -80,6 +82,8 @@ python .claude/skills/splitting-fused-provider-ids/scripts/move_game_sides.py \
 
 `split_provider_ids.py` takes `--alias provider_code:provider_team_id:current_master_uuid` and skips an alias that no longer points at the stated team or has no alias row. `move_game_sides.py` moves the side that holds `--from`, which also covers games filed under a merged-away team that `scripts/reassign_games_between_teams.py` refuses. It writes its log before the first write, skips a game that would play itself, an unscored game and a side with another provider id, and stops on an error. Use `reassign_games_between_teams.py` only when every game in the window belongs to the squad being moved; otherwise pass `--exclude`.
 
+When a row's current name belongs to a squad that moved, rename it last, after its aliases and games, with `.claude/skills/reconcile-gotsport/scripts/apply_team_fields.py --plan` (dry run, then `--execute`; `--revert` undoes it), to the current provider name of the id the kept squad plays on now. Hold the rename when no such id carries the kept squad's name, and send any age-group change it implies to `correcting-team-age-groups`.
+
 A move is a clear then a fill, so a stopped run can leave a game with an empty side that a re-run cannot see. Finish it with `move_game_sides.py --resume <log> --execute`, which addresses each logged game by id.
 
 Undo: `split_provider_ids.py --revert <log> --execute` repoints aliases back; `move_game_sides.py --revert <log> --execute` moves games back. A created row stays and keeps being scraped while live, so deprecate it or leave games on it.
@@ -91,5 +95,6 @@ Query the database, not the script output:
 - each target row's game count before and after Aug 1, and its aliases, each pointing at the intended row and approved
 - for every game id in the move logs, the moved side equals `to` and the other side is not `to`; a team query cannot see an empty side, and database-wide empty-side counts include rows broken before this work
 - no team plays itself on the rows touched
+- each touched row's name names the squad it holds
 
 Report the new rows with their ids, the log paths, what was left in place and why, and the follow-ups for other skills: club and state on new rows (`normalizing-club-names`, `assigning-team-states`), age labels on rows that hold both cohorts' games (`correcting-team-age-groups`), and rows that fell below 12 games, which lose their published rank. The weekly ranking run regroups the boards.
