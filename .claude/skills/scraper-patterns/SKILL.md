@@ -775,6 +775,32 @@ The gates in Provider Matcher Name Parsing below apply. This platform glues squa
   half-matched; the ranking engine reads each team's cohort from its own row. Tourney Central
   inherits the same matcher and does the same.
 
+## PlayMetrics Tournaments
+
+`scripts/scrape_playmetrics_tournament.py --tournament-url <url>` reads a PlayMetrics tournament
+through the same public league API as the league scraper. It takes a `league_view.html` or a
+`division_view.html` URL, and either one scrapes every division. It needs no `GB_STATE_MAP` entry. Rows carry a blank state,
+and a team the import creates gets one only when its club's existing rows agree on a single
+state. `playmetrics-tournament-scrape-import.yml` runs it on dispatch.
+
+- A division's age comes from a U-token in its name, else its `min_age`. One resolving to neither,
+  which covers U9 and younger, is skipped. A high-school division (`HS-G Gold`) resolves through its
+  `min_age`, so every team whose own name states no age (`PPSC`, `FCGB HS Girls`) is filed at a
+  guessed age. The owner decided on 2026-11-10 to leave high-school divisions out.
+- The workflow cannot leave a division out. To do that, scrape locally, filter the CSV on
+  `division_name`, and run `python scripts/import_games_enhanced.py <csv> playmetrics_tournament
+  --dry-run` before the real import. A local run is outside the workflow's `AGE_ROLLOVER_FREEZE`
+  gate, so import only while that flag reads `'false'`.
+- **After every import, check the teams it created for copies of teams that already existed.** Take
+  the rows the run created (the provider's `direct_id` aliases written during it), run the
+  similarity query from *Check a roster pass's new teams for near-duplicates before `--execute`*
+  below over them without its state condition, and settle the hits with the merging-duplicate-teams
+  skill, whose Doorway D covers rows created with no state. A club PlayMetrics spells differently
+  (`RASA - AFC Union` against `AFC Union`) skips its existing team and creates a new one, and a
+  candidate scoring 0.75-0.90 is queued for review and still created, so the review queue does not
+  replace this check. The Harvest Classic import of 2026-11-10 created 103 teams, about half of
+  them copies.
+
 ## YSSL Pages
 
 YSSL (Young Sportsmen's Soccer League, yssl.org) is a Chicago-area boys league. Its pages are
@@ -1753,8 +1779,8 @@ both say a division was used. Run `respell_ages` first only when the provider wr
 `UN16B` or `'10`, since it also reads a bare `05`-`19` such as `Elite 11`, and `14B`, as a birth
 year; check the provider's names for squad numbers before opting in.
 `scripts/import_tourneycentral_event.py` and `discover_sincsports_via_tournament.resolve_team_age`
-follow this. The Athletes2Events driver (division as bound and fallback) and the Soccer Events
-Group driver keep their own rules; leave those drivers as they are and copy neither rule into a new
-one. **For a new driver, the one owner-approved exception is HTG Sports' division fallback**
+follow this. The Athletes2Events driver (division as bound and fallback), the Soccer Events
+Group driver and the PlayMetrics tournament scraper (name first, division age as fallback) keep
+their own rules; leave those drivers as they are and copy none of their rules into a new one. **For a new driver, the one owner-approved exception is HTG Sports' division fallback**
 (never a bound; see HTG Sports Pages, owner 2026-11-09). Ask the owner before passing
 `division_age_fallback=True` to `build_roster` for another driver.

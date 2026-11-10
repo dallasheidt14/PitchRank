@@ -2880,3 +2880,11 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `.claude/skills/splitting-fused-provider-ids/scripts/` (`split_provider_ids.py`, `list_id_games.py`, `move_game_sides.py` are per-id)
 - **Why**: Splitting 84 rows on 2026-11-10 took about 370 script runs, driven by a throwaway plan-file runner: per row a guarded rename and age fix, an optional merge revert, then per moving record split -> list -> move, excluding the unscored fixtures the move skips, resumable with `--rows`/`--skip` after a mid-run kill. Committing it (with a dry run and a verifier that checks self-play, leftover records and moved sides from the database) would make the next state's cleanup repeatable.
 - **Noted**: 2026-11-10
+
+### Stop the PlayMetrics tournament matcher creating a copy of a team whose club PlayMetrics spells differently, and pin the tournament scraper's age rules with tests
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `PlayMetricsGameMatcher._fuzzy_match_team` (the Stage 1 `are_same_club` gate at `MATCHING_CONFIG["affinity_club_similarity_threshold"]`) and `_match_team`'s create-on-no-match in `src/models/playmetrics_matcher.py`; `derive_division_age_group` and the `min_age` fallback in `scrape_division` in `scripts/scrape_playmetrics_tournament.py`
+- **Why**: On the unscoped `playmetrics_tournament` path the club gate is the load-bearing check, and `are_same_club(..., threshold=0.9)` returns False for `RASA - AFC Union` vs `AFC Union`, `Forward Madison FC Youth` vs `Forward Madison FC` and `Rush Wisconsin Southeast` vs `RUSH WI Southeast` (run 2026-11-10). So a team with an identical name is dropped before scoring and auto-created, and a candidate scoring 0.75-0.90 is queued for review and created anyway. The Harvest Classic import of 2026-11-10 created 103 teams, about half of them copies (15 exact-name, 34 near-name), merged by hand; 8 AFC Union copies came from an earlier PlayMetrics tournament import on 2026-10-05. No test imports `scrape_playmetrics_tournament` and no matcher test covers either copy path, so the scraper-patterns skill's description of both can go stale unnoticed.
+- **Noted**: 2026-11-10
