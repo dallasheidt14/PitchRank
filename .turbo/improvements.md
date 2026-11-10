@@ -965,6 +965,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `games` rows with `game_date` after the import date; GotSport path `GotSportScraper._parse_api_match` in `src/scrapers/gotsport.py`; loader `fetch_games_for_rankings` in `src/rankings/data_adapter.py`
 - **Why**: On 2026-09-14, 211 games dated after that day already had both scores set. 80 are in the GotSport `"None"` sink that `scripts/exclude_none_opponent_games.py` excludes, and many of those read 1-0 or 0-1 weeks ahead of play. The other 131 are not part of it. `fetch_games_for_rankings` skips future dates, so the other 131 count as real results once their date passes. Unknown whether GotSport publishes pre-set or forfeit results or the import assigns scores to scheduled matches.
 - **Noted**: 2026-09-14
+- **Update (2026-11-09)**: The 3-0 part is answered. GotSport enters 3-0 and 0-3 results ahead of the game's own date: one row was first saved already 3-0 on 2026-09-30 for a 2026-10-24 game, and GotSport still lists it 3-0 at a booked field. The owner ruled forfeits do not count ("disregard forfeits they shouldn't count"), and `scripts/exclude_unplayed_forfeit_games.py` hides GotSport 3-0s whose current score was saved more than a day before their date. Other scores saved before their date (460 GotSport rows in the year to 2026-11-09) are not covered and stay open here.
 
 ### Give the Modular11 scrape workflows a fixed start date instead of days-back
 
@@ -2641,6 +2642,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Category**: reliability
 - **Where**: the GotSport team scrape and the import's duplicate and fixture-fill checks (`_check_duplicates` and the master-level dedup in `src/etl/enhanced_pipeline.py`)
 - **Why**: A league schedule is saved before it is played. When a game moves, its result arrives on the new date under a new `game_uid` and is saved as a second row, and nothing removes the blank on the original date, so the team page lists a game that never happened. GotSport's team feed returns played games only (since 2026-10-01), so no later scrape can see the fixture disappear. `scripts/exclude_rescheduled_fixture_leftovers.py` is the one-off cleanup; the owner chose cleanup only on 2026-11-04, so prevention is deferred here.
+- **Update (2026-11-09)**: The `past=true` feed also returns past-dated matches with no score (GotSport match 26961639), so "played games only" above is wrong. Finding a stored GotSport row by match id, whatever its date, would prevent this leftover and the re-dated copies in "Stop the GotSport importer storing administrative 3-0s as played games, and copying them when GotSport re-dates a match", so the two share one fix.
 - **Noted**: 2026-11-04
 
 ### Share one rollback-log helper across the exclude cleanups
@@ -2650,6 +2652,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: the inline log-then-update `--execute` blocks in `scripts/exclude_rescheduled_fixture_leftovers.py`, `scripts/exclude_unscored_fixture_twins.py`, `scripts/exclude_none_opponent_games.py`, `scripts/exclude_english_teams.py` and `scripts/reconcile_tgs_scores.py`; `new_log` / `write_log` in `scripts/apply_vetted_team_merges.py`
 - **Why**: Five scripts carry the same block (they share the "already exists and is the only rollback record" message), and each rewrites its only rollback record with plain `write_text` in `finally`, so a hard kill mid-write can truncate it. `write_log` already swaps a temp file in with `os.replace`, and `scripts/exclude_merge_duplicate_games.py` uses it. Raised by a consistency review on 2026-11-04.
 - **Noted**: 2026-11-04
+- **Update (2026-11-09)**: `scripts/exclude_unplayed_forfeit_games.py` uses `new_log`/`write_log` but defaults its log to `data/backups/` (ignored by `data/*`) rather than the cwd, where the other scripts write a root `*.json` that is not ignored in a public repo; the shared helper should settle one location. It also carries its own `revert`, because `exclude_merge_duplicate_games.revert` parses a logged `score` as two ints (so cannot replay an unscored row) and treats every id sent as changed, where this one logs the ids each update returned.
 
 ### Skip layout rows in the WA scraper's discover_flights
 
@@ -2809,4 +2812,12 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Category**: reliability
 - **Where**: `apply_score_correction` in `src/etl/game_corrections.py` and the `apply_game_correction` function in `supabase/migrations/20240201000001_add_game_corrections.sql`
 - **Why**: On 2026-11-09 the owner hid 9 `mlsnext_kitman` 0-0 games as suspected placeholders (undo log `C:\PitchRank\data\backups\hide_kitman_redated_zero_zero_2026-11-09.json`). If Kitman moves one back to its original date with a real score, the importer finds the stored row by uid and corrects its score, but `apply_game_correction` updates only the score, date and teams and never `is_excluded`, so the real result stays hidden and never counts. Read in the code; not run and not seen live.
+- **Noted**: 2026-11-09
+
+### Stop the GotSport importer storing administrative 3-0s as played games, and copying them when GotSport re-dates a match
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `GotSportScraper.scrape_team_games`, `_parse_api_match` and `_repeat_day_match_ids` in `src/scrapers/gotsport.py`; `GameHistoryMatcher.generate_game_uid` in `src/models/game_matcher.py`; the past-dated no-score skip in `EnhancedETLPipeline._validate_and_dedup` in `src/etl/enhanced_pipeline.py`
+- **Why**: GotSport records a team's whole league schedule as 3-0s on a placeholder date, or a 3-0 weeks before kickoff, with no structured status field, and moves those matches between dates. Its free-text `description` sometimes gives the reason or a move (`Away team does not have enough players (ML)`, `9/20 rain out ER`; 85 of 2,366 matches in the 2026-11-09 sample), and `_parse_api_match` drops it, so it is a candidate signal the importer never sees. `scrape_team_games` keeps GotSport's match `id` only for same-day rematches, as a suffix after the date, and the uid is provider + date + team pair, so each move saves a new row and the old one stays (Supra United FC N1 B2012/13 Burciaga had 9 losses counted twice); a result GotSport later removes stays stored, because a past-dated unscored row is skipped at validation. `scripts/exclude_unplayed_forfeit_games.py` cleans the stored rows; nothing stops new ones. Finding the stored row by match id, whatever its date, is also the prevention the open entry "Stop a rescheduled GotSport game leaving its original-date fixture behind" defers, so the two share one fix. Two places in code say the `past=true` feed returns played games only, but past-dated unscored matches come back too (GotSport match 26961639): the comment above the request in `GotSportScraper.scrape_team_games` and the docstring of `scripts/exclude_rescheduled_fixture_leftovers.py`. Found 2026-11-09 on National 1 League event 54028.
 - **Noted**: 2026-11-09

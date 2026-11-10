@@ -76,6 +76,15 @@ a home loss. When filling scores onto an unscored fixture (the `batch_backfill_n
 whose home and away are the other way round from the incoming result, swap the scores and keep
 `result` unchanged.
 
+`scraped_at` is the scrape time of the row's data: an insert carries it, and when
+`batch_backfill_null_scores` scores a fixture it writes the incoming scrape's `scraped_at`
+(`now()` only when that is missing). A score correction (`apply_score_correction` →
+`apply_game_correction`) changes the scores and leaves `scraped_at` alone. Take the time a score
+last changed as the later of `scraped_at` and the newest `game_corrections.approved_at` with
+`status = 'approved'` and `correction_type = 'score'`, matched on `original_game_uid = game_uid`.
+Scrapers write a naive local `datetime.now()` that the database reads as UTC, so allow a day's
+margin when comparing `scraped_at` with a UTC time.
+
 To correct one stored game, insert a `game_corrections` row (`correction_type` `score`, with
 `original_values` and `corrected_values`) and call the `apply_game_correction(correction_id,
 approver_name)` RPC; the immutability trigger rejects a direct `.update()` on scores. Put `result`
