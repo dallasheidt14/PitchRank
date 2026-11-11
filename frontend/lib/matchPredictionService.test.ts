@@ -251,6 +251,10 @@ describe('buildMatchPrediction', () => {
     const result = await buildMatchPrediction(supabase as never, TEAM_A_ID, TEAM_B_ID);
 
     expect(result.teamA.team_name).toBe('Alpha FC');
+    expect(result.evidence?.teamA.usableResults).toBe(2);
+    expect(result.evidence?.teamA.formSampleSize).toBe(2);
+    expect(result.evidence?.headToHeadMeetings).toBe(2);
+    expect(result.evidence?.teamA.latestResultDate).toBe('2026-03-10');
     expect(mockPredictMatch).toHaveBeenCalledTimes(1);
 
     const [, , predictionGames] = mockPredictMatch.mock.calls[0];

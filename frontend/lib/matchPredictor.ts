@@ -51,6 +51,7 @@ import type { Game } from './types';
 import { loadCalibrationJson } from './calibrationLoader.ts';
 import { computeConfidence, warmConfidenceCalibration, confidenceCalibrationSnapshot } from './confidenceEngine.ts';
 import { extractAgeFromTeamName } from './teamAge.ts';
+import { MATCH_FORM_SAMPLE_SIZE } from './matchEvidence.ts';
 
 // Age group parameters (loaded from JSON, fallback to defaults)
 interface AgeGroupParameters {
@@ -245,8 +246,6 @@ export function matchCalibrationSnapshot() {
 export interface PredictionDiagnostics {
   preOutcomeCalibration?: [number, number, number];
 }
-
-export const MATCH_FORM_SAMPLE_SIZE = 8;
 
 // Base feature weights (optimized for close matchups - 74.7% accuracy)
 const BASE_WEIGHTS = {
