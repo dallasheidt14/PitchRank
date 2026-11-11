@@ -1,3 +1,5 @@
+import hashlib
+import json
 from copy import deepcopy
 from dataclasses import replace
 
@@ -13,8 +15,14 @@ from src.predictions.form_research import (
     compare_outputs,
     digest,
     expectation_payload,
+    pinned_source_identity,
+    prediction_input_error,
     provenance_error,
+    reconstruct_expectations,
+    reconstruction_error,
+    replay_reference_time,
     residual_form,
+    valid_expectation,
     write_bundle,
 )
 
@@ -188,6 +196,222 @@ def case(i, day, group):
         "input_provenance": [{**provenance(), "role": role, "sha256": digest(payloads[role])} for role in INPUT_ROLES],
         "games": [],
     }
+
+
+def reconstructed_fixture():
+    c = case("g1", "2026-08-10", "test")
+    identity = pinned_source_identity()
+    keys = {
+        "ageGroups": "age_group_parameters.json", "probability": "probability_parameters.json",
+        "margin": "margin_parameters_v2.json", "outcome": "heuristic_outcome_calibration.json",
+        "confidence": "confidence_parameters_v2.json",
+    }
+    payload = json.dumps({
+        "algorithm": identity["algorithm_hash"],
+        "calibration": {key: c["calibrations"][file] for key, file in keys.items()},
+    })
+    runner = {
+        **identity, "predictor_revision": ResearchPolicy().predictor_revision, "aa_parity": True,
+        "model_signature_payload": payload, "model_signature": hashlib.sha256(payload.encode()).hexdigest(),
+        "outputs": {"baseline": [{
+            "id": "g1", "prediction": {"expectedMargin": 4}, "reference_time": "2026-08-09T23:59:59.999Z",
+        }]},
+    }
+    return c, runner
+
+
+def rebind_reconstruction(expected):
+    receipt = expected["reconstruction"]
+    receipt["inputs_sha256"] = digest(receipt["inputs"])
+    receipt["prediction_sha256"] = digest(receipt["prediction"])
+    expected["reconstruction_sha256"] = digest(receipt)
+    expected["provenance"]["sha256"] = digest(expectation_payload(expected))
+
+
+def test_truthful_later_reconstruction_uses_verified_earlier_dependencies():
+    c, runner = reconstructed_fixture()
+    captured = "2026-11-11T12:00:00Z"
+    expected = reconstruct_expectations([c], runner, captured)["g1"]
+    assert valid_expectation(expected, game())
+    assert expected["provenance"]["created_at"] == captured
+    assert reconstruct_expectations([c], runner, captured)["g1"] == expected
+    assert "home_score" not in expected["reconstruction"]["inputs"]["fixture"]
+    result = residual_form("a", [game()], {"g1": expected}, "2026-08-20", "residual_sequence")
+    assert result["value"] == -0.25 and result["provenance"] == {"reconstructed": 1}
+    c["teamA"]["power_score_final"] = 100
+    runner["outputs"]["baseline"][0]["prediction"]["expectedMargin"] = -100
+    assert valid_expectation(expected, game()) and expected["expected_home_margin"] == 4
+    frozen = expectation()
+    frozen["provenance"]["created_at"] = captured
+    assert not valid_expectation(frozen, game())
+
+
+@pytest.mark.parametrize("mutation", [
+    "later_snapshot", "later_training", "prediction", "source", "identity", "timestamp", "signature",
+    "computed_before_inputs",
+])
+def test_reconstruction_receipt_rejects_semantic_changes_even_with_rebound_hashes(mutation):
+    c, runner = reconstructed_fixture()
+    expected = reconstruct_expectations([c], runner, "2026-11-11T12:00:00Z")["g1"]
+    receipt = expected["reconstruction"]
+    if mutation in {"later_snapshot", "later_training"}:
+        descriptor = receipt["inputs"]["input_provenance"][0]
+        descriptor["last_calculated" if mutation == "later_snapshot" else "trained_at"] = "2026-11-01T00:00:00Z"
+    elif mutation == "prediction":
+        receipt["prediction"]["expectedMargin"] = -4
+    elif mutation == "source":
+        receipt["source_hashes"]["matchPredictor.ts"] = "0" * 64
+    elif mutation == "identity":
+        receipt["inputs"]["fixture"]["source_game_id"] = "another"
+    elif mutation == "timestamp":
+        expected["provenance"]["created_at"] = "2026-08-01T00:00:00Z"
+    elif mutation == "computed_before_inputs":
+        receipt["computed_at"] = "2026-07-01T00:00:00Z"
+        expected["provenance"]["created_at"] = receipt["computed_at"]
+        expected["provenance"]["last_calculated"] = receipt["computed_at"]
+    else:
+        receipt["model_signature"] = "0" * 64
+        expected["model_signature"] = "0" * 64
+    rebind_reconstruction(expected)
+    assert reconstruction_error(expected) is not None
+    assert not valid_expectation(expected, game())
+
+
+def test_reconstruction_refuses_candidates_or_missing_training_provenance():
+    c, runner = reconstructed_fixture()
+    runner["outputs"]["candidate"] = runner["outputs"]["baseline"]
+    with pytest.raises(ValueError, match="parity"):
+        reconstruct_expectations([c], runner, "2026-11-11T12:00:00Z")
+    del runner["outputs"]["candidate"]
+    c["input_provenance"][0].pop("trained_at")
+    with pytest.raises(ValueError, match="provenance"):
+        reconstruct_expectations([c], runner, "2026-11-11T12:00:00Z")
+
+
+def test_reconstruction_binds_pre_match_reference_time_to_actual_runner_output():
+    c, runner = reconstructed_fixture()
+    runner["outputs"]["baseline"][0]["reference_time"] = "2026-09-01T00:00:00Z"
+    with pytest.raises(ValueError, match="reference time"):
+        reconstruct_expectations([c], runner, "2026-11-11T12:00:00Z")
+    c["reference_time"] = "2026-08-10T00:00:00Z"
+    runner["outputs"]["baseline"][0]["reference_time"] = c["reference_time"]
+    with pytest.raises(ValueError, match="provenance"):
+        reconstruct_expectations([c], runner, "2026-11-11T12:00:00Z")
+
+
+def test_reference_time_normalizes_server_precision_and_cannot_precede_inputs():
+    assert replay_reference_time({"reference_time": "2026-11-11 18:15:27.993225+00"}) == "2026-11-11T18:15:27.993+00:00"
+    c, runner = reconstructed_fixture()
+    c["reference_time"] = "2026-07-31T23:59:59.999Z"
+    runner["outputs"]["baseline"][0]["reference_time"] = c["reference_time"]
+    with pytest.raises(ValueError, match="provenance"):
+        reconstruct_expectations([c], runner, "2026-11-11T12:00:00Z")
+
+
+@pytest.mark.parametrize("field", ["created_at", "last_calculated", "trained_at"])
+def test_each_snapshot_availability_field_must_precede_the_replay_clock(field):
+    c = case("g1", "2026-08-10", "test")
+    c["reference_time"] = "2026-08-05T12:00:00Z"
+    c["input_provenance"][0][field] = "2026-08-06T00:00:00Z"
+    assert prediction_input_error(c, "2026-08-10") == "input_after_reference_time"
+
+
+@pytest.mark.parametrize("field", ["result_available_at", "created_at", "last_calculated", "trained_at"])
+def test_history_availability_between_replay_and_match_day_is_rejected_independently(field):
+    c = case("g1", "2026-08-10", "test")
+    c["reference_time"] = "2026-08-05T12:00:00Z"
+    history = game("earlier", "2026-08-02")
+    history.update(result_available_at="2026-08-03T00:00:00Z", ml_overperformance=0.2)
+    history["ml_provenance"] = {**provenance(), "sha256": digest({"id": "earlier", "ml_overperformance": 0.2})}
+    if field == "result_available_at":
+        history[field] = "2026-08-06T00:00:00Z"
+    else:
+        history["ml_provenance"][field] = "2026-08-06T00:00:00Z"
+    history["result_sha256"] = digest({key: history.get(key) for key in (
+        "id", "game_date", "home_team_master_id", "away_team_master_id", "home_score", "away_score",
+        "result_available_at",
+    )})
+    c["games"] = [history]
+    reason = ("history_result_after_reference_time" if field == "result_available_at"
+              else "history_learned_value_after_reference_time")
+    assert prediction_input_error(c, "2026-08-10") == reason
+
+
+@pytest.mark.parametrize("parity", [False, True])
+def test_saved_forecast_replay_requires_explicit_capture_time_in_every_mode(tmp_path, monkeypatch, parity):
+    import sys
+
+    from scripts.benchmark_compare_form import main
+
+    c = case("g1", "2026-08-10", "test")
+    c["frozenPrediction"] = {"expectedMargin": 4}
+    payload = dict(schema_version=1, predictor_revision=ResearchPolicy().predictor_revision,
+                   calibrations=c["calibrations"], cases=[c])
+    source, out = tmp_path / "frozen.json", tmp_path / "output"
+    source.write_text(json.dumps(payload), encoding="utf-8")
+    args = ["benchmark_compare_form.py", "--input", str(source), "--output-dir", str(out)]
+    if parity:
+        args.extend(["--parity-only", "--execute"])
+    monkeypatch.setattr(sys, "argv", args)
+    with pytest.raises(ValueError, match="original capture reference_time"):
+        main()
+    assert not out.exists()
+
+
+@pytest.mark.parametrize("key", ["g1", "local-row-uuid"])
+def test_reconstructed_expectations_match_distinct_source_and_local_history_ids(key):
+    c, runner = reconstructed_fixture()
+    expected = reconstruct_expectations([c], runner, "2026-11-11T12:00:00Z")["g1"]
+    history = {**game("local-row-uuid"), "source_game_id": "g1"}
+    result = residual_form("a", [history], {key: expected}, "2026-08-20", "residual_sequence")
+    assert result["usable"] == 1 and result["missing"] == 0 and result["value"] == -0.25
+
+
+@pytest.mark.parametrize("field", ["inputs_sha256", "prediction_sha256", "reconstruction_sha256", "outer_sha256"])
+def test_each_reconstruction_hash_guard_independently_rejects_a_stale_digest(field):
+    c, runner = reconstructed_fixture()
+    expected = reconstruct_expectations([c], runner, "2026-11-11T12:00:00Z")["g1"]
+    if field in {"inputs_sha256", "prediction_sha256"}:
+        expected["reconstruction"][field] = "0" * 64
+        expected["reconstruction_sha256"] = digest(expected["reconstruction"])
+        expected["provenance"]["sha256"] = digest(expectation_payload(expected))
+    elif field == "reconstruction_sha256":
+        expected[field] = "0" * 64
+        expected["provenance"]["sha256"] = digest(expectation_payload(expected))
+    else:
+        expected["provenance"]["sha256"] = "0" * 64
+    assert not valid_expectation(expected, game())
+
+
+def test_full_prediction_binding_covers_non_margin_outputs():
+    c, runner = reconstructed_fixture()
+    expected = reconstruct_expectations([c], runner, "2026-11-11T12:00:00Z")["g1"]
+    expected["reconstruction"]["prediction"]["blowout4PlusProbability"] = 0.99
+    assert not valid_expectation(expected, game())
+
+
+def test_missing_reconstruction_outer_digest_reduces_coverage_without_crashing():
+    c, runner = reconstructed_fixture()
+    expected = reconstruct_expectations([c], runner, "2026-11-11T12:00:00Z")["g1"]
+    del expected["provenance"]["sha256"]
+    result = residual_form("a", [game()], {"g1": expected}, "2026-08-20", "residual_sequence")
+    assert result["usable"] == 0 and result["missing"] == 1 and result["value"] == 0
+
+
+@pytest.mark.parametrize("mutation", ["duplicate", "extra", "missing", "wrong_identity"])
+def test_reconstruction_requires_exactly_one_output_per_input_fixture(mutation):
+    c, runner = reconstructed_fixture()
+    rows = runner["outputs"]["baseline"]
+    if mutation == "duplicate":
+        rows.append(deepcopy(rows[0]))
+    elif mutation == "extra":
+        rows.append({**rows[0], "id": "extra"})
+    elif mutation == "missing":
+        rows.clear()
+    else:
+        rows[0]["id"] = "another"
+    with pytest.raises(ValueError, match="fixtures"):
+        reconstruct_expectations([c], runner, "2026-11-11T12:00:00Z")
 
 
 def test_provenance_is_bound_to_actual_team_and_calibration_payloads():

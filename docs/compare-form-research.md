@@ -62,6 +62,10 @@ and `cases`. Each case contains:
   actual home/away scores, `event_group`, grouping origin, provider, cohort,
   history band, and exclusion state.
 - `teamA`, `teamB`: exact `TeamWithRanking` inputs in target home/away orientation.
+- `reference_time`: timezone-aware predictor clock. Reconstruction defaults to
+  the last millisecond before the target's UTC match day. Frozen forecast replay
+  requires its original capture timestamp. The runner fixes timezone to UTC and
+  freezes this clock so birth-year age inference survives later season rollovers.
 - `games`: cleaned prior results in the original predictor input order, with
   `result_available_at` and `result_sha256`. Hash the ID, date, canonical home/away
   IDs, scores, and result availability using `digest()`. Non-null
@@ -75,12 +79,34 @@ and `cases`. Each case contains:
   `trained_at` and `training_cutoff`. Explicitly set `uses_learned_inputs: false`
   only for an input with no learned component. Hashes use the research module's
   canonical `digest()` and must match the inputs actually replayed.
-- `expectations`: history-game ID mapped to `expected_home_margin`, `source`
+- `expectations`: source fixture ID mapped to `expected_home_margin`, `source`
   (`frozen` or `reconstructed`), source fixture ID, date, canonical home/away IDs,
   model signature, and independently verified `provenance`. Its digest must
   match `expectation_payload()` and its identity must match that historical game.
   Preserve the original expectation inputs and identity mappings/exclusions in
-  the bundle for independent provenance review.
+  the bundle for independent provenance review. History-row-ID keyed maps are
+  also accepted for existing bundles.
+
+Frozen expectations must have been created before the historical game. A later
+reconstruction instead preserves its truthful computation timestamp and carries
+its complete input chain, pinned source hashes, collecting model signature, and
+full baseline prediction. Every dependency must still pass the pre-match gate
+for that historical game. Hashes detect changes; source evidence must independently
+establish when those exact dependency values were available.
+
+To reconstruct expectations from a bundle of verified pre-game inputs:
+
+```sh
+python scripts/benchmark_compare_form.py --input earlier-inputs.json --reconstruct-expectations
+python scripts/benchmark_compare_form.py --input earlier-inputs.json --reconstruct-expectations --execute --output-dir reports/expectations-RUN
+```
+
+The preview audits inputs without running Node or writing files. Execution uses
+the real pinned TypeScript baseline and saves `expectations.json`, keyed by source
+fixture ID, alongside replay inputs and outputs. Target scores and candidate
+overrides are excluded from reconstruction inputs. Missing or later-trained inputs
+are reported as exclusions. This command performs no candidate selection and does
+not change the historical study's coverage requirements.
 
 Archive the original input files, identity mappings, exclusions, source revision,
 and lineage evidence with the bundle. The generated manifest hashes the complete

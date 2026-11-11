@@ -7,7 +7,8 @@ import json
 import os
 import subprocess
 import sys
-from datetime import date, timedelta
+from collections import Counter
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from urllib.parse import urlparse
@@ -22,6 +23,10 @@ from src.predictions.form_research import (  # noqa: E402
     audit_cases,
     compare_outputs,
     digest,
+    prediction_input_error,
+    reconstruct_expectations,
+    reconstruction_inputs,
+    replay_reference_time,
     residual_form,
     write_bundle,
 )
@@ -188,11 +193,17 @@ def main() -> None:
     parser.add_argument(
         "--parity-only", action="store_true", help="Replay frozen forecasts without inspecting outcomes"
     )
+    parser.add_argument(
+        "--reconstruct-expectations", action="store_true",
+        help="Audit pre-match inputs and optionally reconstruct baseline expectations; no model selection",
+    )
     args = parser.parse_args()
     if args.execute and not args.output_dir:
         parser.error("--execute requires --output-dir")
     if args.parity_only and (not args.input or not args.execute):
         parser.error("--parity-only requires --input and --execute")
+    if args.reconstruct_expectations and (not args.input or args.parity_only):
+        parser.error("--reconstruct-expectations requires --input and cannot be combined with --parity-only")
     if args.database_audit:
         queries = {"inventory": INVENTORY_QUERY, "coverage": COVERAGE_QUERY, "coverage_windows": coverage_windows()}
         inputs = {**queries, "query_hash": digest(queries)}
@@ -203,11 +214,39 @@ def main() -> None:
             raise ValueError("Wrong frozen bundle schema or predictor revision")
         for case in inputs["cases"]:
             case["calibrations"] = inputs.get("calibrations", {})
-        eligible, audit = audit_cases(inputs["cases"], ResearchPolicy())
-        report = {"status": audit["status"], "audit": audit, "production_promotion": False}
+            case.setdefault("predictor_revision", inputs["predictor_revision"])
+            saved_replay = args.parity_only or (
+                not args.reconstruct_expectations and case.get("frozenPrediction") is not None
+            )
+            if saved_replay and not case.get("reference_time"):
+                raise ValueError("Frozen replay requires the original capture reference_time")
+            case["reference_time"] = replay_reference_time(case)
+        if args.reconstruct_expectations:
+            eligible, failures, seen = [], Counter(), set()
+            for case in inputs["cases"]:
+                fixture = case["fixture"]
+                identity = fixture.get("source_game_id")
+                if not identity or identity in seen:
+                    reason = "missing_or_duplicate_source_identity"
+                else:
+                    reason = prediction_input_error(case, fixture["game_date"])
+                if reason:
+                    failures[reason] += 1
+                else:
+                    seen.add(identity)
+                    eligible.append(reconstruction_inputs(case))
+            inputs = {**inputs, "cases": eligible}
+            report = {
+                "status": "reconstruction_inputs_ready" if eligible else "insufficient_inputs",
+                "usable": len(eligible), "exclusions": dict(failures),
+                "historical_selection": "not_performed", "production_promotion": False,
+            }
+        else:
+            eligible, audit = audit_cases(inputs["cases"], ResearchPolicy())
+            report = {"status": audit["status"], "audit": audit, "production_promotion": False}
         if args.parity_only:
             report = {"status": "parity_only", "production_promotion": False}
-        elif args.execute and audit["status"] == "eligible":
+        elif not args.reconstruct_expectations and args.execute and audit["status"] == "eligible":
             for case in eligible:
                 case["formDiagnostics"] = {
                     name: {
@@ -228,13 +267,20 @@ def main() -> None:
                 }
             inputs = {**inputs, "cases": eligible}
     write_bundle(args.output_dir, inputs, report, dry_run=not args.execute)
-    if args.input and args.execute and (args.parity_only or report["status"] == "eligible"):
+    if args.input and args.execute and (
+        args.parity_only or report["status"] in {"eligible", "reconstruction_inputs_ready"}
+    ):
         result = run_predictor(inputs, args.output_dir)
-        report = (
-            {**report, "aa_parity": result["aa_parity"], "cases": result["cases"]}
-            if args.parity_only
-            else compare_outputs(inputs["cases"], result["outputs"], ResearchPolicy())
-        )
+        if args.reconstruct_expectations:
+            expectations = reconstruct_expectations(inputs["cases"], result, datetime.now(timezone.utc).isoformat())
+            (args.output_dir / "expectations.json").write_text(
+                json.dumps(expectations, indent=2, allow_nan=False) + "\n", encoding="utf-8"
+            )
+            report.update(status="reconstructed", expectations=len(expectations), aa_parity=result["aa_parity"])
+        elif args.parity_only:
+            report = {**report, "aa_parity": result["aa_parity"], "cases": result["cases"]}
+        else:
+            report = compare_outputs(inputs["cases"], result["outputs"], ResearchPolicy())
         (args.output_dir / "report.json").write_text(
             json.dumps(report, indent=2, allow_nan=False) + "\n", encoding="utf-8"
         )

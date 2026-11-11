@@ -6,9 +6,13 @@ import hashlib
 import json
 import math
 import platform
+import re
+import subprocess
 from collections import Counter, defaultdict
+from copy import deepcopy
 from dataclasses import asdict, dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
+from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
@@ -85,7 +89,7 @@ def finite(value: object) -> bool:
 
 
 def expectation_payload(expected: dict) -> dict:
-    return {
+    payload = {
         key: expected.get(key)
         for key in (
             "source_game_id",
@@ -97,11 +101,14 @@ def expectation_payload(expected: dict) -> dict:
             "model_signature",
         )
     }
+    if expected.get("source") == "reconstructed":
+        payload["reconstruction_sha256"] = expected.get("reconstruction_sha256")
+    return payload
 
 
 def valid_expectation(expected: dict, game: dict) -> bool:
     identity = {
-        "source_game_id": game.get("source_game_id", game["id"]),
+        "source_game_id": game.get("source_game_id") or game["id"],
         "game_date": game["game_date"],
         "home_team_master_id": game["home_team_master_id"],
         "away_team_master_id": game["away_team_master_id"],
@@ -111,8 +118,12 @@ def valid_expectation(expected: dict, game: dict) -> bool:
         and bool(expected.get("model_signature"))
         and expected.get("source") in {"frozen", "reconstructed"}
         and finite(expected.get("expected_home_margin"))
-        and provenance_error(expected.get("provenance", {}), game["game_date"]) is None
-        and expected["provenance"]["sha256"] == digest(expectation_payload(expected))
+        and (
+            reconstruction_error(expected) is None
+            if expected.get("source") == "reconstructed"
+            else provenance_error(expected.get("provenance", {}), game["game_date"]) is None
+        )
+        and expected["provenance"].get("sha256") == digest(expectation_payload(expected))
     )
 
 
@@ -143,6 +154,212 @@ def provenance_error(provenance: dict, game_date: str) -> str | None:
     return None
 
 
+def prediction_input_error(case: dict, day: str) -> str | None:
+    reference = match_start(day)
+    if "reference_time" in case:
+        try:
+            reference = timestamp(case["reference_time"])
+            if reference >= match_start(day):
+                return "reference_time_after_cutoff"
+        except (TypeError, ValueError):
+            return "invalid_reference_time"
+    fixture = case.get("fixture", {})
+    if (not fixture.get("home_team_master_id") or not fixture.get("away_team_master_id")
+            or fixture["home_team_master_id"] == fixture["away_team_master_id"]
+            or case.get("teamA", {}).get("team_id_master") != fixture["home_team_master_id"]
+            or case.get("teamB", {}).get("team_id_master") != fixture["away_team_master_id"]):
+        return "invalid_target_orientation"
+    if case.get("predictor_revision") != PINNED_REVISION:
+        return "wrong_predictor_revision"
+    descriptors = case.get("input_provenance", [])
+    if len(descriptors) != len(INPUT_ROLES) or {p.get("role") for p in descriptors} != INPUT_ROLES:
+        return "missing_input_provenance"
+    payloads = {
+        "team_a_snapshot": case.get("teamA"),
+        "team_b_snapshot": case.get("teamB"),
+        **{role: case.get("calibrations", {}).get(file) for role, file in CALIBRATION_ROLES.items()},
+    }
+    for provenance in descriptors:
+        reason = provenance_error(provenance, day)
+        if reason:
+            return reason
+        fields = ("created_at", "last_calculated", "trained_at") if provenance.get("uses_learned_inputs", True) else (
+            "created_at", "last_calculated",
+        )
+        if any(timestamp(provenance[field]) > reference for field in fields):
+            return "input_after_reference_time"
+        payload = payloads[provenance["role"]]
+        if payload is None or provenance["sha256"] != digest(payload):
+            return "input_hash_mismatch"
+    for game in case.get("games", []):
+        if game["game_date"] >= day:
+            return "future_or_same_day_history"
+        try:
+            if timestamp(game.get("result_available_at")) >= match_start(day):
+                return "history_result_unavailable_at_cutoff"
+            if timestamp(game["result_available_at"]) > reference:
+                return "history_result_after_reference_time"
+        except (TypeError, ValueError):
+            return "missing_history_result_provenance"
+        result_payload = {k: game.get(k) for k in (
+            "id", "game_date", "home_team_master_id", "away_team_master_id", "home_score", "away_score",
+            "result_available_at",
+        )}
+        if game.get("result_sha256") != digest(result_payload):
+            return "history_result_hash_mismatch"
+        if game.get("ml_overperformance") is not None:
+            learned = game.get("ml_provenance", {})
+            reason = provenance_error(learned, day)
+            if reason:
+                return reason
+            if any(timestamp(learned[field]) > reference for field in ("created_at", "last_calculated", "trained_at")
+                   if field != "trained_at" or learned.get("uses_learned_inputs", True)):
+                return "history_learned_value_after_reference_time"
+            if learned["sha256"] != digest({"id": game["id"], "ml_overperformance": game["ml_overperformance"]}):
+                return "history_learned_value_hash_mismatch"
+    return None
+
+
+def replay_reference_time(case: dict) -> str:
+    value = (timestamp(case["reference_time"]) if case.get("reference_time") else
+             match_start(case["fixture"]["game_date"]) - timedelta(milliseconds=1))
+    return value.isoformat(timespec="milliseconds")
+
+
+def reconstruction_inputs(case: dict) -> dict:
+    return deepcopy({
+        "reference_time": replay_reference_time(case),
+        "fixture": {key: case["fixture"][key] for key in (
+            "source_game_id", "game_date", "home_team_master_id", "away_team_master_id",
+        )},
+        **{key: case[key] for key in (
+            "predictor_revision", "teamA", "teamB", "games", "calibrations", "input_provenance",
+        )},
+    })
+
+
+@lru_cache(maxsize=1)
+def _pinned_source_identity() -> tuple:
+    root = Path(__file__).resolve().parents[2]
+
+    def source(name):
+        return subprocess.check_output(
+            ["git", "show", f"{PINNED_REVISION}:frontend/lib/{name}"], cwd=root, encoding="utf-8", timeout=15
+        ).replace("\r\n", "\n")
+
+    declaration = re.search(r"const files = \[(.*?)\];", source("prospectiveCapture.ts"), re.S)
+    if declaration is None:
+        raise ValueError("Pinned collector module list is unavailable")
+    names = re.findall(r"'([A-Za-z0-9]+\.ts)'", declaration[1])
+    if not names or len(names) != len(set(names)):
+        raise ValueError("Invalid pinned collector module list")
+    pairs = [[name, source(name)] for name in names]
+    return digest(pairs), tuple((name, hashlib.sha256(contents.encode()).hexdigest()) for name, contents in pairs)
+
+
+def pinned_source_identity() -> dict:
+    algorithm_hash, hashes = _pinned_source_identity()
+    return {"algorithm_hash": algorithm_hash, "source_hashes": dict(hashes)}
+
+
+def reconstruction_error(expected: dict) -> str | None:
+    try:
+        receipt = expected["reconstruction"]
+        inputs, prediction = receipt["inputs"], receipt["prediction"]
+        fixture = inputs["fixture"]
+        if receipt.get("schema_version") != 1 or receipt.get("predictor_revision") != PINNED_REVISION:
+            return "wrong_reconstruction_revision"
+        if not receipt.get("aa_parity") or any(receipt.get(k) != v for k, v in pinned_source_identity().items()):
+            return "unverified_reconstruction_runner"
+        if expected["reconstruction_sha256"] != digest(receipt) or receipt["inputs_sha256"] != digest(inputs):
+            return "reconstruction_hash_mismatch"
+        if receipt["prediction_sha256"] != digest(prediction):
+            return "reconstruction_prediction_hash_mismatch"
+        if timestamp(inputs["reference_time"]) >= match_start(fixture["game_date"]):
+            return "reconstruction_reference_after_cutoff"
+        signature_payload = receipt["model_signature_payload"]
+        signature_keys = {
+            "ageGroups": "age_group_parameters.json", "probability": "probability_parameters.json",
+            "margin": "margin_parameters_v2.json", "outcome": "heuristic_outcome_calibration.json",
+            "confidence": "confidence_parameters_v2.json",
+        }
+        if (json.loads(signature_payload) != {
+                "algorithm": receipt["algorithm_hash"],
+                "calibration": {key: inputs["calibrations"][file] for key, file in signature_keys.items()},
+            } or hashlib.sha256(signature_payload.encode()).hexdigest() != receipt["model_signature"]):
+            return "reconstruction_signature_payload_mismatch"
+        if any(expected.get(k) != fixture.get(k) for k in (
+            "source_game_id", "game_date", "home_team_master_id", "away_team_master_id",
+        )):
+            return "reconstruction_fixture_mismatch"
+        if (inputs["teamA"]["team_id_master"] != fixture["home_team_master_id"]
+                or inputs["teamB"]["team_id_master"] != fixture["away_team_master_id"]):
+            return "reconstruction_orientation_mismatch"
+        provenance = expected["provenance"]
+        computed = timestamp(receipt["computed_at"])
+        if (provenance.get("code_revision") != PINNED_REVISION
+                or timestamp(provenance["created_at"]) != timestamp(receipt["computed_at"])
+                or timestamp(provenance["last_calculated"]) != timestamp(receipt["computed_at"])):
+            return "invalid_reconstruction_timestamp"
+        dependencies = inputs["input_provenance"] + [
+            g["ml_provenance"] for g in inputs.get("games", []) if g.get("ml_overperformance") is not None
+        ]
+        if any(timestamp(p[key]) > computed for p in dependencies for key in (
+            ("created_at", "last_calculated", "trained_at") if p.get("uses_learned_inputs", True)
+            else ("created_at", "last_calculated")
+        )):
+            return "reconstruction_precedes_inputs"
+        if any(timestamp(g["result_available_at"]) > computed for g in inputs.get("games", [])):
+            return "reconstruction_precedes_results"
+        if not finite(prediction["expectedMargin"]) or prediction["expectedMargin"] != expected["expected_home_margin"]:
+            return "reconstruction_margin_mismatch"
+        if not expected.get("model_signature") or expected["model_signature"] != receipt["model_signature"]:
+            return "reconstruction_signature_mismatch"
+        return prediction_input_error(inputs, fixture["game_date"])
+    except (ValueError, TypeError, KeyError, AttributeError, OSError, subprocess.SubprocessError):
+        return "missing_or_invalid_reconstruction"
+
+
+def reconstruct_expectations(cases: list[dict], runner: dict, computed_at: str) -> dict:
+    timestamp(computed_at)
+    if (runner.get("predictor_revision") != PINNED_REVISION or not runner.get("aa_parity")
+            or set(runner.get("outputs", {})) != {"baseline"}
+            or any(runner.get(k) != v for k, v in pinned_source_identity().items())):
+        raise ValueError("Pinned baseline reconstruction parity not established")
+    rows = runner["outputs"]["baseline"]
+    by_id = {row["id"]: row for row in rows}
+    if (len(by_id) != len(rows) or len(by_id) != len(cases)
+            or set(by_id) != {c["fixture"]["source_game_id"] for c in cases}):
+        raise ValueError("Reconstruction outputs do not match the input fixtures")
+    expectations = {}
+    for case in cases:
+        inputs = reconstruction_inputs(case)
+        fixture = inputs["fixture"]
+        row = by_id[fixture["source_game_id"]]
+        if timestamp(row.get("reference_time")) != timestamp(inputs["reference_time"]):
+            raise ValueError("Reconstruction reference time does not match the replay")
+        prediction = deepcopy(row["prediction"])
+        receipt = {
+            "schema_version": 1, "computed_at": computed_at, "predictor_revision": PINNED_REVISION,
+            **{key: deepcopy(runner[key]) for key in (
+                "source_hashes", "algorithm_hash", "model_signature", "model_signature_payload", "aa_parity",
+            )},
+            "inputs": inputs, "inputs_sha256": digest(inputs), "prediction": prediction,
+            "prediction_sha256": digest(prediction),
+        }
+        expected = {
+            **fixture, "source": "reconstructed", "expected_home_margin": prediction["expectedMargin"],
+            "model_signature": runner["model_signature"], "reconstruction": receipt,
+            "reconstruction_sha256": digest(receipt),
+            "provenance": {"code_revision": PINNED_REVISION, "created_at": computed_at, "last_calculated": computed_at},
+        }
+        expected["provenance"]["sha256"] = digest(expectation_payload(expected))
+        if reconstruction_error(expected):
+            raise ValueError("Reconstruction inputs or output provenance are invalid")
+        expectations[fixture["source_game_id"]] = expected
+    return expectations
+
+
 def residual_form(team_id: str, games: list[dict], expectations: dict, as_of: str, candidate: str) -> dict:
     """Replace only the scalar form input; other recent-profile fields stay raw."""
     if candidate not in FORM_CANDIDATES:
@@ -168,7 +385,9 @@ def residual_form(team_id: str, games: list[dict], expectations: dict, as_of: st
     origins = Counter()
     missing = 0
     for position, game in enumerate(recent):
-        expected = expectations.get(game["id"])
+        expected = expectations.get(game.get("source_game_id") or game["id"])
+        if expected is None:
+            expected = expectations.get(game["id"])
         if not expected or not valid_expectation(expected, game):
             missing += 1
             continue
@@ -226,66 +445,12 @@ def audit_cases(cases: list[dict], policy: ResearchPolicy) -> tuple[list[dict], 
             reason = "missing_evaluation_group"
         elif fixture.get("is_excluded", False):
             reason = "excluded_result"
-        elif (
-            not fixture.get("home_team_master_id")
-            or not fixture.get("away_team_master_id")
-            or fixture["home_team_master_id"] == fixture["away_team_master_id"]
-            or case.get("teamA", {}).get("team_id_master") != fixture["home_team_master_id"]
-            or case.get("teamB", {}).get("team_id_master") != fixture["away_team_master_id"]
-        ):
-            reason = "invalid_target_orientation"
         elif not all(finite(fixture.get(k)) and fixture[k] >= 0 for k in ("home_score", "away_score")):
             reason = "missing_result"
         elif case.get("predictor_revision") != policy.predictor_revision:
             reason = "wrong_predictor_revision"
-        elif {p.get("role") for p in case.get("input_provenance", [])} != INPUT_ROLES:
-            reason = "missing_input_provenance"
         else:
-            payloads = {
-                "team_a_snapshot": case.get("teamA"),
-                "team_b_snapshot": case.get("teamB"),
-                **{role: case.get("calibrations", {}).get(file) for role, file in CALIBRATION_ROLES.items()},
-            }
-            for provenance in case["input_provenance"]:
-                reason = provenance_error(provenance, day)
-                if not reason and (
-                    payloads[provenance["role"]] is None or provenance["sha256"] != digest(payloads[provenance["role"]])
-                ):
-                    reason = "input_hash_mismatch"
-                if reason:
-                    break
-        if not reason and any(g["game_date"] >= day for g in case.get("games", [])):
-            reason = "future_or_same_day_history"
-        if not reason:
-            for g in case.get("games", []):
-                try:
-                    if timestamp(g.get("result_available_at")) >= match_start(day):
-                        reason = "history_result_unavailable_at_cutoff"
-                except (TypeError, ValueError):
-                    reason = "missing_history_result_provenance"
-                result_payload = {
-                    k: g.get(k)
-                    for k in (
-                        "id",
-                        "game_date",
-                        "home_team_master_id",
-                        "away_team_master_id",
-                        "home_score",
-                        "away_score",
-                        "result_available_at",
-                    )
-                }
-                if not reason and g.get("result_sha256") != digest(result_payload):
-                    reason = "history_result_hash_mismatch"
-                if not reason and g.get("ml_overperformance") is not None:
-                    learned = g.get("ml_provenance", {})
-                    reason = provenance_error(learned, day)
-                    if not reason and learned["sha256"] != digest(
-                        {"id": g["id"], "ml_overperformance": g["ml_overperformance"]}
-                    ):
-                        reason = "history_learned_value_hash_mismatch"
-                if reason:
-                    break
+            reason = prediction_input_error(case, day)
         if reason:
             exclusions[reason] += 1
             coverage[label][reason] += 1

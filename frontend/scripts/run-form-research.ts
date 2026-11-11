@@ -37,6 +37,7 @@ function numericDifference(left: unknown, right: unknown): number {
   return left === right ? 0 : Infinity;
 }
 type ResearchCase = {
+  reference_time: string;
   period?: 'development' | 'evaluation';
   fixture: { source_game_id: string };
   teamA: TeamWithRanking;
@@ -63,6 +64,7 @@ async function main() {
     throw new Error('Duplicate research fixtures');
   }
   const sourceHashes: Record<string, string> = {};
+  const sourcePairs: [string, string][] = [];
   for (const name of hashedFiles) {
     const frozen = execFileSync('git', ['show', `${revision}:frontend/lib/${name}`], {
       cwd: root,
@@ -72,6 +74,7 @@ async function main() {
     const current = (await readFile(path.join(root, 'lib', name), 'utf8')).replace(/\r\n/g, '\n');
     if (frozen !== current) throw new Error(`Collecting predictor changed: ${name}`);
     sourceHashes[name] = createHash('sha256').update(frozen).digest('hex');
+    sourcePairs.push([name, frozen]);
   }
   const tempRoot = await realpath(tmpdir());
   const temp = await realpath(workspace);
@@ -84,7 +87,10 @@ async function main() {
   }
   const originalCwd = process.cwd();
   const originalFetch = globalThis.fetch;
+  const originalDate = globalThis.Date;
+  const originalTimezone = process.env.TZ;
   try {
+    process.env.TZ = 'UTC';
     const calibrationDir = path.join(temp, 'public/data/calibration');
     await mkdir(calibrationDir, { recursive: true });
     for (const file of calibrationFiles) {
@@ -122,9 +128,30 @@ async function main() {
     const challenger = await import(pathToFileURL(generated).href);
     await baseline.warmMatchPredictorCalibration();
     await challenger.warmMatchPredictorCalibration();
-    const outputs: Record<string, { id: string; prediction: unknown }[]> = { baseline: [] };
+    const algorithmHash = createHash('sha256').update(stableJson(sourcePairs)).digest('hex');
+    const modelSignaturePayload = stableJson({
+      algorithm: algorithmHash,
+      calibration: baseline.matchCalibrationSnapshot(),
+    });
+    const modelSignature = createHash('sha256').update(modelSignaturePayload).digest('hex');
+    const outputs: Record<string, { id: string; prediction: unknown; reference_time?: string }[]> = { baseline: [] };
     let savedReplayMaximumDifference = 0;
     for (const c of payload.cases) {
+      const referenceTime = originalDate.parse(c.reference_time);
+      if (!Number.isFinite(referenceTime) || !/(Z|[+-]\d{2}:\d{2})$/.test(c.reference_time)) {
+        throw new Error('A timezone-aware reference_time is required for deterministic replay');
+      }
+      globalThis.Date = new Proxy(originalDate, {
+        construct(target, args) {
+          return Reflect.construct(target, args.length ? args : [referenceTime]);
+        },
+        apply() {
+          return new originalDate(referenceTime).toString();
+        },
+        get(target, property, receiver) {
+          return property === 'now' ? () => referenceTime : Reflect.get(target, property, receiver);
+        },
+      });
       const expected = baseline.predictMatch(c.teamA, c.teamB, c.games);
       if (c.frozenPrediction) {
         const difference = numericDifference(expected, c.frozenPrediction);
@@ -134,7 +161,11 @@ async function main() {
       challenger.setResearchForm(null);
       const replay = challenger.predictMatch(c.teamA, c.teamB, c.games);
       if (stableJson(expected) !== stableJson(replay)) throw new Error('A/A parity failed');
-      outputs.baseline.push({ id: c.fixture.source_game_id, prediction: expected });
+      outputs.baseline.push({
+        id: c.fixture.source_game_id,
+        prediction: expected,
+        reference_time: new originalDate(referenceTime).toISOString(),
+      });
       for (const [name, overrides] of Object.entries(c.formOverrides ?? {})) {
         if (
           !Object.hasOwn(overrides, c.teamA.team_id_master) ||
@@ -157,6 +188,9 @@ async function main() {
           schema_version: 1,
           predictor_revision: revision,
           source_hashes: sourceHashes,
+          algorithm_hash: algorithmHash,
+          model_signature: modelSignature,
+          model_signature_payload: modelSignaturePayload,
           aa_parity: true,
           saved_replay_maximum_difference: savedReplayMaximumDifference,
           research_script_sha256: createHash('sha256')
@@ -173,6 +207,9 @@ async function main() {
       { flag: 'wx' }
     );
   } finally {
+    globalThis.Date = originalDate;
+    if (originalTimezone === undefined) delete process.env.TZ;
+    else process.env.TZ = originalTimezone;
     globalThis.fetch = originalFetch;
     process.chdir(originalCwd);
   }
