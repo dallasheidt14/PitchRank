@@ -2888,3 +2888,11 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `_fetch` in `scripts/scrape_affinity_wa_tournament.py`
 - **Why**: It returns `r.text`, and Sports Affinity pages answer `Content-Type: text/html` with no charset, so `requests` decodes them as ISO-8859-1 and a non-ASCII team name would arrive garbled. The OR scraper's `_fetch` sets UTF-8 when no charset is declared (pinned by `TestPageDecoding` in `tests/unit/test_scrape_affinity_or.py`); WA keeps its own copy. 0 of the 879 `affinity_wa` teams have a non-ASCII name (queried 2026-11-11), so nothing is garbled yet.
 - **Noted**: 2026-11-11
+
+### Stop the U8 and U9 national age pages linking to boards that do not exist
+
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `VALID_AGE_GROUPS` (built from `AGE_GROUPS_ALL`) and the state board links in `AgeGroupPage` in `frontend/app/rankings/age/[ageGroup]/page.tsx`
+- **Why**: The board route accepts only `AGE_GROUPS` (U10-U17 and U19), so every `/rankings/{state}/u8|u9/{gender}` link these pages render is a 404. On the local dev server 2026-11-11, `/rankings/age/u8` returned 200 with 52 distinct U8 board links, and `/rankings/national/u8/male` returned 404. PitchRank deliberately boards no U8/U9 teams, so either drop u8/u9 from the page's list (they then 404 like other non-boards) or stop rendering board links on them.
+- **Noted**: 2026-11-11
