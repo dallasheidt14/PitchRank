@@ -5378,7 +5378,7 @@ elif section == "🛡️ Due Diligence Review":
         if col_name == "gender_check" and v == "unknown":
             return "🔴 Unread"
         if v == "coed":
-            return "✅ Coed"
+            return "🔴 Coed"
         if v == "ok" or v == "exact":
             return "✅ OK"
         if v == "partial":
@@ -5403,7 +5403,7 @@ elif section == "🛡️ Due Diligence Review":
             elif col == "name_literal_check":
                 count = (dd_df[col].str.lower() != "true").sum()
             elif col == "gender_check":
-                count = dd_df[col].str.lower().isin(["mismatch", "unknown"]).sum()
+                count = dd_df[col].str.lower().isin(["mismatch", "unknown", "coed"]).sum()
             else:
                 count = (dd_df[col].str.lower() == "mismatch").sum()
             if count > 0:
@@ -5465,6 +5465,8 @@ elif section == "🛡️ Due Diligence Review":
             elif col == "gender_check" and val == "unknown":
                 # The gate holds a record whose gender nothing reads, not only a contradiction.
                 failures.append("gender unread")
+            elif col == "gender_check" and val == "coed":
+                failures.append("coed")
             elif val == "mismatch":
                 failures.append(col.replace("_check", ""))
 
@@ -5524,7 +5526,9 @@ elif section == "🛡️ Due Diligence Review":
                     "✅ Approve & Link",
                     key=f"dd_approve_{unknown_pid}_{idx}",
                     type="primary",
-                    disabled=not dd_reviewer or not db,
+                    # PitchRank does not rank coed teams (owner, 2026-11-10), so a reviewer cannot
+                    # link a coed record's games to a ranked team.
+                    disabled=not dd_reviewer or not db or str(row.get("gender_check", "")).strip().lower() == "coed",
                 ):
                     try:
                         provider_id = row.get("provider_id", "")

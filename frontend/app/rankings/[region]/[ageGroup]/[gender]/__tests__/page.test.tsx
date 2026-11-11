@@ -126,17 +126,28 @@ describe('RankingsPage URL validation', () => {
     ['xx', 'u13', 'male'],
     ['az', 'u13', 'boys'],
     ['az', 'u9', 'male'],
-    ['az', 'u18', 'female'],
+    ['az', 'u20', 'female'],
+    ['az', 'u180', 'female'],
   ])('returns not found for /rankings/%s/%s/%s', async (region, ageGroup, gender) => {
     mockGetRankings.mockResolvedValue(STATE_BOARD);
     await expect(render(region, ageGroup, gender)).rejects.toThrow('NEXT_NOT_FOUND');
     expect(notFound).toHaveBeenCalled();
   });
 
-  it('sends an upper-case URL to the lower-case board', async () => {
+  it.each([
+    ['AZ', 'U13', 'Male'],
+    ['AZ', 'u13', 'male'],
+    ['az', 'u13', 'Male'],
+  ])('sends upper-case /rankings/%s/%s/%s to the lower-case board', async (region, ageGroup, gender) => {
     mockGetRankings.mockResolvedValue(STATE_BOARD);
-    await expect(render('AZ', 'U13', 'Male')).rejects.toThrow('NEXT_REDIRECT /rankings/az/u13/male');
+    await expect(render(region, ageGroup, gender)).rejects.toThrow('NEXT_REDIRECT /rankings/az/u13/male');
     expect(permanentRedirect).toHaveBeenCalledWith('/rankings/az/u13/male');
+  });
+
+  it('sends a U18 URL to the U19 board in one hop', async () => {
+    mockGetRankings.mockResolvedValue(STATE_BOARD);
+    await expect(render('az', 'u18', 'female')).rejects.toThrow('NEXT_REDIRECT /rankings/az/u19/female');
+    await expect(render('National', 'U18', 'male')).rejects.toThrow('NEXT_REDIRECT /rankings/national/u19/male');
   });
 
   it('renders every board the sitemap lists', async () => {

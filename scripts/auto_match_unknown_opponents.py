@@ -48,6 +48,7 @@ from find_queue_matches import (
 )
 
 from src.utils.age_group import normalize_age_group
+from src.utils.gotsport_team_details import TeamDetailsPacer
 from src.utils.team_association_map import to_state_code
 from src.utils.team_name_utils import squad_labels_differ, u19_shared_year_ambiguous
 
@@ -110,9 +111,10 @@ def _to_gender_full(v: Optional[str]) -> Optional[str]:
 class GotSportResolver:
     BASE_URL = "https://system.gotsport.com/api/v1/team_ranking_data/team_details"
 
-    def __init__(self, timeout: int = 15):
+    def __init__(self, timeout: int = 15, pacer: Optional[TeamDetailsPacer] = None):
         self.timeout = timeout
         self.session = requests.Session()
+        self.pacer = pacer or TeamDetailsPacer()
         self.cache: Dict[str, Dict[str, str]] = {}
 
     def resolve(self, provider_team_id: str) -> Dict[str, str]:
@@ -122,7 +124,8 @@ class GotSportResolver:
         if key in self.cache:
             return self.cache[key]
         try:
-            response = self.session.get(
+            response = self.pacer.get(
+                self.session,
                 self.BASE_URL,
                 params={"team_id": key},
                 timeout=self.timeout,
@@ -137,7 +140,7 @@ class GotSportResolver:
                 payload = {}
         except Exception:
             # A WAF block, timeout or 429 says nothing about this team, so it is
-            # not cached -- a later row retries.
+            # not cached; a later row retries unless the pacer has stopped lookups.
             return {}
 
         # team_details has no full_name, state, age or gender key; the real fields

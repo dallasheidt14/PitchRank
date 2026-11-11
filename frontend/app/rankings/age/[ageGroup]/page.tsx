@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
+import { notFound, permanentRedirect } from 'next/navigation';
 import { Breadcrumbs } from '@/components/Breadcrumbs';
 import { US_STATES, AGE_GROUPS_ALL, BASE_URL } from '@/lib/constants';
 import { safeJsonLd } from '@/lib/schema-utils';
@@ -9,7 +9,8 @@ import { api } from '@/lib/api';
 // Revalidate every hour for ISR caching
 export const revalidate = 3600;
 
-const VALID_AGE_GROUPS = AGE_GROUPS_ALL;
+// U18 teams are ranked on the U19 board, so a U18 page would only repeat U19.
+const VALID_AGE_GROUPS = AGE_GROUPS_ALL.filter((age) => age !== 'u18');
 
 // Popular states to highlight
 const POPULAR_STATES = ['CA', 'TX', 'FL', 'NY', 'GA', 'PA', 'IL', 'NC', 'AZ', 'WA', 'NJ', 'CO'];
@@ -82,6 +83,9 @@ export default async function AgeGroupPage({ params }: AgeGroupPageProps) {
   const resolvedParams = await params;
   const { ageGroup } = resolvedParams;
 
+  if (ageGroup.toLowerCase() === 'u18') {
+    permanentRedirect('/rankings/age/u19');
+  }
   const validAge = validateAgeGroup(ageGroup);
   if (!validAge) {
     notFound();

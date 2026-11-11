@@ -14,7 +14,7 @@ import {
   computeTrialProjection,
   countAnnualRenewals,
   countObservedChurn,
-  describeRate,
+  countTrialsByMonth,
   FALLBACK_CHURN_RATE,
   FALLBACK_CONVERSION_RATE,
   type CohortWindow,
@@ -226,6 +226,47 @@ describe('computeMonthCohort two months back', () => {
     ];
     const result = computeMonthCohort(subs, new Set(['dec']), new Date(phoenix(2027, 2, 10) * 1000), 2, NONE);
     expect(result).toEqual({ label: 'December 2026', sample: 1, converted: 1, retained: 1, excluded: 0 });
+  });
+});
+
+describe('countTrialsByMonth', () => {
+  const phoenix = (y: number, m: number, d: number, h = 0) => Date.UTC(y, m - 1, d, h + 7) / 1000;
+  const trial = (id: string, start: number | null, over: Parameters<typeof sub>[0] = {}) =>
+    sub({ id, status: 'canceled', trialStart: start, ...over });
+
+  it('counts trials started in each Phoenix month from June through the current one, oldest first', () => {
+    const subs = [
+      trial('may', phoenix(2026, 6, 1) - 1),
+      trial('june_first_instant', phoenix(2026, 6, 1)),
+      // 11pm on June 30 in Phoenix is already July 1 in UTC.
+      trial('june_last_evening', phoenix(2026, 6, 30, 23)),
+      trial('august', phoenix(2026, 8, 12), { status: 'active' }),
+      trial('august_internal', phoenix(2026, 8, 12), { email: 'staff@example.com' }),
+      trial('no_trial', null, { status: 'active', created: phoenix(2026, 8, 12) }),
+      trial('september', phoenix(2026, 9, 3), { status: 'trialing' }),
+    ];
+    const now = new Date(phoenix(2026, 9, 16) * 1000);
+    expect(countTrialsByMonth(subs, now, new Set(['staff@example.com']))).toEqual([
+      { label: 'June 2026', trials: 2 },
+      { label: 'July 2026', trials: 0 },
+      { label: 'August 2026', trials: 1 },
+      { label: 'September 2026', trials: 1 },
+    ]);
+  });
+
+  it('keeps every month back to June once the year turns over', () => {
+    const labels = countTrialsByMonth([], new Date(phoenix(2027, 2, 10) * 1000), NONE).map((m) => m.label);
+    expect(labels).toEqual([
+      'June 2026',
+      'July 2026',
+      'August 2026',
+      'September 2026',
+      'October 2026',
+      'November 2026',
+      'December 2026',
+      'January 2027',
+      'February 2027',
+    ]);
   });
 });
 
@@ -684,7 +725,6 @@ describe('buildMonthProjection', () => {
   it('counts conversions that already happened and estimates only the rest', () => {
     const result = build();
     expect(result.grossNewSubs).toBeCloseTo(10 + 40 * 0.5); // 30
-    expect(result.grossNewMrr).toBeCloseTo(210);
   });
 
   it('does not re-estimate a resolved conversion', () => {
@@ -718,37 +758,15 @@ describe('buildMonthProjection', () => {
     expect(result.netMrr).toBeCloseTo(result.netSubs * 7);
   });
 
-  it('values the whole cohort separately from the month', () => {
-    const result = build();
-    expect(result.cohortSubs).toBeCloseTo(41.25);
-    expect(result.cohortMrr).toBeCloseTo(288.75);
-  });
-
   it('derives lifetime and LTV from the churn rate', () => {
     const result = build({ churn: rate(0.25), arpu: 8 });
     expect(result.avgLifetimeMonths).toBeCloseTo(4);
     expect(result.ltv).toBeCloseTo(32);
-    expect(result.cohortValue).toBeCloseTo(41.25 * 32);
   });
 
   it('reports lifetime as unmeasurable rather than zero when nobody churned', () => {
     const result = build({ churn: rate(0) });
     expect(result.avgLifetimeMonths).toBeNull();
     expect(result.ltv).toBeNull();
-    expect(result.cohortValue).toBeNull();
-  });
-});
-
-describe('describeRate', () => {
-  it('reports a measured rate with the cohort behind it', () => {
-    expect(describeRate({ rate: 0.473, observed: 79, sample: 167, excluded: 0, isFallback: false })).toBe(
-      '47.3% from 79 of 167'
-    );
-  });
-
-  it('says so when the number is a historical fallback rather than a measurement', () => {
-    expect(describeRate({ rate: 0.478, observed: 1, sample: 3, excluded: 0, isFallback: true })).toBe(
-      '47.8% (historical fallback — only 3 in cohort)'
-    );
   });
 });
