@@ -735,9 +735,10 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Status**: open
 - **Type**: plan
 - **Category**: reliability
-- **Where**: `frontend/lib/admin/month-projection.ts` (`buildMonthProjection`, `lostMrr`)
+- **Where**: `frontend/lib/admin/month-projection.ts` (`buildMonthProjection`, `netMrr`)
 - **Why**: `lostMrr` multiplies churned subscribers by `arpu`, which is the blended monthly-equivalent of the historical paid-*acquisition* cohort. The population actually at risk in a month is different: currently 100% monthly at $6.99, where the acquisition mix is about 18% annual at $5.83 monthly-equivalent. Measured on live data the code reports $50.09 against $51.68 for the at-risk mix, a $1.58 gap on a $50 line. Left alone because that is an order of magnitude below the sampling error on the churn rate feeding it — the same report shows that rate swinging five points on lookback choice alone, worth roughly $10. Worth revisiting only alongside a better churn estimate, and note that neither formulation handles annual correctly: a lapsed annual renewal removes $69.99 of cash, not $5.83.
 - **Noted**: 2026-09-04
+- **Update (2026-11-11)**: The gained-and-lost table was removed from the subscriptions dashboard, and `lostMrr` with it. The same pricing now reaches the page only through `netMrr` (`netSubs * arpu`, the Net MRR Change card), where churned subscribers are still priced at the acquisition-cohort `arpu`.
 
 ### Treat a pending cancellation as a certainty rather than an average-rate risk
 
@@ -2887,6 +2888,22 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Category**: reliability
 - **Where**: `_fetch` in `scripts/scrape_affinity_wa_tournament.py`
 - **Why**: It returns `r.text`, and Sports Affinity pages answer `Content-Type: text/html` with no charset, so `requests` decodes them as ISO-8859-1 and a non-ASCII team name would arrive garbled. The OR scraper's `_fetch` sets UTF-8 when no charset is declared (pinned by `TestPageDecoding` in `tests/unit/test_scrape_affinity_or.py`); WA keeps its own copy. 0 of the 879 `affinity_wa` teams have a non-ASCII name (queried 2026-11-11), so nothing is garbled yet.
+- **Noted**: 2026-11-11
+
+### Build the subscriptions dashboard's status-list union once, keyed by id
+
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `getSubscriptionMetrics` in `frontend/lib/admin/subscription-metrics.ts` (`mrrSubs`, `billedSubs`, the `computeLeadToTrial` call)
+- **Why**: The status lists are fetched in parallel, so a subscription whose status changes between two fetches (a failed renewal moving it from active to past_due) can come back in both. `mrrSubs` and `billedSubs` concatenate the lists without de-duplicating, so `computeMrr` / `computeMrrGrowth` count that price twice for one page view; a refresh clears it. The trials-by-month union (`everySub`) already keys by id. The Lead → Trial input also leaves out `unpaid` and has no availability flag, although `computeLeadToTrial`'s docstring says its four lists cover every bucket a trialer can reach. Building one id-keyed union and deriving all three from it gives the page a single definition.
+- **Noted**: 2026-11-11
+
+### Colour RankHistoryChart's axis ticks through the tick prop
+
+- **Type**: direct
+- **Category**: readability
+- **Where**: `RankHistoryChart` in `frontend/components/RankHistoryChart.tsx` (the `XAxis` and `YAxis` props)
+- **Why**: Both axes set `className="fill-muted-foreground"`, which never reaches the tick text in Recharts 3.8.1: the labels render outside the axis `<g>` and take their fill from the `tick` prop, so they draw in the default `#666`. Seen on `TrialsByMonthChart` this session, where tick text read `fill="#666"` until the colour moved to `tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }}`, after which it computed to the muted token. Cosmetic: the two greys are close and the site has no dark theme.
 - **Noted**: 2026-11-11
 
 ### Stop the U8 and U9 national age pages linking to boards that do not exist
