@@ -62,7 +62,9 @@ jobs:
   unknown-opponent-hygiene:
     name: Unknown Opponent Hygiene
     runs-on: ubuntu-latest
-    timeout-minutes: 240
+    # Every GotSport lookup in this job is spaced 3 s apart (TeamDetailsPacer), so a
+    # week with a few thousand unknown opponents runs for hours.
+    timeout-minutes: 360
 
     steps:
       - name: Checkout repository
@@ -208,6 +210,7 @@ jobs:
         if: ${{ github.event.inputs.discover_teams != 'false' && env.AGE_ROLLOVER_FREEZE == 'false' }}
         env:
           EXPORT_TIMESTAMP: ${{ steps.export.outputs.timestamp }}
+          EXPORT_AGGREGATE_CSV: ${{ steps.export.outputs.aggregate_csv }}
           MATCH_CSV: ${{ steps.match.outputs.match_csv }}
           DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
           DISCOVER_MIN_GAMES: ${{ github.event.inputs.discover_min_games || '1' }}
@@ -222,6 +225,7 @@ jobs:
 
           python3 scripts/discover_teams_from_opponents.py \
             --match-report "$MATCH_CSV" \
+            --export-aggregate "$EXPORT_AGGREGATE_CSV" \
             --provider "$PROVIDER" \
             --min-games "$MIN_GAMES" \
             --output "$DISCOVER_CSV" \
@@ -245,6 +249,8 @@ jobs:
               "discovery_total": values.get("DISCOVERY_TOTAL", "0"),
               "discovery_created": values.get("DISCOVERY_CREATED", "0"),
               "discovery_skipped": values.get("DISCOVERY_SKIPPED_METADATA", "0"),
+              "discovery_skipped_lookup_failed": values.get("DISCOVERY_SKIPPED_LOOKUP_FAILED", "0"),
+              "discovery_coed_excluded": values.get("DISCOVERY_COED_EXCLUDED", "0"),
               "discovery_errors": values.get("DISCOVERY_ERRORS", "0"),
               "discovery_backfilled": values.get("DISCOVERY_GAMES_BACKFILLED", "0"),
           }
@@ -284,6 +290,8 @@ jobs:
           DISCOVERY_CREATED: ${{ steps.discover.outputs.discovery_created || '0' }}
           DISCOVERY_BACKFILLED: ${{ steps.discover.outputs.discovery_backfilled || '0' }}
           DISCOVERY_SKIPPED: ${{ steps.discover.outputs.discovery_skipped || '0' }}
+          DISCOVERY_SKIPPED_LOOKUP_FAILED: ${{ steps.discover.outputs.discovery_skipped_lookup_failed || '0' }}
+          DISCOVERY_COED_EXCLUDED: ${{ steps.discover.outputs.discovery_coed_excluded || '0' }}
           DISCOVERY_ERRORS: ${{ steps.discover.outputs.discovery_errors || '0' }}
         run: |
           MODE="AUTO-EXECUTE"
@@ -306,6 +314,8 @@ jobs:
           echo "- Teams created: **$DISCOVERY_CREATED**" >> "$GITHUB_STEP_SUMMARY"
           echo "- Games backfilled: **$DISCOVERY_BACKFILLED**" >> "$GITHUB_STEP_SUMMARY"
           echo "- Skipped (metadata): **$DISCOVERY_SKIPPED**" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Skipped (GotSport lookup failed, left for next week): **$DISCOVERY_SKIPPED_LOOKUP_FAILED**" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Coed teams created excluded from rankings: **$DISCOVERY_COED_EXCLUDED**" >> "$GITHUB_STEP_SUMMARY"
           echo "- Errors: **$DISCOVERY_ERRORS**" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "Execution runs for all approved rows, even if some need review." >> "$GITHUB_STEP_SUMMARY"
