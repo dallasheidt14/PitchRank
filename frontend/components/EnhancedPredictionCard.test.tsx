@@ -27,28 +27,29 @@ const explanation: MatchExplanation = {
 };
 const prediction = { ...sample.prediction, drawProbability: 0.02 } as MatchPrediction;
 const props = { teamAName: 'Alpha', teamBName: 'Beta', prediction, explanation };
-it('shows small draw probabilities, opposing evidence and legacy missing-evidence state', () => {
+it('shows small draw probabilities and opposing factors without an evidence panel', () => {
   const html = renderToStaticMarkup(<EnhancedPredictionCard {...props} />);
   expect(html).toContain('Draw');
   expect(html).toContain('2%');
   expect(html).toContain('Projected scoreline');
-  expect(html).toContain('Evidence details unavailable');
+  expect(html).not.toContain('Evidence details unavailable');
   expect(html).not.toContain('CONFIDENCE');
   expect(html).not.toContain('UNSUPPORTED RELIABILITY');
   expect(html).toContain('Reasons for caution');
   expect(html).toContain('Beta faced stronger opposition');
 });
-it('renders factual sparse-history counts and unavailable dates', () => {
+it('keeps a concise limited-history caution without displaying evidence diagnostics', () => {
   const evidence = summarizeMatchEvidence(
     { as_of: '2026-11-11', window_start: '2025-11-11', games: sample.games as Game[] },
     sample.teamA as TeamWithRanking,
     sample.teamB as TeamWithRanking
   );
   const html = renderToStaticMarkup(<EnhancedPredictionCard {...props} evidence={evidence} />);
-  expect(html).toContain('Usable results');
-  expect(html).toContain('6 of 8 recent results available');
-  expect(html).toContain('Unavailable');
-  expect(html).toContain('6 shared opponents');
+  expect(html).not.toContain('Usable results');
+  expect(html).toContain('limited recent results available');
+  expect(html).not.toContain('Rating snapshot');
+  expect(html).not.toContain('Evidence behind this prediction');
+  expect(html).not.toContain('6 shared opponents');
   expect(html).not.toContain('Evidence details unavailable');
 });
 it('does not invent a missing draw percentage in legacy responses', () => {
