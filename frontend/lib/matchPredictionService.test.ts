@@ -1,23 +1,27 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { mockPredictMatch, mockExplainMatch, mockWarmMatchPredictorCalibration } = vi.hoisted(() => ({
-  mockPredictMatch: vi.fn(),
-  mockExplainMatch: vi.fn(),
-  mockWarmMatchPredictorCalibration: vi.fn(),
-}));
+const { mockPredictMatch, mockExplainMatch, mockWarmMatchPredictorCalibration, mockCalibrationSnapshot } = vi.hoisted(
+  () => ({
+    mockPredictMatch: vi.fn(),
+    mockExplainMatch: vi.fn(),
+    mockWarmMatchPredictorCalibration: vi.fn(),
+    mockCalibrationSnapshot: vi.fn(),
+  })
+);
 
 vi.mock('server-only', () => ({}));
 
 vi.mock('./matchPredictor', () => ({
   predictMatch: mockPredictMatch,
   warmMatchPredictorCalibration: mockWarmMatchPredictorCalibration,
+  matchCalibrationSnapshot: mockCalibrationSnapshot,
 }));
 
 vi.mock('./matchExplainer', () => ({
   explainMatch: mockExplainMatch,
 }));
 
-import { buildMatchPrediction } from './matchPredictionService';
+import { buildMatchPrediction, buildMatchPredictionWithShadowContext } from './matchPredictionService';
 
 const TEAM_A_ID = '11111111-1111-1111-1111-111111111111';
 const TEAM_B_ID = '22222222-2222-2222-2222-222222222222';
@@ -262,6 +266,35 @@ describe('buildMatchPrediction', () => {
         }),
       ])
     );
+  });
+
+  it('freezes real calibration and predictor inputs through the service handoff', async () => {
+    const actual = await vi.importActual<typeof import('./matchPredictor')>('./matchPredictor');
+    await actual.warmMatchPredictorCalibration();
+    mockPredictMatch.mockImplementationOnce(actual.predictMatch);
+    mockCalibrationSnapshot.mockImplementationOnce(actual.matchCalibrationSnapshot);
+    const client = createMockSupabase() as never;
+    const { shadowContext, response } = await buildMatchPredictionWithShadowContext(
+      client,
+      TEAM_A_ID,
+      TEAM_B_ID,
+      client,
+      { freezeInputs: true }
+    );
+    expect(shadowContext.frozenEvidence?.games).toEqual(mockPredictMatch.mock.calls[0][2]);
+    expect(shadowContext.relevantGameIds).toEqual(shadowContext.frozenEvidence?.games.map((game) => game.id));
+    expect(shadowContext.calibration).toEqual(actual.matchCalibrationSnapshot());
+    expect(Object.values(shadowContext.calibration!)).not.toContain(null);
+    const diagnostics: import('./matchPredictor').PredictionDiagnostics = {};
+    expect(
+      actual.predictMatch(
+        shadowContext.teamAInput,
+        shadowContext.teamBInput,
+        shadowContext.frozenEvidence!.games,
+        diagnostics
+      )
+    ).toEqual(response.prediction);
+    expect(shadowContext.preOutcomeCalibration).toEqual(diagnostics.preOutcomeCalibration);
   });
 
   it.each([

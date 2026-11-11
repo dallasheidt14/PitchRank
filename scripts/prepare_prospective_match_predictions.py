@@ -1,11 +1,4 @@
-"""
-Prepare prospective match-prediction fixtures from upcoming-event artifacts.
-
-This script ingests a JSONL file from scrape_upcoming_gotsport_events.py,
-deduplicates it to one row per fixture, resolves provider team IDs to
-PitchRank master team IDs, optionally freezes the offline point-in-time model,
-and stores the result in prospective_match_predictions.
-"""
+"""Prepare prospective fixtures from stored games or event JSONL; writes require --execute."""
 
 from __future__ import annotations
 
@@ -750,7 +743,12 @@ def _upsert_rows(
     rows: List[Dict[str, Any]],
 ) -> None:
     for batch in _chunked(rows, 100):
-        supabase.table("prospective_match_predictions").upsert(batch, on_conflict="fixture_key").execute()
+        supabase.table("prospective_match_predictions").upsert(
+            batch, on_conflict="fixture_key", ignore_duplicates=True).execute()
+        for row in batch:
+            # The predicate is evaluated atomically, after any concurrent freeze.
+            supabase.table("prospective_match_predictions").update(row).eq(
+                "fixture_key", row["fixture_key"]).neq("heuristic_prediction_status", "completed").execute()
 
 
 def prepare_prospective_match_predictions(
@@ -915,6 +913,9 @@ def prepare_prospective_match_predictions(
             summary["unresolved"] += 1
 
         existing_row = existing_rows.get(fixture.fixture_key, {})
+        if existing_row.get("heuristic_prediction_status") == "completed":
+            # BEFORE INSERT guards run even for ON CONFLICT DO NOTHING.
+            continue
 
         row_payload: Dict[str, Any] = {
             "fixture_key": fixture.fixture_key,
@@ -1012,9 +1013,11 @@ def prepare_prospective_match_predictions(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Prepare prospective match-prediction fixtures from upcoming-event JSONL"
+        description="Prepare prospective fixtures from stored games or event JSONL; preview by default"
     )
-    parser.add_argument("--fixtures-file", required=True, help="Path to upcoming-event JSONL artifact")
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--fixtures-file", help="Path to upcoming-event JSONL artifact")
+    source.add_argument("--database", action="store_true", help="Use stored upcoming fixtures")
     parser.add_argument(
         "--source-artifact-path",
         default=None,
@@ -1042,9 +1045,22 @@ def main() -> None:
         action="store_true",
         help="Recompute offline predictions even when rows already have completed offline payloads",
     )
-    parser.add_argument("--dry-run", action="store_true", help="Build everything but skip database writes")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--dry-run", action="store_true", help="Preview only (default)")
+    mode.add_argument("--execute", action="store_true", help="Write eligible prospective fixtures")
     parser.add_argument("--summary-path", default=None, help="Optional path to write JSON summary")
     args = parser.parse_args()
+
+    if args.database:
+        from src.predictions.prospective_fixtures import prepare_database_fixtures
+        summary = prepare_database_fixtures(
+            _supabase_client(), limit=500 if args.limit is None else args.limit, dry_run=not args.execute)
+        if args.execute and args.summary_path:
+            summary_path = Path(args.summary_path)
+            summary_path.parent.mkdir(parents=True, exist_ok=True)
+            summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+        print(json.dumps(summary, indent=2))
+        return
 
     fixtures_file = Path(args.fixtures_file)
     if not fixtures_file.exists():
@@ -1067,9 +1083,9 @@ def main() -> None:
         calibration_artifact=calibration_artifact,
         offline_model_version=args.offline_model_version,
         force_offline_refresh=args.force_offline_refresh,
-        dry_run=args.dry_run,
+        dry_run=not args.execute,
     )
-    if args.summary_path:
+    if args.execute and args.summary_path:
         summary_path = Path(args.summary_path)
         summary_path.parent.mkdir(parents=True, exist_ok=True)
         summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")

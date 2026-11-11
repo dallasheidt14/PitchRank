@@ -16,11 +16,10 @@ on:
         required: false
         default: "100"
         type: string
-      heuristic_model_version:
-        description: "Optional heuristic model version label override"
-        required: false
-        default: ""
-        type: string
+      execute:
+        description: "Write forecasts (default is read-only)"
+        type: boolean
+        default: false
 
 concurrency:
   group: prospective-heuristic-processing
@@ -61,7 +60,7 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           HEURISTIC_STATUS: ${{ github.event.inputs.heuristic_status }}
           LIMIT_INPUT: ${{ github.event.inputs.limit }}
-          HEURISTIC_MODEL_VERSION: ${{ github.event.inputs.heuristic_model_version }}
+          EXECUTE: ${{ inputs.execute }}
         run: |
           SUMMARY_PATH="$RUNNER_TEMP/prospective_heuristic_summary.json"
 
@@ -72,8 +71,8 @@ jobs:
             --summary-path "$SUMMARY_PATH"
           )
 
-          if [ -n "$HEURISTIC_MODEL_VERSION" ]; then
-            CMD+=(--heuristic-model-version "$HEURISTIC_MODEL_VERSION")
+          if [ "$EXECUTE" = "true" ]; then
+            CMD+=(--execute)
           fi
 
           printf 'Running command:\n'
@@ -85,7 +84,7 @@ jobs:
           echo "summary_path=$SUMMARY_PATH" >> "$GITHUB_OUTPUT"
 
       - name: Upload heuristic summary
-        if: always()
+        if: always() && inputs.execute
         uses: actions/upload-artifact@v5
         with:
           name: prospective-heuristic-summary-${{ github.run_id }}
@@ -116,9 +115,9 @@ jobs:
                       f"- Requested status: `{summary.get('requestedStatus')}`",
                       f"- Requested limit: {summary.get('requestedLimit')}",
                       f"- Heuristic model version: `{summary.get('heuristicModelVersion')}`",
-                      f"- Rows fetched: {summary.get('fetchedRows')}",
+                      f"- Rows eligible: {summary.get('eligible')}",
                       f"- Rows processed: {summary.get('processed')}",
-                      f"- Rows completed: {summary.get('completed')}",
+                      f"- Rows frozen: {summary.get('frozen')}",
                       f"- Rows errored: {summary.get('errored')}",
                   ]
               )
