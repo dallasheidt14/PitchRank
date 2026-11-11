@@ -39,7 +39,7 @@ PitchRank is a **youth soccer ranking platform** that scrapes game data from mul
 ## Verification & Regeneration
 - After any change to blog content, metadata, or site structure, always regenerate derived files (e.g., llms.txt) before committing.
 - When running verification/audit scripts, ensure the script does not match its own output files (exclude report files from scans).
-- `ci.yml` applies no migrations, so nothing in CI executes SQL. Tests that guard a migration's contents are standing in for execution, and two shapes fail silently. **Scope each assertion to the statement it is about** — `"IS DISTINCT FROM" in <whole file>` is satisfied by the migration's own header comment and can never fail; extract the `UPDATE ...;` and assert against that. And **assert the structure, not only the parts** — pinning five predicate branches individually still passes when their joining `OR`s all become `AND`s, which can silently make a function return nothing.
+- CI executes the prospective-ledger migrations in PostgreSQL. Other migration-content tests still stand in for execution, and two shapes fail silently. **Scope each assertion to the statement it is about** — `"IS DISTINCT FROM" in <whole file>` is satisfied by the migration's own header comment and can never fail; extract the `UPDATE ...;` and assert against that. And **assert the structure, not only the parts** — pinning five predicate branches individually still passes when their joining `OR`s all become `AND`s, which can silently make a function return nothing.
 - **Derive a guarded file list; never hand-write one.** A test that enumerates the files it
   checks cannot fail for a file it omits, which is how the same wrong GotSport payload keys
   survived in seven hand-copied resolvers while a guard sat green over three of them. Glob for
@@ -696,16 +696,24 @@ two-line edit in `.github/workflows/claude-code-review.yml`.
 | `contradiction-report-weekly.yml` | Thu 8:17 AM UTC | Count the teams whose state contradicts a provider-confirmed club-mate. Reports only: `--probe-limit 0` spends nothing and no `--execute`, so it writes nothing |
 | `double-stored-games-report-weekly.yml` | Thu 9:47 AM UTC | Count GotSport games stored twice (same teams, same day, two active scored rows). Reports only, writes nothing; a pair can be a real rematch, so check each against GotSport before excluding a row |
 | `weekly-prospective-settle-evaluate.yml` | Mon 4:00 PM UTC | Settle and score last week's prospective match predictions |
-| `weekly-prospective-refresh.yml` | Manual dispatch | Scrape upcoming GotSport events, prepare new prospective predictions (cron paused 2026-09-07 — see below) |
+| `weekly-prospective-refresh.yml` | Daily 4:15 AM UTC, gated | Capture Compare forecasts for stored upcoming fixtures; requires `COMPARE_CAPTURE_ENABLED=true` after the pilot |
 | `smoke-infographics.yml` | Daily 1:17 PM UTC | Smoke-test the infographic OG routes |
 | `check-stuck-signups.yml` | Every 6 hours | Flag signups stuck mid-flow, and send a fresh set-password link at 24h and 72h to new guest buyers who never signed in |
 | `reconcile-stripe-daily.yml` | Every 6 hours | Reconcile Stripe subscriptions against `user_profiles` |
 
-### Prospective predictions are shelved, and event-page scraping is why
+### Prospective Compare capture and the legacy event scraper
 
-`weekly-prospective-refresh.yml` had its cron paused on 2026-09-07 after 19 consecutive
-weekly failures. **Do not re-enable it expecting it to work**; two things block it, and
-only the first matters:
+Compare capture uses unscored fixtures already in `games`, with immutable forecasts and
+exact-source settlement. It does not scrape event pages or load the offline model.
+Keep `COMPARE_CAPTURE_ENABLED` unset until the follow-up experiment-registration and
+holdout-isolation changes are merged, the migrations are applied, and a 20-fixture pilot
+passes. Capture is not ready to activate independently of that release gate.
+
+The legacy event-page path remains blocked for the reasons below; do not restore it as
+the source for daily capture.
+
+The event-page workflow was paused on 2026-09-07 after 19 consecutive weekly failures.
+Two problems blocked that path:
 
 1. **GotSport serves a reCAPTCHA on event pages.** One sitekey across every event sampled
    2026-09-07, reached *through* ZenRows, so the proxy is not the answer on its own. The
@@ -715,9 +723,8 @@ only the first matters:
    failure — and no newer one exists, because `train-point-in-time-match-model.yml` has
    failed or been cancelled on every run since 2026-04-15.
 
-Fixing (2) alone accomplishes nothing: the run gets further and still has no fixtures to
-predict on. `weekly-prospective-settle-evaluate.yml` still runs on its own cron and is
-unaffected — it settles predictions already recorded.
+Fixing (2) alone leaves that path without fixtures. `weekly-prospective-settle-evaluate.yml`
+settles recorded forecasts independently of fixture intake.
 
 **A green event-scrape step is not evidence that fixtures were found.**
 `scrape_games_from_schedule_pages` catches a 403 — and any other unexpected error — logs

@@ -65,6 +65,7 @@ jobs:
           SUMMARY_PATH="$RUNNER_TEMP/prospective_settlement_summary.json"
 
           python scripts/settle_prospective_match_predictions.py \
+            --execute \
             --status "$EVALUATION_STATUS" \
             --limit "$LIMIT_INPUT" \
             --summary-path "$SUMMARY_PATH"

@@ -222,6 +222,8 @@ jobs:
 
           if [ "$DRY_RUN" = "true" ]; then
             CMD+=(--dry-run)
+          else
+            CMD+=(--execute)
           fi
 
           printf 'Running command:\n'

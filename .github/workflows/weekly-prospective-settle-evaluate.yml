@@ -6,9 +6,10 @@ on:
       settlement_status:
         description: "evaluation_status bucket to settle"
         required: false
-        default: "pending_result"
+        default: "unsettled"
         type: choice
         options:
+          - unsettled
           - pending_result
           - result_not_found
           - ambiguous_result
@@ -79,11 +80,12 @@ jobs:
           PYTHONUNBUFFERED: "1"
         run: |
           export PYTHONPATH="${PYTHONPATH}:${PWD}"
-          SETTLEMENT_STATUS="${INPUT_SETTLEMENT_STATUS:-pending_result}"
+          SETTLEMENT_STATUS="${INPUT_SETTLEMENT_STATUS:-unsettled}"
           SETTLEMENT_LIMIT="${INPUT_SETTLEMENT_LIMIT:-5000}"
           SUMMARY_PATH="$RUNNER_TEMP/weekly_prospective_settlement_summary.json"
 
           python scripts/settle_prospective_match_predictions.py \
+            --execute \
             --status "$SETTLEMENT_STATUS" \
             --limit "$SETTLEMENT_LIMIT" \
             --summary-path "$SUMMARY_PATH"

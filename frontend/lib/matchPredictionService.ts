@@ -3,7 +3,13 @@ import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { AppError } from './errors';
 import { explainMatch, type MatchExplanation } from './matchExplainer';
-import { predictMatch, type MatchPrediction, warmMatchPredictorCalibration } from './matchPredictor';
+import {
+  predictMatch,
+  type MatchPrediction,
+  warmMatchPredictorCalibration,
+  matchCalibrationSnapshot,
+  type PredictionDiagnostics,
+} from './matchPredictor';
 import type { Game, TeamWithRanking } from './types';
 import { MLS_NEXT_PROVIDER_CODES, normalizeAgeGroup } from './utils';
 import { formatGender } from '@/lib/constants';
@@ -32,6 +38,9 @@ export interface MatchPredictionShadowContext {
   relevantGameCount: number;
   teamAInput: TeamWithRanking;
   teamBInput: TeamWithRanking;
+  frozenEvidence?: Awaited<ReturnType<typeof fetchPredictionEvidence>>;
+  calibration?: ReturnType<typeof matchCalibrationSnapshot>;
+  preOutcomeCalibration?: [number, number, number];
 }
 
 interface MatchPredictionBuildResult {
@@ -604,7 +613,8 @@ export async function buildMatchPredictionWithShadowContext(
   supabase: SupabaseClient,
   teamAId: string,
   teamBId: string,
-  exclusionsClient: SupabaseClient = supabase
+  exclusionsClient: SupabaseClient = supabase,
+  options: { freezeInputs?: boolean } = {}
 ): Promise<MatchPredictionBuildResult> {
   await warmMatchPredictorCalibration();
 
@@ -618,8 +628,8 @@ export async function buildMatchPredictionWithShadowContext(
   }
 
   const [teamA, teamB] = await Promise.all([
-    fetchPredictionTeam(supabase, resolvedTeamA.canonicalTeamId),
-    fetchPredictionTeam(supabase, resolvedTeamB.canonicalTeamId),
+    fetchPredictionTeam(supabase, resolvedTeamA.canonicalTeamId, { strict: options.freezeInputs }),
+    fetchPredictionTeam(supabase, resolvedTeamB.canonicalTeamId, { strict: options.freezeInputs }),
   ]);
 
   const evidence = await fetchPredictionEvidence(
@@ -646,7 +656,8 @@ export async function buildMatchPredictionWithShadowContext(
       422
     );
   }
-  const prediction = predictMatch(teamA, teamB, games);
+  const diagnostics: PredictionDiagnostics = {};
+  const prediction = predictMatch(teamA, teamB, games, diagnostics);
   const explanation = explainMatch(teamA, teamB, prediction);
 
   return {
@@ -672,6 +683,13 @@ export async function buildMatchPredictionWithShadowContext(
       relevantGameCount: games.length,
       teamAInput: teamA,
       teamBInput: teamB,
+      ...(options.freezeInputs
+        ? {
+            frozenEvidence: evidence,
+            calibration: matchCalibrationSnapshot(),
+            preOutcomeCalibration: diagnostics.preOutcomeCalibration,
+          }
+        : {}),
     },
   };
 }

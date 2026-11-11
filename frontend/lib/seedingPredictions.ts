@@ -3,6 +3,8 @@ import { createHash } from 'node:crypto';
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { AppError } from './errors';
+import { stableJson } from './canonicalJson';
+export { stableJson } from './canonicalJson';
 import {
   fetchPredictionEvidence,
   PredictionMetadataError,
@@ -438,20 +440,4 @@ export async function buildSeedingPredictions(
     }
   }
   return result;
-}
-
-/** Canonical serialization prevents object insertion order from masquerading as new evidence. */
-export function stableJson(value: unknown): string {
-  if (Array.isArray(value)) return '[' + value.map(stableJson).join(',') + ']';
-  if (value !== null && typeof value === 'object')
-    return (
-      '{' +
-      Object.entries(value)
-        .filter(([, item]) => item !== undefined)
-        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-        .map(([key, item]) => JSON.stringify(key) + ':' + stableJson(item))
-        .join(',') +
-      '}'
-    );
-  return JSON.stringify(value) ?? 'null';
 }
