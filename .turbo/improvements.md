@@ -2906,6 +2906,14 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: Both axes set `className="fill-muted-foreground"`, which never reaches the tick text in Recharts 3.8.1: the labels render outside the axis `<g>` and take their fill from the `tick` prop, so they draw in the default `#666`. Seen on `TrialsByMonthChart` this session, where tick text read `fill="#666"` until the colour moved to `tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }}`, after which it computed to the muted token. Cosmetic: the two greys are close and the site has no dark theme.
 - **Noted**: 2026-11-11
 
+### Stop the U8 and U9 national age pages linking to boards that do not exist
+
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `VALID_AGE_GROUPS` (built from `AGE_GROUPS_ALL`) and the state board links in `AgeGroupPage` in `frontend/app/rankings/age/[ageGroup]/page.tsx`
+- **Why**: The board route accepts only `AGE_GROUPS` (U10-U17 and U19), so every `/rankings/{state}/u8|u9/{gender}` link these pages render is a 404. On the local dev server 2026-11-11, `/rankings/age/u8` returned 200 with 52 distinct U8 board links, and `/rankings/national/u8/male` returned 404. PitchRank deliberately boards no U8/U9 teams, so either drop u8/u9 from the page's list (they then 404 like other non-boards) or stop rendering board links on them.
+- **Noted**: 2026-11-11
+
 ### Drop the unsourced college-recruiting percentages from the older state guides
 
 - **Type**: direct
