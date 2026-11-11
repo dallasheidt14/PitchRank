@@ -12,7 +12,7 @@ import json
 import logging
 import os
 import sys
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -82,20 +82,28 @@ def _is_missing_table(error: Exception, table_name: str) -> bool:
     return ("could not find the table" in message or "schema cache" in message) and table_name.lower() in message
 
 
-def _fetch_rows(supabase: Client, status: str, limit: int) -> List[Dict[str, Any]]:
+def _fetch_rows(supabase: Client, status: str, limit: int, as_of: Optional[str] = None) -> List[Dict[str, Any]]:
     try:
-        response = (
+        query = (
             supabase.table("prospective_match_predictions")
             .select(
                 "id, fixture_key, game_date, competition, division_name, home_provider_team_id, away_provider_team_id, "
-                "home_team_master_id, away_team_master_id, evaluation_notes"
+                "home_team_master_id, away_team_master_id, evaluation_notes, "
+                "source_game_id, fixture_payload, provider_code"
             )
-            .eq("evaluation_status", status)
-            .lte("game_date", date.today().isoformat())
-            .order("game_date", desc=False)
-            .limit(limit)
-            .execute()
+            .lte("game_date", as_of or datetime.now(timezone.utc).date().isoformat())
+            .order("updated_at").order("id")
         )
+        if status == "unsettled":
+            query = query.in_("evaluation_status", ["pending_result", "result_not_found"])
+        else:
+            query = query.eq("evaluation_status", status)
+        rows = []
+        for offset in range(0, limit, 1000):
+            response = query.range(offset, min(offset + 999, limit - 1)).execute()
+            rows.extend(response.data or [])
+            if len(response.data or []) < min(1000, limit - offset):
+                break
     except Exception as error:
         if _is_missing_table(error, "prospective_match_predictions"):
             raise RuntimeError(
@@ -103,7 +111,7 @@ def _fetch_rows(supabase: Client, status: str, limit: int) -> List[Dict[str, Any
                 "Apply the new Supabase migration before running settlement."
             ) from error
         raise
-    return list(response.data or [])
+    return rows
 
 
 def _fetch_games(
@@ -218,8 +226,10 @@ def _update_row(
     supabase: Client,
     row_id: str,
     payload: Dict[str, Any],
+    dry_run: bool = True,
 ) -> None:
-    supabase.table("prospective_match_predictions").update(payload).eq("id", row_id).execute()
+    if not dry_run:
+        supabase.table("prospective_match_predictions").update(payload).eq("id", row_id).execute()
 
 
 def settle_rows(
@@ -227,8 +237,15 @@ def settle_rows(
     supabase: Client,
     status: str,
     limit: int,
+    dry_run: bool = True,
+    as_of: Optional[str] = None,
 ) -> Dict[str, Any]:
-    rows = _fetch_rows(supabase, status, limit)
+    if limit < 1:
+        raise ValueError("limit must be positive")
+    rows = _fetch_rows(supabase, status, limit, as_of)
+    from src.predictions.prospective_fixtures import database_result, settlement_aliases, strict_resolver
+    resolver = strict_resolver(supabase) if any(row.get("source_game_id") for row in rows) else None
+    aliases = settlement_aliases(resolver) if resolver else None
     summary = {
         "requested_status": status,
         "requested_limit": limit,
@@ -238,12 +255,41 @@ def settle_rows(
         "not_found": 0,
         "ambiguous": 0,
         "row_ids": [],
+        "dry_run": dry_run,
+        "held": 0,
+        "coverage": {},
     }
 
     for row in rows:
         row_id = str(row["id"])
         summary["processed"] += 1
         summary["row_ids"].append(row_id)
+
+        if row.get("source_game_id"):
+            candidate, reversed_orientation, reason = database_result(supabase, row, resolver, aliases)
+            notes = {**_safe_json(row.get("evaluation_notes")), "settlement": {
+                "status": reason, "checked_at": datetime.now(timezone.utc).isoformat(),
+                "reversed_orientation": reversed_orientation,
+            }}
+            bucket = f"{row.get('provider_code')}|{_safe_json(row.get('fixture_payload')).get('cohort', 'unknown')}"
+            counts = summary["coverage"].setdefault(bucket, {"settled": 0, "unsettled": 0})
+            if candidate is None:
+                status = "result_not_found" if reason == "result_not_found" else reason
+                _update_row(supabase, row_id, {"evaluation_status": status, "evaluation_notes": notes}, dry_run)
+                counts["unsettled"] += 1
+                summary["not_found" if reason == "result_not_found" else "held"] += 1
+                continue
+            home_score = candidate["away_score"] if reversed_orientation else candidate["home_score"]
+            away_score = candidate["home_score"] if reversed_orientation else candidate["away_score"]
+            _update_row(supabase, row_id, {
+                "actual_game_id": candidate["id"], "actual_home_score": home_score, "actual_away_score": away_score,
+                "actual_outcome": _build_actual_outcome(home_score, away_score),
+                "actual_recorded_at": datetime.now(timezone.utc).isoformat(),
+                "evaluation_status": "settled", "evaluation_notes": notes,
+            }, dry_run)
+            summary["settled"] += 1
+            counts["settled"] += 1
+            continue
 
         candidates = _fetch_games(
             supabase,
@@ -277,7 +323,7 @@ def settle_rows(
                             ],
                         },
                     },
-                },
+                }, dry_run,
             )
             summary["ambiguous"] += 1
             continue
@@ -295,7 +341,7 @@ def settle_rows(
                             "checked_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
                         },
                     },
-                },
+                }, dry_run,
             )
             summary["not_found"] += 1
             continue
@@ -321,7 +367,7 @@ def settle_rows(
                         "matched_game_id": candidate.get("id"),
                     },
                 },
-            },
+            }, dry_run,
         )
         summary["settled"] += 1
 
@@ -330,17 +376,21 @@ def settle_rows(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Settle prospective match predictions against actual results")
-    parser.add_argument("--status", default="pending_result", help="evaluation_status to pull")
+    parser.add_argument("--status", default="unsettled", help="evaluation_status or unsettled (pending and not found)")
     parser.add_argument("--limit", type=int, default=200, help="maximum number of rows to process")
     parser.add_argument("--summary-path", default=None, help="Optional path to write JSON summary")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--execute", action="store_true", help="Write settlement results")
+    mode.add_argument("--dry-run", action="store_true", help="Preview only (default)")
     args = parser.parse_args()
 
     summary = settle_rows(
         supabase=_supabase_client(),
         status=args.status,
         limit=args.limit,
+        dry_run=not args.execute,
     )
-    if args.summary_path:
+    if args.execute and args.summary_path:
         summary_path = Path(args.summary_path)
         summary_path.parent.mkdir(parents=True, exist_ok=True)
         summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")

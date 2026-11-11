@@ -49,8 +49,9 @@
 import type { TeamWithRanking } from './types';
 import type { Game } from './types';
 import { loadCalibrationJson } from './calibrationLoader.ts';
-import { computeConfidence, warmConfidenceCalibration } from './confidenceEngine.ts';
+import { computeConfidence, warmConfidenceCalibration, confidenceCalibrationSnapshot } from './confidenceEngine.ts';
 import { extractAgeFromTeamName } from './teamAge.ts';
+import { MATCH_FORM_SAMPLE_SIZE } from './matchEvidence.ts';
 
 // Age group parameters (loaded from JSON, fallback to defaults)
 interface AgeGroupParameters {
@@ -231,6 +232,21 @@ export async function warmMatchPredictorCalibration(): Promise<void> {
   ]);
 }
 
+/** The effective loaded values, including null when a loader used its fallback. */
+export function matchCalibrationSnapshot() {
+  return structuredClone({
+    ageGroups: ageGroupParams,
+    probability: probabilityParams,
+    margin: marginParamsV2,
+    outcome: outcomeCalibrationParams,
+    confidence: confidenceCalibrationSnapshot(),
+  });
+}
+
+export interface PredictionDiagnostics {
+  preOutcomeCalibration?: [number, number, number];
+}
+
 // Base feature weights (optimized for close matchups - 74.7% accuracy)
 const BASE_WEIGHTS = {
   POWER_SCORE: 0.5, // Base strength
@@ -324,7 +340,7 @@ export function calculateRecentForm(teamId: string, allGames: Game[], n: number 
  * `allGames` must hold scored games only. The newest `n` are taken before an unscored game would be skipped, and
  * `sampleWeight` counts every game taken, so an unscored fixture would shrink the sample and still read as evidence.
  */
-function buildRecentProfile(teamId: string, allGames: Game[], n: number = 8): RecentProfile {
+function buildRecentProfile(teamId: string, allGames: Game[], n: number = MATCH_FORM_SAMPLE_SIZE): RecentProfile {
   const teamGames = allGames
     .filter((g) => g.home_team_master_id === teamId || g.away_team_master_id === teamId)
     .sort((a, b) => new Date(b.game_date).getTime() - new Date(a.game_date).getTime())
@@ -1166,7 +1182,12 @@ export interface MatchPrediction {
  *
  * `allGames` must hold scored games only (see buildRecentProfile).
  */
-export function predictMatch(teamA: TeamWithRanking, teamB: TeamWithRanking, allGames: Game[]): MatchPrediction {
+export function predictMatch(
+  teamA: TeamWithRanking,
+  teamB: TeamWithRanking,
+  allGames: Game[],
+  diagnostics?: PredictionDiagnostics
+): MatchPrediction {
   const evidenceReliabilityA = computeEvidenceReliability(teamA);
   const evidenceReliabilityB = computeEvidenceReliability(teamB);
   const powerDiff =
@@ -1346,6 +1367,7 @@ export function predictMatch(teamA: TeamWithRanking, teamB: TeamWithRanking, all
   const rawWinProbA = winProbA;
   const rawDrawProbability = normalizedDrawProbability;
   const rawWinProbB = winProbB;
+  if (diagnostics) diagnostics.preOutcomeCalibration = [rawWinProbA, rawDrawProbability, rawWinProbB];
   // Equal-strength inputs retain their uncalibrated draw distribution.
   const rawWinGap = Math.abs(rawWinProbA - rawWinProbB);
   const symmetricRawWinProbs = rawWinGap < SYMMETRY_EPSILON;

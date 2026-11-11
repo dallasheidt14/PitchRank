@@ -198,6 +198,14 @@ export function filteringClientMock(initialRows: Record<string, MockRow[]> = {})
         );
         return builder;
       },
+      gt: (field: string, value: string | number) => {
+        rows = rows.filter((row) => row[field] != null && (row[field] as typeof value) > value);
+        return builder;
+      },
+      lte: (field: string, value: string | number) => {
+        rows = rows.filter((row) => row[field] != null && (row[field] as typeof value) <= value);
+        return builder;
+      },
       not: (field: string, operator: string, value: unknown) => {
         if (operator !== 'is' || value !== null) {
           throw new Error(`filteringClientMock does not model .not(${field}, ${operator}, ${String(value)})`);

@@ -2,28 +2,16 @@
 
 import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import type { MatchPrediction } from '@/lib/matchPredictor';
 import type { MatchExplanation } from '@/lib/matchExplainer';
+import type { MatchEvidenceSummary } from '@/lib/matchEvidence';
 
 interface EnhancedPredictionCardProps {
   teamAName: string;
   teamBName: string;
   prediction: MatchPrediction;
   explanation: MatchExplanation;
-}
-
-/**
- * Confidence badge with color coding
- */
-function ConfidenceBadge({ confidence }: { confidence: 'high' | 'medium' | 'low' }) {
-  const styles = {
-    high: 'bg-green-100 text-green-800',
-    medium: 'bg-yellow-100 text-yellow-800',
-    low: 'bg-gray-100 text-gray-800',
-  };
-
-  return <Badge className={styles[confidence]}>{confidence.toUpperCase()} CONFIDENCE</Badge>;
+  evidence?: MatchEvidenceSummary;
 }
 
 /**
@@ -60,13 +48,29 @@ function ExplanationFactor({
  * Shows:
  * - Predicted winner and score
  * - Win probabilities
- * - Confidence level
  * - Top explanation factors
  * - Key insights
  */
-export function EnhancedPredictionCard({ teamAName, teamBName, prediction, explanation }: EnhancedPredictionCardProps) {
-  const { predictedWinner, winProbabilityA, winProbabilityB, drawProbability, expectedScore, confidence } = prediction;
-  const { summary, factors, keyInsights, predictionQuality } = explanation;
+export function EnhancedPredictionCard({
+  teamAName,
+  teamBName,
+  prediction,
+  explanation,
+  evidence,
+}: EnhancedPredictionCardProps) {
+  const { predictedWinner, winProbabilityA, winProbabilityB, drawProbability, expectedScore } = prediction;
+  const { summary, factors, keyInsights, counterFactors = [] } = explanation;
+  const cautions: string[] = [];
+  if (evidence) {
+    for (const [name, team] of [
+      [teamAName, evidence.teamA],
+      [teamBName, evidence.teamB],
+    ] as const) {
+      if (team.formSampleSize < evidence.formSampleLimit) {
+        cautions.push(`${name}: limited recent results available.`);
+      }
+    }
+  }
 
   // Determine favored team for styling
   const teamAFavored = predictedWinner === 'team_a';
@@ -78,7 +82,6 @@ export function EnhancedPredictionCard({ teamAName, teamBName, prediction, expla
       <CardHeader>
         <div className="flex items-center justify-between">
           <CardTitle>Match Prediction</CardTitle>
-          <ConfidenceBadge confidence={confidence} />
         </div>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -89,7 +92,7 @@ export function EnhancedPredictionCard({ teamAName, teamBName, prediction, expla
 
         {/* Expected Score */}
         <div>
-          <h4 className="text-sm font-medium text-muted-foreground mb-2 text-center">Expected Score</h4>
+          <h4 className="text-sm font-medium text-muted-foreground mb-2 text-center">Projected scoreline</h4>
           <div className="grid grid-cols-3 text-center items-center">
             <div>
               <div className="text-sm font-medium truncate mb-1">{teamAName}</div>
@@ -105,11 +108,14 @@ export function EnhancedPredictionCard({ teamAName, teamBName, prediction, expla
               </div>
             </div>
           </div>
+          <p className="text-xs text-muted-foreground text-center mt-2">
+            Most likely scoreline for the predicted result. Other scorelines and outcomes remain possible.
+          </p>
         </div>
 
         {/* Win Probabilities */}
         <div>
-          <h4 className="text-sm font-medium text-muted-foreground mb-2">Win Probability</h4>
+          <h4 className="text-sm font-medium text-muted-foreground mb-2">Outcome probabilities</h4>
           <div className="space-y-2">
             {/* Team A */}
             <div className="flex items-center gap-2">
@@ -133,18 +139,20 @@ export function EnhancedPredictionCard({ teamAName, teamBName, prediction, expla
               </div>
               <span className="text-sm font-semibold w-14 text-right">{(winProbabilityB * 100).toFixed(0)}%</span>
             </div>
-            {drawProbability != null && drawProbability > 0.03 && (
+            {
               <div className="flex items-center gap-2">
                 <span className="text-sm w-20 sm:w-32 truncate">Draw</span>
                 <div className="flex-1 h-6 bg-gray-200 rounded-full overflow-hidden">
                   <div
                     className="h-full bg-gray-500 transition-all duration-300"
-                    style={{ width: `${drawProbability * 100}%` }}
+                    style={{ width: `${(drawProbability ?? 0) * 100}%` }}
                   />
                 </div>
-                <span className="text-sm font-semibold w-14 text-right">{(drawProbability * 100).toFixed(0)}%</span>
+                <span className="text-sm font-semibold min-w-14 text-right">
+                  {drawProbability == null ? 'Unavailable' : `${(drawProbability * 100).toFixed(0)}%`}
+                </span>
               </div>
-            )}
+            }
           </div>
         </div>
 
@@ -152,7 +160,7 @@ export function EnhancedPredictionCard({ teamAName, teamBName, prediction, expla
         {factors.length > 0 && (
           <div>
             <h4 className="text-sm font-medium text-muted-foreground mb-3">
-              {evenMatch ? 'Why This Match is Close' : `Why ${teamAFavored ? teamAName : teamBName} is Favored`}
+              {evenMatch ? 'Evidence for each team' : `Why ${teamAFavored ? teamAName : teamBName} is Favored`}
             </h4>
             <div className="space-y-2">
               {factors.map((factor, index) => (
@@ -165,6 +173,22 @@ export function EnhancedPredictionCard({ teamAName, teamBName, prediction, expla
               ))}
             </div>
           </div>
+        )}
+
+        {(counterFactors.length > 0 || cautions.length > 0) && (
+          <section aria-label="Reasons for caution">
+            <h4 className="text-sm font-semibold mb-2">Reasons for caution</h4>
+            <div className="space-y-2">
+              {counterFactors.map((factor) => (
+                <ExplanationFactor key={factor.factor} {...factor} />
+              ))}
+              {cautions.map((caution, index) => (
+                <p key={`${index}:${caution}`} className="text-sm text-muted-foreground">
+                  {caution}
+                </p>
+              ))}
+            </div>
+          </section>
         )}
 
         {/* Key Insights */}
@@ -181,11 +205,6 @@ export function EnhancedPredictionCard({ teamAName, teamBName, prediction, expla
             </ul>
           </div>
         )}
-
-        {/* Prediction Quality Footer */}
-        <div className="pt-4 border-t text-center">
-          <p className="text-xs text-muted-foreground">{predictionQuality.reliability}</p>
-        </div>
       </CardContent>
     </Card>
   );

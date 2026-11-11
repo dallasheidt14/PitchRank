@@ -1114,9 +1114,11 @@ state runs weekly on Sunday night by default, as a copy of `hi-scraper.yml`. Its
 - `schedule_results2.asp` marks a forfeit in the score cell (`2F`, `4 F`) and with `Forfeited Game` in the team cell, and
   a game called off with `0 CC` or `CSC`. None is a result, so import nothing: keep the engine's digits-only score test,
   which drops the game.
-- Pages answer `Content-Type: text/html` with no charset, so `_fetch`, which returns `r.text`, gets ISO-8859-1. Apply
-  *Decoding an HTML response* under Request Pattern, but first count the non-ASCII names already scraped: a name feeds
-  `_team_hash`, so changing the decode changes those teams' provider ids.
+- Pages answer `Content-Type: text/html` with no charset. The shared engine's `_fetch` decodes them as UTF-8 and keeps
+  a charset the header does declare; it reads no `<meta charset>` (*Decoding an HTML response* under Request Pattern
+  has the full rule). The WA copy's `_fetch` still returns `r.text`, which reads them as ISO-8859-1. A name feeds
+  `_team_hash` in both, so any change to the decode changes the provider id of every team whose name is non-ASCII:
+  count those names before making one.
 
 ### Competitive or rec
 
@@ -1126,6 +1128,20 @@ league's name does not settle it, so read its team names first. Club names with 
 rec program, or a nickname or surname with no club behind it, marks rec (`XFRec BU13 Blue Falcons`,
 `Duvall B07 Love Hulking Zombie Pig Dogs`). Grade-based divisions (`Grade 3/4 Boys D1`) are town leagues too. Check
 the games as well: a league can carry many divisions with no scored games.
+
+### A cup or other knockout event
+
+- Set `results_only` on a cup's `TOURNAMENTS` entry, and leave it off a league's, which keeps its fixtures. A cup can
+  post knockout games before their teams are known, under stand-in names the matcher would create as teams; a played
+  game names the teams that played it.
+- A cup draws squads from other leagues, which hold no Affinity alias. Before the entry reaches a scheduled run,
+  build the matcher with `dry_run=True` and the event's own provider id, so existing aliases link, with the client
+  wrapped so every insert, update, upsert and delete is recorded and refused (the replay under *Provider Matcher Name
+  Parsing*). Pass every scraped team through `_match_team`, count the `created` results, and group them by club,
+  board and gender as that replay says. Settle each with the owner, linking it to a stored team or letting it be
+  created, before the first import. A dry run of the 2026-27 Oregon State Cup on 2026-11-11 linked 39 of 80 teams and
+  would have created 41, 11 of them MLS NEXT or Elite Academy squads stored under other providers, which the
+  duplicate scans skip.
 
 ## Provider Matcher Name Parsing
 

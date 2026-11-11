@@ -10,6 +10,7 @@
 import type { TeamWithRanking } from './types';
 import type { MatchPrediction } from './matchPredictor';
 import { extractAgeFromTeamName } from './utils';
+import { MATCH_FORM_SAMPLE_SIZE } from './matchEvidence';
 
 type ExplanationMagnitude = 'significant' | 'moderate' | 'minimal';
 export type ExplanationFactor =
@@ -32,10 +33,11 @@ export interface Explanation {
 }
 
 export interface MatchExplanation {
+  counterFactors?: Explanation[];
   // Summary
   summary: string;
 
-  // Top factors (ranked by importance)
+  // Supporting factors; draws balance both teams before neutral context.
   factors: Explanation[];
 
   // Key insights (bullet points)
@@ -182,7 +184,7 @@ function explainRecentForm(
 
   // Case 1: Better team is on fire (positive form, significant gap)
   if (magnitude === 'significant' && betterForm > 2.5) {
-    description = `${betterTeam} is red hot - demolishing opponents by +${betterForm.toFixed(1)} goals/game over their last 5 matches`;
+    description = `${betterTeam} has a +${betterForm.toFixed(1)} weighted goal differential across up to ${MATCH_FORM_SAMPLE_SIZE} latest results`;
   }
   // Case 2: Worse team is struggling badly (the gap comes from their collapse)
   else if (magnitude === 'significant' && worseForm < -2.0) {
@@ -190,7 +192,7 @@ function explainRecentForm(
   }
   // Case 3: Better team has positive momentum
   else if (betterForm > 0.5) {
-    description = `${betterTeam} brings positive momentum (+${betterForm.toFixed(1)} goal differential in last 5 games)`;
+    description = `${betterTeam} has positive recent form (+${betterForm.toFixed(1)} weighted goal differential across up to ${MATCH_FORM_SAMPLE_SIZE} latest results)`;
   }
   // Case 4: Both struggling but better team is less bad
   else if (betterForm <= 0.5 && worseForm < betterForm) {
@@ -439,9 +441,7 @@ export function explainMatch(
     winProbabilityB,
     drawProbability,
     confidence,
-    confidence_score,
     expectedMargin,
-    expectedScore,
     h2h,
     commonOpponents,
   } = prediction;
@@ -471,9 +471,16 @@ export function explainMatch(
     .sort((a, b) => b.score - a.score)
     .slice(0, 4);
 
-  // If no factors favor the winner, fall back to showing top factors by score
-  // (This can happen in very close matches)
-  const displayFactors = factors.length > 0 ? factors : allFactors.sort((a, b) => b.score - a.score).slice(0, 4);
+  const sorted = [...allFactors].sort((a, b) => b.score - a.score);
+  const displayFactors = favoredSide
+    ? factors
+    : [
+        ...(['team_a', 'team_b'] as const).flatMap((side) => sorted.filter((f) => f.advantage === side).slice(0, 1)),
+        ...sorted.filter((f) => f.advantage === 'neutral').slice(0, 2),
+      ];
+  const counterFactors = favoredSide
+    ? sorted.filter((f) => f.advantage !== favoredSide && f.advantage !== 'neutral').slice(0, 2)
+    : [];
 
   // Generate summary
   const favoredTeam =
@@ -504,55 +511,6 @@ export function explainMatch(
 
   // Generate user-facing key insights
   const keyInsights: string[] = [];
-
-  // 1. Confidence framing
-  const confidenceScore = confidence_score ?? 0.5;
-  if (confidence === 'high') {
-    if (confidenceScore >= 0.8) {
-      keyInsights.push(
-        'This is one of the clearer matchups on the board, with multiple indicators pointing the same way.'
-      );
-    } else {
-      keyInsights.push('There is a strong edge here, even if this still looks more controlled than overwhelming.');
-    }
-  } else if (confidence === 'medium') {
-    if (confidenceScore >= 0.6) {
-      keyInsights.push('One team has a real edge, but this is still well within upset range if the game swings early.');
-    } else {
-      keyInsights.push('The model leans one way, but the advantage is modest rather than decisive.');
-    }
-  } else {
-    if (confidenceScore < 0.4) {
-      keyInsights.push(
-        'This is a volatile matchup with enough uncertainty that a result either way would not be surprising.'
-      );
-    } else {
-      keyInsights.push('This grades out as coin-flip territory, with no durable edge separating the teams.');
-    }
-  }
-
-  // 2. Data quality
-  const gamesA = teamA.games_played || 0;
-  const gamesB = teamB.games_played || 0;
-  const minGamesPlayed = Math.min(gamesA, gamesB);
-  const maxGamesPlayed = Math.max(gamesA, gamesB);
-
-  if (minGamesPlayed < 5) {
-    const limitedTeam = gamesA < gamesB ? teamA.team_name : teamB.team_name;
-    keyInsights.push(
-      `${limitedTeam} has only ${minGamesPlayed} recent results on file, so this projection is less stable than usual.`
-    );
-  } else if (minGamesPlayed < 10) {
-    keyInsights.push(
-      `Both teams still have fairly light recent samples (${minGamesPlayed}-${maxGamesPlayed} games), which adds volatility.`
-    );
-  } else if (minGamesPlayed < 20) {
-    keyInsights.push(`Each side has a usable sample of recent matches, giving this projection a solid dataset.`);
-  } else {
-    keyInsights.push(
-      `Both teams have deep recent samples (${minGamesPlayed}+ matches), which makes the read more trustworthy.`
-    );
-  }
 
   if (
     commonOpponents &&
@@ -598,7 +556,9 @@ export function explainMatch(
   }
 
   // 4. Expected scoring environment
-  const totalExpectedGoals = expectedScore.teamA + expectedScore.teamB;
+  const totalExpectedGoals = prediction.expectedGoals
+    ? prediction.expectedGoals.teamA + prediction.expectedGoals.teamB
+    : null;
   // teams.age_group first; the name is a fallback only. A name states a birth
   // year and therefore means a different cohort after every Aug 1 rollover,
   // whereas age_group is rolled deliberately. This insight is rendered as
@@ -606,7 +566,7 @@ export function explainMatch(
   const dbAge = teamA.age || teamB.age;
   const nameAge = extractAgeFromTeamName(teamA.team_name) || extractAgeFromTeamName(teamB.team_name);
   const age = dbAge || nameAge;
-  if (age) {
+  if (age && totalExpectedGoals != null) {
     if (age <= 11 && totalExpectedGoals > 5) {
       keyInsights.push(
         `Expect an open U${age} game script here, with roughly ${totalExpectedGoals.toFixed(1)} total goals projected.`
@@ -627,48 +587,23 @@ export function explainMatch(
     const topFactor = displayFactors[0];
     if (topFactor.advantage !== 'neutral') {
       if (topFactor.magnitude === 'significant') {
-        keyInsights.push(`The biggest separator in this matchup is simple: ${topFactor.description}.`);
+        keyInsights.push(`One supporting indicator is: ${topFactor.description}.`);
       } else if (displayFactors.length >= 2 && topFactor.magnitude === 'moderate') {
-        keyInsights.push(`The clearest edge is: ${topFactor.description}.`);
+        keyInsights.push(`Another supporting indicator is: ${topFactor.description}.`);
       }
     }
   }
 
-  // Reliability footer
-  let reliabilityMessage = '';
-  if (confidence === 'high') {
-    if (minGamesPlayed >= 20) {
-      reliabilityMessage =
-        'High-confidence read: strong recent data and multiple matchup indicators all support the same side.';
-    } else {
-      reliabilityMessage = 'High-confidence read: the edge is clear, even if the dataset is not at its deepest.';
-    }
-  } else if (confidence === 'medium') {
-    if (minGamesPlayed >= 15) {
-      reliabilityMessage =
-        'Balanced projection: there is a real edge here, but still enough uncertainty for the match to swing.';
-    } else {
-      reliabilityMessage =
-        'Moderate-confidence read: enough signal to lean one way, but not enough to call it decisive.';
-    }
-  } else {
-    if (minGamesPlayed < 10) {
-      reliabilityMessage =
-        'Lower-confidence read: limited recent data makes this projection more directional than definitive.';
-    } else {
-      reliabilityMessage =
-        'Lower-confidence read: the teams are close enough on paper that the result could break either way.';
-    }
-  }
-
+  // Preserve the response contract without claiming calibrated reliability.
   const predictionQuality = {
     confidence,
-    reliability: reliabilityMessage,
+    reliability: 'Outcome probabilities are model estimates. Evidence details are shown separately.',
   };
 
   return {
     summary,
     factors: displayFactors,
+    counterFactors,
     keyInsights,
     predictionQuality,
   };

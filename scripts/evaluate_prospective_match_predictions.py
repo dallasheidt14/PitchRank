@@ -125,7 +125,7 @@ def _extract_prediction_payload(row: Dict[str, Any], model_name: str) -> Optiona
 def _fetch_rows(supabase: Client, limit: Optional[int]) -> List[Dict[str, Any]]:
     select_fields = (
         "id, fixture_key, provider_code, source_event_id, actual_game_id, game_date, "
-        "competition, division_name, fixture_payload, "
+        "competition, division_name, fixture_payload, source_game_id, evaluation_group_kind, evaluation_group_key, "
         "home_team_master_id, away_team_master_id, "
         "heuristic_prediction_status, heuristic_model_version, heuristic_prediction, heuristic_predicted_at, "
         "offline_prediction_status, offline_model_version, offline_prediction, offline_predicted_at, "
@@ -170,6 +170,9 @@ def _fetch_rows(supabase: Client, limit: Optional[int]) -> List[Dict[str, Any]]:
 
 
 def evaluate_rows(rows: List[Dict[str, Any]], output_dir: Path) -> Dict[str, Any]:
+    # New experiments belong to the sealed benchmark, never the weekly legacy scorecard.
+    held_for_benchmark = sum(bool(_safe_json(row.get("heuristic_prediction")).get("modelSignature")) for row in rows)
+    rows = [row for row in rows if not _safe_json(row.get("heuristic_prediction")).get("modelSignature")]
     heuristic_rows: List[Dict[str, Any]] = []
     offline_rows: List[Dict[str, Any]] = []
     comparison_rows: List[Dict[str, Any]] = []
@@ -242,6 +245,7 @@ def evaluate_rows(rows: List[Dict[str, Any]], output_dir: Path) -> Dict[str, Any
     }
 
     summary = {
+        "held_for_benchmark": held_for_benchmark,
         "settled_rows": len(rows),
         "heuristic_rows": len(heuristic_frame),
         "offline_rows": len(offline_frame),

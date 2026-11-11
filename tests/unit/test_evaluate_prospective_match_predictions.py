@@ -108,3 +108,10 @@ def test_fetch_pages_have_a_unique_tiebreaker_and_read_prediction_times():
 
     assert _fetch_rows(Client(), None) == records
     assert executions == [(0, 999), (1000, 1999)]
+def test_weekly_scorecard_withholds_registered_experiments(tmp_path):
+    from scripts.evaluate_prospective_match_predictions import evaluate_rows
+
+    report = evaluate_rows([{"heuristic_prediction": {"modelSignature": "sealed"}}], tmp_path)
+    assert report["held_for_benchmark"] == 1
+    assert report["heuristic_rows"] == report["settled_rows"] == 0
+    assert not list(tmp_path.glob("*.csv"))

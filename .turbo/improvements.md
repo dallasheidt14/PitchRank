@@ -2667,14 +2667,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: The WA scraper has its own copy of the loop fixed in `scripts/scrape_affinity_or_tournament.py`: the first schedule link in a layout row belongs to the first division, and the loop marks that flight seen before reading the label, so the division's real row is skipped. On 2026-11-05 both live WA lists had 3 layout rows, but their first divisions are U8 and U9, which `wa-scraper.yml`'s ages 10-19 loop never scrapes, so nothing is lost today. A list opening at U10 or older would lose that division. The fix is the same `row.find("table")` skip, plus wrapping the rows of the WA test's page in a layout table as on the live page.
 - **Noted**: 2026-11-05
 
-### Decode Affinity pages as UTF-8
-
-- **Type**: plan
-- **Category**: reliability
-- **Where**: `_fetch` in `scripts/scrape_affinity_or_tournament.py`
-- **Why**: It returns `r.text`, and the live Oahu League page answered `Content-Type: text/html` with no charset on 2026-11-05, so `requests` decodes it as ISO-8859-1. No Oahu team name is non-ASCII today, so nothing is garbled yet, but a name with an okina or kahako would be. The name feeds `_team_hash`, so count the non-ASCII names already scraped in Oregon and Utah first: changing the decode changes their team ids.
-- **Noted**: 2026-11-05
-
 ### Stop queueing a review row for a team the Affinity matcher then creates
 
 - **Type**: plan
@@ -2930,3 +2922,11 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: the `Export unknown opponents` step's `detail_csv` output in `.github/workflows/unknown-opponent-hygiene-weekly.yml`
 - **Why**: The step records `detail_csv=${PREFIX}_details.csv` while `export_unknown_opponents.py` writes `${prefix}_games.csv`, so the per-game detail file is never in the run's artifacts.
 - **Noted**: 2026-11-10
+
+### Decode Affinity WA pages as UTF-8
+
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `_fetch` in `scripts/scrape_affinity_wa_tournament.py`
+- **Why**: It returns `r.text`, and Sports Affinity pages answer `Content-Type: text/html` with no charset, so `requests` decodes them as ISO-8859-1 and a non-ASCII team name would arrive garbled. The OR scraper's `_fetch` sets UTF-8 when no charset is declared (pinned by `TestPageDecoding` in `tests/unit/test_scrape_affinity_or.py`); WA keeps its own copy. 0 of the 879 `affinity_wa` teams have a non-ASCII name (queried 2026-11-11), so nothing is garbled yet.
+- **Noted**: 2026-11-11

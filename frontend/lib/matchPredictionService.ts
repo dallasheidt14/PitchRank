@@ -3,11 +3,18 @@ import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { AppError } from './errors';
 import { explainMatch, type MatchExplanation } from './matchExplainer';
-import { predictMatch, type MatchPrediction, warmMatchPredictorCalibration } from './matchPredictor';
+import {
+  predictMatch,
+  type MatchPrediction,
+  warmMatchPredictorCalibration,
+  matchCalibrationSnapshot,
+  type PredictionDiagnostics,
+} from './matchPredictor';
 import type { Game, TeamWithRanking } from './types';
 import { MLS_NEXT_PROVIDER_CODES, normalizeAgeGroup } from './utils';
 import { formatGender } from '@/lib/constants';
 import { canonicalPredictionIds, predictionIdentityClosure } from './predictionIdentity';
+import { summarizeMatchEvidence, type MatchEvidenceSummary } from './matchEvidence';
 
 export interface MatchPredictionResponse {
   teamA: {
@@ -22,6 +29,7 @@ export interface MatchPredictionResponse {
   };
   prediction: MatchPrediction;
   explanation: MatchExplanation;
+  evidence?: MatchEvidenceSummary;
 }
 
 export interface MatchPredictionShadowContext {
@@ -32,6 +40,9 @@ export interface MatchPredictionShadowContext {
   relevantGameCount: number;
   teamAInput: TeamWithRanking;
   teamBInput: TeamWithRanking;
+  frozenEvidence?: Awaited<ReturnType<typeof fetchPredictionEvidence>>;
+  calibration?: ReturnType<typeof matchCalibrationSnapshot>;
+  preOutcomeCalibration?: [number, number, number];
 }
 
 interface MatchPredictionBuildResult {
@@ -604,7 +615,8 @@ export async function buildMatchPredictionWithShadowContext(
   supabase: SupabaseClient,
   teamAId: string,
   teamBId: string,
-  exclusionsClient: SupabaseClient = supabase
+  exclusionsClient: SupabaseClient = supabase,
+  options: { freezeInputs?: boolean } = {}
 ): Promise<MatchPredictionBuildResult> {
   await warmMatchPredictorCalibration();
 
@@ -618,8 +630,8 @@ export async function buildMatchPredictionWithShadowContext(
   }
 
   const [teamA, teamB] = await Promise.all([
-    fetchPredictionTeam(supabase, resolvedTeamA.canonicalTeamId),
-    fetchPredictionTeam(supabase, resolvedTeamB.canonicalTeamId),
+    fetchPredictionTeam(supabase, resolvedTeamA.canonicalTeamId, { strict: options.freezeInputs }),
+    fetchPredictionTeam(supabase, resolvedTeamB.canonicalTeamId, { strict: options.freezeInputs }),
   ]);
 
   const evidence = await fetchPredictionEvidence(
@@ -646,8 +658,25 @@ export async function buildMatchPredictionWithShadowContext(
       422
     );
   }
-  const prediction = predictMatch(teamA, teamB, games);
+  const diagnostics: PredictionDiagnostics = {};
+  const prediction = predictMatch(teamA, teamB, games, diagnostics);
   const explanation = explainMatch(teamA, teamB, prediction);
+  const evidenceSummary = summarizeMatchEvidence(evidence, teamA, teamB);
+  const common = evidenceSummary.commonOpponents;
+  for (let offset = 0; offset < common.length; offset += 100) {
+    const { data, error } = await supabase
+      .from('teams')
+      .select('team_id_master,team_name')
+      .in(
+        'team_id_master',
+        common.slice(offset, offset + 100).map((row) => row.opponent_id)
+      );
+    // Names are optional presentation data; missing names do not become missing games.
+    if (!error) {
+      const names = new Map((data ?? []).map((row) => [row.team_id_master, row.team_name]));
+      for (const row of common.slice(offset, offset + 100)) row.opponent_name = names.get(row.opponent_id) ?? null;
+    }
+  }
 
   return {
     response: {
@@ -663,6 +692,7 @@ export async function buildMatchPredictionWithShadowContext(
       },
       prediction,
       explanation,
+      evidence: evidenceSummary,
     },
     shadowContext: {
       predictorVersion: MATCH_PREDICTION_VERSION,
@@ -672,6 +702,13 @@ export async function buildMatchPredictionWithShadowContext(
       relevantGameCount: games.length,
       teamAInput: teamA,
       teamBInput: teamB,
+      ...(options.freezeInputs
+        ? {
+            frozenEvidence: evidence,
+            calibration: matchCalibrationSnapshot(),
+            preOutcomeCalibration: diagnostics.preOutcomeCalibration,
+          }
+        : {}),
     },
   };
 }
