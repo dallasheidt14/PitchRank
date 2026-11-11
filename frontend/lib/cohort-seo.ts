@@ -121,6 +121,7 @@ export const STATE_PILLAR_SLUGS: Record<string, { slug: string; title: string }>
   ct: { slug: 'connecticut-youth-soccer-rankings-guide', title: 'Connecticut Youth Soccer Rankings Guide' },
   fl: { slug: 'florida-youth-soccer-rankings-guide', title: 'Florida Youth Soccer Rankings Guide' },
   ga: { slug: 'georgia-youth-soccer-rankings-guide', title: 'Georgia Youth Soccer Rankings Guide' },
+  ia: { slug: 'iowa-youth-soccer-rankings-guide', title: 'Iowa Youth Soccer Rankings Guide' },
   id: { slug: 'idaho-youth-soccer-rankings-guide', title: 'Idaho Youth Soccer Rankings Guide' },
   il: { slug: 'illinois-youth-soccer-rankings-guide', title: 'Illinois Youth Soccer Rankings Guide' },
   in: { slug: 'indiana-youth-soccer-rankings-guide', title: 'Indiana Youth Soccer Rankings Guide' },
@@ -145,6 +146,7 @@ export const STATE_PILLAR_SLUGS: Record<string, { slug: string; title: string }>
   ut: { slug: 'utah-youth-soccer-rankings-guide', title: 'Utah Youth Soccer Rankings Guide' },
   va: { slug: 'virginia-youth-soccer-rankings-guide', title: 'Virginia Youth Soccer Rankings Guide' },
   wa: { slug: 'washington-youth-soccer-rankings-guide', title: 'Washington Youth Soccer Rankings Guide' },
+  wi: { slug: 'wisconsin-youth-soccer-rankings-guide', title: 'Wisconsin Youth Soccer Rankings Guide' },
 };
 
 export function getRelatedGuide(stateCode: string): { slug: string; title: string } | null {
