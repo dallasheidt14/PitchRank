@@ -394,6 +394,12 @@ PostgREST turns every `*` in a like/ilike pattern into `%`, escaped or not, so a
 reaches Postgres as `\%` and matches a literal percent sign. An exact-match ilike therefore never
 finds a value containing a literal `*`; compare such a value with `.eq()` (case-sensitive).
 
+Select one provider's games with `.eq('provider_id', ...)` (`idx_games_provider`), never a
+`game_uid` prefix such as `.like('game_uid', 'affinity_or:*')`. The database collation is
+`en_US.UTF-8` and the `game_uid` indexes use the default operator class, so a prefix `LIKE`
+cannot seek on them and scans all of `games`. Paged reads filtered that way hit the 8-second
+PostgREST statement timeout (57014) twice while a ranking run was loading the database.
+
 ## Rate Limits
 
 | Limit | Value |

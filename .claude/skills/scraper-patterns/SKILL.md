@@ -1111,6 +1111,18 @@ state runs weekly on Sunday night by default, as a copy of `hi-scraper.yml`. Its
 - `schedule_results2.asp` marks a forfeit in the score cell (`2F`, `4 F`) and with `Forfeited Game` in the team cell, and
   a game called off with `0 CC` or `CSC`. None is a result, so import nothing: keep the engine's digits-only score test,
   which drops the game.
+- The weekly workflows default `DAYS_BACK` to 7, and the engine drops a past game whose score is still blank, so a score
+  the league posts after the next weekly run falls outside every later window and never lands. The window only filters
+  rows: `main()` in `scrape_affinity_or_tournament.py`, which the GA, HI and UT scrapers reuse, reads every matched
+  flight whatever the window. A wider look-back therefore costs no extra page loads. To catch up, dispatch the state's
+  workflow once with a larger window (`gh workflow run or-scraper.yml --ref main -f days_back=60`). The import fills a
+  stored blank in place, except where the team's provider id now points at another team row; then it adds a row beside
+  the old blank. Confirm from the data, not the run log: unhidden past blanks fall and no second copy of a game appears.
+- To check a stored blank against the live page, strip a trailing `Forfeited Game` from both team cells before
+  matching. The provider id is a hash of the name, so an unstripped forfeit matches no game on its date and reads as
+  moved or dropped. A forfeit never imports, so its blank stays blank for good: hide it (`is_excluded = true`) rather
+  than wait for a score. Scores reading `1D` import nothing either; leave those blanks alone until someone checks what
+  `1D` means.
 - Pages answer `Content-Type: text/html` with no charset. The shared engine's `_fetch` decodes them as UTF-8 and keeps
   a charset the header does declare; it reads no `<meta charset>` (*Decoding an HTML response* under Request Pattern
   has the full rule). The WA copy's `_fetch` still returns `r.text`, which reads them as ISO-8859-1. A name feeds
