@@ -1,24 +1,56 @@
 import { resend } from './resend';
+import { escapeHtml } from './feedback';
+import { BASE_URL } from '@/lib/constants';
+import { formatPowerScore } from '@/lib/utils';
+import {
+  PREMIUM_BENEFITS,
+  TRIAL_TERMS,
+  formatRankMovement,
+  reportCardUpgradeUrl,
+  reportFooter,
+  stateDisplayName,
+} from '@/lib/reports/report-card';
 
-function buildReportCardHtml(
-  teamName: string,
-  rankNational: number | null,
-  rankState: number | null,
-  state: string | null,
-  powerScore: number | null,
-  percentile: number,
-  record: string,
-  rankChange30d: number | null
-): string {
+export interface ReportCardEmailInput {
+  email: string;
+  teamId: string;
+  teamName: string;
+  rankNational: number | null;
+  rankState: number | null;
+  state: string | null;
+  powerScore: number | null;
+  topPct: number | null;
+  record: string;
+  rankChange30d: number | null;
+  gamesLabel: string;
+  pdfBuffer: Buffer;
+}
+
+function buildReportCardHtml({
+  teamId,
+  teamName,
+  rankNational,
+  rankState,
+  state,
+  powerScore,
+  topPct,
+  record,
+  rankChange30d,
+  gamesLabel,
+}: Omit<ReportCardEmailInput, 'email' | 'pdfBuffer'>): string {
+  const rankMovement = formatRankMovement(rankChange30d);
   const rankChangeText =
-    rankChange30d != null && rankChange30d !== 0
+    rankMovement != null && rankChange30d != null
       ? rankChange30d > 0
-        ? `<span style="color: #10B981;">▲${rankChange30d} this month</span>`
-        : `<span style="color: #EF4444;">▼${Math.abs(rankChange30d)} this month</span>`
+        ? `<span style="color: #10B981;">▲ ${rankMovement}</span>`
+        : `<span style="color: #EF4444;">▼ ${rankMovement}</span>`
       : '';
 
+  const stateName = stateDisplayName(state);
   const stateRankLine =
-    rankState != null && state ? `State Rank: <strong>#${rankState}</strong> in ${state.toUpperCase()}<br>` : '';
+    rankState != null && stateName ? `State Rank: <strong>#${rankState}</strong> in ${stateName}<br>` : '';
+
+  const benefitItems = PREMIUM_BENEFITS.map((benefit) => `<li>${benefit}</li>`).join('');
 
   return `
 <!DOCTYPE html>
@@ -37,16 +69,17 @@ function buildReportCardHtml(
     <p style="margin: 0 0 16px 0; font-size: 16px;">Your team's report card is ready.</p>
 
     <div style="background-color: #ffffff; border: 1px solid #e5e7eb; border-radius: 6px; padding: 16px; margin-bottom: 16px;">
-      <p style="margin: 0 0 4px 0; font-weight: bold; font-size: 15px;">${teamName}</p>
+      <p style="margin: 0 0 4px 0; font-weight: bold; font-size: 15px;">${escapeHtml(teamName)}</p>
       <p style="margin: 0; font-size: 14px; color: #6B7280;">
-        National Rank: <strong>#${rankNational ?? '—'}</strong> ${rankChangeText}<br>
+        National Rank: <strong>#${rankNational ?? '—'}</strong>${topPct != null ? ` (top ${topPct}% nationally)` : ''}<br>
+        ${rankChangeText ? `${rankChangeText}<br>` : ''}
         ${stateRankLine}
-        PowerScore: <strong>${powerScore != null ? powerScore.toFixed(2) : '—'}</strong> (top ${percentile}% nationally)<br>
-        Record: <strong>${record}</strong>
+        PowerScore: <strong>${formatPowerScore(powerScore)}</strong><br>
+        Recent record: <strong>${record}</strong>
       </p>
     </div>
 
-    <p style="font-size: 14px; color: #374151;">The full report card has your strength profile, recent results, and schedule difficulty breakdown. It's attached to this email.</p>
+    <p style="font-size: 14px; color: #374151;">The full report card is attached to this email. It has your national and state rank, PowerScore, recent record, 30-day rank change, and your last 5 games with opponents and scores.</p>
 
     <p style="font-size: 14px; color: #374151;">Over the next few days, I'll send you a few emails about what these numbers mean and how to use them. Rankings are more useful when you know what to look for.</p>
 
@@ -58,16 +91,17 @@ function buildReportCardHtml(
   </div>
 
   <div style="margin-top: 20px; padding: 16px; background-color: #0B5345; border-radius: 6px; text-align: center;">
-    <p style="color: #ffffff; margin: 0 0 8px 0; font-size: 13px;">Want the full picture? Head-to-head comparisons, predictive analytics, and weekly alerts.</p>
-    <a href="https://pitchrank.io/upgrade" style="display: inline-block; background-color: #F4D03F; color: #0B5345; padding: 10px 24px; border-radius: 4px; text-decoration: none; font-weight: bold; font-size: 14px;">Start Your Free Trial</a>
-    <p style="color: #1a6b5c; margin: 8px 0 0 0; font-size: 11px;">7 days free · $6.99/mo · Cancel anytime</p>
+    <p style="color: #F4D03F; margin: 0 0 8px 0; font-size: 14px; font-weight: bold;">Go further with PitchRank+</p>
+    <ul style="color: #ffffff; margin: 0 0 12px 0; padding: 0; list-style: none; font-size: 13px;">${benefitItems}</ul>
+    <a href="${reportCardUpgradeUrl(teamId, 'email')}" style="display: inline-block; background-color: #F4D03F; color: #0B5345; padding: 10px 24px; border-radius: 4px; text-decoration: none; font-weight: bold; font-size: 14px;">Start your free 7-day trial</a>
+    <p style="color: #cfe3dc; margin: 8px 0 0 0; font-size: 11px;">${TRIAL_TERMS}</p>
   </div>
 
   <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;">
 
   <p style="color: #9ca3af; font-size: 11px; text-align: center;">
-    Rankings powered by PitchRank's 13-layer algorithm · 25,000+ teams · Updated weekly<br>
-    <a href="https://pitchrank.io" style="color: #9ca3af;">pitchrank.io</a>
+    ${reportFooter(gamesLabel)}<br>
+    <a href="${BASE_URL}" style="color: #9ca3af;">pitchrank.io</a>
   </p>
 </body>
 </html>`;
@@ -78,18 +112,7 @@ function buildReportCardHtml(
  * Returns true if sent successfully, false otherwise.
  * Errors are logged but not thrown - lead capture should succeed even if email fails.
  */
-export async function sendReportCardEmail(
-  email: string,
-  teamName: string,
-  rankNational: number | null,
-  rankState: number | null,
-  state: string | null,
-  powerScore: number | null,
-  percentile: number,
-  record: string,
-  rankChange30d: number | null,
-  pdfBuffer: Buffer
-): Promise<boolean> {
+export async function sendReportCardEmail({ email, pdfBuffer, ...card }: ReportCardEmailInput): Promise<boolean> {
   if (!resend) {
     console.warn('Resend not configured - skipping report card email');
     return false;
@@ -100,19 +123,10 @@ export async function sendReportCardEmail(
       from: 'PitchRank <reports@mail.pitchrank.io>',
       to: email,
       subject: "Your team's report card is inside",
-      html: buildReportCardHtml(
-        teamName,
-        rankNational,
-        rankState,
-        state,
-        powerScore,
-        percentile,
-        record,
-        rankChange30d
-      ),
+      html: buildReportCardHtml(card),
       attachments: [
         {
-          filename: `${teamName.replace(/[^a-zA-Z0-9 ]/g, '').replace(/\s+/g, '-')}-Report-Card.pdf`,
+          filename: `${card.teamName.replace(/[^a-zA-Z0-9 ]/g, '').replace(/\s+/g, '-')}-Report-Card.pdf`,
           content: pdfBuffer,
         },
       ],
@@ -123,7 +137,7 @@ export async function sendReportCardEmail(
       return false;
     }
 
-    console.log(`Report card email sent to ${email} for team ${teamName}`);
+    console.log(`Report card email sent to ${email} for team ${card.teamName}`);
     return true;
   } catch (err) {
     console.error('Error sending report card email:', err);

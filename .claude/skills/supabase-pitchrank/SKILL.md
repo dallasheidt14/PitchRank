@@ -117,6 +117,29 @@ Three traps bite anyone writing a query against it, whichever skill is loaded: t
 NULL** here, because the views compute display ranks; and `sos` is raw and 1500-centred,
 so every threshold reads `sos_norm` instead.
 
+### The rankings views
+
+`rankings_view` carries no state rank: a `select('*')` row from it has no `rank_in_state_final`, so
+reading that field yields `undefined` with no error, and the free report card printed a blank state
+rank that way. Read
+`state_rankings_view.rank_in_state_final` instead. Its `ROW_NUMBER` window ranks every Active row,
+so even a single-team lookup costs 0.45–0.9 s (measured 2026-11-11) and can time out; when it
+returns no row, fall back to `get_team_state_rank(p_team_id)`, as `api.getTeam` does. That RPC:
+
+- `RETURNS TABLE`, so an awaited call yields an array; take the row with `.maybeSingle()`.
+- reads the state from `rankings_full.state_code` and counts Active rows without joining `teams`, so
+  a deprecated team still holding an Active rank counts above the team. A team with no state is
+  ranked among its cohort's other stateless teams, because the ranking run stores their state as
+  `'UNKNOWN'`. The view reads `teams.state_code` and excludes both, so show a state rank only when
+  `teams.state_code` is set.
+
+Take a cohort's Active (ranked) count from `get_national_active_count(p_age, p_gender)` /
+`get_state_active_count(p_state, p_age, p_gender)`, which `api.getActiveRankingsCount` wraps and the
+rankings boards display, rather than a head count over `rankings_view`. The anon role's
+`statement_timeout` is 3 s (`pg_db_role_setting`), and under it that head count for U13 Boys ran
+3.2 s and failed with HTTP 500, against 276 ms for the RPC (measured 2026-11-11). Their `bigint`
+result arrives as a JSON number.
+
 ### `team_alias_map`
 ```sql
 provider_team_id  TEXT              -- Provider's ID for the team
@@ -691,6 +714,9 @@ result = client.table('teams') \
     .execute()
 count = result.count  # Use .count, not len(result.data)
 ```
+
+For a rankings cohort, use the count RPCs under "The rankings views" instead: a head count over
+`rankings_view` outlasts the anon role's 3 s `statement_timeout`.
 
 ### Check Before Write
 ```python
