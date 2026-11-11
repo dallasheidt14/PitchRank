@@ -2665,14 +2665,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: The WA scraper has its own copy of the loop fixed in `scripts/scrape_affinity_or_tournament.py`: the first schedule link in a layout row belongs to the first division, and the loop marks that flight seen before reading the label, so the division's real row is skipped. On 2026-11-05 both live WA lists had 3 layout rows, but their first divisions are U8 and U9, which `wa-scraper.yml`'s ages 10-19 loop never scrapes, so nothing is lost today. A list opening at U10 or older would lose that division. The fix is the same `row.find("table")` skip, plus wrapping the rows of the WA test's page in a layout table as on the live page.
 - **Noted**: 2026-11-05
 
-### Decode Affinity pages as UTF-8
-
-- **Type**: plan
-- **Category**: reliability
-- **Where**: `_fetch` in `scripts/scrape_affinity_or_tournament.py`
-- **Why**: It returns `r.text`, and the live Oahu League page answered `Content-Type: text/html` with no charset on 2026-11-05, so `requests` decodes it as ISO-8859-1. No Oahu team name is non-ASCII today, so nothing is garbled yet, but a name with an okina or kahako would be. The name feeds `_team_hash`, so count the non-ASCII names already scraped in Oregon and Utah first: changing the decode changes their team ids.
-- **Noted**: 2026-11-05
-
 ### Stop queueing a review row for a team the Affinity matcher then creates
 
 - **Type**: plan
@@ -2888,3 +2880,11 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `PlayMetricsGameMatcher._fuzzy_match_team` (the Stage 1 `are_same_club` gate at `MATCHING_CONFIG["affinity_club_similarity_threshold"]`) and `_match_team`'s create-on-no-match in `src/models/playmetrics_matcher.py`; `derive_division_age_group` and the `min_age` fallback in `scrape_division` in `scripts/scrape_playmetrics_tournament.py`
 - **Why**: On the unscoped `playmetrics_tournament` path the club gate is the load-bearing check, and `are_same_club(..., threshold=0.9)` returns False for `RASA - AFC Union` vs `AFC Union`, `Forward Madison FC Youth` vs `Forward Madison FC` and `Rush Wisconsin Southeast` vs `RUSH WI Southeast` (run 2026-11-10). So a team with an identical name is dropped before scoring and auto-created, and a candidate scoring 0.75-0.90 is queued for review and created anyway. The Harvest Classic import of 2026-11-10 created 103 teams, about half of them copies (15 exact-name, 34 near-name), merged by hand; 8 AFC Union copies came from an earlier PlayMetrics tournament import on 2026-10-05. No test imports `scrape_playmetrics_tournament` and no matcher test covers either copy path, so the scraper-patterns skill's description of both can go stale unnoticed.
 - **Noted**: 2026-11-10
+
+### Decode Affinity WA pages as UTF-8
+
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `_fetch` in `scripts/scrape_affinity_wa_tournament.py`
+- **Why**: It returns `r.text`, and Sports Affinity pages answer `Content-Type: text/html` with no charset, so `requests` decodes them as ISO-8859-1 and a non-ASCII team name would arrive garbled. The OR scraper's `_fetch` sets UTF-8 when no charset is declared (pinned by `TestPageDecoding` in `tests/unit/test_scrape_affinity_or.py`); WA keeps its own copy. 0 of the 879 `affinity_wa` teams have a non-ASCII name (queried 2026-11-11), so nothing is garbled yet.
+- **Noted**: 2026-11-11

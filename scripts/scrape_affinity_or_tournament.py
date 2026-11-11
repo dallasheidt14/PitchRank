@@ -14,9 +14,10 @@ Two things differ from the WA sibling and drive the code below:
   Do not adjust it.  Team names are the trap instead — Oregon writes that band
   as "13B", after its older year, so reading a name as a birth year files the
   division a cohort high.
-- Unplayed fixtures are kept.  The importer inserts a future-dated row whose
-  scores are both empty as a scheduled game and backfills the score on a later
-  scrape (``EnhancedETLPipeline._should_accept_for_insert``).
+- Unplayed fixtures are kept, except for an event marked ``results_only``.  The
+  importer inserts a future-dated row whose scores are both empty as a scheduled
+  game and backfills the score on a later scrape
+  (``EnhancedETLPipeline._should_accept_for_insert``).
 
 Usage:
     python scripts/scrape_affinity_or_tournament.py \
@@ -57,6 +58,19 @@ TOURNAMENTS = [
         # higher every Aug 1 (CLAUDE.md: "Resolve against the event, never the
         # wall clock"). A wider --days-back is enough to trigger it.
         "season_year": 2026,
+    },
+    {
+        "name": "26-27 State Cup (OR)",
+        "tournament_guid": "BAB11A54-018C-4408-9792-2BC9AECA315D",
+        "base_url": "https://oysa.sportsaffinity.com",
+        "provider": "affinity_or",
+        "state": "Oregon",
+        "state_code": "OR",
+        "season_year": 2026,
+        # A cup can post its knockout games before their teams are known, under
+        # stand-in names that would each become a new team; a played game names
+        # the teams that played it.
+        "results_only": True,
     },
 ]
 
@@ -349,6 +363,10 @@ def _fetch(url: str, retries: int = 3) -> Optional[str]:
         try:
             r = requests.get(url, headers=HEADERS, timeout=30)
             if r.status_code == 200:
+                # Affinity sends UTF-8 without declaring a charset, and requests
+                # reads an undeclared text page as ISO-8859-1.
+                if "charset" not in str(r.headers.get("content-type", "")).lower():
+                    r.encoding = "utf-8"
                 return r.text
             print(f"  HTTP {r.status_code} for {url}")
         except requests.RequestException as e:
@@ -448,10 +466,10 @@ def scrape_flight_games(
 ) -> List[Dict]:
     """Fetch schedule_results2 page and extract games within the date window, from any ``min_game_date`` on.
 
-    Unplayed fixtures are emitted with both scores empty; the importer keeps
-    the future-dated ones as scheduled games.  Rows where only one score is
-    present are dropped — the importer rejects that shape, so passing it on
-    would only add noise.
+    A future-dated unplayed fixture is emitted with both scores empty, and the
+    importer keeps it as a scheduled game; a ``results_only`` tournament emits
+    none.  Rows where only one score is present are dropped — the importer
+    rejects that shape, so passing it on would only add noise.
     """
     base = tournament["base_url"]
     tguid = tournament["tournament_guid"]
@@ -506,6 +524,8 @@ def scrape_flight_games(
             if home_blank != away_blank:
                 continue
             if home_blank:
+                if tournament.get("results_only"):
+                    continue
                 # Only a FUTURE blank is a fixture. The importer accepts a blank
                 # pair only when game_date > today (_should_accept_for_insert);
                 # a past blank is a result nobody posted, and shipping it earns
