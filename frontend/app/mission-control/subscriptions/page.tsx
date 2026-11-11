@@ -2,8 +2,8 @@ import Link from 'next/link';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
+import { TrialsByMonthChart } from '@/components/mission-control/TrialsByMonthChart';
 import { getSubscriptionMetrics, type AvailableMonthCohort } from '@/lib/admin/subscription-metrics';
-import { describeRate } from '@/lib/admin/month-projection';
 import { BUSINESS_TIMEZONE } from '@/lib/admin/timezone';
 
 // Admin gate is enforced by frontend/middleware.ts (ADMIN_ROUTES).
@@ -171,132 +171,54 @@ export default async function SubscriptionsDashboardPage() {
               </CardContent>
             </Card>
           ) : (
-            <>
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
-                <KpiCard
-                  label="Projected Trials"
-                  value={formatCount(Math.round(projection.trials.projected))}
-                  sub={`${projection.trials.trialsToDate} so far · ${projection.trials.dailyRate.toFixed(2)}/day · range ${Math.round(projection.trials.low)}–${Math.round(projection.trials.high)}`}
-                />
-                <KpiCard
-                  label="New Subs This Month"
-                  value={formatCount(projection.grossNewSubs)}
-                  sub={`from ${formatCount(projection.trials.landedConverted + projection.trials.landingUnresolved)} trials finishing in ${monthName}`}
-                />
-                <KpiCard
-                  label="Net MRR Change"
-                  value={signedDollars(projection.netMrr)}
-                  sub={`${signedCount(projection.netSubs)} net subscribers`}
-                  emphasize={projection.netMrr > 0}
-                />
-                <KpiCard
-                  label="LTV"
-                  value={projection.ltv === null ? '—' : formatDollars(projection.ltv)}
-                  sub={
-                    projection.avgLifetimeMonths === null
-                      ? 'not measurable — nobody in the cohort has churned'
-                      : `${projection.avgLifetimeMonths.toFixed(1)} month lifetime, first-month churn basis`
-                  }
-                />
-              </div>
-
-              <p className="pt-2 text-sm text-muted-foreground">
-                <span className="font-medium text-foreground">What actually changes this month.</span> Trials that
-                finish converting and subscribers who leave, both inside {monthName}. This is the pair that should move
-                your bank balance.
-              </p>
-              <Card variant="flat">
-                <CardContent className="p-0">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Subscribers gained and lost in {monthName}</TableHead>
-                        <TableHead className="text-right">Subscribers</TableHead>
-                        <TableHead className="text-right">MRR</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      <TableRow>
-                        <TableCell>
-                          Gross new
-                          <span className="ml-2 text-xs text-muted-foreground">
-                            {formatCount(projection.trials.landedConverted)} already converted
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-right">{signedCount(projection.grossNewSubs)}</TableCell>
-                        <TableCell className="text-right">{signedDollars(projection.grossNewMrr)}</TableCell>
-                      </TableRow>
-                      <TableRow>
-                        <TableCell>
-                          Churned
-                          <span className="ml-2 text-xs text-muted-foreground">
-                            {formatCount(projection.observedChurn)} already cancelled
-                            {projection.annualRenewalsAhead > 0 &&
-                              ` · ${projection.annualRenewalsAhead} annual renewal${projection.annualRenewalsAhead === 1 ? '' : 's'} due`}
-                          </span>
-                        </TableCell>
-                        <TableCell className="text-right">{signedCount(-projection.churnedSubs)}</TableCell>
-                        <TableCell className="text-right">{signedDollars(-projection.lostMrr)}</TableCell>
-                      </TableRow>
-                      <TableRow>
-                        <TableCell className="font-semibold">Net</TableCell>
-                        <TableCell className="text-right font-semibold">{signedCount(projection.netSubs)}</TableCell>
-                        <TableCell className="text-right font-semibold">{signedDollars(projection.netMrr)}</TableCell>
-                      </TableRow>
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
-
-              <p className="pt-2 text-sm text-muted-foreground">
-                <span className="font-medium text-foreground">What this month&apos;s signups are worth.</span> Counts
-                every trial that starts in {monthName}, including the ones whose first charge does not land until next
-                month. This is the one for judging whether a month&apos;s marketing worked.
-              </p>
-              <Card variant="flat">
-                <CardContent className="p-0">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Everyone who starts a trial in {monthName}</TableHead>
-                        <TableHead className="text-right">Subscribers</TableHead>
-                        <TableHead className="text-right">Value</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      <TableRow>
-                        <TableCell className="text-muted-foreground">Monthly recurring</TableCell>
-                        <TableCell className="text-right text-muted-foreground">
-                          {formatCount(projection.cohortSubs)}
-                        </TableCell>
-                        <TableCell className="text-right text-muted-foreground">
-                          {formatDollars(projection.cohortMrr)}
-                        </TableCell>
-                      </TableRow>
-                      <TableRow>
-                        <TableCell className="text-muted-foreground">Total lifetime value</TableCell>
-                        <TableCell className="text-right text-muted-foreground">
-                          {formatCount(projection.cohortSubs)}
-                        </TableCell>
-                        <TableCell className="text-right text-muted-foreground">
-                          {projection.cohortValue === null ? '—' : formatDollars(projection.cohortValue)}
-                        </TableCell>
-                      </TableRow>
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
-
-              <p className="text-sm text-muted-foreground">
-                Trial conversion {describeRate(projection.conversion)} · paid churn {describeRate(projection.churn)} ·
-                blended ARPU {formatDollars(projection.arpu)}/mo. Anything that has already happened is counted, not
-                estimated, so these numbers get more accurate as the month fills in. Annual subscribers only count
-                toward churn in the month they actually renew. The range on projected trials comes from this
-                month&apos;s own data, never from last month, so an in-season month is not dragged toward an off-season
-                average.
-              </p>
-            </>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+              <KpiCard
+                label="Projected Trials"
+                value={formatCount(Math.round(projection.trials.projected))}
+                sub={`${projection.trials.trialsToDate} so far · ${projection.trials.dailyRate.toFixed(2)}/day · range ${Math.round(projection.trials.low)}–${Math.round(projection.trials.high)}`}
+              />
+              <KpiCard
+                label="New Subs This Month"
+                value={formatCount(projection.grossNewSubs)}
+                sub={`from ${formatCount(projection.trials.landedConverted + projection.trials.landingUnresolved)} trials finishing in ${monthName}`}
+              />
+              <KpiCard
+                label="Net MRR Change"
+                value={signedDollars(projection.netMrr)}
+                sub={`${signedCount(projection.netSubs)} net subscribers`}
+                emphasize={projection.netMrr > 0}
+              />
+              <KpiCard
+                label="LTV"
+                value={projection.ltv === null ? '—' : formatDollars(projection.ltv)}
+                sub={
+                  projection.avgLifetimeMonths === null
+                    ? 'not measurable — nobody in the cohort has churned'
+                    : `${projection.avgLifetimeMonths.toFixed(1)} month lifetime, first-month churn basis`
+                }
+              />
+            </div>
           )}
+        </section>
+
+        <section className="space-y-3">
+          <div className="flex items-baseline justify-between">
+            <h2 className="font-display text-xl font-semibold">Trials by Month</h2>
+            <span className="text-sm text-muted-foreground">
+              {metrics.trialsByMonth.available ? `trials started · ${monthName} so far` : 'could not be loaded'}
+            </span>
+          </div>
+          <Card variant="flat">
+            <CardContent className="py-6">
+              {metrics.trialsByMonth.available ? (
+                <TrialsByMonthChart months={metrics.trialsByMonth.months} />
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Stripe did not return the subscriptions these are counted from, so they could not be loaded.
+                </p>
+              )}
+            </CardContent>
+          </Card>
         </section>
 
         <section className="space-y-3">
