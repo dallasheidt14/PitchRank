@@ -163,7 +163,32 @@ def test_service_role_can_freeze_and_read_but_not_rewrite_evidence(database, for
             assert freeze(connection, row, payload)
             cursor.execute("SELECT heuristic_prediction_status FROM prospective_match_predictions WHERE id=%s", (row,))
             assert cursor.fetchone()[0] == "completed"
+            cursor.execute("SELECT model_version FROM compare_calibration_experiments WHERE model_signature=%s",
+                           (payload["modelSignature"],))
+            assert cursor.fetchone()[0] == "test-model"
             with pytest.raises(psycopg2.Error, match="immutable"):
                 cursor.execute("UPDATE prospective_match_predictions SET heuristic_prediction='{}' WHERE id=%s", (row,))
+            with pytest.raises(psycopg2.Error, match="permission denied"):
+                cursor.execute("UPDATE compare_calibration_experiments SET test_end=test_end+7")
         finally:
             cursor.execute("RESET ROLE")
+
+
+def test_experiment_is_registered_once_with_four_plus_four_weeks(database, forecast):
+    connection, _ = database
+    row, _, payload = forecast
+    assert freeze(connection, row, payload)
+    with connection.cursor() as cursor:
+        cursor.execute("""
+            SELECT development_start > (created_at AT TIME ZONE 'UTC')::DATE,
+                   extract(isodow FROM development_start), train_end-development_start,
+                   test_start-development_start, test_end-development_start, policy
+            FROM compare_calibration_experiments WHERE model_signature=%s
+        """, (payload["modelSignature"],))
+        future, weekday, train_days, test_start, test_end, policy = cursor.fetchone()
+        assert (future, weekday, train_days, test_start, test_end) == (True, 1, 27, 28, 55)
+        assert policy["minimum_games"] == 1000
+        assert policy["minimum_events"] == 20
+        assert policy["temperatures"] == [.5, .75, 1, 1.25, 1.5, 2]
+        with pytest.raises(psycopg2.Error, match="immutable"):
+            cursor.execute("UPDATE compare_calibration_experiments SET test_end=test_end+7")

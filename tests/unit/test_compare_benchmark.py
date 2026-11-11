@@ -9,6 +9,7 @@ import pytest
 from src.predictions.compare_benchmark import (
     BenchmarkConfig,
     apply_temperature,
+    config_from_manifest,
     paired_event_interval,
     prepare_forecasts,
     run_benchmark,
@@ -291,3 +292,159 @@ def test_window_and_temperature_validation():
                 replace(config, model_version=""), replace(config, train_end="20260412")):
         with pytest.raises(ValueError):
             bad.validate()
+
+
+def registered_manifest():
+    return {
+        "model_signature": "signature-1", "model_version": "frozen_v1", "first_code_revision": "revision-1",
+        "created_at": "2026-04-09T12:00:00Z", "development_start": "2026-04-13",
+        "train_end": "2026-05-10", "test_start": "2026-05-11", "test_end": "2026-06-07",
+        "policy": {"candidate_source": "pre_outcome", "temperatures": [.5, .75, 1, 1.25, 1.5, 2],
+                   "minimum_games": 1000, "minimum_events": 20, "bootstrap_samples": 1000, "seed": 20260920,
+                   "scoring": "log_loss_and_multiclass_brier", "outcome_policy": "unchanged"},
+    }
+
+
+def registered_fixture(index=0, *, game_date="2026-04-14", event="development"):
+    row = fixture(index, game_date=game_date, event=event)
+    payload = row["heuristic_prediction"]
+    payload["modelSignature"] = "signature-1"
+    payload["codeRevision"] = "revision-1"
+    payload["shadowContext"].update(
+        preOutcomeCalibration=[.8, .1, .1],
+        frozenEvidence={"as_of": "2026-04-09", "games": [{"game_date": "2026-04-08"}]},
+    )
+    return row
+
+
+def test_manifest_fixes_windows_identity_and_policy():
+    manifest = registered_manifest()
+    config = config_from_manifest(manifest)
+    assert (config.minimum_games, config.minimum_events, config.candidate_source) == (1000, 20, "pre_outcome")
+    for field, value in (("test_end", "2026-06-14"), ("first_code_revision", ""),
+                         ("created_at", "2026-04-09T12:00:00"), ("model_signature", None)):
+        with pytest.raises(ValueError):
+            config_from_manifest({**manifest, field: value})
+    manifest["policy"]["minimum_games"] = 20
+    with pytest.raises(ValueError):
+        config_from_manifest(manifest)
+
+
+def test_raw_candidate_temperature_one_is_not_the_final_blended_baseline():
+    frame, _ = prepare_forecasts([registered_fixture()], "frozen_v1", model_signature="signature-1", require_raw=True)
+    baseline = frame["prob_team_a_win"].iloc[0]
+    raw = apply_temperature(frame, 1, "pre_outcome")
+    assert baseline == .6
+    assert raw["prob_team_a_win"].iloc[0] == pytest.approx(.8)
+    assert apply_temperature(frame, .5, "pre_outcome")["prob_team_a_win"].iloc[0] == pytest.approx(.64 / .66)
+    assert raw["predicted_outcome"].equals(frame["predicted_outcome"])
+    assert frame["prob_team_a_win"].iloc[0] == baseline
+
+
+@pytest.mark.parametrize("mutation,reason", [
+    (lambda p: p.update(modelSignature="other"), "other_model_signature"),
+    (lambda p: p["shadowContext"].pop("preOutcomeCalibration"), "missing_or_invalid_pre_outcome_probabilities"),
+    (lambda p: p["shadowContext"].update(preOutcomeCalibration=[.6, .3, .3]), "missing_or_invalid_pre_outcome_probabilities"),
+    (lambda p: p["shadowContext"]["frozenEvidence"].update(as_of="2026-04-10"), "missing_or_future_frozen_inputs"),
+    (lambda p: p["shadowContext"]["frozenEvidence"]["games"].append({"game_date": "2026-04-10"}), "missing_or_future_frozen_inputs"),
+    (lambda p: p["shadowContext"]["teamAInput"].update(ratings_as_of="2026-04-09T17:00:00Z"), "missing_or_future_frozen_inputs"),
+])
+def test_registered_forecasts_reject_missing_raw_or_future_inputs(mutation, reason):
+    row = registered_fixture()
+    mutation(row["heuristic_prediction"])
+    frame, inventory = prepare_forecasts([row], "frozen_v1", model_signature="signature-1", require_raw=True)
+    assert frame.empty
+    assert inventory["excluded"] == {reason: 1}
+
+
+def test_inferred_groups_are_explicit_and_namespaced():
+    row = registered_fixture(event=None)
+    row.update(evaluation_group_kind="inferred_competition_week", evaluation_group_key="gotsport:league:2026-W16")
+    frame, _ = prepare_forecasts([row], "frozen_v1", model_signature="signature-1", require_raw=True)
+    assert frame["group_kind"].tolist() == ["inferred_competition_week"]
+    assert frame["event_group"].tolist() == ["gotsport:league:2026-W16"]
+
+
+def test_holdout_stays_sealed_and_manifest_overrides_are_refused(tmp_path):
+    manifest = registered_manifest()
+    config = config_from_manifest(manifest)
+    rows = [registered_fixture(), registered_fixture(1, game_date="2026-05-12", event="holdout")]
+    report = run_benchmark(rows, config, tmp_path / "sealed", current_model_version="frozen_v1",
+                           as_of="2026-06-07", experiment_manifest=manifest)
+    assert report["status"] == "collecting"
+    assert "selected_temperature" not in report and "baseline" not in report
+    assert sorted(p.name for p in (tmp_path / "sealed").iterdir()) == ["benchmark.json", "benchmark.md", "manifest.json"]
+    with pytest.raises(ValueError, match="without overrides"):
+        run_benchmark(rows, replace(config, minimum_games=1), tmp_path / "invalid", current_model_version="frozen_v1",
+                      experiment_manifest=manifest)
+    assert not (tmp_path / "invalid").exists()
+
+
+def test_registered_report_uses_only_fixed_windows_and_development_selection(tmp_path):
+    manifest = registered_manifest()
+    config = config_from_manifest(manifest)
+    rows = [registered_fixture(i, event=f"dev-{i % 20}") for i in range(1000)]
+    rows += [registered_fixture(i + 1000, game_date="2026-05-12", event=f"test-{i % 20}") for i in range(1000)]
+    rows += [registered_fixture(9999, game_date="2026-06-09", event="too-late")]
+    report = run_benchmark(rows, config, tmp_path / "finished", current_model_version="frozen_v1",
+                           as_of="2026-06-08", experiment_manifest=manifest)
+    assert report["status"] == "candidate_for_shadow_validation"
+    assert report["selected_temperature"] == .5
+    assert report["baseline"]["games"] == 1000
+    assert report["inventory"]["excluded_outside_experiment_window"] == 1
+    assert report["log_loss_delta_interval_95"][1] < 0
+    assert report["candidate"]["brier_score"] < report["baseline"]["brier_score"]
+    assert (tmp_path / "finished" / "holdout_candidate_by_provider.csv").exists()
+    assert (tmp_path / "finished" / "frozen_inputs.json").exists()
+    for row in rows[1000:2000]:
+        row.update(actual_home_score=0, actual_away_score=4, actual_outcome="team_b")
+    changed = run_benchmark(rows, config, tmp_path / "changed", current_model_version="frozen_v1",
+                            as_of="2026-06-08", experiment_manifest=manifest)
+    assert changed["selected_temperature"] == report["selected_temperature"]
+    assert changed["status"] == "research_only"
+    assert changed["production_changed"] is False
+
+
+def test_registered_rows_cannot_enter_legacy_metrics_or_exports(tmp_path):
+    row = registered_fixture()
+    frame, inventory = prepare_forecasts([row], "frozen_v1")
+    assert frame.empty
+    assert inventory["excluded"] == {"registered_experiment_requires_manifest": 1}
+    legacy = BenchmarkConfig("frozen_v1", "2026-05-10", "2026-05-11", "2026-06-07")
+    report = run_benchmark([row], legacy, tmp_path / "legacy", current_model_version="frozen_v1")
+    assert report["withheld_other_experiments"] == 1
+    assert report["development"]["games"] == 0
+    assert json.loads((tmp_path / "legacy" / "frozen_inputs.json").read_text()) == []
+    assert not list((tmp_path / "legacy").glob("*.csv"))
+
+
+def test_closed_experiment_exports_only_its_signature_and_replay_manifest(tmp_path):
+    manifest = registered_manifest()
+    other = registered_fixture(2)
+    other["heuristic_prediction"]["modelSignature"] = "still-sealed"
+    config = config_from_manifest(manifest)
+    report = run_benchmark([registered_fixture(), other], config, tmp_path / "closed", current_model_version="frozen_v1",
+                           as_of="2026-06-08", experiment_manifest=manifest)
+    archived = json.loads((tmp_path / "closed" / "frozen_inputs.json").read_text())
+    saved_manifest = json.loads((tmp_path / "closed" / "manifest.json").read_text())
+    assert saved_manifest == manifest
+    assert len(archived) == 1
+    assert archived[0]["heuristic_prediction"]["modelSignature"] == config.model_signature
+    replay = run_benchmark(archived, config_from_manifest(saved_manifest), tmp_path / "replayed",
+                           current_model_version="frozen_v1", as_of="2026-06-08", experiment_manifest=saved_manifest)
+    assert replay["input_sha256"] == report["input_sha256"]
+    assert replay["development"] == report["development"]
+
+
+def test_manifest_file_cannot_control_live_database_reporting(monkeypatch, tmp_path, capsys):
+    from scripts import benchmark_compare_calibration as cli
+    def forbidden():
+        raise AssertionError("A local manifest must not reach live data")
+    monkeypatch.setattr(cli, "_supabase_client", forbidden)
+    monkeypatch.setattr("sys.argv", ["benchmark", "--manifest", str(tmp_path / "unread.json"),
+                                     "--output-dir", str(tmp_path / "report")])
+    with pytest.raises(SystemExit) as error:
+        cli.main()
+    assert error.value.code == 2
+    assert "requires frozen --input" in capsys.readouterr().err
+    assert not (tmp_path / "report").exists()
