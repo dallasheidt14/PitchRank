@@ -705,9 +705,9 @@ two-line edit in `.github/workflows/claude-code-review.yml`.
 
 Compare capture uses unscored fixtures already in `games`, with immutable forecasts and
 exact-source settlement. It does not scrape event pages or load the offline model.
-Keep `COMPARE_CAPTURE_ENABLED` unset until the follow-up experiment-registration and
-holdout-isolation changes are merged, the migrations are applied, and a 20-fixture pilot
-passes. Capture is not ready to activate independently of that release gate.
+Keep `COMPARE_CAPTURE_ENABLED` unset until the migrations and 20-fixture pilot in
+`docs/compare-validation-rollout.md` pass. Registered experiments are excluded from the
+weekly legacy scorecard so their holdout remains sealed.
 
 The legacy event-page path remains blocked for the reasons below; do not restore it as
 the source for daily capture.

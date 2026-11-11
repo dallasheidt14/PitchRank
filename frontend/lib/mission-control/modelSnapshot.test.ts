@@ -126,5 +126,12 @@ describe('buildMissionControlSnapshot', () => {
     expect(snapshot.headToHead.fixturesWithBothPredictions).toBe(2);
     expect(snapshot.headToHead.winnerDisagreementRate).toBe(0.5);
     expect(snapshot.trainingRuns).toEqual([]);
+    rows[0].heuristic_prediction = { ...(rows[0].heuristic_prediction as object), modelSignature: 'sealed' };
+    const sealed = buildMissionControlSnapshot(rows, snapshot.pitCoverage);
+    expect(sealed.pipeline.totalFixtures).toBe(3);
+    expect(sealed.heuristic.games).toBe(1);
+    expect(sealed.offline.games).toBe(1);
+    expect(sealed.sharedSettledGames).toBe(1);
+    expect(sealed.heuristic.winnerAccuracy).toBe(1);
   });
 });

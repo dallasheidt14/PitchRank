@@ -7,7 +7,7 @@ import json
 import math
 from collections import Counter
 from dataclasses import asdict, dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +36,9 @@ class BenchmarkConfig:
     minimum_events: int = 3
     bootstrap_samples: int = 1000
     seed: int = 20260920
+    train_start: str | None = None
+    model_signature: str | None = None
+    candidate_source: str = "final"
 
     def validate(self) -> None:
         if not self.model_version.strip():
@@ -45,6 +48,12 @@ class BenchmarkConfig:
         )
         if not train_end < test_start <= test_end:
             raise ValueError("Training must end before the test window starts.")
+        if self.train_start and _calendar_date(self.train_start) > train_end:
+            raise ValueError("Development start must precede its end.")
+        if self.candidate_source not in {"final", "pre_outcome"}:
+            raise ValueError("Unknown probability source.")
+        if self.candidate_source == "pre_outcome" and not self.model_signature:
+            raise ValueError("Pre-outcome experiments require a frozen model signature.")
         if not self.temperatures or any(not _finite(t) or t <= 0 for t in self.temperatures):
             raise ValueError("Temperatures must be finite and positive.")
         if self.minimum_games < 1 or self.minimum_events < 2 or self.bootstrap_samples < 100:
@@ -60,6 +69,32 @@ def _calendar_date(value: str) -> date:
     if parsed.isoformat() != value:
         raise ValueError("Game and split dates must use YYYY-MM-DD.")
     return parsed
+
+
+def config_from_manifest(manifest: dict) -> BenchmarkConfig:
+    """Only the preregistered policy can evaluate a new prospective experiment."""
+    created = datetime.fromisoformat(manifest["created_at"].replace("Z", "+00:00"))
+    if created.tzinfo is None:
+        raise ValueError("Manifest registration time requires a timezone.")
+    day = created.astimezone(timezone.utc).date()
+    first_week = day + timedelta(days=7 - day.weekday())
+    expected_dates = {
+        "development_start": first_week.isoformat(), "train_end": (first_week + timedelta(days=27)).isoformat(),
+        "test_start": (first_week + timedelta(days=28)).isoformat(),
+        "test_end": (first_week + timedelta(days=55)).isoformat(),
+    }
+    if any(manifest.get(key) != value for key, value in expected_dates.items()):
+        raise ValueError("Manifest windows differ from the registered four-plus-four-week policy.")
+    policy = manifest.get("policy", {})
+    expected = {"candidate_source": "pre_outcome", "temperatures": [.5, .75, 1, 1.25, 1.5, 2],
+                "minimum_games": 1000, "minimum_events": 20, "bootstrap_samples": 1000, "seed": 20260920,
+                "scoring": "log_loss_and_multiclass_brier", "outcome_policy": "unchanged"}
+    if policy != expected or not manifest.get("model_signature") or not manifest.get("first_code_revision"):
+        raise ValueError("Missing or altered experiment policy or identity.")
+    return BenchmarkConfig(
+        manifest["model_version"], manifest["train_end"], manifest["test_start"], manifest["test_end"],
+        train_start=manifest["development_start"], model_signature=manifest["model_signature"],
+        candidate_source="pre_outcome", minimum_games=1000, minimum_events=20)
 
 
 def _gender(value: Any) -> str:
@@ -115,7 +150,9 @@ def _frozen_teams_match(row: dict, payload: dict) -> bool:
     return identities[0].isdisjoint(identities[1])
 
 
-def prepare_forecasts(rows: list[dict], model_version: str) -> tuple[pd.DataFrame, dict]:
+def prepare_forecasts(
+    rows: list[dict], model_version: str, *, model_signature: str | None = None, require_raw: bool = False
+) -> tuple[pd.DataFrame, dict]:
     """Reject unverifiable records instead of filling missing predictions with guesses."""
     rejected: Counter = Counter()
     eligible = []
@@ -133,12 +170,29 @@ def prepare_forecasts(rows: list[dict], model_version: str) -> tuple[pd.DataFram
             reason = "conflicting_or_missing_payload_version"
         elif _safe_json(payload.get("shadowContext")).get("predictorVersion") != version:
             reason = "conflicting_or_missing_predictor_version"
-        elif not row.get("actual_game_id") or not row.get("fixture_key") or not row.get("source_event_id"):
+        elif model_signature and payload.get("modelSignature") != model_signature:
+            reason = "other_model_signature"
+        elif not model_signature and payload.get("modelSignature"):
+            reason = "registered_experiment_requires_manifest"
+        elif not row.get("actual_game_id") or not row.get("fixture_key") or not (
+            row.get("source_event_id") or (
+                row.get("evaluation_group_kind") == "inferred_competition_week" and row.get("evaluation_group_key")
+            )
+        ):
             reason = "missing_game_fixture_or_event_identity"
         elif not _frozen_teams_match(row, payload):
             reason = "conflicting_or_missing_prediction_team_identity"
         if reason:
             rejected[reason] += 1
+            continue
+        context = _safe_json(payload.get("shadowContext"))
+        raw = context.get("preOutcomeCalibration")
+        if require_raw and (
+            not isinstance(raw, list) or len(raw) != 3
+            or not all(_finite(value) and 0 <= value <= 1 for value in raw)
+            or abs(sum(raw) - 1) > 1e-6
+        ):
+            rejected["missing_or_invalid_pre_outcome_probabilities"] += 1
             continue
         try:
             played = _calendar_date(row["game_date"])
@@ -151,6 +205,23 @@ def prepare_forecasts(rows: list[dict], model_version: str) -> tuple[pd.DataFram
         except (KeyError, ValueError, TypeError, AttributeError):
             rejected["invalid_prediction_or_game_timestamp"] += 1
             continue
+        if require_raw:
+            evidence = _safe_json(context.get("frozenEvidence"))
+            try:
+                evidence_date = _calendar_date(evidence["as_of"])
+                history = evidence["games"]
+                if (not isinstance(history, list) or evidence_date > predicted_at.astimezone(timezone.utc).date()
+                    or any(_calendar_date(game["game_date"]) > evidence_date for game in history)):
+                    raise ValueError("Future input")
+                for key in ("teamAInput", "teamBInput"):
+                    timestamp = _safe_json(context.get(key)).get("ratings_as_of")
+                    if timestamp:
+                        rating_date = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+                        if rating_date.tzinfo is None or rating_date > predicted_at:
+                            raise ValueError("Future rating")
+            except (KeyError, ValueError, TypeError, AttributeError):
+                rejected["missing_or_future_frozen_inputs"] += 1
+                continue
         scores = [row.get(key) for key in ("actual_home_score", "actual_away_score")]
         probabilities = [prediction.get(key) for key in ("winProbabilityA", "drawProbability", "winProbabilityB")]
         risk = prediction.get("blowout4PlusProbability", prediction.get("blowoutProbability4Plus"))
@@ -174,7 +245,15 @@ def prepare_forecasts(rows: list[dict], model_version: str) -> tuple[pd.DataFram
             rejected["conflicting_actual_outcome"] += 1
             continue
         extracted.update(_metadata(payload))
-        extracted["event_group"] = f"{row.get('provider_code') or 'unknown'}:{row['source_event_id']}"
+        extracted["event_group"] = (
+            f"{row.get('provider_code') or 'unknown'}:{row['source_event_id']}" if row.get("source_event_id")
+            else row["evaluation_group_key"]
+        )
+        extracted["group_kind"] = "event" if row.get("source_event_id") else "inferred_competition_week"
+        extracted["provider"] = row.get("provider_code") or "unknown"
+        if require_raw:
+            for column, probability in zip(PROBABILITY_COLUMNS.values(), raw):
+                extracted[f"pre_{column}"] = probability / sum(raw)
         extracted["predicted_at"] = predicted_at.astimezone(timezone.utc).isoformat()
         eligible.append(extracted)
     # A game's earliest eligible frozen forecast is one observation, even if the
@@ -193,6 +272,8 @@ def split_events(frame: pd.DataFrame, config: BenchmarkConfig) -> tuple[pd.DataF
     if frame.empty:
         return frame.copy(), frame.copy(), []
     train = frame[frame["game_date"] <= config.train_end].copy()
+    if config.train_start:
+        train = train[train["game_date"] >= config.train_start].copy()
     test = frame[frame["game_date"].between(config.test_start, config.test_end)].copy()
     # Never train on an early round of an event and test on that event's later rounds.
     overlap = sorted(set(train["event_group"]) & set(test["event_group"]))
@@ -200,13 +281,16 @@ def split_events(frame: pd.DataFrame, config: BenchmarkConfig) -> tuple[pd.DataF
             test[~test["event_group"].isin(overlap)].copy(), overlap)
 
 
-def apply_temperature(frame: pd.DataFrame, temperature: float) -> pd.DataFrame:
+def apply_temperature(frame: pd.DataFrame, temperature: float, source: str = "final") -> pd.DataFrame:
     if not _finite(temperature) or temperature <= 0:
         raise ValueError("Temperature must be finite and positive.")
     result = frame.copy(deep=True)
+    if source == "pre_outcome" and not frame.empty:
+        for column in PROBABILITY_COLUMNS.values():
+            result[column] = frame[f"pre_{column}"]
     if frame.empty or temperature == 1:
         return result
-    probabilities = frame[list(PROBABILITY_COLUMNS.values())].to_numpy(dtype=float)
+    probabilities = result[list(PROBABILITY_COLUMNS.values())].to_numpy(dtype=float)
     # One scalar treats A/B identically. Outcome policy, goal margins and blowout
     # probabilities stay frozen; this tests probability calibration alone.
     logits = np.log(np.clip(probabilities, 1e-15, 1)) / temperature
@@ -215,12 +299,14 @@ def apply_temperature(frame: pd.DataFrame, temperature: float) -> pd.DataFrame:
     return result
 
 
-def select_temperature(train: pd.DataFrame, temperatures: tuple[float, ...]) -> tuple[float, list[dict]]:
+def select_temperature(
+    train: pd.DataFrame, temperatures: tuple[float, ...], source: str = "final"
+) -> tuple[float, list[dict]]:
     if train.empty:
         raise ValueError("No development forecasts available.")
     candidates = []
     for temperature in sorted(set(temperatures) | {1.0}):
-        summary = compute_evaluation_summary(apply_temperature(train, temperature))
+        summary = compute_evaluation_summary(apply_temperature(train, temperature, source))
         candidates.append({"temperature": temperature, "development_log_loss": summary["log_loss"]})
     selected = min(candidates, key=lambda item: (
         item["development_log_loss"], abs(math.log(item["temperature"])), item["temperature"]
@@ -246,40 +332,70 @@ def _coverage(frame: pd.DataFrame) -> dict:
     return {"games": len(frame), "events": int(frame["event_group"].nunique()) if not frame.empty else 0,
             "first_game": frame["game_date"].min() if not frame.empty else None,
             "last_game": frame["game_date"].max() if not frame.empty else None,
+            "group_kinds": frame["group_kind"].value_counts().to_dict() if not frame.empty else {},
             "four_goal_probability_games": (
                 int(frame["blowout_4plus_probability"].notna().sum()) if not frame.empty else 0
             )}
 
 
-def run_benchmark(rows: list[dict], config: BenchmarkConfig, output_dir: Path, *, current_model_version: str) -> dict:
+def run_benchmark(
+    rows: list[dict], config: BenchmarkConfig, output_dir: Path, *,
+    current_model_version: str, as_of: str | None = None, experiment_manifest: dict | None = None
+) -> dict:
     config.validate()
+    if config.model_signature:
+        if not experiment_manifest or config_from_manifest(experiment_manifest) != config:
+            raise ValueError("Use the immutable registered manifest without overrides.")
+    # Every output, including raw archives, must honor the same experiment boundary.
+    withheld = len(rows)
+    rows = [row for row in rows if (
+        _safe_json(row.get("heuristic_prediction")).get("modelSignature") == config.model_signature
+        if config.model_signature else not _safe_json(row.get("heuristic_prediction")).get("modelSignature")
+    )]
+    withheld -= len(rows)
     # Never overwrite a completed experiment after its holdout has been inspected.
     output_dir.mkdir(parents=True, exist_ok=False)
-    frame, inventory = prepare_forecasts(rows, config.model_version)
+    frame, inventory = prepare_forecasts(
+        rows, config.model_version, model_signature=config.model_signature,
+        require_raw=config.candidate_source == "pre_outcome")
+    if config.train_start and not frame.empty:
+        within_window = frame["game_date"].between(config.train_start, config.test_end)
+        inventory["excluded_outside_experiment_window"] = int((~within_window).sum())
+        frame = frame[within_window].copy()
     train, test, overlap = split_events(frame, config)
     report = {
-        "schema_version": 1, "config": asdict(config), "current_model_version": current_model_version,
+        "schema_version": 2, "config": asdict(config), "current_model_version": current_model_version,
+        "experiment_manifest": experiment_manifest,
         "input_sha256": hashlib.sha256(json.dumps(rows, sort_keys=True, allow_nan=False).encode()).hexdigest(),
-        "inventory": inventory, "development": _coverage(train), "holdout": _coverage(test),
+        "inventory": inventory, "withheld_other_experiments": withheld,
+        "development": _coverage(train), "holdout": _coverage(test),
         "excluded_overlapping_events": overlap, "production_changed": False,
-        "experiment": "Frozen-output temperature calibration; outcome decisions, margins and risk unchanged.",
+        "experiment": (f"Temperature calibration from {config.candidate_source}; "
+                       "outcome decisions, margins and risk unchanged."),
         "limitations": ["Same-day forecasts are excluded because kickoff times are not stored.",
                         "Missing four-goal probabilities are unavailable evidence, not zero risk.",
                         "This is not a replay of the current predictor on historical inputs.",
-                        "Repeated experiments on this holdout require a new untouched test set before release."],
+                        "Repeated experiments on this holdout require a new untouched test set before release.",
+                        "Competition/week groups are inferred; recurring teams can remain dependent.",
+                        "Capture is a capped provider sample, not a representative national accuracy claim."],
     }
-    if not frame.empty:
-        write_evaluation_bundle(frame, output_dir, prefix="source")
+    evaluation_date = as_of or datetime.now(timezone.utc).date().isoformat()
+    sealed = bool(config.model_signature and evaluation_date <= config.test_end)
+    if not sealed and not frame.empty:
+        # Source summaries use the same eligible groups as the paired experiment.
+        write_evaluation_bundle(frame[~frame["event_group"].isin(overlap)], output_dir, prefix="source")
     blockers = []
     for label, part in (("development", train), ("holdout", test)):
         coverage = _coverage(part)
         if coverage["games"] < config.minimum_games or coverage["events"] < config.minimum_events:
             blockers.append(f"Insufficient {label} coverage: {coverage['games']} games / {coverage['events']} events.")
-    if blockers:
+    if sealed:
+        report.update(status="collecting", blockers=["Holdout is sealed until after its final UTC date."])
+    elif blockers:
         report.update(status="insufficient_data", blockers=blockers)
     else:
-        temperature, candidates = select_temperature(train, config.temperatures)
-        candidate = apply_temperature(test, temperature)
+        temperature, candidates = select_temperature(train, config.temperatures, config.candidate_source)
+        candidate = apply_temperature(test, temperature, config.candidate_source)
         baseline_summary = write_evaluation_bundle(test, output_dir, prefix="holdout_baseline")
         candidate_summary = write_evaluation_bundle(candidate, output_dir, prefix="holdout_candidate")
         interval = paired_event_interval(test, candidate, samples=config.bootstrap_samples, seed=config.seed)
@@ -287,7 +403,7 @@ def run_benchmark(rows: list[dict], config: BenchmarkConfig, output_dir: Path, *
         report.update(selected_temperature=temperature, development_candidates=candidates,
                       baseline=baseline_summary, candidate=candidate_summary,
                       log_loss_delta_interval_95=interval, candidate_improves_holdout=bool(improved))
-        for group in ("cohort", "gender", "age_pair", "history_band", "power_gap_band", "event_group"):
+        for group in ("provider", "cohort", "gender", "age_pair", "history_band", "power_gap_band", "event_group"):
             for name, part in (("baseline", test), ("candidate", candidate)):
                 build_group_metrics(part, group).to_csv(output_dir / f"holdout_{name}_by_{group}.csv", index=False)
         if config.model_version != current_model_version:
@@ -297,6 +413,12 @@ def run_benchmark(rows: list[dict], config: BenchmarkConfig, output_dir: Path, *
         if not improved:
             blockers.append("No supported improvement in holdout probability scores.")
         report.update(status="candidate_for_shadow_validation" if not blockers else "research_only", blockers=blockers)
+    if not sealed:
+        (output_dir / "frozen_inputs.json").write_text(
+            json.dumps(rows, sort_keys=True, indent=2, allow_nan=False) + "\n", encoding="utf-8")
+    if experiment_manifest:
+        (output_dir / "manifest.json").write_text(
+            json.dumps(experiment_manifest, sort_keys=True, indent=2) + "\n", encoding="utf-8")
     (output_dir / "benchmark.json").write_text(json.dumps(report, indent=2, allow_nan=False) + "\n", encoding="utf-8")
     text = ["# Compare calibration benchmark", "", f"Status: {report['status']}",
             f"Source model: {config.model_version}. Current model: {current_model_version}.",
@@ -309,6 +431,6 @@ def run_benchmark(rows: list[dict], config: BenchmarkConfig, output_dir: Path, *
                      f"Holdout Brier score: {report['baseline']['brier_score']:.6f} -> "
                      f"{report['candidate']['brier_score']:.6f}",
                      f"95% event-resampled log-loss delta interval: {report['log_loss_delta_interval_95']}", ""])
-    text.extend(f"- {item}" for item in blockers + report["limitations"])
+    text.extend(f"- {item}" for item in report["blockers"] + report["limitations"])
     (output_dir / "benchmark.md").write_text("\n".join(text) + "\n", encoding="utf-8")
     return report

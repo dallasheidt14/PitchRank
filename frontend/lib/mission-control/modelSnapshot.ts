@@ -386,12 +386,14 @@ export function buildMissionControlSnapshot(
   pitCoverage: MissionControlSnapshot['pitCoverage'],
   trainingRuns: TrainingRunSummary[] = []
 ): MissionControlSnapshot {
-  const heuristicVersions = buildVersionSummaries(rows, 'heuristic');
-  const offlineVersions = buildVersionSummaries(rows, 'offline');
+  // Registered experiments expose outcome metrics only through their sealed benchmark.
+  const evaluatedRows = rows.filter((row) => !safeJson(row.heuristic_prediction).modelSignature);
+  const heuristicVersions = buildVersionSummaries(evaluatedRows, 'heuristic');
+  const offlineVersions = buildVersionSummaries(evaluatedRows, 'offline');
   const currentHeuristicVersion = heuristicVersions[0]?.modelVersion ?? null;
   const currentOfflineVersion = offlineVersions[0]?.modelVersion ?? null;
   const { sharedSettledGames, headToHead, heuristicSummary, offlineSummary } = buildHeadToHead(
-    rows,
+    evaluatedRows,
     currentHeuristicVersion,
     currentOfflineVersion
   );
