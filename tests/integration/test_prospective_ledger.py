@@ -1,5 +1,4 @@
 """Execute the actual ledger migrations against an isolated local PostgreSQL database."""
-import os
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from uuid import uuid4
@@ -14,49 +13,26 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 @pytest.fixture(scope="module")
-def database():
-    url = os.getenv("PROSPECTIVE_TEST_DATABASE_URL")
-    if not url:
-        pytest.skip("Set PROSPECTIVE_TEST_DATABASE_URL to a disposable local PostgreSQL service")
-    parameters = psycopg2.extensions.parse_dsn(url)
-    if parameters.get("host") not in {"localhost", "127.0.0.1", "::1"}:
-        pytest.fail("Migration execution tests only accept a local database")
-    admin = psycopg2.connect(url)
-    admin.autocommit = True
-    name = "compare_test_" + uuid4().hex
-    with admin.cursor() as cursor:
-        for role in ("anon", "authenticated", "service_role"):
-            cursor.execute("SELECT 1 FROM pg_roles WHERE rolname=%s", (role,))
-            if not cursor.fetchone():
-                cursor.execute(sql.SQL("CREATE ROLE {}").format(sql.Identifier(role)))
-        cursor.execute("ALTER ROLE service_role BYPASSRLS")
-        cursor.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
-    parameters["dbname"] = name
-    connection = psycopg2.connect(**parameters)
-    connection.autocommit = True
-    with connection.cursor() as cursor:
-        cursor.execute("""
-            CREATE TABLE public.teams (team_id_master UUID PRIMARY KEY);
-            CREATE TABLE public.games (
-              id UUID PRIMARY KEY, game_date DATE, provider_id UUID,
-              home_team_master_id UUID, away_team_master_id UUID,
-              home_score INTEGER, away_score INTEGER, is_excluded BOOLEAN DEFAULT FALSE, source_url TEXT
-            );
-        """)
-        cursor.execute((ROOT / "supabase/migrations/20260410000000_create_prospective_match_predictions.sql").read_text())
-        # Execute every subsequent migration touching this ledger, so replacements stay covered.
-        for migration in sorted((ROOT / "supabase/migrations").glob("*.sql")):
-            if migration.name <= "20260410000000_create_prospective_match_predictions.sql":
-                continue
-            content = migration.read_text(encoding="utf-8")
-            if "prospective_match_predictions" in content:
-                cursor.execute(content)
-    yield connection, parameters
-    connection.close()
-    with admin.cursor() as cursor:
-        cursor.execute(sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(name)))
-    admin.close()
-
+def database(postgres_database):
+    with postgres_database("compare_test_") as (connection, parameters):
+        with connection.cursor() as cursor:
+            cursor.execute("""
+                CREATE TABLE public.teams (team_id_master UUID PRIMARY KEY);
+                CREATE TABLE public.games (
+                  id UUID PRIMARY KEY, game_date DATE, provider_id UUID,
+                  home_team_master_id UUID, away_team_master_id UUID,
+                  home_score INTEGER, away_score INTEGER, is_excluded BOOLEAN DEFAULT FALSE, source_url TEXT
+                );
+            """)
+            cursor.execute((ROOT / "supabase/migrations/20260410000000_create_prospective_match_predictions.sql").read_text())
+            # Execute every subsequent migration touching this ledger, so replacements stay covered.
+            for migration in sorted((ROOT / "supabase/migrations").glob("*.sql")):
+                if migration.name <= "20260410000000_create_prospective_match_predictions.sql":
+                    continue
+                content = migration.read_text(encoding="utf-8")
+                if "prospective_match_predictions" in content:
+                    cursor.execute(content)
+        yield connection, parameters
 
 @pytest.fixture
 def forecast(database):
