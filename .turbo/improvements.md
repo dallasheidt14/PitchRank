@@ -412,6 +412,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Noted**: 2026-08-30
 - **Update (2026-09-08)**: Exposure is higher than this entry assumes. CLAUDE.md's claim that only `export_unknown_opponents.py` builds a resolver on the weekly run is wrong: `due_diligence_unknown_opponents.py:282` and `discover_teams_from_opponents.py:543` both construct `GotSportResolver()` unconditionally, with no flag. Verified 2026-09-08. So the vacuous-approval gate at `due_diligence_unknown_opponents.py:429-439` is reachable on live weekly runs, not theoretical.
 - **Update (2026-11-09)**: Measured, and the gender component is fixed. In the 2026-11-03 weekly run's artifacts, the gate's own lookups answered 0 of 88 candidates while the export step had GotSport's answer for every one of them, so `club_check`, `age_check`, `state_check` and `tier_check` compare against nothing in production. `gender_check` no longer does: on `fix/stop-opposite-gender-record-links` it reads the export's gender through a new `unknown_provider_gender` match-report column, plus both teams' names, and holds a record nothing reads (`gender_check == "ok"` or `"coed"` is required). The other four checks still pass on absence.
+- **Update (2026-11-10)**: Coed no longer passes: `gender_check == "ok"` is required, and a record the export files as Coed is held as `"coed"` whatever its other gender readings (owner: PitchRank does not rank coed teams). The gate's own lookups are now paced through `TeamDetailsPacer`, so they may start answering in CI; whether that gives the other four checks something to compare is unmeasured.
 
 ### No GotSport resolver throttles, retries, or identifies itself
 
@@ -423,6 +424,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: Each uses a bare `session.get` with no `Retry` adapter, no inter-request delay and the default `python-requests` User-Agent, against an endpoint family the `scraper-patterns` skill documents as CloudFront-WAF-fronted with a multi-minute per-IP lockout. A 403 lockout, a 429, a timeout and a genuine 404 are indistinguishable at the `except Exception` boundary. Partly addressed on `fix/opponent-cohort-inheritance`: a 404 is now cached as the permanent answer it is, and transient failures are no longer cached, so a WAF block costs one retry per row rather than poisoning the id for the run (measured at ~1.6 resolve calls per team). Still absent everywhere: the prescribed `Retry(total=2, backoff_factor=1, status_forcelist=[429,500,502,503,504])`, an explicit User-Agent, and a `random.uniform` delay. Do not hand-roll an eighth policy -- `src/scrapers/gotsport.py` already has `get_waf_breaker()` and `_zenrows_get`; the open question is how to reach them from a workflow that installs only supabase, python-dotenv and requests.
 - **Noted**: 2026-08-30
 - **Update (2026-09-08)**: Corrected — the claim that no resolver retries is not uniform. `scripts/backfill_unknown_team_names.py` has had `get_waf_breaker()` plus a 2-attempt retry and 12s delay since 2026-08-18 (`eebe2b757`), predating this entry. The other copies (`auto_match_unknown_opponents.py`, `discover_teams_from_opponents.py`, `export_unknown_opponents.py`, `due_diligence_unknown_opponents.py`) still have none; two sleep 0.2s with no retry. No copy sets a custom User-Agent — that half of the entry holds everywhere.
+- **Update (2026-11-10)**: auto_match, discover, export and due_diligence now send every lookup through `src/utils/gotsport_team_details.TeamDetailsPacer`: 3 s apart, one 300 s wait and retry on a CloudFront 403, then no more lookups for the rest of that script's run, so a lasting block ends that script's lookups instead of costing a retry per row. The pacer copies `WAFBreaker`'s wait-once-then-stop rule rather than reaching it (those workflows still cannot import `get_waf_breaker()` or `_zenrows_get`); the two share the block detector and cooldown default, which `src/scrapers/gotsport.py` now imports from this module, so they cannot disagree on what a block is. The module needs no package beyond requests. Still absent everywhere: a custom User-Agent and any retry on a 429, 5xx or timeout.
 
 ### The repo asserts two contradictory readings of GotSport's display_age_group
 
@@ -2887,4 +2889,44 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Category**: reliability
 - **Where**: `PlayMetricsGameMatcher._fuzzy_match_team` (the Stage 1 `are_same_club` gate at `MATCHING_CONFIG["affinity_club_similarity_threshold"]`) and `_match_team`'s create-on-no-match in `src/models/playmetrics_matcher.py`; `derive_division_age_group` and the `min_age` fallback in `scrape_division` in `scripts/scrape_playmetrics_tournament.py`
 - **Why**: On the unscoped `playmetrics_tournament` path the club gate is the load-bearing check, and `are_same_club(..., threshold=0.9)` returns False for `RASA - AFC Union` vs `AFC Union`, `Forward Madison FC Youth` vs `Forward Madison FC` and `Rush Wisconsin Southeast` vs `RUSH WI Southeast` (run 2026-11-10). So a team with an identical name is dropped before scoring and auto-created, and a candidate scoring 0.75-0.90 is queued for review and created anyway. The Harvest Classic import of 2026-11-10 created 103 teams, about half of them copies (15 exact-name, 34 near-name), merged by hand; 8 AFC Union copies came from an earlier PlayMetrics tournament import on 2026-10-05. No test imports `scrape_playmetrics_tournament` and no matcher test covers either copy path, so the scraper-patterns skill's description of both can go stale unnoticed.
+- **Noted**: 2026-11-10
+
+### Link the unlinked games of an unknown opponent that already has an alias or team row
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `create_team_and_alias` and the `args.execute` branch of `main` in `scripts/discover_teams_from_opponents.py` (`backfill_games` runs only for `created`)
+- **Why**: An `exists_alias` / `exists_team` row returns without linking the games that made it an unknown opponent, so they reappear in every weekly export and never count in the rankings. Run 42919277448 (2026-11-10) reported 100 `exists_alias` rows. Linking needs the same gender/age caution the importer applies, since the existing alias may point at another squad. Owner approved a follow-up PR on 2026-11-10.
+- **Noted**: 2026-11-10
+
+### Keep excluded teams out of the scheduled scrape queue
+
+- **Type**: plan
+- **Category**: performance
+- **Where**: `find_stale_teams` and `find_discovery_teams` (SQL functions) and `scripts/enqueue_active_teams.py`
+- **Why**: None of them reads `team_ranking_exclusions`, so excluded teams (English clubs, coed teams) keep being queued from a fixed-N daily budget. Measured 2026-11-10: 601 excluded teams were scraped 1,622 times in the previous 30 days, about 54 scrapes a day that ranked teams did not get. Needs a migration; owner approved a follow-up PR on 2026-11-10.
+- **Noted**: 2026-11-10
+
+### Fix the Due Diligence Review filter that should hide already-rejected records
+
+- **Type**: direct
+- **Category**: reliability
+- **Where**: the "already processed" filter in the `🛡️ Due Diligence Review` section of `dashboard.py`
+- **Why**: It filters `team_match_review_queue` on `review_status`, but that table's column is `status` (checked 2026-11-10), so the query raises, the bare `except: pass` swallows it, and a record a reviewer rejected is shown again on every load.
+- **Noted**: 2026-11-10
+
+### Decide whether discovery should create a team GotSport has no record of
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `_build_team_metadata` and the create path of `main` in `scripts/discover_teams_from_opponents.py`
+- **Why**: A 404 is cached as an answer, so discovery creates the team from the match report as-is. When the export's lookup also 404'd, auto_match hands over the placeholder `unknown_<pid>` and the opponent's age group and gender, which is the shape of the 2026-11-10 incident on a smaller population; the backfill job then reports these as "gone from GotSport" and never names them.
+- **Noted**: 2026-11-10
+
+### Upload the export's detail CSV the workflow names
+
+- **Type**: direct
+- **Category**: dx
+- **Where**: the `Export unknown opponents` step's `detail_csv` output in `.github/workflows/unknown-opponent-hygiene-weekly.yml`
+- **Why**: The step records `detail_csv=${PREFIX}_details.csv` while `export_unknown_opponents.py` writes `${prefix}_games.csv`, so the per-game detail file is never in the run's artifacts.
 - **Noted**: 2026-11-10

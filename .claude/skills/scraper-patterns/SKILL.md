@@ -274,14 +274,17 @@ symptom was discovered teams inheriting their opponent's cohort and state.
   PitchRank does not board, `U18` and `U20` for the u19 board (`U19` itself appeared in none
   of the 32 samples), and `U21` for aged-out 2006 teams. Normalize with
   `src/utils/age_group.normalize_age_group`, which folds both boundary ages into u19.
-- `display_gender` is `Male` or `Female`, and `Coed` for some young teams (seen in the
-  2026-11-09 unknown-opponent export, not in the 32 samples above). Coed is an answer, not one
-  gender: `TeamDetailsResolver.resolve()` (through `_gender`) and `src/utils/team_gender.stored_gender`
-  return `None` for it, and the resolver keeps no raw copy. A guard that holds a record when no
-  reading states its gender must test the raw `display_gender` for Coed before treating `None` as no
-  answer, and a Coed record whose name states the other gender is still a mismatch.
-  `scripts/due_diligence_unknown_opponents.py` does this from the export's raw value, carried as
-  `unknown_provider_gender`.
+- `display_gender` is `Male` or `Female`, and `Coed` for some young teams and for many English youth
+  clubs (seen in the 2026-11-09 and 2026-11-10 unknown-opponent exports, not in the 32 samples above),
+  so a burst of Coed records usually tracks a scrape of young or English teams rather than a code
+  change. Coed is an answer, not one gender: `TeamDetailsResolver.resolve()` (through `_gender`) and
+  `src/utils/team_gender.stored_gender` return `None` for it, and the resolver keeps no raw copy, so a
+  reader must test the raw `display_gender` for Coed before that `None` hides it. PitchRank does not
+  rank coed teams (owner, 2026-11-10): `scripts/due_diligence_unknown_opponents.py` holds any record
+  whose export value, carried as `unknown_provider_gender`, is Coed — as `gender_check` `"coed"`,
+  whatever its other gender readings — and `scripts/discover_teams_from_opponents.py` creates a coed
+  team already in `team_ranking_exclusions` and does not queue it for a scrape, though the scheduled
+  enqueue sweeps still can.
 - A missing id answers **HTTP 404** with a valid JSON body (`{"message": "Can not find team"}`).
   Without `raise_for_status()` that body parses into an all-empty dict that looks like a real
   team with no metadata. A 404 is a permanent answer worth caching; a 403 WAF block is not.
