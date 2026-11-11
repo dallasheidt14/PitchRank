@@ -2905,3 +2905,27 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `RankHistoryChart` in `frontend/components/RankHistoryChart.tsx` (the `XAxis` and `YAxis` props)
 - **Why**: Both axes set `className="fill-muted-foreground"`, which never reaches the tick text in Recharts 3.8.1: the labels render outside the axis `<g>` and take their fill from the `tick` prop, so they draw in the default `#666`. Seen on `TrialsByMonthChart` this session, where tick text read `fill="#666"` until the colour moved to `tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }}`, after which it computed to the muted token. Cosmetic: the two greys are close and the site has no dark theme.
 - **Noted**: 2026-11-11
+
+### Drop the unsourced college-recruiting percentages from the older state guides
+
+- **Type**: direct
+- **Category**: docs
+- **Where**: the Division I/II recruiting bullets in `frontend/content/blog/*-youth-soccer-rankings-guide.mdx` (under "Rankings by Division", or "The Honest Truth About … College Recruiting" in the Arizona, Colorado, Michigan and Pennsylvania guides) and the on-page FAQ answers that repeat them; the matching `BLOG_FAQS` answers in `frontend/lib/blog-faqs.ts`; the California and Texas posts in `frontend/content/blog-posts.tsx`
+- **Why**: 28 state guides say Division I coaches notice teams in the "top 5% nationally", and all 28 also give "Top 15–20%" for Division II (22 written with an en dash, 6 with a hyphen); 16 of them repeat the claim in an on-page FAQ answer, with 6 "top 5%" mentions in `blog-faqs.ts` and 2 "top 5%" plus 2 "top 15-20%" in `blog-posts.tsx` (counted 2026-11-11). No source was found for either figure. The Wisconsin and Iowa guides (2026-11-11) say "A strong national rank helps a team get noticed, but coaches recruit individual players" instead; the owner chose to fix the older pages in a separate sweep. IMP-247 and IMP-294 sweep the same guides, so one change could close all three.
+- **Noted**: 2026-11-11
+
+### Make pr_wait.py stop and say so when the PR conflicts with main
+
+- **Type**: direct
+- **Category**: dx
+- **Where**: `main` in `scripts/pr_wait.py` (the check-polling loop)
+- **Why**: GitHub runs no `ci.yml` `pull_request` checks while a PR is `CONFLICTING`, but the script never reads `mergeable`, so on 2026-11-11 it spent the whole Codex window on PR #1429 printing "waiting on … Frontend Format, Frontend Lint …" for checks that could not start; the cause was a `.turbo/improvements.md` conflict with main. Reading `gh pr view --json mergeable,mergeStateStatus` at start and on each poll, and exiting with "conflicts with main, merge origin/main first", would surface it in seconds.
+- **Noted**: 2026-11-11
+
+### Reword the older state guides' opponent-state shares as "against out-of-state teams"
+
+- **Type**: direct
+- **Category**: docs
+- **Where**: the out-of-state section and its FAQ answer in `frontend/content/blog/{kansas,oregon,south-carolina,tennessee,utah}-youth-soccer-rankings-guide.mdx`, and the matching `BLOG_FAQS` answers in `frontend/lib/blog-faqs.ts`
+- **Why**: These five guides write "Across/Of the N games … X% were against", tying a share of each team's own games to the distinct-game count, and the Kansas guide also says "Wichita plays mostly at home" for what is opponent-state data, not venue (both confirmed by grep 2026-11-11). The seo skill's State Guide step 2 now prescribes "counting each team's own games" and "against out-of-state teams". Unverified: whether those older figures were computed per team's own games, so re-derive before rewording.
+- **Noted**: 2026-11-11
