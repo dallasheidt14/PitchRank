@@ -70,6 +70,31 @@ function makePrediction(overrides: Partial<MatchPrediction> = {}): MatchPredicti
 }
 
 describe('explainMatch', () => {
+  it('uses the final-probability favorite when the model selected a draw', () => {
+    const a = makeTeam({ team_name: 'Alpha', team_id_master: 'a', power_score_final: 0.8, sos_norm: 0.3 });
+    const b = makeTeam({ team_name: 'Beta', team_id_master: 'b', power_score_final: 0.3, sos_norm: 0.8 });
+    const result = explainMatch(
+      a,
+      b,
+      makePrediction({
+        predictedWinner: 'draw',
+        winProbabilityA: 0.423,
+        drawProbability: 0.176,
+        winProbabilityB: 0.401,
+      })
+    );
+    expect(result.summary).toContain('Alpha has a slight edge');
+    expect(result.factors.every((f) => f.advantage !== 'team_b')).toBe(true);
+    expect(result.counterFactors?.every((f) => f.advantage === 'team_b')).toBe(true);
+  });
+  it('does not describe unequal win probabilities as a close draw candidate', () => {
+    const result = explainMatch(
+      makeTeam(),
+      makeTeam(),
+      makePrediction({ winProbabilityA: 0.55, drawProbability: 0.25, winProbabilityB: 0.2 })
+    );
+    expect(result.factors.some((f) => f.factor === 'close_match')).toBe(false);
+  });
   it('shows opposing evidence separately and balances both sides for a draw', () => {
     const a = makeTeam({ team_id_master: 'a', team_name: 'Alpha', power_score_final: 0.8, sos_norm: 0.2 });
     const b = makeTeam({ team_id_master: 'b', team_name: 'Beta', power_score_final: 0.4, sos_norm: 0.8 });
@@ -81,7 +106,13 @@ describe('explainMatch', () => {
     );
     expect(explanation.counterFactors!.length).toBeLessThanOrEqual(2);
     expect(explanation.factors.every((f) => f.advantage !== 'team_b')).toBe(true);
-    const balanced = explainMatch(a, b, { ...prediction, predictedWinner: 'draw' });
+    const balanced = explainMatch(a, b, {
+      ...prediction,
+      predictedWinner: 'draw',
+      winProbabilityA: 0.45,
+      winProbabilityB: 0.45,
+      drawProbability: 0.1,
+    });
     expect(balanced.factors.filter((f) => f.advantage === 'team_a')).toHaveLength(1);
     expect(balanced.factors.filter((f) => f.advantage === 'team_b')).toHaveLength(1);
   });
@@ -170,7 +201,7 @@ describe('explainMatch', () => {
       })
     );
 
-    expect(explanation.summary).toContain('Genuine toss-up');
+    expect(explanation.summary).toContain('No clear favorite');
     expect(explanation.factors.some((factor) => factor.factor === 'close_match')).toBe(true);
     expect(explanation.keyInsights.join(' ')).toContain('0.0 goals');
     expect(explanation.keyInsights.join(' ')).not.toContain('recent samples');

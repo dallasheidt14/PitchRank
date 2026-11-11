@@ -63,3 +63,43 @@ it('does not invent a missing draw percentage in legacy responses', () => {
   expect(html).toContain('Unavailable');
   expect(html).not.toContain('Reasons for caution');
 });
+
+it('hides a forced draw score and keeps the balanced probabilities and cautions', () => {
+  const html = renderToStaticMarkup(
+    <EnhancedPredictionCard
+      {...props}
+      prediction={{
+        ...prediction,
+        predictedWinner: 'draw',
+        winProbabilityA: 0.45,
+        drawProbability: 0.1,
+        winProbabilityB: 0.45,
+        expectedScore: { teamA: 1, teamB: 1 },
+      }}
+    />
+  );
+  expect(html).toContain('No clear favorite');
+  expect(html).toContain('Closely matched');
+  expect(html).toContain('10%');
+  expect(html).not.toContain('Projected scoreline');
+  expect(html).toContain('Reasons for caution');
+  expect(html).not.toContain('Usable results');
+});
+
+it('keeps the score when a draw is strictly the most likely outcome', () => {
+  const html = renderToStaticMarkup(
+    <EnhancedPredictionCard
+      {...props}
+      prediction={{
+        ...prediction,
+        predictedWinner: 'draw',
+        winProbabilityA: 0.3,
+        drawProbability: 0.4,
+        winProbabilityB: 0.3,
+        expectedScore: { teamA: 1, teamB: 1 },
+      }}
+    />
+  );
+  expect(html).toContain('A draw is the most likely outcome');
+  expect(html).toContain('Projected scoreline');
+});
