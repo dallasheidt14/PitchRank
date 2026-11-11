@@ -4,6 +4,7 @@ import json
 import shutil
 import subprocess
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import pytest
 
@@ -45,7 +46,12 @@ def test_pinned_runner_intervenes_without_changing_the_baseline(tmp_path):
     source.write_text(json.dumps(payload))
     out = tmp_path / "output.json"
     command = ["node", str(TSX), str(ROOT / "frontend/scripts/run-form-research.ts"), str(source), str(out)]
-    run = subprocess.run(command, cwd=ROOT / "frontend", capture_output=True, text=True, timeout=60)
+
+    def invoke(args):
+        with TemporaryDirectory(prefix="compare-form-research-") as workspace:
+            return subprocess.run([*args, workspace], cwd=ROOT / "frontend", capture_output=True, text=True, timeout=60)
+
+    run = invoke(command)
     assert run.returncode == 0, run.stderr
     result = json.loads(out.read_text())
     assert result["aa_parity"] is True
@@ -56,11 +62,19 @@ def test_pinned_runner_intervenes_without_changing_the_baseline(tmp_path):
     for key in ["powerDiff", "sosDiff", "matchupAdvantage", "commonOpponentSignal"]:
         assert candidate["components"][key] == expected["components"][key]
     assert candidate != result["outputs"]["residual_sequence_ml_off"][0]["prediction"]
+    for g in payload["cases"][0]["games"]:
+        g["ml_overperformance"] = -37
+    source.write_text(json.dumps(payload))
+    changed_out = tmp_path / "changed-ml.json"
+    changed = invoke([*command[:-1], str(changed_out)])
+    assert changed.returncode == 0, changed.stderr
+    changed_result = json.loads(changed_out.read_text())
+    assert changed_result["outputs"]["residual_sequence_ml_off"] == result["outputs"]["residual_sequence_ml_off"]
     saved = out.read_bytes()
-    rerun = subprocess.run(command, cwd=ROOT / "frontend", capture_output=True, text=True, timeout=60)
+    rerun = invoke(command)
     assert rerun.returncode != 0 and out.read_bytes() == saved
     payload["predictor_revision"] = "incorrect"
     source.write_text(json.dumps(payload))
     out.unlink()
-    invalid = subprocess.run(command, cwd=ROOT / "frontend", capture_output=True, text=True, timeout=60)
+    invalid = invoke(command)
     assert invalid.returncode != 0 and not out.exists()

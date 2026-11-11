@@ -1,8 +1,9 @@
 /** Offline, pinned Compare runner. The production predictor files are never edited. */
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, rm, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, realpath, readdir } from 'node:fs/promises';
 import path from 'node:path';
+import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { Game, TeamWithRanking } from '../lib/types';
 import { stableJson } from '../lib/canonicalJson';
@@ -46,8 +47,9 @@ type ResearchCase = {
 };
 
 async function main() {
-  const [inputPath, outputPath] = process.argv.slice(2);
-  if (!inputPath || !outputPath) throw new Error('Usage: run-form-research.ts input.json output.json');
+  const [inputPath, outputPath, workspace] = process.argv.slice(2);
+  if (!inputPath || !outputPath || !workspace)
+    throw new Error('Usage: run-form-research.ts input.json output.json caller-owned-temp-workspace');
   const payload = JSON.parse(await readFile(path.resolve(inputPath), 'utf8')) as {
     schema_version: number;
     predictor_revision: string;
@@ -71,9 +73,15 @@ async function main() {
     if (frozen !== current) throw new Error(`Collecting predictor changed: ${name}`);
     sourceHashes[name] = createHash('sha256').update(frozen).digest('hex');
   }
-  const tempRoot = path.resolve(root, '../.turbo');
-  await mkdir(tempRoot, { recursive: true });
-  const temp = await mkdtemp(path.join(tempRoot, 'form-research-'));
+  const tempRoot = await realpath(tmpdir());
+  const temp = await realpath(workspace);
+  if (
+    path.dirname(temp) !== tempRoot ||
+    !path.basename(temp).startsWith('compare-form-research-') ||
+    (await readdir(temp)).length
+  ) {
+    throw new Error('Expected an empty caller-owned research temporary directory');
+  }
   const originalCwd = process.cwd();
   const originalFetch = globalThis.fetch;
   try {
@@ -87,15 +95,11 @@ async function main() {
     const anchors = [
       [
         'const formA = recentA.goalDiff;',
-        'const formA = researchOverrides?.[teamA.team_id_master] ?? recentA.goalDiff;',
+        'if (researchDisableMl) { recentA.mlTrend = 0; recentB.mlTrend = 0; }\nconst formA = researchOverrides?.[teamA.team_id_master] ?? recentA.goalDiff;',
       ],
       [
         'const formB = recentB.goalDiff;',
         'const formB = researchOverrides?.[teamB.team_id_master] ?? recentB.goalDiff;',
-      ],
-      [
-        'const residualSignal = clamp((recentA.mlTrend - recentB.mlTrend) / 3.5, -0.2, 0.2);',
-        'const residualSignal = researchDisableMl ? 0 : clamp((recentA.mlTrend - recentB.mlTrend) / 3.5, -0.2, 0.2);',
       ],
     ];
     for (const [anchor, replacement] of anchors) {
@@ -171,8 +175,6 @@ async function main() {
   } finally {
     globalThis.fetch = originalFetch;
     process.chdir(originalCwd);
-    if (path.dirname(temp) !== tempRoot) throw new Error('Unexpected research workspace');
-    await rm(temp, { recursive: true, force: true });
   }
 }
 

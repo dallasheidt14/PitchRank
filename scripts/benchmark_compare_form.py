@@ -8,6 +8,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -93,7 +94,11 @@ def run_predictor(bundle: dict, output: Path) -> dict:
     # Invoke the installed JS entry point directly; Windows .cmd wrappers need a shell.
     if os.name == "nt":
         command = ["node", str(ROOT / "frontend/node_modules/tsx/dist/cli.mjs"), *command[1:]]
-    subprocess.run(command, check=True, cwd=ROOT / "frontend", timeout=1800, capture_output=True, text=True)
+    # Windows keeps imported modules open until the child exits; the caller owns cleanup.
+    with TemporaryDirectory(prefix="compare-form-research-") as workspace:
+        subprocess.run(
+            [*command, workspace], check=True, cwd=ROOT / "frontend", timeout=1800, capture_output=True, text=True
+        )
     result = json.loads(runner_output.read_text(encoding="utf-8"))
     if not result.get("aa_parity") or result.get("predictor_revision") != PINNED_REVISION:
         raise ValueError("Pinned baseline parity not established")
