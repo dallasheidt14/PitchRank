@@ -7,6 +7,7 @@ import json
 import os
 import subprocess
 import sys
+from datetime import date, timedelta
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from urllib.parse import urlparse
@@ -24,6 +25,47 @@ from src.predictions.form_research import (  # noqa: E402
     residual_form,
     write_bundle,
 )
+
+COVERAGE_QUERY = """
+WITH targets AS MATERIALIZED (
+ SELECT g.game_date,g.home_team_master_id,g.away_team_master_id,g.home_score,g.away_score,
+  g.age_group,g.is_excluded,g.game_uid,coalesce(p.code,'unknown') AS provider,
+  CASE WHEN g.game_date <= '2026-10-11' THEN 'development' ELSE 'evaluation' END AS period
+ FROM public.games g LEFT JOIN public.providers p ON p.id=g.provider_id
+ WHERE g.game_date BETWEEN '{start}' AND '{end}'
+), team_days AS (
+ SELECT home_team_master_id AS team_id,game_date FROM targets
+ UNION SELECT away_team_master_id,game_date FROM targets
+), snapshots AS MATERIALIZED (
+ SELECT d.team_id,d.game_date,h.games_played
+ FROM team_days d LEFT JOIN LATERAL (
+  SELECT h.games_played FROM public.prediction_feature_history h
+  WHERE h.team_id=d.team_id AND h.snapshot_date<d.game_date
+   AND h.created_at<(d.game_date::timestamp AT TIME ZONE 'UTC')
+   AND h.last_calculated<(d.game_date::timestamp AT TIME ZONE 'UTC')
+  ORDER BY h.snapshot_date DESC LIMIT 1
+ )h ON true
+), coverage AS (
+ SELECT t.period,t.provider,coalesce(t.age_group,'unknown') AS recorded_age_group,
+  CASE WHEN a.games_played IS NULL OR b.games_played IS NULL THEN 'unavailable'
+   WHEN least(a.games_played,b.games_played)=0 THEN '0'
+   WHEN least(a.games_played,b.games_played)<4 THEN '1-3'
+   WHEN least(a.games_played,b.games_played)<8 THEN '4-7' ELSE '8+' END AS snapshot_history_band,
+  count(*) AS target_rows,
+  count(*) FILTER (WHERE coalesce(t.is_excluded,false)) AS excluded_rows,
+  count(*) FILTER (WHERE t.game_uid IS NULL) AS missing_source_identity_rows,
+  count(*) FILTER (WHERE t.home_team_master_id IS NULL OR t.away_team_master_id IS NULL) AS unmatched_team_rows,
+  count(*) FILTER (WHERE t.home_score IS NULL OR t.away_score IS NULL) AS missing_result_rows,
+  count(*) FILTER (WHERE a.games_played IS NULL OR b.games_played IS NULL) AS unavailable_snapshot_rows
+ FROM targets t
+ LEFT JOIN snapshots a ON a.team_id=t.home_team_master_id AND a.game_date=t.game_date
+ LEFT JOIN snapshots b ON b.team_id=t.away_team_master_id AND b.game_date=t.game_date
+ GROUP BY 1,2,3,4
+)
+SELECT current_setting('transaction_read_only') AS read_only,
+ coalesce(jsonb_agg(x),'[]'::jsonb) AS coverage FROM (SELECT * FROM coverage
+ ORDER BY period,provider,recorded_age_group,snapshot_history_band)x;
+"""
 
 INVENTORY_QUERY = """
 SELECT jsonb_build_object(
@@ -49,6 +91,11 @@ def inventory_report(inventory: dict) -> dict:
         "historical_selection": "not_performed",
         "inventory": inventory,
         "missing_snapshot_lineage": missing,
+        "coverage_unit": "database_rows_before_source_deduplication",
+        "verified_eligible": {period: {"matches": 0, "groups": 0} for period in ("development", "evaluation")},
+        "coverage_limits": "Recorded game age groups and snapshot-reported history are inventory labels, not "
+        "verified pre-match predictor inputs or usable residual samples. Zero verified eligibility reflects "
+        "unresolved lineage, not a claim that no historical matches can ever qualify. Exclusion counts overlap.",
         "remedy": "Supply immutable per-snapshot training/calibration lineage, or a verified external "
         "manifest linking exact snapshot hashes to artifacts and pre-match training cutoffs. "
         "Existing offline-model runs do not establish ranking-feature lineage.",
@@ -66,19 +113,45 @@ def read_inventory() -> dict:
     if not host or not host.endswith(".supabase.co") or not cfg.get("SUPABASE_ACCESS_TOKEN"):
         raise ValueError("Configure existing Supabase URL and management access token")
     ref = host.split(".")[0]
-    response = requests.post(
-        f"https://api.supabase.com/v1/projects/{ref}/database/query/read-only",
-        headers={"Authorization": "Bearer " + cfg["SUPABASE_ACCESS_TOKEN"]},
-        json={"query": INVENTORY_QUERY},
-        timeout=40,
-        allow_redirects=False,
-    )
-    if not response.ok:
-        raise ValueError(f"Read-only inventory failed (HTTP {response.status_code})")
-    result = response.json()[0]["inventory"]
+
+    def query(sql: str) -> dict:
+        response = requests.post(
+            f"https://api.supabase.com/v1/projects/{ref}/database/query/read-only",
+            headers={"Authorization": "Bearer " + cfg["SUPABASE_ACCESS_TOKEN"]},
+            json={"query": sql},
+            timeout=40,
+            allow_redirects=False,
+        )
+        if not response.ok:
+            raise ValueError(f"Read-only inventory failed (HTTP {response.status_code})")
+        return response.json()[0]
+
+    result = query(INVENTORY_QUERY)["inventory"]
     if result["read_only"] != "on":
         raise ValueError("Database read-only mode not confirmed")
+    result["target_coverage"] = []
+    # Disjoint weekly batches bound each indexed as-of lookup query; never retry a full-range scan.
+    for start, end in coverage_windows():
+        chunk = query(COVERAGE_QUERY.format(start=start, end=end))
+        if chunk["read_only"] != "on":
+            raise ValueError("Database read-only mode not confirmed")
+        result["target_coverage"].extend({**row, "week_start": start, "week_end": end} for row in chunk["coverage"])
     return result
+
+
+def coverage_windows() -> list[tuple[str, str]]:
+    policy = ResearchPolicy()
+    windows = []
+    for start, end in (
+        (policy.development_start, policy.development_end),
+        (policy.evaluation_start, policy.evaluation_end),
+    ):
+        day, last = date.fromisoformat(start), date.fromisoformat(end)
+        while day <= last:
+            end_day = min(day + timedelta(days=6), last)
+            windows.append((day.isoformat(), end_day.isoformat()))
+            day = end_day + timedelta(days=1)
+    return windows
 
 
 def run_predictor(bundle: dict, output: Path) -> dict:
@@ -121,7 +194,8 @@ def main() -> None:
     if args.parity_only and (not args.input or not args.execute):
         parser.error("--parity-only requires --input and --execute")
     if args.database_audit:
-        inputs = {"query": INVENTORY_QUERY, "query_hash": digest(INVENTORY_QUERY)}
+        queries = {"inventory": INVENTORY_QUERY, "coverage": COVERAGE_QUERY, "coverage_windows": coverage_windows()}
+        inputs = {**queries, "query_hash": digest(queries)}
         report = inventory_report(read_inventory())
     else:
         inputs = json.loads(args.input.read_text(encoding="utf-8"))

@@ -19,6 +19,46 @@ from src.predictions.form_research import (
 )
 
 
+@pytest.mark.parametrize("columns", [[], ["training_run_id", "training_cutoff", "calibration_signature"]])
+def test_inventory_volume_or_schema_alone_cannot_establish_eligibility(columns):
+    from scripts.benchmark_compare_form import inventory_report
+
+    inventory = {
+        "snapshot_columns": columns,
+        "development_snapshots": 2_900_000,
+        "evaluation_snapshots": 2_400_000,
+        "target_coverage": [
+            {"provider": "gotsport", "recorded_age_group": "u12", "snapshot_history_band": "8+", "target_rows": 10_000}
+        ],
+    }
+    report = inventory_report(inventory)
+    assert report["historical_selection"] == "not_performed"
+    assert report["production_promotion"] is False
+    assert report["verified_eligible"] == {
+        "development": {"matches": 0, "groups": 0},
+        "evaluation": {"matches": 0, "groups": 0},
+    }
+    assert report["inventory"]["target_coverage"] == inventory["target_coverage"]
+    assert report["coverage_unit"] == "database_rows_before_source_deduplication"
+
+
+def test_audit_batches_cover_both_periods_once_without_crossing_the_boundary():
+    from datetime import date, timedelta
+
+    from scripts.benchmark_compare_form import coverage_windows
+
+    windows = coverage_windows()
+    days = [
+        date.fromisoformat(start) + timedelta(days=offset)
+        for start, end in windows
+        for offset in range((date.fromisoformat(end) - date.fromisoformat(start)).days + 1)
+    ]
+    assert len(days) == len(set(days)) == 84
+    assert days[0].isoformat() == "2026-08-17" and days[-1].isoformat() == "2026-11-08"
+    assert all((date.fromisoformat(end) - date.fromisoformat(start)).days <= 6 for start, end in windows)
+    assert all(not (start <= "2026-10-11" < end) for start, end in windows)
+
+
 def provenance(day="2026-08-01"):
     return {
         "sha256": "a" * 64,

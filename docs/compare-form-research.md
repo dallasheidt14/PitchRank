@@ -23,8 +23,14 @@ python scripts/benchmark_compare_form.py --database-audit --execute --output-dir
 
 The first command writes no files. `--execute` saves local artifacts only. Output
 directories must be new. This inventory is not a historical fixture eligibility
-report: it deliberately stops before exporting millions of feature rows when
-their training/calibration lineage is unresolved.
+report: disjoint weekly queries group target database rows by period, provider,
+recorded game age group, and the smaller team's snapshot-reported game-count band.
+It reports exclusions, missing scores/source identities, unmatched teams, and unavailable
+snapshots. Snapshot labels, creation times, and calculation times must all precede
+the target's UTC match day. These are inventory labels, not verified usable form
+samples; overlapping failure counts and duplicate source rows are explicit.
+Verified eligibility remains zero until lineage is established. The audit stops
+before exporting millions of feature rows when their lineage is unresolved.
 
 The November 11 inventory found 2,906,893 development-window snapshots and
 2,441,212 evaluation-window snapshots. The snapshot schema does not contain a
@@ -32,6 +38,13 @@ training-run reference, training cutoff, or calibration signature. The separate
 `model_training_runs` records describe offline match models and cannot establish
 the lineage of ranking features. These counts are snapshot rows, not eligible
 matches. No historical candidate has been selected from this inventory.
+
+The bounded target audit counted 306,945 development-period database rows across
+17 providers and 156,196 evaluation-period rows across 15 providers. Before source
+deduplication, overlapping limitations include 25,975 excluded rows, 86,300 rows
+without scores, 290 rows with unmatched teams, and 118,741 rows without both
+timestamp-qualified snapshots. No row is certified eligible while lineage remains
+unresolved. The saved JSON retains weekly provider/age/history breakdowns.
 
 To proceed, supply an immutable external lineage manifest linking exact snapshot
 hashes to their source artifacts and training cutoffs, or collect that provenance
