@@ -7,6 +7,11 @@ vi.mock('@/lib/admin/subscription-metrics', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/admin/subscription-metrics')>();
   return { ...actual, getSubscriptionMetrics: () => getSubscriptionMetrics() };
 });
+// Recharts components call hooks, which `textOf` cannot run outside a render.
+vi.mock('@/components/mission-control/TrialsByMonthChart', () => ({
+  TrialsByMonthChart: ({ months }: { months: Array<{ label: string; trials: number }> }) =>
+    months.map((m) => `${m.label}: ${m.trials}`).join(' · '),
+}));
 
 import SubscriptionsDashboardPage from '../page';
 
@@ -73,18 +78,22 @@ function metrics(over: Partial<SubscriptionMetrics> = {}): SubscriptionMetrics {
       churn: rate,
       arpu: 6.78,
       grossNewSubs: 33,
-      grossNewMrr: 223.74,
       observedChurn: 1,
       churnedSubs: 5,
       annualRenewalsAhead: 0,
-      lostMrr: 33.9,
       netSubs: 28,
       netMrr: 189.84,
-      cohortSubs: 41,
-      cohortMrr: 277.98,
       avgLifetimeMonths: 6.2,
       ltv: 42.16,
-      cohortValue: 1728,
+    },
+    trialsByMonth: {
+      available: true,
+      months: [
+        { label: 'June 2026', trials: 4 },
+        { label: 'July 2026', trials: 9 },
+        { label: 'August 2026', trials: 30 },
+        { label: 'September 2026', trials: 11 },
+      ],
     },
     generatedAt: new Date('2026-09-04T12:00:00Z').toISOString(),
     errors: [],
@@ -293,7 +302,7 @@ describe('SubscriptionsDashboardPage', () => {
     const base = metrics();
     getSubscriptionMetrics.mockReturnValue(
       metrics({
-        monthProjection: { ...base.monthProjection, avgLifetimeMonths: null, ltv: null, cohortValue: null },
+        monthProjection: { ...base.monthProjection, avgLifetimeMonths: null, ltv: null },
       })
     );
     const text = textOf(await SubscriptionsDashboardPage());
@@ -301,17 +310,33 @@ describe('SubscriptionsDashboardPage', () => {
     expect(text).not.toContain('$0.00');
   });
 
-  it('says when a rate is a historical fallback rather than a measurement', async () => {
-    const base = metrics();
+  it('does not show the gained-and-lost or signup-value tables', async () => {
+    getSubscriptionMetrics.mockReturnValue(metrics());
+    const text = textOf(await SubscriptionsDashboardPage());
+    expect(text).not.toContain('What actually changes this month');
+    expect(text).not.toContain('Subscribers gained and lost');
+    expect(text).not.toContain('What this month');
+    expect(text).not.toContain('Total lifetime value');
+    expect(text).not.toContain('blended ARPU');
+  });
+
+  it('charts trials started in each month and says the current month is still filling in', async () => {
+    getSubscriptionMetrics.mockReturnValue(metrics());
+    const text = textOf(await SubscriptionsDashboardPage());
+    expect(text).toContain('Trials by Month');
+    expect(text).toContain('September so far');
+    expect(text).toContain('June 2026: 4 · July 2026: 9 · August 2026: 30 · September 2026: 11');
+  });
+
+  it('marks trials by month unavailable rather than charting zeros when a fetch failed', async () => {
     getSubscriptionMetrics.mockReturnValue(
       metrics({
-        monthProjection: {
-          ...base.monthProjection,
-          churn: { rate: 0.2568, observed: 1, sample: 3, excluded: 0, isFallback: true },
-        },
+        trialsByMonth: { available: false, months: [{ label: 'September 2026', trials: 0 }] },
+        errors: ['canceled subscriptions: stripe unavailable'],
       })
     );
     const text = textOf(await SubscriptionsDashboardPage());
-    expect(text).toContain('historical fallback');
+    expect(text).toMatch(/Trials by Month[^:]*could not be loaded/);
+    expect(text).not.toContain('September 2026: 0');
   });
 });

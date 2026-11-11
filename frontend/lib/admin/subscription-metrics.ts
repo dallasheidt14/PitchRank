@@ -10,6 +10,7 @@ import {
   computeTrialProjection,
   countAnnualRenewals,
   countObservedChurn,
+  countTrialsByMonth,
   monthsBack,
   computeLifetimeChurn,
   computeMonthCohort,
@@ -17,6 +18,7 @@ import {
   type CohortWindow,
   type MonthCohort,
   type MonthProjection,
+  type MonthTrials,
   type RateEstimate,
 } from './month-projection';
 import { getCustomerEmail, MIN_COHORT_SAMPLE, SECONDS_PER_DAY, TRIAL_DAYS } from './constants';
@@ -97,6 +99,7 @@ export type SubscriptionMetrics = {
   mrrGrowth: { available: boolean } & MrrGrowth;
   reportCard: ReportCardMetrics;
   monthProjection: { available: boolean } & MonthProjection;
+  trialsByMonth: { available: boolean; months: MonthTrials[] };
   generatedAt: string;
   errors: string[];
 };
@@ -646,6 +649,16 @@ export async function getSubscriptionMetrics(): Promise<SubscriptionMetrics> {
   });
   const lastMonth = computeMonthCohort(cohortWindow.subs, paidSubIds, now, 1, excludedEmails);
   const twoMonthsAgo = computeMonthCohort(cohortWindow.subs, paidSubIds, now, 2, excludedEmails);
+  // Keyed by id because a subscription that changes status while the lists are
+  // fetched in parallel can appear in two of them.
+  const everySub = new Map(
+    [...active.items, ...trialing.items, ...pastDue.items, ...canceled.items, ...unpaid.items].map((sub) => [
+      sub.id,
+      sub,
+    ])
+  );
+  const trialsByMonth = countTrialsByMonth([...everySub.values()], now, excludedEmails);
+  const statusListsOk = active.ok && trialing.ok && pastDue.ok && canceled.ok && unpaid.ok;
   // `billedSubs` plus `unpaid` cover every status a subscription can hold after
   // it has billed, each list unbounded. Growth leaves `unpaid` out the way `mrr`
   // does: Stripe records no time at which an unpaid subscription stopped paying.
@@ -690,6 +703,7 @@ export async function getSubscriptionMetrics(): Promise<SubscriptionMetrics> {
       recentLeads: reportCardData.recentLeads,
     },
     monthProjection: { available: measurable, ...monthProjection },
+    trialsByMonth: { available: statusListsOk, months: trialsByMonth },
     generatedAt: new Date().toISOString(),
     errors,
   };

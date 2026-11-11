@@ -7,6 +7,8 @@ import { BUSINESS_TIMEZONE, startOfMonth, wallClockDate } from './timezone';
 /** Window over which a converted subscriber is checked for surviving their first paid month. */
 const CHURN_WINDOW_DAYS = 30;
 
+const TRIALS_BY_MONTH_FIRST = { year: 2026, month: 6 };
+
 /** z for an 80% interval — the band around the projected trial count. */
 const PROJECTION_Z = 1.2816;
 
@@ -51,6 +53,11 @@ export type MonthCohort = {
   excluded: number;
 };
 
+export type MonthTrials = {
+  label: string; // e.g. "September 2026"
+  trials: number;
+};
+
 export type TrialProjection = {
   trialsToDate: number;
   /** Fraction of the month actually elapsed. Drives every rate; see `monthBounds`. */
@@ -74,18 +81,13 @@ export type MonthProjection = {
   churn: RateEstimate;
   arpu: number;
   grossNewSubs: number;
-  grossNewMrr: number;
   observedChurn: number;
   churnedSubs: number;
   annualRenewalsAhead: number;
-  lostMrr: number;
   netSubs: number;
   netMrr: number;
-  cohortSubs: number;
-  cohortMrr: number;
   avgLifetimeMonths: number | null;
   ltv: number | null;
-  cohortValue: number | null;
 };
 
 /**
@@ -209,6 +211,24 @@ export function computeMonthCohort(
     retained: converted.filter(isStillSubscribed).length,
     excluded,
   };
+}
+
+/**
+ * Trials started in each calendar month from {@link TRIALS_BY_MONTH_FIRST}
+ * through the current one, oldest first, in {@link BUSINESS_TIMEZONE}. The
+ * current month is a count to date. `subs` must reach back to the first month:
+ * a rolling date window slides forward and empties the oldest months.
+ */
+export function countTrialsByMonth(subs: Stripe.Subscription[], now: Date, excludedEmails: Set<string>): MonthTrials[] {
+  const { year, month } = wallClockDate(now);
+  const monthsSinceFirst = (year - TRIALS_BY_MONTH_FIRST.year) * 12 + (month - TRIALS_BY_MONTH_FIRST.month);
+  const months: MonthTrials[] = [];
+  for (let monthsAgo = monthsSinceFirst; monthsAgo >= 0; monthsAgo -= 1) {
+    const { monthStart, monthEnd, label } = monthsBack(now, monthsAgo);
+    const { trials } = trialsIn(subs, 'trial_start', monthStart, monthEnd, excludedEmails);
+    months.push({ label, trials: trials.length });
+  }
+  return months;
 }
 
 /**
@@ -482,13 +502,10 @@ export function countObservedChurn(
 }
 
 /**
- * Assemble the month's projection.
+ * Assemble the month's projection: what lands inside this month against what is
+ * lost inside it.
  *
- * Two scopes are reported and must not be mixed. The month figures pair what
- * lands inside this month against what is lost inside it; the cohort figures
- * value every trial this month starts, whenever its charge lands.
- *
- * Both month halves are observation-first: conversions and cancellations that
+ * Both halves are observation-first: conversions and cancellations that
  * have already happened are counted, and the rates apply only to the part of the
  * month still outstanding. Monthly subscribers are therefore prorated across the
  * days remaining, while annual renewals still ahead take the full rate — a
@@ -515,7 +532,6 @@ export function buildMonthProjection(input: {
   const remainingShare = (daysInMonth - daysElapsed) / daysInMonth;
   const churnedSubs = observedChurn + activeMonthly * churn.rate * remainingShare + annualRenewalsAhead * churn.rate;
   const netSubs = grossNewSubs - churnedSubs;
-  const cohortSubs = trials.projected * conversion.rate;
   const avgLifetimeMonths = churn.rate > 0 ? 1 / churn.rate : null;
   const ltv = avgLifetimeMonths === null ? null : avgLifetimeMonths * arpu;
 
@@ -525,32 +541,12 @@ export function buildMonthProjection(input: {
     churn,
     arpu,
     grossNewSubs,
-    grossNewMrr: grossNewSubs * arpu,
     observedChurn,
     churnedSubs,
     annualRenewalsAhead,
-    lostMrr: churnedSubs * arpu,
     netSubs,
     netMrr: netSubs * arpu,
-    cohortSubs,
-    cohortMrr: cohortSubs * arpu,
     avgLifetimeMonths,
     ltv,
-    cohortValue: ltv === null ? null : cohortSubs * ltv,
   };
-}
-
-/**
- * How a rate should be described beside the number it produced.
- *
- * Lives here rather than in the page because it is the one place the dashboard
- * distinguishes a measurement from a historical fallback, and that claim is a
- * single boolean away from being wrong.
- */
-export function describeRate(estimate: RateEstimate): string {
-  const percent = `${(estimate.rate * 100).toFixed(1)}%`;
-  if (estimate.isFallback) {
-    return `${percent} (historical fallback — only ${estimate.sample} in cohort)`;
-  }
-  return `${percent} from ${estimate.observed} of ${estimate.sample}`;
 }
