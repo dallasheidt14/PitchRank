@@ -14,6 +14,7 @@ import type { Game, TeamWithRanking } from './types';
 import { MLS_NEXT_PROVIDER_CODES, normalizeAgeGroup } from './utils';
 import { formatGender } from '@/lib/constants';
 import { canonicalPredictionIds, predictionIdentityClosure } from './predictionIdentity';
+import { summarizeMatchEvidence, type MatchEvidenceSummary } from './matchEvidence';
 
 export interface MatchPredictionResponse {
   teamA: {
@@ -28,6 +29,7 @@ export interface MatchPredictionResponse {
   };
   prediction: MatchPrediction;
   explanation: MatchExplanation;
+  evidence?: MatchEvidenceSummary;
 }
 
 export interface MatchPredictionShadowContext {
@@ -659,6 +661,22 @@ export async function buildMatchPredictionWithShadowContext(
   const diagnostics: PredictionDiagnostics = {};
   const prediction = predictMatch(teamA, teamB, games, diagnostics);
   const explanation = explainMatch(teamA, teamB, prediction);
+  const evidenceSummary = summarizeMatchEvidence(evidence, teamA, teamB);
+  const common = evidenceSummary.commonOpponents;
+  for (let offset = 0; offset < common.length; offset += 100) {
+    const { data, error } = await supabase
+      .from('teams')
+      .select('team_id_master,team_name')
+      .in(
+        'team_id_master',
+        common.slice(offset, offset + 100).map((row) => row.opponent_id)
+      );
+    // Names are optional presentation data; missing names do not become missing games.
+    if (!error) {
+      const names = new Map((data ?? []).map((row) => [row.team_id_master, row.team_name]));
+      for (const row of common.slice(offset, offset + 100)) row.opponent_name = names.get(row.opponent_id) ?? null;
+    }
+  }
 
   return {
     response: {
@@ -674,6 +692,7 @@ export async function buildMatchPredictionWithShadowContext(
       },
       prediction,
       explanation,
+      evidence: evidenceSummary,
     },
     shadowContext: {
       predictorVersion: MATCH_PREDICTION_VERSION,

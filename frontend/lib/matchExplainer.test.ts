@@ -70,6 +70,21 @@ function makePrediction(overrides: Partial<MatchPrediction> = {}): MatchPredicti
 }
 
 describe('explainMatch', () => {
+  it('shows opposing evidence separately and balances both sides for a draw', () => {
+    const a = makeTeam({ team_id_master: 'a', team_name: 'Alpha', power_score_final: 0.8, sos_norm: 0.2 });
+    const b = makeTeam({ team_id_master: 'b', team_name: 'Beta', power_score_final: 0.4, sos_norm: 0.8 });
+    const prediction = makePrediction();
+    prediction.components.sosDiff = -0.6;
+    const explanation = explainMatch(a, b, prediction);
+    expect(explanation.counterFactors?.some((f) => f.advantage === 'team_b' && f.factor === 'schedule_strength')).toBe(
+      true
+    );
+    expect(explanation.counterFactors!.length).toBeLessThanOrEqual(2);
+    expect(explanation.factors.every((f) => f.advantage !== 'team_b')).toBe(true);
+    const balanced = explainMatch(a, b, { ...prediction, predictedWinner: 'draw' });
+    expect(balanced.factors.filter((f) => f.advantage === 'team_a')).toHaveLength(1);
+    expect(balanced.factors.filter((f) => f.advantage === 'team_b')).toHaveLength(1);
+  });
   it('includes head-to-head context when prior meetings exist', () => {
     const teamA = makeTeam({
       team_id_master: 'team-a',
@@ -157,7 +172,8 @@ describe('explainMatch', () => {
 
     expect(explanation.summary).toContain('Genuine toss-up');
     expect(explanation.factors.some((factor) => factor.factor === 'close_match')).toBe(true);
-    expect(explanation.keyInsights.join(' ').toLowerCase()).toContain('coin-flip');
+    expect(explanation.keyInsights.join(' ')).toContain('0.0 goals');
+    expect(explanation.keyInsights.join(' ')).not.toContain('recent samples');
   });
 
   it('surfaces common-opponent evidence when it meaningfully separates the teams', () => {

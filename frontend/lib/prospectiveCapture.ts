@@ -38,6 +38,7 @@ export function captureCodeIdentity() {
     'matchPredictionService.ts',
     'predictionIdentity.ts',
     'calibrationLoader.ts',
+    'matchEvidence.ts',
   ];
   return {
     codeRevision: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8', windowsHide: true }).trim(),

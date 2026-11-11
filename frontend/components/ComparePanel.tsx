@@ -7,7 +7,7 @@ import { InlineLoader } from '@/components/ui/LoadingStates';
 import { Button } from '@/components/ui/button';
 import { TeamSelector } from './TeamSelector';
 import { EnhancedPredictionCard } from './EnhancedPredictionCard';
-import { useTeam, useCommonOpponents, useMatchPrediction } from '@/lib/hooks';
+import { useTeam, useMatchPrediction } from '@/lib/hooks';
 import {
   RadarChart,
   Radar,
@@ -62,13 +62,6 @@ export function ComparePanel() {
     error: team2ErrorObj,
     refetch: refetchTeam2,
   } = useTeam(team2Id || '');
-  const {
-    data: commonOpponents,
-    isLoading: opponentsLoading,
-    isError: opponentsError,
-    error: opponentsErrorObj,
-    refetch: refetchOpponents,
-  } = useCommonOpponents(team1Id, team2Id);
 
   // Fetch enhanced match prediction with explanations
   const {
@@ -77,6 +70,7 @@ export function ComparePanel() {
     isError: predictionError,
     error: predictionErrorObj,
   } = useMatchPrediction(team1Id, team2Id);
+  const commonOpponents = matchPrediction?.evidence?.commonOpponents;
 
   const handleTeam1Change = (id: string | null, team: RankingRow | null) => {
     // Track compare opened when first team is selected
@@ -168,7 +162,7 @@ export function ComparePanel() {
       Offense: 'Normalized offensive rating (0-100). Higher = scores more goals.',
       Defense: 'Normalized defensive rating (0-100). Higher = allows fewer goals.',
       SOS: 'Strength of Schedule (0-100). Higher = faced tougher opponents.',
-      Form: 'Recent form: average goal differential in last 5 games. 50 = even, >50 = winning, <50 = losing.',
+      Form: 'Recent form: goal differential across up to 8 latest results, weighted toward newer matches. 50 = even, >50 = winning, <50 = losing.',
     };
 
     // Normalize power score (0-1) to 0-100
@@ -237,10 +231,10 @@ export function ComparePanel() {
   // Show loading state when teams are being fetched
   const isLoadingTeam1 = team1Id && team1Loading;
   const isLoadingTeam2 = team2Id && team2Loading;
-  const isLoadingData = isLoadingTeam1 || isLoadingTeam2 || (team1Id && team2Id && opponentsLoading);
+  const isLoadingData = isLoadingTeam1 || isLoadingTeam2;
 
   // Check for errors
-  const hasErrors = (team1Id && team1Error) || (team2Id && team2Error) || (team1Id && team2Id && opponentsError);
+  const hasErrors = (team1Id && team1Error) || (team2Id && team2Error);
 
   // Check if we have partial selection (one team selected, waiting for the other)
   const hasPartialSelection = (team1Id && !team2Id) || (!team1Id && team2Id);
@@ -291,9 +285,6 @@ export function ComparePanel() {
             <div className="space-y-4">
               {team1Id && team1Error && <ErrorDisplay error={team1ErrorObj} retry={refetchTeam1} compact />}
               {team2Id && team2Error && <ErrorDisplay error={team2ErrorObj} retry={refetchTeam2} compact />}
-              {team1Id && team2Id && opponentsError && (
-                <ErrorDisplay error={opponentsErrorObj} retry={refetchOpponents} compact />
-              )}
             </div>
           )}
 
@@ -463,6 +454,7 @@ export function ComparePanel() {
                   teamBName={teamDisplayName(team2Details)}
                   prediction={matchPrediction.prediction}
                   explanation={matchPrediction.explanation}
+                  evidence={matchPrediction.evidence}
                 />
               )}
 
@@ -505,14 +497,21 @@ export function ComparePanel() {
                   <h3 className="font-display text-lg font-bold uppercase tracking-wide text-primary mb-4">
                     Common Opponents
                   </h3>
+                  <p className="text-xs text-muted-foreground mb-3">
+                    Latest result for each team. The prediction uses all usable meetings in the evidence window.
+                  </p>
                   <div className="space-y-2">
                     {commonOpponents.slice(0, 10).map((opponent) => (
                       <Card key={opponent.opponent_id} className="p-3">
-                        <div className="flex items-center justify-between">
-                          <div className="font-medium">{opponent.opponent_name}</div>
-                          <div className="flex items-center gap-4 text-sm">
-                            <div className="flex items-center gap-2">
-                              <span className="text-muted-foreground">{teamDisplayName(team1Details)}:</span>
+                        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                          <div className="min-w-0 break-words font-medium">
+                            {opponent.opponent_name ?? 'Name unavailable'}
+                          </div>
+                          <div className="grid min-w-0 grid-cols-2 gap-3 text-sm">
+                            <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                              <span className="w-full break-words text-muted-foreground">
+                                {teamDisplayName(team1Details)}:
+                              </span>
                               <span
                                 className={`font-semibold ${
                                   opponent.team1_result === 'W'
@@ -529,9 +528,17 @@ export function ComparePanel() {
                                   ({opponent.team1_score}-{opponent.opponent_score_team1})
                                 </span>
                               )}
+                              <time
+                                className="whitespace-nowrap text-xs text-muted-foreground"
+                                dateTime={opponent.team1_date}
+                              >
+                                {opponent.team1_date}
+                              </time>
                             </div>
-                            <div className="flex items-center gap-2">
-                              <span className="text-muted-foreground">{teamDisplayName(team2Details)}:</span>
+                            <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                              <span className="w-full break-words text-muted-foreground">
+                                {teamDisplayName(team2Details)}:
+                              </span>
                               <span
                                 className={`font-semibold ${
                                   opponent.team2_result === 'W'
@@ -548,6 +555,12 @@ export function ComparePanel() {
                                   ({opponent.team2_score}-{opponent.opponent_score_team2})
                                 </span>
                               )}
+                              <time
+                                className="whitespace-nowrap text-xs text-muted-foreground"
+                                dateTime={opponent.team2_date}
+                              >
+                                {opponent.team2_date}
+                              </time>
                             </div>
                           </div>
                         </div>
