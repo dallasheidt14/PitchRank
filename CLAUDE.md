@@ -400,7 +400,7 @@ import, so a process running across Aug 1 keeps last season's map until restart.
 | AthleteOne | `athleteone` | API client | Conference schedules |
 | PlayMetrics | `playmetrics` | League JSON API | SECL + state leagues (events use `playmetrics_tournament`) |
 | Affinity WA | `affinity_wa` | HTML scraping | Washington RCL + state leagues |
-| Affinity OR | `affinity_or` | HTML scraping | Oregon (OYSA) leagues, keeps unplayed fixtures |
+| Affinity OR | `affinity_or` | HTML scraping | Oregon (OYSA) leagues, keeps unplayed fixtures; the State Cup imports played games only |
 | Affinity UT | `affinity_ut` | HTML scraping | Utah (UYSA) leagues through the OR scraper; games filed by team-name age, keeps unplayed fixtures |
 | Affinity HI | `affinity_hi` | HTML scraping | Hawaii (HYSA) Oahu League through the OR scraper; each team matched at the age label its name starts with (`13UB - …`), so a game between two ages imports, games from 2026-08-01 only, keeps unplayed fixtures |
 | Affinity GA | `affinity_ga` | HTML scraping | Georgia Soccer's fall league (GPL, Pre-GPL, Championship, Conference) through the OR scraper; each team matched at the age in its own name, so a game between two ages imports, rec schedule skipped, games from 2026-08-01 only, keeps unplayed fixtures |
@@ -682,7 +682,7 @@ two-line edit in `.github/workflows/claude-code-review.yml`.
 | `modular11-weekly-scrape.yml` | Manual dispatch | MLS NEXT league scraping through 2025-26 (2026-27 onward: `mlsnext-kitman-scraper.yml`) |
 | `backfill-unknown-team-names.yml` | Every 15 min | Resolve `unknown_<provider_team_id>` placeholder names |
 | `wa-scraper.yml` | Mon 6:00 + 7:00 AM UTC | Affinity WA tournament scrape + import |
-| `or-scraper.yml` | Mon 6:30 + 7:30 AM UTC | Affinity OR (OYSA) league scrape + import — keeps unplayed fixtures |
+| `or-scraper.yml` | Mon 6:30 + 7:30 AM UTC | Affinity OR (OYSA) league and State Cup scrape + import — keeps unplayed fixtures, except the cup's |
 | `ut-scraper.yml` | Mon 5:30 + 6:30 AM UTC | Affinity UT (UYSA) league scrape + import — keeps unplayed fixtures |
 | `hi-scraper.yml` | Mon 9:30 AM UTC | Affinity HI (HYSA Oahu League) scrape + import — keeps unplayed fixtures |
 | `ga-scraper.yml` | Mon 6:15 AM UTC | Affinity GA (Georgia Soccer fall league) scrape + import — keeps unplayed fixtures |

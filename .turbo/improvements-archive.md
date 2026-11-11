@@ -1911,3 +1911,14 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Noted**: 2026-11-08
 - **Update (2026-11-09)**: 11 moved games, not 12: Woodside v Modesto's stored 0-1 and Kitman's June 2027 entry have opposite home teams, so they are treated as separate games, though they may be one fixture with the sides flipped. The builder holds a played event with the same home team, away team and score as a stored game no current event explains, hidden games included; the home team must match, or a same-result return leg would be lost for good. A different score imports as new. The owner hid the 9 of the 15 moved or reopened games that were 0-0; the undo log is `C:\PitchRank\data\backups\hide_kitman_redated_zero_zero_2026-11-09.json`, which is gitignored.
 - **Refs**: branch `kitman-hold-redated-games`; `moved_event_ids` in `scripts/build_mlsnext_kitman_games_csv.py`
+
+### Decode Affinity pages as UTF-8
+
+- **Status**: done
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `_fetch` in `scripts/scrape_affinity_or_tournament.py`
+- **Why**: It returns `r.text`, and the live Oahu League page answered `Content-Type: text/html` with no charset on 2026-11-05, so `requests` decodes it as ISO-8859-1. No Oahu team name is non-ASCII today, so nothing is garbled yet, but a name with an okina or kahako would be. The name feeds `_team_hash`, so count the non-ASCII names already scraped in Oregon and Utah first: changing the decode changes their team ids.
+- **Noted**: 2026-11-05
+- **Update (2026-11-11)**: 0 of the 1,331 teams created under `affinity_or`, `affinity_ut`, `affinity_hi` and `affinity_ga` have a non-ASCII name. An alias linking an Affinity name to another provider's team stores no name, so those were not counted. A declared charset is still honoured.
+- **Refs**: branch `feat/oregon-state-cup-scrape`; `TestPageDecoding` in `tests/unit/test_scrape_affinity_or.py`

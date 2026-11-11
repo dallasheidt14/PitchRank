@@ -1,6 +1,6 @@
 """Unit tests for scripts/scrape_affinity_or_tournament.py.
 
-Two things here can fail silently and are what these tests exist for:
+These tests exist because each of these can fail silently:
 
 - OYSA runs the Aug 1 - Jul 31 cycle USYS adopted for 2026-27, so its U13 is
   the Aug 2013 - Jul 2014 band, which is exactly what this project calls u13.
@@ -8,15 +8,19 @@ Two things here can fail silently and are what these tests exist for:
   team NAME as a birth year: Oregon writes that band "13B", after its older
   year, and feeding 2013 to ``calculate_age_group_from_birth_year`` — which
   takes the band's younger year — files the whole division as u14.
-- Unplayed fixtures must reach the importer with BOTH scores empty. A row
-  with one score present is rejected there, so the scraper must not invent
-  the missing half.
+- Unplayed fixtures an event keeps must reach the importer with BOTH scores
+  empty. A row with one score present is rejected there, so the scraper must
+  not invent the missing half.
+- A page that declares no charset must be read as UTF-8. requests reads it as
+  ISO-8859-1, which garbles a non-ASCII team name, and a garbled name hashes to
+  a different team id.
 
-The flight/game HTTP plumbing beyond this is covered by the end-to-end
-scrape+import verification (matches the WA/TGS/PlayMetrics convention).
+Beyond page decoding, the HTTP plumbing is covered by the end-to-end
+scrape+import verification.
 """
 
 import pytest
+import requests
 
 from scripts import scrape_affinity_or_tournament as scraper
 from src.utils import team_utils
@@ -97,6 +101,12 @@ class TestTournamentRegistry:
 
         assert incomplete == []
 
+    def test_only_the_cup_drops_its_fixtures(self):
+        """Pinned by name, so a new event has to decide whether it keeps fixtures."""
+        results_only = {t["name"]: t.get("results_only", False) for t in scraper.TOURNAMENTS}
+
+        assert results_only == {"2026 OYSA Fall League": False, "26-27 State Cup (OR)": True}
+
 
 class TestGenderAndAgeExtraction:
     """Both Affinity label styles must parse; OYSA writes the compact one."""
@@ -163,11 +173,11 @@ WIDE_WINDOW = (scraper.datetime(2019, 1, 1), scraper.datetime(2100, 1, 1))
 NARROW_WINDOW = (scraper.datetime(2026, 9, 1), scraper.datetime(2026, 10, 1))
 
 
-def _scrape(monkeypatch, rows, date_header=FUTURE_HEADER, window=WIDE_WINDOW):
+def _scrape(monkeypatch, rows, date_header=FUTURE_HEADER, window=WIDE_WINDOW, tournament=TOURNAMENT):
     """Scrape `rows` with the season pinned, so Aug 1 does not move the expectations."""
     html = _schedule_html(rows, date_header)
     monkeypatch.setattr(scraper, "_fetch", lambda url, retries=3: html)
-    return scraper.scrape_flight_games(TOURNAMENT, FLIGHT, *window)
+    return scraper.scrape_flight_games(tournament, FLIGHT, *window)
 
 
 class TestScoreShapes:
@@ -208,6 +218,12 @@ class TestScoreShapes:
 
         assert len(records) == 4
         assert sum(1 for r in records if r["goals_for"] == "") == 2
+
+    def test_a_results_only_event_emits_no_fixture(self, monkeypatch):
+        """The fixture comes first, so skipping it must not end the table's walk."""
+        records = _scrape(monkeypatch, [UNPLAYED, PLAYED], tournament={**TOURNAMENT, "results_only": True})
+
+        assert [r["schedule_id"] for r in records] == ["738750", "738750"]
 
 
 def _accepted_list_html(divisions):
@@ -378,6 +394,40 @@ class TestFetchFailureIsLoud:
         )
 
         assert scraper.discover_flights(TOURNAMENT, 17, "Male") == []
+
+
+class _Response:
+    """Sets ``encoding`` by requests' own header rule.
+
+    An undeclared charset therefore decodes as ISO-8859-1 unless ``_fetch`` overrides it.
+    """
+
+    def __init__(self, body, content_type):
+        self.status_code = 200
+        self.headers = {"content-type": content_type}
+        self.content = body
+        self.encoding = requests.utils.get_encoding_from_headers(self.headers)
+
+    @property
+    def text(self):
+        return self.content.decode(self.encoding or "utf-8", errors="replace")
+
+
+class TestPageDecoding:
+    """A team name read as ISO-8859-1 is garbled, and the garbled name hashes to a different team id."""
+
+    def test_a_page_with_no_charset_is_read_as_utf8(self, monkeypatch):
+        body = "<td>Atlético Kaʻōnohi 15B</td>".encode("utf-8")
+        monkeypatch.setattr(scraper.requests, "get", lambda url, **kwargs: _Response(body, "text/html"))
+
+        assert scraper._fetch("https://oysa.sportsaffinity.com/page") == "<td>Atlético Kaʻōnohi 15B</td>"
+
+    def test_a_declared_charset_is_kept(self, monkeypatch):
+        body = "<td>Atlético 15B</td>".encode("cp1252")
+        response = _Response(body, "text/html; charset=windows-1252")
+        monkeypatch.setattr(scraper.requests, "get", lambda url, **kwargs: response)
+
+        assert scraper._fetch("https://oysa.sportsaffinity.com/page") == "<td>Atlético 15B</td>"
 
 
 class TestEmittedCohortFollowsTheEvent:
