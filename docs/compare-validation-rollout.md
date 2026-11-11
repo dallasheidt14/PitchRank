@@ -1,11 +1,12 @@
 # Compare evidence and prospective validation
 
-The Compare UI describes the evidence used by the existing predictor: cleaned games in
-the 365-day window, up to eight recent games for form, rating dates, direct meetings and
-shared opponents. It shows all three outcome probabilities, a projected scoreline,
-supporting factors and up to two opposing factors. Counts describe the actual cleaned
-input, not the larger ranking history. None of these changes adjusts production
-probabilities, ranking scores, or scoreline calculations.
+The Compare card shows all three outcome probabilities, a projected scoreline,
+supporting factors, up to two opposing factors and concise limited-history cautions.
+Detailed game counts, sample sizes and dates remain available in the API evidence
+summary and frozen validation inputs; the card omits that diagnostic panel. Evidence
+uses cleaned games in the 365-day window and up to eight recent games for form.
+These presentation changes do not adjust production probabilities, ranking scores,
+or scoreline calculations.
 
 ## Release order
 

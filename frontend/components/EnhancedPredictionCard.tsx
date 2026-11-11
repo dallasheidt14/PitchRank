@@ -14,10 +14,6 @@ interface EnhancedPredictionCardProps {
   evidence?: MatchEvidenceSummary;
 }
 
-function evidenceDate(value: string | null) {
-  return value && Number.isFinite(Date.parse(value)) ? value.slice(0, 10) : 'Unavailable';
-}
-
 /**
  * Explanation factor item
  */
@@ -52,7 +48,6 @@ function ExplanationFactor({
  * Shows:
  * - Predicted winner and score
  * - Win probabilities
- * - Evidence coverage and dates
  * - Top explanation factors
  * - Key insights
  */
@@ -72,11 +67,8 @@ export function EnhancedPredictionCard({
       [teamBName, evidence.teamB],
     ] as const) {
       if (team.formSampleSize < evidence.formSampleLimit) {
-        cautions.push(
-          `${name}: ${team.formSampleSize} of ${evidence.formSampleLimit} recent results available for form.`
-        );
+        cautions.push(`${name}: limited recent results available.`);
       }
-      if (!team.ratingSnapshotDate) cautions.push(`${name}: rating snapshot date unavailable.`);
     }
   }
 
@@ -163,59 +155,6 @@ export function EnhancedPredictionCard({
             }
           </div>
         </div>
-
-        <section aria-label="Prediction evidence" className="border-t pt-4 space-y-3">
-          <h4 className="text-sm font-semibold">Evidence behind this prediction</h4>
-          {evidence ? (
-            <>
-              <p className="text-xs text-muted-foreground">
-                Results from {evidenceDate(evidence.windowStart)} through {evidenceDate(evidence.asOf)}.
-              </p>
-              <div className="grid gap-4 sm:grid-cols-2">
-                {(
-                  [
-                    [teamAName, evidence.teamA],
-                    [teamBName, evidence.teamB],
-                  ] as const
-                ).map(([name, team], index) => (
-                  <div key={index} className="rounded-lg bg-muted/40 p-3">
-                    <p className="text-sm font-semibold break-words">{name}</p>
-                    <dl className="mt-2 space-y-1 text-xs">
-                      <div className="flex justify-between gap-2">
-                        <dt>Usable results</dt>
-                        <dd>{team.usableResults}</dd>
-                      </div>
-                      <div className="flex justify-between gap-2">
-                        <dt>Recent form sample</dt>
-                        <dd>
-                          {team.formSampleSize} / {evidence.formSampleLimit}
-                        </dd>
-                      </div>
-                      <div className="flex justify-between gap-2">
-                        <dt>Unique opponents</dt>
-                        <dd>{team.uniqueOpponents}</dd>
-                      </div>
-                      <div className="flex justify-between gap-2">
-                        <dt>Latest result</dt>
-                        <dd>{evidenceDate(team.latestResultDate)}</dd>
-                      </div>
-                      <div className="flex justify-between gap-2">
-                        <dt>Rating snapshot</dt>
-                        <dd>{evidenceDate(team.ratingSnapshotDate)}</dd>
-                      </div>
-                    </dl>
-                  </div>
-                ))}
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {evidence.headToHeadMeetings} head-to-head meetings · {evidence.sharedOpponents} shared opponents. Form
-                uses up to {evidence.formSampleLimit} latest results, with more weight on newer matches.
-              </p>
-            </>
-          ) : (
-            <p className="text-sm text-muted-foreground">Evidence details unavailable for this prediction.</p>
-          )}
-        </section>
 
         {/* Explanation Factors */}
         {factors.length > 0 && (
