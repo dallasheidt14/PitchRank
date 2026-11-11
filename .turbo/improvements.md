@@ -1264,6 +1264,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: admin `formatDate`/`formatRelative`/`KpiCard` in `frontend/app/mission-control/leads/page.tsx` and `subscriptions/page.tsx`; `formatSupabaseError` in `frontend/lib/admin/matchbalance-leads.ts` and `subscription-metrics.ts`; `bad`/`maskIp`/`isStringWithLen` in `frontend/app/api/matchbalance-inquiry/route.ts` and `app/api/feedback/route.ts`; `escapeHtml` in `frontend/lib/email/matchbalance-inquiry.ts`, `lib/email/feedback.ts` and `app/api/stripe/webhook/route.ts`; the hero stripe band and FAQ `<details>` markup in `frontend/app/matchbalance/page.tsx` and `app/report-card/page.tsx`; `_executable` in six `tests/unit/test_*` migration guards and `_newest_statement` in two of them
 - **Why**: Copies already disagree: the Stripe webhook's `escapeHtml` escapes only `&`, `<` and `>` (enough for its Telegram messages, not for an HTML attribute), and `test_team_page_views_migration.py`'s `_executable` strips only `--` comments, so a block-commented REVOKE passes that guard; only the `test_scrape_requests_rls_migration.py` and `test_matchbalance_leads_migration.py` copies also strip `/* */` comments (helper bodies read 2026-09-17). A fix to date rendering or escaping otherwise has to find every copy. Deferred by the owner on 2026-09-17 to keep the MatchBalance change scoped.
 - **Update (2026-10-10)**: `_executable` now has nine copies in `tests/unit`. Six strip only `--` comments (`test_backfill_total_game_stats_migration.py`, `test_scrape_activity_predicate.py`, `test_team_cleanup_decisions_migration.py`, `test_team_page_views_migration.py`, `test_team_ranking_exclusions_migration.py`, `test_team_state_provenance_migration.py`); `test_matchbalance_leads_migration.py`, `test_scrape_requests_rls_migration.py` and `test_team_cleanup_runs_migration.py` also strip `/* */` (bodies read 2026-10-10).
+- **Update (2026-11-11)**: `escapeHtml` in `frontend/lib/email/feedback.ts` is now exported and also used by `frontend/lib/email/report-card.ts` (branch `feat/report-card-redesign`). `frontend/app/api/scrape-missing-game/route.ts` holds a fourth, inline escape of `&`, `<` and `>` only, for a Telegram message like the webhook's.
 - **Noted**: 2026-09-17
 
 ### Bound the email check and require JSON on the other public POST routes
@@ -1275,6 +1276,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `frontend/lib/validation.ts` (`isValidEmail`, `EMAIL_REGEX`), called uncapped from `POST` in `frontend/app/api/feedback/route.ts`, `frontend/app/api/newsletter/route.ts` and `frontend/app/api/reports/team-card/route.ts`
 - **Why**: `EMAIL_REGEX` backtracks quadratically on a long malformed value (node, 2026-09-17: 16 KB 48 ms, 32 KB 188 ms, 64 KB 731 ms), and these public routes run it with no length cap, so a large body ties up the function. They also read the body with `request.json()` / `parseJsonBody`, which parse a `text/plain` body, so another site can post to them from visitors' browsers with no CORS preflight. `/api/matchbalance-inquiry` already caps the email at 254 characters and returns 415 without `Content-Type: application/json`; capping inside `isValidEmail` would cover every caller.
 - **Noted**: 2026-09-17
+- **Update (2026-11-11)**: `/api/reports/team-card` now returns 415 without `Content-Type: application/json` and refuses an email over 254 characters before `isValidEmail` (branch `feat/report-card-redesign`), capped at the route to keep that change to one route; capping inside `isValidEmail` would still cover the other two. The feedback and newsletter routes still have neither guard.
 
 ### Match each side of an imported game at its own cohort, not the game's
 
@@ -1773,6 +1775,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
   - **Unverified:** the report card's state rank being always blank, and some pages showing scores on 0–1 instead of 0–100.
 - **Noted**: 2026-10-02
 - **Update (2026-10-14)**: The 0–1 half is verified. Rankings boards and team pages show `formatPowerScore` (×100) and now describe the scale as 0–100, but six display spots print the raw value: `app/rankings/age/[ageGroup]/page.tsx` (`toFixed(1)`, live `/rankings/age/u17` shows 0.7), `app/embed/club/[clubId]/page.tsx`, `components/ReportCardPreview.tsx` (a hardcoded 0.847 sample), `lib/pdf/TeamReportCard.tsx`, `lib/email/report-card.ts` and `components/TeamSchema.tsx` (`ratingValue` 0–1 beside `bestRating` 100). About 63 customer-facing blog statements still say 0–1 with 0.95/0.80 bands: `content/blog-posts.tsx` (the PowerScore guide, the CA/TX "PowerScore Scale (0.0 to 1.0)" boxes, `youth-soccer-rankings-by-state`), six `lib/blog-faqs.ts` state answers (each repeats a sentence from its state's MDX guide word for word, so change both), the two `what-is-powerscore-youth-soccer` answers and the `how-pitchrank-rankings-work` "What is PowerScore?" answer, and 28 of 37 `content/blog/*.mdx` guides. The owner chose a separate PR for the sweep; convert the bands ×100 and regenerate llms.txt.
+- **Update (2026-11-11)**: The state-rank half is verified and fixed: the report card's state rank was always blank because the route read `rank_in_state_final` from `rankings_view`, which has no such column (columns read 2026-11-11). The PDF and its delivery email now show PowerScore through `formatPowerScore`, and `components/ReportCardPreview.tsx` shows a fixed 0–100 sample (50.12), so three of the six raw-value spots are fixed (branch `feat/report-card-redesign`). The age-group board, club embed and `TeamSchema` still print 0–1, and the blog sweep is unchanged.
 
 ### Point TestLayer13BlendFormula at the production blend
 
@@ -2756,14 +2759,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: A provider outside that set keys a game on date and two teams, so the second game of a doubleheader is dropped with no count reporting it. Georgia joined before its first import after two doubleheaders appeared in its 389 games on 2026-11-06. Hawaii had none in 993 games that day; Oregon, Utah and Washington are not measured. Joining changes the uid of every stored game, so count the rematches first. Joining is not enough for a doubleheader with one home team: `_make_composite_key` and `idx_games_unique` hold no `schedule_id`, so two blank fixtures, or two games with one scoreline, still collapse to one row. Georgia's two swap home and away, so they stay two.
 - **Noted**: 2026-11-06
 
-### Escape the team name in the report card email
-
-- **Type**: direct
-- **Category**: reliability
-- **Where**: `buildReportCardHtml` in `frontend/lib/email/report-card.ts`, which interpolates `teamName` unescaped; `escapeHtml` in `frontend/lib/email/feedback.ts` is the helper to share
-- **Why**: Read on 2026-11-06: a team name scraped from any league reaches this HTML, so markup in one would land in an email PitchRank sends. Reported by a review as reachable through `/api/reports/team-card` once a team has a published rank; the route was not traced here. Email clients run no scripts, so the exposure is links and images. It predates the Georgia provider.
-- **Noted**: 2026-11-06
-
 ### Find why the Kitman weekly run starts hours after its cron
 
 - **Type**: investigate
@@ -2930,6 +2925,38 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Category**: reliability
 - **Where**: `_fetch` in `scripts/scrape_affinity_wa_tournament.py`
 - **Why**: It returns `r.text`, and Sports Affinity pages answer `Content-Type: text/html` with no charset, so `requests` decodes them as ISO-8859-1 and a non-ASCII team name would arrive garbled. The OR scraper's `_fetch` sets UTF-8 when no charset is declared (pinned by `TestPageDecoding` in `tests/unit/test_scrape_affinity_or.py`); WA keeps its own copy. 0 of the 879 `affinity_wa` teams have a non-ASCII name (queried 2026-11-11), so nothing is garbled yet.
+- **Noted**: 2026-11-11
+
+### Give unranked teams a report card, or at least record the attempt
+
+- **Type**: plan
+- **Category**: feature
+- **Where**: `POST` in `frontend/app/api/reports/team-card/route.ts` (the `rank_in_cohort_final == null` early return); the picker is `ScopedTeamSelector` via `/api/teams/search`
+- **Why**: The picker offers every team, but a team without a published rank gets "Not enough ranking data" and no `report_card_leads` row, so how often a parent hits it is unknown. About 27% of teams on the board age groups had a published rank on 2026-11-11. Either log the refused attempt, or send a basic card (record and last 5 games, "not enough games to rank yet").
+- **Noted**: 2026-11-11
+
+### Make get_team_state_rank match state_rankings_view
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `get_team_state_rank` (newest definition in `supabase/migrations/20260404000001_update_views_use_rank_final.sql`), read by `fetchStateRank` in `frontend/app/api/reports/team-card/route.ts` and by `api.getTeam`
+- **Why**: It reads `rankings_full.state_code` and counts Active rows without joining `teams`, so deprecated teams still holding an Active rank count above the team (21 such rows when counted on 2026-11-11), and a team with no state is ranked among its cohort's other stateless teams, which the ranking run stores as `'UNKNOWN'`. `state_rankings_view` reads `teams.state_code` and excludes both. Both callers use it only when the view returns no row, and both hide the state rank when the team has no state.
+- **Noted**: 2026-11-11
+
+### Use one rank-percent and rank-movement wording across the site
+
+- **Type**: direct
+- **Category**: readability
+- **Where**: `cohortStats.percentile` in `frontend/app/api/insights/[teamId]/route.ts` and `topPct` in `frontend/lib/insights/persona.ts`; the rank-change tooltip in `frontend/components/RankingsTable.tsx`; `topPercent` and `formatRankMovement` in `frontend/lib/reports/report-card.ts`
+- **Why**: The insights path rounds teams-below to the nearest percent and subtracts from 100, so #20 of 5,578 reads "top 0%" while the report card's `topPercent` says "Top 1%". The rankings tooltip writes "Up 1 spots"; `formatRankMovement` already handles the singular.
+- **Noted**: 2026-11-11
+
+### Record the upgrade source separately from the team being upgraded for
+
+- **Type**: plan
+- **Category**: feature
+- **Where**: `source` in `frontend/app/upgrade/page.tsx` (`searchParams.get('next') || searchParams.get('source')`); `reportCardUpgradeUrl` in `frontend/lib/reports/report-card.ts`
+- **Why**: A report-card trial link carries `next=/teams/<id>` plus `utm_source=report-card`, and the page records `source` from `next` first, so the internal upgrade-source events cannot tell it from a paywall tap on that team. GA4's session source does separate them.
 - **Noted**: 2026-11-11
 
 ### Build the subscriptions dashboard's status-list union once, keyed by id
