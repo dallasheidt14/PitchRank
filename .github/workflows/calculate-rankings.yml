@@ -129,6 +129,7 @@ jobs:
       # 7. RUN THE ACTIVE RANKINGS ENGINE (Glicko-2 + ML + post-convergence SOS/SCF)
       # ---------------------------------------------------------------
       - name: Calculate Rankings
+        id: rankings
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
@@ -141,10 +142,16 @@ jobs:
           echo "Python version: $(python --version)"
           echo "Current directory: $(pwd)"
           echo "SUPABASE_URL configured: $([[ -n "$SUPABASE_URL" ]] && echo 'Yes' || echo 'No')"
-          python scripts/calculate_rankings.py --ml --force-rebuild --engine ${{ github.event.inputs.engine || 'glicko' }} || {
+          python scripts/calculate_rankings.py --ml --force-rebuild --engine ${{ github.event.inputs.engine || 'glicko' }} --provenance-dir "$RUNNER_TEMP/prediction-input-archive" || {
             echo "❌ Rankings calculation failed with exit code $?"
             exit 1
           }
+
+      - name: Preserve verified prediction inputs privately
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python scripts/publish_ranking_input_archive.py "$RUNNER_TEMP/prediction-input-archive" --execute
 
       # ---------------------------------------------------------------
       # 7. FINAL REPORT

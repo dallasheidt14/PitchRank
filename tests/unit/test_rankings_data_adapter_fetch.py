@@ -175,6 +175,8 @@ class _PostgrestServer:
             return httpx.Response(200, json=[_TEAM_ROWS[team_id] for team_id in team_ids if team_id in _TEAM_ROWS])
         if table == "team_ranking_exclusions":
             return httpx.Response(200, json=[])
+        if table == "team_merge_map":
+            return httpx.Response(200, json=[])
         if table == "providers":
             return httpx.Response(200, json={"id": "provider-1"})
         raise AssertionError(f"Unexpected request {request.url}")
@@ -183,6 +185,32 @@ class _PostgrestServer:
         return SyncPostgrestClient(
             "https://pitchrank.test/rest/v1", http_client=httpx.Client(transport=httpx.MockTransport(self))
         )
+
+
+@pytest.mark.asyncio
+async def test_production_fetch_and_negation_pages_survive_archive_capture(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    from src.rankings.archive_storage import verify_archive
+    from src.rankings.input_archive import InputArchive
+    from src.utils.merge_resolver import MergeResolver
+
+    monkeypatch.setattr(data_adapter, "retry_supabase_query", lambda query_func, **_kwargs: query_func())
+    server = _PostgrestServer([_game_row(f"game-{idx}") for idx in range(2001)])
+    archive = InputArchive(tmp_path / "archive", Path(__file__).resolve().parents[2], {"ml": False})
+    client = archive.wrap(server.client())
+    resolver = MergeResolver(client)
+    resolver.load_merge_map()
+    result = await data_adapter.fetch_games_for_rankings(
+        client, today=pd.Timestamp("2026-04-14", tz="UTC"), merge_resolver=resolver,
+    )
+    archive.engine_configuration({"engine": "glicko", "as_of": "2026-04-14"})
+    archive.finish(True)
+    manifest, _, _ = verify_archive(archive.directory)
+    games = [q for q in manifest["queries"] if q["table"] == "games"]
+    assert len(games) == 3
+    assert result["game_id"].nunique() == 2001
+    assert [_filters(params) for params in server.games_requests] == [_GAMES_FILTERS] * 3
 
 
 @pytest.mark.asyncio

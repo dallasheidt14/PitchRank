@@ -29,6 +29,7 @@ from src.rankings.calculator import (
     compute_rankings_v53e_only,
 )
 from src.rankings.data_adapter import v53e_to_rankings_full_format, v53e_to_supabase_format
+from src.rankings.input_archive import ACTIVE_ARCHIVE, InputArchive
 from src.rankings.layer13_predictive_adjustment import Layer13Config
 from src.utils.merge_resolver import MergeResolver
 from supabase import create_client
@@ -640,6 +641,10 @@ async def main():
     parser.add_argument("--gender", type=str, default=None, help="Filter by gender (Male, Female)")
     parser.add_argument("--dry-run", action="store_true", help="Calculate rankings without saving to database")
     parser.add_argument(
+        "--provenance-dir", type=Path,
+        help="Save actual inputs and training artifacts to a NEW local directory; does not enable database writes",
+    )
+    parser.add_argument(
         "--force-rebuild", action="store_true", help="Ignore cached v53e rankings and rebuild from raw data"
     )
     parser.add_argument(
@@ -677,6 +682,14 @@ async def main():
         sys.exit(1)
 
     supabase = create_client(supabase_url, supabase_key)
+    archive = None
+    if args.provenance_dir:
+        archive_config = {key: value for key, value in vars(args).items() if key != "provenance_dir"}
+        archive_config["ranking_profile"] = ranking_profile or "legacy"
+        archive_config["capture_kind"] = "offline_reconstruction" if args.dry_run else "production_ranking"
+        archive = InputArchive(args.provenance_dir, Path(__file__).resolve().parents[1], archive_config)
+    if archive:
+        supabase = archive.wrap(supabase)
 
     # Initialize merge resolver for team merge support
     merge_resolver = MergeResolver(supabase)
@@ -697,6 +710,8 @@ async def main():
         console.print("[dim]Profiling enabled — timing report will print at the end[/dim]")
 
     # Run rankings calculation
+    archive_token = ACTIVE_ARCHIVE.set(archive)
+    archive_complete = False
     try:
         engine_label = ("Joint rating model" if ranking_profile == JOINT_RANKING_PROFILE
                         else "Glicko-2" if args.engine == "glicko" else "v53e")
@@ -1029,6 +1044,7 @@ async def main():
 
         if timing_report:
             timing_report.print_summary()
+        archive_complete = True
 
     except Exception as e:
         console.print(f"\n[red]Rankings calculation failed: {e}[/red]")
@@ -1036,6 +1052,10 @@ async def main():
 
         traceback.print_exc()
         sys.exit(1)
+    finally:
+        ACTIVE_ARCHIVE.reset(archive_token)
+        if archive:
+            archive.finish(success=archive_complete and sys.exc_info()[0] is None)
 
 
 if __name__ == "__main__":

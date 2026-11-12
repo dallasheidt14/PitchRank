@@ -128,6 +128,27 @@ def test_real_all_cohort_orchestration_fits_once_and_never_runs_conditional_solv
     assert not list(tmp_path.rglob("*.parquet"))
     assert not (tmp_path / "data" / "cache").exists()
 
+    from pathlib import Path
+
+    from src.rankings.input_archive import ACTIVE_ARCHIVE, InputArchive
+
+    archive = InputArchive(tmp_path / "archive", Path(__file__).resolve().parents[2], {"ml": False})
+    token = ACTIVE_ARCHIVE.set(archive)
+    try:
+        recorded = asyncio.run(calculator.compute_all_cohorts(ReadOnlyMetadata(), games, AS_OF,
+            layer13_cfg=Layer13Config(enabled=False), fetch_from_supabase=False,
+            persist_game_residuals=False, persist_game_explainability=False,
+            calculate_rank_changes_enabled=False, save_snapshot=False,
+            ranking_profile="joint-field-quality-support-v1"))
+    finally:
+        ACTIVE_ARCHIVE.reset(token)
+    pd.testing.assert_frame_equal(recorded["teams"], result["teams"], check_exact=True)
+    pd.testing.assert_frame_equal(recorded["games_used"], result["games_used"], check_exact=True)
+    assert len(fits) == 2  # One shared fit per run, with and without recording.
+    assert archive.manifest["model_fits"][0]["model_type"] == "JointFieldSnapshot"
+    assert archive.manifest["model_fits"][0]["training_cutoff"] == "2026-10-12"
+    archive.finish(True)
+
 
 @pytest.mark.parametrize("failure", ["non-convergence", "non-finite"])
 def test_failed_joint_fit_aborts_before_any_scoring_or_writes(monkeypatch, tmp_path, failure):

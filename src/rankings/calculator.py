@@ -18,6 +18,7 @@ from src.etl.glicko_config import GlickoConfig
 from src.etl.glicko_engine import compute_rankings_v2, resolve_as_of
 from src.etl.v53e import V53EConfig, compute_rankings
 from src.rankings.data_adapter import batch_fetch_rows, fetch_games_for_rankings
+from src.rankings.input_archive import ACTIVE_ARCHIVE
 from src.rankings.layer13_predictive_adjustment import Layer13Config, apply_predictive_adjustment
 from src.rankings.prediction_feature_history import save_prediction_feature_snapshot
 from src.rankings.ranking_history import calculate_rank_changes, get_prior_cohort_ranks, save_ranking_snapshot
@@ -2321,6 +2322,9 @@ async def compute_rankings_with_ml(
         "rr_mg": getattr(_ecfg, "RECORD_RECONCILE_MIN_GAMES_FULL", None),
     }
     _cfg_fp = hashlib.md5(_json.dumps(_cfg_dict, sort_keys=True, default=str).encode()).hexdigest()[:12]
+    if (provenance_archive := ACTIVE_ARCHIVE.get()) is not None:
+        # Use the already-resolved engine fingerprint, without recomputing any ranking value.
+        provenance_archive.engine_configuration(_json.loads(_json.dumps(_cfg_dict, default=str)))
     hash_input += f"_cfg_{_cfg_fp}"
 
     cache_key = hashlib.md5(hash_input.encode()).hexdigest()
@@ -2609,6 +2613,9 @@ async def compute_rankings_v53e_only(
     """
     v53_cfg = v53_cfg or V53EConfig()
 
+    if (provenance_archive := ACTIVE_ARCHIVE.get()) is not None:
+        provenance_archive.engine_configuration(asdict(v53_cfg))
+
     # Get games data
     if games_df is None or games_df.empty:
         if fetch_from_supabase:
@@ -2843,6 +2850,8 @@ async def compute_all_cohorts(
             joint_scoring = prepare_joint_scoring(
                 cohorts, pd.DataFrame(metadata_rows), glicko_cfg, today,
                 team_state_map=team_state_map, tier_league_map=tier_league_map, progress=logger.info)
+            if (provenance_archive := ACTIVE_ARCHIVE.get()) is not None:
+                provenance_archive.joint_fit(joint_scoring.snapshot, glicko_cfg)
 
     # ========== PASS 1: Get initial strengths from all cohorts ==========
     logger.info("📊 Pass 1: Computing initial strengths for all cohorts...")
