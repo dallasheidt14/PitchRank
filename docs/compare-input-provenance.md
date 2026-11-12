@@ -43,14 +43,16 @@ the five calibration files. Training and reconstruction timestamps stay truthful
 The recorder observes the existing calculation; it does not refit a model or
 change its values. Recording errors are collected and reported after calculation,
 so a disk error cannot make a database fetch return fewer games. Such an archive
-is marked failed and cannot be published. Source changes during a run also fail
-the archive. Existing directories and objects are never overwritten.
+cannot be published. Initialization failures are reported after rankings finish;
+they may leave an incomplete directory without a manifest. Source changes during
+a run also fail the archive. Existing directories and objects are never overwritten.
 
-For an offline calculation with local evidence files:
+`--dry-run` previews the calculation without creating archive files. To record
+an authorized ranking publication and then validate its archive locally:
 
 ```sh
-python scripts/calculate_rankings.py --ml --dry-run --force-rebuild --provenance-dir reports/private-new-run
-python scripts/publish_ranking_input_archive.py reports/private-new-run
+python scripts/calculate_rankings.py --ml --force-rebuild --provenance-dir .turbo/private-new-run
+python scripts/publish_ranking_input_archive.py .turbo/private-new-run
 ```
 
 The second command validates locally and makes no network requests. Add

@@ -204,7 +204,8 @@ def test_source_change_invalidates_the_archive_without_touching_shared_sources(a
 
 
 @pytest.mark.parametrize("outcome", ["success", "empty", "error", "cancelled"])
-def test_actual_cli_archive_lifecycle_restores_context_and_marks_completion(monkeypatch, tmp_path, outcome):
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_actual_cli_archive_lifecycle_restores_context_and_marks_completion(monkeypatch, tmp_path, outcome, dry_run):
     import asyncio
     import sys
 
@@ -217,7 +218,7 @@ def test_actual_cli_archive_lifecycle_restores_context_and_marks_completion(monk
         "argv",
         [
             "calculate_rankings.py",
-            "--dry-run",
+            *(["--dry-run"] if dry_run else []),
             "--ranking-profile",
             "legacy",
             "--provenance-dir",
@@ -251,9 +252,9 @@ def test_actual_cli_archive_lifecycle_restores_context_and_marks_completion(monk
     )
 
     async def compute(**kwargs):
-        assert ACTIVE_ARCHIVE.get() is not None
+        assert (ACTIVE_ARCHIVE.get() is None) is dry_run
         assert kwargs["supabase_client"] is not None
-        assert kwargs["save_snapshot"] is False
+        assert kwargs["save_snapshot"] is (not dry_run)
         if outcome == "error":
             raise ValueError("calculation failed")
         if outcome == "cancelled":
@@ -276,14 +277,134 @@ def test_actual_cli_archive_lifecycle_restores_context_and_marks_completion(monk
         return {"teams": teams}
 
     monkeypatch.setattr(command, "compute_all_cohorts", compute)
+    saved = []
+
+    async def save(client, teams, **kwargs):
+        saved.append(teams.copy())
+        return len(teams)
+
+    monkeypatch.setattr(command, "save_rankings_to_supabase", save)
+    monkeypatch.setattr(command, "_backfill_total_game_stats", lambda *args: 1)
     if outcome in {"error", "cancelled"}:
         with pytest.raises(SystemExit if outcome == "error" else KeyboardInterrupt):
             asyncio.run(command.main())
     else:
         asyncio.run(command.main())
     assert ACTIVE_ARCHIVE.get() is None
+    assert len(saved) == int(not dry_run and outcome == "success")
+    if dry_run:
+        assert not (tmp_path / "capture").exists()
+        return
     manifest = json.loads((tmp_path / "capture/manifest.json").read_text())
     assert manifest["status"] == ("complete" if outcome == "success" else "failed")
+
+
+@pytest.mark.parametrize("failure", ["source_read", "object_write", "directory", "existing_directory"])
+@pytest.mark.parametrize("outcome", ["success", "empty", "error", "cancelled"])
+def test_cli_initialization_failures_preserve_ranking_work_and_original_errors(monkeypatch, tmp_path, failure, outcome):
+    import asyncio
+    import sys
+
+    from scripts import calculate_rankings as command
+    from src.rankings.archive_storage import verify_archive
+
+    directory = tmp_path / "capture"
+    if failure == "existing_directory":
+        directory.mkdir()
+        (directory / "manifest.json").write_text("preserve existing evidence")
+    before = {p.relative_to(directory): p.read_bytes() for p in directory.rglob("*") if p.is_file()}
+    monkeypatch.setenv("SUPABASE_URL", "https://example.invalid")
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "fixture-only")
+    monkeypatch.setattr(sys, "argv", ["calculate_rankings.py", "--ranking-profile", "legacy",
+                                    "--provenance-dir", str(directory)])
+    calls = []
+
+    class Metadata:
+        def table(self, name):
+            assert name == "teams"
+            return self
+
+        def select(self, *args):
+            return self
+
+        def in_(self, *args):
+            return self
+
+        def execute(self):
+            return SimpleNamespace(data=[])
+
+    client = Metadata()
+    monkeypatch.setattr(command, "create_client", lambda *args: client)
+    monkeypatch.setattr(command, "MergeResolver", lambda *args: SimpleNamespace(
+        load_merge_map=lambda: None, has_merges=False, version="fixture"))
+    if failure == "source_read":
+        read_bytes = Path.read_bytes
+
+        def fail_read(path):
+            if path == ROOT / "config/__init__.py":
+                raise OSError("fixture source unavailable")
+            return read_bytes(path)
+
+        monkeypatch.setattr(Path, "read_bytes", fail_read)
+    elif failure == "object_write":
+        monkeypatch.setattr(InputArchive, "blob", lambda *args: (_ for _ in ()).throw(OSError("full disk")))
+    elif failure == "directory":
+        mkdir = Path.mkdir
+
+        def fail_mkdir(path, *args, **kwargs):
+            if path == directory:
+                raise PermissionError("fixture directory denied")
+            return mkdir(path, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "mkdir", fail_mkdir)
+
+    async def compute(**kwargs):
+        assert ACTIVE_ARCHIVE.get() is None
+        assert kwargs["supabase_client"] is client
+        assert kwargs["save_snapshot"] is True
+        calls.append("compute")
+        if outcome == "error":
+            raise ValueError("original calculation failure")
+        if outcome == "cancelled":
+            raise KeyboardInterrupt("original cancellation")
+        if outcome == "empty":
+            return {"teams": pd.DataFrame()}
+        return {"teams": pd.DataFrame([dict(team_id="a", age=14, gender="Male", status="Active",
+                                           powerscore_ml=.7)])}
+
+    async def save(actual_client, teams, **kwargs):
+        assert actual_client is client and teams.iloc[0]["powerscore_ml"] == .7
+        calls.append("save")
+        return 1
+
+    def backfill(*args):
+        calls.append("backfill")
+        return 1
+
+    monkeypatch.setattr(command, "compute_all_cohorts", compute)
+    monkeypatch.setattr(command, "save_rankings_to_supabase", save)
+    monkeypatch.setattr(command, "_backfill_total_game_stats", backfill)
+    expected = "FileExistsError" if failure == "existing_directory" else (
+        "PermissionError" if failure == "directory" else "OSError")
+    if outcome == "error":
+        error_type, error_match = SystemExit, None
+    elif outcome == "cancelled":
+        error_type, error_match = KeyboardInterrupt, "original cancellation"
+    else:
+        error_type = RuntimeError
+        error_match = "Ranking completed, but its input archive failed: initialization:" + expected
+    with pytest.raises(error_type, match=error_match) as raised:
+        asyncio.run(command.main())
+    if outcome == "error":
+        assert raised.value.code == 1
+    assert calls == (["compute", "save", "backfill"] if outcome == "success" else ["compute"])
+    assert ACTIVE_ARCHIVE.get() is None
+    if failure == "existing_directory":
+        assert {p.relative_to(directory): p.read_bytes() for p in directory.rglob("*") if p.is_file()} == before
+    else:
+        assert not (directory / "manifest.json").exists()
+        with pytest.raises(FileNotFoundError):
+            verify_archive(directory)
 
 
 def test_ml_recording_preserves_outputs_and_retains_actual_training_cutoffs_and_models(archive):
