@@ -11,6 +11,7 @@ import type { TeamWithRanking } from './types';
 import type { MatchPrediction } from './matchPredictor';
 import { extractAgeFromTeamName } from './utils';
 import { MATCH_FORM_SAMPLE_SIZE } from './matchEvidence';
+import { presentMatchup } from './matchupPresentation';
 
 type ExplanationMagnitude = 'significant' | 'moderate' | 'minimal';
 export type ExplanationFactor =
@@ -37,7 +38,7 @@ export interface MatchExplanation {
   // Summary
   summary: string;
 
-  // Supporting factors; draws balance both teams before neutral context.
+  // When neither team is favored, balance both sides before neutral context.
   factors: Explanation[];
 
   // Key insights (bullet points)
@@ -285,40 +286,19 @@ function explainOffensiveMatchup(teamA: TeamWithRanking, teamB: TeamWithRanking)
 function explainCloseMatch(
   teamA: TeamWithRanking,
   teamB: TeamWithRanking,
-  compositeDiff: number,
-  winProbabilityA: number,
-  drawProbability?: number
+  prediction: MatchPrediction
 ): Explanation | null {
-  if ((drawProbability ?? 0) >= 0.2) {
-    return {
-      factor: 'close_match',
-      advantage: 'neutral',
-      magnitude: 'minimal',
-      description: `This looks like a real draw candidate because the teams profile very similarly`,
-      icon: '⚖️',
-      score: 1.6,
-    };
-  }
-
-  // Use calibrated probability - if within 3% of 50%, it's a close match
-  const probDiffFrom50 = Math.abs(winProbabilityA - 0.5);
-  if (probDiffFrom50 > 0.08) return null; // Not that close
-
-  // Determine how close based on calibrated probability
-  let description = '';
-  if (probDiffFrom50 <= 0.03) {
-    description = `This is a true toss-up - neither side has built a meaningful edge on paper`;
-  } else {
-    description = `This is expected to stay tight because the teams are closely matched across the main indicators`;
-  }
-
+  const view = presentMatchup(prediction, teamA.team_name, teamB.team_name);
+  if (!view.closelyMatched && !view.drawMostLikely) return null;
   return {
     factor: 'close_match',
     advantage: 'neutral',
     magnitude: 'minimal',
-    description,
+    description: view.drawMostLikely
+      ? 'A draw has a higher estimated chance than either team winning'
+      : 'The teams have similar estimated chances of winning',
     icon: '⚖️',
-    score: 1.5, // High priority for close matches
+    score: view.drawMostLikely ? 1.6 : 1.5,
   };
 }
 
@@ -433,18 +413,7 @@ export function explainMatch(
   teamB: TeamWithRanking,
   prediction: MatchPrediction
 ): MatchExplanation {
-  const {
-    components,
-    formA,
-    formB,
-    winProbabilityA,
-    winProbabilityB,
-    drawProbability,
-    confidence,
-    expectedMargin,
-    h2h,
-    commonOpponents,
-  } = prediction;
+  const { components, formA, formB, confidence, expectedMargin, h2h, commonOpponents } = prediction;
 
   // Generate all possible explanations
   const allExplanations: (Explanation | null)[] = [
@@ -454,18 +423,16 @@ export function explainMatch(
     explainSOS(teamA, teamB, components.sosDiff),
     explainRecentForm(teamA, teamB, formA, formB, components.formDiffRaw),
     explainOffensiveMatchup(teamA, teamB),
-    explainCloseMatch(teamA, teamB, components.compositeDiff, winProbabilityA, drawProbability),
+    explainCloseMatch(teamA, teamB, prediction),
   ];
 
   // Filter out nulls
   const allFactors = allExplanations.filter((e): e is Explanation => e !== null);
 
   // Separate factors by who they favor
-  const favoredSide =
-    prediction.predictedWinner === 'team_a' ? 'team_a' : prediction.predictedWinner === 'team_b' ? 'team_b' : null;
+  const presentation = presentMatchup(prediction, teamA.team_name, teamB.team_name);
+  const favoredSide = presentation.favorite;
 
-  // For "Why X is Favored", only show factors that favor the predicted winner (or neutral)
-  // This prevents confusing displays like "Why Excel is Favored: [Engilman has momentum]"
   const factors = allFactors
     .filter((f) => f.advantage === favoredSide || f.advantage === 'neutral')
     .sort((a, b) => b.score - a.score)
@@ -483,31 +450,7 @@ export function explainMatch(
     : [];
 
   // Generate summary
-  const favoredTeam =
-    prediction.predictedWinner === 'team_a'
-      ? teamA.team_name
-      : prediction.predictedWinner === 'team_b'
-        ? teamB.team_name
-        : 'Neither team';
-
-  let summary = '';
-  if (prediction.predictedWinner === 'draw') {
-    const drawPercent = Math.round((drawProbability ?? 0.33) * 100);
-    const teamAPercent = Math.round(winProbabilityA * 100);
-    const teamBPercent = Math.round(winProbabilityB * 100);
-    summary = `Genuine toss-up (${teamAPercent}% / ${drawPercent}% draw / ${teamBPercent}%) - our model sees no clear favorite`;
-  } else {
-    const probPercent = Math.round(
-      prediction.predictedWinner === 'team_a' ? winProbabilityA * 100 : winProbabilityB * 100
-    );
-    if (probPercent >= 75) {
-      summary = `${favoredTeam} is the clear favorite at ${probPercent}% win probability`;
-    } else if (probPercent >= 60) {
-      summary = `${favoredTeam} has the edge with ${probPercent}% win probability`;
-    } else {
-      summary = `${favoredTeam} is slightly favored at ${probPercent}% - but this could go either way`;
-    }
-  }
+  const summary = presentation.summary;
 
   // Generate user-facing key insights
   const keyInsights: string[] = [];
@@ -539,7 +482,7 @@ export function explainMatch(
 
   if (absMargin < 0.5) {
     keyInsights.push(
-      `The projected margin is almost flat (${roundedMargin.toFixed(1)} goals), so a draw-like game script is very plausible.`
+      `The projected margin is almost flat (${roundedMargin.toFixed(1)} goals), so the teams look closely matched.`
     );
   } else if (absMargin < 1.5) {
     keyInsights.push(
