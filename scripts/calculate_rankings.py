@@ -683,11 +683,18 @@ async def main():
 
     supabase = create_client(supabase_url, supabase_key)
     archive = None
-    if args.provenance_dir:
+    archive_initialization_error = None
+    if args.provenance_dir and args.dry_run:
+        console.print("[yellow]Dry run - input archive would be recorded; no archive files written[/yellow]")
+    elif args.provenance_dir:
         archive_config = {key: value for key, value in vars(args).items() if key != "provenance_dir"}
         archive_config["ranking_profile"] = ranking_profile or "legacy"
-        archive_config["capture_kind"] = "offline_reconstruction" if args.dry_run else "production_ranking"
-        archive = InputArchive(args.provenance_dir, Path(__file__).resolve().parents[1], archive_config)
+        archive_config["capture_kind"] = "production_ranking"
+        try:
+            archive = InputArchive(args.provenance_dir, Path(__file__).resolve().parents[1], archive_config)
+        except Exception as error:
+            archive_initialization_error = type(error).__name__
+            console.print("[yellow]Input archive initialization failed; ranking calculation will continue[/yellow]")
     if archive:
         supabase = archive.wrap(supabase)
 
@@ -1056,6 +1063,9 @@ async def main():
         ACTIVE_ARCHIVE.reset(archive_token)
         if archive:
             archive.finish(success=archive_complete and sys.exc_info()[0] is None)
+        elif archive_initialization_error and sys.exc_info()[0] is None:
+            raise RuntimeError("Ranking completed, but its input archive failed: initialization:"
+                               + archive_initialization_error)
 
 
 if __name__ == "__main__":
