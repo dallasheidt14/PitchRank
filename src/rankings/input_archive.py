@@ -1,7 +1,8 @@
-"""Opt-in, local archives of actual ranking reads, model fits, and saved outputs.
+"""Local evidence archives for ranking runs, frozen forecasts, and research studies.
 
-An archive records evidence; it does not certify historical eligibility. Recording
-failures are deferred until the calculation finishes so they cannot change ratings.
+An archive records evidence; it does not certify eligibility. During ranking
+capture, recording failures are deferred until calculation finishes so they
+cannot change ratings.
 """
 
 from __future__ import annotations
@@ -26,6 +27,11 @@ SOURCE_PATHS = [
     "src/",
     "config/",
     "scripts/calculate_rankings.py",
+    "scripts/archive_compare_forecasts.py",
+    "scripts/benchmark_compare_form.py",
+    "scripts/register_compare_form_study.py",
+    "frontend/scripts/run-form-research.ts",
+    "frontend/scripts/verify-compare-source.ts",
     "frontend/public/data/calibration/",
     "frontend/lib/",
     "frontend/package-lock.json",
@@ -45,6 +51,8 @@ ARCHIVED_TABLES = {
     "current_rankings",
 }
 ARCHIVED_RPCS = {"batch_update_ml_overperformance", "batch_upsert_game_explainability"}
+FORECAST_ARCHIVE_KIND = "frozen_compare_forecasts"
+FORECAST_TABLE = "prospective_match_predictions"
 MUTATIONS = {"insert", "update", "upsert", "delete"}
 
 
@@ -54,6 +62,13 @@ def utc_now() -> str:
 
 def encoded(value) -> bytes:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+
+
+def source_file_names(source_root: Path) -> list[str]:
+    files = subprocess.check_output(["git", "ls-files", "-z", "--", *SOURCE_PATHS], cwd=source_root)
+    names = {name.decode("utf-8") for name in files.split(b"\0") if name}
+    names.add(Path(__file__).resolve().relative_to(source_root.resolve()).as_posix())
+    return sorted(names)
 
 
 class InputArchive:
@@ -84,10 +99,7 @@ class InputArchive:
                 self.manifest["runtime"][package] = importlib.metadata.version(package)
             except importlib.metadata.PackageNotFoundError:
                 self.manifest["runtime"][package] = None
-        files = subprocess.check_output(["git", "ls-files", "-z", "--", *SOURCE_PATHS], cwd=source_root)
-        names = {name.decode("utf-8") for name in files.split(b"\0") if name}
-        names.add(Path(__file__).resolve().relative_to(source_root.resolve()).as_posix())
-        for name in sorted(names):
+        for name in source_file_names(source_root):
             self.manifest["source_files"][name] = self.blob((source_root / name).read_bytes(), "source")
 
     def blob(self, raw: bytes, kind: str) -> dict:
@@ -232,7 +244,9 @@ class _ArchivedClient:
 
     def table(self, name: str):
         builder = self.client.table(name)
-        return _ArchivedQuery(builder, name, self.archive) if name in ARCHIVED_TABLES else builder
+        forecast = (name == FORECAST_TABLE and self.archive.manifest["configuration"].get("capture_kind")
+                    == FORECAST_ARCHIVE_KIND)
+        return _ArchivedQuery(builder, name, self.archive) if name in ARCHIVED_TABLES or forecast else builder
 
     def rpc(self, name: str, params=None):
         builder = self.client.rpc(name, params)

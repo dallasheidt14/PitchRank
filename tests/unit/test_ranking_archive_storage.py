@@ -24,8 +24,9 @@ def captured(tmp_path):
 
 
 class FakeServer:
-    def __init__(self):
+    def __init__(self, recorded_at=None):
         self.objects, self.rows, self.calls = {}, {}, []
+        self.recorded_at = recorded_at
         self.storage = SimpleNamespace(from_=lambda bucket: self)
 
     def upload(self, path, content, options):
@@ -71,7 +72,7 @@ class FakeServer:
                     self.record["manifest_sha256"],
                     {
                         **self.record,
-                        "recorded_at": datetime.now(timezone.utc).isoformat(),
+                        "recorded_at": self.server.recorded_at or datetime.now(timezone.utc).isoformat(),
                     },
                 )
                 return SimpleNamespace(data=[])

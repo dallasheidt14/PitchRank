@@ -467,6 +467,9 @@ def test_dry_run_writes_nothing_and_saved_bundle_cannot_be_overwritten(tmp_path)
     assert not out.exists()
     write_bundle(out, {}, {}, dry_run=False)
     assert (out / "manifest.json").exists()
+    manifest = json.loads((out / "manifest.json").read_text())
+    assert "src/predictions/form_policy.py" in manifest["research_source_hashes"]
+    assert "src/predictions/form_study_contract.py" in manifest["research_source_hashes"]
     with pytest.raises(FileExistsError):
         write_bundle(out, {}, {}, dry_run=False)
 
