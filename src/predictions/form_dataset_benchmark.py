@@ -92,7 +92,7 @@ def benchmark_dataset(
     run_batch()
     result = _compare_eligible_outputs(eligible, report["audit"], outputs, policy)
     result.update(study_manifest_sha256=report["study_manifest_sha256"],
-                  server_observed_at=report["server_observed_at"], evaluation="performed",
+                  server_observed_at=report["server_observed_at"], evaluation_status="performed",
                   dataset_sha256=hashlib.sha256((directory / "dataset.json").read_bytes()).hexdigest(),
                   aa_parity=True, batches=runs, production_promotion=False,
                   runtime={"python": platform.python_version(),

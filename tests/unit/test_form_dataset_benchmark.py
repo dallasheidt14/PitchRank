@@ -1,4 +1,5 @@
 import json
+import math
 from copy import deepcopy
 
 import pytest
@@ -82,7 +83,16 @@ def test_batched_replay_keeps_inputs_residuals_and_periods_paired(registered_stu
         assert not (output / "report.json").exists()
         return
     result = benchmark.benchmark_dataset(server, "url", "token", directory, runner, output, dry_run=False)
-    assert result["status"] == "no_advancement" and result["evaluation"] == "performed"
+    assert result["status"] == "no_advancement" and result["evaluation_status"] == "performed"
+    saved = json.loads((output / "report.json").read_text())
+    assert saved["evaluation_status"] == "performed" and saved["evaluation"] == result["evaluation"]
+    for metrics in result["evaluation"].values():
+        assert metrics["games"] == 1
+        assert metrics["log_loss"] == pytest.approx(-math.log(.6))
+        assert metrics["brier_score"] == pytest.approx(.24)
+        assert metrics["margin_mae"] == 1
+        assert metrics["blowout_4plus_brier"] == pytest.approx(.01)
+    assert set(result["evaluation"]) == {"baseline", "candidate"}
     assert result["aa_parity"] is True and result["production_promotion"] is False
     assert len(result["batches"]) == len(calls) == 3
     assert [call["cases"][0]["period"] for call in calls] == ["development", "development", "evaluation"]
