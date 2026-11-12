@@ -3006,3 +3006,19 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: the out-of-state section and its FAQ answer in `frontend/content/blog/{kansas,oregon,south-carolina,tennessee,utah}-youth-soccer-rankings-guide.mdx`, and the matching `BLOG_FAQS` answers in `frontend/lib/blog-faqs.ts`
 - **Why**: These five guides write "Across/Of the N games … X% were against", tying a share of each team's own games to the distinct-game count, and the Kansas guide also says "Wichita plays mostly at home" for what is opponent-state data, not venue (both confirmed by grep 2026-11-11). The seo skill's State Guide step 2 now prescribes "counting each team's own games" and "against out-of-state teams". Unverified: whether those older figures were computed per team's own games, so re-derive before rewording.
 - **Noted**: 2026-11-11
+
+### TGS chain hand-offs cancel a manual run queued behind the running link
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: the workflow-level `concurrency:` block and the finalize step "Dispatch next chain link" in `.github/workflows/tgs-event-scrape-import.yml`
+- **Why**: GitHub keeps one pending run per concurrency group and cancels it when another run queues, so each chain hand-off (`gh workflow run` for the next link) silently cancels a manual TGS run waiting behind the running link, while the block's comment describes a queue that protects manual backfills. On 2026-11-02 manual run 41499950685 (4306-4319) was created at 18:22:27 while link 4301-4600 ran 18:15:38-18:28:33, and survived only because that link was then the last; now that it dispatches 4601-4900, the same run would be cancelled. GitHub's workflow syntax reference documents the fix (checked 2026-11-11): `queue: max` lets up to 100 runs wait in the group, and is refused only alongside `cancel-in-progress: true`, which this workflow does not set.
+- **Noted**: 2026-11-11
+
+### Give the CI jobs a time limit
+
+- **Type**: direct
+- **Category**: reliability
+- **Where**: every job in `.github/workflows/ci.yml`, longest-running first: `python-test-linux` and `matchbalance-windows-export-test`
+- **Why**: No job in `ci.yml` sets `timeout-minutes`, and pytest-timeout is not installed (checked 2026-11-11), so a test that hangs, such as a subprocess with no timeout or an unbounded loop, holds the merge gate until GitHub's 360-minute job default. Found while reviewing `tests/unit/test_tgs_workflow_chain.py`, whose first draft walked the chain with no bound.
+- **Noted**: 2026-11-11
