@@ -1024,6 +1024,8 @@ def main() -> None:
         help="Optional source artifact path recorded on prospective rows",
     )
     parser.add_argument("--limit", type=int, default=None, help="Optional max number of fixtures to ingest")
+    parser.add_argument("--selection", choices=("balanced", "chronological"), default="balanced",
+                        help="Stored-fixture sampling; both modes preserve the collecting predictor")
     parser.add_argument("--lookback-days", type=int, default=365, help="Historical window for recent games")
     parser.add_argument(
         "--model-artifact",
@@ -1054,7 +1056,8 @@ def main() -> None:
     if args.database:
         from src.predictions.prospective_fixtures import prepare_database_fixtures
         summary = prepare_database_fixtures(
-            _supabase_client(), limit=500 if args.limit is None else args.limit, dry_run=not args.execute)
+            _supabase_client(), limit=500 if args.limit is None else args.limit, dry_run=not args.execute,
+            selection=args.selection)
         if args.execute and args.summary_path:
             summary_path = Path(args.summary_path)
             summary_path.parent.mkdir(parents=True, exist_ok=True)

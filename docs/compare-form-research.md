@@ -206,11 +206,11 @@ The attack/defense fitter is an offline building block with cohort-average
 shrinkage and no home advantage; fitting/testing that challenger on real data
 depends on the same provenance and coverage gates.
 
-Before prospective challenger collection, a separate reviewed migration must add
-immutable child forecasts keyed by baseline forecast ID and candidate signature,
-plus an immutable candidate manifest and pre-match server timestamps. The baseline
-ledger cannot store another model by inserting the source fixture again. No child
-storage migration or challenger capture is activated by this research command.
+Prospective challenger collection uses [separate private manifests and child
+forecasts](compare-paired-forecast-collection.md), keyed by baseline forecast ID
+and candidate signature with server capture timestamps. The baseline ledger cannot
+store another model by inserting the source fixture again. This research command
+does not activate registration or capture.
 
 The current calibration experiment stays registered for November 16–December 13
 development and December 14–January 10, 2027 holdout. The existing benchmark remains
