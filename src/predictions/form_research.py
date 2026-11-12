@@ -23,6 +23,7 @@ from src.predictions.compare_benchmark import paired_event_interval
 from src.predictions.evaluation_reporting import compute_evaluation_summary
 from src.predictions.form_policy import (
     CALIBRATION_ROLES,
+    CALIBRATION_SNAPSHOT_FILES,
     FORM_CANDIDATES,
     FORM_HISTORY_SIZE,
     FORM_OPPONENT_CAP,
@@ -74,7 +75,11 @@ def expectation_payload(expected: dict) -> dict:
     return payload
 
 
-def valid_expectation(expected: dict, game: dict) -> bool:
+def valid_expectation(expected: dict, game: dict, sources=None) -> bool:
+    if sources is not None:
+        return sources.valid_expectation(expected, game)
+    if expected.get("source_witness") is not None:
+        return False
     identity = {
         "source_game_id": game.get("source_game_id") or game["id"],
         "game_date": game["game_date"],
@@ -122,7 +127,7 @@ def provenance_error(provenance: dict, game_date: str) -> str | None:
     return None
 
 
-def prediction_input_error(case: dict, day: str) -> str | None:
+def prediction_input_error(case: dict, day: str, sources=None) -> str | None:
     reference = match_start(day)
     if "reference_time" in case:
         try:
@@ -139,6 +144,10 @@ def prediction_input_error(case: dict, day: str) -> str | None:
         return "invalid_target_orientation"
     if case.get("predictor_revision") != PINNED_REVISION:
         return "wrong_predictor_revision"
+    if case.get("source_witness") is not None:
+        return "unverified_archive_witness" if sources is None else sources.prediction_input_error(case, day)
+    if sources is not None:
+        return "missing_archive_witness"
     descriptors = case.get("input_provenance", [])
     if len(descriptors) != len(INPUT_ROLES) or {p.get("role") for p in descriptors} != INPUT_ROLES:
         return "missing_input_provenance"
@@ -246,14 +255,9 @@ def reconstruction_error(expected: dict) -> str | None:
         if timestamp(inputs["reference_time"]) >= match_start(fixture["game_date"]):
             return "reconstruction_reference_after_cutoff"
         signature_payload = receipt["model_signature_payload"]
-        signature_keys = {
-            "ageGroups": "age_group_parameters.json", "probability": "probability_parameters.json",
-            "margin": "margin_parameters_v2.json", "outcome": "heuristic_outcome_calibration.json",
-            "confidence": "confidence_parameters_v2.json",
-        }
         if (json.loads(signature_payload) != {
                 "algorithm": receipt["algorithm_hash"],
-                "calibration": {key: inputs["calibrations"][file] for key, file in signature_keys.items()},
+                "calibration": {key: inputs["calibrations"][file] for key, file in CALIBRATION_SNAPSHOT_FILES.items()},
             } or hashlib.sha256(signature_payload.encode()).hexdigest() != receipt["model_signature"]):
             return "reconstruction_signature_payload_mismatch"
         if any(expected.get(k) != fixture.get(k) for k in (
@@ -328,7 +332,9 @@ def reconstruct_expectations(cases: list[dict], runner: dict, computed_at: str) 
     return expectations
 
 
-def residual_form(team_id: str, games: list[dict], expectations: dict, as_of: str, candidate: str) -> dict:
+def residual_form(
+    team_id: str, games: list[dict], expectations: dict, as_of: str, candidate: str, sources=None
+) -> dict:
     """Replace only the scalar form input; other recent-profile fields stay raw."""
     if candidate not in FORM_CANDIDATES:
         raise ValueError("Unknown form candidate")
@@ -356,7 +362,7 @@ def residual_form(team_id: str, games: list[dict], expectations: dict, as_of: st
         expected = expectations.get(game.get("source_game_id") or game["id"])
         if expected is None:
             expected = expectations.get(game["id"])
-        if not expected or not valid_expectation(expected, game):
+        if not expected or not valid_expectation(expected, game, sources):
             missing += 1
             continue
         home = game["home_team_master_id"] == team_id
@@ -394,7 +400,7 @@ def residual_form(team_id: str, games: list[dict], expectations: dict, as_of: st
     }
 
 
-def audit_cases(cases: list[dict], policy: ResearchPolicy) -> tuple[list[dict], dict]:
+def audit_cases(cases, policy: ResearchPolicy, sources=None, *, retain_inputs: bool = True) -> tuple[list[dict], dict]:
     """Cases carry frozen TS inputs, actual outcomes, and independently verified provenance."""
     seen = set()
     candidates = []
@@ -419,7 +425,7 @@ def audit_cases(cases: list[dict], policy: ResearchPolicy) -> tuple[list[dict], 
         elif case.get("predictor_revision") != policy.predictor_revision:
             reason = "wrong_predictor_revision"
         else:
-            reason = prediction_input_error(case, day)
+            reason = prediction_input_error(case, day, sources)
         if reason:
             exclusions[reason] += 1
             coverage[label][reason] += 1
@@ -433,7 +439,10 @@ def audit_cases(cases: list[dict], policy: ResearchPolicy) -> tuple[list[dict], 
             else None
         )
         if period:
-            candidates.append({**case, "period": period})
+            retained = case if retain_inputs else {
+                key: deepcopy(case[key]) for key in ("fixture", "source_witness", "dataset_member") if key in case
+            }
+            candidates.append({**retained, "period": period})
         else:
             exclusions["outside_windows"] += 1
     group_periods = defaultdict(set)
@@ -506,9 +515,13 @@ def evaluation_frame(cases: list[dict], outputs: list[dict]) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def compare_outputs(cases: list[dict], outputs: dict[str, list[dict]], policy: ResearchPolicy) -> dict:
+def compare_outputs(cases: list[dict], outputs: dict[str, list[dict]], policy: ResearchPolicy, sources=None) -> dict:
     """Choose on development only; evaluation is read once for the selected candidate."""
-    eligible, audit = audit_cases(cases, policy)
+    eligible, audit = audit_cases(cases, policy, sources)
+    return _compare_eligible_outputs(eligible, audit, outputs, policy)
+
+
+def _compare_eligible_outputs(eligible: list[dict], audit: dict, outputs: dict, policy: ResearchPolicy) -> dict:
     report = {"policy": asdict(policy), "audit": audit, "status": audit["status"]}
     if audit["status"] != "eligible":
         return report

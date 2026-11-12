@@ -1,5 +1,6 @@
 """Execute archive index and private-storage protections in disposable PostgreSQL."""
 
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -8,6 +9,8 @@ psycopg2 = pytest.importorskip("psycopg2")
 from psycopg2 import sql  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
+
+from src.predictions.archive_inputs import ARCHIVE_INVENTORY_QUERY  # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -46,6 +49,46 @@ def insert(cursor, sha):
     """,
         (sha, "a" * 40, f"runs/{sha}/manifest.json"),
     )
+
+
+def test_inventory_statement_returns_one_read_only_snapshot_above_the_rest_page_limit(database):
+    writer = psycopg2.connect(**database.get_dsn_parameters())
+    hidden_sha, visible_sha = f"{9001:064x}", f"{9002:064x}"
+    try:
+        with writer.cursor() as cursor:
+            insert(cursor, hidden_sha)
+        with database.cursor() as cursor:
+            insert(cursor, visible_sha)
+            cursor.execute("""
+                INSERT INTO prediction_input_archives (
+                    manifest_sha256,source_revision,manifest_path,capture_started_at,capture_finished_at,object_count
+                ) SELECT lpad(to_hex(n),64,'0'),repeat('a',40),'runs/'||lpad(to_hex(n),64,'0')||'/manifest.json',
+                         clock_timestamp()-interval '2 seconds',clock_timestamp()-interval '1 second',1
+                  FROM generate_series(10000,11000) n;
+            """)
+
+            def snapshot():
+                cursor.execute("BEGIN READ ONLY")
+                try:
+                    cursor.execute(ARCHIVE_INVENTORY_QUERY)
+                    read_only, observed_at, records = cursor.fetchone()
+                    assert read_only == "on"
+                    assert all(datetime.fromisoformat(row["recorded_at"]) <= observed_at for row in records)
+                    identifiers = [row["manifest_sha256"] for row in records]
+                    assert identifiers == sorted(identifiers)
+                    return set(identifiers)
+                finally:
+                    cursor.execute("ROLLBACK")
+
+            before = snapshot()
+            assert {f"{i:064x}" for i in range(10000,11001)} <= before
+            assert visible_sha in before and hidden_sha not in before
+            writer.commit()
+            after = snapshot()
+            assert after == before | {hidden_sha}
+    finally:
+        writer.rollback()
+        writer.close()
 
 
 def test_server_sets_availability_and_preserves_first_registration(database):
