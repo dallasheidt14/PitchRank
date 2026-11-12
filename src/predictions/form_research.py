@@ -10,7 +10,7 @@ import re
 import subprocess
 from collections import Counter, defaultdict
 from copy import deepcopy
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 from datetime import date, datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
@@ -21,48 +21,16 @@ from scipy.optimize import minimize
 
 from src.predictions.compare_benchmark import paired_event_interval
 from src.predictions.evaluation_reporting import compute_evaluation_summary
-
-PINNED_REVISION = "866f30c73a84524028b9fe8e55b3108ec8d544fc"
-FORM_CANDIDATES = (
-    "baseline",
-    "form_off",
-    "residual_sequence",
-    "residual_30",
-    "residual_60",
-    "residual_30_capped",
-    "residual_60_capped",
+from src.predictions.form_policy import (
+    CALIBRATION_ROLES,
+    FORM_CANDIDATES,
+    FORM_HISTORY_SIZE,
+    FORM_OPPONENT_CAP,
+    FORM_RESIDUAL_CLIP,
+    INPUT_ROLES,
+    PINNED_REVISION,
+    ResearchPolicy,
 )
-INPUT_ROLES = frozenset(
-    {
-        "team_a_snapshot",
-        "team_b_snapshot",
-        "calibration_margin",
-        "calibration_outcome",
-        "calibration_age_groups",
-        "calibration_probability",
-        "calibration_confidence",
-    }
-)
-CALIBRATION_ROLES = {
-    "calibration_margin": "margin_parameters_v2.json",
-    "calibration_outcome": "heuristic_outcome_calibration.json",
-    "calibration_age_groups": "age_group_parameters.json",
-    "calibration_probability": "probability_parameters.json",
-    "calibration_confidence": "confidence_parameters_v2.json",
-}
-
-
-@dataclass(frozen=True)
-class ResearchPolicy:
-    development_start: str = "2026-08-17"
-    development_end: str = "2026-10-11"
-    evaluation_start: str = "2026-10-12"
-    evaluation_end: str = "2026-11-08"
-    minimum_games: int = 1000
-    minimum_groups: int = 20
-    seed: int = 20261111
-    bootstrap_samples: int = 1000
-    predictor_revision: str = PINNED_REVISION
 
 
 def digest(value: object) -> str:
@@ -376,7 +344,7 @@ def residual_form(team_id: str, games: list[dict], expectations: dict, as_of: st
         ),
         key=lambda g: g["game_date"],
         reverse=True,
-    )[:8]
+    )[:FORM_HISTORY_SIZE]
     if candidate == "baseline":
         raise ValueError("Baseline form is computed by the pinned TypeScript predictor")
     if candidate == "form_off":
@@ -393,12 +361,13 @@ def residual_form(team_id: str, games: list[dict], expectations: dict, as_of: st
             continue
         home = game["home_team_master_id"] == team_id
         actual = game["home_score"] - game["away_score"]
-        residual = max(-4.0, min(4.0, actual - expected["expected_home_margin"])) * (1 if home else -1)
+        residual = max(-FORM_RESIDUAL_CLIP, min(FORM_RESIDUAL_CLIP, actual - expected["expected_home_margin"]))
+        residual *= 1 if home else -1
         opponent = game["away_team_master_id"] if home else game["home_team_master_id"]
         if candidate == "residual_sequence":
             weight = math.exp(-0.28 * position)
         else:
-            half_life = 30 if "30" in candidate else 60
+            half_life = int(candidate.split("_")[1])
             age = (date.fromisoformat(as_of) - date.fromisoformat(game["game_date"])).days
             weight = 2 ** (-age / half_life)
         samples.append((opponent, residual, weight))
@@ -410,11 +379,11 @@ def residual_form(team_id: str, games: list[dict], expectations: dict, as_of: st
     numerator = denominator = 0.0
     for opponent, residual, weight in samples:
         if capped:
-            weight /= max(1.0, weights[opponent])
+            weight /= max(FORM_OPPONENT_CAP, weights[opponent]) / FORM_OPPONENT_CAP
         numerator += residual * weight
         denominator += weight
     sample_size = len(weights) if capped else len(samples)
-    shrinkage = min(1.0, sample_size / 8)
+    shrinkage = min(1.0, sample_size / FORM_HISTORY_SIZE)
     return {
         "value": numerator / denominator * shrinkage if denominator else 0.0,
         "usable": len(samples),
@@ -662,11 +631,10 @@ def write_bundle(output: Path, inputs: dict, report: dict, *, dry_run: bool = Tr
         return
     output.mkdir(parents=True, exist_ok=False)
     root = Path(__file__).resolve().parents[2]
-    research_files = (
-        "src/predictions/form_research.py",
-        "scripts/benchmark_compare_form.py",
-        "frontend/scripts/run-form-research.ts",
-    )
+    from src.predictions.form_study import is_research_source
+    from src.rankings.input_archive import source_file_names
+
+    research_files = [name for name in source_file_names(root) if is_research_source(name)]
     manifest = {
         "schema_version": 1,
         "input_hash": digest(inputs),

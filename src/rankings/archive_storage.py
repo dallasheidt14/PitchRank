@@ -1,4 +1,4 @@
-"""Verify local ranking archives and publish them to private, immutable storage."""
+"""Verify local input archives and publish them to private, immutable storage."""
 
 from __future__ import annotations
 
@@ -11,6 +11,10 @@ from datetime import datetime
 from pathlib import Path
 
 from storage3.exceptions import StorageApiError
+
+from src.predictions.form_study import validate_study_sources
+from src.predictions.form_study_contract import FORM_STUDY_KIND, validate_study_definition
+from src.rankings.input_archive import FORECAST_ARCHIVE_KIND, FORECAST_TABLE
 
 BUCKET = "prediction-input-archives"
 INDEX = "prediction_input_archives"
@@ -41,12 +45,22 @@ def verify_archive(directory: Path) -> tuple[dict, bytes, dict[str, Path]]:
     end = datetime.fromisoformat(manifest["finished_at"])
     if start.tzinfo is None or end.tzinfo is None or start > end:
         raise ValueError("Invalid archive chronology")
-    required = {"games", "teams", "team_merge_map", "team_ranking_exclusions"}
     reads = {q["table"] for q in manifest.get("queries", []) if q["operation"] == "select"}
-    if not required <= reads or not manifest.get("engine_configurations"):
-        raise ValueError("Archive is missing required ranking inputs or resolved configuration")
-    if manifest.get("configuration", {}).get("ml") and not manifest.get("model_outputs"):
-        raise ValueError("Archive is missing ML outputs or explicit passthrough evidence")
+    configuration = manifest.get("configuration", {})
+    kind = configuration.get("capture_kind")
+    if kind == FORM_STUDY_KIND:
+        if manifest.get("queries"):
+            raise ValueError("Study registration cannot contain fixture or outcome queries")
+        validate_study_definition(configuration.get("study_definition", {}))
+    elif kind == FORECAST_ARCHIVE_KIND:
+        if reads != {FORECAST_TABLE} or any(q["operation"] != "select" for q in manifest["queries"]):
+            raise ValueError("Forecast archive must contain only completed-forecast reads")
+    else:
+        required = {"games", "teams", "team_merge_map", "team_ranking_exclusions"}
+        if not required <= reads or not manifest.get("engine_configurations"):
+            raise ValueError("Archive is missing required ranking inputs or resolved configuration")
+        if configuration.get("ml") and not manifest.get("model_outputs"):
+            raise ValueError("Archive is missing ML outputs or explicit passthrough evidence")
     files = {}
     sizes = {}
     for reference in references(manifest):
@@ -69,6 +83,8 @@ def verify_archive(directory: Path) -> tuple[dict, bytes, dict[str, Path]]:
             raise ValueError("Conflicting archive object sizes")
     if not files:
         raise ValueError("Empty input archive")
+    if kind == FORM_STUDY_KIND:
+        validate_study_sources(root, manifest)
     return manifest, raw, files
 
 
@@ -122,5 +138,7 @@ def publish_archive(client, directory: Path, *, dry_run: bool = True) -> dict:
     for field in ("capture_started_at", "capture_finished_at"):
         if datetime.fromisoformat(result[field]) != datetime.fromisoformat(record[field]):
             raise ValueError("Registered archive chronology changed")
+    if manifest.get("configuration", {}).get("capture_kind") == FORM_STUDY_KIND:
+        validate_study_definition(manifest["configuration"]["study_definition"], registered_at=result["recorded_at"])
     summary.update({"registered": True, "recorded_at": result["recorded_at"]})
     return summary
