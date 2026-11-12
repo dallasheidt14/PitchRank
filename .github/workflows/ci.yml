@@ -45,6 +45,8 @@ jobs:
       PROSPECTIVE_TEST_DATABASE_URL: postgresql://postgres:compare-test@127.0.0.1:5432/postgres
     steps:
       - uses: actions/checkout@v4
+      - name: Fetch pinned Compare research baseline
+        run: git fetch --no-tags --depth=1 origin 866f30c73a84524028b9fe8e55b3108ec8d544fc
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
