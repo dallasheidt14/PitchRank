@@ -988,7 +988,8 @@ CLUB_CANONICAL_OVERRIDES = [
     ("IL", "exact", "Chicago Fire FC", "Chicago Fire Youth SC"),
     ("IL", "exact", "Chicago Inter Soccer", "Chicago Inter"),
     ("IL", "exact", "Chicago Soccer Academy", "Chicago Soccer Academy (CSA)"),
-    ("IL", "exact", "FC Stars", "FC Stars (il)"),
+    # The owner's spelling, 2026-11-12.
+    ("IL", "exact", "FC Stars", "FC Stars (IL)"),
     ("IL", "exact", "Sockers FC", "Sockers FC Chicago"),
     ("IL", "exact", "St. Louis Scott Gallagher", "St. Louis Scott Gallagher"),
     # Arizona
@@ -1365,7 +1366,7 @@ CLUB_CANONICAL_OVERRIDES = [
     ),
     ("NH", "exact", "Oyster River Youth Soccer Assn", "Oyster River United"),
     # The 36 rows already under "FC Stars" are almost all "FC Stars New Hampshire" teams,
-    # so this state's branch is filed there; Illinois keeps its own "FC Stars (il)".
+    # so this state's branch is filed there; Illinois' FC Stars is a separate club with its own entry.
     ("NH", "exact", "FC Stars NH", "FC Stars"),
     # Left apart deliberately, each on its team names rather than on its club name:
     #   Manchester Lightning is not Lightning SC, whose teams read "Lightning Soccer Club".
@@ -1522,7 +1523,8 @@ CLUB_CANONICAL_OVERRIDES = [
     ("CO", "exact", "Colorado Rapids South", "Colorado Rapids Youth Soccer Club"),
     ("CO", "exact", "Colorado Rapids Castle Rock", "Colorado Rapids Youth Soccer Club"),
     ("CO", "exact", "USYS Subscribers", "Colorado Rapids Youth Soccer Club"),
-    ("CO", "exact", "Colorado EDGE (Arvada Soccer Assn)", "Colorado EDGE"),
+    # The owner's spelling, 2026-10-29, although the club writes "Colorado EDGE".
+    ("CO", "exact", "Colorado EDGE (Arvada Soccer Assn)", "Colorado Edge"),
     ("CO", "exact", "Skyline Soccer Assn (SSA)", "Skyline"),
     ("CO", "exact", "Pueblo Rangers", "Pueblo Rangers SC"),
     # Sixteen rows each way, so the tie goes to the spelling that names the club in full.
@@ -2363,7 +2365,7 @@ CLUB_CANONICAL_OVERRIDES = [
     ("PA", "norm", "Jenkintown Youth Activities", "Jenkintown Youth Activities"),
     ("PA", "norm", "Parkland Area Soccer Club", "Parkland Area Soccer Club"),
     # The state tag is this club's own disambiguator -- Victory SC and Fusion FC both
-    # exist in other states -- so the canonical keeps it, as Illinois' "FC Stars (il)".
+    # exist in other states -- so the canonical keeps it.
     ("PA", "exact", "Fusion FC", "Fusion FC (pa)"),
     ("PA", "exact", "Fusion Soccer Club (PA)", "Fusion FC (pa)"),
     # Both spellings write "Lampeter-Strasburg" into their team names, so the canonical
@@ -3035,9 +3037,9 @@ AFFINITY_UT_OVERRIDES = [
 
 CLUB_CANONICAL_OVERRIDES += AFFINITY_UT_OVERRIDES
 
-# Spelling groups the owner decided on 2026-11-04, from scan_club_name_variants.py's list of what
-# the entries above leave behind. Each was decided from one state's teams, so STATE_ONLY_PATTERNS
-# derives from this list too and the no-state pass never applies one to a stateless team. Where the
+# Spelling groups the owner decided from 2026-11-04 on, among what the entries above leave behind.
+# Each was decided from one state's teams, so STATE_ONLY_PATTERNS derives from this list too and
+# the no-state pass never applies one to a stateless team. Where the
 # owner kept two clubs apart, or left a group for more research, no entry joins them. Add a new
 # owner spelling decision here, never inline above.
 SPELLING_GROUP_OVERRIDES = [
@@ -3057,6 +3059,7 @@ SPELLING_GROUP_OVERRIDES = [
     ("CA", "exact", "Express SC", "Express Soccer"),
     ("CA", "exact", "La Breakers", "LA Breakers FC"),
     ("CA", "exact", "LAFC SO CAL YOUTH", "LAFC So Cal"),
+    ("CA", "exact", "LAFC Socal Youth", "LAFC So Cal"),
     ("CA", "exact", "Laguna United", "Laguna United FC"),
     ("CA", "exact", "LAIFC", "Los Angeles International FC"),
     ("CA", "exact", "Lincoln Youth Soccer Club", "Lincoln FC"),
@@ -3108,6 +3111,7 @@ SPELLING_GROUP_OVERRIDES = [
     ("MN", "exact", "Minnesota TwinStars Academy (TSA)", "Minnesota TwinStars Academy"),
     ("MO", "exact", "Sporting City", "Sporting City Soccer Club"),
     ("MO", "exact", "St. Louis Scott Gallagher St. Charles (Missouri)", "St. Louis Scott Gallagher St. Charles"),
+    ("MS", "exact", "Desoto County SA / Desoto FC", "Desoto FC"),
     ("MS", "exact", "Pearl FC", "Pearl Youth Soccer League"),
     ("MS", "exact", "Vicksburg Soccer Org & Cannon SC", "Cannon SC & Vicksburg Soccer Org"),
     ("NC", "exact", "Charlotte Eagles", "Charlotte Eagles Soccer Club"),

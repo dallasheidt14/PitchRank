@@ -646,6 +646,23 @@ def test_a_capital_rename_is_listed_but_not_approved():
     assert dict(stats["abbreviation_renames"]) == {"capital": 1}
 
 
+def test_a_spelling_the_owner_kept_is_never_restored():
+    """The owner decided "Colorado Edge" on 2026-10-29, after the cleanup had lowered "Colorado EDGE"."""
+    log = _line("CO", "Colorado EDGE", "Colorado Edge")
+    team = _team(1, "Colorado Edge 2014 Blue", "Colorado Edge", provider=GS, state="CO")
+    rows, stats = build_snapshot(_db(team), {}, [log])
+    assert rows == []
+    assert dict(stats["abbreviation_renames"]) == {}
+
+
+def test_a_kept_spelling_is_kept_only_in_its_own_state():
+    log = _line("KS", "Colorado EDGE", "Colorado Edge")
+    team = _team(1, "Colorado Edge 2014 Blue", "Colorado Edge", provider=GS, state="KS")
+    rows, stats = build_snapshot(_db(team), {}, [log])
+    assert [(r["proposed_club"], r["tier"], r["approved"]) for r in rows] == [("Colorado EDGE", "word", True)]
+    assert dict(stats["abbreviation_renames"]) == {"word": 1}
+
+
 def test_a_no_state_rename_is_undone_for_null_and_empty_states_only():
     log = _line("NO_STATE", "Eastside FC (WA)", "Eastside FC (wa)")
     rows, _ = build_snapshot(
