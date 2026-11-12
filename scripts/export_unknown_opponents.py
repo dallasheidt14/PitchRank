@@ -29,7 +29,7 @@ from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 import requests
 from dotenv import load_dotenv
@@ -37,10 +37,12 @@ from dotenv import load_dotenv
 from supabase import create_client
 
 # The workflow runs this as `python3 scripts/...`, which puts scripts/ on the
-# path and not the repo root. team_association_map imports nothing beyond
-# typing, so it is safe to reach for from a job that installs three packages.
+# path and not the repo root. Everything imported from src/ below depends only on
+# requests and the standard library, so it is safe to reach for from a job that
+# installs three packages.
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
+from src.utils.gotsport_team_details import TeamDetailsPacer  # noqa: E402
 from src.utils.team_association_map import to_state_code  # noqa: E402
 
 
@@ -113,10 +115,12 @@ def classify_unknown_side(game: Dict) -> Optional[UnknownSide]:
 class GotSportResolver:
     BASE_URL = "https://system.gotsport.com/api/v1/team_ranking_data/team_details"
 
-    def __init__(self, timeout: int = 15):
+    def __init__(self, timeout: int = 15, pacer: Optional[TeamDetailsPacer] = None):
         self.timeout = timeout
         self.session = requests.Session()
+        self.pacer = pacer or TeamDetailsPacer()
         self.cache: Dict[str, Dict[str, str]] = {}
+        self.failed: Set[str] = set()
 
     def resolve(self, provider_team_id: str) -> Dict[str, str]:
         key = str(provider_team_id).strip()
@@ -126,7 +130,8 @@ class GotSportResolver:
             return self.cache[key]
 
         try:
-            response = self.session.get(
+            response = self.pacer.get(
+                self.session,
                 self.BASE_URL,
                 params={"team_id": key},
                 timeout=self.timeout,
@@ -134,6 +139,7 @@ class GotSportResolver:
             if response.status_code == 404:
                 # "Can not find team" is a permanent answer, so cache it.
                 self.cache[key] = {}
+                self.failed.discard(key)
                 return {}
             response.raise_for_status()
             payload = response.json() if response.content else {}
@@ -141,8 +147,10 @@ class GotSportResolver:
                 payload = {}
         except Exception:
             # A WAF block, timeout or 429 says nothing about this team, so it is
-            # not cached -- a later row retries.
+            # not cached; a later row retries unless the pacer has stopped lookups.
+            self.failed.add(key)
             return {}
+        self.failed.discard(key)
 
         # team_details has no full_name, state, age or gender key; the real fields
         # are team_association, display_age_group and display_gender.
@@ -240,6 +248,32 @@ def ensure_group(groups: Dict, key: Tuple, got_details: Dict[str, str]) -> Dict:
     elif got_details and not group["resolved_unknown"]:
         group["resolved_unknown"] = got_details
     return group
+
+
+# Downstream stages read the unknown_* columns back by name.
+AGGREGATE_FIELDNAMES = [
+    "provider_code",
+    "provider_id",
+    "unknown_provider_team_id",
+    "missing_side",
+    "games_count",
+    "first_game_date",
+    "last_game_date",
+    "top_known_team_id",
+    "top_known_team_name",
+    "top_known_team_age_group",
+    "top_known_team_gender",
+    "top_known_team_club",
+    "top_known_team_state",
+    "top_competition",
+    "sample_game_ids",
+    "unknown_team_name",
+    "unknown_team_full_name",
+    "unknown_club_name",
+    "unknown_state",
+    "unknown_age",
+    "unknown_gender",
+]
 
 
 def write_csv(path: Path, fieldnames: List[str], rows: List[Dict]) -> None:
@@ -401,33 +435,7 @@ def main() -> None:
     aggregate_path = Path(f"{prefix}_aggregate.csv")
     detail_path = Path(f"{prefix}_games.csv")
 
-    write_csv(
-        aggregate_path,
-        fieldnames=[
-            "provider_code",
-            "provider_id",
-            "unknown_provider_team_id",
-            "missing_side",
-            "games_count",
-            "first_game_date",
-            "last_game_date",
-            "top_known_team_id",
-            "top_known_team_name",
-            "top_known_team_age_group",
-            "top_known_team_gender",
-            "top_known_team_club",
-            "top_known_team_state",
-            "top_competition",
-            "sample_game_ids",
-            "unknown_team_name",
-            "unknown_team_full_name",
-            "unknown_club_name",
-            "unknown_state",
-            "unknown_age",
-            "unknown_gender",
-        ],
-        rows=aggregate_rows,
-    )
+    write_csv(aggregate_path, fieldnames=AGGREGATE_FIELDNAMES, rows=aggregate_rows)
 
     write_csv(
         detail_path,
@@ -469,6 +477,8 @@ def main() -> None:
     print(f"Detail rows: {len(detail_rows):,}")
     print(f"Aggregate CSV: {aggregate_path}")
     print(f"Detail CSV: {detail_path}")
+    if resolver:
+        print(f"GotSport lookups failed (ids left unread): {len(resolver.failed):,}")
 
     print("\nTop 10 unresolved provider IDs:")
     for idx, row in enumerate(aggregate_rows[:10], start=1):

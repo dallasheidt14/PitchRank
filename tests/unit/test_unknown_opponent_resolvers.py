@@ -11,12 +11,15 @@ rather than ceremonial: GotSport answers an unknown id with HTTP 404 and a valid
 JSON body, which parses into an all-empty dict if the status is never checked.
 """
 
+import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
 import requests
+from requests.structures import CaseInsensitiveDict
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
@@ -105,7 +108,6 @@ EXPECTATIONS = [
             "state": "WA",
             "age": "U15",
             "gender": "Male",
-            "city_state_country": "US",
         },
         id="discover",
     ),
@@ -173,9 +175,10 @@ class _FakeResponse:
 
     content = b"{}"
 
-    def __init__(self, payload, status_code=200):
+    def __init__(self, payload, status_code=200, headers=None):
         self._payload = payload
         self.status_code = status_code
+        self.headers = CaseInsensitiveDict(headers or {})
 
     def raise_for_status(self):
         if self.status_code >= 400:
@@ -186,19 +189,25 @@ class _FakeResponse:
 
 
 class _FakeSession:
-    def __init__(self, payload, status_code=200):
+    """requests sends at get(), so that is where the URL, query and timeout are recorded."""
+
+    def __init__(self, payload, status_code=200, headers=None):
         self._payload = payload
         self._status_code = status_code
+        self._headers = headers
         self.calls = []
+        self.sent = []
 
     def get(self, url, params=None, timeout=None):
         self.calls.append(params)
-        return _FakeResponse(self._payload, self._status_code)
+        self.sent.append((url, params, timeout))
+        return _FakeResponse(self._payload, self._status_code, self._headers)
 
 
-def _make_resolver(module):
-    cls = getattr(module, "GotSportResolver", None) or module.TeamDetailsResolver
-    return cls()
+def _make_resolver(module, sleep=lambda _seconds: None):
+    if module is gotsport_team_details:
+        return module.TeamDetailsResolver()
+    return module.GotSportResolver(pacer=gotsport_team_details.TeamDetailsPacer(cooldown_sec=300, sleep=sleep))
 
 
 def _resolve(module, payload, status_code=200):
@@ -247,7 +256,7 @@ def test_the_lookup_is_cached_per_team_id(module, expected):
 
 
 class _FailingThenWorkingSession:
-    """GotSport's /api/v1 is CloudFront-fronted and answers a burst with 403."""
+    """Raises a transport error on the first get(); a CloudFront 403 is the pacer's case (_ScriptedSession)."""
 
     def __init__(self, payload):
         self._payload = payload
@@ -262,9 +271,8 @@ class _FailingThenWorkingSession:
 
 @pytest.mark.parametrize("module,expected", EXPECTATIONS)
 def test_a_transport_failure_is_not_cached_as_an_answer(module, expected):
-    """Caching the empty result made one WAF block permanent for the run, and
-    an empty resolve is indistinguishable from a team with no metadata -- which
-    is what sends the caller back to the opponent's cohort."""
+    """An empty resolve is indistinguishable from a team with no metadata, which sends the
+    caller to the opponent's cohort, so a transport failure is not cached."""
     resolver = _make_resolver(module)
     resolver.session = _FailingThenWorkingSession(TEAM_DETAILS)
 
@@ -297,3 +305,152 @@ def test_a_server_error_body_is_never_parsed_as_a_team(module, expected):
     only thing separating it from a payload."""
     resolved, _ = _resolve(module, dict(TEAM_DETAILS), status_code=503)
     assert resolved == {}
+
+
+# The shared module's TeamDetailsResolver takes no pacer, so it is not among these.
+PACED_EXPECTATIONS = [p for p in EXPECTATIONS if p.values[0] in SCRIPT_MODULES]
+CLOUDFRONT = {"Server": "CloudFront"}
+WORKFLOW = PROJECT_ROOT / ".github" / "workflows" / "unknown-opponent-hygiene-weekly.yml"
+TIMEOUTS = {
+    "export_unknown_opponents": 15,
+    "auto_match_unknown_opponents": 15,
+    "due_diligence_unknown_opponents": 20,
+    "discover_teams_from_opponents": 15,
+}
+
+
+def _workflow_scripts_reading_team_details():
+    names = dict.fromkeys(re.findall(r"python3 scripts/(\w+)\.py", WORKFLOW.read_text(encoding="utf-8")))
+    readers = []
+    for name in names:
+        source = (PROJECT_ROOT / "scripts" / f"{name}.py").read_text(encoding="utf-8")
+        if "team_ranking_data/team_details" in source or "gotsport_team_details" in source:
+            readers.append(name)
+    return readers
+
+
+class _Sleeps(list):
+    def __call__(self, seconds):
+        self.append(seconds)
+
+
+class _ScriptedSession:
+    """Answers with each scripted response in turn, then repeats the last."""
+
+    def __init__(self, *responses):
+        self._responses = list(responses)
+        self.calls = []
+
+    def get(self, url, params=None, timeout=None):
+        self.calls.append(params)
+        return self._responses.pop(0) if len(self._responses) > 1 else self._responses[0]
+
+
+def test_every_script_the_weekly_job_runs_against_team_details_is_under_the_paced_tests():
+    """Read from the workflow, so a stage that starts reading team_details fails here until it
+    joins the tests below."""
+    assert sorted(_workflow_scripts_reading_team_details()) == sorted(m.__name__ for m in SCRIPT_MODULES)
+    assert {p.values[0] for p in PACED_EXPECTATIONS} == set(SCRIPT_MODULES)
+
+
+@pytest.mark.parametrize("module", SCRIPT_MODULES, ids=lambda m: m.__name__)
+def test_a_resolver_built_as_the_scripts_build_it_is_paced(module, monkeypatch):
+    monkeypatch.delenv("GOTSPORT_WAF_COOLDOWN_SEC", raising=False)
+    pacer = module.GotSportResolver().pacer
+    assert (pacer.spacing_sec, pacer.cooldown_sec, pacer.sleep) == (3.0, 300, time.sleep)
+
+
+def test_the_cooldown_can_be_set_from_the_environment(monkeypatch):
+    monkeypatch.setenv("GOTSPORT_WAF_COOLDOWN_SEC", "45")
+    assert gotsport_team_details.TeamDetailsPacer().cooldown_sec == 45
+
+
+@pytest.mark.parametrize("module,expected", PACED_EXPECTATIONS)
+def test_a_lookup_sends_the_team_id_to_team_details_with_a_timeout(module, expected):
+    """Without a timeout, one stalled connection holds the weekly job until GitHub kills it."""
+    resolver = _make_resolver(module)
+    session = _FakeSession(TEAM_DETAILS)
+    resolver.session = session
+
+    resolver.resolve("742007")
+
+    assert session.sent == [
+        (
+            "https://system.gotsport.com/api/v1/team_ranking_data/team_details",
+            {"team_id": "742007"},
+            TIMEOUTS[module.__name__],
+        )
+    ]
+
+
+@pytest.mark.parametrize("module,expected", PACED_EXPECTATIONS)
+def test_every_request_waits_its_spacing_first_and_a_cached_answer_does_not(module, expected):
+    """Back-to-back lookups are what GotSport's per-IP burst limiter blocks: on 2026-11-10
+    it refused every lookup after about the 1,100th of a run sent without a pause."""
+    sleeps = _Sleeps()
+    resolver = _make_resolver(module, sleep=sleeps)
+    resolver.session = _FakeSession(TEAM_DETAILS)
+
+    resolver.resolve("742007")
+    resolver.resolve("742008")
+    resolver.resolve("742007")
+
+    assert sleeps == [3.0, 3.0]
+
+
+@pytest.mark.parametrize("module,expected", PACED_EXPECTATIONS)
+def test_a_cloudfront_block_is_waited_out_and_retried_once(module, expected):
+    sleeps = _Sleeps()
+    resolver = _make_resolver(module, sleep=sleeps)
+    resolver.session = _ScriptedSession(_FakeResponse({}, 403, CLOUDFRONT), _FakeResponse(TEAM_DETAILS))
+
+    assert resolver.resolve("742007") == expected
+    assert sleeps == [3.0, 300, 3.0]
+
+
+@pytest.mark.parametrize("module,expected", PACED_EXPECTATIONS)
+def test_a_block_that_outlasts_the_wait_stops_every_later_lookup(module, expected):
+    """Pressing on through a block prolongs it, so the rest of the run sends no more requests
+    into it."""
+    sleeps = _Sleeps()
+    resolver = _make_resolver(module, sleep=sleeps)
+    session = _ScriptedSession(_FakeResponse({}, 403, CLOUDFRONT))
+    resolver.session = session
+
+    assert resolver.resolve("742007") == {}
+    assert resolver.resolve("742008") == {}
+    assert len(session.calls) == 2
+    assert sleeps == [3.0, 300, 3.0]
+
+
+@pytest.mark.parametrize("module,expected", PACED_EXPECTATIONS)
+def test_a_403_that_is_not_cloudfront_is_not_waited_out(module, expected):
+    sleeps = _Sleeps()
+    resolver = _make_resolver(module, sleep=sleeps)
+    resolver.session = _ScriptedSession(_FakeResponse({}, 403), _FakeResponse(TEAM_DETAILS))
+
+    assert resolver.resolve("742007") == {}
+    assert sleeps == [3.0]
+    assert resolver.resolve("742007") == expected
+
+
+@pytest.mark.parametrize("status", [200, 404])
+@pytest.mark.parametrize("module,expected", PACED_EXPECTATIONS)
+def test_a_cloudfront_header_on_an_answer_is_not_a_block(module, expected, status):
+    sleeps = _Sleeps()
+    resolver = _make_resolver(module, sleep=sleeps)
+    resolver.session = _FakeSession(TEAM_DETAILS, status, CLOUDFRONT)
+
+    assert resolver.resolve("742007") == (expected if status == 200 else {})
+    assert sleeps == [3.0]
+    assert not resolver.pacer.stopped
+
+
+def test_the_export_counts_an_id_it_never_read_and_drops_one_a_later_row_read():
+    resolver = _make_resolver(export_unknown_opponents)
+    resolver.session = _FailingThenWorkingSession(TEAM_DETAILS)
+
+    resolver.resolve("742007")
+    assert resolver.failed == {"742007"}
+    resolver.resolve("742007")
+    assert resolver.failed == set()
