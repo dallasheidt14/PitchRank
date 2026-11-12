@@ -17,7 +17,10 @@ Hybrid design:
   rather than filed under the default.
 - Inline autocreate: after base ``_match_team`` exhausts alias / direct_id /
   fuzzy paths without matching, a fresh team row is created so no game is
-  dropped.
+  dropped. A tournament matcher (``default_state_code=None``) is the
+  exception: a team the review queue holds a likely match for is left to that
+  review, so its games stay unlinked, or unstored when both teams wait, until
+  the review is settled and the import re-run.
 """
 
 import logging
@@ -33,14 +36,25 @@ from src.utils.team_name_utils import (
     DIRECTION_CANONICAL,
     _club_acronym,
     _club_tokens,
+    birth_years,
     extract_distinctions,
     resolve_distinction,
 )
+from src.utils.team_utils import _soccer_season_year
 from src.utils.us_states import STATE_CODE_TO_NAME
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_STATE_CODE = "WI"
+
+# Clubs PlayMetrics writes under another name than the one PitchRank stores, in forms the club
+# gate cannot pair (a parent association, "Youth", a spelled-out state).
+STORED_CLUB_NAMES = {
+    "RASA - AFC Union": "AFC Union",
+    "RASA Arsenal F.C.": "AFC Union",
+    "Forward Madison FC Youth": "Forward Madison FC",
+    "Rush Wisconsin Southeast": "RUSH WI Southeast",
+}
 
 
 class PlayMetricsGameMatcher(GameHistoryMatcher):
@@ -74,6 +88,9 @@ class PlayMetricsGameMatcher(GameHistoryMatcher):
         # from the row and restores the default afterwards: the base class calls
         # ``_match_team`` without a state, so the scope has to travel on the instance.
         self._row_state_code: Optional[str] = default_state_code
+        # The club as PlayMetrics writes it, while ``_match_team`` matches under the
+        # stored name: stored team names can carry either spelling's words.
+        self._written_club: Optional[str] = None
 
     def match_game_history(self, game_data: Dict) -> Dict:
         self._row_state_code = self._row_state_scope(game_data.get("state_code"))
@@ -250,6 +267,14 @@ class PlayMetricsGameMatcher(GameHistoryMatcher):
         return "u19" if u_age in (18, 19) else f"u{u_age}"
 
     @staticmethod
+    def _years_outside_u_age(u_age: Optional[int], years: set) -> bool:
+        """True when a name's birth years fall outside the two-year band a U-age names (U10 is 2016/2017)."""
+        if not u_age or not years:
+            return False
+        season = _soccer_season_year()
+        return not years <= {season + 1 - u_age, season - u_age}
+
+    @staticmethod
     def _without_club_words(name: str, club_words: frozenset) -> str:
         """``name`` minus its club words with the rest sorted, or ``name`` itself when nothing else is left.
 
@@ -334,7 +359,7 @@ class PlayMetricsGameMatcher(GameHistoryMatcher):
                     continue
                 if provider_distinctions["team_number"] != cand_distinctions["team_number"]:
                     continue
-                club_words = self._club_words(club_name, candidate_club)
+                club_words = self._club_words(club_name, candidate_club, self._written_club)
                 # The team's own state ("CO Rush") and a club's initials read as a
                 # state ("LA Surf") are expected in a name; any other state marks a
                 # branch ("CSA NH King G" is not "CSA Charlotte King G").
@@ -367,12 +392,14 @@ class PlayMetricsGameMatcher(GameHistoryMatcher):
                 # is a stale name, not a different squad, so it does not refuse.
                 provider_u_age = self._u_age(team_name)
                 cand_u_age = self._u_age(team.get("team_name", ""))
-                if (
-                    provider_u_age
-                    and cand_u_age
-                    and provider_u_age != cand_u_age
-                    and self._u_age_cohort(cand_u_age) == team.get("age_group")
-                ):
+                cand_u_age_is_current = bool(cand_u_age) and self._u_age_cohort(cand_u_age) == team.get("age_group")
+                if provider_u_age and cand_u_age and provider_u_age != cand_u_age and cand_u_age_is_current:
+                    continue
+                # A birth year in one name must sit in the band the other's U-age names:
+                # "U10G Red" is not "G 2018 Red", whatever board the 2018 row is filed on.
+                if self._years_outside_u_age(provider_u_age, birth_years(team.get("team_name", ""))):
+                    continue
+                if cand_u_age_is_current and self._years_outside_u_age(cand_u_age, birth_years(team_name)):
                     continue
 
                 cand_name = team.get("team_name", "")
@@ -456,15 +483,26 @@ class PlayMetricsGameMatcher(GameHistoryMatcher):
         A row carries one age group, the row team's, and the base class applies
         it to the opponent too. So each team's age is read from its own name the
         way the scraper reads it, and the row's age is only the fallback.
+
+        On the tournament flow a team the review queue holds a likely match for
+        is left to the review rather than created, since it is often a copy of
+        the suggested team.
         """
         if state_code is None:
             state_code = self._row_state_code
         age_group = derive_team_age_group(team_name, age_group)
-        base_result = super()._match_team(
-            provider_id, provider_team_id, team_name, age_group, gender, club_name, state_code=state_code
-        )
+        self._written_club = club_name
+        club_name = STORED_CLUB_NAMES.get(club_name, club_name)
+        try:
+            base_result = super()._match_team(
+                provider_id, provider_team_id, team_name, age_group, gender, club_name, state_code=state_code
+            )
+        finally:
+            self._written_club = None
 
         if base_result.get("matched"):
+            return base_result
+        if base_result.get("method") == "fuzzy_review" and self.default_state_code is None:
             return base_result
 
         if team_name and age_group and gender:

@@ -1,18 +1,25 @@
-"""The PlayMetrics league matcher scopes each game to the state on its CSV row.
+"""The PlayMetrics matcher, driven a game at a time.
 
 The row's ``state_code`` scopes the fuzzy-candidate query and is written onto any
-team autocreated for the row; the rules are in ``src/models/playmetrics_matcher.py``.
+team autocreated for the row. A club spelling listed in ``STORED_CLUB_NAMES`` is
+matched and filed under PitchRank's name, and on the tournament flow a team with a
+likely match waits for review instead of being created. The rules are in
+``src/models/playmetrics_matcher.py``.
 """
 
 import csv
+import json
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import DEFAULT, MagicMock, patch
 
+import pytest
 from postgrest.exceptions import APIError
 
+from scripts.full_club_analysis import CLUB_CANONICAL_OVERRIDES, _matches_override
 from scripts.import_games_enhanced import load_games_csv, stream_games_csv
 from scripts.scrape_playmetrics_league import REQUIRED_COLUMNS
-from src.models.playmetrics_matcher import PlayMetricsGameMatcher
+from src.etl.enhanced_pipeline import EnhancedETLPipeline
+from src.models.playmetrics_matcher import STORED_CLUB_NAMES, PlayMetricsGameMatcher
 
 NO_ROWS = APIError({"code": "PGRST116", "message": "JSON object requested, multiple (or no) rows returned"})
 
@@ -21,18 +28,42 @@ class _Db:
     """A supabase double that refuses what postgrest refuses and records only executed calls.
 
     ``.single().execute()`` on zero rows raises, as postgrest does; inserts and the
-    state-scoped candidate query are recorded only at ``execute()``.
+    state-scoped candidate query are recorded only at ``execute()``, and an insert
+    postgrest could not serialize raises. A team read by ``team_id_master`` returns
+    the ``stored`` row with that id, cut to the explicit column list selected, or
+    none; a read by ``id`` returns the provider code ``playmetrics``.
     """
 
-    def __init__(self):
+    def __init__(self, stored=()):
         self.executed_inserts = []
         self.state_filters = []
+        self.stored = list(stored)
+        self.selected = "*"
         self.mock = MagicMock()
+        self.mock.table.return_value.select.side_effect = self._select
         select = self.mock.table.return_value.select.return_value
+        select.eq.side_effect = self._first_filter
         select.eq.return_value.eq.return_value.single.return_value.execute.side_effect = NO_ROWS
         select.eq.return_value.eq.return_value.execute.return_value.data = []
         select.eq.return_value.eq.return_value.eq.side_effect = self._scoped
         self.mock.table.return_value.insert.side_effect = self._insert
+
+    def _select(self, columns="*", **_kwargs):
+        self.selected = columns
+        return DEFAULT
+
+    def _first_filter(self, column, value):
+        builder = MagicMock()
+        if column == "id":
+            builder.single.return_value.execute.return_value.data = {"code": "playmetrics"}
+        elif column == "team_id_master":
+            columns = [c.strip() for c in self.selected.split(",")]
+            builder.execute.return_value.data = [
+                {c: t[c] for c in columns} for t in self.stored if t["team_id_master"] == value
+            ]
+        else:
+            return DEFAULT
+        return builder
 
     def _scoped(self, column, value):
         builder = MagicMock()
@@ -47,7 +78,12 @@ class _Db:
 
     def _insert(self, payload):
         builder = MagicMock()
-        builder.execute.side_effect = lambda: self.executed_inserts.append(payload)
+
+        def execute():
+            json.dumps(payload)
+            self.executed_inserts.append(payload)
+
+        builder.execute.side_effect = execute
         return builder
 
 
@@ -284,3 +320,192 @@ def test_a_direct_match_after_a_row_uses_the_default_not_the_last_row():
 
     assert db.state_filters == ["NC", "WI"]
     assert [p["state_code"] for p in _teams(db)][-1] == "WI"
+
+
+def _stored(team_name, club_name, age_group, gender, state_code="WI"):
+    return {
+        "team_id_master": f"stored {team_name}",
+        "team_name": team_name,
+        "team_name_original": None,
+        "club_name": club_name,
+        "age_group": age_group,
+        "gender": gender,
+        "state_code": state_code,
+    }
+
+
+def _matcher_holding(db, scope, default_state_code=None):
+    """A matcher whose fuzzy pool, in the bucket ``scope`` names, holds every stored team."""
+    matcher = PlayMetricsGameMatcher(db.mock, provider_id="playmetrics", default_state_code=default_state_code)
+    for team in db.stored:
+        matcher._candidate_cache.setdefault((scope, team["age_group"], team["gender"]), []).append(dict(team))
+    return matcher
+
+
+def _run_tournament(matcher, **row):
+    with patch.object(matcher, "_resolve_state_from_club", return_value=("WI", "Wisconsin")) as resolve:
+        result = _run(matcher, _row(state_code="", **row))
+    return result, resolve
+
+
+def _suggestions(db):
+    """Each team the review queue received, with the stored team it suggests (None for no suggestion)."""
+    return {
+        p["provider_team_name"]: p["suggested_master_team_id"] for p in db.executed_inserts if "provider_team_name" in p
+    }
+
+
+@pytest.mark.parametrize(
+    ("team_name", "playmetrics_club", "stored_club", "age_group", "gender"),
+    [
+        ("AFC Union U11G Premier", "RASA - AFC Union", "AFC Union", "u11", "Female"),
+        (
+            "Forward Madison U12 Boys Junior Academy Select",
+            "Forward Madison FC Youth",
+            "Forward Madison FC",
+            "u12",
+            "Male",
+        ),
+        ("U12 Boys Select", "Rush Wisconsin Southeast", "RUSH WI Southeast", "u12", "Male"),
+    ],
+)
+def test_a_club_playmetrics_spells_differently_links_to_its_stored_team(
+    team_name, playmetrics_club, stored_club, age_group, gender
+):
+    stored = _stored(team_name, stored_club, age_group, gender)
+    db = _Db(stored=[stored])
+    matcher = _matcher_holding(db, scope=None)
+
+    result, _ = _run_tournament(
+        matcher, team_name=team_name, club_name=playmetrics_club, age_group=age_group, gender=gender
+    )
+
+    assert result["home_team_master_id"] == stored["team_id_master"]
+    assert team_name not in [p["team_name"] for p in _teams(db)]
+
+
+def test_a_league_team_whose_club_playmetrics_spells_differently_links_too():
+    team_name = "Forward Madison U12 Boys Junior Academy Select"
+    stored = _stored(team_name, "Forward Madison FC", "u12", "Male")
+    db = _Db(stored=[stored])
+    matcher = _matcher_holding(db, scope="WI", default_state_code="WI")
+
+    result = _run(
+        matcher,
+        _row(
+            team_name=team_name,
+            club_name="Forward Madison FC Youth",
+            age_group="u12",
+            gender="Male",
+            state_code="WI",
+        ),
+    )
+
+    assert result["home_team_master_id"] == stored["team_id_master"]
+    assert team_name not in [p["team_name"] for p in _teams(db)]
+
+
+def test_a_stored_name_carrying_playmetrics_own_club_spelling_still_links():
+    stored = _stored("RASA 2017 Lotus", "AFC Union", "u10", "Female")
+    db = _Db(stored=[stored])
+    matcher = _matcher_holding(db, scope=None)
+
+    result, _ = _run_tournament(
+        matcher, team_name="2017 Lotus", club_name="RASA - AFC Union", age_group="u10", gender="Female"
+    )
+
+    assert result["home_team_master_id"] == stored["team_id_master"]
+
+
+@pytest.mark.parametrize("playmetrics_club", ["RASA - AFC Union", "RASA Arsenal F.C."])
+def test_a_new_team_is_filed_under_the_club_name_pitchrank_stores(playmetrics_club):
+    db = _Db()
+    matcher = PlayMetricsGameMatcher(db.mock, provider_id="playmetrics", default_state_code=None)
+
+    _, resolve = _run_tournament(matcher, team_name="AFC Union U13G Navy", club_name=playmetrics_club)
+
+    created = {p["team_name"]: p["club_name"] for p in _teams(db)}
+    assert created["AFC Union U13G Navy"] == "AFC Union"
+    assert "AFC Union" in [c.args[0] for c in resolve.call_args_list]
+
+
+def test_a_tournament_team_with_a_likely_match_waits_for_review():
+    stored = _stored("Pegasus FC Girls 2012/2013 Red", "Pegasus FC", "u14", "Female", state_code="IL")
+    db = _Db(stored=[stored])
+    matcher = _matcher_holding(db, scope=None)
+
+    result, _ = _run_tournament(
+        matcher, team_name="Pegasus FC Girls U14 Red", club_name="Pegasus FC", age_group="u14", gender="Female"
+    )
+
+    assert result["home_team_master_id"] is None
+    assert "Pegasus FC Girls U14 Red" not in [p["team_name"] for p in _teams(db)]
+    assert _suggestions(db)["Pegasus FC Girls U14 Red"] == stored["team_id_master"]
+
+
+def test_a_league_team_with_a_likely_match_is_still_created():
+    stored = _stored("Pegasus FC Girls 2012/2013 Red", "Pegasus FC", "u14", "Female")
+    db = _Db(stored=[stored])
+    matcher = _matcher_holding(db, scope="WI", default_state_code="WI")
+
+    _run(
+        matcher,
+        _row(
+            team_name="Pegasus FC Girls U14 Red",
+            club_name="Pegasus FC",
+            age_group="u14",
+            gender="Female",
+            state_code="WI",
+        ),
+    )
+
+    assert "Pegasus FC Girls U14 Red" in [p["team_name"] for p in _teams(db)]
+    assert _suggestions(db)["Pegasus FC Girls U14 Red"] == stored["team_id_master"]
+
+
+def test_a_league_row_matched_unscoped_still_creates_a_likely_match():
+    # An unrecognized state matches the row unscoped, as the tournament flow does, but
+    # holding a team is the tournament import's rule, not the unscoped match's.
+    stored = _stored("Pegasus FC Girls 2012/2013 Red", "Pegasus FC", "u14", "Female")
+    db = _Db(stored=[stored])
+    matcher = _matcher_holding(db, scope=None, default_state_code="WI")
+
+    with patch.object(matcher, "_resolve_state_from_club", return_value=(None, None)):
+        _run(
+            matcher,
+            _row(
+                team_name="Pegasus FC Girls U14 Red",
+                club_name="Pegasus FC",
+                age_group="u14",
+                gender="Female",
+                state_code="ZZ",
+            ),
+        )
+
+    assert "Pegasus FC Girls U14 Red" in [p["team_name"] for p in _teams(db)]
+
+
+@pytest.mark.parametrize(("provider", "default_state_code"), [("playmetrics", "WI"), ("playmetrics_tournament", None)])
+def test_the_pipeline_builds_the_tournament_matcher_unscoped(provider, default_state_code):
+    supabase = MagicMock()
+    lookup = supabase.table.return_value.select.return_value.eq.return_value.single.return_value
+    lookup.execute.return_value.data = {"id": "provider-uuid"}
+    pipeline = EnhancedETLPipeline(supabase, provider, dry_run=True)
+
+    with patch("src.etl.enhanced_pipeline.call_rpc_with_fallback", return_value=[]):
+        pipeline._ensure_initialized()
+
+    assert pipeline.matcher.default_state_code == default_state_code
+
+
+def test_the_weekly_club_cleanup_keeps_each_stored_club_name():
+    # A cleanup rule renaming one of these clubs would leave new teams filed under
+    # the retired name, which the club gate may no longer pair with the renamed rows.
+    renamed = [
+        (stored, canonical)
+        for stored in STORED_CLUB_NAMES.values()
+        for _state, kind, pattern, canonical in CLUB_CANONICAL_OVERRIDES
+        if _matches_override(stored, kind, pattern) and canonical != stored
+    ]
+
+    assert renamed == []
