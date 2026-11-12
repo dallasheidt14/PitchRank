@@ -3022,3 +3022,11 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: every job in `.github/workflows/ci.yml`, longest-running first: `python-test-linux` and `matchbalance-windows-export-test`
 - **Why**: No job in `ci.yml` sets `timeout-minutes`, and pytest-timeout is not installed (checked 2026-11-11), so a test that hangs, such as a subprocess with no timeout or an unbounded loop, holds the merge gate until GitHub's 360-minute job default. Found while reviewing `tests/unit/test_tgs_workflow_chain.py`, whose first draft walked the chain with no bound.
 - **Noted**: 2026-11-11
+
+### Keep the Illinois FC Stars rule out of the no-state pass
+
+- **Type**: direct
+- **Category**: reliability
+- **Where**: the IL `("exact", "FC Stars")` entry of `CLUB_CANONICAL_OVERRIDES`, `STATE_ONLY_PATTERNS` and `analyze_no_state_teams` in `scripts/full_club_analysis.py`
+- **Why**: `("exact", "fc stars")` is not in `STATE_ONLY_PATTERNS`, and no other state has an exact "FC Stars" pattern, so `analyze_no_state_teams` treats the IL entry as safe everywhere: called on a stateless "FC Stars" team it returns a `CANONICAL_NO_STATE` fix to "FC Stars (IL)" (checked 2026-11-12). The comments beside the NH and NY entries say such teams are mostly New Hampshire or Massachusetts sides. Latent: none of the 354 live "FC Stars" teams lacked a state on 2026-11-12. Fix by adding the pattern to `STATE_ONLY_PATTERNS`, or by moving the entry into `SPELLING_GROUP_OVERRIDES`.
+- **Noted**: 2026-11-12

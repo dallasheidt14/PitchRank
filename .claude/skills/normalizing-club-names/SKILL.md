@@ -60,6 +60,12 @@ come from GotSport, and PlayMetrics has its own source above. NEFC is excluded b
 club, because it is a genuine all-caps registered club and would otherwise read as the
 importer's signature.
 
+The `abbreviation` source skips a lowered spelling the owner has since kept, listed by state in
+`ABBREVIATION_KEPT_SPELLINGS`: "Colorado Edge" in CO (2026-10-29). Record such a decision there, or
+the dry run proposes the old spelling again, pre-approved, on every run. The list binds only this
+script, so also make every rule in `scripts/full_club_analysis.py` that writes that club in that
+state use the kept spelling; otherwise the Monday cleanup writes the old one back.
+
 No measured yield exists for these tiers yet. Record one the first time a batch runs.
 
 ## Hold rather than write
@@ -148,8 +154,10 @@ the rename lines out of each run's log; a dry run of that workflow logs no renam
 worth reading. Given a run id (`--abbreviation-run`) the scan fetches the log with
 `gh run view <run> --log`, so `gh` has to be authenticated. Given a saved copy
 (`--abbreviation-log <file>`) it reads the file and never calls `gh`. Save the copy from Git
-Bash (`gh run view <run> --log > <file>`): PowerShell mangles the `✅` and `→` the rename lines
-are found by, and Windows PowerShell's `>` writes UTF-16. The scan refuses a copy that is not
+Bash (`gh run view <run> --repo dallasheidt14/PitchRank --log > <file>`): PowerShell mangles
+the `✅` and `→` the rename lines are found by, and Windows PowerShell's `>` writes UTF-16.
+`--repo` lets the save run outside a checkout of this repo, where `gh` would find no repository
+or the wrong one. The scan refuses a copy that is not
 UTF-8 or holds no rename line rather than read it as a run that renamed nothing. The weekly
 team-cleanup loop reads saved copies only, from `<store>/inputs/abbreviation_logs/`. Until that
 folder holds the damage run's log (the default below) as `<run id>.log`, it fails its clubs
@@ -161,6 +169,15 @@ drops it; a saved copy of the damage run's log counts as passing it. `--league-u
 to the two default leagues only when absent, so naming one league alone drops the other
 league's proposals. Re-pass the defaults alongside any addition.
 
+**A checkout behind origin/main runs an older script.** Run main's from a
+`git archive origin/main scripts src config .claude/skills/normalizing-club-names .github/workflows`
+export instead, and run the self-check above from the export too, so it proves the script that
+runs. Pass `--exports-dir <checkout>/data/exports` so the snapshot lands in the checkout, and the
+same flag to the Step 4 rehearsal and replay, since the command the dry run prints leaves it out
+and the only undo log would otherwise land in the export. Supply credentials with
+`python -m dotenv -f <checkout>/.env run --`. A run id may fail from the export, which is not a
+checkout of this repo: pass the damage run as a saved copy.
+
 ## Step 2: Take a snapshot with a dry run
 
 ```bash
@@ -169,8 +186,11 @@ python scripts/repair_swapped_club_names.py
 
 Reads every live team whose club is a canonical club name — which is what the `playmetrics`
 and `team_name` sources judge — and separately every team holding a value the cleanup
-lowered, whatever its club, which is what `abbreviation` judges. It writes one row per team
-that has a proposal to a snapshot CSV under `data/exports`, and nothing to the database.
+lowered, other than a spelling the owner kept, whatever its club, which is what `abbreviation`
+judges. It writes one row per team that has a proposal to a snapshot CSV under `data/exports`,
+and nothing to the database. The `playmetrics` source reads each league with POST requests to
+`api.gb.playmetrics.com`, so an HTTP guard that refuses every request but GET stops the run
+before it reads a team: let that host through, or stub the league read.
 
 **The dry run is the only thing that decides.** `--execute` replays the snapshot and never
 recomputes, so the rows read are the rows written.
@@ -347,13 +367,15 @@ re-derived away the following Monday, and the only visible symptom is the same r
 proposing the same names again.
 
 Two passes there write casing. The caps pass reaches `caps_winner` only for a club spelled
-more than one way within a state, and the merge of those spellings always decides it: two
-spellings sharing a lowercased key must differ in case, so the `proper_case` branch beside
-it never runs. The provider pass, SincSports and PlayMetrics only, calls `proper_case`
+more than one way within a state. It returns the first same-state override output matching
+the group, case aside; only when none matches does the merge of those spellings decide, and
+since two spellings sharing a lowercased key must differ in case, the `proper_case` branch
+beside it never runs. The provider pass, SincSports and PlayMetrics only, calls `proper_case`
 directly and only on an all-caps name.
 
-So put a casing rule in `merge_case_variants`, or in `apply_provider_rules` for the provider
-pass, and test it on a group holding two spellings of one club.
+So a club that a same-state override outputs takes that override's casing: change the override. Otherwise put a
+casing rule in `merge_case_variants`, or in `apply_provider_rules` for the provider pass, and
+test it on a group holding two spellings of one club.
 
 ## Settling leftover spelling groups
 
