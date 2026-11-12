@@ -429,60 +429,49 @@ def test_a_new_team_is_filed_under_the_club_name_pitchrank_stores(playmetrics_cl
     assert "AFC Union" in [c.args[0] for c in resolve.call_args_list]
 
 
+# A squad named without its year scores 0.883 against the stored "RASA 2017 Lotus" under
+# both scorers `_calculate_match_score` can use, so it sits in the review band in CI too.
+LIKELY_MATCH = {"team_name": "Lotus", "club_name": "RASA - AFC Union", "age_group": "u10", "gender": "Female"}
+
+
+def _likely_match_stored():
+    return _stored("RASA 2017 Lotus", "AFC Union", "u10", "Female")
+
+
 def test_a_tournament_team_with_a_likely_match_waits_for_review():
-    stored = _stored("Pegasus FC Girls 2012/2013 Red", "Pegasus FC", "u14", "Female", state_code="IL")
+    stored = _likely_match_stored()
     db = _Db(stored=[stored])
     matcher = _matcher_holding(db, scope=None)
 
-    result, _ = _run_tournament(
-        matcher, team_name="Pegasus FC Girls U14 Red", club_name="Pegasus FC", age_group="u14", gender="Female"
-    )
+    result, _ = _run_tournament(matcher, **LIKELY_MATCH)
 
     assert result["home_team_master_id"] is None
-    assert "Pegasus FC Girls U14 Red" not in [p["team_name"] for p in _teams(db)]
-    assert _suggestions(db)["Pegasus FC Girls U14 Red"] == stored["team_id_master"]
+    assert "Lotus" not in [p["team_name"] for p in _teams(db)]
+    assert _suggestions(db)["Lotus"] == stored["team_id_master"]
 
 
 def test_a_league_team_with_a_likely_match_is_still_created():
-    stored = _stored("Pegasus FC Girls 2012/2013 Red", "Pegasus FC", "u14", "Female")
+    stored = _likely_match_stored()
     db = _Db(stored=[stored])
     matcher = _matcher_holding(db, scope="WI", default_state_code="WI")
 
-    _run(
-        matcher,
-        _row(
-            team_name="Pegasus FC Girls U14 Red",
-            club_name="Pegasus FC",
-            age_group="u14",
-            gender="Female",
-            state_code="WI",
-        ),
-    )
+    _run(matcher, _row(state_code="WI", **LIKELY_MATCH))
 
-    assert "Pegasus FC Girls U14 Red" in [p["team_name"] for p in _teams(db)]
-    assert _suggestions(db)["Pegasus FC Girls U14 Red"] == stored["team_id_master"]
+    assert "Lotus" in [p["team_name"] for p in _teams(db)]
+    assert _suggestions(db)["Lotus"] == stored["team_id_master"]
 
 
 def test_a_league_row_matched_unscoped_still_creates_a_likely_match():
     # An unrecognized state matches the row unscoped, as the tournament flow does, but
     # holding a team is the tournament import's rule, not the unscoped match's.
-    stored = _stored("Pegasus FC Girls 2012/2013 Red", "Pegasus FC", "u14", "Female")
+    stored = _likely_match_stored()
     db = _Db(stored=[stored])
     matcher = _matcher_holding(db, scope=None, default_state_code="WI")
 
     with patch.object(matcher, "_resolve_state_from_club", return_value=(None, None)):
-        _run(
-            matcher,
-            _row(
-                team_name="Pegasus FC Girls U14 Red",
-                club_name="Pegasus FC",
-                age_group="u14",
-                gender="Female",
-                state_code="ZZ",
-            ),
-        )
+        _run(matcher, _row(state_code="ZZ", **LIKELY_MATCH))
 
-    assert "Pegasus FC Girls U14 Red" in [p["team_name"] for p in _teams(db)]
+    assert "Lotus" in [p["team_name"] for p in _teams(db)]
 
 
 @pytest.mark.parametrize(("provider", "default_state_code"), [("playmetrics", "WI"), ("playmetrics_tournament", None)])

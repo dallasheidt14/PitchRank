@@ -1417,7 +1417,7 @@ team should read `already_linked`; one stored on another board reads `error` fro
 
 Measure a matcher fix meant to stop copies against the copies an import already made, not
 against a unit fixture.
-- **Find the copies.** A merge list in `C:/PitchRank/data/backups/` (the vetted `*merges*.json`
+- **Find the copies.** A merge list in `data/backups/` (gitignored, so in the main checkout only) (the vetted `*merges*.json`
   file itself, not its `*_log_batch*` files) holds each pair as `merge_*` and `keep_*` fields, with
   `*_as_vetted` holding age group, gender, state and club. A list does not say which side is the
   copy, and either side can be. Take the copy to be the side whose `teams.provider_id` is the

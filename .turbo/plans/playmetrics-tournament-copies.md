@@ -36,6 +36,9 @@ Departures from the steps below, and the verification:
     with `"WI"`) is tested through `EnhancedETLPipeline._ensure_initialized`.
   - A test fails if the weekly cleanup's `CLUB_CANONICAL_OVERRIDES` ever renames one of the stored
     club names.
+- **The review-band fixture holds under both scorers.** `difflib` scores Pegasus `Girls U14 Red`
+  against `Girls 2012/2013 Red` at 0.923 and links it, so the hold tests use `Lotus` against
+  `RASA 2017 Lotus`, 0.883 under either. CI runs without `rapidfuzz`.
 - **Mutation checks.** Each revert, made alone, failed the named new test:
   - Dropping the club translation fails the link cases and the new-team cases.
   - Dropping an entry fails its own case.
@@ -52,10 +55,13 @@ Departures from the steps below, and the verification:
   pairs. In 46 of them, one side is a `playmetrics_tournament` row (31 created 2026-11-10, 15 on
   2026-10-05); in 7 of those the tournament row was the one kept. The other 3 pairs are Soccer
   Events Group copies. Each tournament row was matched with its original PlayMetrics club spelling
-  against today's `teams` pool for its age and gender, minus the 46 tournament rows, with no writes:
-  - This branch: 19 linked to the right team, 19 held for review, 8 created, none linked to a
-    wrong team.
-  - `main`: 45 created, 1 linked.
+  against today's `teams` pool for its age and gender, minus the 46 tournament rows, with no writes.
+  The name score depends on whether `rapidfuzz` is installed: it is in neither requirements file,
+  so the import workflow scores with `difflib`, while a local run (as on 2026-11-10) has it.
+  - With `rapidfuzz`: this branch linked 19 to the right team, held 19 for review, created 8;
+    `main` created 45 and linked 1.
+  - With `difflib`: this branch linked 35, held 3, created 8; `main` created 29 and linked 17.
+  - Neither scorer linked any row to a wrong team on this branch.
 
   An earlier replay took each list's `merge` side as the copy and reported 18 / 20 / 11 over 49.
   That mixed in the 7 reversed and 3 Soccer Events Group pairs, and it hid the wrong link above.
@@ -70,7 +76,7 @@ them are created again. Three causes:
    `Forward Madison FC Youth` and `Rush Wisconsin Southeast`. PitchRank stores `AFC Union`,
    `Forward Madison FC` and `RUSH WI Southeast`. `are_same_club` (threshold 0.9) rejects every
    pair, so `PlayMetricsGameMatcher._fuzzy_match_team` drops the real team before scoring it.
-2. **Review band (16 same-club copies).** These are same-club teams such as Pegasus `Girls U14 Red` against
+2. **Review band (16 same-club copies under `rapidfuzz`).** These are same-club teams such as Pegasus `Girls U14 Red` against
    `Girls 2012/2013 Red`, scoring 0.875-0.899. The base matcher queued them for review, and
    `_match_team` then created a new team anyway. The Athletes2Events and Soccer Events Group
    matchers return early on `fuzzy_review` instead.
