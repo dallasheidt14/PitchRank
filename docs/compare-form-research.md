@@ -52,9 +52,71 @@ for future snapshots. Do not infer it from today's model or the snapshot's label
 Historical result availability must also be established: a fixture's original
 creation timestamp does not prove when its final score became known.
 
-## Frozen input contract
+No older external archives are known. The recoverable Supabase backups begin on
+November 4, so they cannot recover the original development period. That study
+remains insufficient. A separately registered future study can collect the missing
+evidence without changing the historical windows or the calibration experiment.
 
-The JSON bundle has `schema_version: 1`, `predictor_revision`, `calibrations`
+## Dataset from private forecast archives
+
+After the archive migration, publication workflow, and separate study registration
+are enabled, use the existing server credentials and management access token.
+Download the study by its registered manifest hash, then preview or export:
+
+```sh
+python scripts/download_compare_archive.py STUDY_MANIFEST_SHA --execute --output-dir .turbo/study-RUN
+python scripts/assemble_compare_form_dataset.py .turbo/study-RUN
+python scripts/assemble_compare_form_dataset.py .turbo/study-RUN --execute --output-dir .turbo/form-dataset-RUN
+python scripts/benchmark_compare_form.py --dataset .turbo/form-dataset-RUN
+python scripts/benchmark_compare_form.py --dataset .turbo/form-dataset-RUN --execute --output-dir .turbo/form-evaluation-RUN
+```
+
+All output directories must be new. Use ignored `.turbo/` paths or a directory
+outside the checkout: untracked artifacts inside the checkout fail the required
+code-cleanliness check. These commands read remote data and write local files
+only. They require a clean checkout of the exact registered research revision.
+Preview writes nothing and does not run the predictor.
+
+The assembler reads the complete private archive index in one enforced read-only
+database snapshot. It downloads and checks each relevant archive against the live
+index, remote content, and content hashes. The real collector's JavaScript source
+verifier checks saved input hashes, the pinned algorithm and calibration signature,
+capture clocks, original fixture identity, and frozen team aliases. A saved
+`verified` flag or a local `server-record.json` is insufficient.
+
+An exact forecast input and prediction published before its UTC match day proves
+those values were available then. This route does not invent missing training
+dates or certify retrospective reconstructions. It accepts only complete frozen
+inputs. Expectations for prior games need their own pre-game publication; missing
+ones remain neutral and reduce the usable form sample. Reports distinguish raw
+archived rows, distinct source fixtures, exclusions, and provider/age/history
+coverage.
+
+Before the registered evaluation window closes, exports contain inputs and
+coverage only. They do not query target settlements or result labels. The benchmark uses a fresh
+database server clock to enforce the seal, so changing a local clock or manifest
+flag cannot open it. Re-export after the window closes.
+
+After closure, each score must match the baseline ledger's exact source game and
+unchanged frozen fixture identity. Provider fixture duplicates and reversed
+orientations stay together; conflicting duplicates are excluded. Event groups are
+verified where possible, inferred groups remain labelled, and groups crossing the
+development/evaluation boundary are excluded. Frozen aliases affect only their
+match day; later team mappings do not rewrite earlier inputs.
+
+Before performance testing, the benchmark authenticates the source inventory
+again and reconstructs the complete cohort. Edited scores, omitted fixtures,
+missing archives, and changed settlements require rejection or a fresh export.
+The registered 1,000-match/20-group requirements apply to each period. Insufficient
+data does not run candidate selection. Sufficient data replays the real TypeScript
+predictor in bounded batches with A/A parity, original clocks and calibration,
+and development-only ML-trend ablations. Inputs, outputs, hashes and the report
+are saved locally. A successful report can qualify a candidate for a separately
+registered confirmation experiment; it cannot deploy one.
+
+## JSON bundle contract (`--input`)
+
+The `--input` path accepts `schema_version: 1`, `predictor_revision`, `calibrations`
 (the five original calibration filenames mapped to their frozen JSON contents),
 and `cases`. Each case contains:
 

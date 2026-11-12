@@ -18,6 +18,7 @@ def is_research_source(name: str) -> bool:
     return ((name.startswith("src/predictions/") and name.endswith(".py"))
             or (name.startswith("frontend/lib/") and name.endswith((".ts", ".tsx")))
             or name in {"scripts/benchmark_compare_form.py", "scripts/register_compare_form_study.py",
+                        "scripts/assemble_compare_form_dataset.py",
                         "frontend/scripts/run-form-research.ts", "frontend/scripts/verify-compare-source.ts"})
 
 
@@ -36,6 +37,7 @@ def archived_research_hashes(directory: Path, manifest: dict) -> dict[str, str]:
 @lru_cache(maxsize=8)
 def committed_research_sources(source_root: Path, revision: str) -> tuple:
     paths = ["src/predictions/", "frontend/lib/", "scripts/benchmark_compare_form.py",
+             "scripts/assemble_compare_form_dataset.py",
              "scripts/register_compare_form_study.py", "frontend/scripts/run-form-research.ts",
              "frontend/scripts/verify-compare-source.ts"]
     names = subprocess.check_output(

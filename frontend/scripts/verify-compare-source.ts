@@ -98,11 +98,26 @@ export function sourceVerifier(readSource: ReadSource) {
       throw new Error('baseline_model_signature_changed');
     const teamA = object(context.teamAInput);
     const teamB = object(context.teamBInput);
+    const knownTeamIds = (team: RecordValue, aliases: unknown) => {
+      if (aliases !== undefined && (!Array.isArray(aliases) || aliases.some((id) => typeof id !== 'string' || !id)))
+        throw new Error('frozen_team_orientation_mismatch');
+      return new Set([requiredString(team.team_id_master), ...((aliases ?? []) as string[])]);
+    };
+    const knownA = knownTeamIds(teamA, context.resolvedTeamAIds);
+    const knownB = knownTeamIds(teamB, context.resolvedTeamBIds);
     if (
-      teamA.team_id_master !== requiredString(row.home_team_master_id) ||
-      teamB.team_id_master !== requiredString(row.away_team_master_id)
+      !knownA.has(requiredString(row.home_team_master_id)) ||
+      !knownB.has(requiredString(row.away_team_master_id)) ||
+      [...knownA].some((id) => knownB.has(id))
     )
       throw new Error('frozen_team_orientation_mismatch');
+    const source = object(object(row.fixture_payload).source_snapshot);
+    if (source.game_date !== day) throw new Error('frozen_source_snapshot_mismatch');
+    if (
+      !knownA.has(requiredString(source.home_team_master_id)) ||
+      !knownB.has(requiredString(source.away_team_master_id))
+    )
+      throw new Error('frozen_source_team_mapping_mismatch');
     const evidence = object(context.frozenEvidence);
     if (!Array.isArray(evidence.games) || !context.preOutcomeCalibration) throw new Error('incomplete_frozen_inputs');
     const prediction = object(object(payload.response).prediction);
@@ -125,7 +140,7 @@ export function sourceVerifier(readSource: ReadSource) {
 async function main() {
   const [input, output] = process.argv.slice(2);
   if (!input || !output || process.argv.length !== 4)
-    throw new Error('Usage: verify-compare-source.ts INPUT.json NEW_OUTPUT.json');
+    throw new Error('Usage: verify-compare-source.ts INPUT.json NEW_OUTPUT.json (use - for stdin/stdout)');
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
   const canonicalSource = await readFile(path.join(root, 'frontend/lib/canonicalJson.ts'), 'utf8');
   const cache = new Map<string, string>();
@@ -146,7 +161,13 @@ async function main() {
       );
     return cache.get(key)!;
   });
-  const rows: unknown = JSON.parse(await readFile(input, 'utf8'));
+  let inputText: string;
+  if (input === '-') {
+    process.stdin.setEncoding('utf8');
+    inputText = '';
+    for await (const chunk of process.stdin) inputText += chunk;
+  } else inputText = await readFile(input, 'utf8');
+  const rows: unknown = JSON.parse(inputText);
   if (!Array.isArray(rows)) throw new Error('Expected an array of frozen ledger rows');
   const receipts = rows.map((row) => {
     try {
@@ -159,7 +180,9 @@ async function main() {
       };
     }
   });
-  await writeFile(output, JSON.stringify({ schema_version: 1, receipts }), { flag: 'wx' });
+  const result = JSON.stringify({ schema_version: 1, receipts });
+  if (output === '-') process.stdout.write(result);
+  else await writeFile(output, result, { flag: 'wx' });
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url))

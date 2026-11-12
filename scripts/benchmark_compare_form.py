@@ -187,6 +187,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--input", type=Path, help="Frozen research JSON bundle")
+    source.add_argument("--dataset", type=Path, help="Complete authenticated archive dataset; fixed registered windows")
     source.add_argument("--database-audit", action="store_true", help="Read-only aggregate lineage inventory")
     parser.add_argument("--output-dir", type=Path, help="New local artifact directory; required with --execute")
     parser.add_argument("--execute", action="store_true", help="Save local research artifacts; no database writes")
@@ -204,6 +205,19 @@ def main() -> None:
         parser.error("--parity-only requires --input and --execute")
     if args.reconstruct_expectations and (not args.input or args.parity_only):
         parser.error("--reconstruct-expectations requires --input and cannot be combined with --parity-only")
+    if args.dataset:
+        from src.predictions.form_dataset_benchmark import benchmark_dataset
+        from supabase import create_client
+
+        url, key, token = (os.environ.get(name) for name in (
+            "SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_ACCESS_TOKEN",
+        ))
+        if not url or not key or not token:
+            parser.error("Configure the existing Supabase URL, server key, and management access token")
+        report = benchmark_dataset(create_client(url, key), url, token, args.dataset,
+                                   run_predictor, args.output_dir, dry_run=not args.execute)
+        print(json.dumps(report, indent=2, allow_nan=False))
+        return
     if args.database_audit:
         queries = {"inventory": INVENTORY_QUERY, "coverage": COVERAGE_QUERY, "coverage_windows": coverage_windows()}
         inputs = {**queries, "query_hash": digest(queries)}

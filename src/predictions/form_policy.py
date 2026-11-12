@@ -17,12 +17,17 @@ INPUT_ROLES = frozenset({
     "team_a_snapshot", "team_b_snapshot", "calibration_margin", "calibration_outcome",
     "calibration_age_groups", "calibration_probability", "calibration_confidence",
 })
+CALIBRATION_SNAPSHOT_FILES = {
+    "ageGroups": "age_group_parameters.json", "probability": "probability_parameters.json",
+    "margin": "margin_parameters_v2.json", "outcome": "heuristic_outcome_calibration.json",
+    "confidence": "confidence_parameters_v2.json",
+}
 CALIBRATION_ROLES = {
-    "calibration_margin": "margin_parameters_v2.json",
-    "calibration_outcome": "heuristic_outcome_calibration.json",
-    "calibration_age_groups": "age_group_parameters.json",
-    "calibration_probability": "probability_parameters.json",
-    "calibration_confidence": "confidence_parameters_v2.json",
+    "calibration_margin": CALIBRATION_SNAPSHOT_FILES["margin"],
+    "calibration_outcome": CALIBRATION_SNAPSHOT_FILES["outcome"],
+    "calibration_age_groups": CALIBRATION_SNAPSHOT_FILES["ageGroups"],
+    "calibration_probability": CALIBRATION_SNAPSHOT_FILES["probability"],
+    "calibration_confidence": CALIBRATION_SNAPSHOT_FILES["confidence"],
 }
 
 

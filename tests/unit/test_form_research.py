@@ -461,6 +461,19 @@ def test_insufficient_data_does_not_inspect_candidate_outputs():
     assert "selected_candidate" not in report
 
 
+def test_streamed_audit_can_keep_only_metadata_without_skipping_input_verification():
+    good = case("good", "2026-09-01", "dev")
+    bad = case("bad", "2026-09-01", "dev")
+    bad["input_provenance"][0]["trained_at"] = "2026-10-01T00:00:00Z"
+    retained, original_report = audit_cases([good, bad], ResearchPolicy())
+    projected, projected_report = audit_cases((item for item in [good, bad]), ResearchPolicy(), retain_inputs=False)
+    assert projected_report == original_report and len(retained) == len(projected) == 1
+    assert projected_report["exclusions"]["trained_after_cutoff"] == 1
+    assert projected[0] == {"fixture": good["fixture"], "period": "development"}
+    projected[0]["fixture"]["home_score"] = 99
+    assert good["fixture"]["home_score"] == 2
+
+
 def test_dry_run_writes_nothing_and_saved_bundle_cannot_be_overwritten(tmp_path):
     out = tmp_path / "run"
     write_bundle(out, {}, {}, dry_run=True)
