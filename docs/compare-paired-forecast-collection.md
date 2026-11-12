@@ -84,6 +84,10 @@ Add `--execute` to save eligible paired forecasts. Alternatively,
 archives needed for historical expectations when executing. Without `--execute`
 that mode only inventories archive headers and explicitly reports that inputs
 were not verified and no capture ran. Neither preview mode creates local files.
+Executing downloads reuse verified content objects within the new private output
+directory and share local files where hard links are supported. Every archive's
+server index and manifest is still authenticated independently. The cache is
+private and local to that run; it is not a public Actions cache or artifact.
 The download mode reads archives registered in the preceding 366 days. Only
 independently authenticated prematch expectations can contribute residuals;
 missing expectations remain neutral and reduce the usable sample.

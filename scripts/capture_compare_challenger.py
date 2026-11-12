@@ -14,6 +14,7 @@ from scripts.benchmark_compare_form import run_predictor  # noqa: E402
 from scripts.settle_prospective_match_predictions import _supabase_client  # noqa: E402
 from src.predictions.archive_inputs import _registered_manifest, authenticate_archive, download_archive  # noqa: E402
 from src.predictions.challenger_capture import capture_candidate, capture_preflight  # noqa: E402
+from src.predictions.challenger_download import CachedArchiveClient  # noqa: E402
 from src.predictions.form_archive_sources import FrozenSourceIndex  # noqa: E402
 from src.predictions.prospective_fixtures import paged  # noqa: E402
 from src.rankings.input_archive import FORECAST_ARCHIVE_KIND  # noqa: E402
@@ -48,6 +49,7 @@ def main():
         parser.error("--limit must be between 1 and 500")
     logging.getLogger("httpx").setLevel(logging.WARNING)
     client = _supabase_client()
+    cache = None
     preflight = capture_preflight(client, args.candidate_signature)
     if preflight["eligible_prematch"] == 0:
         result = {**preflight, "dry_run": not args.execute, "captured": 0, "errors": {}, "archives_downloaded": False}
@@ -65,13 +67,19 @@ def main():
                               "capture_performed": False, "inputs_verified": False}))
             return
         args.download_archives.mkdir(parents=True, exist_ok=False)
-        archives = [download_archive(client, header["manifest_sha256"],
-                    args.download_archives / header["manifest_sha256"], dry_run=False, return_verified=True)
-                    for header in headers]
+        cache = CachedArchiveClient(client, args.download_archives, dry_run=False)
+        archives = []
+        for header in headers:
+            archive = download_archive(cache, header["manifest_sha256"],
+                args.download_archives / header["manifest_sha256"], dry_run=False, return_verified=True)
+            cache.share_local_objects(archive)
+            archives.append(archive)
     else:
         archives = [authenticate_archive(client, directory) for directory in args.archive]
     result = capture_candidate(client, args.candidate_signature, FrozenSourceIndex(archives, ROOT),
                                run_predictor, dry_run=not args.execute, limit=args.limit)
+    if cache is not None:
+        result["archive_object_reuse"] = dict(cache.counts)
     if args.execute and args.summary_path:
         args.summary_path.parent.mkdir(parents=True, exist_ok=True)
         with args.summary_path.open("x", encoding="utf-8") as handle:

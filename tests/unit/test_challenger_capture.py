@@ -138,15 +138,16 @@ def test_registration_requires_qualified_closed_sufficient_reviewed_report():
     report = qualification_report()
     args = ("a" * 40, {"source": "b" * 64})
     with pytest.raises(ValueError, match="separately reviewed"): capture.candidate_definition(report, *args)
-    for mutate in (
-        lambda r: r.update(status="insufficient_data"),
-        lambda r: r["audit"]["periods"]["evaluation"].update(games=999),
-        lambda r: r.update(server_observed_at="2026-01-01T01:00:00Z"),
-        lambda r: r.update(log_loss_delta_95=[-.1, 0]),
+    for mutate, reason in (
+        (lambda r: r.update(status="insufficient_data"), "does not qualify"),
+        (lambda r: r["audit"]["periods"]["evaluation"].update(games=999), "coverage is insufficient"),
+        (lambda r: r.update(server_observed_at="2026-01-01T01:00:00Z"), "still sealed"),
+        (lambda r: r.update(log_loss_delta_95=[-.1, 0]), "does not qualify"),
     ):
         invalid = deepcopy(report)
         mutate(invalid)
-        with pytest.raises(ValueError): capture.candidate_definition(invalid, *args, reviewed=True)
+        with pytest.raises(ValueError, match=reason):
+            capture.candidate_definition(invalid, *args, reviewed=True, qualified_sources={"source": "b" * 64})
     definition = capture.candidate_definition(report, *args, reviewed=True, qualified_sources={"source": "b" * 64})
     assert definition["form_configuration"] == FORM_CONFIGURATION
     assert definition["confirmation_policy"]["minimum_paired_settled"] == 1000
