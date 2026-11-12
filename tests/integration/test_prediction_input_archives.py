@@ -14,7 +14,7 @@ from src.predictions.archive_inputs import ARCHIVE_INVENTORY_QUERY  # noqa: E402
 
 
 @pytest.fixture(scope="module")
-def database(postgres_database):
+def archive_database(postgres_database):
     with postgres_database("input_archive_test_") as (connection, parameters):
         with connection.cursor() as cursor:
             cursor.execute("""
@@ -37,7 +37,13 @@ def database(postgres_database):
                 "INSERT INTO storage.objects (bucket_id,name) "
                 "VALUES ('other','visible'),('prediction-input-archives','private')"
             )
-        yield connection
+        yield connection, parameters
+
+
+@pytest.fixture(scope="module")
+def database(archive_database):
+    return archive_database[0]
+
 
 def insert(cursor, sha):
     cursor.execute(
@@ -51,8 +57,9 @@ def insert(cursor, sha):
     )
 
 
-def test_inventory_statement_returns_one_read_only_snapshot_above_the_rest_page_limit(database):
-    writer = psycopg2.connect(**database.get_dsn_parameters())
+def test_inventory_statement_returns_one_read_only_snapshot_above_the_rest_page_limit(archive_database):
+    database, parameters = archive_database
+    writer = psycopg2.connect(**parameters)
     hidden_sha, visible_sha = f"{9001:064x}", f"{9002:064x}"
     try:
         with writer.cursor() as cursor:
