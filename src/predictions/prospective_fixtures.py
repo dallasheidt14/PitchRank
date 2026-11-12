@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-import hashlib
+import math
 import re
 from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta, timezone
 from urllib.parse import parse_qsl, urlsplit
 
+from src.predictions.collection_selection import select_fixture_candidates
 from src.utils.merge_resolver import MergeResolver
 
 PAGE_SIZE = 1000
@@ -96,9 +97,14 @@ def _team_rows(client, ids, table, fields, key):
     return rows
 
 
-def prepare_database_fixtures(client, *, limit=500, dry_run=True, today=None):
-    if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 500:
-        raise ValueError("limit must be between 1 and 500")
+def history_band(count):
+    if not isinstance(count, (int, float)) or isinstance(count, bool) or not math.isfinite(count) or count < 0:
+        return "unknown"
+    return "0" if count == 0 else "1-3" if count < 4 else "4-7" if count < 8 else "8+"
+
+
+def database_fixture_inventory(client, *, today=None):
+    """Read the complete available pool, retaining exclusion reasons and source denominators."""
     today = today or datetime.now(timezone.utc).date()
     first, last = [(today + timedelta(days=n)).isoformat() for n in (1, 7)]
     # Read scored rows too: a scored twin makes an unscored source ambiguous.
@@ -108,9 +114,10 @@ def prepare_database_fixtures(client, *, limit=500, dry_run=True, today=None):
     resolver = strict_resolver(client)
     providers = {row["id"]: row["code"] for row in paged(
         lambda: client.table("providers").select("id,code").order("id"))}
-    existing = set(_team_rows(
-        client, {f"database:{game['id']}" for game in games}, "prospective_match_predictions",
-        "fixture_key", "fixture_key"))
+    existing_rows = list(paged(lambda: client.table("prospective_match_predictions")
+                              .select("fixture_key,source_game_id,provider_code,heuristic_prediction_status,heuristic_prediction")
+                              .gte("game_date", first).lte("game_date", last).order("id")))
+    existing = {row["fixture_key"] for row in existing_rows}
     excluded = {canonical(resolver, row["team_id_master"]) for row in paged(
         lambda: client.table("team_ranking_exclusions").select("team_id_master").order("team_id_master"))}
     pairs = defaultdict(list)
@@ -123,10 +130,11 @@ def prepare_database_fixtures(client, *, limit=500, dry_run=True, today=None):
             pairs[(game["game_date"], tuple(sorted((home, away))))].append(game)
     team_ids = {team for pair in resolved.values() for team in pair if team}
     teams = _team_rows(client, team_ids, "teams", "team_id_master,team_name,age_group,gender", "team_id_master")
-    ratings = _team_rows(client, team_ids, "rankings_full", "team_id,power_score_final,status", "team_id")
+    ratings = _team_rows(client, team_ids, "rankings_full", "team_id,power_score_final,status,games_played", "team_id")
     skipped = Counter()
     coverage = defaultdict(Counter)
     candidates = []
+    strata_coverage = defaultdict(Counter)
     for game in games:
         home, away = resolved[game["id"]]
         provider = providers.get(game.get("provider_id"))
@@ -135,6 +143,16 @@ def prepare_database_fixtures(client, *, limit=500, dry_run=True, today=None):
         if game.get("home_score") is not None or game.get("away_score") is not None:
             continue
         coverage[bucket]["seen"] += 1
+        team_ages = sorted({str(teams.get(team, {}).get("age_group") or "unknown") for team in (home, away)})
+        team_genders = sorted({str(teams.get(team, {}).get("gender") or "unknown") for team in (home, away)})
+        counts = [ratings.get(team, {}).get("games_played") for team in (home, away)]
+        known_counts = all(isinstance(c, (int, float)) and not isinstance(c, bool)
+                           and math.isfinite(c) and c >= 0 for c in counts)
+        band = history_band(min(counts)) if known_counts else "unknown"
+        stratum = {"provider": provider or "unknown", "age_group": "/".join(team_ages),
+                   "gender": "/".join(team_genders), "rating_history_band": band}
+        label = tuple(stratum.values())
+        strata_coverage[label]["seen"] += 1
         key = f"database:{game['id']}"
         reason = None
         if key in existing:
@@ -152,8 +170,11 @@ def prepare_database_fixtures(client, *, limit=500, dry_run=True, today=None):
         if reason:
             skipped[reason] += 1
             coverage[bucket]["skipped"] += 1
+            coverage[bucket][reason] += 1
+            strata_coverage[label][reason] += 1
             continue
         coverage[bucket]["eligible"] += 1
+        strata_coverage[label]["eligible"] += 1
         kind, group, event = evaluation_group(provider, game)
         candidates.append((bucket, {
             "fixture_key": key, "source_game_id": game["id"], "provider_code": provider,
@@ -167,14 +188,26 @@ def prepare_database_fixtures(client, *, limit=500, dry_run=True, today=None):
             "home_team_master_id": home, "away_team_master_id": away,
             "home_resolution_method": "database_canonical", "away_resolution_method": "database_canonical",
             "resolution_status": "resolved", "offline_prediction_status": "skipped",
-            "fixture_payload": {"source_snapshot": game, "cohort": cohort, "merge_version": resolver.version},
+            "fixture_payload": {"source_snapshot": game, "cohort": cohort, "merge_version": resolver.version,
+                                "collection_stratum": stratum, "collection_policy": "balanced_v1"},
         }))
-    candidates.sort(key=lambda item: (
-        item[1]["game_date"], hashlib.sha256(item[1]["fixture_key"].encode()).hexdigest()))
-    selected = candidates[:limit]
+    return candidates, {"window_start": first, "window_end": last, "eligible": len(candidates),
+                        "skipped": dict(skipped), "coverage": coverage, "strata": strata_coverage,
+                        "providers": sorted(providers.values())}, existing_rows
+
+
+def prepare_database_fixtures(client, *, limit=500, dry_run=True, today=None, selection="balanced"):
+    if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 500:
+        raise ValueError("limit must be between 1 and 500")
+    candidates, summary, _ = database_fixture_inventory(client, today=today)
+    selected = select_fixture_candidates(candidates, limit, selection)
+    coverage = summary.pop("coverage")
+    strata = summary.pop("strata")
     inserted = 0
-    for bucket, _ in selected:
+    for bucket, row in selected:
         coverage[bucket]["selected"] += 1
+        strata[tuple(row["fixture_payload"]["collection_stratum"].values())]["selected"] += 1
+        row["fixture_payload"]["collection_policy"] = selection + "_v1"
     if not dry_run:
         for start in range(0, len(selected), 100):
             rows = [row for _, row in selected[start:start + 100]]
@@ -182,9 +215,10 @@ def prepare_database_fixtures(client, *, limit=500, dry_run=True, today=None):
             result = client.table("prospective_match_predictions").upsert(
                 rows, on_conflict="fixture_key", ignore_duplicates=True).execute()
             inserted += len(result.data or [])
-    return {"dry_run": dry_run, "window_start": first, "window_end": last,
-            "eligible": len(candidates), "selected": len(selected), "inserted": inserted,
-            "skipped": dict(skipped), "coverage": {key: dict(value) for key, value in sorted(coverage.items())}}
+    return {"dry_run": dry_run, **summary, "selection": selection, "selected": len(selected), "inserted": inserted,
+            "coverage": {key: dict(value) for key, value in sorted(coverage.items())},
+            "strata": [{**dict(zip(("provider", "age_group", "gender", "rating_history_band"), key)), **value}
+                       for key, value in sorted(strata.items())]}
 
 
 def settlement_aliases(resolver):
