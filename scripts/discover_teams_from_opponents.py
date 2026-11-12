@@ -8,11 +8,14 @@ When an unknown opponent cannot be fuzzy-matched to any existing team
 
 1) Reads the match report CSV from auto_match_unknown_opponents.py
 2) Filters for "no_match" rows
-3) Resolves team metadata from the GotSport API
-4) Validates sufficient metadata (name, age_group, gender required)
-5) Checks the team doesn't already exist (alias check)
-6) Creates new team in `teams` table + alias in `team_alias_map`
-7) Backfills game FKs (home_team_master_id / away_team_master_id)
+3) Resolves team metadata from the GotSport API, reusing the export's lookups
+4) Skips a team whose lookup failed (next week retries it)
+5) Validates sufficient metadata (name, age_group, gender required)
+6) Checks the team doesn't already exist (alias check)
+7) Creates new team in `teams` table + alias in `team_alias_map`; a team GotSport
+   files as Coed is created excluded from rankings, and this script does not queue
+   it for a scrape, though the scheduled enqueue sweeps can still pick it up
+8) Backfills game FKs (home_team_master_id / away_team_master_id)
 
 Examples:
     # Dry run (default) - report what would be created
@@ -40,7 +43,7 @@ import time
 import uuid
 from datetime import date, datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 import requests
 from dotenv import load_dotenv
@@ -49,11 +52,13 @@ from supabase import create_client
 
 # The workflow runs this as `python3 scripts/...`, which puts scripts/ on the
 # path and not the repo root, and installs only supabase, python-dotenv and
-# requests. team_association_map imports nothing beyond typing, so it is safe to
-# reach for here where the shared triage predicate below is not.
+# requests. Everything imported from src/ below depends only on requests and the
+# standard library, so it is safe to reach for here where the shared triage
+# predicate below is not.
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from src.utils.age_group import normalize_age_group  # noqa: E402
+from src.utils.gotsport_team_details import TeamDetailsPacer  # noqa: E402
 from src.utils.team_association_map import to_state_code  # noqa: E402
 
 
@@ -115,10 +120,12 @@ def _normalize_gender(v: Optional[str]) -> Optional[str]:
 class GotSportResolver:
     BASE_URL = "https://system.gotsport.com/api/v1/team_ranking_data/team_details"
 
-    def __init__(self, timeout: int = 15):
+    def __init__(self, timeout: int = 15, pacer: Optional[TeamDetailsPacer] = None):
         self.timeout = timeout
         self.session = requests.Session()
+        self.pacer = pacer or TeamDetailsPacer()
         self.cache: Dict[str, Dict[str, str]] = {}
+        self.failed: Set[str] = set()
 
     def resolve(self, provider_team_id: str) -> Dict[str, str]:
         key = str(provider_team_id).strip()
@@ -127,7 +134,8 @@ class GotSportResolver:
         if key in self.cache:
             return self.cache[key]
         try:
-            response = self.session.get(
+            response = self.pacer.get(
+                self.session,
                 self.BASE_URL,
                 params={"team_id": key},
                 timeout=self.timeout,
@@ -142,21 +150,34 @@ class GotSportResolver:
                 payload = {}
         except Exception:
             # A WAF block, timeout or 429 says nothing about this team, so it is
-            # not cached -- a later row retries.
+            # not cached, and main leaves the team for next week.
+            self.failed.add(key)
             return {}
 
         # team_details has no full_name, state, age or gender key; the real fields
         # are team_association, display_age_group and display_gender.
-        resolved = {
-            "name": str(payload.get("name") or "").strip(),
-            "club_name": str(payload.get("club_name") or "").strip(),
-            "state": to_state_code(payload.get("team_association")) or "",
-            "city_state_country": str(payload.get("city_state_country") or "").strip(),
-            "age": str(payload.get("display_age_group") or "").strip(),
-            "gender": str(payload.get("display_gender") or "").strip(),
-        }
+        resolved = self.record(
+            name=payload.get("name"),
+            club_name=payload.get("club_name"),
+            state=to_state_code(payload.get("team_association")),
+            age=payload.get("display_age_group"),
+            gender=payload.get("display_gender"),
+        )
         self.cache[key] = resolved
         return resolved
+
+    @staticmethod
+    def record(name, club_name, state, age, gender) -> Dict[str, str]:
+        """One team's details as the cache holds them, whichever stage read GotSport."""
+        fields = {"name": name, "club_name": club_name, "state": state, "age": age, "gender": gender}
+        return {field: str(value or "").strip() for field, value in fields.items()}
+
+    def remember(self, provider_team_id: str, record: Dict[str, str]) -> bool:
+        """Cache a lookup another stage made. Returns False when this id is already cached."""
+        if provider_team_id in self.cache:
+            return False
+        self.cache[provider_team_id] = record
+        return True
 
 
 def _is_placeholder_name(team_name: Optional[str], provider_team_id: str) -> bool:
@@ -195,15 +216,16 @@ def _build_team_metadata(
     age_group = normalize_age_group(row.get("unknown_age_group_used"))
     gender = _normalize_gender(row.get("unknown_gender_used"))
     state_code = ""
+    provider_gender = ""
 
     # Resolve from GotSport API if available and fields are missing
     if resolver and provider_code == "gotsport" and unknown_pid:
         resolved = resolver.resolve(unknown_pid)
         if resolved:
             # auto_match hands over unknown_<pid> when its own lookup came back
-            # empty. That is a fuzzy-matching scratch value, not a name, so let a
-            # resolved name displace it — but keep it when this lookup is blocked
-            # too, so the team is still created and the backfill can rename it.
+            # empty. That is a fuzzy-matching scratch value, not a name, so a
+            # resolved name displaces it. A transport failure is skipped in main; a
+            # 404 keeps the report's values, placeholder included.
             if not team_name or _is_placeholder_name(team_name, unknown_pid):
                 team_name = resolved.get("name", "") or team_name
             club_name = club_name or resolved.get("club_name", "")
@@ -213,6 +235,7 @@ def _build_team_metadata(
             age_group = normalize_age_group(resolved.get("age")) or age_group
             gender = _normalize_gender(resolved.get("gender")) or gender
             state_code = resolved.get("state", "")
+            provider_gender = resolved.get("gender", "")
 
     return {
         "team_name": team_name or None,
@@ -220,12 +243,42 @@ def _build_team_metadata(
         "age_group": age_group,
         "gender": gender,
         "state_code": state_code.upper() if state_code else None,
+        "provider_gender": provider_gender or None,
     }
 
 
 def _has_minimum_metadata(meta: Dict[str, Optional[str]]) -> bool:
     """Check that we have the minimum required fields to create a team."""
     return bool(meta.get("team_name") and meta.get("age_group") and meta.get("gender"))
+
+
+def _is_coed(provider_gender: Optional[str]) -> bool:
+    """PitchRank does not rank coed teams (owner, 2026-11-10)."""
+    return str(provider_gender or "").strip().lower() == "coed"
+
+
+# The export aggregate's columns this stage reuses, keyed by the record field each fills.
+EXPORT_COLUMNS = {
+    "name": "unknown_team_name",
+    "club_name": "unknown_club_name",
+    "state": "unknown_state",
+    "age": "unknown_age",
+    "gender": "unknown_gender",
+}
+
+
+def seed_from_export(resolver: GotSportResolver, aggregate_path: str) -> int:
+    """Hand the resolver every lookup the export already answered, so this stage asks
+    GotSport only about the ids the export could not read. Returns how many it seeded."""
+    seeded = 0
+    with open(aggregate_path, "r", encoding="utf-8") as f:
+        for row in csv.DictReader(f):
+            pid = (row.get("unknown_provider_team_id") or "").strip()
+            record = GotSportResolver.record(**{field: row.get(column) for field, column in EXPORT_COLUMNS.items()})
+            if (row.get("provider_code") or "").strip().lower() != "gotsport" or not pid or not record["name"]:
+                continue
+            seeded += resolver.remember(pid, record)
+    return seeded
 
 
 def _alias_exists(supabase, provider_id: str, provider_team_id: str) -> Optional[str]:
@@ -268,12 +321,49 @@ def _team_exists_by_provider(supabase, provider_id: str, provider_team_id: str) 
     return None
 
 
+COED_EXCLUSION_REASON = "Coed team (GotSport files it as Coed); PitchRank does not rank coed teams"
+
+
+def exclude_coed_team(supabase, team_id_master: str, provider_team_id: str) -> bool:
+    """Keep a coed team out of the rankings. Returns False when the write fails.
+
+    A duplicate key means a retried insert already landed, so it counts as written.
+    """
+    try:
+        _execute_with_retry(
+            lambda: (
+                supabase.table("team_ranking_exclusions")
+                .insert(
+                    {
+                        "team_id_master": team_id_master,
+                        "reason": COED_EXCLUSION_REASON,
+                        "evidence": {
+                            "provider": "gotsport",
+                            "provider_team_id": provider_team_id,
+                            "gotsport_gender": "Coed",
+                        },
+                        "excluded_by": "discover_teams_from_opponents",
+                    }
+                )
+                .execute()
+            )
+        )
+    except Exception as e:
+        error_str = str(e).lower()
+        if "unique" in error_str or "duplicate" in error_str:
+            return True
+        print(f"  ERROR: coed team {provider_team_id} not excluded, so not created: {e}")
+        return False
+    return True
+
+
 def create_team_and_alias(
     supabase,
     provider_id: str,
     provider_team_id: str,
     meta: Dict[str, Optional[str]],
     provider_code: Optional[str] = None,
+    exclude_from_rankings: bool = False,
 ) -> Tuple[str, str]:
     """
     Create a new team and alias mapping.
@@ -282,6 +372,10 @@ def create_team_and_alias(
     priority 3 (discovery) so the new team enters the queue and gets its
     schedule scraped within ~15 minutes via process_missing_games. Other
     providers are skipped — schedule-driven-scraping is GotSport-only.
+
+    With exclude_from_rankings, the team_ranking_exclusions row is written before
+    the team or its alias, so a failed exclusion leaves no approved alias for a
+    later import to link ranked games through; such a team is not enqueued.
 
     Returns (team_id_master, status) where status is one of:
     'created', 'exists_alias', 'exists_team', 'error'
@@ -297,6 +391,9 @@ def create_team_and_alias(
         return existing_team, "exists_team"
 
     team_id_master = str(uuid.uuid4())
+
+    if exclude_from_rankings and not exclude_coed_team(supabase, team_id_master, provider_team_id):
+        return "", "error"
 
     # Create team record
     team_record = {
@@ -358,7 +455,7 @@ def create_team_and_alias(
     # Enqueue at priority 3 (discovery) so the new team enters the priority
     # queue and process_missing_games scrapes its schedule within ~15 min.
     # Other providers are out of scope; the queue is GotSport-only for now.
-    if provider_code == "gotsport":
+    if provider_code == "gotsport" and not exclude_from_rankings:
         try:
             _execute_with_retry(
                 lambda: supabase.rpc(
@@ -452,6 +549,11 @@ def main() -> None:
         help="Match report CSV from auto_match_unknown_opponents.py",
     )
     parser.add_argument(
+        "--export-aggregate",
+        default=None,
+        help="Aggregate CSV from export_unknown_opponents.py; its GotSport lookups are reused, not repeated",
+    )
+    parser.add_argument(
         "--provider",
         default="gotsport",
         help="Provider code filter (default: gotsport)",
@@ -541,15 +643,20 @@ def main() -> None:
         return
 
     resolver = GotSportResolver()
+    if args.export_aggregate:
+        print(f"GotSport lookups reused from the export: {seed_from_export(resolver, args.export_aggregate):,}")
+        print()
 
     report_rows: List[Dict[str, object]] = []
     stats = {
         "total": 0,
         "created": 0,
+        "created_coed_excluded": 0,
         "exists_alias": 0,
         "exists_team": 0,
         "skipped_metadata": 0,
         "skipped_api_empty": 0,
+        "skipped_lookup_failed": 0,
         "error": 0,
         "games_backfilled_home": 0,
         "games_backfilled_away": 0,
@@ -562,6 +669,25 @@ def main() -> None:
 
         # Build metadata from CSV + API
         meta = _build_team_metadata(row, resolver)
+
+        if unknown_pid in resolver.failed:
+            stats["skipped_lookup_failed"] += 1
+            report_rows.append(
+                {
+                    "unknown_provider_team_id": unknown_pid,
+                    "games_count": games_count,
+                    "action": "skipped_lookup_failed",
+                    "team_name": meta.get("team_name") or "",
+                    "club_name": "",
+                    "age_group": "",
+                    "gender": "",
+                    "state_code": "",
+                    "team_id_master": "",
+                    "games_backfilled": 0,
+                    "reason": "GotSport lookup failed; left for next week's run",
+                }
+            )
+            continue
 
         if not meta.get("team_name"):
             stats["skipped_api_empty"] += 1
@@ -603,14 +729,19 @@ def main() -> None:
             )
             continue
 
+        coed = _is_coed(meta.get("provider_gender"))
+
         if args.execute:
             team_id_master, status = create_team_and_alias(
-                supabase, provider_id, unknown_pid, meta, provider_code=provider_code
+                supabase, provider_id, unknown_pid, meta, provider_code=provider_code, exclude_from_rankings=coed
             )
+            created = status == "created"
+            if created and coed:
+                status = "created_coed_excluded"
             stats[status] = stats.get(status, 0) + 1
 
             home_bf, away_bf = 0, 0
-            if status == "created" and team_id_master:
+            if created and team_id_master:
                 home_bf, away_bf = backfill_games(supabase, provider_id, unknown_pid, team_id_master)
                 stats["games_backfilled_home"] += home_bf
                 stats["games_backfilled_away"] += away_bf
@@ -631,9 +762,9 @@ def main() -> None:
                 }
             )
 
-            if status == "created":
+            if created:
                 print(
-                    f"  [{idx}/{len(unique_rows)}] CREATED {meta['team_name']} "
+                    f"  [{idx}/{len(unique_rows)}] CREATED{' (coed, excluded)' if coed else ''} {meta['team_name']} "
                     f"({meta['age_group']} {meta['gender']}) -> {team_id_master} "
                     f"(backfilled {home_bf + away_bf} games)"
                 )
@@ -648,6 +779,9 @@ def main() -> None:
                 if existing_team:
                     stats["exists_team"] += 1
                     status = "would_skip_exists"
+                elif coed:
+                    stats["created_coed_excluded"] += 1
+                    status = "would_create_coed_excluded"
                 else:
                     stats["created"] += 1  # would-be-created
                     status = "would_create"
@@ -692,6 +826,8 @@ def main() -> None:
         print(f"Already existed (team): {stats['exists_team']:,}")
         print(f"Skipped (no API data): {stats['skipped_api_empty']:,}")
         print(f"Skipped (insufficient metadata): {stats['skipped_metadata']:,}")
+        print(f"Skipped (GotSport lookup failed, left for next week): {stats['skipped_lookup_failed']:,}")
+        print(f"Coed teams created excluded from rankings: {stats['created_coed_excluded']:,}")
         print(f"Errors: {stats['error']:,}")
         print(f"Games backfilled (home): {stats['games_backfilled_home']:,}")
         print(f"Games backfilled (away): {stats['games_backfilled_away']:,}")
@@ -700,6 +836,8 @@ def main() -> None:
         print(f"Would skip (already exists): {stats['exists_alias'] + stats['exists_team']:,}")
         print(f"Skipped (no API data): {stats['skipped_api_empty']:,}")
         print(f"Skipped (insufficient metadata): {stats['skipped_metadata']:,}")
+        print(f"Skipped (GotSport lookup failed, left for next week): {stats['skipped_lookup_failed']:,}")
+        print(f"Would create excluded from rankings (coed): {stats['created_coed_excluded']:,}")
     print(f"Report CSV: {output_path}")
 
     # Print CI-friendly key lines
@@ -707,6 +845,8 @@ def main() -> None:
     print(f"DISCOVERY_CREATED={stats['created']}")
     print(f"DISCOVERY_SKIPPED_METADATA={stats['skipped_metadata']}")
     print(f"DISCOVERY_SKIPPED_API_EMPTY={stats['skipped_api_empty']}")
+    print(f"DISCOVERY_SKIPPED_LOOKUP_FAILED={stats['skipped_lookup_failed']}")
+    print(f"DISCOVERY_COED_EXCLUDED={stats['created_coed_excluded']}")
     print(f"DISCOVERY_ERRORS={stats['error']}")
     print(f"DISCOVERY_GAMES_BACKFILLED={stats['games_backfilled_home'] + stats['games_backfilled_away']}")
 

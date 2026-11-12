@@ -113,13 +113,14 @@ export default async function RankingsPage({ params }: RankingsPageProps) {
   const resolvedParams = await params;
   const { region, ageGroup, gender } = resolvedParams;
 
-  const lowered = [region.toLowerCase(), ageGroup.toLowerCase(), gender.toLowerCase()];
-  if (!VALID_REGIONS.has(lowered[0]) || !VALID_AGE_GROUPS.has(lowered[1]) || !VALID_GENDERS.has(lowered[2])) {
+  // U18 teams are ranked on the U19 board, so /u18/ is folded into /u19/.
+  const canonical = [region.toLowerCase(), ageGroup.toLowerCase().replace(/^u18$/, 'u19'), gender.toLowerCase()];
+  if (!VALID_REGIONS.has(canonical[0]) || !VALID_AGE_GROUPS.has(canonical[1]) || !VALID_GENDERS.has(canonical[2])) {
     notFound();
   }
-  // /rankings/AZ/... is the same board as /rankings/az/...; send it there instead of serving a duplicate.
-  if (lowered[0] !== region || lowered[1] !== ageGroup || lowered[2] !== gender) {
-    permanentRedirect(`/rankings/${lowered.join('/')}`);
+  // An upper-case or /u18/ URL is the same board as its canonical URL; send it there instead of serving a duplicate.
+  if (canonical[0] !== region || canonical[1] !== ageGroup || canonical[2] !== gender) {
+    permanentRedirect(`/rankings/${canonical.join('/')}`);
   }
 
   // key prop forces React to unmount/remount the component when route params change

@@ -77,6 +77,20 @@ Mirror the most recent guide's structure.
    status gives tracked teams, which run several times larger. The view's state column
    is `state` and its `gender` is `M`/`F`. Status meanings are in
    `.claude/skills/matching-tournament-rosters/references/reading-the-rankings.md`.
+   Count ranked teams per age group and gender too. Where boys play high school soccer
+   in the fall, older boys teams last played in spring and drop off the board after
+   `GlickoConfig.INACTIVE_DAYS` without a game; explain a thin older-boys board once
+   `rankings_view` shows the missing teams as `Inactive` and the state high school
+   association confirms the boys season. Give the window in rounded months, not the
+   setting's day count, which changes when the cutoff is retuned.
+
+   Report opponent-state shares as who teams played ("against out-of-state teams"),
+   not where: the share is the opponent's `teams.state_code` (what `rankings_view.state`
+   exposes), not the venue. It counts each ranked team's own games, so a game between
+   two ranked in-state teams counts twice; phrase it as a share of the teams' own games
+   ("Counting each team's own games, 49% were against…"), not of the distinct-game
+   total. Describe a median as "half" ("half haven't recorded a game since late May"),
+   never "most".
 3. **Scan the state's ranked club names before linking its boards.** Foreign or
    out-of-state clubs mis-filed under the state code can fill a board, and the guide
    links every age-group board. When they do, hold the guide and backlog the mis-filing.
@@ -85,14 +99,22 @@ Mirror the most recent guide's structure.
      mlssoccer.com/mlsnext, girlsacademyleague.com (including Aspire), and US Club
      Soccer's National 1 League. `teams.league` is a manual backfill's guess from team
      names, not a membership list.
+   - Read ECNL membership from its standings pages, which render only in a browser after
+     the conference is chosen; ECNL's post-season structure PDFs can omit a club. MLS
+     NEXT member pages can still carry last season's label; when no current list exists,
+     attribute membership to the season the list names rather than presenting it as current.
    - Take State Cup qualification, seeding and advancement from the state
-     association's current rules page.
+     association's current rules page. Some associations split the cup into fall and
+     spring competitions by age group, and some by gender too; say which competition
+     any dates you give belong to.
    - Confirm club home cities on the club's own site.
-5. **Write the three template lines IMP-247 tracks from sources, not from an older
-   guide:**
-   - how other ranking systems score teams (GotSport also awards league placement points)
-   - how State Cup seeds and qualifies teams (from step 4's rules page)
-   - the academic filter (NCAA initial eligibility uses core-course GPA, not test scores)
+5. **Write these template lines from sources, not from an older guide:**
+   - how other ranking systems score teams (GotSport also awards league placement points; IMP-247)
+   - how State Cup seeds and qualifies teams (from step 4's rules page; IMP-247)
+   - the academic filter (NCAA initial eligibility uses core-course GPA, not test scores; IMP-247)
+   - the PowerScore scale: 0–100 as the boards show it (`formatPowerScore`), in the body
+     and the FAQ answers step 7 registers. The older guides' 0.0–1.0 wording is IMP-294's;
+     Hard Rule 4 governs editing an existing claim, not a new guide.
 6. **Use the standard internal link set:** `/rankings` once, `/rankings/<code>` three
    times, the 18 age-group boards (U10–U17 and U19, boys and girls), and
    `https://pitchrank.io` twice.
@@ -108,6 +130,17 @@ Mirror the most recent guide's structure.
 - **GA4 credentials are Vercel-only** and cannot be pulled locally. Use the
   site's `/analytics` dashboard instead of trying to query GA4 directly.
 - **GSC** goes through the `google-search-console` skill (user-level, not
-  tracked in this repo). Mind privacy thresholds: low numbers are often
+  tracked in this repo) or the `seo` plugin (`seo:seo` skill, `seo` CLI and its
+  reports). Mind privacy thresholds: low numbers are often
   dimension undercounting — retry with aggregate queries before concluding
   traffic is missing.
+- **Read decay reports against the season.** The `seo` plugin's `decaying-pages` and
+  `search-performance-overview` reports compare adjacent windows; a pair spanning Aug 1
+  compares off-season with in-season traffic; `decaying-pages` takes
+  `comparison: "year-over-year"` to avoid that once a year of data exists. Before calling
+  a guide decaying, check whether its query moved to the state board while both stayed
+  on page one.
+- **The Search Analytics API rejects `groupType: "or"`** in `dimensionFilterGroups`
+  (HTTP 400, whether sent through `seo gsc-query` or the google-search-console skill).
+  Use one filter with `operator: "includingRegex"` and an anchored alternation such as
+  `^(query one|query two)$`.
