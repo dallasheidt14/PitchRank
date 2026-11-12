@@ -9,6 +9,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
+from src.rankings.input_archive import ACTIVE_ARCHIVE, utc_now
 from src.rankings.shared import normalize_by_cohort
 
 logger = logging.getLogger(__name__)
@@ -270,6 +271,8 @@ def _passthrough_ml(out, cfg, return_game_residuals, base_power_col=None):
         out["powerscore_ml"] = out.get("powerscore_adj", out.get("powerscore_core", 0.0))
     out["powerscore_ml"] = out["powerscore_ml"].clip(0.0, 1.0)
     out["rank_in_cohort_ml"] = _rank_active_only(out, cfg.cohort_key_cols, "powerscore_ml")
+    if (archive := ACTIVE_ARCHIVE.get()) is not None:
+        archive.model_outputs(out, cfg, [], "passthrough_teams")
     if return_game_residuals:
         return out, pd.DataFrame(columns=["game_id", "ml_overperformance"])
     return out
@@ -652,14 +655,22 @@ def _build_walk_forward_slices(train_feats: pd.DataFrame, cfg: Layer13Config) ->
 
 def _fit_and_residualize(feats: pd.DataFrame, train_feats: pd.DataFrame, cfg: Layer13Config) -> pd.DataFrame:
     """Fit ML model and compute display residuals plus aggregation-safe residuals."""
+    archive = ACTIVE_ARCHIVE.get()
+    started = utc_now() if archive else None
     model = _fit_model(train_feats, cfg, log_feature_importances=True)
+    fit_ids = []
+    if archive:
+        fit_ids.append(archive.model_fit(model, train_feats, cfg, FEATURE_NAMES, started, "final"))
     out = _predict_with_model(model, feats, cfg)
     out["residual_for_agg"] = np.nan
 
     for fold_train_idx, fold_val_idx in _build_walk_forward_slices(train_feats, cfg):
         fold_train = train_feats.loc[fold_train_idx]
         fold_val = train_feats.loc[fold_val_idx]
+        started = utc_now() if archive else None
         fold_model = _fit_model(fold_train, cfg)
+        if archive:
+            fit_ids.append(archive.model_fit(fold_model, fold_train, cfg, FEATURE_NAMES, started, "walk_forward"))
         fold_pred = _predict_with_model(fold_model, fold_val, cfg)
         out.loc[fold_val_idx, "residual_for_agg"] = fold_pred["residual"].values
 
@@ -670,6 +681,8 @@ def _fit_and_residualize(feats: pd.DataFrame, train_feats: pd.DataFrame, cfg: La
     if out["residual_for_agg"].notna().sum() == 0:
         out["residual_for_agg"] = out["residual"]
 
+    if archive:
+        archive.model_outputs(out, cfg, fit_ids)
     return out
 
 

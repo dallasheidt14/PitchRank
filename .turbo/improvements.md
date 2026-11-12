@@ -3084,3 +3084,11 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `_fuzzy_match_team` in `src/models/sincsports_matcher.py`, `playmetrics_matcher.py`, `affinity_wa_matcher.py` and `affinity_or_matcher.py` (inherited by the UT, HI and GA matchers), and the `_match_team` create branch each one feeds
 - **Why**: Each search wraps its reads in `except Exception: ... return None`, and its `_match_team` creates a team whenever the base match comes back unmatched (checked 2026-11-12), so one transient read error (a timed-out club or cohort read) leaves a permanent duplicate carrying the provider id, which only the weekly merges can fold. TGS's match step fixed the same shape on 2026-11-12: its search raises, the caller records that one team as an error and writes nothing, and the base gender guard's `unreadable_row_is_conflict` switch lets a subclass raise instead of holding.
 - **Noted**: 2026-11-12
+
+### Keep the Illinois FC Stars rule out of the no-state pass
+
+- **Type**: direct
+- **Category**: reliability
+- **Where**: the IL `("exact", "FC Stars")` entry of `CLUB_CANONICAL_OVERRIDES`, `STATE_ONLY_PATTERNS` and `analyze_no_state_teams` in `scripts/full_club_analysis.py`
+- **Why**: `("exact", "fc stars")` is not in `STATE_ONLY_PATTERNS`, and no other state has an exact "FC Stars" pattern, so `analyze_no_state_teams` treats the IL entry as safe everywhere: called on a stateless "FC Stars" team it returns a `CANONICAL_NO_STATE` fix to "FC Stars (IL)" (checked 2026-11-12). The comments beside the NH and NY entries say such teams are mostly New Hampshire or Massachusetts sides. Latent: none of the 354 live "FC Stars" teams lacked a state on 2026-11-12. Fix by adding the pattern to `STATE_ONLY_PATTERNS`, or by moving the entry into `SPELLING_GROUP_OVERRIDES`.
+- **Noted**: 2026-11-12
