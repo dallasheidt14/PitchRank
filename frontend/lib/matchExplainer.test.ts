@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { explainMatch } from './matchExplainer';
-import type { MatchPrediction } from './matchPredictor';
-import type { TeamWithRanking } from './types';
+import { calculateCommonOpponentSignal, type MatchPrediction } from './matchPredictor';
+import type { Game, TeamWithRanking } from './types';
 
 function makeTeam(overrides: Partial<TeamWithRanking> = {}): TeamWithRanking {
   return {
@@ -70,6 +70,132 @@ function makePrediction(overrides: Partial<MatchPrediction> = {}): MatchPredicti
 }
 
 describe('explainMatch', () => {
+  const allFactors = (explanation: ReturnType<typeof explainMatch>) => [
+    ...explanation.factors,
+    ...(explanation.counterFactors ?? []),
+  ];
+
+  it.each([0, 0.04, -0.04])('does not invent a head-to-head edge for a %s average margin', (avgMargin) => {
+    const result = explainMatch(
+      makeTeam({ team_name: 'Alpha' }),
+      makeTeam({ team_name: 'Beta' }),
+      makePrediction({ h2h: { gamesPlayed: 2, avgMargin } })
+    );
+    expect(allFactors(result).some((factor) => factor.factor === 'head_to_head')).toBe(false);
+    expect(result.keyInsights.join(' ')).not.toContain('+0.0');
+  });
+
+  it('preserves a zero overall score when cohort ranks are unavailable', () => {
+    const a = makeTeam({ team_name: 'Alpha', power_score_final: 0, rank_in_cohort_final: null });
+    const b = makeTeam({ team_name: 'Beta', power_score_final: 0.3, rank_in_cohort_final: null });
+    const prediction = makePrediction();
+    prediction.components.powerDiff = -0.3;
+    const factor = allFactors(explainMatch(a, b, prediction)).find((item) => item.factor === 'overall_strength');
+    expect(factor?.advantage).toBe('team_b');
+    expect(factor?.description).toContain('(30 vs 0)');
+  });
+
+  it('shows schedule strength as a normalized score and preserves zero', () => {
+    const prediction = makePrediction();
+    prediction.components.sosDiff = -0.3;
+    const result = explainMatch(
+      makeTeam({ team_name: 'Alpha', sos_norm: 0 }),
+      makeTeam({ team_name: 'Beta', sos_norm: 0.3 }),
+      prediction
+    );
+    const factor = allFactors(result).find((item) => item.factor === 'schedule_strength');
+    expect(factor?.advantage).toBe('team_b');
+    expect(factor?.description).toContain('30 vs 0 out of 100');
+    expect(factor?.description).not.toMatch(/30th|50th|proven|elite/);
+  });
+
+  it('does not turn zero attack strength into a 50-point attacking advantage', () => {
+    const result = explainMatch(
+      makeTeam({ team_name: 'Alpha', offense_norm: 0, defense_norm: 0.9 }),
+      makeTeam({ team_name: 'Beta', offense_norm: 0.1, defense_norm: 0.2 }),
+      makePrediction()
+    );
+    expect(allFactors(result).some((factor) => factor.factor === 'offensive_matchup')).toBe(false);
+  });
+
+  it.each([
+    { defense: 0, expected: '0/100' },
+    { defense: null, expected: '50/100' },
+  ])('distinguishes zero defense from missing defense ($defense)', ({ defense, expected }) => {
+    const result = explainMatch(
+      makeTeam({ team_name: 'Alpha', offense_norm: 0.9, defense_norm: 0.9 }),
+      makeTeam({ team_name: 'Beta', offense_norm: 0.1, defense_norm: defense }),
+      makePrediction()
+    );
+    const factor = allFactors(result).find((item) => item.factor === 'offensive_matchup');
+    expect(factor?.description).toContain('attack score (90/100)');
+    expect(factor?.description).toContain(`defense score (${expected})`);
+  });
+
+  it('does not award either side an attacking edge when both matchups are equal', () => {
+    const a = makeTeam({ team_name: 'Alpha', offense_norm: 0.9, defense_norm: 0.5 });
+    const b = makeTeam({ team_name: 'Beta', offense_norm: 0.9, defense_norm: 0.5 });
+    for (const [left, right] of [
+      [a, b],
+      [b, a],
+    ]) {
+      const result = explainMatch(left, right, makePrediction());
+      expect(allFactors(result).some((factor) => factor.factor === 'offensive_matchup')).toBe(false);
+    }
+  });
+
+  it.each([false, true])(
+    'cites the correct shared-opponent statistic when points and margins disagree (swapped=%s)',
+    (swapped) => {
+      const a = makeTeam({ team_id_master: 'a', team_name: 'Alpha' });
+      const b = makeTeam({ team_id_master: 'b', team_name: 'Beta' });
+      // Wins and goal margins can favor different teams after per-opponent signal clipping.
+      const margins = [
+        [[3], [-1, -1]],
+        [
+          [-1, 3, -3],
+          [-1, -5],
+        ],
+        [[-3], [-1]],
+        [[-12, -8, -10], [3]],
+        [[5], [1, -1, -1]],
+      ];
+      const games = margins.flatMap((opponent, index) =>
+        opponent.flatMap((results, side) =>
+          results.map(
+            (margin, repeat) =>
+              ({
+                id: `${index}-${side}-${repeat}`,
+                game_date: '2026-11-10',
+                home_team_master_id: side === 0 ? 'a' : 'b',
+                away_team_master_id: `opponent-${index}`,
+                home_score: Math.max(margin, 0),
+                away_score: Math.max(-margin, 0),
+              }) as Game
+          )
+        )
+      );
+      const [left, right] = swapped ? [b, a] : [a, b];
+      const common = calculateCommonOpponentSignal(left.team_id_master, right.team_id_master, games);
+      expect(Math.abs(common.advantage)).toBeGreaterThan(0.025);
+      expect(common.avgMarginDiff * common.advantage).toBeLessThan(0);
+      const prediction = makePrediction({
+        h2h: undefined,
+        commonOpponents: common,
+        winProbabilityA: swapped ? 0.2 : 0.6,
+        winProbabilityB: swapped ? 0.6 : 0.2,
+        drawProbability: 0.2,
+      });
+      prediction.components.commonOpponentSignal = common.advantage;
+      const result = explainMatch(left, right, prediction);
+      expect(result.keyInsights).toContain(
+        'Alpha has taken about 0.5 more points per game against 5 shared opponents.'
+      );
+      expect(allFactors(result).some((factor) => factor.factor === 'common_opponents')).toBe(false);
+      expect(result.keyInsights.join(' ')).not.toContain('0.7 goals per game better');
+    }
+  );
+
   it('uses the final-probability favorite when the model selected a draw', () => {
     const a = makeTeam({ team_name: 'Alpha', team_id_master: 'a', power_score_final: 0.8, sos_norm: 0.3 });
     const b = makeTeam({ team_name: 'Beta', team_id_master: 'b', power_score_final: 0.3, sos_norm: 0.8 });
