@@ -1,5 +1,6 @@
 import gzip
 import hashlib
+import json
 from collections import Counter
 from pathlib import Path
 from types import SimpleNamespace
@@ -13,6 +14,43 @@ from src.rankings.input_archive import InputArchive, utc_now
 from tests.unit.test_ranking_archive_storage import FakeServer
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_executing_cli_reuses_shared_objects_across_archives(tmp_path, monkeypatch, capsys):
+    from scripts import capture_compare_challenger as cli
+
+    server = FakeServer()
+    hashes = []
+    for number in range(2):
+        archive = InputArchive(tmp_path / f"source-{number}", ROOT, {"capture_kind": "frozen_compare_forecasts"})
+        archive.query("prospective_match_predictions", [["select", ["*"], {}]],
+                      SimpleNamespace(data=[{"id": str(number)}]), utc_now(), "select")
+        archive.finish(True)
+        hashes.append(publish_archive(server, archive.directory, dry_run=False)["manifest_sha256"])
+    server.calls.clear()
+    monkeypatch.setattr(cli, "_supabase_client", lambda: server)
+    monkeypatch.setattr(cli, "capture_preflight", lambda *args: {"eligible_prematch": 1})
+    monkeypatch.setattr(cli, "forecast_archive_headers",
+                        lambda client: [{"manifest_sha256": sha} for sha in hashes])
+    monkeypatch.setattr(cli, "FrozenSourceIndex", lambda archives, root: archives)
+
+    def capture(client, signature, archives, runner, *, dry_run, limit):
+        assert client is server and signature == "candidate" and not dry_run and limit == 20
+        assert len(archives) == 2
+        for archive in archives:
+            verify_archive(archive.directory)
+        return {"captured": 1, "errors": {}}
+
+    monkeypatch.setattr(cli, "capture_candidate", capture)
+    monkeypatch.setattr("sys.argv", ["capture_compare_challenger.py", "candidate", "--download-archives",
+                                   str(tmp_path / "download"), "--execute", "--limit", "20"])
+    cli.main()
+    counts = Counter(name for action, name in server.calls if action == "download")
+    assert any(name.startswith("objects/") for name in counts)
+    assert all(count == 1 for name, count in counts.items() if name.startswith("objects/"))
+    assert [counts[f"runs/{sha}/manifest.json"] for sha in hashes] == [1, 1]
+    assert [sha for action, sha in server.calls if action == "index"] == hashes
+    assert json.loads(capsys.readouterr().out)["archive_object_reuse"]["objects_reused"] > 0
 
 
 def test_shared_objects_download_once_but_each_manifest_is_authenticated(tmp_path):
