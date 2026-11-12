@@ -154,8 +154,9 @@ created_at        TIMESTAMPTZ
 
 Infer nothing about an alias's origin from `match_method` or `match_confidence`.
 `scripts/maintain_gotsport_direct_id_aliases.py` rewrites every approved GotSport alias with a
-truthy `provider_team_id` to `direct_id` at confidence 1.0, the string `'None'` included, and
-`maintain_tgs_direct_id_aliases.py` does the same for TGS.
+truthy `provider_team_id` to `direct_id` at confidence 1.0, the string `'None'` included. A weekly
+step did the same for TGS until it was retired in November 2026; a TGS alias linked by name since
+then keeps `fuzzy_auto`.
 
 Read provenance from `team_link_audit` instead:
 - link-opponent rows carry `notes` of `Home: n, Away: m`
@@ -337,8 +338,9 @@ green. When copying a double for a matcher that creates teams, take the raising 
 from elsewhere.
 
 A double whose `range()` returns a fresh clone is more permissive than postgrest, which mutates
-the builder, and it hid the reused-builder defect described under Pagination. To test paging,
-run the real client offline:
+the builder, and it hid the reused-builder defect described under Pagination. Have a double refuse
+a second `range()` on one builder (`_Query.range` in `tests/unit/test_extract_and_import_tgs_teams.py`),
+or, to test paging fully, run the real client offline:
 `SyncPostgrestClient(base_url, http_client=httpx.Client(transport=httpx.MockTransport(handler)))`,
 with the handler answering by table, projecting each row to the `select` param as the first rule
 above requires, and recording each request's query params. `_PostgrestServer` in
@@ -382,7 +384,9 @@ Build the query inside the loop, as above. postgrest-py's `range()` (1.1.1, whic
 `supabase==2.18.1` pins) appends `offset` and `limit` to the builder it is called on and returns
 that same builder, so a builder built once and paged with `.range()` sends one more pair on every
 page. The ranking games fetch reached a query string of about 25 KB at page 991, and the gateway
-answered a plain-text 400 that the client reports as `JSON could not be generated` (#1243).
+answered a plain-text 400 that the client reports as `JSON could not be generated` (#1243). Give a
+pager helper a zero-argument function that builds the query, as `_paged` in
+`scripts/enqueue_helpers.py` does; a helper handed a built query repeats the defect.
 
 ### Batch Insert/Upsert
 ```python
@@ -668,9 +672,10 @@ JOIN pg_class src ON src.oid = con.conrelid
 WHERE con.contype = 'f' AND con.confrelid = 'public.teams'::regclass;
 ```
 
-`information_schema.constraint_column_usage` is **privilege-filtered** — a read-only role
-sees an empty result and concludes there are no constraints at all. That exact mistake
-produced a "teams has no foreign keys" claim in this repo's docs on 2026-08-27.
+`information_schema.constraint_column_usage` and `table_constraints` are **privilege-filtered** —
+a read-only role sees an empty result and concludes there are no constraints at all. That exact
+mistake produced a "teams has no foreign keys" claim in this repo's docs on 2026-08-27. Read primary
+and unique keys from `pg_index` (`indisprimary`, `indisunique`, `pg_get_indexdef(indexrelid)`).
 
 ### ❌ Delete Without WHERE
 ```python

@@ -9,12 +9,13 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 import requests
 
 # Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent))
+from src.tournaments.cohort_labels import read_label
 from src.utils.team_utils import (
     CURRENT_YEAR,
     calculate_age_group_from_band,
@@ -51,6 +52,10 @@ REQUIRED_COLUMNS = [
     "schedule_id",
     "age_year",  # Legacy birth-year column, always empty; cohorts are age groups
     "age_group",
+    # The age each side's own name states, which the team match step searches and creates at; the
+    # game importer drops them.
+    "team_name_age",
+    "opponent_name_age",
     "gender",
     "team_id",
     "team_id_source",
@@ -236,6 +241,58 @@ def names_a_cohort(division_name: str) -> bool:
     return extract_age_group(division_name) is not None
 
 
+def single_birth_year(team_name: str) -> Optional[int]:
+    """The one birth year a team name states, or None when it states a U-age, a two-year band,
+    several years or none. read_label counts a band as its younger year, so a band is ruled
+    out separately."""
+    reading = read_label(team_name or "", season=CURRENT_YEAR)
+    if reading.has_u_age or len(reading.birth_years) != 1:
+        return None
+    if extract_band_birth_year(team_name, CURRENT_YEAR):
+        return None
+    return next(iter(reading.birth_years))
+
+
+def lone_birth_year_groups(team_name: str) -> Set[str]:
+    """The age groups a name's lone birth year can read as in some flight: the one it is the
+    younger year of, and the tracked one it is the older year of. Empty when the name states
+    no lone birth year."""
+    year = single_birth_year(team_name)
+    if year is None:
+        return set()
+    return {group for group in (name_age_group(team_name, None), _tracked_age_group(CURRENT_YEAR - year)) if group}
+
+
+def name_age_group(team_name: str, label_season: Optional[int], division_age_group: str = "") -> str:
+    """Age group a team's own name states this season, or "" when it settles none.
+
+    The name sets a team's age and its division never overrides it, since teams play up. A band
+    or a birth year names the same players every season; a U-age names a cohort only as
+    of the season that wrote it, so it advances from the flight's label season the way
+    extract_age_group advances a division's. An advancing u19 is refused because
+    read_label has already folded U18 into it, and the two would advance apart.
+
+    A single birth year fits two groups, the band it is the younger year of and the one it
+    is the older year of, so the division picks between those two and only those (owner,
+    2026-11-11): a 2013 team in a U13 flight is U13, and in a U12 flight it is U14.
+    """
+    reading = read_label(team_name or "", season=CURRENT_YEAR)
+    match = re.fullmatch(r"u([0-9]{1,2})", reading.cohort)
+    if not match:
+        return ""
+    age = int(match.group(1))
+    if reading.has_u_age:
+        if label_season is None or (label_season != CURRENT_YEAR and age == 19):
+            return ""
+        age += CURRENT_YEAR - label_season
+    elif (year := single_birth_year(team_name)) is not None:
+        younger_group = _tracked_age_group(CURRENT_YEAR - year)
+        if younger_group and younger_group == division_age_group:
+            return younger_group
+    age = 19 if age == 18 else age
+    return f"u{age}" if 7 <= age <= 19 else ""
+
+
 def extract_gender(
     division_name: str, event_name: Optional[str] = None, division_gender: Optional[str] = None
 ) -> Optional[str]:
@@ -247,9 +304,8 @@ def extract_gender(
     3. Search the division name for keywords ('U11 Girls' has no B/G prefix)
     4. Fall back to the same keywords in the event name
 
-    Returning None here is not harmless: normalize_gender() in
-    extract_and_import_tgs_teams.py turns an empty gender into 'Male', so an
-    unresolved girls division is created as a boys team at confidence 1.0.
+    Returning None here is not harmless: an id whose games carry no gender is
+    neither linked to a team nor given one.
 
     Returns normalized gender values that match validator expectations:
     - 'Boys' for B/male divisions
@@ -597,6 +653,8 @@ def normalize_api_game(
         "schedule_id": division_id,
         "age_year": "",
         "age_group": age_group,
+        "team_name_age": name_age_group(team_name, division.get("labelSeason"), age_group),
+        "opponent_name_age": name_age_group(opponent_name, division.get("labelSeason"), age_group),
         "gender": gender,
         "team_id": team_id,
         "team_id_source": team_id,
@@ -672,7 +730,8 @@ def process_single_flight(
     # The games date the event, which is what decides whether a U-age label is
     # still current, so the cohort is only resolvable from here on.
     game_dates = [str(g.get("gameDate", ""))[:10] for g in games if g.get("gameDate")]
-    age_group = extract_age_group(division_name_from_api, label_season=u_label_season(game_dates))
+    label_season = u_label_season(game_dates)
+    age_group = extract_age_group(division_name_from_api, label_season=label_season)
     if not age_group:
         if u_age_of(division_name_from_api) is not None:
             return [], (
@@ -687,6 +746,7 @@ def process_single_flight(
         "divisionName": division_name_from_api,
         "divisionGender": flight_division.get("divisionGender"),
         "ageGroup": age_group,
+        "labelSeason": label_season,
     }
 
     # Step 3: Generate records for each game (both home and away perspectives)

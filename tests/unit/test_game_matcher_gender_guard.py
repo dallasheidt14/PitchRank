@@ -195,16 +195,17 @@ def test_a_name_stating_no_gender_links_as_before():
 
 
 def test_tgs_does_not_reuse_its_own_row_once_the_guard_holds_it():
-    """TGS creates a team for every unmatched game, first reusing the row its id already names.
-    When that row is the one the guard just held, reusing it would link the record anyway."""
-    from src.models.tgs_matcher import TGSGameMatcher
+    """TGS's match step creates a team for an id it cannot link, first reusing the row the id
+    already names. When that row is the one the guard just held, reusing it would link the record
+    anyway."""
+    from src.models.tgs_matcher import ReuseRefused, TGSGameMatcher
 
     own_row = {**_row("own-row", BOYS, "Female"), "provider_id": PROVIDER, "provider_team_id": "750465"}
     db = _DB([own_row])
 
-    result = TGSGameMatcher(db, provider_id=PROVIDER)._match_team(PROVIDER, "750465", GIRLS, "u9", "Female", CLUB)
+    with pytest.raises(ReuseRefused):
+        TGSGameMatcher(db, provider_id=PROVIDER).create_team(PROVIDER, "750465", GIRLS, CLUB, "u9", "Female")
 
-    assert result["matched"] is False
     assert db.writes("team_alias_map") == []
     assert db.writes("teams") == []
     assert db.unmodeled == []
@@ -237,17 +238,17 @@ class _FlakyDB(_DB):
 def test_tgs_does_not_reuse_the_held_row_after_a_duplicate_key_insert():
     """A failed first lookup is taken for "no row yet", so the insert collides and the duplicate-key
     branch finds the row the guard held."""
-    from src.models.tgs_matcher import TGSGameMatcher
+    from src.models.tgs_matcher import ReuseRefused, TGSGameMatcher
 
     own_row = {**_row("own-row", BOYS, "Female"), "provider_id": PROVIDER, "provider_team_id": "750465"}
     db = _FlakyDB([own_row])
     matcher = TGSGameMatcher(db, provider_id=PROVIDER)
     matcher._club_state_cache[CLUB] = (None, None)
 
-    result = matcher._match_team(PROVIDER, "750465", GIRLS, "u9", "Female", CLUB)
+    with pytest.raises(ReuseRefused):
+        matcher.create_team(PROVIDER, "750465", GIRLS, CLUB, "u9", "Female")
 
     assert [q["op"] for q in db.executed if q["table"] == "teams" and q["op"] == "insert"] == ["insert"]
-    assert result["matched"] is False
     assert db.writes("team_alias_map") == []
     assert db.unmodeled == []
 

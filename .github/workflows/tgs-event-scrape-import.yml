@@ -9,8 +9,8 @@ on:
     # MST (UTC-7): 11:30 PM MST Sunday = 6:30 AM UTC Monday
     # MDT (UTC-6): 11:30 PM MDT Sunday = 5:30 AM UTC Monday
     #
-    # Cron seeds the first chain link (3400-3550). Each successful run then
-    # auto-dispatches the next link via the "Dispatch next chain link" step
+    # Cron seeds the first chain link (3400-3550). Each run whose scrape and import
+    # jobs succeed then auto-dispatches the next link via the "Dispatch next chain link" step
     # in the finalize job, whose `case` table lists every link. Workflow-level
     # concurrency (`tgs-event-scrape`, cancel-in-progress: false) queues each
     # dispatched link behind the previous one so they run strictly serially.
@@ -40,17 +40,17 @@ on:
 
 # Workflow-level concurrency: serialize SEPARATE workflow RUNS so a Monday-morning
 # cron can't stomp on a manual backfill mid-flight (both write to `games`,
-# `team_alias_map`, and `team_match_review_queue`). DO NOT add a job-level
-# `concurrency:` key inside `scrape-and-import` — that would serialize matrix
+# `teams` and `team_alias_map`). DO NOT add a job-level
+# `concurrency:` key inside `scrape` or `import` — that would serialize matrix
 # shards and kill the parallel speedup.
 concurrency:
   group: tgs-event-scrape
   cancel-in-progress: false
 
 env:
-  # Freezes the team pre-create step across the 2026-08-01 age-group rollover;
-  # set to 'false' to lift, once the rollover is verified. Gates test == 'false'
-  # (not != 'true') so a renamed or deleted flag leaves the step skipped.
+  # Freezes the team match and game import steps across the 2026-08-01 age-group
+  # rollover; set to 'false' to lift, once the rollover is verified. Gates test
+  # == 'false' (not != 'true') so a renamed or deleted flag leaves them skipped.
   AGE_ROLLOVER_FREEZE: 'false'
   DEFAULT_START_EVENT: '3400'
   DEFAULT_END_EVENT: '3550'
@@ -128,7 +128,7 @@ jobs:
             echo "skip_import=$SKIP_IMPORT"
           } >> "$GITHUB_OUTPUT"
 
-  scrape-and-import:
+  scrape:
     needs: prepare
     runs-on: ubuntu-latest
     # Per-shard ceiling. Sized so a single shard's slice (~200 events worst
@@ -145,7 +145,6 @@ jobs:
       TGS_SHARD_COUNT:  ${{ needs.prepare.outputs.shard_count }}
       TGS_TOTAL_START:  ${{ needs.prepare.outputs.start_event }}
       TGS_TOTAL_END:    ${{ needs.prepare.outputs.end_event }}
-      TGS_SKIP_IMPORT:  ${{ needs.prepare.outputs.skip_import }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -182,21 +181,11 @@ jobs:
             SHARD_END=$(( TGS_TOTAL_START + (TGS_SHARD_INDEX + 1) * SHARD_SIZE - 1 ))
           fi
 
-          # Adaptive concurrency for import:
-          # - Single-shard: 24 in-flight (matches the post-bump value).
-          # - Sharded: 12 per shard × 5 shards = 60 aggregate, ~2.5× single-shard.
-          if [ "$TGS_SHARD_COUNT" -eq 1 ]; then
-            IMPORT_CONCURRENCY=24
-          else
-            IMPORT_CONCURRENCY=12
-          fi
-
-          echo "Shard ${TGS_SHARD_INDEX}/${TGS_SHARD_COUNT}: events ${SHARD_START}-${SHARD_END} (concurrency=${IMPORT_CONCURRENCY})"
+          echo "Shard ${TGS_SHARD_INDEX}/${TGS_SHARD_COUNT}: events ${SHARD_START}-${SHARD_END}"
 
           {
             echo "shard_start=$SHARD_START"
             echo "shard_end=$SHARD_END"
-            echo "import_concurrency=$IMPORT_CONCURRENCY"
           } >> "$GITHUB_OUTPUT"
 
       - name: Scrape TGS Events
@@ -212,15 +201,119 @@ jobs:
           echo "Scraping TGS events ${SHARD_START} through ${SHARD_END}"
           python scripts/scrape_tgs_event.py --start-event "$SHARD_START" --end-event "$SHARD_END"
 
+      - name: Upload scraped data
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: tgs-events-${{ steps.range.outputs.shard_start }}-${{ steps.range.outputs.shard_end }}-${{ github.run_number }}-shard-${{ matrix.shard }}
+          path: data/raw/tgs/tgs_events_${{ steps.range.outputs.shard_start }}_${{ steps.range.outputs.shard_end }}_*.csv
+          retention-days: 30
+          if-no-files-found: warn
+
+  match-teams:
+    # One run over every shard's CSV. Decided shard by shard, two shards could each link a
+    # different new TGS id to the same team, and separating their games afterwards takes a
+    # manual split by provider id.
+    needs: [prepare, scrape]
+    if: ${{ !cancelled() && needs.prepare.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          mkdir -p data/raw/tgs logs
+
+      - name: Download scraped data
+        uses: actions/download-artifact@v5
+        with:
+          pattern: tgs-events-*-${{ github.run_number }}-shard-*
+          path: data/raw/tgs
+          merge-multiple: true
+
+      # Frozen for the rollover: this derives a cohort from the wall clock and
+      # INSERTs it, so before the relabel lands it writes post-roll labels into a
+      # pre-roll table and the migration rolls them again.
+      - name: Match or create TGS teams
+        if: ${{ needs.prepare.outputs.skip_import != 'true' && env.AGE_ROLLOVER_FREEZE == 'false' }}
+        env:
+          SUPABASE_URL:              ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY:      ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          PYTHONPATH:                ${{ github.workspace }}
+        run: |
+          export PYTHONPATH="${PYTHONPATH}:${PWD}"
+          shopt -s nullglob
+          CSV_FILES=(data/raw/tgs/tgs_events_*.csv)
+          if [ "${#CSV_FILES[@]}" -eq 0 ]; then
+            echo "No scraped CSVs to match teams from"
+            exit 0
+          fi
+          python scripts/extract_and_import_tgs_teams.py "${CSV_FILES[@]}" tgs
+
+      - name: Upload team matches
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: tgs-team-matches-${{ github.run_number }}
+          path: logs/tgs_team_matches_*.csv
+          retention-days: 30
+          if-no-files-found: ignore
+
+  import:
+    # Waits for match-teams, and runs even when it failed: a team it could not decide only leaves its
+    # side of a game unlinked until a later run, while the failed job keeps the run red.
+    needs: [prepare, match-teams]
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && (needs.match-teams.result == 'success' || needs.match-teams.result == 'failure') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.prepare.outputs.shards) }}
+    env:
+      TGS_SHARD_INDEX:  ${{ matrix.shard }}
+      TGS_SHARD_COUNT:  ${{ needs.prepare.outputs.shard_count }}
+      TGS_SKIP_IMPORT:  ${{ needs.prepare.outputs.skip_import }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          mkdir -p data/raw/tgs data/cache logs
+
+      - name: Download this shard's scraped data
+        uses: actions/download-artifact@v5
+        with:
+          pattern: tgs-events-*-${{ github.run_number }}-shard-${{ matrix.shard }}
+          path: data/raw/tgs
+          merge-multiple: true
+
       - name: Find scraped CSV file
         id: find_csv
-        env:
-          SHARD_START: ${{ steps.range.outputs.shard_start }}
-          SHARD_END:   ${{ steps.range.outputs.shard_end }}
         run: |
-          CSV_FILE=$(ls -t "data/raw/tgs/tgs_events_${SHARD_START}_${SHARD_END}_"*.csv 2>/dev/null | head -n 1)
+          CSV_FILE=$(ls -t data/raw/tgs/tgs_events_*.csv 2>/dev/null | head -n 1)
           if [ -z "$CSV_FILE" ]; then
-            echo "Error: Could not find scraped CSV file for shard ${SHARD_START}-${SHARD_END}"
+            echo "Error: Could not find scraped CSV file for shard ${TGS_SHARD_INDEX}"
             exit 1
           fi
           echo "Found CSV file: $CSV_FILE"
@@ -237,22 +330,6 @@ jobs:
             echo "has_games=true" >> "$GITHUB_OUTPUT"
           fi
 
-      # Frozen for the rollover: this derives a cohort from the wall clock and
-      # INSERTs it, so before the relabel lands it writes post-roll labels into a
-      # pre-roll table and the migration rolls them again.
-      - name: Pre-create TGS Teams (Prevents Review Queue Bloat)
-        if: ${{ steps.find_csv.outputs.has_games == 'true' && env.TGS_SKIP_IMPORT != 'true' && env.AGE_ROLLOVER_FREEZE == 'false' }}
-        env:
-          SUPABASE_URL:              ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_KEY:      ${{ secrets.SUPABASE_SERVICE_KEY }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          PYTHONPATH:                ${{ github.workspace }}
-          CSV_FILE:                  ${{ steps.find_csv.outputs.csv_file }}
-        run: |
-          export PYTHONPATH="${PYTHONPATH}:${PWD}"
-          echo "Pre-creating teams from: $CSV_FILE"
-          python scripts/extract_and_import_tgs_teams.py "$CSV_FILE" tgs
-
       - name: Import Games
         if: ${{ steps.find_csv.outputs.has_games == 'true' && env.TGS_SKIP_IMPORT != 'true' && env.AGE_ROLLOVER_FREEZE == 'false' }}
         env:
@@ -261,9 +338,14 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           PYTHONPATH:                ${{ github.workspace }}
           CSV_FILE:                  ${{ steps.find_csv.outputs.csv_file }}
-          IMPORT_CONCURRENCY:        ${{ steps.range.outputs.import_concurrency }}
         run: |
           export PYTHONPATH="${PYTHONPATH}:${PWD}"
+          # Single-shard: 24 in-flight. Sharded: 12 per shard × 5 shards = 60 aggregate.
+          if [ "$TGS_SHARD_COUNT" -eq 1 ]; then
+            IMPORT_CONCURRENCY=24
+          else
+            IMPORT_CONCURRENCY=12
+          fi
           echo "Importing games from: $CSV_FILE (concurrency=$IMPORT_CONCURRENCY)"
           python scripts/import_games_enhanced.py "$CSV_FILE" tgs --stream --concurrency "$IMPORT_CONCURRENCY" --checkpoint
 
@@ -289,20 +371,11 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
-      - name: Upload scraped data
-        if: always()
-        uses: actions/upload-artifact@v5
-        with:
-          name: tgs-events-${{ steps.range.outputs.shard_start }}-${{ steps.range.outputs.shard_end }}-${{ github.run_number }}-shard-${{ matrix.shard }}
-          path: data/raw/tgs/tgs_events_${{ steps.range.outputs.shard_start }}_${{ steps.range.outputs.shard_end }}_*.csv
-          retention-days: 30
-          if-no-files-found: warn
-
       - name: Upload logs
         if: always()
         uses: actions/upload-artifact@v5
         with:
-          name: tgs-logs-${{ steps.range.outputs.shard_start }}-${{ steps.range.outputs.shard_end }}-${{ github.run_number }}-shard-${{ matrix.shard }}
+          name: tgs-logs-${{ github.run_number }}-shard-${{ matrix.shard }}
           path: logs/*.log
           retention-days: 30
           if-no-files-found: ignore
@@ -310,22 +383,18 @@ jobs:
       - name: Report shard results
         if: always()
         env:
-          SHARD_START: ${{ steps.range.outputs.shard_start }}
-          SHARD_END:   ${{ steps.range.outputs.shard_end }}
-          GAME_COUNT:  ${{ steps.find_csv.outputs.game_count }}
+          CSV_FILE:   ${{ steps.find_csv.outputs.csv_file }}
+          GAME_COUNT: ${{ steps.find_csv.outputs.game_count }}
         run: |
           echo "===================="
           echo "Shard ${TGS_SHARD_INDEX}/${TGS_SHARD_COUNT} completed"
-          echo "Events: ${SHARD_START}-${SHARD_END}"
+          echo "CSV: ${CSV_FILE:-none}"
           echo "Games found: ${GAME_COUNT:-0}"
           echo "Skip import: ${TGS_SKIP_IMPORT}"
           echo "===================="
 
   finalize:
-    # Runs once after all matrix shards. Alias maintenance is a global pass over
-    # the `team_alias_map` table, so doing it per-shard would be redundant work
-    # at best and a write-write race at worst.
-    needs: [prepare, scrape-and-import]
+    needs: [prepare, scrape, import]
     if: ${{ always() && needs.prepare.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -340,22 +409,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
 
-      - name: Set up Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.11'
-          cache: 'pip'
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
       - name: Download import markers
         # Each shard that actually ran the import step uploaded a tiny marker
         # artifact. Pull all of them; if zero markers exist, no shard imported
-        # any games, and alias maintenance has nothing to do — preserves the
-        # pre-redesign behavior gated by `has_games == 'true'`.
+        # any games, which the final chain link's alarm reads.
         id: download_markers
         uses: actions/download-artifact@v5
         with:
@@ -372,26 +429,10 @@ jobs:
             echo "any_imported=true" >> "$GITHUB_OUTPUT"
             echo "imported_shard_count=$COUNT" >> "$GITHUB_OUTPUT"
           else
-            echo "No shards imported games — skipping alias maintenance"
+            echo "No shards imported games"
             echo "any_imported=false" >> "$GITHUB_OUTPUT"
             echo "imported_shard_count=0" >> "$GITHUB_OUTPUT"
           fi
-
-      - name: Maintain TGS Direct ID Aliases
-        # Skip when no shard imported (empty/eventless ranges, all-future games,
-        # or every import step skipped via has_games=false). Also skip when
-        # user requested skip_import. Still runs on partial-shard success so
-        # whatever did land gets its aliases registered.
-        if: ${{ needs.prepare.outputs.skip_import != 'true' && steps.check_imports.outputs.any_imported == 'true' && needs.scrape-and-import.result != 'cancelled' && needs.scrape-and-import.result != 'skipped' }}
-        env:
-          SUPABASE_URL:              ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_KEY:      ${{ secrets.SUPABASE_SERVICE_KEY }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          PYTHONPATH:                ${{ github.workspace }}
-        run: |
-          export PYTHONPATH="${PYTHONPATH}:${PWD}"
-          echo "Maintaining TGS direct ID aliases..."
-          python scripts/maintain_tgs_direct_id_aliases.py
 
       - name: Report results
         if: always()
@@ -401,7 +442,7 @@ jobs:
           END_EVENT:          ${{ needs.prepare.outputs.end_event }}
           TOTAL_EVENTS:       ${{ needs.prepare.outputs.total_events }}
           SHARD_COUNT:        ${{ needs.prepare.outputs.shard_count }}
-          SHARDS_RESULT:      ${{ needs.scrape-and-import.result }}
+          SHARDS_RESULT:      ${{ needs.import.result }}
           SKIP_IMPORT:        ${{ needs.prepare.outputs.skip_import }}
           ANY_IMPORTED:       ${{ steps.check_imports.outputs.any_imported }}
           IMPORTED_SHARDS:    ${{ steps.check_imports.outputs.imported_shard_count }}
@@ -421,13 +462,13 @@ jobs:
         # Auto-chain controller. Fires only when:
         #   (a) this run was the scheduled Sunday seed (event_name == 'schedule'),
         #       OR an earlier link explicitly set chain_next=true; AND
-        #   (b) the scrape-and-import job succeeded for every shard.
+        #   (b) the scrape and import jobs succeeded for every shard.
         # Manual one-off dispatches without chain_next stay non-chaining.
         #
         # The workflow-level concurrency group (tgs-event-scrape, cancel-in-progress: false)
         # queues the next dispatched run behind this one, so links execute strictly
         # serially — link N+1 will not start until link N's run is fully complete.
-        if: ${{ (github.event_name == 'schedule' || inputs.chain_next == true) && needs.scrape-and-import.result == 'success' }}
+        if: ${{ (github.event_name == 'schedule' || inputs.chain_next == true) && needs.scrape.result == 'success' && needs.import.result == 'success' }}
         env:
           GH_TOKEN:      ${{ secrets.GITHUB_TOKEN }}
           CURRENT_START: ${{ needs.prepare.outputs.start_event }}

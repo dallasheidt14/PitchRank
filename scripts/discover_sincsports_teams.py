@@ -7,13 +7,11 @@ at ``src/scrapers/sincsports_clubs.py``. Discovered teams flow through
 ``SincSportsGameMatcher`` in ``discovery_mode=True`` so sub-0.91 fuzzy
 results auto-create instead of piling into the review queue.
 
-Shape mirrors ``scripts/extract_and_import_tgs_teams.py`` (env load,
-Supabase bootstrap, batch pre-check, 23505 fallback, rich summary). The
-two departures are:
+Each run also writes:
 
-- Per-combo manifest at ``data/exports/sincsports_teams_discovery_<ts>_manifest.json``
-  replaces row-count checkpoints so resume is reliable.
-- Low-confidence audit CSV captures the suppressed-review signal for
+- A per-combo manifest at ``data/exports/sincsports_teams_discovery_<ts>_manifest.json``
+  makes resume reliable.
+- A low-confidence audit CSV captures the suppressed-review signal for
   operator spot-check.
 
 CLI examples:
@@ -61,7 +59,6 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(level
 logger = logging.getLogger(__name__)
 console = Console()
 
-# Load env (mirrors extract_and_import_tgs_teams.py:39-44).
 _env_local = Path(".env.local")
 if _env_local.exists():
     load_dotenv(_env_local)
@@ -266,7 +263,7 @@ def append_low_confidence_row(path: Path, row: Dict) -> None:
 
 
 # ----------------------------------------------------------------------
-# Bulk alias pre-check (mirrors extract_and_import_tgs_teams.py:148-161)
+# Bulk alias pre-check
 # ----------------------------------------------------------------------
 def bulk_existing_aliases(supabase, provider_id: str, provider_team_ids: List[str]) -> Dict[str, str]:
     existing: Dict[str, str] = {}
