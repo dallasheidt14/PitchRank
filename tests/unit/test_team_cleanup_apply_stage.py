@@ -951,6 +951,8 @@ NOT_A_WRITER = {
     "auto-merge-queue.yml": "its one writing step is gated off by QUEUE_AUTO_APPROVE_ENABLED, and writes only "
     "aliases and the match review queue",
     "backfill-prediction-feature-history.yml": "writes prediction feature history",
+    "capture-compare-challenger.yml": "reads immutable frozen inputs and writes only private challenger predictions; "
+    "never writes teams, states, ages or games, and publishes no rankings",
     "check-stuck-signups.yml": "reads signups",
     "ci.yml": "lints and tests, with no database secrets",
     "claude-code-review.yml": "reviews pull requests, with no database secrets",
@@ -972,7 +974,7 @@ NOT_A_WRITER = {
     "settle-prospective-match-predictions.yml": "writes match predictions",
     "smoke-infographics.yml": "reads the infographic routes",
     "train-point-in-time-match-model.yml": "writes model artifacts and training runs",
-    "weekly-prospective-refresh.yml": "scrapes upcoming fixtures without importing them, and writes match predictions",
+    "weekly-prospective-refresh.yml": "reads stored upcoming fixtures and writes private match predictions and input archives",
     "weekly-prospective-settle-evaluate.yml": "writes match predictions",
 }
 

@@ -26,7 +26,17 @@ async function main() {
     const arg = args[i];
     if (arg === '--execute') options.execute = true;
     else if (arg === '--dry-run') options.execute = false;
-    else if (['--status', '--source', '--limit', '--concurrency', '--budget-minutes', '--summary-path'].includes(arg)) {
+    else if (
+      [
+        '--status',
+        '--source',
+        '--selection',
+        '--limit',
+        '--concurrency',
+        '--budget-minutes',
+        '--summary-path',
+      ].includes(arg)
+    ) {
       const value = args[++i];
       if (!value) throw new Error('Missing value for ' + arg);
       if (arg === '--status') {
@@ -35,6 +45,9 @@ async function main() {
       } else if (arg === '--source') {
         if (value !== 'all' && value !== 'database') throw new Error('Source must be all or database');
         options.source = value;
+      } else if (arg === '--selection') {
+        if (value !== 'balanced' && value !== 'chronological') throw new Error('Invalid selection policy');
+        options.selection = value;
       } else if (arg === '--summary-path') summaryPath = value;
       else {
         const number = Number(value);

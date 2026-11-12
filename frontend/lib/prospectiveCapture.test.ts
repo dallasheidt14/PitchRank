@@ -71,6 +71,40 @@ function setup(extraRows: ReturnType<typeof fixture>[] = []) {
   return { ...mock, rpc, predict, deps: { now, identity, predict } };
 }
 describe('prospective capture', () => {
+  it('balances actual frozen forecasts despite an earlier GotSport backlog using the intake sampler', async () => {
+    const extra = Array.from({ length: 502 }, (_, index) => {
+      const day = index < 500 ? '2026-11-12' : '2026-11-13';
+      const row = fixture({
+        id: `backlog-${index}`,
+        fixture_key: `database:game-${index}`,
+        source_game_id: `game-${index}`,
+        provider_code: index < 500 ? 'gotsport' : index === 500 ? 'demosphere' : 'affinity_hi',
+        game_date: day,
+      });
+      row.fixture_payload.source_snapshot.game_date = day;
+      return row;
+    });
+    const result = setup(extra);
+    result.tableRows.prospective_match_predictions[0].provider_code = 'gotsport';
+    for (const row of extra) {
+      result.tableRows.games.push({
+        id: row.source_game_id,
+        ...row.fixture_payload.source_snapshot,
+        home_score: null,
+        away_score: null,
+        is_excluded: false,
+      });
+    }
+    const report = await captureForecasts(result.client, { ...options, selection: 'balanced' }, result.deps);
+    expect(report.eligible).toBe(503);
+    expect(report.frozen).toBe(500);
+    expect(report.selection).toBe('balanced');
+    expect(report.coverage['gotsport|u13|Male'].frozen).toBe(498);
+    expect(report.coverage['demosphere|u13|Male'].frozen).toBe(1);
+    expect(report.coverage['affinity_hi|u13|Male'].frozen).toBe(1);
+    expect(result.rpc).toHaveBeenCalledTimes(500);
+  });
+
   it('filters old, same-day, far-future, completed and unresolved fixtures before inference', async () => {
     const setupResult = setup([
       fixture({ id: 'old', game_date: '2026-11-10' }),

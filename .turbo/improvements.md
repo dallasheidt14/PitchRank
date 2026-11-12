@@ -3040,3 +3040,11 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `AUTOCREATING_MATCHERS` in `tests/unit/test_provider_matcher_dry_run.py`
 - **Why**: The list names `playmetrics` but not `playmetrics_tournament`, so `test_pipeline_passes_dry_run_to_every_autocreating_matcher` never reads the tournament branch of `EnhancedETLPipeline._ensure_initialized`. That branch passes `dry_run=self.dry_run` today (checked 2026-11-12), but nothing fails if a later edit drops it, and the tournament import is the one the operator dry-runs before every real import.
 - **Noted**: 2026-11-12
+
+### Keep the Illinois FC Stars rule out of the no-state pass
+
+- **Type**: direct
+- **Category**: reliability
+- **Where**: the IL `("exact", "FC Stars")` entry of `CLUB_CANONICAL_OVERRIDES`, `STATE_ONLY_PATTERNS` and `analyze_no_state_teams` in `scripts/full_club_analysis.py`
+- **Why**: `("exact", "fc stars")` is not in `STATE_ONLY_PATTERNS`, and no other state has an exact "FC Stars" pattern, so `analyze_no_state_teams` treats the IL entry as safe everywhere: called on a stateless "FC Stars" team it returns a `CANONICAL_NO_STATE` fix to "FC Stars (IL)" (checked 2026-11-12). The comments beside the NH and NY entries say such teams are mostly New Hampshire or Massachusetts sides. Latent: none of the 354 live "FC Stars" teams lacked a state on 2026-11-12. Fix by adding the pattern to `STATE_ONLY_PATTERNS`, or by moving the entry into `SPELLING_GROUP_OVERRIDES`.
+- **Noted**: 2026-11-12
