@@ -3,19 +3,69 @@ import { sendReportCardEmail } from '@/lib/email';
 import { checkRateLimit, getClientIp } from '@/lib/api/rateLimit';
 import { optionalAuth } from '@/lib/api/optionalAuth';
 import { subscribeFreeLead, enrollInAutomation } from '@/lib/beehiiv';
-import { formatTeamRecord } from '@/lib/reports/team-record';
+import { LAST_GAMES_SHOWN, formatRecentRecord, topPercent } from '@/lib/reports/report-card';
+import { api } from '@/lib/api';
 import { isValidUuid, isValidEmail } from '@/lib/validation';
 import { NextRequest, NextResponse } from 'next/server';
 import { renderToBuffer } from '@react-pdf/renderer';
 import { TeamReportCard } from '@/lib/pdf';
-import type { ReportCardGame } from '@/lib/pdf';
+import type { ReportCardGame, ReportCardNextGame } from '@/lib/pdf';
 import { getPublicStats } from '@/lib/stats';
 import { formatCountShort } from '@/lib/utils';
+import { formatGameDate } from '@/lib/dateUtils';
+import { resolveMergedTeamIds } from '@/lib/team-merge';
+import { BUSINESS_TIMEZONE, wallClockDate } from '@/lib/admin/timezone';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import React from 'react';
+
+// The premium section names the next opponent only when the game is close enough to be on a parent's mind.
+const NEXT_GAME_WINDOW_DAYS = 21;
+// One match can be stored under several ids of either team, so fetch extra rows to leave LAST_GAMES_SHOWN after the dedupe below.
+const LAST_GAMES_FETCHED = 15;
+const GAME_DATE_FORMAT: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' };
+const MAX_EMAIL_LENGTH = 254;
+
+/** The YYYY-MM-DD date `days` after the calendar day `now` falls on in the business timezone. */
+function businessDate(now: Date, days = 0): string {
+  const { year, month, day } = wallClockDate(now);
+  return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
+}
+
+// rankings_view carries no state rank. state_rankings_view computes it but can time out or return no row;
+// get_team_state_rank recounts it from rankings_full, where a team with no state is stored as 'UNKNOWN' and
+// ranked among the other stateless teams, which the PDF and email do not show.
+async function fetchStateRank(supabase: SupabaseClient, teamId: string): Promise<number | null> {
+  const { data: stateRankRow } = await supabase
+    .from('state_rankings_view')
+    .select('rank_in_state_final')
+    .eq('team_id_master', teamId)
+    .maybeSingle();
+  if (stateRankRow?.rank_in_state_final != null) return stateRankRow.rank_in_state_final;
+  const { data: stateRankFallback } = await supabase
+    .rpc('get_team_state_rank', { p_team_id: teamId })
+    .maybeSingle<{ state_rank: number }>();
+  return stateRankFallback?.state_rank ?? null;
+}
+
+function formatReportDate(date: Date): string {
+  return date.toLocaleDateString('en-US', {
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone: BUSINESS_TIMEZONE,
+  });
+}
 
 export async function POST(request: NextRequest) {
   try {
     const ip = getClientIp(request);
+
+    // request.json() parses any body, so without this a page on another site could
+    // post plain text from each visitor's browser with no CORS preflight.
+    if (!request.headers.get('content-type')?.toLowerCase().startsWith('application/json')) {
+      return NextResponse.json({ error: 'Content-Type must be application/json' }, { status: 415 });
+    }
+
     if (!checkRateLimit(`team-card:${ip}`, 3, 60000)) {
       return NextResponse.json({ error: 'Too many requests. Please try again later.' }, { status: 429 });
     }
@@ -29,7 +79,8 @@ export async function POST(request: NextRequest) {
     if (!teamId || typeof teamId !== 'string' || !isValidUuid(teamId)) {
       return NextResponse.json({ error: 'Invalid team ID' }, { status: 400 });
     }
-    if (!email || typeof email !== 'string' || !isValidEmail(email)) {
+    // Length first: the email pattern backtracks quadratically on a long malformed value.
+    if (!email || typeof email !== 'string' || email.length > MAX_EMAIL_LENGTH || !isValidEmail(email)) {
       return NextResponse.json({ error: 'Please enter a valid email address' }, { status: 400 });
     }
 
@@ -54,8 +105,8 @@ export async function POST(request: NextRequest) {
       .eq('team_id_master', teamId)
       .single();
 
-    // rank_in_cohort_final is null for non-Active teams; without it the
-    // percentile math below degenerates to "top 100% nationally"
+    // rank_in_cohort_final is null for non-Active teams; without it topPercent reads the rank as 0 and the
+    // report would claim the top 1% nationally.
     if (rankingError || !ranking || ranking.power_score_final == null || ranking.rank_in_cohort_final == null) {
       return NextResponse.json(
         { error: 'Not enough ranking data for this team. Check back after they have played more games.' },
@@ -63,86 +114,119 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Fetch last 5 games with opponent names
-    const { data: rawGames } = await supabase
-      .from('games')
-      .select('game_date, home_team_master_id, away_team_master_id, home_score, away_score')
-      .or(`home_team_master_id.eq.${teamId},away_team_master_id.eq.${teamId}`)
-      .eq('is_excluded', false)
-      .not('home_score', 'is', null)
-      .not('away_score', 'is', null)
-      .order('game_date', { ascending: false })
-      .limit(5);
-
-    // Resolve opponent names
-    const games: ReportCardGame[] = [];
-    if (rawGames && rawGames.length > 0) {
-      const opponentIds = rawGames
-        .map((g) => (g.home_team_master_id === teamId ? g.away_team_master_id : g.home_team_master_id))
-        .filter(Boolean) as string[];
-
-      const { data: opponents } = await supabase
-        .from('teams')
-        .select('team_id_master, team_name')
-        .in('team_id_master', [...new Set(opponentIds)]);
-
-      const nameMap = new Map<string, string>();
-      opponents?.forEach((t) => nameMap.set(t.team_id_master, t.team_name));
-
-      for (const g of rawGames) {
-        const isHome = g.home_team_master_id === teamId;
-        const opId = isHome ? g.away_team_master_id : g.home_team_master_id;
-        const teamScore = isHome ? g.home_score : g.away_score;
-        const oppScore = isHome ? g.away_score : g.home_score;
-        let result: 'W' | 'L' | 'D' | 'U' = 'U';
-        if (teamScore != null && oppScore != null) {
-          if (teamScore > oppScore) result = 'W';
-          else if (teamScore < oppScore) result = 'L';
-          else result = 'D';
-        }
-        games.push({
-          game_date: g.game_date
-            ? new Date(g.game_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-            : '—',
-          opponent_name: (opId ? nameMap.get(opId) : null) || 'Unknown',
-          score: `${teamScore ?? 0}-${oppScore ?? 0}`,
-          result,
-        });
-      }
-    }
-
-    // Fetch cohort totals for percentile calculation
     const ageNum = parseInt(team.age_group?.replace('u', '') || '0', 10);
     const genderCode = team.gender === 'Male' ? 'M' : team.gender === 'Female' ? 'F' : team.gender;
 
-    const { count: cohortTotal } = await supabase
-      .from('rankings_view')
-      .select('*', { count: 'exact', head: true })
-      .eq('age', ageNum)
-      .eq('gender', genderCode)
-      .eq('status', 'Active');
+    // The cohort totals come from the rankings boards' own count: a head count over rankings_view outlasts the
+    // anon role's 3s statement timeout for the largest cohorts. A failed count is null, so the report omits
+    // "of N" rather than printing a wrong total.
+    const cohortGender = genderCode as 'M' | 'F';
+    const [rankInState, { teamIdsToQuery, teamIdList }, totalNational, totalState] = await Promise.all([
+      fetchStateRank(supabase, teamId),
+      resolveMergedTeamIds(supabase, teamId),
+      api.getActiveRankingsCount(null, team.age_group, cohortGender),
+      team.state_code ? api.getActiveRankingsCount(team.state_code, team.age_group, cohortGender) : null,
+    ]);
 
-    const { count: stateCohortTotal } = await supabase
-      .from('rankings_view')
-      .select('*', { count: 'exact', head: true })
-      .eq('age', ageNum)
-      .eq('gender', genderCode)
-      .eq('state', team.state_code)
-      .eq('status', 'Active');
+    // Fetch the latest scored games and the next unscored fixture inside the window, under every merged id
+    const orConditions = teamIdList.map((id) => `home_team_master_id.eq.${id},away_team_master_id.eq.${id}`).join(',');
+    const now = new Date();
+    const [{ data: rawGames }, { data: upcomingGames }] = await Promise.all([
+      supabase
+        .from('games')
+        .select('game_date, home_team_master_id, away_team_master_id, home_score, away_score')
+        .or(orConditions)
+        .eq('is_excluded', false)
+        .not('home_score', 'is', null)
+        .not('away_score', 'is', null)
+        .order('game_date', { ascending: false })
+        .limit(LAST_GAMES_FETCHED),
+      supabase
+        .from('games')
+        .select('game_date, home_team_master_id, away_team_master_id')
+        .or(orConditions)
+        .eq('is_excluded', false)
+        .is('home_score', null)
+        .gte('game_date', businessDate(now))
+        .lte('game_date', businessDate(now, NEXT_GAME_WINDOW_DAYS))
+        .order('game_date', { ascending: true })
+        .limit(1),
+    ]);
 
-    const totalNational = cohortTotal ?? 1;
-    const totalState = stateCohortTotal ?? 1;
+    // Name each opponent by the team it was merged into
+    const isHomeSide = (g: { home_team_master_id: string | null }) =>
+      g.home_team_master_id != null && teamIdsToQuery.has(g.home_team_master_id);
+    const opponentIds = [
+      ...new Set(
+        [...(rawGames ?? []), ...(upcomingGames ?? [])]
+          .map((g) => (isHomeSide(g) ? g.away_team_master_id : g.home_team_master_id))
+          .filter(Boolean) as string[]
+      ),
+    ];
+    const canonicalIdOf = new Map<string, string>();
+    const nameMap = new Map<string, string>();
+    if (opponentIds.length > 0) {
+      const { data: opponentMerges } = await supabase
+        .from('team_merge_map')
+        .select('deprecated_team_id, canonical_team_id')
+        .in('deprecated_team_id', opponentIds);
+      opponentMerges?.forEach((m) => canonicalIdOf.set(m.deprecated_team_id, m.canonical_team_id));
+      const { data: opponents } = await supabase
+        .from('teams')
+        .select('team_id_master, team_name')
+        .in('team_id_master', [...new Set(opponentIds.map((id) => canonicalIdOf.get(id) ?? id))]);
+      opponents?.forEach((t) => nameMap.set(t.team_id_master, t.team_name));
+    }
+    const opponentOf = (g: { home_team_master_id: string | null; away_team_master_id: string | null }) => {
+      const id = isHomeSide(g) ? g.away_team_master_id : g.home_team_master_id;
+      return id ? (canonicalIdOf.get(id) ?? id) : null;
+    };
+    const opponentName = (id: string | null) => (id ? nameMap.get(id) : undefined);
+
+    const games: ReportCardGame[] = [];
+    const seenGames = new Set<string>();
+    for (const g of rawGames ?? []) {
+      if (games.length === LAST_GAMES_SHOWN) break;
+      const isHome = isHomeSide(g);
+      const teamScore = isHome ? g.home_score : g.away_score;
+      const oppScore = isHome ? g.away_score : g.home_score;
+      const opponentId = opponentOf(g);
+      const opponent = opponentName(opponentId) ?? 'Unknown';
+      const score = `${teamScore ?? 0}-${oppScore ?? 0}`;
+      // With both sides resolved, one match stored under several of either team's ids reads identically here.
+      const matchKey = `${g.game_date}|${opponentId}|${score}`;
+      if (seenGames.has(matchKey)) continue;
+      seenGames.add(matchKey);
+      let result: 'W' | 'L' | 'D' | 'U' = 'U';
+      if (teamScore != null && oppScore != null) {
+        if (teamScore > oppScore) result = 'W';
+        else if (teamScore < oppScore) result = 'L';
+        else result = 'D';
+      }
+      games.push({
+        game_date: formatGameDate(g.game_date, GAME_DATE_FORMAT),
+        opponent_name: opponent,
+        score,
+        result,
+      });
+    }
+
+    const upcoming = upcomingGames?.[0];
+    const upcomingOpponentName = upcoming && opponentName(opponentOf(upcoming));
+    const nextGame: ReportCardNextGame | null =
+      upcoming && upcomingOpponentName
+        ? { game_date: formatGameDate(upcoming.game_date, GAME_DATE_FORMAT), opponent_name: upcomingOpponentName }
+        : null;
 
     // Generate PDF
-    const generatedDate = new Date().toLocaleDateString('en-US', {
-      month: 'long',
-      day: 'numeric',
-      year: 'numeric',
-    });
+    const generatedDate = formatReportDate(now);
+    const rankingsAsOf = ranking.last_calculated ? formatReportDate(new Date(ranking.last_calculated)) : null;
 
     const { totalGames } = await getPublicStats();
+    const gamesLabel = formatCountShort(totalGames);
     const pdfElement = React.createElement(TeamReportCard, {
       team: {
+        team_id_master: team.team_id_master,
         team_name: team.team_name,
         club_name: team.club_name,
         state: team.state_code,
@@ -152,7 +236,7 @@ export async function POST(request: NextRequest) {
       ranking: {
         power_score_final: ranking.power_score_final,
         rank_in_cohort_final: ranking.rank_in_cohort_final,
-        rank_in_state_final: ranking.rank_in_state_final ?? null,
+        rank_in_state_final: rankInState,
         offense_norm: ranking.offense_norm ?? null,
         defense_norm: ranking.defense_norm ?? null,
         sos_norm: ranking.sos_norm ?? 0,
@@ -172,10 +256,12 @@ export async function POST(request: NextRequest) {
         win_percentage: ranking.win_percentage ?? null,
       },
       games,
+      nextGame,
       cohortTotal: totalNational,
       stateCohortTotal: totalState,
+      rankingsAsOf,
       generatedDate,
-      gamesLabel: formatCountShort(totalGames),
+      gamesLabel,
     });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const pdfBuffer = await renderToBuffer(pdfElement as any);
@@ -219,21 +305,20 @@ export async function POST(request: NextRequest) {
       });
 
     // Send email with PDF attachment (non-blocking)
-    const record = formatTeamRecord(ranking);
-    const percentile = Math.round((1 - ranking.rank_in_cohort_final / totalNational) * 100);
-
-    sendReportCardEmail(
-      normalizedEmail,
-      team.team_name,
-      ranking.rank_in_cohort_final,
-      ranking.rank_in_state_final ?? null,
-      team.state_code,
-      ranking.power_score_final,
-      percentile > 0 ? percentile : 1,
-      record,
-      ranking.rank_change_30d ?? null,
-      Buffer.from(pdfBuffer)
-    ).catch((err) => {
+    sendReportCardEmail({
+      email: normalizedEmail,
+      teamId: team.team_id_master,
+      teamName: team.team_name,
+      rankNational: ranking.rank_in_cohort_final,
+      rankState: rankInState,
+      state: team.state_code,
+      powerScore: ranking.power_score_final,
+      topPct: totalNational != null ? topPercent(ranking.rank_in_cohort_final, totalNational) : null,
+      record: formatRecentRecord(ranking),
+      rankChange30d: ranking.rank_change_30d ?? null,
+      gamesLabel,
+      pdfBuffer: Buffer.from(pdfBuffer),
+    }).catch((err) => {
       console.error('Failed to send report card email:', err);
     });
 

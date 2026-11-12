@@ -56,6 +56,8 @@ from src.scrapers.provider import (
     UnsupportedProviderError,
 )
 from src.tournaments.alias_writer import enqueue_match_review, upsert_team_alias
+from src.utils.gotsport_team_details import WAF_COOLDOWN_SEC as _WAF_COOLDOWN_DEFAULT
+from src.utils.gotsport_team_details import is_cloudfront_waf_block as _is_cloudfront_waf_block
 from src.utils.provider_ids import clean_provider_id
 from src.utils.team_utils import CURRENT_YEAR
 
@@ -71,13 +73,6 @@ __all__ = [
 ]
 
 logger = logging.getLogger(__name__)
-
-# CloudFront WAF cooldown (seconds). GotSport fronted system.gotsport.com/api/v1/*
-# with a per-IP burst rate limiter ~2026-05-01; tripped IPs return 403 with
-# Server: CloudFront and stay locked out for multiple minutes. 300s matches the
-# empirically observed lockout duration (2026-05-18). Override via
-# GOTSPORT_WAF_COOLDOWN_SEC.
-_WAF_COOLDOWN_DEFAULT = 300
 
 # Page size for the team matches endpoint; a year of played games usually fits one page.
 MATCHES_PER_PAGE = 100
@@ -110,23 +105,6 @@ class WAFBlockedError(RateLimitedError):
     apply. Construction is keyword-only via the parent ctor — see
     ``WAFBreaker.trip``.
     """
-
-
-def _is_cloudfront_waf_block(response: requests.Response) -> bool:
-    """True iff response is a CloudFront WAF block (403 + Server: CloudFront).
-
-    Header-only check; body parse not required and would slow the hot path.
-    """
-    # NOTE: Detector is keyed on 403 only. CloudFront WAFs can also escalate
-    # to 503 for some throttle classes; today the urllib3 adapter at
-    # _init_http_session has status_forcelist=[429,500,502,503,504] which
-    # silently retries 503 three times and raises RetryError with
-    # e.response is None — invisible to this detector. If a future incident
-    # shows WAF 503s, both the urllib3 mount (drop 503 from forcelist, or
-    # move handling app-layer) and this detector must be widened in lockstep.
-    # Do NOT add 403 to the urllib3 status_forcelist without also updating
-    # this detector — that would mask trips.
-    return response.status_code == 403 and response.headers.get("Server") == "CloudFront"
 
 
 class WAFBreaker:
@@ -378,6 +356,10 @@ class GotSportScraper(BaseScraper):
         # Configure HTTPAdapter with larger connection pool and SSL improvements.
         # 429 is in status_forcelist so urllib3 transparently retries rate-limit
         # responses. backoff_factor=1.0 → waits of 1s, 2s, 4s between the 3 tries.
+        # A retried 503 surfaces as RetryError with e.response None, invisible to
+        # _is_cloudfront_waf_block (403 only). If WAF 503s appear, widen this list
+        # and that detector in lockstep; do NOT add 403 here without updating the
+        # detector, which would mask trips.
         adapter = HTTPAdapter(
             pool_connections=100,  # number of connection pools
             pool_maxsize=100,  # total concurrent connections

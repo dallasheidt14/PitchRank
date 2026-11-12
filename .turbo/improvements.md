@@ -412,6 +412,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Noted**: 2026-08-30
 - **Update (2026-09-08)**: Exposure is higher than this entry assumes. CLAUDE.md's claim that only `export_unknown_opponents.py` builds a resolver on the weekly run is wrong: `due_diligence_unknown_opponents.py:282` and `discover_teams_from_opponents.py:543` both construct `GotSportResolver()` unconditionally, with no flag. Verified 2026-09-08. So the vacuous-approval gate at `due_diligence_unknown_opponents.py:429-439` is reachable on live weekly runs, not theoretical.
 - **Update (2026-11-09)**: Measured, and the gender component is fixed. In the 2026-11-03 weekly run's artifacts, the gate's own lookups answered 0 of 88 candidates while the export step had GotSport's answer for every one of them, so `club_check`, `age_check`, `state_check` and `tier_check` compare against nothing in production. `gender_check` no longer does: on `fix/stop-opposite-gender-record-links` it reads the export's gender through a new `unknown_provider_gender` match-report column, plus both teams' names, and holds a record nothing reads (`gender_check == "ok"` or `"coed"` is required). The other four checks still pass on absence.
+- **Update (2026-11-10)**: Coed no longer passes: `gender_check == "ok"` is required, and a record the export files as Coed is held as `"coed"` whatever its other gender readings (owner: PitchRank does not rank coed teams). The gate's own lookups are now paced through `TeamDetailsPacer`, so they may start answering in CI; whether that gives the other four checks something to compare is unmeasured.
 
 ### No GotSport resolver throttles, retries, or identifies itself
 
@@ -423,6 +424,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: Each uses a bare `session.get` with no `Retry` adapter, no inter-request delay and the default `python-requests` User-Agent, against an endpoint family the `scraper-patterns` skill documents as CloudFront-WAF-fronted with a multi-minute per-IP lockout. A 403 lockout, a 429, a timeout and a genuine 404 are indistinguishable at the `except Exception` boundary. Partly addressed on `fix/opponent-cohort-inheritance`: a 404 is now cached as the permanent answer it is, and transient failures are no longer cached, so a WAF block costs one retry per row rather than poisoning the id for the run (measured at ~1.6 resolve calls per team). Still absent everywhere: the prescribed `Retry(total=2, backoff_factor=1, status_forcelist=[429,500,502,503,504])`, an explicit User-Agent, and a `random.uniform` delay. Do not hand-roll an eighth policy -- `src/scrapers/gotsport.py` already has `get_waf_breaker()` and `_zenrows_get`; the open question is how to reach them from a workflow that installs only supabase, python-dotenv and requests.
 - **Noted**: 2026-08-30
 - **Update (2026-09-08)**: Corrected — the claim that no resolver retries is not uniform. `scripts/backfill_unknown_team_names.py` has had `get_waf_breaker()` plus a 2-attempt retry and 12s delay since 2026-08-18 (`eebe2b757`), predating this entry. The other copies (`auto_match_unknown_opponents.py`, `discover_teams_from_opponents.py`, `export_unknown_opponents.py`, `due_diligence_unknown_opponents.py`) still have none; two sleep 0.2s with no retry. No copy sets a custom User-Agent — that half of the entry holds everywhere.
+- **Update (2026-11-10)**: auto_match, discover, export and due_diligence now send every lookup through `src/utils/gotsport_team_details.TeamDetailsPacer`: 3 s apart, one 300 s wait and retry on a CloudFront 403, then no more lookups for the rest of that script's run, so a lasting block ends that script's lookups instead of costing a retry per row. The pacer copies `WAFBreaker`'s wait-once-then-stop rule rather than reaching it (those workflows still cannot import `get_waf_breaker()` or `_zenrows_get`); the two share the block detector and cooldown default, which `src/scrapers/gotsport.py` now imports from this module, so they cannot disagree on what a block is. The module needs no package beyond requests. Still absent everywhere: a custom User-Agent and any retry on a 429, 5xx or timeout.
 
 ### The repo asserts two contradictory readings of GotSport's display_age_group
 
@@ -735,9 +737,10 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Status**: open
 - **Type**: plan
 - **Category**: reliability
-- **Where**: `frontend/lib/admin/month-projection.ts` (`buildMonthProjection`, `lostMrr`)
+- **Where**: `frontend/lib/admin/month-projection.ts` (`buildMonthProjection`, `netMrr`)
 - **Why**: `lostMrr` multiplies churned subscribers by `arpu`, which is the blended monthly-equivalent of the historical paid-*acquisition* cohort. The population actually at risk in a month is different: currently 100% monthly at $6.99, where the acquisition mix is about 18% annual at $5.83 monthly-equivalent. Measured on live data the code reports $50.09 against $51.68 for the at-risk mix, a $1.58 gap on a $50 line. Left alone because that is an order of magnitude below the sampling error on the churn rate feeding it — the same report shows that rate swinging five points on lookback choice alone, worth roughly $10. Worth revisiting only alongside a better churn estimate, and note that neither formulation handles annual correctly: a lapsed annual renewal removes $69.99 of cash, not $5.83.
 - **Noted**: 2026-09-04
+- **Update (2026-11-11)**: The gained-and-lost table was removed from the subscriptions dashboard, and `lostMrr` with it. The same pricing now reaches the page only through `netMrr` (`netSubs * arpu`, the Net MRR Change card), where churned subscribers are still priced at the acquisition-cohort `arpu`.
 
 ### Treat a pending cancellation as a certainty rather than an average-rate risk
 
@@ -1261,6 +1264,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: admin `formatDate`/`formatRelative`/`KpiCard` in `frontend/app/mission-control/leads/page.tsx` and `subscriptions/page.tsx`; `formatSupabaseError` in `frontend/lib/admin/matchbalance-leads.ts` and `subscription-metrics.ts`; `bad`/`maskIp`/`isStringWithLen` in `frontend/app/api/matchbalance-inquiry/route.ts` and `app/api/feedback/route.ts`; `escapeHtml` in `frontend/lib/email/matchbalance-inquiry.ts`, `lib/email/feedback.ts` and `app/api/stripe/webhook/route.ts`; the hero stripe band and FAQ `<details>` markup in `frontend/app/matchbalance/page.tsx` and `app/report-card/page.tsx`; `_executable` in six `tests/unit/test_*` migration guards and `_newest_statement` in two of them
 - **Why**: Copies already disagree: the Stripe webhook's `escapeHtml` escapes only `&`, `<` and `>` (enough for its Telegram messages, not for an HTML attribute), and `test_team_page_views_migration.py`'s `_executable` strips only `--` comments, so a block-commented REVOKE passes that guard; only the `test_scrape_requests_rls_migration.py` and `test_matchbalance_leads_migration.py` copies also strip `/* */` comments (helper bodies read 2026-09-17). A fix to date rendering or escaping otherwise has to find every copy. Deferred by the owner on 2026-09-17 to keep the MatchBalance change scoped.
 - **Update (2026-10-10)**: `_executable` now has nine copies in `tests/unit`. Six strip only `--` comments (`test_backfill_total_game_stats_migration.py`, `test_scrape_activity_predicate.py`, `test_team_cleanup_decisions_migration.py`, `test_team_page_views_migration.py`, `test_team_ranking_exclusions_migration.py`, `test_team_state_provenance_migration.py`); `test_matchbalance_leads_migration.py`, `test_scrape_requests_rls_migration.py` and `test_team_cleanup_runs_migration.py` also strip `/* */` (bodies read 2026-10-10).
+- **Update (2026-11-11)**: `escapeHtml` in `frontend/lib/email/feedback.ts` is now exported and also used by `frontend/lib/email/report-card.ts` (branch `feat/report-card-redesign`). `frontend/app/api/scrape-missing-game/route.ts` holds a fourth, inline escape of `&`, `<` and `>` only, for a Telegram message like the webhook's.
 - **Noted**: 2026-09-17
 
 ### Bound the email check and require JSON on the other public POST routes
@@ -1272,6 +1276,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `frontend/lib/validation.ts` (`isValidEmail`, `EMAIL_REGEX`), called uncapped from `POST` in `frontend/app/api/feedback/route.ts`, `frontend/app/api/newsletter/route.ts` and `frontend/app/api/reports/team-card/route.ts`
 - **Why**: `EMAIL_REGEX` backtracks quadratically on a long malformed value (node, 2026-09-17: 16 KB 48 ms, 32 KB 188 ms, 64 KB 731 ms), and these public routes run it with no length cap, so a large body ties up the function. They also read the body with `request.json()` / `parseJsonBody`, which parse a `text/plain` body, so another site can post to them from visitors' browsers with no CORS preflight. `/api/matchbalance-inquiry` already caps the email at 254 characters and returns 415 without `Content-Type: application/json`; capping inside `isValidEmail` would cover every caller.
 - **Noted**: 2026-09-17
+- **Update (2026-11-11)**: `/api/reports/team-card` now returns 415 without `Content-Type: application/json` and refuses an email over 254 characters before `isValidEmail` (branch `feat/report-card-redesign`), capped at the route to keep that change to one route; capping inside `isValidEmail` would still cover the other two. The feedback and newsletter routes still have neither guard.
 
 ### Match each side of an imported game at its own cohort, not the game's
 
@@ -1770,6 +1775,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
   - **Unverified:** the report card's state rank being always blank, and some pages showing scores on 0–1 instead of 0–100.
 - **Noted**: 2026-10-02
 - **Update (2026-10-14)**: The 0–1 half is verified. Rankings boards and team pages show `formatPowerScore` (×100) and now describe the scale as 0–100, but six display spots print the raw value: `app/rankings/age/[ageGroup]/page.tsx` (`toFixed(1)`, live `/rankings/age/u17` shows 0.7), `app/embed/club/[clubId]/page.tsx`, `components/ReportCardPreview.tsx` (a hardcoded 0.847 sample), `lib/pdf/TeamReportCard.tsx`, `lib/email/report-card.ts` and `components/TeamSchema.tsx` (`ratingValue` 0–1 beside `bestRating` 100). About 63 customer-facing blog statements still say 0–1 with 0.95/0.80 bands: `content/blog-posts.tsx` (the PowerScore guide, the CA/TX "PowerScore Scale (0.0 to 1.0)" boxes, `youth-soccer-rankings-by-state`), six `lib/blog-faqs.ts` state answers (each repeats a sentence from its state's MDX guide word for word, so change both), the two `what-is-powerscore-youth-soccer` answers and the `how-pitchrank-rankings-work` "What is PowerScore?" answer, and 28 of 37 `content/blog/*.mdx` guides. The owner chose a separate PR for the sweep; convert the bands ×100 and regenerate llms.txt.
+- **Update (2026-11-11)**: The state-rank half is verified and fixed: the report card's state rank was always blank because the route read `rank_in_state_final` from `rankings_view`, which has no such column (columns read 2026-11-11). The PDF and its delivery email now show PowerScore through `formatPowerScore`, and `components/ReportCardPreview.tsx` shows a fixed 0–100 sample (50.12), so three of the six raw-value spots are fixed (branch `feat/report-card-redesign`). The age-group board, club embed and `TeamSchema` still print 0–1, and the blog sweep is unchanged.
 
 ### Point TestLayer13BlendFormula at the production blend
 
@@ -2753,14 +2759,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: A provider outside that set keys a game on date and two teams, so the second game of a doubleheader is dropped with no count reporting it. Georgia joined before its first import after two doubleheaders appeared in its 389 games on 2026-11-06. Hawaii had none in 993 games that day; Oregon, Utah and Washington are not measured. Joining changes the uid of every stored game, so count the rematches first. Joining is not enough for a doubleheader with one home team: `_make_composite_key` and `idx_games_unique` hold no `schedule_id`, so two blank fixtures, or two games with one scoreline, still collapse to one row. Georgia's two swap home and away, so they stay two.
 - **Noted**: 2026-11-06
 
-### Escape the team name in the report card email
-
-- **Type**: direct
-- **Category**: reliability
-- **Where**: `buildReportCardHtml` in `frontend/lib/email/report-card.ts`, which interpolates `teamName` unescaped; `escapeHtml` in `frontend/lib/email/feedback.ts` is the helper to share
-- **Why**: Read on 2026-11-06: a team name scraped from any league reaches this HTML, so markup in one would land in an email PitchRank sends. Reported by a review as reachable through `/api/reports/team-card` once a team has a published rank; the route was not traced here. Email clients run no scripts, so the exposure is links and images. It predates the Georgia provider.
-- **Noted**: 2026-11-06
-
 ### Find why the Kitman weekly run starts hours after its cron
 
 - **Type**: investigate
@@ -2881,10 +2879,146 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: On the unscoped `playmetrics_tournament` path the club gate is the load-bearing check, and `are_same_club(..., threshold=0.9)` returns False for `RASA - AFC Union` vs `AFC Union`, `Forward Madison FC Youth` vs `Forward Madison FC` and `Rush Wisconsin Southeast` vs `RUSH WI Southeast` (run 2026-11-10). So a team with an identical name is dropped before scoring and auto-created, and a candidate scoring 0.75-0.90 is queued for review and created anyway. The Harvest Classic import of 2026-11-10 created 103 teams, about half of them copies (15 exact-name, 34 near-name), merged by hand; 8 AFC Union copies came from an earlier PlayMetrics tournament import on 2026-10-05. No test imports `scrape_playmetrics_tournament` and no matcher test covers either copy path, so the scraper-patterns skill's description of both can go stale unnoticed.
 - **Noted**: 2026-11-10
 
+### Link the unlinked games of an unknown opponent that already has an alias or team row
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `create_team_and_alias` and the `args.execute` branch of `main` in `scripts/discover_teams_from_opponents.py` (`backfill_games` runs only for `created`)
+- **Why**: An `exists_alias` / `exists_team` row returns without linking the games that made it an unknown opponent, so they reappear in every weekly export and never count in the rankings. Run 42919277448 (2026-11-10) reported 100 `exists_alias` rows. Linking needs the same gender/age caution the importer applies, since the existing alias may point at another squad. Owner approved a follow-up PR on 2026-11-10.
+- **Noted**: 2026-11-10
+
+### Keep excluded teams out of the scheduled scrape queue
+
+- **Type**: plan
+- **Category**: performance
+- **Where**: `find_stale_teams` and `find_discovery_teams` (SQL functions) and `scripts/enqueue_active_teams.py`
+- **Why**: None of them reads `team_ranking_exclusions`, so excluded teams (English clubs, coed teams) keep being queued from a fixed-N daily budget. Measured 2026-11-10: 601 excluded teams were scraped 1,622 times in the previous 30 days, about 54 scrapes a day that ranked teams did not get. Needs a migration; owner approved a follow-up PR on 2026-11-10.
+- **Noted**: 2026-11-10
+
+### Fix the Due Diligence Review filter that should hide already-rejected records
+
+- **Type**: direct
+- **Category**: reliability
+- **Where**: the "already processed" filter in the `🛡️ Due Diligence Review` section of `dashboard.py`
+- **Why**: It filters `team_match_review_queue` on `review_status`, but that table's column is `status` (checked 2026-11-10), so the query raises, the bare `except: pass` swallows it, and a record a reviewer rejected is shown again on every load.
+- **Noted**: 2026-11-10
+
+### Decide whether discovery should create a team GotSport has no record of
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `_build_team_metadata` and the create path of `main` in `scripts/discover_teams_from_opponents.py`
+- **Why**: A 404 is cached as an answer, so discovery creates the team from the match report as-is. When the export's lookup also 404'd, auto_match hands over the placeholder `unknown_<pid>` and the opponent's age group and gender, which is the shape of the 2026-11-10 incident on a smaller population; the backfill job then reports these as "gone from GotSport" and never names them.
+- **Noted**: 2026-11-10
+
+### Upload the export's detail CSV the workflow names
+
+- **Type**: direct
+- **Category**: dx
+- **Where**: the `Export unknown opponents` step's `detail_csv` output in `.github/workflows/unknown-opponent-hygiene-weekly.yml`
+- **Why**: The step records `detail_csv=${PREFIX}_details.csv` while `export_unknown_opponents.py` writes `${prefix}_games.csv`, so the per-game detail file is never in the run's artifacts.
+- **Noted**: 2026-11-10
+
 ### Decode Affinity WA pages as UTF-8
 
 - **Type**: direct
 - **Category**: reliability
 - **Where**: `_fetch` in `scripts/scrape_affinity_wa_tournament.py`
 - **Why**: It returns `r.text`, and Sports Affinity pages answer `Content-Type: text/html` with no charset, so `requests` decodes them as ISO-8859-1 and a non-ASCII team name would arrive garbled. The OR scraper's `_fetch` sets UTF-8 when no charset is declared (pinned by `TestPageDecoding` in `tests/unit/test_scrape_affinity_or.py`); WA keeps its own copy. 0 of the 879 `affinity_wa` teams have a non-ASCII name (queried 2026-11-11), so nothing is garbled yet.
+- **Noted**: 2026-11-11
+
+### Give unranked teams a report card, or at least record the attempt
+
+- **Type**: plan
+- **Category**: feature
+- **Where**: `POST` in `frontend/app/api/reports/team-card/route.ts` (the `rank_in_cohort_final == null` early return); the picker is `ScopedTeamSelector` via `/api/teams/search`
+- **Why**: The picker offers every team, but a team without a published rank gets "Not enough ranking data" and no `report_card_leads` row, so how often a parent hits it is unknown. About 27% of teams on the board age groups had a published rank on 2026-11-11. Either log the refused attempt, or send a basic card (record and last 5 games, "not enough games to rank yet").
+- **Noted**: 2026-11-11
+
+### Make get_team_state_rank match state_rankings_view
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `get_team_state_rank` (newest definition in `supabase/migrations/20260404000001_update_views_use_rank_final.sql`), read by `fetchStateRank` in `frontend/app/api/reports/team-card/route.ts` and by `api.getTeam`
+- **Why**: It reads `rankings_full.state_code` and counts Active rows without joining `teams`, so deprecated teams still holding an Active rank count above the team (21 such rows when counted on 2026-11-11), and a team with no state is ranked among its cohort's other stateless teams, which the ranking run stores as `'UNKNOWN'`. `state_rankings_view` reads `teams.state_code` and excludes both. Both callers use it only when the view returns no row, and both hide the state rank when the team has no state.
+- **Noted**: 2026-11-11
+
+### Use one rank-percent and rank-movement wording across the site
+
+- **Type**: direct
+- **Category**: readability
+- **Where**: `cohortStats.percentile` in `frontend/app/api/insights/[teamId]/route.ts` and `topPct` in `frontend/lib/insights/persona.ts`; the rank-change tooltip in `frontend/components/RankingsTable.tsx`; `topPercent` and `formatRankMovement` in `frontend/lib/reports/report-card.ts`
+- **Why**: The insights path rounds teams-below to the nearest percent and subtracts from 100, so #20 of 5,578 reads "top 0%" while the report card's `topPercent` says "Top 1%". The rankings tooltip writes "Up 1 spots"; `formatRankMovement` already handles the singular.
+- **Noted**: 2026-11-11
+
+### Record the upgrade source separately from the team being upgraded for
+
+- **Type**: plan
+- **Category**: feature
+- **Where**: `source` in `frontend/app/upgrade/page.tsx` (`searchParams.get('next') || searchParams.get('source')`); `reportCardUpgradeUrl` in `frontend/lib/reports/report-card.ts`
+- **Why**: A report-card trial link carries `next=/teams/<id>` plus `utm_source=report-card`, and the page records `source` from `next` first, so the internal upgrade-source events cannot tell it from a paywall tap on that team. GA4's session source does separate them.
+- **Noted**: 2026-11-11
+
+### Build the subscriptions dashboard's status-list union once, keyed by id
+
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `getSubscriptionMetrics` in `frontend/lib/admin/subscription-metrics.ts` (`mrrSubs`, `billedSubs`, the `computeLeadToTrial` call)
+- **Why**: The status lists are fetched in parallel, so a subscription whose status changes between two fetches (a failed renewal moving it from active to past_due) can come back in both. `mrrSubs` and `billedSubs` concatenate the lists without de-duplicating, so `computeMrr` / `computeMrrGrowth` count that price twice for one page view; a refresh clears it. The trials-by-month union (`everySub`) already keys by id. The Lead → Trial input also leaves out `unpaid` and has no availability flag, although `computeLeadToTrial`'s docstring says its four lists cover every bucket a trialer can reach. Building one id-keyed union and deriving all three from it gives the page a single definition.
+- **Noted**: 2026-11-11
+
+### Colour RankHistoryChart's axis ticks through the tick prop
+
+- **Type**: direct
+- **Category**: readability
+- **Where**: `RankHistoryChart` in `frontend/components/RankHistoryChart.tsx` (the `XAxis` and `YAxis` props)
+- **Why**: Both axes set `className="fill-muted-foreground"`, which never reaches the tick text in Recharts 3.8.1: the labels render outside the axis `<g>` and take their fill from the `tick` prop, so they draw in the default `#666`. Seen on `TrialsByMonthChart` this session, where tick text read `fill="#666"` until the colour moved to `tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }}`, after which it computed to the muted token. Cosmetic: the two greys are close and the site has no dark theme.
+- **Noted**: 2026-11-11
+
+### Stop the U8 and U9 national age pages linking to boards that do not exist
+
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `VALID_AGE_GROUPS` (built from `AGE_GROUPS_ALL`) and the state board links in `AgeGroupPage` in `frontend/app/rankings/age/[ageGroup]/page.tsx`
+- **Why**: The board route accepts only `AGE_GROUPS` (U10-U17 and U19), so every `/rankings/{state}/u8|u9/{gender}` link these pages render is a 404. On the local dev server 2026-11-11, `/rankings/age/u8` returned 200 with 52 distinct U8 board links, and `/rankings/national/u8/male` returned 404. PitchRank deliberately boards no U8/U9 teams, so either drop u8/u9 from the page's list (they then 404 like other non-boards) or stop rendering board links on them.
+- **Noted**: 2026-11-11
+
+### Drop the unsourced college-recruiting percentages from the older state guides
+
+- **Type**: direct
+- **Category**: docs
+- **Where**: the Division I/II recruiting bullets in `frontend/content/blog/*-youth-soccer-rankings-guide.mdx` (under "Rankings by Division", or "The Honest Truth About … College Recruiting" in the Arizona, Colorado, Michigan and Pennsylvania guides) and the on-page FAQ answers that repeat them; the matching `BLOG_FAQS` answers in `frontend/lib/blog-faqs.ts`; the California and Texas posts in `frontend/content/blog-posts.tsx`
+- **Why**: 28 state guides say Division I coaches notice teams in the "top 5% nationally", and all 28 also give "Top 15–20%" for Division II (22 written with an en dash, 6 with a hyphen); 16 of them repeat the claim in an on-page FAQ answer, with 6 "top 5%" mentions in `blog-faqs.ts` and 2 "top 5%" plus 2 "top 15-20%" in `blog-posts.tsx` (counted 2026-11-11). No source was found for either figure. The Wisconsin and Iowa guides (2026-11-11) say "A strong national rank helps a team get noticed, but coaches recruit individual players" instead; the owner chose to fix the older pages in a separate sweep. IMP-247 and IMP-294 sweep the same guides, so one change could close all three.
+- **Noted**: 2026-11-11
+
+### Make pr_wait.py stop and say so when the PR conflicts with main
+
+- **Type**: direct
+- **Category**: dx
+- **Where**: `main` in `scripts/pr_wait.py` (the check-polling loop)
+- **Why**: GitHub runs no `ci.yml` `pull_request` checks while a PR is `CONFLICTING`, but the script never reads `mergeable`, so on 2026-11-11 it spent the whole Codex window on PR #1429 printing "waiting on … Frontend Format, Frontend Lint …" for checks that could not start; the cause was a `.turbo/improvements.md` conflict with main. Reading `gh pr view --json mergeable,mergeStateStatus` at start and on each poll, and exiting with "conflicts with main, merge origin/main first", would surface it in seconds.
+- **Noted**: 2026-11-11
+
+### Reword the older state guides' opponent-state shares as "against out-of-state teams"
+
+- **Type**: direct
+- **Category**: docs
+- **Where**: the out-of-state section and its FAQ answer in `frontend/content/blog/{kansas,oregon,south-carolina,tennessee,utah}-youth-soccer-rankings-guide.mdx`, and the matching `BLOG_FAQS` answers in `frontend/lib/blog-faqs.ts`
+- **Why**: These five guides write "Across/Of the N games … X% were against", tying a share of each team's own games to the distinct-game count, and the Kansas guide also says "Wichita plays mostly at home" for what is opponent-state data, not venue (both confirmed by grep 2026-11-11). The seo skill's State Guide step 2 now prescribes "counting each team's own games" and "against out-of-state teams". Unverified: whether those older figures were computed per team's own games, so re-derive before rewording.
+- **Noted**: 2026-11-11
+
+### TGS chain hand-offs cancel a manual run queued behind the running link
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: the workflow-level `concurrency:` block and the finalize step "Dispatch next chain link" in `.github/workflows/tgs-event-scrape-import.yml`
+- **Why**: GitHub keeps one pending run per concurrency group and cancels it when another run queues, so each chain hand-off (`gh workflow run` for the next link) silently cancels a manual TGS run waiting behind the running link, while the block's comment describes a queue that protects manual backfills. On 2026-11-02 manual run 41499950685 (4306-4319) was created at 18:22:27 while link 4301-4600 ran 18:15:38-18:28:33, and survived only because that link was then the last; now that it dispatches 4601-4900, the same run would be cancelled. GitHub's workflow syntax reference documents the fix (checked 2026-11-11): `queue: max` lets up to 100 runs wait in the group, and is refused only alongside `cancel-in-progress: true`, which this workflow does not set.
+- **Noted**: 2026-11-11
+
+### Give the CI jobs a time limit
+
+- **Type**: direct
+- **Category**: reliability
+- **Where**: every job in `.github/workflows/ci.yml`, longest-running first: `python-test-linux` and `matchbalance-windows-export-test`
+- **Why**: No job in `ci.yml` sets `timeout-minutes`, and pytest-timeout is not installed (checked 2026-11-11), so a test that hangs, such as a subprocess with no timeout or an unbounded loop, holds the merge gate until GitHub's 360-minute job default. Found while reviewing `tests/unit/test_tgs_workflow_chain.py`, whose first draft walked the chain with no bound.
 - **Noted**: 2026-11-11

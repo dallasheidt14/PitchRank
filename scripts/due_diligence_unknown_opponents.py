@@ -11,8 +11,8 @@ Output:
 Checks per auto_link row:
   1) alias conflict (provider_team_id already mapped to another master team?)
   2) metadata agreement with provider API (club/state/age), and gender read from GotSport, both
-     teams' names and the matched team's stored gender; a record nothing reads is held unless
-     the export says GotSport files it as Coed
+     teams' names and the matched team's stored gender; a record nothing reads is held, and so
+     is one the export says GotSport files as Coed
   3) cohort agreement from known linked opponents in those games (age/gender)
 
 Typical usage:
@@ -40,11 +40,13 @@ from dotenv import load_dotenv
 from supabase import create_client
 
 # The workflow runs this as `python3 scripts/...`, which puts scripts/ on the
-# path and not the repo root. team_association_map imports nothing beyond
-# typing, so it is safe to reach for from a job that installs three packages.
+# path and not the repo root. Everything imported from src/ below depends only on
+# requests and the standard library, so it is safe to reach for from a job that
+# installs three packages.
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from src.utils.age_group import normalize_age_group  # noqa: E402
+from src.utils.gotsport_team_details import TeamDetailsPacer  # noqa: E402
 from src.utils.team_association_map import to_state_code  # noqa: E402
 from src.utils.team_gender import gender_verdict, name_gender, row_genders, stored_gender  # noqa: E402
 
@@ -204,9 +206,10 @@ def _club_compare(unknown_club: str, matched_club: str) -> str:
 class GotSportResolver:
     BASE_URL = "https://system.gotsport.com/api/v1/team_ranking_data/team_details"
 
-    def __init__(self, timeout: int = 20):
+    def __init__(self, timeout: int = 20, pacer: Optional[TeamDetailsPacer] = None):
         self.timeout = timeout
         self.session = requests.Session()
+        self.pacer = pacer or TeamDetailsPacer()
         self.cache: Dict[str, Dict[str, str]] = {}
 
     def resolve(self, provider_team_id: str) -> Dict[str, str]:
@@ -217,7 +220,8 @@ class GotSportResolver:
             return self.cache[key]
 
         try:
-            response = self.session.get(
+            response = self.pacer.get(
+                self.session,
                 self.BASE_URL,
                 params={"team_id": key},
                 timeout=self.timeout,
@@ -232,7 +236,7 @@ class GotSportResolver:
                 payload = {}
         except Exception:
             # A WAF block, timeout or 429 says nothing about this team, so it is
-            # not cached -- a later row retries.
+            # not cached.
             return {}
 
         # team_details has no full_name, state, age or gender key; the real fields
@@ -358,7 +362,7 @@ def main() -> None:
         age_check = "unknown" if not unknown_age or not team_age else ("ok" if unknown_age == team_age else "mismatch")
         # unknown_gender_used is left out: the matcher fills it from the opponent's row when
         # nothing else answers, and an opponent says nothing about this record. The export's own
-        # GotSport lookup is read instead, because this script's lookups go unanswered in CI.
+        # GotSport lookup is read in its place, since this script's own lookup can go unanswered.
         record_genders = [
             stored_gender(unknown_gender),
             name_gender(unknown_name),
@@ -367,11 +371,10 @@ def main() -> None:
         ]
         team_genders = row_genders(team)
         gender_check = gender_verdict(record_genders, team_genders)
-        # GotSport files some young teams as Coed. The export's Coed is an answer, though not one
-        # gender, so it neither holds the record nor contradicts the row.
-        if gender_check == "unknown" and any(
-            str(r.get("unknown_provider_gender") or "").strip().lower() == "coed" for r in items
-        ):
+        # PitchRank does not rank coed teams (owner, 2026-11-10), so a record the export's
+        # GotSport lookup files as Coed is held as "coed" whatever its other gender readings
+        # say; the review dashboard blocks approving exactly that value.
+        if any(str(r.get("unknown_provider_gender") or "").strip().lower() == "coed" for r in items):
             gender_check = "coed"
         state_check = (
             "unknown" if not unknown_state or not team_state else ("ok" if unknown_state == team_state else "mismatch")
@@ -448,7 +451,7 @@ def main() -> None:
                 not alias_conflict,
                 club_check != "mismatch",
                 age_check != "mismatch",
-                gender_check in ("ok", "coed"),
+                gender_check == "ok",
                 state_check != "mismatch",
                 tier_check != "mismatch",
                 cohort_gender_check != "mismatch",

@@ -310,6 +310,34 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
     },
   ],
 
+  'iowa-youth-soccer-rankings-guide': [
+    {
+      question: 'How are Iowa youth soccer teams ranked?',
+      answer:
+        'PitchRank ranks Iowa teams using a rating algorithm that evaluates game-by-game results, strength of schedule, goal differential, recency, and consistency. Rankings update every Monday and currently cover 193 ranked Iowa teams drawn from 1,110 we track statewide.',
+    },
+    {
+      question: 'What are the biggest youth soccer clubs in Iowa?',
+      answer:
+        "By ranked team count: Vision Soccer Academy (25), Sporting Iowa (24), Bettendorf Soccer Association (16), FC United Iowa (15), Quad City Strikers (13), North Scott Soccer Club (13), Muscatine Soccer Club (12) and UFA's Des Moines teams (10).",
+    },
+    {
+      question: 'Does Iowa have ECNL and MLS NEXT teams?',
+      answer:
+        'Yes. Sporting Iowa and VSA Rush field ECNL boys teams in the Heartland Conference, and Sporting Iowa fields ECNL girls teams in the Midwest Conference. Eastern Iowa United joins the MLS NEXT Academy Division as an expansion club for 2026-27.',
+    },
+    {
+      question: 'Do Iowa teams play many out-of-state opponents?',
+      answer:
+        "Yes. Counting each team's own games over the past year, ranked Iowa teams played only 37% of their recorded games against other Iowa teams and 26% against Illinois teams. Eastern Iowa clubs play close to half their games against Illinois teams, while Sporting Iowa and other large clubs face many Missouri, Nebraska and Kansas teams.",
+    },
+    {
+      question: 'How does the Iowa State Cup work?',
+      answer:
+        'Because Iowa plays high school soccer in the spring, Iowa Soccer runs its State Cup for U15–U19 in the fall and for U13–U14 in the spring. The 2026 fall cup was played in central Iowa in late October, and Iowa Soccer says its champion advances to the US Youth Soccer National Championships.',
+    },
+  ],
+
   'kansas-youth-soccer-rankings-guide': [
     {
       question: 'How are Kansas youth soccer teams ranked?',
@@ -970,6 +998,34 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
       question: 'How do Eastside and Eastern Washington clubs compare in rankings?',
       answer:
         'The Eastside and Seattle have the deepest competitive density, anchored by Eastside FC, Seattle United, Crossfire Premier, and Pacific Northwest SC, with year-round access to Sounders Academy pathways. Eastern Washington clubs like Spokane Shadow and Washington East Surf compete in a separate geographic ecosystem, often playing into Idaho and Montana more than across the Cascades. Use PitchRank’s state filter to compare clubs across regions.',
+    },
+  ],
+
+  'wisconsin-youth-soccer-rankings-guide': [
+    {
+      question: 'How are Wisconsin youth soccer teams ranked?',
+      answer:
+        'PitchRank ranks Wisconsin teams using a rating algorithm that evaluates game-by-game results, strength of schedule, goal differential, recency, and consistency. Rankings update every Monday and currently cover 380 ranked Wisconsin teams drawn from 1,789 we track statewide.',
+    },
+    {
+      question: 'What are the biggest youth soccer clubs in Wisconsin?',
+      answer:
+        'By ranked team count: FC Wisconsin (38), Elmbrook United (29), Bavarian United SC (27), Western Wisconsin Soccer (25), Madison 56ers (23), SC Wave (23), North Shore United (22), Croatian Eagles SC (19), Milwaukee Kickers (19) and Lakeshore United FC (17).',
+    },
+    {
+      question: 'Does Wisconsin have ECNL and MLS NEXT teams?',
+      answer:
+        "Yes. FC Wisconsin fields boys and girls teams in the ECNL Midwest Conference. MLS NEXT's 2025-26 member pages list Bavarian United SC and SC Wave in the Homegrown Division and Elmbrook United, Forward Madison FC and Wisconsin United FC in the Academy Division. Girls Academy teams play through Elmbrook United, Madison 56ers, North Shore United and SC Wave.",
+    },
+    {
+      question: 'Why are there so few ranked older boys teams in Wisconsin?',
+      answer:
+        "Wisconsin high schools play boys soccer in the fall, and half of the older boys teams we track haven't recorded a game since late May. A team leaves the board after about five months without a recorded game, so only 22 of the 320 Wisconsin boys teams we track at U15 through U19 are ranked right now. They return once they have recent games again.",
+    },
+    {
+      question: 'How do the Wisconsin State Championships work?',
+      answer:
+        "Wisconsin Youth Soccer runs the State Championships for U13 through U17 and U19, with boys and younger girls playing in the spring and girls U15–U19 in the fall. U13–U17 teams must play in a WYSA-approved league, last year's finalists are seeded first and second, and the rest are seeded on prior State Championship and league results. The spring 2027 finals are June 2–4 at Mindiola Park in Waukesha, and winners in U13 through U19 advance to the US Youth Soccer National Championships.",
     },
   ],
 

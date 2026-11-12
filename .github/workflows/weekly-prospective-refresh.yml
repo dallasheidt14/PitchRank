@@ -71,6 +71,13 @@ jobs:
           path: ${{ runner.temp }}/prospective-*.json
           retention-days: 90
           if-no-files-found: error
+      - name: Preserve frozen forecast inputs privately
+        if: env.EXECUTE == 'true' && vars.COMPARE_INPUT_ARCHIVE_ENABLED == 'true'
+        shell: bash
+        run: |
+          ARCHIVE_PATH="$RUNNER_TEMP/frozen-forecast-inputs"
+          python scripts/archive_compare_forecasts.py --execute --output-dir "$ARCHIVE_PATH"
+          python scripts/publish_ranking_input_archive.py "$ARCHIVE_PATH" --execute
       - name: Summarize capture
         if: always()
         shell: bash

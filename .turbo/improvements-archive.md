@@ -1922,3 +1922,13 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Noted**: 2026-11-05
 - **Update (2026-11-11)**: 0 of the 1,331 teams created under `affinity_or`, `affinity_ut`, `affinity_hi` and `affinity_ga` have a non-ASCII name. An alias linking an Affinity name to another provider's team stores no name, so those were not counted. A declared charset is still honoured.
 - **Refs**: branch `feat/oregon-state-cup-scrape`; `TestPageDecoding` in `tests/unit/test_scrape_affinity_or.py`
+
+### Escape the team name in the report card email
+
+- **Status**: done
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `buildReportCardHtml` in `frontend/lib/email/report-card.ts`, which interpolates `teamName` unescaped; `escapeHtml` in `frontend/lib/email/feedback.ts` is the helper to share
+- **Why**: Read on 2026-11-06: a team name scraped from any league reaches this HTML, so markup in one would land in an email PitchRank sends. Reported by a review as reachable through `/api/reports/team-card` once a team has a published rank; the route was not traced here. Email clients run no scripts, so the exposure is links and images. It predates the Georgia provider.
+- **Noted**: 2026-11-06
+- **Refs**: branch `feat/report-card-redesign`; `renders markup in a team name as text` in `frontend/lib/email/__tests__/report-card.test.ts`

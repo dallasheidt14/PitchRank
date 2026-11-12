@@ -1,5 +1,5 @@
 """The weekly unknown-opponent gate holds a record whose gender contradicts the team it would join,
-or whose gender nothing reads.
+whose gender nothing reads, or that GotSport files as Coed.
 
 This drives ``main`` itself: a team stored under the wrong gender is caught only by its names, which
 reach the check only if the team select asks for them, and a test of the verdict alone would hand
@@ -186,19 +186,35 @@ def test_the_export_s_gender_lets_a_record_through_when_this_script_s_lookup_fai
     assert approved["700001"]["gender_check"] == "ok"
 
 
-def test_a_record_gotsport_files_as_coed_is_not_held(run_gate):
-    """Coed is GotSport answering, not GotSport failing to."""
+def test_a_record_gotsport_files_as_coed_is_held(run_gate):
+    """PitchRank does not rank coed teams (owner, 2026-11-10)."""
     approved, review = run_gate(
         teams=[_team("rangers", "FC Rangers 16/17", "Male")],
         answers={},
         report_rows=[_report_row("479970", "rangers", "FC Rangers 16/17", gender_used="Male", provider_gender="Coed")],
     )
 
-    assert review == {}
-    assert approved["479970"]["gender_check"] == "coed"
+    assert approved == {}
+    assert review["479970"]["gender_check"] == "coed"
 
 
-def test_a_coed_record_is_still_held_from_a_row_its_name_contradicts(run_gate):
+def test_a_coed_record_is_held_even_where_both_names_read_one_gender(run_gate):
+    """Without the coed reading this pair links: both names say boys and the row is stored Male."""
+    approved, review = run_gate(
+        teams=[_team("rangers", "FC Rangers 16/17 Boys", "Male")],
+        answers={},
+        report_rows=[
+            _report_row("479972", "rangers", "FC Rangers B16/17 Boys", gender_used="Male", provider_gender="Coed")
+        ],
+    )
+
+    assert approved == {}
+    assert review["479972"]["gender_check"] == "coed"
+
+
+def test_a_coed_record_its_name_contradicts_is_held_as_coed(run_gate):
+    """The review dashboard blocks approving "coed" and leaves "mismatch" approvable, so coed has to
+    win here or a reviewer can link a coed record's games to a ranked team."""
     approved, review = run_gate(
         teams=[_team("rangers", "FC Rangers 16/17 Boys", "Male")],
         answers={},
@@ -206,7 +222,7 @@ def test_a_coed_record_is_still_held_from_a_row_its_name_contradicts(run_gate):
     )
 
     assert approved == {}
-    assert review["479971"]["gender_check"] == "mismatch"
+    assert review["479971"]["gender_check"] == "coed"
 
 
 def test_the_export_s_gender_holds_a_record_it_contradicts(run_gate):

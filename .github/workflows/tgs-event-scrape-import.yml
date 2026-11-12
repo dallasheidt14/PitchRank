@@ -11,8 +11,7 @@ on:
     #
     # Cron seeds the first chain link (3400-3550). Each successful run then
     # auto-dispatches the next link via the "Dispatch next chain link" step
-    # in the finalize job. Chain: 3400-3550 → 3551-3700 → 3701-3850 →
-    # 3851-4000 → 4001-4150 → 4151-4300 → 4301-4600 (stop). Workflow-level
+    # in the finalize job, whose `case` table lists every link. Workflow-level
     # concurrency (`tgs-event-scrape`, cancel-in-progress: false) queues each
     # dispatched link behind the previous one so they run strictly serially.
     - cron: '30 6 * * 1'
@@ -433,8 +432,9 @@ jobs:
           GH_TOKEN:      ${{ secrets.GITHUB_TOKEN }}
           CURRENT_START: ${{ needs.prepare.outputs.start_event }}
           CURRENT_END:   ${{ needs.prepare.outputs.end_event }}
+          ANY_IMPORTED:  ${{ steps.check_imports.outputs.any_imported }}
         run: |
-          # Chain lookup. Keep in sync with the comment block on the `schedule:` trigger.
+          # Chain lookup.
           case "${CURRENT_START}-${CURRENT_END}" in
             "3400-3550") NEXT_START=3551; NEXT_END=3700 ;;
             "3551-3700") NEXT_START=3701; NEXT_END=3850 ;;
@@ -442,7 +442,12 @@ jobs:
             "3851-4000") NEXT_START=4001; NEXT_END=4150 ;;
             "4001-4150") NEXT_START=4151; NEXT_END=4300 ;;
             "4151-4300") NEXT_START=4301; NEXT_END=4600 ;;
-            "4301-4600")
+            "4301-4600") NEXT_START=4601; NEXT_END=4900 ;;
+            "4601-4900")
+              if [ "$ANY_IMPORTED" = "true" ]; then
+                echo "::error::TGS events with games now reach the final chain link (${CURRENT_START}-${CURRENT_END}). Add a link before event ids pass ${CURRENT_END}, or newer events will be skipped."
+                exit 1
+              fi
               echo "Range ${CURRENT_START}-${CURRENT_END} is the final chain link — chain complete."
               exit 0
               ;;
