@@ -9,14 +9,14 @@ import { formatCountShort } from '@/lib/utils';
 export const metadata: Metadata = {
   title: 'Free Team Report Card',
   description:
-    "Get your youth soccer team's free report card — national & state rank, PowerScore, record, trend, and last 5 games. Delivered as a PDF in 60 seconds.",
+    "Get your youth soccer team's free report card — national & state rank, PowerScore, recent record, 30-day rank change, and last 5 games with scores. Delivered as a PDF in 60 seconds.",
   alternates: {
     canonical: `${BASE_URL}/report-card`,
   },
   openGraph: {
     title: 'Free Team Report Card | PitchRank',
     description:
-      'See where your team really stands. National & state rank, PowerScore, record, and recent results — free PDF in 60 seconds.',
+      'See where your team really stands. National & state rank, PowerScore, recent record, and last 5 games with scores — free PDF in 60 seconds.',
     url: `${BASE_URL}/report-card`,
     siteName: 'PitchRank',
     type: 'website',
@@ -96,8 +96,8 @@ export default async function ReportCardPage() {
             Stop guessing where your team really stands.
           </h1>
           <p className="text-white/90 text-lg md:text-xl max-w-2xl mx-auto">
-            A free PDF report card — national & state rank, PowerScore, record, and last 5 games — delivered in about 60
-            seconds.
+            A free PDF report card — national & state rank, PowerScore, recent record, and last 5 games with scores —
+            delivered in about 60 seconds.
           </p>
 
           {/* Stats bar */}

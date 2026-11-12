@@ -187,6 +187,7 @@ function setStripe(
     lifetimeThrows?: boolean;
     cohortThrows?: boolean;
     activeThrows?: boolean;
+    trialingThrows?: boolean;
     pastDueThrows?: boolean;
     canceledThrows?: boolean;
     unpaidThrows?: boolean;
@@ -195,17 +196,18 @@ function setStripe(
   const subs = allSubscriptions();
   subscriptionsList.mockImplementation((params: { status?: string; created?: { gte?: number } }) => {
     if (params.status === 'active' && options.activeThrows) return rejectingIterable(1);
+    if (params.status === 'trialing' && options.trialingThrows) return rejectingIterable(1);
     if (params.status === 'past_due' && options.pastDueThrows) return rejectingIterable(1);
     if (params.status === 'canceled' && options.canceledThrows) return rejectingIterable(1);
     if (params.status === 'unpaid' && options.unpaidThrows) return rejectingIterable(1);
+    const since = params.created?.gte ?? 0;
     if (params.status === 'all') {
       // A mid-iteration rejection, not a synchronous throw — the shape Stripe
       // actually produces when a later page fails.
       if (options.cohortThrows) return rejectingIterable(1);
-      const since = params.created?.gte ?? 0;
       return iterate(subs.filter((s) => s.created >= since));
     }
-    return iterate(subs.filter((s) => s.status === params.status));
+    return iterate(subs.filter((s) => s.status === params.status && s.created >= since));
   });
   invoicesList.mockImplementation((params: { created?: { gte?: number } }) => {
     const windowed = params.created !== undefined;
@@ -473,6 +475,89 @@ describe('getSubscriptionMetrics', () => {
     const paidCall = invoicesList.mock.calls.map((c) => c[0]).find((p) => p.status === 'paid' && p.created);
     expect(cohortCall.created.gte).toBe(nowSec - 187 * DAY);
     expect(paidCall.created.gte).toBe(nowSec - 187 * DAY);
+  });
+
+  it('counts trials by month from the status lists, back past the cohort fetch', async () => {
+    // Read in February, the cohort fetch starts in mid-August and so misses the
+    // July trials, which only the unbounded status lists still return.
+    vi.setSystemTime(Date.UTC(2027, 1, 15, 7));
+    setStripe();
+    const metrics = await getSubscriptionMetrics();
+    // Ten matured trials started July 31 (sub_internal excluded); sub_sep_done
+    // and sub_sep_live started in September. sub_established and sub_stale
+    // started before June.
+    expect(metrics.trialsByMonth).toEqual({
+      available: true,
+      months: [
+        { label: 'June 2026', trials: 0 },
+        { label: 'July 2026', trials: 10 },
+        { label: 'August 2026', trials: 0 },
+        { label: 'September 2026', trials: 2 },
+        { label: 'October 2026', trials: 0 },
+        { label: 'November 2026', trials: 0 },
+        { label: 'December 2026', trials: 0 },
+        { label: 'January 2027', trials: 0 },
+        { label: 'February 2027', trials: 0 },
+      ],
+    });
+  });
+
+  it('counts trials whose payments later failed, from the past_due and unpaid lists', async () => {
+    setStripe();
+    const byStatus = subscriptionsList.getMockImplementation()!;
+    const august = Date.UTC(2026, 7, 10, 7) / 1000;
+    const failed: Record<string, Stripe.Subscription> = {
+      past_due: makeStripeSubscription({
+        id: 'sub_aug_past_due',
+        status: 'past_due',
+        created: august,
+        trialStart: august,
+      }),
+      unpaid: makeStripeSubscription({ id: 'sub_aug_unpaid', status: 'unpaid', created: august, trialStart: august }),
+    };
+    subscriptionsList.mockImplementation((params: { status?: string }) =>
+      params.status && failed[params.status]
+        ? iterate([...allSubscriptions().filter((s) => s.status === params.status), failed[params.status]])
+        : byStatus(params)
+    );
+    const metrics = await getSubscriptionMetrics();
+    expect(metrics.trialsByMonth.months).toEqual([
+      { label: 'June 2026', trials: 0 },
+      { label: 'July 2026', trials: 10 },
+      { label: 'August 2026', trials: 2 },
+      { label: 'September 2026', trials: 2 },
+    ]);
+  });
+
+  it('counts a subscription once when it turns up in two status lists', async () => {
+    setStripe();
+    const byStatus = subscriptionsList.getMockImplementation()!;
+    const moved = allSubscriptions().find((s) => s.id === 'sub_sep_live')!;
+    subscriptionsList.mockImplementation((params: { status?: string }) =>
+      params.status === 'active'
+        ? iterate([...allSubscriptions().filter((s) => s.status === 'active'), moved])
+        : byStatus(params)
+    );
+    const metrics = await getSubscriptionMetrics();
+    expect(metrics.trialsByMonth.months.at(-1)).toEqual({ label: 'September 2026', trials: 2 });
+  });
+
+  it.each([
+    ['active', { activeThrows: true }],
+    ['trialing', { trialingThrows: true }],
+    ['past_due', { pastDueThrows: true }],
+    ['canceled', { canceledThrows: true }],
+    ['unpaid', { unpaidThrows: true }],
+  ])('marks trials by month unavailable when the %s list fails', async (_name, failure) => {
+    setStripe(failure);
+    const metrics = await getSubscriptionMetrics();
+    expect(metrics.trialsByMonth.available).toBe(false);
+  });
+
+  it('keeps trials by month available when only the cohort fetch fails', async () => {
+    setStripe({ cohortThrows: true });
+    const metrics = await getSubscriptionMetrics();
+    expect(metrics.trialsByMonth.available).toBe(true);
   });
 });
 

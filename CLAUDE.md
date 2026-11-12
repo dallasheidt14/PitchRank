@@ -147,12 +147,20 @@ PitchRank is a **youth soccer ranking platform** that scrapes game data from mul
   decision) has no test calling it, the guards below it are pinned against a fixture rather
   than against the query, so name the composition in the test and let it do its own fetching
   through the double.
+- **A test or harness that runs a workflow step's script must not be able to reach the real
+  `gh`.** On a machine where `gh` is logged in, one stray `gh workflow run` dispatches a
+  production run. Record `gh` both as a shell function in the script text and as a stub first
+  on PATH, since `command gh`, `env gh` and `timeout gh` skip a function. An experiment harness
+  also takes the GitHub CLI directory off PATH and appends a tripwire `gh`. Run the script as
+  `bash -e`, which is what Actions runs for a step with no `shell:`, without pipefail. Carry
+  values between steps by running the steps that produce them, not by hand.
+  `tests/unit/test_tgs_workflow_chain.py` is the model.
 
 ## Scope & Approach Discipline
 - Do NOT make changes beyond what was explicitly requested. If you see opportunities for improvement, mention them but wait for approval.
 - When diagnosing issues, verify your initial hypothesis with data before proposing or implementing a fix. Do not jump to implementation.
 - In a multi-stage chain, confirm which stage actually performs the operation before fixing it anywhere. The stages here are near-identical copies, and the flags differ: `unknown-opponent-hygiene-weekly.yml` passes `--resolve-gotsport-details` to `export_unknown_opponents.py` alone. Three correct fixes landed in the wrong stage and changed nothing in production until the export stage was found. Read the workflow's arguments, not just the scripts.
-  - **But the flag is not the only way a resolver gets built, and this paragraph used to claim it was.** Only `export_unknown_opponents.py:299` and `auto_match_unknown_opponents.py:446` gate on `args.resolve_gotsport_details`; `discover_teams_from_opponents.py:543` and `due_diligence_unknown_opponents.py:282` construct `GotSportResolver()` with no flag, so both stages call GotSport whenever they have eligible rows. Verified 2026-09-08. Be precise about what that means: constructing the resolver only opens a `requests.Session` and makes no request, HTTP starts in `resolve()`, and discovery returns before constructing anything when there are no unmatched opponents, while due diligence resolves only the GotSport `auto_link` rows. So neither is *unconditional* traffic — the point is that no flag stands between them and the provider. Grep for the constructor across `scripts/`, never for the flag: a flag-shaped audit misses two of the four callers.
+  - **But the flag is not the only way a resolver gets built, and this paragraph used to claim it was.** Only `export_unknown_opponents.py:333` and `auto_match_unknown_opponents.py:457` gate on `args.resolve_gotsport_details`; `discover_teams_from_opponents.py:645` and `due_diligence_unknown_opponents.py:289` construct `GotSportResolver()` with no flag, so both stages call GotSport whenever they have eligible rows. Verified 2026-09-08. Be precise about what that means: constructing the resolver only opens a `requests.Session` and makes no request, HTTP starts in `resolve()`, and discovery returns before constructing anything when there are no unmatched opponents, while due diligence resolves only the GotSport `auto_link` rows. So neither is *unconditional* traffic — the point is that no flag stands between them and the provider. Grep for the constructor across `scripts/`, never for the flag: a flag-shaped audit misses two of the four callers.
   - **The chain's last consumer is a person.** `dashboard.py`'s Due Diligence Review tab renders the due-diligence `*_needs_review.csv` check columns with its own rule for which values count as failures, and its Approve & Link writes the alias. A change to what a check's values mean has to change that tab too, or a held row looks approvable.
 - If the user redirects or corrects your diagnosis, fully abandon the prior theory and start fresh from their correction.
 - When estimating data sizes (row counts, backfill scope), query the actual database for counts rather than estimating.
@@ -674,7 +682,7 @@ two-line edit in `.github/workflows/claude-code-review.yml`.
 | `clear-queue.yml` | Manual dispatch | "Help Clear Queue" — bulk drain + teams-table top-up |
 | `calculate-rankings.yml` | Mon 12:30 PM UTC, and after any successful Modular11 league or events run | Recalculate rankings (Glicko-2 + ML). The `workflow_run` trigger does not distinguish a Modular11 dry run, so a test scrape on Actions starts a full ranking run; scrape locally to test |
 | `auto-gotsport-event-scrape.yml` | Manual dispatch | Tournament bracket scraping (cron removed 2026-05-17) |
-| `tgs-event-scrape-import.yml` | Mon 6:30 AM UTC | TGS event scraping |
+| `tgs-event-scrape-import.yml` | Mon 6:30 AM UTC | TGS event scraping, run as a chain of event-id links that each dispatch the next; red when the final link finds games, the signal to add a link |
 | `tgs-score-reconcile.yml` | Tue + Fri 5:23 AM UTC | Correct stored TGS scores TGS has since changed, or hide a stale row beside its corrected twin (`is_excluded`); see 'TGS edits scores after posting them' |
 | `data-hygiene-weekly.yml` | Mon 11:00 AM UTC — **switched off in GitHub since 2026-08-23** | Data cleanup — name normalization, distinction backfill, dupe and queue-match steps (the age step is disabled; see `AGE_DERIVATION_ENABLED`). `gh workflow list --all` shows it `disabled_manually`; the file keeps its cron, so nothing here runs until someone re-enables it, and IMP-258 must be fixed first |
 | `unknown-opponent-hygiene-weekly.yml` | Tue 6:00 PM UTC | Resolve "Unknown" opponents |

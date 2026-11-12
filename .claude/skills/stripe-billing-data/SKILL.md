@@ -140,6 +140,14 @@ figure. It leaves `unpaid` out, as `mrr` does, because Stripe records no time at
 subscription stopped paying; and a cancellation set through `cancel_at` alone may count until
 service ends, since Stripe does not document `canceled_at` for that path.
 
+Trials by Month also reads the unbounded status lists (active, trialing, past_due, canceled and
+unpaid), never the 187-day cohort: its first bar is fixed at June 2026 while the cohort window
+slides forward with today, so a bounded fetch would empty the oldest bars one by one. It keys the
+union by id, because a subscription that changes status while the lists are fetched in parallel
+comes back in two of them. It counts by `trial_start` with the same month bounds and
+internal-email exclusion as the Last Month cards. A trial in a status outside those five (`paused`,
+from a no-card trial created in the Stripe Dashboard) is not counted; checkout cannot create one.
+
 `.turbo/reports/2026-09-04-stripe-month-projection-baseline.md` carries the dated figures and the
 derivation. Read numbers from there rather than from this file, and re-measure before quoting them.
 
