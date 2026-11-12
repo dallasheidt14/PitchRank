@@ -147,6 +147,14 @@ PitchRank is a **youth soccer ranking platform** that scrapes game data from mul
   decision) has no test calling it, the guards below it are pinned against a fixture rather
   than against the query, so name the composition in the test and let it do its own fetching
   through the double.
+- **A test or harness that runs a workflow step's script must not be able to reach the real
+  `gh`.** On a machine where `gh` is logged in, one stray `gh workflow run` dispatches a
+  production run. Record `gh` both as a shell function in the script text and as a stub first
+  on PATH, since `command gh`, `env gh` and `timeout gh` skip a function. An experiment harness
+  also takes the GitHub CLI directory off PATH and appends a tripwire `gh`. Run the script as
+  `bash -e`, which is what Actions runs for a step with no `shell:`, without pipefail. Carry
+  values between steps by running the steps that produce them, not by hand.
+  `tests/unit/test_tgs_workflow_chain.py` is the model.
 
 ## Scope & Approach Discipline
 - Do NOT make changes beyond what was explicitly requested. If you see opportunities for improvement, mention them but wait for approval.
@@ -674,7 +682,7 @@ two-line edit in `.github/workflows/claude-code-review.yml`.
 | `clear-queue.yml` | Manual dispatch | "Help Clear Queue" — bulk drain + teams-table top-up |
 | `calculate-rankings.yml` | Mon 12:30 PM UTC, and after any successful Modular11 league or events run | Recalculate rankings (Glicko-2 + ML). The `workflow_run` trigger does not distinguish a Modular11 dry run, so a test scrape on Actions starts a full ranking run; scrape locally to test |
 | `auto-gotsport-event-scrape.yml` | Manual dispatch | Tournament bracket scraping (cron removed 2026-05-17) |
-| `tgs-event-scrape-import.yml` | Mon 6:30 AM UTC | TGS event scraping |
+| `tgs-event-scrape-import.yml` | Mon 6:30 AM UTC | TGS event scraping, run as a chain of event-id links that each dispatch the next; red when the final link finds games, the signal to add a link |
 | `tgs-score-reconcile.yml` | Tue + Fri 5:23 AM UTC | Correct stored TGS scores TGS has since changed, or hide a stale row beside its corrected twin (`is_excluded`); see 'TGS edits scores after posting them' |
 | `data-hygiene-weekly.yml` | Mon 11:00 AM UTC — **switched off in GitHub since 2026-08-23** | Data cleanup — name normalization, distinction backfill, dupe and queue-match steps (the age step is disabled; see `AGE_DERIVATION_ENABLED`). `gh workflow list --all` shows it `disabled_manually`; the file keeps its cron, so nothing here runs until someone re-enables it, and IMP-258 must be fixed first |
 | `unknown-opponent-hygiene-weekly.yml` | Tue 6:00 PM UTC | Resolve "Unknown" opponents |

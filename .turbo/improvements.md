@@ -2905,3 +2905,19 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `RankHistoryChart` in `frontend/components/RankHistoryChart.tsx` (the `XAxis` and `YAxis` props)
 - **Why**: Both axes set `className="fill-muted-foreground"`, which never reaches the tick text in Recharts 3.8.1: the labels render outside the axis `<g>` and take their fill from the `tick` prop, so they draw in the default `#666`. Seen on `TrialsByMonthChart` this session, where tick text read `fill="#666"` until the colour moved to `tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }}`, after which it computed to the muted token. Cosmetic: the two greys are close and the site has no dark theme.
 - **Noted**: 2026-11-11
+
+### TGS chain hand-offs cancel a manual run queued behind the running link
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: the workflow-level `concurrency:` block and the finalize step "Dispatch next chain link" in `.github/workflows/tgs-event-scrape-import.yml`
+- **Why**: GitHub keeps one pending run per concurrency group and cancels it when another run queues, so each chain hand-off (`gh workflow run` for the next link) silently cancels a manual TGS run waiting behind the running link, while the block's comment describes a queue that protects manual backfills. On 2026-11-02 manual run 41499950685 (4306-4319) was created at 18:22:27 while link 4301-4600 ran 18:15:38-18:28:33, and survived only because that link was then the last; now that it dispatches 4601-4900, the same run would be cancelled. GitHub's workflow syntax reference documents the fix (checked 2026-11-11): `queue: max` lets up to 100 runs wait in the group, and is refused only alongside `cancel-in-progress: true`, which this workflow does not set.
+- **Noted**: 2026-11-11
+
+### Give the CI jobs a time limit
+
+- **Type**: direct
+- **Category**: reliability
+- **Where**: every job in `.github/workflows/ci.yml`, longest-running first: `python-test-linux` and `matchbalance-windows-export-test`
+- **Why**: No job in `ci.yml` sets `timeout-minutes`, and pytest-timeout is not installed (checked 2026-11-11), so a test that hangs, such as a subprocess with no timeout or an unbounded loop, holds the merge gate until GitHub's 360-minute job default. Found while reviewing `tests/unit/test_tgs_workflow_chain.py`, whose first draft walked the chain with no bound.
+- **Noted**: 2026-11-11
