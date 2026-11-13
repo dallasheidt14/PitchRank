@@ -155,10 +155,13 @@ def test_a_merged_clean_worktree_is_removed_after_its_ignored_files_are_copied(r
     path, head = _worktree(repo, "feat/done", commit=True)
     _merged(commands, "feat/done", head)
     _with_ignored_files(path)
+    _git(repo, "config", "branch.feat/done.remote", "origin")
 
     assert cleaner.sweep(execute=True) == [path]
 
     rescue = repo / "data" / "backups" / "worktree-rescue" / "2026-11-12_feat-done"
+    branch_config = subprocess.run(["git", "config", "--get-regexp", "^branch\\."], cwd=repo, capture_output=True)
+    assert branch_config.returncode == 1, branch_config.stdout
     assert _rescued(rescue) == {"data/backups/rollback.json", ".turbo/smoke/report.md"}
     assert (rescue / "data" / "backups" / "rollback.json").read_text() == "keep me\n"
     assert not path.exists()
@@ -490,8 +493,47 @@ def test_a_branch_that_cannot_be_deleted_is_reported_not_counted(repo, commands,
     (repo / ".git" / "refs" / "heads" / "feat" / "ref.lock").write_text("")
     assert cleaner.sweep(execute=True) == []
     out = capsys.readouterr().out
-    assert f"FAILED {path}  (#42 merged; branch feat/ref): folder removed, but git branch -D feat/ref failed" in out
+    assert f"FAILED {path}  (#42 merged; branch feat/ref): folder removed, but branch feat/ref was kept" in out
     assert not path.exists() and _branch_exists(repo, "feat/ref")
+
+
+def test_a_commit_landing_during_the_copy_keeps_folder_and_branch(repo, commands, monkeypatch, capsys) -> None:
+    """The copy takes time another session can commit in, so HEAD is read again before anything is removed."""
+    path, head = _worktree(repo, "feat/copying")
+    _merged(commands, "feat/copying", head)
+    _with_ignored_files(path)
+    copy_out = cleaner.rescue
+
+    def copy_out_then_commit(worktree, files, destination):
+        copy_out(worktree, files, destination)
+        (path / "late.py").write_text("z = 3\n")
+        _git(path, "add", "late.py")
+        _git(path, "commit", "-qm", "late")
+
+    monkeypatch.setattr(cleaner, "rescue", copy_out_then_commit)
+    assert cleaner.sweep(execute=True) == []
+    out = capsys.readouterr().out
+    assert f"FAILED {path}  (#42 merged; branch feat/copying): HEAD moved while its ignored files were" in out
+    assert path.is_dir() and _git(repo, "log", "-1", "--format=%s", "feat/copying") == "late"
+
+
+def test_the_branch_is_deleted_only_while_it_still_points_at_the_merged_head(repo, commands, monkeypatch, capsys):
+    """A commit that reaches the branch after the folder goes must survive, so the delete names the expected head."""
+    path, head = _worktree(repo, "feat/moving")
+    _merged(commands, "feat/moving", head)
+    later = _git(repo, "commit-tree", f"{head}^{{tree}}", "-p", head, "-m", "later")
+
+    def remove_then_advance(*command, cwd=None, timeout=None):
+        done = commands(*command, cwd=cwd, timeout=timeout)
+        if "worktree" in command and "remove" in command:
+            _git(repo, "update-ref", "refs/heads/feat/moving", later)
+        return done
+
+    monkeypatch.setattr(cleaner, "run", remove_then_advance)
+    assert cleaner.sweep(execute=True) == []
+    out = capsys.readouterr().out
+    assert f"FAILED {path}  (#42 merged; branch feat/moving): folder removed, but branch feat/moving was kept" in out
+    assert _git(repo, "rev-parse", "refs/heads/feat/moving") == later
 
 
 # --- the checks themselves ---------------------------------------------------------------------------------

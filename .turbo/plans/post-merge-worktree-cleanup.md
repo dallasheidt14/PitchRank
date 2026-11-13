@@ -323,3 +323,17 @@ Re-verified after the round:
   test.
 - The full CI suite passed except 2 Compare-predictor tests and 1 registration-fixture error. All three need
   `frontend/node_modules`, which the feature worktree lacks, and all three pass in `C:\PitchRank`.
+
+### Codex review on the PR (2026-11-12)
+
+Codex reproduced the commit-during-copy race that round 1 had only half closed:
+- The HEAD check in `keep_reason` runs before the rescue copy.
+- A commit made during the copy left the worktree clean.
+- `git branch -D` then deleted the branch holding that commit.
+
+`remove()` now:
+- reads HEAD again before unlinking anything;
+- deletes the branch with `git update-ref -d refs/heads/<branch> <merged head>`, so a branch that moved is kept;
+- drops the branch's config section.
+
+Each fix has its own test, and each was killed by its mutation.

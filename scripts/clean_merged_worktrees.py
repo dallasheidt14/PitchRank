@@ -330,12 +330,17 @@ def unlink(link: str) -> None:
         os.unlink(link)
 
 
-def remove(worktree: Worktree, links: list[Path], main_root: Path) -> str | None:
+def remove(worktree: Worktree, links: list[Path], main_root: Path, merged_head: str) -> str | None:
     """Why it stopped, or None.
 
-    No --force, so git's own check for local changes stands behind keep_reason's.
-    A squash-merged branch is not an ancestor of main, so -d would refuse it.
+    HEAD is read again because copying the ignored files takes time another
+    session can commit in. No --force, so git's own check for local changes
+    stands behind keep_reason's. The branch is deleted only while it still points
+    at the merged head; a squash-merged branch is not an ancestor of main, so
+    `git branch -d` would refuse it either way.
     """
+    if git("rev-parse", "HEAD", cwd=worktree.path).stdout.strip() != merged_head:
+        return "HEAD moved while its ignored files were being copied"
     for link in links:
         try:
             unlink(native(worktree.path / link))
@@ -344,9 +349,10 @@ def remove(worktree: Worktree, links: list[Path], main_root: Path) -> str | None
     done = git("worktree", "remove", str(worktree.path), cwd=main_root, timeout=REMOVE_TIMEOUT_SECONDS)
     if done.returncode != 0:
         return f"git worktree remove failed: {done.stderr.strip()}"
-    done = git("branch", "-D", worktree.branch, cwd=main_root)
+    done = git("update-ref", "-d", f"refs/heads/{worktree.branch}", merged_head, cwd=main_root)
     if done.returncode != 0:
-        return f"folder removed, but git branch -D {worktree.branch} failed: {done.stderr.strip()}"
+        return f"folder removed, but branch {worktree.branch} was kept: {done.stderr.strip()}"
+    git("config", "--remove-section", f"branch.{worktree.branch}", cwd=main_root)
     return None
 
 
@@ -406,7 +412,7 @@ def sweep(execute: bool, show_others: bool = True) -> list[Path]:
                 kept.append((worktree, state, pr, f"copying its ignored files failed: {exc}"))
                 continue
             print(f"  copied {copied} from {worktree.path} to {destination}")
-        failure = remove(worktree, links, main_root)
+        failure = remove(worktree, links, main_root, pr["headRefOid"])
         if failure:
             failed += 1
             print(f"  FAILED {worktree.path}  ({merged}): {failure}")
