@@ -491,6 +491,10 @@ DRY_RUN_TEAM_NAMESPACE = uuid.UUID("6f2a1c94-3b7e-5d16-9c48-1e0b7a5d2f83")
 class GameHistoryMatcher:
     """Match game history records to master teams using fuzzy matching and aliases"""
 
+    # Whether the gender guard holds a match whose row it cannot read. Holding sends the match to
+    # review here; a subclass for which a held match becomes a new team turns this off to raise.
+    unreadable_row_is_conflict = True
+
     def __init__(
         self,
         supabase: Client,
@@ -896,45 +900,7 @@ class GameHistoryMatcher:
                 fuzzy_match = self._fuzzy_match_team(team_name, age_group, gender, club_name)
             if fuzzy_match:
                 confidence = fuzzy_match["confidence"]
-
-                # A birth year names the same cohort forever; the age_group this
-                # candidate was filtered by is derived from the wall clock, and U19
-                # holds 2008 and 2009 at once — so nothing above this line can tell
-                # "G09" from "2008". This is the choke point every provider subclass
-                # reaches through super()._match_team(); they override
-                # _fuzzy_match_team, so a guard in the candidate loop alone would
-                # miss exactly the matchers that produced the defects.
-                #
-                # Demote rather than drop: an ambiguous name still deserves a human,
-                # it just must not auto-alias. team_name is asserted present for
-                # every subclass in tests/unit/test_birth_year_guard_wiring.py — a
-                # missing key here would fail the guard open.
-                year_conflict = birth_years_conflict(team_name, fuzzy_match.get("team_name"))
-                if year_conflict:
-                    logger.info(
-                        "Birth-year conflict, routing to review instead of alias: "
-                        f"{team_name!r} vs {fuzzy_match.get('team_name')!r} (confidence {confidence:.2f})"
-                    )
-                elif u19_shared_year_ambiguous(team_name, fuzzy_match.get("team_name"), age_group):
-                    year_conflict = True
-                    logger.info(
-                        "U19 name states only the year both U19 squads share, routing to review instead of alias: "
-                        f"{team_name!r} vs {fuzzy_match.get('team_name')!r} (confidence {confidence:.2f})"
-                    )
-
-                # Names that differ only by a B or G normalize alike, and the candidates were
-                # filtered by the division's gender, which a girls team playing a boys
-                # division does not share. So the matched row is read again before it links.
-                gender_conflict = (
-                    confidence >= self.auto_approve_threshold
-                    and not year_conflict
-                    and self._genders_conflict(team_name, fuzzy_match["team_id"])
-                )
-                if gender_conflict:
-                    logger.info(
-                        "Gender conflict, routing to review instead of alias: "
-                        f"{team_name!r} vs {fuzzy_match.get('team_name')!r} (confidence {confidence:.2f})"
-                    )
+                year_conflict, gender_conflict = self._link_guards(team_name, fuzzy_match, age_group)
 
                 # Auto-approve high confidence matches (0.9+)
                 if confidence >= self.auto_approve_threshold and not year_conflict and not gender_conflict:
@@ -1239,9 +1205,50 @@ class GameHistoryMatcher:
             # On error, be conservative and reject the match
             return False
 
+    def _link_guards(self, team_name: str, fuzzy_match: Dict, age_group: Optional[str]) -> Tuple[bool, bool]:
+        """Whether a fuzzy match is held back from auto-linking: (year_conflict, gender_conflict)."""
+        confidence = fuzzy_match["confidence"]
+
+        # A birth year names the same cohort forever, while the age_group the
+        # candidates were filtered by follows the wall clock and U19 holds 2008
+        # and 2009 at once, so neither that filter nor the score can tell "G09"
+        # from "2008". The guard sits here rather than in a candidate loop
+        # because the subclasses override _fuzzy_match_team: those that link by
+        # name reach it through super()._match_team(), TGS through
+        # link_candidate. A missing fuzzy_match["team_name"] fails it open
+        # (tests/unit/test_birth_year_guard_wiring.py pins the key).
+        year_conflict = birth_years_conflict(team_name, fuzzy_match.get("team_name"))
+        if year_conflict:
+            logger.info(
+                "Birth-year conflict, held back from auto-link: "
+                f"{team_name!r} vs {fuzzy_match.get('team_name')!r} (confidence {confidence:.2f})"
+            )
+        elif u19_shared_year_ambiguous(team_name, fuzzy_match.get("team_name"), age_group):
+            year_conflict = True
+            logger.info(
+                "U19 name states only the year both U19 squads share, held back from auto-link: "
+                f"{team_name!r} vs {fuzzy_match.get('team_name')!r} (confidence {confidence:.2f})"
+            )
+
+        # Names that differ only by a B or G normalize alike, and the candidates were
+        # filtered by the division's gender, which a girls team playing a boys
+        # division does not share. So the matched row is read again before it links.
+        gender_conflict = (
+            confidence >= self.auto_approve_threshold
+            and not year_conflict
+            and self._genders_conflict(team_name, fuzzy_match["team_id"])
+        )
+        if gender_conflict:
+            logger.info(
+                "Gender conflict, held back from auto-link: "
+                f"{team_name!r} vs {fuzzy_match.get('team_name')!r} (confidence {confidence:.2f})"
+            )
+        return year_conflict, gender_conflict
+
     def _genders_conflict(self, team_name: Optional[str], team_id_master: str) -> bool:
         """A name stating no gender never conflicts; a row that cannot be read does, so the match
-        waits in review rather than linking unchecked."""
+        waits in review rather than linking unchecked. With unreadable_row_is_conflict off, an
+        unreadable row raises instead."""
         stated = name_gender(team_name)
         if not stated:
             return False
@@ -1255,9 +1262,13 @@ class GameHistoryMatcher:
                 or []
             )
         except Exception as e:
+            if not self.unreadable_row_is_conflict:
+                raise
             logger.error(f"Error reading team {team_id_master} for the gender guard: {e}")
             return True
         if not rows:
+            if not self.unreadable_row_is_conflict:
+                raise LookupError(f"Team {team_id_master} not found for the gender guard")
             return True
         return gender_verdict((stated,), row_genders(rows[0])) == "mismatch"
 

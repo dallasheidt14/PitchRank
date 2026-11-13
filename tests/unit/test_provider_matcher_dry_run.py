@@ -166,6 +166,8 @@ class _EmptyDB:
 REGISTRATION_MATCHERS = frozenset(
     {"soccereventsgroup", "athletes2events", "yssl", "tourneycentral", "demosphere", "htgsports"}
 )
+# TGS's _match_team never creates a team, so every id below would be None for it.
+CREATING_ON_MATCH = [(provider, cls) for provider, cls in AUTOCREATING_MATCHERS if provider != "tgs"]
 
 
 def _match_thrice(cls, provider, db):
@@ -180,7 +182,7 @@ def _match_thrice(cls, provider, db):
     ]
 
 
-@pytest.mark.parametrize(("provider", "cls"), AUTOCREATING_MATCHERS)
+@pytest.mark.parametrize(("provider", "cls"), CREATING_ON_MATCH)
 def test_one_unseen_team_keeps_one_id_across_a_dry_run(provider, cls):
     """Without this the same team fragments into a fresh uuid per game.
 
@@ -194,7 +196,7 @@ def test_one_unseen_team_keeps_one_id_across_a_dry_run(provider, cls):
     assert len(set(ids)) == 1, f"{provider} produced {len(set(ids))} ids for one team"
 
 
-@pytest.mark.parametrize(("provider", "cls"), AUTOCREATING_MATCHERS)
+@pytest.mark.parametrize(("provider", "cls"), CREATING_ON_MATCH)
 def test_dry_run_ids_are_reproducible_across_runs(provider, cls):
     first = _match_thrice(cls, provider, _EmptyDB())[0]
     second = _match_thrice(cls, provider, _EmptyDB())[0]
@@ -202,7 +204,7 @@ def test_dry_run_ids_are_reproducible_across_runs(provider, cls):
     assert first == second
 
 
-@pytest.mark.parametrize(("provider", "cls"), AUTOCREATING_MATCHERS)
+@pytest.mark.parametrize(("provider", "cls"), CREATING_ON_MATCH)
 def test_matching_writes_nothing_at_all_in_dry_run(provider, cls):
     db = _EmptyDB()
 

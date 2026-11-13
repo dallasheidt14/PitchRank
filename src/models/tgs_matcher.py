@@ -1,16 +1,10 @@
-"""
-TGS-specific game matcher with enhanced fuzzy matching for team name matching.
-
-This matcher extends GameHistoryMatcher to provide more aggressive fuzzy matching
-specifically for TGS teams, allowing better matching to existing teams in the database.
-"""
-
 import logging
 import re
 from datetime import datetime
-from typing import Dict, Optional, Set
+from typing import Dict, List, Optional, Set, Tuple
 
-from src.models.game_matcher import MATCHING_CONFIG, GameHistoryMatcher
+from src.models.game_matcher import MATCHING_CONFIG, GameHistoryMatcher, birth_years_conflict
+from src.utils.provider_ids import clean_provider_id
 from supabase import Client
 
 # Import rapidfuzz for similarity scoring
@@ -54,21 +48,19 @@ logger = logging.getLogger(__name__)
 
 
 class ReuseRefused(Exception):
-    """The row a TGS id already belongs to states the other gender from the incoming team name,
-    or could not be read to check."""
+    """The row a TGS id already belongs to states the other gender from the incoming team name."""
 
 
 class TGSGameMatcher(GameHistoryMatcher):
     """
-    TGS-specific team matcher with enhanced fuzzy matching.
-
     Key differences from base matcher:
-    1. Lower fuzzy threshold (0.75 vs 0.85) for more aggressive matching
-    2. Enhanced team name normalization for TGS naming patterns
-    3. Better handling of ECNL, RL, and other TGS-specific suffixes
-    4. More lenient matching to help match TGS teams to existing database teams
-    5. Creates new teams when no match found (similar to Modular11)
+    1. link_candidate and create_team decide each new TGS id before the import; _match_team finds
+       a team by its TGS id alone
+    2. A higher auto-link bar and TGS team name normalization
     """
+
+    # A held link becomes a new team here, so a row the gender guard cannot read raises instead.
+    unreadable_row_is_conflict = False
 
     def __init__(
         self,
@@ -79,16 +71,14 @@ class TGSGameMatcher(GameHistoryMatcher):
     ):
         """Initialize TGS matcher with same interface as base matcher"""
         super().__init__(supabase, provider_id=provider_id, alias_cache=alias_cache, dry_run=dry_run)
-        # Lower thresholds for more aggressive matching
-        # Default: fuzzy_threshold=0.85, auto_approve=0.90, review=0.75
-        # TGS: More lenient to match more teams
-        self.fuzzy_threshold = 0.75  # Lower minimum score (was 0.85)
         self.auto_approve_threshold = 0.91  # Auto-approve only very high confidence matches
-        self.review_threshold = 0.70  # Lower review threshold (was 0.75)
+        # Teams that already carry a TGS id, which no new TGS id may link to. One of them wins a
+        # tie, so that refusal cannot be dodged by handing the link to an equally scored team.
+        self.claimed_team_ids: Set[str] = set()
+        self._cohort_cache: Dict[Tuple[str, str], List[Dict]] = {}
         logger.info(
             f"Initialized TGSGameMatcher with enhanced fuzzy matching "
-            f"(fuzzy: {self.fuzzy_threshold}, auto-approve: {self.auto_approve_threshold}, "
-            f"review: {self.review_threshold})"
+            f"(fuzzy: {self.fuzzy_threshold}, auto-approve: {self.auto_approve_threshold})"
         )
 
     def _extract_age_tokens(self, name: str) -> Set[str]:
@@ -283,133 +273,160 @@ class TGSGameMatcher(GameHistoryMatcher):
         Enhanced fuzzy matching for TGS teams with gated candidate funnel.
 
         Uses:
-        - Club-filtered query first (new — TGS previously queried ALL teams)
-        - Distinction-based hard rejection before scoring
-        - Lower threshold (0.75) for more matches
-        - Deterministic tie-breaking on (variant_match, club_sim)
+        - Club-filtered query first, then the whole live cohort when the club names no candidate
+        - Distinction-based and birth-year hard rejection before scoring
+        - Deterministic tie-breaking on (claimed, variant_match, club_sim)
         """
-        try:
-            age_group_normalized = age_group.lower() if age_group else age_group
+        age_group_normalized = age_group.lower() if age_group else age_group
 
-            # --- Club extraction ---
-            if not club_name and HAVE_TEAM_NAME_UTILS:
-                club_name = extract_club_structured(team_name)
+        # --- Club extraction ---
+        if not club_name and HAVE_TEAM_NAME_UTILS:
+            club_name = extract_club_structured(team_name)
 
-            # --- Provider distinctions for hard rejection ---
-            provider_distinctions = None
-            provider_variant = None
-            if HAVE_TEAM_NAME_UTILS:
-                provider_distinctions = extract_distinctions(team_name)
-                provider_variant = provider_distinctions.get("coach_name")
+        # --- Provider distinctions for hard rejection ---
+        provider_distinctions = None
+        provider_variant = None
+        if HAVE_TEAM_NAME_UTILS:
+            provider_distinctions = extract_distinctions(team_name)
+            provider_variant = provider_distinctions.get("coach_name")
 
-            # --- Gated candidate retrieval ---
-            club_filtered = False
-            result = None
-            if club_name:
-                result = (
-                    self.db.table("teams")
-                    .select("team_id_master, team_name, club_name, age_group, gender, state_code")
-                    .eq("age_group", age_group_normalized)
-                    .eq("gender", gender)
-                    .ilike("club_name", club_name)
-                    .limit(100)
-                    .execute()
-                )
-                if result and result.data:
-                    club_filtered = True
+        # --- Gated candidate retrieval ---
+        candidates = []
+        if club_name:
+            result = (
+                self.db.table("teams")
+                .select("team_id_master, team_name, club_name, age_group, gender, state_code")
+                .eq("age_group", age_group_normalized)
+                .eq("gender", gender)
+                .eq("is_deprecated", False)
+                .ilike("club_name", club_name)
+                .limit(100)
+                .execute()
+            )
+            candidates = result.data or []
 
-            # Broad fallback only when club extraction failed
-            if not club_filtered:
-                result = (
-                    self.db.table("teams")
-                    .select("team_id_master, team_name, club_name, age_group, gender, state_code")
-                    .eq("age_group", age_group_normalized)
-                    .eq("gender", gender)
-                    .limit(2000)
-                    .execute()
-                )
+        if not candidates:
+            candidates = self._cohort(age_group_normalized, gender)
 
-            best_match = None
-            best_score = 0.0
-            best_tiebreak = (False, 0.0)
+        best_match = None
+        best_score = 0.0
+        best_tiebreak = (False, False, 0.0)
 
-            provider_team = {"team_name": team_name, "club_name": club_name, "age_group": age_group, "state_code": None}
+        provider_team = {"team_name": team_name, "club_name": club_name, "age_group": age_group, "state_code": None}
 
-            MATCHING_CONFIG.get("club_variant_match_boost", 0.15)
+        MATCHING_CONFIG.get("club_variant_match_boost", 0.15)
 
-            for team in result.data if result else []:
-                cand_name = team.get("team_name", "")
+        for team in candidates:
+            cand_name = team.get("team_name", "")
 
-                # --- Gate: distinction-based hard rejection ---
-                if HAVE_TEAM_NAME_UTILS and provider_distinctions is not None:
-                    cand_distinctions = extract_distinctions(cand_name)
-                    if provider_distinctions["colors"] != cand_distinctions["colors"]:
-                        continue
-                    if provider_distinctions["directions"] != cand_distinctions["directions"]:
-                        continue
-                    if provider_distinctions["programs"] != cand_distinctions["programs"]:
-                        continue
-                    if provider_distinctions["team_number"] != cand_distinctions["team_number"]:
-                        continue
-                    if provider_distinctions["location_codes"] != cand_distinctions["location_codes"]:
-                        continue
-                    if provider_distinctions["squad_words"] != cand_distinctions["squad_words"]:
-                        continue
-                    cand_coach = cand_distinctions.get("coach_name")
-                    if (
-                        provider_distinctions.get("coach_name")
-                        and cand_coach
-                        and provider_distinctions["coach_name"] != cand_coach
-                    ):
-                        continue
-                    cand_variant = cand_coach
+            # --- Gate: distinction-based hard rejection ---
+            if HAVE_TEAM_NAME_UTILS and provider_distinctions is not None:
+                cand_distinctions = extract_distinctions(cand_name)
+                if provider_distinctions["colors"] != cand_distinctions["colors"]:
+                    continue
+                if provider_distinctions["directions"] != cand_distinctions["directions"]:
+                    continue
+                if provider_distinctions["programs"] != cand_distinctions["programs"]:
+                    continue
+                if provider_distinctions["team_number"] != cand_distinctions["team_number"]:
+                    continue
+                if provider_distinctions["location_codes"] != cand_distinctions["location_codes"]:
+                    continue
+                if provider_distinctions["squad_words"] != cand_distinctions["squad_words"]:
+                    continue
+                # A wrong-year candidate must not shadow a right-year one further down.
+                if birth_years_conflict(team_name, cand_name):
+                    continue
+                cand_coach = cand_distinctions.get("coach_name")
+                if (
+                    provider_distinctions.get("coach_name")
+                    and cand_coach
+                    and provider_distinctions["coach_name"] != cand_coach
+                ):
+                    continue
+                cand_variant = cand_coach
+            else:
+                cand_variant = None
+
+            candidate = {
+                "team_name": cand_name,
+                "club_name": team.get("club_name"),
+                "age_group": team.get("age_group", ""),
+                "state_code": team.get("state_code"),
+            }
+
+            score = self._calculate_match_score(provider_team, candidate)
+
+            # --- Deterministic tie-breaking ---
+            variant_match = (
+                provider_variant is not None and cand_variant is not None and provider_variant == cand_variant
+            )
+            cand_club = team.get("club_name", "")
+            club_sim = 0.0
+            if club_name and cand_club:
+                if HAVE_CLUB_NORMALIZER:
+                    club_sim = club_similarity_score(club_name, cand_club)
                 else:
-                    cand_variant = None
+                    club_sim = self._calculate_similarity(club_name, cand_club)
 
-                candidate = {
-                    "team_name": cand_name,
-                    "club_name": team.get("club_name"),
-                    "age_group": team.get("age_group", ""),
-                    "state_code": team.get("state_code"),
-                }
+            tiebreak = (team["team_id_master"] in self.claimed_team_ids, variant_match, club_sim)
 
-                score = self._calculate_match_score(provider_team, candidate)
+            if score >= self.fuzzy_threshold:
+                if score > best_score + 0.001 or (abs(score - best_score) <= 0.001 and tiebreak > best_tiebreak):
+                    best_score = score
+                    best_tiebreak = tiebreak
+                    best_match = {
+                        "team_id": team["team_id_master"],
+                        "team_name": team["team_name"],
+                        "confidence": round(score, 3),
+                    }
 
-                # --- Deterministic tie-breaking ---
-                variant_match = (
-                    provider_variant is not None and cand_variant is not None and provider_variant == cand_variant
+        if best_match:
+            logger.debug(
+                f"TGS fuzzy match: '{team_name}' -> '{best_match['team_name']}' "
+                f"(score: {best_match['confidence']}, club: {club_name})"
+            )
+
+        return best_match
+
+    def _cohort(self, age_group: str, gender: str) -> List[Dict]:
+        """Every live team of one age group and gender, read once per matcher in a fixed order."""
+        key = (age_group, gender)
+        if key not in self._cohort_cache:
+            rows: List[Dict] = []
+            while True:
+                page = (
+                    self.db.table("teams")
+                    .select("team_id_master, team_name, club_name, age_group, gender, state_code")
+                    .eq("age_group", age_group)
+                    .eq("gender", gender)
+                    .eq("is_deprecated", False)
+                    .order("team_id_master")
+                    .range(len(rows), len(rows) + 999)
+                    .execute()
+                    .data
+                    or []
                 )
-                cand_club = team.get("club_name", "")
-                club_sim = 0.0
-                if club_name and cand_club:
-                    if HAVE_CLUB_NORMALIZER:
-                        club_sim = club_similarity_score(club_name, cand_club)
-                    else:
-                        club_sim = self._calculate_similarity(club_name, cand_club)
+                rows.extend(page)
+                if len(page) < 1000:
+                    break
+            self._cohort_cache[key] = rows
+        return self._cohort_cache[key]
 
-                tiebreak = (variant_match, club_sim)
+    def link_candidate(
+        self, team_name: str, age_group: str, gender: str, club_name: Optional[str] = None
+    ) -> Optional[Dict]:
+        """The team a name match would link to, or None. Reads only.
 
-                if score >= self.fuzzy_threshold:
-                    if score > best_score + 0.001 or (abs(score - best_score) <= 0.001 and tiebreak > best_tiebreak):
-                        best_score = score
-                        best_tiebreak = tiebreak
-                        best_match = {
-                            "team_id": team["team_id_master"],
-                            "team_name": team["team_name"],
-                            "confidence": round(score, 3),
-                        }
-
-            if best_match:
-                logger.debug(
-                    f"TGS fuzzy match: '{team_name}' -> '{best_match['team_name']}' "
-                    f"(score: {best_match['confidence']}, club: {club_name})"
-                )
-
-            return best_match
-
-        except Exception as e:
-            logger.error(f"TGS fuzzy match error: {e}")
+        The fuzzy winner, when it clears the auto-approve threshold and the guards the base
+        matcher applies before it writes a fuzzy_auto alias. A claimed winner is returned
+        too, so the caller can refuse it rather than never learning it was the best match.
+        """
+        match = self._fuzzy_match_team(team_name, age_group, gender, club_name)
+        if not match or match["confidence"] < self.auto_approve_threshold:
             return None
+        year_conflict, gender_conflict = self._link_guards(team_name, match, age_group)
+        return None if year_conflict or gender_conflict else match
 
     def _match_by_provider_id(
         self, provider_id: str, provider_team_id: str, age_group: Optional[str] = None, gender: Optional[str] = None
@@ -528,73 +545,51 @@ class TGSGameMatcher(GameHistoryMatcher):
         gender: Optional[str],
         club_name: Optional[str] = None,
     ) -> Dict:
+        """Find a TGS team by its TGS id. Never by name, and never by creating one.
+
+        extract_and_import_tgs_teams.py links or creates every new id before the import, where it
+        sees every shard's teams at once and can refuse a team that already carries a TGS id. An
+        id it held back, and a blank id (a bracket placeholder), stay unmatched here.
         """
-        Override base _match_team to create new teams when no match found (like Modular11).
+        provider_team_id = clean_provider_id(provider_team_id) or None
+        alias_match = provider_team_id and self._match_by_provider_id(provider_id, provider_team_id, age_group, gender)
+        if not alias_match:
+            logger.debug(f"[TGS] No alias for {provider_team_id!r} ({team_name}); leaving that side unmatched")
+            return {"matched": False, "team_id": None, "method": None, "confidence": 0.0}
+        method = "direct_id" if alias_match.get("match_method") == "direct_id" else "provider_id"
+        return {"matched": True, "team_id": alias_match["team_id_master"], "method": method, "confidence": 1.0}
 
-        Strategy:
-        1. Try base matching (direct ID, alias, fuzzy)
-        2. If no match found, create new team
-        3. Return matched: True with new team ID, unless the row the TGS id already names fails
-           the gender guard (ReuseRefused), which leaves the game unmatched
-        """
-        # First, try base matching
-        base_result = super()._match_team(provider_id, provider_team_id, team_name, age_group, gender, club_name)
-
-        # If matched, return immediately
-        if base_result.get("matched"):
-            return base_result
-
-        # No match found - create new team (like Modular11)
-        if team_name and age_group and gender:
-            logger.info(f"[TGS] ⚠️ No match found for '{team_name}' ({age_group}, {gender}), creating new team")
-            try:
-                new_team_id = self._create_new_tgs_team(
-                    team_name=team_name,
-                    club_name=club_name,
-                    age_group=age_group,
-                    gender=gender,
-                    provider_id=provider_id,
-                    provider_team_id=provider_team_id,
-                )
-
-                # Create alias for new team
-                # Use 'direct_id' if provider_team_id exists (like GotSport/Modular11)
-                # This ensures consistent matching behavior across providers
-                match_method = "direct_id" if provider_team_id else "import"
-
-                self._create_alias(
-                    provider_id=provider_id,
-                    provider_team_id=provider_team_id,
-                    team_name=team_name,
-                    team_id_master=new_team_id,
-                    match_method=match_method,
-                    confidence=1.0,  # New team = 100% confidence
-                    age_group=age_group,
-                    gender=gender,
-                    review_status="approved",
-                )
-
-                logger.info(f"[TGS] Created new team: {team_name} ({age_group}, {gender}) -> {new_team_id}")
-
-                return {
-                    "matched": True,
-                    "team_id": new_team_id,
-                    "method": match_method,  # Use same method as alias creation
-                    "confidence": 1.0,
-                }
-            except ReuseRefused as e:
-                logger.info(f"[TGS] {e}; leaving the game unmatched for review")
-            except Exception as e:
-                logger.error(f"[TGS] Error creating new team for {team_name}: {e}")
-                # Fall through to return base result
-        else:
-            logger.debug(
-                f"[TGS] Cannot create new team - missing required fields: "
-                f"team_name={bool(team_name)}, age_group={bool(age_group)}, gender={bool(gender)}"
-            )
-
-        # Reached when creation failed or ReuseRefused withheld the existing row: the game stays unmatched.
-        return base_result
+    def create_team(
+        self,
+        provider_id: str,
+        provider_team_id: str,
+        team_name: str,
+        club_name: Optional[str],
+        age_group: str,
+        gender: str,
+    ) -> str:
+        """Create the team a TGS id names and alias the id to it. Raises ReuseRefused."""
+        new_team_id = self._create_new_tgs_team(
+            team_name=team_name,
+            club_name=club_name,
+            age_group=age_group,
+            gender=gender,
+            provider_id=provider_id,
+            provider_team_id=provider_team_id,
+        )
+        self._create_alias(
+            provider_id=provider_id,
+            provider_team_id=provider_team_id,
+            team_name=team_name,
+            team_id_master=new_team_id,
+            match_method="direct_id",
+            confidence=1.0,
+            age_group=age_group,
+            gender=gender,
+            review_status="approved",
+        )
+        logger.info(f"[TGS] Created new team: {team_name} ({age_group}, {gender}) -> {new_team_id}")
+        return new_team_id
 
     def _create_new_tgs_team(
         self,
@@ -603,7 +598,7 @@ class TGSGameMatcher(GameHistoryMatcher):
         age_group: str,
         gender: str,
         provider_id: Optional[str],
-        provider_team_id: Optional[str] = None,
+        provider_team_id: str,
     ) -> str:
         """
         Create a new team in the teams table for TGS.
@@ -615,14 +610,6 @@ class TGSGameMatcher(GameHistoryMatcher):
         Returns the team_id_master UUID.
         """
         try:
-            # provider_team_id is REQUIRED (NOT NULL constraint)
-            # Use provided provider_team_id or generate one
-            if not provider_team_id:
-                import hashlib
-
-                # MD5 for deterministic ID generation (not security)
-                provider_team_id = hashlib.md5(f"{team_name}_{age_group}_{gender}".encode()).hexdigest()[:16]
-
             # Check if team with this provider_id + provider_team_id already exists
             if provider_id:
                 found = None
@@ -746,11 +733,11 @@ class TGSGameMatcher(GameHistoryMatcher):
             raise
 
     def _reusable(self, team_name: str, team_id_master: str) -> str:
-        """Return a row this TGS id already belongs to, unless it states the other gender or
-        cannot be read.
+        """Return a row this TGS id already belongs to, unless it states the other gender. A row
+        that cannot be read raises.
 
-        Reusing that row is a link like any other; without this check, TGS's create-on-miss
-        would undo the base matcher's gender hold.
+        Reusing that row is a link like any other; without this check, creating a team for a link
+        the gender guard held would reuse the very row it held.
         """
         if self._genders_conflict(team_name, team_id_master):
             raise ReuseRefused(f"Gender conflict, not reusing team {team_id_master} for {team_name!r}")

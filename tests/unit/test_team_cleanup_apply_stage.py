@@ -929,7 +929,6 @@ EXEMPT_SCRIPTS = {
     "due_diligence_unknown_opponents.py": "reads teams, aliases and games into a report CSV",
     "export_unknown_opponents.py": "reads games and teams into a CSV",
     "maintain_gotsport_direct_id_aliases.py": "writes only team_alias_map",
-    "maintain_tgs_direct_id_aliases.py": "writes only team_alias_map",
     "match_modular11_ea_teams.py": "reads teams into a match report",
     "match_mlsnext_kitman_teams.py": "reads teams into a match report",
     "publish_ranking_input_archive.py": "uploads already frozen local files to private archive storage and its index",

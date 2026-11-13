@@ -7,8 +7,9 @@ protection. So this file tests reachability and wiring, not semantics --
 tests/unit/test_birth_years_guard.py covers what the guard decides.
 
 Most provider matchers OVERRIDE `_fuzzy_match_team`, which is why the guard sits
-at `_match_team`'s accept path: every subclass reaches it through
-`super()._match_team(...)`. The guard reads `fuzzy_match["team_name"]`, so a
+on the accept path (`_link_guards`): the subclasses that link by name reach it
+through `super()._match_team(...)`, TGS through `link_candidate`, and Modular11
+carries its own. The guard reads `fuzzy_match["team_name"]`, so a
 subclass that stops returning that key would fail the guard OPEN and silently.
 """
 
@@ -39,7 +40,8 @@ def test_guard_is_wired_into_the_accept_path():
     from src.models.game_matcher import GameHistoryMatcher
 
     source = inspect.getsource(GameHistoryMatcher._match_team)
-    assert "birth_years_conflict" in source, "accept path does not call the guard"
+    assert "self._link_guards(" in source, "accept path does not consult the guards"
+    assert "birth_years_conflict" in inspect.getsource(GameHistoryMatcher._link_guards), "the guards skip birth years"
     assert "and not year_conflict" in source, "auto-approve is not conditioned on the guard"
     assert "or year_conflict" in source, "a conflicting match is not demoted to review"
 
@@ -57,7 +59,8 @@ def test_gender_guard_is_wired_into_the_accept_path():
     from src.models.game_matcher import GameHistoryMatcher
 
     source = inspect.getsource(GameHistoryMatcher._match_team)
-    assert "_genders_conflict" in source, "accept path does not call the gender guard"
+    assert "self._link_guards(" in source, "accept path does not consult the guards"
+    assert "_genders_conflict" in inspect.getsource(GameHistoryMatcher._link_guards), "the guards skip gender"
     assert "and not gender_conflict" in source, "auto-approve is not conditioned on the gender guard"
 
 

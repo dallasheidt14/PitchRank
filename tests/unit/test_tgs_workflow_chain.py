@@ -33,7 +33,6 @@ DISPATCH = re.compile(
     rf"gh workflow run tgs-event-scrape-import\.yml --ref {REF} "
     r"-f start_event=(\d+) -f end_event=(\d+) -f chain_next=true"
 )
-RECORD_GH = 'printf "gh %s\\n" "$*"'
 
 
 def _bash_sees_the_callers_environment():
@@ -65,18 +64,23 @@ def _step(job, name):
     return next(step for step in _workflow()["jobs"][job]["steps"] if step.get("name") == name)
 
 
-def _run(script, env, cwd):
-    """Run a step's script as Actions runs a step with no `shell:` (`bash -e {0}`), with `gh` recorded.
+def _run(script, env, cwd, record=()):
+    """Run a step's script as Actions runs a step with no `shell:` (`bash -e {0}`), with `gh` and
+    each command in `record` printed as `<command> <args>` instead of run.
 
-    The function catches a bare `gh` even if the stub is not executable; the stub, first on PATH,
+    A function catches a bare call even if the stub is not executable; the stub, first on PATH,
     catches the spellings that skip shell functions (`command gh`, `timeout 60 gh`).
     """
-    stub = cwd / "fake-gh"
+    stub = cwd / "fake-bin"
     stub.mkdir(exist_ok=True)
-    (stub / "gh").write_text(f"#!/bin/sh\n{RECORD_GH}\n", newline="\n")
-    (stub / "gh").chmod(0o755)
+    functions = []
+    for command in ("gh", *record):
+        printed = f'printf "{command} %s\\n" "$*"'
+        (stub / command).write_text(f"#!/bin/sh\n{printed}\n", newline="\n")
+        (stub / command).chmod(0o755)
+        functions.append(f"{command}() {{ {printed}; }}")
     return subprocess.run(
-        [BASH, "-e", "-c", f"gh() {{ {RECORD_GH}; }}\n{script}"],
+        [BASH, "-e", "-c", "\n".join([*functions, script])],
         env={"PATH": f"{stub}{os.pathsep}{os.environ['PATH']}", **env},
         cwd=cwd,
         capture_output=True,
@@ -173,7 +177,7 @@ def test_the_dispatch_step_runs_on_the_seed_and_on_every_chained_link():
     """GitHub compares a boolean input to a string as numbers, so `== 'true'` would stop the chain."""
     assert _step("finalize", "Dispatch next chain link")["if"] == (
         "${{ (github.event_name == 'schedule' || inputs.chain_next == true) "
-        "&& needs.scrape-and-import.result == 'success' }}"
+        "&& needs.scrape.result == 'success' && needs.import.result == 'success' }}"
     )
     # YAML reads the bare `on:` key as True.
     assert _workflow()[True]["workflow_dispatch"]["inputs"]["chain_next"]["type"] == "boolean"
@@ -192,8 +196,8 @@ def test_the_final_link_fails_the_run_once_its_events_have_games(tmp_path, any_i
 def test_the_alarm_reads_the_markers_the_importing_shards_upload(tmp_path):
     """A marker that never reaches the folder the check reads leaves the alarm silent and the run green."""
     finalize = [step.get("name") for step in _workflow()["jobs"]["finalize"]["steps"]]
-    drop = _step("scrape-and-import", "Drop import marker")
-    upload = _step("scrape-and-import", "Upload import marker")["with"]
+    drop = _step("import", "Drop import marker")
+    upload = _step("import", "Upload import marker")["with"]
     download = _step("finalize", "Download import markers")["with"]
     check = _step("finalize", "Check for any imported shard")
     assert _step("finalize", "Dispatch next chain link")["env"]["ANY_IMPORTED"] == (

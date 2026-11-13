@@ -684,7 +684,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Status**: open
 - **Type**: plan
 - **Category**: reliability
-- **Where**: `scripts/scrape_tgs_event.py` (`get_event_details` at :394, the stale comment at :587), `scripts/assign_team_states.py:563-567`, `tgs_events` (created by `supabase/migrations/20260829120000_add_team_state_provenance.sql`)
+- **Where**: `scripts/scrape_tgs_event.py` (`get_event_details`, and the "matched later via club name script" comment), `scripts/assign_team_states.py:563-567`, `tgs_events` (created by `supabase/migrations/20260829120000_add_team_state_provenance.sql`)
 - **Why**: The table shipped and nothing has ever written to it -- 0 rows, no backfill script, and the scraper was never wired to upsert it -- so `assign_team_states.py` hardcodes `tier_d_ready = False` and prints "Tier D is not implemented; it fires for nothing". That leaves **2,192 live stateless TGS teams (~96% of every remaining blank `state_code`)** with no assignment path, all of them ranked and therefore absent from every state board, and the count grows each Monday via `tgs-event-scrape-import.yml`. Club evidence cannot rescue them: 1,434 sit under clubs with <75% single-state dominance and 443 under clubs with no stated sibling at all. The fix is cheaper than it looks -- `get_event_details` already calls `get-event-details-by-eventID` on every event and keeps only the name, and that payload was verified live to carry `eventTypeID`, `stateCode`, `city`, `zip` and `country`, so the ongoing upsert costs **zero extra API calls**; backfill is 558 one-off calls, since all 168,976 TGS games carry a recoverable event id in `source_url`. Note the event's own `stateCode` is where the tournament was held -- a travel signal -- so it stays a gate and cross-check, with the participant-modal state as the value, per the tier design. While in there, fix `:587`, which still says state "will be matched later via club name script"; that script is Step 4 of `update-missing-club-and-state.yml` and is `if: false`.
 - **Noted**: 2026-08-31
 
@@ -960,6 +960,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `team_alias_map` and `teams` rows for provider `tgs`; `TGSGameMatcher._match_by_provider_id` in `src/models/tgs_matcher.py`
 - **Why**: In live data on 2026-09-14, two TGS teams are keyed on placeholder ids, each with an approved `direct_id` alias. "Winner Game 4" is a bracket placeholder with id `"None"`, 2 games and a `rankings_full` row. The other has an empty name and id `""`, with 0 games. The GotSport twin of this shape pulled 4,846 unrelated games onto one team, and its cleanup (`scripts/exclude_none_opponent_games.py`) is GotSport-only. Import lookups cannot reach these rows: `match_game_history` and `GameHistoryMatcher._match_team` blank a placeholder id first, and the alias preload skips one. Still open: rejecting the two aliases, the ranked `"None"` row, and how the rows were created. `TGSGameMatcher._match_team` still passes whatever id it receives to `_create_new_tgs_team`.
 - **Noted**: 2026-09-14
+- **Update (2026-11-11)**: No path makes such a row any more: the game import (`TGSGameMatcher._match_team`) creates no team at all, and `extract_and_import_tgs_teams.py`, the only path that does, skips a blank id (`ScrapedTeam.skip_reason`). Before this change that same script ran as the weekly pre-create step with no blank-id check at all, so it is the likely source of the `""` row. The two existing rows and their aliases remain.
 
 ### Future-dated games already carry scores
 
@@ -1068,6 +1069,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Noted**: 2026-09-14
 - **Update (2026-10-08)**: The roster-pass safety checks now have three copies: `existing_aliases`, `register_teams`, `unsaved_links`, `pending_reviews`, `unsaved_reviews`, `shared_links`, `off_board_links`, `teams_by_id`, `make_session` and `_get` exist in `scripts/import_soccereventsgroup_event.py`, `scripts/import_athletes2events_event.py` and `scripts/import_yssl.py`, differing only in the row's id attribute, the provider code and one message label, except that the Soccer Events Group `register_teams` also queues `review_reason` rows for review and passes no club arguments. An extraction takes the id attribute and provider code as parameters, plus a hook for that pre-queue step. Separately, `YSSLGameMatcher._create_new_athletes2events_team` copies the parent's insert to change only the stored name; a `_stored_team_name` hook on `Athletes2EventsGameMatcher` would let it override two lines instead.
 - **Update (2026-10-14)**: Now four copies of the roster-pass checks: `scripts/import_tourneycentral_event.py` copies `existing_aliases`, `register_teams`, `unsaved_links`, `pending_reviews`, `unsaved_reviews`, `shared_links`, `off_board_links`, `teams_by_id`, `make_session`, `_compute_result` and `write_csv` from the Athletes2Events driver with the id attribute renamed. A review measured them identical in behaviour, so nothing has drifted yet. `TourneyCentralGameMatcher._create_new_athletes2events_team` is a third copy of the parent's insert, again only to keep the full stored name. The `_stored_team_name` hook above would remove both subclass copies.
+- **Update (2026-11-12)**: A seventh alias lookup, `alias_rows` in `scripts/extract_and_import_tgs_teams.py`, returns each TGS id's alias row rather than its target, because the TGS match step reads its own writes back to check the target, method and status. A shared lookup returning the row would serve all seven.
 
 ### The backlog sweep silently drops a repeated field label
 
@@ -1305,6 +1307,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Noted**: 2026-09-17
 - **Update (2026-10-12)**: `tests/unit/test_server_side_team_search_migration.py` adds another `_executable` and newest-function-by-name helper.
 - **Update (2026-11-02)**: The enqueue jobs' `FakeSupabase` double now has four near-copies (`test_enqueue_yesterday_games.py`, `test_enqueue_viewed_teams.py`, `test_enqueue_helpers.py`, `test_enqueue_user_interest_teams.py`), and they have drifted: in `test_enqueue_user_interest_teams.py`, `rpc_calls` records every attempt and a failure raises postgrest's `APIError`; in the yesterday-games and viewed-teams copies it records only successes and a failure raises `RuntimeError`.
+- **Update (2026-11-12)**: `scripts/extract_and_import_tgs_teams.py` pages through `enqueue_helpers._paged`, but `TGSGameMatcher._cohort` (`src/models/tgs_matcher.py`) is another hand-rolled pager, ordered by `team_id_master` with a literal 1000. `src/etl/enhanced_pipeline.py` already imports from `scripts.enqueue_helpers`, so `_cohort` could page through `_paged` too.
 
 ### Catch English-league teams that arrive after the exclusion list was built
 
@@ -2191,6 +2194,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Noted**: 2026-10-13
 - **Update (2026-10-14)**: Measured offline with Doorway D's own pairing and screens over every state (no scan run, nothing written): D already pairs 711 same-provider last-season/this-season pairs, 378 proposed and 256 held, on GotSport (262 proposed) as well as TGS (113). Stripping club-frequent tokens such as `nth` adds about 3 proposals and shifts about 490 unrelated pairings, so neither the initials fix nor a new detector is warranted. Of 30 sampled TGS new-season rows D does not pair, few were clear duplicates; most moved programme (Pre-ECNL to ECNL) or merged two birth years into one band, which is an owner decision rather than a rule. Those 378 wait on the duplicate-scan freeze; the list is kept outside the repo in the owner's merge-runs folder.
 - **Update (2026-10-16)**: IMP-344 is fixed and archived, but Doorway A still refuses the worked example, for other reasons (checked on branch `fix/band-variant-reader`). The shared distinction gate reads `B2012/13` by its first-written year as u15 against `2013`'s u14, `NTH` reads as the direction north (IMP-365), and `score_team_pair` scores the pair 0.73, or 0.93 with `NTH` removed. The gate's leading-year reading is IMP-370.
+- **Update (2026-11-11)**: New TGS ids now link by name when they are created, but only to a team carrying no TGS id yet (owner rule), so a squad re-registered under a new id while its old row still holds the old id still gets a new row, and that pair remains Doorway D's work. Replayed over the 1,138 TGS teams created since 2026-08-01 and later merged into GotSport teams, 139 would still be created for exactly that reason.
 
 ### Make pr_wait --no-merge report the checks still running
 
@@ -2808,6 +2812,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: the overriding `_fuzzy_match_team` loops in `src/models/tgs_matcher.py`, `sincsports_matcher.py`, `playmetrics_matcher.py`, `affinity_wa_matcher.py`, `affinity_or_matcher.py`, `athletes2events_matcher.py` and `soccereventsgroup_matcher.py`; the skip to copy is in `GameHistoryMatcher._fuzzy_match_team` (`src/models/game_matcher.py`)
 - **Why**: Checked 2026-11-09: none of the seven calls `super()._fuzzy_match_team` or reads a name's gender, so the twin skip added on `fix/stop-opposite-gender-record-links` covers the base search only. A review reproduced the cost: a boys-named twin stored under the record's gender, listed before the right girls row, wins TGS's search, the accept-point guard holds it, and TGS's create-on-unmatched fallback inserts a duplicate team instead of linking the right row. It needs a self-contradicting twin; the review estimated about 30 live rows (unverified). Owner chose to defer it, 2026-11-09.
 - **Noted**: 2026-11-09
+- **Update (2026-11-12)**: TGS's search now also skips a wrong birth year in its loop (`birth_years_conflict`), reads live rows only, and reads the whole age group in a fixed order (`TGSGameMatcher._cohort`) where it used to take an unordered `.limit(2000)`. Checked 2026-11-12: none of the other six loops calls `birth_years_conflict`, and SincSports still caps its age-group read at `.limit(2000)`, so carry all three into a shared candidate loop on `GameHistoryMatcher` rather than the twin skip alone. TGS creates in `scripts/extract_and_import_tgs_teams.py` now, never at import, but the cost above is unchanged: a held twin still leaves the id a new team.
 
 ### Store a TGS-created team under the gender its name states, not its division's
 
@@ -2816,6 +2821,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `_create_new_tgs_team` in `src/models/tgs_matcher.py`, which sets `gender_normalized` from the game's `gender` argument (the division's)
 - **Why**: Seen in a dry-run smoke test on `fix/stop-opposite-gender-record-links`, 2026-11-09: a record whose name carries a G on its birth year, imported from a boys division, is now held off the boys row it matched, and TGS then creates its own team for it, stored Male while its name says girls. That beats the old outcome (its games fused onto the boys row), but the new row lands on the boys board. The owner's rule (2026-11-08) is that a name stating a gender settles it; writing a gender from the name at creation is a value write, which that branch's guards deliberately avoid, so it needs the owner's call.
 - **Noted**: 2026-11-09
+- **Update (2026-11-11)**: This location is now the whole of TGS team creation. The weekly pre-create step used to insert teams itself and never reached `_create_new_tgs_team`; it now creates through `TGSGameMatcher.create_team`, which calls it. Gender is still the division's.
 
 ### Roster-pass matching skips an exact-name team when the club is abbreviated and the name has a nickname
 
@@ -3025,6 +3031,62 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: every job in `.github/workflows/ci.yml`, longest-running first: `python-test-linux` and `matchbalance-windows-export-test`
 - **Why**: No job in `ci.yml` sets `timeout-minutes`, and pytest-timeout is not installed (checked 2026-11-11), so a test that hangs, such as a subprocess with no timeout or an unbounded loop, holds the merge gate until GitHub's 360-minute job default. Found while reviewing `tests/unit/test_tgs_workflow_chain.py`, whose first draft walked the chain with no bound.
 - **Noted**: 2026-11-11
+
+### Skip AthleteOne test and QA events in the TGS scrape
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `scrape_event` in `scripts/scrape_tgs_event.py`, and the TGS teams those events created
+- **Why**: Nothing filters test events, so they import as real games. Read 2026-11-11: 46 live TGS teams carry test names (two sets ending `TEST 1` to `TEST 7`), 12 of them in `rankings_full`, with 21 live games from events including 4258 "Athlete One Test" and 4423 "QA ECNL 2026-27 League"; almost all of those games are test team against test team. Skip an event whose name marks it as a test or QA event, then exclude the existing rows.
+- **Noted**: 2026-11-11
+
+### Keep coed TGS teams out of the boards
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `extract_gender` in `scripts/scrape_tgs_event.py`
+- **Why**: The owner ranks no coed teams, and nothing on the TGS path reads "Coed": a coed division's teams are filed under the division's gender. Read 2026-11-11: 5 live TGS teams carry coed names (`2015-19 Coed Montgomery Arsenal` and its siblings, `I Love Cheese - Coed`), all stored Male and none ranked yet.
+- **Noted**: 2026-11-11
+
+### Make an empty TGS scrape fail instead of reading as a quiet week
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `get_event_nav`, `get_event_details`, `get_flight_division` and `get_games_for_flight` in `scripts/scrape_tgs_event.py`; the "Find scraped CSV file" step in `.github/workflows/tgs-event-scrape-import.yml`
+- **Why**: Each fetcher swallows its exceptions and non-200 answers, `write_output` writes a header-only CSV, and the workflow skips the import on 0 games, so an AthleteOne outage or block runs green across the whole chain. Count failed requests and fail the run when a link that normally finds games finds none.
+- **Noted**: 2026-11-11
+
+### Correct four stale TGS workflow comments without changing the code they describe
+
+- **Type**: direct
+- **Category**: docs
+- **Where**: in `.github/workflows/tgs-event-scrape-import.yml`, the "Drop import marker" step comment, the finalize job's `permissions:` comment, the `schedule:` comment's MDT line, and the `SHARD_THRESHOLD` comment with its echo above the scrape job's `timeout-minutes`
+- **Why**: The marker comment says its gate matches Import Games exactly, but the marker steps lack the `AGE_ROLLOVER_FREEZE` condition. The final-link alarm reads that marker through `any_imported`, so adding the freeze gate to match the comment would silence the alarm during a rollover freeze: fix the comment, not the gate. The permissions comment says `contents: read` is declared so the actions scope "doesn't widen the rest of the token", but naming any scope sets every unnamed one to `none` (GitHub's workflow syntax reference, checked 2026-11-11), so `contents: read` is what keeps checkout working. The MDT line puts the run at 5:30 AM UTC, but the cron is fixed at `30 6 * * 1`, so under daylight time it starts 12:30 AM Monday MDT. The `SHARD_THRESHOLD` comment calls the scheduled run single-shard at about 100 events, but the 3400-3550 seed is 151 events, at the 150 threshold, so every scheduled link is sharded.
+- **Noted**: 2026-11-11
+
+### Clear the stale TGS review-queue rows
+
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `team_match_review_queue` rows with `provider_id = 'tgs'` and `status = 'pending'`
+- **Why**: Read 2026-11-11: 29 TGS rows are pending, and all 19 queued since 2026-09-28 name a TGS id that already has an approved alias, because the old `TGSGameMatcher._match_team` queued an uncertain match and created a team anyway. It no longer writes review rows, so these are the last; reject them with the reason recorded.
+- **Noted**: 2026-11-11
+
+### Tighten the TGS club check where a name match reads the whole age group
+
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `TGSGameMatcher._fuzzy_match_team` and `_calculate_match_score` in `src/models/tgs_matcher.py`
+- **Why**: Measured 2026-11-11, `_calculate_match_score` gives `Cascadia Premier SC B16/17` 0.951 against `Cascade Premier Soccer Club - B16/17`, above the 0.91 link bar, for another club. A replay of the match step over the 1,138 TGS teams later merged into GotSport teams gave 505 links to the merged team, 627 creates and 6 links elsewhere, about 3 of them wrong: `Houston Dutch Lions FC - 2017 Elite` to the club's `U9 Elite`, `Capital FC G12 Black N1` to `G2011/12 Black` where the merge chose `G2012/13`, and `2014B Black` to `U12 Boys Black`. Check the club gate first where the club query finds nothing and the whole age group is searched. The opposite case misses links: once the club query returns any row the age group is never read, so a club pool with no row above the bar, or whose best is already claimed, ends the search, and TGS's `No Club Selection` placeholder is queried as if it were a club, pooling every placeholder team of the age group.
+- **Noted**: 2026-11-11
+
+### Stop provider matchers turning a failed search read into a new team
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `_fuzzy_match_team` in `src/models/sincsports_matcher.py`, `playmetrics_matcher.py`, `affinity_wa_matcher.py` and `affinity_or_matcher.py` (inherited by the UT, HI and GA matchers), and the `_match_team` create branch each one feeds
+- **Why**: Each search wraps its reads in `except Exception: ... return None`, and its `_match_team` creates a team whenever the base match comes back unmatched (checked 2026-11-12), so one transient read error (a timed-out club or cohort read) leaves a permanent duplicate carrying the provider id, which only the weekly merges can fold. TGS's match step fixed the same shape on 2026-11-12: its search raises, the caller records that one team as an error and writes nothing, and the base gender guard's `unreadable_row_is_conflict` switch lets a subclass raise instead of holding.
+- **Noted**: 2026-11-12
 
 ### Let the PlayMetrics distinction gates pair same-club names that only spell the squad differently
 

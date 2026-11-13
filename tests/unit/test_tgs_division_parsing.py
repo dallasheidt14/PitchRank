@@ -182,6 +182,100 @@ def test_an_operator_opting_in_gets_the_cutover_season_not_the_run_year(monkeypa
     assert u_label_season(["2026-05-23"]) == 2026
 
 
+def test_each_team_carries_the_age_its_own_name_states(monkeypatch):
+    """A U10 band playing up in a BU13 flight is a U10 team; the flight's age stays on the row."""
+    game = {**_flight_game("2026-09-12T09:00:00", 0, 7), "homeTeam": "Cascade Premier Soccer Club - B16/17"}
+
+    records, _ = _scrape_bu13_flight(monkeypatch, [game])
+
+    assert [(r["team_name_age"], r["opponent_name_age"], r["age_group"]) for r in records] == [
+        ("u10", "u13", "u13"),
+        ("u13", "u10", "u13"),
+    ]
+
+
+def test_a_lone_birth_year_is_read_against_its_own_records_flight(monkeypatch):
+    """B2013 fits U13 and U14, and the BU13 flight the record came from picks U13."""
+    game = {**_flight_game("2026-09-12T09:00:00", 0, 7), "homeTeam": "Beach FC B2013"}
+
+    records, _ = _scrape_bu13_flight(monkeypatch, [game])
+
+    assert records[0]["team_name_age"] == "u13"
+
+
+def test_a_u_age_in_a_name_is_read_against_the_flights_season(monkeypatch):
+    """Rescanned a season later, a 2026-27 event's BU15 team sits on the u16 board."""
+    monkeypatch.setattr(tgs, "CURRENT_YEAR", 2027)
+    game = {**_flight_game("2026-09-12T09:00:00", 0, 7), "homeTeam": "Sparta FC BU15 Red"}
+
+    records, _ = _scrape_bu13_flight(monkeypatch, [game])
+
+    assert records[0]["team_name_age"] == "u16"
+
+
+@pytest.mark.parametrize(
+    "team_name, label_season, expected",
+    [
+        ("Cascade Premier Soccer Club - B16/17", 2026, "u10"),
+        ("Visalia United F.C. - 2014 Girls", 2026, "u13"),
+        ("Seattle United - Seattle United G12 ECNL RL", 2026, "u15"),
+        ("Folsom Lake Surf- FLS 13B Premier I", 2026, "u14"),
+        ("Tulsa Greenwood SC - 2018 Boys Green", 2026, "u9"),
+        ("Spokane Shadow - GU15 GA", 2026, "u15"),
+        ("Spokane Shadow - GU15 GA", 2025, "u16"),
+        # A band or a birth year needs no season, so an undatable flight still reads it.
+        ("Visalia United F.C. - 2014 Girls", None, "u13"),
+        # U17 a season on is U18, which boards with U19.
+        ("CITY FC U17 Black", 2025, "u19"),
+        ("Oregon Surf GU19 N1/OYSA", 2026, "u19"),
+    ],
+)
+def test_a_name_states_its_age_by_the_label_key(team_name, label_season, expected):
+    assert tgs.name_age_group(team_name, label_season) == expected
+
+
+@pytest.mark.parametrize(
+    "team_name, division, expected",
+    [
+        # 2013 is the younger year of U14 (2013/12) and the older year of U13 (2014/13).
+        ("No Club Selection - Lake Chelan FC G2013", "u13", "u13"),
+        ("No Club Selection - Lake Chelan FC G2013", "u14", "u14"),
+        # A flight 2013 fits neither way leaves the name's own reading.
+        ("No Club Selection - Lake Chelan FC G2013", "u12", "u14"),
+        ("Capital FC - Capital FC G12 Black N1", "u14", "u14"),
+        # 2009 is U17 or U18, and U18 boards with U19.
+        ("Sparta FC 2009 Boys", "u17", "u17"),
+        ("Sparta FC 2009 Boys", "u19", "u19"),
+        # A band names one group, so its flight chooses nothing, even the group its younger
+        # year would pick as a lone year, however its dash is written.
+        ("Cascade Premier Soccer Club - B16/17", "u11", "u10"),
+        ("Beach FC - Beach FC B13/14", "u12", "u13"),
+        ("Beach FC - Beach FC 2013—2014", "u12", "u13"),
+        # Nor does a flight move a U-age.
+        ("Spokane Shadow - GU12 Pre GA", "u13", "u12"),
+    ],
+)
+def test_the_flight_chooses_between_the_two_groups_a_single_birth_year_fits(team_name, division, expected):
+    assert tgs.name_age_group(team_name, 2026, division) == expected
+
+
+@pytest.mark.parametrize(
+    "team_name, label_season",
+    [
+        ("U12/13 Select", 2026),
+        ("Elite 11 Blue", 2026),
+        ("U23 Reserves", 2026),
+        ("", 2026),
+        # A U-age names a cohort only against the season that wrote it.
+        ("Spokane Shadow - GU15 GA", None),
+        # U18 and U19 read alike once folded, and they advance apart.
+        ("Oregon Surf GU19 N1/OYSA", 2025),
+    ],
+)
+def test_a_name_that_settles_no_age_leaves_it_to_the_division(team_name, label_season):
+    assert tgs.name_age_group(team_name, label_season) == ""
+
+
 def test_legacy_birth_year_labels_still_convert():
     """Older TGS events label by birth year; a birth year is not a cohort."""
     assert extract_age_group("B2015") == "u12"

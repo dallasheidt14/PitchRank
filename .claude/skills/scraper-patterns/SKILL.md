@@ -436,10 +436,19 @@ events return a province (`ON`, `BC`), not a US state.
 `scrape_tgs_event.get_event_details` already fetches this payload on every event and keeps
 only `name`, so the other fields cost no extra request.
 
+### Finding the newest event id
+
+TGS creates events well before they are played: on 2026-11-11 id 4511 already held an event dated
+August 2027. An id with no event still answers `get-event-details-by-eventID` with HTTP 200 and an
+empty `data.name`, so binary-search on a present name for the newest id. When the finalize job's
+"Dispatch next chain link" step fails with "TGS events with games now reach the final chain link",
+add a link that reaches past the newest id. The links are that step's `case` arms, and
+`tests/unit/test_tgs_workflow_chain.py` pins them.
+
 ### TGS `schedule_id` is a division, not a game
 
 `scrape_tgs_event.py` writes the flight's division id as `schedule_id` on every TGS row
-(`:597`), and the CSV loaders keep it. For the rematch providers, Affinity GA, and GotSport and
+(in `normalize_api_game`), and the CSV loaders keep it. For the rematch providers, Affinity GA, and GotSport and
 SincSports repeat days, the same field names one game. So a rule keyed on "this row has a `schedule_id`" catches every
 TGS row. Gate any such rule on the provider set where the field names a game
 (`SCHEDULE_ID_SUFFIX_PROVIDERS` in `src/models/game_matcher.py`). Left ungated, it switches off
@@ -463,6 +472,46 @@ look pre-cutover and skipped the whole flight, which is why `u_label_season` dro
 them in the flight's status line (`+N undated skipped`), so their results never reach `games`.
 The owner chose that over dating them to the event's first day (2026-10-12): the undated
 games found then all came from 2025 tournaments too old to rank.
+
+### Creating TGS teams
+
+`scripts/extract_and_import_tgs_teams.py` decides every new TGS team, once per chain link over
+every shard's CSV (the workflow's `match-teams` job), before the import runs. `TGSGameMatcher`
+at import only finds a team by its TGS id; it never links by name or creates a team, so a manual
+TGS import needs this step run over its CSV first.
+
+- **Link by name only to a team carrying no TGS id** (owner, 2026-11-11): no approved TGS alias
+  names it, it did not begin as a TGS row, and neither was merged into it. A claimed team wins a
+  score tie, so the refusal cannot be dodged by an equal twin, and a team two new ids both want
+  goes to neither. The candidate search reads live rows only, skips a wrong birth year, and reads
+  the whole age group in a fixed order when the club names no candidate.
+- **Age from the team's own name** (`scrape_tgs_event.name_age_group`, through `read_label`, into
+  the CSV's `team_name_age`/`opponent_name_age`). A single birth year fits two groups, and the
+  flight chooses between those two only; a name stating no age takes the youngest flight the team
+  played, since a team plays up and never down (owner, 2026-11-11). When its flights read the name
+  as two ages that are both groups its lone birth year fits, it takes the younger, the one the team
+  was seen playing at.
+- **Held, not created**: a blank or placeholder id, and a team with no scored game in the scrape,
+  created the week its first scored game appears (owner, 2026-11-11); a team with no name, or whose
+  rows carry no gender, disagree on gender, or read its name as two ages otherwise, or give no age
+  at all; an id whose own TGS row the gender guard refuses to reuse; and an id whose search or
+  creation failed (outcome `error: search failed` or `error: not created`), which also fails the
+  match job. The import still runs when the match job fails, so the run shows red without holding
+  back anyone else's games (owner, 2026-11-12). A scored game naming one held id imports with that
+  side unlinked, unless the id is blank or a placeholder, whose games the import's validator
+  quarantines; a later run's import fills the side once the id has a team, unless TGS changed the
+  score in between. A game whose two teams are both held is not stored at all, and every rescan
+  holds them again: a lasting disagreement needs the source fixed or a person to decide.
+- **Measured 2026-11-11** against the 1,138 TGS teams created since 2026-08-01 and later merged
+  into GotSport teams: 505 would have linked to that team at creation, 627 would have been created,
+  6 linked elsewhere (three of them the same squad's duplicate row). Read every link in the step's
+  outcomes CSV (`logs/tgs_team_matches_*.csv`) before trusting a change to the scorer
+  (`TGSGameMatcher._calculate_match_score`).
+- **To measure a scorer change the same way**, replay each of those rows as of its creation. Search
+  at the age its name states (`name_age_group(name, 2026)`, else the stored `age_group`), and count
+  the surviving team as claimed only when another TGS id linked it before that row's `created_at`;
+  every other candidate keeps today's claims. Sort each row into linked to the surviving team,
+  linked elsewhere, or created. The merged row is deprecated, so the live-only search cannot find it.
 
 ## SincSports Schedule Pages
 
@@ -1385,7 +1434,7 @@ A per-event tournament provider needs both, and they are not interchangeable:
   earlier season's event is filed by its age now, not by the label it played under."
 
 Collapsing them files a historical event's teams onto a stale board, and base alias matching then
-rejects the mismatched stored age (`src/models/game_matcher.py:1002-1009`). This is the same point
+rejects the mismatched stored age (`GameHistoryMatcher._validate_team_age_group`). This is the same point
 *Reading a Provider's Age Labels* makes below — a label does not carry its own season — applied to
 the two places the season is consumed.
 
@@ -1825,8 +1874,8 @@ name stating none (`mixed_age_divisions` under Sports Affinity Pages).
 
 **Resolve gender from the provider's own field where one exists.** Prefix
 sniffing misses age-first labels (`U11 Girls` has no leading `G`), and an
-unresolved gender does not stay empty downstream — `normalize_gender("")`
-returns `"Male"`.
+unresolved gender holds the team back: the TGS match step creates no team for
+an id whose games carry no gender (`gender unknown`; see Creating TGS teams).
 
 **Check a sample before calling a division's ages unreliable.** Read the birth
 years in its team names first. When sampling `teams`, skip rows this provider
@@ -1851,7 +1900,8 @@ both say a division was used. Run `respell_ages` first only when the provider wr
 year; check the provider's names for squad numbers before opting in.
 `scripts/import_tourneycentral_event.py` and `discover_sincsports_via_tournament.resolve_team_age`
 follow this. The Athletes2Events driver (division as bound and fallback), the Soccer Events
-Group driver and the PlayMetrics tournament scraper (name first, division age as fallback) keep
-their own rules; leave those drivers as they are and copy none of their rules into a new one. **For a new driver, the one owner-approved exception is HTG Sports' division fallback**
+Group driver, the PlayMetrics tournament scraper (name first, division age as fallback) and the
+weekly TGS match step (see Creating TGS teams) keep their own rules; leave those drivers as they
+are and copy none of their rules into a new one. **For a new driver, the one owner-approved exception is HTG Sports' division fallback**
 (never a bound; see HTG Sports Pages, owner 2026-11-09). Ask the owner before passing
 `division_age_fallback=True` to `build_roster` for another driver.
