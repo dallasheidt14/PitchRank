@@ -23,18 +23,25 @@ PitchRank is a **youth soccer ranking platform** that scrapes game data from mul
 - Never commit to main directly; verify the branch before every commit. `main` requires a PR and the `ci.yml` checks (squash only, no force-push).
 - `.claude/hooks/` (wired by `.claude/settings.json`) refuses commit/push on main, blanket staging, force-push, `reset --hard`, whole-file `ruff format`, `.env` edits, and `commit --amend` once HEAD is on a remote. It reads a shell wrapper's quoted argument as a command, so `powershell -Command "git push --force"` is refused too. A `BLOCKED:` message is the hook, not a transient error.
 - When creating a new branch, use `git checkout -b <branch> origin/main` only when no staged/WIP work exists. If unsure, run `git status` and `git stash list` first.
-- After merging a PR, do NOT perform additional merges or git operations unless explicitly asked.
+- After merging a PR, do NOT perform additional merges or git operations unless explicitly asked. The
+  worktree cleanup `pr_wait.py` runs after its own merge is the exception.
 - `delete_branch_on_merge` is on, so GitHub removes the head branch the moment a PR merges. Cleanup is
-  only the local side (`git worktree remove`, `git branch -D`); `git push origin --delete <branch>`
-  errors with "remote ref does not exist". It also breaks the obvious merge check —
-  `git merge-base --is-ancestor origin/<branch> origin/main` reports NOT merged for a branch that
-  merged cleanly, because the ref it names is already gone. Check `gh pr view <n> --json state` instead.
+  only the local side; `git push origin --delete <branch>` errors with "remote ref does not exist". It
+  also breaks the obvious merge check — `git merge-base --is-ancestor origin/<branch> origin/main`
+  reports NOT merged for a branch that merged cleanly, because the ref it names is already gone. Check
+  `gh pr view <n> --json state` instead. For the local side, run
+  `python scripts/clean_merged_worktrees.py --execute` from the main checkout (it keeps the worktree the
+  shell is in); it removes every merged PR's worktree and local branch. A bare `git worktree remove`
+  deletes ignored files, sometimes the only copy of a rollback log, which the script first copies to
+  `data/backups/worktree-rescue/`; and on Windows it follows a `node_modules` junction and empties the
+  main checkout's. Removing a worktree the script keeps (a detached one, say) by hand means `rmdir` on its
+  junctions and copying out its `data/` first.
 - Sync before analyzing repo state. Work lands on `origin/main` via PRs merged from several machines and agent runs, so this checkout routinely sits weeks behind (38 commits / 4 days, as of 2026-08-22). Any audit, inventory, or "does X exist" question answered against a stale tree will be wrong in both directions: it reports merged work as missing, and flags already-fixed problems as live. Run `git fetch --all --prune` and fast-forward before measuring anything.
 - Keep the working tree clean — stage selectively (`git add <paths>`), never `git add -A`.
 - When the user asks for a git operation (commit, push, merge), do it immediately without waiting for a second ask.
 - `.claude/rules/git-workflow.md` adds the mechanics: verifying the branch before every commit, and `git stash pop --index` when a staged/unstaged split matters.
 - Stacking a PR on another open PR costs you one predictable step: `main` takes squash merges, so merging the base rewrites its commits and the stacked branch then reports a conflict against `main` even though the content is identical. Resolve with `git merge origin/main` — a rebase would need the force-push the guard blocks — and expect the conflicts to be exactly the lines both branches edited. Prefer branching from `main` unless the second change genuinely cannot be reviewed without the first.
-- After opening a PR, run `python scripts/pr_wait.py`: it waits out the Codex review window (bounded at 10 minutes past open, since Codex reviews roughly half of PRs and has never posted later than that), prints the findings, then merges. A green gate alone is not grounds to merge — `gh pr checks` reports run status, while Codex's findings live on the review, and #1019 shipped a false statement that way. Pass `--no-merge` whenever the merge is still the user's call; the bare command merges. The window is measured from the PR's creation, so a re-review requested later needs its own poll — and that poll must filter review objects and inline comments by timestamp, because the *original* review is still there and its body reads like a fresh clean pass. Every review body carries the commit it reviewed; compare that to the head you pushed.
+- After opening a PR, run `python scripts/pr_wait.py`: it waits out the Codex review window (bounded at 10 minutes past open, since Codex reviews roughly half of PRs and has never posted later than that), prints the findings, then merges. A green gate alone is not grounds to merge — `gh pr checks` reports run status, while Codex's findings live on the review, and #1019 shipped a false statement that way. Pass `--no-merge` whenever the merge is still the user's call; the bare command merges. The window is measured from the PR's creation, so a re-review requested later needs its own poll — and that poll must filter review objects and inline comments by timestamp, because the *original* review is still there and its body reads like a fresh clean pass. Every review body carries the commit it reviewed; compare that to the head you pushed. After merging it runs `scripts/clean_merged_worktrees.py --execute`, which keeps any worktree with uncommitted work or still in use; the PR's own worktree is usually the shell's working folder, so it goes at the next merge, or when the command the sweep prints is run from the main checkout.
 
 ## Verification & Regeneration
 - After any change to blog content, metadata, or site structure, always regenerate derived files (e.g., llms.txt) before committing.
@@ -647,6 +654,7 @@ python -m ruff check src/ scripts/ config/ tournament_intake.py dashboard.py
 python -m pytest tests/ --ignore=tests/test_enhanced_pipeline.py
 python -m pytest tests/unit/test_temp_workspace.py tests/unit/test_seeding_predictions.py tests/unit/test_seeding_pdf.py tests/unit/test_compare_predictor_bridge.py
 python -m pytest tests/unit/test_team_cleanup_run_store.py
+python -m pytest tests/unit/test_clean_merged_worktrees.py
 
 cd frontend
 npx eslint .

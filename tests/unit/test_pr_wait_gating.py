@@ -5,16 +5,46 @@ Codex review absent merges past findings nobody read. So the two are pinned here
 against the shapes GitHub actually returns: a check rollup mixes CheckRun objects
 with StatusContext ones and spells conclusions differently in each, and a check
 that has not been created yet is missing from the rollup rather than pending in it.
+
+The worktree sweep after a merge is pinned too: it runs once, only after a real
+merge, and its failure never reads as a failed merge.
 """
 
 import os
 import sys
+
+import pytest
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from scripts.pr_wait import MERGE_METHOD, check_states, main
 
 REQUIRED = {"Python Tests", "Frontend Lint"}
+
+
+@pytest.fixture(autouse=True)
+def no_worktree_sweep(monkeypatch):
+    """The real sweep lists PRs with gh and removes folders, so no test here may reach it."""
+    monkeypatch.setattr("scripts.pr_wait.sweep", lambda **_: pytest.fail("the worktree sweep ran"))
+
+
+def _green_pr(monkeypatch, *argv: str) -> None:
+    monkeypatch.setattr(sys, "argv", ["pr_wait.py", "--pr", "1", *argv])
+    monkeypatch.setattr("scripts.pr_wait.required_contexts", lambda _: REQUIRED)
+    monkeypatch.setattr("scripts.pr_wait.codex_findings", lambda *_: [])
+    monkeypatch.setattr(
+        "scripts.pr_wait.resolve_pr",
+        lambda _: {
+            "number": 1,
+            "title": "t",
+            "url": "u",
+            "baseRefName": "main",
+            "state": "OPEN",
+            "createdAt": "2020-01-01T00:00:00Z",
+            "headRefOid": "deadbeef",
+            "statusCheckRollup": [_run(name) for name in REQUIRED],
+        },
+    )
 
 
 def _run(name, status="COMPLETED", conclusion="SUCCESS"):
@@ -129,23 +159,40 @@ def test_the_merge_is_pinned_to_the_commit_that_was_inspected(monkeypatch) -> No
     the last poll and the merge call would be merged on the strength of a review of
     the commit before it -- the same hole that ruled out `gh pr merge --auto`.
     """
-    ran = []
-    monkeypatch.setattr(sys, "argv", ["pr_wait.py", "--pr", "1"])
-    monkeypatch.setattr("scripts.pr_wait.required_contexts", lambda _: REQUIRED)
-    monkeypatch.setattr("scripts.pr_wait.codex_findings", lambda *_: [])
+    ran, swept = [], []
+    _green_pr(monkeypatch)
     monkeypatch.setattr("scripts.pr_wait.gh", lambda *a: ran.append(a) or "")
-    monkeypatch.setattr(
-        "scripts.pr_wait.resolve_pr",
-        lambda _: {
-            "number": 1,
-            "title": "t",
-            "url": "u",
-            "baseRefName": "main",
-            "state": "OPEN",
-            "createdAt": "2020-01-01T00:00:00Z",
-            "headRefOid": "deadbeef",
-            "statusCheckRollup": [_run(name) for name in REQUIRED],
-        },
-    )
+    monkeypatch.setattr("scripts.pr_wait.sweep", lambda **kw: swept.append(kw))
     assert main() == 0
     assert ran == [("pr", "merge", "1", MERGE_METHOD, "--match-head-commit", "deadbeef")]
+    assert swept == [{"execute": True, "show_others": False}]
+
+
+def test_a_failed_worktree_sweep_does_not_turn_a_merge_into_a_failure(monkeypatch, capsys) -> None:
+    """The merge has landed by then; reporting it as failed would invite a second merge attempt."""
+    _green_pr(monkeypatch)
+    monkeypatch.setattr("scripts.pr_wait.gh", lambda *a: "")
+
+    def broken_sweep(**_):
+        raise RuntimeError("gh pr list failed: offline")
+
+    monkeypatch.setattr("scripts.pr_wait.sweep", broken_sweep)
+    assert main() == 0
+    out = capsys.readouterr().out
+    assert "worktree cleanup failed: gh pr list failed: offline" in out
+    assert "run from the main checkout: python scripts/clean_merged_worktrees.py --execute" in out
+
+
+def test_a_dry_run_previews_the_sweep_without_running_it(monkeypatch, capsys) -> None:
+    """A dry run must not print a command that writes, so the preview carries no --execute."""
+    _green_pr(monkeypatch, "--dry-run")
+    monkeypatch.setattr("scripts.pr_wait.gh", lambda *a: pytest.fail(f"gh ran in a dry run: {a}"))
+    assert main() == 0
+    out = capsys.readouterr().out
+    assert "[dry-run] would then remove merged worktrees; preview: python scripts/clean_merged_worktrees.py\n" in out
+
+
+def test_no_merge_never_sweeps(monkeypatch) -> None:
+    _green_pr(monkeypatch, "--no-merge")
+    monkeypatch.setattr("scripts.pr_wait.gh", lambda *a: pytest.fail(f"gh ran under --no-merge: {a}"))
+    assert main() == 0
