@@ -840,6 +840,15 @@ refuses: it lists ledger versions with no local file (suggesting
 (suggesting `--include-all`). Take neither suggestion; both end in re-running files that are
 already live.
 
+The ledger (`supabase_migrations.schema_migrations`) starts at `20260414191101`, so an older
+version missing from it proves nothing either way: check its objects in `pg_catalog` (or
+`information_schema.columns` for a column). `20250123000000_add_predictive_fields.sql` was never
+applied, so `rankings_full` has no `exp_margin`, `exp_win_rate`, `exp_goals_for` or
+`exp_goals_against` (they exist only on `prediction_feature_history`), and neither was
+`20250123000001_create_team_predictive_view.sql`, which selects them. `save_rankings_to_supabase`
+treats them as optional and strips them from every publish, logging one PGRST204 retry per column;
+the owner chose on 2026-11-13 to leave them off, so do not run either file to quiet those lines.
+
 Before recommending a push, compare `mcp__supabase__list_migrations` with
 `supabase/migrations/` by name as well as version, and confirm the functions, tables or indexes
 the unlisted files create exist live. To ship one migration, run its SQL in the SQL editor,

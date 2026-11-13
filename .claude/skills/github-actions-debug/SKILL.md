@@ -80,6 +80,11 @@ jobs:
 **Cause:** The call outran the 8 seconds a service-role PostgREST request gets
 **Fix:** A write or page-sized call that grew past the budget needs a smaller batch. A read that returns one page yet sorts or filters every candidate row first needs a different plan, and re-running or shrinking batches changes nothing there; diagnose it with the `supabase-pitchrank` skill's "A LIMIT stops no work below a full sort" section.
 
+### 7. Ranking Completed, but Its Input Archive Failed
+**Error:** `Ranking completed, but its input archive failed: query_execution:APIError, ...` after the Run Summary (other kinds include `query_failure:`, `source_integrity:` and `initialization:`)
+**Cause:** `rankings_full` is fully published (confirm with `max(last_calculated)`); the provenance archive in `src/rankings/input_archive.py` failed, so "Preserve verified prediction inputs privately" was skipped. A `query_execution` entry is a database call that raised and was not recovered: the archive retires one only when the same asyncio task's very next request is the identical one, or when `save_rankings_to_supabase` confirms every `rankings_full` row landed.
+**Fix:** Pair each listed error with its call in the log (`failed (attempt`, `Retrying in`, `Retriable`, `missing optional`). An error whose call later succeeded is a false red and needs no rerun: end-of-run `failed_batches` retries (`saved on retry`) and the `prediction_feature_history` column-strip fallback are the known ones (backlog: "Tell the ranking archive when a save recovers by a later or altered resend"). An error with no later success is a read or write the run skipped (`failed after all retries`, a tolerated `current_rankings` or RPC batch); a skipped merge-map page (`No team merges loaded (version: error)`) means the rankings were built without merges and need a rerun. Those skipped failures fail the run deliberately, as `tests/unit/test_ranking_input_archive.py` pins; read those tests before relaxing the rule.
+
 ## PitchRank Workflows
 
 Schedules live in CLAUDE.md's workflow table; check the yml when it matters. Durations

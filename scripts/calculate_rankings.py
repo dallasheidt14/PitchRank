@@ -313,6 +313,8 @@ async def save_rankings_to_supabase(
                         f"rankings_full publish incomplete: saved {rankings_full_saved:,} of "
                         f"{rankings_full_expected:,} records"
                     )
+                if (archive := ACTIVE_ARCHIVE.get()) is not None:
+                    archive.recovered("rankings_full", "upsert")
                 total_saved += rankings_full_saved
         except Exception as e:
             raise RuntimeError(f"Failed to publish rankings_full: {e}") from e
