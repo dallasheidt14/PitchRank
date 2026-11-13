@@ -1,3 +1,4 @@
+import asyncio
 import gzip
 import hashlib
 import io
@@ -11,10 +12,17 @@ import numpy as np
 import pandas as pd
 import pytest
 from postgrest import SyncPostgrestClient
+from postgrest.exceptions import APIError
 
 from src.rankings.input_archive import ACTIVE_ARCHIVE, InputArchive
 
 ROOT = Path(__file__).resolve().parents[2]
+STATEMENT_TIMEOUT = {
+    "code": "57014",
+    "message": "canceling statement due to statement timeout",
+    "details": None,
+    "hint": None,
+}
 
 
 @pytest.fixture
@@ -26,6 +34,15 @@ def read_object(archive, reference):
     data = gzip.decompress((archive.directory / reference["object"]).read_bytes())
     assert hashlib.sha256(data).hexdigest() == reference["sha256"]
     return data
+
+
+def explainability_row(game: str) -> dict:
+    row = dict(id=game, game_id="provider-" + game, team_id="a", opp_id="b", game_date="2026-11-01", gf=2, ga=1)
+    row.update({name: 0.5 for name in (
+        "team_mu", "team_sigma", "opp_mu", "opp_sigma", "expected_outcome", "actual_outcome",
+        "outcome_surprise", "g_factor", "recency_weight", "rating_contribution", "off_residual", "def_residual",
+    )})
+    return row
 
 
 def test_actual_postgrest_requests_and_responses_are_frozen_only_when_executed(archive):
@@ -97,14 +114,201 @@ def test_failed_later_merge_page_cannot_leave_a_publishable_partial_archive(arch
         resolver = MergeResolver(archive.wrap(SimpleNamespace(table=client.from_)))
         resolver.load_merge_map()
     assert resolver.version == "error" and not resolver.has_merges
-    queries = archive.manifest["queries"]
-    assert len(queries) == 2 and queries[1]["error_type"] == "APIError"
-    assert ["range", [1000, 1999], {}] in json.loads(read_object(archive, queries[1]["request"]))
-    assert "response" not in queries[1]
+    failed = archive.manifest["failed_queries"]
+    assert len(archive.manifest["queries"]) == 1 and [query["error_type"] for query in failed] == ["APIError"]
+    assert ["range", [1000, 1999], {}] in json.loads(read_object(archive, failed[0]["request"]))
     with pytest.raises(RuntimeError, match="query_execution:APIError"):
         archive.finish(True)
     with pytest.raises(ValueError, match="complete, error-free"):
         verify_archive(archive.directory)
+
+
+def test_games_page_retried_after_a_statement_timeout_leaves_a_complete_archive(archive):
+    from src.rankings.data_adapter import retry_supabase_query
+
+    offsets = []
+
+    def respond(request):
+        offsets.append(request.url.params["offset"])
+        if len(offsets) <= 2:
+            return httpx.Response(500, json=STATEMENT_TIMEOUT)
+        return httpx.Response(200, json=[{"id": "game"}])
+
+    with httpx.Client(transport=httpx.MockTransport(respond)) as http:
+        client = SyncPostgrestClient("https://example.test/rest/v1", http_client=http)
+        wrapped = archive.wrap(SimpleNamespace(table=client.from_))
+        page = retry_supabase_query(
+            lambda: wrapped.table("games").select("id").order("id").range(1000, 1999).execute(), initial_delay=0
+        )
+    assert page.data == [{"id": "game"}] and offsets == ["1000", "1000", "1000"]
+    recovered = archive.manifest["recovered_queries"]
+    assert [(query["table"], query["error_type"]) for query in recovered] == [("games", "APIError")] * 2
+    assert ["range", [1000, 1999], {}] in json.loads(read_object(archive, recovered[0]["request"]))
+    assert [query["table"] for query in archive.manifest["queries"]] == ["games"]
+    archive.finish(True)
+    assert json.loads((archive.directory / "manifest.json").read_text())["status"] == "complete"
+
+
+def test_skipped_lookup_stays_failed_when_a_later_caller_repeats_it(archive):
+    teams = []
+
+    def respond(request):
+        teams.append(request.url.params["team_id_master"])
+        if len(teams) == 1:
+            return httpx.Response(500, json=STATEMENT_TIMEOUT)
+        return httpx.Response(200, json=[])
+
+    with httpx.Client(transport=httpx.MockTransport(respond)) as http:
+        client = SyncPostgrestClient("https://example.test/rest/v1", http_client=http)
+        wrapped = archive.wrap(SimpleNamespace(table=client.from_))
+
+        def deprecated(batch):
+            query = wrapped.table("teams").select("team_id_master").in_("team_id_master", batch)
+            return query.eq("is_deprecated", True).execute()
+
+        with pytest.raises(APIError):
+            deprecated(["a"])
+        deprecated(["b"])
+        deprecated(["a"])
+    assert teams == ["in.(a)", "in.(b)", "in.(a)"]
+    assert [query["table"] for query in archive.manifest["failed_queries"]] == ["teams"]
+    assert archive.manifest["recovered_queries"] == []
+    with pytest.raises(RuntimeError, match="query_execution:APIError"):
+        archive.finish(True)
+
+
+def test_retry_retires_only_its_own_request_after_an_abandoned_failure(archive):
+    teams = []
+
+    def respond(request):
+        teams.append(request.url.params["team_id_master"])
+        if len(teams) <= 2:
+            return httpx.Response(500, json=STATEMENT_TIMEOUT)
+        return httpx.Response(200, json=[])
+
+    with httpx.Client(transport=httpx.MockTransport(respond)) as http:
+        client = SyncPostgrestClient("https://example.test/rest/v1", http_client=http)
+        wrapped = archive.wrap(SimpleNamespace(table=client.from_))
+
+        def lookup(batch):
+            return wrapped.table("teams").select("team_id_master").in_("team_id_master", batch).execute()
+
+        with pytest.raises(APIError):
+            lookup(["a"])
+        with pytest.raises(APIError):
+            lookup(["b"])
+        lookup(["b"])
+    assert teams == ["in.(a)", "in.(b)", "in.(b)"]
+    pending = archive.manifest["failed_queries"]
+    assert len(pending) == 1 and len(archive.manifest["recovered_queries"]) == 1
+    assert ["in_", ["team_id_master", ["a"]], {}] in json.loads(read_object(archive, pending[0]["request"]))
+
+
+def test_identical_read_of_another_table_does_not_retire_a_failure(archive):
+    def respond(request):
+        if request.url.path.endswith("/rankings_full"):
+            return httpx.Response(500, json=STATEMENT_TIMEOUT)
+        return httpx.Response(200, json=[])
+
+    with httpx.Client(transport=httpx.MockTransport(respond)) as http:
+        client = SyncPostgrestClient("https://example.test/rest/v1", http_client=http)
+        wrapped = archive.wrap(SimpleNamespace(table=client.from_))
+        with pytest.raises(APIError):
+            wrapped.table("rankings_full").select("team_id").range(0, 999).execute()
+        wrapped.table("current_rankings").select("team_id").range(0, 999).execute()
+    pending, answered = archive.manifest["failed_queries"], archive.manifest["queries"]
+    assert pending[0]["request"]["sha256"] == answered[0]["request"]["sha256"]
+    assert [query["table"] for query in pending] == ["rankings_full"]
+
+
+def test_failed_query_that_cannot_be_recorded_still_raises_the_database_error(archive, monkeypatch):
+    def respond(request):
+        return httpx.Response(500, json=STATEMENT_TIMEOUT)
+
+    with httpx.Client(transport=httpx.MockTransport(respond)) as http:
+        client = SyncPostgrestClient("https://example.test/rest/v1", http_client=http)
+        wrapped = archive.wrap(SimpleNamespace(table=client.from_))
+        monkeypatch.setattr(archive, "blob", lambda *args: (_ for _ in ()).throw(OSError("full disk")))
+        with pytest.raises(APIError, match="statement timeout"):
+            wrapped.table("games").select("id").execute()
+    with pytest.raises(RuntimeError, match="input archive failed"):
+        archive.finish(True)
+    assert archive.errors == ["query_failure:OSError", "query_execution:APIError"]
+
+
+@pytest.mark.asyncio
+async def test_cohort_retrying_while_another_cohort_saves_still_retires_its_failure(archive):
+    from src.rankings.calculator import _persist_game_explainability
+
+    sent = []
+
+    def respond(request):
+        sent.append(json.loads(request.content)["rows"][0]["game_uuid"])
+        if sent == ["first"]:
+            return httpx.Response(500, json=STATEMENT_TIMEOUT)
+        return httpx.Response(200, json=1)
+
+    with httpx.Client(transport=httpx.MockTransport(respond)) as http:
+        client = SyncPostgrestClient("https://example.test/rest/v1", http_client=http)
+        wrapped = archive.wrap(SimpleNamespace(table=client.from_, rpc=client.rpc))
+        saved = await asyncio.gather(
+            _persist_game_explainability(wrapped, pd.DataFrame([explainability_row("first")])),
+            _persist_game_explainability(wrapped, pd.DataFrame([explainability_row("second")])),
+        )
+    assert saved == [(1, 0), (1, 0)] and sent == ["first", "second", "first"]
+    recovered = archive.manifest["recovered_queries"]
+    assert [query["table"] for query in recovered] == ["rpc:batch_upsert_game_explainability"]
+    archive.finish(True)
+    assert json.loads((archive.directory / "manifest.json").read_text())["status"] == "complete"
+
+
+@pytest.mark.asyncio
+async def test_rankings_full_saved_without_missing_columns_retires_rankings_full_upserts_only(archive, monkeypatch):
+    import scripts.calculate_rankings as command
+
+    team = {"team_id": "team-1", "age_group": "u12", "gender": "Male", "state_code": "AZ"}
+    published = dict(team, power_score_true=0.75, power_score_final=0.63, exp_margin=0.7, exp_goals_against=0.9)
+    monkeypatch.setattr(command, "v53e_to_rankings_full_format", lambda *_args, **_kwargs: pd.DataFrame([published]))
+
+    def respond(request):
+        table = request.url.path.rsplit("/", 1)[-1]
+        if request.method == "POST":
+            rows = json.loads(request.content)
+            missing = [column for column in ("exp_margin", "exp_goals_against") if column in rows[0]]
+            if table == "current_rankings" or missing:
+                column = (missing or ["rank"])[0]
+                message = f"Could not find the '{column}' column of '{table}' in the schema cache"
+                return httpx.Response(400, json={"code": "PGRST204", "message": message, "details": None, "hint": None})
+            return httpx.Response(201, json=rows)
+        if table == "teams":
+            deprecated = "is_deprecated" in request.url.params
+            return httpx.Response(200, json=[] if deprecated else [dict(team, team_id_master="team-1")])
+        if request.url.params["select"] == "power_score_final":
+            return httpx.Response(500, json={"code": "XX000", "message": "fixture failure"})
+        return httpx.Response(200, json=[{"team_id": "team-1"}])
+
+    with httpx.Client(transport=httpx.MockTransport(respond)) as http:
+        client = SyncPostgrestClient("https://example.test/rest/v1", http_client=http)
+        wrapped = archive.wrap(SimpleNamespace(table=client.from_))
+        with pytest.raises(APIError):
+            wrapped.table("rankings_full").select("power_score_final").execute()
+        with pytest.raises(APIError):
+            wrapped.table("current_rankings").upsert([{"team_id": "team-1"}]).execute()
+        token = ACTIVE_ARCHIVE.set(archive)
+        try:
+            saved = await command.save_rankings_to_supabase(
+                wrapped, pd.DataFrame([team]), use_rankings_full=True, maintain_backward_compat=False
+            )
+        finally:
+            ACTIVE_ARCHIVE.reset(token)
+    assert saved == 1
+    retired = [(query["table"], query["operation"]) for query in archive.manifest["recovered_queries"]]
+    assert retired == [("rankings_full", "upsert"), ("rankings_full", "upsert")]
+    unanswered = [(query["table"], query["operation"]) for query in archive.manifest["failed_queries"]]
+    assert unanswered == [("rankings_full", "select"), ("current_rankings", "upsert")]
+    with pytest.raises(RuntimeError, match="input archive failed"):
+        archive.finish(True)
+    assert archive.errors == ["query_execution:APIError", "query_execution:APIError"]
 
 
 @pytest.mark.asyncio
@@ -117,15 +321,10 @@ async def test_actual_output_persistence_rpcs_record_requests_and_responses(arch
         requests.append((request.url.path.rsplit("/", 1)[-1], json.loads(request.content)))
         return httpx.Response(200, json=1)
 
-    row = dict(id="game", game_id="provider-game", team_id="a", opp_id="b", game_date="2026-11-01", gf=2, ga=1)
-    row.update({name: 0.5 for name in (
-        "team_mu", "team_sigma", "opp_mu", "opp_sigma", "expected_outcome", "actual_outcome",
-        "outcome_surprise", "g_factor", "recency_weight", "rating_contribution", "off_residual", "def_residual",
-    )})
     with httpx.Client(transport=httpx.MockTransport(respond)) as http:
         client = SyncPostgrestClient("https://example.test/rest/v1", http_client=http)
         wrapped = archive.wrap(SimpleNamespace(table=client.from_, rpc=client.rpc))
-        assert await _persist_game_explainability(wrapped, pd.DataFrame([row])) == (1, 0)
+        assert await _persist_game_explainability(wrapped, pd.DataFrame([explainability_row("game")])) == (1, 0)
         residuals = pd.DataFrame([{"game_id": "game", "ml_overperformance": -0.2}])
         assert await _persist_game_residuals(wrapped, residuals) == (1, 0)
     assert [name for name, _ in requests] == ["batch_upsert_game_explainability", "batch_update_ml_overperformance"]
