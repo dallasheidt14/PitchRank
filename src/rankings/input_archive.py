@@ -7,6 +7,7 @@ cannot change ratings.
 
 from __future__ import annotations
 
+import asyncio
 import gzip
 import hashlib
 import importlib.metadata
@@ -66,6 +67,13 @@ def encoded(value) -> bytes:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
 
 
+def retry_scope():
+    try:
+        return asyncio.current_task()
+    except RuntimeError:
+        return None
+
+
 def source_file_names(source_root: Path) -> list[str]:
     files = subprocess.check_output(["git", "ls-files", "-z", "--", *SOURCE_PATHS], cwd=source_root)
     names = {name.decode("utf-8") for name in files.split(b"\0") if name}
@@ -80,6 +88,8 @@ class InputArchive:
         self.directory.mkdir(parents=True, exist_ok=False)
         (self.directory / "objects").mkdir()
         self.errors: list[str] = []
+        # Concurrent tasks interleave requests, so only the failing task's own next request may retire its failures.
+        self.retrying: dict[asyncio.Task | None, list[dict]] = {}
         self.manifest = {
             "schema_version": 1,
             "started_at": utc_now(),
@@ -91,6 +101,8 @@ class InputArchive:
             ).strip(),
             "source_files": {},
             "queries": [],
+            "failed_queries": [],
+            "recovered_queries": [],
             "model_fits": [],
             "model_outputs": [],
             "engine_configurations": [],
@@ -123,19 +135,57 @@ class InputArchive:
             self.errors.append(kind + ":" + type(error).__name__)
 
     def query(self, table: str, calls: list, response, started: str, operation: str):
+        def record():
+            entry = {
+                "table": table,
+                "operation": operation,
+                "started_at": started,
+                "observed_at": utc_now(),
+                "request": self.blob(encoded(calls), "query_request"),
+                "response": self.blob(encoded(response.data if response is not None else None), "query_response"),
+            }
+            self.manifest["queries"].append(entry)
+            self.retire(self.retried_by(entry))
+
+        self.safely("query", record)
+
+    def query_failure(self, table: str, calls: list, error_type: str, started: str, operation: str):
+        failure = {
+            "table": table,
+            "operation": operation,
+            "started_at": started,
+            "observed_at": utc_now(),
+            "error_type": error_type,
+        }
+        self.manifest["failed_queries"].append(failure)
+
+        def record():
+            failure["request"] = self.blob(encoded(calls), "query_request")
+            self.retrying[retry_scope()] = self.retried_by(failure) + [failure]
+
+        self.safely("query_failure", record)
+
+    def retried_by(self, entry: dict) -> list[dict]:
+        """Pop the task's run of identical failures just before this request; return them if this is that request."""
+        failures = self.retrying.pop(retry_scope(), [])
+        key = (entry["table"], entry["operation"], entry["request"]["sha256"])
+        last = failures[-1] if failures else None
+        return failures if last and (last["table"], last["operation"], last["request"]["sha256"]) == key else []
+
+    def recovered(self, table: str, operation: str):
+        """Retire every pending failure of this table and operation, from any task, once all such requests landed."""
         self.safely(
-            "query",
-            lambda: self.manifest["queries"].append(
-                {
-                    "table": table,
-                    "operation": operation,
-                    "started_at": started,
-                    "observed_at": utc_now(),
-                    "request": self.blob(encoded(calls), "query_request"),
-                    "response": self.blob(encoded(response.data if response is not None else None), "query_response"),
-                }
+            "query_recovery",
+            lambda: self.retire(
+                [f for f in self.manifest["failed_queries"] if (f["table"], f["operation"]) == (table, operation)]
             ),
         )
+
+    def retire(self, failures: list[dict]):
+        retiring = {id(failure) for failure in failures}
+        pending = self.manifest["failed_queries"]
+        self.manifest["recovered_queries"].extend(failure for failure in pending if id(failure) in retiring)
+        self.manifest["failed_queries"] = [failure for failure in pending if id(failure) not in retiring]
 
     def frame(self, frame: pd.DataFrame) -> dict:
         # Parquet retains float precision, typed dates, identifiers, and row order.
@@ -217,6 +267,7 @@ class InputArchive:
         )
 
     def finish(self, success: bool):
+        self.errors.extend("query_execution:" + failure["error_type"] for failure in self.manifest["failed_queries"])
         for name, reference in self.manifest["source_files"].items():
 
             def check_source(name=name, reference=reference):
@@ -270,21 +321,7 @@ class _ArchivedQuery:
         try:
             response = self.builder.execute()
         except Exception as error:
-            error_type = type(error).__name__
-            self.archive.errors.append("query_execution:" + error_type)
-            self.archive.safely(
-                "query_failure",
-                lambda: self.archive.manifest["queries"].append(
-                    {
-                        "table": self.table,
-                        "operation": self.operation,
-                        "started_at": started,
-                        "observed_at": utc_now(),
-                        "request": self.archive.blob(encoded(self.calls), "query_request"),
-                        "error_type": error_type,
-                    }
-                ),
-            )
+            self.archive.query_failure(self.table, list(self.calls), type(error).__name__, started, self.operation)
             raise
         self.archive.query(self.table, list(self.calls), response, started, self.operation)
         return response
