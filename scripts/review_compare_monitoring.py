@@ -53,6 +53,11 @@ def run(client, *, execute=False, output=None, register=False):
         clock = client.rpc("compare_monitor_clock", {}).execute().data
         report = weekly_report(records, coverage, clock)
         report["monitor_signature"] = signature
+        profile = model["manifest"].get("runtime_profile")
+        report["runtime_profile"] = profile
+        report["baseline_configuration"] = (
+            "verified_website_runtime" if profile else "repository_files_unverified_against_website"
+        )
         benchmark = evaluate_sos(records, metadata, model, selection, clock)
         if register and benchmark["status"] == "selected_for_confirmation" and not selection:
             client.rpc(
@@ -66,6 +71,8 @@ def run(client, *, execute=False, output=None, register=False):
         metrics = report["cumulative"]
         (folder / "review.md").write_text(
             f"# Compare weekly review\n\nModel: `{model['manifest']['model_version']}`\n\n"
+            f"Baseline configuration: {report['baseline_configuration']}. "
+            "Different configurations are reported separately.\n\n"
             f"Status: {report['status']}. Scored games: {metrics['games']}. "
             f"Sealed or future: {coverage['counts'].get('sealed_or_future', 0)}.\n\n"
             f"Outcome accuracy: {metrics['winner_accuracy']}. Log loss: {metrics['log_loss']}. "

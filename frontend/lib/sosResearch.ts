@@ -25,9 +25,13 @@ function difference(a: unknown, b: unknown): number {
 
 export async function createSosRuntime(
   calibrationSnapshot: NonNullable<MatchPredictionShadowContext['calibration']>,
-  frontendRoot: string
+  frontendRoot: string,
+  options: { verifiedProductionRuntime?: boolean } = {}
 ) {
-  if (!calibrationSnapshot || Object.values(calibrationSnapshot).some((v) => v === null))
+  if (
+    !calibrationSnapshot ||
+    (!options.verifiedProductionRuntime && Object.values(calibrationSnapshot).some((v) => v === null))
+  )
     throw new Error('Incomplete frozen calibration');
   const pairs = await Promise.all(
     PREDICTOR_SOURCE_FILES.map(
@@ -64,58 +68,69 @@ export async function createSosRuntime(
       (await readFile(path.join(frontendRoot, 'lib/sosResearch.ts'), 'utf8')).replace(/\r\n/g, '\n')
     );
     let closed = false;
+    function calculate(context: MatchPredictionShadowContext, referenceTime: string, frozen?: MatchPrediction) {
+      if (closed || !context.frozenEvidence || stableJson(context.calibration) !== stableJson(calibrationSnapshot))
+        throw new Error('Closed runtime or changed frozen calibration');
+      const timestamp = Date.parse(referenceTime);
+      if (!Number.isFinite(timestamp) || !/(Z|[+-]\d\d:\d\d)$/.test(referenceTime))
+        throw new Error('Invalid research clock');
+      const OriginalDate = globalThis.Date;
+      const originalTimezone = process.env.TZ;
+      try {
+        process.env.TZ = 'UTC';
+        globalThis.Date = new Proxy(OriginalDate, {
+          construct(target, args) {
+            return Reflect.construct(target, args.length ? args : [timestamp]);
+          },
+          apply() {
+            return new OriginalDate(timestamp).toString();
+          },
+          get(target, key, receiver) {
+            return key === 'now' ? () => timestamp : Reflect.get(target, key, receiver);
+          },
+        });
+        const inputs = [context.teamAInput, context.teamBInput, context.frozenEvidence.games] as const;
+        const diagnostics: { preOutcomeCalibration?: [number, number, number] } = {};
+        const expected: MatchPrediction = baseline.predictMatch(...inputs, diagnostics);
+        const replayDifference = frozen ? difference(expected, frozen) : 0;
+        if (replayDifference > 1e-12) throw new Error('Live frozen prediction replay failed');
+        const variants: Record<string, MatchPrediction> = {};
+        for (const multiplier of SOS_MULTIPLIERS) {
+          candidate.setResearchSos(multiplier);
+          const prediction = candidate.predictMatch(...inputs);
+          if (multiplier === 1 && stableJson(expected) !== stableJson(prediction))
+            throw new Error('SOS A/A parity failed');
+          variants[String(multiplier)] = prediction;
+        }
+        return {
+          prediction: expected,
+          preOutcomeCalibration: diagnostics.preOutcomeCalibration,
+          variants,
+          receipt: {
+            aa_parity: true,
+            replay_difference: replayDifference,
+            algorithm_hash: sha(stableJson(pairs)),
+            generated_source_sha256: sha(generated),
+            research_source_sha256: sourceHash,
+            source_hashes: Object.fromEntries(pairs.map(([name, content]) => [name, sha(content)])),
+            reference_time: referenceTime,
+            node_version: process.versions.node,
+          },
+        };
+      } finally {
+        globalThis.Date = OriginalDate;
+        if (originalTimezone === undefined) delete process.env.TZ;
+        else process.env.TZ = originalTimezone;
+      }
+    }
     return {
       run(context: MatchPredictionShadowContext, frozen: MatchPrediction, referenceTime: string) {
-        if (closed || !context.frozenEvidence || stableJson(context.calibration) !== stableJson(calibrationSnapshot))
-          throw new Error('Closed runtime or changed frozen calibration');
-        const timestamp = Date.parse(referenceTime);
-        if (!Number.isFinite(timestamp) || !/(Z|[+-]\d\d:\d\d)$/.test(referenceTime))
-          throw new Error('Invalid research clock');
-        const OriginalDate = globalThis.Date;
-        const originalTimezone = process.env.TZ;
-        try {
-          process.env.TZ = 'UTC';
-          globalThis.Date = new Proxy(OriginalDate, {
-            construct(target, args) {
-              return Reflect.construct(target, args.length ? args : [timestamp]);
-            },
-            apply() {
-              return new OriginalDate(timestamp).toString();
-            },
-            get(target, key, receiver) {
-              return key === 'now' ? () => timestamp : Reflect.get(target, key, receiver);
-            },
-          });
-          const inputs = [context.teamAInput, context.teamBInput, context.frozenEvidence.games] as const;
-          const expected = baseline.predictMatch(...inputs);
-          const replayDifference = difference(expected, frozen);
-          if (replayDifference > 1e-12) throw new Error('Live frozen prediction replay failed');
-          const variants: Record<string, MatchPrediction> = {};
-          for (const multiplier of SOS_MULTIPLIERS) {
-            candidate.setResearchSos(multiplier);
-            const prediction = candidate.predictMatch(...inputs);
-            if (multiplier === 1 && stableJson(expected) !== stableJson(prediction))
-              throw new Error('SOS A/A parity failed');
-            variants[String(multiplier)] = prediction;
-          }
-          return {
-            variants,
-            receipt: {
-              aa_parity: true,
-              replay_difference: replayDifference,
-              algorithm_hash: sha(stableJson(pairs)),
-              generated_source_sha256: sha(generated),
-              research_source_sha256: sourceHash,
-              source_hashes: Object.fromEntries(pairs.map(([name, content]) => [name, sha(content)])),
-              reference_time: referenceTime,
-              node_version: process.versions.node,
-            },
-          };
-        } finally {
-          globalThis.Date = OriginalDate;
-          if (originalTimezone === undefined) delete process.env.TZ;
-          else process.env.TZ = originalTimezone;
-        }
+        if (!frozen || typeof frozen !== 'object' || Array.isArray(frozen))
+          throw new Error('Missing frozen reference prediction');
+        return calculate(context, referenceTime, frozen);
+      },
+      capture(context: MatchPredictionShadowContext, referenceTime: string) {
+        return calculate(context, referenceTime);
       },
       async close() {
         closed = true;

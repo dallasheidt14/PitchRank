@@ -111,6 +111,7 @@ frontend/
 - `GET /api/rankings/national?age=12&gender=M&limit=1000&offset=0`
 - `GET /api/rankings/state?state=CA&age=12&gender=M&limit=1000&offset=0`
 - `GET /api/teams/search?q=FC%20Dallas` (rate limited: 120 req/min per IP)
+- `GET /api/match-prediction` (read-only effective calibration, deployment revision and synthetic probes; no private data)
 
 ### Auth
 

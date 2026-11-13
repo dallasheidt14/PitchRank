@@ -7,6 +7,17 @@ import { maybeLogMatchPredictionShadow } from '@/lib/matchPredictionShadow';
 import { isValidUuid } from '@/lib/validation';
 import { createServiceSupabase } from '@/lib/supabase/service';
 import { NextRequest, NextResponse } from 'next/server';
+import { predictionRuntime } from '@/lib/predictionRuntime';
+
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+
+/** Metadata shares the customer prediction function's module instance and filesystem. */
+export async function GET() {
+  return NextResponse.json(await predictionRuntime(), {
+    headers: { 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex' },
+  });
+}
 
 interface MatchPredictionRequest {
   teamAId?: string;

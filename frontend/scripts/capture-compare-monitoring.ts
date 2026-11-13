@@ -7,7 +7,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { buildMatchPredictionWithShadowContext, MATCH_PREDICTION_VERSION } from '../lib/matchPredictionService';
 import { captureCodeIdentity, digest } from '../lib/prospectiveCapture';
 import { createSosRuntime, SOS_MULTIPLIERS } from '../lib/sosResearch';
-import { warmMatchPredictorCalibration, matchCalibrationSnapshot } from '../lib/matchPredictor';
+import { loadMonitoringRuntime, runtimeDigest, RUNTIME_URL } from '../lib/monitoringRuntime';
 
 export async function captureMonitoring(client: SupabaseClient, options: { limit: number; execute: boolean }) {
   const { limit, execute } = options;
@@ -17,8 +17,19 @@ export async function captureMonitoring(client: SupabaseClient, options: { limit
   const researchHash = createHash('sha256')
     .update(fs.readFileSync(path.join(root, 'lib/sosResearch.ts'), 'utf8').replace(/\r\n/g, '\n'))
     .digest('hex');
-  await warmMatchPredictorCalibration();
-  const modelSignature = digest({ algorithm: identity.algorithmHash, calibration: matchCalibrationSnapshot() });
+  const production = await loadMonitoringRuntime(path.dirname(root), identity.algorithmHash);
+  const modelSignature = digest({
+    algorithm: identity.algorithmHash,
+    input_dependencies: production.input_source_hash,
+    calibration: production.calibration,
+  });
+  const runtimeProfile = {
+    origin: RUNTIME_URL,
+    algorithm_hash: identity.algorithmHash,
+    input_source_hash: production.input_source_hash,
+    calibration: production.calibration,
+    calibration_sha256: runtimeDigest(production.calibration),
+  };
   const manifest = {
     kind: 'compare_live_sos_monitoring',
     schema_version: 1,
@@ -29,6 +40,7 @@ export async function captureMonitoring(client: SupabaseClient, options: { limit
     research_hash: researchHash,
     multipliers: SOS_MULTIPLIERS,
     production_promotion: false,
+    runtime_profile: runtimeProfile,
   };
   const manifestText = JSON.stringify(manifest);
   const monitor = createHash('sha256').update(manifestText).digest('hex');
@@ -51,6 +63,21 @@ export async function captureMonitoring(client: SupabaseClient, options: { limit
   // Queue includes completed originals: the collector's pinned formula remains authoritative for its study.
   let runtime: Awaited<ReturnType<typeof createSosRuntime>> | undefined;
   try {
+    if (execute) {
+      runtime = await createSosRuntime(production.calibration, root, { verifiedProductionRuntime: true });
+      for (const probe of production.probes) {
+        runtime.run(
+          {
+            teamAInput: probe.teamA,
+            teamBInput: probe.teamB,
+            calibration: production.calibration,
+            frozenEvidence: { games: [] },
+          } as unknown as Parameters<typeof runtime.run>[0],
+          probe.prediction,
+          production.observed_at
+        );
+      }
+    }
     for (let offset = 0; summary.selected < limit; offset += 1000) {
       const { data, error } = await client
         .from('prospective_match_predictions')
@@ -90,16 +117,20 @@ export async function captureMonitoring(client: SupabaseClient, options: { limit
             { freezeInputs: true }
           );
           const context = result.shadowContext;
-          if (digest({ algorithm: identity.algorithmHash, calibration: context.calibration }) !== modelSignature)
-            throw new Error('Calibration changed during capture');
-          runtime ??= await createSosRuntime(context.calibration!, root);
-          const research = runtime.run(context, result.response.prediction, referenceTime);
+          // Input fetch uses the real service; probability calculation uses the site's verified snapshot.
+          context.calibration = structuredClone(production.calibration);
+          const current = await loadMonitoringRuntime(path.dirname(root), identity.algorithmHash);
+          if (runtimeDigest(current.calibration) !== runtimeProfile.calibration_sha256)
+            throw new Error('Production calibration changed during capture');
+          const research = runtime!.capture(context, referenceTime);
+          context.preOutcomeCalibration = research.preOutcomeCalibration;
           if (research.receipt.algorithm_hash !== identity.algorithmHash)
             throw new Error('Research source identity changed');
           const payload = {
             context,
-            prediction: result.response.prediction,
             ...research,
+            runtime_profile: runtimeProfile,
+            runtime_observation: { deployment_revision: current.deployment_revision, observed_at: current.observed_at },
             reference_time: referenceTime,
             model_signature: modelSignature,
             input_hash: digest(context),

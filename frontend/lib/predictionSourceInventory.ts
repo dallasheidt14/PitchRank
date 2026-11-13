@@ -15,3 +15,6 @@ export const PREDICTOR_CALIBRATION_FILES = {
   outcome: 'heuristic_outcome_calibration.json',
   confidence: 'confidence_parameters_v2.json',
 };
+
+/** Verify input construction separately, preserving existing algorithm signatures. */
+export const PREDICTOR_INPUT_SOURCE_FILES = ['utils.ts', 'constants.ts'];
