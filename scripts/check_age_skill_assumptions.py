@@ -67,9 +67,9 @@ LABEL_KEY_CLAUSE = re.compile(r"((?:`[^`]+`(?:,\s*|\s+and\s+))+`[^`]+`)\s+are al
 RECHECK_LEFT_OUT = re.compile(r"\| Left out\b[^|]*\| ([0-9,]+) \|")
 TRIAGE_LEFT_OUT = re.compile(r"^([0-9]+) more whose age differs, left out", re.M)
 
-# Distinct teams in each section of the owner's age decisions, recorded 2026-10-12. A section may grow;
+# Distinct teams in each section of the owner's age decisions when its floor was set. A section may grow;
 # one that shrinks fails the check until whoever removed a decision lowers its floor here on purpose.
-DECISION_FLOORS = {"kept_as_stored": 14, "left_held": 70, "ea_cleanup_2026_10_07": 1}
+DECISION_FLOORS = {"kept_as_stored": 14, "left_held": 70, "ea_cleanup_2026_10_07": 1, "tgs_review_2026_11_13": 1}
 
 LIVE_ID = "aaaaaaaa-0000-4000-8000-000000000001"
 OTHER_LIVE_ID = "aaaaaaaa-0000-4000-8000-000000000002"
@@ -346,6 +346,12 @@ def check_owner_decisions(r: Result) -> None:
         "no section of the owner's decisions has fewer teams than recorded",
         not shrunk,
         f"section: (teams now, recorded floor) {shrunk}",
+    )
+    unfloored = sorted(set(sections) - set(DECISION_FLOORS))
+    r.check(
+        "every section of the owner's decisions has a recorded floor",
+        not unfloored,
+        f"sections missing from DECISION_FLOORS: {unfloored}",
     )
     with mock.patch.object(fbc, "OWNER_DECISIONS", fbc.OWNER_DECISIONS.with_name("no_such_file.json")):
         try:

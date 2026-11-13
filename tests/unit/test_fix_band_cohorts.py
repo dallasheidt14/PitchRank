@@ -988,5 +988,6 @@ def test_a_decisions_file_saved_with_a_byte_order_mark_still_loads(tmp_path, mon
 
 def test_the_owner_s_decisions_file_in_the_repo_loads():
     decided = fbc.load_owner_decisions(_Db([]))
+    sections = json.loads(fbc.OWNER_DECISIONS.read_text(encoding="utf-8-sig"))
 
-    assert {"kept_as_stored", "left_held", "ea_cleanup_2026_10_07"} <= {section for section, _ in decided.values()}
+    assert {section for section, _ in decided.values()} == {name for name, body in sections.items() if body["teams"]}

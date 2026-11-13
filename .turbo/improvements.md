@@ -3111,6 +3111,54 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: Those gates still read Grey and Gray as different squads, so a provider row spelled one way is refused against a stored team spelled the other and creates a copy, and the fuzzy-merge refusal keeps such a pair apart. Live names use both: 876 teams carry the word Gray and 1,186 Grey (counted 2026-11-12). Fold in each gate's comparison, not inside `src/utils/team_name_utils.extract_distinctions`, whose output `resolve_distinction` stores as `teams.distinction`. It changes which teams those providers link to, so replay their past copies first.
 - **Noted**: 2026-11-12
 
+### Let U-age-named opponents that agree on distance fire the age review's far-from-name hold
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: the opponent-witness loop in `.claude/skills/correcting-team-age-groups/scripts/review_age_labels.py` that fills `band_c` and `year_ws` through `Reader.band` and `Reader.single_year`, and the `decisive` helper and `far` test there that set `held_opponents_far_from_name`
+- **Why**: The review proposed moving `CVSC 15/16B Gray` (TGS, stored u15) to u11 at group 2, reading its name as a 2015/16 band. Its club writes U-age spans (`CVSC 17/19B` is its U17-19 team), and all 3 of its September games were against U14/U15 boys. The hold did not fire. Run through the script's own `Reader` on 2026-11-13, only `FC United Iowa ECNL RL B2012/13` read as a band, u14 in one game, under the two-game bar. `BSA U15 Boys Elite` read as neither a band nor a year, and `Pearl City SC - U14/15B` read as birth year 2015. Counting the U-ages alone would not fire it either: the three split between u14 and u15, and `decisive` wants one group with two games and a 3:1 margin, so the `far` test must also accept witnesses that agree on distance (two or more, all at least two groups from the proposal). The owner left the team on U15, recorded in `owner_decisions.json`.
+- **Noted**: 2026-11-13
+
+### Find teams whose own name reads as a band that their club means as a U-age span
+
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: the `if kind:` filter in `review()` in `.claude/skills/correcting-team-age-groups/scripts/review_age_labels.py`, which keeps only teams whose own name disagrees with their stored group, and `Reader.band` reading a team's own name
+- **Why**: Cedar Valley SC's GotSport rows `CVSC 15/16B Blue` and `CVSC 15/16G Blue` sit on u11, and every game they have played is against U14-U16 teams (checked 2026-11-13); the club writes U-age spans (`CVSC 17/19B` is its U17-19 team). The review never lists them, because `Reader.band` reads `15/16` as a 2015/16 band, which agrees with u11. CLAUDE.md files a two-year band in a team's own name by that band whatever the schedule says, so count how many clubs write spans this way and get the owner's ruling before moving any.
+- **Noted**: 2026-11-13
+
+### Make the age review and the age fixer honour the cleanup page's don't-apply decisions
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `review()` in `.claude/skills/correcting-team-age-groups/scripts/review_age_labels.py`, and `load_owner_decisions` and `apply_plan` in `scripts/fix_band_cohorts.py`
+- **Why**: Neither file reads `team_cleanup_decisions` (checked 2026-11-13). The cleanup page recorded `dont_apply` for moving `CVSC 15/16B Gray` to u11 (decided 2026-10-29 UTC, source `owner:audit-2026-10-28`), yet a hand-run review on 2026-11-13 proposed the same move again. The fixer's apply-time hold reads only `owner_decisions.json`, so a hand-run apply would have written it; the team was added to that file by hand instead.
+- **Noted**: 2026-11-13
+
+### Test that the age review leaves out teams the owner decided
+
+- **Type**: plan
+- **Category**: testing
+- **Where**: the `owner_left` skip in `review()` (`out_owner_decision`) in `.claude/skills/correcting-team-age-groups/scripts/review_age_labels.py`; `check_applier`, `check_recheck` and `check_triage` in `scripts/check_age_skill_assumptions.py` test the applier's hold and the re-check's and triage's skips
+- **Why**: No test calls `review()` (grep, 2026-11-13). A reviewer's mutation run that deleted the skip left 473 tests and the self-check green (reported by review, not repeated). A test has to stand in for the Supabase client `review()` builds and keep `credential_roots` and `load_dotenv` from loading real credentials. The fixer's apply-time hold still stops the write.
+- **Noted**: 2026-11-13
+
+### Record reconcile declines in a dated section of the owner's age decisions
+
+- **Type**: direct
+- **Category**: docs
+- **Where**: Step 5 of `.claude/skills/reconcile-gotsport/SKILL.md`, which adds each declined relabel to `kept_as_stored.teams` in `owner_decisions.json`
+- **Why**: `load_owner_decisions` gives each team its section's single `decided` text, which the applier's hold reason and `archive_split.py`'s skip line print, so a decline appended to `kept_as_stored` reports "2026-09-18/19, reviewed one by one" (checked 2026-11-13). Step 5 should open a new dated section instead, with its floor in `DECISION_FLOORS`, as the correcting-team-age-groups skill's Owner decisions section says.
+- **Noted**: 2026-11-13
+
+### Find why Iowa "CVSC" teams from TGS are filed in Oregon under Chehalem Valley Soccer Club
+
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: Tier B (the club's own state) in `scripts/assign_team_states.py`, and the `("OR", "exact", "CVSC", "Chehalem Valley Soccer Club")` entry of `CLUB_CANONICAL_OVERRIDES` in `scripts/full_club_analysis.py`
+- **Why**: `CVSC 15/16B Gray`, `CVSC - CVSC 11B Gray`, `CVSC - CVSC 11G Gray` and `CVSC - CVSC 11/12G` (TGS, created 2026-09-28 and 2026-10-26) carry state OR with state_source `tier_b` and club Chehalem Valley Soccer Club, yet every game they have played (2026 Midwest Classic, Halloween Havoc 2026) was against Iowa or Nebraska teams, and Cedar Valley SC (Iowa) has GotSport rows with the same names (checked 2026-11-13). Clubs in IA, MD, OR and CA all use the acronym CVSC, so a Tier B answer for a bare `CVSC` club and the OR-scoped override can each misfile another state's team. The four teams' state and club are the owner's call.
+- **Noted**: 2026-11-13
+
 ### Tell the ranking archive when a save recovers by a later or altered resend
 
 - **Type**: plan

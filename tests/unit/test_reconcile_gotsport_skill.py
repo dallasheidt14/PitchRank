@@ -719,11 +719,10 @@ def _triage_with_decisions(tmp_path, monkeypatch, decisions, rows):
 
 
 def test_the_triage_leaves_out_a_team_from_every_section_of_the_owner_s_decisions(tmp_path, monkeypatch, capsys):
-    sections = {
-        "kept_as_stored": "11111111-1111-4111-8111-111111111111",
-        "left_held": "22222222-2222-4222-8222-222222222222",
-        "ea_cleanup_2026_10_07": "33333333-3333-4333-8333-333333333333",
-    }
+    # Every section of the repo's own file plus a name no reader has seen, so a reader that honours only
+    # the sections it already knows fails here.
+    names = [*json.loads(fbc.OWNER_DECISIONS.read_text(encoding="utf-8-sig")), "a_later_review_2099_01_01"]
+    sections = {name: f"{i:08x}-1111-4111-8111-111111111111" for i, name in enumerate(names, 1)}
     decisions = tmp_path / "owner_decisions.json"
     decisions.write_text(
         json.dumps({name: {"decided": "2026-10-01", "teams": [{"team_id": tid}]} for name, tid in sections.items()}),
@@ -744,7 +743,7 @@ def test_the_triage_leaves_out_a_team_from_every_section_of_the_owner_s_decision
 
     out = capsys.readouterr().out
     assert "1 teams where GotSport's age or gender differs from ours" in out
-    assert "3 more whose age differs, left out: the owner decided to leave their age" in out
+    assert f"{len(sections)} more whose age differs, left out: the owner decided to leave their age" in out
 
 
 def test_the_triage_stops_when_the_owner_s_decisions_cannot_be_read(tmp_path, monkeypatch):

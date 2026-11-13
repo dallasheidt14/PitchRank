@@ -309,6 +309,12 @@ def test_the_owner_decisions_check_fails_when_a_section_shrinks(monkeypatch, tmp
     assert _failed(checker.check_owner_decisions) == failed
 
 
+def test_the_owner_decisions_check_fails_on_a_section_without_a_floor(monkeypatch, tmp_path):
+    added = {"decided": "2099-01-01, a later review", "teams": [{"team_id": checker.LIVE_ID}]}
+    monkeypatch.setattr(fbc, "OWNER_DECISIONS", _decisions_copy(tmp_path, lambda s: s.update(later_review=added)))
+    assert _failed(checker.check_owner_decisions) == ["every section of the owner's decisions has a recorded floor"]
+
+
 def test_the_owner_decisions_check_fails_when_a_missing_file_reads_as_empty(monkeypatch):
     load = fbc.load_owner_decisions
     monkeypatch.setattr(fbc, "load_owner_decisions", lambda sb: load(sb) if fbc.OWNER_DECISIONS.exists() else {})

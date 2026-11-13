@@ -93,13 +93,19 @@ Quote these; do not extend them.
   all 801"; Groups 3–4 "Only the 866 U-labels"; the 70 held teams "Leave them".
 - 2026-09-19, on a U-label team whose opponents are a group older: "Yea just because it's a u12
   team and playing up that doesn't matter it's still a u12 team".
-- Every team the owner left as stored — the ones reviewed one by one and the 70 — is listed in
-  [scripts/owner_decisions.json](scripts/owner_decisions.json), which the review skips.
+- [scripts/owner_decisions.json](scripts/owner_decisions.json) lists the teams the owner decided to
+  leave at their stored age, and the review skips them. A Don't apply given on the team-cleanup page
+  is not there unless someone adds it: it reaches `team_cleanup_decisions` when that week's cleanup
+  applies, and neither the review nor `scripts/fix_band_cohorts.py` reads that table. Step 1 says
+  how to leave those moves out.
 
-When the owner declines a team or a held group, add it to that file with the date and the answer
-before the next review. The birth-year group (group 4) is the exception: asked whether future
-audits should keep raising it, the owner chose "Ask again at every audit", so it stays out of the
-file and goes back in front of the owner each time.
+When the owner declines a team or a held group, add it to that file before the next review, in a new
+section whose `decided` gives the date and the answer, since a held team's reason quotes its section's
+`decided`. The birth-year group (group 4) is the exception: asked whether future audits should keep
+raising it, the owner chose "Ask again at every audit", so it stays out of the file and goes back in
+front of the owner each time. Each new section needs its floor, the section's team count, in
+`DECISION_FLOORS` in `scripts/check_age_skill_assumptions.py`; without one that check fails, and the
+weekly cleanup parks its ages stage.
 
 ## Hold rather than write
 
@@ -127,7 +133,15 @@ Each rule below is enforced automatically, by a flag, or not at all. Know which.
   `held_opponents_far_from_name`. Mostly 09/10 teams in U19 leagues, two-year play-ups, and
   numbers that are not birth years (`Columbus United 09/10 Boys` plays U11). Owner's call. This
   distance counts by group number, so a `U17` name stored `u19` lands here rather than on the
-  play-up path, U19 leagues being a group of their own.
+  play-up path, U19 leagues being a group of their own. The hold fires only on a decisive division
+  read, a decisive set of band-named opponents (two games, three to one) or a year-witness verdict,
+  so opponents named with U-ages (`BSA U15 Boys Elite`) go unread and a span such as
+  `Pearl City SC - U14/15B` reads as birth year 2015. That sent `CVSC 15/16B Gray` (stored u15) to
+  group 2 for a move to u11 although it played only U14/U15 boys: its club writes U-age spans the
+  way others write bands (`CVSC 17/19B` is its U17-19 team). The owner's "Leave it on U15" is a
+  ruling on that team; the label key still reads `15/16` as U11 elsewhere. Before asking about or
+  planning a band move of two or more groups, read the team's opponents from this season's games,
+  since the review CSV carries no opponent names.
 
 A correction landing on `u9` or younger is still a correction — the team leaves the boards
 because those cohorts are not ranked, and the rollover migration walks it back up to `u10` in
@@ -175,12 +189,24 @@ per group.
 The chart in the script is a literal table for one season, and the script refuses to run once
 the season has rolled; replace `CHART` and `CHART_SEASON` from CLAUDE.md's table.
 
+Before anything reads the review CSV, drop each row whose team, or a row merged into it through
+`team_merge_map`, already has a Don't apply for that move: an active `team_cleanup_decisions` row
+with stage `ages`, decision `dont_apply`, `proposed_value` equal to the row's `proposed` and no
+`superseded_at`. Keep a group 4 row unless that decline's `source` starts with `undo:`, since the
+owner asked to see those at every audit, as the cleanup page does. Neither the review nor the
+applier reads that table, so a row left in the CSV is asked again and written by Step 4's plan.
+
 ### Step 2: Read real rows before asking
 
 Sample every group and every hold category against names, opponents and divisions. Look hard at
 any state whose mix stands out — one pattern dominating, or a group far larger than its
 neighbours'. North Carolina's out-of-date U-labels and Washington's multi-year squads would both
 have misled a blind run.
+
+`year_outside_no_value` mixes every birth year a name rules out, and names that write a U-age as a
+number with a gender letter (`Bennington Fire 11G` plays U11 teams) read as a birth year and land
+there too. Split it by the year each name
+states, and read each part's opponents, before giving any part a value or a count.
 
 ### Step 3: Ask the owner per group
 
