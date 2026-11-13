@@ -44,7 +44,7 @@ def _match(team_name, club_name, state_code, age_group, gender, stored, stored_s
 
 
 def _assert_refused_for_the_word(team_name, club_name, state_code, age_group, gender, refused, accepted):
-    """``refused`` is turned away, while ``accepted`` — the same row without the word — is taken."""
+    """``refused`` is turned away, while ``accepted``, which differs from it only in the word under test, is taken."""
     assert _match(team_name, club_name, state_code, age_group, gender, [refused]) is None
     match = _match(team_name, club_name, state_code, age_group, gender, [accepted])
     assert match["team_name"] == accepted[0]
@@ -184,6 +184,71 @@ def test_a_color_in_the_club_name_is_not_the_squads_color():
         "Male",
         refused=("Red Star U12 Gold", "Red Star"),
         accepted=("Red Star U12 Blue", "Red Star"),
+    )
+
+
+@SEASON_2026
+@pytest.mark.parametrize(
+    ("team_name", "stored_name"),
+    [("Pegasus FC Boys U11 Grey", "PEGASUS FC 15/16 GRAY"), ("Pegasus FC Boys U11 Gray", "PEGASUS FC 15/16 GREY")],
+)
+def test_grey_and_gray_are_one_squads_color(_season, team_name, stored_name):
+    _assert_refused_for_the_word(
+        team_name,
+        "Pegasus FC",
+        None,
+        "u11",
+        "Male",
+        refused=("PEGASUS FC 15/16", "Pegasus FC"),
+        accepted=(stored_name, "Pegasus FC"),
+    )
+
+
+@SEASON_2026
+def test_a_later_row_reads_a_cached_teams_color_the_same_way(_season):
+    matcher = _matcher(None, "u11", "Male", [("PEGASUS FC 15/16 GRAY", "Pegasus FC")])
+
+    first, second = (
+        matcher._fuzzy_match_team("Pegasus FC Boys U11 Grey", "u11", "Male", "Pegasus FC", state_code=None)
+        for _ in range(2)
+    )
+
+    assert first["team_name"] == second["team_name"] == "PEGASUS FC 15/16 GRAY"
+
+
+def test_a_gray_in_the_club_name_is_not_the_squads_color():
+    _assert_refused_for_the_word(
+        "U12 Blue",
+        "Gray Wolves",
+        "MI",
+        "u12",
+        "Male",
+        refused=("Gray Wolves U12 Gold", "Gray Wolves"),
+        accepted=("Gray Wolves U12 Blue", "Gray Wolves"),
+    )
+
+
+def test_the_clubs_initials_without_its_soccer_club_are_not_a_location():
+    _assert_refused_for_the_word(
+        "North Shore United Germantown U11 White",
+        "North Shore United Soccer Club",
+        None,
+        "u11",
+        "Male",
+        refused=("NSU Mequon U11 Boys White", "North Shore United Soccer Club"),
+        accepted=("NSU Germantown U11 Boys White", "North Shore United Soccer Club"),
+    )
+
+
+def test_club_initials_that_spell_a_location_code_still_mark_a_squad():
+    _assert_refused_for_the_word(
+        "San Francisco Vikings U12 Blue",
+        "San Francisco Vikings Soccer Club",
+        None,
+        "u12",
+        "Male",
+        refused=("San Francisco Vikings U12 Blue SFV", "San Francisco Vikings Soccer Club"),
+        accepted=("San Francisco Vikings U12 Blue", "San Francisco Vikings Soccer Club"),
     )
 
 

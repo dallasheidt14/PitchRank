@@ -853,7 +853,10 @@ state. `playmetrics-tournament-scrape-import.yml` runs it on dispatch.
   `AFC Union`); when this check confirms such a copy, add the spelling there. A team is still
   created whenever no stored team clears the gates at 0.75 or more, so the check stays: of the 46
   tournament rows the Harvest Classic cleanup of 2026-11-10 merged, the matcher as of 2026-11-12
-  still creates 8.
+  still creates 6, all PSG Academy Chicago copies: one name carries the club's word "Academy" and
+  the other does not, and the tier gate refuses that pair before scoring. The owner decided on
+  2026-11-12 to keep "Academy" a tier word even inside a club name, so merge these through the
+  check like any other copy.
 - **On this import, a team with a likely match is held in the review queue instead of being
   created.** That covers a candidate scoring 0.75-0.90, and one scoring higher that a birth-year,
   U19-year or gender guard sent to review (`GameHistoryMatcher._match_team`). The weekly league

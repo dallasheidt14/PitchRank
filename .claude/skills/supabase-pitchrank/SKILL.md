@@ -276,13 +276,18 @@ priority_score            DOUBLE PRECISION
 status                    VARCHAR(20)            -- 'pending', 'approved', 'rejected'
 ```
 
-A write that breaks a constraint here fails silently: both matcher writers catch the exception
-and only log `Error creating review queue entry`. Two traps:
+A failed matcher write here is silent: both matcher writers catch the exception and only log
+`Error creating review queue entry`. Three traps:
 - a NULL `provider_team_id`. `GameHistoryMatcher._create_review_queue_entry` refuses placeholder
   provider ids before queueing; `Modular11GameMatcher._enqueue_modular11_review_with_suggestions`
   does not, and sends NULL for a falsy id.
 - a `confidence_score` that rounds to 0.90 at two decimals, so anything from 0.895, which
   `confidence_range` rejects. Cap at 0.89, as `src/tournaments/alias_writer.py` does.
+- a payload value JSON cannot encode, which httpx raises on inside `execute()`, before any request
+  is sent. A `MagicMock`-backed test double that falls through on a read it does not model (an
+  `.eq` on a column it was not told about) puts a `MagicMock` into the payload, and the test passes
+  on a write the real client could never send. Have the double return explicit rows for every read
+  the path makes.
 
 Before planning a write of NULL, or of a new value range, into any column, read its nullability
 and checks live: `information_schema.columns.is_nullable` and `pg_get_constraintdef` over

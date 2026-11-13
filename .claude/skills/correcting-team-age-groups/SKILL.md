@@ -15,7 +15,8 @@ boards rank `u10`–`u17` and `u19` only.
 
 To review the age groups of a state or of every team, follow **Auditing against the label key**;
 it applies through `scripts/fix_band_cohorts.py`. To produce a plan without applying it, follow
-**Propose-only mode**. GotSport's reconcile population, both its per-team triage and its bulk lane,
+**Propose-only mode**. To move one team the owner names, use the hand-written plan at the end of
+Step 4. GotSport's reconcile population, both its per-team triage and its bulk lane,
 and the Tuesday re-check belong to the `reconcile-gotsport` skill.
 
 `scripts/check_age_skill_assumptions.py` turns this skill's claims about the code into assertions
@@ -204,6 +205,16 @@ it names (`fix_band_cohorts_apply_<time>.csv`). Read every `held_name_contradict
 as a separate plan, without the flag, the ones that are false alarms: a band whose name also
 carries a U-label two or three seasons old (`Queen City FC U14/15 (2010/2011)`). Keep held a name
 whose U-label its own birth year contradicts (`U14 Travel 2011`).
+
+For a single team the owner names, with no review run behind it, write the plan by hand: a one-row
+CSV headed by `fix_band_cohorts.PLAN_FIELDS`, with `team_id_master` and `team_name` copied from the
+live row (the name check reads the plan's name, and a blank one switches it off), the stored and
+new groups in stored form (`u10`) as `old_age_group` and `new_age_group`, `action` set to
+`would_update`, and `evidence_tier` set to `owner_request_<date>`. The applier does not run the plan
+builder's check for a same-named team already in the target group, so look for a live team with
+the same name and gender in the new group first; if there is one, stop and ask the owner, since it
+is usually a duplicate to merge. Dry-run the plan as above, run it again with `--execute`, check
+the row in the database, and keep the `--revert` line the script prints.
 
 ### Step 5: Pilot 50, verify, apply the rest, verify
 
