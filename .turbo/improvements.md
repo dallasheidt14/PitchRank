@@ -2743,12 +2743,13 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: Utah still holds a game between teams on two boards: 12 games across 8 flights in its 2026-11-02 weekly run (run 41481607693, read from its log). Hawaii and Georgia match each team at its own age through `AffinityStateLeagueMatcher._match_team`, which the owner approved for those two states only. Utah's names are read by `age_from_name`, and it has no `_own_board`.
 - **Noted**: 2026-11-06
 
-### Keep deprecated rows out of the Affinity fuzzy candidates
+### Keep deprecated rows out of the Affinity and PlayMetrics fuzzy candidates
 
 - **Type**: plan
 - **Category**: reliability
-- **Where**: the candidate query in `AffinityORGameMatcher._fuzzy_match_team` in `src/models/affinity_or_matcher.py`, which filters age group, gender and state but not `is_deprecated`, unlike `AffinityUTGameMatcher._squad_key_match` beside it
+- **Where**: the candidate query in `AffinityORGameMatcher._fuzzy_match_team` in `src/models/affinity_or_matcher.py`, which filters age group, gender and state but not `is_deprecated`, unlike `AffinityUTGameMatcher._squad_key_match` beside it; and `PlayMetricsGameMatcher._get_candidates` in `src/models/playmetrics_matcher.py`, which filters the same three columns and not `is_deprecated` either
 - **Why**: On 2026-11-06 a deprecated `Savannah United 10B Blue` tied with the live `Savannah United 09/10B Blue` (u17 Male GA) and `refuse_tied_best` refused both, which would have created a duplicate. Georgia's exact-name lookup covers that case and two ties between live rows, which this filter would not fix, so the lookup stays either way. Oregon, Utah and Hawaii still share the query. Filtering changes which teams those leagues link to, so measure that first.
+- **Update (2026-11-12)**: PlayMetrics has the same shape. The u11 Female pool for a tournament `AFC Union U11G Premier` held the live team and its deprecated same-name copy from the 2026-11-10 merges; a guarded dry run linked the live one, at equal confidence. No PlayMetrics matcher has a tie refusal, so the pick between the two rests on pool order.
 - **Noted**: 2026-11-06
 
 ### Check the other Affinity leagues for same-day rematches
@@ -2878,6 +2879,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `PlayMetricsGameMatcher._fuzzy_match_team` (the Stage 1 `are_same_club` gate at `MATCHING_CONFIG["affinity_club_similarity_threshold"]`) and `_match_team`'s create-on-no-match in `src/models/playmetrics_matcher.py`; `derive_division_age_group` and the `min_age` fallback in `scrape_division` in `scripts/scrape_playmetrics_tournament.py`
 - **Why**: On the unscoped `playmetrics_tournament` path the club gate is the load-bearing check, and `are_same_club(..., threshold=0.9)` returns False for `RASA - AFC Union` vs `AFC Union`, `Forward Madison FC Youth` vs `Forward Madison FC` and `Rush Wisconsin Southeast` vs `RUSH WI Southeast` (run 2026-11-10). So a team with an identical name is dropped before scoring and auto-created, and a candidate scoring 0.75-0.90 is queued for review and created anyway. The Harvest Classic import of 2026-11-10 created 103 teams, about half of them copies (15 exact-name, 34 near-name), merged by hand; 8 AFC Union copies came from an earlier PlayMetrics tournament import on 2026-10-05. No test imports `scrape_playmetrics_tournament` and no matcher test covers either copy path, so the scraper-patterns skill's description of both can go stale unnoticed.
 - **Noted**: 2026-11-10
+- **Update (2026-11-12)**: The matcher half is done; `.turbo/plans/playmetrics-tournament-copies.md` records it. `STORED_CLUB_NAMES` files the four PlayMetrics spellings under PitchRank's club names, and the tournament flow now holds a likely match (0.75-0.90, or one a birth-year, U19 or gender guard sent to review) instead of creating it; the weekly league import still creates, by the owner's choice. A candidate whose name states a birth year outside the other name's U-age band is refused, which stopped a coin-flip link of `AFC Union U10G Red` to the U9 row `AFC Union G 2018 Red`. These paths are pinned in `tests/unit/test_playmetrics_matcher_row_state.py` and `tests/unit/test_playmetrics_matcher_fuzzy.py`. Replaying the 46 tournament rows the Harvest Classic cleanup merged (from the imports of 2026-11-10 and 2026-10-05) against the live pools, scoring with `rapidfuzz` as the local import of 2026-11-10 did, linked 19 to the right team, held 19 and created 8, with none linked to a wrong team; `main` before this change created 45 of the 46. With `difflib`, which the import workflow uses, the branch linked 35, held 3 and created 8, against `main`'s 29 created. Still open: pinning the tournament scraper's age rules with tests.
 
 ### Link the unlinked games of an unknown opponent that already has an alias or team row
 
@@ -3022,6 +3024,22 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: every job in `.github/workflows/ci.yml`, longest-running first: `python-test-linux` and `matchbalance-windows-export-test`
 - **Why**: No job in `ci.yml` sets `timeout-minutes`, and pytest-timeout is not installed (checked 2026-11-11), so a test that hangs, such as a subprocess with no timeout or an unbounded loop, holds the merge gate until GitHub's 360-minute job default. Found while reviewing `tests/unit/test_tgs_workflow_chain.py`, whose first draft walked the chain with no bound.
 - **Noted**: 2026-11-11
+
+### Let the PlayMetrics distinction gates pair same-club names that only spell the squad differently
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: the Stage 2 distinction checks (`squad_words`, `location_codes`, `team_number`) in `PlayMetricsGameMatcher._fuzzy_match_team` in `src/models/playmetrics_matcher.py`
+- **Why**: Replaying the 46 tournament rows the Harvest Classic cleanup of 2026-11-10 merged, through the fixed matcher against the live pools, still created 8, each a same-club name refused before scoring: `PSG-NORTHSHORE U14 BOYS` against `PSG ACADEMY NORTHSHORE U14 BOYS` (six PSG rows in all), `Pegasus FC Boys U11 Grey` against `PEGASUS FC 15/16 GRAY`, and `North Shore United Germantown U11 White` against `NSU Germantown U11 Boys White`. Until then each needs the after-import copy check in the scraper-patterns skill.
+- **Noted**: 2026-11-12
+
+### Pin the playmetrics_tournament pipeline branch in the dry-run wiring tests
+
+- **Type**: direct
+- **Category**: testing
+- **Where**: `AUTOCREATING_MATCHERS` in `tests/unit/test_provider_matcher_dry_run.py`
+- **Why**: The list names `playmetrics` but not `playmetrics_tournament`, so `test_pipeline_passes_dry_run_to_every_autocreating_matcher` never reads the tournament branch of `EnhancedETLPipeline._ensure_initialized`. That branch passes `dry_run=self.dry_run` today (checked 2026-11-12), but nothing fails if a later edit drops it, and the tournament import is the one the operator dry-runs before every real import.
+- **Noted**: 2026-11-12
 
 ### Keep the Illinois FC Stars rule out of the no-state pass
 

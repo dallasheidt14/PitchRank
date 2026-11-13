@@ -8,11 +8,14 @@ Expected confidences hold under both scorers ``_calculate_match_score`` can use:
 rapidfuzz, and the difflib fallback CI runs with.
 """
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from src.models.playmetrics_matcher import PlayMetricsGameMatcher
+
+# The 2026-27 season, so a U-age names the bands the CLAUDE.md age table gives.
+SEASON_2026 = patch("src.models.playmetrics_matcher._soccer_season_year", return_value=2026)
 
 
 def _matcher(state_code, age_group, gender, stored, stored_state=None):
@@ -227,6 +230,33 @@ def test_two_u_ages_on_one_board_are_two_squads():
         "Female",
         refused=("Storm Fort Collins U19G Black", "Colorado Storm"),
         accepted=("Storm Fort Collins U18G Black", "Colorado Storm"),
+    )
+
+
+@SEASON_2026
+def test_a_birth_year_outside_the_u_ages_band_is_another_squad(_season):
+    # A U9 row filed on the u10 board: "U10" is 2016/2017, so 2018 is not the same squad.
+    _assert_refused_for_the_word(
+        "AFC Union U10G Red",
+        "AFC Union",
+        "WI",
+        "u10",
+        "Female",
+        refused=("AFC Union G 2018 Red", "AFC Union"),
+        accepted=("AFC Union G 2017 Red", "AFC Union"),
+    )
+
+
+@SEASON_2026
+def test_a_u18_birth_year_is_not_the_u19_squad(_season):
+    _assert_refused_for_the_word(
+        "2009 Boys Black",
+        "Colorado Storm",
+        "CO",
+        "u19",
+        "Male",
+        refused=("U19 Boys Black", "Colorado Storm"),
+        accepted=("U18 Boys Black", "Colorado Storm"),
     )
 
 
