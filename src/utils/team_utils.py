@@ -95,9 +95,10 @@ def extract_band_birth_year(team_name: str, current_year: Optional[int] = None) 
     """Younger birth year of the first two-year band in a team name, or None.
 
     A band is named by its younger year, however it is spelled: "2013/2014",
-    "2013/14", "14/13" and "B13/14" all return 2014. Only a run of exactly two
-    consecutive years is a band. A pair younger than U7 is a season written into
-    the name ("2025-26", "22/23") and is passed over for a later band.
+    "2013/14", "14/13", "B13/14" and "2013—2014" all return 2014; every dash reads
+    as a hyphen, as read_label reads it. Only a run of exactly two consecutive
+    years is a band. A pair younger than U7 is a season written into the name
+    ("2025-26", "22/23") and is passed over for a later band.
 
     The year comes back even when its band has aged out or is too young to board,
     so a caller that found a band converts it with calculate_age_group_from_band
@@ -111,8 +112,10 @@ def extract_band_birth_year(team_name: str, current_year: Optional[int] = None) 
     """
     if not team_name or len(team_name) > _BAND_SCAN_LIMIT:
         return None
+    from src.tournaments.cohort_labels import ascii_dashes  # here because cohort_labels imports this module
+
     season = CURRENT_YEAR if current_year is None else current_year
-    for run in _BAND_RUN_RE.finditer(team_name):
+    for run in _BAND_RUN_RE.finditer(ascii_dashes(team_name)):
         years = [int(y) if len(y) == 4 else 2000 + int(y) for y in re.findall(r"20[0-9]{2}|[0-9]{2}", run.group(0))]
         if len(years) == 2 and abs(years[0] - years[1]) == 1 and max(years) <= season - 6:
             return max(years)

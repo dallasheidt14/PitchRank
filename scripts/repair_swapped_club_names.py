@@ -31,6 +31,7 @@ tagged with its source:
   bracketed segment of a mixed-case name is undone for every live team in that
   state still holding the lowered spelling. A rename that re-cased some other word
   holding a capital ("SoCal" -> "Socal") is proposed too, listed but not approved.
+  A lowered spelling the owner has since kept (ABBREVIATION_KEPT_SPELLINGS) is left alone.
 
 The dry run writes a snapshot CSV to data/exports (or --exports-dir) and changes nothing. Read it, set
 ``approved`` to true on any listed row you accept, then replay it with --execute:
@@ -87,6 +88,10 @@ DEFAULT_ABBREVIATION_RUNS = ("34866235667",)
 # PlayMetrics has its own source above.
 TEAM_NAME_SKIPPED_PROVIDERS = frozenset({"gotsport", "playmetrics"})
 TEAM_NAME_EXCLUDED_CLUBS = frozenset({"NEFC"})
+
+# (state, the lowered spelling) the owner kept after the cleanup lowered it, so the abbreviation
+# source never proposes restoring it. Colorado Edge: the owner's call, 2026-10-29.
+ABBREVIATION_KEPT_SPELLINGS = frozenset({("CO", "Colorado Edge")})
 
 TEAM_COLUMNS = "team_id_master,team_name,club_name,state_code,provider_id,provider_team_id"
 
@@ -559,7 +564,9 @@ def build_snapshot(supabase, clubs: Dict[str, Tuple[str, str]], cleanup_logs: It
     fixes: Dict[Tuple[Optional[str], str, str], Tuple[Optional[str], str, str, str]] = {}
     for text in cleanup_logs:
         for fix in parse_cleanup_log(text):
-            fixes.setdefault(fix[:3], fix)
+            state, _, after, _ = fix
+            if (state, after) not in ABBREVIATION_KEPT_SPELLINGS:
+                fixes.setdefault(fix[:3], fix)
     lowered_rows = abbreviation_rows(supabase, fixes.values(), codes)
 
     rows, conflicts = merge_proposals(provider_rows + name_rows + lowered_rows)

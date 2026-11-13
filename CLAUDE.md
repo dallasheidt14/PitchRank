@@ -23,18 +23,25 @@ PitchRank is a **youth soccer ranking platform** that scrapes game data from mul
 - Never commit to main directly; verify the branch before every commit. `main` requires a PR and the `ci.yml` checks (squash only, no force-push).
 - `.claude/hooks/` (wired by `.claude/settings.json`) refuses commit/push on main, blanket staging, force-push, `reset --hard`, whole-file `ruff format`, `.env` edits, and `commit --amend` once HEAD is on a remote. It reads a shell wrapper's quoted argument as a command, so `powershell -Command "git push --force"` is refused too. A `BLOCKED:` message is the hook, not a transient error.
 - When creating a new branch, use `git checkout -b <branch> origin/main` only when no staged/WIP work exists. If unsure, run `git status` and `git stash list` first.
-- After merging a PR, do NOT perform additional merges or git operations unless explicitly asked.
+- After merging a PR, do NOT perform additional merges or git operations unless explicitly asked. The
+  worktree cleanup `pr_wait.py` runs after its own merge is the exception.
 - `delete_branch_on_merge` is on, so GitHub removes the head branch the moment a PR merges. Cleanup is
-  only the local side (`git worktree remove`, `git branch -D`); `git push origin --delete <branch>`
-  errors with "remote ref does not exist". It also breaks the obvious merge check —
-  `git merge-base --is-ancestor origin/<branch> origin/main` reports NOT merged for a branch that
-  merged cleanly, because the ref it names is already gone. Check `gh pr view <n> --json state` instead.
+  only the local side; `git push origin --delete <branch>` errors with "remote ref does not exist". It
+  also breaks the obvious merge check — `git merge-base --is-ancestor origin/<branch> origin/main`
+  reports NOT merged for a branch that merged cleanly, because the ref it names is already gone. Check
+  `gh pr view <n> --json state` instead. For the local side, run
+  `python scripts/clean_merged_worktrees.py --execute` from the main checkout (it keeps the worktree the
+  shell is in); it removes every merged PR's worktree and local branch. A bare `git worktree remove`
+  deletes ignored files, sometimes the only copy of a rollback log, which the script first copies to
+  `data/backups/worktree-rescue/`; and on Windows it follows a `node_modules` junction and empties the
+  main checkout's. Removing a worktree the script keeps (a detached one, say) by hand means `rmdir` on its
+  junctions and copying out its `data/` first.
 - Sync before analyzing repo state. Work lands on `origin/main` via PRs merged from several machines and agent runs, so this checkout routinely sits weeks behind (38 commits / 4 days, as of 2026-08-22). Any audit, inventory, or "does X exist" question answered against a stale tree will be wrong in both directions: it reports merged work as missing, and flags already-fixed problems as live. Run `git fetch --all --prune` and fast-forward before measuring anything.
 - Keep the working tree clean — stage selectively (`git add <paths>`), never `git add -A`.
 - When the user asks for a git operation (commit, push, merge), do it immediately without waiting for a second ask.
 - `.claude/rules/git-workflow.md` adds the mechanics: verifying the branch before every commit, and `git stash pop --index` when a staged/unstaged split matters.
 - Stacking a PR on another open PR costs you one predictable step: `main` takes squash merges, so merging the base rewrites its commits and the stacked branch then reports a conflict against `main` even though the content is identical. Resolve with `git merge origin/main` — a rebase would need the force-push the guard blocks — and expect the conflicts to be exactly the lines both branches edited. Prefer branching from `main` unless the second change genuinely cannot be reviewed without the first.
-- After opening a PR, run `python scripts/pr_wait.py`: it waits out the Codex review window (bounded at 10 minutes past open, since Codex reviews roughly half of PRs and has never posted later than that), prints the findings, then merges. A green gate alone is not grounds to merge — `gh pr checks` reports run status, while Codex's findings live on the review, and #1019 shipped a false statement that way. Pass `--no-merge` whenever the merge is still the user's call; the bare command merges. The window is measured from the PR's creation, so a re-review requested later needs its own poll — and that poll must filter review objects and inline comments by timestamp, because the *original* review is still there and its body reads like a fresh clean pass. Every review body carries the commit it reviewed; compare that to the head you pushed.
+- After opening a PR, run `python scripts/pr_wait.py`: it waits out the Codex review window (bounded at 10 minutes past open, since Codex reviews roughly half of PRs and has never posted later than that), prints the findings, then merges. A green gate alone is not grounds to merge — `gh pr checks` reports run status, while Codex's findings live on the review, and #1019 shipped a false statement that way. Pass `--no-merge` whenever the merge is still the user's call; the bare command merges. The window is measured from the PR's creation, so a re-review requested later needs its own poll — and that poll must filter review objects and inline comments by timestamp, because the *original* review is still there and its body reads like a fresh clean pass. Every review body carries the commit it reviewed; compare that to the head you pushed. After merging it runs `scripts/clean_merged_worktrees.py --execute`, which keeps any worktree with uncommitted work or still in use; the PR's own worktree is usually the shell's working folder, so it goes at the next merge, or when the command the sweep prints is run from the main checkout.
 
 ## Verification & Regeneration
 - After any change to blog content, metadata, or site structure, always regenerate derived files (e.g., llms.txt) before committing.
@@ -147,6 +154,16 @@ PitchRank is a **youth soccer ranking platform** that scrapes game data from mul
   decision) has no test calling it, the guards below it are pinned against a fixture rather
   than against the query, so name the composition in the test and let it do its own fetching
   through the double.
+- **A test or harness that runs a workflow step's script must not be able to reach the real
+  `gh`.** On a machine where `gh` is logged in, one stray `gh workflow run` dispatches a
+  production run. Record `gh` both as a shell function in the script text and as a stub first
+  on PATH, since `command gh`, `env gh` and `timeout gh` skip a function. An experiment harness
+  also takes the GitHub CLI directory off PATH and appends a tripwire `gh`. Run the script as
+  `bash -e`, which is what Actions runs for a step with no `shell:`, without pipefail. Carry
+  values between steps by running the steps that produce them, not by hand.
+  `tests/unit/test_tgs_workflow_chain.py` is the model. Inside a bash script on Windows, put the
+  stub on PATH as a POSIX path (`cygpath -u`): Git Bash splits a "C:/..." entry at its colon, and
+  the real `gh` answers. Check that `command -v gh` names the stub before running anything.
 
 ## Scope & Approach Discipline
 - Do NOT make changes beyond what was explicitly requested. If you see opportunities for improvement, mention them but wait for approval.
@@ -445,6 +462,18 @@ catches what the importer cannot reach (games outside its scan range, and a stal
 twin is already stored, which it hides), holds the same both-sides changes, and applies a change only
 once two consecutive scheduled runs see the same score, because TGS has no last-updated field.
 
+#### Every new TGS team is decided once per chain link, before its games import
+
+The `match-teams` job runs `scripts/extract_and_import_tgs_teams.py` once over every shard's CSV,
+between scraping and importing. A new TGS id links by name only to a team that carries no TGS id
+yet, so two TGS squads never fuse on one team (owner, 2026-11-11); otherwise it gets its own team, at
+the age its own name states. A name-based link keeps `match_method = 'fuzzy_auto'`, so a wrong link
+can still be found and undone (owner, 2026-11-11). The game import finds a TGS team only by its TGS
+id and never creates one, so a manual TGS import needs that step run over its CSV first. When the
+match job fails, the import still runs, so one undecided team holds back no one else's games, and
+the run shows red (owner, 2026-11-12). The rules, what is held back, and how to measure a scorer
+change are in the `scraper-patterns` skill under "Creating TGS teams".
+
 ### Adding a new scraper
 
 **First check whether this repo already scrapes it.** Search for the provider's base URL or
@@ -639,6 +668,7 @@ python -m ruff check src/ scripts/ config/ tournament_intake.py dashboard.py
 python -m pytest tests/ --ignore=tests/test_enhanced_pipeline.py
 python -m pytest tests/unit/test_temp_workspace.py tests/unit/test_seeding_predictions.py tests/unit/test_seeding_pdf.py tests/unit/test_compare_predictor_bridge.py
 python -m pytest tests/unit/test_team_cleanup_run_store.py
+python -m pytest tests/unit/test_clean_merged_worktrees.py
 
 cd frontend
 npx eslint .
@@ -674,7 +704,7 @@ two-line edit in `.github/workflows/claude-code-review.yml`.
 | `clear-queue.yml` | Manual dispatch | "Help Clear Queue" — bulk drain + teams-table top-up |
 | `calculate-rankings.yml` | Mon 12:30 PM UTC, and after any successful Modular11 league or events run | Recalculate rankings (Glicko-2 + ML). The `workflow_run` trigger does not distinguish a Modular11 dry run, so a test scrape on Actions starts a full ranking run; scrape locally to test |
 | `auto-gotsport-event-scrape.yml` | Manual dispatch | Tournament bracket scraping (cron removed 2026-05-17) |
-| `tgs-event-scrape-import.yml` | Mon 6:30 AM UTC | TGS event scraping |
+| `tgs-event-scrape-import.yml` | Mon 6:30 AM UTC | TGS event scraping, run as a chain of event-id links that each dispatch the next; red when the final link finds games, the signal to add a link |
 | `tgs-score-reconcile.yml` | Tue + Fri 5:23 AM UTC | Correct stored TGS scores TGS has since changed, or hide a stale row beside its corrected twin (`is_excluded`); see 'TGS edits scores after posting them' |
 | `data-hygiene-weekly.yml` | Mon 11:00 AM UTC — **switched off in GitHub since 2026-08-23** | Data cleanup — name normalization, distinction backfill, dupe and queue-match steps (the age step is disabled; see `AGE_DERIVATION_ENABLED`). `gh workflow list --all` shows it `disabled_manually`; the file keeps its cron, so nothing here runs until someone re-enables it, and IMP-258 must be fixed first |
 | `unknown-opponent-hygiene-weekly.yml` | Tue 6:00 PM UTC | Resolve "Unknown" opponents |
@@ -697,6 +727,7 @@ two-line edit in `.github/workflows/claude-code-review.yml`.
 | `double-stored-games-report-weekly.yml` | Thu 9:47 AM UTC | Count GotSport games stored twice (same teams, same day, two active scored rows). Reports only, writes nothing; a pair can be a real rematch, so check each against GotSport before excluding a row |
 | `weekly-prospective-settle-evaluate.yml` | Mon 4:00 PM UTC | Settle and score last week's prospective match predictions |
 | `weekly-prospective-refresh.yml` | Daily 4:15 AM UTC, gated | Capture Compare forecasts for stored upcoming fixtures; requires `COMPARE_CAPTURE_ENABLED=true` after the pilot |
+| `compare-weekend-tuning.yml` | Daily 5:20 PM UTC, gated | Private November 14–15 Compare diagnostic; requires `COMPARE_WEEKEND_TUNING_ARCHIVE`, reads results after November 16 UTC, and never deploys a model |
 | `smoke-infographics.yml` | Daily 1:17 PM UTC | Smoke-test the infographic OG routes |
 | `check-stuck-signups.yml` | Every 6 hours | Flag signups stuck mid-flow, and send a fresh set-password link at 24h and 72h to new guest buyers who never signed in |
 | `reconcile-stripe-daily.yml` | Every 6 hours | Reconcile Stripe subscriptions against `user_profiles` |
@@ -750,7 +781,8 @@ state from a guess or from travel, and together they produced most of the wrong 
 The supported backfill is now `scripts/assign_team_states.py` plus its review queue, documented
 by the `assigning-team-states` skill, and reaching a schedule through `fill-team-states-weekly.yml`
 (fills only, never corrections). **Do not re-enable a disabled step to fix a missing state** — a
-comment elsewhere in the tree may still point at one of them (`scrape_tgs_event.py:587` does).
+comment elsewhere in the tree may still point at one of them (the "matched later via club name
+script" comment in `scrape_tgs_event.py` does).
 
 **Several provider imports still stamp a state on team creation, on a schedule**, which is a
 different thing from a backfill and is not covered by the above: `wa-scraper.yml` runs the
@@ -1096,6 +1128,7 @@ All routes under `/api` are excluded from middleware auth (the negative lookahea
 - Add a dry-run guard (`--dry-run` / `dry_run` param) to any new data-mutating method or script.
 - A dry run is only as good as its weakest writer. `EnhancedETLPipeline` must pass `dry_run` to every provider matcher it constructs, and each matcher subclass must gate its own autocreate writes — a subclass that skips either makes the base class's guards inert and the run writes while reporting "no changes were made". Verify a new provider's dry run against the database, not its summary output.
 - A dry run writes nothing, local files included. A guard that reads a file a previous run wrote is switched off by a dry run that rewrites that file: a team-cleanup page build's dry run once rewrote the page's `published` marker, and the next build's "the owner has decided cards" refusal stopped firing. Key a guard on the state that cannot be previewed away (the database rows), and make the dry run print what it would write instead. The one owner-approved exception (2026-11-09) is the operator-run per-event importers (`import_tourneycentral_event.py`, `import_athletes2events_event.py`, `import_soccereventsgroup_event.py`, `import_htgsports_event.py`): their dry run writes new date-stamped games, cross-age and team-report CSVs under `data/raw/<provider>/`, which are the owner's review sheet before `--execute` and which nothing reads back.
+- A dry run reports the failures it can see (a failed read, a row it could not decide) with the exit status the real run would give; only checks that need the writes, such as reading them back, are skipped. A dry run that returns before its failure check exits 0 on a run that would fail.
 - A command a script prints for the owner to run next (a retry after a lost answer, an undo line in a record) is a code path too. Build it from the invocation's own mode, so a dry run never prints `--execute`. Point it at the tool's own guarded command, never at raw SQL; where it offers a lower-level command instead, say which of the tool's checks that command skips.
 - Run `python -m ruff check src/ scripts/ config/ tournament_intake.py dashboard.py` before committing Python changes — that path list is the python-lint CI job, and `ruff` is not on PATH on a stock Windows checkout. A Codex review bot also checks PRs (flags missing dry-run guards, lint, race conditions).
 - Do NOT run `ruff format` over a whole file. Repo-wide format enforcement is deliberately deferred (`.pre-commit-config.yaml` is lint-only), so formatting a file rewrites unrelated code and buries the real diff. Check `ruff format --diff` first and keep the reformatting to lines the change already touches.

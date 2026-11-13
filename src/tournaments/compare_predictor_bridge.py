@@ -202,6 +202,7 @@ def run_compare_prediction_batch(
     teams_by_entrant_id: dict[str, dict[str, Any]],
     games: list[dict[str, Any]],
     *,
+    reference_date: str,
     timeout_seconds: int = 120,
 ) -> dict[tuple[str, str], ComparePrediction]:
     """Run every ordered entrant matchup through frontend/lib/matchPredictor.ts."""
@@ -213,6 +214,7 @@ def run_compare_prediction_batch(
 
     payload = {
         "schema_version": 1,
+        "reference_date": date.fromisoformat(reference_date).isoformat(),
         "teams": [
             {"entrant_id": entrant_id, "team": teams_by_entrant_id[entrant_id]}
             for entrant_id in entrant_ids

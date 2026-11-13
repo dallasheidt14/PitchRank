@@ -32,6 +32,9 @@ def _pin_season(monkeypatch):
         "2013-2014",
         "2013 - 2014",
         "2013–2014",
+        # Every dash reads as a hyphen, as read_label reads it.
+        "2013—2014",
+        "2013−2014",
         "B13/14",
         "b13/14",
         "13/14B",

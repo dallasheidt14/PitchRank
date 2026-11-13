@@ -11,6 +11,7 @@ import type { TeamWithRanking } from './types';
 import type { MatchPrediction } from './matchPredictor';
 import { extractAgeFromTeamName } from './utils';
 import { MATCH_FORM_SAMPLE_SIZE } from './matchEvidence';
+import { presentMatchup } from './matchupPresentation';
 
 type ExplanationMagnitude = 'significant' | 'moderate' | 'minimal';
 export type ExplanationFactor =
@@ -37,7 +38,7 @@ export interface MatchExplanation {
   // Summary
   summary: string;
 
-  // Supporting factors; draws balance both teams before neutral context.
+  // When neither team is favored, balance both sides before neutral context.
   factors: Explanation[];
 
   // Key insights (bullet points)
@@ -60,23 +61,10 @@ function getMagnitude(absDiff: number, thresholds = { significant: 0.15, moderat
 }
 
 /**
- * Format percentile (0-1 scale to percentile) with proper ordinal suffix
+ * These are normalized rating scores, not ranks in a percentile distribution.
  */
-function formatPercentile(value: number): string {
-  const percentile = Math.round(value * 100);
-  const lastDigit = percentile % 10;
-  const lastTwoDigits = percentile % 100;
-
-  // Handle special cases: 11th, 12th, 13th
-  if (lastTwoDigits >= 11 && lastTwoDigits <= 13) {
-    return `${percentile}th`;
-  }
-
-  // Handle regular cases
-  if (lastDigit === 1) return `${percentile}st`;
-  if (lastDigit === 2) return `${percentile}nd`;
-  if (lastDigit === 3) return `${percentile}rd`;
-  return `${percentile}th`;
+function formatRatingScore(value: number): string {
+  return String(Math.round(value * 100));
 }
 
 /**
@@ -90,8 +78,8 @@ function explainPowerScore(teamA: TeamWithRanking, teamB: TeamWithRanking, power
 
   const advantage = powerDiff > 0 ? 'team_a' : 'team_b';
   const strongerTeam = powerDiff > 0 ? teamA.team_name : teamB.team_name;
-  const strongerPower = powerDiff > 0 ? teamA.power_score_final || 0.5 : teamB.power_score_final || 0.5;
-  const weakerPower = powerDiff > 0 ? teamB.power_score_final || 0.5 : teamA.power_score_final || 0.5;
+  const strongerPower = powerDiff > 0 ? (teamA.power_score_final ?? 0.5) : (teamB.power_score_final ?? 0.5);
+  const weakerPower = powerDiff > 0 ? (teamB.power_score_final ?? 0.5) : (teamA.power_score_final ?? 0.5);
   const strongerRank = powerDiff > 0 ? teamA.rank_in_cohort_final : teamB.rank_in_cohort_final;
   const weakerRank = powerDiff > 0 ? teamB.rank_in_cohort_final : teamA.rank_in_cohort_final;
 
@@ -134,16 +122,9 @@ function explainSOS(teamA: TeamWithRanking, teamB: TeamWithRanking, sosDiff: num
 
   const advantage = sosDiff > 0 ? 'team_a' : 'team_b';
   const strongerSOS = sosDiff > 0 ? teamA.team_name : teamB.team_name;
-  const _weakerSOS = sosDiff > 0 ? teamB.team_name : teamA.team_name;
-  const strongerPercentile = formatPercentile(sosDiff > 0 ? teamA.sos_norm || 0.5 : teamB.sos_norm || 0.5);
-  const weakerPercentile = formatPercentile(sosDiff > 0 ? teamB.sos_norm || 0.5 : teamA.sos_norm || 0.5);
-
-  let description = '';
-  if (magnitude === 'significant') {
-    description = `${strongerSOS}'s rating is battle-tested (${strongerPercentile} vs ${weakerPercentile} schedule strength) - they've proven themselves against elite competition`;
-  } else {
-    description = `${strongerSOS} has faced tougher opponents (${strongerPercentile} vs ${weakerPercentile} schedule strength) - their stats are harder-earned`;
-  }
+  const strongerScore = formatRatingScore(sosDiff > 0 ? (teamA.sos_norm ?? 0.5) : (teamB.sos_norm ?? 0.5));
+  const weakerScore = formatRatingScore(sosDiff > 0 ? (teamB.sos_norm ?? 0.5) : (teamA.sos_norm ?? 0.5));
+  const description = `${strongerSOS} has the higher schedule-strength score (${strongerScore} vs ${weakerScore} out of 100), reflecting tougher rated opposition`;
 
   return {
     factor: 'schedule_strength',
@@ -221,18 +202,20 @@ function explainRecentForm(
  * 2. Team B's offense vs Team A's defense
  *
  * Only reports a mismatch when an offense is STRONGER than the opposing defense
- * (i.e., offense percentile > defense percentile)
+ * (i.e., normalized attack score > normalized defense score)
  */
 function explainOffensiveMatchup(teamA: TeamWithRanking, teamB: TeamWithRanking): Explanation | null {
-  const offenseA = teamA.offense_norm || 0.5;
-  const defenseA = teamA.defense_norm || 0.5;
-  const offenseB = teamB.offense_norm || 0.5;
-  const defenseB = teamB.defense_norm || 0.5;
+  const offenseA = teamA.offense_norm ?? 0.5;
+  const defenseA = teamA.defense_norm ?? 0.5;
+  const offenseB = teamB.offense_norm ?? 0.5;
+  const defenseB = teamB.defense_norm ?? 0.5;
 
   // Calculate both offensive matchup advantages
   // Positive means offense has advantage over opposing defense
   const matchupA = offenseA - defenseB; // Team A offense vs Team B defense
   const matchupB = offenseB - defenseA; // Team B offense vs Team A defense
+  // Equal attacking matchups do not favor whichever team was selected first.
+  if (Math.abs(matchupA - matchupB) < 1e-9) return null;
 
   // Find the most significant offensive mismatch where offense beats defense
   let bestMatchup: { team: 'a' | 'b'; diff: number } | null = null;
@@ -257,14 +240,14 @@ function explainOffensiveMatchup(teamA: TeamWithRanking, teamB: TeamWithRanking)
   let advantage: 'team_a' | 'team_b';
 
   if (bestMatchup.team === 'a') {
-    const offPerc = formatPercentile(offenseA);
-    const defPerc = formatPercentile(defenseB);
-    description = `Tactical advantage: ${teamA.team_name}'s ${offPerc} offense attacks ${teamB.team_name}'s ${defPerc} defense - expect goals`;
+    const offScore = formatRatingScore(offenseA);
+    const defScore = formatRatingScore(defenseB);
+    description = `${teamA.team_name}'s attack score (${offScore}/100) is above ${teamB.team_name}'s defense score (${defScore}/100)`;
     advantage = 'team_a';
   } else {
-    const offPerc = formatPercentile(offenseB);
-    const defPerc = formatPercentile(defenseA);
-    description = `Tactical advantage: ${teamB.team_name}'s ${offPerc} offense attacks ${teamA.team_name}'s ${defPerc} defense - expect goals`;
+    const offScore = formatRatingScore(offenseB);
+    const defScore = formatRatingScore(defenseA);
+    description = `${teamB.team_name}'s attack score (${offScore}/100) is above ${teamA.team_name}'s defense score (${defScore}/100)`;
     advantage = 'team_b';
   }
 
@@ -285,40 +268,19 @@ function explainOffensiveMatchup(teamA: TeamWithRanking, teamB: TeamWithRanking)
 function explainCloseMatch(
   teamA: TeamWithRanking,
   teamB: TeamWithRanking,
-  compositeDiff: number,
-  winProbabilityA: number,
-  drawProbability?: number
+  prediction: MatchPrediction
 ): Explanation | null {
-  if ((drawProbability ?? 0) >= 0.2) {
-    return {
-      factor: 'close_match',
-      advantage: 'neutral',
-      magnitude: 'minimal',
-      description: `This looks like a real draw candidate because the teams profile very similarly`,
-      icon: '⚖️',
-      score: 1.6,
-    };
-  }
-
-  // Use calibrated probability - if within 3% of 50%, it's a close match
-  const probDiffFrom50 = Math.abs(winProbabilityA - 0.5);
-  if (probDiffFrom50 > 0.08) return null; // Not that close
-
-  // Determine how close based on calibrated probability
-  let description = '';
-  if (probDiffFrom50 <= 0.03) {
-    description = `This is a true toss-up - neither side has built a meaningful edge on paper`;
-  } else {
-    description = `This is expected to stay tight because the teams are closely matched across the main indicators`;
-  }
-
+  const view = presentMatchup(prediction, teamA.team_name, teamB.team_name);
+  if (!view.closelyMatched && !view.drawMostLikely) return null;
   return {
     factor: 'close_match',
     advantage: 'neutral',
     magnitude: 'minimal',
-    description,
+    description: view.drawMostLikely
+      ? 'A draw has a higher estimated chance than either team winning'
+      : 'The teams have similar estimated chances of winning',
     icon: '⚖️',
-    score: 1.5, // High priority for close matches
+    score: view.drawMostLikely ? 1.6 : 1.5,
   };
 }
 
@@ -334,6 +296,7 @@ function explainHeadToHead(
   if (!h2h || h2h.gamesPlayed === 0) return null;
 
   const absMargin = Math.abs(h2h.avgMargin);
+  if (absMargin < 0.05) return null;
   const favoredTeam = h2h.avgMargin > 0 ? teamA.team_name : teamB.team_name;
   const advantage: 'team_a' | 'team_b' = h2h.avgMargin > 0 ? 'team_a' : 'team_b';
 
@@ -371,36 +334,52 @@ function explainHeadToHead(
   };
 }
 
-function explainCommonOpponents(
+type CommonOpponentObservation = {
+  advantage: 'team_a' | 'team_b';
+  metric: 'points' | 'margin';
+  amount: number;
+  description: string;
+};
+
+function commonOpponentObservation(
   teamA: TeamWithRanking,
   teamB: TeamWithRanking,
-  commonOpponents?: {
-    sharedOpponents: number;
-    comparedGames: number;
-    avgMarginDiff: number;
-    pointsPerGameDiff: number;
-    reliability: number;
-  },
+  commonOpponents?: MatchPrediction['commonOpponents'],
   commonOpponentSignal?: number
-): Explanation | null {
+): CommonOpponentObservation | null {
   if (!commonOpponents || commonOpponents.sharedOpponents < 2) return null;
-
   const signal = commonOpponentSignal ?? 0;
   if (Math.abs(signal) < 0.025) return null;
-
   const advantage: 'team_a' | 'team_b' = signal > 0 ? 'team_a' : 'team_b';
   const favoredTeam = signal > 0 ? teamA.team_name : teamB.team_name;
-  const absMargin = Math.abs(commonOpponents.avgMarginDiff);
-  const absPoints = Math.abs(commonOpponents.pointsPerGameDiff);
+  const direction = signal > 0 ? 1 : -1;
+  const margin = commonOpponents.avgMarginDiff * direction;
+  const points = commonOpponents.pointsPerGameDiff * direction;
+  // The combined signal can favor points while goal difference favors the other team.
+  // Cite only an aligned statistic that will not round to a zero advantage.
+  const metric = points >= 0.8 || margin < 0.05 ? 'points' : 'margin';
+  const amount = metric === 'points' ? points : margin;
+  if (amount < 0.05) return null;
+  const description =
+    metric === 'points'
+      ? `${favoredTeam} has taken about ${amount.toFixed(1)} more points per game against ${commonOpponents.sharedOpponents} shared opponents`
+      : `${favoredTeam} has an average goal-difference advantage of ${amount.toFixed(1)} per game against ${commonOpponents.sharedOpponents} shared opponents`;
+  return { advantage, metric, amount, description };
+}
+
+function explainCommonOpponents(
+  commonOpponents: MatchPrediction['commonOpponents'],
+  commonOpponentSignal: number | undefined,
+  observation: CommonOpponentObservation | null
+): Explanation | null {
+  if (!commonOpponents || !observation) return null;
+  const significant = observation.metric === 'points' ? observation.amount >= 0.9 : observation.amount >= 1.1;
+  const moderate = observation.metric === 'points' ? observation.amount >= 0.55 : observation.amount >= 0.6;
 
   let magnitude: ExplanationMagnitude;
-  if (
-    commonOpponents.sharedOpponents >= 4 &&
-    commonOpponents.reliability >= 0.45 &&
-    (absMargin >= 1.1 || absPoints >= 0.9)
-  ) {
+  if (commonOpponents.sharedOpponents >= 4 && commonOpponents.reliability >= 0.45 && significant) {
     magnitude = 'significant';
-  } else if (absMargin >= 0.6 || absPoints >= 0.55) {
+  } else if (moderate) {
     magnitude = 'moderate';
   } else {
     magnitude = 'minimal';
@@ -408,20 +387,16 @@ function explainCommonOpponents(
 
   if (magnitude === 'minimal') return null;
 
-  let description = '';
-  if (absPoints >= 0.8) {
-    description = `Shared-opponent edge: against ${commonOpponents.sharedOpponents} common opponents, ${favoredTeam} has taken about ${absPoints.toFixed(1)} more points per game`;
-  } else {
-    description = `Shared-opponent edge: against ${commonOpponents.sharedOpponents} common opponents, ${favoredTeam} has been roughly ${absMargin.toFixed(1)} goals per game better`;
-  }
-
   return {
     factor: 'common_opponents',
-    advantage,
+    advantage: observation.advantage,
     magnitude,
-    description,
+    description: `Shared-opponent results: ${observation.description}`,
     icon: 'vs',
-    score: Math.abs(signal) * 12 + commonOpponents.sharedOpponents * 0.18 + commonOpponents.reliability * 0.6,
+    score:
+      Math.abs(commonOpponentSignal ?? 0) * 12 +
+      commonOpponents.sharedOpponents * 0.18 +
+      commonOpponents.reliability * 0.6,
   };
 }
 
@@ -433,39 +408,27 @@ export function explainMatch(
   teamB: TeamWithRanking,
   prediction: MatchPrediction
 ): MatchExplanation {
-  const {
-    components,
-    formA,
-    formB,
-    winProbabilityA,
-    winProbabilityB,
-    drawProbability,
-    confidence,
-    expectedMargin,
-    h2h,
-    commonOpponents,
-  } = prediction;
+  const { components, formA, formB, confidence, expectedMargin, h2h, commonOpponents } = prediction;
+  const sharedObservation = commonOpponentObservation(teamA, teamB, commonOpponents, components.commonOpponentSignal);
 
   // Generate all possible explanations
   const allExplanations: (Explanation | null)[] = [
     explainHeadToHead(teamA, teamB, h2h), // H2H first - highly predictive
-    explainCommonOpponents(teamA, teamB, commonOpponents, components.commonOpponentSignal),
+    explainCommonOpponents(commonOpponents, components.commonOpponentSignal, sharedObservation),
     explainPowerScore(teamA, teamB, components.powerDiff),
     explainSOS(teamA, teamB, components.sosDiff),
     explainRecentForm(teamA, teamB, formA, formB, components.formDiffRaw),
     explainOffensiveMatchup(teamA, teamB),
-    explainCloseMatch(teamA, teamB, components.compositeDiff, winProbabilityA, drawProbability),
+    explainCloseMatch(teamA, teamB, prediction),
   ];
 
   // Filter out nulls
   const allFactors = allExplanations.filter((e): e is Explanation => e !== null);
 
   // Separate factors by who they favor
-  const favoredSide =
-    prediction.predictedWinner === 'team_a' ? 'team_a' : prediction.predictedWinner === 'team_b' ? 'team_b' : null;
+  const presentation = presentMatchup(prediction, teamA.team_name, teamB.team_name);
+  const favoredSide = presentation.favorite;
 
-  // For "Why X is Favored", only show factors that favor the predicted winner (or neutral)
-  // This prevents confusing displays like "Why Excel is Favored: [Engilman has momentum]"
   const factors = allFactors
     .filter((f) => f.advantage === favoredSide || f.advantage === 'neutral')
     .sort((a, b) => b.score - a.score)
@@ -483,54 +446,12 @@ export function explainMatch(
     : [];
 
   // Generate summary
-  const favoredTeam =
-    prediction.predictedWinner === 'team_a'
-      ? teamA.team_name
-      : prediction.predictedWinner === 'team_b'
-        ? teamB.team_name
-        : 'Neither team';
-
-  let summary = '';
-  if (prediction.predictedWinner === 'draw') {
-    const drawPercent = Math.round((drawProbability ?? 0.33) * 100);
-    const teamAPercent = Math.round(winProbabilityA * 100);
-    const teamBPercent = Math.round(winProbabilityB * 100);
-    summary = `Genuine toss-up (${teamAPercent}% / ${drawPercent}% draw / ${teamBPercent}%) - our model sees no clear favorite`;
-  } else {
-    const probPercent = Math.round(
-      prediction.predictedWinner === 'team_a' ? winProbabilityA * 100 : winProbabilityB * 100
-    );
-    if (probPercent >= 75) {
-      summary = `${favoredTeam} is the clear favorite at ${probPercent}% win probability`;
-    } else if (probPercent >= 60) {
-      summary = `${favoredTeam} has the edge with ${probPercent}% win probability`;
-    } else {
-      summary = `${favoredTeam} is slightly favored at ${probPercent}% - but this could go either way`;
-    }
-  }
+  const summary = presentation.summary;
 
   // Generate user-facing key insights
   const keyInsights: string[] = [];
 
-  if (
-    commonOpponents &&
-    commonOpponents.sharedOpponents >= 2 &&
-    Math.abs(components.commonOpponentSignal ?? 0) >= 0.025
-  ) {
-    const commonOpponentTeam = (components.commonOpponentSignal ?? 0) > 0 ? teamA.team_name : teamB.team_name;
-    const absCommonMargin = Math.abs(commonOpponents.avgMarginDiff);
-    const absCommonPoints = Math.abs(commonOpponents.pointsPerGameDiff);
-
-    if (absCommonPoints >= 0.8) {
-      keyInsights.push(
-        `${commonOpponentTeam} has done better against ${commonOpponents.sharedOpponents} shared opponents, taking about ${absCommonPoints.toFixed(1)} more points per game in those matchups.`
-      );
-    } else {
-      keyInsights.push(
-        `${commonOpponentTeam} has been stronger against ${commonOpponents.sharedOpponents} shared opponents, running about ${absCommonMargin.toFixed(1)} goals per game better in that shared sample.`
-      );
-    }
-  }
+  if (sharedObservation) keyInsights.push(`${sharedObservation.description}.`);
 
   // 3. Margin interpretation
   const absMargin = Math.abs(expectedMargin);
@@ -539,7 +460,7 @@ export function explainMatch(
 
   if (absMargin < 0.5) {
     keyInsights.push(
-      `The projected margin is almost flat (${roundedMargin.toFixed(1)} goals), so a draw-like game script is very plausible.`
+      `The projected margin is almost flat (${roundedMargin.toFixed(1)} goals), so the teams look closely matched.`
     );
   } else if (absMargin < 1.5) {
     keyInsights.push(

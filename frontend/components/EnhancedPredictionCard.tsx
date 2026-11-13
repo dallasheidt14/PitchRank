@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import type { MatchPrediction } from '@/lib/matchPredictor';
 import type { MatchExplanation } from '@/lib/matchExplainer';
 import type { MatchEvidenceSummary } from '@/lib/matchEvidence';
+import { presentMatchup } from '@/lib/matchupPresentation';
 
 interface EnhancedPredictionCardProps {
   teamAName: string;
@@ -58,8 +59,9 @@ export function EnhancedPredictionCard({
   explanation,
   evidence,
 }: EnhancedPredictionCardProps) {
-  const { predictedWinner, winProbabilityA, winProbabilityB, drawProbability, expectedScore } = prediction;
-  const { summary, factors, keyInsights, counterFactors = [] } = explanation;
+  const { winProbabilityA, winProbabilityB, drawProbability, expectedScore } = prediction;
+  const { factors, keyInsights, counterFactors = [] } = explanation;
+  const presentation = presentMatchup(prediction, teamAName, teamBName);
   const cautions: string[] = [];
   if (evidence) {
     for (const [name, team] of [
@@ -73,9 +75,9 @@ export function EnhancedPredictionCard({
   }
 
   // Determine favored team for styling
-  const teamAFavored = predictedWinner === 'team_a';
-  const teamBFavored = predictedWinner === 'team_b';
-  const evenMatch = predictedWinner === 'draw';
+  const teamAFavored = presentation.favorite === 'team_a';
+  const teamBFavored = presentation.favorite === 'team_b';
+  const evenMatch = presentation.favorite === null;
 
   return (
     <Card className="mt-4">
@@ -87,31 +89,34 @@ export function EnhancedPredictionCard({
       <CardContent className="space-y-6">
         {/* Summary */}
         <div className="text-center">
-          <p className="text-lg font-semibold text-foreground">{summary}</p>
+          <p className="text-lg font-semibold text-foreground">{presentation.summary}</p>
+          {presentation.closelyMatched && <p className="text-sm text-muted-foreground mt-1">Closely matched</p>}
         </div>
 
         {/* Expected Score */}
-        <div>
-          <h4 className="text-sm font-medium text-muted-foreground mb-2 text-center">Projected scoreline</h4>
-          <div className="grid grid-cols-3 text-center items-center">
-            <div>
-              <div className="text-sm font-medium truncate mb-1">{teamAName}</div>
-              <div className={`text-3xl font-bold ${teamAFavored ? 'text-green-600' : 'text-foreground'}`}>
-                {Math.round(expectedScore.teamA)}
+        {presentation.showScore && (
+          <div>
+            <h4 className="text-sm font-medium text-muted-foreground mb-2 text-center">Projected scoreline</h4>
+            <div className="grid grid-cols-3 text-center items-center">
+              <div>
+                <div className="text-sm font-medium truncate mb-1">{teamAName}</div>
+                <div className={`text-3xl font-bold ${teamAFavored ? 'text-green-600' : 'text-foreground'}`}>
+                  {Math.round(expectedScore.teamA)}
+                </div>
+              </div>
+              <div className="text-2xl font-semibold text-muted-foreground">–</div>
+              <div>
+                <div className="text-sm font-medium truncate mb-1">{teamBName}</div>
+                <div className={`text-3xl font-bold ${teamBFavored ? 'text-green-600' : 'text-foreground'}`}>
+                  {Math.round(expectedScore.teamB)}
+                </div>
               </div>
             </div>
-            <div className="text-2xl font-semibold text-muted-foreground">–</div>
-            <div>
-              <div className="text-sm font-medium truncate mb-1">{teamBName}</div>
-              <div className={`text-3xl font-bold ${teamBFavored ? 'text-green-600' : 'text-foreground'}`}>
-                {Math.round(expectedScore.teamB)}
-              </div>
-            </div>
+            <p className="text-xs text-muted-foreground text-center mt-2">
+              Most likely scoreline for the predicted result. Other scorelines and outcomes remain possible.
+            </p>
           </div>
-          <p className="text-xs text-muted-foreground text-center mt-2">
-            Most likely scoreline for the predicted result. Other scorelines and outcomes remain possible.
-          </p>
-        </div>
+        )}
 
         {/* Win Probabilities */}
         <div>

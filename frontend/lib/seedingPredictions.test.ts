@@ -155,6 +155,35 @@ function fixtures(): Record<string, Row[]> {
 }
 
 describe('Seeding canonical Compare bridge', () => {
+  it('preserves legacy predictions and digests for a fixed cutoff when the host clock advances', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date('2026-11-12T12:00:00Z'));
+      const data = fixtures();
+      data.games = [
+        game('a-shared', A, C, { game_date: '2026-10-20', home_score: 4, away_score: 0 }),
+        game('b-shared', B, C, { game_date: '2026-10-20', home_score: 0, away_score: 1 }),
+      ];
+      const build = () =>
+        buildSeedingPredictions(
+          database(data).client,
+          { cohort: { a: A, b: B } },
+          {
+            model: 'legacy',
+            asOf: '2026-10-21',
+          }
+        );
+      const original = await build();
+      expect(original.cohorts.cohort.predictions).toHaveLength(2);
+      vi.setSystemTime(new Date('2027-09-08T12:00:00Z'));
+      const later = await build();
+      expect(later.input_digests).toEqual(original.input_digests);
+      expect(later.cohorts.cohort.predictions).toEqual(original.cohorts.cohort.predictions);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it.each(['legacy', 'cohort', 'results'] as const)(
     '%s uses only August 1 onward for evidence, records, predictions and sensitivity',
     async (model) => {

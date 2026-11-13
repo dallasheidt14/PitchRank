@@ -450,6 +450,16 @@ def test_no_override_names_a_canonical_that_another_override_moves_on_from():
     assert not chains, "these canonicals are spellings another override retires: " + "; ".join(chains)
 
 
+def test_no_two_overrides_in_a_state_write_one_club_in_different_capitals():
+    """`caps_winner` gives a case group the first same-state override output it finds, so a later
+    output differing only in capitals is re-cased to the first whenever both spellings are present."""
+    spellings = {}
+    for state, _, _, canonical in fca.CLUB_CANONICAL_OVERRIDES:
+        spellings.setdefault((state, canonical.lower()), set()).add(canonical)
+    clashes = sorted(f"{state}: {sorted(spelled)}" for (state, _), spelled in spellings.items() if len(spelled) > 1)
+    assert not clashes, "these overrides write one club in two casings: " + "; ".join(clashes)
+
+
 def test_every_uysa_override_is_kept_out_of_the_no_state_pass():
     """`analyze_no_state_teams` reads a pattern resolving to one canonical across the whole
     table as nationally safe, so a name established from one state's rows would rewrite a
@@ -679,6 +689,37 @@ def test_a_short_word_the_database_writes_in_lowercase_keeps_the_majority_case()
 def test_colorado_edge_in_colorado_is_the_override_output():
     fixes, _ = _caps_fixes("CO", "Colorado Edge", "Colorado Edge", "Colorado Edge", "Colorado EDGE")
     assert fixes == {("Colorado EDGE", "Colorado Edge")}
+
+
+def test_the_arvada_spelling_of_colorado_edge_becomes_colorado_edge():
+    """The owner's spelling, 2026-10-29: "Colorado Edge", never "Colorado EDGE"."""
+    clubs = ["Colorado Edge", "Colorado Edge", "Colorado EDGE (Arvada Soccer Assn)"]
+    fixes, _, _ = analyze_state([_team(f"t{i}", club, "CO") for i, club in enumerate(clubs)], "CO", VOCAB)
+    assert {(f["from"], f["to"]) for f in fixes} == {("Colorado EDGE (Arvada Soccer Assn)", "Colorado Edge")}
+
+
+def test_lafc_socal_youth_becomes_lafc_so_cal():
+    """The owner's call, 2026-11-12: one spelling for the club, the one its other CA teams carry."""
+    clubs = ["LAFC So Cal", "LAFC So Cal", "LAFC Socal Youth"]
+    fixes, _, _ = analyze_state([_team(f"t{i}", club, "CA") for i, club in enumerate(clubs)], "CA", VOCAB)
+    assert {(f["from"], f["to"]) for f in fixes} == {("LAFC Socal Youth", "LAFC So Cal")}
+
+
+def test_every_spelling_of_desoto_county_sa_and_desoto_fc_becomes_desoto_fc():
+    """The owner's call, 2026-11-12: every Mississippi team of the club is filed as "Desoto FC"."""
+    clubs = ["Desoto FC", "Desoto FC", "Desoto County SA / Desoto FC", "DeSoto County SA / DeSoto FC"]
+    fixes, _, _ = analyze_state([_team(f"t{i}", club, "MS") for i, club in enumerate(clubs)], "MS", VOCAB)
+    assert {(f["from"], f["to"]) for f in fixes} == {
+        ("Desoto County SA / Desoto FC", "Desoto FC"),
+        ("DeSoto County SA / DeSoto FC", "Desoto FC"),
+    }
+
+
+def test_a_bare_fc_stars_in_illinois_becomes_fc_stars_il():
+    """The owner's call, 2026-11-12: Illinois' teams carry "FC Stars (IL)"."""
+    clubs = ["FC Stars (IL)", "FC Stars (IL)", "FC Stars"]
+    fixes, _, _ = analyze_state([_team(f"t{i}", club, "IL") for i, club in enumerate(clubs)], "IL", VOCAB)
+    assert {(f["from"], f["to"]) for f in fixes} == {("FC Stars", "FC Stars (IL)")}
 
 
 def test_every_spelling_of_tennessee_sc_its_state_tag_included_becomes_tennessee_sc():

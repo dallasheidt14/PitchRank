@@ -1,0 +1,80 @@
+name: Compare Weekend Tuning Diagnostic
+
+on:
+  schedule:
+    - cron: '20 17 * * *' # 10:20 AM America/Phoenix
+  workflow_dispatch:
+    inputs:
+      execute:
+        description: Save the first eligible private weekend report
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: compare-weekend-tuning
+  cancel-in-progress: false
+
+jobs:
+  report:
+    if: >-
+      vars.COMPARE_WEEKEND_TUNING_ARCHIVE != '' &&
+      (github.event_name == 'schedule' || github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      STUDY_ARCHIVE: ${{ vars.COMPARE_WEEKEND_TUNING_ARCHIVE }}
+      EXECUTE: ${{ github.event_name == 'schedule' || inputs.execute }}
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - run: pip install supabase==2.18.1
+      - name: Resolve authenticated registered code
+        id: source
+        run: |
+          python - <<'PY'
+          import hashlib, json, os, re
+          from supabase import create_client
+          client = create_client(os.environ['SUPABASE_URL'], os.environ['SUPABASE_SERVICE_ROLE_KEY'])
+          sha = os.environ['STUDY_ARCHIVE']
+          if not re.fullmatch('[a-f0-9]{64}', sha):
+              raise ValueError('Invalid registered bundle identity')
+          row = client.table('prediction_input_archives').select('manifest_path,source_revision').eq('manifest_sha256', sha).single().execute().data
+          if row['manifest_path'] != f'runs/{sha}/manifest.json':
+              raise ValueError('Registered bundle path changed')
+          raw = client.storage.from_('prediction-input-archives').download(row['manifest_path'])
+          if hashlib.sha256(raw).hexdigest() != sha:
+              raise ValueError('Registered bundle failed authentication')
+          manifest = json.loads(raw)
+          revision = manifest['source_revision']
+          if not re.fullmatch('[a-f0-9]{40}', revision) or revision != row['source_revision'] or 'weekend_tuning' not in manifest:
+              raise ValueError('Invalid registered weekend source')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('revision=' + revision + '\n')
+          PY
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ steps.source.outputs.revision }}
+          fetch-depth: 0
+      - run: pip install -r requirements.lock
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --ignore-scripts
+        working-directory: frontend
+      - name: Check the window and save a private report when eligible
+        run: |
+          MODE=()
+          if [ "$EXECUTE" = 'true' ]; then MODE+=(--execute); fi
+          python scripts/compare_weekend_tuning.py report "$STUDY_ARCHIVE" \
+            --output-dir "$RUNNER_TEMP/weekend-private" "${MODE[@]}"

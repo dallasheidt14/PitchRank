@@ -929,9 +929,9 @@ EXEMPT_SCRIPTS = {
     "due_diligence_unknown_opponents.py": "reads teams, aliases and games into a report CSV",
     "export_unknown_opponents.py": "reads games and teams into a CSV",
     "maintain_gotsport_direct_id_aliases.py": "writes only team_alias_map",
-    "maintain_tgs_direct_id_aliases.py": "writes only team_alias_map",
     "match_modular11_ea_teams.py": "reads teams into a match report",
     "match_mlsnext_kitman_teams.py": "reads teams into a match report",
+    "publish_ranking_input_archive.py": "uploads already frozen local files to private archive storage and its index",
     "scrape_affinity_ga_tournament.py": "scrapes into a CSV that import_games_enhanced.py imports",
     "scrape_affinity_hi_tournament.py": "scrapes into a CSV that import_games_enhanced.py imports",
     "scrape_affinity_or_tournament.py": "scrapes into a CSV that import_games_enhanced.py imports",
@@ -946,10 +946,13 @@ EXEMPT_SCRIPTS = {
 # A script a workflow step runs, by path or as a module (python -m scripts.<name>).
 SCRIPT_IN_RUN = re.compile(r"scripts/(?:[\w-]+/)*(\w+\.py)|-m\s*scripts\.(?:\w+\.)*(\w+)")
 NOT_A_WRITER = {
+    "compare-weekend-tuning.yml": "reads frozen predictions and exact-source settlements, writes only private research archives",
     "auto-gotsport-upcoming-event-scrape.yml": "scrapes upcoming fixtures into an artifact and never imports them",
     "auto-merge-queue.yml": "its one writing step is gated off by QUEUE_AUTO_APPROVE_ENABLED, and writes only "
     "aliases and the match review queue",
     "backfill-prediction-feature-history.yml": "writes prediction feature history",
+    "capture-compare-challenger.yml": "reads immutable frozen inputs and writes only private challenger predictions; "
+    "never writes teams, states, ages or games, and publishes no rankings",
     "check-stuck-signups.yml": "reads signups",
     "ci.yml": "lints and tests, with no database secrets",
     "claude-code-review.yml": "reviews pull requests, with no database secrets",
@@ -971,7 +974,7 @@ NOT_A_WRITER = {
     "settle-prospective-match-predictions.yml": "writes match predictions",
     "smoke-infographics.yml": "reads the infographic routes",
     "train-point-in-time-match-model.yml": "writes model artifacts and training runs",
-    "weekly-prospective-refresh.yml": "scrapes upcoming fixtures without importing them, and writes match predictions",
+    "weekly-prospective-refresh.yml": "reads stored upcoming fixtures and writes private match predictions and input archives",
     "weekly-prospective-settle-evaluate.yml": "writes match predictions",
 }
 

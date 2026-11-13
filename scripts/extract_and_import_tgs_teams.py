@@ -1,25 +1,28 @@
 #!/usr/bin/env python3
 """
-Extract and import TGS teams from games CSV.
-Run this BEFORE importing games for 10-15x speedup.
+Match the TGS teams in scraped games CSVs to existing teams, or create them.
+Run this BEFORE importing games, once over every shard's CSV: the import finds
+a TGS team only by its TGS id and never creates one.
+
+A TGS id with no alias links by name to an existing team only when that team
+carries no TGS id yet, so two TGS squads never share a team. Otherwise it gets
+its own team, at the age its own name states, or at the youngest division it
+played when the name states none.
 
 Usage:
-    python3 scripts/extract_and_import_tgs_teams.py data/raw/tgs/games.csv tgs [--dry-run]
-
-Performance:
-    - Extracts ~10k unique teams from 109k games in ~5 seconds
-    - Batch imports in ~15 seconds
-    - Total: ~20 seconds vs 5-6 hours if done during game import
+    python3 scripts/extract_and_import_tgs_teams.py data/raw/tgs/a.csv [b.csv ...] tgs [--dry-run]
 """
 
 import argparse
 import csv
 import logging
+import re
 import sys
-import uuid
+from collections import Counter
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Dict, List, Optional, Set, TextIO
 
 # Add parent directory to path
 sys.path.append(str(Path(__file__).parent.parent))
@@ -28,9 +31,18 @@ import os
 
 from dotenv import load_dotenv
 from rich.console import Console
+from rich.markup import escape
 from rich.progress import track
 
+from scripts.enqueue_helpers import _paged  # noqa: E402
+from scripts.scrape_tgs_event import lone_birth_year_groups  # noqa: E402
+from src.etl.enhanced_pipeline import EnhancedETLPipeline  # noqa: E402
+from src.models.tgs_matcher import ReuseRefused, TGSGameMatcher  # noqa: E402
+from src.rankings.data_adapter import MERGE_MAP_LOAD_FAILED  # noqa: E402
+from src.tournaments.reports.render_csv import csv_safe  # noqa: E402
+from src.utils.merge_resolver import MergeResolver  # noqa: E402
 from src.utils.placeholder_clubs import is_placeholder_club  # noqa: E402
+from src.utils.provider_ids import is_blank_provider_id  # noqa: E402
 from supabase import create_client
 
 # Set up logging
@@ -45,170 +57,17 @@ if env_local.exists():
 else:
     load_dotenv()
 
+LOGS_DIR = Path("logs")
 
-# Full state name → 2-letter code. CSV's `state` column may carry either form.
-STATE_NAME_TO_CODE = {
-    "alabama": "AL", "alaska": "AK", "arizona": "AZ", "arkansas": "AR",
-    "california": "CA", "colorado": "CO", "connecticut": "CT", "delaware": "DE",
-    "florida": "FL", "georgia": "GA", "hawaii": "HI", "idaho": "ID",
-    "illinois": "IL", "indiana": "IN", "iowa": "IA", "kansas": "KS",
-    "kentucky": "KY", "louisiana": "LA", "maine": "ME", "maryland": "MD",
-    "massachusetts": "MA", "michigan": "MI", "minnesota": "MN", "mississippi": "MS",
-    "missouri": "MO", "montana": "MT", "nebraska": "NE", "nevada": "NV",
-    "new hampshire": "NH", "new jersey": "NJ", "new mexico": "NM", "new york": "NY",
-    "north carolina": "NC", "north dakota": "ND", "ohio": "OH", "oklahoma": "OK",
-    "oregon": "OR", "pennsylvania": "PA", "rhode island": "RI", "south carolina": "SC",
-    "south dakota": "SD", "tennessee": "TN", "texas": "TX", "utah": "UT",
-    "vermont": "VT", "virginia": "VA", "washington": "WA", "west virginia": "WV",
-    "wisconsin": "WI", "wyoming": "WY", "district of columbia": "DC",
-}
-VALID_STATE_CODES = frozenset(STATE_NAME_TO_CODE.values())
-
-
-def _resolve_state_code(state_field: str, state_code_field: str) -> str | None:
-    """CSV may put a 2-letter code in either column. Return canonical 2-letter or None."""
-    for v in (state_code_field, state_field):
-        if not v:
-            continue
-        v = v.strip()
-        if v.upper() in VALID_STATE_CODES:
-            return v.upper()
-        code = STATE_NAME_TO_CODE.get(v.lower())
-        if code:
-            return code
-    return None
+# Each games row names two teams, in these columns.
+SIDES = (
+    ("team_id", "team_name", "club_name", "team_name_age"),
+    ("opponent_id", "opponent_name", "opponent_club_name", "opponent_name_age"),
+)
 
 
 def _is_meaningful_club(club_name: str) -> bool:
     return not is_placeholder_club(club_name)
-
-
-def backfill_existing_team_facts(
-    supabase, provider_id: str, teams: dict, existing_aliases: set, dry_run: bool = False
-) -> dict:
-    """For TGS teams already in alias map, fill missing club_name / state_code on the
-    `teams` row using the CSV facts. Never overwrite an existing non-empty value.
-
-    Returns stats: {existing_seen, club_filled, state_filled, both_filled, no_change}.
-    """
-    stats = {
-        "existing_seen": 0, "club_filled": 0, "state_filled": 0,
-        "both_filled": 0, "no_change": 0, "errors": 0,
-    }
-    # Build provider_team_id → CSV facts map (best/last value wins)
-    facts_by_pid: dict[str, dict] = {}
-    for t in teams.values():
-        pid = str(t.get("provider_team_id") or "").strip()
-        if not pid or pid not in existing_aliases:
-            continue
-        existing = facts_by_pid.get(pid, {})
-        club = (t.get("club_name") or "").strip()
-        if _is_meaningful_club(club):
-            existing["club_name"] = club
-        sc = _resolve_state_code(t.get("state", ""), t.get("state_code", ""))
-        if sc:
-            existing["state_code"] = sc
-        if existing:
-            facts_by_pid[pid] = existing
-
-    if not facts_by_pid:
-        console.print("[dim]No existing-team CSV facts to backfill.[/dim]")
-        return stats
-
-    stats["existing_seen"] = len(facts_by_pid)
-    console.print(f"\n[bold]Backfilling missing club/state for {len(facts_by_pid)} existing teams...[/bold]")
-
-    # Map provider_team_id → team_id_master via team_alias_map (approved only)
-    pid_to_master: dict[str, str] = {}
-    pids = list(facts_by_pid.keys())
-    for i in range(0, len(pids), 200):
-        batch = pids[i:i+200]
-        try:
-            rows = (
-                supabase.table("team_alias_map")
-                .select("provider_team_id, team_id_master")
-                .eq("provider_id", provider_id)
-                .eq("review_status", "approved")
-                .in_("provider_team_id", batch)
-                .execute().data or []
-            )
-            for r in rows:
-                pid_to_master[str(r["provider_team_id"])] = r["team_id_master"]
-        except Exception as e:
-            logger.warning(f"Error mapping aliases (batch {i // 200 + 1}): {e}")
-
-    # Pull current teams data so we only fill missing fields
-    masters = list(pid_to_master.values())
-    current_by_master: dict[str, dict] = {}
-    for i in range(0, len(masters), 200):
-        batch = masters[i:i+200]
-        try:
-            rows = (
-                supabase.table("teams")
-                .select("team_id_master, club_name, state_code, state, is_deprecated")
-                .in_("team_id_master", batch)
-                .execute().data or []
-            )
-            for r in rows:
-                current_by_master[r["team_id_master"]] = r
-        except Exception as e:
-            logger.warning(f"Error fetching teams (batch {i // 200 + 1}): {e}")
-
-    # Build per-team update payloads
-    updates = []  # list of (team_id_master, payload, club_filled, state_filled)
-    for pid, facts in facts_by_pid.items():
-        master = pid_to_master.get(pid)
-        if not master:
-            continue
-        cur = current_by_master.get(master)
-        if not cur or cur.get("is_deprecated"):
-            continue
-        payload: dict = {}
-        cur_club = (cur.get("club_name") or "").strip()
-        cur_state = (cur.get("state_code") or "").strip()
-        new_club = facts.get("club_name")
-        new_state = facts.get("state_code")
-        if new_club and not _is_meaningful_club(cur_club):
-            payload["club_name"] = new_club
-        if new_state and not cur_state:
-            payload["state_code"] = new_state
-            payload["state"] = next(
-                (n for n, c in STATE_NAME_TO_CODE.items() if c == new_state), None
-            )
-            if payload["state"]:
-                payload["state"] = payload["state"].title()
-        if not payload:
-            stats["no_change"] += 1
-            continue
-        club_filled = "club_name" in payload
-        state_filled = "state_code" in payload
-        if club_filled and state_filled:
-            stats["both_filled"] += 1
-        elif club_filled:
-            stats["club_filled"] += 1
-        elif state_filled:
-            stats["state_filled"] += 1
-        updates.append((master, payload, club_filled, state_filled))
-
-    if dry_run:
-        console.print(
-            f"[yellow]DRY RUN — would update {len(updates)} teams "
-            f"({stats['club_filled']} club only, {stats['state_filled']} state only, "
-            f"{stats['both_filled']} both, {stats['no_change']} skipped no-op)[/yellow]"
-        )
-        for sample in updates[:10]:
-            mid, payload, _, _ = sample
-            console.print(f"  {mid[:8]}…: {payload}")
-        return stats
-
-    # Apply updates one-by-one (update is per-row anyway, batching not helpful)
-    for mid, payload, _, _ in track(updates, description="Backfilling teams"):
-        try:
-            supabase.table("teams").update(payload).eq("team_id_master", mid).execute()
-        except Exception as e:
-            stats["errors"] += 1
-            logger.warning(f"Error updating {mid}: {e}")
-    return stats
 
 
 def normalize_gender(gender: str) -> Optional[str]:
@@ -234,241 +93,309 @@ def normalize_gender(gender: str) -> Optional[str]:
         return None
 
 
-def extract_unique_teams_from_csv(csv_file: str) -> dict:
-    """
-    Parse games CSV and extract unique teams.
+def _age_number(age_group: str) -> int:
+    match = re.fullmatch(r"u([0-9]{1,2})", age_group)
+    return int(match.group(1)) if match else 99
 
-    Returns:
-        dict: {(team_id, age_group, gender): {team_name, club_name, ...}}
 
-    Note: TGS games CSV has perspective-based data (each game appears twice),
-          so we extract both team_id and opponent_id as separate teams.
-    """
-    teams = {}  # (team_id, age_group, gender) → team_data
+def _game_id(value: Optional[str]) -> str:
+    """A team id as the game import reads it: its CSV loaders turn `501.0` into `501`."""
+    value = (value or "").strip()
+    try:
+        return str(int(float(value))) if value else ""
+    except (ValueError, TypeError, OverflowError):
+        return value
 
-    with open(csv_file, "r", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
 
-        for row in reader:
-            # Extract team 1 (from team_id columns)
-            team1_key = (row["team_id"].strip(), row["age_group"].strip().lower(), row["gender"].strip())
-            if team1_key not in teams:
-                teams[team1_key] = {
-                    "provider_team_id": row["team_id"].strip(),
-                    "team_name": row["team_name"].strip(),
-                    "club_name": row["club_name"].strip(),
-                    "age_group": row["age_group"].strip().lower(),
-                    "gender": row["gender"].strip(),
-                    "state_code": row.get("state_code", "").strip(),
-                }
+@dataclass
+class ScrapedTeam:
+    """One TGS team as the scrape saw it, across every row that names it."""
 
-            # Extract team 2 (from opponent columns)
-            team2_key = (row["opponent_id"].strip(), row["age_group"].strip().lower(), row["gender"].strip())
-            if team2_key not in teams:
-                teams[team2_key] = {
-                    "provider_team_id": row["opponent_id"].strip(),
-                    "team_name": row["opponent_name"].strip(),
-                    "club_name": row["opponent_club_name"].strip(),
-                    "age_group": row["age_group"].strip().lower(),
-                    "gender": row["gender"].strip(),
-                    "state_code": row.get("state_code", "").strip(),
-                }
+    provider_team_id: str
+    team_name: str = ""
+    club_name: str = ""
+    last_date: str = ""
+    genders: Set[str] = field(default_factory=set)
+    name_ages: Set[str] = field(default_factory=set)
+    division_ages: Set[str] = field(default_factory=set)
+    scored: bool = False
 
+    @property
+    def gender(self) -> Optional[str]:
+        return next(iter(self.genders)) if len(self.genders) == 1 else None
+
+    @property
+    def age_group(self) -> str:
+        """The age its own name states, or "" when its rows read the name two ways. A lone birth
+        year is the exception when both readings are groups it fits: the younger is the one the
+        team was seen playing in. A name stating no age takes the youngest division it played,
+        since a team plays up and never down."""
+        if len(self.name_ages) == 1:
+            return next(iter(self.name_ages))
+        if self.name_ages:
+            fits = lone_birth_year_groups(self.team_name)
+            return min(self.name_ages, key=_age_number) if self.name_ages <= fits else ""
+        return min(self.division_ages, key=_age_number, default="")
+
+    def skip_reason(self) -> Optional[str]:
+        if is_blank_provider_id(self.provider_team_id):
+            return "blank TGS id"
+        if not self.team_name:
+            return "no team name"
+        if not self.scored:
+            return "no scored game"
+        if not self.genders:
+            return "gender unknown"
+        if len(self.genders) > 1:
+            return "rows disagree on gender"
+        if not self.age_group:
+            return "name ages disagree" if self.name_ages else "no age group"
+        return None
+
+
+def extract_teams(csv_files: List[str]) -> Dict[str, ScrapedTeam]:
+    """Every team the CSVs name, keyed by TGS id. Its name and club come from its latest game."""
+    teams: Dict[str, ScrapedTeam] = {}
+    for csv_file in csv_files:
+        with open(csv_file, "r", encoding="utf-8") as f:
+            for row in csv.DictReader(f):
+                scored = not (
+                    EnhancedETLPipeline._is_empty_score(row.get("goals_for"))
+                    and EnhancedETLPipeline._is_empty_score(row.get("goals_against"))
+                )
+                game_date = (row.get("game_date") or "").strip()
+                gender = normalize_gender(row.get("gender") or "")
+                division_age = (row.get("age_group") or "").strip().lower()
+                for id_column, name_column, club_column, age_column in SIDES:
+                    team_id = _game_id(row.get(id_column))
+                    team = teams.setdefault(team_id, ScrapedTeam(team_id))
+                    if game_date >= team.last_date:
+                        team.last_date = game_date
+                        team.team_name = (row.get(name_column) or "").strip() or team.team_name
+                        team.club_name = (row.get(club_column) or "").strip() or team.club_name
+                    if gender:
+                        team.genders.add(gender)
+                    if division_age:
+                        team.division_ages.add(division_age)
+                    if name_age := (row.get(age_column) or "").strip():
+                        team.name_ages.add(name_age)
+                    team.scored = team.scored or scored
     return teams
 
 
-def batch_create_teams_and_aliases(
-    supabase, provider_id: str, teams: dict, dry_run: bool = False, batch_size: int = 500
-):
-    """
-    Batch INSERT teams and aliases, skipping teams that already have a direct_id alias.
+def fill_missing_clubs(
+    supabase, teams: Dict[str, ScrapedTeam], aliases: Dict[str, Dict], dry_run: bool = False
+) -> None:
+    """Fill a blank or placeholder club_name on the teams the CSVs' already-aliased TGS ids name,
+    from the club their games list. A real club name is never overwritten."""
+    club_by_master: Dict[str, str] = {}
+    for pid, alias in aliases.items():
+        club = teams[pid].club_name if pid in teams else ""
+        if alias.get("review_status") == "approved" and _is_meaningful_club(club):
+            club_by_master[alias["team_id_master"]] = club
 
-    Checks team_alias_map first to avoid creating duplicate teams. Only teams
-    whose provider_team_id has no existing alias get a new master team + alias.
+    if not club_by_master:
+        console.print("[dim]No existing teams to fill a club on.[/dim]")
+        return
 
-    Args:
-        supabase: Supabase client
-        provider_id: Provider UUID
-        teams: Dict of unique teams
-        dry_run: If True, don't actually insert
-        batch_size: Number of records per batch (500 for Supabase)
-    """
-    team_records = []
-    alias_records = []
-    stats = {"total_teams": len(teams), "created": 0, "skipped_existing": 0, "errors": 0}
-
-    # Convert teams dict to list for progress tracking
-    teams_list = list(teams.values())
-
-    # Pre-check: fetch existing aliases to avoid creating duplicate teams
-    all_provider_ids = [t["provider_team_id"] for t in teams_list]
-    existing_aliases = set()
-
-    console.print(f"\n[bold]Checking {len(all_provider_ids)} teams against existing aliases...[/bold]")
-    for i in range(0, len(all_provider_ids), 100):  # Batch to avoid URI length limits
-        batch_ids = all_provider_ids[i : i + 100]
+    console.print(f"\n[bold]Checking the club on {len(club_by_master)} existing teams...[/bold]")
+    masters = sorted(club_by_master)
+    current_by_master: Dict[str, Dict] = {}
+    unread = 0
+    for i in range(0, len(masters), 100):  # Batch to avoid URI length limits
+        batch = masters[i : i + 100]
         try:
-            result = (
-                supabase.table("team_alias_map")
-                .select("provider_team_id")
-                .eq("provider_id", provider_id)
-                .in_("provider_team_id", batch_ids)
+            rows = (
+                supabase.table("teams")
+                .select("team_id_master, club_name, is_deprecated")
+                .in_("team_id_master", batch)
                 .execute()
+                .data
+                or []
             )
-            for row in result.data:
-                existing_aliases.add(str(row["provider_team_id"]))
         except Exception as e:
-            logger.warning(f"Error checking existing aliases (batch {i // 100 + 1}): {e}")
-
-    if existing_aliases:
-        console.print(
-            f"[yellow]  Found {len(existing_aliases)} teams already in alias map "
-            "— skipping creation; will backfill missing club/state on existing rows[/yellow]"
-        )
-        backfill_stats = backfill_existing_team_facts(
-            supabase, provider_id, teams, existing_aliases, dry_run=dry_run
-        )
-        stats["existing_backfilled_club"] = backfill_stats["club_filled"] + backfill_stats["both_filled"]
-        stats["existing_backfilled_state"] = backfill_stats["state_filled"] + backfill_stats["both_filled"]
-
-    # Filter to only new teams
-    new_teams = [t for t in teams_list if t["provider_team_id"] not in existing_aliases]
-    stats["skipped_existing"] = len(teams_list) - len(new_teams)
-
-    console.print(
-        f"[bold]Preparing {len(new_teams)} new teams for import "
-        f"(skipping {stats['skipped_existing']} existing)...[/bold]"
-    )
-
-    for team_data in track(new_teams, description="Processing teams"):
-        try:
-            team_id = team_data["provider_team_id"]
-            team_name = team_data["team_name"]
-            club_name = team_data["club_name"]
-            age_group = team_data["age_group"]
-            gender = normalize_gender(team_data["gender"])
-            state_code = team_data.get("state_code")
-
-            if gender is None:
-                logger.error(
-                    f"Skipping team {team_name}: gender {team_data['gender']!r} could not be determined"
-                )
-                stats["errors"] += 1
-                continue
-
-            # The scraper resolves the cohort; nothing is derived here.
-            if not age_group:
-                logger.error(f"Skipping team {team_name}: no age_group in the scraped row")
-                stats["errors"] += 1
-                continue
-
-            # Generate UUID for master team ID
-            team_id_master = str(uuid.uuid4())
-
-            # Prepare team record
-            team_record = {
-                "team_id_master": team_id_master,
-                "team_name": team_name,
-                "club_name": club_name or team_name,  # Use team_name if club_name is empty
-                "age_group": age_group,
-                "gender": gender,
-                "state_code": state_code if state_code else None,
-                "provider_id": provider_id,
-                "provider_team_id": team_id,
-                "created_at": datetime.utcnow().isoformat() + "Z",
-            }
-
-            # Prepare alias record (direct_id mapping)
-            alias_record = {
-                "provider_id": provider_id,
-                "provider_team_id": team_id,
-                "team_id_master": team_id_master,
-                "match_method": "direct_id",
-                "match_confidence": 1.0,
-                "review_status": "approved",
-                "created_at": datetime.utcnow().isoformat() + "Z",
-            }
-
-            team_records.append(team_record)
-            alias_records.append(alias_record)
-
-        except Exception as e:
-            logger.error(f"Error preparing team {team_data.get('team_name')}: {e}")
-            stats["errors"] += 1
+            unread += len(batch)
+            logger.warning(f"Error fetching teams (batch {i // 100 + 1}): {e}")
             continue
+        current_by_master.update((row["team_id_master"], row) for row in rows)
+
+    updates = []
+    for master, club in club_by_master.items():
+        current = current_by_master.get(master)
+        stored = (current or {}).get("club_name") or ""
+        if current and not current.get("is_deprecated") and not _is_meaningful_club(stored.strip()):
+            updates.append((master, club))
 
     if dry_run:
-        console.print(f"\n[yellow]DRY RUN - Would create {len(team_records)} teams[/yellow]")
-        console.print("Sample team record:")
-        console.print(team_records[0] if team_records else "No teams to show")
-        return stats
+        console.print(f"[yellow]DRY RUN — would fill the club on {len(updates)} teams ({unread} unread)[/yellow]")
+        for master, club in updates[:10]:
+            console.print(f"  {master[:8]}…: {escape(club)}")
+        return
 
-    # Batch INSERT teams (upsert to handle partial duplicates)
-    console.print(f"\n[bold green]Inserting {len(team_records)} teams...[/bold green]")
-
-    for i in track(range(0, len(team_records), batch_size), description="Inserting teams"):
-        batch = team_records[i : i + batch_size]
+    failed = 0
+    for master, club in track(updates, description="Filling clubs"):
         try:
-            supabase.table("teams").insert(batch).execute()
-            stats["created"] += len(batch)
+            supabase.table("teams").update({"club_name": club}).eq("team_id_master", master).execute()
         except Exception as e:
-            # Batch failed — fall back to one-by-one to save non-duplicate rows
-            if "duplicate key" in str(e).lower() or "23505" in str(e):
-                batch_num = i // batch_size + 1
-                logger.info(f"Batch {batch_num}: conflict detected, falling back to row-by-row insert")
-                for record in batch:
-                    try:
-                        supabase.table("teams").insert(record).execute()
-                        stats["created"] += 1
-                    except Exception as row_err:
-                        if "duplicate key" in str(row_err).lower() or "23505" in str(row_err):
-                            stats["skipped_existing"] += 1
-                        else:
-                            logger.error(f"Error inserting team {record.get('team_name')}: {row_err}")
-                            stats["errors"] += 1
-            else:
-                logger.error(f"Error inserting team batch {i // batch_size + 1}: {e}")
-                stats["errors"] += len(batch)
+            failed += 1
+            logger.warning(f"Error updating {master}: {e}")
+    style = "red" if failed or unread else "dim"
+    console.print(
+        f"[{style}]Filled the club on {len(updates) - failed} teams; {failed} updates failed, "
+        f"{unread} teams unread[/{style}]"
+    )
 
-    # Batch INSERT aliases (with row-by-row fallback)
-    console.print(f"\n[bold green]Inserting {len(alias_records)} aliases...[/bold green]")
 
-    for i in track(range(0, len(alias_records), batch_size), description="Inserting aliases"):
-        batch = alias_records[i : i + batch_size]
+def alias_rows(supabase, provider_id: str, provider_team_ids: List[str]) -> Dict[str, Dict]:
+    """The alias each of these TGS ids already has, whatever its review status."""
+    found: Dict[str, Dict] = {}
+    for i in range(0, len(provider_team_ids), 100):  # Batch to avoid URI length limits
+        rows = (
+            supabase.table("team_alias_map")
+            .select("provider_team_id, team_id_master, match_method, review_status")
+            .eq("provider_id", provider_id)
+            .in_("provider_team_id", provider_team_ids[i : i + 100])
+            .execute()
+            .data
+            or []
+        )
+        found.update((str(row["provider_team_id"]), row) for row in rows)
+    return found
+
+
+def tgs_linked_teams(supabase, provider_id: str) -> Set[str]:
+    """Live teams that already carry a TGS id: an approved TGS alias names them, or they began as
+    a TGS row. Either may since have been merged into another team, which then carries it."""
+    merges = MergeResolver(supabase)
+    merges.load_merge_map()
+    if merges.version == MERGE_MAP_LOAD_FAILED:
+        raise SystemExit("Merge map failed to load; re-run rather than matching against unresolved ids")
+    aliases = _paged(
+        lambda: (
+            supabase.table("team_alias_map")
+            .select("team_id_master")
+            .eq("provider_id", provider_id)
+            .eq("review_status", "approved")
+        )
+    )
+    tgs_rows = _paged(lambda: supabase.table("teams").select("team_id_master").eq("provider_id", provider_id))
+    return {merges.resolve(row["team_id_master"]) for row in [*aliases, *tgs_rows]}
+
+
+def match_or_create(matcher: TGSGameMatcher, provider_id: str, teams: List[ScrapedTeam]) -> List[Dict]:
+    """Link each team to the team its name matches, or create it; one outcome row per team.
+
+    Every match is found before anything is written, so which teams link never depends on the
+    order they are visited. A match already carrying a TGS id, or wanted by two of these teams,
+    links to neither: each gets its own team, which the weekly merges can fold if they are one.
+    A team whose search fails gets nothing this run, since creating it then could duplicate the
+    team the search would have found.
+    """
+    candidates: Dict[str, Optional[Dict]] = {}
+    for team in track(teams, description="Matching teams"):
         try:
-            supabase.table("team_alias_map").insert(batch).execute()
+            candidates[team.provider_team_id] = matcher.link_candidate(
+                team.team_name, team.age_group, team.gender, team.club_name or None
+            )
         except Exception as e:
-            if "duplicate key" in str(e).lower() or "23505" in str(e):
-                batch_num = i // batch_size + 1
-                logger.info(f"Alias batch {batch_num}: conflict detected, falling back to row-by-row insert")
-                for record in batch:
-                    try:
-                        supabase.table("team_alias_map").insert(record).execute()
-                    except Exception as row_err:
-                        if "duplicate key" in str(row_err).lower() or "23505" in str(row_err):
-                            pass  # Already exists, skip silently
-                        else:
-                            logger.error(f"Error inserting alias for {record.get('provider_team_id')}: {row_err}")
-            else:
-                logger.error(f"Error inserting alias batch {i // batch_size + 1}: {e}")
+            logger.error(f"Error searching for a match for {team.team_name} ({team.provider_team_id}): {e}")
+    wanted = Counter(candidate["team_id"] for candidate in candidates.values() if candidate)
+    outcomes = []
+    for team in teams:
+        if team.provider_team_id not in candidates:
+            outcomes.append(_outcome(team, "error: search failed", None, None))
+            continue
+        candidate = candidates[team.provider_team_id]
+        if candidate and candidate["team_id"] not in matcher.claimed_team_ids and wanted[candidate["team_id"]] == 1:
+            matcher._create_alias(
+                provider_id=provider_id,
+                provider_team_id=team.provider_team_id,
+                team_name=team.team_name,
+                team_id_master=candidate["team_id"],
+                match_method="fuzzy_auto",
+                confidence=candidate["confidence"],
+                age_group=team.age_group,
+                gender=team.gender,
+                review_status="approved",
+            )
+            outcomes.append(_outcome(team, "linked", candidate["team_id"], candidate))
+            continue
+        if not candidate:
+            outcome = "created"
+        elif candidate["team_id"] in matcher.claimed_team_ids:
+            outcome = "created: match carries a TGS id"
+        else:
+            outcome = "created: match wanted by another TGS id"
+        try:
+            team_id = matcher.create_team(
+                provider_id, team.provider_team_id, team.team_name, team.club_name or None, team.age_group, team.gender
+            )
+        except ReuseRefused as e:
+            logger.info(f"[TGS] {e}; holding {team.provider_team_id}, so its games import without it")
+            outcomes.append(_outcome(team, "held: gender guard", None, candidate))
+            continue
+        except Exception as e:
+            logger.error(f"Error creating team {team.team_name} ({team.provider_team_id}): {e}")
+            outcomes.append(_outcome(team, "error: not created", None, candidate))
+            continue
+        outcomes.append(_outcome(team, outcome, team_id, candidate))
+    return outcomes
 
-    return stats
+
+def _outcome(team: ScrapedTeam, outcome: str, team_id: Optional[str], candidate: Optional[Dict]) -> Dict:
+    return {
+        "provider_team_id": team.provider_team_id,
+        "team_name": team.team_name,
+        "club_name": team.club_name,
+        "age_group": team.age_group,
+        "gender": team.gender,
+        "outcome": outcome,
+        "team_id_master": team_id or "",
+        "match_team_id": candidate["team_id"] if candidate else "",
+        "match_team_name": candidate["team_name"] if candidate else "",
+        "match_confidence": candidate["confidence"] if candidate else "",
+    }
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Extract and import TGS teams from games CSV (run BEFORE game import)")
-    parser.add_argument("csv_file", help="Games CSV file")
+def write_outcomes(outcomes: List[Dict], out: TextIO) -> None:
+    writer = csv.DictWriter(out, fieldnames=list(_outcome(ScrapedTeam(""), "", None, None)), lineterminator="\n")
+    writer.writeheader()
+    writer.writerows({column: csv_safe(value) for column, value in row.items()} for row in outcomes)
+
+
+def misaliased(supabase, provider_id: str, outcomes: List[Dict]) -> List[str]:
+    """TGS ids this run linked or created whose alias, read back, is not the one it wrote.
+    _create_alias logs a failed write and returns."""
+    intended = {
+        row["provider_team_id"]: (
+            row["team_id_master"],
+            "fuzzy_auto" if row["outcome"] == "linked" else "direct_id",
+            "approved",
+        )
+        for row in outcomes
+        if row["team_id_master"]
+    }
+    stored = alias_rows(supabase, provider_id, sorted(intended))
+    return sorted(
+        pid
+        for pid, written in intended.items()
+        if tuple(stored.get(pid, {}).get(key) for key in ("team_id_master", "match_method", "review_status")) != written
+    )
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Match or create the TGS teams in scraped games CSVs (run BEFORE game import)"
+    )
+    parser.add_argument("csv_files", nargs="+", help="Games CSV files, one per shard")
     parser.add_argument("provider", help='Provider code (e.g., "tgs")')
-    parser.add_argument("--dry-run", action="store_true", help="Show what would be created without actually inserting")
-    parser.add_argument("--batch-size", type=int, default=500, help="Batch size for inserts (default: 500)")
-
+    parser.add_argument("--dry-run", action="store_true", help="Show what would be matched or created without writing")
     args = parser.parse_args()
 
-    # Validate CSV file exists
-    csv_path = Path(args.csv_file)
-    if not csv_path.exists():
-        console.print(f"[red]Error: File not found: {args.csv_file}[/red]")
-        sys.exit(1)
+    missing_files = [path for path in args.csv_files if not Path(path).exists()]
+    if missing_files:
+        console.print(f"[red]Error: File not found: {escape(', '.join(missing_files))}[/red]")
+        return 1
 
     # Initialize Supabase
     supabase_url = os.getenv("SUPABASE_URL")
@@ -476,7 +403,7 @@ def main():
 
     if not supabase_url or not supabase_key:
         console.print("[red]Error: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set[/red]")
-        sys.exit(1)
+        return 1
 
     supabase = create_client(supabase_url, supabase_key)
 
@@ -486,53 +413,66 @@ def main():
         provider_id = result.data["id"]
         console.print(f"[green]✓ Provider ID: {provider_id}[/green]")
     except Exception as e:
-        console.print(f"[red]Error: Provider '{args.provider}' not found: {e}[/red]")
-        sys.exit(1)
+        console.print(f"[red]Error: Provider '{escape(args.provider)}' not found: {escape(str(e))}[/red]")
+        return 1
 
-    # Extract unique teams
-    console.print(f"\n[bold]Extracting unique teams from {csv_path.name}...[/bold]")
-    start_time = datetime.now()
-
-    teams = extract_unique_teams_from_csv(args.csv_file)
-
-    extract_time = (datetime.now() - start_time).total_seconds()
-    console.print(f"[green]✓ Extracted {len(teams)} unique teams in {extract_time:.1f}s[/green]")
-
-    # Show sample
-    sample_teams = list(teams.values())[:5]
-    console.print("\n[bold]Sample teams:[/bold]")
-    for i, team in enumerate(sample_teams, 1):
-        console.print(f"  {i}. {team['team_name']} ({team['age_group']}, {team['gender']}) - {team['club_name']}")
-    if len(teams) > 5:
-        console.print(f"  ... and {len(teams) - 5} more")
-
-    # Batch create teams and aliases
-    import_start = datetime.now()
-    stats = batch_create_teams_and_aliases(
-        supabase, provider_id, teams, dry_run=args.dry_run, batch_size=args.batch_size
+    teams = extract_teams(args.csv_files)
+    skipped = Counter(reason for team in teams.values() if (reason := team.skip_reason()))
+    claimed = tgs_linked_teams(supabase, provider_id)
+    aliases = alias_rows(supabase, provider_id, sorted(pid for pid in teams if not is_blank_provider_id(pid)))
+    fill_missing_clubs(supabase, teams, aliases, dry_run=args.dry_run)
+    new_teams = sorted(
+        (team for pid, team in teams.items() if pid not in aliases and not team.skip_reason()),
+        key=lambda team: team.provider_team_id,
     )
-    import_time = (datetime.now() - import_start).total_seconds()
+    console.print(
+        f"\n[bold]{len(teams):,} TGS teams in {len(args.csv_files)} CSV(s): {len(aliases):,} already aliased, "
+        f"{len(new_teams):,} to match or create[/bold]"
+    )
 
-    # Summary
+    matcher = TGSGameMatcher(supabase, provider_id=provider_id, dry_run=args.dry_run)
+    matcher.claimed_team_ids = claimed
+    outcomes = match_or_create(matcher, provider_id, new_teams)
+
     console.print("\n[bold green]═══════════════════════════════════════════[/bold green]")
-    console.print("[bold green]          IMPORT SUMMARY[/bold green]")
+    console.print("[bold green]          MATCH SUMMARY[/bold green]")
     console.print("[bold green]═══════════════════════════════════════════[/bold green]")
-    console.print(f"  Total teams:     {stats['total_teams']:,}")
-    console.print(f"  [green]Created:         {stats['created']:,}[/green]")
-    console.print(f"  [yellow]Skipped:         {stats['skipped_existing']:,}[/yellow]")
-    console.print(f"  [red]Errors:          {stats['errors']:,}[/red]")
-    console.print(f"  Extract time:    {extract_time:.1f}s")
-    console.print(f"  Import time:     {import_time:.1f}s")
-    console.print(f"  [bold]Total time:      {extract_time + import_time:.1f}s[/bold]")
-    console.print("[bold green]═══════════════════════════════════════════[/bold green]\n")
+    for outcome, count in sorted(Counter(row["outcome"] for row in outcomes).items()):
+        console.print(f"  {outcome:42s} {count:6,}")
+    for reason, count in sorted(skipped.items()):
+        console.print(f"  [dim]skipped, {reason:33s} {count:6,}[/dim]")
+    for row in outcomes:
+        if row["outcome"] == "linked":
+            console.print(
+                escape(
+                    f"  linked {row['provider_team_id']} {row['team_name']!r} ({row['age_group']}) -> "
+                    f"{row['match_team_name']!r} {row['team_id_master']} at {row['match_confidence']}"
+                )
+            )
+
+    failed = sorted(row["provider_team_id"] for row in outcomes if row["outcome"].startswith("error"))
+    if failed:
+        console.print(f"[red]{len(failed)} TGS ids could not be given a team: {escape(str(failed[:20]))}[/red]")
 
     if args.dry_run:
+        write_outcomes(outcomes, sys.stdout)
         console.print("[yellow]Dry run completed - no changes made[/yellow]")
-    else:
-        console.print("[green]✓ Teams imported successfully![/green]")
-        console.print("\n[bold]Next step:[/bold]")
-        console.print(f"  python3 scripts/import_games_enhanced.py {args.csv_file} {args.provider}")
+        return 1 if failed else 0
+
+    LOGS_DIR.mkdir(parents=True, exist_ok=True)
+    log_path = LOGS_DIR / f"tgs_team_matches_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    with open(log_path, "w", newline="", encoding="utf-8") as f:
+        write_outcomes(outcomes, f)
+    console.print(f"  Outcomes written to {log_path}")
+
+    wrong = misaliased(supabase, provider_id, outcomes)
+    if wrong:
+        console.print(
+            f"[red]{len(wrong)} TGS ids linked or created this run lack the alias written for them: "
+            f"{escape(str(wrong[:20]))}[/red]"
+        )
+    return 1 if failed or wrong else 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

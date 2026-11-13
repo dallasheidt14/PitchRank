@@ -34,6 +34,9 @@ jobs:
       PYTHONUNBUFFERED: "1"
     steps:
       - uses: actions/checkout@v5
+        with:
+          # Keep the registered studies on their original collecting predictor.
+          ref: 15cc5f4f38858f2a48a3ac2aeaef8f2bab76c81b
       - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
@@ -46,13 +49,19 @@ jobs:
       - run: pip install -r requirements.lock
       - run: npm ci --ignore-scripts
         working-directory: frontend
+      - name: Audit collection coverage without inspecting results
+        shell: bash
+        run: |
+          MODE=()
+          if [ "$EXECUTE" = "true" ]; then MODE+=(--execute --output "$RUNNER_TEMP/prospective-coverage.json"); fi
+          python scripts/audit_compare_collection.py --limit "$CAPTURE_LIMIT" "${MODE[@]}"
       - name: Prepare stored fixtures
         shell: bash
         run: |
           MODE=()
           if [ "$EXECUTE" = "true" ]; then MODE+=(--execute); fi
           python scripts/prepare_prospective_match_predictions.py --database \
-            --limit "$CAPTURE_LIMIT" "${MODE[@]}" \
+            --selection balanced --limit "$CAPTURE_LIMIT" "${MODE[@]}" \
             --summary-path "$RUNNER_TEMP/prospective-intake.json"
       - name: Freeze current Compare forecasts
         working-directory: frontend
@@ -61,7 +70,7 @@ jobs:
           MODE=()
           if [ "$EXECUTE" = "true" ]; then MODE+=(--execute); fi
           npm run process:prospective:heuristic -- --source database \
-            --limit "$CAPTURE_LIMIT" --concurrency 4 --budget-minutes 45 "${MODE[@]}" \
+            --selection balanced --limit "$CAPTURE_LIMIT" --concurrency 4 --budget-minutes 45 "${MODE[@]}" \
             --summary-path "$RUNNER_TEMP/prospective-capture.json"
       - name: Upload capture summaries
         if: always() && env.EXECUTE == 'true'
@@ -71,6 +80,13 @@ jobs:
           path: ${{ runner.temp }}/prospective-*.json
           retention-days: 90
           if-no-files-found: error
+      - name: Preserve frozen forecast inputs privately
+        if: env.EXECUTE == 'true' && vars.COMPARE_INPUT_ARCHIVE_ENABLED == 'true'
+        shell: bash
+        run: |
+          ARCHIVE_PATH="$RUNNER_TEMP/frozen-forecast-inputs"
+          python scripts/archive_compare_forecasts.py --execute --output-dir "$ARCHIVE_PATH"
+          python scripts/publish_ranking_input_archive.py "$ARCHIVE_PATH" --execute
       - name: Summarize capture
         if: always()
         shell: bash
@@ -79,7 +95,7 @@ jobs:
           import json, os
           from pathlib import Path
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as output:
-              for name in ("intake", "capture"):
+              for name in ("coverage", "intake", "capture"):
                   path = Path(os.environ["RUNNER_TEMP"]) / f"prospective-{name}.json"
                   if path.exists():
                       output.write(f"### {name.title()}\n\n```json\n{json.dumps(json.loads(path.read_text()), indent=2)}\n```\n")

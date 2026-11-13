@@ -16,6 +16,7 @@ export type CaptureOptions = {
   concurrency: number;
   budgetMinutes: number;
   source: 'all' | 'database';
+  selection?: 'balanced' | 'chronological';
 };
 export type ProspectiveFixture = {
   id: string;
@@ -68,6 +69,28 @@ export async function fetchCaptureRows(client: SupabaseClient, options: CaptureO
     if (error) throw error;
     rows.push(...(data ?? []));
     if ((data?.length ?? 0) < 1000) break;
+  }
+  if (options.selection === 'balanced') {
+    const root = path.basename(process.cwd()) === 'frontend' ? path.dirname(process.cwd()) : process.cwd();
+    const ordered: unknown = JSON.parse(
+      execFileSync('python', [path.join(root, 'scripts/select_compare_capture.py')], {
+        input: JSON.stringify(rows),
+        encoding: 'utf8',
+        windowsHide: true,
+        timeout: 30000,
+        maxBuffer: 16 * 1024 * 1024,
+      })
+    );
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    if (
+      !Array.isArray(ordered) ||
+      ordered.length !== rows.length ||
+      new Set(ordered).size !== rows.length ||
+      ordered.some((id) => typeof id !== 'string' || !byId.has(id))
+    ) {
+      throw new Error('Sampler did not cover the exact pending fixture set');
+    }
+    return (ordered as string[]).map((id) => byId.get(id)!);
   }
   return rows.sort(
     (a, b) =>
@@ -134,6 +157,7 @@ export async function captureForecasts(
     dryRun: !options.execute,
     requestedStatus: options.status,
     requestedLimit: options.limit,
+    selection: options.selection ?? 'chronological',
     heuristicModelVersion: MATCH_PREDICTION_VERSION,
     codeRevision: identity.codeRevision,
     eligible: rows.length,
