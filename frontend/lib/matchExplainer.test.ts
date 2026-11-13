@@ -176,7 +176,12 @@ describe('explainMatch', () => {
         )
       );
       const [left, right] = swapped ? [b, a] : [a, b];
-      const common = calculateCommonOpponentSignal(left.team_id_master, right.team_id_master, games);
+      const common = calculateCommonOpponentSignal(
+        left.team_id_master,
+        right.team_id_master,
+        games,
+        Date.parse('2026-11-10')
+      );
       expect(Math.abs(common.advantage)).toBeGreaterThan(0.025);
       expect(common.avgMarginDiff * common.advantage).toBeLessThan(0);
       const prediction = makePrediction({

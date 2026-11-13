@@ -11,6 +11,7 @@ interface BatchTeam {
 
 interface BatchInput {
   schema_version: number;
+  reference_date: string;
   teams: BatchTeam[];
   games: Game[];
 }
@@ -26,6 +27,13 @@ async function main() {
   if (payload.schema_version !== 1 || !Array.isArray(payload.teams) || !Array.isArray(payload.games)) {
     throw new Error('Invalid MatchBalance Compare predictor batch');
   }
+  const referenceTimestamp = Date.parse(payload.reference_date);
+  if (
+    !Number.isFinite(referenceTimestamp) ||
+    new Date(referenceTimestamp).toISOString().slice(0, 10) !== payload.reference_date
+  ) {
+    throw new Error('MatchBalance Compare predictor requires a valid reference_date (YYYY-MM-DD)');
+  }
   const entrantIds = payload.teams.map((item) => item.entrant_id);
   if (new Set(entrantIds).size !== entrantIds.length) {
     throw new Error('MatchBalance Compare predictor entrants must be unique');
@@ -38,7 +46,7 @@ async function main() {
     for (let rightIndex = leftIndex + 1; rightIndex < teams.length; rightIndex += 1) {
       const left = teams[leftIndex];
       const right = teams[rightIndex];
-      const prediction = predictMatch(left.team, right.team, payload.games);
+      const prediction = predictMatch(left.team, right.team, payload.games, undefined, referenceTimestamp);
       predictions.push({
         entrant_a: left.entrant_id,
         entrant_b: right.entrant_id,

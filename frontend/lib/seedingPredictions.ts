@@ -396,7 +396,7 @@ export async function buildSeedingPredictions(
         const prediction =
           model === 'results'
             ? predictCohortResult(output.teams[a], output.teams[b], resultEvidence)
-            : predictMatch(output.teams[a], output.teams[b], pairGames);
+            : predictMatch(output.teams[a], output.teams[b], pairGames, undefined, Date.parse(evidence.as_of));
         assertPrediction(prediction);
         output.predictions.push(predictionRow(a, b, prediction), predictionRow(b, a, prediction, true));
       }

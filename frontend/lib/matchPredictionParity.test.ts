@@ -1,21 +1,33 @@
-import { beforeAll, expect, it } from 'vitest';
+import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 import baseline from '@/test/fixtures/compare-baseline.json';
-import { predictMatch, warmMatchPredictorCalibration, type PredictionDiagnostics } from './matchPredictor';
+import current from '@/test/fixtures/compare-live-v7-predictions.json';
+import {
+  predictMatch,
+  warmMatchPredictorCalibration,
+  type MatchPrediction,
+  type PredictionDiagnostics,
+} from './matchPredictor';
 import type { Game, TeamWithRanking } from './types';
 import outcomeCalibration from '@/public/data/calibration/heuristic_outcome_calibration.json';
 
-beforeAll(warmMatchPredictorCalibration);
-it.each(baseline.cases)('preserves the complete pre-change forecast: $name', ({ teamA, teamB, games, prediction }) => {
+beforeAll(async () => {
+  await warmMatchPredictorCalibration();
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date(current.referenceTime));
+});
+afterAll(() => vi.useRealTimers());
+const predictions = current.predictions as Record<string, MatchPrediction>;
+it.each(baseline.cases)('preserves the complete live v7 forecast: $name', ({ name, teamA, teamB, games }) => {
   const diagnostics: PredictionDiagnostics = {};
   const actual = predictMatch(teamA as TeamWithRanking, teamB as TeamWithRanking, games as Game[], diagnostics);
-  expect(actual).toEqual(prediction);
+  expect(actual).toEqual(predictions[name]);
   expect(diagnostics.preOutcomeCalibration).toHaveLength(3);
   expect(diagnostics.preOutcomeCalibration!.reduce((sum, value) => sum + value, 0)).toBeCloseTo(1, 12);
 });
 
 it.each(baseline.cases.filter(({ name }) => name.includes('mismatch')))(
   'captures A/draw/B probabilities before the final blend: $name',
-  ({ teamA, teamB, games, prediction }) => {
+  ({ name, teamA, teamB, games }) => {
     const diagnostics: PredictionDiagnostics = {};
     predictMatch(teamA as TeamWithRanking, teamB as TeamWithRanking, games as Game[], diagnostics);
     const { alpha, prior } = outcomeCalibration;
@@ -25,8 +37,9 @@ it.each(baseline.cases.filter(({ name }) => name.includes('mismatch')))(
       prior.draw / total,
       (prior.team_a + prior.team_b) / (2 * total),
     ];
-    const final = [prediction.winProbabilityA, prediction.drawProbability, prediction.winProbabilityB];
-    // Invert the fixed blend from the pre-change forecast, independently of the diagnostic producer.
+    const prediction = predictions[name];
+    const final = [prediction.winProbabilityA, prediction.drawProbability!, prediction.winProbabilityB];
+    // Invert the fixed blend independently of the diagnostic producer.
     final.forEach((probability, index) => {
       expect(diagnostics.preOutcomeCalibration![index]).toBeCloseTo(
         (probability - (1 - alpha) * neutralPrior[index]) / alpha,

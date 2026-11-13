@@ -1,0 +1,1150 @@
+{
+  "modelVersion": "heuristic_v7_common_opponent_recency_v1",
+  "referenceTime": "2026-11-12T12:00:00.000Z",
+  "predictions": {
+    "10-even-false": {
+      "predictedWinner": "team_a",
+      "winProbabilityA": 0.47379434833730283,
+      "winProbabilityB": 0.3688354425915435,
+      "drawProbability": 0.15737020907115376,
+      "expectedScore": {
+        "teamA": 3,
+        "teamB": 2
+      },
+      "expectedMargin": 0.4342515140567613,
+      "expectedGoals": {
+        "teamA": 2.8133474367193196,
+        "teamB": 2.3790959226625583
+      },
+      "expectedAbsoluteGoalDifference": 1.804638712401389,
+      "blowout4PlusProbability": 0.1265879652408708,
+      "confidence": "low",
+      "confidence_score": 0.4591674692540064,
+      "components": {
+        "powerDiff": 0.00009999999999998899,
+        "strengthSignal": 0.000024999999999997247,
+        "sosDiff": 0,
+        "formDiffRaw": 0.7500000000000001,
+        "formDiffNorm": 0.09266659995406978,
+        "matchupAdvantage": 0,
+        "compositeDiff": 0.04546941364888127,
+        "mismatchScore": 0.00029166666666663454,
+        "evidenceSignal": 0,
+        "evidenceReliabilityA": 1,
+        "evidenceReliabilityB": 1,
+        "commonOpponentSignal": 0.019510265661741726,
+        "commonOpponentCount": 6,
+        "commonOpponentGameCount": 12,
+        "commonOpponentReliability": 1,
+        "commonOpponentAvgMarginDiff": 1,
+        "commonOpponentPointsPerGameDiff": 0.5000000000000001,
+        "glickoRatingDiff": 0,
+        "glickoWinProbabilityA": 0.5,
+        "glickoReliability": 0.8742857142857143
+      },
+      "formA": 0.6456806640911565,
+      "formB": -0.10431933590884354,
+      "commonOpponents": {
+        "sharedOpponents": 6,
+        "comparedGames": 12,
+        "avgMarginDiff": 1,
+        "pointsPerGameDiff": 0.5000000000000001,
+        "reliability": 1
+      }
+    },
+    "10-even-true": {
+      "predictedWinner": "team_b",
+      "winProbabilityA": 0.3688354425915435,
+      "winProbabilityB": 0.47379434833730283,
+      "drawProbability": 0.15737020907115376,
+      "expectedScore": {
+        "teamA": 2,
+        "teamB": 3
+      },
+      "expectedMargin": -0.4342515140567613,
+      "expectedGoals": {
+        "teamA": 2.3790959226625583,
+        "teamB": 2.8133474367193196
+      },
+      "expectedAbsoluteGoalDifference": 1.8046387124013878,
+      "blowout4PlusProbability": 0.12658796524087076,
+      "confidence": "low",
+      "confidence_score": 0.4591674692540063,
+      "components": {
+        "powerDiff": -0.00009999999999998899,
+        "strengthSignal": -0.000024999999999997247,
+        "sosDiff": 0,
+        "formDiffRaw": -0.7500000000000001,
+        "formDiffNorm": -0.09266659995406973,
+        "matchupAdvantage": 0,
+        "compositeDiff": -0.045469413648881254,
+        "mismatchScore": 0.00029166666666663454,
+        "evidenceSignal": 0,
+        "evidenceReliabilityA": 1,
+        "evidenceReliabilityB": 1,
+        "commonOpponentSignal": -0.019510265661741726,
+        "commonOpponentCount": 6,
+        "commonOpponentGameCount": 12,
+        "commonOpponentReliability": 1,
+        "commonOpponentAvgMarginDiff": -1,
+        "commonOpponentPointsPerGameDiff": -0.5000000000000001,
+        "glickoRatingDiff": 0,
+        "glickoWinProbabilityA": 0.5,
+        "glickoReliability": 0.8742857142857143
+      },
+      "formA": -0.10431933590884354,
+      "formB": 0.6456806640911565,
+      "commonOpponents": {
+        "sharedOpponents": 6,
+        "comparedGames": 12,
+        "avgMarginDiff": -1,
+        "pointsPerGameDiff": -0.5000000000000001,
+        "reliability": 1
+      }
+    },
+    "10-sparse-false": {
+      "predictedWinner": "team_a",
+      "winProbabilityA": 0.4096479360746863,
+      "winProbabilityB": 0.4096246129339336,
+      "drawProbability": 0.18072745099138016,
+      "expectedScore": {
+        "teamA": 3,
+        "teamB": 2
+      },
+      "expectedMargin": 0.00013410426221227567,
+      "expectedGoals": {
+        "teamA": 2.907067052131106,
+        "teamB": 2.906932947868894
+      },
+      "expectedAbsoluteGoalDifference": 1.8809981792688781,
+      "blowout4PlusProbability": 0.14155412681403737,
+      "confidence": "low",
+      "confidence_score": 0.2547064984114751,
+      "components": {
+        "powerDiff": 0.00009999999999998899,
+        "strengthSignal": 0.000024999999999997247,
+        "sosDiff": 0,
+        "formDiffRaw": 0,
+        "formDiffNorm": 0,
+        "matchupAdvantage": 0,
+        "compositeDiff": 0.000012499999999998623,
+        "mismatchScore": 0.00029166666666663454,
+        "evidenceSignal": 0,
+        "evidenceReliabilityA": 1,
+        "evidenceReliabilityB": 1,
+        "commonOpponentSignal": 0,
+        "commonOpponentCount": 0,
+        "commonOpponentGameCount": 0,
+        "commonOpponentReliability": 0,
+        "commonOpponentAvgMarginDiff": 0,
+        "commonOpponentPointsPerGameDiff": 0,
+        "glickoRatingDiff": 0,
+        "glickoWinProbabilityA": 0.5,
+        "glickoReliability": 0.8742857142857143
+      },
+      "formA": 0,
+      "formB": 0
+    },
+    "10-sparse-true": {
+      "predictedWinner": "team_b",
+      "winProbabilityA": 0.4096246129339335,
+      "winProbabilityB": 0.40964793607468636,
+      "drawProbability": 0.18072745099138016,
+      "expectedScore": {
+        "teamA": 2,
+        "teamB": 3
+      },
+      "expectedMargin": -0.00013410426221316385,
+      "expectedGoals": {
+        "teamA": 2.9069329478688934,
+        "teamB": 2.9070670521311066
+      },
+      "expectedAbsoluteGoalDifference": 1.8809981792688772,
+      "blowout4PlusProbability": 0.1415541268140373,
+      "confidence": "low",
+      "confidence_score": 0.2547064984114751,
+      "components": {
+        "powerDiff": -0.00009999999999998899,
+        "strengthSignal": -0.000024999999999997247,
+        "sosDiff": 0,
+        "formDiffRaw": 0,
+        "formDiffNorm": 0,
+        "matchupAdvantage": 0,
+        "compositeDiff": -0.000012499999999998623,
+        "mismatchScore": 0.00029166666666663454,
+        "evidenceSignal": 0,
+        "evidenceReliabilityA": 1,
+        "evidenceReliabilityB": 1,
+        "commonOpponentSignal": 0,
+        "commonOpponentCount": 0,
+        "commonOpponentGameCount": 0,
+        "commonOpponentReliability": 0,
+        "commonOpponentAvgMarginDiff": 0,
+        "commonOpponentPointsPerGameDiff": 0,
+        "glickoRatingDiff": 0,
+        "glickoWinProbabilityA": 0.5,
+        "glickoReliability": 0.8742857142857143
+      },
+      "formA": 0,
+      "formB": 0
+    },
+    "10-mismatch-false": {
+      "predictedWinner": "team_a",
+      "winProbabilityA": 0.6855703210827011,
+      "winProbabilityB": 0.22067208886443387,
+      "drawProbability": 0.09375759005286503,
+      "expectedScore": {
+        "teamA": 4,
+        "teamB": 0
+      },
+      "expectedMargin": 3.344455365150104,
+      "expectedGoals": {
+        "teamA": 4.268449362265991,
+        "teamB": 0.923993997115887
+      },
+      "expectedAbsoluteGoalDifference": 3.4380864795570334,
+      "blowout4PlusProbability": 0.45266150565596625,
+      "confidence": "high",
+      "confidence_score": 0.7970029131070706,
+      "components": {
+        "powerDiff": 0.52,
+        "strengthSignal": 0.2782567551144969,
+        "sosDiff": 0,
+        "formDiffRaw": 0.7500000000000001,
+        "formDiffNorm": 0.09266659995406978,
+        "matchupAdvantage": 0,
+        "compositeDiff": 0.26251516950584897,
+        "mismatchScore": 0.35,
+        "evidenceSignal": 0,
+        "evidenceReliabilityA": 1,
+        "evidenceReliabilityB": 1,
+        "commonOpponentSignal": 0.019510265661741726,
+        "commonOpponentCount": 6,
+        "commonOpponentGameCount": 12,
+        "commonOpponentReliability": 1,
+        "commonOpponentAvgMarginDiff": 1,
+        "commonOpponentPointsPerGameDiff": 0.5000000000000001,
+        "glickoRatingDiff": 250,
+        "glickoWinProbabilityA": 0.8083176725494586,
+        "glickoReliability": 0.8742857142857143
+      },
+      "formA": 0.6456806640911565,
+      "formB": -0.10431933590884354,
+      "commonOpponents": {
+        "sharedOpponents": 6,
+        "comparedGames": 12,
+        "avgMarginDiff": 1,
+        "pointsPerGameDiff": 0.5000000000000001,
+        "reliability": 1
+      }
+    },
+    "10-mismatch-true": {
+      "predictedWinner": "team_b",
+      "winProbabilityA": 0.22067208886443376,
+      "winProbabilityB": 0.6855703210827012,
+      "drawProbability": 0.09375759005286508,
+      "expectedScore": {
+        "teamA": 0,
+        "teamB": 4
+      },
+      "expectedMargin": -3.3444553651501026,
+      "expectedGoals": {
+        "teamA": 0.9239939971158875,
+        "teamB": 4.26844936226599
+      },
+      "expectedAbsoluteGoalDifference": 3.438086479557021,
+      "blowout4PlusProbability": 0.4526615056559658,
+      "confidence": "high",
+      "confidence_score": 0.7970029131070706,
+      "components": {
+        "powerDiff": -0.52,
+        "strengthSignal": -0.2782567551144968,
+        "sosDiff": 0,
+        "formDiffRaw": -0.7500000000000001,
+        "formDiffNorm": -0.09266659995406973,
+        "matchupAdvantage": 0,
+        "compositeDiff": -0.2625151695058489,
+        "mismatchScore": 0.35,
+        "evidenceSignal": 0,
+        "evidenceReliabilityA": 1,
+        "evidenceReliabilityB": 1,
+        "commonOpponentSignal": -0.019510265661741726,
+        "commonOpponentCount": 6,
+        "commonOpponentGameCount": 12,
+        "commonOpponentReliability": 1,
+        "commonOpponentAvgMarginDiff": -1,
+        "commonOpponentPointsPerGameDiff": -0.5000000000000001,
+        "glickoRatingDiff": -250,
+        "glickoWinProbabilityA": 0.19168232745054142,
+        "glickoReliability": 0.8742857142857143
+      },
+      "formA": -0.10431933590884354,
+      "formB": 0.6456806640911565,
+      "commonOpponents": {
+        "sharedOpponents": 6,
+        "comparedGames": 12,
+        "avgMarginDiff": -1,
+        "pointsPerGameDiff": -0.5000000000000001,
+        "reliability": 1
+      }
+    },
+    "13-even-false": {
+      "predictedWinner": "team_a",
+      "winProbabilityA": 0.4549333511521432,
+      "winProbabilityB": 0.37067385838485367,
+      "drawProbability": 0.17439279046300327,
+      "expectedScore": {
+        "teamA": 2,
+        "teamB": 1
+      },
+      "expectedMargin": 0.3248013762041224,
+      "expectedGoals": {
+        "teamA": 2.104262367793,
+        "teamB": 1.7794609915888775
+      },
+      "expectedAbsoluteGoalDifference": 1.5393392168076734,
+      "blowout4PlusProbability": 0.07770064173171733,
+      "confidence": "low",
+      "confidence_score": 0.45200167667951624,
+      "components": {
+        "powerDiff": 0.00009999999999998899,
+        "strengthSignal": 0.000024999999999997247,
+        "sosDiff": 0,
+        "formDiffRaw": 0.7500000000000001,
+        "formDiffNorm": 0.09266659995406978,
+        "matchupAdvantage": 0,
+        "compositeDiff": 0.04546941364888127,
+        "mismatchScore": 0.00029166666666663454,
+        "evidenceSignal": 0,
+        "evidenceReliabilityA": 1,
+        "evidenceReliabilityB": 1,
+        "commonOpponentSignal": 0.019510265661741726,
+        "commonOpponentCount": 6,
+        "commonOpponentGameCount": 12,
+        "commonOpponentReliability": 1,
+        "commonOpponentAvgMarginDiff": 1,
+        "commonOpponentPointsPerGameDiff": 0.5000000000000001,
+        "glickoRatingDiff": 0,
+        "glickoWinProbabilityA": 0.5,
+        "glickoReliability": 0.8742857142857143
+      },
+      "formA": 0.6456806640911565,
+      "formB": -0.10431933590884354,
+      "commonOpponents": {
+        "sharedOpponents": 6,
+        "comparedGames": 12,
+        "avgMarginDiff": 1,
+        "pointsPerGameDiff": 0.5000000000000001,
+        "reliability": 1
+      }
+    },
+    "13-even-true": {
+      "predictedWinner": "team_b",
+      "winProbabilityA": 0.3706738583848537,
+      "winProbabilityB": 0.45493335115214306,
+      "drawProbability": 0.17439279046300324,
+      "expectedScore": {
+        "teamA": 1,
+        "teamB": 2
+      },
+      "expectedMargin": -0.3248013762041224,
+      "expectedGoals": {
+        "teamA": 1.7794609915888775,
+        "teamB": 2.104262367793
+      },
+      "expectedAbsoluteGoalDifference": 1.5393392168076732,
+      "blowout4PlusProbability": 0.07770064173171728,
+      "confidence": "low",
+      "confidence_score": 0.45200167667951624,
+      "components": {
+        "powerDiff": -0.00009999999999998899,
+        "strengthSignal": -0.000024999999999997247,
+        "sosDiff": 0,
+        "formDiffRaw": -0.7500000000000001,
+        "formDiffNorm": -0.09266659995406973,
+        "matchupAdvantage": 0,
+        "compositeDiff": -0.045469413648881254,
+        "mismatchScore": 0.00029166666666663454,
+        "evidenceSignal": 0,
+        "evidenceReliabilityA": 1,
+        "evidenceReliabilityB": 1,
+        "commonOpponentSignal": -0.019510265661741726,
+        "commonOpponentCount": 6,
+        "commonOpponentGameCount": 12,
+        "commonOpponentReliability": 1,
+        "commonOpponentAvgMarginDiff": -1,
+        "commonOpponentPointsPerGameDiff": -0.5000000000000001,
+        "glickoRatingDiff": 0,
+        "glickoWinProbabilityA": 0.5,
+        "glickoReliability": 0.8742857142857143
+      },
+      "formA": -0.10431933590884354,
+      "formB": 0.6456806640911565,
+      "commonOpponents": {
+        "sharedOpponents": 6,
+        "comparedGames": 12,
+        "avgMarginDiff": -1,
+        "pointsPerGameDiff": -0.5000000000000001,
+        "reliability": 1
+      }
+    },
+    "13-sparse-false": {
+      "predictedWinner": "draw",
+      "winProbabilityA": 0.403993146398715,
+      "winProbabilityB": 0.4039732213142895,
+      "drawProbability": 0.19203363228699552,
+      "expectedScore": {
+        "teamA": 2,
+        "teamB": 2
+      },
+      "expectedMargin": 0.00009729132748770297,
+      "expectedGoals": {
+        "teamA": 2.109048645663744,
+        "teamB": 2.108951354336256
+      },
+      "expectedAbsoluteGoalDifference": 1.5874858079893148,
+      "blowout4PlusProbability": 0.08569263827524379,
+      "confidence": "low",
+      "confidence_score": 0.25208763420057956,
+      "components": {
+        "powerDiff": 0.00009999999999998899,
+        "strengthSignal": 0.000024999999999997247,
+        "sosDiff": 0,
+        "formDiffRaw": 0,
+        "formDiffNorm": 0,
+        "matchupAdvantage": 0,
+        "compositeDiff": 0.000012499999999998623,
+        "mismatchScore": 0.00029166666666663454,
+        "evidenceSignal": 0,
+        "evidenceReliabilityA": 1,
+        "evidenceReliabilityB": 1,
+        "commonOpponentSignal": 0,
+        "commonOpponentCount": 0,
+        "commonOpponentGameCount": 0,
+        "commonOpponentReliability": 0,
+        "commonOpponentAvgMarginDiff": 0,
+        "commonOpponentPointsPerGameDiff": 0,
+        "glickoRatingDiff": 0,
+        "glickoWinProbabilityA": 0.5,
+        "glickoReliability": 0.8742857142857143
+      },
+      "formA": 0,
+      "formB": 0
+    },
+    "13-sparse-true": {
+      "predictedWinner": "draw",
+      "winProbabilityA": 0.4039732213142895,
+      "winProbabilityB": 0.4039931463987151,
+      "drawProbability": 0.19203363228699552,
+      "expectedScore": {
+        "teamA": 2,
+        "teamB": 2
+      },
+      "expectedMargin": -0.00009729132748859115,
+      "expectedGoals": {
+        "teamA": 2.1089513543362557,
+        "teamB": 2.1090486456637443
+      },
+      "expectedAbsoluteGoalDifference": 1.5874858079893142,
+      "blowout4PlusProbability": 0.08569263827524377,
+      "confidence": "low",
+      "confidence_score": 0.25208763420057967,
+      "components": {
+        "powerDiff": -0.00009999999999998899,
+        "strengthSignal": -0.000024999999999997247,
+        "sosDiff": 0,
+        "formDiffRaw": 0,
+        "formDiffNorm": 0,
+        "matchupAdvantage": 0,
+        "compositeDiff": -0.000012499999999998623,
+        "mismatchScore": 0.00029166666666663454,
+        "evidenceSignal": 0,
+        "evidenceReliabilityA": 1,
+        "evidenceReliabilityB": 1,
+        "commonOpponentSignal": 0,
+        "commonOpponentCount": 0,
+        "commonOpponentGameCount": 0,
+        "commonOpponentReliability": 0,
+        "commonOpponentAvgMarginDiff": 0,
+        "commonOpponentPointsPerGameDiff": 0,
+        "glickoRatingDiff": 0,
+        "glickoWinProbabilityA": 0.5,
+        "glickoReliability": 0.8742857142857143
+      },
+      "formA": 0,
+      "formB": 0
+    },
+    "13-mismatch-false": {
+      "predictedWinner": "team_a",
+      "winProbabilityA": 0.6545388053351715,
+      "winProbabilityB": 0.23148618440717547,
+      "drawProbability": 0.11397501025765303,
+      "expectedScore": {
+        "teamA": 3,
+        "teamB": 0
+      },
+      "expectedMargin": 2.5015081585001138,
+      "expectedGoals": {
+        "teamA": 3.1926157589409954,
+        "teamB": 0.6911076004408818
+      },
+      "expectedAbsoluteGoalDifference": 2.6282829870334634,
+      "blowout4PlusProbability": 0.2879873043658142,
+      "confidence": "high",
+      "confidence_score": 0.7824906150500515,
+      "components": {
+        "powerDiff": 0.52,
+        "strengthSignal": 0.2782567551144969,
+        "sosDiff": 0,
+        "formDiffRaw": 0.7500000000000001,
+        "formDiffNorm": 0.09266659995406978,
+        "matchupAdvantage": 0,
+        "compositeDiff": 0.26251516950584897,
+        "mismatchScore": 0.35,
+        "evidenceSignal": 0,
+        "evidenceReliabilityA": 1,
+        "evidenceReliabilityB": 1,
+        "commonOpponentSignal": 0.019510265661741726,
+        "commonOpponentCount": 6,
+        "commonOpponentGameCount": 12,
+        "commonOpponentReliability": 1,
+        "commonOpponentAvgMarginDiff": 1,
+        "commonOpponentPointsPerGameDiff": 0.5000000000000001,
+        "glickoRatingDiff": 250,
+        "glickoWinProbabilityA": 0.8083176725494586,
+        "glickoReliability": 0.8742857142857143
+      },
+      "formA": 0.6456806640911565,
+      "formB": -0.10431933590884354,
+      "commonOpponents": {
+        "sharedOpponents": 6,
+        "comparedGames": 12,
+        "avgMarginDiff": 1,
+        "pointsPerGameDiff": 0.5000000000000001,
+        "reliability": 1
+      }
+    },
+    "13-mismatch-true": {
+      "predictedWinner": "team_b",
+      "winProbabilityA": 0.23148618440717547,
+      "winProbabilityB": 0.6545388053351715,
+      "drawProbability": 0.11397501025765307,
+      "expectedScore": {
+        "teamA": 0,
+        "teamB": 3
+      },
+      "expectedMargin": -2.501508158500113,
+      "expectedGoals": {
+        "teamA": 0.6911076004408823,
+        "teamB": 3.1926157589409954
+      },
+      "expectedAbsoluteGoalDifference": 2.6282829870334625,
+      "blowout4PlusProbability": 0.287987304365814,
+      "confidence": "high",
+      "confidence_score": 0.7824906150500515,
+      "components": {
+        "powerDiff": -0.52,
+        "strengthSignal": -0.2782567551144968,
+        "sosDiff": 0,
+        "formDiffRaw": -0.7500000000000001,
+        "formDiffNorm": -0.09266659995406973,
+        "matchupAdvantage": 0,
+        "compositeDiff": -0.2625151695058489,
+        "mismatchScore": 0.35,
+        "evidenceSignal": 0,
+        "evidenceReliabilityA": 1,
+        "evidenceReliabilityB": 1,
+        "commonOpponentSignal": -0.019510265661741726,
+        "commonOpponentCount": 6,
+        "commonOpponentGameCount": 12,
+        "commonOpponentReliability": 1,
+        "commonOpponentAvgMarginDiff": -1,
+        "commonOpponentPointsPerGameDiff": -0.5000000000000001,
+        "glickoRatingDiff": -250,
+        "glickoWinProbabilityA": 0.19168232745054142,
+        "glickoReliability": 0.8742857142857143
+      },
+      "formA": -0.10431933590884354,
+      "formB": 0.6456806640911565,
+      "commonOpponents": {
+        "sharedOpponents": 6,
+        "comparedGames": 12,
+        "avgMarginDiff": -1,
+        "pointsPerGameDiff": -0.5000000000000001,
+        "reliability": 1
+      }
+    },
+    "15-even-false": {
+      "predictedWinner": "team_a",
+      "winProbabilityA": 0.44746243309828415,
+      "winProbabilityB": 0.3704849236338909,
+      "drawProbability": 0.18205264326782497,
+      "expectedScore": {
+        "teamA": 2,
+        "teamB": 1
+      },
+      "expectedMargin": 0.2896209747514886,
+      "expectedGoals": {
+        "teamA": 1.8763421670666829,
+        "teamB": 1.5867211923151943
+      },
+      "expectedAbsoluteGoalDifference": 1.4447164049656356,
+      "blowout4PlusProbability": 0.06239995865034305,
+      "confidence": "low",
+      "confidence_score": 0.449167500056859,
+      "components": {
+        "powerDiff": 0.00009999999999998899,
+        "strengthSignal": 0.000024999999999997247,
+        "sosDiff": 0,
+        "formDiffRaw": 0.7500000000000001,
+        "formDiffNorm": 0.09266659995406978,
+        "matchupAdvantage": 0,
+        "compositeDiff": 0.04546941364888127,
+        "mismatchScore": 0.00029166666666663454,
+        "evidenceSignal": 0,
+        "evidenceReliabilityA": 1,
+        "evidenceReliabilityB": 1,
+        "commonOpponentSignal": 0.019510265661741726,
+        "commonOpponentCount": 6,
+        "commonOpponentGameCount": 12,
+        "commonOpponentReliability": 1,
+        "commonOpponentAvgMarginDiff": 1,
+        "commonOpponentPointsPerGameDiff": 0.5000000000000001,
+        "glickoRatingDiff": 0,
+        "glickoWinProbabilityA": 0.5,
+        "glickoReliability": 0.8742857142857143
+      },
+      "formA": 0.6456806640911565,
+      "formB": -0.10431933590884354,
+      "commonOpponents": {
+        "sharedOpponents": 6,
+        "comparedGames": 12,
+        "avgMarginDiff": 1,
+        "pointsPerGameDiff": 0.5000000000000001,
+        "reliability": 1
+      }
+    },
+    "15-even-true": {
+      "predictedWinner": "team_b",
+      "winProbabilityA": 0.37048492363389085,
+      "winProbabilityB": 0.44746243309828426,
+      "drawProbability": 0.182052643267825,
+      "expectedScore": {
+        "teamA": 1,
+        "teamB": 2
+      },
+      "expectedMargin": -0.2896209747514886,
+      "expectedGoals": {
+        "teamA": 1.5867211923151943,
+        "teamB": 1.8763421670666829
+      },
+      "expectedAbsoluteGoalDifference": 1.4447164049656362,
+      "blowout4PlusProbability": 0.06239995865034305,
+      "confidence": "low",
+      "confidence_score": 0.449167500056859,
+      "components": {
+        "powerDiff": -0.00009999999999998899,
+        "strengthSignal": -0.000024999999999997247,
+        "sosDiff": 0,
+        "formDiffRaw": -0.7500000000000001,
+        "formDiffNorm": -0.09266659995406973,
+        "matchupAdvantage": 0,
+        "compositeDiff": -0.045469413648881254,
+        "mismatchScore": 0.00029166666666663454,
+        "evidenceSignal": 0,
+        "evidenceReliabilityA": 1,
+        "evidenceReliabilityB": 1,
+        "commonOpponentSignal": -0.019510265661741726,
+        "commonOpponentCount": 6,
+        "commonOpponentGameCount": 12,
+        "commonOpponentReliability": 1,
+        "commonOpponentAvgMarginDiff": -1,
+        "commonOpponentPointsPerGameDiff": -0.5000000000000001,
+        "glickoRatingDiff": 0,
+        "glickoWinProbabilityA": 0.5,
+        "glickoReliability": 0.8742857142857143
+      },
+      "formA": -0.10431933590884354,
+      "formB": 0.6456806640911565,
+      "commonOpponents": {
+        "sharedOpponents": 6,
+        "comparedGames": 12,
+        "avgMarginDiff": -1,
+        "pointsPerGameDiff": -0.5000000000000001,
+        "reliability": 1
+      }
+    },
+    "15-sparse-false": {
+      "predictedWinner": "draw",
+      "winProbabilityA": 0.40399265114418514,
+      "winProbabilityB": 0.4039737165688194,
+      "drawProbability": 0.19203363228699552,
+      "expectedScore": {
+        "teamA": 1,
+        "teamB": 1
+      },
+      "expectedMargin": 0.00008545859846886827,
+      "expectedGoals": {
+        "teamA": 1.8525427292992342,
+        "teamB": 1.8524572707007654
+      },
+      "expectedAbsoluteGoalDifference": 1.480662855220851,
+      "blowout4PlusProbability": 0.0676928031158521,
+      "confidence": "low",
+      "confidence_score": 0.2520875103836949,
+      "components": {
+        "powerDiff": 0.00009999999999998899,
+        "strengthSignal": 0.000024999999999997247,
+        "sosDiff": 0,
+        "formDiffRaw": 0,
+        "formDiffNorm": 0,
+        "matchupAdvantage": 0,
+        "compositeDiff": 0.000012499999999998623,
+        "mismatchScore": 0.00029166666666663454,
+        "evidenceSignal": 0,
+        "evidenceReliabilityA": 1,
+        "evidenceReliabilityB": 1,
+        "commonOpponentSignal": 0,
+        "commonOpponentCount": 0,
+        "commonOpponentGameCount": 0,
+        "commonOpponentReliability": 0,
+        "commonOpponentAvgMarginDiff": 0,
+        "commonOpponentPointsPerGameDiff": 0,
+        "glickoRatingDiff": 0,
+        "glickoWinProbabilityA": 0.5,
+        "glickoReliability": 0.8742857142857143
+      },
+      "formA": 0,
+      "formB": 0
+    },
+    "15-sparse-true": {
+      "predictedWinner": "draw",
+      "winProbabilityA": 0.4039737165688194,
+      "winProbabilityB": 0.40399265114418514,
+      "drawProbability": 0.19203363228699552,
+      "expectedScore": {
+        "teamA": 1,
+        "teamB": 1
+      },
+      "expectedMargin": -0.00008545859846931236,
+      "expectedGoals": {
+        "teamA": 1.8524572707007652,
+        "teamB": 1.8525427292992345
+      },
+      "expectedAbsoluteGoalDifference": 1.4806628552208472,
+      "blowout4PlusProbability": 0.06769280311585206,
+      "confidence": "low",
+      "confidence_score": 0.2520875103836949,
+      "components": {
+        "powerDiff": -0.00009999999999998899,
+        "strengthSignal": -0.000024999999999997247,
+        "sosDiff": 0,
+        "formDiffRaw": 0,
+        "formDiffNorm": 0,
+        "matchupAdvantage": 0,
+        "compositeDiff": -0.000012499999999998623,
+        "mismatchScore": 0.00029166666666663454,
+        "evidenceSignal": 0,
+        "evidenceReliabilityA": 1,
+        "evidenceReliabilityB": 1,
+        "commonOpponentSignal": 0,
+        "commonOpponentCount": 0,
+        "commonOpponentGameCount": 0,
+        "commonOpponentReliability": 0,
+        "commonOpponentAvgMarginDiff": 0,
+        "commonOpponentPointsPerGameDiff": 0,
+        "glickoRatingDiff": 0,
+        "glickoWinProbabilityA": 0.5,
+        "glickoReliability": 0.8742857142857143
+      },
+      "formA": 0,
+      "formB": 0
+    },
+    "15-mismatch-false": {
+      "predictedWinner": "team_a",
+      "winProbabilityA": 0.6406456421887378,
+      "winProbabilityB": 0.23570445732462442,
+      "drawProbability": 0.12364990048663788,
+      "expectedScore": {
+        "teamA": 2,
+        "teamB": 0
+      },
+      "expectedMargin": 2.230560842076903,
+      "expectedGoals": {
+        "teamA": 2.84681210072939,
+        "teamB": 0.6162512586524871
+      },
+      "expectedAbsoluteGoalDifference": 2.3693359054274485,
+      "blowout4PlusProbability": 0.2330982062490297,
+      "confidence": "high",
+      "confidence_score": 0.7761897245496302,
+      "components": {
+        "powerDiff": 0.52,
+        "strengthSignal": 0.2782567551144969,
+        "sosDiff": 0,
+        "formDiffRaw": 0.7500000000000001,
+        "formDiffNorm": 0.09266659995406978,
+        "matchupAdvantage": 0,
+        "compositeDiff": 0.26251516950584897,
+        "mismatchScore": 0.35,
+        "evidenceSignal": 0,
+        "evidenceReliabilityA": 1,
+        "evidenceReliabilityB": 1,
+        "commonOpponentSignal": 0.019510265661741726,
+        "commonOpponentCount": 6,
+        "commonOpponentGameCount": 12,
+        "commonOpponentReliability": 1,
+        "commonOpponentAvgMarginDiff": 1,
+        "commonOpponentPointsPerGameDiff": 0.5000000000000001,
+        "glickoRatingDiff": 250,
+        "glickoWinProbabilityA": 0.8083176725494586,
+        "glickoReliability": 0.8742857142857143
+      },
+      "formA": 0.6456806640911565,
+      "formB": -0.10431933590884354,
+      "commonOpponents": {
+        "sharedOpponents": 6,
+        "comparedGames": 12,
+        "avgMarginDiff": 1,
+        "pointsPerGameDiff": 0.5000000000000001,
+        "reliability": 1
+      }
+    },
+    "15-mismatch-true": {
+      "predictedWinner": "team_b",
+      "winProbabilityA": 0.23570445732462442,
+      "winProbabilityB": 0.6406456421887378,
+      "drawProbability": 0.1236499004866379,
+      "expectedScore": {
+        "teamA": 0,
+        "teamB": 2
+      },
+      "expectedMargin": -2.230560842076902,
+      "expectedGoals": {
+        "teamA": 0.6162512586524875,
+        "teamB": 2.8468121007293896
+      },
+      "expectedAbsoluteGoalDifference": 2.369335905427458,
+      "blowout4PlusProbability": 0.23309820624902977,
+      "confidence": "high",
+      "confidence_score": 0.7761897245496302,
+      "components": {
+        "powerDiff": -0.52,
+        "strengthSignal": -0.2782567551144968,
+        "sosDiff": 0,
+        "formDiffRaw": -0.7500000000000001,
+        "formDiffNorm": -0.09266659995406973,
+        "matchupAdvantage": 0,
+        "compositeDiff": -0.2625151695058489,
+        "mismatchScore": 0.35,
+        "evidenceSignal": 0,
+        "evidenceReliabilityA": 1,
+        "evidenceReliabilityB": 1,
+        "commonOpponentSignal": -0.019510265661741726,
+        "commonOpponentCount": 6,
+        "commonOpponentGameCount": 12,
+        "commonOpponentReliability": 1,
+        "commonOpponentAvgMarginDiff": -1,
+        "commonOpponentPointsPerGameDiff": -0.5000000000000001,
+        "glickoRatingDiff": -250,
+        "glickoWinProbabilityA": 0.19168232745054142,
+        "glickoReliability": 0.8742857142857143
+      },
+      "formA": -0.10431933590884354,
+      "formB": 0.6456806640911565,
+      "commonOpponents": {
+        "sharedOpponents": 6,
+        "comparedGames": 12,
+        "avgMarginDiff": -1,
+        "pointsPerGameDiff": -0.5000000000000001,
+        "reliability": 1
+      }
+    },
+    "19-even-false": {
+      "predictedWinner": "team_a",
+      "winProbabilityA": 0.4506174334052645,
+      "winProbabilityB": 0.37063062261110585,
+      "drawProbability": 0.17875194398362962,
+      "expectedScore": {
+        "teamA": 2,
+        "teamB": 1
+      },
+      "expectedMargin": 0.30395373089885824,
+      "expectedGoals": {
+        "teamA": 1.9691985451403677,
+        "teamB": 1.6652448142415095
+      },
+      "expectedAbsoluteGoalDifference": 1.4839448243346378,
+      "blowout4PlusProbability": 0.06856866903689231,
+      "confidence": "low",
+      "confidence_score": 0.45036340455823287,
+      "components": {
+        "powerDiff": 0.00009999999999998899,
+        "strengthSignal": 0.000024999999999997247,
+        "sosDiff": 0,
+        "formDiffRaw": 0.7500000000000001,
+        "formDiffNorm": 0.09266659995406978,
+        "matchupAdvantage": 0,
+        "compositeDiff": 0.04546941364888127,
+        "mismatchScore": 0.00029166666666663454,
+        "evidenceSignal": 0,
+        "evidenceReliabilityA": 1,
+        "evidenceReliabilityB": 1,
+        "commonOpponentSignal": 0.019510265661741726,
+        "commonOpponentCount": 6,
+        "commonOpponentGameCount": 12,
+        "commonOpponentReliability": 1,
+        "commonOpponentAvgMarginDiff": 1,
+        "commonOpponentPointsPerGameDiff": 0.5000000000000001,
+        "glickoRatingDiff": 0,
+        "glickoWinProbabilityA": 0.5,
+        "glickoReliability": 0.8742857142857143
+      },
+      "formA": 0.6456806640911565,
+      "formB": -0.10431933590884354,
+      "commonOpponents": {
+        "sharedOpponents": 6,
+        "comparedGames": 12,
+        "avgMarginDiff": 1,
+        "pointsPerGameDiff": 0.5000000000000001,
+        "reliability": 1
+      }
+    },
+    "19-even-true": {
+      "predictedWinner": "team_b",
+      "winProbabilityA": 0.37063062261110585,
+      "winProbabilityB": 0.4506174334052645,
+      "drawProbability": 0.17875194398362965,
+      "expectedScore": {
+        "teamA": 1,
+        "teamB": 2
+      },
+      "expectedMargin": -0.30395373089885824,
+      "expectedGoals": {
+        "teamA": 1.6652448142415095,
+        "teamB": 1.9691985451403677
+      },
+      "expectedAbsoluteGoalDifference": 1.4839448243346378,
+      "blowout4PlusProbability": 0.0685686690368923,
+      "confidence": "low",
+      "confidence_score": 0.45036340455823287,
+      "components": {
+        "powerDiff": -0.00009999999999998899,
+        "strengthSignal": -0.000024999999999997247,
+        "sosDiff": 0,
+        "formDiffRaw": -0.7500000000000001,
+        "formDiffNorm": -0.09266659995406973,
+        "matchupAdvantage": 0,
+        "compositeDiff": -0.045469413648881254,
+        "mismatchScore": 0.00029166666666663454,
+        "evidenceSignal": 0,
+        "evidenceReliabilityA": 1,
+        "evidenceReliabilityB": 1,
+        "commonOpponentSignal": -0.019510265661741726,
+        "commonOpponentCount": 6,
+        "commonOpponentGameCount": 12,
+        "commonOpponentReliability": 1,
+        "commonOpponentAvgMarginDiff": -1,
+        "commonOpponentPointsPerGameDiff": -0.5000000000000001,
+        "glickoRatingDiff": 0,
+        "glickoWinProbabilityA": 0.5,
+        "glickoReliability": 0.8742857142857143
+      },
+      "formA": -0.10431933590884354,
+      "formB": 0.6456806640911565,
+      "commonOpponents": {
+        "sharedOpponents": 6,
+        "comparedGames": 12,
+        "avgMarginDiff": -1,
+        "pointsPerGameDiff": -0.5000000000000001,
+        "reliability": 1
+      }
+    },
+    "19-sparse-false": {
+      "predictedWinner": "team_a",
+      "winProbabilityA": 0.40399285619289316,
+      "winProbabilityB": 0.4039735115201113,
+      "drawProbability": 0.19203363228699552,
+      "expectedScore": {
+        "teamA": 2,
+        "teamB": 1
+      },
+      "expectedMargin": 0.0000902793399211177,
+      "expectedGoals": {
+        "teamA": 1.9570451396699604,
+        "teamB": 1.9569548603300393
+      },
+      "expectedAbsoluteGoalDifference": 1.5251031349727229,
+      "blowout4PlusProbability": 0.07497447900109784,
+      "confidence": "low",
+      "confidence_score": 0.25208756164719837,
+      "components": {
+        "powerDiff": 0.00009999999999998899,
+        "strengthSignal": 0.000024999999999997247,
+        "sosDiff": 0,
+        "formDiffRaw": 0,
+        "formDiffNorm": 0,
+        "matchupAdvantage": 0,
+        "compositeDiff": 0.000012499999999998623,
+        "mismatchScore": 0.00029166666666663454,
+        "evidenceSignal": 0,
+        "evidenceReliabilityA": 1,
+        "evidenceReliabilityB": 1,
+        "commonOpponentSignal": 0,
+        "commonOpponentCount": 0,
+        "commonOpponentGameCount": 0,
+        "commonOpponentReliability": 0,
+        "commonOpponentAvgMarginDiff": 0,
+        "commonOpponentPointsPerGameDiff": 0,
+        "glickoRatingDiff": 0,
+        "glickoWinProbabilityA": 0.5,
+        "glickoReliability": 0.8742857142857143
+      },
+      "formA": 0,
+      "formB": 0
+    },
+    "19-sparse-true": {
+      "predictedWinner": "team_b",
+      "winProbabilityA": 0.40397351152011124,
+      "winProbabilityB": 0.40399285619289327,
+      "drawProbability": 0.19203363228699552,
+      "expectedScore": {
+        "teamA": 1,
+        "teamB": 2
+      },
+      "expectedMargin": -0.00009027933992156179,
+      "expectedGoals": {
+        "teamA": 1.956954860330039,
+        "teamB": 1.9570451396699606
+      },
+      "expectedAbsoluteGoalDifference": 1.5251031349727309,
+      "blowout4PlusProbability": 0.07497447900109801,
+      "confidence": "low",
+      "confidence_score": 0.25208756164719837,
+      "components": {
+        "powerDiff": -0.00009999999999998899,
+        "strengthSignal": -0.000024999999999997247,
+        "sosDiff": 0,
+        "formDiffRaw": 0,
+        "formDiffNorm": 0,
+        "matchupAdvantage": 0,
+        "compositeDiff": -0.000012499999999998623,
+        "mismatchScore": 0.00029166666666663454,
+        "evidenceSignal": 0,
+        "evidenceReliabilityA": 1,
+        "evidenceReliabilityB": 1,
+        "commonOpponentSignal": 0,
+        "commonOpponentCount": 0,
+        "commonOpponentGameCount": 0,
+        "commonOpponentReliability": 0,
+        "commonOpponentAvgMarginDiff": 0,
+        "commonOpponentPointsPerGameDiff": 0,
+        "glickoRatingDiff": 0,
+        "glickoWinProbabilityA": 0.5,
+        "glickoReliability": 0.8742857142857143
+      },
+      "formA": 0,
+      "formB": 0
+    },
+    "19-mismatch-false": {
+      "predictedWinner": "team_a",
+      "winProbabilityA": 0.6466045509942288,
+      "winProbabilityB": 0.2339446558970481,
+      "drawProbability": 0.11945079310872311,
+      "expectedScore": {
+        "teamA": 2,
+        "teamB": 0
+      },
+      "expectedMargin": 2.340946785804877,
+      "expectedGoals": {
+        "teamA": 2.987695072593377,
+        "teamB": 0.6467482867884999
+      },
+      "expectedAbsoluteGoalDifference": 2.4747825693043106,
+      "blowout4PlusProbability": 0.2553921564648854,
+      "confidence": "high",
+      "confidence_score": 0.7788773604496901,
+      "components": {
+        "powerDiff": 0.52,
+        "strengthSignal": 0.2782567551144969,
+        "sosDiff": 0,
+        "formDiffRaw": 0.7500000000000001,
+        "formDiffNorm": 0.09266659995406978,
+        "matchupAdvantage": 0,
+        "compositeDiff": 0.26251516950584897,
+        "mismatchScore": 0.35,
+        "evidenceSignal": 0,
+        "evidenceReliabilityA": 1,
+        "evidenceReliabilityB": 1,
+        "commonOpponentSignal": 0.019510265661741726,
+        "commonOpponentCount": 6,
+        "commonOpponentGameCount": 12,
+        "commonOpponentReliability": 1,
+        "commonOpponentAvgMarginDiff": 1,
+        "commonOpponentPointsPerGameDiff": 0.5000000000000001,
+        "glickoRatingDiff": 250,
+        "glickoWinProbabilityA": 0.8083176725494586,
+        "glickoReliability": 0.8742857142857143
+      },
+      "formA": 0.6456806640911565,
+      "formB": -0.10431933590884354,
+      "commonOpponents": {
+        "sharedOpponents": 6,
+        "comparedGames": 12,
+        "avgMarginDiff": 1,
+        "pointsPerGameDiff": 0.5000000000000001,
+        "reliability": 1
+      }
+    },
+    "19-mismatch-true": {
+      "predictedWinner": "team_b",
+      "winProbabilityA": 0.23394465589704805,
+      "winProbabilityB": 0.6466045509942289,
+      "drawProbability": 0.11945079310872314,
+      "expectedScore": {
+        "teamA": 0,
+        "teamB": 2
+      },
+      "expectedMargin": -2.340946785804877,
+      "expectedGoals": {
+        "teamA": 0.6467482867885002,
+        "teamB": 2.987695072593377
+      },
+      "expectedAbsoluteGoalDifference": 2.4747825693043075,
+      "blowout4PlusProbability": 0.255392156464885,
+      "confidence": "high",
+      "confidence_score": 0.7788773604496902,
+      "components": {
+        "powerDiff": -0.52,
+        "strengthSignal": -0.2782567551144968,
+        "sosDiff": 0,
+        "formDiffRaw": -0.7500000000000001,
+        "formDiffNorm": -0.09266659995406973,
+        "matchupAdvantage": 0,
+        "compositeDiff": -0.2625151695058489,
+        "mismatchScore": 0.35,
+        "evidenceSignal": 0,
+        "evidenceReliabilityA": 1,
+        "evidenceReliabilityB": 1,
+        "commonOpponentSignal": -0.019510265661741726,
+        "commonOpponentCount": 6,
+        "commonOpponentGameCount": 12,
+        "commonOpponentReliability": 1,
+        "commonOpponentAvgMarginDiff": -1,
+        "commonOpponentPointsPerGameDiff": -0.5000000000000001,
+        "glickoRatingDiff": -250,
+        "glickoWinProbabilityA": 0.19168232745054142,
+        "glickoReliability": 0.8742857142857143
+      },
+      "formA": -0.10431933590884354,
+      "formB": 0.6456806640911565,
+      "commonOpponents": {
+        "sharedOpponents": 6,
+        "comparedGames": 12,
+        "avgMarginDiff": -1,
+        "pointsPerGameDiff": -0.5000000000000001,
+        "reliability": 1
+      }
+    }
+  }
+}

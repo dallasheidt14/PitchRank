@@ -1146,9 +1146,10 @@ def test_compare_predictor_receives_historical_snapshot_and_game_evidence(monkey
         blowout_4plus_probability=0.07,
     )
 
-    def fake_batch(teams, games):
+    def fake_batch(teams, games, *, reference_date):
         captured["teams"] = teams
         captured["games"] = games
+        captured["reference_date"] = reference_date
         return {
             ("entry-a", "entry-b"): prediction,
             ("entry-b", "entry-a"): prediction,
@@ -1201,11 +1202,14 @@ def test_compare_predictor_receives_historical_snapshot_and_game_evidence(monkey
         "2026-08-01",
     )
 
-    predict_fn, cost_fn = cohort._build_compare_prediction_and_cost_functions(rows, [game])
+    predict_fn, cost_fn = cohort._build_compare_prediction_and_cost_functions(
+        rows, [game], reference_date="2026-09-05",
+    )
     team_a = SeedableTeam("entry-a", "Alpha", "u10/u11", "Male", 0.61)
     team_b = SeedableTeam("entry-b", "Beta", "u10/u11", "Male", 0.61)
 
     assert captured["teams"]["entry-a"]["age"] == 10
+    assert captured["reference_date"] == "2026-09-05"
     assert captured["teams"]["entry-a"]["exp_margin"] == 0.7
     assert captured["teams"]["entry-a"]["same_age_games"] == 10
     assert captured["teams"]["entry-a"]["publication_cap_score"] == 0.59
