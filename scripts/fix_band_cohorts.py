@@ -62,7 +62,8 @@ from supabase import create_client  # noqa: E402
 
 EXPORTS = ROOT / "data" / "exports"
 # Teams the owner decided to leave at their stored age. Whenever the owner declines a team or a held
-# group, add it here, with the date and the owner's answer in its section's `decided`.
+# group, add it here, with the date and the owner's answer in its section's `decided`; a new section
+# also needs its floor in DECISION_FLOORS in scripts/check_age_skill_assumptions.py.
 OWNER_DECISIONS = ROOT / ".claude" / "skills" / "correcting-team-age-groups" / "scripts" / "owner_decisions.json"
 DEFAULT_ACTOR = "pitchrank-operator"
 IN_BATCH = 100
