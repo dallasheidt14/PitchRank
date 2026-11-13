@@ -1932,3 +1932,26 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Why**: Read on 2026-11-06: a team name scraped from any league reaches this HTML, so markup in one would land in an email PitchRank sends. Reported by a review as reachable through `/api/reports/team-card` once a team has a published rank; the route was not traced here. Email clients run no scripts, so the exposure is links and images. It predates the Georgia provider.
 - **Noted**: 2026-11-06
 - **Refs**: branch `feat/report-card-redesign`; `renders markup in a team name as text` in `frontend/lib/email/__tests__/report-card.test.ts`
+
+### Keep deprecated rows out of the Affinity and PlayMetrics fuzzy candidates
+
+- **Status**: dropped
+- **Type**: plan
+- **Category**: reliability
+- **Where**: the candidate query in `AffinityORGameMatcher._fuzzy_match_team` in `src/models/affinity_or_matcher.py`, which filters age group, gender and state but not `is_deprecated`, unlike `AffinityUTGameMatcher._squad_key_match` beside it; and `PlayMetricsGameMatcher._get_candidates` in `src/models/playmetrics_matcher.py`, which filters the same three columns and not `is_deprecated` either
+- **Why**: On 2026-11-06 a deprecated `Savannah United 10B Blue` tied with the live `Savannah United 09/10B Blue` (u17 Male GA) and `refuse_tied_best` refused both, which would have created a duplicate. Georgia's exact-name lookup covers that case and two ties between live rows, which this filter would not fix, so the lookup stays either way. Oregon, Utah and Hawaii still share the query. Filtering changes which teams those leagues link to, so measure that first.
+- **Noted**: 2026-11-06
+- **Update (2026-11-12)**: PlayMetrics has the same shape. The u11 Female pool for a tournament `AFC Union U11G Premier` held the live team and its deprecated same-name copy from the 2026-11-10 merges; a guarded dry run linked the live one, at equal confidence. No PlayMetrics matcher has a tie refusal, so the pick between the two rests on pool order.
+- **Update (2026-11-12)**: Measured read-only: aliases created after their target team had been merged away number 47 for `playmetrics`, 17 for `playmetrics_tournament`, 4 for `affinity_or` and 3 for `affinity_ut`. No matcher resolves `team_merge_map` when it links. Dropped by the owner the same day ("Isnt it ok if this happens since ultimately the games go to the survivor anyways?"): rankings resolve every id through the merge map, so those games count for the survivor. The one known harm, a deprecated row tying its own survivor under `refuse_tied_best`, is rare and the after-import copy check catches the copy it makes.
+- **Refs**: dropped by the owner 2026-11-12, since games on a merged-away row count for its survivor; recorded on branch `fix/playmetrics-name-gates`
+
+### Let the PlayMetrics distinction gates pair same-club names that only spell the squad differently
+
+- **Status**: done
+- **Type**: plan
+- **Category**: reliability
+- **Where**: the Stage 2 distinction checks (`squad_words`, `location_codes`, `team_number`) in `PlayMetricsGameMatcher._fuzzy_match_team` in `src/models/playmetrics_matcher.py`
+- **Why**: Replaying the 46 tournament rows the Harvest Classic cleanup of 2026-11-10 merged, through the fixed matcher against the live pools, still created 8, each a same-club name refused before scoring: `PSG-NORTHSHORE U14 BOYS` against `PSG ACADEMY NORTHSHORE U14 BOYS` (six PSG rows in all), `Pegasus FC Boys U11 Grey` against `PEGASUS FC 15/16 GRAY`, and `North Shore United Germantown U11 White` against `NSU Germantown U11 Boys White`. Until then each needs the after-import copy check in the scraper-patterns skill.
+- **Noted**: 2026-11-12
+- **Update (2026-11-12)**: Grey and Gray now read as one colour (`COLOR_SPELLINGS`), and a club's initials count without its code words (`NSU` beside `NSUSC`) unless those initials are a squad mark themselves (`SFV`, a location code). The six PSG rows stay refused by the owner's decision: "Academy" in `PSG Academy Chicago` keeps counting as a tier word, as "GA" does in "GA Rush". Replayed under both scorers, the 46 rows now create those 6 and no others, with none linked to a wrong team.
+- **Refs**: branch `fix/playmetrics-name-gates`; `test_grey_and_gray_are_one_squads_color`, `test_the_clubs_initials_without_its_soccer_club_are_not_a_location` and `test_club_initials_that_spell_a_location_code_still_mark_a_squad` in `tests/unit/test_playmetrics_matcher_fuzzy.py`

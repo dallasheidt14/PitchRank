@@ -31,9 +31,12 @@ from typing import Dict, Optional
 from config.settings import MATCHING_CONFIG
 from scripts.scrape_playmetrics_league import _TEAM_U_AGE_RE, derive_team_age_group
 from src.models.game_matcher import GameHistoryMatcher
-from src.utils.club_normalizer import are_same_club
+from src.utils.club_normalizer import _core_and_codes, are_same_club
 from src.utils.team_name_utils import (
     DIRECTION_CANONICAL,
+    LOCATION_CODES,
+    PROGRAM_WORDS,
+    TEAM_COLORS,
     _club_acronym,
     _club_tokens,
     birth_years,
@@ -55,6 +58,10 @@ STORED_CLUB_NAMES = {
     "Forward Madison FC Youth": "Forward Madison FC",
     "Rush Wisconsin Southeast": "RUSH WI Southeast",
 }
+
+# One spelling per colour, so a squad's colour reads the same however a name spells it.
+COLOR_SPELLINGS = {"gray": "grey"}
+SQUAD_MARK_WORDS = LOCATION_CODES | TEAM_COLORS | PROGRAM_WORDS
 
 
 class PlayMetricsGameMatcher(GameHistoryMatcher):
@@ -248,13 +255,26 @@ class PlayMetricsGameMatcher(GameHistoryMatcher):
         words = set()
         for club in club_names:
             words |= _club_tokens(club)
-            acronym = _club_acronym(club)
-            if acronym:
-                words.add(acronym)
-        # A name's directions are read canonically ("NE Surf" -> northeast), so the
-        # club's must be too or they never cancel.
+            words |= {_club_acronym(club)} - {""}
+            # Clubs also abbreviate themselves without their code words ("NSU" beside "NSUSC"
+            # for North Shore United Soccer Club), read from the normalised name, so "SF Vikings
+            # SC" gives "sfv" too. These shorter initials are left out when they are a squad mark
+            # themselves ("SFV" is also a location code).
+            core, _ = _core_and_codes(club or "")
+            short = _club_acronym(core)
+            if short and short not in SQUAD_MARK_WORDS:
+                words.add(short)
+        # A name's directions and colours are read canonically ("NE Surf" -> northeast,
+        # "Gray" -> grey), so the club's must be too or they never cancel.
         words |= {DIRECTION_CANONICAL[w] for w in words if w in DIRECTION_CANONICAL}
+        words |= {COLOR_SPELLINGS[w] for w in words if w in COLOR_SPELLINGS}
         return frozenset(words)
+
+    @staticmethod
+    def _distinctions(name: str) -> dict:
+        """Colours folded here, not in ``extract_distinctions``: ``teams.distinction`` stores its output."""
+        found = extract_distinctions(name)
+        return {**found, "colors": frozenset(COLOR_SPELLINGS.get(c, c) for c in found["colors"])}
 
     @staticmethod
     def _u_age(name: str) -> Optional[int]:
@@ -327,7 +347,7 @@ class PlayMetricsGameMatcher(GameHistoryMatcher):
 
             unscoped = state_code is None
             scoring_team_name = self._normalize_pm_tournament_team_name(team_name) if unscoped else team_name
-            provider_distinctions = extract_distinctions(scoring_team_name)
+            provider_distinctions = self._distinctions(scoring_team_name)
             provider_team = {
                 "team_name": scoring_team_name,
                 "club_name": club_name,
@@ -351,7 +371,7 @@ class PlayMetricsGameMatcher(GameHistoryMatcher):
                 # within one import don't re-run the regex-heavy extractor.
                 cand_distinctions = team.get("_distinctions")
                 if cand_distinctions is None:
-                    cand_distinctions = extract_distinctions(team.get("team_name", ""))
+                    cand_distinctions = self._distinctions(team.get("team_name", ""))
                     team["_distinctions"] = cand_distinctions
                 # Tier words are never ignored, even inside a club name ("GA Rush"):
                 # a tier mismatch refuses the match rather than merging across tiers.
