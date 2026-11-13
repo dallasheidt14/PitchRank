@@ -8,6 +8,7 @@ import type { MatchPrediction } from '../lib/matchPredictor';
 
 async function main() {
   const payload = JSON.parse(readFileSync(0, 'utf8')) as {
+    verifiedProductionRuntime?: boolean;
     cases: Array<{
       context: MatchPredictionShadowContext;
       prediction: MatchPrediction;
@@ -16,7 +17,8 @@ async function main() {
   };
   const runtime = await createSosRuntime(
     payload.cases[0].context.calibration!,
-    path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'),
+    { verifiedProductionRuntime: payload.verifiedProductionRuntime === true }
   );
   try {
     // Each case supplies its complete frozen context, saved prediction and original UTC clock.

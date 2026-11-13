@@ -9,9 +9,26 @@ uses separate tables linked to those original fixture identities. It calls the
 current prediction service with fresh frozen inputs; these are scheduled model
 observations, not a record of every prediction a customer viewed.
 
+The collector reads `GET /api/match-prediction` from the same production route
+that serves customer predictions through POST.
+This read-only endpoint returns the effective calibration, deployment revision,
+and nine synthetic predictions; it exposes no real teams, histories or user data.
+The collector verifies that deployment's predictor modules and input normalization
+helpers match its own, then reproduces the synthetic outputs before capturing. Each capture checks
+the website configuration again and saves its observation time and deployment.
+Unavailable, stale or changed settings refuse capture rather than silently using
+the repository's calibration files. This changes no live prediction settings.
+
+An explicit null in this verified snapshot means the website used a built-in
+default. Apply `20261114010000_compare_monitor_runtime.sql` after the original
+monitoring migration to support that state. Missing keys remain invalid. Earlier
+captures that loaded repository files remain immutable under their old signature
+and are labelled unverified against the website; reports never pool them with the
+verified runtime. A configuration change starts a separate registration.
+
 ## Capture and private storage
 
-Apply only `20261114000000_compare_live_monitoring.sql` through the normal
+Apply `20261114000000_compare_live_monitoring.sql` and then the runtime migration through the normal
 migration release process. Do not run a blanket database push. The migration
 creates observational tables and restricted server functions. It changes no
 existing forecasts, registrations, rankings, or games.
@@ -48,7 +65,7 @@ NODE_OPTIONS=--conditions=react-server npx tsx scripts/capture-compare-monitorin
 
 Repeat the pilot and verify earlier records are skipped with zero replacements;
 the cap applies to new fixtures, so a retry may capture the next 20. Verify unchanged
-original forecasts. Check source dates, complete frozen calibration, A/A parity,
+original forecasts. Check source dates, explicit frozen calibration including verified defaults, A/A parity,
 all risk outputs and provider/age coverage in the database.
 
 Set `COMPARE_MONITOR_REVISION` to the reviewed full commit SHA and

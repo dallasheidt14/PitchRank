@@ -51,7 +51,7 @@ jobs:
         working-directory: frontend
         run: |
           git fetch origin main --depth=1
-          npx tsx scripts/verify-compare-monitoring.ts
+          NODE_OPTIONS=--conditions=react-server npx tsx scripts/verify-compare-monitoring.ts
       - name: Capture current Compare and frozen SOS arms
         if: env.MODE == 'capture'
         working-directory: frontend

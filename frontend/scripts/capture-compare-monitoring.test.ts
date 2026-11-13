@@ -4,7 +4,19 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { captureMonitoring } from './capture-compare-monitoring';
 
-const doubles = vi.hoisted(() => ({ predict: vi.fn(), run: vi.fn(), create: vi.fn(), close: vi.fn() }));
+const doubles = vi.hoisted(() => ({
+  predict: vi.fn(),
+  run: vi.fn(),
+  capture: vi.fn(),
+  create: vi.fn(),
+  close: vi.fn(),
+  profile: vi.fn(),
+}));
+vi.mock('../lib/monitoringRuntime', () => ({
+  loadMonitoringRuntime: doubles.profile,
+  runtimeDigest: (v: unknown) => JSON.stringify(v),
+  RUNTIME_URL: 'https://www.pitchrank.io/api/match-prediction',
+}));
 vi.mock('../lib/matchPredictionService', () => ({
   MATCH_PREDICTION_VERSION: 'test-live',
   buildMatchPredictionWithShadowContext: doubles.predict,
@@ -107,7 +119,19 @@ beforeEach(() => {
     variants: { '1': { winProbabilityA: 0.6 } },
     receipt: { algorithm_hash: 'b'.repeat(64), aa_parity: true },
   });
-  doubles.create.mockResolvedValue({ run: doubles.run, close: doubles.close });
+  doubles.capture.mockReturnValue({
+    prediction: { winProbabilityA: 0.4 },
+    variants: { '1': { winProbabilityA: 0.4 } },
+    receipt: { algorithm_hash: 'b'.repeat(64), aa_parity: true },
+  });
+  doubles.create.mockResolvedValue({ run: doubles.run, capture: doubles.capture, close: doubles.close });
+  doubles.profile.mockImplementation(async () => ({
+    calibration: { ageGroups: {}, probability: null, margin: null, outcome: null, confidence: null },
+    deployment_revision: 'e'.repeat(40),
+    input_source_hash: 'f'.repeat(64),
+    observed_at: new Date().toISOString(),
+    probes: Array.from({ length: 9 }, () => ({ teamA: {}, teamB: {}, prediction: {} })),
+  }));
 });
 
 it('preview performs no registration, research or writes', async () => {
@@ -130,6 +154,37 @@ it('existing records do not consume the cap and the queue paginates', async () =
   const captured = db.terminals.find((c) => c.kind === 'freeze_compare_monitor')!;
   expect(captured.payload!.p_baseline).toBe('01000');
   expect(JSON.parse(captured.payload!.p_payload as string).receipt.aa_parity).toBe(true);
+  const payload = JSON.parse(captured.payload!.p_payload as string);
+  expect(payload.prediction.winProbabilityA).toBe(0.4);
+  expect(payload.context.calibration.margin).toBeNull();
+  expect(payload.runtime_observation.deployment_revision).toBe('e'.repeat(40));
+});
+
+it('refuses an unavailable website runtime before registering or capturing', async () => {
+  const db = database();
+  doubles.profile.mockRejectedValue(new Error('unavailable'));
+  await expect(captureMonitoring(db.client, { limit: 20, execute: true })).rejects.toThrow('unavailable');
+  expect(db.terminals).toEqual([]);
+  expect(doubles.predict).not.toHaveBeenCalled();
+});
+
+it('refuses captures when the website calibration changes during the run', async () => {
+  const db = database();
+  const production = await doubles.profile();
+  doubles.profile.mockResolvedValueOnce(production).mockResolvedValue({ ...production, calibration: { margin: {} } });
+  const result = await captureMonitoring(db.client, { limit: 20, execute: true });
+  expect(result.errors).toBe(2);
+  expect(db.terminals.some((c) => c.kind === 'freeze_compare_monitor')).toBe(false);
+});
+
+it('refuses mismatching deployed probes before fetching fixtures', async () => {
+  const db = database();
+  doubles.run.mockImplementation(() => {
+    throw new Error('probe mismatch');
+  });
+  await expect(captureMonitoring(db.client, { limit: 20, execute: true })).rejects.toThrow('probe mismatch');
+  expect(doubles.predict).not.toHaveBeenCalled();
+  expect(doubles.close).toHaveBeenCalled();
 });
 
 it('refuses a registration mismatch before predicting', async () => {
