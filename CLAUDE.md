@@ -727,6 +727,7 @@ two-line edit in `.github/workflows/claude-code-review.yml`.
 | `double-stored-games-report-weekly.yml` | Thu 9:47 AM UTC | Count GotSport games stored twice (same teams, same day, two active scored rows). Reports only, writes nothing; a pair can be a real rematch, so check each against GotSport before excluding a row |
 | `weekly-prospective-settle-evaluate.yml` | Mon 4:00 PM UTC | Settle and score last week's prospective match predictions |
 | `weekly-prospective-refresh.yml` | Daily 4:15 AM UTC, gated | Capture Compare forecasts for stored upcoming fixtures; requires `COMPARE_CAPTURE_ENABLED=true` after the pilot |
+| `compare-weekend-tuning.yml` | Daily 5:20 PM UTC, gated | Private November 14–15 Compare diagnostic; requires `COMPARE_WEEKEND_TUNING_ARCHIVE`, reads results after November 16 UTC, and never deploys a model |
 | `smoke-infographics.yml` | Daily 1:17 PM UTC | Smoke-test the infographic OG routes |
 | `check-stuck-signups.yml` | Every 6 hours | Flag signups stuck mid-flow, and send a fresh set-password link at 24h and 72h to new guest buyers who never signed in |
 | `reconcile-stripe-daily.yml` | Every 6 hours | Reconcile Stripe subscriptions against `user_profiles` |
