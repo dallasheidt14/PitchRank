@@ -3006,3 +3006,19 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: the out-of-state section and its FAQ answer in `frontend/content/blog/{kansas,oregon,south-carolina,tennessee,utah}-youth-soccer-rankings-guide.mdx`, and the matching `BLOG_FAQS` answers in `frontend/lib/blog-faqs.ts`
 - **Why**: These five guides write "Across/Of the N games … X% were against", tying a share of each team's own games to the distinct-game count, and the Kansas guide also says "Wichita plays mostly at home" for what is opponent-state data, not venue (both confirmed by grep 2026-11-11). The seo skill's State Guide step 2 now prescribes "counting each team's own games" and "against out-of-state teams". Unverified: whether those older figures were computed per team's own games, so re-derive before rewording.
 - **Noted**: 2026-11-11
+
+### Warn when a Bash command patches files through a `python - <<` heredoc
+
+- **Type**: plan
+- **Category**: dx
+- **Where**: `.claude/hooks/git-guard.sh` (the PreToolUse Bash hook wired in `.claude/settings.json`), or a new Bash advisory beside `replace_all_check.py`
+- **Why**: Patching files through a heredoc'd Python script is a standing don't, and it keeps recurring. On 2026-11-12 a 118-line `python - <<'PYEOF'` script whose prose held apostrophes failed before running with "unexpected EOF while looking for matching `''`", so nothing was written, and later patches in the same session used the same form. A warning at the call would catch what a written rule has not. It should advise (write the script to a file and run it by path, or use the edit tools) rather than block.
+- **Noted**: 2026-11-12
+
+### Check whether re-running a red TGS chain link's failed jobs dispatches the next link twice
+
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `.github/workflows/tgs-event-scrape-import.yml`: the `finalize` job's `gh workflow run tgs-event-scrape-import.yml` dispatch step, and the `import` job's `needs: [prepare, match-teams]`
+- **Why**: Verified from the workflow on origin/main (2026-11-12): a link whose `match-teams` job fails still imports and dispatches its successor, then ends red; `import` needs `match-teams`, and `finalize` needs `import`. Per GitHub's re-run documentation as a reviewer read it (unverified here), "Re-run failed jobs" also re-runs the jobs that depend on the failed ones, so `finalize` would run again with the original `chain_next=true` input and start a second copy of the rest of the chain. Until this is settled, recover a red link by dispatching its range by hand without `chain_next`.
+- **Noted**: 2026-11-12

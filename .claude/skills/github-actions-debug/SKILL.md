@@ -22,6 +22,26 @@ gh run view <run-id> --repo dallasheidt14/PitchRank
 gh run view <run-id> --repo dallasheidt14/PitchRank --log-failed
 ```
 
+## Reading Run Lists
+
+- `--user 'github-actions[bot]'` returns every run GitHub credits to the bot, some scheduled runs
+  included. Add `--event workflow_dispatch` to keep only dispatched runs, such as a chain's links.
+- A workflow that dispatches its own next run queues its successor before the current run
+  finishes, so a link can go red after a newer link exists. Judge a chain over a time window, not
+  by its newest run; gh's built-in jq has `now` and `todate`:
+  ```bash
+  gh run list --repo dallasheidt14/PitchRank --workflow <file> --branch main \
+    --user 'github-actions[bot]' --event workflow_dispatch --limit 30 --json conclusion,name,createdAt \
+    -q '.[] | select(.createdAt > (now - 8 * 86400 | todate)) | select(.conclusion != "" and .conclusion != "success") | .name + " (" + .conclusion + ")"'
+  ```
+  This lists dispatched links only. A seed that fails dispatches none, so before reading an empty
+  result as a clean week, check the seed's own run (`--event schedule --limit 1` for a scheduled chain).
+- A recovery run a person dispatches is credited to that person, so a bot-filtered list keeps
+  showing the red link until it ages out of the window. Drop `--user` to see the recovery before
+  calling the chain broken.
+- A filtered list now and then comes back empty or out of date: one call can come back empty and
+  the next correct. Re-run a surprising answer before acting on it.
+
 ## Common Failure Patterns
 
 ### 1. Runner Not Acquired

@@ -31,16 +31,48 @@ if [ -n "$tmp" ]; then
     --json conclusion,status,createdAt \
     -q '.[0] | "\(.createdAt[0:10]) \(if (.conclusion // "") == "" then .status else .conclusion end)"' \
     >"$tmp/rank" 2>/dev/null &
-  # One query per scheduled workflow rather than a window over recent runs. Any
-  # shared window is measured in runs, so a single 15-minute job failing in a
-  # loop fills it and hides everything else. Reading the workflow files means a
-  # new schedule is covered without editing this.
+  # Each scheduled workflow is queried on its own rather than through one window
+  # over everyone's recent runs. Any shared window is measured in runs, so a
+  # single 15-minute job failing in a loop fills it and hides everything else.
+  # Reading the workflow files means a new schedule is covered without editing
+  # this.
   mkdir -p "$tmp/sched"
-  for wf in $(grep -lE '^[[:space:]]*schedule:' "$root"/.github/workflows/*.yml 2>/dev/null); do
+  # A scheduled workflow that dispatches its own next run is a chain: the bot
+  # starts every link after the seed, so the schedule query never sees a link
+  # stop. One awk pass reads the files, since a process per file is slow to
+  # start under Git Bash, and prints each scheduled workflow with 1 when an
+  # uncommented `gh workflow run` line names the file itself as a whole
+  # argument, quotes and any leading path ignored.
+  while IFS=$'\t' read -r wf chain; do
     name=${wf##*/}
-    gh run list --workflow "$name" --event schedule --limit 1 --json conclusion,name \
-      -q '.[0] | select(.conclusion == "failure") | .name' >"$tmp/sched/$name" 2>/dev/null &
-  done
+    if [ "$chain" = 1 ]; then
+      # A seed that is cancelled or never starts dispatches no link, so a chain's
+      # seed counts as stopped on any finished result but success.
+      gh run list --workflow "$name" --event schedule --limit 1 --json conclusion,name \
+        -q '.[0] | select((.conclusion // "") as $c | $c != "" and $c != "success") | .name + " (" + .conclusion + ")"' \
+        >"$tmp/sched/$name" 2>/dev/null &
+      # Every stopped link of the last 8 days (a week plus a late start), not
+      # only the newest: a link can go red after dispatching a newer one.
+      # --branch main: a chain tried from a feature branch keeps its links there.
+      # --event: GitHub credits some scheduled runs to the bot too. This filtered
+      # list can come back stale, so a stop may show late or linger once cleared.
+      gh run list --workflow "$name" --branch main --user 'github-actions[bot]' --event workflow_dispatch \
+        --limit 30 --json conclusion,name,createdAt \
+        -q '[.[] | select(.createdAt > (now - 8 * 86400 | todate))
+          | select((.conclusion // "") as $c | $c != "" and $c != "success")
+          | .name + " (chained run, " + .conclusion + ")"] | join(", ") | select(. != "")' \
+        >"$tmp/sched/$name.chain" 2>/dev/null &
+    else
+      # Failure only: frequent jobs end cancelled routinely.
+      gh run list --workflow "$name" --event schedule --limit 1 --json conclusion,name \
+        -q '.[0] | select(.conclusion == "failure") | .name' >"$tmp/sched/$name" 2>/dev/null &
+    fi
+  done < <(awk 'FNR == 1 { own = FILENAME; sub(/.*\//, "", own) }
+    /^[[:space:]]*schedule:/ { sched[FILENAME] = 1 }
+    !/^[[:space:]]*#/ && /gh workflow run/ {
+      for (i = 1; i <= NF; i++) { w = $i; gsub(/["\047]/, "", w); sub(/.*\//, "", w); if (w == own) chain[FILENAME] = 1 }
+    }
+    END { for (f in sched) print f "\t" (f in chain) }' "$root"/.github/workflows/*.yml 2>/dev/null)
   wait
 fi
 read_tmp() { [ -n "$tmp" ] && cat "$tmp/$1" 2>/dev/null; }

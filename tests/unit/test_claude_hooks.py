@@ -13,8 +13,10 @@ than failing a machine that does not use them.
 
 import json
 import os
+import re
 import shutil
 import subprocess
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -423,7 +425,7 @@ def test_dry_run_check_warns_when_a_tracked_file_gains_a_write(tmp_path: Path) -
 
 
 def _session_start(project_dir: Path, stub_gh: Path | None = None) -> subprocess.CompletedProcess:
-    """Run the session-start hook, optionally with a `gh` that always fails.
+    """Run the session-start hook, optionally with a stub `gh` first on PATH.
 
     The stub keeps the test hermetic and fast: a temp repo has no GitHub remote,
     so every real `gh` call would go out to the network only to error.
@@ -446,19 +448,35 @@ def no_gh(tmp_path: Path) -> Path:
     return _gh_stub(tmp_path, "stub")
 
 
-def _gh_stub(tmp_path: Path, name: str, rankings: str | None = None) -> Path:
-    """A `gh` that fails, except for a canned answer to the rankings query.
+def _gh_stub(tmp_path: Path, name: str, runs: dict[str, str] | None = None, slow: frozenset[str] = frozenset()) -> Path:
+    """A `gh` that logs every call to `calls` beside it and fails it, unless `runs` answers it.
 
-    The hook lets gh run the jq, so the stub prints the finished line rather than
-    JSON. That keeps these tests off the network and lets them pin states a real
-    run only occupies for a few hours a week.
+    Each call is logged with its arguments kept apart, so `_calls` can tell two
+    arguments from one string holding both, which real gh rejects. A call whose
+    joined arguments contain a key of `runs` (a literal substring, first match wins)
+    gets that key's JSON put through the call's own `-q` by jq (gh runs the same
+    filter with its built-in gojq), so the hook's filtering and wording run as they
+    would against GitHub; a key also in
+    `slow` answers a second late. That keeps these tests off the network and lets
+    them pin states a real run only occupies for a few hours a week.
     """
     stub = tmp_path / name
     stub.mkdir()
-    body = ["#!/bin/sh"]
-    if rankings is not None:
-        body += ['case "$*" in', f"  *calculate-rankings*) echo '{rankings}'; exit 0 ;;", "esac"]
-    body.append("exit 1")
+    body = [
+        "#!/bin/sh",
+        "us=$(printf '\\037'); rs=$(printf '\\036'); line=''",
+        'for arg in "$@"; do line="$line$arg$us"; done',
+        f'printf \'%s\' "$line$rs" >> "{(stub / "calls").as_posix()}"',
+        'q=""; prev=""',
+        'for arg in "$@"; do [ "$prev" = "-q" ] && q=$arg; prev=$arg; done',
+        'case "$*" in',
+    ]
+    for number, (key, answer) in enumerate((runs or {}).items()):
+        canned = stub / f"answer{number}.json"
+        canned.write_text(answer)
+        delay = "sleep 1; " if key in slow else ""
+        body.append(f'  *"{key}"*) {delay}jq -r "$q" <"{canned.as_posix()}" | tr -d "\\r"; exit 0 ;;')
+    body += ["esac", "exit 1"]
     script = stub / "gh"
     script.write_text("\n".join(body) + "\n")
     script.chmod(0o755)
@@ -490,12 +508,210 @@ def test_session_start_flags_a_worktree_holding_uncommitted_work(tmp_path: Path,
 def test_session_start_does_not_call_a_running_ranking_job_a_failure(tmp_path: Path) -> None:
     """A run takes 2.5-3.7 hours, so in_progress is the healthy state most of Monday."""
     root = _fresh_repo(tmp_path, "running")
-    running = _session_start(root, _gh_stub(tmp_path, "gh_running", "2026-08-24 in_progress"))
+    in_progress = '[{"conclusion": "", "status": "in_progress", "createdAt": "2026-08-24T12:30:00Z"}]'
+    running = _session_start(root, _gh_stub(tmp_path, "gh_running", {"calculate-rankings": in_progress}))
     assert "rankings 2026-08-24 in_progress" in running.stdout
     assert "ATTENTION" not in running.stdout
 
-    failed = _session_start(root, _gh_stub(tmp_path, "gh_failed", "2026-08-24 failure"))
+    failure = '[{"conclusion": "failure", "status": "completed", "createdAt": "2026-08-24T12:30:00Z"}]'
+    failed = _session_start(root, _gh_stub(tmp_path, "gh_failed", {"calculate-rankings": failure}))
     assert "ATTENTION: last rankings run 2026-08-24 failure" in failed.stdout
+
+
+def _chained_repo(tmp_path: Path) -> Path:
+    """Scheduled workflows under a path with a space: `relay.yml` dispatches itself, the rest only look close.
+
+    `relay.yml` does not sort first, so a hook that took the first file's name for every file would miss it.
+    """
+    spaced = tmp_path / "dir with space"
+    spaced.mkdir()
+    root = _fresh_repo(spaced, "chained")
+    workflows = root / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    schedule = "on:\n  schedule:\n    - cron: '0 6 * * 1'\njobs:\n  scrape:\n    runs-on: ubuntu-latest\n    steps:\n"
+    steps = {
+        "relay.yml": '      - run: gh workflow run "relay.yml" -f chain_next=true\n',
+        "fanout.yml": "      - run: gh workflow run plain.yml\n",
+        "plain.yml": "      - run: echo scraped\n",
+        "noted.yml": "      # Rerun by hand: gh workflow run noted.yml\n      - run: echo noted\n",
+        "scrape.yml": "      - run: gh workflow run tgs-scrape.yml\n",
+        "watch.yml": "      - run: gh run list --workflow watch.yml\n",
+    }
+    for name, step in steps.items():
+        (workflows / name).write_text(schedule + step)
+    return root
+
+
+def _calls(stub: Path) -> list[list[str]]:
+    log = (stub / "calls").read_text(encoding="utf-8")
+    return [call.split("\x1f")[:-1] for call in log.split("\x1e")[:-1]]
+
+
+def _chained_queries(stub: Path) -> list[list[str]]:
+    """The chained-run queries the stub saw, cut before their jq."""
+    return [call[: call.index("-q")] for call in _calls(stub) if "--user" in call]
+
+
+def _chained_query(workflow: str) -> list[str]:
+    return [
+        *["run", "list", "--workflow", workflow, "--branch", "main", "--user", "github-actions[bot]"],
+        *["--event", "workflow_dispatch", "--limit", "30", "--json", "conclusion,name,createdAt"],
+    ]
+
+
+def _links(*runs: tuple[str, str, float]) -> str:
+    """Bot-started runs as GitHub's JSON, each (conclusion, name, hours ago).
+
+    Pass them newest first, as GitHub lists them."""
+    now = datetime.now(timezone.utc)
+    return json.dumps(
+        [
+            {
+                "conclusion": conclusion,
+                "name": name,
+                "createdAt": (now - timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            }
+            for conclusion, name, hours in runs
+        ]
+    )
+
+
+def _flagged(out: str) -> list[str]:
+    return [line for line in out.splitlines() if "scheduled workflows failing" in line]
+
+
+def test_session_start_names_a_stopped_chained_run_of_a_scheduled_workflow(tmp_path: Path) -> None:
+    """A chain's later links are started by the bot, so the schedule query never sees them."""
+    root = _chained_repo(tmp_path)
+    stub = _gh_stub(tmp_path, "gh_chained", {"--user github-actions[bot]": _links(("failure", "Relay 1-2", 1))})
+
+    lines = _session_start(root, stub).stdout.splitlines()
+
+    assert "- ATTENTION: scheduled workflows failing: Relay 1-2 (chained run, failure)" in lines
+    assert all(line.startswith(("## Repo state", "- ")) for line in lines), lines
+
+
+def test_session_start_reads_only_a_workflow_naming_itself_on_a_dispatch_line_as_a_chain(
+    tmp_path: Path, no_gh: Path
+) -> None:
+    """A comment, a dispatch of another workflow (even one whose name holds this one's), or another kind of
+    gh call is not a self-dispatch."""
+    _session_start(_chained_repo(tmp_path), no_gh)
+
+    assert _chained_queries(no_gh) == [_chained_query("relay.yml")]
+
+
+@pytest.mark.parametrize(
+    "runs, shown",
+    [
+        (_links(("cancelled", "Relay 1-2", 1)), "Relay 1-2 (chained run, cancelled)"),
+        (_links(("timed_out", "Relay 1-2", 1)), "Relay 1-2 (chained run, timed_out)"),
+        (_links(("success", "Relay 1-2", 1)), None),
+        (_links(("", "Relay 1-2", 1)), None),
+        ("[]", None),
+    ],
+    ids=["cancelled", "timed-out", "succeeded", "still-running", "never-ran"],
+)
+def test_session_start_flags_a_chained_run_once_it_stopped_short_of_success(
+    tmp_path: Path, runs: str, shown: str | None
+) -> None:
+    """A link that timed out or was displaced ends timed_out or cancelled, and the chain stops there as well."""
+    root = _chained_repo(tmp_path)
+    out = _session_start(root, _gh_stub(tmp_path, "gh_chained", {"--user github-actions[bot]": runs})).stdout
+
+    assert _flagged(out) == ([f"- ATTENTION: scheduled workflows failing: {shown}"] if shown else [])
+
+
+def test_session_start_flags_a_red_link_that_dispatched_its_successor(tmp_path: Path) -> None:
+    """A link can go red after dispatching the next one, which is then always the newest run."""
+    root = _chained_repo(tmp_path)
+    runs = _links(
+        ("", "Relay 3-4", 1), ("failure", "Relay 2-3", 2), ("timed_out", "Relay 1-2", 3), ("success", "Relay 0-1", 4)
+    )
+    out = _session_start(root, _gh_stub(tmp_path, "gh_chained", {"--user github-actions[bot]": runs})).stdout
+
+    assert _flagged(out) == [
+        "- ATTENTION: scheduled workflows failing: Relay 2-3 (chained run, failure), Relay 1-2 (chained run, timed_out)"
+    ]
+
+
+def test_session_start_drops_a_stopped_link_after_eight_days(tmp_path: Path) -> None:
+    """Long enough for a weekly chain and a late start, and a paused chain's last stop does not show for good."""
+    root = _chained_repo(tmp_path)
+    runs = _links(("failure", "Relay 2-3", 8 * 24 - 1), ("failure", "Relay 1-2", 8 * 24 + 1))
+    out = _session_start(root, _gh_stub(tmp_path, "gh_chained", {"--user github-actions[bot]": runs})).stdout
+
+    assert _flagged(out) == ["- ATTENTION: scheduled workflows failing: Relay 2-3 (chained run, failure)"]
+
+
+@pytest.mark.parametrize("conclusion", ["cancelled", "startup_failure"])
+def test_session_start_flags_a_chain_seed_that_stopped_short_of_success(tmp_path: Path, conclusion: str) -> None:
+    """A seed that is cancelled or never starts dispatches no link; another schedule's cancelled run is routine."""
+    root = _chained_repo(tmp_path)
+    stub = _gh_stub(
+        tmp_path,
+        "gh_seed",
+        {
+            "--workflow relay.yml --event schedule": json.dumps([{"conclusion": conclusion, "name": "Relay Scrape"}]),
+            "--workflow plain.yml --event schedule": '[{"conclusion": "cancelled", "name": "Plain Scrape"}]',
+            "--user github-actions[bot]": _links(("success", "Relay 1-2", 1)),
+        },
+    )
+
+    assert _flagged(_session_start(root, stub).stdout) == [
+        f"- ATTENTION: scheduled workflows failing: Relay Scrape ({conclusion})"
+    ]
+
+
+def test_session_start_names_both_a_failed_seed_and_its_stopped_chained_run(tmp_path: Path) -> None:
+    root = _chained_repo(tmp_path)
+    stub = _gh_stub(
+        tmp_path,
+        "gh_both",
+        {
+            "--workflow relay.yml --event schedule": '[{"conclusion": "failure", "name": "Relay Scrape"}]',
+            "--user github-actions[bot]": _links(("failure", "Relay 1-2", 1)),
+        },
+    )
+
+    lines = _session_start(root, stub).stdout.splitlines()
+
+    assert "- ATTENTION: scheduled workflows failing: Relay Scrape (failure), Relay 1-2 (chained run, failure)" in lines
+
+
+def test_session_start_waits_for_a_slow_chained_query(tmp_path: Path) -> None:
+    """Every query runs in the background, so the loop has to stay in the hook's own shell for `wait` to cover it."""
+    root = _chained_repo(tmp_path)
+    key = "--user github-actions[bot]"
+    stub = _gh_stub(tmp_path, "gh_slow", {key: _links(("failure", "Relay 1-2", 1))}, slow=frozenset({key}))
+
+    assert _flagged(_session_start(root, stub).stdout) == [
+        "- ATTENTION: scheduled workflows failing: Relay 1-2 (chained run, failure)"
+    ]
+
+
+def test_session_start_queries_chained_runs_of_the_tgs_scrape_alone(tmp_path: Path, no_gh: Path) -> None:
+    """Of the real scheduled workflows, only the TGS scrape dispatches its own next link."""
+    root = _fresh_repo(tmp_path, "real_workflows")
+    shutil.copytree(PROJECT_ROOT / ".github" / "workflows", root / ".github" / "workflows")
+
+    _session_start(root, no_gh)
+
+    assert _chained_queries(no_gh) == [_chained_query("tgs-event-scrape-import.yml")]
+
+
+def test_every_scheduled_workflow_that_starts_a_run_is_one_the_chain_check_reads() -> None:
+    """The hook sees a self-dispatch only on a `gh workflow run` line naming the file, so any other way
+    of starting a run goes unread. A scheduled workflow that gains one: check the hook reads it as a chain exactly
+    when it starts its own next run, then list it."""
+    dispatching = sorted(
+        path.name
+        for path in (PROJECT_ROOT / ".github" / "workflows").glob("*.yml")
+        if re.search(r"^\s*schedule:", text := path.read_text(encoding="utf-8"), re.M)
+        and re.search(r"gh workflow run|/dispatches|createWorkflowDispatch", text)
+    )
+
+    assert dispatching == ["tgs-event-scrape-import.yml"]
 
 
 def test_session_start_flags_a_worktree_holding_only_untracked_files(tmp_path: Path, no_gh: Path) -> None:
