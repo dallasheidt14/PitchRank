@@ -90,6 +90,10 @@ jobs:
       # The team-cleanup applier runs on Windows, where the apply lock is msvcrt's.
       - name: Test the team-cleanup run store on Windows
         run: pytest tests/unit/test_team_cleanup_run_store.py
+      # Merged-worktree cleanup runs on Windows, where git deletes through junctions
+      # and a folder a process holds cannot be renamed.
+      - name: Test the merged-worktree cleanup on Windows
+        run: pytest tests/unit/test_clean_merged_worktrees.py
 
   # The repository ruleset already requires the "Python Tests" context. Keep
   # that stable while making the focused Windows regression part of the gate;
@@ -113,7 +117,7 @@ jobs:
             exit 1
           fi
           if [ "$WINDOWS_RESULT" != "success" ]; then
-            echo "::error::Windows job (MatchBalance export suite, team-cleanup run store) finished with $WINDOWS_RESULT"
+            echo "::error::Windows job (MatchBalance export suite, team-cleanup run store, merged-worktree cleanup) finished with $WINDOWS_RESULT"
             exit 1
           fi
 

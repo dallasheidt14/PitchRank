@@ -30,6 +30,11 @@ Which checks count is read from the base branch's ruleset rather than guessed, s
 the always-red advisory `claude-review` job never blocks and never needs naming
 here.
 
+After a merge it runs clean_merged_worktrees.py --execute, which removes the
+merged worktrees it can prove safe to remove and keeps the rest. This is usually
+run from inside the PR's own worktree, which the sweep keeps, so that one goes at
+the next merge, or by running the command it prints once the shell has left it.
+
 Usage:
     python scripts/pr_wait.py                  # the PR for the current branch
     python scripts/pr_wait.py --pr 1028
@@ -48,6 +53,13 @@ import json
 import subprocess
 import sys
 import time
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from scripts.clean_merged_worktrees import sweep  # noqa: E402
 
 CODEX_LOGIN = "chatgpt-codex-connector[bot]"
 
@@ -163,6 +175,16 @@ def minutes_since(timestamp: str) -> float:
     return (dt.datetime.now(dt.timezone.utc) - opened).total_seconds() / 60
 
 
+def clean_up_worktrees() -> None:
+    """The merge has landed, so a cleanup failure is reported, never returned as a failed exit inviting a re-merge."""
+    print("\nRemoving worktrees whose PR has merged:")
+    try:
+        sweep(execute=True, show_others=False)
+    except Exception as exc:
+        print(f"  worktree cleanup failed: {exc}")
+        print("  run from the main checkout: python scripts/clean_merged_worktrees.py --execute")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -239,9 +261,11 @@ def main() -> int:
     merge = ["pr", "merge", str(number), MERGE_METHOD, "--match-head-commit", current["headRefOid"]]
     if args.dry_run:
         print(f"[dry-run] would run: gh {' '.join(merge)}")
+        print("[dry-run] would then remove merged worktrees; preview: python scripts/clean_merged_worktrees.py")
         return 0
     gh(*merge)
     print("merged")
+    clean_up_worktrees()
     return 0
 
 
