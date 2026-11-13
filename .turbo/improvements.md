@@ -3096,14 +3096,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: Replaying the 46 tournament rows the Harvest Classic cleanup of 2026-11-10 merged, through the fixed matcher against the live pools, still created 8, each a same-club name refused before scoring: `PSG-NORTHSHORE U14 BOYS` against `PSG ACADEMY NORTHSHORE U14 BOYS` (six PSG rows in all), `Pegasus FC Boys U11 Grey` against `PEGASUS FC 15/16 GRAY`, and `North Shore United Germantown U11 White` against `NSU Germantown U11 Boys White`. Until then each needs the after-import copy check in the scraper-patterns skill.
 - **Noted**: 2026-11-12
 
-### Pin the playmetrics_tournament pipeline branch in the dry-run wiring tests
-
-- **Type**: direct
-- **Category**: testing
-- **Where**: `AUTOCREATING_MATCHERS` in `tests/unit/test_provider_matcher_dry_run.py`
-- **Why**: The list names `playmetrics` but not `playmetrics_tournament`, so `test_pipeline_passes_dry_run_to_every_autocreating_matcher` never reads the tournament branch of `EnhancedETLPipeline._ensure_initialized`. That branch passes `dry_run=self.dry_run` today (checked 2026-11-12), but nothing fails if a later edit drops it, and the tournament import is the one the operator dry-runs before every real import.
-- **Noted**: 2026-11-12
-
 ### Keep the Illinois FC Stars rule out of the no-state pass
 
 - **Type**: direct

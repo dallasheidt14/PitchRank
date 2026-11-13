@@ -484,7 +484,9 @@ def test_the_pipeline_builds_the_tournament_matcher_unscoped(provider, default_s
     with patch("src.etl.enhanced_pipeline.call_rpc_with_fallback", return_value=[]):
         pipeline._ensure_initialized()
 
+    assert type(pipeline.matcher) is PlayMetricsGameMatcher
     assert pipeline.matcher.default_state_code == default_state_code
+    assert pipeline.matcher.dry_run is True
 
 
 def test_the_weekly_club_cleanup_keeps_each_stored_club_name():

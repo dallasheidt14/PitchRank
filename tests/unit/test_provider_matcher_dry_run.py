@@ -5,10 +5,11 @@ A TGS dry run once created 118 teams and 117 review-queue rows while printing
 the pipeline may forget to pass dry_run (leaving the base class's own gates
 inert), and a subclass may leave its autocreate insert ungated.
 
-TGS is covered separately in test_tgs_matcher_dry_run.py.
+TGS's own team-insert gate is tested in test_tgs_matcher_dry_run.py.
 """
 
 import inspect
+import re
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -26,6 +27,7 @@ from src.models.affinity_wa_matcher import AffinityWAGameMatcher
 from src.models.athletes2events_matcher import Athletes2EventsGameMatcher
 from src.models.demosphere_matcher import DemosphereGameMatcher
 from src.models.htgsports_matcher import HtgSportsGameMatcher
+from src.models.modular11_ea_matcher import Modular11EaGameMatcher
 from src.models.modular11_matcher import Modular11GameMatcher
 from src.models.playmetrics_matcher import PlayMetricsGameMatcher
 from src.models.sincsports_matcher import SincSportsGameMatcher
@@ -33,6 +35,8 @@ from src.models.soccereventsgroup_matcher import SoccerEventsGroupGameMatcher
 from src.models.tgs_matcher import TGSGameMatcher
 from src.models.tourneycentral_matcher import TourneyCentralGameMatcher
 from src.models.yssl_matcher import YSSLGameMatcher
+
+ROOT = Path(__file__).resolve().parents[2]
 
 AUTOCREATING_MATCHERS = [
     ("tgs", TGSGameMatcher),
@@ -43,7 +47,9 @@ AUTOCREATING_MATCHERS = [
     ("affinity_hi", AffinityHIGameMatcher),
     ("affinity_ga", AffinityGAGameMatcher),
     ("playmetrics", PlayMetricsGameMatcher),
+    ("playmetrics_tournament", PlayMetricsGameMatcher),
     ("modular11", Modular11GameMatcher),
+    ("modular11_ea", Modular11EaGameMatcher),
     ("soccereventsgroup", SoccerEventsGroupGameMatcher),
     ("athletes2events", Athletes2EventsGameMatcher),
     ("yssl", YSSLGameMatcher),
@@ -51,6 +57,21 @@ AUTOCREATING_MATCHERS = [
     ("demosphere", DemosphereGameMatcher),
     ("htgsports", HtgSportsGameMatcher),
 ]
+
+# The pipeline branches not listed above, each pinned in its provider's own test file.
+PINNED_ELSEWHERE = {"mlsnext_kitman": "tests/unit/test_mlsnext_kitman_matcher.py"}
+# Constructor arguments the pipeline passes that change what a matcher matches or creates,
+# so each case builds the matcher the import builds: the tournament import's is unscoped.
+PIPELINE_KWARGS = {"playmetrics_tournament": {"default_state_code": None}}
+
+
+def _pipeline_source():
+    return inspect.getsource(enhanced_pipeline.EnhancedETLPipeline._ensure_initialized)
+
+
+def _branch(provider):
+    """The provider's branch of the matcher chain, ending at the next branch or the fallback."""
+    return re.split(r"\belif\b|\belse:", _pipeline_source().split(f'== "{provider}"')[1])[0]
 
 
 def _db_with_no_existing_team():
@@ -62,14 +83,14 @@ def _db_with_no_existing_team():
 
 @pytest.mark.parametrize(("provider", "cls"), AUTOCREATING_MATCHERS)
 def test_every_matcher_accepts_and_stores_dry_run(provider, cls):
-    matcher = cls(_db_with_no_existing_team(), provider_id=provider, dry_run=True)
+    matcher = cls(_db_with_no_existing_team(), provider_id=provider, dry_run=True, **PIPELINE_KWARGS.get(provider, {}))
 
     assert matcher.dry_run is True
 
 
 @pytest.mark.parametrize(("provider", "cls"), AUTOCREATING_MATCHERS)
 def test_dry_run_defaults_off(provider, cls):
-    matcher = cls(_db_with_no_existing_team(), provider_id=provider)
+    matcher = cls(_db_with_no_existing_team(), provider_id=provider, **PIPELINE_KWARGS.get(provider, {}))
 
     assert matcher.dry_run is False
 
@@ -77,19 +98,23 @@ def test_dry_run_defaults_off(provider, cls):
 @pytest.mark.parametrize("provider", [p for p, _ in AUTOCREATING_MATCHERS])
 def test_pipeline_passes_dry_run_to_every_autocreating_matcher(provider):
     """The gap that silently made each base-class gate inert."""
-    source = inspect.getsource(enhanced_pipeline.EnhancedETLPipeline._ensure_initialized)
-    block = source.split(f'== "{provider}"')[1].split("elif")[0]
+    assert "dry_run=self.dry_run" in _branch(provider), f"{provider} matcher is constructed without dry_run"
 
-    assert "dry_run=self.dry_run" in block, f"{provider} matcher is constructed without dry_run"
+
+def test_every_pipeline_branch_is_listed_here_or_pinned_elsewhere():
+    """A provider code missing from AUTOCREATING_MATCHERS has its dry_run wiring checked nowhere."""
+    branches = set(re.findall(r'provider_code\.lower\(\) == "(\w+)"', _pipeline_source()))
+
+    assert branches == {p for p, _ in AUTOCREATING_MATCHERS} | set(PINNED_ELSEWHERE)
+    for provider, test_file in PINNED_ELSEWHERE.items():
+        pin = (ROOT / test_file).read_text(encoding="utf-8")
+        assert f'"{provider}"' in pin and "dry_run=self.dry_run" in pin, f"{test_file} no longer pins {provider}"
 
 
 @pytest.mark.parametrize(("provider", "cls"), AUTOCREATING_MATCHERS)
 def test_pipeline_builds_each_providers_own_matcher(provider, cls):
     """A copied branch that kept its sibling's class would file one league's teams under another's state."""
-    source = inspect.getsource(enhanced_pipeline.EnhancedETLPipeline._ensure_initialized)
-    block = source.split(f'== "{provider}"')[1].split("elif")[0]
-
-    assert f"self.matcher = {cls.__name__}(" in block
+    assert f"self.matcher = {cls.__name__}(" in _branch(provider)
 
 
 @pytest.mark.parametrize(
@@ -166,13 +191,16 @@ class _EmptyDB:
 REGISTRATION_MATCHERS = frozenset(
     {"soccereventsgroup", "athletes2events", "yssl", "tourneycentral", "demosphere", "htgsports"}
 )
-# TGS's _match_team never creates a team, so every id below would be None for it.
-CREATING_ON_MATCH = [(provider, cls) for provider, cls in AUTOCREATING_MATCHERS if provider != "tgs"]
+# These matchers' _match_team never creates a team (EA teams come only from
+# link_modular11_ea_teams.py), so every id below would be None for them.
+NEVER_CREATE_ON_MATCH = frozenset({"tgs", "modular11_ea"})
+CREATING_ON_MATCH = [(p, cls) for p, cls in AUTOCREATING_MATCHERS if p not in NEVER_CREATE_ON_MATCH]
 
 
 def _match_thrice(cls, provider, db):
     registering = provider in REGISTRATION_MATCHERS
-    matcher = cls(db, provider_id=provider, dry_run=True, **({"registration_mode": True} if registering else {}))
+    kwargs = {**PIPELINE_KWARGS.get(provider, {}), **({"registration_mode": True} if registering else {})}
+    matcher = cls(db, provider_id=provider, dry_run=True, **kwargs)
     extra = {"state_code": "WA"} if registering else {}
     return [
         (
@@ -193,6 +221,7 @@ def test_one_unseen_team_keeps_one_id_across_a_dry_run(provider, cls):
     """
     ids = _match_thrice(cls, provider, _EmptyDB())
 
+    assert ids[0] is not None, f"{provider} created no team, so it belongs in NEVER_CREATE_ON_MATCH"
     assert len(set(ids)) == 1, f"{provider} produced {len(set(ids))} ids for one team"
 
 

@@ -1400,14 +1400,21 @@ anchor into that file went stale in the same commit.
   `_club_words` beside the stored name.
 - **`squad_name_gates.py` is under `src/models/`**, not `src/utils/`.
 
-**Three hand-written test registries must gain the new matcher**, none of them derived, so omitting
-any one passes green while covering nothing: `AUTOCREATING_MATCHERS` in
-`tests/unit/test_provider_matcher_dry_run.py`; the separate `(provider, cls, create)` parametrize
-list on `test_autocreate_writes_nothing_in_dry_run` in that same file, which calls the named create
-helper with `dry_run=True` and asserts `insert` was never called; and `_SUBCLASS_PATHS` in
-`tests/unit/test_birth_year_guard_wiring.py`. A matcher that creates only from a roster pass must
+**Three hand-written test registries must gain the new matcher.** `AUTOCREATING_MATCHERS` in
+`tests/unit/test_provider_matcher_dry_run.py` is keyed by provider code, so a new code built on an
+existing matcher class needs its own row (`playmetrics_tournament` reuses `PlayMetricsGameMatcher`).
+`test_every_pipeline_branch_is_listed_here_or_pinned_elsewhere` fails for a pipeline branch the
+list lacks, unless `PINNED_ELSEWHERE` names the test file that pins it. A matcher whose `_match_team`
+never creates a team also goes in `NEVER_CREATE_ON_MATCH`, or its identity tests fail on `None`.
+`PIPELINE_KWARGS`, beside the list, must carry any constructor argument that changes what the
+pipeline's matcher matches or creates (the tournament branch's `default_state_code=None`); nothing
+checks it, so a missing entry tests a matcher the import never builds. The other two registries are
+unchecked, so omitting one passes green while covering nothing: the `(provider, cls, create)`
+parametrize list on `test_autocreate_writes_nothing_in_dry_run` in that same file, which calls the
+named create helper with `dry_run=True` and asserts `insert` was never called; and `_SUBCLASS_PATHS`
+in `tests/unit/test_birth_year_guard_wiring.py`. A matcher that creates only from a roster pass must
 also join `REGISTRATION_MATCHERS` in the first of those files, or its identity tests run against a
-team it never creates and pass on `None`.
+team it never creates.
 
 And the matcher needs its own branch in `EnhancedETLPipeline._ensure_initialized`'s provider
 chain (`src/etl/enhanced_pipeline.py`): the `else` fallback constructs a bare `GameHistoryMatcher` **without** `dry_run`, so until
