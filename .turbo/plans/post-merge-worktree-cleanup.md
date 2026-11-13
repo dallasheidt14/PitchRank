@@ -31,7 +31,7 @@ The owner chose to plan directly rather than run turboplan.
 ## Pattern Survey
 
 ### Analogous Features
-- `.claude/hooks/session-start.sh:71-82`: counts linked worktrees and gone-remote branches, and flags dirty worktrees.
+- `.claude/hooks/session-start.sh` (the `gone`, `worktrees` and `unclean` block): counts linked worktrees and gone-remote branches, and flags dirty worktrees.
   - The dirty test is `git -C "$wt" status --porcelain` with untracked files counted and ignored files not.
   - The porcelain is parsed as `/^worktree /`, skipping the first entry, which is the main checkout.
   - Pinned by real-temp-repo tests in `tests/unit/test_claude_hooks.py:478-509`.
@@ -247,7 +247,7 @@ The owner chose to plan directly rather than run turboplan.
 
 - `scripts/pr_wait.py`: the script being hooked, and the shape to mirror.
 - `tests/unit/test_pr_wait_gating.py`: the merge-path tests that change.
-- `.claude/hooks/session-start.sh:71-82`: the existing porcelain parse and dirty test.
+- `.claude/hooks/session-start.sh` (the `unclean` loop over `git worktree list --porcelain`): the existing porcelain parse and dirty test.
 - `src/tournaments/seeding_run_store.py:101-130`: the checkout-root lookup being shared.
 - `tests/unit/test_claude_hooks.py:73-96,478-509`: the real-temp-repo worktree fixtures to mirror.
 - `scripts/apply_vetted_team_merges.py:264-290`: `new_log` / `write_log`, the refuse-existing and atomic-write conventions.
