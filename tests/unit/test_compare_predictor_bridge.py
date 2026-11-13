@@ -87,6 +87,21 @@ def test_predictor_runtime_probes_tsx_with_node(monkeypatch, tmp_path):
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is required by the Compare predictor")
+def test_historical_batch_ages_shared_opponents_against_its_explicit_reference_date():
+    teams = {"a": _team("team-a", 14, 0.5), "b": _team("team-b", 14, 0.5)}
+    games = [
+        {"id": "a-shared", "game_date": "2026-11-12", "home_team_master_id": "team-a",
+         "away_team_master_id": "shared", "home_score": 4, "away_score": 0},
+        {"id": "b-shared", "game_date": "2026-11-12", "home_team_master_id": "team-b",
+         "away_team_master_id": "shared", "home_score": 0, "away_score": 1},
+    ]
+    fresh = run_compare_prediction_batch(teams, games, reference_date="2026-11-12")[("a", "b")]
+    old = run_compare_prediction_batch(teams, games, reference_date="2027-09-08")[("a", "b")]
+    assert fresh.win_probability_a > old.win_probability_a
+    assert fresh.expected_margin > old.expected_margin
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is required by the Compare predictor")
 def test_batch_runs_the_compare_predictor_for_both_orientations():
     predictions = run_compare_prediction_batch(
         {
@@ -94,6 +109,7 @@ def test_batch_runs_the_compare_predictor_for_both_orientations():
             "entrant-b": _team("team-b", 17, 0.43),
         },
         [],
+        reference_date="2026-11-12",
     )
 
     forward = predictions[("entrant-a", "entrant-b")]
@@ -129,6 +145,7 @@ def test_batch_mirrors_nearly_even_matchups_instead_of_repredicting_them():
             "entrant-b": _team("team-b", 14, 0.501),
         },
         [],
+        reference_date="2026-11-12",
     )
 
     forward = predictions[("entrant-a", "entrant-b")]

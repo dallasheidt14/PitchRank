@@ -36,7 +36,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
         with:
-          ref: ${{ github.ref }}
+          # The baseline ledger belongs to the registered studies, not live model releases.
+          ref: 15cc5f4f38858f2a48a3ac2aeaef8f2bab76c81b
           fetch-depth: 0
 
       - name: Set up Node

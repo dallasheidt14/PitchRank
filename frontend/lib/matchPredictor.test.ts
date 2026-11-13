@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   calculateCommonOpponentSignal,
   poissonBlowout4PlusProbability,
@@ -82,6 +82,79 @@ describe('poissonBlowout4PlusProbability', () => {
     expect(probability).toBeGreaterThan(0.815);
     expect(probability).toBeLessThan(0.825);
     expect(probability).toBeCloseTo(poissonBlowout4PlusProbability(1.3, 7.5), 12);
+  });
+});
+
+describe('shared-opponent recency', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-12T12:00:00Z'));
+  });
+  afterEach(() => vi.useRealTimers());
+
+  function comparison(firstDate: string, secondDate = firstDate, opponent = 'shared') {
+    return [
+      makeGame({
+        id: `a-${opponent}`,
+        game_date: firstDate,
+        away_team_master_id: opponent,
+        home_score: 4,
+        away_score: 0,
+      }),
+      makeGame({
+        id: `b-${opponent}`,
+        game_date: secondDate,
+        home_team_master_id: 'team-b',
+        away_team_master_id: opponent,
+        home_score: 0,
+        away_score: 1,
+      }),
+    ];
+  }
+
+  it('reduces a 300-day-old comparison even when neither team has a newer result', () => {
+    const fresh = calculateCommonOpponentSignal('team-a', 'team-b', comparison('2026-11-12'));
+    const old = calculateCommonOpponentSignal('team-a', 'team-b', comparison('2026-01-16'));
+    expect(fresh.advantage).toBeCloseTo(0.04, 12);
+    expect(old.advantage).toBeCloseTo(0.04 * Math.exp(-2), 12);
+    expect(old.comparedGames).toBe(2);
+    expect(old.sharedOpponents).toBe(1);
+  });
+
+  it('uses an explicit historical prediction day independently of the host clock', () => {
+    const games = comparison('2026-11-12');
+    const teamA = makeTeam({ team_id_master: 'team-a' });
+    const teamB = makeTeam({ team_id_master: 'team-b' });
+    const reference = Date.parse('2026-11-12');
+    const original = predictMatch(teamA, teamB, games, undefined, reference);
+    vi.setSystemTime(new Date('2027-09-08T12:00:00Z'));
+    expect(predictMatch(teamA, teamB, games, undefined, reference)).toEqual(original);
+    expect(predictMatch(teamA, teamB, games).components.commonOpponentSignal).toBeLessThan(
+      original.components.commonOpponentSignal!
+    );
+  });
+
+  it.each([
+    ['2026-01-16', '2026-11-12'],
+    ['2026-11-12', '2026-01-16'],
+  ])('requires fresh evidence from both teams: %s / %s', (first, second) => {
+    const summary = calculateCommonOpponentSignal('team-a', 'team-b', comparison(first, second));
+    expect(summary.advantage).toBeCloseTo(0.04 * Math.exp(-1), 12);
+  });
+
+  it('gives the recent comparison more influence when old evidence disagrees and preserves team swaps', () => {
+    const recent = comparison('2026-11-12');
+    const oldOpposite = comparison('2026-01-16', '2026-01-16', 'other').map((game) => ({
+      ...game,
+      home_team_master_id: game.home_team_master_id === 'team-a' ? 'team-b' : 'team-a',
+    }));
+    const forward = calculateCommonOpponentSignal('team-a', 'team-b', [...recent, ...oldOpposite]);
+    const reverse = calculateCommonOpponentSignal('team-b', 'team-a', [...oldOpposite, ...recent]);
+    expect(forward.advantage).toBeGreaterThan(0.02);
+    expect(forward.advantage).toBeLessThan(0.03);
+    expect(reverse.advantage).toBeCloseTo(-forward.advantage, 12);
+    expect(reverse.comparedGames).toBe(forward.comparedGames);
+    expect(reverse.reliability).toBe(forward.reliability);
   });
 });
 

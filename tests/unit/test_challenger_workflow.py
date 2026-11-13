@@ -10,6 +10,18 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 
 
+@pytest.mark.parametrize("name", [
+    "weekly-prospective-refresh.yml",
+    "process-prospective-heuristic-predictions.yml",
+])
+def test_registered_studies_keep_the_original_collecting_predictor(name):
+    workflow = yaml.load((ROOT / ".github/workflows" / name).read_text(), Loader=yaml.BaseLoader)
+    for job in workflow["jobs"].values():
+        for step in job.get("steps", []):
+            if str(step.get("uses", "")).startswith("actions/checkout@"):
+                assert step["with"]["ref"] == "15cc5f4f38858f2a48a3ac2aeaef8f2bab76c81b"
+
+
 @pytest.mark.parametrize("kind,upstream_event,conclusion,branch,signature,expected", [
     ("workflow_run", "schedule", "success", "refs/heads/main", "a" * 64, True),
     ("workflow_run", "workflow_dispatch", "success", "refs/heads/main", "a" * 64, False),

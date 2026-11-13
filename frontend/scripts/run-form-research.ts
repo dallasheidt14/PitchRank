@@ -71,8 +71,6 @@ async function main() {
       encoding: 'utf8',
       windowsHide: true,
     }).replace(/\r\n/g, '\n');
-    const current = (await readFile(path.join(root, 'lib', name), 'utf8')).replace(/\r\n/g, '\n');
-    if (frozen !== current) throw new Error(`Collecting predictor changed: ${name}`);
     sourceHashes[name] = createHash('sha256').update(frozen).digest('hex');
     sourcePairs.push([name, frozen]);
   }
@@ -91,13 +89,19 @@ async function main() {
   const originalTimezone = process.env.TZ;
   try {
     process.env.TZ = 'UTC';
+    // Research replays the registered revision even after the live predictor changes.
+    const baselineDir = path.join(temp, 'lib');
+    await mkdir(baselineDir);
+    for (const [name, content] of sourcePairs) {
+      await writeFile(path.join(baselineDir, name), content);
+    }
     const calibrationDir = path.join(temp, 'public/data/calibration');
     await mkdir(calibrationDir, { recursive: true });
     for (const file of calibrationFiles) {
       if (!payload.calibrations[file]) throw new Error(`Missing frozen calibration: ${file}`);
       await writeFile(path.join(calibrationDir, file), JSON.stringify(payload.calibrations[file]));
     }
-    let source = await readFile(path.join(root, 'lib/matchPredictor.ts'), 'utf8');
+    let source = sourcePairs.find(([name]) => name === 'matchPredictor.ts')![1];
     const anchors = [
       [
         'const formA = recentA.goalDiff;',
@@ -112,19 +116,15 @@ async function main() {
       if (source.split(anchor).length !== 2) throw new Error('Pinned research patch no longer matches');
       source = source.replace(anchor, replacement);
     }
-    source = source.replace(/from ['"]\.\/(.+?)['"]/g, (_match, moduleName: string) => {
-      const file = moduleName.endsWith('.ts') ? moduleName : `${moduleName}.ts`;
-      return `from '${pathToFileURL(path.join(root, 'lib', file)).href}'`;
-    });
     source +=
       '\nlet researchOverrides: Record<string, number> | null = null;\nlet researchDisableMl = false;\nexport function setResearchForm(value: Record<string,number> | null, disableMl = false) { researchOverrides = value; researchDisableMl = disableMl; }\n';
-    const generated = path.join(temp, 'predictor.ts');
+    const generated = path.join(baselineDir, 'researchPredictor.ts');
     await writeFile(generated, source);
     process.chdir(temp);
     globalThis.fetch = (() => {
       throw new Error('Network disabled in offline research');
     }) as typeof fetch;
-    const baseline = await import(pathToFileURL(path.join(root, 'lib/matchPredictor.ts')).href);
+    const baseline = await import(pathToFileURL(path.join(baselineDir, 'matchPredictor.ts')).href);
     const challenger = await import(pathToFileURL(generated).href);
     await baseline.warmMatchPredictorCalibration();
     await challenger.warmMatchPredictorCalibration();

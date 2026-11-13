@@ -487,18 +487,6 @@ export function calculateHeadToHead(
   };
 }
 
-function getLatestGameTimestamp(allGames: Game[]): number | null {
-  const timestamps = allGames
-    .map((game) => Date.parse(game.game_date))
-    .filter((timestamp) => Number.isFinite(timestamp));
-
-  if (timestamps.length === 0) {
-    return null;
-  }
-
-  return Math.max(...timestamps);
-}
-
 function updateOpponentAggregate(
   aggregates: Map<string, OpponentAggregate>,
   opponentId: string,
@@ -523,9 +511,9 @@ function updateOpponentAggregate(
 export function calculateCommonOpponentSignal(
   teamAId: string,
   teamBId: string,
-  allGames: Game[]
+  allGames: Game[],
+  referenceTimestamp = Date.parse(new Date().toISOString().slice(0, 10))
 ): CommonOpponentSummary {
-  const referenceTimestamp = getLatestGameTimestamp(allGames);
   const teamAOpponents = new Map<string, OpponentAggregate>();
   const teamBOpponents = new Map<string, OpponentAggregate>();
 
@@ -553,10 +541,9 @@ export function calculateCommonOpponentSignal(
     if (teamScore == null || oppScore == null) continue;
 
     const gameTimestamp = Date.parse(game.game_date);
-    const daysSince =
-      referenceTimestamp != null && Number.isFinite(gameTimestamp)
-        ? Math.max(0, (referenceTimestamp - gameTimestamp) / (1000 * 60 * 60 * 24))
-        : 0;
+    const daysSince = Number.isFinite(gameTimestamp)
+      ? Math.max(0, (referenceTimestamp - gameTimestamp) / (1000 * 60 * 60 * 24))
+      : 0;
     const recencyWeight = Math.exp(-daysSince / COMMON_OPPONENT_RECENCY_DAYS);
     const points = teamScore > oppScore ? 3 : teamScore === oppScore ? 1 : 0;
     const goalDiff = teamScore - oppScore;
@@ -604,8 +591,13 @@ export function calculateCommonOpponentSignal(
     const avgMarginDiff = teamAAvgMargin - teamBAvgMargin;
     const opponentSignal = clamp(pointsPerGameDiff / 3, -1, 1) * 0.65 + clamp(avgMarginDiff / 4, -1, 1) * 0.35;
     const opponentWeight = clamp((teamAStats.games + teamBStats.games) / 4, 0.35, 1);
+    // Within-opponent averages cancel their age weights for a single result.
+    // Keep freshness in the final signal; both sides of the comparison must contribute.
+    const comparisonFreshness = Math.sqrt(
+      (teamAStats.totalWeight / teamAStats.games) * (teamBStats.totalWeight / teamBStats.games)
+    );
 
-    signalSum += opponentSignal * opponentWeight;
+    signalSum += opponentSignal * opponentWeight * comparisonFreshness;
     weightSum += opponentWeight;
     totalComparedGames += teamAStats.games + teamBStats.games;
     weightedMarginDiff += avgMarginDiff * opponentWeight;
@@ -1181,12 +1173,14 @@ export interface MatchPrediction {
  * v2.3: Multi-metric mismatch detection for better blowout prediction
  *
  * `allGames` must hold scored games only (see buildRecentProfile).
+ * Historical callers must supply their UTC prediction-day timestamp to preserve recency.
  */
 export function predictMatch(
   teamA: TeamWithRanking,
   teamB: TeamWithRanking,
   allGames: Game[],
-  diagnostics?: PredictionDiagnostics
+  diagnostics?: PredictionDiagnostics,
+  referenceTimestamp = Date.parse(new Date().toISOString().slice(0, 10))
 ): MatchPrediction {
   const evidenceReliabilityA = computeEvidenceReliability(teamA);
   const evidenceReliabilityB = computeEvidenceReliability(teamB);
@@ -1208,7 +1202,12 @@ export function predictMatch(
   const formDiffNorm = normalizeRecentForm(formDiffRaw) - 0.5;
   const matchupAdvantage = offenseA - defenseB - (offenseB - defenseA);
   const h2h = calculateHeadToHead(teamA.team_id_master, teamB.team_id_master, allGames);
-  const commonOpponent = calculateCommonOpponentSignal(teamA.team_id_master, teamB.team_id_master, allGames);
+  const commonOpponent = calculateCommonOpponentSignal(
+    teamA.team_id_master,
+    teamB.team_id_master,
+    allGames,
+    referenceTimestamp
+  );
   const h2hWeight = h2h.gamesPlayed > 0 ? Math.min(0.05 * h2h.gamesPlayed, 0.15) : 0;
 
   const predictiveWinSignal =

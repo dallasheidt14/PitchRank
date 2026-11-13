@@ -946,6 +946,7 @@ EXEMPT_SCRIPTS = {
 # A script a workflow step runs, by path or as a module (python -m scripts.<name>).
 SCRIPT_IN_RUN = re.compile(r"scripts/(?:[\w-]+/)*(\w+\.py)|-m\s*scripts\.(?:\w+\.)*(\w+)")
 NOT_A_WRITER = {
+    "compare-weekend-tuning.yml": "reads frozen predictions and exact-source settlements, writes only private research archives",
     "auto-gotsport-upcoming-event-scrape.yml": "scrapes upcoming fixtures into an artifact and never imports them",
     "auto-merge-queue.yml": "its one writing step is gated off by QUEUE_AUTO_APPROVE_ENABLED, and writes only "
     "aliases and the match review queue",
