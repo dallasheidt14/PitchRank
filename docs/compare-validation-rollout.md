@@ -8,6 +8,20 @@ uses cleaned games in the 365-day window and up to eight recent games for form.
 These presentation changes do not adjust production probabilities, ranking scores,
 or scoreline calculations.
 
+## Live shared-opponent recency correction
+
+Live Compare v7 preserves the existing 150-day exponential decay in the final
+shared-opponent contribution. Previously, normalizing each opponent's results
+could cancel that decay, giving a single old comparison the same influence as a
+fresh one. Freshness now scales the contribution using both teams' result ages,
+measured against the UTC prediction day. Historical Backtest batches supply their
+prediction date explicitly.
+
+The registered studies continue collecting the original predictor from commit
+`15cc5f4f38858f2a48a3ac2aeaef8f2bab76c81b`. Their research runner loads the pinned
+source modules into its temporary workspace, independent of live predictor updates.
+Existing frozen forecasts, calibration and study manifests remain unchanged.
+
 ## Release order
 
 1. Capture and settlement: immutable ledger, database fixture intake, bounded worker,

@@ -1228,6 +1228,8 @@ def _build_python_prediction_and_cost_functions(
 def _build_compare_prediction_and_cost_functions(
     entrant_rows: list[dict[str, Any]],
     all_games: list[PredictorGame],
+    *,
+    reference_date: str,
 ):
     teams_by_entrant_id: dict[str, dict[str, Any]] = {}
     for row in entrant_rows:
@@ -1283,7 +1285,7 @@ def _build_compare_prediction_and_cost_functions(
         }
         for game in all_games
     ]
-    predictions = run_compare_prediction_batch(teams_by_entrant_id, game_payload)
+    predictions = run_compare_prediction_batch(teams_by_entrant_id, game_payload, reference_date=reference_date)
     cost_cache: dict[tuple[str, str], MatchupCost] = {}
 
     def predict_fn(team_a: SeedableTeam, team_b: SeedableTeam):
@@ -2154,7 +2156,9 @@ def main() -> int:
                 "calibration_source_commit": PREDICTOR_CALIBRATION_SOURCE_COMMIT,
             }
         )
-        predict_fn, matchup_cost_fn = _build_compare_prediction_and_cost_functions(entrant_rows, recent_games)
+        predict_fn, matchup_cost_fn = _build_compare_prediction_and_cost_functions(
+            entrant_rows, recent_games, reference_date=prediction_date,
+        )
         matchup_proxy = "canonical_compare_match_predictor_v4"
     else:
         predict_fn, matchup_cost_fn = _build_python_prediction_and_cost_functions(entrant_rows, recent_games)

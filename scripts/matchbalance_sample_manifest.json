@@ -3,8 +3,8 @@
     "docs/design/matchbalance-excel/director-workbook-sample.xlsx": "66b3123d47c53c98d0f95d1429934df32d7bb62741cd89c4e31d1fc8fc0d937d",
     "docs/design/matchbalance-excel/u10-boys.png": "e0c13e6a956abe581e9be1f4815c18535585627a31d57799924deb133c86fc5a",
     "docs/design/matchbalance-excel/u12-girls.png": "f2d5e14de49147ffe4f9575ac0807392aaaa4d71559851b6730af57a7a95ded1",
-    "frontend/public/matchbalance/sample-u13-boys.pdf": "bd43c268b5fa636ebeb3dc97c8674c15d1e482435b615f1593d0c4bba1bf94cd",
+    "frontend/public/matchbalance/sample-u13-boys.pdf": "ac3044384c109f0277621547f36d550605635e247a7a3b44e934374fed5146ee",
     "frontend/public/matchbalance/sample-u13-boys.png": "a400e340e8666e4e963be60aa279616200c6faa0edaad0e9ccfd6a0d90ab930b"
   },
-  "renderer_sha256": "a2bc0abd63b31193fe4f6c09c4e9241fec08ec8553632f5d4f8b49c983c8b2bb"
+  "renderer_sha256": "a73157c1ee53c7cee56a5638ebeb01172d9863eefdeaf591e266158b9d12a123"
 }
