@@ -70,7 +70,8 @@ configured. Never put credentials in command arguments or save them in report ar
    must leave those completed payloads and timestamps unchanged. A second intake may
    discover different fixtures; compare the recorded pilot IDs rather than row totals.
 5. Set `COMPARE_CAPTURE_ENABLED=true` after verification. Daily capture at 04:15 UTC
-   selects by fixture date then stable hash, caps intake and forecasts at 500 each,
+   rotates providers and cohort/history strata in both intake and forecast capture,
+   orders dates and stable hashes within each stratum, caps each stage at 500,
    uses at most four workers and stops taking work after 45 minutes. In-flight work
    finishes; the job's outer timeout is 60 minutes. Monitor skipped/error counts and
    provider/cohort coverage in the 90-day summary artifacts.

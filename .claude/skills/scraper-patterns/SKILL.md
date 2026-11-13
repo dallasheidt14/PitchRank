@@ -799,10 +799,28 @@ state. `playmetrics-tournament-scrape-import.yml` runs it on dispatch.
   similarity query from *Check a roster pass's new teams for near-duplicates before `--execute`*
   below over them without its state condition, and settle the hits with the merging-duplicate-teams
   skill, whose Doorway D covers rows created with no state. A club PlayMetrics spells differently
-  (`RASA - AFC Union` against `AFC Union`) skips its existing team and creates a new one, and a
-  candidate scoring 0.75-0.90 is queued for review and still created, so the review queue does not
-  replace this check. The Harvest Classic import of 2026-11-10 created 103 teams, about half of
-  them copies.
+  enough that the club gate refuses it skips its existing team unless `STORED_CLUB_NAMES` in
+  `src/models/playmetrics_matcher.py` lists that spelling (`RASA - AFC Union` is filed as
+  `AFC Union`); when this check confirms such a copy, add the spelling there. A team is still
+  created whenever no stored team clears the gates at 0.75 or more, so the check stays: of the 46
+  tournament rows the Harvest Classic cleanup of 2026-11-10 merged, the matcher as of 2026-11-12
+  still creates 8.
+- **On this import, a team with a likely match is held in the review queue instead of being
+  created.** That covers a candidate scoring 0.75-0.90, and one scoring higher that a birth-year,
+  U19-year or gender guard sent to review (`GameHistoryMatcher._match_team`). The weekly league
+  import still creates these teams, by the owner's decision of 2026-11-12. A game with one held
+  team is stored with that side empty and counts in no ranking until linked; a game between two
+  held teams is not stored.
+  - Settle each held item as *Resolving provider review items by hand* below says. A held item
+    is a pending row with a `suggested_master_team_id` and no approved alias for its provider
+    team id; the rows with no suggestion are teams the import already created.
+  - The import log names a guard's hold ("routing to review instead of alias"). Where the birth-year
+    or gender guard held it, the two names state different birth years or genders, so the suggestion
+    is usually another squad and a new team the usual answer. Where the line reads "U19 name states
+    only the year both U19 squads share", the names do not conflict: decide from this season's
+    fixtures which of the two U19 squads it is.
+  - Then import the same CSV again and read the games back as *Repairing a half-matched game*
+    below says; a game that was not stored is inserted.
 
 ## YSSL Pages
 
@@ -1327,7 +1345,10 @@ anchor into that file went stale in the same commit.
   "Crossfire Select" leaves `select`, a tier token, and every stored row whose name omits the
   word is then refused. Stripping only the written form inverts the defect onto the rows that
   carry it. `Athletes2EventsGameMatcher._without_club` strips both, and the driver carries the
-  written spelling on `TeamRow.club_as_written`.
+  written spelling on `TeamRow.club_as_written`. The rule holds wherever a matcher maps a
+  provider's club spelling to the stored name: `PlayMetricsGameMatcher` maps through
+  `STORED_CLUB_NAMES`, keeps the written spelling on `self._written_club`, and passes it to
+  `_club_words` beside the stored name.
 - **`squad_name_gates.py` is under `src/models/`**, not `src/utils/`.
 
 **Three hand-written test registries must gain the new matcher**, none of them derived, so omitting
@@ -1391,6 +1412,25 @@ created rows hitting one stored team are two squads, and at most one may link to
 flags only fuzzy links, never two approved aliases to one team. Then re-run the dry run. Each linked
 team should read `already_linked`; one stored on another board reads `error` from `off_board_links`
 ("linked team is on the uNN board") before anything is written.
+
+### Measure a matcher change by replaying the copies a past import made
+
+Measure a matcher fix meant to stop copies against the copies an import already made, not
+against a unit fixture.
+- **Find the copies.** A merge list in `data/backups/` (gitignored, so in the main checkout only) (the vetted `*merges*.json`
+  file itself, not its `*_log_batch*` files) holds each pair as `merge_*` and `keep_*` fields, with
+  `*_as_vetted` holding age group, gender, state and club. A list does not say which side is the
+  copy, and either side can be. Take the copy to be the side whose `teams.provider_id` is the
+  importing provider and whose `created_at` falls on an import date. Drop pairs with no such side.
+- **Use the provider's own club.** `*_as_vetted` holds the club at merge time, so take the
+  provider's spelling from any rename's `*_rename_*_before.csv` beside it.
+- **Run it.** Build the matcher as `EnhancedETLPipeline._ensure_initialized` builds it for that
+  provider (`default_state_code=None` for `playmetrics_tournament`). Run each copy's name and club
+  through `_match_team`, on the branch and on `origin/main`, against the live `teams` rows for its
+  age and gender minus the copies. Patch alias and provider-id lookups off, and give it an
+  in-memory double that answers the gender guard's read and refuses every write.
+- **Read the tally**: linked to the other side, linked to another team, held, created. Any link
+  to another team is a defect, worse than a copy.
 
 ### Resolving provider review items by hand
 

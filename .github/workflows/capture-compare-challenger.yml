@@ -1,0 +1,98 @@
+name: Capture Registered Compare Challenger
+
+on:
+  workflow_run:
+    workflows: [Daily Prospective Forecast Capture]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      execute:
+        description: Save private challenger forecasts (requires a separately qualified, registered candidate)
+        type: boolean
+        default: false
+      limit:
+        description: Maximum paired forecasts
+        type: string
+        default: '500'
+
+concurrency:
+  group: compare-challenger-capture
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    # Capture requires a separately qualified and registered candidate.
+    if: >-
+      vars.COMPARE_CHALLENGER_SIGNATURE != '' &&
+      ((github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'schedule') ||
+       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      CANDIDATE_SIGNATURE: ${{ vars.COMPARE_CHALLENGER_SIGNATURE }}
+      EXECUTE: ${{ github.event_name == 'workflow_run' || inputs.execute }}
+      CAPTURE_LIMIT: ${{ inputs.limit || '500' }}
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - run: pip install supabase==2.18.1
+      - name: Resolve immutable registered source
+        id: candidate
+        run: |
+          python - <<'PY'
+          import os, re
+          from supabase import create_client
+          signature = os.environ['CANDIDATE_SIGNATURE']
+          if not re.fullmatch('[a-f0-9]{64}', signature):
+              raise ValueError('Invalid registered candidate signature')
+          client = create_client(os.environ['SUPABASE_URL'], os.environ['SUPABASE_SERVICE_ROLE_KEY'])
+          row = client.table('compare_challenger_manifests').select('manifest').eq('candidate_signature', signature).single().execute().data
+          revision = row['manifest']['research_revision']
+          if not re.fullmatch('[a-f0-9]{40}', revision):
+              raise ValueError('Invalid registered research revision')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('revision=' + revision + '\n')
+          PY
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ steps.candidate.outputs.revision }}
+          fetch-depth: 0
+      - run: pip install -r requirements.lock
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --ignore-scripts
+        working-directory: frontend
+      - name: Capture paired forecasts from private frozen inputs
+        run: |
+          MODE=()
+          if [ "$EXECUTE" = 'true' ]; then MODE+=(--execute); fi
+          python scripts/capture_compare_challenger.py "$CANDIDATE_SIGNATURE" \
+            --download-archives "$RUNNER_TEMP/compare-private-inputs" \
+            --limit "$CAPTURE_LIMIT" "${MODE[@]}" \
+            --summary-path "$RUNNER_TEMP/challenger-summary.json"
+      - name: Write aggregate summary
+        if: always()
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          path = Path(os.environ['RUNNER_TEMP']) / 'challenger-summary.json'
+          if path.exists():
+              with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as output:
+                  output.write('```json\n' + json.dumps(json.loads(path.read_text()), indent=2) + '\n```\n')
+          PY
