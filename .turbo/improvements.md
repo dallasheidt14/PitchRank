@@ -3095,14 +3095,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: Each search wraps its reads in `except Exception: ... return None`, and its `_match_team` creates a team whenever the base match comes back unmatched (checked 2026-11-12), so one transient read error (a timed-out club or cohort read) leaves a permanent duplicate carrying the provider id, which only the weekly merges can fold. TGS's match step fixed the same shape on 2026-11-12: its search raises, the caller records that one team as an error and writes nothing, and the base gender guard's `unreadable_row_is_conflict` switch lets a subclass raise instead of holding.
 - **Noted**: 2026-11-12
 
-### Pin the playmetrics_tournament pipeline branch in the dry-run wiring tests
-
-- **Type**: direct
-- **Category**: testing
-- **Where**: `AUTOCREATING_MATCHERS` in `tests/unit/test_provider_matcher_dry_run.py`
-- **Why**: The list names `playmetrics` but not `playmetrics_tournament`, so `test_pipeline_passes_dry_run_to_every_autocreating_matcher` never reads the tournament branch of `EnhancedETLPipeline._ensure_initialized`. That branch passes `dry_run=self.dry_run` today (checked 2026-11-12), but nothing fails if a later edit drops it, and the tournament import is the one the operator dry-runs before every real import.
-- **Noted**: 2026-11-12
-
 ### Keep the Illinois FC Stars rule out of the no-state pass
 
 - **Type**: direct

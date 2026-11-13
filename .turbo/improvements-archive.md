@@ -1933,6 +1933,16 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Noted**: 2026-11-06
 - **Refs**: branch `feat/report-card-redesign`; `renders markup in a team name as text` in `frontend/lib/email/__tests__/report-card.test.ts`
 
+### Pin the playmetrics_tournament pipeline branch in the dry-run wiring tests
+
+- **Status**: done
+- **Type**: direct
+- **Category**: testing
+- **Where**: `AUTOCREATING_MATCHERS` in `tests/unit/test_provider_matcher_dry_run.py`
+- **Why**: The list names `playmetrics` but not `playmetrics_tournament`, so `test_pipeline_passes_dry_run_to_every_autocreating_matcher` never reads the tournament branch of `EnhancedETLPipeline._ensure_initialized`. That branch passes `dry_run=self.dry_run` today (checked 2026-11-12), but nothing fails if a later edit drops it, and the tournament import is the one the operator dry-runs before every real import.
+- **Noted**: 2026-11-12
+- **Refs**: branch `test/pin-playmetrics-tournament-dry-run`; `test_pipeline_passes_dry_run_to_every_autocreating_matcher[playmetrics_tournament]` and `test_every_pipeline_branch_is_listed_here_or_pinned_elsewhere` in `tests/unit/test_provider_matcher_dry_run.py`, `test_the_pipeline_builds_the_tournament_matcher_unscoped` in `tests/unit/test_playmetrics_matcher_row_state.py`
+
 ### Keep deprecated rows out of the Affinity and PlayMetrics fuzzy candidates
 
 - **Status**: dropped
