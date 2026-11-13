@@ -8,6 +8,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { buildMatchPredictionWithShadowContext, MATCH_PREDICTION_VERSION } from './matchPredictionService';
 import { AppError } from './errors';
 import { stableJson } from './canonicalJson';
+import { PREDICTOR_SOURCE_FILES } from './predictionSourceInventory';
 
 export type CaptureOptions = {
   status: 'pending' | 'error';
@@ -32,19 +33,13 @@ export const digest = (value: unknown) => createHash('sha256').update(stableJson
 
 export function captureCodeIdentity() {
   const root = path.basename(process.cwd()) === 'frontend' ? process.cwd() : path.join(process.cwd(), 'frontend');
-  const files = [
-    'matchPredictor.ts',
-    'confidenceEngine.ts',
-    'teamAge.ts',
-    'matchPredictionService.ts',
-    'predictionIdentity.ts',
-    'calibrationLoader.ts',
-    'matchEvidence.ts',
-  ];
   return {
     codeRevision: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8', windowsHide: true }).trim(),
     algorithmHash: digest(
-      files.map((name) => [name, readFileSync(path.join(root, 'lib', name), 'utf8').replace(/\r\n/g, '\n')])
+      PREDICTOR_SOURCE_FILES.map((name) => [
+        name,
+        readFileSync(path.join(root, 'lib', name), 'utf8').replace(/\r\n/g, '\n'),
+      ])
     ),
   };
 }

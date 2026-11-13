@@ -1,0 +1,74 @@
+name: Compare Live Monitoring
+on:
+  schedule:
+    - cron: '20 6 * * *'
+    - cron: '30 17 * * 1'
+  workflow_dispatch:
+    inputs:
+      mode:
+        type: choice
+        options: [capture, review]
+        default: capture
+      execute:
+        type: boolean
+        default: false
+      limit:
+        type: string
+        default: '20'
+concurrency:
+  group: compare-live-monitoring
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  monitor:
+    if: github.event_name == 'workflow_dispatch' || vars.COMPARE_MONITOR_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      EXECUTE: ${{ github.event_name == 'schedule' || inputs.execute }}
+      MODE: ${{ inputs.mode || (github.event.schedule == '30 17 * * 1' && 'review' || 'capture') }}
+      LIMIT: ${{ inputs.limit || '500' }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ vars.COMPARE_MONITOR_REVISION || github.sha }}
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: pip install -r requirements.lock
+      - run: npm ci --ignore-scripts
+        working-directory: frontend
+      - name: Verify the monitored formula and calibration still match main
+        working-directory: frontend
+        run: |
+          git fetch origin main --depth=1
+          npx tsx scripts/verify-compare-monitoring.ts
+      - name: Capture current Compare and frozen SOS arms
+        if: env.MODE == 'capture'
+        working-directory: frontend
+        shell: bash
+        run: |
+          MODE_ARGS=()
+          if [ "$EXECUTE" = 'true' ]; then MODE_ARGS+=(--execute); fi
+          NODE_OPTIONS=--conditions=react-server npx tsx scripts/capture-compare-monitoring.ts --limit "$LIMIT" "${MODE_ARGS[@]}"
+      - name: Review eligible results privately
+        if: env.MODE == 'review'
+        shell: bash
+        run: |
+          MODE_ARGS=()
+          if [ "$EXECUTE" = 'true' ]; then MODE_ARGS+=(--execute --output-dir "$RUNNER_TEMP/compare-review"); fi
+          python scripts/review_compare_monitoring.py "${MODE_ARGS[@]}"
+      - name: Preserve detailed reports in private storage
+        if: env.MODE == 'review' && env.EXECUTE == 'true'
+        shell: bash
+        run: |
+          python scripts/publish_compare_monitor_review.py "$RUNNER_TEMP/compare-review" --execute
