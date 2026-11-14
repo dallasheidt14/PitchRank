@@ -114,6 +114,24 @@ def test_standings_keep_teams_and_discard_rank_headers_brackets_and_game_statist
     assert parsed.rows[2].team_name_raw == "FC Batavia U12 (14/15) Girls Navy (AZ)"
 
 
+def test_markdown_standings_discard_separators_and_bracket_titles():
+    rows = parse_roster(
+        "Boys U12\nBracket A\n| Team | MP | W | L |\n| --- | :--- | ---: | --- |\n"
+        "| Example (AZ) | 3 | 2 | 1 |\nBracket B\n"
+        "| Team | MP | W | L |\n| --- | --- | --- | --- |\n| Other (NM) | 3 | 1 | 2 |"
+    ).rows
+    assert [row.team_name_stripped for row in rows] == ["Example", "Other"]
+    assert all(not row.intake_issue and row.section_age_group == "u12" for row in rows)
+
+
+def test_markdown_accepted_team_table_discards_separator():
+    rows = parse_roster(
+        "Boys U12\n| Club | Team | State |\n| --- | --- | --- |\n| Example FC | Example U12 | AZ |"
+    ).rows
+    assert len(rows) == 1
+    assert rows[0].team_name_raw == "Example U12" and rows[0].club_raw == "Example FC"
+
+
 def test_standings_use_explicit_club_and_team_columns():
     for heading, row in [
         ("Rank\tClub\tTeam\tMP\tW\tL", "1\tSolar\tSolar Academy\t3\t2\t1"),

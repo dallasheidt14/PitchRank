@@ -151,6 +151,7 @@ def parse_roster(text: str) -> ParsedRoster:
     standings_team_column = 0
     standings_club_column: int | None = None
     cohort_columns: dict[str, int] = {}
+    table_header_seen = False
     lines = [line for line in text.splitlines() if line.strip()]
 
     for position, line in enumerate(lines):
@@ -159,12 +160,14 @@ def parse_roster(text: str) -> ParsedRoster:
             continue
         columns = _cohort_columns(cells)
         if columns:
+            table_header_seen = True
             cohort_columns = columns
             standings = False
             continue
-        if cohort_columns and all(re.fullmatch(r":?-{3,}:?", cell.strip()) for cell in cells):
+        if table_header_seen and all(re.fullmatch(r":?-{3,}:?", cell.strip()) for cell in cells):
             continue
         if _is_standings_header(cells):
+            table_header_seen = True
             cohort_columns = {}
             standings = True
             labels = [cell.strip().lower() for cell in cells]
@@ -172,11 +175,12 @@ def parse_roster(text: str) -> ParsedRoster:
             standings_club_column = labels.index("club") if "club" in labels else None
             continue
         if _is_column_header(cells):
+            table_header_seen = True
             cohort_columns = {}
             standings = False
             continue
         if _BRACKET_LINE.fullmatch(line.strip()) and (
-            standings or (position + 1 < len(lines) and _is_standings_header(lines[position + 1].split("\t")))
+            standings or (position + 1 < len(lines) and _is_standings_header(_table_cells(lines[position + 1])))
         ):
             continue
 
@@ -190,6 +194,7 @@ def parse_roster(text: str) -> ParsedRoster:
                 division = line.strip() if mixed else ""
                 standings = False
                 cohort_columns = {}
+                table_header_seen = False
                 continue
         row_age, row_gender, row_division = age_group, gender, division
         if cohort_columns:
