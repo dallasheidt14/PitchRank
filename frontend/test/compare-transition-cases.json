@@ -1,0 +1,284 @@
+[
+  {
+    "field": "power_score_final",
+    "a": {
+      "team_id_master": "a",
+      "team_name": "Synthetic a",
+      "age": 15,
+      "gender": "M",
+      "power_score_final": 0.5860602927627042,
+      "sos_norm": 0.17270003468729556,
+      "offense_norm": 0.6462656511657405,
+      "defense_norm": 0.6672357916913461,
+      "glicko_rating": 1619.1768440289889,
+      "glicko_rd": 100,
+      "games_played": 20,
+      "wins": 11,
+      "losses": 5,
+      "draws": 4,
+      "status": "Active",
+      "ratings_as_of": "2026-11-13T22:38:46.070Z"
+    },
+    "b": {
+      "team_id_master": "b",
+      "team_name": "Synthetic b",
+      "age": 15,
+      "gender": "M",
+      "power_score_final": 0.5763179911882617,
+      "sos_norm": 0.011887420900166035,
+      "offense_norm": 0.48594214970071337,
+      "defense_norm": 0.5325705505587394,
+      "glicko_rating": 1670.8789523533778,
+      "glicko_rd": 100,
+      "games_played": 20,
+      "wins": 7,
+      "losses": 8,
+      "draws": 5,
+      "status": "Active",
+      "ratings_as_of": "2026-11-13T22:38:46.070Z"
+    },
+    "improvedValue": 0.5910602927627042,
+    "games": [
+      {
+        "id": "a-0",
+        "game_date": "2026-11-12",
+        "home_team_master_id": "a",
+        "away_team_master_id": "opponent-a-0",
+        "home_score": 4,
+        "away_score": 2,
+        "ml_overperformance": 0.26614126889035106
+      },
+      {
+        "id": "a-1",
+        "game_date": "2026-11-11",
+        "home_team_master_id": "a",
+        "away_team_master_id": "opponent-a-1",
+        "home_score": 0,
+        "away_score": 2,
+        "ml_overperformance": 0.582531301304698
+      },
+      {
+        "id": "a-2",
+        "game_date": "2026-11-10",
+        "home_team_master_id": "a",
+        "away_team_master_id": "opponent-a-2",
+        "home_score": 3,
+        "away_score": 1,
+        "ml_overperformance": -0.9429390034638345
+      },
+      {
+        "id": "a-3",
+        "game_date": "2026-11-09",
+        "home_team_master_id": "a",
+        "away_team_master_id": "opponent-a-3",
+        "home_score": 4,
+        "away_score": 0,
+        "ml_overperformance": 0.5394812086597085
+      },
+      {
+        "id": "a-4",
+        "game_date": "2026-11-08",
+        "home_team_master_id": "a",
+        "away_team_master_id": "opponent-a-4",
+        "home_score": 3,
+        "away_score": 2,
+        "ml_overperformance": 0.2338595329783857
+      },
+      {
+        "id": "a-5",
+        "game_date": "2026-11-07",
+        "home_team_master_id": "a",
+        "away_team_master_id": "opponent-a-5",
+        "home_score": 1,
+        "away_score": 2,
+        "ml_overperformance": -0.6691063232719898
+      },
+      {
+        "id": "a-6",
+        "game_date": "2026-11-06",
+        "home_team_master_id": "a",
+        "away_team_master_id": "opponent-a-6",
+        "home_score": 3,
+        "away_score": 1,
+        "ml_overperformance": -0.9536048020236194
+      },
+      {
+        "id": "a-7",
+        "game_date": "2026-11-05",
+        "home_team_master_id": "a",
+        "away_team_master_id": "opponent-a-7",
+        "home_score": 1,
+        "away_score": 0,
+        "ml_overperformance": 0.0065506836399436
+      },
+      {
+        "id": "b-0",
+        "game_date": "2026-11-12",
+        "home_team_master_id": "b",
+        "away_team_master_id": "opponent-b-0",
+        "home_score": 1,
+        "away_score": 3,
+        "ml_overperformance": -0.0810302821919322
+      },
+      {
+        "id": "b-1",
+        "game_date": "2026-11-11",
+        "home_team_master_id": "b",
+        "away_team_master_id": "opponent-b-1",
+        "home_score": 1,
+        "away_score": 1,
+        "ml_overperformance": -0.8169742622412741
+      },
+      {
+        "id": "b-2",
+        "game_date": "2026-11-10",
+        "home_team_master_id": "b",
+        "away_team_master_id": "opponent-b-2",
+        "home_score": 3,
+        "away_score": 3,
+        "ml_overperformance": -0.19841421395540237
+      },
+      {
+        "id": "b-3",
+        "game_date": "2026-11-09",
+        "home_team_master_id": "b",
+        "away_team_master_id": "opponent-b-3",
+        "home_score": 0,
+        "away_score": 1,
+        "ml_overperformance": -0.7366201165132225
+      },
+      {
+        "id": "b-4",
+        "game_date": "2026-11-08",
+        "home_team_master_id": "b",
+        "away_team_master_id": "opponent-b-4",
+        "home_score": 2,
+        "away_score": 0,
+        "ml_overperformance": 0.3900852156803012
+      },
+      {
+        "id": "b-5",
+        "game_date": "2026-11-07",
+        "home_team_master_id": "b",
+        "away_team_master_id": "opponent-b-5",
+        "home_score": 0,
+        "away_score": 4,
+        "ml_overperformance": 0.3107639658264816
+      },
+      {
+        "id": "b-6",
+        "game_date": "2026-11-06",
+        "home_team_master_id": "b",
+        "away_team_master_id": "opponent-b-6",
+        "home_score": 4,
+        "away_score": 0,
+        "ml_overperformance": -0.46573504246771336
+      },
+      {
+        "id": "b-7",
+        "game_date": "2026-11-05",
+        "home_team_master_id": "b",
+        "away_team_master_id": "opponent-b-7",
+        "home_score": 4,
+        "away_score": 1,
+        "ml_overperformance": -0.18816350167617202
+      }
+    ]
+  },
+  {
+    "field": "glicko_rating",
+    "a": {
+      "team_id_master": "a",
+      "team_name": "Synthetic a",
+      "age": 12,
+      "gender": "M",
+      "power_score_final": 0.14732513357885182,
+      "sos_norm": 0.802176185650751,
+      "offense_norm": 0.30863340911222625,
+      "defense_norm": 0.24090013847220693,
+      "glicko_rating": 1266.530915054027,
+      "glicko_rd": 230,
+      "games_played": 3,
+      "wins": 0,
+      "losses": 2,
+      "draws": 1,
+      "status": "Not Enough Ranked Games",
+      "ratings_as_of": "2026-11-13T22:38:46.070Z"
+    },
+    "b": {
+      "team_id_master": "b",
+      "team_name": "Synthetic b",
+      "age": 12,
+      "gender": "M",
+      "power_score_final": 0.22341106899548324,
+      "sos_norm": 0.2508675216231495,
+      "offense_norm": 0.344591631294461,
+      "defense_norm": 0.3880617913405877,
+      "glicko_rating": 1327.4179288151208,
+      "glicko_rd": 230,
+      "games_played": 3,
+      "wins": 1,
+      "losses": 1,
+      "draws": 1,
+      "status": "Not Enough Ranked Games",
+      "ratings_as_of": "2026-11-13T22:38:46.070Z"
+    },
+    "improvedValue": 1271.530915054027,
+    "games": [
+      {
+        "id": "a-0",
+        "game_date": "2026-11-12",
+        "home_team_master_id": "a",
+        "away_team_master_id": "opponent-a-0",
+        "home_score": 1,
+        "away_score": 2,
+        "ml_overperformance": -0.2872809390537441
+      },
+      {
+        "id": "a-1",
+        "game_date": "2026-11-11",
+        "home_team_master_id": "a",
+        "away_team_master_id": "opponent-a-1",
+        "home_score": 2,
+        "away_score": 2,
+        "ml_overperformance": 0.352797812782228
+      },
+      {
+        "id": "a-2",
+        "game_date": "2026-11-10",
+        "home_team_master_id": "a",
+        "away_team_master_id": "opponent-a-2",
+        "home_score": 0,
+        "away_score": 3,
+        "ml_overperformance": -0.5965624381788075
+      },
+      {
+        "id": "b-0",
+        "game_date": "2026-11-12",
+        "home_team_master_id": "b",
+        "away_team_master_id": "opponent-b-0",
+        "home_score": 0,
+        "away_score": 2,
+        "ml_overperformance": -0.2695568692870438
+      },
+      {
+        "id": "b-1",
+        "game_date": "2026-11-11",
+        "home_team_master_id": "b",
+        "away_team_master_id": "opponent-b-1",
+        "home_score": 3,
+        "away_score": 3,
+        "ml_overperformance": 0.28887263499200344
+      },
+      {
+        "id": "b-2",
+        "game_date": "2026-11-10",
+        "home_team_master_id": "b",
+        "away_team_master_id": "opponent-b-2",
+        "home_score": 2,
+        "away_score": 1,
+        "ml_overperformance": -0.23721526330336928
+      }
+    ]
+  }
+]

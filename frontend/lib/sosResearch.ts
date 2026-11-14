@@ -42,9 +42,13 @@ export async function createSosRuntime(
   const original = pairs.find(([name]) => name === 'matchPredictor.ts')![1];
   const anchor = 'weights.SOS * sosDiff +';
   if (original.split(anchor).length !== 2) throw new Error('SOS research anchor changed');
+  const mlAnchor = 'residualSignal * 0.15';
+  if (original.split(mlAnchor).length !== 2) throw new Error('ML share research anchor changed');
   const generated =
-    original.replace(anchor, 'researchSosMultiplier * weights.SOS * sosDiff +') +
-    '\nlet researchSosMultiplier = 1;\nexport function setResearchSos(value: number) { researchSosMultiplier = value; }\n';
+    original
+      .replace(anchor, 'researchSosMultiplier * weights.SOS * sosDiff +')
+      .replace(mlAnchor, 'researchMlShareMultiplier * residualSignal * 0.15') +
+    '\nlet researchSosMultiplier = 1;\nlet researchMlShareMultiplier = 1;\nexport function setResearchSos(value: number) { researchSosMultiplier = value; }\nexport function setResearchMlShare(value: number) { researchMlShareMultiplier = value; }\n';
   const workspace = await mkdtemp(path.join(tmpdir(), 'compare-sos-'));
   try {
     for (const [name, contents] of pairs) await writeFile(path.join(workspace, name), contents);
@@ -68,7 +72,12 @@ export async function createSosRuntime(
       (await readFile(path.join(frontendRoot, 'lib/sosResearch.ts'), 'utf8')).replace(/\r\n/g, '\n')
     );
     let closed = false;
-    function calculate(context: MatchPredictionShadowContext, referenceTime: string, frozen?: MatchPrediction) {
+    function calculate(
+      context: MatchPredictionShadowContext,
+      referenceTime: string,
+      frozen?: MatchPrediction,
+      experiment: 'sos' | 'ml_share' = 'sos'
+    ) {
       if (closed || !context.frozenEvidence || stableJson(context.calibration) !== stableJson(calibrationSnapshot))
         throw new Error('Closed runtime or changed frozen calibration');
       const timestamp = Date.parse(referenceTime);
@@ -92,14 +101,17 @@ export async function createSosRuntime(
         const inputs = [context.teamAInput, context.teamBInput, context.frozenEvidence.games] as const;
         const diagnostics: { preOutcomeCalibration?: [number, number, number] } = {};
         const expected: MatchPrediction = baseline.predictMatch(...inputs, diagnostics);
-        const replayDifference = frozen ? difference(expected, frozen) : 0;
+        if (frozen !== undefined && (!frozen || typeof frozen !== 'object' || Array.isArray(frozen)))
+          throw new Error('Invalid frozen reference prediction');
+        const replayDifference = frozen !== undefined ? difference(expected, frozen) : 0;
         if (replayDifference > 1e-12) throw new Error('Live frozen prediction replay failed');
         const variants: Record<string, MatchPrediction> = {};
-        for (const multiplier of SOS_MULTIPLIERS) {
-          candidate.setResearchSos(multiplier);
+        for (const multiplier of experiment === 'sos' ? SOS_MULTIPLIERS : [0, 1]) {
+          candidate.setResearchSos(experiment === 'sos' ? multiplier : 1);
+          candidate.setResearchMlShare(experiment === 'ml_share' ? multiplier : 1);
           const prediction = candidate.predictMatch(...inputs);
           if (multiplier === 1 && stableJson(expected) !== stableJson(prediction))
-            throw new Error('SOS A/A parity failed');
+            throw new Error('Research A/A parity failed');
           variants[String(multiplier)] = prediction;
         }
         return {
@@ -108,6 +120,7 @@ export async function createSosRuntime(
           variants,
           receipt: {
             aa_parity: true,
+            experiment,
             replay_difference: replayDifference,
             algorithm_hash: sha(stableJson(pairs)),
             generated_source_sha256: sha(generated),
@@ -131,6 +144,9 @@ export async function createSosRuntime(
       },
       capture(context: MatchPredictionShadowContext, referenceTime: string) {
         return calculate(context, referenceTime);
+      },
+      compareMlShare(context: MatchPredictionShadowContext, referenceTime: string, frozen?: MatchPrediction) {
+        return calculate(context, referenceTime, frozen, 'ml_share');
       },
       async close() {
         closed = true;

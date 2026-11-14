@@ -23,7 +23,7 @@
  *
  * v2.3 Improvements:
  * - Multi-metric mismatch detection: uses offense, defense, and matchup asymmetry gaps
- * - Teams with 15%+ offense/defense gaps now correctly identified as mismatches
+ * - Feature weights blend continuously using power, offense, defense and matchup-asymmetry gaps
  * - Mismatch amplification: boosts probability and margin for clear mismatches
  * - Fixes cases like Excel vs PRFC (7% power gap but 19% offense gap = mismatch, not close)
  *
@@ -630,22 +630,16 @@ export function calculateCommonOpponentSignal(
 }
 
 /**
- * Detect if this is a mismatch based on multiple metrics
- * Returns a mismatch score from 0 (close game) to 1 (clear mismatch)
- *
- * A mismatch can be detected via:
- * - Power score gap (>6-8 percentile points)
- * - Offense gap (>12 percentile points)
- * - Defense gap (>12 percentile points)
- * - Matchup asymmetry (>0.20)
+ * Score mismatch evidence continuously from 0 (identical metrics) to 1.
+ * Combines power, offense, defense and matchup asymmetry.
  */
-function detectMismatch(
+function calculateMismatchScore(
   powerDiff: number,
   offenseA: number,
   offenseB: number,
   defenseA: number,
   defenseB: number
-): { isMismatch: boolean; mismatchScore: number } {
+): number {
   const absPowerDiff = Math.abs(powerDiff);
   const offenseGap = Math.abs(offenseA - offenseB);
   const defenseGap = Math.abs(defenseA - defenseB);
@@ -661,11 +655,7 @@ function detectMismatch(
   // Weighted combination - offense/defense gaps are strong indicators
   const mismatchScore = powerScore * 0.35 + offenseScore * 0.25 + defenseScore * 0.25 + asymmetryScore * 0.15;
 
-  // Mismatch if score > 0.4 OR any single metric is extreme
-  const isMismatch =
-    mismatchScore > 0.4 || absPowerDiff > 0.1 || offenseGap > 0.15 || defenseGap > 0.15 || matchupAsymmetry > 0.25;
-
-  return { isMismatch, mismatchScore };
+  return mismatchScore;
 }
 
 /**
@@ -675,36 +665,25 @@ function detectMismatch(
  *
  * v2.3: Now uses multi-metric mismatch detection, not just power score
  */
-function getAdaptiveWeights(
+export function getAdaptiveWeights(
   powerDiff: number,
   offenseA: number,
   offenseB: number,
   defenseA: number,
   defenseB: number
 ): { weights: typeof BASE_WEIGHTS; mismatchScore: number } {
-  const { isMismatch, mismatchScore } = detectMismatch(powerDiff, offenseA, offenseB, defenseA, defenseB);
+  const mismatchScore = calculateMismatchScore(powerDiff, offenseA, offenseB, defenseA, defenseB);
 
   const absPowerDiff = Math.abs(powerDiff);
 
-  // Clear mismatch detected - use blowout weights
-  if (isMismatch && mismatchScore > 0.6) {
-    return { weights: BLOWOUT_WEIGHTS, mismatchScore };
-  }
-
-  // Large power gap alone also triggers blowout
-  if (absPowerDiff >= SKILL_GAP_THRESHOLDS.LARGE) {
-    return { weights: BLOWOUT_WEIGHTS, mismatchScore };
-  }
-
-  // Small gap and no mismatch signals: use base weights
-  if (absPowerDiff < SKILL_GAP_THRESHOLDS.MEDIUM && !isMismatch) {
-    return { weights: BASE_WEIGHTS, mismatchScore };
-  }
-
-  // Transition zone: interpolate based on mismatch score
-  const transitionProgress = Math.max(
-    (absPowerDiff - SKILL_GAP_THRESHOLDS.MEDIUM) / (SKILL_GAP_THRESHOLDS.LARGE - SKILL_GAP_THRESHOLDS.MEDIUM),
-    mismatchScore
+  // Both inputs are continuous: a threshold crossing must not replace the entire weight set.
+  const transitionProgress = clamp(
+    Math.max(
+      (absPowerDiff - SKILL_GAP_THRESHOLDS.MEDIUM) / (SKILL_GAP_THRESHOLDS.LARGE - SKILL_GAP_THRESHOLDS.MEDIUM),
+      mismatchScore
+    ),
+    0,
+    1
   );
 
   const weights = {
@@ -793,6 +772,13 @@ const DRAW_THRESHOLD = 0.03; // |winProb - 0.5| < 3% → predict draw
 // Tolerance for treating two teams' raw win probabilities as equal and retaining
 // the symmetric-input draw convention.
 const SYMMETRY_EPSILON = 1e-9;
+const CLOSE_DECISIVE_GAP = 0.06;
+
+/** Keep sparse draw mass continuous at the close-match boundary. */
+export function calculateSparseDrawBoost(winGap: number, drawProbability: number): number {
+  const closeness = clamp(1 - Math.abs(winGap) / CLOSE_DECISIVE_GAP, 0, 1);
+  return Math.max(0, Math.min(0.05, 0.24 - drawProbability)) * closeness;
+}
 
 function calibrationAge(age: number | null): number | null {
   // PitchRank stores the oldest supported cohort as U19, while the predictor's
@@ -1351,10 +1337,10 @@ export function predictMatch(
     winProbB /= probabilityTotal;
   }
 
-  const closeDecisiveEdge = Math.abs(winProbA - winProbB) < 0.06;
+  const closeDecisiveEdge = Math.abs(winProbA - winProbB) < CLOSE_DECISIVE_GAP;
   const sparseMatchup = Math.min(recentA.sampleWeight, recentB.sampleWeight) < 0.4 || minGamesPlayed < 4;
   if (closeDecisiveEdge && sparseMatchup) {
-    const drawBoost = Math.min(0.05, 0.24 - normalizedDrawProbability);
+    const drawBoost = calculateSparseDrawBoost(winProbA - winProbB, normalizedDrawProbability);
     if (drawBoost > 0) {
       const decisiveScale = (1 - (normalizedDrawProbability + drawBoost)) / Math.max(0.0001, winProbA + winProbB);
       normalizedDrawProbability += drawBoost;
