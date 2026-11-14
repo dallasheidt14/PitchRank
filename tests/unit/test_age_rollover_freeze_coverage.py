@@ -37,6 +37,8 @@ AGE_DERIVING_SCRIPTS = (
     "import_yssl.py",
     # Writes teams with the age the NCSL team names state for this season; only with --execute.
     "import_demosphere.py",
+    # Writes teams with the age a Heartland team name, or its one-cohort division, states; only with --execute.
+    "import_heartland.py",
 )
 
 # Scripts with no safe default: they write unless a flag opts OUT, or they exist
@@ -130,6 +132,7 @@ def test_the_scan_finds_the_known_writing_steps():
     assert "auto-merge-queue.yml" in workflows
     assert "yssl-scraper.yml" in workflows
     assert "demosphere-scraper.yml" in workflows
+    assert "heartland-scraper.yml" in workflows
 
 
 def test_every_exemption_still_exists():

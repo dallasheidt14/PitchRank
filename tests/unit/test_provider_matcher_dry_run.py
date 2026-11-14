@@ -26,6 +26,7 @@ from src.models.affinity_ut_matcher import AffinityUTGameMatcher
 from src.models.affinity_wa_matcher import AffinityWAGameMatcher
 from src.models.athletes2events_matcher import Athletes2EventsGameMatcher
 from src.models.demosphere_matcher import DemosphereGameMatcher
+from src.models.heartland_matcher import HeartlandGameMatcher
 from src.models.htgsports_matcher import HtgSportsGameMatcher
 from src.models.modular11_ea_matcher import Modular11EaGameMatcher
 from src.models.modular11_matcher import Modular11GameMatcher
@@ -56,6 +57,7 @@ AUTOCREATING_MATCHERS = [
     ("tourneycentral", TourneyCentralGameMatcher),
     ("demosphere", DemosphereGameMatcher),
     ("htgsports", HtgSportsGameMatcher),
+    ("heartland", HeartlandGameMatcher),
 ]
 
 # The pipeline branches not listed above, each pinned in its provider's own test file.
@@ -132,6 +134,7 @@ def test_pipeline_builds_each_providers_own_matcher(provider, cls):
         ("tourneycentral", TourneyCentralGameMatcher, "_create_new_athletes2events_team"),
         ("demosphere", DemosphereGameMatcher, "_create_new_athletes2events_team"),
         ("htgsports", HtgSportsGameMatcher, "_create_new_athletes2events_team"),
+        ("heartland", HeartlandGameMatcher, "_create_new_athletes2events_team"),
     ],
 )
 def test_autocreate_writes_nothing_in_dry_run(provider, cls, create):
@@ -189,7 +192,7 @@ class _EmptyDB:
 # and only for a team carrying a state. Without both, _match_team returns before any
 # creation and every identity assertion below holds vacuously on None.
 REGISTRATION_MATCHERS = frozenset(
-    {"soccereventsgroup", "athletes2events", "yssl", "tourneycentral", "demosphere", "htgsports"}
+    {"soccereventsgroup", "athletes2events", "yssl", "tourneycentral", "demosphere", "htgsports", "heartland"}
 )
 # These matchers' _match_team never creates a team (EA teams come only from
 # link_modular11_ea_teams.py), so every id below would be None for them.
