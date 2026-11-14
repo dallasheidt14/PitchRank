@@ -368,7 +368,9 @@ class _FakeSt:
         return selected
 
     def selectbox(self, _label, options, **_kw):
-        return self.session_state.get(_kw.get("key"), options[_kw.get("index", 0)]) if options else None
+        index = _kw.get("index", 0)
+        default = options[index] if options and index is not None else None
+        return self.session_state.get(_kw.get("key"), default)
 
     def button_by_key(self, key: str) -> dict[str, Any]:
         for call in self.buttons:
