@@ -50,7 +50,7 @@ interface MatchPredictionBuildResult {
   shadowContext: MatchPredictionShadowContext;
 }
 
-export const MATCH_PREDICTION_VERSION = 'heuristic_v7_common_opponent_recency_v1';
+export const MATCH_PREDICTION_VERSION = 'heuristic_v8_continuous_transitions_v1';
 
 type TeamRow = {
   team_id_master: string;

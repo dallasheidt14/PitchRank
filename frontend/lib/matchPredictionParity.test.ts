@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 import baseline from '@/test/fixtures/compare-baseline.json';
-import current from '@/test/fixtures/compare-live-v7-predictions.json';
+import current from '@/test/fixtures/compare-live-v8-predictions.json';
+import previous from '@/test/fixtures/compare-live-v7-predictions.json';
 import {
   predictMatch,
   warmMatchPredictorCalibration,
@@ -17,7 +18,7 @@ beforeAll(async () => {
 });
 afterAll(() => vi.useRealTimers());
 const predictions = current.predictions as Record<string, MatchPrediction>;
-it.each(baseline.cases)('preserves the complete live v7 forecast: $name', ({ name, teamA, teamB, games }) => {
+it.each(baseline.cases)('reproduces the complete v8 forecast: $name', ({ name, teamA, teamB, games }) => {
   const diagnostics: PredictionDiagnostics = {};
   const actual = predictMatch(teamA as TeamWithRanking, teamB as TeamWithRanking, games as Game[], diagnostics);
   expect(actual).toEqual(predictions[name]);
@@ -38,6 +39,8 @@ it.each(baseline.cases.filter(({ name }) => name.includes('mismatch')))(
       (prior.team_a + prior.team_b) / (2 * total),
     ];
     const prediction = predictions[name];
+    // Large-gap endpoints retain the complete previous-version outputs.
+    expect(prediction).toEqual((previous.predictions as Record<string, MatchPrediction>)[name]);
     const final = [prediction.winProbabilityA, prediction.drawProbability!, prediction.winProbabilityB];
     // Invert the fixed blend independently of the diagnostic producer.
     final.forEach((probability, index) => {
