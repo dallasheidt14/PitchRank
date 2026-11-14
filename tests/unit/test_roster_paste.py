@@ -8,11 +8,171 @@ string that reads like two clubs and the non-ASCII team name.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from src.tournaments.roster_paste import parse_roster
 
 # -------- heading handling ------------------------------------------------
+
+
+def test_kick_for_the_cure_full_cohort_table():
+    text = (Path(__file__).parents[1] / "fixtures/roster_paste/kick_for_the_cure_u12_boys.md").read_text()
+    rows = parse_roster(text).rows
+    assert len(rows) == 54
+    assert rows[0].team_name_stripped == "Phoenix Rising FC Scottsdale B2014 Pre-MLS"
+    assert rows[-1].team_name_stripped == "Phoenix Eagles 2015/2016"
+    assert sum("Girls Navy" in row.team_name_raw for row in rows) == 1
+    assert all(row.section_age_group == "u12" and row.section_gender == "Male" for row in rows)
+    assert all(not row.intake_issue and not row.club_raw and not row.requested_flight for row in rows)
+    assert [row.state for row in rows].count("NM") == 1
+    assert [row.state for row in rows].count("AZ") == 53
+
+
+@pytest.mark.parametrize("markdown", [False, True])
+def test_explicit_cohort_table_accepts_blank_rows_and_preserves_team_names(markdown):
+    cells = [
+        ["Team", "age group", "gender"],
+        ["", "", ""],
+        ["Phoenix Rising FC Scottsdale B2014   Pre-MLS (AZ)", "u12", "male"],
+        ["Atletico New Mexico FC U12B (NM)", "u12", "male"],
+        ["", "", ""],
+        ["FC Batavia U12 (14/15) Girls Navy (AZ)", "u12", "male"],
+    ]
+    if markdown:
+        cells.insert(1, ["---", ":---", "---:"])
+    text = "\n".join("| " + " | ".join(row) + " |" if markdown else "\t".join(row) for row in cells)
+    rows = parse_roster(text).rows
+    assert len(rows) == 3
+    assert [row.state for row in rows] == ["AZ", "NM", "AZ"]
+    assert all(row.section_age_group == "u12" and row.section_gender == "Male" for row in rows)
+    assert all(not row.club_raw and not row.requested_flight and not row.intake_issue for row in rows)
+    assert rows[0].team_name_raw == "Phoenix Rising FC Scottsdale B2014   Pre-MLS (AZ)"
+    assert rows[2].team_name_stripped == "FC Batavia U12 (14/15) Girls Navy"
+
+
+def test_explicit_columns_support_reordering_and_different_cohorts_without_carryover():
+    rows = parse_roster(
+        "Girls U15\nGender\tTeam name\tAge_group\tClub\tState\n"
+        "Boys\tOne\t12\tClub One\tAZ\nF\tTwo\tU13\tClub Two\tNM\n"
+        "\tThree U14 Boys\t\tClub Three\tTX\nMale\t\tU12\tClub Four\tAZ"
+    ).rows
+    assert [(r.section_age_group, r.section_gender) for r in rows] == [
+        ("u12", "Male"), ("u13", "Female"), ("", ""), ("u12", "Male")
+    ]
+    assert rows[0].club_raw == "Club One"
+    assert rows[2].intake_issue and rows[3].intake_issue
+    assert rows[3].team_name_raw == ""
+
+
+def test_explicit_cohort_table_switches_to_legacy_section_and_preserves_markers():
+    rows = parse_roster(
+        "Team\tage group\tgender\nExample*-c (AZ)\tu12\tmale\n"
+        "Girls U14\nClub\tTeam\tState\nOther Club\tOther Team\tTX"
+    ).rows
+    assert rows[0].has_star_marker and rows[0].has_c_marker
+    assert rows[0].team_name_stripped == "Example"
+    assert rows[1].section_age_group == "u14" and rows[1].section_gender == "Female"
+
+
+@pytest.mark.parametrize("markdown", [False, True])
+def test_damaged_table_row_is_not_mistaken_for_a_section_heading(markdown):
+    cells = [["Team", "age group", "gender"], ["Solar U12 Boys", "", ""], ["Other Team", "u12", "male"]]
+    text = "\n".join("| " + " | ".join(row) + " |" if markdown else "\t".join(row) for row in cells)
+    rows = parse_roster(text).rows
+    assert len(rows) == 2
+    assert rows[0].team_name_raw == "Solar U12 Boys"
+    assert rows[0].section_age_group == rows[0].section_gender == ""
+    assert rows[0].intake_issue
+    assert rows[1].team_name_raw == "Other Team"
+    assert rows[1].section_age_group == "u12" and rows[1].section_gender == "Male"
+
+
+def test_explicit_cohort_table_flags_conflicting_states_and_ambiguous_cohorts():
+    row = parse_roster("Team\tage group\tgender\tState\nExample (AZ)\tU12/U13\tBoys/Girls\tNM").rows[0]
+    assert row.section_age_group == row.section_gender == ""
+    assert row.state == "NM"
+    assert "conflicting state" in row.intake_issue
+
+
+def test_standings_keep_teams_and_discard_rank_headers_brackets_and_game_statistics():
+    parsed = parse_roster(
+        "Boys U12\nBracket A\nTeam\tMP\tW\tL\tD\tGF\tGA\tPTS\n"
+        "1\tPhoenix Rising FC Scottsdale B2014 Pre-MLS (AZ)\t3\t3\t0\t0\t7\t1\t9\n"
+        "2\tAtletico New Mexico FC U12B (NM)\t3\t0\t3\t0\t1\t7\t0\n"
+        "Bracket B\n\tTeam\tMP\tW\tL\n"
+        "\tFC Batavia U12 (14/15) Girls Navy (AZ)\t0\t0\t0\n"
+    )
+    assert len(parsed.rows) == 3
+    assert [row.club_raw for row in parsed.rows] == ["", "", ""]
+    assert [row.state for row in parsed.rows] == ["AZ", "NM", "AZ"]
+    assert [row.section_gender for row in parsed.rows] == ["Male"] * 3
+    assert [row.section_age_group for row in parsed.rows] == ["u12"] * 3
+    assert parsed.rows[0].team_name_stripped == "Phoenix Rising FC Scottsdale B2014 Pre-MLS"
+    assert all(not row.requested_flight and not row.intake_issue for row in parsed.rows)
+    assert parsed.rows[2].team_name_raw == "FC Batavia U12 (14/15) Girls Navy (AZ)"
+
+
+def test_markdown_standings_discard_separators_and_bracket_titles():
+    rows = parse_roster(
+        "Boys U12\nBracket A\n| Team | MP | W | L |\n| --- | :--- | ---: | --- |\n"
+        "| Example (AZ) | 3 | 2 | 1 |\nBracket B\n"
+        "| Team | MP | W | L |\n| --- | --- | --- | --- |\n| Other (NM) | 3 | 1 | 2 |"
+    ).rows
+    assert [row.team_name_stripped for row in rows] == ["Example", "Other"]
+    assert all(not row.intake_issue and row.section_age_group == "u12" for row in rows)
+
+
+def test_markdown_accepted_team_table_discards_separator():
+    rows = parse_roster(
+        "Boys U12\n| Club | Team | State |\n| --- | --- | --- |\n| Example FC | Example U12 | AZ |"
+    ).rows
+    assert len(rows) == 1
+    assert rows[0].team_name_raw == "Example U12" and rows[0].club_raw == "Example FC"
+
+
+def test_standings_use_explicit_club_and_team_columns():
+    for heading, row in [
+        ("Rank\tClub\tTeam\tMP\tW\tL", "1\tSolar\tSolar Academy\t3\t2\t1"),
+        ("Club\tTeam\tMP\tW\tL", "Solar\tSolar Academy\t3\t2\t1"),
+    ]:
+        parsed = parse_roster(f"Boys U12\n{heading}\n{row}")
+        assert parsed.rows[0].club_raw == "Solar"
+        assert parsed.rows[0].team_name_stripped == "Solar Academy"
+        assert parsed.rows[0].state == parsed.rows[0].requested_flight == ""
+
+
+def test_standings_preserve_markers_before_state_suffix():
+    parsed = parse_roster("Boys U12\nTeam\tMP\tW\tL\n1\tExample FC*-c (AZ)\t3\t2\t1")
+    row = parsed.rows[0]
+    assert row.team_name_raw == "Example FC*-c (AZ)"
+    assert row.team_name_stripped == "Example FC"
+    assert row.has_star_marker and row.has_c_marker
+    assert row.state == "AZ"
+
+
+def test_standings_without_heading_do_not_infer_cohort_from_team_names():
+    parsed = parse_roster("Bracket A\nTeam\tMP\tW\tL\n1\tExample U12 Boys (AZ)\t0\t0\t0")
+    assert len(parsed.rows) == 1
+    assert parsed.rows[0].section_gender == parsed.rows[0].section_age_group == ""
+
+
+def test_standings_leave_damaged_lines_reviewable_and_do_not_guess_a_club():
+    parsed = parse_roster("Boys U12\nTeam\tMP\tW\tL\n1\t\t0\t0\t0\nUnexpected heading")
+    assert len(parsed.rows) == 2
+    assert all(row.intake_issue for row in parsed.rows)
+
+
+def test_standings_switch_back_to_accepted_team_columns_and_follow_new_cohort():
+    parsed = parse_roster(
+        "Boys U12\nTeam\tMP\tW\tL\n1\tTeam One (AZ)\t3\t3\t0\n"
+        "Girls U13\nClub\tTeam\tState\n123\tTeam Two\tTX\tGold"
+    )
+    assert parsed.rows[1].club_raw == "123"
+    assert parsed.rows[1].requested_flight == "Gold"
+    assert parsed.rows[1].section_gender == "Female"
+    assert parsed.rows[1].section_age_group == "u13"
 
 
 def test_heading_sets_cohort_for_following_rows():

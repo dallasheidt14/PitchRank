@@ -189,6 +189,8 @@ def _source_conflict(existing: Mapping[str, Any], run: SeedingRun) -> RunSourceC
         saved_event = legacy_event_id(existing.get("name"))
     if saved_event != _event_of(run.assessment, run.source_url):
         return RunSourceChanged(name)
+    if saved_event and saved.get("requested_cohort", "") != run.assessment.get("requested_cohort", ""):
+        return RunSourceChanged(name)
     if saved_event and saved.get("coverage") == "complete" and run.assessment.get("coverage") != "complete":
         return RunSourceChanged(name, less_complete=True)
     return None

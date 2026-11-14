@@ -483,7 +483,8 @@ def test_saved_run_switch_preserves_corrections_when_save_fails(monkeypatch):
     parsed = parse_roster("Boys U10\nC\tA")
     pair = (parsed, (ResolvedTeam(0, "unresolved"),))
     fake.session_state.update(_seeding_result=pair, _seeding_loaded_slug="old",
-                             _seeding_overrides={0: {"team_id_master": "unsaved"}}, _seeding_save_error=True)
+                             _seeding_overrides={0: {"team_id_master": "unsaved"}}, _seeding_save_error=True,
+                             seeding_resume_choice="new")
     monkeypatch.setattr(intake, "list_seeding_runs", lambda: [SeedingRunEntry("new", "New", "", 1)])
     monkeypatch.setattr(intake, "_autosave_seeding_run", lambda **_kwargs: False)
     monkeypatch.setattr(intake, "_load_seeding_run", lambda *_args: pytest.fail("unsaved work was replaced"))

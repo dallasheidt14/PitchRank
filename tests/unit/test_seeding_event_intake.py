@@ -368,7 +368,9 @@ class _FakeSt:
         return selected
 
     def selectbox(self, _label, options, **_kw):
-        return options[0] if options else None
+        index = _kw.get("index", 0)
+        default = options[index] if options and index is not None else None
+        return self.session_state.get(_kw.get("key"), default)
 
     def button_by_key(self, key: str) -> dict[str, Any]:
         for call in self.buttons:
@@ -495,6 +497,87 @@ def _scrape(
 def _render_controls(client: Any = None) -> None:
     with contextlib.suppress(_Rerun):
         tournament_intake._render_seeding_event_scrape(client)
+
+
+@pytest.mark.parametrize("gender,label", [("Male", "Boys"), ("Female", "Girls")])
+def test_selected_cohort_button_uses_bare_id_and_all_divisions(app, gender, label):
+    fake = _install(app, _FakeSt(
+        text={"seeding_event_url": "52975"}, radio={"seeding_import_scope": "Specific age group and gender"},
+        buttons={"_seeding_event_full_run": True},
+    ))
+    fake.session_state["seeding_import_gender"] = gender
+    calls = []
+    app.setattr(tournament_intake, "_run_event_roster_scrape", lambda *args, **kwargs: calls.append((args, kwargs)))
+    _render_controls()
+    assert fake.button_by_key("_seeding_event_full_run")["label"] == f"Scrape U13 {label}"
+    assert not any(button["key"] == "_seeding_event_probe_run" for button in fake.buttons)
+    assert calls[0][0][0] == "52975"
+    assert calls[0][1]["requested_cohort"] == f"u13|{gender}"
+    assert calls[0][1]["limit_groups"] is None
+
+
+def test_scope_recovery_cannot_overwrite_or_masquerade_as_whole_event(app):
+    fake = _install(app, _FakeSt())
+    whole = _roster(_team(0), _team(1), divisions_found=2, divisions_walked=2)
+    selected = _roster(_team(0), divisions_found=2, divisions_walked=2, requested_cohort="u13|Male")
+    assert tournament_intake._write_event_roster_recovery(whole)
+    original = tournament_intake._event_recovery_path("52975").read_bytes()
+    assert tournament_intake._write_event_roster_recovery(selected)
+    assert tournament_intake._event_recovery_path("52975").read_bytes() == original
+    assert len(tournament_intake._recovered_walk("52975")[0].teams) == 2
+    assert tournament_intake._recovered_walk("52975", requested_cohort="u13|Male")[0].requested_cohort == "u13|Male"
+    assert tournament_intake._recovered_walk("52975", requested_cohort="u13|Female") is None
+    fake.session_state["_seeding_event_probe"] = {"url": EVENT_URL, "complete": True}
+    assert tournament_intake._seeding_event_probe_for("52975", requested_cohort="u13|Female") is None
+    probe = tournament_intake._seeding_event_probe_for("52975", requested_cohort="u13|Male")
+    assert probe["teams"] == 1
+    assert "U13 Boys ready" in tournament_intake._seeding_probe_caption(probe)
+
+
+def test_selected_scope_survives_scrape_save_and_loaded_widgets(app):
+    fake = _install(app, _FakeSt())
+    selected = _roster(_team(0), divisions_found=1, divisions_walked=1, requested_cohort="u13|Female")
+    scrape = _RecordingScrape(selected)
+    app.setattr(tournament_intake, "scrape_event_roster", scrape)
+    with contextlib.suppress(_Rerun):
+        tournament_intake._run_event_roster_scrape("52975", None, limit_groups=None, requested_cohort="u13|Female")
+    assert scrape.calls[0]["requested_cohort"] == "u13|Female"
+    assert fake.session_state["_seeding_assessment"]["requested_cohort"] == "u13|Female"
+    fake.session_state["_seeding_pending_event_url"] = "52975"
+    tournament_intake._apply_pending_seeding_widgets()
+    assert fake.session_state["seeding_import_scope"] == "Specific age group and gender"
+    assert fake.session_state["seeding_import_age"] == "u13"
+    assert fake.session_state["seeding_import_gender"] == "Female"
+
+
+def test_smaller_selected_recovery_is_available_when_whole_event_is_parked(app):
+    fake = _install(app, _FakeSt())
+    whole = _roster(_team(0), _team(1), divisions_found=2, divisions_walked=2)
+    tournament_intake._park_event_roster(EVENT_URL, whole, None, None)
+    selected = _roster(_team(0), divisions_found=2, divisions_walked=2, requested_cohort="u13|Male")
+    tournament_intake._write_event_roster_recovery(selected)
+    tournament_intake._render_recovered_walk("52975", None, in_progress=False, requested_cohort="u13|Male")
+    assert fake.button_by_key("_seeding_event_reload_walk")["disabled"] is False
+
+
+def test_partial_cohort_recovery_cannot_replace_complete_cohort(app):
+    _install(app, _FakeSt())
+    selected = _roster(_team(0), divisions_found=1, divisions_walked=1, requested_cohort="u13|Male")
+    tournament_intake._write_event_roster_recovery(selected)
+    partial = _roster(_team(0), divisions_found=2, divisions_walked=1, requested_cohort="u13|Male")
+    assert not tournament_intake._write_event_roster_recovery(partial)
+    assert tournament_intake._recovered_walk("52975", requested_cohort="u13|Male")[0].is_complete
+
+
+def test_empty_cohort_capture_shows_status_without_offering_empty_recovery(app):
+    fake = _install(app, _FakeSt(buttons={"_seeding_event_reload_walk": True}))
+    empty = _roster(divisions_found=1, divisions_walked=1, requested_cohort="u13|Male")
+    assert tournament_intake._write_event_roster_recovery(empty)
+    tournament_intake._render_recovered_walk("52975", None, in_progress=False, requested_cohort="u13|Male")
+    assert not any(button["key"] == "_seeding_event_reload_walk" for button in fake.buttons)
+    probe = tournament_intake._seeding_event_probe_for("52975", requested_cohort="u13|Male")
+    assert probe["teams"] == 0
+    assert probe["complete"]
 
 
 def test_fake_streamlit_clears_transient_messages_on_rerun():
@@ -1758,6 +1841,16 @@ def test_routine_whole_event_notes_are_hidden_from_the_seeding_summary(monkeypat
     tournament_intake._render_seeding_warnings(parsed)
 
     assert fake_st.warnings == [actionable]
+
+
+def test_selected_cohort_hides_skipped_divisions_but_keeps_review_warning(monkeypatch):
+    fake = _install(monkeypatch, _FakeSt())
+    review = "Division Gold: age or gender is unclear; teams kept for review so a possible matching division is not missed."
+    tournament_intake._render_seeding_warnings(ParsedRoster(rows=(), warnings=(
+        "Skipped 4 division(s) outside the selected age group and gender, and did not fetch their team pages: U12B",
+        review,
+    )))
+    assert fake.warnings == [review]
 
 
 def test_every_seeding_id_lookup_resolves_merges(monkeypatch):

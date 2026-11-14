@@ -63,6 +63,7 @@ from src.tournaments.gotsport_event_roster import (
     WafChallengeError,
     event_id_from,
     make_zenrows_fetcher,
+    parse_requested_cohort,
     redact_secret,
     scrape_event_roster,
 )
@@ -572,6 +573,7 @@ def _default_snapshot(event_start_date: str | None) -> date:
 _SEEDING_KEPT_WIDGETS = (
     "seeding_event_name", "seeding_event_url", "seeding_roster_text", "_seeding_source", "_seeding_paste_complete",
     "seeding_add_cohort_text", "_seeding_add_complete",
+    "seeding_import_scope", "seeding_import_age", "seeding_import_gender",
 )
 
 
@@ -3618,10 +3620,8 @@ _SEEDING_STATUS_LABEL = {
 _SEEDING_NEEDS_DECISION = ("review", "unresolved")
 
 _SEEDING_PLACEHOLDER = (
-    "Teams Accepted (16 of 331)\n"
-    "Male U14\n"
-    "Club\tTeam\tState\tRequested flight (optional)\n"
-    "Barcelona Soccer Club\tBarcelona SC 13B Aztecas\tTX\tGold"
+    "Team\tAge group\tGender\n"
+    "Barcelona SC 13B Aztecas (TX)\tu14\tmale"
 )
 
 # The ages PitchRank boards, read from the config the rest of the app uses so the
@@ -3769,6 +3769,7 @@ def _run_event_roster_scrape(
     *,
     limit_groups: int | None,
     keys: _WalkKeys = _SEEDING_KEYS,
+    requested_cohort: str = "",
 ) -> None:
     """Walk a GotSport event and park its teams as this tab's result.
 
@@ -3784,6 +3785,9 @@ def _run_event_roster_scrape(
     length of the walk. Running the walk serially would restore the callback and
     cost the concurrency that makes an event affordable in time.
     """
+    parse_requested_cohort(requested_cohort)
+    if requested_cohort and (keys == _BACKTEST_KEYS or limit_groups is not None):
+        raise ValueError("A selected cohort requires a complete Seeding import")
     api_key = os.getenv("ZENROWS_API_KEY")
     if not api_key:
         st.error(
@@ -3819,6 +3823,7 @@ def _run_event_roster_scrape(
                             max_workers=_SEEDING_EVENT_WORKERS,
                             wanted_cohorts=None if keys == _BACKTEST_KEYS else _RANKED_COHORTS,
                             on_phase=on_phase,
+                            **({"requested_cohort": requested_cohort} if requested_cohort else {}),
                             **({"completed_event": True} if keys == _BACKTEST_KEYS else {}),
                         )
                     except WafChallengeError as exc:
@@ -3971,7 +3976,9 @@ def _keep_blocked_walk(partial: EventRoster | None, limit_groups: int | None, ke
     """
     if partial is None or not partial.teams:
         return None
-    saved = _saved_team_ids(_event_recovery_path(partial.event_id, completed_event=keys == _BACKTEST_KEYS))
+    saved = _saved_team_ids(_event_recovery_path(
+        partial.event_id, completed_event=keys == _BACKTEST_KEYS, requested_cohort=partial.requested_cohort,
+    ))
     if saved:
         partial = _with_saved_team_ids(partial, saved)
     linked = {team.provider_team_id for team in partial.teams if team.provider_team_id}
@@ -4001,10 +4008,8 @@ def _park_event_roster(
     parking state are all places this function can stop. Only the walk itself was
     paid for, and only the roster is needed to redo the rest.
 
-    That file is a crash artifact, not a saved run: it is keyed by event id, the
-    named-run store is untouched, and ``_render_recovered_walk`` offers it back
-    only when the operator asks and the tab holds less than it does. Naming a
-    run and keeping it stays the operator's step.
+    The recovery copy is separate from named runs and keyed by event and import
+    scope, so a cohort capture cannot replace a whole-event recovery.
     """
     recovery_available = bool(_write_recovery(roster, limit_groups, keys))
 
@@ -4039,6 +4044,7 @@ def _park_event_roster(
         metadata = {
             "coverage": "complete" if roster.is_complete else "partial",
             "source_kind": "GotSport event", "source_url": url, "event_id": roster.event_id,
+            "requested_cohort": roster.requested_cohort,
             "completed": sorted(
                 {item.source_index for item in resolved if item.team_id_master}
                 | {index for index, override in carried_overrides.items() if override.get("not_found")}
@@ -4065,6 +4071,7 @@ def _park_event_roster(
 
     probe = {
         "url": url,
+        **({"requested_cohort": roster.requested_cohort} if keys == _SEEDING_KEYS else {}),
         "limit_groups": limit_groups,
         "divisions_found": roster.divisions_found,
         "divisions_walked": roster.divisions_walked,
@@ -4171,13 +4178,19 @@ def _scrape_still_running(*, keys: _WalkKeys = _SEEDING_KEYS) -> bool:
     return False
 
 
-def _event_recovery_path(event_id: str, *, completed_event: bool = False) -> Path:
+def _event_recovery_path(event_id: str, *, completed_event: bool = False, requested_cohort: str = "") -> Path:
+    age, gender = parse_requested_cohort(requested_cohort)
+    if completed_event and requested_cohort:
+        raise ValueError("Completed-event captures cannot be restricted to a cohort")
     if completed_event:
         from src.tournaments.storage.event_key import existing_event_key
 
         key = existing_event_key("gotsport", event_id, base_dir=reports_dir())
         return reports_dir() / key / "intake" / "last_walk.json"
-    return default_seeding_base_dir() / f"gotsport_{event_id}" / "last_walk.json"
+    base = default_seeding_base_dir() / f"gotsport_{event_id}"
+    if requested_cohort:
+        base = base / "cohorts" / f"{age}_{gender.lower()}"
+    return base / "last_walk.json"
 
 
 def _write_backtest_recovery(roster: EventRoster, limit_groups: int | None) -> _RecoveryResult:
@@ -4247,7 +4260,7 @@ def _write_event_roster_recovery(roster: EventRoster, limit_groups: int | None =
     Best-effort by construction: this exists to protect a paid artifact, so a
     failure to write it must not itself cost the walk.
     """
-    path = _event_recovery_path(roster.event_id)
+    path = _event_recovery_path(roster.event_id, requested_cohort=roster.requested_cohort)
     if not roster.is_complete and _recovery_holds_a_complete_walk(path):
         logger.info("Kept the complete walk already at %s rather than this partial one", path)
         return False
@@ -4256,6 +4269,7 @@ def _write_event_roster_recovery(roster: EventRoster, limit_groups: int | None =
             path,
             {
                 "event_id": roster.event_id,
+                "requested_cohort": roster.requested_cohort,
                 "walked_at": utc_now_iso(),
                 "is_complete": roster.is_complete,
                 "limit_groups": limit_groups,
@@ -4291,7 +4305,9 @@ def _recovery_holds_a_complete_walk(path: Path) -> bool:
     return isinstance(existing, dict) and existing.get("is_complete") is True
 
 
-def _recovered_walk(event_id: str, *, completed_event: bool = False) -> tuple[EventRoster, int | None] | None:
+def _recovered_walk(
+    event_id: str, *, completed_event: bool = False, requested_cohort: str = "",
+) -> tuple[EventRoster, int | None] | None:
     """The walk already paid for under this event id, and the limit it ran under.
 
     The recovery file is written before anything in the parking step that can be
@@ -4324,6 +4340,9 @@ def _recovered_walk(event_id: str, *, completed_event: bool = False) -> tuple[Ev
     strength of it coming from ``resolve_cohort``, and this is the one path that
     could hand it anything else.
     """
+    parse_requested_cohort(requested_cohort)
+    if completed_event and requested_cohort:
+        raise ValueError("Completed-event captures cannot be restricted to a cohort")
     if completed_event:
         from src.tournaments.gotsport_event_roster import event_roster_from_dict
         from src.tournaments.storage.schema_version import SchemaVersionError
@@ -4345,10 +4364,12 @@ def _recovered_walk(event_id: str, *, completed_event: bool = False) -> tuple[Ev
         except (OSError, ValueError, TypeError, KeyError, SchemaVersionError):
             return None
     try:
-        payload = read_json(_event_recovery_path(event_id))
+        payload = read_json(_event_recovery_path(event_id, requested_cohort=requested_cohort))
     except (OSError, ValueError):
         return None
     if not isinstance(payload, dict) or not isinstance(payload.get("teams"), list):
+        return None
+    if payload.get("requested_cohort", "") != requested_cohort:
         return None
     if not isinstance(payload.get("warnings", []), list):
         return None
@@ -4357,6 +4378,7 @@ def _recovered_walk(event_id: str, *, completed_event: bool = False) -> tuple[Ev
     try:
         roster = EventRoster(
             event_id=event_id,
+            requested_cohort=requested_cohort,
             teams=tuple(_recovered_team(team) for team in payload["teams"]),
             warnings=tuple(payload.get("warnings") or ()),
             divisions_found=int(payload.get("divisions_found") or 0),
@@ -5104,6 +5126,12 @@ def _apply_pending_seeding_widgets() -> None:
         st.session_state["seeding_event_name"] = pending_name
     if pending_url is not None:
         st.session_state["seeding_event_url"] = pending_url
+    requested = st.session_state.get("_seeding_assessment", {}).get("requested_cohort", "")
+    age, gender = parse_requested_cohort(requested)
+    st.session_state["seeding_import_scope"] = "Specific age group and gender" if age else "Whole tournament"
+    if age:
+        st.session_state["seeding_import_age"] = age
+        st.session_state["seeding_import_gender"] = gender
     st.session_state["_seeding_source"] = st.session_state.get("_seeding_assessment", {}).get(
         "source_kind", "GotSport event"
     )
@@ -5283,7 +5311,9 @@ def _render_seeding_enqueue(parsed: ParsedRoster, resolved: Sequence[ResolvedTea
                 st.rerun()
 
 
-def _seeding_event_probe_for(url: str, *, keys: _WalkKeys = _SEEDING_KEYS) -> dict[str, Any] | None:
+def _seeding_event_probe_for(
+    url: str, *, keys: _WalkKeys = _SEEDING_KEYS, requested_cohort: str = "",
+) -> dict[str, Any] | None:
     """The last walk's counts, but only while they describe this same URL.
 
     Seeding recovery is deliberately separate from Streamlit session state.
@@ -5307,18 +5337,20 @@ def _seeding_event_probe_for(url: str, *, keys: _WalkKeys = _SEEDING_KEYS) -> di
             "complete": roster.is_complete and roster.completed_event,
         }
     probe = st.session_state.get(keys.probe) or {}
-    if probe.get("url") == url and url:
+    if (event_id_from(probe.get("url") or "") == event_id_from(url) and event_id_from(url)
+            and probe.get("requested_cohort", "") == requested_cohort):
         return probe
 
     event_id = event_id_from(url)
     if not event_id:
         return None
-    recovered = _recovered_walk(event_id)
+    recovered = _recovered_walk(event_id, requested_cohort=requested_cohort)
     if recovered is None:
         return None
     roster, limit_groups = recovered
     return {
         "url": url,
+        "requested_cohort": roster.requested_cohort,
         "limit_groups": limit_groups,
         "divisions_found": roster.divisions_found,
         "divisions_walked": roster.divisions_walked,
@@ -5356,6 +5388,11 @@ def _probe_pages(teams_per_division: float) -> float:
     return LANDING_READS + _SEEDING_EVENT_PROBE_DIVISIONS * (1 + teams_per_division)
 
 
+def _import_cohort_label(requested_cohort: str) -> str:
+    age, gender = parse_requested_cohort(requested_cohort)
+    return f"{'U18/U19' if age == 'u19' else age.upper()} {'Boys' if gender == 'Male' else 'Girls'}"
+
+
 def _seeding_probe_caption(probe: Mapping[str, Any]) -> str:
     """What the walk saw, and what the rest of the event would cost."""
     walked = int(probe.get("divisions_walked") or 0)
@@ -5363,6 +5400,12 @@ def _seeding_probe_caption(probe: Mapping[str, Any]) -> str:
     sampled = int(probe.get("divisions_sampled") or 0)
     teams = int(probe.get("teams") or 0)
     linked = int(probe.get("linked") or 0)
+    if probe.get("requested_cohort"):
+        label = _import_cohort_label(probe["requested_cohort"])
+        status = "ready" if probe.get("complete") else "import incomplete — retry to finish"
+        if probe.get("complete"):
+            return f"{label} {status}: {sampled} divisions kept, {teams} teams. All {found} event divisions checked."
+        return f"{label} {status}: {teams} teams saved so far."
     u10_plus_only = bool(probe.get("u10_plus_only"))
     scope = "full U10+ list" if u10_plus_only else "whole event"
     if not u10_plus_only:
@@ -5436,7 +5479,8 @@ def _seeding_probe_caption(probe: Mapping[str, Any]) -> str:
 
 
 def _render_recovered_walk(
-    url: str, supabase_client: Any, *, in_progress: bool, keys: _WalkKeys = _SEEDING_KEYS
+    url: str, supabase_client: Any, *, in_progress: bool, keys: _WalkKeys = _SEEDING_KEYS,
+    requested_cohort: str = "",
 ) -> None:
     """Offer back a walk that was paid for and then lost before it was shown.
 
@@ -5454,7 +5498,10 @@ def _render_recovered_walk(
     event_id = event_id_from(url)
     if not event_id:
         return
-    recovered = _recovered_walk(event_id, **({"completed_event": True} if keys == _BACKTEST_KEYS else {}))
+    recovered = _recovered_walk(
+        event_id, requested_cohort=requested_cohort,
+        **({"completed_event": True} if keys == _BACKTEST_KEYS else {}),
+    )
     if recovered is None:
         return
     roster, limit_groups = recovered
@@ -5462,11 +5509,16 @@ def _render_recovered_walk(
         snapshot = st.session_state.get(keys.snapshot)
         if snapshot is not None and snapshot.roster == roster:
             return
-    elif len(roster.teams) <= _parked_roster_size(event_id, keys=keys):
+    elif not roster.teams or (
+        st.session_state.get("_seeding_assessment", {}).get("requested_cohort", "") == requested_cohort
+        and len(roster.teams) <= _parked_roster_size(event_id, keys=keys)
+    ):
         return
 
     st.caption(
-        f"A saved sample for event {event_id} has {len(roster.teams)} teams. "
+        f"A saved sample for event {event_id}"
+        f"{(' · ' + _import_cohort_label(requested_cohort)) if requested_cohort else ''} "
+        f"has {len(roster.teams)} teams. "
         "Open it below to review the rows without paying again."
     )
     reload_label = (
@@ -5611,10 +5663,8 @@ def _render_seeding_event_scrape(
     if keys is _SEEDING_KEYS:
         st.markdown("#### Import from a GotSport event")
         st.caption(
-            "For a whole tournament, enter its GotSport event URL and click Scrape the whole U10+ event. "
-            "The optional estimate reads two U10+ divisions first so you can preview likely cost. "
-            "Some events list younger divisions first, so those division pages may be read while finding "
-            "U10+ divisions; their younger team pages are skipped automatically."
+            "Paste the event ID or URL, then choose what to import. "
+            "Whole tournament includes all supported ages (U10 and older)."
         )
     in_progress = _scrape_still_running(keys=keys)
     snapshot = st.session_state.get(keys.snapshot) if keys == _BACKTEST_KEYS else None
@@ -5629,16 +5679,41 @@ def _render_seeding_event_scrape(
         st.info("ZENROWS_API_KEY is not set, so these pages cannot be fetched.")
 
     url = st.text_input(
-        "GotSport event URL",
+        "GotSport event ID or URL" if keys == _SEEDING_KEYS else "GotSport event URL",
         key=f"{keys.prefix.lstrip('_')}_event_url",
-        placeholder="https://system.gotsport.com/org_event/events/52975",
+        placeholder="52975 or https://system.gotsport.com/org_event/events/52975",
         disabled=in_progress,
     )
+    requested_cohort = ""
     if keys is _SEEDING_KEYS:
+        scope = st.radio(
+            "Import", ["Whole tournament", "Specific age group and gender"],
+            key="seeding_import_scope", horizontal=True, disabled=in_progress,
+        )
+        if scope == "Specific age group and gender":
+            age_column, gender_column = st.columns(2)
+            ages = list(AGE_GROUPS)
+            age = age_column.selectbox(
+                "Age group", ages, index=ages.index("u13"), key="seeding_import_age",
+                format_func=lambda value: "U18/U19" if value == "u19" else value.upper(),
+                disabled=in_progress,
+            )
+            gender = gender_column.selectbox(
+                "Gender", ["Male", "Female"], key="seeding_import_gender",
+                format_func=lambda value: "Boys" if value == "Male" else "Girls", disabled=in_progress,
+            )
+            requested_cohort = f"{age}|{gender}"
+            st.caption("Includes every division in this cohort, such as Gold, Silver and Bronze.")
+        st.caption(
+            "We check division pages, including younger divisions; younger team pages are skipped automatically."
+        )
         parked_url = st.session_state.get("_seeding_assessment", {}).get("source_url")
-        if st.session_state.get(keys.result) and parked_url and event_id_from(url) != event_id_from(parked_url):
+        parked_scope = st.session_state.get("_seeding_assessment", {}).get("requested_cohort", "")
+        if st.session_state.get(keys.result) and parked_url and (
+            event_id_from(url) != event_id_from(parked_url) or parked_scope != requested_cohort
+        ):
             st.caption("The assessment below still belongs to the previous import until the new import finishes.")
-    probe = _seeding_event_probe_for(url, keys=keys) or {}
+    probe = _seeding_event_probe_for(url, keys=keys, requested_cohort=requested_cohort) or {}
     priced = bool(probe.get("divisions_walked"))
     complete = bool(probe.get("complete"))
     refresh_available = keys is _SEEDING_KEYS and complete
@@ -5650,7 +5725,8 @@ def _render_seeding_event_scrape(
         if refresh_available:
             full_clicked = False
             refresh_clicked = st.button(
-                "Refresh the full U10+ list",
+                (f"Refresh {_import_cohort_label(requested_cohort)}" if requested_cohort
+                 else "Refresh the full U10+ list"),
                 key=f"{keys.prefix}_event_refresh_run",
                 type="secondary",
                 disabled=not url or in_progress or not priced,
@@ -5659,6 +5735,8 @@ def _render_seeding_event_scrape(
             refresh_clicked = False
             if keys == _BACKTEST_KEYS:
                 full_label = "Scrape the whole event"
+            elif requested_cohort:
+                full_label = f"{'Retry' if probe else 'Scrape'} {_import_cohort_label(requested_cohort)}"
             elif probe.get("limit_groups") is None and probe:
                 full_label = "Retry the full U10+ import"
             else:
@@ -5670,7 +5748,7 @@ def _render_seeding_event_scrape(
                 disabled=not url or in_progress or already_walked or recovery_pending,
             )
     with secondary:
-        probe_clicked = st.button(
+        probe_clicked = not requested_cohort and st.button(
             "Optional: check {} divisions (~{}-{})".format(
                 _SEEDING_EVENT_PROBE_DIVISIONS, *(_money(price) for price in _seeding_probe_price())
             ) if keys == _BACKTEST_KEYS else "Optional: estimate cost from {} U10+ divisions ({}-{})".format(
@@ -5686,9 +5764,11 @@ def _render_seeding_event_scrape(
             if st.session_state.get(keys.result):
                 st.caption("Review the rows below, then name and save this run.")
             else:
-                st.caption("The sample is saved. Open it below for review, or scrape the whole U10+ event.")
+                st.caption("The capture is saved. Open it below to review the teams.")
 
-    _render_recovered_walk(url, supabase_client, in_progress=in_progress, keys=keys)
+    _render_recovered_walk(
+        url, supabase_client, in_progress=in_progress, keys=keys, requested_cohort=requested_cohort,
+    )
 
     if st.session_state.get(keys.resolution_failed):
         st.warning("Name matching did not finish, so some teams may still be linkable.")
@@ -5703,9 +5783,15 @@ def _render_seeding_event_scrape(
             url, supabase_client, limit_groups=_SEEDING_EVENT_PROBE_DIVISIONS, keys=keys
         )
     elif refresh_clicked and priced:
-        _run_event_roster_scrape(url, supabase_client, limit_groups=None, keys=keys)
+        _run_event_roster_scrape(
+            url, supabase_client, limit_groups=None, keys=keys,
+            **({"requested_cohort": requested_cohort} if requested_cohort else {}),
+        )
     elif full_clicked and not already_walked and not recovery_pending:
-        _run_event_roster_scrape(url, supabase_client, limit_groups=None, keys=keys)
+        _run_event_roster_scrape(
+            url, supabase_client, limit_groups=None, keys=keys,
+            **({"requested_cohort": requested_cohort} if requested_cohort else {}),
+        )
     elif probe_clicked or full_clicked or refresh_clicked:
         # `disabled` is a hint to the browser, not a gate: Streamlit hands back the
         # trigger of any button that was enabled when it was clicked. The import
@@ -5730,7 +5816,10 @@ def _render_seeding_warnings(parsed: ParsedRoster) -> None:
             )
             or (
                 warning.startswith("Skipped ")
-                and " division(s) outside the ages you rank, and did not fetch their team pages:" in warning
+                and any(phrase in warning for phrase in (
+                    " division(s) outside the ages you rank, and did not fetch their team pages:",
+                    " division(s) outside the selected age group and gender, and did not fetch their team pages:",
+                ))
             )
             or re.fullmatch(r"Division .+ names no single board; teams kept, cohort unset", warning)
         ):
@@ -6114,8 +6203,8 @@ def _render_seeding_workspace(supabase_client: Any) -> None:
                 if source == "GotSport event":
                     _render_seeding_event_scrape(supabase_client)
                 else:
-                    st.caption("Paste a tab-separated Club, Team, State list with headings such as Boys U14. "
-                               "Questionable lines stay available for correction.")
+                    st.caption("Paste a table with Team, Age group, and Gender columns. "
+                               "Accepted-team lists and standings also work with a heading such as Boys U12.")
                     text = st.text_area(
                         "Accepted teams", key="seeding_roster_text", height=220, placeholder=_SEEDING_PLACEHOLDER
                     )
@@ -6125,11 +6214,16 @@ def _render_seeding_workspace(supabase_client: Any) -> None:
                     preview = parse_roster(text)
                     if text:
                         st.caption(f"Preview: {len(preview.rows)} entries retained.")
+                        if preview.rows and any(
+                            not row.section_age_group or not row.section_gender for row in preview.rows
+                        ):
+                            st.warning("Some teams are missing an age group or gender. Fill in those columns, "
+                                       "or add a heading such as Boys U12 above the list.")
                         st.dataframe(pd.DataFrame([{"Team": row.team_name_raw, "Age": row.section_age_group,
                                                    "Gender": row.section_gender, "Check": row.intake_issue}
                                                   for row in preview.rows]), hide_index=True, width="stretch")
                     st.checkbox(
-                        "This is the complete accepted-team list for all U10+ cohorts",
+                        "This includes every accepted team in the age groups I pasted",
                         key="_seeding_paste_complete",
                     )
                     if st.button("Import and match teams", type="primary", disabled=not preview.rows):
