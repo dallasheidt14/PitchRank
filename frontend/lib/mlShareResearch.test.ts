@@ -100,7 +100,8 @@ describe('isolated extra ML share experiment', () => {
   }, 15000);
 
   it('resets both experiments when reusing one runtime', () => {
-    const script = `import { createSosRuntime } from './lib/sosResearch.ts';
+    const script = `const loaded = await import('./lib/sosResearch.ts');
+      const { createSosRuntime } = loaded.default ?? loaded;
       import { readFileSync } from 'node:fs';
       const c = JSON.parse(readFileSync(0, 'utf8'));
       const r = await createSosRuntime(c.calibration, process.cwd(), {verifiedProductionRuntime:true});
