@@ -1097,6 +1097,51 @@ writes nothing" rule, because each run writes new dated files and nothing reads 
   at the 2026 Heartland Invitational, CVSC wrote U-ages that way (`CVSC 10B` played U10 7v7 and
   reads as born 2010), so each such team needs `--age`.
 
+## Heartland Soccer Pages
+
+Heartland Soccer Association (heartlandsoccer.net) runs the Kansas City league, with clubs on both
+sides of the Kansas/Missouri line. Its tournaments and futsal league are on HTG Sports (above); the
+outdoor league is published only on Heartland's own CGI pages, which answer `requests` sent with a
+browser User-Agent, no proxy and no bot challenge. `scripts/import_heartland.py` is the driver and
+`heartland-scraper.yml` runs it weekly.
+
+- `reports/cgi-jrb/subdiv_results.cgi?level=Premier&b_g=<Boys|Girls>&age=<U-12>&subdivison=<n>` (the
+  site spells the parameter `subdivison`) lists a subdivision's teams in a `table.text`, then its games
+  in `table.seasonborder`: one `tr.text` per game reading date, game number, time, home, home score,
+  visitor, visitor score. The date (`Aug 9 (Sun)`, Thursday written `Thr`) has no year and is printed
+  on the first game of its day only. Take the season's year for the date's month (the start year for
+  August-December, the next for January-July), or the year before (a site still showing last season
+  after Aug 1), whichever falls on the printed weekday. A fall date never moves into the next season.
+- Read a Heartland name's age without `respell_ages` (`age_from_name` on the raw name). Names write bare
+  and glued two-digit numbers as U-ages
+  ("Manhattan Surf Blue 10B" plays U-10) as often as birth years, and respelled, 5 of 941 fall-2026
+  names read two to seven boards older than their division; unread, such a name takes its division's age when
+  the division is one cohort, and is left out in Boys U-14/15.
+- A Heartland name stating two U-ages is left out, except `U18/19`: both sit on the u19 board, so the
+  name states one (owner, 2026-11-14).
+- A division and subdivision the league does not run answers a "Select Subdivision Error" page of about
+  350 bytes, which names an administrator's email: scrub it from any fixture. The Premier form lists U-9
+  to U-17 by year plus the combined U-14/15 and U-18/19, subdivisions 1-13. A division can answer only the
+  error page for a half-season (fall 2026 boys stopped at U-14/15); the driver walks it anyway.
+- `level=Recreational` (form fields `b_g1`, `age1`) is the rec league. Never build it (owner, 2026-11-14:
+  Premier only).
+- Every team reads `<4-character team number> <name>` (`7210`, `721A`). The number encodes age,
+  subdivision and slot and is reissued every half-season, so the provider team id is
+  `<year><fall|spring>-<number>`. A bare number would carry a link onto a different team.
+- The club codes on the seedings page are member organisations, not clubs: `KPSL` covers dozens of
+  clubs and many teams are "Non Member". Read the club from the team name, through the driver's
+  `HEARTLAND_CLUBS` table for the clubs PitchRank stores under another spelling.
+- Kansas City clubs are stored on both sides of the line, sometimes under two spellings of one club
+  (`Kansas City Athletics` in KS, `KC Athletics` mostly in MO). Pool every spelling before reading a
+  club's state from its stored teams, or the spelling a name happens to use picks the state.
+- Search every team against stored teams in Kansas, Missouri and none, in the roster pass only (see
+  Provider Matcher Name Parsing). A stateless team that matches nothing is held for the owner
+  (`held`), never created.
+- Never fetch `seedings.cgi`, `team_results.cgi` or the member-clubs page. The first and last list
+  coaches', managers' and club officers' names, emails and phone numbers, and the results pages carry
+  everything the import needs.
+- Season archives hold standings only, so only the current season's games can be imported.
+
 ## Demosphere Pages
 
 Demosphere ("Elements", `elements.demosphere.com`) hosts league sites keyed by a numeric site id. NCSL
@@ -1258,6 +1303,14 @@ Rules for a provider matcher that gates fuzzy candidates on the team name
   age), so the matcher refuses: a fuzzy match that would auto-link to a team in
   `SincSportsGameMatcher.claimed_team_ids` gets its own row, which a merge can repair. A
   registration already linked keeps its team; otherwise the first in the list to match it does.
+- Match a team before holding it for its state. `Athletes2EventsGameMatcher._fuzzy_match_team` returns
+  None for a team with no state, and `_fetch_candidates` reads one state or null, so a roster pass that
+  holds a team for an unsettled state before matching also keeps it from the stored row it already is:
+  a Heartland pilot held 64 of 105 Boys U-12 teams that way. Hold only a team that would be created. To
+  match a stateless team in the roster pass, give `_fuzzy_match_team` a stand-in state that equals no
+  stored `state_code`, and widen `_candidate_state_filter` to the league's states and null, as
+  `HeartlandGameMatcher` does with `REGION_SEARCH`. Keep the stand-in out of `_match_team`, whose create
+  gate opens for any truthy state.
 
 To test matching against production without writes, construct the matcher with
 `dry_run=True` and a provider id that has no aliases, so every team goes through fuzzy
@@ -1912,6 +1965,13 @@ year; check the provider's names for squad numbers before opting in.
 follow this. The Athletes2Events driver (division as bound and fallback), the Soccer Events
 Group driver, the PlayMetrics tournament scraper (name first, division age as fallback) and the
 weekly TGS match step (see Creating TGS teams) keep their own rules; leave those drivers as they
-are and copy none of their rules into a new one. **For a new driver, the one owner-approved exception is HTG Sports' division fallback**
-(never a bound; see HTG Sports Pages, owner 2026-11-09). Ask the owner before passing
+are and copy none of their rules into a new one. **For a new driver, the owner-approved exceptions are HTG Sports' division fallback**
+(never a bound; see HTG Sports Pages, owner 2026-11-09) and Heartland's, for a name with no age in a one-cohort
+division (see Heartland Soccer Pages, owner 2026-11-14). Ask the owner before passing
 `division_age_fallback=True` to `build_roster` for another driver.
+
+Before opting a new driver into `respell_ages`, measure: read every name with and without it against
+its division. A bare U-age misreads both ways (`10B` in U-10 reads u17, `15` in U-15 reads u12), so treat
+a reading two or more boards older than the division as a misread, and check each reading two or more
+boards younger by hand, since it passes as a team playing up. Copied unmeasured from a sibling driver,
+it would have filed Heartland's `10B` U-10 teams on u17.

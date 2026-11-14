@@ -427,6 +427,7 @@ import, so a process running across Aug 1 keeps last season's map until restart.
 | YSSL | `yssl` | HTML scraping | Chicago-area boys league (Young Sportsmen's), walked club by club; teams take their club's state from the club map (IL, plus four NW Indiana clubs as IN), scored games only, weekly via `yssl-scraper.yml`. Clubs translate through the reviewed `config/yssl_club_map.csv` |
 | Tourney Central | `tourneycentral` | HTML scraping | Ohio/Michigan tournament host, one subdomain per tournament, current year only; operator-run per tournament via `scripts/import_tourneycentral_event.py`, which takes any page of the tournament and reads the host from it |
 | HTG Sports | `htgsports` | JSON API | `events.htgsports.net`, one event id per tournament or league (Heartland Soccer's Kansas City events among them); operator-run per event via `scripts/import_htgsports_event.py --event-url "https://events.htgsports.net/?eventid=<id>"` |
+| Heartland Soccer | `heartland` | HTML scraping | Kansas City Premier league (Kansas and Missouri clubs), one results page per division and subdivision; Premier only, never Recreational, scored games from Aug 1 of the season; every team is matched across KS, MO and stateless stored teams and a linked team keeps its stored state; a new team takes its club's state (the club table in the importer, the club-state registry's KS or MO home, or stored clubmates agreeing within KS and MO), and a new team whose club has none is held for the owner; weekly via `heartland-scraper.yml`, which runs `scripts/import_heartland.py` |
 
 #### TGS U-age divisions are only resolvable from 2026-08-01
 
@@ -718,6 +719,7 @@ two-line edit in `.github/workflows/claude-code-review.yml`.
 | `ga-scraper.yml` | Mon 6:15 AM UTC | Affinity GA (Georgia Soccer fall league) scrape + import — keeps unplayed fixtures |
 | `demosphere-scraper.yml` | Mon 5:23 AM UTC (Sun 10:23 PM Arizona) | NCSL (Demosphere) scrape, roster pass and import — played games and the next 28 days of fixtures (`--days-forward`); teams whose link matches another squad's team are held and reported without turning the run red; red when a link errored, a played game could not be read, the site lists neither the current season nor the one before it, or an in-season run read no scored games |
 | `yssl-scraper.yml` | Mon 8:15 AM UTC | YSSL scrape, roster pass and import — scored games only; red when a team has no decided club-map row, a team's link errored or conflicted, a played game could not be read (rainouts excepted), or an in-season run read no scored games |
+| `heartland-scraper.yml` | Mon 8:45 AM UTC | Heartland Soccer Premier league scrape, roster pass and import — scored games only; new teams whose club's state is unsettled, and teams whose link matches another squad's team, are held and reported without turning the run red; red when a link errored, a page, team or game could not be read, a game number is listed twice with different results, the pages span two half-seasons, or an in-season run read no scored games |
 | `mlsnext-kitman-scraper.yml` | Mon 5:45 AM UTC | MLS NEXT (Homegrown (HD) + Academy (AD)) scrape + import from Kitman's public standings files; links exact-club teams, creates teams for clubs with a state in `config/mlsnext_kitman_club_states.json`, holds review squads, and new squads whose club has no state. Manual runs write nothing unless `execute` is set |
 | `ea-scraper.yml` | Mon 5:00 AM UTC | Modular11 Elite Academy League scrape + import, u11–u17 one after another (u19 manual until its first-import cleanup); links confident teams, creates no-match teams, holds review teams and their games. Manual runs take one age |
 | `playmetrics-scrape-import.yml` | Mon 6:30 AM UTC | PlayMetrics league scrape + import (deliberately ungated by `AGE_ROLLOVER_FREEZE`) |
@@ -793,7 +795,8 @@ matcher and its Utah, Hawaii and Georgia subclasses, and
 `playmetrics-scrape-import.yml` runs the PlayMetrics matcher, which writes the CSV row's
 `state_code` — a per-league constant the scraper derives from the governing body
 (`src/models/playmetrics_matcher.py`, in `_create_new_playmetrics_team`), and `yssl-scraper.yml`
-stamps each created team with its club's state from `config/yssl_club_map.csv` (IL unless the row says otherwise). None
+stamps each created team with its club's state from `config/yssl_club_map.csv` (IL unless the row says otherwise), and `heartland-scraper.yml` stamps each created team with its club's
+state (see its provider row) and holds a new team whose club has none. None
 sets `state_source`.
 An audit of "what writes state" has to count these; the backlog entry on constant-state
 provenance tracks the fix.
@@ -839,7 +842,7 @@ the derivation is invisible at the call site.
 `tgs-event-scrape-import.yml`, `modular11-weekly-scrape.yml`,
 `modular11-events-weekly-scrape.yml`,
 `playmetrics-tournament-scrape-import.yml`, `wa-scraper.yml`, `or-scraper.yml`,
-`ut-scraper.yml`, `hi-scraper.yml`, `ga-scraper.yml`, `yssl-scraper.yml`, `demosphere-scraper.yml`,
+`ut-scraper.yml`, `hi-scraper.yml`, `ga-scraper.yml`, `yssl-scraper.yml`, `demosphere-scraper.yml`, `heartland-scraper.yml`,
 `ea-scraper.yml`, `mlsnext-kitman-scraper.yml`. Do it
 before Aug 1;
 lift it again only once the relabel migration is applied and the boards verified.
@@ -850,8 +853,8 @@ a gap. The one exception is `playmetrics-scrape-import.yml`, where scraping and
 importing are a single step: it is deliberately left ungated so collection
 continues, accepting that a brand-new PlayMetrics team created mid-rollover may
 land one cohort off. The exemption is named in the coverage test.
-`yssl-scraper.yml` is the opposite case: its single step is gated whole, so a
-frozen week collects nothing, and its season-to-date window refills the gap on
+`yssl-scraper.yml` and `heartland-scraper.yml` are the opposite case: each gates its single step
+whole, so a frozen week collects nothing, and its season-to-date window refills the gap on
 the first run after the lift.
 
 `tests/unit/test_age_rollover_freeze_coverage.py` fails on any ungated writing
@@ -1128,7 +1131,7 @@ All routes under `/api` are excluded from middleware auth (the negative lookahea
 
 - Add a dry-run guard (`--dry-run` / `dry_run` param) to any new data-mutating method or script.
 - A dry run is only as good as its weakest writer. `EnhancedETLPipeline` must pass `dry_run` to every provider matcher it constructs, and each matcher subclass must gate its own autocreate writes — a subclass that skips either makes the base class's guards inert and the run writes while reporting "no changes were made". Verify a new provider's dry run against the database, not its summary output.
-- A dry run writes nothing, local files included. A guard that reads a file a previous run wrote is switched off by a dry run that rewrites that file: a team-cleanup page build's dry run once rewrote the page's `published` marker, and the next build's "the owner has decided cards" refusal stopped firing. Key a guard on the state that cannot be previewed away (the database rows), and make the dry run print what it would write instead. The one owner-approved exception (2026-11-09) is the operator-run per-event importers (`import_tourneycentral_event.py`, `import_athletes2events_event.py`, `import_soccereventsgroup_event.py`, `import_htgsports_event.py`): their dry run writes new date-stamped games, cross-age and team-report CSVs under `data/raw/<provider>/`, which are the owner's review sheet before `--execute` and which nothing reads back.
+- A dry run writes nothing, local files included. A guard that reads a file a previous run wrote is switched off by a dry run that rewrites that file: a team-cleanup page build's dry run once rewrote the page's `published` marker, and the next build's "the owner has decided cards" refusal stopped firing. Key a guard on the state that cannot be previewed away (the database rows), and make the dry run print what it would write instead. Two exceptions are owner-approved: the operator-run per-event importers (2026-11-09) (`import_tourneycentral_event.py`, `import_athletes2events_event.py`, `import_soccereventsgroup_event.py`, `import_htgsports_event.py`): their dry run writes new date-stamped games, cross-age and team-report CSVs under `data/raw/<provider>/`, which are the owner's review sheet before `--execute` and which nothing reads back, and the weekly `import_heartland.py` (2026-11-14), whose dry run also writes a held-games CSV.
 - A dry run reports the failures it can see (a failed read, a row it could not decide) with the exit status the real run would give; only checks that need the writes, such as reading them back, are skipped. A dry run that returns before its failure check exits 0 on a run that would fail.
 - A command a script prints for the owner to run next (a retry after a lost answer, an undo line in a record) is a code path too. Build it from the invocation's own mode, so a dry run never prints `--execute`. Point it at the tool's own guarded command, never at raw SQL; where it offers a lower-level command instead, say which of the tool's checks that command skips.
 - Run `python -m ruff check src/ scripts/ config/ tournament_intake.py dashboard.py` before committing Python changes — that path list is the python-lint CI job, and `ruff` is not on PATH on a stock Windows checkout. A Codex review bot also checks PRs (flags missing dry-run guards, lint, race conditions).
