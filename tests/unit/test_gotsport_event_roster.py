@@ -260,6 +260,110 @@ def _two_division_event():
     }
 
 
+def _selected_cohort_event():
+    labels = ["U13 Boys Gold", "U13 Girls Gold", "U12 Boys Gold", "U13 Boys Silver", "U13 Boys Bronze"]
+    pages = {"/org_event/events/52975": _landing_html([str(i) for i in range(1, 6)])}
+    for i, label in enumerate(labels, 1):
+        pages[f"schedules?group={i}"] = _group_html(label, [(str(i), f"Club {i}")])
+        pages[f"schedules?team={i}"] = _team_html(str(100 + i))
+    return pages
+
+
+@pytest.mark.parametrize(("scope", "expected"), [("u13|Male", ["1", "4", "5"]), ("u13|Female", ["2"])])
+def test_selected_cohort_walks_all_divisions_and_only_buys_relevant_teams(scope, expected):
+    from src.tournaments.gotsport_event_roster import event_roster_from_dict, event_roster_to_dict
+    fetch = _fetch_for(_selected_cohort_event())
+    roster = scrape_event_roster("52975", fetch=fetch, requested_cohort=scope, max_workers=4)
+    assert sorted(team.registration_id for team in roster.teams) == expected
+    assert sorted(url.split("team=")[1] for url in fetch.calls if "team=" in url) == expected
+    assert roster.divisions_walked == roster.divisions_found == 5
+    assert len(roster.divisions) == len(expected)
+    assert roster.is_complete
+    assert roster.requested_cohort == scope
+    assert event_roster_from_dict(event_roster_to_dict(roster)) == roster
+
+
+@pytest.mark.parametrize("label", ["Gold", "U13 Gold", "BU12/BU13", "U13 Boys/Girls Gold"])
+def test_selected_cohort_keeps_ambiguous_divisions_for_review(label):
+    roster = scrape_event_roster(
+        "52975", fetch=_fetch_for(_one_division_event(division=label)), requested_cohort="u13|Male",
+    )
+    assert len(roster.teams) == 1
+    assert any("kept for review" in warning for warning in roster.warnings)
+
+
+def test_selected_cohort_uses_header_gender_for_bracket_letters():
+    pages = _one_division_event(division="U13 B")
+    pages["schedules?group=483088"] = pages["schedules?group=483088"].replace(
+        "<html><body>", "<html><body><div class='lead'>Female U13 - U13 B</div>",
+    )
+    girls = scrape_event_roster("52975", fetch=_fetch_for(pages), requested_cohort="u13|Female")
+    assert len(girls.teams) == 1
+    boys_fetch = _fetch_for(pages)
+    boys = scrape_event_roster("52975", fetch=boys_fetch, requested_cohort="u13|Male")
+    assert not boys.teams
+    assert not any("team=" in url for url in boys_fetch.calls)
+
+
+@pytest.mark.parametrize("scope", ["u13|Male", "u13|Female"])
+@pytest.mark.parametrize("label", ["U13 B", "U13 G"])
+@pytest.mark.parametrize("header", ["", "U13 B", "U13 G"])
+def test_selected_cohort_never_excludes_or_assigns_gender_from_a_bracket_letter(scope, label, header):
+    pages = _one_division_event(division=label)
+    pages["schedules?group=483088"] = pages["schedules?group=483088"].replace(
+        "<html><body>", f"<html><body><div class='lead'>{header}</div>",
+    )
+    roster = scrape_event_roster(
+        "52975", fetch=_fetch_for(pages), requested_cohort=scope,
+    )
+    assert len(roster.teams) == 1
+    assert roster.teams[0].gender == ""
+    assert roster.divisions[0].gender == ""
+    assert any("kept for review" in warning for warning in roster.warnings)
+
+
+def test_selected_u19_includes_the_existing_combined_u18_u19_cohort():
+    pages = _selected_cohort_event()
+    pages["schedules?group=1"] = _group_html("U18 Boys Gold", [("1", "First FC")])
+    pages["schedules?group=4"] = _group_html("U19 Boys Silver", [("4", "Second FC")])
+    roster = scrape_event_roster("52975", fetch=_fetch_for(pages), requested_cohort="u19|Male")
+    assert {team.registration_id for team in roster.teams} == {"1", "4"}
+
+
+def test_selected_cohort_does_not_hide_unreadable_divisions():
+    roster = scrape_event_roster(
+        "52975", fetch=_fetch_for(_selected_cohort_event(), failing=frozenset({"schedules?group=5"})),
+        requested_cohort="u13|Male",
+    )
+    assert not roster.is_complete
+    assert roster.divisions_walked == 4
+    assert any("Could not read division group 5" in warning for warning in roster.warnings)
+    assert len(roster.teams) == 2
+
+
+@pytest.mark.parametrize("kwargs", [
+    {"requested_cohort": "u13|Male", "limit_groups": 2},
+    {"requested_cohort": "u13|Male", "completed_event": True},
+    {"requested_cohort": "../u13|Male"}, {"requested_cohort": "u13|Boys"},
+])
+def test_invalid_or_truncated_cohort_request_is_rejected_before_fetch(kwargs):
+    fetch = _fetch_for({})
+    with pytest.raises(ValueError):
+        scrape_event_roster("52975", fetch=fetch, **kwargs)
+    assert fetch.calls == []
+
+
+def test_selected_cohort_blocked_team_pages_preserve_scope():
+    with pytest.raises(WafChallengeError) as error:
+        scrape_event_roster(
+            "52975", fetch=_fetch_for(_selected_cohort_event(), blocking=frozenset({"team=4"})),
+            requested_cohort="u13|Male",
+        )
+    assert error.value.partial.requested_cohort == "u13|Male"
+    assert {team.registration_id for team in error.value.partial.teams} == {"1", "4", "5"}
+    assert not error.value.partial.is_complete
+
+
 class TestResolveCohort:
     @pytest.mark.parametrize(
         ("label", "expected"),

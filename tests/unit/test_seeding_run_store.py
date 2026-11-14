@@ -382,6 +382,19 @@ def test_a_damaged_save_can_still_be_replaced_under_any_spelling(tmp_path):
     assert load_run(target.name, base_dir=tmp_path).name == "STX Cup - Boys"
 
 
+@pytest.mark.parametrize("before_scope,after_scope", [("", "u13|Male"), ("u13|Male", "u13|Female"), ("u13|Male", "")])
+def test_changing_import_scope_requires_a_new_saved_run(tmp_path, before_scope, after_scope):
+    before_run = _event_run(EVENT_111)
+    before_run.assessment["requested_cohort"] = before_scope
+    first = save_run(before_run, base_dir=tmp_path)
+    before = first.read_bytes()
+    replacement = _event_run(EVENT_111)
+    replacement.assessment["requested_cohort"] = after_scope
+    with pytest.raises(seeding_run_store.RunSourceChanged):
+        save_run(replacement, base_dir=tmp_path)
+    assert first.read_bytes() == before
+
+
 def test_another_event_is_refused_under_a_saved_events_name(tmp_path):
     first = save_run(_event_run(EVENT_111), base_dir=tmp_path)
     before = first.read_bytes()

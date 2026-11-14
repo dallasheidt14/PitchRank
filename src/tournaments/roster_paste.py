@@ -24,6 +24,7 @@ import re
 from dataclasses import dataclass
 
 from src.tournaments.cohort_labels import read_label
+from src.utils.us_states import STATE_CODE_TO_NAME
 
 __all__ = ["ParsedRoster", "RosterRow", "parse_roster", "split_roster_markers"]
 
@@ -36,6 +37,9 @@ _HEADING_EXTRA_WORDS = 1
 _HEADING_FILLER = frozenset({"division", "div", "bracket", "group", "flight", "age", "and", "the"})
 _U_COHORT = re.compile(r"^u[0-9]{1,2}$")
 _COUNTER_LINE = re.compile(r"^teams accepted\b|\(\s*[0-9]+\s+of\s+[0-9]+\s*\)", re.IGNORECASE)
+_BRACKET_LINE = re.compile(r"^(?:bracket|pool)\s+[A-Z0-9]+$", re.IGNORECASE)
+_STANDINGS_STATS = frozenset({"mp", "gp", "p", "w", "l", "d", "t", "gf", "ga", "gd", "pts", "points"})
+_STATE_SUFFIX = re.compile(r"\s*\(([A-Z]{2})\)\s*$")
 
 
 @dataclass(frozen=True)
@@ -109,6 +113,29 @@ def _is_column_header(cells: list[str]) -> bool:
     return len(cells) >= 2 and cells[0].strip().lower() == "club" and cells[1].strip().lower() == "team"
 
 
+def _is_standings_header(cells: list[str]) -> bool:
+    labels = {cell.strip().lower() for cell in cells}
+    return "team" in labels and len(labels & _STANDINGS_STATS) >= 2
+
+
+def _table_cells(line: str) -> list[str]:
+    """Accept spreadsheet tabs and Markdown tables without splitting team spaces."""
+    if "\t" in line:
+        return line.split("\t")
+    if line.strip().startswith("|") and line.strip().endswith("|"):
+        return [cell.strip() for cell in line.strip()[1:-1].split("|")]
+    return [line]
+
+
+def _cohort_columns(cells: list[str]) -> dict[str, int]:
+    aliases = {"team name": "team", "age": "age group", "sex": "gender"}
+    labels = [re.sub(r"\s+", " ", cell.strip().lower().replace("_", " ")) for cell in cells]
+    labels = [aliases.get(label, label) for label in labels]
+    if "team" not in labels or not ({"age group", "gender"} & set(labels)):
+        return {}
+    return {label: labels.index(label) for label in labels if label}
+
+
 def parse_roster(text: str) -> ParsedRoster:
     """Parse a pasted accepted-teams block, preserving uncertain entries.
 
@@ -120,50 +147,120 @@ def parse_roster(text: str) -> ParsedRoster:
     age_group = ""
     gender = ""
     division = ""
+    standings = False
+    standings_team_column = 0
+    standings_club_column: int | None = None
+    cohort_columns: dict[str, int] = {}
+    lines = [line for line in text.splitlines() if line.strip()]
 
-    for line in text.splitlines():
-        if not line.strip():
+    for position, line in enumerate(lines):
+        cells = _table_cells(line)
+        if not any(cell.strip() for cell in cells):
+            continue
+        columns = _cohort_columns(cells)
+        if columns:
+            cohort_columns = columns
+            standings = False
+            continue
+        if cohort_columns and all(re.fullmatch(r":?-{3,}:?", cell.strip()) for cell in cells):
+            continue
+        if _is_standings_header(cells):
+            cohort_columns = {}
+            standings = True
+            labels = [cell.strip().lower() for cell in cells]
+            standings_team_column = labels.index("team")
+            standings_club_column = labels.index("club") if "club" in labels else None
+            continue
+        if _is_column_header(cells):
+            cohort_columns = {}
+            standings = False
+            continue
+        if _BRACKET_LINE.fullmatch(line.strip()) and (
+            standings or (position + 1 < len(lines) and _is_standings_header(lines[position + 1].split("\t")))
+        ):
             continue
 
         # Trailing tabs from a spreadsheet row do not make a heading a data row,
         # but a line that is not a heading keeps every column it was pasted with.
-        if "\t" not in line.rstrip():
+        if len(cells) == 1 or (not cohort_columns and not any(cell.strip() for cell in cells[1:])):
             heading = _parse_heading(line.strip())
             if heading:
                 age_group, gender, mixed = heading
                 # A mixed section is preserved for an explicit operator decision.
                 division = line.strip() if mixed else ""
+                standings = False
+                cohort_columns = {}
                 continue
-        if "\t" not in line:
+        row_age, row_gender, row_division = age_group, gender, division
+        if cohort_columns:
+            def value(column: str) -> str:
+                index = cohort_columns.get(column)
+                return cells[index].strip() if index is not None and index < len(cells) else ""
+
+            # Explicit row metadata never inherits another team's values or its name.
+            issues = []
+            if "age group" in cohort_columns:
+                age = value("age group")
+                reading = read_label(f"U{age}" if age.isascii() and age.isdigit() else age)
+                row_age = reading.cohort if _U_COHORT.fullmatch(reading.cohort) else ""
+                if not row_age:
+                    issues.append("Check this team's age group.")
+            if "gender" in cohort_columns:
+                gender_value = value("gender")
+                row_gender = {"m": "Male", "b": "Male", "f": "Female", "g": "Female"}.get(
+                    gender_value.lower(), read_label(gender_value).gender
+                )
+                if not row_gender:
+                    issues.append("Check this team's gender.")
+            row_division = ""
+            mapped = [value("club"), value("team"), value("state"), value("requested flight")]
+            if not mapped[1]:
+                issues.append("Team name is missing.")
+            cells = mapped
+            issue = " ".join(issues)
+        elif standings and len(cells) > 1:
+            # Standings omit the rank header even when rows carry rank numbers.
+            first = cells[0].strip()
+            offset = int(standings_team_column == 0 and (not first or (first.isascii() and first.isdigit())))
+            name_index = standings_team_column + offset
+            club_index = standings_club_column + offset if standings_club_column is not None else None
+            club = cells[club_index].strip() if club_index is not None and club_index < len(cells) else ""
+            cells = [club, cells[name_index].strip() if name_index < len(cells) else ""]
+            issue = "" if cells[1] else "Team name is missing."
+        elif len(cells) == 1:
             if _COUNTER_LINE.search(line.strip()):
                 continue
             cells = ["", line.strip()]
             issue = "Confirm this line is a team, or exclude it."
         else:
-            cells = line.split("\t")
             issue = "" if len(cells) >= 2 and cells[1].strip() else "Team name is missing."
-
-        if _is_column_header(cells):
-            continue
 
         club_raw = cells[0].strip()
         team_name_raw = cells[1].strip()
         state = cells[2].strip() if len(cells) > 2 else ""
         requested_flight = cells[3].strip() if len(cells) > 3 else ""
-        stripped, has_star, has_c = split_roster_markers(team_name_raw)
+        matching_name = team_name_raw
+        if standings or cohort_columns:
+            suffix = _STATE_SUFFIX.search(matching_name)
+            if suffix and suffix[1] in STATE_CODE_TO_NAME:
+                if state and state.upper() != suffix[1]:
+                    issue = (issue + " Check the conflicting state values.").strip()
+                state = state or suffix[1]
+                matching_name = matching_name[:suffix.start()].strip()
+        stripped, has_star, has_c = split_roster_markers(matching_name)
         rows.append(
             RosterRow(
                 source_index=len(rows),
                 club_raw=club_raw,
                 team_name_raw=team_name_raw,
                 state=state,
-                section_age_group=age_group,
-                section_gender=gender,
+                section_age_group=row_age,
+                section_gender=row_gender,
                 team_name_stripped=stripped,
                 has_star_marker=has_star,
                 has_c_marker=has_c,
                 requested_flight=requested_flight,
-                listed_division=division,
+                listed_division=row_division,
                 intake_issue=issue,
             )
         )

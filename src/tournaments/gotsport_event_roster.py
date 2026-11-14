@@ -73,6 +73,7 @@ __all__ = [
     "parse_group_teams",
     "parse_header_gender",
     "parse_provider_team_id",
+    "parse_requested_cohort",
     "printable_text",
     "redact_secret",
     "resolve_cohort",
@@ -165,6 +166,8 @@ class EventRoster:
     event_end_date: str | None = None
     event_season_year: int | None = None
     event_dates_source: str = ""
+    requested_cohort: str = ""
+    """Empty for the whole event; otherwise the selected age|gender scope."""
 
     @property
     def is_complete(self) -> bool:
@@ -224,6 +227,9 @@ def event_roster_from_dict(payload: Mapping) -> EventRoster:
         if not isinstance(payload.get(name, []), (list, tuple)):
             raise TypeError(f"{name} must be a list")
     values = {field.name: payload[field.name] for field in fields(EventRoster) if field.name in payload}
+    parse_requested_cohort(values.get("requested_cohort", ""))
+    if values.get("completed_event") and values.get("requested_cohort"):
+        raise ValueError("Completed-event capture cannot be restricted to a cohort")
     for name in ("event_id", "event_name", "event_dates_source"):
         if name in values and not isinstance(values[name], str):
             raise TypeError(f"{name} must be text")
@@ -310,6 +316,18 @@ def names_cohort_outside(label: str, wanted: Collection[str]) -> bool:
     """
     cohorts = read_label(label).cohorts
     return bool(cohorts) and all(cohort not in wanted for cohort in cohorts)
+
+
+def parse_requested_cohort(value: str) -> tuple[str, str]:
+    """Validate a selection before paid requests or using it in a recovery path."""
+    if value == "":
+        return "", ""
+    if not isinstance(value, str):
+        raise ValueError("Choose a supported age group and gender")
+    parts = value.split("|")
+    if len(parts) != 2 or parts[0] not in AGE_GROUPS or parts[1] not in ("Male", "Female"):
+        raise ValueError("Choose a supported age group and gender")
+    return parts[0], parts[1]
 
 
 def printable_text(text: str) -> str:
@@ -438,9 +456,10 @@ def parse_header_gender(html: str) -> str:
     return resolve_cohort(_header_division(BeautifulSoup(html or "", "html.parser")))[1]
 
 
-def _header_genders(html: str) -> frozenset[str]:
+def _header_genders(html: str, *, firm_only: bool = False) -> frozenset[str]:
     """Every gender the page header names, so "both" and "none" stay apart."""
-    return read_label(_header_division(BeautifulSoup(html or "", "html.parser"))).genders
+    reading = read_label(_header_division(BeautifulSoup(html or "", "html.parser")))
+    return frozenset() if firm_only and not reading.gender_is_firm else reading.genders
 
 
 def parse_group_teams(html: str) -> tuple[tuple[str, str], ...]:
@@ -1091,6 +1110,7 @@ def scrape_event_roster(
     on_progress: Callable[[int, int], None] | None = None,
     on_phase: Callable[[str, int, int], None] | None = None,
     completed_event: bool = False,
+    requested_cohort: str = "",
 ) -> EventRoster:
     """Walk one event and return every team it publishes.
 
@@ -1123,6 +1143,11 @@ def scrape_event_roster(
     thing being read. A label naming no cohort is always kept: an unreadable label
     is not evidence a division is unwanted, and guessing costs teams.
 
+    ``requested_cohort`` selects one supported age and gender (e.g. ``u13|Male``).
+    Every division page is checked; only clearly unrelated divisions are dropped
+    before team-page requests. Ambiguous divisions stay visible for review. This
+    mode cannot be combined with a division limit or a completed-event capture.
+
     ID-less accepted Team rows are retained for name matching even before any
     fixtures or standings statistics exist.
 
@@ -1133,6 +1158,9 @@ def scrape_event_roster(
     """
     # completed_event is deliberately opt-in: the upcoming-event Seeding
     # project retains its existing filtering and current-cohort behavior.
+    selected_age, selected_gender = parse_requested_cohort(requested_cohort)
+    if requested_cohort and (completed_event or limit_groups is not None):
+        raise ValueError("A selected cohort must include all its divisions; no division limit is allowed")
     warnings: list[str] = []
     throttled = _throttled(fetch, delay_min, delay_max)
 
@@ -1144,7 +1172,7 @@ def scrape_event_roster(
     divisions_found = len(group_ids)
     if not group_ids:
         warnings.append(f"Event {event_id} published no divisions")
-    effective_wanted = None if completed_event else wanted_cohorts
+    effective_wanted = None if completed_event else ({selected_age} if selected_age else wanted_cohorts)
     if limit_groups is not None and effective_wanted is not None:
         divisions, unreadable_divisions, divisions_walked = _read_until_wanted_limit(
             throttled,
@@ -1173,6 +1201,7 @@ def scrape_event_roster(
             max_workers,
             warnings,
             completed_event=completed_event,
+            strict_gender=bool(requested_cohort),
             on_progress=(
                 (lambda done, total: on_phase("Capturing divisions", done, total))
                 if on_phase
@@ -1186,7 +1215,14 @@ def scrape_event_roster(
     # number found. Counting only the kept ones would report every filtered walk
     # as partial, which retires the full-walk control and disarms the guard that
     # stops a probe overwriting a complete roster.
-    divisions, skipped = _wanted_divisions(divisions, effective_wanted, warnings)
+    divisions, skipped = _wanted_divisions(divisions, effective_wanted, warnings, wanted_gender=selected_gender)
+    if requested_cohort:
+        for division in divisions:
+            if division.age_group != selected_age or division.gender != selected_gender:
+                warnings.append(
+                    f"Division {division.label or division.group_id}: age or gender is unclear; "
+                    "teams kept for review so a possible matching division is not missed."
+                )
     if (
         limit_groups is not None
         and effective_wanted is not None
@@ -1307,6 +1343,7 @@ def scrape_event_roster(
         teams_unreadable=unreadable,
         divisions=tuple(division.structure for division in divisions),
         completed_event=completed_event,
+        requested_cohort=requested_cohort,
         **metadata,
     )
     if challenge is not None:
@@ -1490,6 +1527,7 @@ def _read_divisions(
     warnings: list[str],
     *,
     completed_event: bool = False,
+    strict_gender: bool = False,
     on_progress: Callable[[int, int], None] | None = None,
 ) -> tuple[list[_Division], list[str]]:
     """Read every division's page, keeping its teams even when the label is unreadable."""
@@ -1517,10 +1555,13 @@ def _read_divisions(
         published_label = _header_division(BeautifulSoup(group_html, "html.parser")) if completed_event else ""
         published_age = _effective_published_u_age(published_label or label) if completed_event else ""
         if names_no_gender(label):
-            header_genders = _header_genders(group_html)
+            header_genders = _header_genders(group_html, firm_only=strict_gender)
             if header_genders:
                 # A header naming both genders clears a standing letter's guess.
                 gender = next(iter(header_genders)) if len(header_genders) == 1 else ""
+            elif strict_gender:
+                # A standing B or G may name a bracket; it cannot exclude a cohort.
+                gender = ""
         named = label or f"group {group_id}"
         teams = parse_group_teams(group_html)
         source_teams = _seeding_source_rows(group_html, group_id, teams) if not completed_event else ()
@@ -1612,12 +1653,13 @@ def _wanted_divisions(
     divisions: list[_Division],
     wanted_cohorts: Collection[str] | None,
     warnings: list[str],
+    *,
+    wanted_gender: str = "",
 ) -> tuple[list[_Division], list[_Division]]:
     """Split the divisions into the ones worth paying for and the ones that are not.
 
-    Only a division whose every named cohort is unwanted is dropped (``U9``,
-    ``U8/U9``, ``B2017/18``). A label naming no cohort, or naming one we rank, is
-    kept: dropping on a guess costs real teams.
+    Drop divisions whose named ages are all unwanted or whose confirmed gender
+    differs from the selection. Keep unclear divisions: guessing costs real teams.
     """
     if wanted_cohorts is None:
         return divisions, []
@@ -1625,7 +1667,9 @@ def _wanted_divisions(
     keep: list[_Division] = []
     skipped: list[_Division] = []
     for division in divisions:
-        if names_cohort_outside(division.label, wanted_cohorts):
+        if names_cohort_outside(division.label, wanted_cohorts) or (
+            wanted_gender and division.gender and division.gender != wanted_gender
+        ):
             skipped.append(division)
         else:
             keep.append(division)
@@ -1633,7 +1677,8 @@ def _wanted_divisions(
     if skipped:
         labels = ", ".join(sorted({division.label or division.group_id for division in skipped}))
         warnings.append(
-            f"Skipped {len(skipped)} division(s) outside the ages you rank, "
+            f"Skipped {len(skipped)} division(s) outside "
+            f"{'the selected age group and gender' if wanted_gender else 'the ages you rank'}, "
             f"and did not fetch their team pages: {labels}"
         )
     return keep, skipped
