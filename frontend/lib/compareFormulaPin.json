@@ -1,0 +1,15 @@
+{
+  "revision": "c061cfc042953d0e677ea5474cbb509758f14593",
+  "model_version": "heuristic_v8_continuous_transitions_v1",
+  "source_hashes": {
+    "matchPredictor.ts": "126a32a147cb066684c59bfbdc27db8f2eedf115814c2c63b2b8fdeb78747035",
+    "confidenceEngine.ts": "41241abbbb3a86f6b0cd94f0d4567d34c07dce1a6e0a0b9c35ddea54a0f798b1",
+    "teamAge.ts": "9d477d619b1400c799816569d8652aaa1845d19500aec10924022b80a82e2e2c",
+    "matchPredictionService.ts": "c193a56ec978b59a94d17bf7fc9c838131b36a6b6808301e490ff8f148fa1e70",
+    "predictionIdentity.ts": "23f1bfca743662b4ad095a6451146d36ec97f10229fac06a0ec503d4427c4124",
+    "calibrationLoader.ts": "f0edd29e5f1681c761512f245322b67b6af367a347986c6560b941f4fa89d66b",
+    "matchEvidence.ts": "0fe9b2650ca962f882c4c8dd6688bc1934d4bad73cb06cfbafdcba76d7aaaeee",
+    "utils.ts": "aeff4e06f6973b48acf4ab5faeb1f660805baa053ee2c68bce75edd5d41f9eb8",
+    "constants.ts": "1f3049d387c59a3cec2b09ce9dbaa2e3781d33ddf1b59dc636c407bda2cca24f"
+  }
+}
