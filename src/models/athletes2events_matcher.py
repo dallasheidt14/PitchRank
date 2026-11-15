@@ -166,6 +166,10 @@ class Athletes2EventsGameMatcher(GameHistoryMatcher):
         """
         return without_club(without_club(name, self._written_club), club)
 
+    def _candidate_state_filter(self, state_code: str) -> str:
+        """The PostgREST ``or`` filter for the states a candidate may be stored in."""
+        return f"state_code.eq.{state_code},state_code.is.null"
+
     def _fetch_candidates(self, age_group: str, gender: str, state_code: str) -> list:
         rows: list = []
         page_size = 1000
@@ -177,7 +181,7 @@ class Athletes2EventsGameMatcher(GameHistoryMatcher):
                 .eq("age_group", age_group)
                 .eq("gender", gender)
                 .eq("is_deprecated", False)
-                .or_(f"state_code.eq.{state_code},state_code.is.null")
+                .or_(self._candidate_state_filter(state_code))
                 .order("team_id_master")
                 .range(offset, offset + page_size - 1)
                 .execute()

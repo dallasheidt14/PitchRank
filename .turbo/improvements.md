@@ -2579,6 +2579,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Noted**: 2026-10-30
 - **Trigger**: A fix to any of these functions that has to land in more than one driver.
 - **Update (2026-11-09)**: The new HTG Sports driver (`scripts/import_htgsports_event.py`) imports the Tourney Central helper functions instead of copying them: `pending_reviews` and `build_csv_rows` gained a `provider_code` argument and `shared_links` and `register_teams` a `provider_name` argument, each defaulting to Tourney Central's value. HTG's `main` still repeats Tourney Central's registration sequence (preview, conflicts, writer, saved-link and saved-review checks, off-board check), a sixth copy of that sequence, and an omitted provider argument there silently takes Tourney Central's value; its tests pin each argument that changes behavior. The other four drivers still keep their own helper copies, and the shared functions still live in a driver rather than a module.
+- **Update (2026-11-14)**: The Heartland driver (`scripts/import_heartland.py`) imports the same Tourney Central helpers as HTG, except `register_teams`, which it copies to turn a stateless team's non-match into `held` while an exception stays `error`; Tourney Central's version returns `error` for both. An optional non-match hook on Tourney Central's `register_teams` would let Heartland import it. It also repeats the registration sequence in `main`, a seventh copy.
 
 ### A club-name decline on some of a club's teams does not stop the same change on its other teams
 
@@ -3166,3 +3167,23 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `InputArchive.recovered` in `src/rankings/input_archive.py`; the end-of-run `failed_batches` passes in `_persist_game_explainability` and `_persist_game_residuals` (`src/rankings/calculator.py`) and in `_save_batch_with_retry` for `current_rankings` (`scripts/calculate_rankings.py`); the column-strip fallback in `save_prediction_feature_snapshot` (`src/rankings/prediction_feature_history.py`)
 - **Why**: The archive retires a failure only when the same task's next request is the identical one, or when `save_rankings_to_supabase` confirms every `rankings_full` row landed. A batch that fails every attempt and lands in an end-of-run pass, or a prediction-history batch resent with its optional columns stripped, is neither, so the run fails with `Ranking completed, but its input archive failed: query_execution:…` after saving everything. Rare: no batch exhausted its attempts and no end-of-run pass ran in the 5 completed ranking runs of 2026-11-07..13, and the live `prediction_feature_history` had all ten columns its fallback strips. The explainability and residual helpers run concurrently per cohort task, so a table-wide `recovered()` from one cohort would retire another cohort's real failure: scope the call to the reporting task, and call it only when every batch saved (a strip `continue` on the last prediction-history attempt leaves a batch unsaved without raising).
 - **Noted**: 2026-11-13
+
+### `is_same_club` treats KC Atletico and KC Athletics as one club
+
+- **ID**: IMP-396
+- **Status**: open
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `is_same_club` in `src/models/squad_name_gates.py`, the club gate of `Athletes2EventsGameMatcher._fuzzy_match_team` that every roster-pass matcher inherits
+- **Why**: `is_same_club("KC Atletico SC", "KC Athletics", 0.9)`, `("KC Atletico", "KC Athletics", 0.9)` and `("KC Atletico SC", "Kansas City Athletics", 0.9)` all return True (checked 2026-11-14), and the Heartland dry run fuzzy-linked "KC Atletico SC 13" to "KC Athletics Como 13G" at 0.939. A near-spelling of another club passes the gate, so squads can link across clubs for every provider that uses it. Measure how many stored club pairs it merges at 0.9 that differ by a distinctive word before tightening.
+- **Noted**: 2026-11-14
+
+### Roster-pass importers write the games CSV with raw scraped names
+
+- **ID**: IMP-397
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `build_csv_rows` and the `*_games.csv` `write_csv` call in `scripts/import_tourneycentral_event.py`, and the drivers that reuse or copy it (`import_htgsports_event.py`, `import_heartland.py`, `import_demosphere.py`, `import_yssl.py`, `import_athletes2events_event.py`)
+- **Why**: The team report, held and cross-age CSVs go through `_for_spreadsheets`, but the games CSV keeps names as scraped, and the weekly workflows upload it as an artifact a person may open in a spreadsheet, where a registrar-typed name starting with = + - @ is evaluated (reported by review 2026-11-14, path not exploited). Decide whether `import_games_enhanced.py` needs the raw names; if not, sanitize the file, else keep it out of the artifact or label it machine-only.
+- **Noted**: 2026-11-14

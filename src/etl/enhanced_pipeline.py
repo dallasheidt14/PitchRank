@@ -435,6 +435,17 @@ class EnhancedETLPipeline:
                 alias_cache=self.alias_cache,
                 dry_run=self.dry_run,
             )
+        elif self.provider_code.lower() == "heartland":
+            from src.models.heartland_matcher import HeartlandGameMatcher
+
+            # No registration_mode: only the roster pass in import_heartland.py creates teams.
+            logger.info("Using HeartlandGameMatcher (alias-only; teams come from the roster pass)")
+            self.matcher = HeartlandGameMatcher(
+                self.supabase,
+                provider_id=self.provider_id,
+                alias_cache=self.alias_cache,
+                dry_run=self.dry_run,
+            )
         elif self.provider_code.lower() == "playmetrics":
             from src.models.playmetrics_matcher import PlayMetricsGameMatcher
 
