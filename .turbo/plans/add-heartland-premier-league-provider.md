@@ -229,19 +229,20 @@ state or null. That is why steps 2, 5 and 6 match every team first and hold only
      drops anything below U10. Gender is the division's.
    - Club: `club_for_team(name)` takes the longest `HEARTLAND_CLUBS` prefix at a word boundary, case-insensitive,
      and otherwise TC's `club_for("", name, HOST)`.
-     - Each `HeartlandClub` entry has `stored`, `spellings` (other stored names of the same club) and an
-       optional owner-set `state`.
+     - Each `HeartlandClub` entry has `stored` and `spellings` (other stored names of the same club).
+     - `CLUB_STATES` maps leading words to the state the owner gave a club. It is separate from
+       `HEARTLAND_CLUBS` because the club name is a matching input: shortening "Manhattan Surf Blue" to
+       "Manhattan Surf" made six already-linked teams match nothing and be created again.
      - Entries come from stored KS/MO teams' `club_name` (2026-11-14) and are listed for the owner at the
        dry-run review.
-   - **`resolve_state(club_name, club, stored)` is the state a team would be created with.** It is not a
-     roster filter. In order:
-     1. the entry's owner-set state;
-     2. `home_state(club_name)`, accepted only when it is KS or MO (owner, 2026-11-14);
-     3. `requires_review(club_name)`, which gives None with "the club-state registry asks a person to pick this
-        club's state";
-     4. the one state the club's stored teams agree on within KS and MO, pooled over `club_name` and every
-        spelling. Any disagreement gives None with "the club's stored teams disagree on state";
-     5. otherwise None with "no stored team of this club in KS or MO".
+   - **`resolve_state(club_name, club, stored, owner)` is the state a team would be created with.** It is
+     not a roster filter. In order:
+     1. `home_state(club_name)`, accepted only when it is KS or MO (owner, 2026-11-14);
+     2. unless `requires_review(club_name)`, the one state the club's stored teams agree on within KS and MO,
+        pooled over `club_name` and every spelling;
+     3. the owner's state from `CLUB_STATES` ("set for the club");
+     4. otherwise None, with "the club-state registry asks a person to pick this club's state", "the club's
+        stored teams disagree on state" or "no stored team of this club in KS or MO".
    - **No team is left out for its state.**
      - Every team on a team list with an age, a board and a club goes to registration, and `state_code` may
        be None.
@@ -409,7 +410,22 @@ state or null. That is why steps 2, 5 and 6 match every team first and hold only
   1,222 team-games (a game counts once for each existing team it reaches) to 323 existing teams, and 45 of
   them cross `MIN_GAMES_PROVISIONAL` (10) upward.
 - **Owner decision (2026-11-14):** ship as is, then a review sheet of the held clubs. Each club the owner
-  marks KS or MO goes into `HEARTLAND_CLUBS` and releases its teams on the next run.
+  marks KS or MO goes into `CLUB_STATES` and releases its teams on the next run.
+- **Owner states, as built (2026-11-14):** the owner settled Union KC, KC Athletics and KC Legends (KS), LSL
+  (Sporting Lee's Summit, MO), Gretna Elite Academy and Xtra (NE), Specialized Soccer Academy (AR) and
+  Northeast United (KS), and accepted the states that every stored clubmate or the club's name gives.
+  - `register_teams` matches a team whose state the owner set as a stateless team and passes the state only
+    to create it, after nothing matched. Matched with the state, a team earns a location score against
+    same-state candidates, which sent 12 KC Athletics and KC Legends teams that had linked at 0.99-1.0 to
+    review at 0.89, against their teams stored in the other state.
+  - A write-guarded dry run with the table, compared team by team against the one before it: 182 held
+    teams would be created (92 KS, 77 MO, 9 AR, 4 NE) and 3 go to review. Every other team keeps its
+    outcome and its link, except one that moved from review to linked because its stored teams were edited
+    between the runs. 1,600 of 3,762 games import; 89 teams stay held.
+  - The owner then settled FC Horizon (AR), Hypernova Athletics SC, Palmyra, Piper United and KRSC/KSRC (KS);
+    the next dry run left 72 teams held. KRSC keeps its own club name for matching: filed under Kansas Rush,
+    its two teams paired with two other Kansas Rush squads at 0.90 and 0.94 and held both. Under its own name
+    each matches nothing and is created in Kansas (checked through `register_teams` with the real matcher).
 
 ## Context Files
 

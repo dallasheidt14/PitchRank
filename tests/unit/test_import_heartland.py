@@ -179,15 +179,52 @@ class TestClubAndState:
         assert source == "cut from name"
         assert club_name != "OP Soccer Club"
 
+    def test_a_u_age_glued_to_the_prefix_still_ends_it(self):
+        club_name, written, source, _ = hl.club_for_team("SportingSpringfieldU12Atletico")
+        assert (club_name, written, source) == ("Sporting Springfield", "SportingSpringfield", "club table")
+        assert hl.owner_state("SportingSpringfieldU12Atletico") == "MO"
+
+    def test_the_owners_calls_give_new_teams_their_state(self):
+        # Owner, 2026-11-14: Union KC, KC Athletics and KC Legends are Kansas; LSL is Sporting Lee's Summit, Missouri.
+        names = (
+            "Union KC 16/17B Premier MO Navy",
+            "KCA Academy Select Navy U14G",
+            "KCL North Jets 16/17",
+            "LSL NY 12/13",
+            "FC Vardar U12 B Red",
+        )
+        assert {name: hl.owner_state(name) for name in names} == {
+            "Union KC 16/17B Premier MO Navy": "KS",
+            "KCA Academy Select Navy U14G": "KS",
+            "KCL North Jets 16/17": "KS",
+            "LSL NY 12/13": "MO",
+            "FC Vardar U12 B Red": None,
+        }
+
+    def test_an_owner_state_leaves_the_club_name_alone(self):
+        # The club name is a matching input; a state call must not change it.
+        assert hl.club_for_team("LSL Elite Black B12/13")[:3] == ("LSL Elite Black", "LSL", "cut from name")
+
     def test_a_club_outside_the_table_is_cut_from_the_name(self):
         club_name, written, source, club = hl.club_for_team("FC Vardar U12 B Red")
         assert (club_name, source, club) == ("FC Vardar", "cut from name", None)
         assert written == "FC Vardar"
 
-    def test_a_state_set_for_the_club_wins(self):
-        club = hl.HeartlandClub("Kansas City Athletics", ("KC Athletics",), "KS")
+    def test_the_owners_state_settles_a_split_club(self):
+        club = hl.HeartlandClub("Kansas City Athletics", ("KC Athletics",))
         stored = {"Kansas City Athletics": "KS", "KC Athletics": "MO"}
-        assert hl.resolve_state("Kansas City Athletics", club, stored) == ("KS", "set for the club")
+        assert hl.resolve_state("Kansas City Athletics", club, stored, "KS") == ("KS", hl.OWNER_SET)
+
+    def test_the_owners_state_settles_a_club_the_registry_curates(self):
+        assert hl.resolve_state("KC Legends", None, {"KC Legends": "MO"}, "KS") == ("KS", hl.OWNER_SET)
+
+    def test_the_owners_state_settles_a_club_with_no_stored_team(self):
+        assert hl.resolve_state("LSL Elite Red", None, {}, "MO") == ("MO", hl.OWNER_SET)
+
+    def test_a_settled_club_keeps_its_own_state_over_the_owners(self):
+        # A settled state earns the team its location score in matching, as it did before the owner's call.
+        assert hl.resolve_state("Topeka SC", None, {"Topeka SC": "KS"}, "MO") == ("KS", "club's stored teams")
+        assert hl.resolve_state("Sporting Blue Valley", None, {}, "MO") == ("KS", "club-state registry")
 
     def test_the_registry_home_is_the_clubs_state(self):
         assert hl.resolve_state("Sporting Blue Valley", None, {"Sporting Blue Valley": "MO"}) == (
@@ -235,13 +272,14 @@ class TestClubAndState:
 
 class TestRegisterTeams:
     class _Matcher:
-        def __init__(self, result=None, error=None):
-            self.result, self.error = result, error
+        def __init__(self, result=None, error=None, results=None):
+            self.result, self.error, self.results, self.states = result, error, list(results or []), []
 
         def _match_team(self, **kwargs):
+            self.states.append(kwargs["state_code"])
             if self.error:
                 raise self.error
-            return self.result
+            return self.results.pop(0) if self.results else self.result
 
     @staticmethod
     def _row(state_code=None, state_source="no stored team of this club in KS or MO"):
@@ -283,6 +321,33 @@ class TestRegisterTeams:
         result = {"matched": True, "created": False, "team_id": "ks-1", "method": "fuzzy_auto", "confidence": 1.0}
         outcome = self._outcome(self._row(), result=result)
         assert (outcome.status, outcome.team_id_master) == ("linked_existing", "ks-1")
+
+    def test_an_owner_state_is_matched_without_it_and_creates_with_it(self):
+        matcher = self._Matcher(
+            results=[{"matched": False, "created": False, "method": None}, {"created": True, "team_id": "new-1"}]
+        )
+        row = self._row("KS", hl.OWNER_SET)
+        outcome = hl.register_teams(matcher, "pid", [row], {})[row.tc_team_id]
+        assert (outcome.status, outcome.team_id_master, matcher.states) == ("created", "new-1", [None, "KS"])
+
+    def test_an_owner_state_never_reaches_a_team_that_links(self):
+        result = {"matched": True, "created": False, "team_id": "mo-1", "method": "fuzzy_auto", "confidence": 1.0}
+        matcher = self._Matcher(result=result)
+        row = self._row("KS", hl.OWNER_SET)
+        outcome = hl.register_teams(matcher, "pid", [row], {})[row.tc_team_id]
+        assert (outcome.status, outcome.team_id_master, matcher.states) == ("linked_existing", "mo-1", [None])
+
+    def test_an_owner_state_never_reaches_a_team_sent_to_review(self):
+        matcher = self._Matcher(result={"matched": False, "review": True, "confidence": 0.89})
+        row = self._row("KS", hl.OWNER_SET)
+        outcome = hl.register_teams(matcher, "pid", [row], {})[row.tc_team_id]
+        assert (outcome.status, matcher.states) == ("review", [None])
+
+    def test_a_settled_state_is_matched_with_it(self):
+        matcher = self._Matcher(result={"created": True, "team_id": "new-2"})
+        row = self._row("KS", "club's stored teams")
+        hl.register_teams(matcher, "pid", [row], {})
+        assert matcher.states == ["KS"]
 
     def test_an_approved_alias_skips_the_matcher(self):
         row = self._row()
@@ -853,6 +918,8 @@ class TestRunMainWithTheRealMatcher:
         monkeypatch.setattr(hl, "make_session", lambda: None)
         monkeypatch.setattr(hl, "_fetch", fetch)
         monkeypatch.setattr(hl, "club_states", lambda supabase, names, region=(): {})
+        # KC Surf stands in for a club whose state is unsettled.
+        monkeypatch.delitem(hl.CLUB_STATES, "KC Surf")
         monkeypatch.setattr(
             hl.subprocess, "run", lambda command, check: imports.append(command) or SimpleNamespace(returncode=0)
         )
@@ -893,6 +960,8 @@ class TestRunMainWithTheRealMatcher:
         assert "KC Surf Pre ECNL Blue U12B" not in created
         assert "FC Vardar U12 B Red" not in created
         assert created["Sporting BV Pre-MLS Next NV 14/15"]["state_code"] == "KS"
+        # The registry asks a person to pick Sporting City's state; the owner's MO in the club table answers it.
+        assert created["Sporting City U12 PreMLS-NorthII"]["state_code"] == "MO"
         aliases = {a["provider_team_id"]: a["team_id_master"] for a in run_main.db.writes("team_alias_map")}
         assert aliases["2026fall-7210"] == "stored-vardar"
         assert "2026fall-7211" not in aliases

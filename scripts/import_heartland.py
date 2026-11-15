@@ -57,7 +57,7 @@ import time
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Set, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple
 from urllib.parse import urlencode
 
 from bs4 import BeautifulSoup
@@ -176,12 +176,10 @@ class HeartlandClub:
     ``spellings`` are the other names the same club is stored under. Where the state falls to the
     stored teams, their states count with the club's own, so a club stored under two names in two
     states is held for the owner rather than filed by whichever spelling the name happens to use.
-    ``state`` is one the owner set.
     """
 
     stored: str
     spellings: Tuple[str, ...] = ()
-    state: Optional[str] = None
 
 
 # Leading words of Heartland team names -> the club PitchRank stores, read from the stored teams of
@@ -206,11 +204,68 @@ HEARTLAND_CLUBS: Dict[str, HeartlandClub] = {
     "SKV": HeartlandClub("Sporting Kaw Valley Soccer Club"),
     "Sporting Kaw": HeartlandClub("Sporting Kaw Valley Soccer Club"),
     "SportingKawValley": HeartlandClub("Sporting Kaw Valley Soccer Club"),
+    "SportingSpringfield": HeartlandClub("Sporting Springfield"),
     "Alliance FC": HeartlandClub("Alliance Futbol Club (MO)"),
     "Virtus FC": HeartlandClub("Virtus Futbol Club"),
     "SLS": HeartlandClub("Sporting Lees Summit"),
     "SWMO Rush": HeartlandClub("Southwest MO Rush"),
     "KCFC": HeartlandClub("Kansas City FC"),
+    "KSRC": HeartlandClub("Kansas Rush"),
+    "Hypernova": HeartlandClub("Hypernova Athletics SC"),
+}
+
+# Leading words of Heartland team names -> the state the owner gave the club (2026-11-14): their own
+# calls, the state every stored clubmate agrees on, or the one the club's name gives. It is the
+# state a new team is created with when the registry and the stored teams leave the club unsettled,
+# and it plays no part in matching (``register_teams``).
+CLUB_STATES: Dict[str, str] = {
+    "Sporting City": "MO",
+    "KC Athletics": "KS",
+    "KCA": "KS",
+    "Union KC": "KS",
+    "KC Surf": "KS",
+    "KCL": "KS",
+    "KC Legends": "KS",
+    "Jambars FC": "KS",
+    "Sporting KV": "KS",
+    "SLS": "MO",
+    "LSL": "MO",
+    "KC Scott Gallagher": "MO",
+    "SJSC": "MO",
+    "PSC": "KS",
+    "KC Fire FC": "KS",
+    "TISC": "KS",
+    "KC Blaze": "MO",
+    "Manhattan Surf": "KS",
+    "Sporting Springfield": "MO",
+    "SportingSpringfield": "MO",
+    "Unified FC": "MO",
+    "Bk Academy FC": "KS",
+    "HAFC": "KS",
+    "Basehor Bobcats": "KS",
+    "Sedalia Select": "MO",
+    "LS United": "MO",
+    "LS Legends": "MO",
+    "EDO": "MO",
+    "Liberty United": "MO",
+    "Harrisonville Ladycats": "MO",
+    "Raymore Society": "MO",
+    "Clay Center FC": "KS",
+    "Kansas Academy FC": "KS",
+    "Sporting Arkansas": "AR",
+    "Omaha-EVO": "NE",
+    "GEA": "NE",
+    "Xtra Soccer Academy": "NE",
+    "SS Academy": "AR",
+    "NEU": "KS",
+    "KCKU": "KS",
+    "FC Horizon": "AR",
+    "KRSC": "KS",
+    "KSRC": "KS",
+    "Hypernova": "KS",
+    "Palmyra": "KS",
+    "Knights of Palmyra": "KS",
+    "Piper United": "KS",
 }
 
 
@@ -392,38 +447,58 @@ def window_start(since: Optional[date], event_season: int) -> date:
 # ── Roster ─────────────────────────────────────────────────────────────────────
 
 
+OWNER_SET = "set for the club"
+
+
+def _leading(prefixes: Iterable[str], team_name: str) -> Optional[str]:
+    """The longest prefix the name starts with, ending at a word or at a glued U-age (``SportingSpringfieldU12``)."""
+    for written in sorted(prefixes, key=len, reverse=True):
+        if re.match(rf"{re.escape(written)}(?:(?![A-Za-z0-9])|(?=U\d))", team_name, re.IGNORECASE):
+            return written
+    return None
+
+
 def club_for_team(team_name: str) -> Tuple[Optional[str], Optional[str], str, Optional[HeartlandClub]]:
     """``(club as stored, club as the name writes it, source, table entry)`` for one team."""
-    for written in sorted(HEARTLAND_CLUBS, key=len, reverse=True):
-        if re.match(rf"{re.escape(written)}(?![A-Za-z0-9])", team_name, re.IGNORECASE):
-            club = HEARTLAND_CLUBS[written]
-            return club.stored, team_name[: len(written)], "club table", club
+    written = _leading(HEARTLAND_CLUBS, team_name)
+    if written:
+        club = HEARTLAND_CLUBS[written]
+        return club.stored, team_name[: len(written)], "club table", club
     guessed, written = club_for("", team_name, HOST)
     return guessed, written, "cut from name", None
 
 
+def owner_state(team_name: str) -> Optional[str]:
+    written = _leading(CLUB_STATES, team_name)
+    return CLUB_STATES[written] if written else None
+
+
 def resolve_state(
-    club_name: Optional[str], club: Optional[HeartlandClub], stored: Dict[str, Optional[str]]
+    club_name: Optional[str],
+    club: Optional[HeartlandClub],
+    stored: Dict[str, Optional[str]],
+    owner: Optional[str] = None,
 ) -> Tuple[Optional[str], str]:
     """``(state, source)``: the state a team would be created with; None, with the reason, holds a new team.
 
     The club-state registry's home outranks the club's stored teams (owner, 2026-11-14: Sporting
     Blue Valley is Kansas though some of its teams are stored in Missouri), but only a home inside
-    the region: a club cut from a name can share a registry key with a club elsewhere.
+    the region: a club cut from a name can share a registry key with a club elsewhere. The owner's
+    state for the club (``CLUB_STATES``) settles a club the registry and the stored teams leave unsettled.
     """
-    if club and club.state:
-        return club.state, "set for the club"
     home = home_state(club_name)
     if home in REGION:
         return home, "club-state registry"
     if requires_review(club_name):
-        return None, "the club-state registry asks a person to pick this club's state"
-    states = {stored[name] for name in (club_name, *(club.spellings if club else ())) if name in stored}
-    if None in states or len(states) > 1:
-        return None, "the club's stored teams disagree on state"
-    if states:
-        return states.pop(), "club's stored teams"
-    return None, "no stored team of this club in KS or MO"
+        unsettled = "the club-state registry asks a person to pick this club's state"
+    else:
+        states = {stored[name] for name in (club_name, *(club.spellings if club else ())) if name in stored}
+        if len(states) == 1 and None not in states:
+            return states.pop(), "club's stored teams"
+        unsettled = "the club's stored teams disagree on state" if states else "no stored team of this club in KS or MO"
+    if owner:
+        return owner, OWNER_SET
+    return None, unsettled
 
 
 def one_board_u_ages(team_name: str, event_season: int, board_season: int) -> Optional[int]:
@@ -484,7 +559,7 @@ def build_roster(
         age_source = NAME_WITHOUT_AN_AGE.get(age_source, age_source)
         cohort = board_cohort(birth_year, board_season) if birth_year else None
         club_name, club_as_written, club_source, club = clubs[number]
-        state_code, state_source = resolve_state(club_name, club, stored)
+        state_code, state_source = resolve_state(club_name, club, stored, owner_state(team_name))
         row = HeartlandTeamRow(
             tc_team_id=team_id,
             team_name=team_name,
@@ -523,7 +598,9 @@ def register_teams(
 
     A team with no state the matcher could neither link nor send to review is ``held``, with
     its state's reason: the matcher never creates a team without a state, and the owner
-    decides where a new team of a split or unknown club belongs. An exception stays an
+    decides where a new team of a split or unknown club belongs. A team whose state the owner
+    set is matched as a stateless team and given that state only to be created, so the owner's
+    call never moves a link: a state earns a location score in matching. An exception stays an
     ``error``, so a failed lookup never reads as a quiet hold.
     """
     outcomes: Dict[str, Outcome] = {}
@@ -531,17 +608,20 @@ def register_teams(
         if row.tc_team_id in already:
             outcomes[row.tc_team_id] = Outcome("already_linked", already[row.tc_team_id], 1.0)
             continue
+        team = dict(
+            provider_id=provider_id,
+            provider_team_id=row.tc_team_id,
+            team_name=row.team_name,
+            age_group=row.age_group,
+            gender=row.gender,
+            club_name=row.club_name,
+            written_club=row.club_as_written,
+        )
+        owner_set = row.state_source == OWNER_SET
         try:
-            result = matcher._match_team(
-                provider_id=provider_id,
-                provider_team_id=row.tc_team_id,
-                team_name=row.team_name,
-                age_group=row.age_group,
-                gender=row.gender,
-                club_name=row.club_name,
-                state_code=row.state_code,
-                written_club=row.club_as_written,
-            )
+            result = matcher._match_team(**team, state_code=None if owner_set else row.state_code)
+            if owner_set and not any(result.get(key) for key in ("created", "relinked", "matched", "review")):
+                result = matcher._match_team(**team, state_code=row.state_code)
         except Exception as e:
             logger.error(f"match error for {PROVIDER_NAME} team {row.tc_team_id}: {e}")
             outcomes[row.tc_team_id] = Outcome("error", reason=str(e))

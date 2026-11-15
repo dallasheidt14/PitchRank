@@ -1131,6 +1131,10 @@ browser User-Agent, no proxy and no bot challenge. `scripts/import_heartland.py`
 - The club codes on the seedings page are member organisations, not clubs: `KPSL` covers dozens of
   clubs and many teams are "Non Member". Read the club from the team name, through the driver's
   `HEARTLAND_CLUBS` table for the clubs PitchRank stores under another spelling.
+- The owner's state for a club goes in `CLUB_STATES`, never into `HEARTLAND_CLUBS`, and is used only to
+  create a team that matched nothing. Both the club name and a state are matching inputs: a shorter club
+  name made already-linked teams match nothing and be created again, and a state sent 12 linked teams to
+  review, by scoring their teams stored in the other state lower.
 - Kansas City clubs are stored on both sides of the line, sometimes under two spellings of one club
   (`Kansas City Athletics` in KS, `KC Athletics` mostly in MO). Pool every spelling before reading a
   club's state from its stored teams, or the spelling a name happens to use picks the state.
