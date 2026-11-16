@@ -75,6 +75,13 @@ to its exact archived content and an independently authenticated availability
 witness. It must distinguish frozen forecasts from reconstructions made later.
 Archive completion itself does not certify study eligibility.
 
+Transient transport interruptions during publication have four bounded attempts.
+Uploads remain immutable, and registration preserves the first server timestamp.
+Integrity failures and non-duplicate storage API rejections fail immediately. The daily forecast
+workflow constructs the archive with its locked collector, then uses publishing
+tools from the workflow commit in a separate checkout. Repairing publication
+therefore does not change the collecting predictor or the archived source files.
+
 ## Full forecast archives and a separate form study
 
 The daily Compare workflow can also archive completed forecasts for the next
