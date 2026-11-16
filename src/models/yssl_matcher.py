@@ -27,13 +27,12 @@ import re
 from typing import Dict, FrozenSet, Optional, Tuple
 
 from src.models.athletes2events_matcher import Athletes2EventsGameMatcher
-from src.models.tournament_name_gates import canonical_team_name, is_boys, without_club
+from src.models.tournament_name_gates import begins, canonical_team_name, initials, is_boys, without_club
 from src.utils.team_name_utils import resolve_distinction
 from src.utils.us_states import STATE_CODE_TO_NAME
 
 _WORDS = re.compile(r"[a-z]+")
 _NOT_DISTINGUISHING = frozenset({"fc", "sc", "soccer", "club", "the", "boys", "boy", "girls", "girl", "u"})
-_SHORTEST_ABBREVIATION = 4
 # YSSL's own shorthand, spelled out before matching so "UTD" and "SEL" meet PitchRank's
 # "United" and "Select". "SEL" matters beyond the word rule: unexpanded, the candidate's
 # "Select" is a tier the YSSL name lacks, and a one-sided tier blocks the link.
@@ -82,10 +81,6 @@ def _fits_squad_number(number: Optional[int], candidate: Dict) -> bool:
     return number in stored if number and number >= 2 else not stored or 1 in stored
 
 
-def _initials(name: str) -> str:
-    return "".join(word[0] for word in _WORDS.findall(name.lower()))
-
-
 def distinguishing_words(team_name: str, written_club: Optional[str], club_name: Optional[str]) -> FrozenSet[str]:
     """The words of a YSSL name that name its squad: not the club or its initials, an age, a year or a gender.
 
@@ -93,7 +88,7 @@ def distinguishing_words(team_name: str, written_club: Optional[str], club_name:
     """
     name = without_club(canonical_team_name(team_name), written_club).lower()
     club_words = set(_WORDS.findall(f"{written_club or ''} {club_name or ''}".lower()))
-    club_words |= {_initials(club) for club in (written_club, club_name) if club}
+    club_words |= {initials(_WORDS.findall(club.lower())) for club in (written_club, club_name) if club}
     return frozenset(
         word
         for word in _WORDS.findall(re.sub(r"\w*\d\w*", " ", name))
@@ -103,9 +98,7 @@ def distinguishing_words(team_name: str, written_club: Optional[str], club_name:
 
 def _carries(words: FrozenSet[str], candidate: Dict) -> bool:
     stored = set(_WORDS.findall((candidate.get("team_name") or "").lower()))
-    return all(
-        word in stored or any(len(s) >= _SHORTEST_ABBREVIATION and word.startswith(s) for s in stored) for word in words
-    )
+    return all(word in stored or any(begins(s, word) for s in stored) for word in words)
 
 
 class YSSLGameMatcher(Athletes2EventsGameMatcher):

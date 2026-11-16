@@ -3177,6 +3177,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `is_same_club` in `src/models/squad_name_gates.py`, the club gate of `Athletes2EventsGameMatcher._fuzzy_match_team` that every roster-pass matcher inherits
 - **Why**: `is_same_club("KC Atletico SC", "KC Athletics", 0.9)`, `("KC Atletico", "KC Athletics", 0.9)` and `("KC Atletico SC", "Kansas City Athletics", 0.9)` all return True (checked 2026-11-14), and the Heartland dry run fuzzy-linked "KC Atletico SC 13" to "KC Athletics Como 13G" at 0.939. A near-spelling of another club passes the gate, so squads can link across clubs for every provider that uses it. Measure how many stored club pairs it merges at 0.9 that differ by a distinctive word before tightening.
 - **Noted**: 2026-11-14
+- **Update (2026-11-15)**: Heartland and HTG Sports now refuse such a candidate when each name carries a squad word the other lacks (`SquadWordRules._names_another_squad` in `src/models/squad_word_rules.py`, which keeps the near-spelled club's own words), but the gate itself still admits it, and the other roster-pass matchers are unchanged. A team whose name carries no squad word, such as "KC Atletico SC 13" above, still links.
 
 ### Roster-pass importers write the games CSV with raw scraped names
 
@@ -3187,3 +3188,34 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `build_csv_rows` and the `*_games.csv` `write_csv` call in `scripts/import_tourneycentral_event.py`, and the drivers that reuse or copy it (`import_htgsports_event.py`, `import_heartland.py`, `import_demosphere.py`, `import_yssl.py`, `import_athletes2events_event.py`)
 - **Why**: The team report, held and cross-age CSVs go through `_for_spreadsheets`, but the games CSV keeps names as scraped, and the weekly workflows upload it as an artifact a person may open in a spreadsheet, where a registrar-typed name starting with = + - @ is evaluated (reported by review 2026-11-14, path not exploited). Decide whether `import_games_enhanced.py` needs the raw names; if not, sanitize the file, else keep it out of the artifact or label it machine-only.
 - **Noted**: 2026-11-14
+
+### The dashboard's review-queue Approve always fails
+
+- **ID**: IMP-398
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `approve_team_match` (`supabase/migrations/20240201000003_add_match_review_queue.sql`), called by the Team Match Review Queue's Approve button in `dashboard.py`
+- **Why**: The RPC inserts `team_alias_map.match_method = 'manual_review'`, which the `valid_match_type` check (auto, manual, import, direct_id, fuzzy_auto, fuzzy_review) refuses, so every approval raises and writes nothing; seen 2026-11-15 on two Heartland rows, linked instead by writing the alias as `manual`. Redefine the function with the same signature (no overload) to write `manual`, or have the dashboard write the alias and review status itself; its `ON CONFLICT DO NOTHING` also keeps an existing alias silently.
+- **Noted**: 2026-11-15
+
+### The tournament squad gate reads a "(NE)" state tag as the direction northeast
+
+- **ID**: IMP-399
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `squad_marks` / `squads_conflict` in `src/models/tournament_name_gates.py` (Soccer Events Group, Athletes2Events, Tourney Central, HTG Sports and Heartland matchers); `_words` in `src/models/squad_word_rules.py`
+- **Why**: `squad_marks("Lincoln City FC N1 B2012/13 (NE)")` returns `directions={"northeast"}` (checked 2026-11-16), so `squads_conflict` refuses that stored row for "LCFC U14 Boys National N1" and a guarded dry run of HTG event 14130 would create a duplicate. 69 live team names end in a direction-shaped parenthesised tag, 51 in KS/MO/NE/IA/OK/AR. Strip a trailing parenthesised two-letter state code before reading squad marks, and before the squad-word reader, where `ne` against the team's `National` refuses the same row by itself.
+- **Noted**: 2026-11-16
+- **Update (2026-11-16)**: the squad-word reader now drops a trailing bracketed US state code (`_without_state_tag` in `src/models/squad_word_rules.py`); the shared squad gate still reads `(NE)` as northeast.
+
+### Let the drivers tell the squad-word rules where a club spelling came from
+
+- **ID**: IMP-400
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `_club_spellings` in `src/models/squad_word_rules.py`; `club_for_team` in `scripts/import_heartland.py`; `club_for` in `scripts/import_tourneycentral_event.py`
+- **Why**: `_club_spellings` guesses each spelling's origin by comparing the filed club with the written club and the team's name, though `club_for_team` already returns its source ("club table" or "cut from name") and `club_for` knows whether the club cell was blank or opened the name. The guess has one known gap: `club_for("", "KC Athletics Borussia U11B", ...)` returns the guess for both clubs (checked 2026-11-16), equal spellings are struck whole, so "Borussia" is struck and only the club gate keeps that team off a sibling squad. Passing the source in would strike only a table or cell club whole.
+- **Noted**: 2026-11-16

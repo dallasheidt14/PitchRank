@@ -170,6 +170,11 @@ class TestClubAndState:
         assert (club_name, written, source) == ("Sporting Blue Valley", "SBV", "club table")
         assert club.spellings == ("SPORTING BV", "SPORTING BV IP")
 
+    def test_tfac_is_toca_fusion(self):
+        # Owner, 2026-11-15: "Toca FC is now part of Toca Fusion Athletic Club (TFAC)."
+        club_name, written, source, _ = hl.club_for_team("TFAC BU11 Premier")
+        assert (club_name, written, source) == ("Toca Fusion Athletic Club", "TFAC", "club table")
+
     def test_the_table_matches_case_insensitively_and_keeps_the_written_spelling(self):
         club_name, written, _, _ = hl.club_for_team("SPORTING BV Pre-MLS White 15/16")
         assert (club_name, written) == ("Sporting Blue Valley", "SPORTING BV")
