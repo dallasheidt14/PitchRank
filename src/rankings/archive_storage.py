@@ -6,10 +6,13 @@ import gzip
 import hashlib
 import io
 import json
+import logging
 import re
+import time
 from datetime import datetime
 from pathlib import Path
 
+import httpx
 from storage3.exceptions import StorageApiError
 
 from src.predictions.form_study import validate_study_sources
@@ -20,6 +23,20 @@ BUCKET = "prediction-input-archives"
 INDEX = "prediction_input_archives"
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 MAX_RAW_BYTES = 512 * 1024 * 1024
+TRANSPORT_ATTEMPTS = 4
+LOGGER = logging.getLogger(__name__)
+
+
+def _retry_transport(action):
+    # Callers must be reads or immutable, idempotent writes: a lost response may follow a committed write.
+    for attempt in range(TRANSPORT_ATTEMPTS):
+        try:
+            return action()
+        except httpx.TransportError:
+            if attempt + 1 == TRANSPORT_ATTEMPTS:
+                raise
+            LOGGER.warning("Archive connection interrupted; retrying transfer (%s/%s)", attempt + 2, TRANSPORT_ATTEMPTS)
+            time.sleep(0.5 * 2 ** attempt)
 
 
 def references(value):
@@ -98,13 +115,16 @@ def publish_archive(client, directory: Path, *, dry_run: bool = True) -> dict:
     bucket = client.storage.from_(BUCKET)
 
     def upload_once(name: str, data: bytes, content_type: str, reference=None):
-        try:
-            bucket.upload(name, data, {"content-type": content_type, "upsert": "false"})
-        except StorageApiError as error:
-            if error.code not in {"Duplicate", "ResourceAlreadyExists"}:
-                raise
+        def immutable_upload():
+            try:
+                bucket.upload(name, data, {"content-type": content_type, "upsert": "false"})
+            except StorageApiError as error:
+                if error.code not in {"Duplicate", "ResourceAlreadyExists"}:
+                    raise
+
+        _retry_transport(immutable_upload)
         # Raw-SHA object identity is independent of a runtime's gzip encoding.
-        stored = bucket.download(name)
+        stored = _retry_transport(lambda: bucket.download(name))
         valid = stored == data
         if reference is not None:
             try:
@@ -131,8 +151,11 @@ def publish_archive(client, directory: Path, *, dry_run: bool = True) -> dict:
         "capture_finished_at": manifest["finished_at"],
         "object_count": len(files),
     }
-    client.table(INDEX).upsert(record, on_conflict="manifest_sha256", ignore_duplicates=True).execute()
-    result = client.table(INDEX).select("*").eq("manifest_sha256", sha).single().execute().data
+    _retry_transport(lambda: client.table(INDEX).upsert(
+        record, on_conflict="manifest_sha256", ignore_duplicates=True
+    ).execute())
+    result = _retry_transport(lambda: client.table(INDEX).select("*")
+                              .eq("manifest_sha256", sha).single().execute()).data
     if any(result.get(k) != v for k, v in record.items() if k not in {"capture_started_at", "capture_finished_at"}):
         raise ValueError("Registered archive metadata changed")
     for field in ("capture_started_at", "capture_finished_at"):

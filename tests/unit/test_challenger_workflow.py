@@ -19,7 +19,30 @@ def test_registered_studies_keep_the_original_collecting_predictor(name):
     for job in workflow["jobs"].values():
         for step in job.get("steps", []):
             if str(step.get("uses", "")).startswith("actions/checkout@"):
-                assert step["with"]["ref"] == "15cc5f4f38858f2a48a3ac2aeaef8f2bab76c81b"
+                if step.get("with", {}).get("path") == ".archive-publisher":
+                    assert step["with"]["ref"] == "${{ github.sha }}"
+                else:
+                    assert step["with"]["ref"] == "15cc5f4f38858f2a48a3ac2aeaef8f2bab76c81b"
+
+
+def test_archive_publisher_uses_workflow_source_only_after_locked_inputs_are_saved():
+    path = ROOT / ".github/workflows/weekly-prospective-refresh.yml"
+    workflow = yaml.load(path.read_text(), Loader=yaml.BaseLoader)
+    steps = workflow["jobs"]["capture"]["steps"]
+    capture = next(i for i, step in enumerate(steps) if step.get("name") == "Freeze current Compare forecasts")
+    archive = next(i for i, step in enumerate(steps) if step.get("name") == "Preserve frozen forecast inputs locally")
+    tooling = next(i for i, step in enumerate(steps) if step.get("name") == "Checkout archive publisher")
+    publish = next(i for i, step in enumerate(steps) if step.get("name") == "Publish frozen forecast inputs privately")
+    assert capture < archive < tooling < publish
+    assert steps[0]["with"]["ref"] == "15cc5f4f38858f2a48a3ac2aeaef8f2bab76c81b"
+    assert steps[tooling]["with"] == {
+        "ref": "${{ github.sha }}", "path": ".archive-publisher", "persist-credentials": "false",
+    }
+    for i in [archive, tooling, publish]:
+        assert steps[i]["if"] == "env.EXECUTE == 'true' && vars.COMPARE_INPUT_ARCHIVE_ENABLED == 'true'"
+    assert "python scripts/archive_compare_forecasts.py" in steps[archive]["run"]
+    assert "python .archive-publisher/scripts/publish_ranking_input_archive.py" in steps[publish]["run"]
+    assert '"$RUNNER_TEMP/frozen-forecast-inputs" --execute' in steps[publish]["run"]
 
 
 @pytest.mark.parametrize("kind,upstream_event,conclusion,branch,signature,expected", [

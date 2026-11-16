@@ -80,13 +80,26 @@ jobs:
           path: ${{ runner.temp }}/prospective-*.json
           retention-days: 90
           if-no-files-found: error
-      - name: Preserve frozen forecast inputs privately
+      - name: Preserve frozen forecast inputs locally
         if: env.EXECUTE == 'true' && vars.COMPARE_INPUT_ARCHIVE_ENABLED == 'true'
         shell: bash
         run: |
           ARCHIVE_PATH="$RUNNER_TEMP/frozen-forecast-inputs"
           python scripts/archive_compare_forecasts.py --execute --output-dir "$ARCHIVE_PATH"
-          python scripts/publish_ranking_input_archive.py "$ARCHIVE_PATH" --execute
+      - name: Checkout archive publisher
+        if: env.EXECUTE == 'true' && vars.COMPARE_INPUT_ARCHIVE_ENABLED == 'true'
+        uses: actions/checkout@v5
+        with:
+          # Publishing tools can be repaired without changing the locked collecting predictor or archived source.
+          ref: ${{ github.sha }}
+          path: .archive-publisher
+          persist-credentials: false
+      - name: Publish frozen forecast inputs privately
+        if: env.EXECUTE == 'true' && vars.COMPARE_INPUT_ARCHIVE_ENABLED == 'true'
+        shell: bash
+        run: |
+          python .archive-publisher/scripts/publish_ranking_input_archive.py \
+            "$RUNNER_TEMP/frozen-forecast-inputs" --execute
       - name: Summarize capture
         if: always()
         shell: bash

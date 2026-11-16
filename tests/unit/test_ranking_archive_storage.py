@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
+import httpx
 import pytest
 from storage3.exceptions import StorageApiError
 
@@ -144,4 +145,118 @@ def test_storage_outage_does_not_create_a_false_complete_index(captured):
     server.upload = lambda *args: (_ for _ in ()).throw(StorageApiError("outage", "Unavailable", 503))
     with pytest.raises(StorageApiError):
         publish_archive(server, captured, dry_run=False)
+    assert not server.rows
+
+
+@pytest.mark.parametrize("error_type", [httpx.RemoteProtocolError, httpx.ReadTimeout, httpx.ConnectError])
+def test_interrupted_verification_download_is_retried(captured, monkeypatch, error_type):
+    server = FakeServer()
+    download = server.download
+    delays, attempts = [], []
+
+    def interrupted_once(path):
+        attempts.append(path)
+        if len(attempts) == 1:
+            raise error_type("interrupted transfer")
+        return download(path)
+
+    monkeypatch.setattr(server, "download", interrupted_once)
+    monkeypatch.setattr("src.rankings.archive_storage.time.sleep", delays.append)
+    result = publish_archive(server, captured, dry_run=False)
+    assert result["registered"] is True
+    assert delays == [0.5] and attempts[0] == attempts[1]
+    assert sum(kind == "upload" and path == attempts[0] for kind, path in server.calls) == 1
+
+
+def test_committed_upload_with_lost_response_is_verified_without_overwriting(captured, monkeypatch):
+    server = FakeServer()
+    upload = server.upload
+    calls, delays = [], []
+
+    def lost_acknowledgement(path, content, options):
+        calls.append(path)
+        upload(path, content, options)
+        if len(calls) == 1:
+            raise httpx.RemoteProtocolError("response lost after object was stored")
+
+    monkeypatch.setattr(server, "upload", lost_acknowledgement)
+    monkeypatch.setattr("src.rankings.archive_storage.time.sleep", delays.append)
+    result = publish_archive(server, captured, dry_run=False)
+    assert result["registered"] is True and len(server.rows) == 1
+    assert calls[0] == calls[1] and delays == [0.5]
+    assert len(server.objects) == result["objects"] + 1
+
+
+def test_committed_registration_with_lost_response_preserves_first_server_timestamp(captured, monkeypatch):
+    server = FakeServer()
+    execute = FakeServer.Query.execute
+    recorded, delays = [], []
+
+    def lost_acknowledgement(query):
+        result = execute(query)
+        if query.record is not None:
+            recorded.append(server.rows[query.record["manifest_sha256"]]["recorded_at"])
+            if len(recorded) == 1:
+                raise httpx.ReadTimeout("registration committed but response lost")
+        return result
+
+    monkeypatch.setattr(FakeServer.Query, "execute", lost_acknowledgement)
+    monkeypatch.setattr("src.rankings.archive_storage.time.sleep", delays.append)
+    result = publish_archive(server, captured, dry_run=False)
+    assert result["registered"] is True and len(server.rows) == 1
+    assert len(recorded) == 2 and recorded[0] == recorded[1] == result["recorded_at"]
+    assert delays == [0.5]
+
+
+def test_registration_verification_read_can_recover_independently(captured, monkeypatch):
+    server = FakeServer()
+    execute = FakeServer.Query.execute
+    reads, delays = [], []
+
+    def interrupted_read(query):
+        if query.record is None:
+            reads.append(query.sha)
+            if len(reads) == 1:
+                raise httpx.ReadTimeout("read interrupted")
+        return execute(query)
+
+    monkeypatch.setattr(FakeServer.Query, "execute", interrupted_read)
+    monkeypatch.setattr("src.rankings.archive_storage.time.sleep", delays.append)
+    result = publish_archive(server, captured, dry_run=False)
+    assert result["registered"] is True and len(server.rows) == 1
+    assert reads == [result["manifest_sha256"]] * 2 and delays == [0.5]
+
+
+def test_persistent_transfer_failures_are_bounded_and_never_register(captured, monkeypatch):
+    server = FakeServer()
+    attempts, delays = [], []
+
+    def interrupted(path, content, options):
+        attempts.append(path)
+        raise httpx.RemoteProtocolError("persistent interruption")
+
+    monkeypatch.setattr(server, "upload", interrupted)
+    monkeypatch.setattr("src.rankings.archive_storage.time.sleep", delays.append)
+    with pytest.raises(httpx.RemoteProtocolError):
+        publish_archive(server, captured, dry_run=False)
+    assert len(attempts) == 4 and len(set(attempts)) == 1
+    assert delays == [0.5, 1.0, 2.0]
+    assert not server.rows and not server.objects
+
+
+def test_integrity_failure_after_transport_recovery_is_not_retried(captured, monkeypatch):
+    server = FakeServer()
+    attempts, delays = [], []
+
+    def interrupted_then_corrupt(path):
+        attempts.append(path)
+        if len(attempts) == 1:
+            raise httpx.RemoteProtocolError("interrupted")
+        return b"corrupted"
+
+    monkeypatch.setattr(server, "download", interrupted_then_corrupt)
+    monkeypatch.setattr("src.rankings.archive_storage.time.sleep", delays.append)
+    with pytest.raises(ValueError, match="differs"):
+        publish_archive(server, captured, dry_run=False)
+    assert len(attempts) == 2 and delays == [0.5]
     assert not server.rows
