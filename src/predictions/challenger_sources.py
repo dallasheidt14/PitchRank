@@ -1,4 +1,4 @@
-"""Derive the local code/data dependency set used to construct and calculate a form candidate."""
+"""Derive committed execution dependencies for the default form or explicit research entrypoints."""
 
 import ast
 import re
@@ -8,19 +8,21 @@ from src.predictions.form_policy import CALIBRATION_SNAPSHOT_FILES
 from src.predictions.form_research import pinned_source_identity
 
 
-def candidate_execution_paths(root: Path) -> set[str]:
+def candidate_execution_paths(root: Path, *, entrypoints: list[str] | None = None) -> set[str]:
     root = root.resolve()
-    # Collector identity reads these modules as text; only predictMatch's graph executes in the runner.
-    required = {"frontend/lib/" + name for name in pinned_source_identity()["source_hashes"]}
-    pending = ["src/predictions/form_research.py", "src/predictions/form_archive_sources.py",
+    # Default form mode also authenticates collector modules read as text by its runner.
+    required = ({"frontend/lib/" + name for name in pinned_source_identity()["source_hashes"]}
+                if entrypoints is None else set())
+    pending = list(entrypoints) if entrypoints is not None else [
+               "src/predictions/form_research.py", "src/predictions/form_archive_sources.py",
                "scripts/benchmark_compare_form.py",
                "frontend/lib/matchPredictor.ts", "frontend/scripts/run-form-research.ts",
                "frontend/scripts/verify-compare-source.ts"]
     visited = set()
 
     def imported_nodes(node):
-        # These modules are imported as libraries; their CLI main functions do not construct a forecast.
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "main":
+        # Explicit entrypoints execute their CLI bodies; default form mode imports its Python modules as libraries.
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "main" and entrypoints is None:
             return
         yield node
         for child in ast.iter_child_nodes(node):
@@ -91,8 +93,10 @@ def candidate_execution_paths(root: Path) -> set[str]:
                         break
                 else:
                     raise ValueError("Missing local TypeScript dependency: " + module)
-    required.update({"requirements.lock", "frontend/package-lock.json"})
-    required.update("frontend/public/data/calibration/" + name for name in CALIBRATION_SNAPSHOT_FILES.values())
+    required.add("requirements.lock")
+    if entrypoints is None:
+        required.add("frontend/package-lock.json")
+        required.update("frontend/public/data/calibration/" + name for name in CALIBRATION_SNAPSHOT_FILES.values())
     if any(not (root / name).is_file() for name in required):
         raise ValueError("Candidate checkout is missing execution dependencies")
     return required

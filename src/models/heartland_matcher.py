@@ -15,10 +15,14 @@ a stateless team stands neutral between the states, so equally good teams in two
 to review. A stateless team is still never created: the inherited ``_match_team`` creates only
 a team with a state. Outside the roster pass (the game import) nothing changes, so
 that import stays alias-only.
+
+Heartland clubs name the squads of one age by words no shared gate reads, so the squad-word
+rules of ``src/models/squad_word_rules.py`` apply.
 """
 
 from typing import Dict, Optional
 
+from src.models.squad_word_rules import SquadWordRules
 from src.models.tourneycentral_matcher import TourneyCentralGameMatcher
 
 REGION = ("KS", "MO")
@@ -28,7 +32,7 @@ REGION = ("KS", "MO")
 REGION_SEARCH = "KS/MO"
 
 
-class HeartlandGameMatcher(TourneyCentralGameMatcher):
+class HeartlandGameMatcher(SquadWordRules, TourneyCentralGameMatcher):
     """Tourney Central matching, across Kansas and Missouri in the roster pass, for the Heartland Premier league."""
 
     def _candidate_state_filter(self, state_code: str) -> str:

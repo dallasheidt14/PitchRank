@@ -808,7 +808,10 @@ The gates in Provider Matcher Name Parsing below apply. This platform glues squa
   league — and `ECNL2` is ECNL squad 2. Count a label only when both names carry one.
 - A squad letter glued to the age or year is a squad mark: `B-U10B`, `GU10A`, `B15C`.
 - Coach surnames and nicknames tell squads apart (`Delgado` against `Reyes`, `Attack` against
-  `Bravo`), but no gate reads them yet, so such squads tie and go to review.
+  `Bravo`), but no gate reads them for this platform, so such squads tie and go to review. The
+  `_names_another_squad` hook is where one goes: off here, on for Heartland and HTG Sports through
+  `SquadWordRules` (`src/models/squad_word_rules.py`, see Heartland Soccer Pages), which pairs it with a
+  review cap for a stored row naming no squad.
 - A PitchRank row named by one birth year (`XF 2016 RCL 2`, `XF B13 ECNL`) is usually last
   season's record of the squad. Two event squads landing on one such row (`ECNL 1` and `ECNL 2`
   on `XF B13 ECNL`) is a conflict, not a link.
@@ -845,7 +848,7 @@ state. `playmetrics-tournament-scrape-import.yml` runs it on dispatch.
   gate, so import only while that flag reads `'false'`.
 - **After every import, check the teams it created for copies of teams that already existed.** Take
   the rows the run created (the provider's `direct_id` aliases written during it), run the
-  similarity query from *Check a roster pass's new teams for near-duplicates before `--execute`*
+  similarity query from *Check a roster pass's new teams for near-duplicates after the import*
   below over them without its state condition, and settle the hits with the merging-duplicate-teams
   skill, whose Doorway D covers rows created with no state. A club PlayMetrics spells differently
   enough that the club gate refuses it skips its existing team unless `STORED_CLUB_NAMES` in
@@ -1029,7 +1032,8 @@ helper functions, passing their `provider_code` / `provider_name` arguments, rat
 them. Its `main` repeats Tourney Central's registration sequence (IMP-389), so pass the provider
 argument at every call that takes one: each defaults to Tourney Central's. An omitted
 `provider_code` stamps Tourney Central on the games CSV or reads HTG's queued reviews as unsaved;
-an omitted `provider_name` names Tourney Central in a conflict reason. `HtgSportsGameMatcher` is `TourneyCentralGameMatcher` unchanged. The 2026
+an omitted `provider_name` names Tourney Central in a conflict reason. `HtgSportsGameMatcher` is `TourneyCentralGameMatcher` with `SquadWordRules` mixed in (see Heartland
+Soccer Pages), for every HTG event, not only Heartland's. The 2026
 Children's Mercy Heartland Invitational (boys 14130, girls 14129) is the event it was built against.
 Like its siblings, a dry run writes the games, cross-age and team-report CSVs, which are the
 review sheet before `--execute`; the owner kept that on 2026-11-09 against CLAUDE.md's "a dry run
@@ -1141,6 +1145,35 @@ browser User-Agent, no proxy and no bot challenge. `scripts/import_heartland.py`
 - Search every team against stored teams in Kansas, Missouri and none, in the roster pass only (see
   Provider Matcher Name Parsing). A stateless team that matches nothing is held for the owner
   (`held`), never created.
+- Clubs name the squads of one age by words no shared gate reads (KC Athletics' `Borussia`, `Genoa` and
+  `Monaco`, Toca Fusion's `Premier` and `Championship`), and the club read from a stored name swallows
+  that word (`KC Athletics Genoa u11B` reads as the club `KC Athletics Genoa`), so the squad gates find
+  nothing to compare: on 2026-11-14 that shape held 81 teams as conflicts on 32 stored rows, and linked
+  `BK Academy FC U10 Zizou` to `Dinho`. `SquadWordRules` (`src/models/squad_word_rules.py`, mixed into the
+  Heartland and HTG Sports matchers) refuses a candidate when each name carries a squad word the other
+  lacks, and sends a team naming a squad to review against a stored row of its club naming none
+  (`SPORTING BV U12G`): once its named siblings are refused it is the only candidate left, and it could
+  be any of them.
+- Before comparing, it strikes the team's own club spellings. A spelling of one word (`KCL`, `TFAC`), one
+  the written club repeats (`KC Legends Maestros` beside a stored `KCL Maestros`), or one not wholly in
+  the team's name (the cell's `Kansas City Athletics` for `KC Athletics Borussia`) is struck whole, with
+  the initials of every run of its words (`KC` of `Kansas City`). Any other spelling was read from the
+  team's name and can carry the squad word, so it is struck only from its first word through the first
+  run of words the other name or a whole-struck spelling carries (a code ahead goes too: `SWMO` of
+  `SWMO Rush`), and wherever the other name writes a run's initials (`LA` for `Lawrence Arsenal`).
+  Stopping at that run keeps `Manchester` in `KC Athletics Manchester City`, where the cell's `Kansas
+  City Athletics` vouches for `City`. The check strikes the club the team is filed under even on Tourney
+  Central's second pass, which gates on the written club: struck whole, `KC Athletics Courage` would take
+  its squad word with it, and the club gate admits a stored `KC Athletics Coraggio`. Never strike the
+  candidate's stored club: the club gate admits a near spelling (`KC Atletico` beside `KC Athletics`)
+  whose words are what tells it apart.
+- Names are read canonical, without case, accents, apostrophes and dots inside a word (`Steamer's`,
+  `K.C.L.`), or a trailing state code in brackets (`KC Athletics U11B (KS)`), and split around a glued U-age but never at an inner capital, since club words are struck
+  word for word and a club's `McCarthy` must strike a stored `MCCARTHY`. A word of four or more letters
+  abbreviates one it begins (`Champ.`); a four-letter code keeping a longer word's first letter and the
+  rest of its letters in order stands for it, as BSSA writes squads (`CHTA` for Cheetahs); adjacent words
+  stand for the word they spell run together (`Mc Nutt`, `De La Salle`); and a league written as one word
+  reads as the tier gate reads it (`ECRL` as `ECNL RL`).
 - Never fetch `seedings.cgi`, `team_results.cgi` or the member-clubs page. The first and last list
   coaches', managers' and club officers' names, emails and phone numbers, and the results pages carry
   everything the import needs.
@@ -1269,10 +1302,11 @@ the games as well: a league can carry many divisions with no scored games.
   build the matcher with `dry_run=True` and the event's own provider id, so existing aliases link, with the client
   wrapped so every insert, update, upsert and delete is recorded and refused (the replay under *Provider Matcher Name
   Parsing*). Pass every scraped team through `_match_team`, count the `created` results, and group them by club,
-  board and gender as that replay says. Settle each with the owner, linking it to a stored team or letting it be
-  created, before the first import. A dry run of the 2026-27 Oregon State Cup on 2026-11-11 linked 39 of 80 teams and
-  would have created 41, 11 of them MLS NEXT or Elite Academy squads stored under other providers, which the
-  duplicate scans skip.
+  board and gender as that replay says. Before the first import, settle with the owner only the created teams that
+  look like MLS NEXT or Elite Academy squads: the merge tools hold any pair whose row carries a Modular11 or MLS NEXT
+  registration, so a copy of one cannot be merged afterwards. Merge the rest after the import. A dry run of the
+  2026-27 Oregon State Cup on 2026-11-11 linked 39 of 80 teams and would have created 41, 11 of them MLS NEXT or
+  Elite Academy squads stored under other providers.
 
 ## Provider Matcher Name Parsing
 
@@ -1331,6 +1365,16 @@ hand. Treat a high create rate as a finding, not a result: the Oregon matcher re
 unchanged for Utah would have created 167 of 195 teams, most of them already stored, and
 linked squads of different coaches, because Utah writes bands, U-ages and coach initials
 where Oregon does not. Diff the link list between runs and judge each added or removed link.
+Save every input the matcher read in that replay. When a review round edits a matcher rule, keep the
+code from before the round (a throwaway worktree filled from the tree the round recorded with
+`git write-tree`: `git read-tree <tree>`, then `git checkout-index -a -f` inside it), replay the saved
+inputs through that copy and through the current code against the same live rows, and diff the two.
+Comparing the branch with `origin/main` shows the change as a whole, never what one round's fix
+altered: on 2026-11-16 the round-to-round diff caught 8 regressions a green unit suite and a 37/37
+mutation battery missed, because no fixture put a club spelling the written club repeats at the front
+of the name (`KC Legends Maestros` against a stored `KCL Maestros`). A replay script that imports from
+a tree usually runs inside it, so give every output an absolute path outside both trees: a relative
+one lands in the working checkout, or disappears with the throwaway copy.
 
 ### Squads, ties and region when names differ from the sibling's
 
@@ -1434,11 +1478,14 @@ anchor into that file went stale in the same commit.
   caps at `min(1.0, ...)`. `REVIEW_QUEUE_CLAMP` is 0.89 while `auto_approve_threshold` is 0.90
   (`config/settings.py`, enforced in `GameHistoryMatcher._match_team`), so clamping ordinary
   scores makes `fuzzy_auto` unreachable and turns every auto-link into a review. The base
-  `_create_review_queue_entry` caps review rows; a subclass's only clamp is the equal-rank tie
-  demotion inside `_fuzzy_match_team`.
+  `_create_review_queue_entry` caps review rows; a subclass's only clamps are the equal-rank tie
+  demotion inside `_fuzzy_match_team` and, where `SquadWordRules` is mixed in, its demotion of a
+  stored row naming no squad.
 - **The shared name helpers live in `src/models/tournament_name_gates.py`**, which Soccer
   Events Group and Athletes2Events both import: `canonical_team_name`, `club_from_team_name`,
-  `without_club`, `tier_tokens`, `is_boys`, `squad_marks` and `squads_conflict`. Two hooks keep
+  `without_club`, `tier_tokens`, `is_boys`, `squad_marks` and `squads_conflict`, and the
+  single-word readers `AGE_WORD`, `begins` and `initials`: take a new provider's ages,
+  abbreviations and club initials from these rather than writing another copy. Two hooks keep
   the providers apart — `pre`, a callable applied before anything is read from a name, and
   `tier_extra`, the tiers the shared set omits. **Bind `tier_extra` explicitly.** Its default is
   empty, and `TOURNAMENT_TIER_TOKENS` (`pre`, `aspire`, `ea`, `ad`, `hd`) is in neither
@@ -1474,7 +1521,10 @@ parametrize list on `test_autocreate_writes_nothing_in_dry_run` in that same fil
 named create helper with `dry_run=True` and asserts `insert` was never called; and `_SUBCLASS_PATHS`
 in `tests/unit/test_birth_year_guard_wiring.py`. A matcher that creates only from a roster pass must
 also join `REGISTRATION_MATCHERS` in the first of those files, or its identity tests run against a
-team it never creates.
+team it never creates. A mixin that overrides `_fuzzy_match_team` (`SquadWordRules`) needs its own
+`_SUBCLASS_PATHS` row: the test inspects only a class's own `__dict__`, so a mixin's override is never
+seen through the matchers that mix it in. The mixin must also come ahead of the matcher it extends in
+each class's bases, or it is never reached.
 
 And the matcher needs its own branch in `EnhancedETLPipeline._ensure_initialized`'s provider
 chain (`src/etl/enhanced_pipeline.py`): the `else` fallback constructs a bare `GameHistoryMatcher` **without** `dry_run`, so until
@@ -1486,6 +1536,13 @@ database (roster pass and the import's own dry run), with the provider's `teams`
 zero writes. Read-only page scrapes and a green unit suite do not count: only that run surfaces a
 missing provider row, an unfilled club map and wrong links, so read its team report before calling
 the provider done.
+
+Then import, and merge the copies afterwards, as every provider does: link what matches, create what
+matches nothing (the provider's own holds still apply), and run *Check a roster pass's new teams for
+near-duplicates after the import* below. Asking the owner to settle near-duplicates or hand-paste alias
+links before the first import drew "Why is this so different than any other provider we have added?
+Why are we trying to re invent the wheel" (2026-11-15). The one exception is in *A cup or other
+knockout event* under Sports Affinity Pages: MLS NEXT and Elite Academy squads, which the merge tools hold.
 
 ### Carry two seasons, never one
 
@@ -1505,10 +1562,10 @@ rejects the mismatched stored age (`GameHistoryMatcher._validate_team_age_group`
 *Reading a Provider's Age Labels* makes below — a label does not carry its own season — applied to
 the two places the season is consumed.
 
-### Check a roster pass's new teams for near-duplicates before `--execute`
+### Check a roster pass's new teams for near-duplicates after the import
 
-A dry run shows no wrong link was made, but not that a link was missed. Before each event's first
-`--execute`, take every row whose `outcome` in the dry run's team report is `created` and compare it
+A dry run shows no wrong link was made, but not that a link was missed. After each event's import,
+take every row whose `outcome` in the run's team report is `created` and compare it
 with the live teams (`is_deprecated` false) on the same `age_group` and `gender`, and on the same
 `state_code` or none, as `_fetch_candidates` admits. One read-only `mcp__supabase__execute_sql`
 query does it: a `VALUES` CTE over the created rows, joined to `teams` on those columns and kept
@@ -1522,12 +1579,10 @@ soon as the gate also accepted a stored name that starts with the provider's clu
 nickname before any age token, so neither the club read from the name (`SPORTING BV Real Madrid` from
 `SPORTING BV Real Madrid 16/17`) nor `club_name` passes `is_same_club` against the provider's club.
 
-Show the hits to the owner, and link each confirmed pair as *Resolving provider review items by hand*
-below says, checking too that the target has no `team_merge_map` row as `deprecated_team_id`. Two
-created rows hitting one stored team are two squads, and at most one may link to it: `shared_links`
-flags only fuzzy links, never two approved aliases to one team. Then re-run the dry run. Each linked
-team should read `already_linked`; one stored on another board reads `error` from `off_board_links`
-("linked team is on the uNN board") before anything is written.
+Settle the hits with the merging-duplicate-teams skill, as copies to merge, not links to write: its
+weekly scans skip the per-event providers and never reach a row created with no state, so run its
+one-off pass over the event's created rows. Two created rows hitting one stored team are two squads,
+and at most one of them is its copy.
 
 ### Measure a matcher change by replaying the copies a past import made
 

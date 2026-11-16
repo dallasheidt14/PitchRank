@@ -170,6 +170,15 @@ class Athletes2EventsGameMatcher(GameHistoryMatcher):
         """The PostgREST ``or`` filter for the states a candidate may be stored in."""
         return f"state_code.eq.{state_code},state_code.is.null"
 
+    def _names_another_squad(self, provider_name: str, candidate_name: str, club: Optional[str]) -> bool:
+        """Whether two names of one club name different squads in words the squad gates do not read.
+
+        Off here; a host whose clubs name squads that way turns it on. ``club`` is the club the
+        candidate was gated on. Turning it on also needs a review cap for a stored row naming no
+        squad, which is left the only candidate once its named siblings are refused.
+        """
+        return False
+
     def _fetch_candidates(self, age_group: str, gender: str, state_code: str) -> list:
         rows: list = []
         page_size = 1000
@@ -247,6 +256,8 @@ class Athletes2EventsGameMatcher(GameHistoryMatcher):
 
             candidate_marks = _squad_marks(self._without_club(candidate_name, club_in_name), boys)
             if squads_conflict(provider_marks, candidate_marks):
+                continue
+            if self._names_another_squad(provider_team_name, candidate_name, provider_club_name):
                 continue
 
             candidate = {

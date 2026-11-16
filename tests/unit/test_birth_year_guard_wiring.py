@@ -89,6 +89,7 @@ _SUBCLASS_PATHS = [
     ("src.models.demosphere_matcher", "DemosphereGameMatcher"),
     ("src.models.htgsports_matcher", "HtgSportsGameMatcher"),
     ("src.models.heartland_matcher", "HeartlandGameMatcher"),
+    ("src.models.squad_word_rules", "SquadWordRules"),
 ]
 
 

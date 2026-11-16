@@ -140,7 +140,11 @@ PitchRank is a **youth soccer ranking platform** that scrapes game data from mul
   entirely from tests that already existed. Collect the failing test *names* and assert the
   new one is among them. Where no mutation kills it alone, the guard is either redundant
   with what is already there or pointed at the wrong code, and saying which is part of
-  writing it.
+  writing it. A survivor can also mean no test yet holds the input the guard exists for,
+  so "redundant" is a claim to prove before deleting anything: run that input through the
+  code without the guard. On 2026-11-16 two guards were removed as covered elsewhere ("the
+  canonical name already drops apostrophes", "the club gate never admits that row"); both
+  claims were false on real stored names, and the next review round found each one.
 - **Bind the test at the altitude where the failure lives.** The double rules above are about
   what a fake *accepts*; this one is about which layer the test drives. A guard whose failure
   mode is in what gets **fetched** cannot be seen by a test that hands the rows to the pure
@@ -730,6 +734,7 @@ two-line edit in `.github/workflows/claude-code-review.yml`.
 | `weekly-prospective-settle-evaluate.yml` | Mon 4:00 PM UTC | Settle and score last week's prospective match predictions |
 | `weekly-prospective-refresh.yml` | Daily 4:15 AM UTC, gated | Capture Compare forecasts for stored upcoming fixtures; requires `COMPARE_CAPTURE_ENABLED=true` after the pilot |
 | `compare-live-monitoring.yml` | Daily 6:20 AM UTC and Monday 5:30 PM UTC, gated | Save current Compare and SOS alternatives privately, then review eligible results; requires `COMPARE_MONITOR_ENABLED=true` and a pinned `COMPARE_MONITOR_REVISION` after the pilot |
+| `compare-score-study.yml` | After successful scheduled Compare monitoring; Monday 6:00 PM UTC, gated | Save registered score candidates before match day and report coverage or released results privately; requires `COMPARE_SCORE_STUDY_SIGNATURE`, with no live promotion |
 | `compare-weekend-tuning.yml` | Daily 5:20 PM UTC, gated | Private November 14–15 Compare diagnostic; requires `COMPARE_WEEKEND_TUNING_ARCHIVE`, reads results after November 16 UTC, and never deploys a model |
 | `smoke-infographics.yml` | Daily 1:17 PM UTC | Smoke-test the infographic OG routes |
 | `check-stuck-signups.yml` | Every 6 hours | Flag signups stuck mid-flow, and send a fresh set-password link at 24h and 72h to new guest buyers who never signed in |

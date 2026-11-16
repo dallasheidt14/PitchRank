@@ -22,10 +22,10 @@ from typing import Dict, Optional
 from config.settings import AGE_GROUPS
 from scripts.decide_team_merges import label_numbers
 from src.models.affinity_ut_matcher import AffinityUTGameMatcher, _normalize_for_affinity_ut
+from src.models.tournament_name_gates import AGE_WORD
 from src.utils.team_name_utils import NOISE_WORDS
 
 _GENERIC_WORDS = frozenset(w.upper() for w in NOISE_WORDS)
-_AGE_TOKEN = re.compile(r"[BG]?U?\d{2}U?[BG]?|[BG]?(?:19|20)\d{2}[BG]?", re.IGNORECASE)
 
 
 class AffinityStateLeagueMatcher(AffinityUTGameMatcher):
@@ -84,7 +84,7 @@ class AffinityStateLeagueMatcher(AffinityUTGameMatcher):
         """The words of a name once its club, ages and generic club words are gone: 'Azul', 'HNL Academy 1'."""
         tokens = re.findall(r"[A-Za-z0-9]+", self._normalize_provider_name(team_name))
         not_squad = club_words | _GENERIC_WORDS | self.not_squad_words
-        return frozenset(t.upper() for t in tokens if t.upper() not in not_squad and not _AGE_TOKEN.fullmatch(t))
+        return frozenset(t.upper() for t in tokens if t.upper() not in not_squad and not AGE_WORD.fullmatch(t))
 
     def _squads_conflict(self, provider_name: str, candidate_name: str) -> bool:
         """Different stated U-ages, or any difference in the squad's own words, one-sided included.
