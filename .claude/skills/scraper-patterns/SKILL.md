@@ -1167,8 +1167,8 @@ browser User-Agent, no proxy and no bot challenge. `scripts/import_heartland.py`
   its squad word with it, and the club gate admits a stored `KC Athletics Coraggio`. Never strike the
   candidate's stored club: the club gate admits a near spelling (`KC Atletico` beside `KC Athletics`)
   whose words are what tells it apart.
-- Names are read canonical, without case, accents, or apostrophes and dots inside a word (`Steamer's`,
-  `K.C.L.`), and split around a glued U-age but never at an inner capital, since club words are struck
+- Names are read canonical, without case, accents, apostrophes and dots inside a word (`Steamer's`,
+  `K.C.L.`), or a trailing state code in brackets (`KC Athletics U11B (KS)`), and split around a glued U-age but never at an inner capital, since club words are struck
   word for word and a club's `McCarthy` must strike a stored `MCCARTHY`. A word of four or more letters
   abbreviates one it begins (`Champ.`); a four-letter code keeping a longer word's first letter and the
   rest of its letters in order stands for it, as BSSA writes squads (`CHTA` for Cheetahs); adjacent words

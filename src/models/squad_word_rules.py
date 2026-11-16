@@ -18,6 +18,7 @@ from src.models.squad_name_gates import TIER_ALIASES
 from src.models.tournament_name_gates import AGE_WORD, begins, canonical_team_name, initials
 from src.tournaments.alias_writer import REVIEW_QUEUE_CLAMP
 from src.utils.team_name_utils import NOISE_WORDS
+from src.utils.us_states import STATE_CODE_TO_NAME
 
 _WORD = re.compile(r"[a-z0-9]+")
 # A U-age run into the club before it, or a number into the word after it: "SportingSpringfieldU12Atletico".
@@ -28,7 +29,15 @@ _NOT_SQUAD = frozenset(NOISE_WORDS) | {"u", "under", "boy", "girl", "male", "fem
 # BSSA writes a squad as a four-letter code keeping its name's letters in order: CHTA for Cheetahs.
 _CODE_LENGTH = 4
 # Club spellings are read raw, and stored names keep both forms: "Steamer's Crew", "K.C.L.".
+# A stored name can end in its state, "KC Athletics U11B (KS)", which names no squad.
+_STATE_TAG = re.compile(r"\s*\(\s*([A-Za-z]{2})\s*\)\s*$")
 _INSIDE_A_WORD = re.compile(r"(?<=[A-Za-z0-9])['’.](?=[A-Za-z0-9])")
+
+
+def _without_state_tag(name: str) -> str:
+    """The name without a trailing state code in brackets; other bracketed letters stay."""
+    tag = _STATE_TAG.search(name or "")
+    return name[: tag.start()] if tag and tag.group(1).upper() in STATE_CODE_TO_NAME else name
 
 
 def _words(text: Optional[str]) -> List[str]:
@@ -179,8 +188,8 @@ class SquadWordRules:
         candidate's club: the club read from a stored name swallows its squad word, and a near spelling the
         club gate let through ('KC Atletico' for 'KC Athletics') carries the words that tell it apart.
         """
-        provider = canonical_team_name(provider_name, _presplit)
-        candidate = canonical_team_name(candidate_name, _presplit)
+        provider = canonical_team_name(_without_state_tag(provider_name), _presplit)
+        candidate = canonical_team_name(_without_state_tag(candidate_name), _presplit)
         struck = _club_spellings(provider, candidate, club, self._written_club)
         return squad_words(provider, struck), squad_words(candidate, struck)
 

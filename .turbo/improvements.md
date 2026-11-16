@@ -3208,6 +3208,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `squad_marks` / `squads_conflict` in `src/models/tournament_name_gates.py` (Soccer Events Group, Athletes2Events, Tourney Central, HTG Sports and Heartland matchers); `_words` in `src/models/squad_word_rules.py`
 - **Why**: `squad_marks("Lincoln City FC N1 B2012/13 (NE)")` returns `directions={"northeast"}` (checked 2026-11-16), so `squads_conflict` refuses that stored row for "LCFC U14 Boys National N1" and a guarded dry run of HTG event 14130 would create a duplicate. 69 live team names end in a direction-shaped parenthesised tag, 51 in KS/MO/NE/IA/OK/AR. Strip a trailing parenthesised two-letter state code before reading squad marks, and before the squad-word reader, where `ne` against the team's `National` refuses the same row by itself.
 - **Noted**: 2026-11-16
+- **Update (2026-11-16)**: the squad-word reader now drops a trailing bracketed US state code (`_without_state_tag` in `src/models/squad_word_rules.py`); the shared squad gate still reads `(NE)` as northeast.
 
 ### Let the drivers tell the squad-word rules where a club spelling came from
 

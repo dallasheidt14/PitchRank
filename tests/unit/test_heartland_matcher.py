@@ -288,6 +288,27 @@ class TestSquadWords:
 
         assert matcher._names_no_squad("SWMO Rush U11B", "SMR U11B", "Southwest MO Rush") is False
 
+    @pytest.mark.parametrize(
+        "stored, names_no_squad",
+        [
+            pytest.param("KC Athletics U11B (KS)", True, id="state-tag"),
+            pytest.param("KC Athletics U11B ( mo )", True, id="spaced-lowercase-state-tag"),
+            pytest.param("KC Athletics U11B (XQ)", False, id="bracketed-letters-not-a-state"),
+        ],
+    )
+    def test_a_trailing_state_tag_names_no_squad(self, stored, names_no_squad):
+        matcher = _matcher(_DB())
+        matcher._written_club = "KC Athletics"
+
+        assert matcher._names_no_squad("KC Athletics Genoa U11B", stored, KCA) is names_no_squad
+        assert matcher._names_another_squad("KC Athletics Genoa U11B", stored, KCA) is not names_no_squad
+
+    def test_a_state_tag_on_the_team_names_no_squad_either(self):
+        matcher = _matcher(_DB())
+        matcher._written_club = "KC Athletics"
+
+        assert matcher._names_no_squad("KC Athletics U11B (KS)", "KC Athletics U11B", KCA) is False
+
     def test_a_club_word_with_an_inner_capital_matches_one_written_in_capitals(self):
         matcher = _matcher(_DB())
         matcher._written_club = "McCarthy"
