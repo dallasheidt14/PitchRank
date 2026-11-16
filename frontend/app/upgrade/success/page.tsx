@@ -57,7 +57,8 @@ async function signInAfterCheckout(sessionId: string): Promise<boolean> {
 
 export default function UpgradeSuccessPage() {
   return (
-    <Suspense>
+    // Holds the page's height while search params resolve, so the footer does not jump.
+    <Suspense fallback={<div className="min-h-screen" aria-hidden />}>
       <UpgradeSuccessContent />
     </Suspense>
   );

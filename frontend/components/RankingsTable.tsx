@@ -75,7 +75,7 @@ const SortButton = memo(
     return (
       <button
         onClick={() => onSort(field)}
-        className="flex items-center gap-1 hover:text-primary transition-colors duration-300 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary rounded"
+        className="flex min-h-11 sm:min-h-0 items-center gap-1 hover:text-primary transition-colors duration-300 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary rounded"
         aria-label={`Sort by ${srLabel}`}
       >
         {label}
@@ -633,7 +633,7 @@ export function RankingsTable({ region, ageGroup, gender, initialData }: Ranking
                   data-testid="rankings-table-header"
                   className={`grid ${ROW_GRID_COLUMNS} border-b-2 border-primary bg-secondary/50`}
                 >
-                  <div className="px-1 sm:px-3 py-2 sm:py-4 font-semibold text-xs sm:text-sm uppercase tracking-wide min-w-0 overflow-hidden">
+                  <div className="px-1 sm:px-3 sm:py-4 font-semibold text-xs sm:text-sm uppercase tracking-wide min-w-0 overflow-hidden">
                     <SortButton
                       field="rank"
                       label="Rank"
@@ -643,7 +643,7 @@ export function RankingsTable({ region, ageGroup, gender, initialData }: Ranking
                       onSort={handleSort}
                     />
                   </div>
-                  <div className="px-1.5 sm:px-4 py-2 sm:py-4 font-semibold text-xs sm:text-sm uppercase tracking-wide min-w-0 overflow-hidden">
+                  <div className="px-1.5 sm:px-4 sm:py-4 font-semibold text-xs sm:text-sm uppercase tracking-wide min-w-0 overflow-hidden">
                     <SortButton
                       field="team"
                       label="Team"
@@ -653,7 +653,7 @@ export function RankingsTable({ region, ageGroup, gender, initialData }: Ranking
                       onSort={handleSort}
                     />
                   </div>
-                  <div className="px-1.5 sm:px-4 py-2 sm:py-4 font-semibold text-right text-xs sm:text-sm uppercase tracking-wide min-w-0 overflow-hidden">
+                  <div className="px-1.5 sm:px-4 sm:py-4 font-semibold text-right text-xs sm:text-sm uppercase tracking-wide min-w-0 overflow-hidden">
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <div className="min-w-0 overflow-hidden">
@@ -677,7 +677,7 @@ export function RankingsTable({ region, ageGroup, gender, initialData }: Ranking
                       </TooltipContent>
                     </Tooltip>
                   </div>
-                  <div className="hidden sm:block px-1.5 sm:px-4 py-2 sm:py-4 font-semibold text-right text-xs sm:text-sm uppercase tracking-wide min-w-0 overflow-hidden">
+                  <div className="hidden sm:block px-1.5 sm:px-4 sm:py-4 font-semibold text-right text-xs sm:text-sm uppercase tracking-wide min-w-0 overflow-hidden">
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <div className="min-w-0 overflow-hidden">

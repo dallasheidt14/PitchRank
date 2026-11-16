@@ -1,4 +1,5 @@
 import { safeJsonLd } from '@/lib/schema-utils';
+import { formatPowerScore } from '@/lib/utils';
 
 interface TeamSchemaProps {
   teamName: string;
@@ -63,7 +64,7 @@ export function TeamSchema({
       losses !== undefined && {
         aggregateRating: {
           '@type': 'AggregateRating',
-          ratingValue: powerScore?.toFixed(2) || '0',
+          ratingValue: powerScore != null ? formatPowerScore(powerScore) : '0',
           bestRating: '100',
           worstRating: '0',
           ratingCount: (wins || 0) + (losses || 0) + (draws || 0),

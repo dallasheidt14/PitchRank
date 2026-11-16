@@ -523,9 +523,12 @@ export default function InfographicsPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div>
-                <label className="block text-sm font-medium mb-2">Age Group</label>
+                <label htmlFor="infographic-age-group" className="block text-sm font-medium mb-2">
+                  Age Group
+                </label>
                 <div className="relative">
                   <select
+                    id="infographic-age-group"
                     value={selectedAgeGroup}
                     onChange={(e) => setSelectedAgeGroup(e.target.value)}
                     className="w-full appearance-none bg-muted border border-border rounded-lg px-4 py-3 pr-10 font-medium focus:outline-none focus:ring-2 focus:ring-primary"
@@ -541,9 +544,12 @@ export default function InfographicsPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-2">Gender</label>
+                <label htmlFor="infographic-gender" className="block text-sm font-medium mb-2">
+                  Gender
+                </label>
                 <div className="relative">
                   <select
+                    id="infographic-gender"
                     value={selectedGender}
                     onChange={(e) => setSelectedGender(e.target.value as GenderType)}
                     className="w-full appearance-none bg-muted border border-border rounded-lg px-4 py-3 pr-10 font-medium focus:outline-none focus:ring-2 focus:ring-primary"
@@ -559,9 +565,12 @@ export default function InfographicsPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-2">Region</label>
+                <label htmlFor="infographic-region" className="block text-sm font-medium mb-2">
+                  Region
+                </label>
                 <div className="relative">
                   <select
+                    id="infographic-region"
                     value={selectedRegion || ''}
                     onChange={(e) => setSelectedRegion(e.target.value || null)}
                     className="w-full appearance-none bg-muted border border-border rounded-lg px-4 py-3 pr-10 font-medium focus:outline-none focus:ring-2 focus:ring-primary"
@@ -620,6 +629,7 @@ export default function InfographicsPage() {
               <CardContent>
                 <div className="relative">
                   <select
+                    aria-label="Team to spotlight"
                     value={selectedSpotlightTeamIndex}
                     onChange={(e) => setSelectedSpotlightTeamIndex(Number(e.target.value))}
                     className="w-full appearance-none bg-muted border border-border rounded-lg px-4 py-3 pr-10 font-medium focus:outline-none focus:ring-2 focus:ring-primary"
@@ -644,9 +654,12 @@ export default function InfographicsPage() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium mb-2">Team 1</label>
+                  <label htmlFor="infographic-team-1" className="block text-sm font-medium mb-2">
+                    Team 1
+                  </label>
                   <div className="relative">
                     <select
+                      id="infographic-team-1"
                       value={headToHeadTeam1Index}
                       onChange={(e) => setHeadToHeadTeam1Index(Number(e.target.value))}
                       className="w-full appearance-none bg-muted border border-border rounded-lg px-4 py-3 pr-10 font-medium focus:outline-none focus:ring-2 focus:ring-primary"
@@ -661,9 +674,12 @@ export default function InfographicsPage() {
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-2">Team 2</label>
+                  <label htmlFor="infographic-team-2" className="block text-sm font-medium mb-2">
+                    Team 2
+                  </label>
                   <div className="relative">
                     <select
+                      id="infographic-team-2"
                       value={headToHeadTeam2Index}
                       onChange={(e) => setHeadToHeadTeam2Index(Number(e.target.value))}
                       className="w-full appearance-none bg-muted border border-border rounded-lg px-4 py-3 pr-10 font-medium focus:outline-none focus:ring-2 focus:ring-primary"

@@ -10,8 +10,9 @@ vi.mock('@/hooks/useTeamSearch', () => ({
   useTeamSearch: mockUseTeamSearch,
 }));
 
-const { mockTrackSearchUsed } = vi.hoisted(() => ({
+const { mockTrackSearchUsed, feedbackModalRenders } = vi.hoisted(() => ({
   mockTrackSearchUsed: vi.fn(),
+  feedbackModalRenders: vi.fn(),
 }));
 
 vi.mock('@/lib/events', () => ({
@@ -21,6 +22,27 @@ vi.mock('@/lib/events', () => ({
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
+}));
+
+vi.mock('@/components/FeedbackModal', () => ({
+  FeedbackModal: ({
+    open,
+    initialCategory,
+    initialMessage,
+  }: {
+    open: boolean;
+    initialCategory?: string;
+    initialMessage?: string;
+  }) => {
+    feedbackModalRenders();
+    return open
+      ? React.createElement('div', {
+          'data-testid': 'feedback-dialog',
+          'data-category': initialCategory,
+          'data-message': initialMessage,
+        })
+      : null;
+  },
 }));
 
 import { GlobalSearch } from './GlobalSearch';
@@ -196,8 +218,79 @@ describe('GlobalSearch result rows', () => {
     await typeQuery(container!, 'dynamso');
 
     expect(container!.textContent).toContain('Showing close matches');
-    const options = [...container!.querySelector('#global-search-results')!.children];
+    const options = [...container!.querySelector('[role="listbox"]')!.children];
     expect(options.map((child) => child.getAttribute('role'))).toEqual(['option', 'option']);
+  });
+
+  // Focus stays in the box while the arrows move, so a screen reader learns the highlighted team
+  // only through aria-activedescendant naming that option.
+  it('points the search box at its listbox and at the option the arrow keys highlight', async () => {
+    await flushRender(root!);
+    await typeQuery(container!, 'dynamos');
+    const input = container!.querySelector('input') as HTMLInputElement;
+    await act(async () => {
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    });
+
+    const options = Array.from(container!.querySelectorAll('[role="option"]'));
+    expect(options.map((option) => option.getAttribute('aria-selected'))).toEqual(['false', 'true', 'false']);
+    expect(input.getAttribute('aria-expanded')).toBe('true');
+    expect(input.getAttribute('aria-controls')).toBe(container!.querySelector('[role="listbox"]')!.id);
+    expect(input.getAttribute('aria-activedescendant')).toBe(options[1].id);
+  });
+
+  // The panel still opens for a search that finds nothing, but it holds no list.
+  it('reports the list closed when a search finds nothing', async () => {
+    mockUseTeamSearch.mockReturnValue({
+      results: [],
+      match: 'exact',
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+    await flushRender(root!);
+    await typeQuery(container!, 'phoneix rising');
+    const input = container!.querySelector('input') as HTMLInputElement;
+
+    expect(container!.textContent).toContain('No teams found');
+    expect(input.getAttribute('aria-expanded')).toBe('false');
+    expect(input.hasAttribute('aria-activedescendant')).toBe(false);
+  });
+
+  // A click elsewhere closes the panel but keeps the query and its rows.
+  it('reports the list closed after a click outside the search', async () => {
+    await flushRender(root!);
+    await typeQuery(container!, 'dynamos');
+    const input = container!.querySelector('input') as HTMLInputElement;
+    expect(input.getAttribute('aria-expanded')).toBe('true');
+
+    await act(async () => {
+      document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    });
+
+    expect(container!.querySelector('[role="listbox"]')).toBeNull();
+    expect(input.getAttribute('aria-expanded')).toBe('false');
+    expect(input.hasAttribute('aria-activedescendant')).toBe(false);
+  });
+
+  // The header renders one search for phones and one for desktop, both in the page at once.
+  it('gives each search on the page its own listbox id', async () => {
+    const second = document.createElement('div');
+    document.body.appendChild(second);
+    const secondRoot = createRoot(second);
+    try {
+      await flushRender(root!);
+      await act(async () => secondRoot.render(React.createElement(GlobalSearch)));
+      await typeQuery(container!, 'dynamos');
+      await typeQuery(second, 'dynamos');
+
+      const ids = [container!, second].map((host) => host.querySelector('[role="listbox"]')!.id);
+      expect(ids[0]).not.toBe(ids[1]);
+    } finally {
+      await act(async () => secondRoot.unmount());
+      second.remove();
+    }
   });
 
   it('keeps the dropdown shut for a single letter followed by a space', async () => {
@@ -313,6 +406,30 @@ describe('GlobalSearch result rows', () => {
 
     expect(mockTrackSearchUsed).toHaveBeenCalledTimes(1);
     expect(mockTrackSearchUsed).toHaveBeenCalledWith({ query: 'dynamos', results_count: 2 });
+  });
+
+  it('offers the missing-team form from a search that finds nothing, with the search filled in', async () => {
+    mockUseTeamSearch.mockReturnValue({
+      results: [],
+      match: 'exact',
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+    await flushRender(root!);
+    await typeQuery(container!, 'phoneix rising');
+    expect(feedbackModalRenders).not.toHaveBeenCalled();
+
+    const tellUs = Array.from(container!.querySelectorAll('button')).find((b) =>
+      b.textContent?.startsWith("Can't find your team?")
+    )!;
+    await act(async () => tellUs.click());
+
+    const dialog = container!.querySelector('[data-testid="feedback-dialog"]')!;
+    expect(dialog.getAttribute('data-category')).toBe('cant-find-team');
+    expect(dialog.getAttribute('data-message')).toBe('Searched for "phoneix rising". ');
+    expect(container!.textContent).not.toContain('No teams found');
   });
 
   it('records a search that finds nothing once it has finished', async () => {

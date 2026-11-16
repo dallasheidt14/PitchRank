@@ -17,8 +17,8 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useUser } from '@/hooks/useUser';
 import { MAX_FEEDBACK_LENGTH, MIN_FEEDBACK_LENGTH } from '@/lib/constants';
-
-type Category = 'cant-find-team' | 'rankings-wrong' | 'wrong-games' | 'bug' | 'other';
+import { MIN_FEEDBACK_DWELL_MS } from '@/lib/feedbackDwell';
+import type { FeedbackCategory as Category } from '@/lib/email';
 
 const CATEGORY_OPTIONS: Array<{ value: Category; label: string }> = [
   { value: 'cant-find-team', label: "I can't find my team" },
@@ -42,6 +42,8 @@ const TEXTAREA_CLASSES =
 interface FeedbackModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  initialCategory?: Category;
+  initialMessage?: string;
 }
 
 type Status = 'idle' | 'submitting' | 'success' | 'error' | 'rate_limited';
@@ -51,13 +53,36 @@ type Status = 'idle' | 'submitting' | 'success' | 'error' | 'rate_limited';
  * change, so all local state (category, message, email, status) resets via
  * remount instead of via setState-in-effect.
  */
-function FeedbackForm({ pathname, hasUser, onClose }: { pathname: string; hasUser: boolean; onClose: () => void }) {
-  const [category, setCategory] = useState<Category | ''>('');
-  const [message, setMessage] = useState('');
+function FeedbackForm({
+  pathname,
+  hasUser,
+  userLoading,
+  onClose,
+  initialCategory,
+  initialMessage,
+}: {
+  pathname: string;
+  hasUser: boolean;
+  userLoading: boolean;
+  onClose: () => void;
+  initialCategory?: Category;
+  initialMessage?: string;
+}) {
+  const [category, setCategory] = useState<Category | ''>(initialCategory ?? '');
+  const [message, setMessage] = useState(initialMessage ?? '');
   const [email, setEmail] = useState('');
   const [website, setWebsite] = useState(''); // honeypot
   const [status, setStatus] = useState<Status>('idle');
   const openedAtRef = useRef<string>(new Date().toISOString());
+  const closedRef = useRef(false);
+
+  // StrictMode remounts with the same refs, so clear what the previous cleanup set.
+  useEffect(() => {
+    closedRef.current = false;
+    return () => {
+      closedRef.current = true;
+    };
+  }, []);
 
   // Auto-close 4s after success — this is a legitimate external sync (timer).
   useEffect(() => {
@@ -75,6 +100,11 @@ function FeedbackForm({ pathname, hasUser, onClose }: { pathname: string; hasUse
     e.preventDefault();
     if (!canSubmit || status === 'submitting') return;
     setStatus('submitting');
+    // The route silently drops a report sent inside the dwell window, and a prefilled form can be sent at once.
+    const dwellLeft = MIN_FEEDBACK_DWELL_MS - (Date.now() - Date.parse(openedAtRef.current));
+    if (dwellLeft > 0) await new Promise((resolve) => setTimeout(resolve, dwellLeft));
+    // A form unmounted during the wait (its dialog closed) withdraws its report.
+    if (closedRef.current) return;
     try {
       const res = await fetch('/api/feedback', {
         method: 'POST',
@@ -171,7 +201,8 @@ function FeedbackForm({ pathname, hasUser, onClose }: { pathname: string; hasUse
         </p>
       </div>
 
-      {!hasUser && (
+      {/* Held back while the user loads: a signed-in user would otherwise see the box appear, then vanish. */}
+      {!hasUser && !userLoading && (
         <div className="space-y-1.5">
           <Label htmlFor="feedback-email">
             Email <span className="text-muted-foreground font-normal">(optional)</span>
@@ -233,9 +264,9 @@ function FeedbackForm({ pathname, hasUser, onClose }: { pathname: string; hasUse
   );
 }
 
-export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
+export function FeedbackModal({ open, onOpenChange, initialCategory, initialMessage }: FeedbackModalProps) {
   const pathname = usePathname();
-  const { user } = useUser();
+  const { user, isLoading: userLoading } = useUser();
 
   // Bumps each time the modal transitions to open; combined with pathname,
   // forms a stable key that remounts the inner form (resetting all its state).
@@ -260,7 +291,15 @@ export function FeedbackModal({ open, onOpenChange }: FeedbackModalProps) {
           <DialogDescription>Tell us what you&apos;re seeing — we read every report.</DialogDescription>
         </DialogHeader>
 
-        <FeedbackForm key={formKey} pathname={pathname ?? ''} hasUser={!!user} onClose={onClose} />
+        <FeedbackForm
+          key={formKey}
+          pathname={pathname ?? ''}
+          hasUser={!!user}
+          userLoading={userLoading}
+          onClose={onClose}
+          initialCategory={initialCategory}
+          initialMessage={initialMessage}
+        />
       </DialogContent>
     </Dialog>
   );

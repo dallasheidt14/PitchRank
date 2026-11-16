@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect, useDeferredValue } from 'react';
+import { useState, useRef, useEffect, useDeferredValue, useId } from 'react';
 import { useRouter } from 'next/navigation';
 
 import { Input } from '@/components/ui/input';
@@ -13,6 +13,7 @@ import type { RankingRow } from '@/types/RankingRow';
 import { trackSearchUsed, trackSearchResultClicked } from '@/lib/events';
 import { teamDisplayName, spokenTeamMeta, scrollBehavior } from '@/lib/utils';
 import { TeamRowSubtitle } from '@/components/TeamRowSubtitle';
+import { FeedbackModal } from '@/components/FeedbackModal';
 
 /**
  * Escape special regex characters in a string
@@ -59,9 +60,11 @@ export function GlobalSearch({ inputId }: { inputId?: string }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [isOpen, setIsOpen] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const listboxId = useId();
   const router = useRouter();
 
   // Defer the search query to prevent UI jank during typing
@@ -162,6 +165,9 @@ export function GlobalSearch({ inputId }: { inputId?: string }) {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  const showResults = isOpen && searchQuery.trim().length >= 2;
+  const showListbox = showResults && !isLoading && !isSearchPending && !isError && searchResults.length > 0;
+
   return (
     <div ref={containerRef} className="relative w-full max-w-md">
       <div className="relative">
@@ -189,8 +195,11 @@ export function GlobalSearch({ inputId }: { inputId?: string }) {
           role="combobox"
           aria-label="Find your team"
           aria-autocomplete="list"
-          aria-expanded={isOpen && searchResults.length > 0}
-          aria-controls="global-search-results"
+          aria-expanded={showListbox}
+          aria-controls={listboxId}
+          aria-activedescendant={
+            showListbox && selectedIndex < searchResults.length ? `${listboxId}-option-${selectedIndex}` : undefined
+          }
         />
         {searchQuery && (
           <button
@@ -207,7 +216,7 @@ export function GlobalSearch({ inputId }: { inputId?: string }) {
         )}
       </div>
 
-      {isOpen && searchQuery.trim().length >= 2 && (
+      {showResults && (
         // The box is too narrow to show team names: below lg it shares the header row with the
         // logo and menu, and from lg the nav links squeeze it. So the results get their own width:
         // a centred panel under the header below lg, and at least 24rem under the box from lg.
@@ -219,20 +228,31 @@ export function GlobalSearch({ inputId }: { inputId?: string }) {
               <ErrorDisplay error={error} retry={refetch} compact />
             ) : searchResults.length === 0 ? (
               <div className="p-4 text-center text-sm text-muted-foreground">
-                No teams found matching &quot;{searchQuery}&quot;
+                <p>No teams found matching &quot;{searchQuery}&quot;</p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsOpen(false);
+                    setFeedbackOpen(true);
+                  }}
+                  className="mt-2 inline-flex min-h-11 items-center font-medium text-primary hover:underline"
+                >
+                  Can&apos;t find your team? Tell us
+                </button>
               </div>
             ) : (
               <>
                 {match !== 'exact' && (
                   <div className="px-3 pb-1 text-xs text-muted-foreground">Showing close matches</div>
                 )}
-                <div id="global-search-results" role="listbox" className="space-y-1" ref={listRef}>
+                <div id={listboxId} role="listbox" className="space-y-1" ref={listRef}>
                   {searchResults.map((team, index) => {
                     const displayName = teamDisplayName(team);
                     const spokenMeta = spokenTeamMeta(team);
                     return (
                       <button
                         key={team.team_id_master}
+                        id={`${listboxId}-option-${index}`}
                         role="option"
                         aria-selected={index === selectedIndex}
                         onClick={() => handleSelect(team)}
@@ -257,6 +277,16 @@ export function GlobalSearch({ inputId }: { inputId?: string }) {
             )}
           </CardContent>
         </Card>
+      )}
+
+      {/* Mounted only while open, so each search on the page doesn't run its own user lookup. */}
+      {feedbackOpen && (
+        <FeedbackModal
+          open
+          onOpenChange={setFeedbackOpen}
+          initialCategory="cant-find-team"
+          initialMessage={`Searched for "${searchQuery.trim()}". `}
+        />
       )}
     </div>
   );

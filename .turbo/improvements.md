@@ -60,6 +60,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `frontend/components/TeamSelector.tsx:234-248`, `frontend/components/UnknownOpponentLink.tsx:537-557`; reference in `frontend/components/GlobalSearch.tsx:236-247`
 - **Why**: GlobalSearch implements the full combobox pattern (`role="combobox"` + `aria-controls` on the input, `role="listbox"` on the container, `role="option"` + `aria-selected` per row). The other two carry `aria-autocomplete="list"` and `aria-expanded` with no `role="combobox"` to make those valid, and their rows have no role and no `aria-selected` despite tracking the same `selectedIndex` and painting the same `bg-accent` highlight. After the 2026-08-18 label/subtitle unification the three row bodies are otherwise near-identical, so this now reads as drift. Concrete cost: `GlobalSearch.test.tsx` selects rows via `querySelectorAll('[role="option"]')`, so anyone copying it to cover TeamSelector gets zero matches — a vacuously green test, worse than a red one.
 - **Noted**: 2026-08-18
+- **Update (2026-11-16)**: `TeamSelector` and `ScopedTeamSelector` now match `GlobalSearch`'s full combobox pattern, `aria-activedescendant` included (branch `fix/site-quick-wins-1116`); `UnknownOpponentLink` is the one left.
 
 ### Make the e2e search test fail when zero results render
 
@@ -1779,6 +1780,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Noted**: 2026-10-02
 - **Update (2026-10-14)**: The 0–1 half is verified. Rankings boards and team pages show `formatPowerScore` (×100) and now describe the scale as 0–100, but six display spots print the raw value: `app/rankings/age/[ageGroup]/page.tsx` (`toFixed(1)`, live `/rankings/age/u17` shows 0.7), `app/embed/club/[clubId]/page.tsx`, `components/ReportCardPreview.tsx` (a hardcoded 0.847 sample), `lib/pdf/TeamReportCard.tsx`, `lib/email/report-card.ts` and `components/TeamSchema.tsx` (`ratingValue` 0–1 beside `bestRating` 100). About 63 customer-facing blog statements still say 0–1 with 0.95/0.80 bands: `content/blog-posts.tsx` (the PowerScore guide, the CA/TX "PowerScore Scale (0.0 to 1.0)" boxes, `youth-soccer-rankings-by-state`), six `lib/blog-faqs.ts` state answers (each repeats a sentence from its state's MDX guide word for word, so change both), the two `what-is-powerscore-youth-soccer` answers and the `how-pitchrank-rankings-work` "What is PowerScore?" answer, and 28 of 37 `content/blog/*.mdx` guides. The owner chose a separate PR for the sweep; convert the bands ×100 and regenerate llms.txt.
 - **Update (2026-11-11)**: The state-rank half is verified and fixed: the report card's state rank was always blank because the route read `rank_in_state_final` from `rankings_view`, which has no such column (columns read 2026-11-11). The PDF and its delivery email now show PowerScore through `formatPowerScore`, and `components/ReportCardPreview.tsx` shows a fixed 0–100 sample (50.12), so three of the six raw-value spots are fixed (branch `feat/report-card-redesign`). The age-group board, club embed and `TeamSchema` still print 0–1, and the blog sweep is unchanged.
+- **Update (2026-11-16)**: All six raw-value spots now call `formatPowerScore` (branch `fix/site-quick-wins-1116`); the club embed's cell never renders while its query is broken (IMP-401). Only the blog sweep remains.
 
 ### Point TestLayer13BlendFormula at the production blend
 
@@ -3187,3 +3189,33 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `build_csv_rows` and the `*_games.csv` `write_csv` call in `scripts/import_tourneycentral_event.py`, and the drivers that reuse or copy it (`import_htgsports_event.py`, `import_heartland.py`, `import_demosphere.py`, `import_yssl.py`, `import_athletes2events_event.py`)
 - **Why**: The team report, held and cross-age CSVs go through `_for_spreadsheets`, but the games CSV keeps names as scraped, and the weekly workflows upload it as an artifact a person may open in a spreadsheet, where a registrar-typed name starting with = + - @ is evaluated (reported by review 2026-11-14, path not exploited). Decide whether `import_games_enhanced.py` needs the raw names; if not, sanitize the file, else keep it out of the artifact or label it machine-only.
 - **Noted**: 2026-11-14
+
+### Repair or remove the club embed widget, which shows no teams for any club
+
+- **ID**: IMP-401
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: the Supabase query in `ClubEmbedPage` in `frontend/app/embed/club/[clubId]/page.tsx`
+- **Why**: It selects `team_name`, `power_score_final`, the rank columns and filters on `club_name` from `current_rankings`, which has none of those columns (`information_schema.columns` read 2026-11-16), so every request fails and the widget reads "No ranked teams found" for every club (seen on three clubs, 2026-11-06 and 2026-11-16). `rankings_view` carries all but `rank_in_state_final` (only `state_rankings_view` has it, and it times out), so a repair drops or re-sources the state rank. The widget also shows the site header and footer: the root layout always renders `Navigation` and `Footer`, although `EmbedLayout` says it has neither. Decide repair or removal first: nothing here shows whether any club site embeds it.
+- **Noted**: 2026-11-16
+
+### Headline state and national hubs with their ranked team count across all ages
+
+- **ID**: IMP-402
+- **Status**: open
+- **Type**: plan
+- **Category**: feature
+- **Where**: the `boysTeamCount` / `girlsTeamCount` headline in `StateOverviewPage` (`frontend/app/rankings/[region]/page.tsx`), which calls `api.getRankingsCount(regionParam, 'u12', …)`; `api.getActiveRankingsCount` in `frontend/lib/api.ts`
+- **Why**: The hub headline counts U12 only ("(U12 division)"), and `get_*_rankings_count` also counts 'Not Enough Ranked Games' teams. Owner, 2026-11-16: show ranked teams only, to match the home page (Arizona ranks 841 boys across all ages). `api.getActiveRankingsCount` already counts ranked teams: one all-ages call per gender nationally, one call per age for a state. Eighteen per-age national counts at once timed out under the anon role and blanked the hub's previews (smoke test 2026-11-16).
+- **Noted**: 2026-11-16
+
+### Report card team search flashes "No teams matching" when the second letter is typed
+
+- **ID**: IMP-403
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: the scoped-results fetch effect and results panel in `ScopedTeamSelector` (`frontend/components/ScopedTeamSelector.tsx`)
+- **Why**: When the deferred query reaches two characters, `isLoading` is still false and `results` empty, so one render (~15 ms, every run in a 2026-11-16 smoke test) shows the empty state before the fetch effect sets loading. Distinct from the cancelled-request `.finally` race fixed on `fix/site-quick-wins-1116`. Owner chose to log rather than fix it there.
+- **Noted**: 2026-11-16

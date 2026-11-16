@@ -8,13 +8,14 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { AuthCardShell } from '@/components/auth/AuthCardShell';
+import { AuthCardShell, AUTH_SHELL_MIN_HEIGHT } from '@/components/auth/AuthCardShell';
 import { Loader2, Mail, Lock, CheckCircle2 } from 'lucide-react';
 import { safeNextPath } from '@/lib/auth/emailTokens';
 
 export default function LoginPage() {
   return (
-    <Suspense>
+    // Holds the page's height while search params resolve, so the footer does not jump.
+    <Suspense fallback={<div className={AUTH_SHELL_MIN_HEIGHT} aria-hidden />}>
       <LoginForm />
     </Suspense>
   );

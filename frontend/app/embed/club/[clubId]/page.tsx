@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { createClient } from '@supabase/supabase-js';
 import { formatGender } from '@/lib/constants';
+import { formatPowerScore } from '@/lib/utils';
 
 // Revalidate every hour
 export const revalidate = 3600;
@@ -195,7 +196,7 @@ export default async function ClubEmbedPage({ params }: ClubEmbedPageProps) {
                 <td className="meta-text">
                   {team.wins}-{team.losses}-{team.draws}
                 </td>
-                <td className="score-text">{team.power_score_final.toFixed(1)}</td>
+                <td className="score-text">{formatPowerScore(team.power_score_final)}</td>
                 <td className="rank-text">
                   {team.rank_in_cohort_final != null ? `#${team.rank_in_cohort_final} National` : '—'}
                   {team.rank_in_state_final && team.state && (

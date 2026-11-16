@@ -504,3 +504,10 @@ RESEND_API_KEY
     `last_sign_in_at` empty; the account under 30 minutes old; and no other account signed in on that
     browser. The session id alone cannot grant a session, because it sits in Stripe's hosted checkout URL. An
     account that existed before the checkout has no marker, so the route cannot reach it.
+21. **`lib/constants.ts` and `lib/utils.ts` are source-hash pinned** — `createFormulaRuntime` in
+    `lib/compareFormulaResearch.ts` hashes them (`PREDICTOR_INPUT_SOURCE_FILES`) against
+    `lib/compareFormulaPin.json` and throws on any change, which fails the Compare research tests. Put a new
+    shared value in its own module (as `lib/feedbackDwell.ts` does) rather than editing either file.
+22. **`useUser` is not a shared context** — every component that calls it runs its own `getSession`,
+    profile fetch and auth listener. The header mounts `GlobalSearch` twice (phone and desktop), so a
+    component that calls `useUser` inside it, such as a modal, should mount only while it is in use.

@@ -66,10 +66,10 @@ export function RelatedRankings({ currentRegion, currentAgeGroup, currentGender 
             </p>
             <ul className="space-y-0">
               {neighboringAges.map((age) => (
-                <li key={age} className="py-1 border-b border-border/40 last:border-0">
+                <li key={age} className="border-b border-border/40 last:border-0">
                   <Link
                     href={`/rankings/${currentRegion}/${age}/${currentGender}`}
-                    className="text-sm text-primary hover:underline"
+                    className="flex min-h-11 items-center text-sm text-primary hover:underline"
                   >
                     {age.toUpperCase()} {genderDisplay}
                   </Link>
@@ -88,10 +88,10 @@ export function RelatedRankings({ currentRegion, currentAgeGroup, currentGender 
                 const stateName =
                   region === 'national' ? 'National' : US_STATES.find((s) => s.code === region)?.name || region;
                 return (
-                  <li key={region} className="py-1 border-b border-border/40 last:border-0">
+                  <li key={region} className="border-b border-border/40 last:border-0">
                     <Link
                       href={`/rankings/${region.toLowerCase()}/${currentAgeGroup}/${currentGender}`}
-                      className="text-sm text-primary hover:underline"
+                      className="flex min-h-11 items-center text-sm text-primary hover:underline"
                     >
                       {stateName}
                     </Link>
@@ -107,20 +107,20 @@ export function RelatedRankings({ currentRegion, currentAgeGroup, currentGender 
               {oppositeGenderDisplay} Rankings
             </p>
             <ul className="space-y-0">
-              <li className="py-1 border-b border-border/40">
+              <li className="border-b border-border/40">
                 <Link
                   href={`/rankings/${currentRegion}/${currentAgeGroup}/${oppositeGender}`}
-                  className="text-sm text-primary hover:underline"
+                  className="flex min-h-11 items-center text-sm text-primary hover:underline"
                 >
                   {ageDisplay} {oppositeGenderDisplay}{' '}
                   {isNational ? '(National)' : `\u2014 ${currentState?.name || currentRegion.toUpperCase()}`}
                 </Link>
               </li>
               {neighboringAges.slice(0, 2).map((age) => (
-                <li key={age} className="py-1 border-b border-border/40 last:border-0">
+                <li key={age} className="border-b border-border/40 last:border-0">
                   <Link
                     href={`/rankings/${currentRegion}/${age}/${oppositeGender}`}
-                    className="text-sm text-primary hover:underline"
+                    className="flex min-h-11 items-center text-sm text-primary hover:underline"
                   >
                     {age.toUpperCase()} {oppositeGenderDisplay}
                   </Link>

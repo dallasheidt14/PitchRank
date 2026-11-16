@@ -10,14 +10,14 @@ const { mockPreview, mockStartCheckout, state } = vi.hoisted(() => {
   return {
     mockPreview: vi.fn(),
     mockStartCheckout: vi.fn(),
-    state: { next: null as string | null },
+    state: { next: null as string | null, user: null as { id: string } | null, userLoading: false },
   };
 });
 
 vi.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(state.next ? { next: state.next } : {}),
 }));
-vi.mock('@/hooks/useUser', () => ({ useUser: () => ({ user: null, isLoading: false }) }));
+vi.mock('@/hooks/useUser', () => ({ useUser: () => ({ user: state.user, isLoading: state.userLoading }) }));
 vi.mock('@/lib/events', () => ({
   trackUpgradePageViewed: vi.fn(),
   trackPlanSelected: vi.fn(),
@@ -70,6 +70,8 @@ async function tap(element: HTMLElement) {
 beforeEach(() => {
   vi.clearAllMocks();
   state.next = null;
+  state.user = null;
+  state.userLoading = false;
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
@@ -101,6 +103,22 @@ describe('UpgradePage paywall', () => {
     state.next = '/compare';
     await render();
     expect(mockPreview).not.toHaveBeenCalled();
+    expect(container.textContent).not.toContain('You were looking at');
+  });
+
+  it("holds the banner's place while the tapped team loads", async () => {
+    state.next = `/teams/${TEAM_ID}`;
+    mockPreview.mockReturnValue(new Promise(() => {}));
+    await render();
+    expect(container.querySelector('[data-testid="tapped-team-placeholder"]')).not.toBeNull();
+    expect(container.textContent).toContain('You were looking at');
+  });
+
+  it('drops the placeholder when the team lookup fails', async () => {
+    state.next = `/teams/${TEAM_ID}`;
+    mockPreview.mockRejectedValue(new Error('network'));
+    await render();
+    expect(container.querySelector('[data-testid="tapped-team-placeholder"]')).toBeNull();
     expect(container.textContent).not.toContain('You were looking at');
   });
 
@@ -231,6 +249,17 @@ describe('UpgradePage paywall', () => {
     await render();
     const hrefs = Array.from(container.querySelectorAll('a')).map((a) => a.getAttribute('href'));
     expect(hrefs).toContain(`/login?next=${encodeURIComponent(`/teams/${TEAM_ID}`)}`);
+  });
+
+  it.each([
+    ['signed in', { id: 'user-1' }, false],
+    ['still loading the session', null, true],
+  ])('offers no sign-in link to a visitor %s', async (_label, user, userLoading) => {
+    state.user = user;
+    state.userLoading = userLoading;
+    await render();
+    const hrefs = Array.from(container.querySelectorAll('a')).map((a) => a.getAttribute('href') ?? '');
+    expect(hrefs.filter((href) => href.startsWith('/login'))).toEqual([]);
   });
 
   it('drops the old team banner when the destination is no longer a team', async () => {

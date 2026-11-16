@@ -7,12 +7,14 @@ import { Check, Zap, Crown, Shield, TrendingUp, Star, Pencil, BarChart3, Eye, Ar
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
 import { safeTeamPath } from '@/lib/auth/emailTokens';
 import { startCheckout } from '@/lib/stripe/client';
 import { useUser } from '@/hooks/useUser';
 import { trackUpgradePageViewed, trackPlanSelected, trackCheckoutInitiated } from '@/lib/events';
 import { api } from '@/lib/api';
 import { cn, formatCountShort } from '@/lib/utils';
+import { FALLBACK_STATS } from '@/lib/stats';
 import { formatGender } from '@/lib/constants';
 
 // Price IDs from Stripe Dashboard (configured via environment variables)
@@ -51,8 +53,8 @@ function UpgradePageContent() {
   const [selectedPlan, setSelectedPlan] = useState<'monthly' | 'yearly'>('yearly');
   // Set only by the plan buttons: a tap on a card must not move that card out from under the finger.
   const [yearlyFirstOnPhones, setYearlyFirstOnPhones] = useState(true);
-  const [teamsRanked, setTeamsRanked] = useState('59K+');
-  const [gamesAnalyzed, setGamesAnalyzed] = useState('1.3M+');
+  const [teamsRanked, setTeamsRanked] = useState(formatCountShort(FALLBACK_STATS.totalTeams));
+  const [gamesAnalyzed, setGamesAnalyzed] = useState(formatCountShort(FALLBACK_STATS.totalGames));
 
   // Live counts, same source as the homepage counter.
   useEffect(() => {
@@ -83,6 +85,7 @@ function UpgradePageContent() {
     team: Awaited<ReturnType<typeof api.getPaywallTeamPreview>>;
   } | null>(null);
   const tappedTeam = loadedTeam && loadedTeam.id === tappedTeamId ? loadedTeam.team : null;
+  const tappedTeamLoading = tappedTeamId !== null && loadedTeam?.id !== tappedTeamId;
   useEffect(() => {
     if (!tappedTeamId) return;
     let cancelled = false;
@@ -91,7 +94,9 @@ function UpgradePageContent() {
       .then((team) => {
         if (!cancelled) setLoadedTeam({ id: tappedTeamId, team });
       })
-      .catch(() => {});
+      .catch(() => {
+        if (!cancelled) setLoadedTeam({ id: tappedTeamId, team: null });
+      });
     return () => {
       cancelled = true;
     };
@@ -142,32 +147,48 @@ function UpgradePageContent() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-background to-muted/30">
       <div className="container mx-auto px-4 py-12 md:py-16">
-        {!userLoading && !user && (
-          <p className="text-right text-sm mb-4">
-            <span className="text-muted-foreground">Already a member? </span>
-            <Link
-              href={`/login?next=${encodeURIComponent(tappedTeamId ? `/teams/${tappedTeamId}` : '/upgrade')}`}
-              className="text-primary font-medium hover:underline"
-            >
-              Sign in
-            </Link>
-          </p>
-        )}
+        {/* Rendered before the session resolves, so the link appearing does not push the page down. */}
+        <p className="text-right text-sm mb-4 min-h-5">
+          {!userLoading && !user && (
+            <>
+              <span className="text-muted-foreground">Already a member? </span>
+              <Link
+                href={`/login?next=${encodeURIComponent(tappedTeamId ? `/teams/${tappedTeamId}` : '/upgrade')}`}
+                className="text-primary font-medium hover:underline"
+              >
+                Sign in
+              </Link>
+            </>
+          )}
+        </p>
 
-        {tappedTeam && (
+        {(tappedTeam || tappedTeamLoading) && (
           <div className="max-w-xl mx-auto mb-8 rounded-lg border border-primary/30 bg-primary/5 p-4 text-center">
             <p className="text-xs uppercase tracking-wide text-muted-foreground mb-1">You were looking at</p>
-            <p className="text-lg font-bold font-display">{tappedTeam.team_name}</p>
-            <p className="text-sm text-muted-foreground">
-              {[
-                tappedTeam.club_name,
-                tappedTeam.age ? `U${tappedTeam.age}` : null,
-                tappedTeam.gender ? formatGender(tappedTeam.gender) : null,
-                tappedTeam.rank_in_cohort_final ? `#${tappedTeam.rank_in_cohort_final} nationally` : null,
-              ]
-                .filter(Boolean)
-                .join(' · ')}
-            </p>
+            {tappedTeam ? (
+              <>
+                <p className="text-lg font-bold font-display">{tappedTeam.team_name}</p>
+                <p className="text-sm text-muted-foreground">
+                  {[
+                    tappedTeam.club_name,
+                    tappedTeam.age ? `U${tappedTeam.age}` : null,
+                    tappedTeam.gender ? formatGender(tappedTeam.gender) : null,
+                    tappedTeam.rank_in_cohort_final ? `#${tappedTeam.rank_in_cohort_final} nationally` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </p>
+              </>
+            ) : (
+              <div data-testid="tapped-team-placeholder" aria-hidden>
+                <div className="py-0.5">
+                  <Skeleton className="h-6 w-48 max-w-full mx-auto" />
+                </div>
+                <div className="py-0.5">
+                  <Skeleton className="h-4 w-64 max-w-full mx-auto" />
+                </div>
+              </div>
+            )}
             <p className="text-sm mt-2">Start your free trial to open this team&apos;s full page.</p>
           </div>
         )}
