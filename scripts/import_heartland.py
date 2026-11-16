@@ -195,6 +195,7 @@ HEARTLAND_CLUBS: Dict[str, HeartlandClub] = {
     "KCL": HeartlandClub("KC Legends"),
     "KC Legends": HeartlandClub("KC Legends"),
     "Toca Fusion": HeartlandClub("Toca Fusion Athletic Club"),
+    "TFAC": HeartlandClub("Toca Fusion Athletic Club"),  # owner, 2026-11-15: Toca FC is part of TFAC
     "BSSA": HeartlandClub("Blue Springs Soccer Academy"),
     "TSC": HeartlandClub("Topeka SC"),
     "Captains SC": HeartlandClub("Captains Soccer Club"),

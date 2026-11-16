@@ -3097,6 +3097,7 @@ SPELLING_GROUP_OVERRIDES = [
     ("IN", "exact", "Millennium Soccer Academy", "Millennium Soccer Association"),
     ("KS", "exact", "Sporting Kaw Valley", "Sporting Kaw Valley Soccer Club"),
     ("KS", "exact", "Toca Fusion", "Toca Fusion Athletic Club"),
+    ("KS", "exact", "Toca FC", "Toca Fusion Athletic Club"),
     ("KY", "exact", "Lexington SC", "Lexington Sporting"),
     ("KY", "exact", "Lexington Youth SA", "Lexington SA"),
     ("LA", "exact", "Soccer Innovations of America(SOIA)", "Soccer Innovations of America"),

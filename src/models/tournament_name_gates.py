@@ -11,10 +11,13 @@ the shared tier set does not carry.
 
 ``extract_team_variant`` is not used here: its coach-name fallback reads a
 hyphenated tier such as "ECNL-RL" as a coach name.
+
+``AGE_WORD``, ``begins`` and ``initials`` read ages, abbreviations and club initials
+for matchers that split names and compare them their own way.
 """
 
 import re
-from typing import Callable, Dict, Optional
+from typing import Callable, Dict, Optional, Sequence
 
 from src.models.game_matcher import extract_club_from_team_name
 from src.models.squad_name_gates import extract_tier_tokens, tiers_conflict
@@ -73,6 +76,22 @@ def club_from_team_name(name: Optional[str], pre: Optional[Callable[[str], str]]
         if match:
             stop = min(stop, match.start())
     return extract_club_from_team_name(canonical[:stop].strip() or canonical)
+
+
+# A word read as an age, not a squad: a U-age (U11, BU9, 12U), a two-digit year or band half
+# (15/16B reads as 15 and 16B) or a birth year (B2015). Matched against one word at a time.
+AGE_WORD = re.compile(r"[bg]?u?\d{2}u?[bg]?|[bg]?u\d[bg]?|[bg]?(?:19|20)\d{2}[bg]?", re.IGNORECASE | re.ASCII)
+# A word of at least this many letters may stand for a longer word it begins ("Prem" for "Premier").
+SHORTEST_ABBREVIATION = 4
+
+
+def begins(short: str, long: str) -> bool:
+    """``long`` begins with ``short``, a word long enough to abbreviate it."""
+    return len(short) >= SHORTEST_ABBREVIATION and long.startswith(short)
+
+
+def initials(words: Sequence[str]) -> str:
+    return "".join(word[0] for word in words)
 
 
 def without_club(name: str, club: Optional[str]) -> str:

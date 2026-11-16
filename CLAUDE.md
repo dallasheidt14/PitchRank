@@ -140,7 +140,11 @@ PitchRank is a **youth soccer ranking platform** that scrapes game data from mul
   entirely from tests that already existed. Collect the failing test *names* and assert the
   new one is among them. Where no mutation kills it alone, the guard is either redundant
   with what is already there or pointed at the wrong code, and saying which is part of
-  writing it.
+  writing it. A survivor can also mean no test yet holds the input the guard exists for,
+  so "redundant" is a claim to prove before deleting anything: run that input through the
+  code without the guard. On 2026-11-16 two guards were removed as covered elsewhere ("the
+  canonical name already drops apostrophes", "the club gate never admits that row"); both
+  claims were false on real stored names, and the next review round found each one.
 - **Bind the test at the altitude where the failure lives.** The double rules above are about
   what a fake *accepts*; this one is about which layer the test drives. A guard whose failure
   mode is in what gets **fetched** cannot be seen by a test that hands the rows to the pure
