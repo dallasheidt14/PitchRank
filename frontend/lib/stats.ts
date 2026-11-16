@@ -7,10 +7,10 @@ export interface PublicStats {
 }
 
 /**
- * Conservative floors used when the stats RPC is unavailable at build/request
- * time. Kept at or below the true live counts so marketing copy never overstates.
+ * Conservative floors shown when the live counts are unavailable or not yet loaded.
+ * Kept at or below the true live counts so marketing copy never overstates.
  */
-const FALLBACK_STATS: PublicStats = { totalTeams: 59000, totalGames: 1_100_000 };
+export const FALLBACK_STATS: PublicStats = { totalTeams: 58_000, totalGames: 1_700_000 };
 
 /**
  * Live site-wide counts (teams ranked, games analyzed) from the daily

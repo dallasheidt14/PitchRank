@@ -257,6 +257,72 @@ describe('TeamSelector rows', () => {
     }
   });
 
+  // Focus stays in the box while the arrows move, so a screen reader learns the highlighted team
+  // only through aria-activedescendant naming that option.
+  it('points the search box at its own listbox and at the option the arrow keys highlight', async () => {
+    const rendered = renderSelector();
+    ({ root, container } = rendered);
+    await flushRender(root, rendered.element);
+    await typeQuery(container, 'colorado');
+    const input = container.querySelector('input') as HTMLInputElement;
+    await act(async () => {
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    });
+
+    const options = Array.from(container.querySelectorAll('[role="option"]'));
+    expect(options.map((option) => option.getAttribute('aria-selected'))).toEqual(['false', 'true']);
+    expect(input.getAttribute('role')).toBe('combobox');
+    expect(input.getAttribute('aria-expanded')).toBe('true');
+    expect(input.getAttribute('aria-controls')).toBe(container.querySelector('[role="listbox"]')!.id);
+    expect(input.getAttribute('aria-activedescendant')).toBe(options[1].id);
+  });
+
+  // The other selector's pick filters this one's results without moving its highlight.
+  it('stops naming a highlighted option that the other selector has just excluded', async () => {
+    mockUseTeamSearch.mockImplementation((query: string, options: { excludeId?: string }) => ({
+      results: (SERVER_RESULTS[query.trim()] ?? []).filter((team) => team.team_id_master !== options.excludeId),
+      match: 'exact',
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    }));
+    const rendered = renderSelector();
+    ({ root, container } = rendered);
+    await flushRender(root, rendered.element);
+    await typeQuery(container, 'colorado');
+    const input = container.querySelector('input') as HTMLInputElement;
+    await act(async () => {
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    });
+    expect(input.getAttribute('aria-activedescendant')).toBe(container.querySelectorAll('[role="option"]')[1].id);
+
+    await flushRender(root, selectorElement({ excludeTeamId: 'team-dash' }));
+
+    expect(container.querySelectorAll('[role="option"]')).toHaveLength(1);
+    expect(input.hasAttribute('aria-activedescendant')).toBe(false);
+  });
+
+  it('gives each selector on the page its own listbox id', async () => {
+    const first = renderSelector();
+    ({ root, container } = first);
+    const second = document.createElement('div');
+    document.body.appendChild(second);
+    const secondRoot = createRoot(second);
+    try {
+      await flushRender(root, first.element);
+      await flushRender(secondRoot, selectorElement());
+      await typeQuery(container, 'colorado');
+      await typeQuery(second, 'colorado');
+
+      const ids = [container, second].map((host) => host.querySelector('[role="listbox"]')!.id);
+      expect(ids[0]).not.toBe(ids[1]);
+    } finally {
+      await act(async () => secondRoot.unmount());
+      second.remove();
+    }
+  });
+
   it('keeps the dropdown shut for a single letter followed by a space', async () => {
     const rendered = renderSelector();
     ({ root, container } = rendered);

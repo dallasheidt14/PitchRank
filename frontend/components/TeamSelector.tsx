@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect, useDeferredValue } from 'react';
+import { useState, useRef, useEffect, useDeferredValue, useId } from 'react';
 import { Input } from '@/components/ui/input';
 import { useTeamSearch } from '@/hooks/useTeamSearch';
 import { Card, CardContent } from '@/components/ui/card';
@@ -62,6 +62,7 @@ export function TeamSelector({ label, value, onChange, selectedTeam = null, excl
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const listboxId = useId();
 
   // Defer the search query to prevent UI jank during typing
   const deferredSearchQuery = useDeferredValue(searchQuery);
@@ -129,6 +130,9 @@ export function TeamSelector({ label, value, onChange, selectedTeam = null, excl
     }
   }, [selectedIndex]);
 
+  const showResults = isOpen && searchQuery.trim().length >= 2;
+  const showListbox = showResults && !isLoading && !isSearchPending && !isError && filteredTeams.length > 0;
+
   return (
     <div className="relative">
       <label htmlFor={`team-selector-${label}`} className="text-sm font-medium mb-2 block">
@@ -153,10 +157,15 @@ export function TeamSelector({ label, value, onChange, selectedTeam = null, excl
           onKeyDown={handleKeyDown}
           className="w-full transition-colors duration-300"
           aria-label={`Search and select ${label.toLowerCase()}`}
+          role="combobox"
           aria-autocomplete="list"
-          aria-expanded={isOpen && filteredTeams.length > 0}
+          aria-expanded={showListbox}
+          aria-controls={listboxId}
+          aria-activedescendant={
+            showListbox && selectedIndex < filteredTeams.length ? `${listboxId}-option-${selectedIndex}` : undefined
+          }
         />
-        {isOpen && searchQuery.trim().length >= 2 && (
+        {showResults && (
           <Card className="absolute z-50 w-full mt-1 max-h-60 overflow-y-auto shadow-lg">
             <CardContent className="p-2">
               {isLoading || isSearchPending ? (
@@ -172,13 +181,16 @@ export function TeamSelector({ label, value, onChange, selectedTeam = null, excl
                   {match !== 'exact' && (
                     <div className="px-3 pb-1 text-xs text-muted-foreground">Showing close matches</div>
                   )}
-                  <div className="space-y-1" ref={listRef}>
+                  <div id={listboxId} role="listbox" className="space-y-1" ref={listRef}>
                     {filteredTeams.map((team, index) => {
                       const displayName = teamDisplayName(team);
                       const spokenMeta = spokenTeamMeta(team);
                       return (
                         <button
                           key={team.team_id_master}
+                          id={`${listboxId}-option-${index}`}
+                          role="option"
+                          aria-selected={index === selectedIndex}
                           onClick={() => handleSelect(team)}
                           className={`w-full text-left p-2 rounded-md transition-colors duration-200 focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary ${
                             index === selectedIndex ? 'bg-accent font-semibold' : 'hover:bg-accent/50'

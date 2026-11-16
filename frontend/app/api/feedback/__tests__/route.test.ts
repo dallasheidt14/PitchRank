@@ -139,6 +139,16 @@ describe('POST /api/feedback', () => {
     expect(mockSendFeedback).not.toHaveBeenCalled();
   });
 
+  // The form waits until exactly this gap before sending, so the floor's value and its strict < both matter.
+  it.each([
+    ['2026-05-06T18:00:02.000Z', 1],
+    ['2026-05-06T18:00:01.999Z', 0],
+  ])('treats a report submitted at %s (opened 18:00:00) as delivered %i times', async (submittedAt, sends) => {
+    const res = await POST(makeRequest({ ...validBody, context: { ...validBody.context, submittedAt } }));
+    expect(res.status).toBe(200);
+    expect(mockSendFeedback).toHaveBeenCalledTimes(sends);
+  });
+
   it('429 when rate limit denies', async () => {
     mockCheckRateLimit.mockReturnValue(false);
     const res = await POST(makeRequest(validBody));

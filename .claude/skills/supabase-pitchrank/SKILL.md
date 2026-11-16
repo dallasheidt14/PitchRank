@@ -140,6 +140,15 @@ rankings boards display, rather than a head count over `rankings_view`. The anon
 3.2 s and failed with HTTP 500, against 276 ms for the RPC (measured 2026-11-11). Their `bigint`
 result arrives as a JSON number.
 
+`get_*_rankings_count` counts 'Not Enough Ranked Games' rows as well as Active ones. Calls that each
+finish well inside that limit still fail with 57014 when many run at once: 18 concurrent
+`get_national_rankings_count` calls (nine ages × two genders) timed out on every try and took the
+page's other RPCs down with them, while 2 counts beside 6 preview calls succeeded (measured
+2026-11-16). Count a region across ages in one call where the function allows it: the national counts
+take `p_age = ''` for all ages. The `get_state_*` counts cast `p_age` to an integer (an empty string
+raises 22P02) and match `p_gender` exactly (an empty one returns 0), so they need one call per age and
+gender; 18 of them run concurrently for one state finished in under 0.5 s.
+
 ### `team_alias_map`
 ```sql
 provider_team_id  TEXT              -- Provider's ID for the team

@@ -113,7 +113,10 @@ export function ScopedTeamSelector({ ageGroup, gender, stateCode, value, onChang
         console.error('[ScopedTeamSelector] Search error:', err);
         setResults([]);
       })
-      .finally(() => setIsLoading(false));
+      // A cancelled search was replaced by a newer one, whose loading state is not this one's to clear.
+      .finally(() => {
+        if (!controller.signal.aborted) setIsLoading(false);
+      });
 
     return () => controller.abort();
   }, [deferredQuery, ageGroup, gender, stateCode, allFiltersSet]);
@@ -154,7 +157,10 @@ export function ScopedTeamSelector({ ageGroup, gender, stateCode, value, onChang
     }
   }, [selectedIndex]);
 
-  // Note: id="report-card-team-search" so the parent can focus this input when filters complete
+  const showResults = isOpen && allFiltersSet && searchQuery.length >= 2;
+  const showListbox = showResults && !isLoading && !isSearchPending && results.length > 0;
+
+  // One instance per page, so its ids are fixed.
   return (
     <div className="relative">
       <label htmlFor="report-card-team-search" className="text-sm font-medium mb-2 block">
@@ -185,10 +191,13 @@ export function ScopedTeamSelector({ ageGroup, gender, stateCode, value, onChang
         onFocus={() => setIsOpen(true)}
         onBlur={() => setTimeout(() => setIsOpen(false), 200)}
         onKeyDown={handleKeyDown}
+        role="combobox"
         aria-autocomplete="list"
-        aria-expanded={isOpen && results.length > 0}
+        aria-expanded={showListbox}
+        aria-controls="report-card-team-results"
+        aria-activedescendant={showListbox ? `report-card-team-option-${selectedIndex}` : undefined}
       />
-      {isOpen && allFiltersSet && searchQuery.length >= 2 && (
+      {showResults && (
         <Card className="absolute z-50 w-full mt-1 max-h-60 overflow-y-auto shadow-lg">
           <CardContent className="p-2">
             {isLoading || isSearchPending ? (
@@ -202,11 +211,14 @@ export function ScopedTeamSelector({ ageGroup, gender, stateCode, value, onChang
                 {match !== 'exact' && (
                   <div className="px-3 pb-1 text-xs text-muted-foreground">Showing close matches</div>
                 )}
-                <div className="space-y-1" ref={listRef}>
+                <div id="report-card-team-results" role="listbox" className="space-y-1" ref={listRef}>
                   {results.map((team, index) => (
                     <button
                       key={team.team_id_master}
+                      id={`report-card-team-option-${index}`}
                       type="button"
+                      role="option"
+                      aria-selected={index === selectedIndex}
                       onClick={() => handleSelect(team)}
                       className={`w-full text-left p-2 rounded-md transition-colors focus-visible:outline-primary focus-visible:ring-2 focus-visible:ring-primary ${
                         index === selectedIndex ? 'bg-accent font-semibold' : 'hover:bg-accent/50'

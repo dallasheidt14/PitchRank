@@ -29,4 +29,11 @@ describe('BlogContent', () => {
     expect(host.querySelector('th')!.textContent).toBe('Level');
     expect(host.querySelector('td')!.textContent).toBe('ECNL');
   });
+
+  it("renders a post's own title as a subheading, leaving the page one h1", () => {
+    const host = render(['# Iowa Youth Soccer Rankings', '', 'Two Iowa U13 teams.'].join('\n'));
+
+    expect(host.querySelectorAll('h1')).toHaveLength(0);
+    expect(host.querySelector('h2')!.textContent).toBe('Iowa Youth Soccer Rankings');
+  });
 });

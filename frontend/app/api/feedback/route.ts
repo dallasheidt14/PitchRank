@@ -5,6 +5,7 @@ import { createServerSupabase } from '@/lib/supabase/server';
 import { sendFeedbackEmail, type FeedbackCategory, type FeedbackIdentity } from '@/lib/email';
 import { isValidEmail } from '@/lib/validation';
 import { MAX_FEEDBACK_LENGTH, MIN_FEEDBACK_LENGTH } from '@/lib/constants';
+import { MIN_FEEDBACK_DWELL_MS } from '@/lib/feedbackDwell';
 
 const VALID_CATEGORIES: readonly FeedbackCategory[] = [
   'cant-find-team',
@@ -16,7 +17,6 @@ const VALID_CATEGORIES: readonly FeedbackCategory[] = [
 
 const MAX_PATHNAME = 512;
 const MAX_TEXT_FIELD = 512;
-const MIN_DWELL_MS = 2000;
 const RATE_LIMIT_MAX = 5;
 const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000; // 1 hour
 
@@ -103,7 +103,7 @@ export async function POST(request: NextRequest) {
     if (Number.isNaN(openedAtMs) || Number.isNaN(submittedAtMs)) return bad('Invalid timestamps');
 
     // Min-time floor — silent accept, do not send.
-    if (submittedAtMs - openedAtMs < MIN_DWELL_MS) {
+    if (submittedAtMs - openedAtMs < MIN_FEEDBACK_DWELL_MS) {
       return NextResponse.json({ ok: true });
     }
 

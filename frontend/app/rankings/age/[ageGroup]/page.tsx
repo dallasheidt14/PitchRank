@@ -5,6 +5,7 @@ import { Breadcrumbs } from '@/components/Breadcrumbs';
 import { US_STATES, AGE_GROUPS_ALL, BASE_URL } from '@/lib/constants';
 import { safeJsonLd } from '@/lib/schema-utils';
 import { api } from '@/lib/api';
+import { formatPowerScore } from '@/lib/utils';
 
 // Revalidate every hour for ISR caching
 export const revalidate = 3600;
@@ -187,7 +188,10 @@ export default async function AgeGroupPage({ params }: AgeGroupPageProps) {
         {/* Age Navigation */}
         <div className="flex items-center justify-between mb-8">
           {prevAge ? (
-            <Link href={`/rankings/age/${prevAge}`} className="text-primary hover:underline flex items-center gap-1">
+            <Link
+              href={`/rankings/age/${prevAge}`}
+              className="text-primary hover:underline flex min-h-11 items-center gap-1"
+            >
               ← {prevAge.toUpperCase()}
             </Link>
           ) : (
@@ -210,7 +214,10 @@ export default async function AgeGroupPage({ params }: AgeGroupPageProps) {
           </div>
 
           {nextAge ? (
-            <Link href={`/rankings/age/${nextAge}`} className="text-primary hover:underline flex items-center gap-1">
+            <Link
+              href={`/rankings/age/${nextAge}`}
+              className="text-primary hover:underline flex min-h-11 items-center gap-1"
+            >
               {nextAge.toUpperCase()} →
             </Link>
           ) : (
@@ -224,12 +231,15 @@ export default async function AgeGroupPage({ params }: AgeGroupPageProps) {
           <section>
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-2xl font-bold">{ageDisplay} Boys - National Top 25</h2>
-              <Link href={`/rankings/national/${validAge}/male`} className="text-sm text-primary hover:underline">
+              <Link
+                href={`/rankings/national/${validAge}/male`}
+                className="inline-flex min-h-11 items-center text-sm text-primary hover:underline"
+              >
                 View All →
               </Link>
             </div>
             <div className="bg-card border border-border rounded-lg overflow-hidden">
-              <table className="w-full text-sm">
+              <table className="w-full table-fixed text-sm">
                 <thead className="bg-muted">
                   <tr>
                     <th className="px-3 py-2 text-left w-12">#</th>
@@ -244,8 +254,11 @@ export default async function AgeGroupPage({ params }: AgeGroupPageProps) {
                       <tr key={team.team_id_master} className="border-t border-border hover:bg-muted/50">
                         <td className="px-3 py-2 text-muted-foreground">{idx + 1}</td>
                         <td className="px-3 py-2">
-                          <Link href={`/teams/${team.team_id_master}`} className="hover:text-primary font-medium">
-                            {team.team_name}
+                          <Link
+                            href={`/teams/${team.team_id_master}`}
+                            className="flex min-h-11 min-w-0 items-center hover:text-primary font-medium"
+                          >
+                            <span className="min-w-0 break-words">{team.team_name}</span>
                           </Link>
                           {team.club_name && (
                             <span className="block text-xs text-muted-foreground truncate">{team.club_name}</span>
@@ -255,7 +268,7 @@ export default async function AgeGroupPage({ params }: AgeGroupPageProps) {
                           {team.state ? (
                             <Link
                               href={`/rankings/${team.state.toLowerCase()}/${validAge}/male`}
-                              className="hover:text-primary"
+                              className="inline-flex min-h-11 min-w-6 items-center hover:text-primary"
                             >
                               {team.state}
                             </Link>
@@ -263,7 +276,7 @@ export default async function AgeGroupPage({ params }: AgeGroupPageProps) {
                             '—'
                           )}
                         </td>
-                        <td className="px-3 py-2 text-right font-mono">{team.power_score_final.toFixed(1)}</td>
+                        <td className="px-3 py-2 text-right font-mono">{formatPowerScore(team.power_score_final)}</td>
                       </tr>
                     ))
                   ) : (
@@ -282,12 +295,15 @@ export default async function AgeGroupPage({ params }: AgeGroupPageProps) {
           <section>
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-2xl font-bold">{ageDisplay} Girls - National Top 25</h2>
-              <Link href={`/rankings/national/${validAge}/female`} className="text-sm text-primary hover:underline">
+              <Link
+                href={`/rankings/national/${validAge}/female`}
+                className="inline-flex min-h-11 items-center text-sm text-primary hover:underline"
+              >
                 View All →
               </Link>
             </div>
             <div className="bg-card border border-border rounded-lg overflow-hidden">
-              <table className="w-full text-sm">
+              <table className="w-full table-fixed text-sm">
                 <thead className="bg-muted">
                   <tr>
                     <th className="px-3 py-2 text-left w-12">#</th>
@@ -302,8 +318,11 @@ export default async function AgeGroupPage({ params }: AgeGroupPageProps) {
                       <tr key={team.team_id_master} className="border-t border-border hover:bg-muted/50">
                         <td className="px-3 py-2 text-muted-foreground">{idx + 1}</td>
                         <td className="px-3 py-2">
-                          <Link href={`/teams/${team.team_id_master}`} className="hover:text-primary font-medium">
-                            {team.team_name}
+                          <Link
+                            href={`/teams/${team.team_id_master}`}
+                            className="flex min-h-11 min-w-0 items-center hover:text-primary font-medium"
+                          >
+                            <span className="min-w-0 break-words">{team.team_name}</span>
                           </Link>
                           {team.club_name && (
                             <span className="block text-xs text-muted-foreground truncate">{team.club_name}</span>
@@ -313,7 +332,7 @@ export default async function AgeGroupPage({ params }: AgeGroupPageProps) {
                           {team.state ? (
                             <Link
                               href={`/rankings/${team.state.toLowerCase()}/${validAge}/female`}
-                              className="hover:text-primary"
+                              className="inline-flex min-h-11 min-w-6 items-center hover:text-primary"
                             >
                               {team.state}
                             </Link>
@@ -321,7 +340,7 @@ export default async function AgeGroupPage({ params }: AgeGroupPageProps) {
                             '—'
                           )}
                         </td>
-                        <td className="px-3 py-2 text-right font-mono">{team.power_score_final.toFixed(1)}</td>
+                        <td className="px-3 py-2 text-right font-mono">{formatPowerScore(team.power_score_final)}</td>
                       </tr>
                     ))
                   ) : (
@@ -348,17 +367,17 @@ export default async function AgeGroupPage({ params }: AgeGroupPageProps) {
               return (
                 <div key={stateCode} className="bg-card border border-border rounded-lg p-3">
                   <h3 className="font-medium mb-1">{state.name}</h3>
-                  <div className="flex gap-2 text-sm">
+                  <div className="flex items-center gap-2 text-sm">
                     <Link
                       href={`/rankings/${stateCode.toLowerCase()}/${validAge}/male`}
-                      className="text-primary hover:underline"
+                      className="inline-flex min-h-11 items-center text-primary hover:underline"
                     >
                       Boys
                     </Link>
                     <span className="text-muted-foreground">•</span>
                     <Link
                       href={`/rankings/${stateCode.toLowerCase()}/${validAge}/female`}
-                      className="text-primary hover:underline"
+                      className="inline-flex min-h-11 items-center text-primary hover:underline"
                     >
                       Girls
                     </Link>
@@ -376,7 +395,7 @@ export default async function AgeGroupPage({ params }: AgeGroupPageProps) {
                 <Link
                   key={state.code}
                   href={`/rankings/${state.code.toLowerCase()}/${validAge}/male`}
-                  className="text-sm text-muted-foreground hover:text-primary"
+                  className="flex min-h-11 items-center text-sm text-muted-foreground hover:text-primary"
                 >
                   {state.name}
                 </Link>

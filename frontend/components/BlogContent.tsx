@@ -9,6 +9,8 @@ interface BlogContentProps {
 const REMARK_PLUGINS = [remarkGfm];
 
 const MARKDOWN_COMPONENTS: Components = {
+  // The post page renders the title as its h1, so a post's own `#` heading is demoted to keep one per page.
+  h1: ({ node: _node, ...props }) => <h2 {...props} />,
   table: ({ node: _node, ...props }) => (
     <div className="overflow-x-auto" tabIndex={0}>
       <table {...props} />
@@ -18,7 +20,7 @@ const MARKDOWN_COMPONENTS: Components = {
 
 const MARKDOWN_STYLES = [
   'markdown-body space-y-4',
-  '[&_h2]:text-2xl [&_h2]:font-bold [&_h2]:mt-8 [&_h2]:mb-4',
+  '[&_h2]:text-2xl [&_h2]:font-bold [&_h2]:mt-8 [&_h2]:mb-4 [&>h2:first-child]:mt-0',
   '[&_h3]:text-xl [&_h3]:font-semibold [&_h3]:mt-6 [&_h3]:mb-3',
   '[&_p]:text-muted-foreground [&_p]:leading-relaxed',
   '[&_ul]:list-disc [&_ul]:pl-6 [&_ul]:space-y-1',
