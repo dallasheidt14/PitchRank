@@ -101,11 +101,15 @@ class TestTournamentRegistry:
 
         assert incomplete == []
 
-    def test_only_the_cup_drops_its_fixtures(self):
+    def test_only_the_cups_drop_their_fixtures(self):
         """Pinned by name, so a new event has to decide whether it keeps fixtures."""
         results_only = {t["name"]: t.get("results_only", False) for t in scraper.TOURNAMENTS}
 
-        assert results_only == {"2026 OYSA Fall League": False, "26-27 State Cup (OR)": True}
+        assert results_only == {
+            "2026 OYSA Fall League": False,
+            "26-27 State Cup (OR)": True,
+            "2026 Fall Founders Cup (OR)": True,
+        }
 
 
 class TestGenderAndAgeExtraction:
@@ -146,6 +150,12 @@ PLAYED = ["738750", "Duniway Park", "10:30 AM", "Turf", "A4 vs A7", "LFC 13B Red
 UNPLAYED = ["738713", "Lake Oswego", "12:00 PM", "Turf", "A5 vs A3", "OPFC 13B Gold", "", "vs.", "LCYSA 13B Red", ""]
 HOME_ONLY = ["738705", "Luke Jensen", "01:30 PM", "Trf1", "A6 vs A9", "Pacific FC 13B Blue", "2", "vs.", "SCA 13B", ""]
 AWAY_ONLY = ["738721", "Westside HS", "03:00 PM", "Turf", "A11 vs A10", "RYSC 13B Black", "", "vs.", "CUSC 13B", "4"]
+KNOCKOUT = ["787598", "Eastside Timbers", "10:30 AM", "Tf3B", "OFA 14B Black", "3", "vs.", "Columbia Premier 14B", "1"]
+SHOOTOUT = ["787601", "Mt View", "12:00 PM", "Trf1", "FSC 14B Celtics", "1- 2PK", "vs.", "CVSC 14B Gold", "1- 4PK"]
+FORFEIT = ["738760", "Duniway Park", "10:30 AM", "Turf", "A2 vs A5", "LFC 13B Blue", "2F", "vs.", "SCA 13B Gold", "0"]
+UNSCORED_DIVISION = ["647313", "La Roca Park", "08:30 AM", "#3", "A5 vs A8", "La Roca U9B", "vs.", "Utah Real U9B"]
+UNPLAYED_KNOCKOUT = ["787604", "Eastside", "11:00 AM", "Tf3A", "Winner SF 787602", "", "vs.", "Winner SF 787603", ""]
+NINE_CELLS_WITHOUT_VS = ["787598", "Eastside", "10:30 AM", "Tf3B", "OFA 14B Black", "3", "TBD", "CVSC 14B Gold", "1"]
 
 FLIGHT = {
     "flight_guid": "9A8F7D52-BA9B-44E1-8E76-201AAEDD2767",
@@ -206,6 +216,38 @@ class TestScoreShapes:
             assert record["goals_against"] == ""
             assert record["result"] == "U"
 
+    def test_a_knockout_row_without_a_pool_slot_is_read(self, monkeypatch):
+        records = _scrape(monkeypatch, [KNOCKOUT])
+
+        home, away = records
+        assert (home["team_name"], home["goals_for"], home["opponent_name"], home["goals_against"]) == (
+            "OFA 14B Black",
+            3,
+            "Columbia Premier 14B",
+            1,
+        )
+        assert (away["result"], home["schedule_id"], home["venue"]) == ("L", "787598", "Eastside Timbers")
+
+    def test_a_shootout_is_a_draw_at_its_regulation_score(self, monkeypatch):
+        home, away = _scrape(monkeypatch, [SHOOTOUT])
+
+        assert (home["goals_for"], home["goals_against"], home["result"]) == (1, 1, "D")
+        assert (away["goals_for"], away["goals_against"], away["result"]) == (1, 1, "D")
+
+    def test_a_forfeit_is_not_a_result(self, monkeypatch):
+        assert _scrape(monkeypatch, [FORFEIT]) == []
+
+    def test_a_division_without_score_cells_yields_nothing(self, monkeypatch):
+        """Its slot cell sits where a knockout row's home team does."""
+        assert _scrape(monkeypatch, [UNSCORED_DIVISION]) == []
+
+    def test_a_nine_cell_row_without_its_separator_is_not_a_game(self, monkeypatch):
+        assert _scrape(monkeypatch, [NINE_CELLS_WITHOUT_VS]) == []
+
+    def test_an_unplayed_knockout_slot_is_not_a_fixture(self, monkeypatch):
+        """Even in an event that keeps fixtures: the slot may name a stand-in, not a team."""
+        assert _scrape(monkeypatch, [UNPLAYED_KNOCKOUT]) == []
+
     def test_home_only_score_is_dropped(self, monkeypatch):
         """Half a result is not a scheduled game — the importer rejects the shape."""
         assert _scrape(monkeypatch, [HOME_ONLY]) == []
@@ -226,7 +268,7 @@ class TestScoreShapes:
         assert [r["schedule_id"] for r in records] == ["738750", "738750"]
 
 
-def _accepted_list_html(divisions):
+def _accepted_list_html(divisions, schedule_page="schedule_results2.asp"):
     """Build an accepted_list page shaped like OYSA's, one row per division.
 
     As on the live page, the division rows sit inside a layout table, whose own row
@@ -236,7 +278,7 @@ def _accepted_list_html(divisions):
         "<tr>"
         f"<td>{name}</td>"
         "<td>Brackets</td>"
-        f'<td><a href="schedule_results2.asp?sessionguid=&flightguid={guid}'
+        f'<td><a href="{schedule_page}?sessionguid=&flightguid={guid}'
         f'&tournamentguid=765ABB82-7406-4A4D-9446-7EA366142522">Schedule &amp; Results</a></td>'
         "</tr>"
         for name, guid in divisions
@@ -314,6 +356,18 @@ class TestDiscoverFlights:
 
     def test_an_absent_cohort_selects_nothing(self, monkeypatch):
         assert self._discover(monkeypatch, 17) == []
+
+    def test_a_ladder_division_is_selected(self, monkeypatch):
+        monkeypatch.setattr(
+            scraper,
+            "_fetch",
+            lambda url, retries=3: _accepted_list_html(DIVISIONS, schedule_page="schedule_ladderview2.asp"),
+        )
+        flights = scraper.discover_flights(TOURNAMENT, 13, "Male")
+
+        assert [(f["division_name"], f["flight_guid"]) for f in flights] == [
+            ("BU13 RCL North 2", "33333333-3333-4333-8333-333333333333")
+        ]
 
     def test_the_girls_tab_is_requested_for_female(self, monkeypatch):
         seen = {}

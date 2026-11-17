@@ -1263,9 +1263,19 @@ state runs weekly on Sunday night by default, as a copy of `hi-scraper.yml`. Its
   team's own age, such as `AffinityStateLeagueMatcher`: the plain OR and UT matchers would file every team at that
   youngest age. `skip_divisions`, a tuple of whole uppercase words, drops a division such as Georgia's rec `19U BOYS RIAS`. The parser reads no age from that
   label, so test the skip on one it does, or the test passes with the skip deleted.
+- A ladder division links its Schedule & Results cell to `schedule_ladderview2.asp`, which can be unpublished.
+  `discover_flights` takes either link as a flight, and `scrape_flight_games` reads the games from
+  `schedule_results2.asp`, which lists a ladder flight's games too.
+- Some knockout rounds' rows have no pool-slot cell (`A2 vs A3`): nine cells with `vs.` seventh, against ten with it
+  eighth. The engine reads them only once played, in every tournament: an unplayed slot can name a stand-in
+  (`Winner SF Game# 787602`) that the importer would create as a team. Eight-cell rows (Hawaii and Utah divisions with
+  no score cells) match neither shape and are skipped.
 - `schedule_results2.asp` marks a forfeit in the score cell (`2F`, `4 F`) and with `Forfeited Game` in the team cell, and
-  a game called off with `0 CC` or `CSC`. None is a result, so import nothing: keep the engine's digits-only score test,
-  which drops the game.
+  a game called off with `0 CC` or `CSC`. None is a result, so import nothing. A shootout reads `1- 2PK` against
+  `1- 4PK` and is recorded at its regulation score as a draw, as Athletes2Events records its shootouts.
+  `_regulation_score` reads only plain goals or that shape, so every score-cell mark above, and `1D`, drops the game.
+- The WA copy (`scripts/scrape_affinity_wa_tournament.py`) reads no ladder link, nine-cell knockout row or shootout:
+  it matches only `schedule_results2.asp` links, skips rows under ten cells, and takes digits-only scores.
 - The weekly workflows default `DAYS_BACK` to 7, and the engine drops a past game whose score is still blank, so a score
   the league posts after the next weekly run falls outside every later window and never lands. The window only filters
   rows: `main()` in `scrape_affinity_or_tournament.py`, which the GA, HI and UT scrapers reuse, reads every matched
@@ -1297,7 +1307,14 @@ the games as well: a league can carry many divisions with no scored games.
 
 - Set `results_only` on a cup's `TOURNAMENTS` entry, and leave it off a league's, which keeps its fixtures. A cup can
   post knockout games before their teams are known, under stand-in names the matcher would create as teams; a played
-  game names the teams that played it.
+  game names the teams that played it. The engine's own knockout rule covers only nine-cell rows, and every game row
+  the 2026-27 State Cup has posted has ten cells.
+- Before an event's first import, count each division's played game rows on `schedule_results2.asp` (first cell a
+  game number, both score cells filled, by cell count) against the `N games` the engine logs for that division, which
+  is half its CSV rows. Run with a `--days-back` that covers the event's dates; forfeits and called-off games account
+  for an expected shortfall. A row shape the parser does not know is dropped with no log line in a green run: the 2026 Founders Cup's knockout rounds were lost that way until the owner
+  listed one team's real games. A `results_only` scrape emits no unplayed game, so it cannot show whether later rounds
+  remain; read the page's round headings (`Quarter Final`, `Semi-Final`, `Final`) before calling an event finished.
 - A cup draws squads from other leagues, which hold no Affinity alias. Before the entry reaches a scheduled run,
   build the matcher with `dry_run=True` and the event's own provider id, so existing aliases link, with the client
   wrapped so every insert, update, upsert and delete is recorded and refused (the replay under *Provider Matcher Name

@@ -3263,6 +3263,16 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: All three key the "identical team already in the new age group" check on our stored `team_name` only. A team GotSport files in another age keeps its old name (the reconcile withholds that rename), so a copy from another provider already in the target cohort under GotSport's current name passes the check and the relabel leaves a duplicate pair. Also index the row's `gotsport_team_name` when present. Found 2026-11-17: a VA girls u11->u10 relabel missed its NCSL copy named exactly like GotSport's record, merged by hand.
 - **Noted**: 2026-11-17
 
+### WA Affinity scraper cannot read ladder divisions, knockout rows or shootouts
+
+- **ID**: IMP-405
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `discover_flights` and `scrape_flight_games` in `scripts/scrape_affinity_wa_tournament.py`; the module docstring of `scripts/scrape_affinity_or_tournament.py` ("Two things differ from the WA sibling")
+- **Why**: The WA copy matches only `schedule_results2.asp` links, skips rows under ten cells and takes digits-only scores. Those three gaps lost the OR Founders Cup 15 of 17 divisions and 60 played knockout games (11 of them shootouts) until the shared engine was fixed on 2026-11-17. WA's two current leagues show none of these shapes, so nothing is lost yet, but a WA cup would lose games in a green run. Move WA onto the shared engine as GA, HI and UT are, or port the three readings, and correct the OR docstring's comparison.
+- **Noted**: 2026-11-17
+
 ### Redact the ZenRows key before a missing-game scrape error is stored
 
 - **Type**: direct
