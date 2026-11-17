@@ -14,7 +14,8 @@ Two things differ from the WA sibling and drive the code below:
   Do not adjust it.  Team names are the trap instead — Oregon writes that band
   as "13B", after its older year, so reading a name as a birth year files the
   division a cohort high.
-- Unplayed fixtures are kept, except for an event marked ``results_only``.  The
+- Unplayed fixtures are kept, except in an event marked ``results_only`` and in
+  knockout rounds, whose slots can name a stand-in rather than a team.  The
   importer inserts a future-dated row whose scores are both empty as a scheduled
   game and backfills the score on a later scrape
   (``EnhancedETLPipeline._should_accept_for_insert``).
@@ -70,6 +71,16 @@ TOURNAMENTS = [
         # A cup can post its knockout games before their teams are known, under
         # stand-in names that would each become a new team; a played game names
         # the teams that played it.
+        "results_only": True,
+    },
+    {
+        "name": "2026 Fall Founders Cup (OR)",
+        "tournament_guid": "13DE1D27-29BB-45A3-93C3-451B1F28673F",
+        "base_url": "https://oysa.sportsaffinity.com",
+        "provider": "affinity_or",
+        "state": "Oregon",
+        "state_code": "OR",
+        "season_year": 2026,
         "results_only": True,
     },
 ]
@@ -172,6 +183,16 @@ def _compute_result(gf: Optional[int], ga: Optional[int]) -> str:
     if gf < ga:
         return "L"
     return "D"
+
+
+def _regulation_score(text: str) -> Optional[int]:
+    """Goals in '3', or the regulation goals of a shootout '1- 4PK'.
+
+    A shootout is recorded as a draw at its regulation score. A forfeit ('2F'),
+    a called-off game ('0 CC') or any other mark is no result and reads None.
+    """
+    m = re.fullmatch(r"([0-9]{1,2})(?:\s*-\s*[0-9]{1,2}\s*PK)?", text)
+    return int(m.group(1)) if m else None
 
 
 def _age_u_to_birth_year(age_u: int, season_year: int) -> int:
@@ -389,6 +410,10 @@ def discover_flights(tournament: Dict, target_age: int, target_gender: str) -> L
     Each flight is a table row where:
       - The first cell holds the division name ("BU13 RCL North 2")
       - A later cell holds a "Schedule & Results" link with the flightguid
+
+    A ladder division links that cell to ``schedule_ladderview2.asp``, which can
+    be unpublished while ``schedule_results2.asp`` lists the same flight's games,
+    so either link marks a flight and the games are always read from the latter.
     """
     base = tournament["base_url"]
     tguid = tournament["tournament_guid"]
@@ -408,7 +433,7 @@ def discover_flights(tournament: Dict, target_age: int, target_gender: str) -> L
         # layout's text and skip the division's own row.
         if row.find("table"):
             continue
-        schedule_link = row.find("a", href=re.compile(r"schedule_results2\.asp", re.I))
+        schedule_link = row.find("a", href=re.compile(r"schedule_(?:results|ladderview)2\.asp", re.I))
         if not schedule_link:
             continue
         href = schedule_link["href"]
@@ -468,7 +493,8 @@ def scrape_flight_games(
 
     A future-dated unplayed fixture is emitted with both scores empty, and the
     importer keeps it as a scheduled game; a ``results_only`` tournament emits
-    none.  Rows where only one score is present are dropped — the importer
+    none, and no event emits an unplayed knockout row.  Rows where only one
+    score is present are dropped — the importer
     rejects that shape, so passing it on would only add noise.
     """
     base = tournament["base_url"]
@@ -503,10 +529,12 @@ def scrape_flight_games(
 
         rows = element.find_all("tr")
         for row in rows:
-            cells = row.find_all("td")
-            if len(cells) < 10:
+            cell_text = [c.get_text(strip=True) for c in row.find_all("td")]
+            # A knockout round's rows have no pool-slot cell ("A2 vs A3").
+            knockout = len(cell_text) == 9 and cell_text[6] == "vs."
+            if len(cell_text) < 10 and not knockout:
                 continue
-            cell_text = [c.get_text(strip=True) for c in cells]
+            home_at = 4 if knockout else 5
 
             game_id_str = cell_text[0]
             if not game_id_str.isdigit():
@@ -514,17 +542,19 @@ def scrape_flight_games(
 
             venue = cell_text[1]
             game_time = cell_text[2]
-            home_name = cell_text[5]
-            home_score_str = cell_text[6]
-            away_name = cell_text[8]
-            away_score_str = cell_text[9] if len(cell_text) > 9 else ""
+            home_name = cell_text[home_at]
+            home_score_str = cell_text[home_at + 1]
+            away_name = cell_text[home_at + 3]
+            away_score_str = cell_text[home_at + 4]
 
             home_blank = not home_score_str.strip()
             away_blank = not away_score_str.strip()
             if home_blank != away_blank:
                 continue
             if home_blank:
-                if tournament.get("results_only"):
+                # A knockout slot can name a stand-in ("Winner SF Game# 787602")
+                # until its round is decided, and the importer would create it as a team.
+                if tournament.get("results_only") or knockout:
                     continue
                 # Only a FUTURE blank is a fixture. The importer accepts a blank
                 # pair only when game_date > today (_should_accept_for_insert);
@@ -539,10 +569,10 @@ def scrape_flight_games(
                 away_score: object = ""
                 result_home = result_away = "U"
             else:
-                if not home_score_str.isdigit() or not away_score_str.isdigit():
+                home_score = _regulation_score(home_score_str)
+                away_score = _regulation_score(away_score_str)
+                if home_score is None or away_score is None:
                     continue
-                home_score = int(home_score_str)
-                away_score = int(away_score_str)
                 result_home = _compute_result(home_score, away_score)
                 result_away = _compute_result(away_score, home_score)
 

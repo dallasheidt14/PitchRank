@@ -3251,3 +3251,13 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: the scoped-results fetch effect and results panel in `ScopedTeamSelector` (`frontend/components/ScopedTeamSelector.tsx`)
 - **Why**: When the deferred query reaches two characters, `isLoading` is still false and `results` empty, so one render (~15 ms, every run in a 2026-11-16 smoke test) shows the empty state before the fetch effect sets loading. Distinct from the cancelled-request `.finally` race fixed on `fix/site-quick-wins-1116`. Owner chose to log rather than fix it there.
 - **Noted**: 2026-11-16
+
+### WA Affinity scraper cannot read ladder divisions, knockout rows or shootouts
+
+- **ID**: IMP-404
+- **Status**: open
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `discover_flights` and `scrape_flight_games` in `scripts/scrape_affinity_wa_tournament.py`; the module docstring of `scripts/scrape_affinity_or_tournament.py` ("Two things differ from the WA sibling")
+- **Why**: The WA copy matches only `schedule_results2.asp` links, skips rows under ten cells and takes digits-only scores. Those three gaps lost the OR Founders Cup 15 of 17 divisions and 60 played knockout games (11 of them shootouts) until the shared engine was fixed on 2026-11-17. WA's two current leagues show none of these shapes, so nothing is lost yet, but a WA cup would lose games in a green run. Move WA onto the shared engine as GA, HI and UT are, or port the three readings, and correct the OR docstring's comparison.
+- **Noted**: 2026-11-17
