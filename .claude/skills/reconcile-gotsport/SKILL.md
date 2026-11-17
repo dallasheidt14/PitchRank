@@ -378,8 +378,8 @@ only evidence is GotSport's own name — so treat it as a separate judgment rath
 halves exits. `--include-collisions` **widens** the set into the held duplicates — leave it off.
 `--dry-run` wins over `--execute`.
 
-Ask before writing a batch. The boards regroup at Monday's ranking run; nothing else needs
-repairing afterwards.
+Ask before writing a batch. The boards regroup at Monday's ranking run; afterwards, run the
+leftover-copy check at the end of **Reviewing the weekly re-check**.
 
 ### Rows held because this season's opponents back the current label
 
@@ -407,3 +407,10 @@ Treat its plan as any other plan: sample, pilot, verify, and apply only with the
 approval. `weekly_age_recheck_last_run.log` says `ok` or carries the traceback. The log is written by
 the script itself, so a week with no report *and* no log means the script never started:
 the machine was off, or the task names a path that checkout does not hold.
+
+The bulk lane's duplicate hold (`would_update_collision`), which the re-check shares, compares our
+stored `team_name` only (IMP-404). A team GotSport files in another age keeps its old name, since
+Step 1 withholds that rename, so a copy from another provider that already sits in the new group
+under GotSport's current name passes the hold. After applying a row from either plan, look in the
+new group for a live team of the same club and gender named like its `gotsport_team_name`, and
+merge it through the `merging-duplicate-teams` skill.
