@@ -826,6 +826,13 @@ row that has gone quiet, so both checks are yours. Swap
 row's age group, gender, state and club as the list recorded them, and a pair whose two rows
 differ is otherwise refused as changed.
 
+In a hand merge whose direction the owner did not choose on the review page, also weigh the
+survivor's `teams.provider_id`: the weekly discovery and safety-net enqueue jobs
+(`find_discovery_teams`, `find_stale_teams`) queue only rows filed under GotSport, and a merge
+moves aliases, not columns. When the better-named row is another provider's copy and the GotSport
+row holds the schedule, first rename the GotSport row to the better name with the
+`reconcile-gotsport` skill's `apply_team_fields.py`, then keep it.
+
 Output the vetted list and the held-pair count as text, then use `AskUserQuestion` to confirm
 before writing. On approval:
 
