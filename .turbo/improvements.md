@@ -2624,9 +2624,10 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 
 - **Type**: plan
 - **Category**: reliability
-- **Where**: `collect_user_requested_teams` in `scripts/enqueue_user_interest_teams.py`; `promoteWaitingScrapeRequest` in `frontend/lib/api/scrapeQueue.ts`
+- **Where**: `collect_user_requested_teams` in `scripts/enqueue_user_interest_teams.py` (still reads `scrape_requests`; switch it to `missing_game_clicks`)
 - **Why**: The weekly user-interest job finds clicks by `request_type = 'missing_game'` on `scrape_requests`. When a click lands on a team's existing waiting request, both the queue RPC's reuse path and the website's promote path only raise its priority and keep the existing row's `request_type`, so the click leaves no `missing_game` row (`collect_user_requested_teams`'s docstring already names this as a known gap). Record a click separately from the queue row it lands on.
 - **Noted**: 2026-11-02
+- **Update (2026-11-17)**: `/api/scrape-missing-game` now writes one `missing_game_clicks` row per click (branch `feat/missing-game-investigation`), and the 3-hourly missing-game investigation reads it. `collect_user_requested_teams` still reads `scrape_requests`; switching it to the new table finishes this entry, along with the source row in the user-activity-retention-hygiene skill. The table holds clicks only from when the hand-applied migration and the route change were both live.
 
 ### Install the pinned Supabase client in the scheduled queue workflows
 
@@ -3270,4 +3271,20 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Category**: reliability
 - **Where**: `discover_flights` and `scrape_flight_games` in `scripts/scrape_affinity_wa_tournament.py`; the module docstring of `scripts/scrape_affinity_or_tournament.py` ("Two things differ from the WA sibling")
 - **Why**: The WA copy matches only `schedule_results2.asp` links, skips rows under ten cells and takes digits-only scores. Those three gaps lost the OR Founders Cup 15 of 17 divisions and 60 played knockout games (11 of them shootouts) until the shared engine was fixed on 2026-11-17. WA's two current leagues show none of these shapes, so nothing is lost yet, but a WA cup would lose games in a green run. Move WA onto the shared engine as GA, HI and UT are, or port the three readings, and correct the OR docstring's comparison.
+- **Noted**: 2026-11-17
+
+### Redact the ZenRows key before a missing-game scrape error is stored
+
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `GotSportScraper._make_zenrows_request` / the team-matches fetch in `src/scrapers/gotsport.py`; `MissingGamesProcessor.process_request`'s `except Exception` branch in `scripts/process_missing_games.py`
+- **Why**: The team-matches path sends `apikey` as a query parameter and calls `raise_for_status()`, whose message quotes the full URL; the drainer then stores `str(e)[:500]` in `scrape_requests.error_message`, so a run with `ZENROWS_API_KEY` set saves the key in the database (read 2026-11-17). The event-page path already strips it with `_redact_key`; apply the same before the error is stored.
+- **Noted**: 2026-11-17
+
+### Correct teams_with_pending_user_request's reason for skipping a user's row
+
+- **Type**: direct
+- **Category**: docs
+- **Where**: `teams_with_pending_user_request` in `scripts/enqueue_helpers.py`
+- **Why**: Its docstring says `enqueue_scrape_request`'s UPDATE branch rewrites `game_date`, but the newest definition (`20261020020000_atomic_matchbalance_refresh.sql`) never rewrites an adopted request's registration, date or FIFO position, so the stated reason is stale and the skip may no longer be needed for that reason.
 - **Noted**: 2026-11-17

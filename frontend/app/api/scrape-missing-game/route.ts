@@ -94,6 +94,9 @@ export async function POST(request: NextRequest) {
       p_request_type: 'missing_game',
       p_priority: 1,
     });
+    // A request the queue accepted covers the clicked date and registration. When it refuses,
+    // the request moved forward below is for another date or registration.
+    const coveringRequestId = insertError ? null : (requestId ?? null);
 
     if (insertError?.code === SCRAPE_REQUEST_REFUSED) {
       ({ requestId, error: insertError } = await promoteWaitingScrapeRequest(supabase, teamId));
@@ -102,6 +105,14 @@ export async function POST(request: NextRequest) {
     if (insertError) {
       console.error('[scrape-missing-game] Database error:', insertError);
       return NextResponse.json({ error: 'Failed to create scrape request' }, { status: 500 });
+    }
+
+    // The scrape is already queued, so a failed click record is logged, not returned as an error.
+    const { error: clickError } = await supabase
+      .from('missing_game_clicks')
+      .insert({ team_id_master: teamId, game_date: gameDate, scrape_request_id: coveringRequestId });
+    if (clickError) {
+      console.error('[scrape-missing-game] Failed to record the click:', clickError);
     }
 
     const escapedTeamName = String(teamName).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
