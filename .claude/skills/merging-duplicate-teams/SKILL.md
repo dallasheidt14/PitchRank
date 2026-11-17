@@ -796,6 +796,25 @@ owner page in Step 5 instead. Then dry-run:
 python scripts/apply_vetted_team_merges.py --file <vetted.json>
 ```
 
+**Read `team_merge_map` for the row to be merged before applying a pair the owner names, or a
+hand-built list that records the teams' values.** The applier redirects a `merge_id` that was
+already merged away to its survivor. The dry run says only "redirected through an existing merge",
+and the pair goes through whenever the survivor carries the age group, gender, state and club
+recorded for the old row, so the merge retires a different live team (IMP-406). Three of the seven
+rows the owner named on 2026-11-17 had already been merged. Before merging, find out where the row
+went:
+
+- **Already in the named target:** nothing to do.
+- **Its earlier merge was wrong:** revert that one merge with `revert_team_merge` on its
+  `team_merge_map` row, check where its aliases sit afterwards
+  ([references/pipeline-gotchas.md](references/pipeline-gotchas.md), Reverting), then merge the
+  row again.
+- **Its provider record was handed to another squad at the Aug 1 rollover:** the earlier merge
+  was right for last season, so move the record, not the row. With the splitting-fused-provider-ids
+  skill, repoint its alias to the named target (`split_provider_ids.py --to-existing`), then move
+  its games since the season start (`list_id_games.py --since`, then
+  `move_game_sides.py --provider-team-id`).
+
 **Check the direction before you apply**, except on a pair the owner decided on the review page:
 there the direction the owner chose stands, and a conflict with the rule below is a question for
 them, not a swap. `pick_canonical_pair` scores name aesthetics — club

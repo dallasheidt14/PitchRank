@@ -3288,3 +3288,13 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `teams_with_pending_user_request` in `scripts/enqueue_helpers.py`
 - **Why**: Its docstring says `enqueue_scrape_request`'s UPDATE branch rewrites `game_date`, but the newest definition (`20261020020000_atomic_matchbalance_refresh.sql`) never rewrites an adopted request's registration, date or FIFO position, so the stated reason is stale and the skip may no longer be needed for that reason.
 - **Noted**: 2026-11-17
+
+### Refuse a merge whose listed merge_id was already merged away, instead of retiring its survivor
+
+- **ID**: IMP-406
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `resolve_through_merge_map` and `refusal` in `scripts/apply_vetted_team_merges.py`; `changed_since_vetted` in `scripts/team_cleanup/vetted.py`; when fixed, update the "Read `team_merge_map` for the row to be merged" paragraph in the merging-duplicate-teams skill's Step 6
+- **Why**: A listed `merge_id` that is already deprecated is redirected to its survivor, and the pair goes through when the survivor carries the age, gender, state and club recorded for the old row. The dry run only prints "redirected through an existing merge". So a same-club survivor, a different live team, gets retired. On 2026-11-17 the owner named two already-merged rows: "2013 PRE MLS" (in FC Bay Area Surf U14 HD) would have folded all of U14 HD into U13 HD, and "Sacramento Republic FC U13 (2014's)" (in Sacramento United U13 HD) was only stopped by the club check. A keep-side redirect is benign; refuse a merge-side one unless the list itself chains it.
+- **Noted**: 2026-11-17
