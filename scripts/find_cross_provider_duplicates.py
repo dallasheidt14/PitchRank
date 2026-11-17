@@ -518,11 +518,11 @@ def fetch_teams(sb, *, state=None, age_group=None):
     return page(build, "team_id_master")
 
 
-def fetch_games(sb, team_ids):
+def fetch_games(sb, team_ids, columns=GAME_COLS):
     rows, seen = [], set()
     for side in ("home_team_master_id", "away_team_master_id"):
         for batch in batched(team_ids):
-            for g in page(lambda b=batch, s=side: sb.table("games").select(GAME_COLS).in_(s, b), "id"):
+            for g in page(lambda b=batch, s=side: sb.table("games").select(columns).in_(s, b), "id"):
                 if g["id"] not in seen:
                     seen.add(g["id"])
                     rows.append(g)

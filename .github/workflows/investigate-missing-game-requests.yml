@@ -1,0 +1,65 @@
+name: Investigate Missing-Game Requests
+
+on:
+  schedule:
+    # Every 3 hours, 50 minutes after each 3-hour window closes, so the queue has scraped
+    # the window's last clicks. A run more than ~2 hours late reports the next window instead;
+    # re-run a skipped one by hand with its end time.
+    - cron: '50 */3 * * *'
+  workflow_dispatch:
+    inputs:
+      end:
+        description: 'End of the 3-hour window, YYYY-MM-DDTHH:MM Arizona time (blank = the latest)'
+        required: false
+        default: ''
+        type: string
+  # No dry-run input: a dry run prints the report, and this repo's Actions logs are public.
+
+env:
+  SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+  SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+  RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+  PYTHONUNBUFFERED: '1'
+
+jobs:
+  investigate:
+    name: Missing-Game Request Report
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          ref: main
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.lock
+
+      - name: Verify secrets
+        run: |
+          echo "SUPABASE_URL set: $([ -n "$SUPABASE_URL" ] && echo yes || echo no)"
+          echo "SUPABASE_SERVICE_ROLE_KEY set: $([ -n "$SUPABASE_SERVICE_ROLE_KEY" ] && echo yes || echo no)"
+          echo "RESEND_API_KEY set: $([ -n "$RESEND_API_KEY" ] && echo yes || echo no)"
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_SERVICE_ROLE_KEY" ] || [ -z "$RESEND_API_KEY" ]; then
+            echo "::error::Missing required secrets (SUPABASE_URL, SUPABASE_SERVICE_KEY, RESEND_API_KEY)"
+            exit 1
+          fi
+
+      - name: Investigate and email the report
+        env:
+          WINDOW_END: ${{ github.event.inputs.end }}
+        run: |
+          ARGS=()
+          if [ -n "$WINDOW_END" ]; then
+            ARGS+=(--end "$WINDOW_END")
+          fi
+          python scripts/investigate_missing_game_requests.py "${ARGS[@]}"

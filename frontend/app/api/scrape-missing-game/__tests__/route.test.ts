@@ -57,6 +57,41 @@ describe('POST /api/scrape-missing-game', () => {
     );
   });
 
+  it('records the click with the request it queued', async () => {
+    const db = filteringClientMock({
+      teams: [{ team_id_master: validBody.teamId, provider_id: 1, provider_team_id: '9999' }],
+      missing_game_clicks: [],
+    });
+    mockCreateClient.mockReturnValue({
+      from: db.client.from,
+      rpc: vi.fn().mockResolvedValue({ data: 'request-1', error: null }),
+    });
+
+    const res = await POST(makeRequest(validBody));
+
+    expect(res.status).toBe(200);
+    expect(db.tableRows.missing_game_clicks).toEqual([
+      { team_id_master: validBody.teamId, game_date: '2026-01-15', scrape_request_id: 'request-1' },
+    ]);
+  });
+
+  it('still reports success when the click cannot be recorded, because the scrape is queued', async () => {
+    svc.queueFrom('teams', { data: { provider_id: 1, provider_team_id: '9999' }, error: null });
+    svc.queueRpc({ data: 'request-1', error: null });
+    const missingTable = { code: 'PGRST205', message: "Could not find the table 'public.missing_game_clicks'" };
+    svc.queueFrom('missing_game_clicks', { data: null, error: missingTable });
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const res = await POST(makeRequest(validBody));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ success: true, requestId: 'request-1' });
+    expect(svc.from).toHaveBeenCalledWith('missing_game_clicks');
+    expect(logged).toHaveBeenCalledWith('[scrape-missing-game] Failed to record the click:', missingTable);
+    expect(vi.mocked(notifyAdmin)).toHaveBeenCalledTimes(1);
+    logged.mockRestore();
+  });
+
   it('alerts the missing-games chat once the request is queued', async () => {
     process.env.TELEGRAM_MISSING_GAMES_CHAT_ID = '-100123';
     svc.queueFrom('teams', { data: { provider_id: 1, provider_team_id: '9999' }, error: null });
@@ -97,6 +132,7 @@ describe('POST /api/scrape-missing-game', () => {
         ],
         team_merge_map: merges,
         scrape_requests: scrapeRequests,
+        missing_game_clicks: [],
       });
       const rpc = vi.fn().mockResolvedValue(refused);
       mockCreateClient.mockReturnValue({ from: db.client.from, rpc });
@@ -131,6 +167,10 @@ describe('POST /api/scrape-missing-game', () => {
         { ...waitingRequest('waiting', validBody.teamId), priority: 1 },
         { id: 'finished', team_id_master: validBody.teamId, status: 'completed', priority: 3 },
         { id: 'other-team', team_id_master: '22222222-2222-2222-2222-222222222222', status: 'pending', priority: 2 },
+      ]);
+      // The waiting request is for 2026-11-01, so nothing covers the clicked date.
+      expect(db.tableRows.missing_game_clicks).toEqual([
+        { team_id_master: validBody.teamId, game_date: '2026-01-15', scrape_request_id: null },
       ]);
       expect(vi.mocked(notifyAdmin)).toHaveBeenCalledTimes(1);
     });
@@ -178,6 +218,9 @@ describe('POST /api/scrape-missing-game', () => {
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({ success: true, requestId: null });
       expect(db.tableRows.scrape_requests[0].priority).toBe(2);
+      expect(db.tableRows.missing_game_clicks).toEqual([
+        { team_id_master: validBody.teamId, game_date: '2026-01-15', scrape_request_id: null },
+      ]);
       expect(vi.mocked(notifyAdmin)).toHaveBeenCalledTimes(1);
     });
 
@@ -189,6 +232,7 @@ describe('POST /api/scrape-missing-game', () => {
 
       expect(res.status).toBe(500);
       expect(db.tableRows.scrape_requests[0].priority).toBe(2);
+      expect(db.tableRows.missing_game_clicks).toEqual([]);
       expect(vi.mocked(notifyAdmin)).not.toHaveBeenCalled();
     });
   });
