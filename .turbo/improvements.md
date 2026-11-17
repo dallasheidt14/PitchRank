@@ -3251,3 +3251,13 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: the scoped-results fetch effect and results panel in `ScopedTeamSelector` (`frontend/components/ScopedTeamSelector.tsx`)
 - **Why**: When the deferred query reaches two characters, `isLoading` is still false and `results` empty, so one render (~15 ms, every run in a 2026-11-16 smoke test) shows the empty state before the fetch effect sets loading. Distinct from the cancelled-request `.finally` race fixed on `fix/site-quick-wins-1116`. Owner chose to log rather than fix it there.
 - **Noted**: 2026-11-16
+
+### Relabel duplicate check misses a copy named like GotSport's current name
+
+- **ID**: IMP-404
+- **Status**: open
+- **Type**: direct
+- **Category**: reliability
+- **Where**: the collision index in `build_plan` (`scripts/fix_band_cohorts.py`), in `main` (`scripts/weekly_age_recheck.py`) and in `mark_collisions` (`.claude/skills/reconcile-gotsport/scripts/triage_reconcile.py`); when fixed, drop the leftover-copy paragraph in the reconcile-gotsport skill's "Reviewing the weekly re-check"
+- **Why**: All three key the "identical team already in the new age group" check on our stored `team_name` only. A team GotSport files in another age keeps its old name (the reconcile withholds that rename), so a copy from another provider already in the target cohort under GotSport's current name passes the check and the relabel leaves a duplicate pair. Also index the row's `gotsport_team_name` when present. Found 2026-11-17: a VA girls u11->u10 relabel missed its NCSL copy named exactly like GotSport's record, merged by hand.
+- **Noted**: 2026-11-17

@@ -943,8 +943,8 @@ its `request_type` and date as they were. Consumers:
 
 **A non-GotSport team is not unservable.** `process_missing_games` looks up an approved
 GotSport row in `team_alias_map` when the canonical provider has no scraper, and scrapes
-that instead. The four scheduled enqueue jobs still filter to `teams.provider_id = gotsport`,
-which reads like the drainer cannot serve anything else — it can, and filtering a
+that instead. The weekly discovery and safety-net enqueue jobs (`find_discovery_teams`,
+`find_stale_teams`) still filter to `teams.provider_id = gotsport`, which reads like the drainer cannot serve anything else — it can, and filtering a
 behaviour-driven selector that way silently discards teams. Gate on "has a GotSport row or an
 approved GotSport alias", not on the provider column alone.
 
