@@ -156,6 +156,31 @@ runs are latency-bound, not block-bound, and work that only speeds up the match-
 addresses the smaller half. The event-scraping class is not affected: `_subpage_fetcher`
 (`:3427`) and the API resolver both route through ZenRows already.
 
+### Keep the key out of errors and logs
+
+**Send every request to `ENDPOINT` (`https://api.zenrows.com/v1/`) through
+`_redacted_zenrows_get(session, params, *, timeout)` in `src/scrapers/_zenrows.py`.** The key rides in
+the query string: `requests` quotes the percent-encoded path and query in a request error and the full
+URL in `raise_for_status()`'s HTTPError, and urllib3 logs the keyed URL itself before the caller sees
+anything (WARNING on a connection-error retry and on a reply whose headers it cannot parse, DEBUG on
+every request). The helper re-raises the same exception type with the key stripped and strips it from
+`response.url`, so callers' `except` branches still match and a later `raise_for_status()` is safe.
+GitHub's log masking cannot reach the error text the drainer stores in `scrape_requests.error_message`
+or a file written under `reports/`.
+
+**Import `src/scrapers/_zenrows.py` in any process that sends to `ENDPOINT`.** Importing it attaches
+the key filter to each urllib3 logger already loaded. Keep the filter on each logger rather than on the
+parent `urllib3` logger, whose filter never sees its children's records. The one sender that skips the
+helper is `_fetch_once` in `src/tournaments/gotsport_event_roster.py`: it redacts with its own
+`redact_secret` and imports `ENDPOINT` from `_zenrows`, which is what attaches the filter.
+`tests/unit/test_zenrows_key_stays_out_of_scrape_errors.py` fails on any other sender under `src/` or
+`scripts/`.
+
+**A status a session retries reaches the caller as `RetryError`, not a response**: one in its
+`status_forcelist`, or a 413, 429 or 503 carrying `Retry-After`. `GotSportScraper`'s session lists 429,
+500, 502, 503 and 504; `GotsportScraper.render_session` lists none. Give a status-code test double a
+status no session retries, such as 422.
+
 ### ZenRows Batch API
 
 Base `https://async.api.zenrows.com/v1`, header `X-API-Key`.
@@ -1754,7 +1779,8 @@ bytes, and fall back to the UTF-8 above only when neither exists. For a declared
 **`allowed_methods` does not keep POSTs out of urllib3's retry.** `Retry.increment` gates its
 *read*-error branch on `_is_method_retryable(method)` but leaves the *connection*-error branch
 ungated (verified against the installed urllib3 2.5.0). So an `allowed_methods=["GET","HEAD"]`
-mount — the shape used in `src/scrapers/_zenrows.py:74-88` — still lets a POST be replayed when
+mount — the shape `ZenRowsSession._build_session` mounts in `src/scrapers/_zenrows.py` — still
+lets a POST be replayed when
 the connection fails.
 
 `src/scrapers/sincsports_clubs.py` is where this actually bites. Its `_init_http_session`

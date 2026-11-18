@@ -1,4 +1,10 @@
-"""Drop-in ``requests.Session`` shim that routes GETs through the ZenRows proxy.
+"""ZenRows request helpers, and a drop-in ``requests.Session`` shim for SincSports.
+
+A request to ``ENDPOINT`` carries the API key in its query string. ``_redacted_zenrows_get``
+strips it from the error or URL a request hands back, and importing this module
+attaches ``_RedactApiKey`` to every urllib3 logger loaded so far, because urllib3
+logs request URLs itself. A process that sends a request to ``ENDPOINT`` must import
+this module first.
 
 SincSports (``soccer.sincsports.com``) now returns ``403 Forbidden`` to direct
 ``requests`` — TLS/behavior fingerprinting, not a header fix. Routing through
@@ -7,26 +13,20 @@ ZenRows' residential proxy bypasses it. This shim mirrors the subset of the
 returning a ``requests.Response`` with ``.text`` / ``.raise_for_status()``), so
 it can be dropped in as ``scraper.session`` with no other changes.
 
-This is a deliberately separate, ``requests.Session``-shaped copy of the ZenRows
-request shape. Other one-shot ZenRows callers exist (``src/scrapers/gotsport.py``,
-``scrapers/outreach_scraper/.../zenrows.py``); those are single-call helpers,
-whereas the SincSports scrapers drive every fetch through a swappable
-``self.session``, so a Session-duck-typed shim is the clean seam here. It follows
-the same ``ZENROWS_PREMIUM_PROXY`` env convention as those callers.
-
 **JS rendering must stay OFF for SincSports.** With ``js_render`` on, the
 ``schedule.aspx`` division links collapse into a JS dropdown that exposes only
 the ``div=N`` placeholder (zero divisions parsed), and ``teamlist.aspx`` rows are
 not in the rendered DOM. The pages are server-rendered, so the residential proxy
 alone is sufficient — hence ``js_render`` defaults to ``False``.
-
-Requires ``ZENROWS_API_KEY`` in the environment.
 """
 
 from __future__ import annotations
 
+import logging
 import os
+import re
 from typing import Dict, Optional
+from urllib.parse import quote_plus
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -34,6 +34,7 @@ from urllib3.util.retry import Retry
 
 ENDPOINT = "https://api.zenrows.com/v1/"
 _REDACTED = "REDACTED"
+_API_KEY_PARAM = re.compile(r"apikey=[^&\s'\"]+")
 
 
 def _redact(text: Optional[str], secret: Optional[str]) -> Optional[str]:
@@ -41,6 +42,54 @@ def _redact(text: Optional[str], secret: Optional[str]) -> Optional[str]:
     if not text or not secret:
         return text
     return text.replace(secret, _REDACTED)
+
+
+def _redact_key(text: str, api_key: Optional[str]) -> str:
+    """Strip the ZenRows key from anything a caller may log, raise or persist.
+
+    Both forms, because `requests` percent-encodes a key containing `+`, `/` or
+    `=` into the prepared URL and a plain replace then misses it.
+    """
+    if not text or not api_key:
+        return text
+    for form in (api_key, quote_plus(api_key)):
+        text = _redact(text, form) or text
+    return text
+
+
+def _redacted_zenrows_get(session, params: Dict[str, str], *, timeout) -> requests.Response:
+    """GET the ZenRows endpoint with the key in ``params`` kept out of the error or URL that comes back.
+
+    The key rides in the query string, so a RequestException's message can quote it, and so
+    does the HTTPError a caller's raise_for_status() builds from ``response.url``.
+    """
+    api_key = params.get("apikey")
+    try:
+        response = session.get(ENDPOINT, params=params, timeout=timeout)
+    except requests.exceptions.RequestException as exc:
+        raise type(exc)(_redact_key(str(exc), api_key)) from None
+    response.url = _redact_key(str(response.url or ""), api_key)
+    return response
+
+
+class _RedactApiKey(logging.Filter):
+    """urllib3 logs request URLs, key and all, before the request returns.
+
+    A logger's filter sees only records logged on that logger, never its children's,
+    so it is attached to each urllib3 logger rather than to ``urllib3``.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        message = record.getMessage()
+        if "apikey=" in message:
+            record.msg, record.args = _API_KEY_PARAM.sub(f"apikey={_REDACTED}", message), ()
+        return True
+
+
+_KEY_FILTER = _RedactApiKey()
+for _name, _logger in list(logging.Logger.manager.loggerDict.items()):
+    if _name.split(".")[0] == "urllib3" and isinstance(_logger, logging.Logger):
+        _logger.addFilter(_KEY_FILTER)
 
 
 class ZenRowsSession:
@@ -106,10 +155,7 @@ class ZenRowsSession:
     def get(self, url: str, timeout: Optional[int] = None) -> requests.Response:
         """Fetch ``url`` through ZenRows; returns the raw ``requests.Response``.
 
-        The API key travels in the query string, so it would otherwise surface in
-        ``Response.url`` (and any ``raise_for_status()`` / log line built from it).
-        We redact it before returning so callers can log the response freely.
+        The key is redacted from the returned ``Response.url`` and from any request error, so
+        callers can log either freely.
         """
-        resp = self._session.get(ENDPOINT, params=self._build_params(url), timeout=timeout or self.timeout)
-        resp.url = _redact(resp.url, self.api_key)
-        return resp
+        return _redacted_zenrows_get(self._session, self._build_params(url), timeout=timeout or self.timeout)
