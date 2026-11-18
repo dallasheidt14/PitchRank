@@ -1,6 +1,7 @@
 """Unit tests for the YSSL driver."""
 
 import csv
+from dataclasses import replace
 from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
@@ -192,6 +193,224 @@ class TestCollectLeague:
     def test_a_club_page_listing_another_season_stops_the_walk(self):
         with pytest.raises(yssl.StaleSeasonError):
             yssl.collect_league(self._pages(), ["AAC"], 2027)
+
+    def _club_pages(self, aac_term, brb_term):
+        """The AAC and BRB club pages headed by the given terms; None leaves a heading that names no term."""
+        heading = "Fall 2026 Teams"
+        aac, brb = _fixture("club_AAC.html"), _fixture("club_BRB.html")
+        assert (aac.count(heading), brb.count(heading)) == (1, 1)
+        return _Pages(
+            {
+                f"{yssl.BASE_URL}/clublinks.php": _fixture("clublinks.html"),
+                f"{yssl.BASE_URL}/club.php?clu_code=AAC": aac.replace(heading, f"{aac_term or 'Our'} Teams"),
+                f"{yssl.BASE_URL}/club.php?clu_code=BRB": brb.replace(heading, f"{brb_term or 'Our'} Teams"),
+            }
+        )
+
+    def test_an_archive_run_reads_only_the_club_pages(self):
+        pages = self._club_pages("Spring 2027", "Fall 2026")
+        clubs, sides, problems = yssl.collect_league(pages, ["AAC", "BRB"], 2026, archive="FALL2026")
+        assert pages.fetched == [
+            f"{yssl.BASE_URL}/clublinks.php",
+            f"{yssl.BASE_URL}/club.php?clu_code=AAC",
+            f"{yssl.BASE_URL}/club.php?clu_code=BRB",
+        ]
+        assert (sorted(clubs), len(clubs["AAC"][1]), sides, problems) == (["AAC", "BRB"], 3, [], [])
+
+    @pytest.mark.parametrize("brb_term", ["Spring 2026", None], ids=["earlier-season", "no-heading"])
+    def test_an_archive_run_reads_past_a_club_page_on_no_term_of_this_season(self, brb_term):
+        pages = self._club_pages("Spring 2027", brb_term)
+        clubs, _, _ = yssl.collect_league(pages, ["AAC", "BRB"], 2026, archive="FALL2026")
+        assert sorted(clubs) == (["AAC"] if brb_term else ["AAC", "BRB"])
+
+    @pytest.mark.parametrize(
+        ("aac_term", "brb_term"),
+        [("Fall 2026", "Fall 2026"), ("Spring 2026", "Spring 2026"), (None, None)],
+        ids=["term-still-live", "season-not-posted", "no-term-listed"],
+    )
+    def test_an_archive_run_stops_unless_a_later_term_is_listed(self, aac_term, brb_term):
+        with pytest.raises(yssl.LiveTermError):
+            yssl.collect_league(self._club_pages(aac_term, brb_term), ["AAC", "BRB"], 2026, archive="FALL2026")
+
+    def test_a_weekly_run_reads_past_a_club_page_with_no_heading(self):
+        pages = self._pages()
+        url = f"{yssl.BASE_URL}/club.php?clu_code=AAC"
+        pages.pages[url] = pages.pages[url].replace("Fall 2026 Teams", "Our Teams")
+        clubs, sides, problems = yssl.collect_league(pages, ["AAC"], 2026)
+        assert (list(clubs), problems) == (["AAC"], [])
+        assert sides
+
+
+INDEX_URL = f"{yssl.BASE_URL}/pastscores.php?l=FALL+2026&d=FALL2026"
+ARCHIVE_URL = f"{yssl.BASE_URL}/PASTSCORES/FALL2026/U11-1S.TXT"
+U11_1S = {
+    "EVOLUTION SC 15/16 PRE ACADEMY BOYS PFC": "EVLM111",
+    "ORLAND PARK STING FC 2015/16 PRE EA": "OPSM111",
+    "LTSC 2015/16B PRE EA SELECT": "LTSM111",
+    "RUSH OSWEGO 15/16 PREMIER": "CHRM111",
+    "CFA - COSMOS FC 15/16": "CFAM111",
+    "ACADEMIA ATLAS FC 15/16 SELECT": "AAFM111",
+}
+
+
+def _codes(names=U11_1S):
+    return {name: {code} for name, code in names.items()}
+
+
+@pytest.mark.parametrize(
+    ("code", "season"),
+    [
+        ("FALL2026", 2026),
+        ("SPRING2027", 2026),
+        ("fall2026", None),
+        ("FALL 2026", None),
+        ("SUMMER2026", None),
+        ("FALL2026\n", None),
+    ],
+)
+def test_archive_season_reads_the_archive_code(code, season):
+    assert yssl.archive_season(code) == season
+
+
+@pytest.mark.parametrize(
+    ("code", "dates"),
+    [("FALL2026", (date(2026, 8, 1), date(2027, 1, 1))), ("SPRING2027", (date(2027, 1, 1), date(2027, 8, 1)))],
+)
+def test_term_dates_bound_the_archives_term(code, dates):
+    assert yssl.term_dates(code) == dates
+
+
+def test_the_live_term_is_read_from_the_club_page_heading():
+    assert (yssl.site_term(_fixture("club_AAC.html")), yssl.site_term("<div>Teams</div>")) == ("FALL2026", None)
+
+
+class TestParseArchiveIndex:
+    def test_lists_the_scores_file_of_each_division_on_a_board(self):
+        assert yssl.parse_archive_index(_fixture("pastscores_FALL2026.html"), "FALL2026") == [
+            ("U10/1", f"{yssl.BASE_URL}/PASTSCORES/FALL2026/U10-1.TXT"),
+            ("U11/1S", ARCHIVE_URL),
+            ("U11/5W", f"{yssl.BASE_URL}/PASTSCORES/FALL2026/U11-5W.TXT"),
+        ]
+
+    def test_another_seasons_files_are_not_listed(self):
+        assert yssl.parse_archive_index(_fixture("pastscores_FALL2026.html"), "SPRING2026") == []
+
+    def test_a_link_naming_another_host_is_not_listed(self):
+        html = _fixture("pastscores_FALL2026.html").replace(
+            'href="/PASTSCORES/FALL2026/U11-1S.TXT"', 'href="@other.example/PASTSCORES/FALL2026/U11-1S.TXT"'
+        )
+        assert "U11/1S" not in [division for division, _ in yssl.parse_archive_index(html, "FALL2026")]
+
+
+class TestParseArchiveScores:
+    def _parse(self, text=None, codes=None):
+        text = _fixture("FALL2026_U11-1S.TXT") if text is None else text
+        return yssl.parse_archive_scores(text, "U11/1S", ARCHIVE_URL, _codes() if codes is None else codes)
+
+    def test_reads_each_scored_game_from_the_home_side(self):
+        games, problems = self._parse()
+        assert problems == []
+        assert len(games) == 20
+        assert games[0] == yssl.SideGame(
+            "117", date(2026, 9, 12), "", "EVLM111", "OPSM111", "H", 3, 2, "", ARCHIVE_URL, "U11/1S"
+        )
+
+    def test_a_game_takes_the_saturday_of_its_week(self):
+        dates = {g.game_no: g.game_date for g in self._parse()[0]}
+        assert (dates["1434"], dates["2357"], dates["5530"]) == (
+            date(2026, 9, 19),
+            date(2026, 10, 3),
+            date(2026, 10, 31),
+        )
+
+    def test_a_tie_and_a_double_digit_score_read_whole(self):
+        scores = {g.game_no: (g.goals_for, g.goals_against) for g in self._parse()[0]}
+        assert (scores["908"], scores["1598"], scores["313"]) == ((2, 2), (11, 0), (10, 2))
+
+    def test_forfeits_and_unscored_games_are_not_results(self):
+        games, problems = self._parse()
+        assert {"2273", "3837", "4632", "4047"}.isdisjoint(g.game_no for g in games)
+        assert problems == []
+
+    def test_a_home_sides_forfeit_is_not_a_result(self):
+        visitors_forfeit = "  2273 RUSH OSWEGO 15/16 PREMIER       1 Win*    ACADEMIA ATLAS FC 15/16 SELECT -2 Forf"
+        home_forfeit = "  2273 ACADEMIA ATLAS FC 15/16 SELECT -2 Forf    RUSH OSWEGO 15/16 PREMIER       1 Win*"
+        text = _fixture("FALL2026_U11-1S.TXT")
+        assert text.count(visitors_forfeit) == 1
+        games, problems = self._parse(text.replace(visitors_forfeit, home_forfeit))
+        assert "2273" not in {g.game_no for g in games}
+        assert problems == []
+
+    @pytest.mark.parametrize(
+        ("archive_name", "listed_name"),
+        [("CFA - COSMOS  FC 15/16", "CFA - COSMOS FC 15/16"), ("CFA - COSMOS FC 15/16", "Cfa - Cosmos  FC 15/16")],
+        ids=["archive-spacing", "listed-case-and-spacing"],
+    )
+    def test_names_match_uppercased_with_spaces_collapsed(self, archive_name, listed_name):
+        text = _fixture("FALL2026_U11-1S.TXT").replace("   313 CFA - COSMOS FC 15/16", f"   313 {archive_name}")
+        listings = [yssl.Listing(str(i), "U11/1S", name, code) for i, (name, code) in enumerate(U11_1S.items())]
+        listings[4] = yssl.Listing("4", "U11/1S", listed_name, "CFAM111")
+        games, problems = self._parse(text, yssl.codes_by_name({"X": ("", listings)}, {}))
+        assert problems == []
+        assert {g.game_no: g.team_code for g in games}["313"] == "CFAM111"
+
+    def test_a_name_naming_no_team_or_two_teams_holds_the_game(self):
+        codes = _codes({**U11_1S, "CFA - COSMOS FC 15/16": "CFAM111"})
+        codes["CFA - COSMOS FC 15/16"].add("CFAM112")
+        del codes["ACADEMIA ATLAS FC 15/16 SELECT"]
+        games, problems = self._parse(codes=codes)
+        assert (
+            "game 313: not one team by that name: "
+            "CFA - COSMOS FC 15/16 (2 teams), ACADEMIA ATLAS FC 15/16 SELECT (0 teams)"
+        ) in problems
+        assert not {"CFAM111", "CFAM112", "AAFM111"} & {code for g in games for code in (g.team_code, g.opponent_code)}
+
+    def test_an_unreadable_line_is_a_problem(self):
+        text = _fixture("FALL2026_U11-1S.TXT").replace(
+            "FC 15/16           2 Win*    RUSH", "FC 15/16           2 Won*    RUSH"
+        )
+        games, problems = self._parse(text)
+        assert problems == [
+            "U11/1S: unreadable line '3316 CFA - COSMOS FC 15/16 2 Won* RUSH OSWEGO 15/16 PREMIER 0 Lose*'"
+        ]
+        assert "3316" not in {g.game_no for g in games}
+
+    def test_a_game_before_any_week_is_a_problem(self):
+        games, problems = self._parse("   117 CFA - COSMOS FC 15/16  1 Win  RUSH OSWEGO 15/16 PREMIER  0 Lose\n")
+        assert (games, len(problems)) == ([], 1)
+
+
+class TestCollectArchive:
+    def _pages(self):
+        return _Pages(
+            {
+                INDEX_URL: _fixture("pastscores_FALL2026.html"),
+                f"{yssl.BASE_URL}/PASTSCORES/FALL2026/U10-1.TXT": "",
+                ARCHIVE_URL: _fixture("FALL2026_U11-1S.TXT"),
+                f"{yssl.BASE_URL}/PASTSCORES/FALL2026/U11-5W.TXT": "",
+            }
+        )
+
+    def test_reads_the_index_then_each_board_divisions_scores(self):
+        pages = self._pages()
+        sides, problems = yssl.collect_archive(pages, "FALL2026", _codes())
+        assert problems == []
+        assert pages.fetched == list(pages.pages)
+        assert {s.division for s in sides} == {"U11/1S"}
+        assert len(sides) == 20
+
+    def test_an_archive_listing_no_division_is_a_problem(self):
+        pages = _Pages({f"{yssl.BASE_URL}/pastscores.php?l=SPRING+2027&d=SPRING2027": "<html></html>"})
+        assert yssl.collect_archive(pages, "SPRING2027", {}) == (
+            [],
+            ["the SPRING2027 archive lists no U10-or-older division"],
+        )
+
+    def test_a_failed_file_stops_the_run(self):
+        pages = self._pages()
+        del pages.pages[ARCHIVE_URL]
+        with pytest.raises(yssl.ScrapeFetchError):
+            yssl.collect_archive(pages, "FALL2026", _codes())
 
 
 @pytest.mark.parametrize(
@@ -442,6 +661,56 @@ class TestLoadClubMap:
         assert [code for code in listed if code not in club_map] == []
 
 
+def _write_csv(path, columns, rows):
+    yssl.write_csv(path, columns, rows)
+    return path
+
+
+def _report_row(team_code, name, club_code, division="U11/2C", tea_id="9"):
+    return {"team_code": team_code, "tea_id": tea_id, "team_name": name, "club_code": club_code, "division": division}
+
+
+JAKES = yssl.Listing("9", "U11/2C", "JAKE'S STARS FC 2015/16 STORM", "JSFM111")
+AAC_GOLD = yssl.Listing("130249", "U10/1", "AAC EAGLES CHICAGO 16/17 GOLD", "AACM101")
+
+
+class TestRoster:
+    def test_a_report_row_is_a_listing_under_its_club(self, tmp_path):
+        path = _write_csv(
+            tmp_path / "r.csv", yssl.REPORT_COLUMNS, [_report_row("2026-JSFM111", JAKES.team_name, "JSF")]
+        )
+        assert yssl.load_roster([path], 2026) == {"JSF": [JAKES]}
+
+    def test_another_seasons_rows_are_left_out(self, tmp_path):
+        path = _write_csv(
+            tmp_path / "r.csv", yssl.REPORT_COLUMNS, [_report_row("2025-JSFM111", JAKES.team_name, "JSF")]
+        )
+        assert yssl.load_roster([path], 2026) == {}
+
+    def test_a_team_a_club_page_lists_keeps_that_listing(self):
+        clubs = {"AAC": ("AAC EAGLES CHICAGO", [AAC_GOLD])}
+        fall_name = yssl.Listing("1", "U10/2", "AAC EAGLES CHICAGO 16/17 GOLD FALL", "AACM101")
+        red = yssl.Listing("2", "U10/3", "AAC EAGLES CHICAGO 16/17 RED", "AACM103")
+        merged = yssl.with_roster(clubs, {"AAC": [fall_name, red], "JSF": [JAKES]})
+        assert merged == {"AAC": ("AAC EAGLES CHICAGO", [AAC_GOLD, red]), "JSF": ("", [JAKES])}
+        assert clubs == {"AAC": ("AAC EAGLES CHICAGO", [AAC_GOLD])}
+
+    def test_a_team_in_two_rosters_is_listed_once(self, tmp_path):
+        path = _write_csv(
+            tmp_path / "r.csv", yssl.REPORT_COLUMNS, [_report_row("2026-JSFM111", JAKES.team_name, "JSF")]
+        )
+        assert yssl.with_roster({}, yssl.load_roster([path, path], 2026)) == {"JSF": ("", [JAKES])}
+
+    def test_a_renamed_team_answers_to_both_names_and_a_shared_name_to_both_teams(self):
+        fall_name = yssl.Listing("1", "U10/2", "AAC EAGLES CHICAGO 16/17 GOLD FALL", "AACM101")
+        namesake = yssl.Listing("3", "U10/4", "AAC EAGLES CHICAGO 16/17 GOLD", "AACM104")
+        codes = yssl.codes_by_name({"AAC": ("AAC EAGLES CHICAGO", [AAC_GOLD])}, {"AAC": [fall_name, namesake]})
+        assert codes == {
+            "AAC EAGLES CHICAGO 16/17 GOLD": {"AACM101", "AACM104"},
+            "AAC EAGLES CHICAGO 16/17 GOLD FALL": {"AACM101"},
+        }
+
+
 def _row(code, age="u12"):
     return yssl.TeamRow(
         code, "1", f"TEAM {code} 14/15", "U12/1", code[:3], code[:3], code[:3], age, "band 14/15", "Male"
@@ -502,6 +771,143 @@ class TestBuildCsvRows:
         rows, _, cross_age = yssl.build_csv_rows([game], roster, _linked("AACM121", "ECLM131"), 14, TODAY)
         assert len(rows) == 2
         assert [(c["home_age_group"], c["away_age_group"]) for c in cross_age] == [("u12", "u13")]
+
+    def test_an_archive_game_is_named_for_its_own_division(self):
+        game = replace(_game("1", "AACM121", "ECLM131"), division="U12/3W")
+        roster = [_row("AACM121"), _row("ECLM131", age="u13")]
+        rows, _, cross_age = yssl.build_csv_rows([game], roster, _linked("AACM121", "ECLM131"), 14, TODAY)
+        assert {r["event_name"] for r in rows} == {"YSSL Fall 2026 - U12/3W"}
+        assert [c["division"] for c in cross_age] == ["U12/3W"]
+
+
+def _scored(no, home, away, home_score, away_score, day=date(2026, 10, 3)):
+    return replace(_game(no, home, away, day=day), home_score=home_score, away_score=away_score)
+
+
+def _stored(home, away, home_score, away_score, day="2026-09-13"):
+    return {
+        "game_date": day,
+        "home_provider_id": home,
+        "away_provider_id": away,
+        "home_score": home_score,
+        "away_score": away_score,
+    }
+
+
+def _receipt(home, away, home_score, away_score, day="2026-09-13"):
+    return (day, home, away, home_score, away_score)
+
+
+ONE_DAY = "game {}: another game between these teams is dated 2026-10-03, and the importer keeps one a day"
+
+
+class TestAlreadyStored:
+    def test_an_imported_games_csv_gives_each_number_every_copy_it_recorded(self, tmp_path):
+        first = [
+            {"schedule_id": "yssl-117", "team_id": "2026-EVLM111", "opponent_id": "2026-OPSM111", "home_away": "H"}
+            | {"game_date": "2026-09-13", "goals_for": 3, "goals_against": 2},
+            {"schedule_id": "yssl-117", "team_id": "2026-OPSM111", "opponent_id": "2026-EVLM111", "home_away": "A"}
+            | {"game_date": "2026-09-13", "goals_for": 2, "goals_against": 3},
+        ]
+        later = [first[0] | {"goals_against": 1}]
+        paths = [
+            _write_csv(tmp_path / "first.csv", yssl.REQUIRED_COLUMNS, first),
+            _write_csv(tmp_path / "later.csv", yssl.REQUIRED_COLUMNS, later),
+        ]
+        assert yssl.imported_games(paths) == {
+            "117": {
+                ("2026-09-13", "2026-EVLM111", "2026-OPSM111", 3, 2),
+                ("2026-09-13", "2026-EVLM111", "2026-OPSM111", 3, 1),
+            }
+        }
+
+    def test_an_imported_number_claims_its_stored_copy(self):
+        game = _scored("1", "A", "B", 4, 0)
+        assert yssl.unstored_games([game], {"1": {_receipt("A", "B", 4, 0)}}, [_stored("A", "B", 4, 0)]) == ([], 1, [])
+
+    def test_a_receipt_claims_whichever_recorded_copy_is_stored(self):
+        receipts = {"1": {_receipt("A", "B", 4, 1), _receipt("A", "B", 4, 0)}}
+        assert yssl.unstored_games([_scored("1", "A", "B", 4, 0)], receipts, [_stored("A", "B", 4, 0)]) == ([], 1, [])
+
+    def test_a_receipt_written_with_home_and_away_the_other_way_still_claims_its_copy(self):
+        receipts = {"1": {_receipt("B", "A", 0, 4)}}
+        assert yssl.unstored_games([_scored("1", "A", "B", 4, 0)], receipts, [_stored("B", "A", 0, 4)]) == ([], 1, [])
+
+    def test_an_imported_number_with_other_teams_is_held_as_a_problem(self):
+        receipts = {"1": {_receipt("A", "C", 2, 1)}}
+        fresh, already, problems = yssl.unstored_games([_scored("1", "A", "B", 2, 1)], receipts, [])
+        assert (fresh, already, problems) == ([], 0, ["game 1: the archive's teams are not the imported game's"])
+
+    @pytest.mark.parametrize(
+        "stored", [[], [_stored("A", "B", 2, 1, "2026-10-18")]], ids=["nothing-stored", "stored-on-another-date"]
+    )
+    def test_an_imported_number_whose_recorded_game_is_not_stored_is_held_as_a_problem(self, stored):
+        receipts = {"1": {_receipt("A", "B", 2, 1)}}
+        fresh, already, problems = yssl.unstored_games([_scored("1", "A", "B", 2, 1)], receipts, stored)
+        assert (fresh, already) == ([], 0)
+        assert problems[0] == "game 1: listed as imported, but no stored game matches it"
+
+    def test_an_imported_game_claims_its_recorded_copy_when_the_archive_score_has_changed(self):
+        corrected = _scored("1", "A", "B", 1, 2)
+        rematch = _scored("9", "A", "B", 2, 1, day=date(2026, 10, 17))
+        receipts = {"1": {_receipt("A", "B", 2, 1)}}
+        fresh, already, _ = yssl.unstored_games([rematch, corrected], receipts, [_stored("A", "B", 2, 1)])
+        assert (fresh, already) == ([rematch], 1)
+
+    def test_a_stored_game_with_the_same_sides_and_score_is_stored_whatever_its_date(self):
+        assert yssl.unstored_games([_scored("7", "A", "B", 2, 1)], {}, [_stored("A", "B", 2, 1)]) == ([], 1, [])
+
+    @pytest.mark.parametrize(
+        "first_leg", [("B", "A", 1, 2), ("A", "B", 1, 2)], ids=["home-and-away-swapped", "another-score"]
+    )
+    def test_another_meeting_of_the_same_teams_is_a_new_game(self, first_leg):
+        game = _scored("7", "A", "B", 2, 1)
+        receipts = {"1": {_receipt(*first_leg)}}
+        games = [_scored("1", *first_leg, day=date(2026, 9, 12)), game]
+        assert yssl.unstored_games(games, receipts, [_stored(*first_leg)]) == ([game], 1, [])
+
+    def test_a_stored_game_that_answers_for_no_archive_game_holds_its_teams_new_games(self):
+        fresh, already, problems = yssl.unstored_games([_scored("7", "A", "B", 3, 1)], {}, [_stored("A", "B", 2, 1)])
+        assert (fresh, already, problems) == (
+            [],
+            0,
+            ["game 7: a stored game between these teams answers for no archive game"],
+        )
+
+    def test_a_stored_game_matched_by_teams_and_score_frees_its_teams_new_games(self):
+        stored_leg, new_leg = _scored("7", "A", "B", 2, 1), _scored("9", "B", "A", 3, 3, day=date(2026, 10, 17))
+        assert yssl.unstored_games([stored_leg, new_leg], {}, [_stored("A", "B", 2, 1)]) == ([new_leg], 1, [])
+
+    @pytest.mark.parametrize(
+        ("copies", "expected"),
+        [(1, ([], 0, 2)), (2, ([], 2, 0)), (3, ([], 2, 0))],
+        ids=["unclear", "covered", "more-copies-than-games"],
+    )
+    def test_games_sharing_teams_and_score_are_stored_only_when_every_one_has_a_copy(self, copies, expected):
+        games = [_scored("7", "A", "B", 2, 1), _scored("9", "A", "B", 2, 1, day=date(2026, 10, 17))]
+        fresh, already, problems = yssl.unstored_games(games, {}, [_stored("A", "B", 2, 1)] * copies)
+        assert (fresh, already, len(problems)) == expected
+        assert all("share these teams and score" in problem for problem in problems)
+
+    def test_a_game_held_on_its_receipt_still_competes_for_the_stored_copies(self):
+        held = _scored("1", "A", "B", 2, 1)
+        other = _scored("9", "A", "B", 2, 1, day=date(2026, 10, 17))
+        receipts = {"1": {_receipt("A", "B", 3, 0)}}
+        fresh, already, problems = yssl.unstored_games([held, other], receipts, [_stored("A", "B", 2, 1)])
+        assert (fresh, already, len(problems)) == ([], 0, 2)
+        assert "share these teams and score" in problems[1]
+
+    @pytest.mark.parametrize("home_away", [("A", "B", 5, 2), ("B", "A", 0, 3)], ids=["same-sides", "swapped"])
+    def test_a_new_game_on_a_stored_games_date_between_its_teams_is_held(self, home_away):
+        stored = [_stored(*home_away, day="2026-10-03")]
+        games = [_scored("1", *home_away, day=date(2026, 9, 26)), _scored("7", "A", "B", 2, 1)]
+        receipts = {"1": {_receipt(*home_away, day="2026-10-03")}}
+        assert yssl.unstored_games(games, receipts, stored) == ([], 1, [ONE_DAY.format(7)])
+
+    def test_a_second_new_game_between_the_same_teams_on_one_date_is_held(self):
+        first, second = _scored("7", "A", "B", 2, 1), _scored("9", "B", "A", 3, 3)
+        fresh, _, problems = yssl.unstored_games([first, second], {}, [])
+        assert (fresh, problems) == ([first], [ONE_DAY.format(9)])
 
 
 class _FakeMatcher:
@@ -567,18 +973,32 @@ def run_main(monkeypatch, tmp_path):
         teams=None,
         collect_error=None,
         collect_problems=(),
+        pages=None,
+        stored=(),
+        sides=SIDES,
+        real_collect=False,
     ):
         _FakeMatcher.instances = []
         _FakeMatcher.results = results or {}
         imports = []
         walked = []
+        stored_reads = []
         mapped = club_map if club_map is not None else _club_map(AAC="AAC Eagles", ECL="Eclipse Select Soccer Club")
 
-        def fake_collect(_fetch, clubs, season, pause=None):
-            walked.append((clubs, season))
+        def fake_collect(_fetch, clubs, season, pause=None, archive=None):
+            walked.append((clubs, season, archive))
             if collect_error:
                 raise collect_error
-            return CLUBS, SIDES, list(collect_problems)
+            return CLUBS, [] if archive else sides, list(collect_problems)
+
+        def fake_stored_games(_client, _provider_id, start, end):
+            stored_reads.append((start, end))
+            return list(stored)
+
+        def fake_get(_session, url):
+            if url not in (pages or {}):
+                raise yssl.ScrapeFetchError(f"HTTP 404 for {url}")
+            return SimpleNamespace(text=pages[url])
 
         def fake_existing_aliases(_client, _provider_id, codes):
             if not (_FakeMatcher.instances and not _FakeMatcher.instances[-1].dry_run):
@@ -592,7 +1012,10 @@ def run_main(monkeypatch, tmp_path):
         monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "service-role")
         monkeypatch.setattr(yssl, "create_client", lambda *_a: _ProvidersClient())
         monkeypatch.setattr(yssl, "make_session", lambda: None)
-        monkeypatch.setattr(yssl, "collect_league", fake_collect)
+        monkeypatch.setattr(yssl, "_get", fake_get)
+        if not real_collect:
+            monkeypatch.setattr(yssl, "collect_league", fake_collect)
+        monkeypatch.setattr(yssl, "stored_games", fake_stored_games)
         monkeypatch.setattr(yssl, "load_club_map", lambda _path: mapped)
         monkeypatch.setattr(yssl, "YSSLGameMatcher", _FakeMatcher)
         monkeypatch.setattr(yssl, "existing_aliases", fake_existing_aliases)
@@ -612,6 +1035,7 @@ def run_main(monkeypatch, tmp_path):
             code=code,
             imports=imports,
             walked=walked,
+            stored_reads=stored_reads,
             outcomes={r["team_code"]: r for p in reports for r in csv.DictReader(p.open(encoding="utf-8"))},
             games=[r for p in games_csvs for r in csv.DictReader(p.open(encoding="utf-8"))],
         )
@@ -663,7 +1087,7 @@ class TestMain:
 
     def test_named_clubs_are_passed_to_the_walk(self, run_main):
         result = run_main("--club", "AAC", "--club", "ECL")
-        assert result.walked == [(["AAC", "ECL"], 2026)]
+        assert result.walked == [(["AAC", "ECL"], 2026, None)]
 
     @pytest.mark.parametrize(
         ("problem", "code"),
@@ -683,6 +1107,21 @@ class TestMain:
         stale = yssl.StaleSeasonError("yssl.org lists the 2025 season's teams")
         result = run_main("--execute", club_map=_club_map(**EVERY_CLUB), collect_error=stale)
         assert (result.code, result.imports, _FakeMatcher.instances, result.outcomes) == (0, [], [], {})
+
+    def test_a_weekly_run_reads_no_stored_games_and_imports_a_game_whose_result_is_stored(self, run_main):
+        stored = [_stored("2026-AACM121", "2026-ECLM121", 2, 3)]
+        result = run_main("--execute", club_map=_club_map(**EVERY_CLUB), stored=stored)
+        assert result.stored_reads == []
+        assert "yssl-1" in {r["schedule_id"] for r in result.games}
+
+    def test_a_weekly_run_registers_a_team_with_no_games(self, run_main):
+        result = run_main(club_map=_club_map(**EVERY_CLUB), sides=SIDES[:2])
+        assert "2026-XYZM121" in result.outcomes
+
+    def test_a_weekly_run_keeps_its_window(self, run_main):
+        sides = [_side("1", "AACM121", "ECLM121", "H", 2, 3, day=date(2026, 9, 12))]
+        result = run_main(club_map=_club_map(**EVERY_CLUB), sides=sides)
+        assert result.games == []
 
 
 AAC_ID, ECL_ID, XYZ_ID = "2026-AACM121", "2026-ECLM121", "2026-XYZM121"
@@ -766,6 +1205,170 @@ class TestMainGuards:
         }
 
 
+ARCHIVE_TEXT = """\
+                   FALL 2026 - AGE GROUP  U11/1S
+
+Week: 1     Date: 09/12/2026      *Denotes Guest Player/s played game
+ Game # Home Team                 Score    Visiting Team             Score
+   101 AAC EAGLES CHICAGO 14/15 GOLD   2 Lose    ECLIPSE 14/15 DARIEN       3 Win
+   102 XYZ FC 14/15                    1 Tie     JAKE'S STARS FC 2014/15 STORM  1 Tie
+   103 ECLIPSE 14/15 DARIEN            4 Win*    JAKE'S STARS FC 2014/15 STORM  0 Lose
+   104 AAC EAGLES CHICAGO 14/15 GOLD   5 Win     XYZ FC 14/15               0 Lose
+"""
+ARCHIVE_PAGES = {
+    INDEX_URL: _fixture("pastscores_FALL2026.html"),
+    f"{yssl.BASE_URL}/PASTSCORES/FALL2026/U10-1.TXT": "",
+    ARCHIVE_URL: ARCHIVE_TEXT,
+    f"{yssl.BASE_URL}/PASTSCORES/FALL2026/U11-5W.TXT": "",
+}
+JSF_ID = "2026-JSFM121"
+
+
+def _archive_flags(tmp_path, imported_no="101"):
+    roster = _write_csv(
+        tmp_path / "in" / "roster.csv",
+        yssl.REPORT_COLUMNS,
+        [_report_row(JSF_ID, "JAKE'S STARS FC 2014/15 STORM", "JSF", division="U12/2")],
+    )
+    imported_row = {"schedule_id": f"yssl-{imported_no}", "team_id": AAC_ID, "opponent_id": ECL_ID}
+    imported = _write_csv(
+        tmp_path / "in" / "imported.csv",
+        yssl.REQUIRED_COLUMNS,
+        [imported_row | {"home_away": "H", "game_date": "2026-09-13", "goals_for": 2, "goals_against": 3}],
+    )
+    return ["--archive", "FALL2026", "--roster", str(roster), "--imported", str(imported)]
+
+
+@pytest.fixture
+def archive_inputs(tmp_path):
+    return _archive_flags(tmp_path)
+
+
+ARCHIVE_STORED = [_stored(AAC_ID, ECL_ID, 2, 3), _stored(AAC_ID, XYZ_ID, 5, 0)]
+
+
+class TestMainArchive:
+    def _run(self, run_main, flags, *extra, **overrides):
+        options = {"club_map": _club_map(**EVERY_CLUB, JSF="Jake's Stars FC"), "stored": ARCHIVE_STORED}
+        return run_main(*flags, *extra, pages=ARCHIVE_PAGES, **{**options, **overrides})
+
+    def test_reads_club_pages_only_and_imports_the_unstored_games(self, run_main, archive_inputs):
+        result = self._run(run_main, archive_inputs, "--execute")
+        assert result.code == 0
+        assert result.walked == [(None, 2026, "FALL2026")]
+        assert result.stored_reads == [(date(2026, 8, 1), date(2027, 1, 1))]
+        assert sorted({r["schedule_id"] for r in result.games}) == ["yssl-102", "yssl-103"]
+        assert len(result.imports) == 1
+
+    def test_game_rows_carry_the_archive_week_and_division_whatever_the_window(self, run_main, archive_inputs):
+        result = self._run(run_main, archive_inputs)
+        assert {(r["game_date"], r["event_name"], r["game_time"], r["venue"]) for r in result.games} == {
+            ("2026-09-12", "YSSL Fall 2026 - U11/1S", "", "")
+        }
+
+    def test_the_window_reaches_back_to_the_start_of_the_season(self, run_main, archive_inputs, monkeypatch):
+        monkeypatch.setitem(ARCHIVE_PAGES, ARCHIVE_URL, ARCHIVE_TEXT.replace("09/12/2026", "08/01/2026"))
+        result = self._run(run_main, archive_inputs)
+        assert {r["game_date"] for r in result.games} == {"2026-08-01"}
+
+    def test_only_the_teams_of_games_to_import_are_registered(self, run_main, archive_inputs):
+        result = self._run(run_main, archive_inputs)
+        assert set(result.outcomes) == {ECL_ID, XYZ_ID, JSF_ID}
+        assert result.outcomes[JSF_ID]["outcome"] == "created"
+        assert {c["provider_team_id"] for c in _FakeMatcher.instances[0].calls} == {ECL_ID, XYZ_ID, JSF_ID}
+
+    def test_a_linked_team_with_no_games_still_holds_its_team_against_a_new_link(self, run_main, archive_inputs):
+        teams = {"T1": {"team_id_master": "T1", "team_name": "X", "age_group": "u12", "gender": "Male"}}
+        results = {ECL_ID: {**LINKED, "team_id": "T1"}}
+        result = self._run(run_main, archive_inputs, already={AAC_ID: "T1"}, results=results, teams=teams)
+        assert [result.outcomes[code]["outcome"] for code in (AAC_ID, ECL_ID)] == ["already_linked", "conflict"]
+        assert result.code == 1
+
+    def test_an_unmapped_club_playing_an_archive_game_is_left_out_and_fails_the_run(self, run_main, archive_inputs):
+        club_map = _club_map(AAC="AAC Eagles", ECL="Eclipse Select Soccer Club", JSF="Jake's Stars FC")
+        result = self._run(run_main, archive_inputs, club_map=club_map)
+        assert (result.outcomes[XYZ_ID]["outcome"], result.outcomes[XYZ_ID]["reason"]) == (
+            "skipped",
+            "club XYZ not in club map",
+        )
+        assert result.code == 1
+
+    def test_an_unmapped_club_with_no_game_to_import_does_not_fail_the_run(self, run_main, archive_inputs):
+        club_map = _club_map(AAC="AAC Eagles", ECL="Eclipse Select Soccer Club", JSF="Jake's Stars FC")
+        stored = [*ARCHIVE_STORED, _stored(XYZ_ID, JSF_ID, 1, 1)]
+        result = self._run(run_main, archive_inputs, club_map=club_map, stored=stored)
+        assert XYZ_ID not in result.outcomes
+        assert result.code == 0
+
+    def test_a_club_page_still_listing_the_term_stops_the_run(self, run_main, archive_inputs):
+        live = yssl.LiveTermError("yssl.org still lists the FALL2026 teams")
+        result = self._run(run_main, archive_inputs, "--execute", collect_error=live)
+        assert (result.code, result.imports, _FakeMatcher.instances, result.games) == (1, [], [], [])
+
+    def test_a_name_naming_no_team_holds_its_game_and_fails_the_run(self, run_main, archive_inputs, monkeypatch):
+        unknown = "   105 NOBODY FC 14/15                 1 Win     XYZ FC 14/15               0 Lose\n"
+        monkeypatch.setitem(ARCHIVE_PAGES, ARCHIVE_URL, ARCHIVE_TEXT + unknown)
+        result = self._run(run_main, archive_inputs)
+        assert result.code == 1
+        assert sorted({r["schedule_id"] for r in result.games}) == ["yssl-102", "yssl-103"]
+
+    def test_an_imported_number_naming_other_teams_holds_its_game_and_fails_the_run(self, run_main, tmp_path):
+        result = self._run(run_main, _archive_flags(tmp_path, imported_no="102"))
+        assert result.code == 1
+        assert sorted({r["schedule_id"] for r in result.games}) == ["yssl-103"]
+
+    @pytest.mark.parametrize("code", ["FALL2025", "SPRING2027", "fall2026"])
+    def test_an_archive_other_than_this_seasons_fall_term_stops_before_anything_is_read(self, run_main, code):
+        result = self._run(run_main, ["--archive", code])
+        assert (result.code, result.walked, _FakeMatcher.instances, result.games) == (1, [], [], [])
+
+    def test_an_archive_run_takes_no_named_clubs(self, run_main, archive_inputs):
+        with pytest.raises(SystemExit) as stopped:
+            self._run(run_main, archive_inputs, "--club", "AAC")
+        assert stopped.value.code == 2
+
+
+LEAGUE = {
+    "AAC": ("AAC EAGLES CHICAGO", "AAC EAGLES CHICAGO 14/15 GOLD", "AACM121"),
+    "ECL": ("ECLIPSE", "ECLIPSE 14/15 DARIEN", "ECLM121"),
+    "XYZ": ("XYZ FC", "XYZ FC 14/15", "XYZM121"),
+}
+
+
+def _club_page(term, club, team_name, team_code):
+    heading = f"<div>&nbsp;{term} Teams&nbsp;</div>" if term else ""
+    listing = f'<tr><td><a href="team.php?tea_id=1">U12/1&nbsp;{team_name}</a></td><td>{team_code}</td></tr>'
+    return f"<html><body>{heading}<span><b>Club</b></span>: {club}<br><table>{listing}</table></body></html>"
+
+
+def _league_pages(term, straggler=None):
+    """The archive pages plus a club list and club pages on ``term``; a straggler club shows its own."""
+    clubs = {code: (term, *club) for code, club in LEAGUE.items()}
+    if straggler:
+        clubs["ZZZ"] = (straggler, "ZZZ FC", "ZZZ FC 14/15", "ZZZM121")
+    pages = dict(ARCHIVE_PAGES)
+    pages[f"{yssl.BASE_URL}/clublinks.php"] = "".join(f'<a href="club.php?clu_code={c}">{c}</a>' for c in clubs)
+    for code, page in clubs.items():
+        pages[f"{yssl.BASE_URL}/club.php?clu_code={code}"] = _club_page(*page)
+    return pages
+
+
+class TestMainArchiveThroughTheClubPages:
+    def _run(self, run_main, flags, pages):
+        club_map = _club_map(**EVERY_CLUB, JSF="Jake's Stars FC")
+        return run_main(*flags, real_collect=True, pages=pages, club_map=club_map, stored=ARCHIVE_STORED)
+
+    @pytest.mark.parametrize("straggler", [None, "Fall 2026", "Spring 2026"], ids=["none", "on-fall", "earlier-season"])
+    def test_a_finished_fall_term_imports_once_the_club_pages_list_spring(self, run_main, archive_inputs, straggler):
+        result = self._run(run_main, archive_inputs, _league_pages("Spring 2027", straggler))
+        assert result.code == 0
+        assert sorted({r["schedule_id"] for r in result.games}) == ["yssl-102", "yssl-103"]
+
+    def test_a_fall_term_the_club_pages_still_list_stops_the_run(self, run_main, archive_inputs):
+        result = self._run(run_main, ["--execute", *archive_inputs], _league_pages("Fall 2026"))
+        assert (result.code, result.imports, _FakeMatcher.instances, result.games) == (1, [], [], [])
+
+
 class TestQueries:
     def test_only_approved_aliases_of_this_provider_count_as_links(self):
         db = _DB()
@@ -788,6 +1391,20 @@ class TestQueries:
     def test_teams_are_read_by_master_id(self):
         db = _DB([{"team_id_master": t, "team_name": t, "age_group": "u12", "gender": "Male"} for t in ("T1", "T2")])
         assert list(yssl.teams_by_id(db, ["T1"])) == ["T1"]
+
+    def test_stored_games_are_this_providers_games_in_the_term_read_in_id_order(self):
+        db = _DB()
+        dates = ["2026-07-31", "2026-08-01", "2026-12-31", "2027-01-01"]
+        db.rows["games"] = [
+            {"id": f"{i}", "provider_id": "P", "game_date": day} | _stored(f"2026-H{i}", "2026-A", 1, 0, day)
+            for i, day in enumerate(dates)
+        ] + [{"id": "9", "provider_id": "Q"} | _stored("2026-Q", "2026-A", 1, 0, "2026-10-03")]
+        found = yssl.stored_games(db, "P", date(2026, 8, 1), date(2027, 1, 1))
+        assert found == [
+            _stored("2026-H1", "2026-A", 1, 0, "2026-08-01"),
+            _stored("2026-H2", "2026-A", 1, 0, "2026-12-31"),
+        ]
+        assert [(filters, order) for filters, _, order in db.reads("games")] == [({"provider_id": "P"}, "id")] * 2
 
     def test_lookups_go_out_100_ids_at_a_time(self):
         db = _DB()

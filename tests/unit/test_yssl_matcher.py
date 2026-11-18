@@ -3,7 +3,8 @@
 The database double is the Athletes2Events matcher test's: it records at
 ``execute()``, applies the ``or_`` state filter, refuses review rows the table's
 CHECK refuses, and raises ``APIError(PGRST116)`` on a zero-row ``.single()`` as
-postgrest does, which is the normal path for the pre-create existence check.
+postgrest does, which is the normal path for the pre-create existence check. It
+adds ``gte``/``lt`` bounds, which, as in Postgres, never match a NULL.
 """
 
 from types import SimpleNamespace
@@ -22,6 +23,7 @@ class _Query:
         self.db = db
         self.table = table
         self.filters = []
+        self.bounds = []
         self.or_clauses = []
         self.order_by = None
         self.op = "select"
@@ -52,6 +54,14 @@ class _Query:
         self.filters.append((field, tuple(values)))
         return self
 
+    def gte(self, field, value):
+        self.bounds.append((field, "gte", value))
+        return self
+
+    def lt(self, field, value):
+        self.bounds.append((field, "lt", value))
+        return self
+
     def range(self, start, end):
         self.window = (start, end)
         return self
@@ -74,6 +84,9 @@ class _Query:
                 if row.get(field) not in value:
                     return False
             elif row.get(field) != value:
+                return False
+        for field, op, value in self.bounds:
+            if row.get(field) is None or not (row[field] >= value if op == "gte" else row[field] < value):
                 return False
         return not self.or_clauses or any(row.get(field) == value for field, value in self.or_clauses)
 

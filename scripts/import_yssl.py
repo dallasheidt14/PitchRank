@@ -5,15 +5,30 @@ YSSL (Young Sportsmen's Soccer League, yssl.org) is a Chicago-area boys league.
 Three public, server-rendered pages feed this script:
 
 - ``clublinks.php`` links every club as ``club.php?clu_code=<CODE>``.
-- ``club.php?clu_code=<CODE>`` names the club and lists its current-season
-  teams: ``<division>&nbsp;<team name>`` linking ``team.php?tea_id=<n>``, then
+- ``club.php?clu_code=<CODE>`` names the club and lists its teams for the term
+  in its heading ("Fall 2026 Teams"): ``<division>&nbsp;<team name>`` linking
+  ``team.php?tea_id=<n>``, then
   the team code (``AACM121``: club code, gender letter, U-age, squad index).
 - ``team.php?tea_id=<n>`` carries the team's games. A changed game shows its
   current date first and the original struck through; ``Result`` is written
   from this team's side; an unplayed game has an empty ``Result``.
 
 Every game appears on both teams' pages, so games are merged by YSSL game
-number and checked for agreement. Only the current season is published.
+number and checked for agreement. The team pages show only the current term.
+
+A finished term's games stay in the season archive,
+``pastscores.php?l=FALL+2026&d=FALL2026``, as one text file per division
+listing game number, both team names and both scores under the Saturday of
+the week each game was scheduled in. ``--archive FALL<year>`` imports this
+season's fall term from it once the club pages list spring teams, when the
+team pages no longer show fall games: names map to team codes through the club
+pages plus ``--roster`` (an earlier run's team report, for teams the club pages
+have since dropped), and games already stored are skipped by game number
+(``--imported``, an earlier run's games CSV) or by their teams and score. The
+archive keeps no played date, so a Sunday game is dated a day early and a
+rescheduled game keeps its original week's Saturday. A spring term is not
+taken: its games stay on the team pages until the next season replaces them,
+and by then its team codes have been reissued.
 
 The provider team id is the team code scoped to its season (``2026-AACM121``).
 The code carries the U-age and is reissued to the next cohort every Aug 1, so a
@@ -24,12 +39,14 @@ YSSL abbreviates clubs (``ECLIPSE``) and runs some branches under one club code
 (``CHICAGO RUSH`` holds ``RUSH NORTH``, ``RUSH OSWEGO``), so
 ``config/yssl_club_map.csv`` maps each club code, or a team-name prefix inside it,
 to the club name PitchRank stores. A team no decided row fits is left out and
-fails the run, as does any team whose link errored or conflicted.
+fails the run (in an archive run, only one with a game to import), as does any
+team whose link errored or conflicted.
 
 Dry run by default; ``--execute`` writes teams, aliases, review rows and games.
 
 Usage:
     python scripts/import_yssl.py --days-back 14 [--club AAC --club ECL] [--execute]
+    python scripts/import_yssl.py --archive FALL2026 --roster <teams.csv> --imported <games.csv> [--execute]
 """
 
 from __future__ import annotations
@@ -44,6 +61,7 @@ import subprocess
 import sys
 import time
 import uuid
+from collections import Counter
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -184,6 +202,13 @@ _TEAM_CODE = re.compile(r"^[A-Z0-9]{3}([A-Z])\d")
 _GENDERS = {"M": "Male", "F": "Female"}
 _GIRLS = re.compile(r"\bGIRLS?\b", re.IGNORECASE)
 _BAND_TEXT = re.compile(r"(?<!\d)(?:20)?\d{2}\s*[/-]\s*(?:20)?\d{2}(?!\d)")
+_ARCHIVE_CODE = re.compile(r"(FALL|SPRING)(20\d{2})")
+_ARCHIVE_WEEK = re.compile(r"\bDate:\s*(\d{2})/(\d{2})/(\d{4})")
+_ARCHIVE_GAME = re.compile(
+    r"^\s*(\d+)\s+(.+?)\s+(-?\d+)\s+(Win|Lose|Tie|Forf)\*?\s+(.+?)\s+(-?\d+)\s+(Win|Lose|Tie|Forf)\*?\s*$"
+)
+_ARCHIVE_NO_SCORE = re.compile(r"^\s*\d+\s.*\bNOSCORE\s*$")
+_ARCHIVE_FURNITURE = re.compile(r"^\s*$|AGE GROUP|Game #|^\s*updated:")
 
 
 @dataclass
@@ -206,6 +231,7 @@ class SideGame:
     goals_against: int
     venue: str
     source_url: str
+    division: str = ""
 
 
 @dataclass
@@ -219,6 +245,7 @@ class Game:
     away_score: int
     venue: str
     source_url: str
+    division: str = ""
 
 
 @dataclass
@@ -272,6 +299,15 @@ class StaleSeasonError(RuntimeError):
     """
 
 
+class LiveTermError(RuntimeError):
+    """No club page of this season lists a later term than the one an archive run was asked to import.
+
+    While the term is still on the team pages, the weekly run would later import
+    the same games under their played dates, and a game not played on its week's
+    Saturday would be stored twice.
+    """
+
+
 # ── Fetching ───────────────────────────────────────────────────────────────────
 
 
@@ -306,13 +342,33 @@ def parse_club_list(html: str) -> List[str]:
     return sorted(set(_CLUB_LINK.findall(html)))
 
 
+def site_term(html: str) -> Optional[str]:
+    """The term a club page lists, as an archive code: "Fall 2026 Teams" is ``FALL2026``."""
+    found = _SITE_SEASON.search(html)
+    return f"{found.group(1).upper()}{found.group(2)}" if found else None
+
+
 def site_season(html: str) -> Optional[int]:
     """The season a club page lists: "Fall 2026 Teams" and "Spring 2027 Teams" are both 2026."""
-    found = _SITE_SEASON.search(html)
+    term = site_term(html)
+    return archive_season(term) if term else None
+
+
+def archive_season(code: str) -> Optional[int]:
+    """The season a term code belongs to: ``FALL2026`` and ``SPRING2027`` are both 2026."""
+    found = _ARCHIVE_CODE.fullmatch(code)
     if not found:
         return None
     year = int(found.group(2))
-    return year if found.group(1) == "Fall" else year - 1
+    return year if found.group(1) == "FALL" else year - 1
+
+
+def term_dates(code: str) -> Tuple[date, date]:
+    """A term as its first day and the day after it: fall is Aug-Dec, spring Jan-Jul. Sorts terms in time."""
+    term, year = _ARCHIVE_CODE.fullmatch(code).groups()
+    if term == "FALL":
+        return date(int(year), 8, 1), date(int(year) + 1, 1, 1)
+    return date(int(year), 1, 1), date(int(year), 8, 1)
 
 
 def parse_club_page(html: str) -> Tuple[str, List[Listing]]:
@@ -408,7 +464,85 @@ def merge_games(sides: List[SideGame]) -> Tuple[List[Game], List[str]]:
         home, away, home_score, away_score, day = views.pop()
         first = seen[0]
         games.append(
-            Game(game_no, day, first.game_time, home, away, home_score, away_score, first.venue, first.source_url)
+            Game(
+                game_no,
+                day,
+                first.game_time,
+                home,
+                away,
+                home_score,
+                away_score,
+                first.venue,
+                first.source_url,
+                first.division,
+            )
+        )
+    return games, problems
+
+
+def name_key(team_name: str) -> str:
+    return " ".join(team_name.split()).upper()
+
+
+def parse_archive_index(html: str, code: str) -> List[Tuple[str, str]]:
+    """(division, scores-file URL) for each division on a board, U10 and older; the standings files are skipped."""
+    soup = BeautifulSoup(html, "html.parser")
+    files: List[Tuple[str, str]] = []
+    for link in soup.find_all("a", href=True):
+        if _text(link) != "SCORES" or not link["href"].startswith(f"/PASTSCORES/{code}/"):
+            continue
+        division = _text(link.find_parent("tr").find("td")).replace("-", "/", 1)
+        age = _DIVISION_AGE.match(division)
+        if age and _board(f"U{int(age.group(1))}"):
+            files.append((division, f"{BASE_URL}{link['href']}"))
+    return files
+
+
+def parse_archive_scores(
+    text: str, division: str, source_url: str, codes_by_name: Dict[str, Set[str]]
+) -> Tuple[List[SideGame], List[str]]:
+    """Each scored game in a division's archive file, from the home side, dated to its scheduled week's Saturday.
+
+    An unscored game and a forfeit (``-2 Forf``) are not results. A team name must
+    name exactly one team code, or the game is held as a problem.
+    """
+    games: List[SideGame] = []
+    problems: List[str] = []
+    week: Optional[date] = None
+    for line in text.splitlines():
+        found = _ARCHIVE_WEEK.search(line)
+        if found:
+            week = date(int(found.group(3)), int(found.group(1)), int(found.group(2)))
+            continue
+        if _ARCHIVE_FURNITURE.search(line) or _ARCHIVE_NO_SCORE.match(line):
+            continue
+        game = _ARCHIVE_GAME.match(line)
+        if not game or week is None:
+            problems.append(f"{division}: unreadable line '{' '.join(line.split())}'")
+            continue
+        if "Forf" in (game.group(4), game.group(7)):
+            continue
+        names = (game.group(2), game.group(5))
+        codes = [codes_by_name.get(name_key(name), set()) for name in names]
+        unclear = [f"{name_key(name)} ({len(named)} teams)" for name, named in zip(names, codes) if len(named) != 1]
+        if unclear:
+            problems.append(f"game {game.group(1)}: not one team by that name: {', '.join(unclear)}")
+            continue
+        (home,), (away,) = codes
+        games.append(
+            SideGame(
+                game_no=game.group(1),
+                game_date=week,
+                game_time="",
+                team_code=home,
+                opponent_code=away,
+                home_away="H",
+                goals_for=int(game.group(3)),
+                goals_against=int(game.group(6)),
+                venue="",
+                source_url=source_url,
+                division=division,
+            )
         )
     return games, problems
 
@@ -421,29 +555,71 @@ def collect_league(
     clubs: Optional[List[str]],
     season: int,
     pause: Callable[[], None] = lambda: None,
+    archive: Optional[str] = None,
 ) -> Tuple[Dict[str, Tuple[str, List[Listing]]], List[SideGame], List[str]]:
-    """Fetch the club list, the named clubs (all when none are named) and each of their team pages."""
+    """Fetch the club list, the named clubs (all when none are named) and their team pages.
+
+    An ``archive`` run reads no team pages and leaves out a club page listing
+    another season's teams. It stops unless the latest term the club pages list
+    is later than the archive's: a club with no teams in the new term still shows
+    its last one, so the latest term listed is the live one.
+    """
     listed = parse_club_list(fetch_html(f"{BASE_URL}/clublinks.php"))
     pause()
     problems = [f"club {code} is not on the club list" for code in (clubs or []) if code not in listed]
     found: Dict[str, Tuple[str, List[Listing]]] = {}
     sides: List[SideGame] = []
+    terms: Set[str] = set()
     for code in listed:
         if clubs and code not in clubs:
             continue
         html = fetch_html(f"{BASE_URL}/club.php?clu_code={code}")
+        pause()
+        term = site_term(html)
         listed_season = site_season(html)
         if listed_season is not None and listed_season != season:
+            if archive:
+                continue
             raise StaleSeasonError(f"yssl.org lists the {listed_season} season's teams; this run's season is {season}")
+        if term:
+            terms.add(term)
         found[code] = parse_club_page(html)
-        pause()
+        if archive:
+            continue
         for listing in found[code][1]:
             url = f"{BASE_URL}/team.php?tea_id={listing.tea_id}"
             team_games, team_problems = parse_team_games(fetch_html(url), listing.team_code, season, url)
             pause()
             sides.extend(team_games)
             problems.extend(team_problems)
+    if archive:
+        live = max(terms, key=term_dates, default=None)
+        if live is None or term_dates(live) <= term_dates(archive):
+            raise LiveTermError(
+                f"the latest term yssl.org's club pages list is {live or 'none'}; "
+                f"the {archive} archive is taken once a later term is listed"
+            )
     return found, sides, problems
+
+
+def collect_archive(
+    fetch_html: Callable[[str], str],
+    code: str,
+    codes_by_name: Dict[str, Set[str]],
+    pause: Callable[[], None] = lambda: None,
+) -> Tuple[List[SideGame], List[str]]:
+    """Fetch a season archive's index and each of its U10-and-older divisions' scores files."""
+    term, year = _ARCHIVE_CODE.fullmatch(code).groups()
+    divisions = parse_archive_index(fetch_html(f"{BASE_URL}/pastscores.php?l={term}+{year}&d={code}"), code)
+    pause()
+    problems = [] if divisions else [f"the {code} archive lists no U10-or-older division"]
+    sides: List[SideGame] = []
+    for division, url in divisions:
+        division_games, division_problems = parse_archive_scores(fetch_html(url), division, url, codes_by_name)
+        pause()
+        sides.extend(division_games)
+        problems.extend(division_problems)
+    return sides, problems
 
 
 # ── Roster ─────────────────────────────────────────────────────────────────────
@@ -486,6 +662,43 @@ def scope_games(games: List[Game], season: int) -> List[Game]:
     return [
         replace(g, home_code=season_id(g.home_code, season), away_code=season_id(g.away_code, season)) for g in games
     ]
+
+
+def load_roster(paths: List[Path], season: int) -> Dict[str, List[Listing]]:
+    """Earlier runs' team reports as listings by club code; a row of another season names another squad."""
+    prefix = season_id("", season)
+    roster: Dict[str, List[Listing]] = {}
+    for path in paths:
+        with open(path, newline="", encoding="utf-8") as f:
+            for row in csv.DictReader(f):
+                if not row["team_code"].startswith(prefix):
+                    continue
+                listing = Listing(row["tea_id"], row["division"], row["team_name"], row["team_code"][len(prefix) :])
+                roster.setdefault(row["club_code"], []).append(listing)
+    return roster
+
+
+def with_roster(
+    clubs: Dict[str, Tuple[str, List[Listing]]], roster: Dict[str, List[Listing]]
+) -> Dict[str, Tuple[str, List[Listing]]]:
+    """The club pages' teams, plus each roster team no club page lists any more."""
+    listed = {listing.team_code for _, listings in clubs.values() for listing in listings}
+    merged = {club_code: (name, list(listings)) for club_code, (name, listings) in clubs.items()}
+    for club_code, listings in roster.items():
+        for listing in listings:
+            if listing.team_code not in listed:
+                listed.add(listing.team_code)
+                merged.setdefault(club_code, ("", []))[1].append(listing)
+    return merged
+
+
+def codes_by_name(clubs: Dict[str, Tuple[str, List[Listing]]], roster: Dict[str, List[Listing]]) -> Dict[str, Set[str]]:
+    """The team codes each name stands for on the club pages and in the roster; a renamed team keeps both names."""
+    found: Dict[str, Set[str]] = {}
+    for listings in [listings for _, listings in clubs.values()] + list(roster.values()):
+        for listing in listings:
+            found.setdefault(name_key(listing.team_name), set()).add(listing.team_code)
+    return found
 
 
 def _board(label: Optional[str]) -> Optional[str]:
@@ -735,6 +948,127 @@ def teams_by_id(supabase, team_ids: List[str]) -> Dict[str, Dict]:
     return teams
 
 
+def imported_games(paths: List[Path]) -> Dict[str, Set[Tuple[str, str, str, int, int]]]:
+    """YSSL game number -> each (date, home, away, home score, away score) recorded by imported games CSVs."""
+    found: Dict[str, Set[Tuple[str, str, str, int, int]]] = {}
+    for path in paths:
+        with open(path, newline="", encoding="utf-8") as f:
+            for row in csv.DictReader(f):
+                if row["home_away"] == "H":
+                    found.setdefault(row["schedule_id"].removeprefix("yssl-"), set()).add(
+                        (
+                            row["game_date"],
+                            row["team_id"],
+                            row["opponent_id"],
+                            int(row["goals_for"]),
+                            int(row["goals_against"]),
+                        )
+                    )
+    return found
+
+
+def stored_games(supabase, provider_id: str, start: date, end: date) -> List[Dict]:
+    """Every stored YSSL game dated in [start, end), hidden games included.
+
+    Paged here rather than by ``find_cross_provider_duplicates.page``, whose import
+    loads ``.env.local`` over the environment. It advances by the rows returned,
+    because the server's row cap differs by deployment.
+    """
+    rows: List[Dict] = []
+    while True:
+        chunk = (
+            supabase.table("games")
+            .select("game_date, home_provider_id, away_provider_id, home_score, away_score")
+            .eq("provider_id", provider_id)
+            .gte("game_date", start.isoformat())
+            .lt("game_date", end.isoformat())
+            .order("id")
+            .range(len(rows), len(rows) + 999)
+            .execute()
+        ).data or []
+        if not chunk:
+            return rows
+        rows.extend(chunk)
+
+
+def _teams_and_score(game: Game) -> Tuple[str, str, int, int]:
+    return game.home_code, game.away_code, game.home_score, game.away_score
+
+
+def unstored_games(
+    games: List[Game], imported: Dict[str, Set[Tuple[str, str, str, int, int]]], stored: List[Dict]
+) -> Tuple[List[Game], int, List[str]]:
+    """Split archive games into new ones, a count already stored, and a problem for each one held.
+
+    The archive dates a game to its scheduled Saturday, so a stored copy is found
+    by game number or by teams and score, never by date:
+    - A game in an ``--imported`` CSV claims the stored copy that CSV recorded,
+      whatever the archive's score is now. It is held if no such copy is stored
+      (a dry run writes that CSV too) or if the CSV names other teams.
+    - Any other stored game answers for one archive game with its home team, away
+      team and score; where archive games sharing those outnumber stored ones but
+      one is stored, all are held.
+    - A new game is held while a stored game between its teams answers for no
+      archive game (its score may have changed), or when a stored or earlier new
+      game between them has its date: the importer keeps one game between two
+      teams a day.
+    """
+    exact = Counter(
+        (row["game_date"], row["home_provider_id"], row["away_provider_id"], row["home_score"], row["away_score"])
+        for row in stored
+    )
+    unclaimed = Counter(key[1:] for key in exact.elements())
+    taken = {(row["game_date"], frozenset((row["home_provider_id"], row["away_provider_id"]))) for row in stored}
+    already = 0
+    problems: List[str] = []
+    rest: List[Game] = []
+    rejected: List[Game] = []
+    for game in games:
+        copies = imported.get(game.game_no)
+        if copies is None:
+            rest.append(game)
+            continue
+        claimed = next((copy for copy in sorted(copies) if exact[copy] > 0), None)
+        if any({copy[1], copy[2]} != {game.home_code, game.away_code} for copy in copies):
+            problems.append(f"game {game.game_no}: the archive's teams are not the imported game's")
+        elif claimed is None:
+            problems.append(f"game {game.game_no}: listed as imported, but no stored game matches it")
+        else:
+            exact[claimed] -= 1
+            unclaimed[claimed[1:]] -= 1
+            already += 1
+            continue
+        rejected.append(game)
+    sharing = Counter(_teams_and_score(game) for game in rest + rejected)
+    covered = {key for key, count in sharing.items() if unclaimed[key] >= count}
+    for key in covered:
+        unclaimed[key] -= sharing[key]
+    loose = {frozenset(key[:2]) for key, count in unclaimed.items() if count > 0}
+    fresh: List[Game] = []
+    for game in rest:
+        key = _teams_and_score(game)
+        pair = frozenset(key[:2])
+        day = game.game_date.isoformat()
+        if key in covered:
+            already += 1
+        elif unclaimed[key]:
+            problems.append(
+                f"game {game.game_no}: {sharing[key]} archive games share these teams and score "
+                f"with {unclaimed[key]} stored, so which are stored is unclear"
+            )
+        elif pair in loose:
+            problems.append(f"game {game.game_no}: a stored game between these teams answers for no archive game")
+        elif (day, pair) in taken:
+            problems.append(
+                f"game {game.game_no}: another game between these teams is dated {day}, "
+                "and the importer keeps one a day"
+            )
+        else:
+            taken.add((day, pair))
+            fresh.append(game)
+    return fresh, already, problems
+
+
 # ── Output ─────────────────────────────────────────────────────────────────────
 
 
@@ -778,11 +1112,12 @@ def build_csv_rows(
             continue
         home = rows_by_code[game.home_code]
         away = rows_by_code[game.away_code]
+        division = game.division or home.division
         if home.age_group != away.age_group or home.gender != away.gender:
             cross_age.append(
                 {
                     "game_date": game.game_date.isoformat(),
-                    "division": home.division,
+                    "division": division,
                     "home_team_id": home.team_code,
                     "home_team_name": home.team_name,
                     "home_age_group": home.age_group,
@@ -802,7 +1137,7 @@ def build_csv_rows(
             "provider": PROVIDER_CODE,
             "scrape_run_id": SCRAPE_RUN_ID,
             "event_id": "",
-            "event_name": f"YSSL {_season_label(game.game_date)} - {home.division}",
+            "event_name": f"YSSL {_season_label(game.game_date)} - {division}",
             "schedule_id": f"yssl-{game.game_no}",
             "age_year": "",
             "age_group": home.age_group,
@@ -881,14 +1216,38 @@ def report_rows(
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument("--days-back", type=int, default=14, help="Import games dated within this many days (default 14)")
+    p.add_argument(
+        "--days-back",
+        type=int,
+        default=14,
+        help="Import games dated within this many days (default 14; --archive reaches back to Aug 1 instead)",
+    )
     p.add_argument("--club", action="append", default=None, help="Walk only this club code (repeatable; pilots)")
     p.add_argument("--club-map", type=Path, default=CLUB_MAP_PATH, help="YSSL club -> PitchRank club map")
     p.add_argument("--output-dir", type=Path, default=OUTPUT_DIR, help="Where the CSVs and team report go")
     p.add_argument("--delay-min", type=float, default=1.0, help="Minimum seconds between page fetches")
     p.add_argument("--delay-max", type=float, default=2.0, help="Maximum seconds between page fetches")
     p.add_argument("--execute", action="store_true", help="Write teams, aliases and games (default is a dry run)")
-    return p.parse_args()
+    p.add_argument("--archive", help="Import this season's fall term from the season archive (FALL2026)")
+    p.add_argument(
+        "--roster",
+        type=Path,
+        action="append",
+        default=[],
+        help="With --archive: an earlier run's team report, naming teams the club pages dropped (repeatable)",
+    )
+    p.add_argument(
+        "--imported",
+        type=Path,
+        action="append",
+        default=[],
+        help="With --archive: an earlier run's imported games CSV; a game it lists counts as stored if the copy it "
+        "recorded is stored, and is held otherwise (repeatable)",
+    )
+    args = p.parse_args()
+    if args.archive and args.club:
+        p.error("--archive maps team names through every club page, so it takes no --club")
+    return args
 
 
 def main() -> int:
@@ -912,16 +1271,40 @@ def main() -> int:
     def pause() -> None:
         time.sleep(random.uniform(args.delay_min, args.delay_max))
 
+    def fetch_html(url: str) -> str:
+        return _get(session, url).text
+
     season = _soccer_season_year()
+    if args.archive and args.archive != f"FALL{season}":
+        console.print(f"[red]--archive takes this season's fall term, FALL{season}, not {escape(args.archive)}[/red]")
+        return 1
     try:
-        clubs, sides, problems = collect_league(lambda url: _get(session, url).text, args.club, season, pause)
+        clubs, sides, problems = collect_league(fetch_html, args.club, season, pause, archive=args.archive)
     except StaleSeasonError as e:
         console.print(f"[yellow]{escape(str(e))}. Nothing registered or imported until it rolls over.[/yellow]")
         return 0
+    except LiveTermError as e:
+        console.print(f"[red]{escape(str(e))}[/red]")
+        return 1
+    if args.archive:
+        roster = load_roster(args.roster, season)
+        sides, archive_problems = collect_archive(fetch_html, args.archive, codes_by_name(clubs, roster), pause)
+        problems.extend(archive_problems)
+        clubs = with_roster(clubs, roster)
     games, merge_problems = merge_games(sides)
     games = scope_games(games, season)
     problems.extend(merge_problems)
     in_scope, left_out = build_roster(clubs, load_club_map(args.club_map), season)
+    already = existing_aliases(supabase, provider_id, [row.team_code for row in in_scope])
+    already_stored = 0
+    if args.archive:
+        stored = stored_games(supabase, provider_id, *term_dates(args.archive))
+        games, already_stored, stored_problems = unstored_games(games, imported_games(args.imported), stored)
+        problems.extend(stored_problems)
+        playing = {code for game in games for code in (game.home_code, game.away_code)}
+        # Keep already-linked teams in scope even with no games, so shared_links still flags a new link to their team.
+        in_scope = [row for row in in_scope if row.team_code in playing or row.team_code in already]
+        left_out = [row for row in left_out if row.team_code in playing]
     console.print(
         f"[bold]YSSL[/bold] — {len(clubs)} clubs, {len(in_scope) + len(left_out)} teams, "
         f"{len(in_scope)} in scope, {len(left_out)} left out"
@@ -929,7 +1312,6 @@ def main() -> int:
     )
     console.print(f"Games scraped: {len(games)}")
 
-    already = existing_aliases(supabase, provider_id, [row.team_code for row in in_scope])
     preview = register_teams(
         YSSLGameMatcher(supabase, provider_id=provider_id, registration_mode=True, dry_run=True),
         provider_id,
@@ -957,7 +1339,8 @@ def main() -> int:
     for team_code, reason in off_board_links(in_scope, outcomes, teams).items():
         outcomes[team_code] = Outcome("error", outcomes[team_code].team_id_master, reason=reason)
 
-    records, held, cross_age = build_csv_rows(games, in_scope, outcomes, args.days_back, date.today())
+    days_back = (date.today() - date(season, 8, 1)).days if args.archive else args.days_back
+    records, held, cross_age = build_csv_rows(games, in_scope, outcomes, days_back, date.today())
 
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     games_csv = args.output_dir / f"{stamp}_games.csv"
@@ -979,6 +1362,8 @@ def main() -> int:
         summary.add_row(status, str(sum(1 for o in outcomes.values() if o.status == status)))
     summary.add_row("teams left out", str(len(left_out)))
     summary.add_row("clubs not in club map", str(len(unmapped)))
+    if args.archive:
+        summary.add_row("games already stored", str(already_stored))
     summary.add_row("games to import", str(len(records) // 2))
     summary.add_row("games held back", str(len(held)))
     summary.add_row("cross-age games imported", str(len(cross_age)))
@@ -994,7 +1379,7 @@ def main() -> int:
     if failed:
         console.print(f"[red]{len(failed)} teams errored or conflicted; see the team report: {', '.join(failed)}[/red]")
     if unread:
-        console.print(f"[red]{len(unread)} games could not be read and were left out; see the problems above.[/red]")
+        console.print(f"[red]{len(unread)} problems; the games they name were left out. See them above.[/red]")
 
     if dry_run:
         console.print("\n[yellow]Dry run — no teams, aliases, review rows or games were written.[/yellow]")

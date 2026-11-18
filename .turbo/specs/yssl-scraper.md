@@ -39,7 +39,8 @@ Plain server-rendered HTML. A browser User-Agent works, with no proxy, no bot ch
 - `tea_id` looks reissued per season, so it is not used as identity.
 - Team names carry a two-year band (`14/15`, `2014/15`, `18/19B`). Divisions read `U12/1`,
   `U08-5V5/4S`, `U07-4V4/E`.
-- Only the current season is visible, with no archive.
+- The team pages show only the current term. (Corrected 2026-11-18: finished terms stay in the
+  season archive, `pastscores.php`, which `import_yssl.py --archive` reads.)
 
 ## Design
 
@@ -159,7 +160,7 @@ Migration `supabase/migrations/<ts>_seed_yssl_provider.sql` seeds `providers` wi
 ## Out of scope
 
 - Unplayed fixtures.
-- Past seasons, which the site does not expose.
+- Past seasons. (Corrected 2026-11-18: the site keeps them in the season archive; see above.)
 - Coaches and contacts. They are not stored.
 
 ## Open risk
