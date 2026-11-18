@@ -319,6 +319,35 @@ def test_a_link_to_an_unusable_team_is_rejected(alias_calls, tmp_path, target):
     assert counts["links_rejected"] == 1 and db.rows["team_alias_map"] == []
 
 
+@pytest.mark.parametrize(
+    ("listed", "team_age", "linked"),
+    [(True, "u15", True), (True, "u16", True), (True, "u14", False), (False, "u15", False)],
+    ids=[
+        "play-up club one board younger",
+        "play-up club own age",
+        "play-up club two boards younger",
+        "other club one board younger",
+    ],
+)
+def test_only_a_play_up_clubs_squad_links_to_a_team_one_board_younger(
+    alias_calls, tmp_path, monkeypatch, listed, team_age, linked
+):
+    if listed:
+        monkeypatch.setitem(keys.PLAY_UP_CLUBS, "Alpha SC", "test")
+    else:
+        monkeypatch.delitem(keys.PLAY_UP_CLUBS, "Alpha SC", raising=False)
+    db = _Db(teams=[_live("T1", age_group=team_age)])
+    counts, _ = _apply(db, [_link_action()], tmp_path)
+    assert (counts["aliases_written"], counts["links_rejected"]) == ((1, 0) if linked else (0, 1))
+    assert [a["team_id_master"] for a in db.rows["team_alias_map"]] == (["T1"] if linked else [])
+
+
+def test_a_team_stored_with_an_upper_case_age_still_fits_its_squad(alias_calls, tmp_path):
+    db = _Db(teams=[_live("T1", age_group="U16")])
+    counts, _ = _apply(db, [_link_action()], tmp_path)
+    assert (counts["aliases_written"], counts["links_rejected"]) == (1, 0)
+
+
 def test_a_link_to_a_missing_team_is_rejected(alias_calls, tmp_path):
     counts, _ = _apply(_Db(), [_link_action()], tmp_path)
     assert counts["links_rejected"] == 1
@@ -435,6 +464,20 @@ def test_the_handback_shows_candidate_providers(tmp_path):
     report = [{"provider_team_id": "2", "candidate_ids": "G1|G2", "candidate_names": "A|B", "candidate_providers": "gotsport|"}]
     link.write_handback(tmp_path / "handback.csv", plan, report, {})
     assert list(csv.DictReader((tmp_path / "handback.csv").open(encoding="utf-8")))[0]["candidates"] == "A (G1, gotsport) | B (G2)"
+
+
+@pytest.mark.parametrize(("listed", "status"), [(True, "needs review: plays a year up"), (False, "needs review")])
+def test_the_handback_marks_a_review_squad_whose_club_plays_up(tmp_path, monkeypatch, listed, status):
+    if listed:
+        monkeypatch.setitem(keys.PLAY_UP_CLUBS, "Alpha SC", "test")
+    else:
+        monkeypatch.delitem(keys.PLAY_UP_CLUBS, "Alpha SC", raising=False)
+    plan = _plan([_squad("1"), _squad("2", club="Stateless FC")], [_row("1", "review", "T1|T2"), _row("2", "new", "")])
+    link.write_handback(tmp_path / "handback.csv", plan, [], {})
+    handback = list(csv.DictReader((tmp_path / "handback.csv").open(encoding="utf-8")))
+    assert [(h["provider_team_id"], h["status"]) for h in handback] == [("1", status), ("2", "needs state")]
+    legend = (tmp_path / "handback_legend.txt").read_text(encoding="utf-8")
+    assert "'needs review: plays a year up' marks a club in config/mlsnext_kitman_play_up_clubs.json" in legend
 
 
 def test_the_log_is_json_lines(alias_calls, tmp_path):
@@ -595,6 +638,37 @@ def test_a_team_that_does_not_fit_its_squad_keeps_its_name(tmp_path, team):
     db = _Db(teams=[team], aliases=[_alias("10:2026", "T1")])
     assert _rename(db, [_squad("10")], tmp_path)["teams_renamed"] == 0
     assert _names(db) == {"T1": team["team_name"]}
+
+
+@pytest.mark.parametrize(
+    ("name", "renamed"),
+    [("Alpha SC U15 HD", 0), ("Alpha SC U14 HD", 1), ("SJ 2012s", 1)],
+    ids=["already its real age", "rolled over a year", "another provider's name"],
+)
+def test_a_play_up_team_takes_its_squads_name_at_its_own_age(tmp_path, monkeypatch, name, renamed):
+    monkeypatch.setitem(keys.PLAY_UP_CLUBS, "Alpha SC", "test")
+    db = _Db(teams=[_team("T1", name, age_group="u15")], aliases=[_alias("10:2026", "T1")])
+    assert _rename(db, [_squad("10")], tmp_path)["teams_renamed"] == renamed
+    assert _names(db) == {"T1": "Alpha SC U15 HD"}
+
+
+@pytest.mark.parametrize(
+    ("squad_age", "team_age", "name"),
+    [("u16", "u16", "Alpha SC U16 HD"), ("u19", "u19", "Alpha SC U19 HD"), ("u19", "u17", "Alpha SC U17 HD")],
+    ids=["own age", "own age at u19", "one board below u19"],
+)
+def test_a_play_up_clubs_team_is_named_by_its_own_age(tmp_path, monkeypatch, squad_age, team_age, name):
+    monkeypatch.setitem(keys.PLAY_UP_CLUBS, "Alpha SC", "test")
+    db = _Db(teams=[_team("T1", "Old", age_group=team_age)], aliases=[_alias("10:2026", "T1")])
+    assert _rename(db, [_squad("10", age=squad_age)], tmp_path)["teams_renamed"] == 1
+    assert _names(db) == {"T1": name}
+
+
+def test_a_play_up_kitman_team_keeps_its_squad_suffix_at_its_own_age(tmp_path, monkeypatch):
+    monkeypatch.setitem(keys.PLAY_UP_CLUBS, "Alpha SC", "test")
+    db = _Db(teams=[_team("T1", "Old", age_group="u16", provider=PROVIDER)], aliases=[_alias("10:2026", "T1")])
+    assert _rename(db, [_squad("10", age="u17", suffix="B")], tmp_path)["teams_renamed"] == 1
+    assert _names(db) == {"T1": "Alpha SC U16 HD II"}
 
 
 @pytest.mark.parametrize(

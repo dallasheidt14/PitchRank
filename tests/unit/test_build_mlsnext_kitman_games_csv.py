@@ -1,4 +1,4 @@
-"""The Kitman import CSV: played games in the season window between linked, same-board teams; two rows each."""
+"""The Kitman import CSV: played games in the season window between linked, same-board squads; two rows each."""
 
 import csv
 import re
@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from scripts import build_mlsnext_kitman_games_csv as build
+from src.models import mlsnext_kitman_keys as keys
 
 IMPORTER = Path(__file__).resolve().parents[2] / "scripts" / "import_games_enhanced.py"
 SINCE, TODAY = "2026-08-01", "2026-10-14"
@@ -285,14 +286,20 @@ def test_usable_links_keep_only_a_team_on_the_squads_own_board():
         {"team_id_master": "UPPER", "age_group": "U16", "gender": "Male", "is_deprecated": False},
     ]
     links = {"1:2026": "OK", "2:2026": "AGE", "3:2026": "SEX", "4:2026": "DEP", "5:2026": "GONE", "6:2026": "UPPER"}
-    ages = {key: "u16" for key in links}
+    ages = {key: ("u16",) for key in links}
     assert build.usable_links(_Teams(rows), links, ages) == {"1:2026": "OK", "6:2026": "UPPER"}
 
 
 def test_a_link_is_judged_against_its_own_squads_age():
     rows = [{"team_id_master": "T", "age_group": "u15", "gender": "Male", "is_deprecated": False}]
-    assert build.usable_links(_Teams(rows), {"1:2026": "T"}, {"1:2026": "u15"}) == {"1:2026": "T"}
-    assert build.usable_links(_Teams(rows), {"1:2026": "T"}, {"1:2026": "u16"}) == {}
+    assert build.usable_links(_Teams(rows), {"1:2026": "T"}, {"1:2026": ("u15",)}) == {"1:2026": "T"}
+    assert build.usable_links(_Teams(rows), {"1:2026": "T"}, {"1:2026": ("u16",)}) == {}
+
+
+def test_a_link_is_kept_for_any_age_its_squad_accepts():
+    rows = [{"team_id_master": "T", "age_group": "u15", "gender": "Male", "is_deprecated": False}]
+    assert build.usable_links(_Teams(rows), {"1:2026": "T"}, {"1:2026": ("u16", "u15")}) == {"1:2026": "T"}
+    assert build.usable_links(_Teams(rows), {"1:2026": "T", "2:2026": "T"}, {"1:2026": ("u15",)}) == {"1:2026": "T"}
 
 
 def _write(path, columns, rows):
@@ -584,3 +591,35 @@ def test_a_season_key_survives_the_importers_id_conversion_in_both_loaders(tmp_p
     loaded = importer.load_games_csv(tmp_path / "import.csv")
     for games in (streamed, loaded):
         assert [(g["team_id"], g["opponent_id"]) for g in games] == [("10:2026", "11:2026"), ("11:2026", "10:2026")]
+
+
+@pytest.mark.parametrize(
+    ("younger_team", "team_age", "imported"),
+    [("M2", "u15", True), ("M2", "u14", False), ("M1", "u15", False)],
+    ids=["listed club one board younger", "listed club two boards younger", "the unlisted club one board younger"],
+)
+def test_only_a_play_up_clubs_squad_imports_through_a_team_one_board_younger(
+    tmp_path, monkeypatch, capsys, younger_team, team_age, imported
+):
+    monkeypatch.setitem(keys.PLAY_UP_CLUBS, "Beta FC", "test")
+    monkeypatch.delitem(keys.PLAY_UP_CLUBS, "Alpha SC", raising=False)
+    monkeypatch.setattr(build, "date", _RunDay)
+    games = [_game(date=RUN_DAY)]
+    _write(tmp_path / "games.csv", list(games[0]), games)
+    squads = list(SQUADS.values())
+    _write(tmp_path / "squads.csv", list(squads[0]), squads)
+    db = _live_db([_alias(1, "10:2026", "M1"), _alias(2, "11:2026", "M2")])
+    next(t for t in db.rows["teams"] if t["team_id_master"] == younger_team)["age_group"] = team_age
+    monkeypatch.setattr(build, "_new_client", lambda: db)
+    assert build.main(["--in-dir", str(tmp_path)]) == 0
+    rows, held = build._read_csv(tmp_path / "import.csv"), build._read_csv(tmp_path / "held_games.csv")
+    out = capsys.readouterr().out
+    if imported:
+        assert [(r["team_id"], r["opponent_id"], r["age_group"]) for r in rows] == [
+            ("10:2026", "11:2026", "u16"),
+            ("11:2026", "10:2026", "u16"),
+        ]
+        assert held == [] and "Dropped" not in out
+    else:
+        assert rows == [] and [h["hold_reason"] for h in held] == ["a team is not linked"]
+        assert "Dropped 1 links" in out

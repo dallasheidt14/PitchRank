@@ -3300,3 +3300,19 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `zenrows_url` and `make_zenrows_request` in `scrapers/outreach_scraper/outreach_scraper/zenrows.py`; the sender scan `_zenrows_senders` in `tests/unit/test_zenrows_key_stays_out_of_scrape_errors.py`
 - **Why**: It puts the key in the `api.zenrows.com/v1/` query string and never imports `src/scrapers/_zenrows.py`, so its request errors and Scrapy's own URL log lines can carry the key; the urllib3 filter does not cover Scrapy's loggers. The operator script `scripts/build_outreach_list.py` runs it and no workflow does, so it was left out of the redaction branch, and the sender scan reads only `src/` and `scripts/`. Strip the key from what it logs and raises, and widen the scan to `scrapers/`.
 - **Noted**: 2026-11-17
+
+### Let the shared import-pipeline test harness run real schema validation
+
+- **Type**: direct
+- **Category**: testing
+- **Where**: `_import_pipeline` in `tests/unit/test_enhanced_pipeline_fixture_score_fill.py`
+- **Why**: Its `real_validation=True` path calls `_validate_and_dedup(games, run_validation=False)`, while production validates, so an end-to-end import test built on it (the Kitman builder-to-matcher test in `tests/unit/test_mlsnext_kitman_matcher.py`) cannot see a loader that drops a required column such as `home_away`: production would quarantine those games and the test still passes. `test_rows_use_only_columns_both_loaders_admit` covers the Kitman columns today, so the gap is in the harness.
+- **Noted**: 2026-11-18
+
+### Make the Kitman link and match-report test doubles refuse unknown columns
+
+- **Type**: direct
+- **Category**: testing
+- **Where**: `_Query.execute` in `tests/unit/test_link_mlsnext_kitman_teams.py` and in `tests/unit/test_match_mlsnext_kitman_run.py`
+- **Why**: Both project selected columns with `r.get(c)`, so a misspelled column reads as None where PostgREST refuses it (42703), against CLAUDE.md's rule that a double refuses what production refuses. `_TeamsTable` in `tests/unit/test_mlsnext_kitman_matcher.py` already refuses unknown columns and can serve as the model.
+- **Noted**: 2026-11-18

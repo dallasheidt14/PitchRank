@@ -756,10 +756,21 @@ and only placeholder AD fixtures this season.
   that squad's Kitman name (`<club> U<age> <HD|AD>[ II]`), as the owner asked on 2026-11-17: "The gotsport name
   then can be changed to the kitman format". A team Kitman created starts with that name, and the run puts it back
   on any linked team whose name drifts: an Aug 1 rollover, a club renamed in the feed, or a hand edit. It skips a
-  team in another age or gender, one linked to two differently named squads, and one whose new name another live
+  team in another age (bar a play-up club's, next bullet) or gender, one linked to two differently named squads, and one whose new name another live
   team holds or would get. A `II` name goes only to a Kitman-created team (see the `U17B` bullet above). `--names` alone lists the
   renames; `--undo` restores them. A rename that does not take turns the run red after the games are in. The
   GotSport reconcile leaves the name of a team linked in the newest Kitman season alone.
+- Clubs that play a year up: `config/mlsnext_kitman_play_up_clubs.json`, edited by hand on the owner's word,
+  names the Kitman clubs (exact Kitman spelling) whose squads play one division up; each entry records the owner's
+  evidence. Teams are filed by real age, so for a listed club a team one board younger than its squad
+  (u17 under a u19 squad, since there is no u18 board) still carries the squad: the builder keeps the link, the
+  importer matches it, and the linker accepts it. All three read `team_ages_for_squad`, because a link the builder
+  keeps and the importer rejects imports the game with that side empty. The rename step gives such a team the squad's Kitman name at
+  its own age (owner 2026-11-18: "Rename to real age"), so the name follows its real age across
+  the Aug 1 rollover. The match report never pairs or creates a listed club's new squad on its own; it goes to
+  review with the club's teams at both ages, because pairing by the squad's age picks the next-older team, and the
+  linker's hand-back marks the row `needs review: plays a year up`. Every other club keeps the exact-age
+  rule, which is what catches a team stored at the wrong age.
 
 ## Athletes2Events Pages
 

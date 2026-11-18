@@ -159,6 +159,25 @@ def test_the_report_links_through_the_bridge_and_surfaces_other_providers(tmp_pa
     assert (report["12"]["candidate_ids"], report["12"]["candidate_providers"]) == ("G1", "gotsport")
 
 
+@pytest.mark.parametrize("listed", [True, False], ids=["play-up club", "other club"])
+def test_a_play_up_clubs_new_squad_lists_its_other_provider_teams_at_both_ages(tmp_path, monkeypatch, listed):
+    if listed:
+        monkeypatch.setitem(keys.PLAY_UP_CLUBS, "Gamma FC", "test")
+    else:
+        monkeypatch.delitem(keys.PLAY_UP_CLUBS, "Gamma FC", raising=False)
+    _write_squads(tmp_path, [("12", "Gamma FC", "u16", "HD")])
+    match.run(tmp_path, _db())
+    row = _report(tmp_path)["12"]
+    if listed:
+        assert (row["bucket"], row["reason"]) == (
+            "review",
+            "its club plays a year up: pick its team by real age (new files it at this age)",
+        )
+        assert sorted(row["candidate_ids"].split("|")) == ["G1", "G2"]
+    else:
+        assert (row["bucket"], row["candidate_ids"]) == ("new", "G1")
+
+
 def test_other_provider_teams_are_only_the_requested_clubs_and_ages_and_never_the_bridge_or_kitman():
     provider_ids = {"modular11": M11, "gotsport": GOTSPORT, "mlsnext_kitman": KITMAN}
     db = _db()

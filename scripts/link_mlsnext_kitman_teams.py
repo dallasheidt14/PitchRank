@@ -8,8 +8,9 @@ arrives through ``--decisions`` (``provider_team_id,your_pick`` with a team id, 
 from Kitman; the game import only follows the aliases written here.
 
 ``--names`` instead gives a team carrying a squad's alias that squad's Kitman name
-(``<club> U<age> <HD|AD>``), so a team from another provider takes it and a Kitman team keeps it
-current after the Aug 1 rollover; ``plan_renames`` says which teams it skips. Without ``--execute``
+(``<club> U<age> <HD|AD>``, at the team's own age for a play-up club's team one board below its squad),
+so a team from another provider takes it and a Kitman team keeps it current after the Aug 1 rollover;
+``plan_renames`` says which teams it skips. Without ``--execute``
 it lists the renames and writes nothing.
 
 Every planning run writes ``link_plan.csv`` and the hand-back spreadsheet (``handback.csv`` plus
@@ -45,7 +46,13 @@ from postgrest.exceptions import APIError
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from scripts.fix_band_cohorts import csv_safe  # noqa: E402
-from src.models.mlsnext_kitman_keys import club_state_or_blank, refuse_raw_keys  # noqa: E402
+from scripts.scrape_mlsnext_kitman import Squad  # noqa: E402
+from src.models.mlsnext_kitman_keys import (  # noqa: E402
+    club_state_or_blank,
+    plays_up,
+    refuse_raw_keys,
+    team_ages_for_squad,
+)
 from src.models.mlsnext_kitman_matcher import PROVIDER_CODE  # noqa: E402
 from src.rankings.data_adapter import batch_fetch_rows  # noqa: E402
 from src.tournaments.alias_writer import upsert_team_alias  # noqa: E402
@@ -205,7 +212,7 @@ def _alias_row(sb, provider_id: str, key: str) -> dict | None:
     return rows[0] if rows else None
 
 
-def _usable_target(sb, team_id_master: str, age_group: str) -> bool:
+def _usable_target(sb, team_id_master: str, age_group: str, club_name: str) -> bool:
     """The game import rejects a link whose team is in another age or gender; refuse it here instead."""
     try:
         team = (
@@ -220,12 +227,12 @@ def _usable_target(sb, team_id_master: str, age_group: str) -> bool:
         if exc.code == "PGRST116":
             return False
         raise
-    return _fits_squad(team, age_group)
+    return _fits_squad(team, team_ages_for_squad(age_group, club_name))
 
 
-def _fits_squad(team: dict, age_group: str) -> bool:
+def _fits_squad(team: dict, ages: tuple[str, ...]) -> bool:
     return (
-        (team.get("age_group") or "").lower() == age_group.lower()
+        (team.get("age_group") or "").lower() in ages
         and team.get("gender") == "Male"
         and team.get("is_deprecated") is not True
     )
@@ -278,7 +285,7 @@ def apply_plan(sb, provider_id: str, plan: list[LinkAction], log_path: Path) -> 
                     counts["needs_merge"] += 1
                     print(f"Squad {action.provider_team_id} is already linked to {linked}; merge it into {target}")
                     continue
-                if not _usable_target(sb, target, action.age_group):
+                if not _usable_target(sb, target, action.age_group, action.club_name):
                     counts["links_rejected"] += 1
                     print(f"Squad {action.provider_team_id}: {target} is missing, deprecated or another age/gender")
                     continue
@@ -328,12 +335,13 @@ def apply_plan(sb, provider_id: str, plan: list[LinkAction], log_path: Path) -> 
 def plan_renames(
     provider_id: str, squads: list[dict], aliases: list[dict], teams: list[dict], holders: list[dict]
 ) -> list[dict]:
-    """``{team_id_master, old, new}`` for each linked team whose name is not its squad's Kitman name.
+    """``{team_id_master, old, new}`` for each linked team whose name is not its squad's Kitman name at its own age.
 
     A team is renamed only when it fits its squad, is linked only to squads sharing one Kitman name,
     and no other live team holds or is given that name. ``holders`` are live teams found holding a planned name, linked
     or not. A team from another provider is not renamed to a suffixed (``II``) squad's name, because
-    the matcher reads a suffix only from a team Kitman created.
+    the matcher reads a suffix only from a team Kitman created. A play-up team is named at its own age so
+    the name follows its real age across the Aug 1 rollover.
     """
     squad_by_key = {s["key"]: s for s in squads}
     squads_of_team: dict[str, list[dict]] = {}
@@ -349,12 +357,14 @@ def plan_renames(
             continue
         current[team["team_id_master"]] = team["team_name"]
         squad = team_squads[0]
-        if len({s["display_name"] for s in team_squads}) != 1 or not _fits_squad(team, squad["age_group"]):
+        ages = team_ages_for_squad(squad["age_group"], squad["club_name"])
+        if len({s["display_name"] for s in team_squads}) != 1 or not _fits_squad(team, ages):
             continue
         if squad.get("suffix") and team.get("provider_id") != provider_id:
             continue
-        if team["team_name"] != squad["display_name"]:
-            planned[team["team_id_master"]] = squad["display_name"]
+        name = _name_at_age(squad, team["age_group"].lower())
+        if team["team_name"] != name:
+            planned[team["team_id_master"]] = name
     elsewhere = {h["team_name"] for h in holders if h["team_id_master"] not in current}
     while True:
         names = Counter({**current, **planned}.values())
@@ -364,6 +374,14 @@ def plan_renames(
         for team_id_master in clashing:
             del planned[team_id_master]
     return [{"team_id_master": tid, "old": current[tid], "new": new} for tid, new in planned.items()]
+
+
+def _name_at_age(squad: dict, age_group: str) -> str:
+    if age_group == squad["age_group"].lower():
+        return squad["display_name"]
+    club_id, suffix = squad.get("club_id", ""), squad.get("suffix", "")
+    at_age = Squad(squad["provider_team_id"], club_id, squad["club_name"], age_group, squad["division"], suffix)
+    return at_age.display_name
 
 
 def planned_renames(sb, provider_id: str, squads: list[dict]) -> list[dict]:
@@ -538,8 +556,10 @@ def write_handback(
             continue
         if action.action == "create":
             status = "would create" if dry_run else "created"
+        elif action.reason.startswith("club has no state"):
+            status = "needs state"
         else:
-            status = "needs state" if action.reason.startswith("club has no state") else "needs review"
+            status = "needs review: plays a year up" if plays_up(action.club_name) else "needs review"
         rows.append(
             {
                 "provider_team_id": action.provider_team_id,
@@ -575,6 +595,9 @@ def write_handback(
         "  - a PitchRank team id (from the candidates column or your own search): this squad IS that team",
         "  - new: create it as its own new team",
         "  - skip: keep it out on runs given this sheet (the weekly run reads no sheet)",
+        "  'needs review: plays a year up' marks a club in config/mlsnext_kitman_play_up_clubs.json. Its players are",
+        "  usually a year younger than the squad's name says, so its team is usually the club's team one board",
+        "  younger, not the one with the squad's name; new would file it at the squad's age.",
         "",
         "Needs state rows (status 'needs state'): the club is missing from config/mlsnext_kitman_club_states.json,",
         "  so the squad is held and no pick is needed here. Run scripts/prepare_mlsnext_kitman_club_states.py",
