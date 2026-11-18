@@ -3273,18 +3273,18 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: The WA copy matches only `schedule_results2.asp` links, skips rows under ten cells and takes digits-only scores. Those three gaps lost the OR Founders Cup 15 of 17 divisions and 60 played knockout games (11 of them shootouts) until the shared engine was fixed on 2026-11-17. WA's two current leagues show none of these shapes, so nothing is lost yet, but a WA cup would lose games in a green run. Move WA onto the shared engine as GA, HI and UT are, or port the three readings, and correct the OR docstring's comparison.
 - **Noted**: 2026-11-17
 
-### Redact the ZenRows key before a missing-game scrape error is stored
-
-- **Type**: direct
-- **Category**: reliability
-- **Where**: `GotSportScraper._make_zenrows_request` / the team-matches fetch in `src/scrapers/gotsport.py`; `MissingGamesProcessor.process_request`'s `except Exception` branch in `scripts/process_missing_games.py`
-- **Why**: The team-matches path sends `apikey` as a query parameter and calls `raise_for_status()`, whose message quotes the full URL; the drainer then stores `str(e)[:500]` in `scrape_requests.error_message`, so a run with `ZENROWS_API_KEY` set saves the key in the database (read 2026-11-17). The event-page path already strips it with `_redact_key`; apply the same before the error is stored.
-- **Noted**: 2026-11-17
-
 ### Correct teams_with_pending_user_request's reason for skipping a user's row
 
 - **Type**: direct
 - **Category**: docs
 - **Where**: `teams_with_pending_user_request` in `scripts/enqueue_helpers.py`
 - **Why**: Its docstring says `enqueue_scrape_request`'s UPDATE branch rewrites `game_date`, but the newest definition (`20261020020000_atomic_matchbalance_refresh.sql`) never rewrites an adopted request's registration, date or FIFO position, so the stated reason is stale and the skip may no longer be needed for that reason.
+- **Noted**: 2026-11-17
+
+### Redact the ZenRows key in the outreach scraper
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `zenrows_url` and `make_zenrows_request` in `scrapers/outreach_scraper/outreach_scraper/zenrows.py`; the sender scan `_zenrows_senders` in `tests/unit/test_zenrows_key_stays_out_of_scrape_errors.py`
+- **Why**: It puts the key in the `api.zenrows.com/v1/` query string and never imports `src/scrapers/_zenrows.py`, so its request errors and Scrapy's own URL log lines can carry the key; the urllib3 filter does not cover Scrapy's loggers. The operator script `scripts/build_outreach_list.py` runs it and no workflow does, so it was left out of the redaction branch, and the sender scan reads only `src/` and `scripts/`. Strip the key from what it logs and raises, and widen the scan to `scrapers/`.
 - **Noted**: 2026-11-17

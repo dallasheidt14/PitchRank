@@ -1965,3 +1965,14 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Noted**: 2026-11-12
 - **Update (2026-11-12)**: Grey and Gray now read as one colour (`COLOR_SPELLINGS`), and a club's initials count without its code words (`NSU` beside `NSUSC`) unless those initials are a squad mark themselves (`SFV`, a location code). The six PSG rows stay refused by the owner's decision: "Academy" in `PSG Academy Chicago` keeps counting as a tier word, as "GA" does in "GA Rush". Replayed under both scorers, the 46 rows now create those 6 and no others, with none linked to a wrong team.
 - **Refs**: branch `fix/playmetrics-name-gates`; `test_grey_and_gray_are_one_squads_color`, `test_the_clubs_initials_without_its_soccer_club_are_not_a_location` and `test_club_initials_that_spell_a_location_code_still_mark_a_squad` in `tests/unit/test_playmetrics_matcher_fuzzy.py`
+
+### Redact the ZenRows key before a missing-game scrape error is stored
+
+- **Status**: done
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `GotSportScraper._make_zenrows_request` / the team-matches fetch in `src/scrapers/gotsport.py`; `MissingGamesProcessor.process_request`'s `except Exception` branch in `scripts/process_missing_games.py`
+- **Why**: The team-matches path sends `apikey` as a query parameter and calls `raise_for_status()`, whose message quotes the full URL; the drainer then stores `str(e)[:500]` in `scrape_requests.error_message`, so a run with `ZENROWS_API_KEY` set saves the key in the database (read 2026-11-17). The event-page path already strips it with `_redact_key`; apply the same before the error is stored.
+- **Noted**: 2026-11-17
+- **Update (2026-11-17)**: The team-matches fetch, the module-level `_zenrows_get`, the event-page render and the SincSports `ZenRowsSession` now send through `_redacted_zenrows_get` in `src/scrapers/_zenrows.py`, which re-raises a request error of the same type with the key stripped and the keyed original kept out of its traceback, and strips it from `response.url`. Importing that module attaches a filter to every urllib3 logger already loaded, which strips it from urllib3's own retry and header-parse warnings, written before the request returns; the event-roster fetcher imports its endpoint from there so its process gets the filter too.
+- **Refs**: branch `fix/redact-zenrows-key-in-scrape-errors`; `tests/unit/test_zenrows_key_stays_out_of_scrape_errors.py`

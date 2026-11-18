@@ -17,7 +17,6 @@ import time
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
-from urllib.parse import quote_plus
 
 import requests
 from bs4 import BeautifulSoup
@@ -37,8 +36,7 @@ except ImportError:
 from src.base import GameData
 from src.scrapers._age_normalization import normalize_age
 from src.scrapers._http import RateLimitedError
-from src.scrapers._zenrows import ENDPOINT as _ZENROWS_ENDPOINT
-from src.scrapers._zenrows import _redact
+from src.scrapers._zenrows import _redact_key, _redacted_zenrows_get
 from src.scrapers.base import BaseScraper
 from src.scrapers.event_team import EventTeam
 from src.scrapers.gotsport_tier_parser import (
@@ -615,7 +613,6 @@ class GotSportScraper(BaseScraper):
 
     def _make_zenrows_request(self, url: str, params: Dict) -> requests.Response:
         """Make request through ZenRows proxy"""
-        zenrows_url = "https://api.zenrows.com/v1/"
         zenrows_params = {
             "apikey": self.zenrows_api_key,
             "url": url,
@@ -630,7 +627,7 @@ class GotSportScraper(BaseScraper):
             url_with_params = f"{url}?{urlencode(params)}"
             zenrows_params["url"] = url_with_params
 
-        return self.session.get(zenrows_url, params=zenrows_params, timeout=self.timeout)
+        return _redacted_zenrows_get(self.session, zenrows_params, timeout=self.timeout)
 
     def _extract_club_name(self, team_id: int) -> str:
         """Extract club name from team details API"""
@@ -1062,7 +1059,7 @@ def _zenrows_get(
             "premium_proxy": "true",
             "proxy_country": "us",
         }
-        response = session.get("https://api.zenrows.com/v1/", params=zenrows_params, timeout=timeout)
+        response = _redacted_zenrows_get(session, zenrows_params, timeout=timeout)
     else:
         response = session.get(url, timeout=timeout)
 
@@ -1520,19 +1517,6 @@ _ZENROWS_RENDER_ATTEMPTS = 3
 _RENDER_TIMEOUT_DEFAULT = "240"
 
 
-def _redact_key(text: str, api_key: Optional[str]) -> str:
-    """Strip the ZenRows key from anything a caller may log, raise or persist.
-
-    Both forms, because `requests` percent-encodes a key containing `+`, `/` or
-    `=` into the prepared URL and a plain replace then misses it.
-    """
-    if not text or not api_key:
-        return text
-    for form in (api_key, quote_plus(api_key)):
-        text = _redact(text, form) or text
-    return text
-
-
 def _event_id_from_url(url: str) -> Optional[str]:
     """The event id in an event or schedule URL, for the captcha artifact path."""
     match = re.search(r"/events/(\d{1,12})(?!\d)", str(url or ""))
@@ -1776,27 +1760,16 @@ class GotsportScraper(ProviderScraper):
         response = None
         for attempt in range(_ZENROWS_RENDER_ATTEMPTS):
             try:
-                response = self.render_session.get(
-                    _ZENROWS_ENDPOINT, params=zenrows_params, timeout=self.render_timeout
-                )
+                response = _redacted_zenrows_get(self.render_session, zenrows_params, timeout=self.render_timeout)
             except requests.exceptions.RequestException as exc:
                 # Mirrors GotSportScraper's handling of the same shape: without
                 # this the caller sees a raw urllib3 error this scraper never names.
-                # Every RequestException carries the prepared URL, and the key
-                # rides in its query string: a ConnectionError from DNS or a
-                # refused connection is not a RetryError and would otherwise
-                # escape unredacted into a log or the tier-orchestrator artifact
-                # under `reports/`, which is not gitignored in a public repo.
                 raise RateLimitedError(
                     provider="gotsport",
                     url=_redact_key(url, self.zenrows_api_key),
                     last_retry_after=None,
                     reason=f"zenrows_{type(exc).__name__}",
                 ) from None
-            # The key travels in the query string, so it is in `response.url` and
-            # in any HTTPError built from it. `reports/` is not gitignored and
-            # this repo is public, so it must not leave this method.
-            response.url = _redact_key(str(response.url or ""), self.zenrows_api_key)
             if response.status_code not in _ZENROWS_SIDE_STATUSES:
                 return response
             if attempt + 1 < _ZENROWS_RENDER_ATTEMPTS:
