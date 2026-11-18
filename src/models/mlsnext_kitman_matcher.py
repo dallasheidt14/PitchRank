@@ -3,12 +3,14 @@
 ``scripts/link_mlsnext_kitman_teams.py`` is the only thing that links or creates MLS NEXT
 teams from Kitman. The game import resolves a season-keyed squad id through the alias that script wrote,
 and a team without one stays unmatched -- its games were already held back by
-``scripts/build_mlsnext_kitman_games_csv.py``, so this is a backstop, not a path.
+``scripts/build_mlsnext_kitman_games_csv.py``, so this is a backstop, not a path. A squad of a club on
+the play-up list also matches a linked team one board younger, as the builder allows.
 """
 
 from typing import Dict, Optional
 
 from src.models.game_matcher import GameHistoryMatcher
+from src.models.mlsnext_kitman_keys import team_ages_for_squad
 
 PROVIDER_CODE = "mlsnext_kitman"
 UNMATCHED = {"matched": False, "team_id": None, "method": None, "confidence": 0.0}
@@ -27,7 +29,11 @@ class MlsNextKitmanGameMatcher(GameHistoryMatcher):
     ) -> Dict:
         if not provider_team_id:
             return dict(UNMATCHED)
-        alias = self._match_by_provider_id(provider_id, str(provider_team_id), age_group, gender)
+        alias = None
+        for age in team_ages_for_squad(age_group or "", club_name or ""):
+            alias = self._match_by_provider_id(provider_id, str(provider_team_id), age, gender)
+            if alias:
+                break
         if not alias:
             return dict(UNMATCHED)
         method = "direct_id" if alias.get("match_method") == "direct_id" else "provider_id"

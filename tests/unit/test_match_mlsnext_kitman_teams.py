@@ -1,4 +1,5 @@
-"""The match report: exact club makes a link confident, anything near goes to review, the rest is new."""
+"""The match report: exact club makes a link confident, anything near goes to review, the rest is new, unless
+its club plays a year up, which always goes to review."""
 
 import pytest
 
@@ -203,3 +204,40 @@ def test_the_suffix_the_scraper_writes_into_a_name_is_the_one_the_matcher_reads_
     plain = scrape.Squad("31", "301", "FC Dallas", "u17", "HD")
     assert match._team_suffix(suffixed.display_name) == "B"
     assert match._team_suffix(plain.display_name) == ""
+
+
+@pytest.fixture
+def plays_up(monkeypatch):
+    monkeypatch.setitem(keys.PLAY_UP_CLUBS, "Alpha SC", "test")
+
+
+@pytest.mark.parametrize(
+    ("bridge", "candidates"),
+    [([_team("T1", age="u15")], ["T1"]), ([_team("T1")], ["T1"]), ([], [])],
+    ids=["one board younger", "own age", "no team"],
+)
+def test_a_play_up_clubs_new_squad_is_never_paired_or_created_on_its_own(plays_up, bridge, candidates):
+    verdict, rows = _one([_squad()], bridge)
+    assert verdict == [("review", "its club plays a year up: pick its team by real age (new files it at this age)")]
+    assert [c["team_id_master"] for c in rows[0].candidates] == candidates
+
+
+def test_a_play_up_clubs_review_lists_its_teams_at_both_ages(plays_up):
+    _, rows = _one([_squad()], [_team("T1"), _team("T2", age="u15"), _team("T3", age="u14")])
+    assert [c["team_id_master"] for c in rows[0].candidates] == ["T1", "T2"]
+
+
+def test_a_play_up_clubs_review_keeps_its_own_reason(plays_up):
+    verdict, _ = _one([_squad()], [_team("T1"), _team("T2", age="u15")])
+    assert verdict == [("review", "2 candidates")]
+
+
+def test_a_play_up_clubs_squad_already_linked_stays_linked(plays_up):
+    verdict, _ = _one([_squad("10")], [_team(age="u15")], links={"10:2026": "T1"})
+    assert verdict == [("linked", "already linked")]
+
+
+def test_another_clubs_squad_still_pairs_by_its_own_age(monkeypatch):
+    monkeypatch.delitem(keys.PLAY_UP_CLUBS, "Alpha SC", raising=False)
+    assert _one([_squad()], [_team(age="u15")])[0] == [("new", "club has no team at this age and division")]
+    assert _one([_squad()], [_team()])[0] == [("confident", "exact club, age and division")]

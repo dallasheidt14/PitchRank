@@ -9,7 +9,8 @@ it. Links come from the
 live ``mlsnext_kitman`` aliases, or with ``--planned`` from ``link_plan.csv`` (a team the plan would
 create counts as linked), so the impact can be read before anything is written. A live link whose team
 the importer would reject (another age or gender, or deprecated) is dropped, so its games are held
-rather than imported with one side missing. A played game that is a stored game Kitman moved to a new
+rather than imported with one side missing; a team one board younger than its squad is another age
+unless its club is on the play-up list. A played game that is a stored game Kitman moved to a new
 date (same home team, away team and score) is held, because a stored game keys on its date and importing
 it would store it twice; a different result, or the same teams the other way round, imports as a new game.
 
@@ -46,7 +47,7 @@ from scripts.build_modular11_ea_games_csv import (  # noqa: E402
 )
 from scripts.find_cross_provider_duplicates import page  # noqa: E402
 from scripts.scrape_mlsnext_kitman import BASE_URL  # noqa: E402
-from src.models.mlsnext_kitman_keys import refuse_raw_keys, season_start_year  # noqa: E402
+from src.models.mlsnext_kitman_keys import refuse_raw_keys, season_start_year, team_ages_for_squad  # noqa: E402
 from src.models.mlsnext_kitman_matcher import PROVIDER_CODE  # noqa: E402
 from supabase import create_client  # noqa: E402
 
@@ -205,8 +206,8 @@ def stored_games(sb, since: str) -> list[dict]:
     )
 
 
-def usable_links(sb, links: dict[str, str], ages: dict[str, str]) -> dict[str, str]:
-    """Keeps the links whose team the importer's age/gender check would accept for that squad's age."""
+def usable_links(sb, links: dict[str, str], ages: dict[str, tuple[str, ...]]) -> dict[str, str]:
+    """Keeps the links whose team the importer's age/gender check would accept for one of that squad's ages."""
     masters = sorted(set(links.values()))
     accepted: dict[str, str] = {}
     for start in range(0, len(masters), 100):
@@ -224,7 +225,7 @@ def usable_links(sb, links: dict[str, str], ages: dict[str, str]) -> dict[str, s
                 if row.get("gender") == "Male" and row.get("is_deprecated") is not True
             }
         )
-    return {key: master for key, master in links.items() if accepted.get(master) == ages.get(key)}
+    return {key: master for key, master in links.items() if accepted.get(master) in ages.get(key, ())}
 
 
 def _read_csv(path: Path) -> list[dict]:
@@ -264,7 +265,8 @@ def main(argv: list[str] | None = None) -> int:
         links = planned_links(args.in_dir / "link_plan.csv")
     else:
         linked = live_links(sb)
-        links = usable_links(sb, linked, {s["key"]: s["age_group"] for s in squad_rows})
+        ages = {s["key"]: team_ages_for_squad(s["age_group"], s["club_name"]) for s in squad_rows}
+        links = usable_links(sb, linked, ages)
         if len(links) < len(linked):
             dropped = len(linked) - len(links)
             print(f"Dropped {dropped} links: not a squad this season, or its team is another age/gender or deprecated")

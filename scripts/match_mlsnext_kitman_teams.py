@@ -11,6 +11,10 @@ near spelling or a club branch goes to review, because near spellings include di
 A squad already linked this season is reported as linked. A squad with no candidate is ``new``,
 and the same club's teams at that age under another provider are listed as its candidates.
 
+A squad of a club on the play-up list is never confident or new: it goes to review with the club's
+teams at its age and one board younger, because its team is filed by real age, a board below the
+squad, and pairing by the squad's age would pick the next-older team.
+
 Usage:
     python scripts/match_mlsnext_kitman_teams.py
 """
@@ -33,7 +37,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from scripts.find_cross_provider_duplicates import load_merge_map, normalize, page, resolver  # noqa: E402
 from scripts.match_modular11_ea_teams import _club_words, club_relation  # noqa: E402
 from scripts.scrape_mlsnext_kitman import SUFFIX_NUMERALS  # noqa: E402
-from src.models.mlsnext_kitman_keys import club_state_or_blank, refuse_raw_keys, split_kitman_key  # noqa: E402
+from src.models.mlsnext_kitman_keys import (  # noqa: E402
+    club_state_or_blank,
+    plays_up,
+    refuse_raw_keys,
+    split_kitman_key,
+    team_ages_for_squad,
+)
 from src.models.mlsnext_kitman_matcher import PROVIDER_CODE  # noqa: E402
 from supabase import create_client  # noqa: E402
 
@@ -116,10 +126,11 @@ def classify(
             tagged[key] = ("linked", [team_by_id[links[key]]], "already linked")
             continue
         season = split_kitman_key(key)[1]
+        ages = team_ages_for_squad(squad["age_group"], squad["club_name"])
         pool = [
             t
             for t in bridge
-            if t["age_group"] == squad["age_group"]
+            if t["age_group"] in ages
             and squad["division"] in t["divisions"]
             and t.get("suffix", "") == squad.get("suffix", "")
         ]
@@ -147,8 +158,7 @@ def classify(
                 same_club = [
                     t
                     for t in other_provider_teams
-                    if t["age_group"] == squad["age_group"]
-                    and normalize(t["club_name"]) == normalize(squad["club_name"])
+                    if t["age_group"] in ages and normalize(t["club_name"]) == normalize(squad["club_name"])
                 ]
                 known = any(normalize(t["club_name"]) == normalize(squad["club_name"]) for t in bridge)
                 no_team = (
@@ -158,6 +168,9 @@ def classify(
                 )
                 reason = no_team if known else "club not in our MLS NEXT data"
                 tagged[key] = ("new", same_club, reason)
+        if plays_up(squad["club_name"]) and tagged[key][0] in ("confident", "new"):
+            reason = "its club plays a year up: pick its team by real age (new files it at this age)"
+            tagged[key] = ("review", tagged[key][1], reason)
     claims: dict[str, set[str]] = defaultdict(set)
     for key, (bucket, candidates, _) in tagged.items():
         if bucket == "confident":
@@ -275,10 +288,13 @@ def run(in_dir: Path, sb) -> dict[str, int]:
     bridge = fetch_bridge(sb, provider_ids)
     links = fetch_kitman_links(sb, provider_ids)
     first = classify(squads, bridge, links)
-    unplaced = [r.squad for r in first if r.bucket == "new"]
+    unplaced = [r.squad for r in first if r.bucket == "new" or (plays_up(r.squad["club_name"]) and not r.candidates)]
     others = (
         fetch_other_provider_teams(
-            sb, provider_ids, {s["age_group"] for s in unplaced}, {normalize(s["club_name"]) for s in unplaced}
+            sb,
+            provider_ids,
+            {age for s in unplaced for age in team_ages_for_squad(s["age_group"], s["club_name"])},
+            {normalize(s["club_name"]) for s in unplaced},
         )
         if unplaced
         else []

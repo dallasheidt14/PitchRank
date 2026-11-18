@@ -3298,3 +3298,19 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `resolve_through_merge_map` and `refusal` in `scripts/apply_vetted_team_merges.py`; `changed_since_vetted` in `scripts/team_cleanup/vetted.py`; when fixed, update the "Read `team_merge_map` for the row to be merged" paragraph in the merging-duplicate-teams skill's Step 6
 - **Why**: A listed `merge_id` that is already deprecated is redirected to its survivor, and the pair goes through when the survivor carries the age, gender, state and club recorded for the old row. The dry run only prints "redirected through an existing merge". So a same-club survivor, a different live team, gets retired. On 2026-11-17 the owner named two already-merged rows: "2013 PRE MLS" (in FC Bay Area Surf U14 HD) would have folded all of U14 HD into U13 HD, and "Sacramento Republic FC U13 (2014's)" (in Sacramento United U13 HD) was only stopped by the club check. A keep-side redirect is benign; refuse a merge-side one unless the list itself chains it.
 - **Noted**: 2026-11-17
+
+### Let the shared import-pipeline test harness run real schema validation
+
+- **Type**: direct
+- **Category**: testing
+- **Where**: `_import_pipeline` in `tests/unit/test_enhanced_pipeline_fixture_score_fill.py`
+- **Why**: Its `real_validation=True` path calls `_validate_and_dedup(games, run_validation=False)`, while production validates, so an end-to-end import test built on it (the Kitman builder-to-matcher test in `tests/unit/test_mlsnext_kitman_matcher.py`) cannot see a loader that drops a required column such as `home_away`: production would quarantine those games and the test still passes. `test_rows_use_only_columns_both_loaders_admit` covers the Kitman columns today, so the gap is in the harness.
+- **Noted**: 2026-11-18
+
+### Make the Kitman link and match-report test doubles refuse unknown columns
+
+- **Type**: direct
+- **Category**: testing
+- **Where**: `_Query.execute` in `tests/unit/test_link_mlsnext_kitman_teams.py` and in `tests/unit/test_match_mlsnext_kitman_run.py`
+- **Why**: Both project selected columns with `r.get(c)`, so a misspelled column reads as None where PostgREST refuses it (42703), against CLAUDE.md's rule that a double refuses what production refuses. `_TeamsTable` in `tests/unit/test_mlsnext_kitman_matcher.py` already refuses unknown columns and can serve as the model.
+- **Noted**: 2026-11-18
