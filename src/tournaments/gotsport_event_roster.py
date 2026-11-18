@@ -46,6 +46,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from config.settings import AGE_GROUPS
+from src.scrapers._zenrows import ENDPOINT as ZENROWS_ENDPOINT
 from src.tournaments.cohort_labels import AGE_RUN as _AGE_RUN
 from src.tournaments.cohort_labels import RUN_NUMBER as _RUN_NUMBER
 from src.tournaments.cohort_labels import ascii_dashes as _ascii_dashes
@@ -83,7 +84,6 @@ __all__ = [
 ]
 
 EVENT_BASE = "https://system.gotsport.com/org_event/events"
-ZENROWS_ENDPOINT = "https://api.zenrows.com/v1/"
 
 HtmlFetcher = Callable[[str], str]
 
