@@ -8,7 +8,7 @@ import re
 from collections import Counter
 from pathlib import Path
 
-from src.rankings.archive_storage import BUCKET, MAX_RAW_BYTES, references
+from src.rankings.archive_storage import BUCKET, MAX_RAW_BYTES, download_object, references
 
 
 class CachedArchiveClient:
@@ -49,7 +49,7 @@ class CachedArchiveClient:
             self.verified(compressed, match[1])
             self.counts["objects_reused"] += 1
         else:
-            compressed = self.client.storage.from_(BUCKET).download(name)
+            compressed = download_object(self.client.storage.from_(BUCKET), name)
             self.verified(compressed, match[1])
             with target.open("xb") as handle:
                 handle.write(compressed)

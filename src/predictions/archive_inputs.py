@@ -14,7 +14,15 @@ from urllib.parse import urlparse
 import requests
 
 from src.predictions.form_study_contract import FORM_STUDY_KIND, utc_timestamp, validate_study_definition
-from src.rankings.archive_storage import BUCKET, INDEX, MAX_RAW_BYTES, SHA256, references, verify_archive
+from src.rankings.archive_storage import (
+    BUCKET,
+    INDEX,
+    MAX_RAW_BYTES,
+    SHA256,
+    download_object,
+    references,
+    verify_archive,
+)
 from src.rankings.input_archive import FORECAST_ARCHIVE_KIND, FORECAST_TABLE
 
 
@@ -166,7 +174,7 @@ def authenticate_archive(client, directory: Path) -> RegisteredArchive:
     bucket = client.storage.from_(BUCKET)
     by_name = {ref["object"]: ref for ref in references(manifest)}
     for name in sorted(files):
-        _object_bytes(bucket.download(name), by_name[name])
+        _object_bytes(download_object(bucket, name), by_name[name])
     return RegisteredArchive(directory, sha, record["recorded_at"], deepcopy(manifest))
 
 
@@ -192,7 +200,7 @@ def download_archive(
     by_name = {ref["object"]: ref for ref in references(manifest)}
     bucket = client.storage.from_(BUCKET)
     for name, reference in sorted(by_name.items()):
-        compressed = bucket.download(name)
+        compressed = download_object(bucket, name)
         _object_bytes(compressed, reference)
         with (output / name).open("xb") as handle:
             handle.write(compressed)

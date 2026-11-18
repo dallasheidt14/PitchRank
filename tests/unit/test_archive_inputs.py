@@ -12,9 +12,9 @@ from src.predictions.archive_inputs import (
     registered_inventory,
 )
 from src.predictions.forecast_archive import archive_forecasts
-from src.rankings.archive_storage import publish_archive
+from src.rankings.archive_storage import publish_archive, verify_archive
 from tests.unit.test_forecast_archive import DAY, client_and_requests, fixture
-from tests.unit.test_ranking_archive_storage import FakeServer
+from tests.unit.test_ranking_archive_storage import PART_BYTES, SERVER_LIMIT, FakeServer, capture_oversized_archive
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -200,3 +200,19 @@ def test_inventory_rejects_an_unproven_transaction_before_using_its_clock(monkey
                         SimpleNamespace(ok=True, json=lambda: [{"read_only": "off", "observed_at": "2099-01-01Z"}]))
     with pytest.raises(ValueError, match="read-only transaction"):
         registered_inventory("https://example.supabase.co", "dummy-token")
+
+
+def test_archive_published_in_parts_downloads_and_authenticates_whole(tmp_path, monkeypatch):
+    monkeypatch.setattr("src.rankings.archive_storage.MAX_OBJECT_BYTES", PART_BYTES)
+    source = capture_oversized_archive(tmp_path / "source")
+    publishing_server = FakeServer(max_object_bytes=SERVER_LIMIT)
+    published = publish_archive(publishing_server, source, dry_run=False)
+    server = ReadOnlyServer()
+    server.objects = publishing_server.objects.copy()
+    server.rows = deepcopy(publishing_server.rows)
+    output = tmp_path / "downloaded"
+    report = download_archive(server, published["manifest_sha256"], output, dry_run=False)
+    assert report["full_archive_verified"] is True
+    _, _, files = verify_archive(source)
+    assert all((output / name).read_bytes() == path.read_bytes() for name, path in files.items())
+    assert authenticate_archive(server, output).manifest_sha256 == published["manifest_sha256"]

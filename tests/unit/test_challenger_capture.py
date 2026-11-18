@@ -1,3 +1,4 @@
+import hashlib
 import json
 from copy import deepcopy
 from datetime import datetime, timezone
@@ -8,7 +9,9 @@ import pytest
 from src.predictions import challenger_capture as capture
 from src.predictions.form_policy import PINNED_MODEL_SIGNATURE, PINNED_REVISION
 from src.predictions.form_study_contract import FORM_CONFIGURATION
+from src.rankings.archive_storage import publish_archive
 from tests.challenger_fixtures import manifest, qualification_report
+from tests.unit.test_ranking_archive_storage import ROOT, FakeServer, capture_ranking_archive
 
 
 class Query:
@@ -217,3 +220,15 @@ def test_download_preview_never_creates_files_or_runs_capture(ready, monkeypatch
     cli.main()
     result = json.loads(capsys.readouterr().out)
     assert result["dry_run"] is True and not target.exists() and client.writes == []
+
+
+def test_execution_sources_read_source_objects_published_in_parts(tmp_path, monkeypatch):
+    monkeypatch.setattr("src.rankings.archive_storage.MAX_OBJECT_BYTES", 1024)
+    directory = capture_ranking_archive(tmp_path / "capture")
+    server = FakeServer()
+    publish_archive(server, directory, dry_run=False)
+    archive = json.loads((directory / "manifest.json").read_bytes())
+    name = "src/rankings/archive_storage.py"
+    assert archive["source_files"][name]["object"] not in server.objects
+    text = (ROOT / name).read_text(encoding="utf-8").replace("\r\n", "\n").encode()
+    assert capture.qualified_execution_sources(server, archive, [name]) == {name: hashlib.sha256(text).hexdigest()}

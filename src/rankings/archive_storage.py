@@ -17,12 +17,16 @@ from storage3.exceptions import StorageApiError
 
 from src.predictions.form_study import validate_study_sources
 from src.predictions.form_study_contract import FORM_STUDY_KIND, validate_study_definition
-from src.rankings.input_archive import FORECAST_ARCHIVE_KIND, FORECAST_TABLE
+from src.rankings.input_archive import FORECAST_ARCHIVE_KIND, FORECAST_TABLE, encoded
 
 BUCKET = "prediction-input-archives"
 INDEX = "prediction_input_archives"
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 MAX_RAW_BYTES = 512 * 1024 * 1024
+# Uploads must fit the project's global Storage file size limit, a dashboard setting outside this repo.
+# Objects at or under this size stay whole, so code pinned to an older revision can still read them.
+MAX_OBJECT_BYTES = 15 * 1024 * 1024
+PARTS_SUFFIX = ".parts.json"
 TRANSPORT_ATTEMPTS = 4
 LOGGER = logging.getLogger(__name__)
 
@@ -37,6 +41,21 @@ def _retry_transport(action):
                 raise
             LOGGER.warning("Archive connection interrupted; retrying transfer (%s/%s)", attempt + 2, TRANSPORT_ATTEMPTS)
             time.sleep(0.5 * 2 ** attempt)
+
+
+def _missing(error: StorageApiError) -> bool:
+    return str(error.status) == "404" or error.code in {"NoSuchKey", "not_found"}
+
+
+def download_object(bucket, name: str) -> bytes:
+    """Read an object stored whole, or reassemble one published as parts; callers verify its content."""
+    try:
+        return bucket.download(name)
+    except StorageApiError as error:
+        if not _missing(error):
+            raise
+    parts = json.loads(bucket.download(name + PARTS_SUFFIX))["parts"]
+    return b"".join(bucket.download(part) for part in parts)
 
 
 def references(value):
@@ -114,17 +133,29 @@ def publish_archive(client, directory: Path, *, dry_run: bool = True) -> dict:
         return summary
     bucket = client.storage.from_(BUCKET)
 
-    def upload_once(name: str, data: bytes, content_type: str, reference=None):
-        def immutable_upload():
+    def immutable_upload(name: str, data: bytes, content_type: str):
+        def attempt():
             try:
                 bucket.upload(name, data, {"content-type": content_type, "upsert": "false"})
             except StorageApiError as error:
                 if error.code not in {"Duplicate", "ResourceAlreadyExists"}:
                     raise
 
-        _retry_transport(immutable_upload)
+        _retry_transport(attempt)
+
+    def upload_once(name: str, data: bytes, content_type: str, reference=None):
+        if reference is not None and len(data) > MAX_OBJECT_BYTES:
+            parts = []
+            for start in range(0, len(data), MAX_OBJECT_BYTES):
+                chunk = data[start:start + MAX_OBJECT_BYTES]
+                # Content-addressed parts keep an interrupted upload from mixing two gzip encodings.
+                parts.append(f"{name}.part-{hashlib.sha256(chunk).hexdigest()}")
+                immutable_upload(parts[-1], chunk, "application/octet-stream")
+            immutable_upload(name + PARTS_SUFFIX, encoded({"parts": parts}), "application/json")
+        else:
+            immutable_upload(name, data, content_type)
+        stored = _retry_transport(lambda: download_object(bucket, name))
         # Raw-SHA object identity is independent of a runtime's gzip encoding.
-        stored = _retry_transport(lambda: bucket.download(name))
         valid = stored == data
         if reference is not None:
             try:

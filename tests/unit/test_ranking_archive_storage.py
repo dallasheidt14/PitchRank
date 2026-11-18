@@ -1,5 +1,7 @@
 import gzip
 import json
+import random
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -8,37 +10,64 @@ import httpx
 import pytest
 from storage3.exceptions import StorageApiError
 
-from src.rankings.archive_storage import INDEX, publish_archive, verify_archive
+from src.rankings.archive_storage import INDEX, MAX_OBJECT_BYTES, download_object, publish_archive, verify_archive
 from src.rankings.input_archive import InputArchive, utc_now
 
 ROOT = Path(__file__).resolve().parents[2]
+PART_BYTES = 64 * 1024
+SERVER_LIMIT = 1024 * 1024
 
 
-@pytest.fixture
-def captured(tmp_path):
-    archive = InputArchive(tmp_path / "capture", ROOT, {"ml": False})
+def capture_ranking_archive(directory, games=()):
+    archive = InputArchive(directory, ROOT, {"ml": False})
     for name in ("games", "teams", "team_merge_map", "team_ranking_exclusions"):
-        archive.query(name, [["select", ["*"], {}]], SimpleNamespace(data=[]), utc_now(), "select")
+        rows = list(games) if name == "games" else []
+        archive.query(name, [["select", ["*"], {}]], SimpleNamespace(data=rows), utc_now(), "select")
     archive.engine_configuration({"engine": "glicko", "as_of": "2026-11-11"})
     archive.finish(True)
     return archive.directory
 
 
+def capture_oversized_archive(directory):
+    """A games page that compresses past SERVER_LIMIT, archived beside a manifest larger than PART_BYTES."""
+    page = [{"id": random.Random(0).randbytes(1_500_000).hex()}]
+    directory = capture_ranking_archive(directory, page)
+    assert (directory / "manifest.json").stat().st_size > PART_BYTES
+    return directory
+
+
+@pytest.fixture
+def captured(tmp_path):
+    return capture_ranking_archive(tmp_path / "capture")
+
+
+@pytest.fixture
+def oversized(tmp_path, monkeypatch):
+    monkeypatch.setattr("src.rankings.archive_storage.MAX_OBJECT_BYTES", PART_BYTES)
+    return capture_oversized_archive(tmp_path / "oversized")
+
+
 class FakeServer:
-    def __init__(self, recorded_at=None):
+    # Storage refuses any single upload over the project's global file size limit (50 MB by default).
+    def __init__(self, recorded_at=None, max_object_bytes=50 * 1024 * 1024):
         self.objects, self.rows, self.calls = {}, {}, []
         self.recorded_at = recorded_at
+        self.max_object_bytes = max_object_bytes
         self.storage = SimpleNamespace(from_=lambda bucket: self)
 
     def upload(self, path, content, options):
         self.calls.append(("upload", path))
         assert options["upsert"] == "false"
+        if len(content) > self.max_object_bytes:
+            raise StorageApiError("The object exceeded the maximum allowed size", "Payload too large", "413")
         if path in self.objects:
             raise StorageApiError("exists", "Duplicate", 409)
         self.objects[path] = content
 
     def download(self, path):
         self.calls.append(("download", path))
+        if path not in self.objects:
+            raise StorageApiError("Object not found", "not_found", "404")
         return self.objects[path]
 
     def table(self, name):
@@ -260,3 +289,63 @@ def test_integrity_failure_after_transport_recovery_is_not_retried(captured, mon
         publish_archive(server, captured, dry_run=False)
     assert len(attempts) == 2 and delays == [0.5]
     assert not server.rows
+
+
+def test_object_over_the_storage_upload_limit_is_published_in_parts(oversized):
+    server = FakeServer(max_object_bytes=SERVER_LIMIT)
+    _, _, files = verify_archive(oversized)
+    split = sorted(name for name, path in files.items() if path.stat().st_size > SERVER_LIMIT)
+    assert split
+    first = publish_archive(server, oversized, dry_run=False)
+    assert first["registered"] is True and len(server.rows) == 1
+    assert not any(name in server.objects for name in split)
+    assert all(download_object(server, name) == files[name].read_bytes() for name in split)
+    before = server.objects.copy()
+    assert publish_archive(server, oversized, dry_run=False) == first
+    assert server.objects == before
+
+
+def test_interrupted_parts_of_another_gzip_encoding_do_not_corrupt_a_later_publish(oversized, tmp_path):
+    server = FakeServer(max_object_bytes=SERVER_LIMIT)
+    _, _, files = verify_archive(oversized)
+    name = next(name for name, path in files.items() if path.stat().st_size > SERVER_LIMIT)
+    other = shutil.copytree(oversized, tmp_path / "other-encoding")
+    raw = gzip.decompress((other / name).read_bytes())
+    (other / name).write_bytes(gzip.compress(raw, compresslevel=1, mtime=0))
+    assert (other / name).read_bytes() != files[name].read_bytes()
+    upload = server.upload
+
+    def interrupted_after_one_part(path, content, options):
+        if ".part-" in path and any(".part-" in stored for stored in server.objects):
+            raise StorageApiError("outage", "Unavailable", "503")
+        upload(path, content, options)
+
+    server.upload = interrupted_after_one_part
+    with pytest.raises(StorageApiError):
+        publish_archive(server, other, dry_run=False)
+    server.upload = upload
+    assert publish_archive(server, oversized, dry_run=False)["registered"] is True
+    assert download_object(server, name) == files[name].read_bytes()
+
+
+def test_object_read_failure_other_than_missing_is_not_read_as_parts(captured):
+    server = FakeServer()
+    publish_archive(server, captured, dry_run=False)
+    name = next(name for name in server.objects if name.startswith("objects/"))
+
+    def unavailable(path):
+        server.calls.append(("download", path))
+        raise StorageApiError("outage", "Unavailable", "503")
+
+    server.download = unavailable
+    server.calls.clear()
+    with pytest.raises(StorageApiError) as error:
+        download_object(server, name)
+    assert error.value.code == "Unavailable"
+    assert server.calls == [("download", name)]
+
+
+def test_shipped_part_size_stays_below_the_largest_object_storage_accepted_whole():
+    # 16,695,965 bytes is the largest archive object the project's Storage has accepted in one upload.
+    assert MAX_OBJECT_BYTES == 15 * 1024 * 1024
+    assert MAX_OBJECT_BYTES < 16_695_965
