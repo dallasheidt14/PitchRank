@@ -762,7 +762,7 @@ else:
 moved = client.table('teams').update({'club_name': new}) \
     .eq('team_id_master', team_id) \
     .eq('club_name', old) \
-    .eq('is_deprecated', False) \
+    .not_.is_('is_deprecated', 'true') \
     .execute().data
 ```
 
@@ -770,12 +770,18 @@ An empty `moved` means one of two things. Another writer changed or merged the r
 read, which is a correct skip; or the key cannot write: a key that holds the UPDATE grant but no
 UPDATE policy matches nothing and gets an empty 200 with no error (without the grant it raises).
 Re-read the row to tell them apart: a live row still holding `old` means the write did not take,
-so count it and exit non-zero rather than reporting a skip. The write loop in
-`scripts/apply_vetted_club_names.py` `main` is the reference.
+so count it and exit non-zero rather than reporting a skip. `rename_linked_teams` in
+`scripts/link_mlsnext_kitman_teams.py` is the reference.
 
 `.data` carries the updated rows only under `update()`'s default `returning='representation'`;
 with `returning='minimal'` every write comes back empty, so leave the default here. When `old`
 can be NULL, filter with `.is_(column, "null")`: `.eq(column, None)` matches nothing.
+
+**Guard on the same "live" test the plan used.** `teams.is_deprecated` is nullable (`BOOLEAN DEFAULT
+FALSE`, with no `NOT NULL` in any migration), and `.eq('is_deprecated', False)` matches no NULL row. A
+plan that keeps rows where `is_deprecated is not True` then writes a row the guard refuses, and the
+re-read reports "did not take" on every run. Guard with `.not_.is_('is_deprecated', 'true')`, which
+matches false and NULL.
 
 **An `APIError` whose `code` is an int was raised by postgrest-py, not sent by PostgREST.** It
 raises one, with `code` set to the HTTP status and `message` "JSON could not be generated", for any
@@ -793,6 +799,13 @@ that raises `APIError`, so a read timeout or a reset connection surfaces as an `
 (`httpx.ReadTimeout`, say), and it too can follow a committed write. Catch `httpx.HTTPError` beside
 `APIError` and treat it as the same unknown outcome, as `open_run` and `close_run` in
 `scripts/team_cleanup/propose_week.py` do, through `_refused`.
+
+**Log a write before sending it when the undo is guarded on the value written.** Logged after the
+write, a change that committed but lost its answer goes unrecorded once the re-read fails too, and
+the undo cannot restore it; logged first and flushed, a write that never committed is a no-op on
+undo while the row keeps its old value. A zero-row answer with no error is not this run's write,
+even when a re-read shows the new value: another writer set it. `rename_linked_teams` is the
+reference here too.
 
 ### Transaction-like Pattern
 ```python

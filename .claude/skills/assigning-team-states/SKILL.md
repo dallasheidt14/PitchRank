@@ -429,6 +429,13 @@ visible on a board today; ask the owner for its state, then record the answer wi
 python scripts/assign_team_states.py --team <uuid> --set OH --reason "owner: <their words>" --execute
 ```
 
+Like every write through `apply_team_state`, it sets `state_code` and its source, confidence and
+time, and leaves the full-name `teams.state` column as it was, so after a change that column can
+still name the old state. A filled `state` reads as provider-reported ([Evidence that corroborates
+itself](references/failure-modes.md#evidence-that-corroborates-itself)) and a hand write to it is
+outside the state ledger, so raise a stale one with the owner rather than rewriting it, and never
+fill an empty one.
+
 It writes the answer at confidence 1.0, stamped `operator` — also when the team already
 holds that value, as a confirm, so the stamp lands and the next anchor pass defers to it
 rather than overwriting a held row the owner agreed with. The stamp makes it the owner's own

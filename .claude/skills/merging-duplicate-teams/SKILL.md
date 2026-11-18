@@ -981,7 +981,7 @@ unresolved.
 
 **The row's current name is not evidence of which squad it is.** `reconcile_teams_with_gotsport.py`
 copies the name of the row's highest-numbered approved GotSport alias whenever GotSport's age group
-and gender agree with the row, so a fused row can wear a moving squad's name while its games and
+and gender agree with the row (unless the row carries an MLS NEXT (Kitman) alias), so a fused row can wear a moving squad's name while its games and
 rank belong to the squad that stays. Choosing the staying squad by that name hands the row to the
 wrong team.
 

@@ -16,6 +16,9 @@ What it writes is deliberately narrower than what it reports:
   record filed under another cohort or gender is not describing this squad as it
   plays today, clubs park dead squads under those markers, and a club's U-age label
   goes stale every Aug 1 where a birth year does not, so none is a name to take.
+  Nor is it taken for a team with an approved MLS NEXT (Kitman) alias of the newest
+  season linked: the weekly Kitman run owns that name, renaming the teams it can while
+  the rest keep theirs, and the owner chose it over GotSport's on 2026-11-17.
 * ``club_name`` and ``state_code`` are filled only where ours is absent. Where both
   sides hold a value and they disagree the row is reported, not written:
   ``fill-team-states-weekly`` fills only, and the ``assigning-team-states`` skill
@@ -61,7 +64,7 @@ import re
 import sys
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
@@ -72,6 +75,8 @@ from supabase import create_client
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from scripts.fix_band_cohorts import age_num, cohort_years, name_u_ages, name_years  # noqa: E402
+from src.models.mlsnext_kitman_keys import kitman_key, season_start_year  # noqa: E402
+from src.models.mlsnext_kitman_matcher import PROVIDER_CODE as KITMAN_PROVIDER_CODE  # noqa: E402
 from src.tournaments.triage import _is_placeholder_team  # noqa: E402
 from src.utils.age_group import normalize_age_group  # noqa: E402
 from src.utils.gotsport_alias import fetch_gotsport_aliases  # noqa: E402
@@ -328,6 +333,35 @@ def fetch_state_blocks(supabase, team_ids: List[str]) -> Set[Tuple[str, str]]:
     return blocks
 
 
+def fetch_kitman_named(supabase, team_ids: List[str], today: Optional[date] = None) -> Set[str]:
+    """Teams with an approved MLS NEXT (Kitman) alias of the newest season linked, whose name the Kitman run owns.
+
+    That season is this one once any of its squads is linked and the one before until then, so a team
+    keeps the exemption across the Aug 1 rollover and loses it when its squad is not linked again.
+    """
+    providers = supabase.table("providers").select("id").eq("code", KITMAN_PROVIDER_CODE).execute().data or []
+    if not providers:
+        return set()
+
+    def approved(season: int):
+        return (
+            supabase.table("team_alias_map")
+            .select("team_id_master")
+            .eq("provider_id", providers[0]["id"])
+            .eq("review_status", "approved")
+            .like("provider_team_id", kitman_key("%", season))
+        )
+
+    season = season_start_year(today or date.today())
+    if not approved(season).limit(1).execute().data:
+        season -= 1
+    named: Set[str] = set()
+    for start in range(0, len(team_ids), IN_BATCH):
+        rows = approved(season).in_("team_id_master", team_ids[start : start + IN_BATCH]).execute().data or []
+        named.update(row["team_id_master"] for row in rows)
+    return named
+
+
 def stored_value(team: Dict, name: str) -> str:
     """Return the stored value, with a placeholder club read as absent."""
     value = str(team.get(name) or "").strip()
@@ -374,6 +408,7 @@ def decide(
     resolved: Optional[Dict],
     outcome: str,
     state_blocks: Set[Tuple[str, str]] = frozenset(),
+    kitman_named: Set[str] = frozenset(),
 ) -> Decision:
     """Return the write, the disagreements and the refusals for one team."""
     if not provider_team_id:
@@ -413,7 +448,12 @@ def decide(
     # GotSport's would replace it with another age or none ("Saints International Academy 2014"
     # became "U11 Boys" on a u13 team in Sep 2026).
     if provider["team_name"] and provider["team_name"] != raw_name:
-        if cohorts_disagree or genders_disagree or keeps_our_name(raw_name, provider["team_name"], stored_age):
+        if (
+            cohorts_disagree
+            or genders_disagree
+            or keeps_our_name(raw_name, provider["team_name"], stored_age)
+            or team["team_id_master"] in kitman_named
+        ):
             blocked.append("team_name")
         else:
             updates["team_name"] = provider["team_name"]
@@ -859,6 +899,7 @@ def main() -> int:
     team_ids = [t["team_id_master"] for t in teams]
     aliases = fetch_gotsport_aliases(supabase, team_ids)
     state_blocks = fetch_state_blocks(supabase, team_ids)
+    kitman_named = fetch_kitman_named(supabase, team_ids)
     print(f"With a resolvable GotSport alias: {len(aliases):,}")
     print(f"Estimated runtime at {args.delay}s/call: {describe_runtime(len(aliases), args.delay)}\n")
 
@@ -876,7 +917,7 @@ def main() -> int:
             resolved = resolver.resolve(pid)
             outcome = classify_lookup(resolver, pid, resolved)
 
-        decisions.append(decide(team, pid, resolved, outcome, state_blocks))
+        decisions.append(decide(team, pid, resolved, outcome, state_blocks, kitman_named))
 
         consecutive_failures = next_failure_streak(consecutive_failures, outcome)
         if consecutive_failures >= args.abort_after:
@@ -922,8 +963,8 @@ def main() -> int:
     if withheld_names - collisions > 0:
         print(
             f"{withheld_names - collisions} renames withheld: GotSport files those teams under a different "
-            "cohort or gender, or its name would replace a birth year that fits ours with another age or no "
-            "number."
+            "cohort or gender, its name would replace a birth year that fits ours with another age or no "
+            "number, or the name is the MLS NEXT (Kitman) run's to set."
         )
     if collisions:
         print(f"{collisions} renames withheld: the name would have been shared with another team in this slice.")
