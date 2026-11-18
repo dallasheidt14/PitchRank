@@ -11,7 +11,7 @@ from src.predictions.archive_inputs import download_archive
 from src.predictions.challenger_download import CachedArchiveClient
 from src.rankings.archive_storage import BUCKET, publish_archive, verify_archive
 from src.rankings.input_archive import InputArchive, utc_now
-from tests.unit.test_ranking_archive_storage import FakeServer
+from tests.unit.test_ranking_archive_storage import PART_BYTES, SERVER_LIMIT, FakeServer, capture_oversized_archive
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -125,3 +125,15 @@ def test_default_preview_cannot_write_cache_files(tmp_path):
     assert cached.download(name) == server.objects[name]
     cached.share_local_objects(None)
     assert not list(tmp_path.iterdir())
+
+
+def test_object_published_in_parts_is_cached_whole(tmp_path, monkeypatch):
+    monkeypatch.setattr("src.rankings.archive_storage.MAX_OBJECT_BYTES", PART_BYTES)
+    source = capture_oversized_archive(tmp_path / "source")
+    server = FakeServer(max_object_bytes=SERVER_LIMIT)
+    publish_archive(server, source, dry_run=False)
+    _, _, files = verify_archive(source)
+    name = next(name for name, path in files.items() if path.stat().st_size > SERVER_LIMIT)
+    bucket = CachedArchiveClient(server, tmp_path, dry_run=False).storage.from_(BUCKET)
+    assert bucket.download(name) == bucket.download(name) == files[name].read_bytes()
+    assert bucket.counts == Counter(objects_downloaded=1, objects_reused=1)

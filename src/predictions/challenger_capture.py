@@ -32,7 +32,7 @@ from src.predictions.form_study_contract import (
     validate_study_definition,
 )
 from src.predictions.prospective_fixtures import paged
-from src.rankings.archive_storage import BUCKET
+from src.rankings.archive_storage import BUCKET, download_object
 
 MANIFESTS = "compare_challenger_manifests"
 FORECASTS = "compare_challenger_forecasts"
@@ -68,7 +68,7 @@ def qualified_execution_sources(client, archive, paths, root=ROOT):
             raw = subprocess.check_output(["git", "show", archive["source_revision"] + ":" + name],
                                           cwd=root, timeout=30)
         else:
-            raw = _object_bytes(client.storage.from_(BUCKET).download(reference["object"]), reference)
+            raw = _object_bytes(download_object(client.storage.from_(BUCKET), reference["object"]), reference)
         result[name] = hashlib.sha256(raw.decode("utf-8").replace("\r\n", "\n").encode()).hexdigest()
     return result
 
