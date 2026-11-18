@@ -3324,3 +3324,19 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: the `StaleSeasonError` raise in `collect_league` and its handler in `main`, `scripts/import_yssl.py`
 - **Why**: Any one club page naming another season stops the whole weekly run. The script then exits 0 ("Nothing registered or imported until it rolls over"), and in season only the workflow's zero-games check turns the run red. A club with no teams in a new term keeps showing its last one (2026-11-18: Goros FC on "Fall 2026 Teams" beside 119 clubs on Spring 2027, the same season, so harmless then); a page still on "Spring 2026 Teams" after Aug 1 names last season. The 10-12, 10-19 and 11-09 `yssl-scraper.yml` runs stopped on "yssl.org lists the 2025 season's teams" (logs checked; 10-26 and 11-02 also failed, unchecked), and no YSSL game was stored after 2026-10-11. That a straggler page caused those stops is inferred: the pages have since changed. Leave out a page of another season and judge by the latest term listed, as the `--archive` branch of `collect_league` does.
 - **Noted**: 2026-11-18
+
+### Find what links a second GotSport id onto an existing team, fusing two squads
+
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: approved `team_alias_map` writers for GotSport — `GameHistoryMatcher._match_team` fuzzy auto-approve (`src/models/game_matcher.py`), `scripts/apply_unknown_opponent_matches.py`, and whatever bulk job ran in March 2026
+- **Why**: A read-only scan on 2026-11-18 found 181 rows whose GotSport ids both played on 2+ days this season at different events; GotSport's own team_details named every pair as two squads, and 156 were split that day (`splitting-fused-provider-ids`). Of the 226 extra ids, 143 aliases were created in bursts on 2026-03-05/06 and 03-16/18 and about 20 since August; none has a `team_link_audit` row, so none came through the website. `match_method` is rewritten to `direct_id`, so the alias cannot say which writer made it. Related: the self-play entry above, which suspects the same cause.
+- **Noted**: 2026-11-18
+
+### Promote the bulk fused-row tooling into the splitting-fused-provider-ids skill
+
+- **Type**: plan
+- **Category**: dx
+- **Where**: `.claude/skills/splitting-fused-provider-ids/scripts/` (new), from the local `data/exports/fused_rows_2026-11-18/` scripts `fused_scan.py`, `fused_plan.py`, `fused_apply.py`, `fused_verify.py`
+- **Why**: The 2026-11-18 repair needed a detector, GotSport lookups, a grouping step (new row / existing row / undo a merge / hold), a resumable driver and a database verifier, all written ad hoc with hardcoded dates and paths in a gitignored folder. The skill also has no tool for hiding a moving id's unscored fixtures, which it requires; the driver's version refuses a fixture whose same-pair twin the exclusion trigger would also hide. Generalise and test them so the next scan (101 one-day rows, 558 same-event rows, TGS) does not rebuild them.
+- **Noted**: 2026-11-18

@@ -62,7 +62,8 @@ home_score        INT
 away_score        INT
 game_date         DATE
 provider_id       UUID              -- FK to providers(id), not a code string
-event_name        TEXT
+event_name        TEXT              -- NULL on SincSports rows, and on GotSport rows from 2026-08-01
+competition       TEXT              -- GotSport: competition name, else division, else event; often a generic label ("League", "State Cup")
 -- Never UPDATE game data; team links and corrections only (see below)
 ```
 
@@ -550,7 +551,10 @@ inlined, and PG17 plans its body generically, so test the body as a `PREPARE`d s
 Each row that flips to `is_excluded = true` fires `trg_propagate_game_exclusion`. The trigger
 scans that whole `game_date`, because no index serves its `LEAST`/`GREATEST` key. It also flips
 every other non-excluded game with the same team pair and aligned scores, so count those before
-excluding.
+excluding. Scores compare with `IS NOT DISTINCT FROM`, so two blank scores align: hiding an
+unscored fixture also hides every other unscored row saved under that pair on that date. A row
+hidden that way is not in the run's rollback log, so skip any fixture whose twin you are not also
+hiding; `cascade_collisions` in `scripts/exclude_none_opponent_games.py` finds them.
 
 At about 13 ms per row on a typical date (measured 2026-09-14), a 100-id `.in_()` batch takes
 roughly 1.5 s warm, inside the 8-second budget.
