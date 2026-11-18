@@ -122,13 +122,15 @@ Each rule below is enforced automatically, by a flag, or not at all. Know which.
   squads play a year up. Without the flag the applier reads no name, and plans from the review or
   the triage reach it unchecked, so pass it on every apply. In a reconcile plan these rows usually
   mean the GotSport link points at another squad.
-- **An identical team already sits in the target cohort** — *automatic*. A reconcile plan holds
+- **An identical team already sits in the target cohort** — *automatic when a plan is built*. A reconcile plan holds
   it as `would_update_collision` on name, gender and cohort alone, so the other row can belong to
   another club; the audit review holds it as `held_duplicate_landing` only when club and state
   match too. Either way it is usually a duplicate pair split by the mislabel, but
   `merging-duplicate-teams` needs byte-identical `club_name`, a matching `state_code` bucket
   and the same stored age group — this column included — so a reconcile pair may not be
-  proposable there.
+  proposable there. Both holds are set while a plan is built (`build_plan` in
+  `fix_band_cohorts.py`, or the review); `--apply` reads only each row's `action` and never re-runs
+  either check, so before applying a plan written by hand, run Step 4's same-name check.
 - **Opponents sit two or more groups from the name** — *automatic in the audit*:
   `held_opponents_far_from_name`. Mostly 09/10 teams in U19 leagues, two-year play-ups, and
   numbers that are not birth years (`Columbus United 09/10 Boys` plays U11). Owner's call. This

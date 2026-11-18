@@ -977,7 +977,11 @@ show up as self-play. Split it before anything merges into it. This covers fusio
 layer. When `team_merge_map` shows the moving squad arrived through a merge, revert that one merge
 instead, through `revert_team_merge` on its own `team_merge_map` row — Step 6's `--revert` replays
 a whole batch, and `revert_fuzzy_auto_merges.py` every merge by an actor since a date: its games
-still name the absorbed row, which still holds the provider id.
+still name the absorbed row, which still holds the provider id. `revert_team_merge` moves back
+every alias on the survivor whose `provider_team_id` is the absorbed row's own provider id on any
+of its games (`home_provider_id` where it is home, `away_provider_id` where it is away), matched on
+the id alone across providers: list those aliases before calling it, and when one is not the
+moving squad's own, leave the merge and move the id by hand with `splitting-fused-provider-ids`.
 
 **When the moving id's real team already has a row, move the id to it instead of creating one.**
 Follow the write order below with that row as the new row, skipping step 2: repoint the alias

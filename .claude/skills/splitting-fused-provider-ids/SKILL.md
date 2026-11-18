@@ -5,7 +5,9 @@ description: "Fixes a PitchRank team row whose games belong to more than one rea
 
 # Splitting fused provider ids
 
-A team row holds every game of every provider id aliased to it. When a row carries two squads' ids (ECNL and ECNL-RL, or an id reused at the rollover), its games, record and ranking mix two teams. The fix is per id: decide which squad each id is in each season, then move aliases and games to a row for that squad. The merging-duplicate-teams skill's "Splitting a fused row" covers the same operation for a squad that arrived through a merge or sits on a SincSports row; revert a merge there rather than moving its games here.
+A team row holds every game of every provider id aliased to it. When a row carries two squads' ids (ECNL and ECNL-RL, or an id reused at the rollover), its games, record and ranking mix two teams. The fix is per id: decide which squad each id is in each season, then move aliases and games to a row for that squad. The merging-duplicate-teams skill's "Splitting a fused row" covers the same operation for a squad that arrived through a merge or sits on a SincSports row; revert a merge there rather than moving its games here. Before reverting one, read the band the id played before and after Aug 1 from its opponents (Step 2), not from names: a deprecated row does not record when its U-label was written, and a bare year sits in two bands. When the id stepped one band younger at Aug 1 and its pre-Aug 1 band and squad word match the kept row's, the absorbed row was the kept squad's own registration: leave the merge and treat the id as Step 2's reused id. Otherwise revert the merge and handle any reuse on the restored row.
+
+To find fused rows across the database rather than split one reported row, follow [references/finding-at-scale.md](references/finding-at-scale.md).
 
 ```
 Task Progress:
