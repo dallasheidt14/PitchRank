@@ -3316,3 +3316,11 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `_Query.execute` in `tests/unit/test_link_mlsnext_kitman_teams.py` and in `tests/unit/test_match_mlsnext_kitman_run.py`
 - **Why**: Both project selected columns with `r.get(c)`, so a misspelled column reads as None where PostgREST refuses it (42703), against CLAUDE.md's rule that a double refuses what production refuses. `_TeamsTable` in `tests/unit/test_mlsnext_kitman_matcher.py` already refuses unknown columns and can serve as the model.
 - **Noted**: 2026-11-18
+
+### Judge the YSSL weekly run's season by the latest term the club pages list
+
+- **Type**: direct
+- **Category**: reliability
+- **Where**: the `StaleSeasonError` raise in `collect_league` and its handler in `main`, `scripts/import_yssl.py`
+- **Why**: Any one club page naming another season stops the whole weekly run. The script then exits 0 ("Nothing registered or imported until it rolls over"), and in season only the workflow's zero-games check turns the run red. A club with no teams in a new term keeps showing its last one (2026-11-18: Goros FC on "Fall 2026 Teams" beside 119 clubs on Spring 2027, the same season, so harmless then); a page still on "Spring 2026 Teams" after Aug 1 names last season. The 10-12, 10-19 and 11-09 `yssl-scraper.yml` runs stopped on "yssl.org lists the 2025 season's teams" (logs checked; 10-26 and 11-02 also failed, unchecked), and no YSSL game was stored after 2026-10-11. That a straggler page caused those stops is inferred: the pages have since changed. Leave out a page of another season and judge by the latest term listed, as the `--archive` branch of `collect_league` does.
+- **Noted**: 2026-11-18

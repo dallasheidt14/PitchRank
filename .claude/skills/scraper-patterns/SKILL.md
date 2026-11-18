@@ -929,7 +929,8 @@ state. `playmetrics-tournament-scrape-import.yml` runs it on dispatch.
 YSSL (Young Sportsmen's Soccer League, yssl.org) is a Chicago-area boys league. Its pages are
 server-rendered HTML declaring UTF-8 and answer `requests` sent with a browser User-Agent, with no
 proxy and no bot challenge. `scripts/import_yssl.py` is the driver and `yssl-scraper.yml` runs it
-weekly. Only the current season is published; there is no archive.
+weekly. The team pages show only the current term; a finished term's scores stay in the season
+archive (*Importing a finished term from the archive* below).
 
 - `clublinks.php` links every club as `club.php?clu_code=<CODE>`, with the club's name as the link
   text.
@@ -957,7 +958,7 @@ Reading a team:
   scoped to its season (`2026-AACM121`): a bare code would carry last season's link onto a
   different squad, and a scoped one starts unlinked and re-matches by name. `tea_id` is per
   season and is not used. The season is the wall clock's, so a club page whose heading names
-  another season (still "Spring 2026 Teams" after Aug 1) stops the run before anything is
+  another season (still "Spring 2026 Teams" after Aug 1) stops the weekly run before anything is
   registered. That stop exits 0, so a green run during the rollover imported nothing.
 - Gender comes from the code's letter, except that a name saying `GIRLS` is a girls team: girls
   teams play in this boys league, and their twin in PitchRank is filed Female. Their games
@@ -985,6 +986,63 @@ Reading a team:
   with a blank name or `decided_by` is undecided, never "no club". A team no decided row fits is left out, and the run exits 1, as it does for any team
   whose link errored or conflicted and for any played game it could not read. A rained-out game
   (its date cell reads "rainout" once the struck dates are dropped) is listed but does not fail the run.
+
+### Importing a finished term from the archive
+
+Once spring is published, a fall team's page reads "None", so fall games the weekly run missed can
+only come from the archive.
+
+- `pastscores.php?l=FALL+2026&d=FALL2026` lists each division with a `SCORES` and a `STANDINGS`
+  link, to `/PASTSCORES/FALL2026/U11-5W.TXT` and `U11-5WST.TXT`. The `FALL2026` and
+  `SPRING2027` archives are both the 2026 season. The mode reads the scores files of U10 and older
+  divisions only.
+- A scores file is plain text: `Week: n Date: MM/DD/YYYY` blocks, then one line per game with its
+  number, home name, score, `Win`/`Lose`/`Tie`, away name, score and result. A `*` after the result
+  marks guest players. `NOSCORE` on both sides is unplayed. A forfeit scores `-2 Forf` on the losing
+  side, or on both sides; it is not a result.
+- **The date is the Saturday of the week the game was scheduled in, not the day it was played.**
+  The weekly runs stored 1,247 fall 2026 games that the archive lists under the same game number
+  (checked 2026-11-18). 785 of them were dated that Saturday or the Sunday after it. The other 462
+  were 1 to 50 days off, mostly by whole weeks, because they had been moved. No page gives a past
+  term's played dates: `gamelookup.php` (a POST of `sgam_num`) answered nothing for fall games once
+  spring was up.
+- `import_yssl.py --archive` takes only this season's fall term (`FALL2026`). A spring term's games
+  stay on the team pages until the next season replaces them, and by then its team codes have
+  been reissued.
+- Names carry no team code. The mode maps each name to a code from the club pages plus `--roster`,
+  an earlier run's team report giving the fall names of teams the club pages have since dropped or
+  renamed. Names are compared uppercased with spaces collapsed. A name that names two codes, such as
+  two squads sharing `CHICAGO CITY ELGIN 16/17`, or no code at all holds its game.
+- A game already stored under its team-page date would otherwise insert a second time under the
+  archive's Saturday, so the mode reads the term's stored YSSL games and skips:
+  - a game whose number is in `--imported`, an earlier run's games CSV, once a stored game with the
+    date, teams and score that CSV recorded is found. A number whose teams differ, or whose recorded
+    game is not stored (a dry run writes a games CSV too), is held.
+  - a game whose home team, away team and score match a stored game of any date in the term. Each
+    stored game answers for one archive game; where at least one is stored but fewer than the
+    archive games sharing them, all of those games are held. Home and away count: the archive kept
+    the team pages' home side on all 1,247 games above. A first dry run that ignored home and away,
+    and let a stored game answer for any archive game, matched 11 games by teams and score alone, and
+    10 of them were return legs the same team won by the same score; the first leg was the stored game.
+- A new game is held while a stored game between its teams answers for no archive game, since a
+  changed score could hide that it is the same game. It is also held when a stored game, or an
+  earlier new game, between its teams has its Saturday, since the importer keeps one game between
+  two teams a day. The 2026-11-18 dry run held two fall 2026 games by that same-Saturday rule.
+- Every held game is a problem: it is listed among the problems, not under "games held back", and
+  the run exits 1.
+- The mode registers only teams with a game to import, plus teams already linked, so that a new
+  link to a team one of them holds still reads as a conflict. A team no club-map row fits fails the
+  run only when it has such a game.
+- The archive's score is not checked against a stored copy: 6 of the 1,247 games above differ, 4
+  with the winner reversed. The mode leaves the stored scores as they are, since games are immutable
+  and YSSL is not among the importer's `SCORE_CORRECTION_PROVIDERS`.
+- The run stops (`LiveTermError`, exit 1) unless the latest term on this season's club pages is
+  later than the archive's. While the term is still on the team pages, the weekly run would later
+  import the same games under their played dates, storing a game not played on its week's Saturday
+  twice. It compares against the latest term, not any one page's, because a club with no teams in
+  the new term keeps showing its last one (on 2026-11-18, Goros FC still read "Fall 2026 Teams"
+  beside 119 clubs on Spring 2027). A club page from another season is left out, since its codes are
+  not this season's.
 
 ## Tourney Central Pages
 
