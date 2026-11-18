@@ -892,3 +892,67 @@ def test_a_rename_skipped_because_the_team_changed_keeps_the_run_green(tmp_path,
     _inputs(tmp_path, [_squad("1")], [_row("1", "linked", "T1")])
     assert link.main(["--in-dir", str(tmp_path), "--names", "--execute"]) == 0
     assert "renames_skipped=1" in capsys.readouterr().out
+
+
+def _rollover_chain():
+    """The younger team comes first, so a write in fetch order would take a name still held."""
+    return _Db(
+        teams=[_team("T2", "Alpha SC U15 HD", provider=PROVIDER), _team("T1", "Alpha SC U16 HD", provider=PROVIDER, age_group="u17")],
+        aliases=[_alias("11:2026", "T2"), _alias("10:2026", "T1")],
+    )
+
+
+def _chain_squads():
+    return [_squad("11"), _squad("10", age="u17")]
+
+
+def test_a_name_is_vacated_before_another_team_takes_it(tmp_path):
+    db = _rollover_chain()
+    assert _rename(db, _chain_squads(), tmp_path)["teams_renamed"] == 2
+    order = [dict(f)["team_id_master"] for op, table, f, _ in db.executed if op == "update"]
+    assert order == ["T1", "T2"]
+    assert _names(db) == {"T2": "Alpha SC U16 HD", "T1": "Alpha SC U17 HD"}
+
+
+class _FailT1Query(_Query):
+    def execute(self):
+        if self.op == "update" and ("team_id_master", "T1") in self.filters:
+            return _Result([])
+        return super().execute()
+
+
+class _FailT1Db(_Db):
+    def table(self, name):
+        return _FailT1Query(self, name)
+
+
+def test_a_failed_rename_holds_the_next_team_in_its_chain(tmp_path):
+    db = _rollover_chain()
+    db.__class__ = _FailT1Db
+    counts = _rename(db, _chain_squads(), tmp_path)
+    assert counts == {"teams_renamed": 0, "renames_skipped": 1, "renames_failed": 1}
+    assert _names(db) == {"T2": "Alpha SC U15 HD", "T1": "Alpha SC U16 HD"}
+
+
+def test_teams_that_would_trade_names_are_held(tmp_path):
+    db = _Db(
+        teams=[_team("T1", "Beta FC U16 HD", provider=PROVIDER), _team("T2", "Alpha SC U16 HD", provider=PROVIDER)],
+        aliases=[_alias("10:2026", "T1"), _alias("11:2026", "T2")],
+    )
+    squads = [_squad("10"), _squad("11", club="Beta FC")]
+    assert _rename(db, squads, tmp_path) == {"teams_renamed": 0, "renames_skipped": 2, "renames_failed": 0}
+    assert _names(db) == {"T1": "Beta FC U16 HD", "T2": "Alpha SC U16 HD"}
+    assert db.writes() == []
+
+
+def test_the_preview_reports_teams_that_would_trade_names(tmp_path, monkeypatch, capsys):
+    db = _Db(
+        teams=[_team("T1", "Beta FC U16 HD", provider=PROVIDER), _team("T2", "Alpha SC U16 HD", provider=PROVIDER)],
+        aliases=[_alias("10:2026", "T1"), _alias("11:2026", "T2")],
+    )
+    db.rows["providers"] = [{"id": PROVIDER, "code": "mlsnext_kitman"}]
+    monkeypatch.setattr(link, "_new_client", lambda: db)
+    _inputs(tmp_path, [_squad("10"), _squad("11", club="Beta FC")], [_row("10", "linked", "T1"), _row("11", "linked", "T2")])
+    assert link.main(["--in-dir", str(tmp_path), "--names"]) == 0
+    out = capsys.readouterr().out
+    assert "2 renames held" in out and "0 renames planned" in out

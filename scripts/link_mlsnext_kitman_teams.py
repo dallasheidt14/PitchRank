@@ -387,8 +387,28 @@ def planned_renames(sb, provider_id: str, squads: list[dict]) -> list[dict]:
     return plan_renames(provider_id, squads, aliases, teams, holders)
 
 
+def order_renames(renames: list[dict]) -> tuple[list[dict], list[dict]]:
+    """``renames`` ordered so a name is vacated before it is reused, and those that trade names in a cycle.
+
+    A cycle cannot be written one team at a time without two teams sharing a name, so it is held.
+    """
+    pending = list(renames)
+    ordered: list[dict] = []
+    while pending:
+        vacating = Counter(rename["old"] for rename in pending)
+        ready = [rename for rename in pending if not vacating[rename["new"]]]
+        if not ready:
+            break
+        ordered += ready
+        pending = [rename for rename in pending if vacating[rename["new"]]]
+    return ordered, pending
+
+
 def rename_linked_teams(sb, provider_id: str, squads: list[dict], log_path: Path) -> dict[str, int]:
     """Writes ``planned_renames``, each guarded on the name it replaces and on the team still being live.
+
+    Renames run in ``order_renames`` order, and one whose new name a team still holds after its own
+    rename did not move is skipped, so a failure partway down a chain never leaves two teams sharing a name.
 
     A team renamed or merged since it was read is skipped; a write that matched nothing on a team
     still holding its old name did not take, and is counted as failed. A write whose answer was lost
@@ -396,8 +416,16 @@ def rename_linked_teams(sb, provider_id: str, squads: list[dict], log_path: Path
     restore one that committed however the run ends; undo touches only a team still holding the new name.
     """
     counts = {"teams_renamed": 0, "renames_skipped": 0, "renames_failed": 0}
+    ordered, cycles = order_renames(planned_renames(sb, provider_id, squads))
+    counts["renames_skipped"] += len(cycles)
+    held: set[str] = set()
     with log_path.open("a", encoding="utf-8") as log:
-        for rename in planned_renames(sb, provider_id, squads):
+        for rename in ordered:
+            if rename["new"] in held:
+                counts["renames_skipped"] += 1
+                held.add(rename["old"])
+                continue
+            held.add(rename["old"])
             log.write(json.dumps({"kind": "rename", **rename}) + "\n")
             log.flush()
             answered = True
@@ -429,6 +457,7 @@ def rename_linked_teams(sb, provider_id: str, squads: list[dict], log_path: Path
                 if answered or not (now and now[0]["team_name"] == rename["new"]):
                     counts["renames_skipped"] += 1
                     continue
+            held.discard(rename["old"])
             counts["teams_renamed"] += 1
     return counts
 
@@ -601,9 +630,11 @@ def apply_names(squads: list[dict], in_dir: Path, execute: bool) -> int:
     sb = _new_client()
     provider_id = _provider_id(sb)
     if not execute:
-        renames = planned_renames(sb, provider_id, squads)
+        renames, cycles = order_renames(planned_renames(sb, provider_id, squads))
         for rename in renames:
             print(f"{rename['team_id_master']}: {rename['old']!r} -> {rename['new']!r}")
+        if cycles:
+            print(f"{len(cycles)} renames held: those teams would trade names with each other")
         print(f"DRY RUN — nothing written; {len(renames)} renames planned. Re-run with --names --execute to apply.")
         return 0
     log_path = in_dir / f"names_log_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.jsonl"
