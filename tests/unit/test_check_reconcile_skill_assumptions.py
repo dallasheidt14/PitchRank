@@ -40,6 +40,7 @@ OUR_YEAR = (
     "a rename is withheld where our name's birth year fits our age group and GotSport's states another age or no number"
 )
 RETIRED = "a GotSport name marking a retired registration is never taken, and is blank in the log"
+KITMAN = "a rename is withheld for a team carrying an approved MLS NEXT (Kitman) alias, and its club is still filled"
 FILLS = "club and state are filled only where ours is blank; a disagreement is reported, not written"
 FILLED = (
     "with --execute a blank club is filled only on a live team still blank, and a blank state through "
@@ -133,7 +134,7 @@ def test_the_whole_check_holds_on_today_s_code_without_a_database_or_the_network
 
     result = json.loads(out)
     assert [a["name"] for a in result["assertions"] if not a["ok"]] == []
-    assert code == 0 and len(result["assertions"]) == 39
+    assert code == 0 and len(result["assertions"]) == 40
     assert [u["name"] for u in result["unverified"]] == [name for name, _ in checker.UNVERIFIED]
 
 
@@ -289,8 +290,8 @@ def test_the_decide_check_fails_when_our_name_is_always_kept(monkeypatch):
 def test_the_decide_check_fails_when_a_name_from_another_age_group_is_taken(monkeypatch):
     decide = reconcile.decide
 
-    def same_age(team, pid, resolved, outcome, state_blocks=frozenset()):
-        return decide(team, pid, {**resolved, "age_group": team["age_group"]}, outcome, state_blocks)
+    def same_age(team, pid, resolved, outcome, *vetoes):
+        return decide(team, pid, {**resolved, "age_group": team["age_group"]}, outcome, *vetoes)
 
     monkeypatch.setattr(reconcile, "decide", same_age)
     assert _failed(checker.check_decide) == [OTHER_AGE]
@@ -336,8 +337,8 @@ def test_the_decide_check_fails_when_a_state_fill_expects_no_particular_state(mo
 def test_the_decide_check_fails_when_an_age_group_is_written(monkeypatch):
     decide = reconcile.decide
 
-    def writes_age(team, pid, resolved, outcome, state_blocks=frozenset()):
-        decision = decide(team, pid, resolved, outcome, state_blocks)
+    def writes_age(team, pid, resolved, outcome, *vetoes):
+        decision = decide(team, pid, resolved, outcome, *vetoes)
         if decision.provider.get("age_group") not in ("", team.get("age_group")):
             decision.updates["age_group"] = decision.provider["age_group"]
         return decision
@@ -534,3 +535,13 @@ def test_the_split_check_fails_when_a_tool_stops_printing_its_undo(monkeypatch):
 def test_the_split_check_fails_when_reassign_s_dry_run_stops_printing_its_undo(monkeypatch):
     monkeypatch.setattr(reassign, "main", _without_undo(reassign.main))
     assert _failed(checker.check_archive_split) == [UNDO_DRY]
+
+
+def test_the_decide_check_fails_when_a_kitman_linked_teams_name_is_taken(monkeypatch):
+    decide = reconcile.decide
+
+    def no_kitman_veto(team, pid, resolved, outcome, state_blocks=frozenset(), kitman_named=frozenset()):
+        return decide(team, pid, resolved, outcome, state_blocks)
+
+    monkeypatch.setattr(reconcile, "decide", no_kitman_veto)
+    assert _failed(checker.check_decide) == [KITMAN]

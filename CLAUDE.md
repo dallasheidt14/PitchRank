@@ -725,7 +725,7 @@ two-line edit in `.github/workflows/claude-code-review.yml`.
 | `demosphere-scraper.yml` | Mon 5:23 AM UTC (Sun 10:23 PM Arizona) | NCSL (Demosphere) scrape, roster pass and import — played games and the next 28 days of fixtures (`--days-forward`); teams whose link matches another squad's team are held and reported without turning the run red; red when a link errored, a played game could not be read, the site lists neither the current season nor the one before it, or an in-season run read no scored games |
 | `yssl-scraper.yml` | Mon 8:15 AM UTC | YSSL scrape, roster pass and import — scored games only; red when a team has no decided club-map row, a team's link errored or conflicted, a played game could not be read (rainouts excepted), or an in-season run read no scored games |
 | `heartland-scraper.yml` | Mon 8:45 AM UTC | Heartland Soccer Premier league scrape, roster pass and import — scored games only; new teams whose club's state is unsettled, and teams whose link matches another squad's team, are held and reported without turning the run red; red when a link errored, a page, team or game could not be read, a game number is listed twice with different results, the pages span two half-seasons, or an in-season run read no scored games |
-| `mlsnext-kitman-scraper.yml` | Mon 5:45 AM UTC | MLS NEXT (Homegrown (HD) + Academy (AD)) scrape + import from Kitman's public standings files; links exact-club teams, creates teams for clubs with a state in `config/mlsnext_kitman_club_states.json`, holds review squads, and new squads whose club has no state. Manual runs write nothing unless `execute` is set |
+| `mlsnext-kitman-scraper.yml` | Mon 5:45 AM UTC | MLS NEXT (Homegrown (HD) + Academy (AD)) scrape + import from Kitman's public standings files; links exact-club teams, creates teams for clubs with a state in `config/mlsnext_kitman_club_states.json`, holds review squads, and new squads whose club has no state; after the import, renames linked teams to their squad's Kitman name where they fit it (red when a rename does not take). Manual runs write nothing unless `execute` is set |
 | `ea-scraper.yml` | Mon 5:00 AM UTC | Modular11 Elite Academy League scrape + import, u11–u17 one after another (u19 manual until its first-import cleanup); links confident teams, creates no-match teams, holds review teams and their games. Manual runs take one age |
 | `playmetrics-scrape-import.yml` | Mon 6:30 AM UTC | PlayMetrics league scrape + import (deliberately ungated by `AGE_ROLLOVER_FREEZE`) |
 | `update-missing-club-and-state.yml` | Mon 10:00 AM UTC | Backfill missing `club_name` and standardize existing spellings — **every `state_code` step is `if: false`** (see below) |
@@ -740,6 +740,11 @@ two-line edit in `.github/workflows/claude-code-review.yml`.
 | `smoke-infographics.yml` | Daily 1:17 PM UTC | Smoke-test the infographic OG routes |
 | `check-stuck-signups.yml` | Every 6 hours | Flag signups stuck mid-flow, and send a fresh set-password link at 24h and 72h to new guest buyers who never signed in |
 | `reconcile-stripe-daily.yml` | Every 6 hours | Reconcile Stripe subscriptions against `user_profiles` |
+
+**A step that exits non-zero skips every later step whose `if:` has no status function**, because
+GitHub adds `success()` to it. In a scrape-and-import workflow, a write the import does not need
+(renames, tidy-ups) goes in its own step after the import, so its failure turns the run red without
+costing the week's games; `mlsnext-kitman-scraper.yml`'s "Apply Kitman names" step is the model.
 
 ### Prospective Compare capture and the legacy event scraper
 

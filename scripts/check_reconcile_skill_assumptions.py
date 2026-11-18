@@ -425,7 +425,7 @@ def check_decide(r: Result) -> None:
 
     year = max(cohort_years(10))
 
-    def decided(ours: str, theirs: str, team: dict | None = None, **resolved):
+    def decided(ours: str, theirs: str, team: dict | None = None, kitman_named=frozenset(), **resolved):
         stored = {
             "team_id_master": BLUE,
             "team_name": ours,
@@ -436,7 +436,7 @@ def check_decide(r: Result) -> None:
             **(team or {}),
         }
         answer = {"name": theirs, "club_name": "Phoenix Rising", "state_code": "AZ", "age_group": "u10", **resolved}
-        return reconcile.decide(stored, "101", {"gender": "Male", **answer}, "resolved")
+        return reconcile.decide(stored, "101", {"gender": "Male", **answer}, "resolved", frozenset(), kitman_named)
 
     taken = decided("Phoenix Rising Blue", "PR Blue")
     r.check(
@@ -456,6 +456,12 @@ def check_decide(r: Result) -> None:
         "age or no number",
         all("team_name" in d.blocked and "team_name" not in d.updates for d in traded.values()),
         {theirs: (d.updates, d.blocked) for theirs, d in traded.items()},
+    )
+    kitman = decided("Phoenix Rising Blue", "PR Blue", team={"club_name": ""}, kitman_named={BLUE})
+    r.check(
+        "a rename is withheld for a team carrying an approved MLS NEXT (Kitman) alias, and its club is still filled",
+        "team_name" in kitman.blocked and kitman.updates == {"club_name": "Phoenix Rising"},
+        f"updates {kitman.updates}; blocked {kitman.blocked}",
     )
     retired = {
         name: decided("Phoenix Rising Blue", name)

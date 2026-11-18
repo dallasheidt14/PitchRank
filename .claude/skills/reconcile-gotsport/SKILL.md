@@ -70,7 +70,10 @@ is decided, what the triage reads and writes, and the guards, logs and undo comm
 Step 6 tools and the bulk lane) without reading the database or calling GotSport. **A failure
 means this skill is now wrong, not that the codebase is broken** — fix the prose, then continue.
 Its NOT VERIFIED lines are claims no code settles, such as how long a lookup takes; they never
-fail the run. The weekly team-cleanup loop runs neither this check nor the reconcile, and records
+fail the run. An assertion added to or removed from the check needs
+`tests/unit/test_check_reconcile_skill_assumptions.py` updated in the same change: that test pins the
+number of assertions, and its doubles of `decide` must accept every argument `decide` receives
+while the check runs, the reconcile's own call included. The weekly team-cleanup loop runs neither this check nor the reconcile, and records
 the reconcile stage as `not run: reconcile is run by hand`.
 
 ## Propose-only mode
@@ -109,8 +112,10 @@ after a WAF stop leaves several logs; pass them all to Step 2, oldest first.
 
 With `--execute` the same script also takes GotSport's name for a team, but not where GotSport files
 the team in another age group, where the registration's gender (GotSport's field or its name)
-contradicts ours (the stored column or either of our names), or where our name's birth year fits our group and GotSport's name
-would trade it for another age or no number (owner, 2026-10-12). The log shows each withheld rename
+contradicts ours (the stored column or either of our names), where our name's birth year fits our group and GotSport's name
+would trade it for another age or no number (owner, 2026-10-12), or where the team carries an
+approved MLS NEXT (Kitman) alias for the current season (last season's, until this season's first
+squad is linked), whose name the weekly Kitman run owns (owner, 2026-11-17). The log shows each withheld rename
 as `team_name` in `blocked_fields`. A GotSport name that marks a retired or archived registration
 (`zz old`, `do not use`, `inactive`, `archive` and the like) is never taken: it is blanked before
 logging.

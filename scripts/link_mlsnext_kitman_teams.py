@@ -7,14 +7,21 @@ arrives through ``--decisions`` (``provider_team_id,your_pick`` with a team id, 
 ``skip``). This is the only thing that writes ``mlsnext_kitman`` aliases or creates MLS NEXT teams
 from Kitman; the game import only follows the aliases written here.
 
+``--names`` instead gives a team carrying a squad's alias that squad's Kitman name
+(``<club> U<age> <HD|AD>``), so a team from another provider takes it and a Kitman team keeps it
+current after the Aug 1 rollover; ``plan_renames`` says which teams it skips. Without ``--execute``
+it lists the renames and writes nothing.
+
 Every planning run writes ``link_plan.csv`` and the hand-back spreadsheet (``handback.csv`` plus
-``handback_legend.txt``). An executed run also logs each alias and team it writes to
-``link_log_<UTC>.jsonl``, which ``--undo`` reverses; the ``division`` set on an alias that was
-already approved is not logged.
+``handback_legend.txt``); without ``--execute`` it reads no database (a ``--names`` preview does).
+An executed run also logs each alias and team it writes to ``link_log_<UTC>.jsonl``, and an
+executed ``--names`` run each rename to ``names_log_<UTC>.jsonl``; ``--undo`` reverses either. The
+``division`` set on an alias that was already approved is not logged.
 
 Usage:
     python scripts/link_mlsnext_kitman_teams.py
     python scripts/link_mlsnext_kitman_teams.py --execute
+    python scripts/link_mlsnext_kitman_teams.py --names [--execute]
     python scripts/link_mlsnext_kitman_teams.py --undo data/mlsnext_kitman/link_log_<UTC>.jsonl
 """
 
@@ -26,10 +33,12 @@ import json
 import os
 import sys
 import uuid
+from collections import Counter
 from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 
+import httpx
 from dotenv import load_dotenv
 from postgrest.exceptions import APIError
 
@@ -38,6 +47,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from scripts.fix_band_cohorts import csv_safe  # noqa: E402
 from src.models.mlsnext_kitman_keys import club_state_or_blank, refuse_raw_keys  # noqa: E402
 from src.models.mlsnext_kitman_matcher import PROVIDER_CODE  # noqa: E402
+from src.rankings.data_adapter import batch_fetch_rows  # noqa: E402
 from src.tournaments.alias_writer import upsert_team_alias  # noqa: E402
 from src.utils.team_name_utils import resolve_distinction  # noqa: E402
 from src.utils.us_states import STATE_CODE_TO_NAME  # noqa: E402
@@ -46,6 +56,7 @@ from supabase import create_client  # noqa: E402
 ALIAS_CONFIDENCE = {"direct_id": 1.0, "fuzzy_auto": 0.95, "manual": 1.0}
 WRITTEN = ("created", "updated")
 LEAGUES = {"HD": "MLS_NEXT_HD", "AD": "MLS_NEXT_AD"}
+RENAME_TEAM_COLUMNS = "team_id_master, team_name, age_group, gender, is_deprecated, provider_id"
 HANDBACK_COLUMNS = [
     "provider_team_id",
     "key",
@@ -209,6 +220,10 @@ def _usable_target(sb, team_id_master: str, age_group: str) -> bool:
         if exc.code == "PGRST116":
             return False
         raise
+    return _fits_squad(team, age_group)
+
+
+def _fits_squad(team: dict, age_group: str) -> bool:
     return (
         (team.get("age_group") or "").lower() == age_group.lower()
         and team.get("gender") == "Male"
@@ -310,6 +325,143 @@ def apply_plan(sb, provider_id: str, plan: list[LinkAction], log_path: Path) -> 
     return counts, created
 
 
+def plan_renames(
+    provider_id: str, squads: list[dict], aliases: list[dict], teams: list[dict], holders: list[dict]
+) -> list[dict]:
+    """``{team_id_master, old, new}`` for each linked team whose name is not its squad's Kitman name.
+
+    A team is renamed only when it fits its squad, is linked only to squads sharing one Kitman name,
+    and no other live team holds or is given that name. ``holders`` are live teams found holding a planned name, linked
+    or not. A team from another provider is not renamed to a suffixed (``II``) squad's name, because
+    the matcher reads a suffix only from a team Kitman created.
+    """
+    squad_by_key = {s["key"]: s for s in squads}
+    squads_of_team: dict[str, list[dict]] = {}
+    for alias in aliases:
+        if alias["provider_id"] == provider_id and alias["review_status"] == "approved":
+            if alias["provider_team_id"] in squad_by_key:
+                squads_of_team.setdefault(alias["team_id_master"], []).append(squad_by_key[alias["provider_team_id"]])
+    current: dict[str, str] = {}
+    planned: dict[str, str] = {}
+    for team in teams:
+        team_squads = squads_of_team.get(team["team_id_master"])
+        if not team_squads or team.get("is_deprecated") is True:
+            continue
+        current[team["team_id_master"]] = team["team_name"]
+        squad = team_squads[0]
+        if len({s["display_name"] for s in team_squads}) != 1 or not _fits_squad(team, squad["age_group"]):
+            continue
+        if squad.get("suffix") and team.get("provider_id") != provider_id:
+            continue
+        if team["team_name"] != squad["display_name"]:
+            planned[team["team_id_master"]] = squad["display_name"]
+    elsewhere = {h["team_name"] for h in holders if h["team_id_master"] not in current}
+    while True:
+        names = Counter({**current, **planned}.values())
+        clashing = [tid for tid, new in planned.items() if names[new] > 1 or new in elsewhere]
+        if not clashing:
+            break
+        for team_id_master in clashing:
+            del planned[team_id_master]
+    return [{"team_id_master": tid, "old": current[tid], "new": new} for tid, new in planned.items()]
+
+
+def planned_renames(sb, provider_id: str, squads: list[dict]) -> list[dict]:
+    """Plans twice: the first pass only finds which names to look up live holders for."""
+    aliases = batch_fetch_rows(
+        sb,
+        "team_alias_map",
+        "provider_team_id, team_id_master, review_status, provider_id",
+        "provider_team_id",
+        [s["key"] for s in squads],
+    )
+    teams = batch_fetch_rows(
+        sb, "teams", RENAME_TEAM_COLUMNS, "team_id_master", sorted({a["team_id_master"] for a in aliases})
+    )
+    names = sorted({p["new"] for p in plan_renames(provider_id, squads, aliases, teams, [])})
+    holders = [
+        t
+        for t in batch_fetch_rows(sb, "teams", "team_id_master, team_name, is_deprecated", "team_name", names)
+        if t.get("is_deprecated") is not True
+    ]
+    return plan_renames(provider_id, squads, aliases, teams, holders)
+
+
+def order_renames(renames: list[dict]) -> tuple[list[dict], list[dict]]:
+    """``renames`` ordered so a name is vacated before it is reused, and those that trade names in a cycle.
+
+    A cycle cannot be written one team at a time without two teams sharing a name, so it is held.
+    """
+    pending = list(renames)
+    ordered: list[dict] = []
+    while pending:
+        vacating = Counter(rename["old"] for rename in pending)
+        ready = [rename for rename in pending if not vacating[rename["new"]]]
+        if not ready:
+            break
+        ordered += ready
+        pending = [rename for rename in pending if vacating[rename["new"]]]
+    return ordered, pending
+
+
+def rename_linked_teams(sb, provider_id: str, squads: list[dict], log_path: Path) -> dict[str, int]:
+    """Writes ``planned_renames``, each guarded on the name it replaces and on the team still being live.
+
+    Renames run in ``order_renames`` order, and one whose new name a team still holds after its own
+    rename did not move is skipped, so a failure partway down a chain never leaves two teams sharing a name.
+
+    A team renamed or merged since it was read is skipped; a write that matched nothing on a team
+    still holding its old name did not take, and is counted as failed. A write whose answer was lost
+    is settled by reading the team back. Each rename is logged before its write, so ``--undo`` can
+    restore one that committed however the run ends; undo touches only a team still holding the new name.
+    """
+    counts = {"teams_renamed": 0, "renames_skipped": 0, "renames_failed": 0}
+    ordered, cycles = order_renames(planned_renames(sb, provider_id, squads))
+    counts["renames_skipped"] += len(cycles)
+    held: set[str] = set()
+    with log_path.open("a", encoding="utf-8") as log:
+        for rename in ordered:
+            if rename["new"] in held:
+                counts["renames_skipped"] += 1
+                held.add(rename["old"])
+                continue
+            held.add(rename["old"])
+            log.write(json.dumps({"kind": "rename", **rename}) + "\n")
+            log.flush()
+            answered = True
+            try:
+                moved = (
+                    sb.table("teams")
+                    .update({"team_name": rename["new"]})
+                    .eq("team_id_master", rename["team_id_master"])
+                    .eq("team_name", rename["old"])
+                    .not_.is_("is_deprecated", "true")
+                    .execute()
+                    .data
+                )
+            except (APIError, httpx.HTTPError):
+                moved, answered = None, False
+            if not moved:
+                now = (
+                    sb.table("teams")
+                    .select("team_name, is_deprecated")
+                    .eq("team_id_master", rename["team_id_master"])
+                    .execute()
+                    .data
+                )
+                live = bool(now) and now[0]["is_deprecated"] is not True
+                if live and now[0]["team_name"] == rename["old"]:
+                    counts["renames_failed"] += 1
+                    print(f"Rename of {rename['team_id_master']} did not take: {rename['old']!r} -> {rename['new']!r}")
+                    continue
+                if answered or not (now and now[0]["team_name"] == rename["new"]):
+                    counts["renames_skipped"] += 1
+                    continue
+            held.discard(rename["old"])
+            counts["teams_renamed"] += 1
+    return counts
+
+
 def _game_count(sb, team_id_master: str) -> int:
     total = 0
     for column in ("home_team_master_id", "away_team_master_id"):
@@ -319,10 +471,21 @@ def _game_count(sb, team_id_master: str) -> int:
 
 
 def undo(sb, provider_id: str, log_path: Path) -> dict[str, int]:
-    """Removes the aliases a run created, restores the ones it updated, then removes the teams it
-    created that no game references. An alias moved since the run is left as it now stands."""
+    """Removes the aliases a run created, restores the ones it updated and the names it changed, then
+    removes the teams it created that no game references. An alias moved or a team renamed since the
+    run is left as it now stands."""
     entries = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines() if line.strip()]
-    counts = {"aliases_removed": 0, "aliases_restored": 0, "teams_removed": 0, "teams_refused": 0}
+    counts = {"aliases_removed": 0, "aliases_restored": 0, "names_restored": 0, "teams_removed": 0, "teams_refused": 0}
+    for entry in reversed(entries):
+        if entry["kind"] == "rename":
+            restored = (
+                sb.table("teams")
+                .update({"team_name": entry["old"]})
+                .eq("team_id_master", entry["team_id_master"])
+                .eq("team_name", entry["new"])
+                .execute()
+            )
+            counts["names_restored"] += len(restored.data or [])
     for entry in entries:
         if entry["kind"] == "alias" and entry["result"] == "updated" and entry.get("prior"):
             prior = entry["prior"]
@@ -463,11 +626,30 @@ def _provider_id(sb) -> str:
         raise SystemExit(f"ERROR: provider {PROVIDER_CODE!r} is missing; apply migration 20261015120000 first") from exc
 
 
+def apply_names(squads: list[dict], in_dir: Path, execute: bool) -> int:
+    sb = _new_client()
+    provider_id = _provider_id(sb)
+    if not execute:
+        renames, cycles = order_renames(planned_renames(sb, provider_id, squads))
+        for rename in renames:
+            print(f"{rename['team_id_master']}: {rename['old']!r} -> {rename['new']!r}")
+        if cycles:
+            print(f"{len(cycles)} renames held: those teams would trade names with each other")
+        print(f"DRY RUN — nothing written; {len(renames)} renames planned. Re-run with --names --execute to apply.")
+        return 0
+    log_path = in_dir / f"names_log_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.jsonl"
+    counts = rename_linked_teams(sb, provider_id, squads, log_path)
+    print(" ".join(f"{k}={v}" for k, v in counts.items()))
+    print(f"Undo with: --undo {log_path}")
+    return 1 if counts["renames_failed"] else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--in-dir", type=Path, default=Path("data/mlsnext_kitman"))
     parser.add_argument("--decisions", type=Path, help="CSV with provider_team_id,your_pick")
-    parser.add_argument("--execute", action="store_true", help="write links and new teams")
+    parser.add_argument("--execute", action="store_true", help="write links and new teams, or with --names the names")
+    parser.add_argument("--names", action="store_true", help="give linked teams their squads' Kitman names")
     parser.add_argument("--undo", type=Path, help="reverse the writes logged in this file")
     args = parser.parse_args(argv)
 
@@ -477,8 +659,11 @@ def main(argv: list[str] | None = None) -> int:
         print(" ".join(f"{k}={v}" for k, v in counts.items()))
         return 0
 
-    report = _read_csv(args.in_dir / "match_report.csv")
     squads = _read_csv(args.in_dir / "squads.csv")
+    if args.names:
+        return apply_names(squads, args.in_dir, args.execute)
+
+    report = _read_csv(args.in_dir / "match_report.csv")
     if {r["provider_team_id"] for r in report} != {s["provider_team_id"] for s in squads}:
         raise SystemExit("ERROR: squads.csv and match_report.csv list different squads; re-run the match report")
     decisions = {}

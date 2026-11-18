@@ -19,7 +19,9 @@ table nobody seeded rather than handing back an empty one.
 """
 
 import csv
+import re
 import sys
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -39,6 +41,7 @@ from reconcile_teams_with_gotsport import (  # noqa: E402
     describe_runtime,
     exit_code,
     drop_colliding_renames,
+    fetch_kitman_named,
     fetch_state_blocks,
     fetch_target_teams,
     is_retired_registration,
@@ -55,6 +58,7 @@ from reconcile_teams_with_gotsport import (  # noqa: E402
     write_log,
 )
 from src.utils.gotsport_alias import fetch_gotsport_aliases, is_rankings_space_id  # noqa: E402
+from src.models.mlsnext_kitman_keys import season_start_year  # noqa: E402
 from src.utils.team_utils import _soccer_season_year  # noqa: E402
 
 PID = "742007"
@@ -110,6 +114,7 @@ class _FakeQuery:
         self._payload = None
         self._order = None
         self._range = None
+        self._limit = None
         self._columns = None
 
     def select(self, columns="*", *_):
@@ -121,7 +126,17 @@ class _FakeQuery:
         return self
 
     def in_(self, column, values):
+        if len(values) > 100:
+            raise ValueError(f"in_ with {len(values)} values is over the 100-id cap (CLAUDE.md)")
         self._filters.append(("in", column, list(values)))
+        return self
+
+    def like(self, column, pattern):
+        self._filters.append(("like", column, ".*".join(re.escape(part) for part in pattern.split("%"))))
+        return self
+
+    def limit(self, n):
+        self._limit = n
         return self
 
     def is_(self, column, value):
@@ -149,10 +164,14 @@ class _FakeQuery:
                 rows = [r for r in rows if r.get(column) in value]
             elif kind == "is":
                 rows = [r for r in rows if r.get(column) is None]
+            elif kind == "like":
+                rows = [r for r in rows if re.fullmatch(value, r.get(column) or "")]
         if self._order:
             rows.sort(key=lambda r: r.get(self._order[0]) or "", reverse=self._order[1])
         if self._range:
             rows = rows[self._range[0] : self._range[1] + 1]
+        if self._limit is not None:
+            rows = rows[: self._limit]
         return rows
 
     def execute(self):
@@ -953,6 +972,57 @@ def test_no_gotsport_provider_resolves_nothing():
     assert fetch_gotsport_aliases(supabase, ["a"]) == {}
 
 
+KITMAN = {"id": "km", "code": "mlsnext_kitman"}
+GOTSPORT = {"id": "gs", "code": "gotsport"}
+IN_2026_27 = date(2026, 11, 17)
+
+
+def _kitman_alias(team_id, status="approved", provider="km", season=2026):
+    return {"team_id_master": team_id, "provider_team_id": f"10:{season}", "review_status": status, "provider_id": provider}
+
+
+def _kitman_db(rows, providers=(KITMAN,)):
+    return _FakeSupabase({"teams": [], "providers": list(providers), "team_alias_map": rows})
+
+
+def test_only_an_approved_kitman_alias_marks_a_team_kitman_named():
+    rows = [_kitman_alias("a"), _kitman_alias("b", status="pending"), _kitman_alias("c", provider="gs")]
+    assert fetch_kitman_named(_kitman_db(rows, [GOTSPORT, KITMAN]), ["a", "b", "c"], IN_2026_27) == {"a"}
+
+
+def test_every_chunk_is_checked_for_a_kitman_alias():
+    team_ids = [f"team-{i:04d}" for i in range(250)]
+    supabase = _kitman_db([_kitman_alias(t) for t in team_ids])
+    assert fetch_kitman_named(supabase, team_ids, IN_2026_27) == set(team_ids)
+
+
+@pytest.mark.parametrize("providers", [[], [GOTSPORT]], ids=["no-providers", "gotsport-only"])
+def test_no_kitman_provider_marks_nothing(providers):
+    rows = [_kitman_alias("a"), _kitman_alias("b", provider="gs")]
+    assert fetch_kitman_named(_kitman_db(rows, providers), ["a", "b"], IN_2026_27) == set()
+
+
+def test_a_team_linked_only_last_season_loses_the_exemption_once_this_season_is_linked():
+    rows = [_kitman_alias("a", season=2026), _kitman_alias("b", season=2027)]
+    assert fetch_kitman_named(_kitman_db(rows), ["a", "b"], date(2027, 9, 6)) == {"b"}
+
+
+def test_last_seasons_links_stand_until_any_squad_of_this_season_is_linked():
+    rows = [_kitman_alias("a", season=2026), _kitman_alias("b", season=2025)]
+    assert fetch_kitman_named(_kitman_db(rows), ["a", "b"], date(2027, 8, 2)) == {"a"}
+
+
+def test_this_seasons_links_are_looked_for_beyond_the_slice():
+    rows = [_kitman_alias("a", season=2026), _kitman_alias("z", season=2027)]
+    assert fetch_kitman_named(_kitman_db(rows), ["a"], date(2027, 9, 6)) == set()
+
+
+def test_a_kitman_linked_teams_name_is_withheld_and_its_club_still_filled():
+    resolved = _resolved(name="Crossfire Premier B12 Blue")
+    decision = decide(_team(club_name=None), PID, resolved, "resolved", frozenset(), {TEAM_ID})
+    assert "team_name" in decision.blocked and decision.updates == {"club_name": "Crossfire Premier"}
+
+
 @pytest.mark.parametrize("pid", ["3000001", "Playoffs AWinner", "", "٧٤٢٠٠٧", "²", "12345678"])
 def test_an_unusable_provider_id_is_never_probed(pid):
     """Unicode digits pass str.isdigit() and reach the query string verbatim; "²"
@@ -1174,10 +1244,14 @@ class _ScriptedResolver:
         return answer
 
 
-def _run_main(monkeypatch, tmp_path, argv, teams, answers=None):
+def _run_main(monkeypatch, tmp_path, argv, teams, answers=None, kitman_aliases=None):
     import reconcile_teams_with_gotsport as script
 
-    supabase = _supabase()
+    if kitman_aliases is None:
+        supabase = _supabase()
+        monkeypatch.setattr(script, "fetch_kitman_named", lambda *a, **k: set())
+    else:
+        supabase = _supabase(providers=[KITMAN], team_alias_map=kitman_aliases)
     monkeypatch.setattr(script, "load_env", lambda: None)
     monkeypatch.setattr(script, "get_supabase", lambda require_service_role=False: supabase)
     monkeypatch.setattr(script, "fetch_target_teams", lambda *a, **k: (teams, teams))
@@ -1209,6 +1283,28 @@ def test_main_exits_zero_when_every_team_resolves(monkeypatch, tmp_path):
     )
 
     assert code == 0
+
+
+def test_main_leaves_a_kitman_linked_teams_name_alone(monkeypatch, tmp_path):
+    teams = [_team(team_id_master="t00"), _team(team_id_master="t01")]
+
+    _, supabase = _run_main(
+        monkeypatch,
+        tmp_path,
+        ["--state", "AZ", "--limit", "0", "--execute"],
+        teams,
+        {PID: _resolved(name="Crossfire Premier B12 Blue")},
+        kitman_aliases=[_kitman_alias("t00", season=season_start_year(date.today()))],
+    )
+
+    renamed = {
+        value
+        for c in _updates(supabase)
+        if "team_name" in c["payload"]
+        for kind, column, value in c["filters"]
+        if kind == "eq" and column == "team_id_master"
+    }
+    assert renamed == {"t01"}
 
 
 def test_main_writes_nothing_on_a_dry_run(monkeypatch, tmp_path):

@@ -138,7 +138,8 @@ by hand rather than trusting a `birth years disagree` refusal.
 **The label is dated from the games; the name is not.** A row's name takes most of the
 provider's renames (the GotSport reconcile withholds one where GotSport files the team in another
 age group, where our name's birth year fits our group and GotSport's name would trade it for
-another age or no number, and where GotSport's name marks a retired or archived registration), so
+another age or no number, where GotSport's name marks a retired or archived registration, and
+where the row carries an MLS NEXT (Kitman) alias), so
 through the autumn a live row can carry this season's label over a schedule that is still last
 season's, and `cohort_of` dates the label from those games.
 `Warriors BU11 Attack`, renamed by GotSport on 2026-09-12 with no game since April, resolved to

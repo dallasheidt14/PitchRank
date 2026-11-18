@@ -3,6 +3,7 @@
 import csv
 import json
 
+import httpx
 import pytest
 from postgrest.exceptions import APIError
 
@@ -17,13 +18,29 @@ class _Result:
         self.data, self.count = data, count
 
 
+class _In(tuple):
+    """An ``in_`` filter's values, told apart from an ``eq`` value that happens to be a tuple."""
+
+
+class _IsNot(str):
+    pass
+
+
+def _holds(value, wanted):
+    if isinstance(wanted, _In):
+        return value in wanted
+    if isinstance(wanted, _IsNot):
+        return value is not {"true": True, "false": False, "null": None}[wanted]
+    return value == wanted
+
+
 class _Query:
     """Builds lazily and records only at execute(); a zero-row .single() raises like postgrest."""
 
     def __init__(self, db, table):
         self.db, self.table = db, table
         self.op, self.filters, self.payload, self.single_row = "select", [], None, False
-        self.columns, self.want_count = None, False
+        self.columns, self.want_count, self.negated = None, False, False
 
     def select(self, columns="*", count=None):
         self.columns = None if columns == "*" else [c.strip() for c in columns.split(",")]
@@ -46,6 +63,23 @@ class _Query:
         self.filters.append((column, value))
         return self
 
+    def in_(self, column, values):
+        if len(values) > 100:
+            raise ValueError(f"in_ with {len(values)} values is over the 100-id cap (CLAUDE.md)")
+        self.filters.append((column, _In(values)))
+        return self
+
+    @property
+    def not_(self):
+        self.negated = True
+        return self
+
+    def is_(self, column, value):
+        assert self.negated, "only not_.is_ is modelled"
+        self.negated = False
+        self.filters.append((column, _IsNot(value)))
+        return self
+
     def limit(self, _n):
         return self
 
@@ -54,10 +88,11 @@ class _Query:
         return self
 
     def _matching(self):
-        return [r for r in self.db.rows[self.table] if all(r.get(c) == v for c, v in self.filters)]
+        return [r for r in self.db.rows[self.table] if all(_holds(r.get(c), v) for c, v in self.filters)]
 
     def execute(self):
         self.db.executed.append((self.op, self.table, list(self.filters), self.payload))
+        self.db.in_sizes += [len(v) for _, v in self.filters if isinstance(v, _In)]
         if self.op == "insert":
             self.db.rows[self.table].append(dict(self.payload))
             return _Result([self.payload])
@@ -83,6 +118,7 @@ class _Db:
     def __init__(self, teams=(), aliases=(), games=()):
         self.rows = {"teams": list(teams), "team_alias_map": list(aliases), "games": list(games)}
         self.executed = []
+        self.in_sizes = []
 
     def table(self, name):
         return _Query(self, name)
@@ -127,17 +163,20 @@ def alias_calls(monkeypatch):
 
 
 def _live(team_id_master, age_group="u16", gender="Male", deprecated=None):
-    return {"team_id_master": team_id_master, "age_group": age_group, "gender": gender, "is_deprecated": deprecated}
+    return {"team_id_master": team_id_master, "team_name": f"Team {team_id_master}", "age_group": age_group,
+            "gender": gender, "is_deprecated": deprecated}
 
 
-def _squad(sid="10", club="Alpha SC", age="u16", division="HD"):
+def _squad(sid="10", club="Alpha SC", age="u16", division="HD", suffix=""):
+    name = f"{club} U{age[1:]} {division}"
     return {
         "provider_team_id": sid,
         "key": f"{sid}:2026",
         "club_name": club,
-        "display_name": f"{club} U{age[1:]} {division}",
+        "display_name": f"{name} II" if suffix else name,
         "age_group": age,
         "division": division,
+        "suffix": suffix,
     }
 
 
@@ -340,7 +379,7 @@ def test_undo_removes_what_the_run_created_and_keeps_teams_with_games(alias_call
     keep_id = created["11"]
     db.rows["games"].append({"home_team_master_id": keep_id, "away_team_master_id": "X"})
     counts = link.undo(db, PROVIDER, tmp_path / "log.jsonl")
-    assert counts == {"aliases_removed": 2, "aliases_restored": 0, "teams_removed": 1, "teams_refused": 1}
+    assert counts == {"aliases_removed": 2, "aliases_restored": 0, "names_restored": 0, "teams_removed": 1, "teams_refused": 1}
     assert [t["team_id_master"] for t in db.rows["teams"]] == [keep_id]
 
 
@@ -507,3 +546,413 @@ def test_a_pick_for_a_team_another_squad_keeps_is_held_and_the_kept_squad_stays(
     squads, report = [_squad("1"), _squad("2")], [_row("1", "linked", "T1"), _row("2", "review", "T1")]
     plan = _plan(squads, report, {"2": "T1"})
     assert [(a.action, a.reason) for a in plan] == [("keep", "already linked"), ("hold", "another squad links to the same team")]
+
+
+def _team(team_id_master, name, provider="prov-gotsport", age_group="u16", gender="Male", deprecated=False):
+    return {**_live(team_id_master, age_group, gender, deprecated), "team_name": name, "provider_id": provider}
+
+
+def _alias(key, team_id_master, provider=PROVIDER, status="approved"):
+    return {"id": key, "provider_id": provider, "provider_team_id": key, "team_id_master": team_id_master, "review_status": status}
+
+
+def _rename(db, squads, tmp_path):
+    return link.rename_linked_teams(db, PROVIDER, squads, tmp_path / "log.jsonl")
+
+
+def _names(db):
+    return {t["team_id_master"]: t["team_name"] for t in db.rows["teams"]}
+
+
+def _log(tmp_path):
+    return [json.loads(line) for line in (tmp_path / "log.jsonl").read_text(encoding="utf-8").splitlines()]
+
+
+def test_a_linked_team_from_another_provider_takes_its_squads_kitman_name(tmp_path):
+    db = _Db(teams=[_team("T1", "NVA MLS Next HG 2013")], aliases=[_alias("10:2026", "T1")])
+    counts = _rename(db, [_squad("10")], tmp_path)
+    assert counts == {"teams_renamed": 1, "renames_skipped": 0, "renames_failed": 0}
+    assert _names(db) == {"T1": "Alpha SC U16 HD"}
+    assert _log(tmp_path) == [{"kind": "rename", "team_id_master": "T1", "old": "NVA MLS Next HG 2013", "new": "Alpha SC U16 HD"}]
+
+
+def test_a_kitman_team_whose_name_went_stale_takes_its_current_name(tmp_path):
+    db = _Db(teams=[_team("T1", "Alpha SC U15 HD", provider=PROVIDER)], aliases=[_alias("10:2026", "T1")])
+    assert _rename(db, [_squad("10")], tmp_path)["teams_renamed"] == 1
+    assert _names(db) == {"T1": "Alpha SC U16 HD"}
+
+
+@pytest.mark.parametrize(
+    "team",
+    [
+        _team("T1", "Wrong age", age_group="u15"),
+        _team("T1", "Wrong gender", gender="Female"),
+        _team("T1", "Merged away", deprecated=True),
+    ],
+    ids=["other-age", "other-gender", "deprecated"],
+)
+def test_a_team_that_does_not_fit_its_squad_keeps_its_name(tmp_path, team):
+    db = _Db(teams=[team], aliases=[_alias("10:2026", "T1")])
+    assert _rename(db, [_squad("10")], tmp_path)["teams_renamed"] == 0
+    assert _names(db) == {"T1": team["team_name"]}
+
+
+@pytest.mark.parametrize(
+    "alias",
+    [_alias("10:2026", "T1", provider="prov-other"), _alias("10:2026", "T1", status="pending")],
+    ids=["another-provider", "not-approved"],
+)
+def test_only_an_approved_kitman_alias_names_a_team(tmp_path, alias):
+    db = _Db(teams=[_team("T1", "Old")], aliases=[alias])
+    assert _rename(db, [_squad("10")], tmp_path)["teams_renamed"] == 0
+    assert _names(db) == {"T1": "Old"}
+
+
+def test_a_key_no_squad_in_this_run_carries_does_not_name_a_team():
+    plan = link.plan_renames(PROVIDER, [_squad("10")], [_alias("99:2026", "T1")], [_team("T1", "Old")], [])
+    assert plan == []
+
+
+def test_a_team_carrying_two_squads_keeps_its_name(tmp_path):
+    db = _Db(teams=[_team("T1", "Old")], aliases=[_alias("10:2026", "T1"), _alias("11:2026", "T1")])
+    assert _rename(db, [_squad("10"), _squad("11", suffix="B")], tmp_path)["teams_renamed"] == 0
+    assert _names(db) == {"T1": "Old"}
+
+
+@pytest.mark.parametrize(("provider", "expected"), [("prov-gotsport", "Old"), (PROVIDER, "Alpha SC U17 HD II")])
+def test_a_squads_suffix_names_only_a_kitman_team(tmp_path, provider, expected):
+    db = _Db(teams=[_team("T1", "Old", provider=provider, age_group="u17")], aliases=[_alias("10:2026", "T1")])
+    _rename(db, [_squad("10", age="u17", suffix="B")], tmp_path)
+    assert _names(db) == {"T1": expected}
+
+
+def test_a_name_another_linked_team_holds_is_not_given_twice(tmp_path):
+    db = _Db(
+        teams=[_team("T1", "Old"), _team("T2", "Alpha SC U16 HD", provider=PROVIDER)],
+        aliases=[_alias("10:2026", "T1"), _alias("11:2026", "T2")],
+    )
+    squads = [_squad("10"), {**_squad("11"), "display_name": "Alpha SC U16 HD"}]
+    assert _rename(db, squads, tmp_path)["teams_renamed"] == 0
+    assert _names(db) == {"T1": "Old", "T2": "Alpha SC U16 HD"}
+
+
+def test_two_teams_planned_for_one_name_both_keep_theirs(tmp_path):
+    db = _Db(teams=[_team("T1", "Old one"), _team("T2", "Old two")], aliases=[_alias("10:2026", "T1"), _alias("11:2026", "T2")])
+    assert _rename(db, [_squad("10"), _squad("11")], tmp_path)["teams_renamed"] == 0
+    assert _names(db) == {"T1": "Old one", "T2": "Old two"}
+
+
+@pytest.mark.parametrize(
+    "holder",
+    [_team("T9", "Alpha SC U16 HD"), _team("T9", "Alpha SC U16 HD", provider=PROVIDER)],
+    ids=["unlinked", "linked-outside-this-run"],
+)
+def test_a_name_a_team_outside_this_run_holds_is_not_given(tmp_path, holder):
+    aliases = [_alias("10:2026", "T1")] + ([_alias("99:2026", "T9")] if holder["provider_id"] == PROVIDER else [])
+    db = _Db(teams=[_team("T1", "Old"), holder], aliases=aliases)
+    assert _rename(db, [_squad("10")], tmp_path)["teams_renamed"] == 0
+    assert _names(db) == {"T1": "Old", "T9": "Alpha SC U16 HD"}
+
+
+def test_a_merged_away_team_holding_the_name_does_not_block_it(tmp_path):
+    db = _Db(teams=[_team("T1", "Old"), _team("T9", "Alpha SC U16 HD", deprecated=True)], aliases=[_alias("10:2026", "T1")])
+    assert _rename(db, [_squad("10")], tmp_path)["teams_renamed"] == 1
+    assert _names(db) == {"T1": "Alpha SC U16 HD", "T9": "Alpha SC U16 HD"}
+
+
+def test_a_merged_away_linked_team_does_not_hold_its_name(tmp_path):
+    db = _Db(
+        teams=[_team("T1", "Old"), _team("T2", "Alpha SC U16 HD", deprecated=True)],
+        aliases=[_alias("10:2026", "T1"), _alias("11:2026", "T2")],
+    )
+    assert _rename(db, [_squad("10"), _squad("11", club="Beta FC")], tmp_path)["teams_renamed"] == 1
+    assert _names(db) == {"T1": "Alpha SC U16 HD", "T2": "Alpha SC U16 HD"}
+
+
+def test_a_withheld_rename_keeps_its_old_name_taken(tmp_path):
+    db = _Db(
+        teams=[_team("T9", "Beta FC U16 HD"), _team("T1", "Alpha SC U16 HD"), _team("T3", "Old")],
+        aliases=[_alias("10:2026", "T1"), _alias("12:2026", "T3")],
+    )
+    squads = [_squad("10", club="Beta FC"), _squad("12")]
+    assert _rename(db, squads, tmp_path)["teams_renamed"] == 0
+    assert _names(db) == {"T9": "Beta FC U16 HD", "T1": "Alpha SC U16 HD", "T3": "Old"}
+
+
+def test_a_rename_touches_only_its_own_team(tmp_path):
+    db = _Db(teams=[_team("T1", "Old"), _team("T9", "Old")], aliases=[_alias("10:2026", "T1")])
+    assert _rename(db, [_squad("10")], tmp_path)["teams_renamed"] == 1
+    assert _names(db) == {"T1": "Alpha SC U16 HD", "T9": "Old"}
+
+
+def test_a_second_run_renames_nothing(tmp_path):
+    db = _Db(teams=[_team("T1", "Old")], aliases=[_alias("10:2026", "T1")])
+    _rename(db, [_squad("10")], tmp_path)
+    assert _rename(db, [_squad("10")], tmp_path) == {"teams_renamed": 0, "renames_skipped": 0, "renames_failed": 0}
+    assert len(_log(tmp_path)) == 1
+
+
+def test_renames_read_in_batches_of_at_most_100(tmp_path):
+    teams = [_team(f"T{i}", f"Old {i}") for i in range(250)]
+    db = _Db(teams=teams, aliases=[_alias(f"{i}:2026", f"T{i}") for i in range(250)])
+    squads = [_squad(str(i), club=f"Club {i}") for i in range(250)]
+    assert _rename(db, squads, tmp_path)["teams_renamed"] == 250
+    assert _names(db)["T249"] == "Club 249 U16 HD"
+    assert max(db.in_sizes) == 100
+
+
+def test_a_team_renamed_since_it_was_read_is_skipped(tmp_path, monkeypatch):
+    db = _Db(teams=[_team("T1", "Renamed meanwhile")], aliases=[_alias("10:2026", "T1")])
+    _planned(monkeypatch)
+    assert _rename(db, [_squad("10")], tmp_path) == {"teams_renamed": 0, "renames_skipped": 1, "renames_failed": 0}
+    assert _names(db) == {"T1": "Renamed meanwhile"}
+    assert link.undo(db, PROVIDER, tmp_path / "log.jsonl")["names_restored"] == 0
+    assert _names(db) == {"T1": "Renamed meanwhile"}
+
+
+class _NoWriteQuery(_Query):
+    """Answers an update with no rows and changes nothing, as a key with no UPDATE policy does."""
+
+    def execute(self):
+        if self.op == "update":
+            return _Result([])
+        return super().execute()
+
+
+class _NoWriteDb(_Db):
+    def table(self, name):
+        return _NoWriteQuery(self, name)
+
+
+def test_a_rename_that_did_not_take_fails_the_run(tmp_path, monkeypatch, capsys):
+    db = _NoWriteDb(teams=[_team("T0", "Unrelated FC"), _team("T1", "Old")], aliases=[_alias("1:2026", "T1")])
+    db.rows["providers"] = [{"id": PROVIDER, "code": "mlsnext_kitman"}]
+    monkeypatch.setattr(link, "_new_client", lambda: db)
+    _inputs(tmp_path, [_squad("1")], [_row("1", "linked", "T1")])
+    assert link.main(["--in-dir", str(tmp_path), "--names", "--execute"]) == 1
+    assert "renames_failed=1" in capsys.readouterr().out
+    assert _names(db) == {"T0": "Unrelated FC", "T1": "Old"}
+
+
+def test_undo_restores_a_name_and_leaves_one_changed_since(tmp_path):
+    db = _Db(teams=[_team("T1", "Old one"), _team("T2", "Old two")],
+             aliases=[_alias("10:2026", "T1"), _alias("11:2026", "T2")])
+    _rename(db, [_squad("10"), _squad("11", club="Beta FC")], tmp_path)
+    db.rows["teams"][1]["team_name"] = "Hand edit"
+    counts = link.undo(db, PROVIDER, tmp_path / "log.jsonl")
+    assert counts["names_restored"] == 1
+    assert _names(db) == {"T1": "Old one", "T2": "Hand edit"}
+
+
+def test_undo_restores_only_the_renamed_team(tmp_path):
+    db = _Db(teams=[_team("T1", "Old")], aliases=[_alias("10:2026", "T1")])
+    _rename(db, [_squad("10")], tmp_path)
+    db.rows["teams"].append(_team("T9", "Alpha SC U16 HD"))
+    assert link.undo(db, PROVIDER, tmp_path / "log.jsonl")["names_restored"] == 1
+    assert _names(db) == {"T1": "Old", "T9": "Alpha SC U16 HD"}
+
+
+def test_undo_walks_successive_renames_back_to_the_first_name(tmp_path):
+    db = _Db(teams=[_team("T1", "Third")])
+    (tmp_path / "log.jsonl").write_text(
+        json.dumps({"kind": "rename", "team_id_master": "T1", "old": "First", "new": "Second"}) + "\n"
+        + json.dumps({"kind": "rename", "team_id_master": "T1", "old": "Second", "new": "Third"}) + "\n",
+        encoding="utf-8",
+    )
+    assert link.undo(db, PROVIDER, tmp_path / "log.jsonl")["names_restored"] == 2
+    assert _names(db) == {"T1": "First"}
+
+
+def test_names_follow_the_link_run_and_undo_puts_them_back(alias_calls, tmp_path, monkeypatch, capsys):
+    db = _Db(teams=[_team("T1", "Alpha 2010 MLS Next")])
+    db.rows["providers"] = [{"id": PROVIDER, "code": "mlsnext_kitman"}]
+    monkeypatch.setattr(link, "_new_client", lambda: db)
+    _inputs(tmp_path, [_squad("1")], [_row("1", candidates="T1")])
+    assert link.main(["--in-dir", str(tmp_path), "--execute"]) == 0
+    assert "teams_renamed" not in capsys.readouterr().out
+    assert _names(db) == {"T1": "Alpha 2010 MLS Next"}
+    writes = len(db.writes())
+    assert link.main(["--in-dir", str(tmp_path), "--names"]) == 0
+    out = capsys.readouterr().out
+    assert "'Alpha 2010 MLS Next' -> 'Alpha SC U16 HD'" in out and "1 renames planned" in out
+    assert len(db.writes()) == writes and not list(tmp_path.glob("names_log_*"))
+    assert link.main(["--in-dir", str(tmp_path), "--names", "--execute"]) == 0
+    assert "teams_renamed=1" in capsys.readouterr().out
+    assert _names(db) == {"T1": "Alpha SC U16 HD"}
+    assert link.main(["--undo", str(next(tmp_path.glob("names_log_*.jsonl")))]) == 0
+    assert _names(db) == {"T1": "Alpha 2010 MLS Next"}
+
+
+def test_a_team_whose_merged_flag_is_blank_is_live_and_renamed(tmp_path):
+    db = _Db(teams=[_team("T1", "Old", deprecated=None)], aliases=[_alias("10:2026", "T1")])
+    assert _rename(db, [_squad("10")], tmp_path)["teams_renamed"] == 1
+    assert _names(db) == {"T1": "Alpha SC U16 HD"}
+
+
+def test_names_free_down_a_rollover_chain_in_one_run(tmp_path):
+    db = _Db(
+        teams=[_team("T1", "Alpha SC U16 HD", provider=PROVIDER, age_group="u17"), _team("T2", "Alpha SC U15 HD", provider=PROVIDER)],
+        aliases=[_alias("10:2026", "T1"), _alias("11:2026", "T2")],
+    )
+    assert _rename(db, [_squad("10", age="u17"), _squad("11")], tmp_path)["teams_renamed"] == 2
+    assert _names(db) == {"T1": "Alpha SC U17 HD", "T2": "Alpha SC U16 HD"}
+
+
+def test_a_merged_away_team_on_a_same_named_squad_does_not_block_the_live_one(tmp_path):
+    db = _Db(
+        teams=[_team("T1", "Old"), _team("T2", "Alpha SC U16 HD", deprecated=True)],
+        aliases=[_alias("10:2026", "T1"), _alias("11:2026", "T2")],
+    )
+    squads = [_squad("10"), {**_squad("11"), "display_name": "Alpha SC U16 HD"}]
+    assert _rename(db, squads, tmp_path)["teams_renamed"] == 1
+    assert _names(db) == {"T1": "Alpha SC U16 HD", "T2": "Alpha SC U16 HD"}
+
+
+def _planned(monkeypatch, old="Old"):
+    monkeypatch.setattr(link, "planned_renames", lambda *a: [{"team_id_master": "T1", "old": old, "new": "Alpha SC U16 HD"}])
+
+
+def test_a_team_merged_since_it_was_read_is_skipped(tmp_path, monkeypatch):
+    db = _Db(teams=[_team("T1", "Old", deprecated=True)])
+    _planned(monkeypatch)
+    assert _rename(db, [_squad("10")], tmp_path) == {"teams_renamed": 0, "renames_skipped": 1, "renames_failed": 0}
+    assert _names(db) == {"T1": "Old"}
+
+
+def test_a_team_deleted_since_it_was_read_is_skipped(tmp_path, monkeypatch):
+    _planned(monkeypatch)
+    assert _rename(_Db(), [_squad("10")], tmp_path) == {"teams_renamed": 0, "renames_skipped": 1, "renames_failed": 0}
+
+
+class _LostAnswerQuery(_Query):
+    """An update whose answer never arrives: it commits first when ``db.commits`` is set. The read-back
+    of the team after it raises ``db.reread_error`` when one is set, as in an outage that lasts."""
+
+    def execute(self):
+        if self.op == "select" and self.table == "teams" and self.filters == [("team_id_master", "T1")]:
+            if getattr(self.db, "reread_error", None):
+                raise self.db.reread_error
+        if self.op != "update":
+            return super().execute()
+        if self.db.commits:
+            super().execute()
+        raise self.db.error
+
+
+class _LostAnswerDb(_Db):
+    def table(self, name):
+        return _LostAnswerQuery(self, name)
+
+
+def _same_rows(db):
+    """A client over ``db``'s rows that answers every request, as the network does once it is back."""
+    plain = _Db()
+    plain.rows = db.rows
+    return plain
+
+
+@pytest.mark.parametrize(
+    "error",
+    [httpx.ReadTimeout("read timed out"), APIError({"code": 502, "message": "JSON could not be generated"})],
+    ids=["transport", "gateway"],
+)
+@pytest.mark.parametrize(("commits", "expected"), [(True, "renamed"), (False, "failed")])
+def test_a_rename_whose_answer_was_lost_is_settled_by_reading_the_team_back(tmp_path, error, commits, expected):
+    db = _LostAnswerDb(teams=[_team("T1", "Old")], aliases=[_alias("10:2026", "T1")])
+    db.commits, db.error = commits, error
+    counts = _rename(db, [_squad("10")], tmp_path)
+    assert counts["teams_renamed" if expected == "renamed" else "renames_failed"] == 1
+    assert sum(counts.values()) == 1
+    assert link.undo(_same_rows(db), PROVIDER, tmp_path / "log.jsonl")["names_restored"] == (1 if commits else 0)
+    assert _names(db) == {"T1": "Old"}
+
+
+@pytest.mark.parametrize("commits", [True, False])
+def test_a_rename_is_logged_before_its_write_so_a_failed_read_back_still_leaves_a_way_back(tmp_path, commits):
+    db = _LostAnswerDb(teams=[_team("T1", "Old")], aliases=[_alias("10:2026", "T1")])
+    db.commits, db.error, db.reread_error = commits, httpx.ReadTimeout("read timed out"), httpx.ConnectError("down")
+    with pytest.raises(httpx.ConnectError):
+        _rename(db, [_squad("10")], tmp_path)
+    assert _log(tmp_path) == [{"kind": "rename", "team_id_master": "T1", "old": "Old", "new": "Alpha SC U16 HD"}]
+    assert link.undo(_same_rows(db), PROVIDER, tmp_path / "log.jsonl")["names_restored"] == (1 if commits else 0)
+    assert _names(db) == {"T1": "Old"}
+
+
+def test_a_name_another_writer_gave_the_team_meanwhile_is_not_counted_as_this_runs(tmp_path, monkeypatch):
+    db = _Db(teams=[_team("T1", "Alpha SC U16 HD")], aliases=[_alias("10:2026", "T1")])
+    _planned(monkeypatch)
+    assert _rename(db, [_squad("10")], tmp_path) == {"teams_renamed": 0, "renames_skipped": 1, "renames_failed": 0}
+
+
+def test_a_rename_skipped_because_the_team_changed_keeps_the_run_green(tmp_path, monkeypatch, capsys):
+    db = _Db(teams=[_team("T1", "Renamed meanwhile")], aliases=[_alias("1:2026", "T1")])
+    db.rows["providers"] = [{"id": PROVIDER, "code": "mlsnext_kitman"}]
+    monkeypatch.setattr(link, "_new_client", lambda: db)
+    _planned(monkeypatch)
+    _inputs(tmp_path, [_squad("1")], [_row("1", "linked", "T1")])
+    assert link.main(["--in-dir", str(tmp_path), "--names", "--execute"]) == 0
+    assert "renames_skipped=1" in capsys.readouterr().out
+
+
+def _rollover_chain():
+    """The younger team comes first, so a write in fetch order would take a name still held."""
+    return _Db(
+        teams=[_team("T2", "Alpha SC U15 HD", provider=PROVIDER), _team("T1", "Alpha SC U16 HD", provider=PROVIDER, age_group="u17")],
+        aliases=[_alias("11:2026", "T2"), _alias("10:2026", "T1")],
+    )
+
+
+def _chain_squads():
+    return [_squad("11"), _squad("10", age="u17")]
+
+
+def test_a_name_is_vacated_before_another_team_takes_it(tmp_path):
+    db = _rollover_chain()
+    assert _rename(db, _chain_squads(), tmp_path)["teams_renamed"] == 2
+    order = [dict(f)["team_id_master"] for op, table, f, _ in db.executed if op == "update"]
+    assert order == ["T1", "T2"]
+    assert _names(db) == {"T2": "Alpha SC U16 HD", "T1": "Alpha SC U17 HD"}
+
+
+class _FailT1Query(_Query):
+    def execute(self):
+        if self.op == "update" and ("team_id_master", "T1") in self.filters:
+            return _Result([])
+        return super().execute()
+
+
+class _FailT1Db(_Db):
+    def table(self, name):
+        return _FailT1Query(self, name)
+
+
+def test_a_failed_rename_holds_the_next_team_in_its_chain(tmp_path):
+    db = _rollover_chain()
+    db.__class__ = _FailT1Db
+    counts = _rename(db, _chain_squads(), tmp_path)
+    assert counts == {"teams_renamed": 0, "renames_skipped": 1, "renames_failed": 1}
+    assert _names(db) == {"T2": "Alpha SC U15 HD", "T1": "Alpha SC U16 HD"}
+
+
+def test_teams_that_would_trade_names_are_held(tmp_path):
+    db = _Db(
+        teams=[_team("T1", "Beta FC U16 HD", provider=PROVIDER), _team("T2", "Alpha SC U16 HD", provider=PROVIDER)],
+        aliases=[_alias("10:2026", "T1"), _alias("11:2026", "T2")],
+    )
+    squads = [_squad("10"), _squad("11", club="Beta FC")]
+    assert _rename(db, squads, tmp_path) == {"teams_renamed": 0, "renames_skipped": 2, "renames_failed": 0}
+    assert _names(db) == {"T1": "Beta FC U16 HD", "T2": "Alpha SC U16 HD"}
+    assert db.writes() == []
+
+
+def test_the_preview_reports_teams_that_would_trade_names(tmp_path, monkeypatch, capsys):
+    db = _Db(
+        teams=[_team("T1", "Beta FC U16 HD", provider=PROVIDER), _team("T2", "Alpha SC U16 HD", provider=PROVIDER)],
+        aliases=[_alias("10:2026", "T1"), _alias("11:2026", "T2")],
+    )
+    db.rows["providers"] = [{"id": PROVIDER, "code": "mlsnext_kitman"}]
+    monkeypatch.setattr(link, "_new_client", lambda: db)
+    _inputs(tmp_path, [_squad("10"), _squad("11", club="Beta FC")], [_row("10", "linked", "T1"), _row("11", "linked", "T2")])
+    assert link.main(["--in-dir", str(tmp_path), "--names"]) == 0
+    out = capsys.readouterr().out
+    assert "2 renames held" in out and "0 renames planned" in out

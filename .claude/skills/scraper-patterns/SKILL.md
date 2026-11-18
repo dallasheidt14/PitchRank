@@ -722,8 +722,19 @@ and only placeholder AD fixtures this season.
 - Pipeline, weekly through `mlsnext-kitman-scraper.yml`: `scripts/scrape_mlsnext_kitman.py`,
   `match_mlsnext_kitman_teams.py`, `link_mlsnext_kitman_teams.py`, `build_mlsnext_kitman_games_csv.py`, then
   `import_games_enhanced.py <csv> mlsnext_kitman`. An operator runs `prepare_mlsnext_kitman_club_states.py`
-  first to fill the club-to-state table, because the linker holds a new team for a club with no state.
+  first to fill the club-to-state table, because the linker holds a new team for a club with no state. The
+  script never changes an entry already in the table, so correct a wrong state by editing
+  `config/mlsnext_kitman_club_states.json` by hand; teams already created from the wrong entry keep its
+  state, so correct those too.
   Provider code `mlsnext_kitman`, alias keys `<squad id>:<season>`.
+- After the import, `link_mlsnext_kitman_teams.py --names --execute` gives a team carrying a squad's alias
+  that squad's Kitman name (`<club> U<age> <HD|AD>[ II]`), as the owner asked on 2026-11-17: "The gotsport name
+  then can be changed to the kitman format". A team Kitman created starts with that name, and the run puts it back
+  on any linked team whose name drifts: an Aug 1 rollover, a club renamed in the feed, or a hand edit. It skips a
+  team in another age or gender, one linked to two differently named squads, and one whose new name another live
+  team holds or would get. A `II` name goes only to a Kitman-created team (see the `U17B` bullet above). `--names` alone lists the
+  renames; `--undo` restores them. A rename that does not take turns the run red after the games are in. The
+  GotSport reconcile leaves the name of a team linked in the newest Kitman season alone.
 
 ## Athletes2Events Pages
 
