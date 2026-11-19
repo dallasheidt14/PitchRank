@@ -240,6 +240,73 @@ def test_the_clubs_initials_without_its_soccer_club_are_not_a_location():
     )
 
 
+@SEASON_2026
+@pytest.mark.parametrize(
+    ("team_name", "club_name", "age_group", "stored_name"),
+    [
+        ("U12 Boys York County State Blue", "Charlotte Independence SC", "u12", "14 (U12) CISC York County State Blue"),
+        ("U11 Boys Chatham Gold", "Triangle United", "u11", "TUSA U11 Chatham Gold"),
+    ],
+)
+def test_a_clubs_listed_initials_are_not_a_squad(_season, team_name, club_name, age_group, stored_name):
+    match = _match(team_name, club_name, None, age_group, "Male", [(stored_name, club_name)], stored_state="NC")
+
+    assert match["team_name"] == stored_name
+    assert match["confidence"] >= 0.9
+
+
+def test_letters_and_a_club_code_that_spell_a_squad_still_mark_it():
+    _assert_refused_for_the_word(
+        "RSL Arizona U12 Blue",
+        "RSL Arizona",
+        "AZ",
+        "u12",
+        "Male",
+        refused=("RSL Arizona Rays U12 Blue", "RSL Arizona"),
+        accepted=("RSL Arizona U12 Blue", "RSL Arizona"),
+    )
+
+
+@SEASON_2026
+@pytest.mark.parametrize(
+    ("team_name", "stored_name", "stored_club"),
+    [
+        ("U11 Boys NM State Blue", "15 (U11) CISC North Meck State Blue", "Charlotte Independence SC"),
+        ("U11 Boys North Meck State Blue", "15 (11U) CISC NM State Blue", "Charlotte Independence SC"),
+        ("U11 Boys North Meck State Blue", "15 (11U) CISC NM State Blue", "Charlotte Independence Soccer Club"),
+        ("U11 Boys Gaston County State Blue", "15 (U11) CISC GC State Blue", "Charlotte Independence SC"),
+    ],
+)
+def test_a_place_the_club_writes_as_initials_is_the_same_place(_season, team_name, stored_name, stored_club):
+    club = "Charlotte Independence SC"
+
+    match = _match(team_name, club, None, "u11", "Male", [(stored_name, stored_club)], stored_state="NC")
+
+    assert match["team_name"] == stored_name
+    assert match["confidence"] >= 0.9
+
+
+@SEASON_2026
+def test_a_later_row_reads_a_cached_teams_spelled_out_place_the_same_way(_season):
+    club = "Charlotte Independence SC"
+    matcher = _matcher(None, "u11", "Male", [("15 (11U) CISC NM State Blue", club)], stored_state="NC")
+
+    first, second = (
+        matcher._fuzzy_match_team("U11 Boys North Meck State Blue", "u11", "Male", club, state_code=None)
+        for _ in range(2)
+    )
+
+    assert first["team_name"] == second["team_name"] == "15 (11U) CISC NM State Blue"
+
+
+def test_nm_in_another_clubs_name_is_still_new_mexico():
+    stored = [("Rio Rapids NM U12 Blue", "Rio Rapids SC")]
+
+    match = _match("Rio Rapids U12 Blue", "Rio Rapids SC", None, "u12", "Male", stored, stored_state="NM")
+
+    assert match["team_name"] == "Rio Rapids NM U12 Blue"
+
+
 def test_club_initials_that_spell_a_location_code_still_mark_a_squad():
     _assert_refused_for_the_word(
         "San Francisco Vikings U12 Blue",
@@ -339,3 +406,13 @@ def test_the_name_as_written_breaks_a_tie_between_a_clubs_duplicate_rows():
     match = _match("Polonia U16 Girls Red", "Polonia Soccer Club", "WI", "u16", "Female", stored)
 
     assert match["team_name"] == "Polonia U16 Girls Red"
+
+
+@SEASON_2026
+def test_the_name_as_written_breaks_a_tie_the_spelled_out_place_makes(_season):
+    club = "Charlotte Independence Soccer Club"
+    stored = [("14 (U12) CISC GC State Blue", club), ("14 (U12) CISC Gaston County State Blue", club)]
+
+    match = _match("14 (U12) CISC Gaston County State Blue", club, "NC", "u12", "Male", stored)
+
+    assert match["team_name"] == "14 (U12) CISC Gaston County State Blue"

@@ -893,20 +893,40 @@ state. `playmetrics-tournament-scrape-import.yml` runs it on dispatch.
   `division_name`, and run `python scripts/import_games_enhanced.py <csv> playmetrics_tournament
   --dry-run` before the real import. A local run is outside the workflow's `AGE_ROLLOVER_FREEZE`
   gate, so import only while that flag reads `'false'`.
-- **After every import, check the teams it created for copies of teams that already existed.** Take
-  the rows the run created (the provider's `direct_id` aliases written during it), run the
-  similarity query from *Check a roster pass's new teams for near-duplicates after the import*
-  below over them without its state condition, and settle the hits with the merging-duplicate-teams
-  skill, whose Doorway D covers rows created with no state. A club PlayMetrics spells differently
-  enough that the club gate refuses it skips its existing team unless `STORED_CLUB_NAMES` in
-  `src/models/playmetrics_matcher.py` lists that spelling (`RASA - AFC Union` is filed as
-  `AFC Union`); when this check confirms such a copy, add the spelling there. A team is still
-  created whenever no stored team clears the gates at 0.75 or more, so the check stays: of the 46
-  tournament rows the Harvest Classic cleanup of 2026-11-10 merged, the matcher as of 2026-11-12
-  still creates 6, all PSG Academy Chicago copies: one name carries the club's word "Academy" and
-  the other does not, and the tier gate refuses that pair before scoring. The owner decided on
-  2026-11-12 to keep "Academy" a tier word even inside a club name, so merge these through the
-  check like any other copy.
+- **Before each import, find the teams it would create that already exist, and link them first.**
+  The owner, 2026-11-19: "why would we possibly create new teams if we have those teams in
+  pitchrank?" Before the import there is no created row to merge, so a confirmed copy is linked.
+  - Replay every scraped team through `_match_team` on a `PlayMetricsGameMatcher` built with
+    `dry_run=True`, `default_state_code=None` and the import's own provider id, its alias lookups
+    left on, under the write guard and scorer of the replay in *Provider Matcher Name Parsing*
+    below. Collect the teams it would create.
+  - Compare each with the stored teams of its age and gender: the similarity query from *Check a
+    roster pass's new teams for near-duplicates after the import* below, without its state
+    condition, or the club's rows filtered by the team's squad words, with this season's games per
+    candidate. Where a squad has several stored copies, take the one playing this season.
+  - Link each confirmed copy with an approved `manual` alias as *Resolving provider review items by
+    hand* below says, re-run the replay to see it link, then import.
+- **After the import, check the teams it created the same way.** Take the rows the run created (the
+  provider's `direct_id` aliases written during it) and settle the hits with the
+  merging-duplicate-teams skill, whose Doorway D covers rows created with no state.
+- **When either check confirms a copy the matcher missed, record why in
+  `src/models/playmetrics_matcher.py`, so the next import links it.**
+  - A club PlayMetrics spells differently enough that the club gate refuses it: add the spelling to
+    `STORED_CLUB_NAMES` (`RASA - AFC Union` is filed as `AFC Union`).
+  - A name carrying letters the club's name does not spell, which the squad-mark check refuses:
+    `CLUB_INITIALS` takes initials a club's stored names carry (`"charlotte independence": "cisc"`),
+    and `CLUB_PLACE_INITIALS` a place the club writes both as initials and in full
+    (`"nm": "North Meck"`). Key both by the club's core name, the lowercase name with its club
+    codes peeled off (`_core_and_codes`), and write the initials in lowercase. They are listed
+    rather than derived from the name plus a club code, because those letters can spell a squad's
+    own name (`RSL Arizona` plus `YS` is `Rays`), and other clubs use the same place letters for
+    somewhere else (`NM` is New Mexico).
+  - A team is still created whenever no stored team clears the gates at 0.75 or more: of the 46
+    tournament rows the Harvest Classic cleanup of 2026-11-10 merged, the matcher as of 2026-11-12
+    still creates 6, all PSG Academy Chicago copies: one name carries the club's word "Academy" and
+    the other does not, and the tier gate refuses that pair before scoring. The owner decided on
+    2026-11-12 to keep "Academy" a tier word even inside a club name, so settle these through the
+    checks like any other copy.
 - **On this import, a team with a likely match is held in the review queue instead of being
   created.** That covers a candidate scoring 0.75-0.90, and one scoring higher that a birth-year,
   U19-year or gender guard sent to review (`GameHistoryMatcher._match_team`). The weekly league
@@ -1474,11 +1494,20 @@ Rules for a provider matcher that gates fuzzy candidates on the team name
 
 To test matching against production without writes, construct the matcher with
 `dry_run=True` and a provider id that has no aliases, so every team goes through fuzzy
-matching. Teams an earlier real run created then appear as existing candidates, so the
-replay's link counts overstate what a first run on a fresh event does. A dry run creates
-nothing, so it also cannot show a team linking to one created earlier in the same import.
-Check that offline: group the provider's teams by club, board, gender and the words the
-matcher compares. Any group of two or more can fuse into one team on a real run.
+matching; for teams that already have aliases under the real provider id, patch
+`_match_by_provider_id` and `_match_by_alias` to return `None` instead. Teams an earlier real
+run created then appear as existing candidates, so the replay's link counts overstate what a
+first run on a fresh event does. A dry run creates nothing, so it also cannot show a team
+linking to one created earlier in the same import. Check that offline: group the provider's
+teams by club, board, gender and the words the matcher compares. Any group of two or more can
+fuse into one team on a real run.
+
+Score names in the replay the way production does. `src.models.game_matcher` uses rapidfuzz
+wherever it is installed, but no requirements file names it, so CI and the Actions workflows
+score with difflib. Set `sys.modules["rapidfuzz"] = None` before anything imports
+`src.models.game_matcher`, which picks its scorer at import. Where a link turns on a near-tie
+between two stored copies of one squad, replay under both scorers, since they can rank the pair
+differently.
 
 Run that replay before shipping any matcher, and above all one reused from a sibling
 league. Wrap the client so every insert, update, upsert and delete is recorded and

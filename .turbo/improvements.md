@@ -3340,3 +3340,11 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `.claude/skills/splitting-fused-provider-ids/scripts/` (new), from the local `data/exports/fused_rows_2026-11-18/` scripts `fused_scan.py`, `fused_plan.py`, `fused_apply.py`, `fused_verify.py`
 - **Why**: The 2026-11-18 repair needed a detector, GotSport lookups, a grouping step (new row / existing row / undo a merge / hold), a resumable driver and a database verifier, all written ad hoc with hardcoded dates and paths in a gitignored folder. The skill also has no tool for hiding a moving id's unscored fixtures, which it requires; the driver's version refuses a fixture whose same-pair twin the exclusion trigger would also hide. Generalise and test them so the next scan (101 one-day rows, 558 same-event rows, TGS) does not rebuild them.
 - **Noted**: 2026-11-18
+
+### Stamp new team aliases in UTC, not the importing machine's local time
+
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `GameHistoryMatcher._create_alias` (`src/models/game_matcher.py`), the `"created_at": datetime.now().isoformat()` key
+- **Why**: A naive local timestamp is stored as if it were UTC. On 2026-11-19 a PlayMetrics tournament import run locally in Arizona wrote aliases reading 14:42, beside hand-inserted rows from the same session that the database stamped 21:34 UTC. A "rows written during this run" window, such as the post-import copy check in the scraper-patterns skill, then misses a local run's aliases by the machine's UTC offset; Actions runs in UTC and is unaffected. Use `datetime.now(timezone.utc)` or let the column default apply.
+- **Noted**: 2026-11-19
