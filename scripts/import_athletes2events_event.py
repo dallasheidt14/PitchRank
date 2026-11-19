@@ -411,11 +411,12 @@ def division_birth_year(cutoff: date, division_age: int, event_season: int) -> O
     """The younger birth year of the band a division admits, or None when the label disagrees.
 
     A cutoff is the older edge of an Aug 1 - Jul 31 band, so the band's younger
-    year is the cutoff year + 1; a cutoff on any other date means the platform
-    changed convention. The U-age in the label must then agree with that birth
-    year read in the event's own season.
+    year is the cutoff year + 1. A division may write that edge as Jul 31, the
+    same season start; a cutoff on any other date means the platform changed
+    convention. The U-age in the label must then agree with that birth year read
+    in the event's own season.
     """
-    if (cutoff.month, cutoff.day) != (8, 1):
+    if (cutoff.month, cutoff.day) not in ((8, 1), (7, 31)):
         return None
     birth_year = cutoff.year + 1
     label = calculate_age_group_from_band(birth_year, event_season)

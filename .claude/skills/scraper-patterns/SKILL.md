@@ -781,7 +781,11 @@ logs, among them `arizonasurf.`, `utahsurf.`, `vegascup.`, `washingtonrush.`). T
 are server-rendered HTML with a declared UTF-8 charset and answer `requests` sent with a browser
 User-Agent, no proxy and no bot challenge. `scripts/import_athletes2events_event.py` is the
 driver; it takes `--event-url` and reads the host from it, because one provider row covers every
-subdomain. Event 130 (Crossfire's 2026 ZF Labor Day Challenge) is the event it was built against.
+subdomain. Pass the event's own URL, `https://<host>.athletes2events.com/events/<id>`: a page link
+such as `.../groups` is refused. Event 130 (Crossfire's 2026 ZF Labor Day Challenge) is the event it
+was built against. The roster comes only from teams in scored games, so a dry run before an event's
+scores post reads its divisions and flights but builds no teams; judge such a run by the
+skipped-division lines among its printed problems, not its team report.
 
 ### Pages and ids
 
@@ -789,7 +793,8 @@ Every page is `https://<host>.athletes2events.com/events/<event_id>/...`:
 
 - `groups` — every division and flight. A division carries gender, U-age and its birth-date
   cutoff ("Boys-U19 (Born on or after: Aug 01, 2007)"); each flight (Gold, Silver, Silver 2) links
-  to `schedules?flight-id=<n>`.
+  to `schedules?flight-id=<n>`. A division may write the cutoff as Jul 31, which reads as the same
+  Aug 1 season start (owner, 2026-11-18); a cutoff on any other date skips the division.
 - `schedules?flight-id=<n>` — `table.schedule-table` holds standings (position, logo, team link,
   MP W D L GF GA GD POINTS, goals capped at 6). Each day is one `table.matches-table`: a colspan
   header row with the date ("Sat Sep 05, 2026"), then nine columns — Game #, Division/Flight, Group
@@ -876,6 +881,13 @@ The gates in Provider Matcher Name Parsing below apply. This platform glues squa
   re-check, so each side resolves through its own alias and the game does not insert
   half-matched; the ranking engine reads each team's cohort from its own row. Tourney Central
   inherits the same matcher and does the same.
+- To settle an event's teams before its import, write the owner's confirmed matches as approved
+  `manual` `team_alias_map` rows (`provider_id` = the id of the `providers` row whose code is
+  `athletes2events`, `provider_team_id` = the Athletes2Events team id), after the same-event check
+  in *Resolving provider review items by hand* below. The roster pass reports each in-scope team
+  so linked as `already_linked` without consulting the matcher; `off_board_links` still holds a
+  link whose row sits on another board or gender than the team's name gives. Keep the DELETE that
+  undoes them.
 
 ## PlayMetrics Tournaments
 
