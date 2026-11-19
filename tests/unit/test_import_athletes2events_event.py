@@ -109,8 +109,16 @@ class TestDivisionBirthYear:
     def test_the_cutoff_yields_the_bands_younger_year(self, cutoff_year, division_age, expected):
         assert a2e.division_birth_year(date(cutoff_year, 8, 1), division_age, SEASON) == expected
 
-    def test_a_cutoff_that_is_not_august_first_is_refused(self):
-        assert a2e.division_birth_year(date(2016, 1, 1), 10, SEASON) is None
+    @pytest.mark.parametrize(
+        "cutoff_year, division_age, expected",
+        [(2012, 14, 2013), (2014, 12, 2015), (2016, 10, 2017)],
+    )
+    def test_a_july_31_cutoff_is_the_same_season_start(self, cutoff_year, division_age, expected):
+        assert a2e.division_birth_year(date(cutoff_year, 7, 31), division_age, SEASON) == expected
+
+    @pytest.mark.parametrize("month, day", [(1, 1), (7, 30), (8, 2), (7, 1), (8, 31)])
+    def test_a_cutoff_that_is_not_the_season_start_is_refused(self, month, day):
+        assert a2e.division_birth_year(date(2016, month, day), 10, SEASON) is None
 
     def test_a_label_that_disagrees_with_its_cutoff_is_refused(self):
         assert a2e.division_birth_year(date(2016, 8, 1), 12, SEASON) is None
@@ -138,6 +146,19 @@ class TestParseDivisions:
 
         assert divisions == []
         assert skipped == ["Boys-U10: cutoff Aug 01, 2015 does not agree with the label"]
+
+    def test_a_july_31_cutoff_reads_its_flights_rather_than_skipping_the_division(self):
+        html = (
+            "<html><body><table><tr><th>Boys-U14 <br/><small>(Born on or after: Jul 31, 2012)</small></th>"
+            "<th>Flight</th><th>Teams</th></tr><tr><td>"
+            '<a href="/events/198/schedules?flight-id=2224">Standings and Schedules</a></td>'
+            "<td>Super Black</td><td>6</td></tr></table></body></html>"
+        )
+
+        divisions, skipped = a2e.parse_divisions(html, SEASON)
+
+        assert skipped == []
+        assert [(d.division_name, d.flight_id, d.birth_year) for d in divisions] == [("Boys-U14", 2224, 2013)]
 
     def test_a_flight_table_with_no_rows_skips_its_division_rather_than_aborting(self):
         html = (
