@@ -7,17 +7,18 @@ another row of the same squad, the team can be filed on the wrong age board, or 
 come from a provider the GotSport scrape never reads. For every team clicked in one 3-hour
 window this reports:
 
-  1. the scrape: how each request ended, and the team's games on and beside the requested date
+  1. the scrape: how each request ended, and what it brought in that was not on record before:
+     games first saved while it ran, and games already on record that it gave a score
   2. possible duplicates: live rows of the same gender, in the team's state or with none, in its
      age group or the one either side, whose names read as the same squad, with their game evidence
   3. the profile: the stored age group against the age the name states and the ages this
      season's opponents' names state, the gender against the name, and a missing state
-  4. providers: whether the team has a GotSport link the scrape can use, and every other
-     provider it is linked to, with how that provider is refreshed
+  4. providers: whether the team has a GotSport link the scrape can use, and, while the requested
+     game is still missing, the other providers it is linked to, with how each is refreshed
 
 Report only: it reads the database and sends at most one email to ALERT_EMAIL. Each finding names a
-next step; the skills it points at make the decisions and the writes. A live run logs counts
-only, because Actions logs are public and the report names the teams subscribers asked about.
+next step. A live run logs counts only, because Actions logs are public and the report names the
+teams subscribers asked about.
 
 Clicks come from missing_game_clicks; scrape_requests cannot say which teams were clicked.
 
@@ -86,9 +87,20 @@ ARIZONA = timezone(timedelta(hours=-7))
 WINDOW_HOURS = 3
 
 CLICK_COLS = "id,team_id_master,game_date,clicked_at,scrape_request_id"
-REQUEST_COLS = "id,status,games_found,error_message"
-GAME_COLS = "id,home_team_master_id,away_team_master_id,game_date,home_score,away_score,is_excluded,provider_id"
+REQUEST_COLS = "id,status,processed_at,completed_at,error_message"
+GAME_COLS = (
+    "id,home_team_master_id,away_team_master_id,game_date,home_score,away_score,is_excluded,created_at,scraped_at"
+)
 OPPONENT_COLS = "team_id_master,team_name"
+
+GENDER_WORDS = {"Male": "boys", "Female": "girls"}
+
+# The drainer stamps completed_at from the runner's clock just after the import commits, and
+# games.created_at comes from the database's clock.
+CLOCK_SLACK = timedelta(minutes=1)
+
+# A first scrape of a team can bring in a season of games; the email lists the newest.
+MAX_GAMES_LISTED = 10
 
 # u18 squads are stored on the u19 board, so u17 and u19 are neighbours.
 AGE_ORDER = ["u7", "u8", "u9", "u10", "u11", "u12", "u13", "u14", "u15", "u16", "u17", "u19"]
@@ -106,10 +118,6 @@ AGE_WITNESS_SHARE = 0.75
 
 # A ZenRows request URL carries the key, and a failed scrape stores the URL in its error text.
 _API_KEY = re.compile(r"apikey=[^&\s]+", re.IGNORECASE)
-
-# Games this many days either side of a requested date are listed beside it, because a
-# provider's date and the date a parent remembers can differ by a day.
-DATE_SLACK_DAYS = 1
 
 DEFAULT_REFRESH = "not read by the GotSport scrape; check that provider's own import"
 PROVIDER_REFRESH = {
@@ -140,7 +148,7 @@ class Finding:
     title: str
     details: list[str]
     next_step: str
-    problem: bool = True
+    teams: list[tuple[dict, str]] = field(default_factory=list)
 
 
 @dataclass
@@ -158,15 +166,39 @@ class Fixture:
 
 
 @dataclass
+class ScrapeResult:
+    outcome: str
+    added: list[Fixture] = field(default_factory=list)
+    scored: list[Fixture] = field(default_factory=list)
+
+
+@dataclass
 class TeamReport:
     team: dict
     clicks: list[dict]
-    scrape: list[str]
+    outcomes: list[str]
+    new_games: list[str] = field(default_factory=list)
+    scored_games: list[str] = field(default_factory=list)
     findings: list[Finding] = field(default_factory=list)
 
     @property
-    def problems(self) -> list[Finding]:
-        return [f for f in self.findings if f.problem]
+    def game_lists(self) -> list[tuple[str, list[str]]]:
+        lists = (("New games", self.new_games), ("Scores filled in", self.scored_games))
+        return [(title, games) for title, games in lists if games]
+
+
+def plural(n: int, word: str) -> str:
+    return f"{n} {word}{'' if n == 1 else 's'}"
+
+
+def nice_date(value: str | date) -> str:
+    d = date.fromisoformat(value) if isinstance(value, str) else value
+    return f"{d:%a %b} {d.day}"
+
+
+def clock(moment: datetime) -> str:
+    minutes = f":{moment.minute:02d}" if moment.minute else ""
+    return f"{moment.hour % 12 or 12}{minutes} {'AM' if moment.hour < 12 else 'PM'}"
 
 
 def window_end(now: datetime) -> datetime:
@@ -175,7 +207,9 @@ def window_end(now: datetime) -> datetime:
 
 
 def window_label(start: datetime, end: datetime) -> str:
-    return f"{start.astimezone(ARIZONA):%Y-%m-%d %H:%M} to {end.astimezone(ARIZONA):%Y-%m-%d %H:%M} Arizona time"
+    start, end = start.astimezone(ARIZONA), end.astimezone(ARIZONA)
+    last = clock(end) if end.date() == start.date() else f"{nice_date(end.date())}, {clock(end)}"
+    return f"{nice_date(start.date())}, {clock(start)} to {last} Arizona time"
 
 
 def fetch_clicks(sb, start: datetime, end: datetime) -> list[dict]:
@@ -294,45 +328,46 @@ def duplicate_reason(
     if extra_mine & extra_theirs:
         return None
     if doubled:
-        return f"{len(doubled)} game(s) stored on both rows (same opponent, same day)"
+        return f"{plural(len(doubled), 'game')} saved on both teams (same opponent, same day)"
     holds = sorted({f.date for f in theirs} & requested)
     if holds:
-        return f"holds a game on the requested date ({', '.join(holds)})"
+        return f"has a game on the date asked about ({', '.join(nice_date(d) for d in holds)})"
     shared = {f.opponent for f in mine if f.date >= SEASON_START and f.opponent} & {
         f.opponent for f in theirs if f.date >= SEASON_START and f.opponent
     }
     if len(shared) >= MIN_SHARED_OPPONENTS:
-        return f"schedule split across both rows: {len(shared)} shared opponents this season, never the same day"
+        return f"{len(shared)} of the same opponents this season, never on the same day"
     if score >= NAME_ONLY_SCORE_MIN:
-        return "same squad by name; no game evidence either way"
+        return "same name; their games don't say either way"
     return None
 
 
 def describe(row: dict, fixtures: list[Fixture], providers: dict) -> str:
     shown = visible(fixtures)
-    last = max((f.date for f in shown if f.date), default="never")
+    last = max((f.date for f in shown if f.date), default=None)
+    # A duplicate's last game can be seasons old, so it carries its year.
+    when = f"{nice_date(last)}, {last[:4]}" if last else "never"
     return (
-        f"{row['team_name']} ({row['age_group']}, {row['club_name'] or 'no club'}, "
-        f"{providers.get(row['provider_id'], '?')}, {len(shown)} games, last {last}) "
-        f"{SITE_URL}/teams/{row['team_id_master']}"
+        f"({row['age_group']}, {row['club_name'] or 'no club'}, {providers.get(row['provider_id'], '?')}, "
+        f"{plural(len(shown), 'game')}, last {when})"
     )
 
 
 def duplicate_finding(team, candidates, sched, self_play, requested, providers, kept_apart) -> Finding | None:
-    lines = []
+    teams = []
     for row, score in candidates:
         reason = duplicate_reason(team["team_id_master"], row["team_id_master"], sched, self_play, requested, score)
         if reason:
-            lines.append(f"{describe(row, sched[row['team_id_master']], providers)}: {reason}")
-    if not lines:
+            teams.append((row, f"{describe(row, sched[row['team_id_master']], providers)}: {reason}"))
+    if not teams:
         return None
-    if kept_apart:
-        lines.append(f"{kept_apart} similar row(s) left out: already decided Keep separate")
+    details = [f"Left out {plural(kept_apart, 'similar team')} you already marked Keep separate"] if kept_apart else []
     return Finding(
-        "Possible duplicate rows",
-        lines,
-        "Check each pair with the merging-duplicate-teams skill before merging; "
-        "a row in another age group may also mean this one is on the wrong board.",
+        "Possible duplicate team",
+        details,
+        "Ask Claude to check whether they are the same team before merging. If the other one is in "
+        "another age group, this team may be on the wrong age board.",
+        teams,
     )
 
 
@@ -340,9 +375,9 @@ def self_play_finding(team: dict, self_play: set[str]) -> Finding | None:
     if team["team_id_master"] not in self_play:
         return None
     return Finding(
-        "This row has a game against itself",
-        ["A row that plays itself holds two squads, so no duplicate is suggested for it."],
-        "Split the row (merging-duplicate-teams skill, fused rows).",
+        "Has a game against itself",
+        ["A team that plays itself is usually two squads saved as one, so no duplicate is suggested."],
+        "Ask Claude to split the team.",
     )
 
 
@@ -356,10 +391,10 @@ def name_age_findings(team: dict) -> list[Finding]:
         if ages and ages_contradict(ages, team["age_group"]):
             return [
                 Finding(
-                    f"Name says {age_label(ages)}, stored {team['age_group']}",
+                    f"Name says {age_label(ages)}, but it's on the {team['age_group']} board",
                     [f'"{name}"'],
-                    "Check with the correcting-team-age-groups skill. A two-year band in the "
-                    "name decides; a bare birth year can mean either of two age groups.",
+                    "Ask Claude to check the age group. A two-year band in the name (like 2015/16) "
+                    "settles it; a single birth year can mean either of two age groups.",
                 )
             ]
     return []
@@ -388,11 +423,15 @@ def opponent_age_findings(team: dict, sched: dict, opponents: dict) -> list[Find
         return []
     return [
         Finding(
-            f"This season's opponents point to {leading}, stored {team['age_group']}",
-            [f"{count} of {total} opponents whose names state an age are {leading}"],
-            "Check with the correcting-team-age-groups skill. A squad that plays up all season is labelled correctly.",
+            f"This season's opponents are mostly {leading}, but it's on the {team['age_group']} board",
+            [f"{count} of {total} opponents whose names give an age are {leading}"],
+            "Ask Claude to check the age group. A team that plays up all season is labelled correctly.",
         )
     ]
+
+
+def gender_word(gender: str) -> str:
+    return GENDER_WORDS.get(gender, gender)
 
 
 def gender_and_state_findings(team: dict) -> list[Finding]:
@@ -401,17 +440,17 @@ def gender_and_state_findings(team: dict) -> list[Finding]:
     if said and said != team["gender"]:
         findings.append(
             Finding(
-                f"Name says {said}, stored {team['gender']}",
+                f"Name says {gender_word(said)}, but it's saved as {gender_word(team['gender'])}",
                 [f'"{registered_name(team)}"'],
-                "Fix the gender; the name settles it.",
+                "Ask Claude to fix the gender. The name settles it.",
             )
         )
     if not team["state_code"]:
         findings.append(
             Finding(
                 "No state",
-                ["The team is on no state board."],
-                "Fill it with the assigning-team-states skill.",
+                ["It isn't on any state ranking."],
+                "Ask Claude to fill in the state.",
             )
         )
     return findings
@@ -427,61 +466,96 @@ def provider_findings(team: dict, aliases: list[dict], providers: dict, still_mi
     if not gotsport:
         findings.append(
             Finding(
-                "No GotSport link, so the scrape cannot reach this team",
+                "No GotSport link, so the scrape can't reach this team",
                 [f"Linked only to: {', '.join(sorted(links)) or 'nothing'}"],
-                "Find the squad's GotSport team and link it to this row, then request the scrape again.",
+                "Find the team on GotSport and link it, then ask for the scrape again.",
             )
         )
     elif len(gotsport) >= FUSED_REGISTRATION_THRESHOLD:
         findings.append(
             Finding(
-                f"{len(gotsport)} GotSport registrations on one row",
+                f"{len(gotsport)} GotSport registrations on one team",
                 [f"GotSport ids: {', '.join(sorted(gotsport))}"],
-                "Check whether the row fuses several squads (merging-duplicate-teams skill).",
+                "Ask Claude to check whether this team is really several squads saved as one.",
             )
         )
-    if links:
+    if links and still_missing:
         findings.append(
             Finding(
-                "Also linked to providers the GotSport scrape never reads",
-                [f"{code}: {PROVIDER_REFRESH.get(code, DEFAULT_REFRESH)}" for code in sorted(links)],
-                "If the missing game was played there, it arrives through that provider's import, not this click.",
-                problem=still_missing,
+                "Also gets games from sources this scrape doesn't read",
+                [PROVIDER_REFRESH.get(code, f"{code}: {DEFAULT_REFRESH}") for code in sorted(links)],
+                "If the missing game was played there, it comes in with that source's own import.",
             )
         )
     return findings
 
 
-def scrape_outcome(click: dict) -> str:
+def failure_reason(message: str | None) -> str:
+    message = _API_KEY.sub("apikey=<redacted>", message or "no reason given")
+    if "not found on gotsport (404)" in message:
+        return "GotSport has no page for this team's id any more"
+    if message.startswith("No scraper available"):
+        return "not a GotSport team, and it has no GotSport link to scrape instead"
+    if message.startswith("WAF blocked"):
+        return "GotSport blocked the request"
+    return message[:160]
+
+
+def saved_between(value: str | None, began: datetime, ended: datetime) -> bool:
+    return value is not None and began <= datetime.fromisoformat(value) <= ended
+
+
+def saved_before(value: str | None, moment: datetime) -> bool:
+    return value is not None and datetime.fromisoformat(value) < moment
+
+
+def scrape_result(click: dict, fixtures: list[Fixture]) -> ScrapeResult:
+    """How the click's scrape ended, and what it brought in: games first saved while it ran,
+    and games already on record before it began that it gave a score."""
     r = click["request"]
     if r is None:
         if click["scrape_request_id"]:
-            return "queue request no longer on record"
-        return "not scraped for this date: the team's queued request is for another date or registration"
-    if r["status"] == "completed":
-        return f"scraped, {r['games_found'] or 0} games found"
-    if r["status"] == "failed":
-        message = _API_KEY.sub("apikey=<redacted>", r["error_message"] or "no message")
-        return f"failed: {message[:160]}"
-    return f"not scraped yet ({r['status']})"
-
-
-def scrape_lines(clicks: list[dict], fixtures: list[Fixture], opponents: dict, providers: dict) -> list[str]:
-    lines = []
-    for click in clicks:
-        lines.append(f"Requested {click['game_date']}: {scrape_outcome(click)}")
-        asked = date.fromisoformat(click["game_date"])
-        near = sorted(
-            (f for f in fixtures if f.date and abs((date.fromisoformat(f.date) - asked).days) <= DATE_SLACK_DAYS),
-            key=lambda f: f.date,
+            return ScrapeResult("Scrape record no longer on file")
+        return ScrapeResult(
+            "Not scraped for this date: the team already had a scrape waiting for another date or GotSport id"
         )
-        for f in near:
-            score = "no score" if None in f.score else f"{f.score[0]}-{f.score[1]}"
-            opponent = (opponents.get(f.opponent) or {}).get("team_name", "unknown opponent")
-            hidden = " [hidden]" if f.game["is_excluded"] else ""
-            lines.append(f"  {f.date} vs {opponent}, {score}, {providers.get(f.game['provider_id'], '?')}{hidden}")
-        if not any(f.date == click["game_date"] for f in near):
-            lines.append(f"  no game on record for {click['game_date']}")
+    if r["status"] == "failed":
+        return ScrapeResult(f"Scrape failed: {failure_reason(r['error_message'])}")
+    if r["status"] == "processing":
+        return ScrapeResult("Scrape is still running")
+    if r["status"] != "completed":
+        return ScrapeResult("Scrape hasn't run yet")
+    if r["processed_at"] is None:
+        return ScrapeResult("Scrape finished, but its start time wasn't saved, so new games can't be counted")
+    began = datetime.fromisoformat(r["processed_at"])
+    ended = datetime.fromisoformat(r["completed_at"]) + CLOCK_SLACK
+    added, scored = [], []
+    for f in fixtures:
+        if saved_between(f.game["created_at"], began, ended):
+            added.append(f)
+        # A score filled onto a stored fixture takes the scrape's scraped_at, which the scraper writes
+        # from its naive local clock: UTC on the Actions runners that drain the queue.
+        elif (
+            None not in f.score
+            and saved_before(f.game["created_at"], began)
+            and saved_between(f.game["scraped_at"], began, ended)
+        ):
+            scored.append(f)
+    parts = [plural(len(games), word) for games, word in ((added, "new game"), (scored, "missing score")) if games]
+    return ScrapeResult(f"Added {' and '.join(parts)}" if parts else "Nothing new", added, scored)
+
+
+def game_lines(fixtures, opponents: dict) -> list[str]:
+    lines = []
+    for f in sorted(fixtures, key=lambda f: f.date or "", reverse=True):
+        opponent = (opponents.get(f.opponent) or {}).get("team_name", "unknown opponent")
+        mine, theirs = f.score
+        if mine is None or theirs is None:
+            result = "no score yet"
+        else:
+            result = f"{'won' if mine > theirs else 'lost' if mine < theirs else 'tied'} {mine}-{theirs}"
+        hidden = " (hidden)" if f.game["is_excluded"] else ""
+        lines.append(f"{nice_date(f.date) if f.date else 'no date'} vs {opponent}: {result}{hidden}")
     return lines
 
 
@@ -490,9 +564,9 @@ def hidden_game_finding(requested: set[str], fixtures: list[Fixture]) -> Finding
     if not dates:
         return None
     return Finding(
-        "The requested game is on record but hidden",
-        [f"Hidden game on {d}" for d in dates],
-        "Find why it was hidden before un-hiding it; the exclude scripts keep a rollback log.",
+        "The game on that date is hidden",
+        [f"Hidden game on {nice_date(d)}" for d in dates],
+        "Ask Claude why it was hidden before un-hiding it.",
     )
 
 
@@ -528,7 +602,21 @@ def investigate_team(sb, team, clicks, *, canonical, merge_map, keep_index, prov
         *gender_and_state_findings(team),
         *provider_findings(team, aliases, providers, still_missing),
     ]
-    return TeamReport(team, clicks, scrape_lines(clicks, fixtures, opponents, providers), [f for f in findings if f])
+    # Refused clicks have no request id, so they share the None key and one outcome.
+    by_request = {}
+    for c in clicks:
+        by_request.setdefault(c["scrape_request_id"], scrape_result(c, fixtures))
+    results = list(by_request.values())
+    added = {f.game["id"]: f for r in results for f in r.added}
+    scored = {f.game["id"]: f for r in results for f in r.scored if f.game["id"] not in added}
+    return TeamReport(
+        team,
+        clicks,
+        [r.outcome for r in results],
+        game_lines(added.values(), opponents),
+        game_lines(scored.values(), opponents),
+        [f for f in findings if f],
+    )
 
 
 def investigate(sb, start: datetime, end: datetime) -> tuple[list[TeamReport], list[str]]:
@@ -553,7 +641,7 @@ def investigate(sb, start: datetime, end: datetime) -> tuple[list[TeamReport], l
     reports = []
     for team_id, team_clicks in by_team.items():
         if team_id not in teams:
-            caveats.append(f"A clicked team's row was not found ({team_id})")
+            caveats.append(f"A clicked team could not be found ({team_id})")
             continue
         reports.append(
             investigate_team(
@@ -566,31 +654,59 @@ def investigate(sb, start: datetime, end: datetime) -> tuple[list[TeamReport], l
                 providers=providers,
             )
         )
-    reports.sort(key=lambda r: (-len(r.problems), r.team["team_name"]))
+    reports.sort(key=lambda r: (-len(r.findings), r.team["team_name"]))
     return reports, caveats
 
 
-def heading(team: dict) -> str:
-    return f"{team['team_name']} ({team['age_group']} {team['gender']}, {team['state_code'] or 'no state'})"
+FOOTER = "This email only reports: it changes nothing. It comes every 3 hours when someone asked for a missing game."
+
+
+def team_url(team: dict) -> str:
+    return f"{SITE_URL}/teams/{team['team_id_master']}"
+
+
+def team_label(team: dict) -> str:
+    return f"{team['age_group']} {gender_word(team['gender']).capitalize()}, {team['state_code'] or 'no state'}"
+
+
+def asked_about(report: TeamReport) -> str:
+    return ", ".join(nice_date(d) for d in sorted({c["game_date"] for c in report.clicks}))
+
+
+def listed(lines: list[str]) -> list[str]:
+    extra = len(lines) - MAX_GAMES_LISTED
+    return lines[:MAX_GAMES_LISTED] + ([f"and {extra} more"] if extra > 0 else [])
+
+
+def tally(reports: list[TeamReport]) -> str:
+    with_new = sum(1 for r in reports if r.game_lists)
+    flagged = sum(1 for r in reports if r.findings)
+    need = "needs" if flagged == 1 else "need"
+    return f"{plural(len(reports), 'team')}, {with_new} with new games or scores, {flagged} {need} a look"
 
 
 def subject(reports: list[TeamReport], label: str) -> str:
-    flagged = sum(1 for r in reports if r.problems)
-    return f"PitchRank: {len(reports)} missing-game request team(s), {flagged} need a look ({label})"
+    return f"PitchRank missing games: {tally(reports)} ({label})"
 
 
 def render_text(reports: list[TeamReport], caveats: list[str], label: str) -> str:
-    lines = [f"Missing-game requests, {label}: {len(reports)} team(s). Report only; nothing was changed."]
-    lines += caveats
+    lines = [f"Missing-game requests, {label}", tally(reports), *caveats]
     for r in reports:
-        lines += ["", heading(r.team), f"{SITE_URL}/teams/{r.team['team_id_master']}", *r.scrape]
-        if not r.findings:
-            lines.append("Nothing else found.")
+        lines += [
+            "",
+            f"{r.team['team_name']} ({team_label(r.team)})",
+            team_url(r.team),
+            f"Asked about: {asked_about(r)}",
+            f"Scrape: {'; '.join(r.outcomes)}",
+        ]
+        for title, games in r.game_lists:
+            lines += [f"{title} ({len(games)}):", *(f"  {g}" for g in listed(games))]
         for f in r.findings:
-            lines += [f"* {f.title}" + ("" if f.problem else " (for context)")]
-            lines += [f"    {d}" for d in f.details]
-            lines.append(f"    Next step: {f.next_step}")
-    return "\n".join(lines)
+            lines.append(f"Needs a look: {f.title}")
+            lines += [f"  {row['team_name']} {text} {team_url(row)}" for row, text in f.teams]
+            lines += [f"  {d}" for d in f.details]
+            lines.append(f"  What to do: {f.next_step}")
+    return "\n".join([*lines, "", FOOTER])
 
 
 def render_html(reports: list[TeamReport], caveats: list[str], label: str) -> str:
@@ -598,36 +714,54 @@ def render_html(reports: list[TeamReport], caveats: list[str], label: str) -> st
         return html.escape(str(value), quote=True)
 
     def link(team: dict) -> str:
-        return f"<a href='{esc(SITE_URL)}/teams/{esc(team['team_id_master'])}'>{esc(team['team_name'])}</a>"
+        return f"<a href='{esc(team_url(team))}' style='color:#0B5345'>{esc(team['team_name'])}</a>"
 
-    def scrape_item(line: str) -> str:
-        indent = " style='margin-left:20px'" if line.startswith("  ") else ""
-        return f"<li{indent}>{esc(line.strip())}</li>"
+    def bullets(items: list[str]) -> str:
+        return "<ul style='margin:4px 0 0; padding-left:20px'>" + "".join(f"<li>{i}</li>" for i in items) + "</ul>"
+
+    muted = "color:#666; font-size:13px"
+    cell = "padding:8px 10px; border-bottom:1px solid #e3e3e3; vertical-align:top; text-align:left"
+    added = f"{cell}; font-weight:bold; color:#0B5345"
+
+    def needs(r: TeamReport) -> str:
+        titles = "".join(f"<p style='margin:0 0 6px'>{esc(f.title)}</p>" for f in r.findings)
+        return titles or f"<span style='{muted}'>None</span>"
 
     rows = "".join(
-        f"<tr><td style='padding:6px 12px'>{link(r.team)}</td>"
-        f"<td style='padding:6px 12px'>{esc(', '.join(sorted({c['game_date'] for c in r.clicks})))}</td>"
-        f"<td style='padding:6px 12px'>{esc('; '.join(f.title for f in r.problems) or 'nothing found')}</td></tr>"
+        f"<tr><td style='{cell}'>{link(r.team)}<br><span style='{muted}'>{esc(team_label(r.team))}</span></td>"
+        f"<td style='{cell}'>{esc(asked_about(r))}</td>"
+        f"<td style='{added if r.game_lists else cell}'>{esc('; '.join(r.outcomes))}</td>"
+        f"<td style='{cell}'>{needs(r)}</td></tr>"
         for r in reports
     )
     parts = [
-        f"<h2>Missing-game requests, {esc(label)}</h2>",
-        f"<p>{len(reports)} team(s). Report only: nothing was changed.</p>",
-        *(f"<p><b>{esc(c)}</b></p>" for c in caveats),
-        "<table border='1' cellpadding='0' cellspacing='0' "
-        "style='border-collapse:collapse; font-family:sans-serif; font-size:14px'>"
-        "<tr style='background:#f5f5f5'><th style='padding:8px 12px; text-align:left'>Team</th>"
-        "<th style='padding:8px 12px; text-align:left'>Requested</th>"
-        f"<th style='padding:8px 12px; text-align:left'>Needs a look</th></tr>{rows}</table>",
+        "<div style='font-family:Arial,Helvetica,sans-serif; font-size:15px; line-height:1.45; "
+        "color:#1a1a1a; max-width:720px'>",
+        "<h2 style='margin:0; color:#0B5345'>Missing-game requests</h2>",
+        f"<p style='margin:2px 0 12px; {muted}'>{esc(label)}</p>",
+        f"<p style='margin:0 0 12px'><b>{esc(tally(reports))}</b></p>",
+        *(f"<p style='margin:0 0 12px; padding:8px 10px; background:#fff4d6'>{esc(c)}</p>" for c in caveats),
+        "<table cellpadding='0' cellspacing='0' style='border-collapse:collapse; width:100%; font-size:14px'>"
+        f"<tr style='background:#eef3f1'><th style='{cell}'>Team</th><th style='{cell}'>Asked about</th>"
+        f"<th style='{cell}'>What the scrape added</th><th style='{cell}'>Needs a look</th></tr>{rows}</table>",
     ]
     for r in reports:
-        parts.append(f"<h3>{esc(heading(r.team))}</h3><p>{link(r.team)}</p>")
-        parts.append("<ul>" + "".join(scrape_item(line) for line in r.scrape) + "</ul>")
+        if not (r.game_lists or r.findings):
+            continue
+        parts.append(
+            f"<h3 style='margin:28px 0 0; font-size:17px'>{link(r.team)}</h3>"
+            f"<p style='margin:0 0 6px; {muted}'>{esc(team_label(r.team))}, asked about {esc(asked_about(r))}</p>"
+        )
+        for title, games in r.game_lists:
+            parts.append(f"<p style='margin:10px 0 0'><b>{title} ({len(games)})</b></p>")
+            parts.append(bullets([esc(g) for g in listed(games)]))
         for f in r.findings:
-            parts.append(f"<p><b>{esc(f.title)}</b>{'' if f.problem else ' (for context)'}</p>")
-            parts.append("<ul>" + "".join(f"<li>{esc(d)}</li>" for d in f.details) + "</ul>")
-            parts.append(f"<p>Next step: {esc(f.next_step)}</p>")
-    parts.append("<p style='color:#666; font-size:12px'>Sent by the investigate-missing-game-requests workflow.</p>")
+            parts.append(f"<p style='margin:14px 0 0'><b style='color:#9a3412'>{esc(f.title)}</b></p>")
+            items = [f"{link(row)} {esc(text)}" for row, text in f.teams] + [esc(d) for d in f.details]
+            if items:
+                parts.append(bullets(items))
+            parts.append(f"<p style='margin:4px 0 0'>What to do: {esc(f.next_step)}</p>")
+    parts.append(f"<p style='margin:28px 0 0; {muted}'>{esc(FOOTER)}</p></div>")
     return "\n".join(parts)
 
 

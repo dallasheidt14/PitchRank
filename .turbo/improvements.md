@@ -3356,3 +3356,11 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `parse_event_url` and its `_EVENT_URL` pattern in `scripts/import_athletes2events_event.py`
 - **Why**: `--event-url` accepts only `https://<host>.athletes2events.com/events/<id>`. The `/groups` link an operator copies from the site (`…/events/198/groups`) is refused with "not an Athletes2Events event URL", and the run exits before any fetch. Accept a trailing page segment and read the host and id from it, as the Tourney Central importer takes any page of a tournament.
 - **Noted**: 2026-11-19
+
+### Stamp Clear Queue's completed_at in UTC
+
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `_finalize_queue_items` in `scripts/drain_queue.py` (`now_iso = datetime.now().isoformat()`, written as `completed_at` on completed and failed rows)
+- **Why**: The claim side stamps `processed_at` in UTC (`claim_queue_items` sets `NOW()`, the fallback uses `datetime.now(timezone.utc)`), but finalize writes a naive local time that Postgres reads as UTC. Correct on the Actions runners; a run on an Arizona machine stores `completed_at` 7 hours early, so it precedes `processed_at` and anything windowing on the pair, such as the missing-game email's new-games count, reads nothing. Checked 2026-11-19: 0 of 350,635 completed requests in 60 days are inverted, so no stored row is affected yet. Fix: `datetime.now(timezone.utc)`.
+- **Noted**: 2026-11-19

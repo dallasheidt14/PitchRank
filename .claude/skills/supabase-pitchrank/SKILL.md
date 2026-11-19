@@ -86,6 +86,22 @@ last changed as the later of `scraped_at` and the newest `game_corrections.appro
 Scrapers write a naive local `datetime.now()` that the database reads as UTC, so allow a day's
 margin when comparing `scraped_at` with a UTC time.
 
+**What one scrape request added.** A `scrape_requests` row's `processed_at` and `completed_at`
+bracket its import: `process_missing_games.py` stamps both from the runner's UTC clock, sets each
+request `processing`, imports the whole run's games in one batch (`_flush_pending_imports`), then
+sets each request that found games `completed` (one that found none is completed at once). The
+team's games, merged ids included, whose `created_at` falls in `[processed_at, completed_at + 1
+minute]` are the rows saved while it ran, which in practice is what it added; another request's or
+writer's game for the team can rarely land in the window too. The minute covers the runner's clock
+against the database's `now()`. A score it filled onto a stored fixture is a game saved before
+`processed_at`, with both scores set and `scraped_at` inside the window; that needs no day's margin
+only because the Actions runners' local clock is UTC. `drain_queue.py` (Help Clear Queue) stamps
+`completed_at` once for its whole bulk run, so its window spans the run, and writes it as naive
+local time: from a machine in another zone it lands hours off and the window reads nothing. A
+completed row can lack `processed_at` (2 of about 158,000 in 30 days, measured 2026-11-19); report
+it as uncountable. `scrape_result` in `scripts/investigate_missing_game_requests.py` is the worked
+example.
+
 To correct one stored game, insert a `game_corrections` row (`correction_type` `score`, with
 `original_values` and `corrected_values`) and call the `apply_game_correction(correction_id,
 approver_name)` RPC; the immutability trigger rejects a direct `.update()` on scores. Put `result`
