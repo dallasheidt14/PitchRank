@@ -130,7 +130,8 @@ FROM teams;
 
 Strip generic words from the needle first — `FC`, `SC`, `UNITED`, `ACADEMY`, `SOCCER`, `CLUB`,
 `ELITE`, `PREMIER` — and strip `Boys`/`Girls`, which normalisation deletes from stored names. Zero
-across all three columns is absence. A non-zero `by_club` with zero elsewhere means the club exists
+across all three columns is absence once the club's initials have been probed too (see
+`name-decomposition.md`). A non-zero `by_club` with zero elsewhere means the club exists
 but this squad does not.
 
 ## Verifying a candidate from fixtures

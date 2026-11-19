@@ -3340,3 +3340,19 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `.claude/skills/splitting-fused-provider-ids/scripts/` (new), from the local `data/exports/fused_rows_2026-11-18/` scripts `fused_scan.py`, `fused_plan.py`, `fused_apply.py`, `fused_verify.py`
 - **Why**: The 2026-11-18 repair needed a detector, GotSport lookups, a grouping step (new row / existing row / undo a merge / hold), a resumable driver and a database verifier, all written ad hoc with hardcoded dates and paths in a gitignored folder. The skill also has no tool for hiding a moving id's unscored fixtures, which it requires; the driver's version refuses a fixture whose same-pair twin the exclusion trigger would also hide. Generalise and test them so the next scan (101 one-day rows, 558 same-event rows, TGS) does not rebuild them.
 - **Noted**: 2026-11-18
+
+### Accept a Jul 31 cutoff in the Soccer Events Group importer, as Athletes2Events does
+
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `division_birth_year` in `scripts/import_soccereventsgroup_event.py` (its `(cutoff.month, cutoff.day) != (8, 1)` gate)
+- **Why**: Athletes2Events' `division_birth_year` reads a Jul 31 "Born on or after" cutoff as the Aug 1 season start (owner, 2026-11-18: "I think the July 31 is the same as August 1 it means new season"); SEG's gate refuses any `oldestEligibleBirthdate` that is not Aug 1. The value comes from SEG's API, and all 7 in `tests/fixtures/soccereventsgroup/program.json` are `-08-01`. A `-07-31` would show only as teams skipped with "division names no single U10-U19 cohort", which does not name the cutoff. SEG also checks the label with `calculate_age_group_from_birth_year`, whose age-20 fold passes a U19 division cut at 2006-08-01 (the aged-out 2007/06 band) that `calculate_age_group_from_band` refuses.
+- **Noted**: 2026-11-19
+
+### Let the Athletes2Events importer take any page of an event, not only its bare URL
+
+- **Type**: direct
+- **Category**: dx
+- **Where**: `parse_event_url` and its `_EVENT_URL` pattern in `scripts/import_athletes2events_event.py`
+- **Why**: `--event-url` accepts only `https://<host>.athletes2events.com/events/<id>`. The `/groups` link an operator copies from the site (`…/events/198/groups`) is refused with "not an Athletes2Events event URL", and the run exits before any fetch. Accept a trailing page segment and read the host and id from it, as the Tourney Central importer takes any page of a tournament.
+- **Noted**: 2026-11-19
