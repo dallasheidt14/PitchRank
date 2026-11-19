@@ -782,7 +782,7 @@ are server-rendered HTML with a declared UTF-8 charset and answer `requests` sen
 User-Agent, no proxy and no bot challenge. `scripts/import_athletes2events_event.py` is the
 driver; it takes `--event-url` and reads the host from it, because one provider row covers every
 subdomain. Pass the event's own URL, `https://<host>.athletes2events.com/events/<id>`: a page link
-such as `.../groups` is refused. Event 130 (Crossfire's 2026 ZF Labor Day Challenge) is the event it
+such as `https://<host>.athletes2events.com/events/<id>/groups` is refused. Event 130 (Crossfire's 2026 ZF Labor Day Challenge) is the event it
 was built against. The roster comes only from teams in scored games, so a dry run before an event's
 scores post reads its divisions and flights but builds no teams; judge such a run by the
 skipped-division lines among its printed problems, not its team report.
