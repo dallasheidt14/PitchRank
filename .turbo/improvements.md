@@ -3340,3 +3340,11 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `.claude/skills/splitting-fused-provider-ids/scripts/` (new), from the local `data/exports/fused_rows_2026-11-18/` scripts `fused_scan.py`, `fused_plan.py`, `fused_apply.py`, `fused_verify.py`
 - **Why**: The 2026-11-18 repair needed a detector, GotSport lookups, a grouping step (new row / existing row / undo a merge / hold), a resumable driver and a database verifier, all written ad hoc with hardcoded dates and paths in a gitignored folder. The skill also has no tool for hiding a moving id's unscored fixtures, which it requires; the driver's version refuses a fixture whose same-pair twin the exclusion trigger would also hide. Generalise and test them so the next scan (101 one-day rows, 558 same-event rows, TGS) does not rebuild them.
 - **Noted**: 2026-11-18
+
+### Stamp Clear Queue's completed_at in UTC
+
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `_finalize_queue_items` in `scripts/drain_queue.py` (`now_iso = datetime.now().isoformat()`, written as `completed_at` on completed and failed rows)
+- **Why**: The claim side stamps `processed_at` in UTC (`claim_queue_items` sets `NOW()`, the fallback uses `datetime.now(timezone.utc)`), but finalize writes a naive local time that Postgres reads as UTC. Correct on the Actions runners; a run on an Arizona machine stores `completed_at` 7 hours early, so it precedes `processed_at` and anything windowing on the pair, such as the missing-game email's new-games count, reads nothing. Checked 2026-11-19: 0 of 350,635 completed requests in 60 days are inverted, so no stored row is affected yet. Fix: `datetime.now(timezone.utc)`.
+- **Noted**: 2026-11-19
