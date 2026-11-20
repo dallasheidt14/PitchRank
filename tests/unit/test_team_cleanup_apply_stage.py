@@ -946,6 +946,7 @@ EXEMPT_SCRIPTS = {
 # A script a workflow step runs, by path or as a module (python -m scripts.<name>).
 SCRIPT_IN_RUN = re.compile(r"scripts/(?:[\w-]+/)*(\w+\.py)|-m\s*scripts\.(?:\w+\.)*(\w+)")
 NOT_A_WRITER = {
+    "compare-forecast-catchup.yml": "dispatches private forecast collectors and reads coverage; no team writes",
     "compare-winner-study.yml": "writes only private winner forecasts and research reports; "
     "never writes teams, states, ages or games, and publishes no rankings",
     "compare-score-study.yml": "writes only private score forecasts and research reports; "

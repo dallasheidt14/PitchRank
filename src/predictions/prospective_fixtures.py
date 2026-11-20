@@ -103,7 +103,7 @@ def history_band(count):
     return "0" if count == 0 else "1-3" if count < 4 else "4-7" if count < 8 else "8+"
 
 
-def database_fixture_inventory(client, *, today=None):
+def database_fixture_inventory(client, *, today=None, include_predictions=True):
     """Read the complete available pool, retaining exclusion reasons and source denominators."""
     today = today or datetime.now(timezone.utc).date()
     first, last = [(today + timedelta(days=n)).isoformat() for n in (1, 7)]
@@ -114,8 +114,10 @@ def database_fixture_inventory(client, *, today=None):
     resolver = strict_resolver(client)
     providers = {row["id"]: row["code"] for row in paged(
         lambda: client.table("providers").select("id,code").order("id"))}
+    fields = "fixture_key,source_game_id,provider_code,heuristic_prediction_status"
+    fields += ",heuristic_prediction" if include_predictions else ",game_date,source_system"
     existing_rows = list(paged(lambda: client.table("prospective_match_predictions")
-                              .select("fixture_key,source_game_id,provider_code,heuristic_prediction_status,heuristic_prediction")
+                              .select(fields)
                               .gte("game_date", first).lte("game_date", last).order("id")))
     existing = {row["fixture_key"] for row in existing_rows}
     excluded = {canonical(resolver, row["team_id_master"]) for row in paged(
