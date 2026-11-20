@@ -91,16 +91,12 @@ def _grantees(clause: str) -> set[str]:
     return set(BROWSER) if "public" in roles else roles & set(BROWSER)
 
 
-@lru_cache(maxsize=None)
-def browser_readable_columns(name: str, kind: str = "table") -> dict[str, set[str] | None]:
-    """Role -> the columns it may SELECT on `name` after every migration, or None for all of it.
+def privilege_events(name: str, kind: str = "table"):
+    """Each statement that changes who holds a privilege on `name`, oldest first.
 
-    pg_default_acl gives anon and authenticated the whole of a new relation, so a plain CREATE or a
-    DROP starts the role over at None; CREATE OR REPLACE keeps the ACL. A table-wide REVOKE also clears
-    column grants, as Postgres does, while a REVOKE FROM PUBLIC leaves a role's own grants standing.
-    For a sequence any privilege counts as access, and only a REVOKE ALL takes it away.
+    Yields None for a plain CREATE or DROP of the relation (CREATE OR REPLACE keeps the ACL), else the
+    PRIVILEGE_STATEMENT match of each GRANT or REVOKE that reaches it.
     """
-    access: dict[str, set[str] | None] = {role: None for role in BROWSER}
     for _, sql in _sources():
         for match in STATEMENT.finditer(sql):
             statement = _flat(match.group(0))
@@ -108,27 +104,42 @@ def browser_readable_columns(name: str, kind: str = "table") -> dict[str, set[st
             if not verb.startswith(("grant", "revoke")):
                 rebuilt = re.sub(RELATION_VERB, "", statement)
                 if "or replace" not in verb and re.match(rf"(?is){_ref(name)}(\s|,|\(|;|$)", rebuilt):
-                    access = {role: None for role in BROWSER}
+                    yield None
                 continue
             parts = PRIVILEGE_STATEMENT.match(statement)
-            if not parts or not _targets(parts.group(3).strip(), name, kind):
-                continue
-            privileges = parts.group(2)
-            relevant = r"\b(select|all)\b" if kind == "table" else r"\b(select|all|usage|update)\b"
-            if not re.search(rf"(?is){relevant}", privileges):
-                continue
-            columns = re.search(r"(?is)\bselect\s*\(([^)]*)\)", privileges)
-            listed = {c.strip().strip('"').lower() for c in columns.group(1).split(",")} if columns else None
-            if verb == "grant":
-                for role in _grantees(parts.group(5)):
-                    held = access[role]
-                    access[role] = None if listed is None or held is None else held | listed
-            elif kind == "table" or re.search(r"(?is)\ball\b", privileges):
-                for role in _roles(parts.group(5)) & set(BROWSER):
-                    if listed is None:
-                        access[role] = set()
-                    elif access[role] is not None:
-                        access[role] = access[role] - listed
+            if parts and _targets(parts.group(3).strip(), name, kind):
+                yield parts
+
+
+@lru_cache(maxsize=None)
+def browser_readable_columns(name: str, kind: str = "table") -> dict[str, set[str] | None]:
+    """Role -> the columns it may SELECT on `name` after every migration, or None for all of it.
+
+    A rebuild starts each role over at None. A table-wide REVOKE also clears
+    column grants, as Postgres does, while a REVOKE FROM PUBLIC leaves a role's own grants standing.
+    For a sequence any privilege counts as access, and only a REVOKE ALL takes it away.
+    """
+    access: dict[str, set[str] | None] = {role: None for role in BROWSER}
+    for parts in privilege_events(name, kind):
+        if parts is None:
+            access = {role: None for role in BROWSER}
+            continue
+        privileges = parts.group(2)
+        relevant = r"\b(select|all)\b" if kind == "table" else r"\b(select|all|usage|update)\b"
+        if not re.search(rf"(?is){relevant}", privileges):
+            continue
+        columns = re.search(r"(?is)\bselect\s*\(([^)]*)\)", privileges)
+        listed = {c.strip().strip('"').lower() for c in columns.group(1).split(",")} if columns else None
+        if parts.group(1).lower() == "grant":
+            for role in _grantees(parts.group(5)):
+                held = access[role]
+                access[role] = None if listed is None or held is None else held | listed
+        elif kind == "table" or re.search(r"(?is)\ball\b", privileges):
+            for role in _roles(parts.group(5)) & set(BROWSER):
+                if listed is None:
+                    access[role] = set()
+                elif access[role] is not None:
+                    access[role] = access[role] - listed
     return access
 
 
@@ -186,21 +197,32 @@ def _live_policies(table: str) -> dict[str, str]:
     return live
 
 
+def policy_roles(body: str) -> set[str] | None:
+    """The browser-reachable roles a permissive policy body names, or None with no TO clause (PUBLIC).
+
+    A restrictive policy grants nothing, so it names none.
+    """
+    if re.search(r"(?is)\bas\s+restrictive\b", body):
+        return set()
+    to_clause = re.search(r"(?is)\bto\s+(.*?)(?=\busing\b|\bwith\s+check\b|$)", body)
+    return None if to_clause is None else _roles(to_clause.group(1))
+
+
+def policy_qualifier(body: str, clause: str) -> str | None:
+    """`true` or `false` when the policy's USING or WITH CHECK is that literal, else None."""
+    found = re.search(rf"(?is)\b{clause}\s*\(\s*(true|false)\s*\)", body)
+    return found.group(1).lower() if found else None
+
+
 def _opens_to_browser(body: str) -> bool:
     """Whether a permissive policy body lets a browser role read or write rows.
 
-    No TO clause means PUBLIC. A qualifier of false grants nothing; WITH CHECK falls back to USING.
+    A qualifier of false grants nothing; WITH CHECK falls back to USING.
     """
-    if re.search(r"(?is)\bas\s+restrictive\b", body):
+    if policy_roles(body) == set():
         return False
-    to_clause = re.search(r"(?is)\bto\s+(.*?)(?=\busing\b|\bwith\s+check\b|$)", body)
-    if to_clause is not None and not _roles(to_clause.group(1)):
-        return False
-    using = re.search(r"(?is)\busing\s*\(\s*(true|false)\s*\)", body)
-    check = re.search(r"(?is)\bwith\s+check\s*\(\s*(true|false)\s*\)", body)
-    reads = using is None or using.group(1).lower() != "false"
-    writes = (check or using) is None or (check or using).group(1).lower() != "false"
-    return reads or writes
+    using, check = policy_qualifier(body, "using"), policy_qualifier(body, r"with\s+check")
+    return using != "false" or (check or using) != "false"
 
 
 def _frontend_sources() -> list[tuple[str, str]]:

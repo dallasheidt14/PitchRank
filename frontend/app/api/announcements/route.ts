@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/supabase/admin';
 import { createServerSupabase } from '@/lib/supabase/server';
+import { createServiceSupabase } from '@/lib/supabase/service';
 
 export interface Announcement {
   id: string;
@@ -39,7 +40,6 @@ export async function POST(request: NextRequest) {
   try {
     const auth = await requireAdmin();
     if (auth.error) return auth.error;
-    const { supabase } = auth;
 
     const body = await request.json();
     const { message, author } = body;
@@ -48,6 +48,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Message is required' }, { status: 400 });
     }
 
+    // The browser roles hold no write on announcements, so the insert needs the service client.
+    const supabase = createServiceSupabase();
     const { data, error } = await supabase
       .from('announcements')
       .insert({

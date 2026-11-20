@@ -144,6 +144,7 @@ frontend/
     `scripts/team_cleanup/advance.py` runs once the lane has applied; the table allows one pending request per lane
 - `GET /api/team-aliases/[teamId]`
 - `GET|POST|DELETE /api/team-merge/*`
+- `POST /api/announcements` (inserts with the service client; the browser roles hold no write on the table)
 
 ### Data Operations (requireAdmin)
 
