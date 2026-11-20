@@ -3397,3 +3397,11 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: every writer and reader of `unknown_<provider_team_id>`; grep `unknown_` across `scripts/`, `src/`, `frontend/lib/` and `supabase/migrations/` (the scrape-eligibility functions match it in SQL). The writer is the fallback name in `build_unknown_profile` (`scripts/auto_match_unknown_opponents.py`)
 - **Why**: A team GotSport has not named yet is stored as `unknown_<provider_team_id>` (3,559 live rows on 2026-11-20), and the public key reads `team_name`, so with the provider-id columns hidden (`20261121000100`) these names are the last place it can read a provider team id. Changing the placeholder means changing every reader of the pattern with it; IMP-126 (one definition for the predicate) is the natural first step.
 - **Noted**: 2026-11-20
+
+### Fail a site write to a service-only table that skips the service client
+
+- **Type**: plan
+- **Category**: testing
+- **Where**: `tests/unit/test_browser_write_grants_migration.py` beside `SERVICE_WRITTEN_TABLES`; frontend `.from('<table>')` chains that call `.insert/.update/.upsert/.delete`
+- **Why**: The browser roles hold no write on the tables in `SERVICE_WRITTEN_TABLES` (verified live 2026-11-20: a public-key write gets 401/42501), so a route that writes one through `createServerSupabase()` or `requireAdmin`'s session client fails at runtime while every test stays green. The read side has `test_every_site_read_stays_inside_the_grant_or_runs_on_the_service_key`; a write-side twin with an allow-list of service-client writers would catch it before deploy. Raised by the 2026-11-20 coverage review and skipped there as an unasked guard, since the failure is loud.
+- **Noted**: 2026-11-20

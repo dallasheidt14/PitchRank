@@ -645,6 +645,16 @@ checked both. Resolve both before calling a gap a hole or dismissing one:
 TRUNCATE and REFERENCES are the asymmetry to remember: RLS governs SELECT/INSERT/UPDATE/
 DELETE only, so for those two the grant is the whole story.
 
+To test the `anon` grant from outside without changing data, send the public key requests that
+cannot write a row. A refusal is 401 with `42501` and "permission denied for table"; any other
+`42501` (a filter column the role cannot read, a refused sequence) proves nothing either way.
+`authenticated` answers 403 instead and needs a session token.
+- A PATCH or DELETE whose filter matches no row: a 2xx shows only that the grant is held. On a table
+  with RLS on, a missing write policy still refuses every row silently, so resolve the policy too.
+- An INSERT that omits a NOT NULL column with no default, identity or filling trigger: 400 with
+  `23502` means the grant and an insert policy admit the role. Omit a column that has a default and
+  the row is written.
+
 ### Migration history cannot prove a grant EXISTS
 
 It can only prove that nothing revoked one. `pg_default_acl` grants `anon`/`authenticated`
@@ -935,6 +945,13 @@ ledger, then merge. A PR whose Python script names the column follows the same o
 team-cleanup autopilot moves `C:\pitchrank-weekly` to `origin/main` each Wednesday and runs its
 scripts from there, so a script naming a column the database lacks fails every tick of the next run
 until the column exists, every stage of it when the name sits in a column list the stages share.
+
+A migration that closes a live access hole is applied before its branch is even pushed: this repo
+is public, so a part held back until after the deploy publishes the hole for the whole PR-to-deploy
+window. When applying it early only breaks a rarely used path until the deploy lands (count how often
+that path runs), apply everything first, then push. When it would break a busy path, ship the code
+change first in a PR that leaves the migration out, apply the migration once that deploys, then push
+the migration file.
 
 To search a function body, use `strpos(p.prosrc, 'x')`. `pg_catalog.position('x' in p.prosrc)` is
 a syntax error (42601) in any client, migrations included: only the bare keyword takes the `IN`
