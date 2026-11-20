@@ -6,6 +6,8 @@
 -- games_with_resolved_teams, recent_merge_activity and exclude_games_for_team_in_range run as their
 -- owner, so their own grant is all that decides who reaches them; nothing outside the service role
 -- uses any of them.
+-- No migration creates scheduled_games or games_with_resolved_teams, so their statements run only
+-- where the object exists.
 
 ALTER TABLE public.team_link_audit ENABLE ROW LEVEL SECURITY;
 
@@ -31,20 +33,31 @@ CREATE POLICY "team_merge_audit_service_role_all" ON public.team_merge_audit
 
 REVOKE ALL ON public.team_merge_audit FROM anon, authenticated;
 
-ALTER TABLE public.scheduled_games ENABLE ROW LEVEL SECURITY;
+DO $$
+BEGIN
+    IF to_regclass('public.scheduled_games') IS NOT NULL THEN
+        ALTER TABLE public.scheduled_games ENABLE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS "scheduled_games_deny_all" ON public.scheduled_games;
-CREATE POLICY "scheduled_games_deny_all" ON public.scheduled_games
-    FOR ALL TO anon, authenticated USING (false) WITH CHECK (false);
+        DROP POLICY IF EXISTS "scheduled_games_deny_all" ON public.scheduled_games;
+        CREATE POLICY "scheduled_games_deny_all" ON public.scheduled_games
+            FOR ALL TO anon, authenticated USING (false) WITH CHECK (false);
 
-DROP POLICY IF EXISTS "scheduled_games_service_role_all" ON public.scheduled_games;
-CREATE POLICY "scheduled_games_service_role_all" ON public.scheduled_games
-    FOR ALL TO service_role USING (true) WITH CHECK (true);
+        DROP POLICY IF EXISTS "scheduled_games_service_role_all" ON public.scheduled_games;
+        CREATE POLICY "scheduled_games_service_role_all" ON public.scheduled_games
+            FOR ALL TO service_role USING (true) WITH CHECK (true);
 
-REVOKE ALL ON public.scheduled_games FROM anon, authenticated;
-REVOKE ALL ON SEQUENCE public.scheduled_games_id_seq FROM anon, authenticated;
+        REVOKE ALL ON public.scheduled_games FROM anon, authenticated;
+    END IF;
 
-REVOKE ALL ON public.games_with_resolved_teams FROM anon, authenticated;
+    IF to_regclass('public.scheduled_games_id_seq') IS NOT NULL THEN
+        REVOKE ALL ON SEQUENCE public.scheduled_games_id_seq FROM anon, authenticated;
+    END IF;
+
+    IF to_regclass('public.games_with_resolved_teams') IS NOT NULL THEN
+        REVOKE ALL ON public.games_with_resolved_teams FROM anon, authenticated;
+    END IF;
+END
+$$;
 REVOKE ALL ON public.recent_merge_activity FROM anon, authenticated;
 
 REVOKE EXECUTE ON FUNCTION public.exclude_games_for_team_in_range(uuid, date, date, boolean)
