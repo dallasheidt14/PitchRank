@@ -35,6 +35,12 @@ jobs:
       - uses: actions/checkout@v5
         with:
           ref: ${{ vars.COMPARE_MONITOR_REVISION || github.sha }}
+      - name: Checkout operational launcher separately from the registered predictor
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          path: monitor-tools
+          persist-credentials: false
       - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
@@ -59,7 +65,7 @@ jobs:
         run: |
           MODE_ARGS=()
           if [ "$EXECUTE" = 'true' ]; then MODE_ARGS+=(--execute); fi
-          NODE_OPTIONS=--conditions=react-server npx tsx scripts/capture-compare-monitoring.ts --limit "$LIMIT" "${MODE_ARGS[@]}"
+          NODE_OPTIONS=--conditions=react-server npx tsx "$GITHUB_WORKSPACE/monitor-tools/frontend/scripts/run-compare-monitoring.mjs" --limit "$LIMIT" "${MODE_ARGS[@]}"
       - name: Review eligible results privately
         if: env.MODE == 'review'
         shell: bash
