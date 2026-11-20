@@ -19,6 +19,7 @@ from scripts import import_athletes2events_event as a2e
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "athletes2events"
 HOST = "crossfire.athletes2events.com"
+SOMSPORTS = "somsports.athletes2events.com"
 SEASON = 2026
 
 
@@ -72,8 +73,22 @@ class TestParseEventUrl:
     @pytest.mark.parametrize(
         "url",
         [
+            "https://somsports.athletes2events.com/events/198/groups",
+            "https://somsports.athletes2events.com/events/198/schedules?flight-id=2224",
+            "https://somsports.athletes2events.com/events/198/",
+        ],
+    )
+    def test_any_page_of_the_event_yields_its_host_and_event_id(self, url):
+        assert a2e.parse_event_url(url) == (SOMSPORTS, 198)
+
+    @pytest.mark.parametrize(
+        "url",
+        [
             "https://crossfire.athletes2events.com/events/",
             "https://crossfire.athletes2events.com/events/abc",
+            "https://somsports.athletes2events.com/events/198x",
+            "https://somsports.athletes2events.com/events/19٨/groups",
+            "http://somsports.athletes2events.com/events/198/groups",
             "https://athletes2events.com/events/130",
             "https://crossfire.example.com/events/130",
             "https://crossfire.athletes2events.com.evil.test/events/130",
@@ -342,6 +357,47 @@ class TestSplitClub:
     def test_another_host_does_not_get_this_hosts_club_table(self):
         assert a2e.split_club("XF U10 RCL 2", "somsports.athletes2events.com")[0] == "XF"
 
+    @pytest.mark.parametrize(
+        "name, clubs",
+        [
+            ("LASC PRE MLS NEXT U11", ("Los Angeles Soccer Club", "LASC")),
+            ("HB Slammers Pre-ECNL GU12 Crowley", ("CDA Slammers", "HB Slammers")),
+            ("Slammers FC ECNL U13", ("CDA Slammers", "Slammers FC")),
+            ("LAFC GU12 Gold pre-ecnl", ("LAFC So Cal", "LAFC")),
+            ("South Valley N1 B2012/13", ("South Valley Surf SC", "South Valley")),
+            ("NW Elite U14 Boys", ("Northwest Elite Soccer Club", "NW Elite")),
+            ("AVSC BU14 Black N1", ("Apple Valley SC", "AVSC")),
+            ("Progressive BU11 Yellow", ("Progressive Soccer Ozzy", "Progressive")),
+            ("LAOT Academy", ("LA Overtime", "LAOT")),
+            ("FSC United 12/13 Girls", ("FSC United", "FSC United")),
+            ("LASC-SCV BU15 N1", ("LASC-SCV", "LASC-SCV")),
+        ],
+    )
+    def test_surf_cups_own_club_names_are_resolved(self, name, clubs):
+        """FSC United is not Flagstaff SC (owner, 2026-11-19) and LASC-SCV is not LASC: each keeps its own club."""
+        assert a2e.split_club(name, SOMSPORTS, stop=a2e._A2E_CLUB_STOP) == clubs
+
+    @pytest.mark.parametrize(
+        "name, clubs",
+        [
+            ("Santa Clara Sporting 16/17B White", ("Santa Clara Sporting", "Santa Clara Sporting")),
+            ("Inland Surf Elite U10, Coach Lopez", ("Inland Surf Elite", "Inland Surf Elite")),
+            ("1974 Newark Fc, Ecnl RL B2012/13, Ayllon", ("1974 Newark Fc", "1974 Newark Fc")),
+        ],
+    )
+    def test_the_athletes2events_stop_ends_the_club_at_a_bare_band_and_keeps_a_founding_year(self, name, clubs):
+        assert a2e.split_club(name, SOMSPORTS, stop=a2e._A2E_CLUB_STOP) == clubs
+
+    @pytest.mark.parametrize(
+        "name, clubs",
+        [
+            ("Santa Clara Sporting 16/17B White", ("Santa Clara Sporting 16/17B White",) * 2),
+            ("1974 Newark Fc, Ecnl RL B2012/13, Ayllon", (None, None)),
+        ],
+    )
+    def test_the_default_stop_the_other_drivers_use_is_unchanged(self, name, clubs):
+        assert a2e.split_club(name, SOMSPORTS) == clubs
+
 
 # Distinct per side, so a row builder that reads the home team where it should read
 # the opponent is visible in every dimension it varies. birth_year is deliberately
@@ -536,6 +592,24 @@ class TestBuildRoster:
 
         assert by_id["6195"].club_name == "Crossfire Select Soccer Club"
         assert by_id["5587"].club_name == "Crossfire Premier"
+
+    def test_the_roster_pass_splits_clubs_with_the_athletes2events_stop(self):
+        event = a2e.Event(SOMSPORTS, 198, "Surf College Cup", date(2026, 11, 28), date(2026, 11, 29))
+        divisions = {
+            "12710": a2e.Division(2224, "Boys-U10", "Gold", "Male", 10, 2017),
+            "12910": a2e.Division(2225, "Boys-U14", "Gold", "Male", 14, 2013),
+        }
+        headers = {
+            "12710": ("Boys-U10 Santa Clara Sporting 16/17B White (CA)", ""),
+            "12910": ("Boys-U14 1974 Newark Fc, Ecnl RL B2012/13, Ayllon (CA)", ""),
+        }
+
+        in_scope, skipped = a2e.build_roster(headers, divisions, event, SEASON)
+
+        assert {r.a2e_team_id: (r.club_name, r.club_as_written) for r in in_scope + skipped} == {
+            "12710": ("Santa Clara Sporting", "Santa Clara Sporting"),
+            "12910": ("1974 Newark Fc", "1974 Newark Fc"),
+        }
 
     def test_the_state_comes_from_the_team_page(self):
         in_scope, _, _, _ = self._roster()

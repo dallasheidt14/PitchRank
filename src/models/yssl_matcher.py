@@ -5,9 +5,10 @@ YSSL teams are registered by a roster pass in ``scripts/import_yssl.py``, as
 Athletes2Events teams are, and need the same matching: the club gate (the driver
 passes PitchRank's club name from ``config/yssl_club_map.csv`` as ``club_name``
 and YSSL's own spelling as ``written_club``), the squad and tier gates, state
-scoping, and review for ties. So this reuses that matcher whole.
+scoping, and review for ties. So this reuses that matcher, with its Athletes2Events-only
+rules off.
 
-Two things differ.
+Two more things differ.
 
 YSSL names a squad by words the shared gates do not read: a branch (``RUSH -
 WILMETTE WINGS``, ``RUSH OSWEGO``), a location (``DARIEN``, ``NAPERVILLE``) or a
@@ -27,7 +28,17 @@ import re
 from typing import Dict, FrozenSet, Optional, Tuple
 
 from src.models.athletes2events_matcher import Athletes2EventsGameMatcher
-from src.models.tournament_name_gates import begins, canonical_team_name, initials, is_boys, without_club
+from src.models.tournament_name_gates import (
+    _BAND,
+    _ROMAN,
+    begins,
+    canonical_team_name,
+    initials,
+    is_boys,
+    squad_number_fits,
+    squad_numbers,
+    without_club,
+)
 from src.utils.team_name_utils import resolve_distinction
 from src.utils.us_states import STATE_CODE_TO_NAME
 
@@ -40,8 +51,8 @@ _YSSL_SHORTHAND = {"UTD": "UNITED", "SEL": "SELECT", "PREM": "PREMIER", "ACAD": 
 _SHORTHAND = re.compile(r"\b(" + "|".join(_YSSL_SHORTHAND) + r")\b", re.IGNORECASE)
 
 
-_ROMAN = {"i": 1, "ii": 2, "iii": 3, "iv": 4}
-_ROMAN_SQUAD = re.compile(r"\b(IV|I{1,3})\b", re.IGNORECASE)
+# ASCII-only numeral: under IGNORECASE alone "İ" and "ı" match "I" and miss the table.
+_ROMAN_SQUAD = re.compile(r"\b(?a:(IV|I{1,3}))\b", re.IGNORECASE)
 
 
 def roman_to_digits(team_name: str) -> str:
@@ -51,18 +62,6 @@ def roman_to_digits(team_name: str) -> str:
 
 def expand_shorthand(team_name: str) -> str:
     return roman_to_digits(_SHORTHAND.sub(lambda m: _YSSL_SHORTHAND[m.group(1).upper()], team_name))
-
-
-_SQUAD_NUMBER = re.compile(r"(?<![\d/])\b(?:([1-9])|(iv|i{1,3})|([1-9])(?:st|nd|rd|th))\b(?![\d/])", re.IGNORECASE)
-_BAND = re.compile(r"(?<!\d)(?:20)?\d{2}\s*/\s*(?:20)?\d{2}(?!\d)[bg]?", re.IGNORECASE)
-
-
-def squad_numbers(text: str) -> FrozenSet[int]:
-    """Standalone squad numbers: 2, II and 2ND alike. Ages, years and bands are not squad numbers."""
-    return frozenset(
-        int(digit or ordinal) if (digit or ordinal) else _ROMAN[roman.lower()]
-        for digit, roman, ordinal in _SQUAD_NUMBER.findall(_BAND.sub(" ", text))
-    )
 
 
 def yssl_squad_number(team_name: str) -> Optional[int]:
@@ -76,9 +75,7 @@ def yssl_squad_number(team_name: str) -> Optional[int]:
 
 
 def _fits_squad_number(number: Optional[int], candidate: Dict) -> bool:
-    """An unnumbered or first squad fits a stored name with no number or a 1; a later squad needs its own number."""
-    stored = squad_numbers(candidate.get("team_name") or "")
-    return number in stored if number and number >= 2 else not stored or 1 in stored
+    return squad_number_fits(number, candidate.get("team_name") or "")
 
 
 def distinguishing_words(team_name: str, written_club: Optional[str], club_name: Optional[str]) -> FrozenSet[str]:
@@ -104,6 +101,7 @@ def _carries(words: FrozenSet[str], candidate: Dict) -> bool:
 class YSSLGameMatcher(Athletes2EventsGameMatcher):
     """Athletes2Events matching, narrowed to candidates carrying the YSSL name's own words."""
 
+    athletes2events_rules = False
     _required_words: FrozenSet[str] = frozenset()
     _squad_number: Optional[int] = None
     _yssl_name: Optional[str] = None

@@ -1976,3 +1976,13 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Noted**: 2026-11-17
 - **Update (2026-11-17)**: The team-matches fetch, the module-level `_zenrows_get`, the event-page render and the SincSports `ZenRowsSession` now send through `_redacted_zenrows_get` in `src/scrapers/_zenrows.py`, which re-raises a request error of the same type with the key stripped and the keyed original kept out of its traceback, and strips it from `response.url`. Importing that module attaches a filter to every urllib3 logger already loaded, which strips it from urllib3's own retry and header-parse warnings, written before the request returns; the event-roster fetcher imports its endpoint from there so its process gets the filter too.
 - **Refs**: branch `fix/redact-zenrows-key-in-scrape-errors`; `tests/unit/test_zenrows_key_stays_out_of_scrape_errors.py`
+
+### Let the Athletes2Events importer take any page of an event, not only its bare URL
+
+- **Status**: done
+- **Type**: direct
+- **Category**: dx
+- **Where**: `parse_event_url` and its `_EVENT_URL` pattern in `scripts/import_athletes2events_event.py`
+- **Why**: `--event-url` accepts only `https://<host>.athletes2events.com/events/<id>`. The `/groups` link an operator copies from the site (`…/events/198/groups`) is refused with "not an Athletes2Events event URL", and the run exits before any fetch. Accept a trailing page segment and read the host and id from it, as the Tourney Central importer takes any page of a tournament.
+- **Noted**: 2026-11-19
+- **Refs**: branch `feat/a2e-somsports-matching`; `test_any_page_of_the_event_yields_its_host_and_event_id` in `tests/unit/test_import_athletes2events_event.py`
