@@ -992,7 +992,7 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
     {
       question: 'What youth soccer leagues operate in Washington?',
       answer:
-        'Washington teams compete in ECNL, MLS NEXT, Girls Academy (GA), ECNL Regional League Northwest, the National 1 League, and the Northwest Conference — plus state competition through WYS premier divisions and the Washington State Cup. The Seattle Sounders Academy is the top boys pathway in the region.',
+        'Washington teams compete in ECNL, MLS NEXT, the Elite Academy League (EA), Girls Academy (GA), ECNL Regional League Northwest, the National 1 League, and the Northwest Conference — plus state competition through WYS premier divisions and the Washington State Cup. The Seattle Sounders Academy is the top boys pathway in the region.',
     },
     {
       question: 'How do Eastside and Eastern Washington clubs compare in rankings?',
