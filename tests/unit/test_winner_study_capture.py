@@ -5,6 +5,7 @@ from copy import deepcopy
 from types import SimpleNamespace
 
 import pytest
+from postgrest.exceptions import APIError
 
 from src.predictions import winner_study as study
 from tests.score_study_fixtures import baseline, parent_row
@@ -34,11 +35,18 @@ class Client:
 class Query:
     def __init__(self, client, name, args=None):
         self.client, self.name, self.args, self.filters = client, name, args, {}
+        self.selected = None
 
     def select(self, fields):
+        self.selected = fields
         return self
 
     def eq(self, key, value):
+        columns = {
+            "compare_winner_studies": {"signature"},
+            "compare_winner_forecasts": {"study_signature", "baseline_forecast_id", "monitor_signature"},
+        }
+        assert key in columns[self.name], "Unknown filter column: " + key
         self.filters[key] = value
         return self
 
@@ -47,9 +55,18 @@ class Query:
 
     def execute(self):
         c, args, name = self.client, self.args, self.name
+        json.dumps(args, allow_nan=False)
         c.calls.append((name, deepcopy(args)))
         if name == "compare_winner_studies":
-            data = {"manifest": c.manifest, "registered_at": "2026-11-20T01:00:00Z"}
+            data = {
+                "signature": c.signature,
+                "manifest": c.manifest,
+                "registered_at": "2026-11-20T01:00:00Z",
+                **{
+                    key: c.manifest[key]
+                    for key in ("monitor_signature", "capture_start", "capture_end", "review_not_before")
+                },
+            }
         elif name == "register_compare_winner_study":
             data = c.signature
         elif name == "compare_winner_capture_queue":
@@ -63,8 +80,15 @@ class Query:
             c.saved[args["p_baseline"]] = args["p_payload"]
             data = True
         elif name == "compare_winner_forecasts":
-            raw = c.saved[self.filters["baseline_forecast_id"]]
+            raw = c.saved.get(self.filters["baseline_forecast_id"])
+            if raw is None:
+                raise APIError(
+                    {"code": "PGRST116", "message": "No matching row", "details": "The result contains 0 rows"}
+                )
             data = {
+                "study_signature": c.signature,
+                "baseline_forecast_id": self.filters["baseline_forecast_id"],
+                "monitor_signature": c.manifest["monitor_signature"],
                 "payload": json.loads(raw),
                 "payload_sha256": "0" * 64 if c.bad_hash else study.digest(raw.encode()),
                 "captured_at": "2026-11-20T01:00:00Z",
@@ -75,6 +99,10 @@ class Query:
             data = c.released if c.released is not None else [{"open": False, "captured": len(c.saved)}]
         else:
             raise AssertionError("Unexpected private API: " + name)
+        if self.filters and any(data[key] != value for key, value in self.filters.items()):
+            raise APIError({"code": "PGRST116", "message": "No matching row", "details": "The result contains 0 rows"})
+        if self.selected and self.selected != "*":
+            data = {field: data[field] for field in self.selected.split(",")}
         return SimpleNamespace(data=data)
 
 
