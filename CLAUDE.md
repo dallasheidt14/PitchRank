@@ -736,6 +736,7 @@ two-line edit in `.github/workflows/claude-code-review.yml`.
 | `weekly-prospective-refresh.yml` | Daily 4:15 AM UTC, gated | Capture Compare forecasts for stored upcoming fixtures; requires `COMPARE_CAPTURE_ENABLED=true` after the pilot |
 | `compare-live-monitoring.yml` | Daily 6:20 AM UTC and Monday 5:30 PM UTC, gated | Save current Compare and SOS alternatives privately, then review eligible results; requires `COMPARE_MONITOR_ENABLED=true` and a pinned `COMPARE_MONITOR_REVISION` after the pilot |
 | `compare-score-study.yml` | After successful scheduled Compare monitoring; Monday 6:00 PM UTC, gated | Save registered score candidates before match day and report coverage or released results privately; requires `COMPARE_SCORE_STUDY_SIGNATURE`, with no live promotion |
+| `compare-winner-study.yml` | After successful scheduled Compare monitoring; Monday 6:00 PM UTC, gated | Save the fixed weighted winner candidate before match day and report coverage or released results privately; requires `COMPARE_WINNER_STUDY_SIGNATURE`, with no live promotion |
 | `compare-weekend-tuning.yml` | Daily 5:20 PM UTC, gated | Private November 14–15 Compare diagnostic; requires `COMPARE_WEEKEND_TUNING_ARCHIVE`, reads results after November 16 UTC, and never deploys a model |
 | `smoke-infographics.yml` | Daily 1:17 PM UTC | Smoke-test the infographic OG routes |
 | `check-stuck-signups.yml` | Every 6 hours | Flag signups stuck mid-flow, and send a fresh set-password link at 24h and 72h to new guest buyers who never signed in |
