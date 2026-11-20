@@ -184,6 +184,12 @@ So:
 - `club_name` is absent from `team_name` on roughly half of rows, and is itself NULL or empty on a
   large share of fresh rows. Any `club_name ILIKE` predicate is an implicit NOT NULL filter that
   removes the newest rows first.
+- A stored name often writes the club as its initials while `club_name` spells it out
+  (`1974 NFC 2013B ECNL-RL` under `1974 Newark FC`, `SDSC BU13 ECRL` under `San Diego Surf - SDSC`),
+  and a roster does the same (`LAOT` for `LA Overtime`). These initials usually keep the `FC`/`SC`
+  letters and may split a compound word (`Overtime` → `OT`), unlike the significant-words initialism
+  under *Accents, punctuation and acronyms*. Before calling a club absent, probe its initials in
+  stored names, and expand a roster's initials into the club they stand for.
 - `src/utils/club_normalizer.py` is DB-free and offers `are_same_club()` and `group_by_club()`
   against a canonical-club registry. Its confidence of 0.8 with `matched_canonical=False` means *no
   club was identified*, not "80% sure".

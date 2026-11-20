@@ -9,7 +9,8 @@ a range() that no order() precedes, and serves at most `cap` rows per response. 
 postgrest-py, which sends None as the text "None", its eq() and in_() never match NULL. It has
 no write methods, so any write the script attempted would raise.
 
-Fixture dates hang off the current season's start, because "this season" moves every Aug 1.
+Dates the season rules read hang off the current season's start, because "this season" moves
+every Aug 1; dates that only test formatting are fixed.
 """
 
 import os
@@ -53,7 +54,11 @@ def team(team_id, name, *, club="Rush", age="u10", gender="Male", state="CO", pr
     }
 
 
-def game(game_id, home, away, when, *, excluded=False, score=(1, 0), provider=GS):
+# Saved long before any scrape the tests run.
+BEFORE = "2026-01-05T00:00:00+00:00"
+
+
+def game(game_id, home, away, when, *, excluded=False, score=(1, 0), created=BEFORE, scraped=BEFORE):
     return {
         "id": game_id,
         "home_team_master_id": home,
@@ -62,7 +67,8 @@ def game(game_id, home, away, when, *, excluded=False, score=(1, 0), provider=GS
         "home_score": score[0],
         "away_score": score[1],
         "is_excluded": excluded,
-        "provider_id": provider,
+        "created_at": created,
+        "scraped_at": scraped,
     }
 
 
@@ -160,8 +166,12 @@ class _Supabase:
         return _Table(name, self._tables[name], self._cap)
 
 
-def queue_row(req_id, *, status="completed", found=3, error=None):
-    return {"id": req_id, "status": status, "games_found": found, "error_message": error}
+# Fractional seconds trimmed as PostgREST returns them, not padded to 3 or 6 digits.
+RAN = ("2026-11-18T21:00:40.8078+00:00", "2026-11-18T21:09:23.4+00:00")
+
+
+def queue_row(req_id, *, status="completed", ran=RAN, error=None):
+    return {"id": req_id, "status": status, "processed_at": ran[0], "completed_at": ran[1], "error_message": error}
 
 
 def click(click_id, team_id, when_utc, *, game_date, request_id=None):
@@ -191,9 +201,31 @@ def test_the_window_ends_on_the_latest_three_hour_utc_boundary():
 
 
 def test_the_window_is_labelled_in_arizona_time():
-    start, end = datetime(2026, 11, 16, 6, tzinfo=UTC), datetime(2026, 11, 16, 9, tzinfo=UTC)
+    def label(start_hour, day=16):
+        start = datetime(2026, 11, day, start_hour, tzinfo=UTC)
+        return img.window_label(start, start + timedelta(hours=3))
 
-    assert img.window_label(start, end) == "2026-11-15 23:00 to 2026-11-16 02:00 Arizona time"
+    assert label(21) == "Mon Nov 16, 2 PM to 5 PM Arizona time"
+    assert label(6) == "Sun Nov 15, 11 PM to Mon Nov 16, 2 AM Arizona time"
+    assert label(15) == "Mon Nov 16, 8 AM to 11 AM Arizona time"
+    assert label(18) == "Mon Nov 16, 11 AM to 2 PM Arizona time"
+
+
+def test_a_hand_run_window_off_the_hour_keeps_its_minutes():
+    start = datetime(2026, 11, 16, 15, 30, tzinfo=UTC)
+
+    assert img.window_label(start, start + timedelta(hours=3)) == "Mon Nov 16, 8:30 AM to 11:30 AM Arizona time"
+
+
+def test_midnight_and_noon_read_as_twelve():
+    assert img.clock(datetime(2026, 11, 16, 0)) == "12 AM"
+    assert img.clock(datetime(2026, 11, 16, 12)) == "12 PM"
+    assert img.clock(datetime(2026, 11, 16, 13, 5)) == "1:05 PM"
+
+
+def test_dates_read_as_a_weekday_month_and_day():
+    assert img.nice_date("2026-11-07") == "Sat Nov 7"
+    assert img.nice_date(date(2026, 9, 12)) == "Sat Sep 12"
 
 
 def test_fetch_clicks_reads_the_window_past_the_cap_and_attaches_each_queue_request():
@@ -320,7 +352,7 @@ def test_rows_that_played_each_other_are_two_squads():
 def test_the_same_game_on_both_rows_is_the_strongest_sign():
     games = [game("g1", "a", "x", day(20), score=(2, 1)), game("g2", "x", "b", day(20), score=(1, 2))]
 
-    assert reason(games) == "1 game(s) stored on both rows (same opponent, same day)"
+    assert reason(games) == "1 game saved on both teams (same opponent, same day)"
 
 
 def test_the_same_opponent_on_one_day_with_another_score_is_two_games():
@@ -351,13 +383,13 @@ def test_a_game_stored_twice_does_not_outweigh_different_games_on_another_day():
 def test_a_row_holding_an_extra_game_on_the_doubled_day_still_reads_as_one_squad():
     games = [game("g1", "a", "x", day(20)), game("g2", "b", "x", day(20)), game("g3", "a", "y", day(20))]
 
-    assert reason(games) == "1 game(s) stored on both rows (same opponent, same day)"
+    assert reason(games) == "1 game saved on both teams (same opponent, same day)"
 
 
 def test_a_blank_fixture_and_its_scored_copy_are_one_game():
     games = [game("g1", "a", "x", day(20), score=(None, None)), game("g2", "x", "b", day(20), score=(0, 2))]
 
-    assert reason(games) == "1 game(s) stored on both rows (same opponent, same day)"
+    assert reason(games) == "1 game saved on both teams (same opponent, same day)"
 
 
 def test_two_half_scored_games_against_one_opponent_are_two_games():
@@ -393,7 +425,7 @@ def test_a_row_that_plays_itself_is_never_a_duplicate(fused):
 def test_a_row_holding_the_requested_game_is_named():
     games = [game("g1", "a", "x", day(10)), game("g2", "b", "y", day(20))]
 
-    assert reason(games, requested=[day(20)]) == f"holds a game on the requested date ({day(20)})"
+    assert reason(games, requested=[day(20)]) == f"has a game on the date asked about ({img.nice_date(day(20))})"
 
 
 def test_a_schedule_split_across_two_rows_needs_two_shared_opponents_this_season():
@@ -406,7 +438,7 @@ def test_a_schedule_split_across_two_rows_needs_two_shared_opponents_this_season
     one = split[:3]
     last_season = [game("g5", "b", "y", day(-30)), *one]
 
-    assert reason(split) == "schedule split across both rows: 2 shared opponents this season, never the same day"
+    assert reason(split) == "2 of the same opponents this season, never on the same day"
     assert reason(one) is None
     assert reason(last_season) is None
 
@@ -414,7 +446,7 @@ def test_a_schedule_split_across_two_rows_needs_two_shared_opponents_this_season
 def test_a_name_alone_counts_from_090():
     games = [game("g1", "a", "x", day(10))]
 
-    assert reason(games, score=0.90) == "same squad by name; no game evidence either way"
+    assert reason(games, score=0.90) == "same name; their games don't say either way"
     assert reason(games, score=0.89) is None
 
 
@@ -430,7 +462,7 @@ def test_the_season_starts_on_the_last_august_first():
 def test_a_name_stating_another_age_is_flagged():
     findings = img.name_age_findings(team("a", "Rush U12 Boys Blue", age="u13"))
 
-    assert [f.title for f in findings] == ["Name says u12, stored u13"]
+    assert [f.title for f in findings] == ["Name says u12, but it's on the u13 board"]
 
 
 def test_a_bare_birth_year_fitting_either_of_its_ages_is_not_flagged():
@@ -441,7 +473,7 @@ def test_a_bare_birth_year_fitting_either_of_its_ages_is_not_flagged():
 def test_the_registered_name_is_read_too():
     findings = img.name_age_findings(team("a", "Rush Blue", age="u13", original="Rush U12 Blue"))
 
-    assert [f.title for f in findings] == ["Name says u12, stored u13"]
+    assert [f.title for f in findings] == ["Name says u12, but it's on the u13 board"]
 
 
 def opponent_case(names, *, own="Rush B2016 Samba", stored="u11", when=None, hidden=()):
@@ -454,13 +486,16 @@ def test_opponents_whose_names_agree_on_another_age_are_flagged():
     findings = opponent_case(["X U10", "Y U10", "Z 2016/17", "W U10B"])
 
     assert [(f.title, f.details) for f in findings] == [
-        ("This season's opponents point to u10, stored u11", ["4 of 4 opponents whose names state an age are u10"])
+        (
+            "This season's opponents are mostly u10, but it's on the u11 board",
+            ["4 of 4 opponents whose names give an age are u10"],
+        )
     ]
 
 
 def test_three_of_four_is_enough():
     assert [f.title for f in opponent_case(["X U10", "Y U10", "Z U10", "W U11"])] == [
-        "This season's opponents point to u10, stored u11"
+        "This season's opponents are mostly u10, but it's on the u11 board"
     ]
 
 
@@ -500,7 +535,7 @@ def test_a_name_stating_its_own_age_is_not_measured_against_its_opponents(own):
 def test_gender_against_the_name_and_a_missing_state_are_flagged():
     titles = [f.title for f in img.gender_and_state_findings(team("a", "Rush U10 Girls", state=None))]
 
-    assert titles == ["Name says Female, stored Male", "No state"]
+    assert titles == ["Name says girls, but it's saved as boys", "No state"]
 
 
 # --- providers -------------------------------------------------------------------------------
@@ -515,14 +550,14 @@ def test_a_team_with_no_gotsport_link_cannot_be_scraped():
         team("a", "Rush U10", provider=SINC), [alias("a", TGS, "9")], PROVIDER_CODES, False
     )
 
-    assert findings[0].title == "No GotSport link, so the scrape cannot reach this team"
+    assert findings[0].title == "No GotSport link, so the scrape can't reach this team"
     assert findings[0].details == ["Linked only to: sincsports, tgs"]
 
 
 def test_a_placeholder_gotsport_id_is_no_link():
     findings = img.provider_findings(team("a", "Rush U10", provider=GS, pid="None"), [], PROVIDER_CODES, False)
 
-    assert findings[0].title == "No GotSport link, so the scrape cannot reach this team"
+    assert findings[0].title == "No GotSport link, so the scrape can't reach this team"
 
 
 def test_a_gotsport_alias_on_a_row_from_another_provider_is_a_link():
@@ -530,18 +565,22 @@ def test_a_gotsport_alias_on_a_row_from_another_provider_is_a_link():
 
     findings = img.provider_findings(t, [alias("a", GS, "123")], PROVIDER_CODES, still_missing=True)
 
-    assert [(f.title, f.problem) for f in findings] == [
-        ("Also linked to providers the GotSport scrape never reads", True)
-    ]
-    assert findings[0].details == ["sincsports: SincSports tournaments: imported by hand, a month at a time"]
+    assert [f.title for f in findings] == ["Also gets games from sources this scrape doesn't read"]
+    assert findings[0].details == ["SincSports tournaments: imported by hand, a month at a time"]
 
 
-def test_other_providers_are_context_once_the_requested_game_is_on_record():
+def test_other_providers_are_left_out_once_the_requested_game_is_on_record():
     findings = img.provider_findings(team("a", "Rush U10"), [alias("a", TGS, "9")], PROVIDER_CODES, still_missing=False)
 
-    assert [(f.title, f.problem) for f in findings] == [
-        ("Also linked to providers the GotSport scrape never reads", False)
-    ]
+    assert findings == []
+
+
+def test_a_provider_without_a_refresh_note_is_named_by_its_code():
+    findings = img.provider_findings(
+        team("a", "Rush U10", provider="p-new"), [alias("a", GS, "1")], {**PROVIDER_CODES, "p-new": "newcomer"}, True
+    )
+
+    assert findings[0].details == ["newcomer: not read by the GotSport scrape; check that provider's own import"]
 
 
 def test_three_gotsport_registrations_on_one_row_are_flagged():
@@ -549,7 +588,7 @@ def test_three_gotsport_registrations_on_one_row_are_flagged():
 
     findings = img.provider_findings(t, [alias("a", GS, "2"), alias("a", GS, "3")], PROVIDER_CODES, False)
 
-    assert [f.title for f in findings] == ["3 GotSport registrations on one row"]
+    assert [f.title for f in findings] == ["3 GotSport registrations on one team"]
 
 
 def test_the_workflow_never_runs_a_dry_run_into_its_public_log():
@@ -577,56 +616,110 @@ def test_every_workflow_and_importer_the_refresh_notes_name_exists():
 # --- the scrape ------------------------------------------------------------------------------
 
 
-def lines_for(clicks, games, opponents=None):
-    names = {k: {"team_id_master": k, "team_name": v} for k, v in (opponents or {}).items()}
-    return img.scrape_lines(clicks, fixtures_for("a", games), names, PROVIDER_CODES)
+def result_for(request, games=(), request_id="req"):
+    return img.scrape_result(clicked(day(20), request, request_id), fixtures_for("a", list(games)))
 
 
 def test_each_click_states_how_its_scrape_ended():
-    clicks = [
-        clicked(day(40), queue_row("q", found=None)),
-        clicked(day(50), queue_row("q", status="failed", error="x" * 200)),
-        clicked(
-            day(55),
-            queue_row("q", status="failed", error="403 for url: https://api.zenrows.com/v1/?apikey=S3CRET&url=x"),
-        ),
-        clicked(day(60), queue_row("q", status="pending")),
-        clicked(day(70), None, request_id=None),
-        clicked(day(80), None),
-    ]
+    def failed(error):
+        return result_for(queue_row("q", status="failed", error=error)).outcome
 
-    assert lines_for(clicks, []) == [
-        f"Requested {day(40)}: scraped, 0 games found",
-        f"  no game on record for {day(40)}",
-        f"Requested {day(50)}: failed: {'x' * 160}",
-        f"  no game on record for {day(50)}",
-        f"Requested {day(55)}: failed: 403 for url: https://api.zenrows.com/v1/?apikey=<redacted>&url=x",
-        f"  no game on record for {day(55)}",
-        f"Requested {day(60)}: not scraped yet (pending)",
-        f"  no game on record for {day(60)}",
-        f"Requested {day(70)}: not scraped for this date: "
-        "the team's queued request is for another date or registration",
-        f"  no game on record for {day(70)}",
-        f"Requested {day(80)}: queue request no longer on record",
-        f"  no game on record for {day(80)}",
-    ]
+    assert result_for(queue_row("q")).outcome == "Nothing new"
+    assert failed(None) == "Scrape failed: no reason given"
+    assert failed("x" * 200) == f"Scrape failed: {'x' * 160}"
+    assert failed("403 for url: https://api.zenrows.com/v1/?apikey=S3CRET&url=x") == (
+        "Scrape failed: 403 for url: https://api.zenrows.com/v1/?apikey=<redacted>&url=x"
+    )
+    assert failed("Team 740723 not found on gotsport (404) - the provider_team_id may be outdated.") == (
+        "Scrape failed: GotSport has no page for this team's id any more"
+    )
+    assert failed("No scraper available for provider 'tgs' and no GotSport alias found") == (
+        "Scrape failed: not a GotSport team, and it has no GotSport link to scrape instead"
+    )
+    assert failed("WAF blocked: 403") == "Scrape failed: GotSport blocked the request"
+    assert result_for(queue_row("q", status="pending")).outcome == "Scrape hasn't run yet"
+    assert result_for(queue_row("q", status="processing")).outcome == "Scrape is still running"
+    assert result_for(None, request_id=None).outcome == (
+        "Not scraped for this date: the team already had a scrape waiting for another date or GotSport id"
+    )
+    assert result_for(None).outcome == "Scrape record no longer on file"
+    assert result_for(queue_row("q", ran=(None, RAN[1]))).outcome == (
+        "Scrape finished, but its start time wasn't saved, so new games can't be counted"
+    )
 
 
-def test_games_a_day_either_side_are_listed_from_the_team_s_side():
+def test_games_first_saved_while_the_scrape_ran_are_new():
     games = [
-        game("g1", "x", "a", day(19), score=(4, 1)),
-        game("g2", "a", "y", day(21), excluded=True, score=(None, None)),
-        game("g3", "a", "z", day(22)),
-        game("g4", "a", "z", day(18)),
+        game("before", "a", "x", day(1), created="2026-11-18T21:00:40.8+00:00"),
+        game("start", "a", "x", day(2), created="2026-11-18T21:00:40.8078+00:00"),
+        game("during", "x", "a", day(3), created="2026-11-18T21:05:00.12345+00:00"),
+        game("slack", "a", "x", day(4), created="2026-11-18T21:10:23.4+00:00"),
+        game("after", "a", "x", day(5), created="2026-11-18T21:10:23.5+00:00"),
     ]
 
-    lines = lines_for([clicked(day(20), queue_row("q"))], games, {"x": "Opp X", "y": "Opp Y"})
+    result = result_for(queue_row("q"), games)
+
+    assert [f.game["id"] for f in result.added] == ["start", "during", "slack"]
+    assert result.scored == []
+    assert result.outcome == "Added 3 new games"
+
+
+def test_a_score_filled_onto_a_game_already_on_record_counts_once():
+    games = [
+        game("filled", "a", "x", day(1), scraped="2026-11-18T21:04:00+00:00"),
+        game("blank", "a", "x", day(2), score=(None, None), scraped="2026-11-18T21:04:00+00:00"),
+        game("half", "a", "x", day(3), score=(2, None), scraped="2026-11-18T21:04:00+00:00"),
+        game("earlier", "a", "x", day(4), scraped="2026-11-18T20:59:00+00:00"),
+        game("never", "a", "x", day(5), scraped=None),
+        game("new", "a", "x", day(6), created="2026-11-18T21:05:00+00:00", scraped="2026-11-18T21:04:00+00:00"),
+        game("late", "a", "x", day(7), created="2026-11-18T21:12:00+00:00", scraped="2026-11-18T21:04:00+00:00"),
+        game("unsaved", "a", "x", day(8), created=None, scraped="2026-11-18T21:04:00+00:00"),
+    ]
+
+    result = result_for(queue_row("q"), games)
+
+    assert [f.game["id"] for f in result.added] == ["new"]
+    assert [f.game["id"] for f in result.scored] == ["filled"]
+    assert result.outcome == "Added 1 new game and 1 missing score"
+
+
+def test_a_scrape_that_only_filled_a_score_says_so():
+    games = [game("filled", "a", "x", day(1), scraped="2026-11-18T21:04:00+00:00")]
+
+    assert result_for(queue_row("q"), games).outcome == "Added 1 missing score"
+
+
+def test_a_failed_or_waiting_scrape_brings_nothing_in():
+    games = [game("during", "a", "x", day(3), created="2026-11-18T21:05:00+00:00")]
+
+    for request in (
+        queue_row("q", status="failed"),
+        queue_row("q", status="pending"),
+        queue_row("q", status="processing"),
+        None,
+    ):
+        result = result_for(request, games)
+        assert (result.added, result.scored) == ([], [])
+
+
+def test_games_read_from_the_team_s_side_newest_first():
+    games = [
+        game("g1", "x", "a", "2026-11-14", score=(4, 1)),
+        game("g2", "a", "y", "2026-11-15", excluded=True, score=(None, None)),
+        game("g3", "a", "z", "2026-11-16", score=(2, 2)),
+        game("g4", "a", None, "2026-11-13", score=(3, 0)),
+        game("g5", "a", "x", "2026-11-12", score=(0, 1)),
+    ]
+    names = {"x": {"team_id_master": "x", "team_name": "Opp X"}, "y": {"team_id_master": "y", "team_name": "Opp Y"}}
+
+    lines = img.game_lines(fixtures_for("a", games), names)
 
     assert lines == [
-        f"Requested {day(20)}: scraped, 3 games found",
-        f"  {day(19)} vs Opp X, 1-4, gotsport",
-        f"  {day(21)} vs Opp Y, no score, gotsport [hidden]",
-        f"  no game on record for {day(20)}",
+        "Mon Nov 16 vs unknown opponent: tied 2-2",
+        "Sun Nov 15 vs Opp Y: no score yet (hidden)",
+        "Sat Nov 14 vs Opp X: lost 1-4",
+        "Fri Nov 13 vs unknown opponent: won 3-0",
+        "Thu Nov 12 vs Opp X: lost 0-1",
     ]
 
 
@@ -634,7 +727,7 @@ def test_a_hidden_game_on_the_requested_date_is_flagged_only_when_nothing_visibl
     hidden = fixtures_for("a", [game("g1", "a", "x", day(20), excluded=True)])
     both = fixtures_for("a", [game("g1", "a", "x", day(20), excluded=True), game("g2", "a", "x", day(20))])
 
-    assert img.hidden_game_finding({day(20)}, hidden).title == "The requested game is on record but hidden"
+    assert img.hidden_game_finding({day(20)}, hidden).title == "The game on that date is hidden"
     assert img.hidden_game_finding({day(20)}, both) is None
 
 
@@ -644,12 +737,17 @@ def test_a_hidden_game_on_the_requested_date_is_flagged_only_when_nothing_visibl
 WINDOW = (datetime(2026, 11, 16, 12, tzinfo=UTC), datetime(2026, 11, 16, 15, tzinfo=UTC))
 
 
+# Inside RAN, the run that drained q2.
+DURING = "2026-11-18T21:05:00+00:00"
+
+
 def _world(**overrides):
     """One clicked team, filed under a merged-away id, with a duplicate row holding the game.
 
     `dup` holds the requested game; `kept` is a duplicate by every rule but the owner chose
     Keep separate; `far` is a similar name in another state; `t-live` is a live row already
-    merged into the target.
+    merged into the target. The second click's scrape saved g6 under the merged-away id and
+    filled in g7's score.
     """
     asked = day(20)
     tables = {
@@ -689,6 +787,8 @@ def _world(**overrides):
             game("g3", "kept", "y", asked),
             game("g4", "far", "y", asked),
             game("g5", "dup", "x", day(5), excluded=True),
+            game("g6", "y", "t-old", day(18), score=(3, 2), created=DURING, scraped=DURING),
+            game("g7", "t", "x", day(17), score=(0, 0), scraped=DURING),
         ],
         "team_alias_map": [
             {**alias("t", SINC, "S1"), "id": 1, "review_status": "approved"},
@@ -706,35 +806,79 @@ def test_a_window_is_investigated_end_to_end_through_the_database():
     assert caveats == []
     [report] = reports
     assert [c["id"] for c in report.clicks] == ["c1", "c2"]
-    assert [(f.title, f.problem) for f in report.findings] == [
-        ("Possible duplicate rows", True),
-        ("No GotSport link, so the scrape cannot reach this team", True),
-        ("Also linked to providers the GotSport scrape never reads", True),
+    assert [f.title for f in report.findings] == [
+        "Possible duplicate team",
+        "No GotSport link, so the scrape can't reach this team",
+        "Also gets games from sources this scrape doesn't read",
     ]
-    assert report.findings[0].details == [
-        f"Rush B2016 Blue (u11, Rush, gotsport, 1 games, last {day(20)}) https://www.pitchrank.io/teams/dup: "
-        f"holds a game on the requested date ({day(20)})",
-        "1 similar row(s) left out: already decided Keep separate",
+    assert [(row["team_id_master"], text) for row, text in report.findings[0].teams] == [
+        (
+            "dup",
+            f"(u11, Rush, gotsport, 1 game, last {img.nice_date(day(20))}, {day(20)[:4]}): "
+            f"has a game on the date asked about ({img.nice_date(day(20))})",
+        )
     ]
+    assert report.findings[0].details == ["Left out 1 similar team you already marked Keep separate"]
     assert report.findings[1].details == ["Linked only to: sincsports, tgs"]
-    assert report.scrape == [
-        f"Requested {day(20)}: failed: no message",
-        f"  {day(19)} vs Opp U10, 1-0, gotsport",
-        f"  no game on record for {day(20)}",
-        f"Requested {day(20)}: scraped, 3 games found",
-        f"  {day(19)} vs Opp U10, 1-0, gotsport",
-        f"  no game on record for {day(20)}",
+    assert report.outcomes == ["Scrape failed: no reason given", "Added 1 new game and 1 missing score"]
+    assert report.new_games == [f"{img.nice_date(day(18))} vs Opp U11: lost 2-3"]
+    assert report.scored_games == [f"{img.nice_date(day(17))} vs Opp U10: tied 0-0"]
+
+
+def test_two_clicks_on_one_scrape_list_its_games_once():
+    world = _world()
+    world._tables["missing_game_clicks"].append(
+        click("c3", "t", "2026-11-16T14:30:00+00:00", game_date=day(19), request_id="q2")
+    )
+
+    [report] = img.investigate(world, *WINDOW)[0]
+
+    assert report.outcomes == ["Scrape failed: no reason given", "Added 1 new game and 1 missing score"]
+    assert (len(report.new_games), len(report.scored_games)) == (1, 1)
+
+
+# A run after RAN.
+LATER = ("2026-11-18T22:00:00+00:00", "2026-11-18T22:05:00+00:00")
+
+
+def test_two_scrapes_that_each_added_a_game_are_both_reported():
+    world = _world()
+    world._tables["scrape_requests"] = [queue_row("q1"), queue_row("q2", ran=LATER)]
+    world._tables["games"] = [
+        game("g6", "y", "t", day(18), created="2026-11-18T21:05:00+00:00"),
+        game("g8", "t", "x", day(16), created="2026-11-18T22:02:00+00:00"),
     ]
 
+    [report] = img.investigate(world, *WINDOW)[0]
 
-def test_other_providers_turn_to_context_once_the_requested_game_lands():
+    assert report.outcomes == ["Added 1 new game", "Added 1 new game"]
+    assert len(report.new_games) == 2
+
+
+def test_a_game_new_in_one_scrape_and_scored_in_the_next_is_listed_once():
+    world = _world()
+    world._tables["missing_game_clicks"].append(
+        click("c3", "t", "2026-11-16T14:30:00+00:00", game_date=day(19), request_id="q3")
+    )
+    world._tables["scrape_requests"].append(queue_row("q3", ran=LATER))
+    world._tables["games"] = [
+        game("g6", "y", "t", day(18), score=(3, 2), created="2026-11-18T21:05:00+00:00", scraped=LATER[0]),
+    ]
+
+    [report] = img.investigate(world, *WINDOW)[0]
+
+    assert report.outcomes == ["Scrape failed: no reason given", "Added 1 new game", "Added 1 missing score"]
+    assert report.new_games == [f"{img.nice_date(day(18))} vs Opp U11: lost 2-3"]
+    assert report.scored_games == []
+
+
+def test_other_sources_drop_out_once_the_requested_game_lands():
     world = _world()
     world._tables["games"].append(game("g9", "t", "x", day(20)))
 
     [report] = img.investigate(world, *WINDOW)[0]
 
-    other = [f for f in report.findings if f.title.startswith("Also linked")]
-    assert [f.problem for f in other] == [False]
+    assert "Also gets games from sources this scrape doesn't read" not in [f.title for f in report.findings]
 
 
 def test_a_hidden_requested_game_is_still_missing():
@@ -743,9 +887,9 @@ def test_a_hidden_requested_game_is_still_missing():
 
     [report] = img.investigate(world, *WINDOW)[0]
 
-    titles = {f.title: f.problem for f in report.findings}
-    assert titles["The requested game is on record but hidden"] is True
-    assert titles["Also linked to providers the GotSport scrape never reads"] is True
+    titles = [f.title for f in report.findings]
+    assert "The game on that date is hidden" in titles
+    assert "Also gets games from sources this scrape doesn't read" in titles
 
 
 def test_a_clicked_row_that_plays_itself_says_so_and_suggests_no_duplicate():
@@ -755,17 +899,17 @@ def test_a_clicked_row_that_plays_itself_says_so_and_suggests_no_duplicate():
     [report] = img.investigate(world, *WINDOW)[0]
 
     titles = [f.title for f in report.findings]
-    assert "This row has a game against itself" in titles
-    assert "Possible duplicate rows" not in titles
+    assert "Has a game against itself" in titles
+    assert "Possible duplicate team" not in titles
 
 
 def test_unreadable_keep_separate_decisions_are_reported_rather_than_fatal():
     reports, caveats = img.investigate(_world(team_cleanup_decisions=[{"id": 1}]), *WINDOW)
 
     assert caveats == ["Keep-separate decisions could not be read, so pairs already kept apart may be listed."]
-    details = reports[0].findings[0].details
-    assert len(details) == 2
-    assert details[1].startswith("Rush 2016 Blue (u10")
+    duplicates = reports[0].findings[0]
+    assert [row["team_id_master"] for row, _ in duplicates.teams] == ["dup", "kept"]
+    assert duplicates.details == []
 
 
 def test_a_request_for_a_missing_team_row_becomes_a_caveat():
@@ -775,7 +919,7 @@ def test_a_request_for_a_missing_team_row_becomes_a_caveat():
     reports, caveats = img.investigate(world, *WINDOW)
 
     assert [r.team["team_id_master"] for r in reports] == ["t"]
-    assert caveats == ["A clicked team's row was not found (ghost)"]
+    assert caveats == ["A clicked team could not be found (ghost)"]
 
 
 def test_teams_with_more_to_look_at_come_first():
@@ -786,7 +930,7 @@ def test_teams_with_more_to_look_at_come_first():
     reports, _ = img.investigate(world, *WINDOW)
 
     assert [r.team["team_id_master"] for r in reports] == ["t", "calm"]
-    assert reports[1].problems == []
+    assert reports[1].findings == []
 
 
 def test_a_window_with_no_clicks_has_no_reports():
@@ -799,40 +943,102 @@ def test_a_window_with_no_clicks_has_no_reports():
 def two_reports():
     flagged = img.TeamReport(
         team("a", "<script>alert(1)</script>"),
-        [{"game_date": day(1)}],
-        ["Requested <b>", "  a game"],
-        [img.Finding("T&C", ["<i>"], "a<b"), img.Finding("Context", ["c"], "n", problem=False)],
+        [{"game_date": "2026-11-11"}],
+        ["Added <b>"],
+        [f"game {n}" for n in range(12)],
+        ["<filled>"],
+        [img.Finding("T&C", ["<i>"], "a<b", [(team("d", "Dup & Co"), "(u10) <why>")])],
     )
-    calm = img.TeamReport(team("b", "Calm"), [{"game_date": day(2)}], ["Requested x"], [])
+    calm = img.TeamReport(team("b", "Calm"), [{"game_date": "2026-11-14"}], ["Nothing new"])
     return [flagged, calm]
 
 
-def test_the_subject_counts_only_teams_with_problems():
-    assert img.subject(two_reports(), "LABEL") == "PitchRank: 2 missing-game request team(s), 1 need a look (LABEL)"
+def test_the_subject_counts_teams_with_new_games_or_scores_and_teams_to_look_at():
+    scores_only = img.TeamReport(team("s", "Scored"), [], ["Added 1 missing score"], [], ["a score"])
+    two_flagged = img.TeamReport(team("f", "Flagged"), [], ["Nothing new"], findings=[img.Finding("x", [], "y")])
+
+    assert img.subject(two_reports(), "LABEL") == (
+        "PitchRank missing games: 2 teams, 1 with new games or scores, 1 needs a look (LABEL)"
+    )
+    assert img.subject([*two_reports(), scores_only, two_flagged], "LABEL") == (
+        "PitchRank missing games: 4 teams, 2 with new games or scores, 2 need a look (LABEL)"
+    )
 
 
-def test_the_email_escapes_names_and_carries_caveats_and_context():
+def test_the_email_escapes_names_and_lists_what_each_scrape_added():
     body = img.render_html(two_reports(), ["<caveat>"], "LABEL")
 
     assert "<script>" not in body and "&lt;script&gt;" in body
-    assert "<i>" not in body and "Requested &lt;b&gt;" in body
-    assert "<p><b>&lt;caveat&gt;</b></p>" in body
-    assert "<li style='margin-left:20px'>a game</li>" in body
-    assert "<p><b>Context</b> (for context)</p>" in body
-    assert "<td style='padding:6px 12px'>T&amp;C</td>" in body
-    assert "<td style='padding:6px 12px'>nothing found</td>" in body
+    assert "<i>" not in body and "<li>&lt;i&gt;</li>" in body
+    assert "&lt;caveat&gt;</p>" in body
+    assert ">Wed Nov 11</td>" in body and ">Sat Nov 14</td>" in body
+    assert ">Added &lt;b&gt;</td>" in body and ">Nothing new</td>" in body
+    assert "<b>New games (12)</b>" in body
+    assert "<li>game 9</li>" in body and "game 10" not in body and "<li>and 2 more</li>" in body
+    assert "<b>Scores filled in (1)</b>" in body and "<li>&lt;filled&gt;</li>" in body
+    assert (
+        "<li><a href='https://www.pitchrank.io/teams/d' style='color:#0B5345'>Dup &amp; Co</a> (u10) &lt;why&gt;</li>"
+        in body
+    )
+    assert "What to do: a&lt;b</p>" in body
+    assert ">T&amp;C</p></td>" in body
+    assert ">None</span></td>" in body
+    assert body.count("<h3") == 1
 
 
-def test_the_text_report_carries_caveats_findings_and_quiet_teams():
+def test_a_team_with_only_problems_or_only_filled_scores_gets_its_own_section():
+    problems_only = img.TeamReport(
+        team("p", "Problem Team"),
+        [{"game_date": "2026-11-11"}],
+        ["Nothing new"],
+        findings=[img.Finding("Possible duplicate team", [], "Ask Claude.", [(team("d", "Dup Team"), "(u10)")])],
+    )
+    scores_only = img.TeamReport(
+        team("s", "Scored Team"), [{"game_date": "2026-11-11"}], ["Added 1 missing score"], [], ["a score"]
+    )
+
+    body = img.render_html([problems_only, scores_only], [], "LABEL")
+
+    assert body.count("<h3") == 2
+    assert "<a href='https://www.pitchrank.io/teams/d' style='color:#0B5345'>Dup Team</a>" in body
+    assert "<b>Scores filled in (1)</b>" in body and "<li>a score</li>" in body
+    assert "font-weight:bold; color:#0B5345'>Added 1 missing score</td>" in body
+    assert "text-align:left'>Nothing new</td>" in body
+
+
+def test_the_text_report_lists_games_and_findings():
     text = img.render_text(two_reports(), ["caveat"], "LABEL")
 
-    assert text.splitlines()[:2] == [
-        "Missing-game requests, LABEL: 2 team(s). Report only; nothing was changed.",
+    assert text.splitlines()[:3] == [
+        "Missing-game requests, LABEL",
+        "2 teams, 1 with new games or scores, 1 needs a look",
         "caveat",
     ]
-    assert "* Context (for context)" in text
-    assert "    Next step: a<b" in text
-    assert text.endswith("Requested x\nNothing else found.")
+    assert "<script>alert(1)</script> (u10 Boys, CO)\n" in text
+    assert "Asked about: Wed Nov 11\nScrape: Added <b>\nNew games (12):\n  game 0\n" in text
+    assert "  game 9\n  and 2 more\nScores filled in (1):\n  <filled>\n" in text
+    assert (
+        "Needs a look: T&C\n  Dup & Co (u10) <why> https://www.pitchrank.io/teams/d\n  <i>\n  What to do: a<b" in text
+    )
+    assert text.endswith(
+        "Scrape: Nothing new\n\n"
+        "This email only reports: it changes nothing. It comes every 3 hours when someone asked for a missing game."
+    )
+
+
+def test_a_team_label_says_when_there_is_no_state():
+    assert img.team_label(team("a", "Rush", gender="Female", state=None, age="u12")) == "u12 Girls, no state"
+
+
+def test_asked_about_lists_each_date_once_in_order():
+    clicks = [{"game_date": "2026-11-14"}, {"game_date": "2026-11-11"}, {"game_date": "2026-11-14"}]
+
+    assert img.asked_about(img.TeamReport(team("a", "Rush"), clicks, [])) == "Wed Nov 11, Sat Nov 14"
+
+
+def test_ten_games_are_listed_without_a_more_line():
+    assert img.listed([f"game {n}" for n in range(10)]) == [f"game {n}" for n in range(10)]
+    assert img.listed([f"game {n}" for n in range(11)])[-1] == "and 1 more"
 
 
 @pytest.fixture
@@ -843,7 +1049,7 @@ def sent(monkeypatch):
     return calls
 
 
-LABEL = "2026-11-16 05:00 to 2026-11-16 08:00 Arizona time"
+LABEL = "Mon Nov 16, 5 AM to 8 AM Arizona time"
 
 
 def test_a_dry_run_prints_the_report_and_sends_nothing(sent, monkeypatch, capsys):
@@ -860,7 +1066,12 @@ def test_a_live_run_emails_the_report_and_keeps_team_names_out_of_the_log(sent, 
     with caplog.at_level("INFO"):
         assert img.main() == 0
 
-    assert sent == [("pitchrankio@gmail.com", f"PitchRank: 1 missing-game request team(s), 1 need a look ({LABEL})")]
+    assert sent == [
+        (
+            "pitchrankio@gmail.com",
+            f"PitchRank missing games: 1 team, 1 with new games or scores, 1 needs a look ({LABEL})",
+        )
+    ]
     logged = capsys.readouterr().out + caplog.text
     assert "Rush" not in logged and "failed" not in logged
 
