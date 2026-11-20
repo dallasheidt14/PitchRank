@@ -781,9 +781,10 @@ logs, among them `arizonasurf.`, `utahsurf.`, `vegascup.`, `washingtonrush.`). T
 are server-rendered HTML with a declared UTF-8 charset and answer `requests` sent with a browser
 User-Agent, no proxy and no bot challenge. `scripts/import_athletes2events_event.py` is the
 driver; it takes `--event-url` and reads the host from it, because one provider row covers every
-subdomain. Pass the event's own URL, `https://<host>.athletes2events.com/events/<id>`: a page link
-such as `https://<host>.athletes2events.com/events/<id>/groups` is refused. Event 130 (Crossfire's 2026 ZF Labor Day Challenge) is the event it
-was built against. The roster comes only from teams in scored games, so a dry run before an event's
+subdomain. Pass the event's own URL, `https://<host>.athletes2events.com/events/<id>`, or any page
+of the event, such as `https://<host>.athletes2events.com/events/<id>/groups`; the host and id are
+read from either. Event 130 (Crossfire's 2026 ZF Labor Day Challenge) is the event it was built
+against. The roster comes only from teams in scored games, so a dry run before an event's
 scores post reads its divisions and flights but builds no teams; judge such a run by the
 skipped-division lines among its printed problems, not its team report.
 
@@ -849,6 +850,11 @@ club from team.
   Soccer Club** — both are PitchRank's stored names. A nickname before the age token stays
   attached to the club (`NK Dire Wolves BU11`), so compare against PitchRank's clubs rather than
   trusting the split.
+- A bare band ends the club as an age does (`Santa Clara Sporting 16/17B White` is Santa Clara
+  Sporting), and a 19xx number does not: it is a founding year (`1974 Newark Fc, Ecnl RL B2012/13`),
+  not a birth year. Both live in `_A2E_CLUB_STOP`, the Athletes2Events roster pass's own stop,
+  because these rules are Athletes2Events only (owner, 2026-11-19); Tourney Central, HTG Sports,
+  Heartland and Demosphere keep the default `_CLUB_STOP`.
 - A comma usually precedes the coach's surname, not the team name (`NSC EBU12, Oviedo`).
 - The state is the `(ST)` in the team page header.
 
@@ -856,8 +862,9 @@ club from team.
 
 The gates in Provider Matcher Name Parsing below apply. This platform glues squad marks together:
 
-- `RCL1`, `RCL 1` and `RCL-1` are one squad label — RCL is a team-name distinction here, not a
-  league — and `ECNL2` is ECNL squad 2. Count a label only when both names carry one.
+- `RCL1`, `RCL 1` and `RCL-1` are one squad label (RCL is a team-name distinction here, not a
+  league); count an RCL or N label only when both names carry one. `ECNL2` is ECNL squad 2, a squad
+  number, so the squad-number rule below applies.
 - A squad letter glued to the age or year is a squad mark: `B-U10B`, `GU10A`, `B15C`.
 - Coach surnames and nicknames tell squads apart (`Delgado` against `Reyes`, `Attack` against
   `Bravo`), but no gate reads them for this platform, so such squads tie and go to review. The
@@ -866,7 +873,54 @@ The gates in Provider Matcher Name Parsing below apply. This platform glues squa
   review cap for a stored row naming no squad.
 - A PitchRank row named by one birth year (`XF 2016 RCL 2`, `XF B13 ECNL`) is usually last
   season's record of the squad. Two event squads landing on one such row (`ECNL 1` and `ECNL 2`
-  on `XF B13 ECNL`) is a conflict, not a link.
+  on `XF B13 ECNL`) is a conflict, not a link; the squad-number rule below keeps `ECNL 2` off it.
+
+The rules below apply to Athletes2Events alone (owner, 2026-11-19). The club table is keyed by
+the `somsports.` host; the matcher rules sit behind the class flag `athletes2events_rules`, on for
+`Athletes2EventsGameMatcher` and off for `TourneyCentralGameMatcher` (and Demosphere, Heartland and
+HTG Sports through it) and for `YSSLGameMatcher`.
+
+- Surf Cup's clubs are in `HOST_CLUBS` (owner, 2026-11-19): LASC is Los Angeles Soccer Club,
+  Slammers FC and HB Slammers are CDA Slammers, LAFC is LAFC So Cal, Progressive is Progressive
+  Soccer Ozzy, AVSC is Apple Valley SC, NW Elite is Northwest Elite Soccer Club, South Valley is
+  South Valley Surf SC and LAOT is LA Overtime. FSC United has no entry: the owner ruled out
+  reading it as Flagstaff ("Fsc is not flagstaff").
+  Each entry ends at a hyphen as well as at a word boundary, because `LASC-SCV` is its own club,
+  not LASC. Read as LASC, `LASC-SCV BU15 N1` would link a generic Los Angeles SC row.
+- When the club a table entry filed the team under finds nothing, a second pass gates on the club
+  as the team page writes it, as Tourney Central's does.
+- When no table entry applied and the club finds nothing, it is cut back a word at a time, to two
+  words, and a candidate counts only when its own name carries every cut word, matched whole.
+  `Next Level Soccer Southeast` finds `Southeast U12 Boys Red` under Next Level Soccer (AZ), while
+  `Legends FC SB` cut to `Legends FC` cannot take a Legends row with no `SB`.
+  - Words are split on spaces, `-`, `/`, commas and brackets, the same way on both sides, so a dash
+    is never a word: `Legends FC - San Diego` cuts to `Legends FC` carrying `San` and `Diego`.
+  - Only the candidate's stored club can vouch for a shortened club, never the club read from its
+    own name. Otherwise `City SC Carlsbad Gold GU11-Dennis`, cut to `City SC Carlsbad`, lets the
+    stale `City SC - Carlsbad 2016 Gold - Cordeiro` in on its name ahead of the active Dennis team;
+    with the rule, the event's team goes to review.
+- Squad numbers must agree even when only one name carries one (owner, 2026-11-19, as for YSSL).
+  An unnumbered or `1` squad links only a row with no number or a 1, and squad 2 or later links
+  only its own number. Numbers are read with the club removed, so `7 Elite Academy` is not squad 7.
+  Without the rule, `Sant Cruz United 14-15 Boys Blue` links `14/15 Boys Blue 2`, a squad that played
+  another tournament that weekend, ahead of the active `2015 Blue`. Glued labels (`EA2`, `NL1`,
+  `RCL2`) are not numbers.
+- Club names also match when only spacing and punctuation differ (`LeonFC` and `Leon FC`, `SoCal`
+  and `So Cal`). The check is this matcher's own: `is_same_club` stays strict because the Affinity
+  and Soccer Events Group matchers read it too.
+- A spelled compound direction reads as its abbreviation (`Southwest` as `SW`) in the squad gate.
+  The fold lives in this matcher's `_squad_marks`, not in `DIRECTION_CANONICAL`, because
+  `teams.distinction` stores what `DIRECTION_CANONICAL` produces.
+- A name that is only a club (`LeonFC`, `TopBallers`) has no rule of its own, neither one to link
+  it nor a guard to hold it back (owner, 2026-11-19: "Leave them for review", then "Drop the
+  guard"); it runs through the rules above like any name. On event 198, `TopBallers` went to review
+  and `LeonFC` was created. On event 137, `LAFC SO CAL YOUTH BU10` links `LAFC So Cal - The Sharks`;
+  nothing confirms or refutes that link, nor `LAFC BU12 PRE-ECNL I PLATINUM` to `25/26 B2015
+  PRE-ECNL`, and the owner shipped both ("Ship as is", 2026-11-19), so leave those two be. If one
+  proves wrong, repoint its alias, and after an import move its games with the
+  `splitting-fused-provider-ids` skill: a merge cannot separate two squads.
+- Each retry calls `_fuzzy_match_once`, never `_fuzzy_match_team`, so a subclass that wraps
+  `_fuzzy_match_team` is not re-entered mid-call.
 
 ### Importing Athletes2Events games
 
@@ -1453,7 +1507,8 @@ Rules for a provider matcher that gates fuzzy candidates on the team name
 - Gate squads on `colors`, `directions` and `team_number` from `extract_distinctions`, squad
   codes (N1, S2), and tiers via `squad_name_gates.extract_tier_tokens` / `tiers_conflict`,
   dropping "ga" on a boys team (Girls Academy is girls-only, so there it means Georgia).
-  Count a squad number or code only when both names carry one. Leave `location_codes` out: it
+  Count a squad number or code only when both names carry one; Utah, YSSL and Athletes2Events are
+  stricter, and a squad number on one side only counts there (see their sections). Leave `location_codes` out: it
   collects leftover words ("Lou" of "Lou Fusz") and rejects real matches.
 - Strip the club from both names before reading squad marks, or a club's own words
   ("Blue Fire", "Blue Star") read as colors.
@@ -1492,6 +1547,13 @@ nothing, so it also cannot show a team linking to one created earlier in the sam
 Check that offline: group the provider's teams by club, board, gender and the words the
 matcher compares. Any group of two or more can fuse into one team on a real run.
 
+When a replay compares a branch with a control, pass both runs the **same** provider id (one with
+no aliases, or the real one with those lookups patched): a dry run's created team id is a `uuid5`
+of the provider id and the team (`GameHistoryMatcher._new_team_id_master`), so two different ids
+make every created row differ. An Athletes2Events or Tourney Central team report holds the club
+split of the code that wrote it and no written club, so re-split each row with the code under test
+before matching it; a YSSL report carries `club_as_written`.
+
 Run that replay before shipping any matcher, and above all one reused from a sibling
 league. Wrap the client so every insert, update, upsert and delete is recorded and
 refused, record each would-be creation with its club and state, and read every link by
@@ -1499,6 +1561,16 @@ hand. Treat a high create rate as a finding, not a result: the Oregon matcher re
 unchanged for Utah would have created 167 of 195 teams, most of them already stored, and
 linked squads of different coaches, because Utah writes bands, U-ages and coach initials
 where Oregon does not. Diff the link list between runs and judge each added or removed link.
+
+Replay a rule written from one event's misses on the provider's other saved team reports as well (for
+Athletes2Events, `data/raw/athletes2events/<event>_<timestamp>_teams.csv`; gitignored, so in the main
+checkout only), since the event it came from cannot show what it breaks elsewhere: Athletes2Events
+rules that took event 198 to 46 right and 0 wrong made 3 wrong-squad links on event 137 (2026-11-19).
+Grade those events against where the provider's approved aliases resolve through `team_merge_map`. An
+alias whose `match_method` is `fuzzy_auto`, or one pointing at a row the event's own import created,
+only corroborates: a matcher made it, so it is not independent evidence. A stored candidate with games
+on the event's own dates in another competition is not that event's squad.
+
 Save every input the matcher read in that replay. When a review round edits a matcher rule, keep the
 code from before the round (a throwaway worktree filled from the tree the round recorded with
 `git write-tree`: `git read-tree <tree>`, then `git checkout-index -a -f` inside it), replay the saved
@@ -1613,13 +1685,15 @@ anchor into that file went stale in the same commit.
   (`config/settings.py`, enforced in `GameHistoryMatcher._match_team`), so clamping ordinary
   scores makes `fuzzy_auto` unreachable and turns every auto-link into a review. The base
   `_create_review_queue_entry` caps review rows; a subclass's only clamps are the equal-rank tie
-  demotion inside `_fuzzy_match_team` and, where `SquadWordRules` is mixed in, its demotion of a
-  stored row naming no squad.
+  demotion inside the candidate loop (`_fuzzy_match_team`, or `_fuzzy_match_once` in the
+  Athletes2Events matcher) and, where `SquadWordRules` is mixed in, its demotion of a stored row
+  naming no squad.
 - **The shared name helpers live in `src/models/tournament_name_gates.py`**, which Soccer
   Events Group and Athletes2Events both import: `canonical_team_name`, `club_from_team_name`,
-  `without_club`, `tier_tokens`, `is_boys`, `squad_marks` and `squads_conflict`, and the
-  single-word readers `AGE_WORD`, `begins` and `initials`: take a new provider's ages,
-  abbreviations and club initials from these rather than writing another copy. Two hooks keep
+  `without_club`, `tier_tokens`, `is_boys`, `squad_marks` and `squads_conflict`, the
+  single-word readers `AGE_WORD`, `begins` and `initials`, and `squad_numbers` with
+  `squad_number_fits`: take a new provider's ages, abbreviations, club initials and squad
+  numbers from these rather than writing another copy. Two hooks keep
   the providers apart — `pre`, a callable applied before anything is read from a name, and
   `tier_extra`, the tiers the shared set omits. **Bind `tier_extra` explicitly.** Its default is
   empty, and `TOURNAMENT_TIER_TOKENS` (`pre`, `aspire`, `ea`, `ad`, `hd`) is in neither

@@ -107,10 +107,56 @@ def test_subclass_fuzzy_match_returns_team_name(module_path, class_name):
         pytest.skip(f"{class_name} does not override _fuzzy_match_team")
 
     source = inspect.getsource(cls.__dict__["_fuzzy_match_team"])
+    if "self._fuzzy_match_once(" in source:
+        source += inspect.getsource(cls._fuzzy_match_once)
     assert '"team_name"' in source or "'team_name'" in source, (
         f"{class_name}._fuzzy_match_team does not appear to return 'team_name'; "
         "the birth-year guard would silently fail open for this provider"
     )
+
+
+@pytest.mark.parametrize(
+    "name, club, written, stored, stored_club, age_group, state_code",
+    [
+        # The written-club pass: the host table's club misses the row; the page's spelling finds it.
+        (
+            "HB Slammers U10 Blue",
+            "CDA Slammers",
+            "HB Slammers",
+            "HB Slammers U10 Blue",
+            "Huntington Beach Slammers",
+            "u10",
+            "CA",
+        ),
+        # The cut-back: the club runs on into a direction word.
+        (
+            "Next Level Soccer Southeast U12 Boys Red",
+            "Next Level Soccer Southeast",
+            "Next Level Soccer Southeast",
+            "Southeast U12 Boys Red",
+            "Next Level Soccer (AZ)",
+            "u12",
+            "AZ",
+        ),
+    ],
+)
+def test_the_athletes2events_retries_still_return_the_stored_team_name(
+    name, club, written, stored, stored_club, age_group, state_code
+):
+    """The source check above reads the pass the retries call; this pins the key through the retries themselves."""
+    from src.models.athletes2events_matcher import Athletes2EventsGameMatcher
+    from tests.unit.test_athletes2events_matcher import _DB, PROVIDER, _candidate
+
+    matcher = Athletes2EventsGameMatcher(
+        _DB([_candidate("m1", stored, stored_club, age_group=age_group, state_code=state_code)]), PROVIDER
+    )
+    matcher._written_club = written
+
+    first_pass = matcher._fuzzy_match_once(name, age_group, "Male", club, state_code, extended=True)
+    match = matcher._fuzzy_match_team(name, age_group, "Male", club, state_code=state_code)
+
+    assert first_pass is None
+    assert match["team_name"] == stored
 
 
 @pytest.mark.parametrize("module_path,class_name", _SUBCLASS_PATHS)

@@ -5,9 +5,10 @@ Tourney Central teams are registered by a roster pass in
 ``scripts/import_tourneycentral_event.py``, as Athletes2Events teams are, and need the
 same matching: the club gate (the driver passes the team list's club as ``club_name``
 and the club as the team name writes it as ``written_club``), the squad and tier gates,
-state scoping, and review for ties. So this reuses that matcher whole.
+state scoping, and review for ties. So this reuses that matcher, with its
+Athletes2Events-only rules off.
 
-Two things differ, both because each team list prints the club in a field of its
+Two more things differ, both because each team list prints the club in a field of its
 own, often spelled differently from the name's own prefix ("Warrior Soccer Club"
 beside "Warrior SC B15/16 White"). Candidates are gated on that field and, when it
 matches none, on the club as the name writes it. And the team name is the team's
@@ -43,6 +44,8 @@ def club_before_squad_marks(written_club: Optional[str]) -> Optional[str]:
 
 class TourneyCentralGameMatcher(Athletes2EventsGameMatcher):
     """Athletes2Events matching; a created team keeps the name its team list gives it."""
+
+    athletes2events_rules = False
 
     def _fuzzy_match_team(
         self,

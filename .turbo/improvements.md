@@ -2569,6 +2569,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: `split_club` stops at a U-age token or a two-year band but not at a glued birth year or a Boys/Girls word, so each driver patches its output its own way. Measured 2026-10-30 on two names: `VISTA Blackwatch 2011G` gives the club `VISTA Blackwatch 2011G` in both the Tourney Central and Athletes2Events drivers and `VISTA Blackwatch` in Demosphere's; `GSC Boys 13/14 Premier` gives `GSC Boys` in Tourney Central, the whole name in Athletes2Events, and `GSC` in Demosphere. `age_from_name` also reports its outcome only as free text ("B12 read as U12", "birth year 2014 could be ..."), which the Demosphere driver tests with `startswith` and a regex-free prefix; rewording it there would silently turn that rule off.
 - **Noted**: 2026-10-30
 - **Trigger**: The next change to club extraction in any of the three drivers, or a duplicate team created under a club carrying an age fragment.
+- **Update (2026-11-19)**: The trigger fired once and the cut was not shared, by owner choice ("Athletes2Events only"). The Athletes2Events roster pass now passes its own `_A2E_CLUB_STOP` to `split_club`, beside the unchanged `_CLUB_STOP` the other two drivers use: a bare band ends its club and a 19xx number stays in it. `GSC Boys 13/14 Premier` now gives `GSC Boys` in the Athletes2Events driver too; `VISTA Blackwatch 2011G` is unchanged in both. Branch `feat/a2e-somsports-matching`.
 
 ### Move the roster-pass helpers copied across the provider drivers into one module
 
@@ -2804,7 +2805,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 
 - **Type**: direct
 - **Category**: reliability
-- **Where**: the overriding `_fuzzy_match_team` loops in `src/models/tgs_matcher.py`, `sincsports_matcher.py`, `playmetrics_matcher.py`, `affinity_wa_matcher.py`, `affinity_or_matcher.py`, `athletes2events_matcher.py` and `soccereventsgroup_matcher.py`; the skip to copy is in `GameHistoryMatcher._fuzzy_match_team` (`src/models/game_matcher.py`)
+- **Where**: the overriding `_fuzzy_match_team` loops in `src/models/tgs_matcher.py`, `sincsports_matcher.py`, `playmetrics_matcher.py`, `affinity_wa_matcher.py`, `affinity_or_matcher.py`, `athletes2events_matcher.py` (whose loop is `_fuzzy_match_once`) and `soccereventsgroup_matcher.py`; the skip to copy is in `GameHistoryMatcher._fuzzy_match_team` (`src/models/game_matcher.py`)
 - **Why**: Checked 2026-11-09: none of the seven calls `super()._fuzzy_match_team` or reads a name's gender, so the twin skip added on `fix/stop-opposite-gender-record-links` covers the base search only. A review reproduced the cost: a boys-named twin stored under the record's gender, listed before the right girls row, wins TGS's search, the accept-point guard holds it, and TGS's create-on-unmatched fallback inserts a duplicate team instead of linking the right row. It needs a self-contradicting twin; the review estimated about 30 live rows (unverified). Owner chose to defer it, 2026-11-09.
 - **Noted**: 2026-11-09
 - **Update (2026-11-12)**: TGS's search now also skips a wrong birth year in its loop (`birth_years_conflict`), reads live rows only, and reads the whole age group in a fixed order (`TGSGameMatcher._cohort`) where it used to take an unordered `.limit(2000)`. Checked 2026-11-12: none of the other six loops calls `birth_years_conflict`, and SincSports still caps its age-group read at `.limit(2000)`, so carry all three into a shared candidate loop on `GameHistoryMatcher` rather than the twin skip alone. TGS creates in `scripts/extract_and_import_tgs_teams.py` now, never at import, but the cost above is unchanged: a held twin still leaves the id a new team.
@@ -2822,7 +2823,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 
 - **Type**: plan
 - **Category**: reliability
-- **Where**: the club gate in `Athletes2EventsGameMatcher._fuzzy_match_team` (`src/models/athletes2events_matcher.py`), inherited by `TourneyCentralGameMatcher`, `DemosphereGameMatcher` and `HtgSportsGameMatcher`
+- **Where**: the club gate in `Athletes2EventsGameMatcher._fuzzy_match_once` (`src/models/athletes2events_matcher.py`), inherited by `TourneyCentralGameMatcher`, `DemosphereGameMatcher` and `HtgSportsGameMatcher`
 - **Why**: `club_from_team_name` takes the words before the first age token, so the stored `SPORTING BV Real Madrid 16/17` reads club `SPORTING BV Real Madrid`; its `club_name` is `Sporting Blue Valley`; neither equals HTG's `SPORTING BV`, so the existing team is skipped and a duplicate is created. Measured 2026-11-09 on the two Heartland HTG events: 4 of 274 would-be new teams had an existing team of the same name (one with its words reordered, `North Surf ECNL RL B2013/14`, was left to be created), and two more a near-identical one (`SPORTING BV Academy 15`, `SPORTING BV Pre-NAL 15`). Accepting a stored name that starts with a 2+-word provider club linked only 6 more and sent 18 weak reviews pairing different Sporting BV nickname squads, so that variant is not the fix; five of these teams were linked by hand with `manual` aliases instead.
 - **Noted**: 2026-11-09
 
@@ -3177,7 +3178,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Status**: open
 - **Type**: investigate
 - **Category**: reliability
-- **Where**: `is_same_club` in `src/models/squad_name_gates.py`, the club gate of `Athletes2EventsGameMatcher._fuzzy_match_team` that every roster-pass matcher inherits
+- **Where**: `is_same_club` in `src/models/squad_name_gates.py`, the club gate of `Athletes2EventsGameMatcher._fuzzy_match_once` that every roster-pass matcher inherits
 - **Why**: `is_same_club("KC Atletico SC", "KC Athletics", 0.9)`, `("KC Atletico", "KC Athletics", 0.9)` and `("KC Atletico SC", "Kansas City Athletics", 0.9)` all return True (checked 2026-11-14), and the Heartland dry run fuzzy-linked "KC Atletico SC 13" to "KC Athletics Como 13G" at 0.939. A near-spelling of another club passes the gate, so squads can link across clubs for every provider that uses it. Measure how many stored club pairs it merges at 0.9 that differ by a distinctive word before tightening.
 - **Noted**: 2026-11-14
 - **Update (2026-11-15)**: Heartland and HTG Sports now refuse such a candidate when each name carries a squad word the other lacks (`SquadWordRules._names_another_squad` in `src/models/squad_word_rules.py`, which keeps the near-spelled club's own words), but the gate itself still admits it, and the other roster-pass matchers are unchanged. A team whose name carries no squad word, such as "KC Atletico SC 13" above, still links.
@@ -3349,18 +3350,34 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: Athletes2Events' `division_birth_year` reads a Jul 31 "Born on or after" cutoff as the Aug 1 season start (owner, 2026-11-18: "I think the July 31 is the same as August 1 it means new season"); SEG's gate refuses any `oldestEligibleBirthdate` that is not Aug 1. The value comes from SEG's API, and all 7 in `tests/fixtures/soccereventsgroup/program.json` are `-08-01`. A `-07-31` would show only as teams skipped with "division names no single U10-U19 cohort", which does not name the cutoff. SEG also checks the label with `calculate_age_group_from_birth_year`, whose age-20 fold passes a U19 division cut at 2006-08-01 (the aged-out 2007/06 band) that `calculate_age_group_from_band` refuses.
 - **Noted**: 2026-11-19
 
-### Let the Athletes2Events importer take any page of an event, not only its bare URL
-
-- **Type**: direct
-- **Category**: dx
-- **Where**: `parse_event_url` and its `_EVENT_URL` pattern in `scripts/import_athletes2events_event.py`
-- **Why**: `--event-url` accepts only `https://<host>.athletes2events.com/events/<id>`. The `/groups` link an operator copies from the site (`…/events/198/groups`) is refused with "not an Athletes2Events event URL", and the run exits before any fetch. Accept a trailing page segment and read the host and id from it, as the Tourney Central importer takes any page of a tournament.
-- **Noted**: 2026-11-19
-
 ### Stamp Clear Queue's completed_at in UTC
 
 - **Type**: direct
 - **Category**: reliability
 - **Where**: `_finalize_queue_items` in `scripts/drain_queue.py` (`now_iso = datetime.now().isoformat()`, written as `completed_at` on completed and failed rows)
 - **Why**: The claim side stamps `processed_at` in UTC (`claim_queue_items` sets `NOW()`, the fallback uses `datetime.now(timezone.utc)`), but finalize writes a naive local time that Postgres reads as UTC. Correct on the Actions runners; a run on an Arizona machine stores `completed_at` 7 hours early, so it precedes `processed_at` and anything windowing on the pair, such as the missing-game email's new-games count, reads nothing. Checked 2026-11-19: 0 of 350,635 completed requests in 60 days are inverted, so no stored row is affected yet. Fix: `datetime.now(timezone.utc)`.
+- **Noted**: 2026-11-19
+
+### Stop the Athletes2Events club split from ending in "Pre" when a name says Pre-ECNL
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `_A2E_CLUB_STOP` and `split_club` in `scripts/import_athletes2events_event.py`; `_without_club` and `_create_new_athletes2events_team` in `src/models/athletes2events_matcher.py`
+- **Why**: `ECNL\d*` stops inside "Pre-ECNL", so the club reads `SDSC Surf Pre`, `Empire Surf Pre` or `Sporting California USA South Bay Pre` (checked 2026-11-19). For a long club guess `is_same_club` still passes with "Pre" attached, and stripping the club takes the Pre tier off the provider's name, so a Pre-ECNL team can match an ECNL squad (shown by a review agent on a synthetic `... South Bay ECNL G2014` row; no such real row in the saved event 137/198 inputs). A created team is also filed under club `X Pre` with a name reading `ECNL ...`. A trial stop `Pre[-\s/]?(?=ECNL|GA|MLS)` measured by that agent changed 15 of 860 saved splits and lost the `SDSC Pre-ECNL BU12 II, Mouhamed` link while recovering none, and does not cover `Pre NPL`; a fix must keep that link.
+- **Noted**: 2026-11-19
+
+### Read a squad number glued to a non-tier label (NL2) before the one-sided squad-number rule treats it as squad 1
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `squad_numbers` and `squad_number_fits` in `src/models/tournament_name_gates.py`, read in `_fuzzy_match_once`'s candidate loop; `_presplit` in `src/models/athletes2events_matcher.py`
+- **Why**: `squad_numbers` skips a digit glued to a label (`EA2`, `NL1`, `RCL2` are pinned as non-numbers) and `NL` is not a tier word, so the one-sided rule reads `NL2` as unnumbered: on the matcher's test double `Legends G2010/11 NL2` auto-links a stored `... NL 1` (fuzzy_auto 1.0) over `... NL 2` (reproduced 2026-11-19; origin/main sends it to review). Over the 860 saved event 130/137/198 names, glued label digits appear only as `EA2` (9), `MLS2` (1) and `NL1` (1): `EA2`/`MLS2` cannot reach it because a spaced stored form reads the EA/MLS tier the glued form lacks, and `NL1` reads correctly as squad 1. Not taken: treating a glued side as unknown (a reviewer's experiment showed it lets `EA2 Blue` auto-link `EA2 Blue 2`), and reading every glued digit as a number (changes the EA2 teams' current links; whether `EA2` names a squad or a division is unverified). A fix needs its own case table and the owner's reading of `EA2`/`NL2`.
+- **Noted**: 2026-11-19
+
+### Find why a Compare capture test fails in the full suite but passes alone
+
+- **Type**: investigate
+- **Category**: testing
+- **Where**: `tests/unit/test_score_study.py` `test_capture_drives_real_composition_and_only_executes_writes_with_authorization[True]`
+- **Why**: On 2026-11-19 its `dry_run=True` case failed in a full CI-form suite run but passed when run alone, both on a branch that touches no Compare code and on origin/main (re-run alone 2026-11-19: both cases pass). An order-dependent failure points at state another test leaves behind; until found, a red run here is noise that can hide a real one.
 - **Noted**: 2026-11-19
