@@ -10,15 +10,22 @@ never seen, so a double that returns ``None`` instead is more permissive than
 production on exactly the line that would crash every team creation.
 """
 
+import importlib
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 from postgrest.exceptions import APIError
 
+from scripts import import_athletes2events_event as a2e_import
 from src.models import athletes2events_matcher as a2em
 from src.models.athletes2events_matcher import Athletes2EventsGameMatcher
+from src.models.tournament_name_gates import canonical_team_name, squad_numbers
+from src.models.tourneycentral_matcher import TourneyCentralGameMatcher
 
 PROVIDER = "22222222-2222-4222-8222-222222222222"
+SOMSPORTS = "somsports.athletes2events.com"
+CROSSFIRE = "crossfire.athletes2events.com"
 NO_ROWS = APIError({"code": "PGRST116", "message": "JSON object requested, multiple (or no) rows returned"})
 
 
@@ -155,6 +162,47 @@ def _register(matcher, name="XF B13 RCL1", state_code="WA", a2e_id="10186", age_
     )
 
 
+def _register_with_club(matcher, name, club, age_group, state_code, gender="Male", written=None, a2e_id="13000"):
+    """Register a team as the roster pass does, with the club it is filed under and the club as written."""
+    return matcher._match_team(
+        provider_id=PROVIDER,
+        provider_team_id=a2e_id,
+        team_name=name,
+        age_group=age_group,
+        gender=gender,
+        club_name=club,
+        state_code=state_code,
+        written_club=written or club,
+    )
+
+
+def _register_split(matcher, name, age_group, state_code, gender="Male", host=SOMSPORTS, a2e_id="13000"):
+    """Register a team with its club split the way the roster pass splits it."""
+    club, written = a2e_import.split_club(name, host, stop=a2e_import._A2E_CLUB_STOP)
+    return _register_with_club(
+        matcher, name, club, age_group, state_code, gender=gender, written=written, a2e_id=a2e_id
+    )
+
+
+def _without_rules(matcher):
+    matcher.athletes2events_rules = False
+    return matcher
+
+
+def _athletes2events_family():
+    """The Athletes2Events matcher and every class built on it, found by importing each matcher module."""
+    for path in sorted(Path(a2em.__file__).parent.glob("*.py")):
+        if not path.stem.startswith("_"):
+            importlib.import_module(f"src.models.{path.stem}")
+    found, todo = {}, [Athletes2EventsGameMatcher]
+    while todo:
+        cls = todo.pop()
+        if cls.__module__.startswith("src.models."):
+            found[cls.__name__] = cls
+        todo.extend(cls.__subclasses__())
+    return found
+
+
 def _candidate(team_id, team_name, club_name, age_group="u13", state_code="WA", gender="Male"):
     return {
         "team_id_master": team_id,
@@ -252,6 +300,26 @@ class TestSquadMarks:
         """EA and Aspire are not in the shared tier set, so they arrive via the provider's own."""
         assert self._conflict("WW Surf BU13 Academy EA Blue", "WW Surf BU13 Academy Blue") is True
         assert self._conflict("Seattle Celtic G14 GA Aspire", "Seattle Celtic G14 GA") is True
+
+    @pytest.mark.parametrize(
+        "short, spelled, direction",
+        [
+            ("SW", "Southwest", "southwest"),
+            ("NW", "Northwest", "northwest"),
+            ("NE", "Northeast", "northeast"),
+            ("SE", "Southeast", "southeast"),
+        ],
+    )
+    def test_a_spelled_compound_direction_reads_as_its_abbreviation_when_asked(self, short, spelled, direction):
+        abbreviated = a2em._squad_marks(f"ECNL RL {short} Girls U14", spelled_compounds=True)["directions"]
+        written_out = a2em._squad_marks(f"ECNL RL {spelled} G13", spelled_compounds=True)["directions"]
+
+        assert abbreviated == written_out == frozenset({direction})
+
+    def test_by_default_a_spelled_compound_direction_reads_as_none(self):
+        """Tourney Central's club cut reads marks this way: a spelled direction stays in its drivers' club guesses."""
+        assert a2em._squad_marks("ECNL RL SW Girls U14")["directions"] == frozenset({"southwest"})
+        assert a2em._squad_marks("ECNL RL Southwest G13")["directions"] == frozenset()
 
 
 class TestRegistrationOutcomes:
@@ -501,6 +569,327 @@ class TestWrittenClub:
         )
 
         assert matcher._written_club is None
+
+
+class TestAthletes2EventsRules:
+    def test_only_athletes2events_runs_its_own_club_rules(self):
+        """Derived, not listed, so a new subclass fails here until someone decides whether it runs the rules."""
+        assert {name: cls.athletes2events_rules for name, cls in _athletes2events_family().items()} == {
+            "Athletes2EventsGameMatcher": True,
+            "TourneyCentralGameMatcher": False,
+            "DemosphereGameMatcher": False,
+            "HeartlandGameMatcher": False,
+            "HtgSportsGameMatcher": False,
+            "YSSLGameMatcher": False,
+        }
+
+
+class TestHostClubTable:
+    def test_a_hyphenated_branch_club_is_not_the_club_its_code_begins(self):
+        """LASC-SCV is its own club; read as LASC it would link a generic Los Angeles SC row."""
+        db = _DB([_candidate("lasc", "Los Angeles SC", "Los Angeles Soccer Club", "u15", "CA")])
+
+        result = _register_split(_matcher(db), "LASC-SCV BU15 N1", "u15", "CA")
+
+        assert result["created"] is True
+        assert result["team_id"] != "lasc"
+
+
+class TestWrittenClubPass:
+    """Surf Cup writes "HB Slammers"; PitchRank files the club as "CDA Slammers"."""
+
+    ROW = _candidate("hb", "HB Slammers U10 Blue", "Huntington Beach Slammers", age_group="u10", state_code="CA")
+
+    def _register_hb(self, matcher):
+        return _register_with_club(
+            matcher, "HB Slammers U10 Blue", "CDA Slammers", "u10", "CA", written="HB Slammers", a2e_id="12111"
+        )
+
+    def test_a_row_only_the_written_club_vouches_for_links_on_the_second_pass(self):
+        result = self._register_hb(_matcher(_DB([self.ROW])))
+
+        assert (result["matched"], result["created"], result["team_id"]) == (True, False, "hb")
+
+    def test_the_stored_club_alone_does_not_find_it(self):
+        result = self._register_hb(_without_rules(_matcher(_DB([self.ROW]))))
+
+        assert result["created"] is True
+
+    def test_tourney_central_still_links_it_through_its_own_written_club_pass(self):
+        matcher = TourneyCentralGameMatcher(_DB([self.ROW]), provider_id=PROVIDER, registration_mode=True)
+
+        result = self._register_hb(matcher)
+
+        assert (result["matched"], result["team_id"]) == (True, "hb")
+
+    def test_the_written_club_pass_reads_club_names_without_spacing(self):
+        """Only the club read from the stored name agrees with the written club, and only once spacing is ignored."""
+        db = _DB([_candidate("fc", "SlammersFC ECNL U13", "Independent", "u13", "CA")])
+
+        result = _register_with_club(
+            _matcher(db), "Slammers FC ECNL U13", "CDA Slammers", "u13", "CA", written="Slammers FC"
+        )
+
+        assert (result["matched"], result["team_id"]) == (True, "fc")
+
+
+class TestCutBackClub:
+    """A club read from the words before the age can run on into a squad or branch word."""
+
+    NEXT_LEVEL = _candidate("nl", "Southeast U12 Boys Red", "Next Level Soccer (AZ)", age_group="u12", state_code="AZ")
+    # Stored under a club the cut club passes, so the missing "SB" is all that keeps it out.
+    SACRAMENTO = _candidate("sac", "Legends U11B-A", "Legends FC (CA)", age_group="u11", state_code="CA")
+    LEGENDS_SB = _candidate("sb", "SB BU11", "Legends FC (CA)", age_group="u11", state_code="CA")
+    CARLSBAD = [
+        _candidate("dennis", "Carlsbad GU11 Gold - Dennis", "City SC", "u11", "CA", gender="Female"),
+        _candidate("cordeiro", "City SC - Carlsbad 2016 Gold - Cordeiro", "City SC", "u11", "CA", gender="Female"),
+        _candidate("cardenas", "Carlsbad G18 Gold - Cardenas", "City SC", "u11", "CA", gender="Female"),
+    ]
+
+    def _register_next_level(self, matcher):
+        return _register_with_club(
+            matcher, "Next Level Soccer Southeast U12 Boys Red", "Next Level Soccer Southeast", "u12", "AZ"
+        )
+
+    def _register_legends(self, db):
+        return _register_with_club(_matcher(db), "Legends FC SB U11 Garcia", "Legends FC SB", "u11", "CA")
+
+    def test_a_club_running_into_a_direction_links_its_squad_once_cut_back(self):
+        result = self._register_next_level(_matcher(_DB([self.NEXT_LEVEL])))
+
+        assert (result["matched"], result["created"], result["team_id"]) == (True, False, "nl")
+
+    def test_a_cut_back_club_never_links_a_row_without_the_cut_word(self):
+        """Cut back to "Legends FC", the club gate admits this row, whose name has no "SB"."""
+        result = self._register_legends(_DB([self.SACRAMENTO]))
+
+        assert result["created"] is True
+        assert result["team_id"] != "sac"
+
+    def test_a_cut_back_club_links_the_row_carrying_the_cut_word(self):
+        result = self._register_legends(_DB([self.SACRAMENTO, self.LEGENDS_SB]))
+
+        assert (result["matched"], result["created"], result["team_id"]) == (True, False, "sb")
+
+    def test_the_club_is_cut_back_to_two_words_and_no_further(self):
+        """Cut to "Desert", the club would match this row, whose name carries both cut words."""
+        db = _DB([_candidate("storm", "Storm Rangers U12 Red", "Desert", age_group="u12", state_code="AZ")])
+
+        result = _register_with_club(_matcher(db), "Desert Storm Rangers U12 Red", "Desert Storm Rangers", "u12", "AZ")
+
+        assert result["created"] is True
+        assert result["team_id"] != "storm"
+
+    def test_the_cut_back_pass_reads_club_names_without_spacing(self):
+        db = _DB([_candidate("ts", "So Cal Tsunami Elite U14", "So Cal Tsunami", "u14", "CA", gender="Female")])
+
+        result = _register_with_club(
+            _matcher(db), "SoCal Tsunami Elite U14", "SoCal Tsunami Elite", "u14", "CA", gender="Female"
+        )
+
+        assert (result["matched"], result["team_id"]) == (True, "ts")
+
+    def test_a_shortened_club_is_vouched_for_only_by_the_stored_club(self):
+        """Were a row's own name allowed to vouch, the stale Cordeiro row alone would pass at "City SC Carlsbad";
+        at "City SC" the club field passes all three, and the tie goes to review."""
+        db = _DB(self.CARLSBAD)
+
+        result = _register_split(_matcher(db), "City SC Carlsbad Gold GU11-Dennis", "u11", "CA", gender="Female")
+
+        assert (result["matched"], result.get("review"), result["confidence"]) == (False, True, 0.89)
+        assert db.writes("team_alias_map") == []
+
+    def test_a_club_parted_by_a_dash_is_cut_back_word_by_word(self):
+        """Cut back to "Legends FC", the cut words are "San" and "Diego" (a dash is no word); this row has both."""
+        db = _DB([_candidate("sd", "San Diego GU15 Elite I", "Legends FC (CA)", "u15", "CA", gender="Female")])
+
+        result = _register_split(_matcher(db), "Legends FC - San Diego GU15 Elite I", "u15", "CA", gender="Female")
+
+        assert (result["matched"], result["team_id"]) == (True, "sd")
+
+    def test_a_dash_does_not_count_toward_the_two_word_floor(self):
+        """Read as a word, the dash would cut "Desert - Storm Rangers" to "Desert -", one word in all but name."""
+        db = _DB([_candidate("storm", "Storm Rangers U12 Red", "Desert", age_group="u12", state_code="AZ")])
+
+        result = _register_split(_matcher(db), "Desert - Storm Rangers U12 Red", "u12", "AZ")
+
+        assert result["created"] is True
+        assert result["team_id"] != "storm"
+
+    def test_a_club_parted_by_a_dash_still_needs_every_cut_word(self):
+        db = _DB([_candidate("other", "GU15 Elite I", "Legends FC (CA)", "u15", "CA", gender="Female")])
+
+        result = _register_split(_matcher(db), "Legends FC - San Diego GU15 Elite I", "u15", "CA", gender="Female")
+
+        assert result["created"] is True
+        assert result["team_id"] != "other"
+
+    def test_carrying_one_of_the_cut_words_is_not_enough(self):
+        """San Marcos carries "San" but not "Diego": another branch of the club."""
+        db = _DB([_candidate("marcos", "San Marcos GU15 Elite I", "Legends FC (CA)", "u15", "CA", gender="Female")])
+
+        result = _register_split(_matcher(db), "Legends FC - San Diego GU15 Elite I", "u15", "CA", gender="Female")
+
+        assert result["created"] is True
+        assert result["team_id"] != "marcos"
+
+    def test_every_pass_gates_the_same_candidate_rows_read_once(self):
+        """The first pass and the cut-back share one read: the rows depend only on age, gender and state."""
+        db = _DB([self.NEXT_LEVEL])
+
+        self._register_next_level(_matcher(db))
+
+        candidate_reads = [filters for filters, or_clauses, _ in db.reads("teams") if "age_group" in filters]
+        assert candidate_reads == [{"age_group": "u12", "gender": "Male", "is_deprecated": False}]
+
+    def test_tourney_central_does_not_cut_a_club_back(self):
+        matcher = TourneyCentralGameMatcher(_DB([self.NEXT_LEVEL]), provider_id=PROVIDER, registration_mode=True)
+
+        result = self._register_next_level(matcher)
+
+        assert result["created"] is True
+
+
+class TestSquadNumbers:
+    """A plain squad is not its club's squad 2 (owner, 2026-11-19, as YSSL's "White1 and white2" ruling)."""
+
+    SANTA_CRUZ = [
+        _candidate("blue", "2015 Blue", "Santa Cruz United Football Club", "u12", "CA"),
+        _candidate("blue2", "14/15 Boys Blue 2", "Santa Cruz United Football Club", "u12", "CA"),
+    ]
+
+    def test_an_unnumbered_squad_links_the_unnumbered_row_not_squad_2(self):
+        result = _register_split(_matcher(_DB(self.SANTA_CRUZ)), "Sant Cruz United 14-15 Boys Blue", "u12", "CA")
+
+        assert (result["matched"], result["team_id"]) == (True, "blue")
+
+    def test_squad_2_never_links_a_row_naming_no_number(self):
+        db = _DB([_candidate("ecnl", "XF B13 ECNL", "Crossfire Premier", "u14", "WA")])
+
+        result = _register_split(_matcher(db), "XF U14 B12-13 ECNL 2 - Cruz", "u14", "WA", host=CROSSFIRE)
+
+        assert result["created"] is True
+        assert result["team_id"] != "ecnl"
+
+    def test_squad_1_is_the_unnumbered_squad(self):
+        db = _DB([_candidate("red", "XF B13 Red", "Crossfire Premier", "u13", "WA")])
+
+        result = _register_split(_matcher(db), "XF B13 Red 1", "u13", "WA", host=CROSSFIRE)
+
+        assert (result["matched"], result["team_id"]) == (True, "red")
+
+    def test_a_club_digit_is_not_a_squad_number(self):
+        """Read with its club, the name is squad 7, which no row of the club carries, so the team would be created."""
+        db = _DB(
+            [
+                _candidate("copa", "U14 Copa South", "7 Elite Academy", "u14", "CA"),
+                _candidate("copa2", "7 Elite Academy U14 Copa South 2", "7 Elite Academy", "u14", "CA"),
+            ]
+        )
+
+        result = _register_split(_matcher(db), "7 Elite Academy u14B Copa South", "u14", "CA")
+
+        assert (result["matched"], result["team_id"]) == (True, "copa")
+
+    @pytest.mark.parametrize(
+        "name, numbers",
+        [
+            ("SoCal Reds EA2", frozenset()),
+            ("Legends G2010/11 NL1", frozenset()),
+            ("XF U10 RCL 2", frozenset()),
+            ("XF N1 B13", frozenset()),
+            ("Crossfire ECNL2 B13", frozenset({2})),
+        ],
+    )
+    def test_glued_labels_are_squad_codes_not_numbers_except_ecnl(self, name, numbers):
+        assert squad_numbers(canonical_team_name(name, a2em._presplit)) == numbers
+
+    @pytest.mark.parametrize("name", ["XF B13 Red İ", "XF B13 Red ı", "XF B13 Red ıı"])
+    def test_a_non_ascii_look_alike_of_a_roman_numeral_is_no_number(self, name):
+        """Under IGNORECASE alone "İ" and "ı" match "i", and their lowercase forms are not in the numeral table."""
+        assert squad_numbers(name) == frozenset()
+
+    def test_a_stored_name_with_a_dotless_i_does_not_stop_the_team_matching(self):
+        db = _DB([_candidate("red", "XF B13 Red ıı", "Crossfire Premier", "u13", "WA")])
+
+        result = _register_split(_matcher(db), "XF B13 Red", "u13", "WA", host=CROSSFIRE)
+
+        assert (result["matched"], result["team_id"]) == (True, "red")
+
+    def test_two_squads_of_one_club_in_a_row_each_link_their_own_row(self):
+        matcher = _matcher(_DB(self.SANTA_CRUZ))
+
+        second = _register_split(matcher, "Sant Cruz United 14-15 Boys Blue 2", "u12", "CA", a2e_id="1")
+        first = _register_split(matcher, "Sant Cruz United 14-15 Boys Blue", "u12", "CA", a2e_id="2")
+
+        assert (second["team_id"], first["team_id"]) == ("blue2", "blue")
+
+    def test_tourney_central_keeps_the_shared_both_sides_rule(self):
+        matcher = TourneyCentralGameMatcher(_DB(self.SANTA_CRUZ), provider_id=PROVIDER, registration_mode=True)
+
+        result = _register_split(matcher, "Sant Cruz United 14-15 Boys Blue", "u12", "CA")
+
+        assert (result["matched"], result["team_id"]) == (True, "blue2")
+
+
+class TestClubSpacing:
+    @pytest.mark.parametrize(
+        "provider, stored",
+        [("LeonFC", "Leon FC"), ("TopBallers", "Top Ballers"), ("SoCal Tsunami", "So Cal Tsunami")],
+    )
+    def test_spacing_is_ignored(self, provider, stored):
+        assert a2em._same_club_ignoring_spacing(provider, stored) is True
+
+    @pytest.mark.parametrize("provider, stored", [("Leon FC", "Leon United"), ("", ""), ("-", None)])
+    def test_other_letters_or_no_letters_are_not_one_club(self, provider, stored):
+        assert a2em._same_club_ignoring_spacing(provider, stored) is False
+
+    ROW = _candidate("ts", "So Cal Tsunami", "Independent - Cal South", "u14", "CA", gender="Female")
+
+    def _register_tsunami(self, matcher):
+        return _register_with_club(
+            matcher, "SoCal Tsunami U14 - Anthony", "SoCal Tsunami", "u14", "CA", gender="Female"
+        )
+
+    def test_a_club_written_without_its_space_links_its_stored_row(self):
+        result = self._register_tsunami(_matcher(_DB([self.ROW])))
+
+        assert (result["matched"], result["team_id"]) == (True, "ts")
+
+    def test_without_the_rules_the_club_gate_refuses_it(self):
+        result = self._register_tsunami(_without_rules(_matcher(_DB([self.ROW]))))
+
+        assert result["created"] is True
+
+
+class TestSpelledDirections:
+    ROW = _candidate(
+        "sd", "San Diego Surf ECNL RL Southwest G13", "San Diego Surf Soccer Club", "u14", "CA", gender="Female"
+    )
+
+    def _register_sd(self, matcher):
+        return _register_with_club(
+            matcher, "SD Surf ECNL RL SW Girls U14 (Gonzalez)", "SD Surf", "u14", "CA", gender="Female"
+        )
+
+    def test_an_abbreviated_direction_links_the_squad_that_spells_it(self):
+        result = self._register_sd(_matcher(_DB([self.ROW])))
+
+        assert (result["matched"], result["team_id"]) == (True, "sd")
+
+    def test_a_spelled_direction_links_the_squad_that_abbreviates_it(self):
+        db = _DB(
+            [_candidate("sw", "SD Surf ECNL RL SW G13", "San Diego Surf Soccer Club", "u14", "CA", gender="Female")]
+        )
+
+        result = _register_split(_matcher(db), "San Diego Surf ECNL RL Southwest G13", "u14", "CA", gender="Female")
+
+        assert (result["matched"], result["team_id"]) == (True, "sw")
+
+    def test_without_the_rules_the_squad_gate_refuses_it(self):
+        result = self._register_sd(_without_rules(_matcher(_DB([self.ROW]))))
+
+        assert result["created"] is True
 
 
 class TestReviewSuppression:

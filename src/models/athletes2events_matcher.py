@@ -23,7 +23,7 @@ separately and all three must read the marks the same way.
 
 import logging
 import re
-from typing import Dict, Optional, Set, Tuple
+from typing import Dict, FrozenSet, Optional, Set, Tuple
 
 from config.settings import MATCHING_CONFIG
 from src.models.game_matcher import GameHistoryMatcher
@@ -34,6 +34,8 @@ from src.models.tournament_name_gates import (
     club_from_team_name,
     is_boys,
     squad_marks,
+    squad_number_fits,
+    squad_numbers,
     squads_conflict,
     without_club,
 )
@@ -57,6 +59,12 @@ _LETTER_ON_YEAR = re.compile(r"\b([BG]?(?:20)?\d{2})([A-F])\b")
 _MARK_TOKENS = re.compile(r"[\s,()]+")
 _SQUAD_LETTER = re.compile(r"[A-F]")
 _RCL_LABEL = re.compile(r"RCL\d{1,2}", re.IGNORECASE)
+# "SW" reads as the direction southwest; spelled out, "Southwest" reads as nothing.
+_SPELLED_COMPOUNDS = frozenset({"northwest", "northeast", "southwest", "southeast"})
+_LETTERS = re.compile(r"[a-z]+")
+# A word for the cut-back. A lone "-" or "/" is never one, so it cannot count toward the two-word floor.
+_NAME_WORD = re.compile(r"[^\s\-,()/]+")
+_NOT_ALPHANUMERIC = re.compile(r"[^a-z0-9]")
 
 _REVIEW_SUPPRESSED_METHODS = frozenset({"fuzzy_low_confidence", "no_match"})
 
@@ -70,17 +78,27 @@ def _presplit(name: str) -> str:
     return _LETTER_ON_YEAR.sub(r"\1 \2", text)
 
 
-def _squad_marks(name: str, boys: bool = False) -> Dict:
+def _squad_marks(name: str, boys: bool = False, *, spelled_compounds: bool = False) -> Dict:
     """The shared squad marks plus this platform's own squad codes.
 
     A standalone A-F letter and an ``RCL<n>`` label each name a squad, and neither
-    is a shape :func:`squad_marks` reads.
+    is a shape :func:`squad_marks` reads. ``spelled_compounds`` adds :data:`_SPELLED_COMPOUNDS`
+    to the directions.
     """
     marks = squad_marks(name, boys, tier_extra=TOURNAMENT_TIER_TOKENS, pre=_presplit)
     tokens = _MARK_TOKENS.split(_presplit(name or ""))
     labels = {f"squad-{token.lower()}" for token in tokens if _SQUAD_LETTER.fullmatch(token)}
     labels |= {token.lower() for token in tokens if _RCL_LABEL.fullmatch(token)}
-    return {**marks, "squad_codes": marks["squad_codes"] | frozenset(labels)}
+    directions = marks["directions"]
+    if spelled_compounds:
+        directions = directions | (frozenset(_LETTERS.findall((name or "").lower())) & _SPELLED_COMPOUNDS)
+    return {**marks, "directions": directions, "squad_codes": marks["squad_codes"] | frozenset(labels)}
+
+
+def _same_club_ignoring_spacing(provider_club: Optional[str], candidate_club: Optional[str]) -> bool:
+    """The same letters and digits however spaced or punctuated: "LeonFC" and "Leon FC", "SoCal" and "So Cal"."""
+    squashed = _NOT_ALPHANUMERIC.sub("", (provider_club or "").lower())
+    return bool(squashed) and squashed == _NOT_ALPHANUMERIC.sub("", (candidate_club or "").lower())
 
 
 class Athletes2EventsGameMatcher(GameHistoryMatcher):
@@ -90,6 +108,11 @@ class Athletes2EventsGameMatcher(GameHistoryMatcher):
     Athletes2Events id, while a 0.75-0.90 candidate (or a match a birth-year guard
     held back) keeps its review row and creates nothing.
     """
+
+    # The written-club and cut-back retries, spacing-blind club names, spelled compound directions
+    # and squad numbers that must agree: Athletes2Events only (owner decision, 2026-11-19); a
+    # subclass sets this False.
+    athletes2events_rules: bool = True
 
     def __init__(
         self,
@@ -108,6 +131,8 @@ class Athletes2EventsGameMatcher(GameHistoryMatcher):
         # The club as the team page wrote it, for the team being matched. ``_match_team``
         # sets it and restores None afterwards: the base class calls ``_fuzzy_match_team``
         # with the canonical club only, so the written form has to travel on the instance.
+        # During the cut-back (:meth:`_match_cut_back_club`) it holds each shortened club in
+        # turn and is put back afterwards.
         self._written_club: Optional[str] = None
 
     def _create_review_queue_entry(
@@ -209,19 +234,99 @@ class Athletes2EventsGameMatcher(GameHistoryMatcher):
         club_name: Optional[str] = None,
         state_code: Optional[str] = None,
     ) -> Optional[Dict]:
+        """One gated pass on the club, then, under ``athletes2events_rules``, retries on other spellings of it.
+
+        A pass on the club as the team page writes it, where the host's club table filed the team under another
+        name; when the page writes the club exactly as it is filed, the club cut back a word at a time
+        (:meth:`_match_cut_back_club`). A spelling that differs only in case gets neither retry. Every retry runs
+        the pass itself, never this method, so a subclass wrapping it is not re-entered. The candidate rows depend
+        only on age, gender and state, so they are read once and every pass gates the same rows.
+        """
+        if not self.athletes2events_rules:
+            return self._fuzzy_match_once(team_name, age_group, gender, club_name, state_code)
+        if not state_code:
+            return None
+        rows = self._fetch_candidates(age_group.lower(), gender, state_code)
+        match = self._fuzzy_match_once(team_name, age_group, gender, club_name, state_code, extended=True, rows=rows)
+        written = self._written_club
+        if match is not None or not written:
+            return match
+        if written.lower() != (club_name or "").lower():
+            return self._fuzzy_match_once(team_name, age_group, gender, written, state_code, extended=True, rows=rows)
+        if club_name == written:
+            return self._match_cut_back_club(team_name, age_group, gender, club_name, state_code, rows)
+        return None
+
+    def _match_cut_back_club(
+        self, team_name: str, age_group: str, gender: str, club_name: str, state_code: str, rows: list
+    ) -> Optional[Dict]:
+        """The club cut back a word at a time, to two words, taking only a candidate whose name carries the cut words.
+
+        A club read from the words before the age can run on into a squad or branch word ("Next Level Soccer
+        Southeast", "Legends FC SB"), and the cut words are what tell its squads apart. Only a candidate's stored
+        club may vouch for a shortened club: a stale row's own name ("City SC - Carlsbad 2016 Gold - Cordeiro")
+        would otherwise let it in ahead of the active squad.
+        """
+        words = list(_NAME_WORD.finditer(club_name))
+        written = self._written_club
+        try:
+            for keep in range(len(words) - 1, 1, -1):
+                cut_club = club_name[: words[keep - 1].end()]
+                self._written_club = cut_club
+                match = self._fuzzy_match_once(
+                    team_name,
+                    age_group,
+                    gender,
+                    cut_club,
+                    state_code,
+                    extended=True,
+                    must_carry=frozenset(word.group(0).lower() for word in words[keep:]),
+                    name_club_vouches=False,
+                    rows=rows,
+                )
+                if match is not None:
+                    return match
+        finally:
+            self._written_club = written
+        return None
+
+    def _same_club(self, provider_club: str, candidate_club: str, extended: bool) -> bool:
+        if is_same_club(provider_club, candidate_club, self._club_similarity_threshold):
+            return True
+        return extended and _same_club_ignoring_spacing(provider_club, candidate_club)
+
+    def _fuzzy_match_once(
+        self,
+        team_name: str,
+        age_group: str,
+        gender: str,
+        club_name: Optional[str] = None,
+        state_code: Optional[str] = None,
+        extended: bool = False,
+        must_carry: FrozenSet[str] = frozenset(),
+        name_club_vouches: bool = True,
+        rows: Optional[list] = None,
+    ) -> Optional[Dict]:
         """Club and squad gates, then score.
 
         Returns None without querying when no state is given: only the roster pass
         supplies one, and a game import resolves Athletes2Events ids through aliases
         alone. A failed query raises rather than reading as "no candidate", which
-        would create a duplicate.
+        would create a duplicate. ``extended`` applies the ``athletes2events_rules``
+        readings; ``must_carry`` keeps only candidates whose name has every one of
+        those words; ``name_club_vouches`` False lets only a candidate's stored club
+        pass the club gate; ``rows`` are the candidates an earlier pass already read.
         """
         if not state_code:
             return None
         provider_team_name = canonical_team_name(team_name, _presplit)
         provider_club_name = club_name or club_from_team_name(team_name, _presplit)
         boys = is_boys(gender)
-        provider_marks = _squad_marks(self._without_club(provider_team_name, provider_club_name), boys)
+        provider_squad = self._without_club(provider_team_name, provider_club_name)
+        provider_marks = _squad_marks(provider_squad, boys, spelled_compounds=extended)
+        # Read with the club removed, so a club's own digit ("7 Elite Academy") is not a squad number.
+        provider_numbers = squad_numbers(provider_squad)
+        provider_number = min(provider_numbers) if provider_numbers else None
         provider_team = {
             "team_name": provider_team_name,
             "club_name": provider_club_name,
@@ -230,32 +335,41 @@ class Athletes2EventsGameMatcher(GameHistoryMatcher):
         }
         ecnl_boost = 0.05 if provider_marks["tiers"] & {"ecnl", "rl"} else 0.0
 
+        candidates = self._fetch_candidates(age_group.lower(), gender, state_code) if rows is None else rows
+        if must_carry:
+            candidates = [
+                team
+                for team in candidates
+                if must_carry <= set(_NAME_WORD.findall((team.get("team_name") or "").lower()))
+            ]
         scored = []
-        for team in self._fetch_candidates(age_group.lower(), gender, state_code):
+        for team in candidates:
             if team["team_id_master"] in self._created_this_run:
                 continue
             candidate_name_raw = team.get("team_name") or ""
             candidate_name = canonical_team_name(candidate_name_raw, _presplit)
-            name_club = club_from_team_name(candidate_name_raw, _presplit)
+            name_club = club_from_team_name(candidate_name_raw, _presplit) if name_club_vouches else None
 
             # A stored club_name is often the long form ("Crossfire Select Soccer
             # Club") while the row's own team name says "XF", so either may vouch
-            # for the club. A provider club neither agrees with declines: a
-            # duplicate is recoverable by merge, a wrong match is not.
+            # for the club (the name's own only when ``name_club_vouches``). A
+            # provider club neither agrees with declines: a duplicate is
+            # recoverable by merge, a wrong match is not.
             matched_club = None
             club_in_name = None
             if provider_club_name:
-                if name_club and is_same_club(provider_club_name, name_club, self._club_similarity_threshold):
+                if name_club and self._same_club(provider_club_name, name_club, extended):
                     matched_club = club_in_name = name_club
-                elif team.get("club_name") and is_same_club(
-                    provider_club_name, team["club_name"], self._club_similarity_threshold
-                ):
+                elif team.get("club_name") and self._same_club(provider_club_name, team["club_name"], extended):
                     matched_club = team["club_name"]
                 else:
                     continue
 
-            candidate_marks = _squad_marks(self._without_club(candidate_name, club_in_name), boys)
+            candidate_squad = self._without_club(candidate_name, club_in_name)
+            candidate_marks = _squad_marks(candidate_squad, boys, spelled_compounds=extended)
             if squads_conflict(provider_marks, candidate_marks):
+                continue
+            if extended and not squad_number_fits(provider_number, candidate_squad):
                 continue
             if self._names_another_squad(provider_team_name, candidate_name, provider_club_name):
                 continue

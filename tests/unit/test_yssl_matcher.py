@@ -12,7 +12,7 @@ from types import SimpleNamespace
 import pytest
 from postgrest.exceptions import APIError
 
-from src.models.yssl_matcher import YSSLGameMatcher
+from src.models.yssl_matcher import YSSLGameMatcher, roman_to_digits
 
 PROVIDER = "33333333-3333-4333-8333-333333333333"
 NO_ROWS = APIError({"code": "PGRST116", "message": "JSON object requested, multiple (or no) rows returned"})
@@ -361,3 +361,9 @@ def test_a_squad_numbered_two_or_more_needs_the_same_number(yssl_name, stored_na
     db = _DB([_candidate("t1", stored_name, club, age_group="u10")])
     result = _register_as(db, yssl_name, club, "PRSC")
     assert (result["team_id"] == "t1") is links
+
+
+@pytest.mark.parametrize("name", ["PREMIER İ", "PREMIER ıı"])
+def test_a_non_ascii_look_alike_of_a_roman_numeral_is_left_as_written(name):
+    """Under IGNORECASE alone "İ" and "ı" match "I", and their lowercase forms are not in the numeral table."""
+    assert roman_to_digits(name) == name

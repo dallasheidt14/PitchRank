@@ -178,7 +178,7 @@ LINKED_OUTCOMES = frozenset({"already_linked", "linked_existing", "relinked", "c
 # of the domain literal, so "athleteſ2eventſ.com" -- a different registrable
 # domain -- is accepted, and \d admits non-ASCII digits.
 _EVENT_URL = re.compile(
-    r"^https://([a-z0-9][a-z0-9-]*\.athletes2events\.com)/events/(\d+)/?$", re.IGNORECASE | re.ASCII
+    r"^https://([a-z0-9][a-z0-9-]*\.athletes2events\.com)/events/(\d+)(?:[/?]\S*)?$", re.IGNORECASE | re.ASCII
 )
 _EVENT_DATES = re.compile(
     r"Event Dates:\s*From\s+([A-Za-z]{3}\s+\d{1,2},\s*\d{4})\s+to\s+([A-Za-z]{3}\s+\d{1,2},\s*\d{4})"
@@ -238,6 +238,13 @@ _CLUB_STOP = re.compile(
     r"|RCL|ECNL\d*|ENCL|EA|RL|N\d)\b",
     re.IGNORECASE,
 )
+# The Athletes2Events roster pass's stop: a bare band ("16/17B") ends the club too, and a 19xx
+# number stays in it, as the founding year of "1974 Newark FC" rather than a birth year.
+_A2E_CLUB_STOP = re.compile(
+    r",|\(|\b(?:E?[BG]-?U-?\d{1,2}[A-Z]?|U-?\d{1,2}[A-Z]?|[BG]\d{2}(?:[/-]\d{2})?[A-Z]?|\d{2}[/-]\d{2}[BG]?"
+    r"|[BG]?20\d{2}(?:[/-]\d{2,4})?|RCL|ECNL\d*|ENCL|EA|RL|N\d)\b",
+    re.IGNORECASE,
+)
 
 # Clubs a host writes in a form PitchRank stores under another name. Keyed by host
 # so a new subdomain adds its own without a code change; first match wins, so the
@@ -249,6 +256,18 @@ HOST_CLUBS: Dict[str, Tuple[Tuple[re.Pattern, str], ...]] = {
             re.compile(r"^(?:XF(?:\s+Crossfire\s+Premier)?|Crossfire(?:\s+Premier)?)\b", re.IGNORECASE),
             "Crossfire Premier",
         ),
+    ),
+    # A name must not run on into a hyphen or a word character: LASC-SCV is its own club, not LASC.
+    "somsports.athletes2events.com": (
+        (re.compile(r"^LAFC(?:\s+So\s*Cal)?(?![\w-])", re.IGNORECASE), "LAFC So Cal"),
+        (re.compile(r"^HB\s+Slammers(?![\w-])", re.IGNORECASE), "CDA Slammers"),
+        (re.compile(r"^Slammers\s+FC(?![\w-])", re.IGNORECASE), "CDA Slammers"),
+        (re.compile(r"^South\s+Valley(?![\w-])", re.IGNORECASE), "South Valley Surf SC"),
+        (re.compile(r"^NW\s+Elite(?![\w-])", re.IGNORECASE), "Northwest Elite Soccer Club"),
+        (re.compile(r"^LASC(?![\w-])", re.IGNORECASE), "Los Angeles Soccer Club"),
+        (re.compile(r"^AVSC(?![\w-])", re.IGNORECASE), "Apple Valley SC"),
+        (re.compile(r"^Progressive(?![\w-])", re.IGNORECASE), "Progressive Soccer Ozzy"),
+        (re.compile(r"^LAOT(?![\w-])", re.IGNORECASE), "LA Overtime"),
     ),
 }
 
@@ -352,13 +371,15 @@ def _get(session: requests.Session, url: str) -> requests.Response:
 def parse_event_url(url: str) -> Tuple[str, int]:
     """``https://crossfire.athletes2events.com/events/130`` -> ``("crossfire.athletes2events.com", 130)``.
 
-    An event requested on the wrong subdomain redirects to that host's home page,
-    so the host is part of the event's address and is never guessed.
+    Any page of the event gives the same answer (``.../events/130/groups``). An event
+    requested on the wrong subdomain redirects to that host's home page, so the host is
+    part of the event's address and is never guessed.
     """
     match = _EVENT_URL.match((url or "").strip())
     if not match:
         raise ValueError(
-            f"not an Athletes2Events event URL: {url!r} (expected https://<host>.athletes2events.com/events/<id>)"
+            f"not an Athletes2Events event URL: {url!r} "
+            "(expected https://<host>.athletes2events.com/events/<id> or any page under it)"
         )
     return match.group(1).lower(), int(match.group(2))
 
@@ -623,21 +644,21 @@ def board_cohort(birth_year: int, board_season: int) -> Optional[str]:
     return age_group
 
 
-def split_club(team_name: str, host: str) -> Tuple[Optional[str], Optional[str]]:
+def split_club(team_name: str, host: str, *, stop: re.Pattern = _CLUB_STOP) -> Tuple[Optional[str], Optional[str]]:
     """``(club as PitchRank stores it, club as this name writes it)``.
 
-    The club is the words before the first age token, league tag or comma. The two
-    differ only where the host writes a club under another name; the squad gates
-    need the written form to strip it, and the stored form is what a created team
-    is filed under.
+    The club is the words before the first match of ``stop``: an age token, league tag
+    or comma. The two differ only where the host writes a club under another name; the
+    squad gates need the written form to strip it, and the stored form is what a created
+    team is filed under.
     """
     body = _LEADING_AGE.sub("", team_name)
     for pattern, club in HOST_CLUBS.get(host, ()):
         match = pattern.match(body)
         if match:
             return club, _clean_name(match.group(0))
-    stop = _CLUB_STOP.search(body)
-    written = _clean_name((body[: stop.start()] if stop else body).replace(",", " ")).strip(" -,")
+    end = stop.search(body)
+    written = _clean_name((body[: end.start()] if end else body).replace(",", " ")).strip(" -,")
     return written or None, written or None
 
 
@@ -661,7 +682,9 @@ def build_roster(
         birth_year, age_source = (
             age_from_name(team_name, division.birth_year, event.season) if team_name else (None, "unreadable header")
         )
-        club_name, club_as_written = split_club(team_name, event.host) if team_name else (None, None)
+        club_name, club_as_written = (
+            split_club(team_name, event.host, stop=_A2E_CLUB_STOP) if team_name else (None, None)
+        )
         cohort = board_cohort(birth_year, board_season) if birth_year else None
         row = TeamRow(
             a2e_team_id=a2e_team_id,
@@ -989,7 +1012,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--event-url",
         required=True,
-        help="Event URL, e.g. https://crossfire.athletes2events.com/events/130",
+        help="Event URL or any page of the event, e.g. https://crossfire.athletes2events.com/events/130",
     )
     p.add_argument("--days-back", type=int, default=14, help="Import games dated within this many days (default 14)")
     p.add_argument("--output-dir", type=Path, default=OUTPUT_DIR, help="Where the CSVs and team report go")

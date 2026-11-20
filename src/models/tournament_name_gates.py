@@ -12,12 +12,12 @@ the shared tier set does not carry.
 ``extract_team_variant`` is not used here: its coach-name fallback reads a
 hyphenated tier such as "ECNL-RL" as a coach name.
 
-``AGE_WORD``, ``begins`` and ``initials`` read ages, abbreviations and club initials
-for matchers that split names and compare them their own way.
+``AGE_WORD``, ``begins``, ``initials``, ``squad_numbers`` and ``squad_number_fits`` serve
+matchers that split names and compare them their own way.
 """
 
 import re
-from typing import Callable, Dict, Optional, Sequence
+from typing import Callable, Dict, FrozenSet, Optional, Sequence
 
 from src.models.game_matcher import extract_club_from_team_name
 from src.models.squad_name_gates import extract_tier_tokens, tiers_conflict
@@ -94,6 +94,26 @@ def initials(words: Sequence[str]) -> str:
     return "".join(word[0] for word in words)
 
 
+_ROMAN = {"i": 1, "ii": 2, "iii": 3, "iv": 4}
+# The numeral is ASCII-only: under IGNORECASE alone "İ" and "ı" match "i" and miss the table.
+_SQUAD_NUMBER = re.compile(r"(?<![\d/])\b(?:([1-9])|(?a:(iv|i{1,3}))|([1-9])(?:st|nd|rd|th))\b(?![\d/])", re.IGNORECASE)
+_BAND = re.compile(r"(?<!\d)(?:20)?\d{2}\s*/\s*(?:20)?\d{2}(?!\d)[bg]?", re.IGNORECASE)
+
+
+def squad_numbers(text: str) -> FrozenSet[int]:
+    """Standalone squad numbers: 2, II and 2ND alike. Ages, years and bands are not squad numbers."""
+    return frozenset(
+        int(digit or ordinal) if (digit or ordinal) else _ROMAN[roman.lower()]
+        for digit, roman, ordinal in _SQUAD_NUMBER.findall(_BAND.sub(" ", text))
+    )
+
+
+def squad_number_fits(number: Optional[int], stored_text: str) -> bool:
+    """An unnumbered or first squad fits a stored name with no number or a 1; a later squad needs its own number."""
+    stored = squad_numbers(stored_text)
+    return number in stored if number and number >= 2 else not stored or 1 in stored
+
+
 def without_club(name: str, club: Optional[str]) -> str:
     """So a club's own words ("Blue Fire") are not read as squad marks."""
     if not club:
@@ -142,7 +162,7 @@ def squads_conflict(provider: Dict, candidate: Dict) -> bool:
     """True when the marks say two different squads.
 
     A squad number or squad code counts only when both names carry one: "FC Pride
-    Pre-ECNL" beside "FC Pride Pre-ECNL 2" is not evidence either way.
+    Pre-ECNL" beside "FC Pride Pre-ECNL 2" is not evidence either way to this gate.
     """
     if provider["colors"] != candidate["colors"] or provider["directions"] != candidate["directions"]:
         return True
