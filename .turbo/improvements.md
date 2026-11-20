@@ -3395,3 +3395,11 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: the log output and artifact uploads of the scraping and unknown-opponent workflows; the call sites are listed in `.turbo/private/actions-provider-id-exposure.md` in the main checkout
 - **Why**: This repo is public, and its run logs and artifacts carry GotSport team ids beside our team ids, which the database hides from the public key. The owner chose one repo-wide fix over trimming single workflows.
 - **Noted**: 2026-11-20
+
+### List the Elite Academy League (EA) in the state guides whose states have EA teams
+
+- **Type**: direct
+- **Category**: docs
+- **Where**: the league list and the "What youth soccer leagues operate in <state>?" FAQ in `frontend/content/blog/<state>-youth-soccer-rankings-guide.mdx`, the matching answers in `BLOG_FAQS` (`frontend/lib/blog-faqs.ts`); the California and Texas guides are `BlogPost` objects in `frontend/content/blog-posts.tsx`
+- **Why**: A customer reported on 2026-11-20 that the Washington guide left out EA, which their team has played for two seasons; Washington was fixed with this entry and Nevada already lists EA. Live teams with a `modular11_ea` alias, by `teams.state_code` (2026-11-20): CA 504, CO 65, TX 60, IL 57, NY 55, OR 44, GA 35, FL 25, UT 20, IN 15, WI 15, NJ 10, AZ 10, and none of those 13 guides names the league (Utah's "7 Elite Academy" is a club; the Texas mention is in the Texas data report, not the guide). The seo skill's State Guide Posts step 4 covers naming EA clubs by club rather than squad label and not taking an age span from the import.
+- **Noted**: 2026-11-20
