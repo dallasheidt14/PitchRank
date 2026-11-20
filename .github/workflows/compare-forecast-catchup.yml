@@ -1,0 +1,45 @@
+name: Compare Forecast Catch-up
+
+on:
+  schedule:
+    - cron: '37 */4 * * *'
+  workflow_dispatch:
+    inputs:
+      execute:
+        description: Run the collectors that have queued work
+        type: boolean
+        default: false
+
+concurrency:
+  group: compare-forecast-catchup
+  cancel-in-progress: false
+
+jobs:
+  catch-up:
+    if: github.ref == 'refs/heads/main' && (vars.COMPARE_WINNER_STUDY_SIGNATURE != '' || vars.COMPARE_SCORE_STUDY_SIGNATURE != '')
+    runs-on: ubuntu-latest
+    timeout-minutes: 230
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: pip install -r requirements.lock
+      - name: Check coverage and catch up eligible forecasts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          COMPARE_CAPTURE_ENABLED: ${{ vars.COMPARE_CAPTURE_ENABLED }}
+          COMPARE_MONITOR_ENABLED: ${{ vars.COMPARE_MONITOR_ENABLED }}
+          COMPARE_MONITOR_REVISION: ${{ vars.COMPARE_MONITOR_REVISION }}
+          COMPARE_SCORE_STUDY_SIGNATURE: ${{ vars.COMPARE_SCORE_STUDY_SIGNATURE }}
+          COMPARE_WINNER_STUDY_SIGNATURE: ${{ vars.COMPARE_WINNER_STUDY_SIGNATURE }}
+          EXECUTE: ${{ github.event_name == 'schedule' || inputs.execute }}
+        run: python -u -m scripts.catch_up_compare_forecasts

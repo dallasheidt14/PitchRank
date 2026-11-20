@@ -22,7 +22,7 @@ permissions:
   contents: read
 jobs:
   monitor:
-    if: github.event_name == 'workflow_dispatch' || vars.COMPARE_MONITOR_ENABLED == 'true'
+    if: vars.COMPARE_MONITOR_ENABLED == 'true' || (github.event_name == 'workflow_dispatch' && github.actor != 'github-actions[bot]')
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:

@@ -21,7 +21,7 @@ concurrency:
 jobs:
   capture:
     # Enable only after the migration and 20-fixture pilot have been verified.
-    if: github.event_name != 'schedule' || vars.COMPARE_CAPTURE_ENABLED == 'true'
+    if: vars.COMPARE_CAPTURE_ENABLED == 'true' || (github.event_name == 'workflow_dispatch' && github.actor != 'github-actions[bot]')
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
