@@ -3381,3 +3381,11 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `tests/unit/test_score_study.py` `test_capture_drives_real_composition_and_only_executes_writes_with_authorization[True]`
 - **Why**: On 2026-11-19 its `dry_run=True` case failed in a full CI-form suite run but passed when run alone, both on a branch that touches no Compare code and on origin/main (re-run alone 2026-11-19: both cases pass). An order-dependent failure points at state another test leaves behind; until found, a red run here is noise that can hide a real one.
 - **Noted**: 2026-11-19
+
+### Stamp new team aliases in UTC, not the importing machine's local time
+
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `GameHistoryMatcher._create_alias` (`src/models/game_matcher.py`), the `"created_at": datetime.now().isoformat()` key
+- **Why**: A naive local timestamp is stored as if it were UTC. On 2026-11-19 a PlayMetrics tournament import run locally in Arizona wrote aliases reading 14:42, beside hand-inserted rows from the same session that the database stamped 21:34 UTC. A "rows written during this run" window, such as the post-import copy check in the scraper-patterns skill, then misses a local run's aliases by the machine's UTC offset; Actions runs in UTC and is unaffected. Use `datetime.now(timezone.utc)` or let the column default apply.
+- **Noted**: 2026-11-19
