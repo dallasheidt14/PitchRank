@@ -3364,3 +3364,11 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `_finalize_queue_items` in `scripts/drain_queue.py` (`now_iso = datetime.now().isoformat()`, written as `completed_at` on completed and failed rows)
 - **Why**: The claim side stamps `processed_at` in UTC (`claim_queue_items` sets `NOW()`, the fallback uses `datetime.now(timezone.utc)`), but finalize writes a naive local time that Postgres reads as UTC. Correct on the Actions runners; a run on an Arizona machine stores `completed_at` 7 hours early, so it precedes `processed_at` and anything windowing on the pair, such as the missing-game email's new-games count, reads nothing. Checked 2026-11-19: 0 of 350,635 completed requests in 60 days are inverted, so no stored row is affected yet. Fix: `datetime.now(timezone.utc)`.
 - **Noted**: 2026-11-19
+
+### Stamp new team aliases in UTC, not the importing machine's local time
+
+- **Type**: direct
+- **Category**: reliability
+- **Where**: `GameHistoryMatcher._create_alias` (`src/models/game_matcher.py`), the `"created_at": datetime.now().isoformat()` key
+- **Why**: A naive local timestamp is stored as if it were UTC. On 2026-11-19 a PlayMetrics tournament import run locally in Arizona wrote aliases reading 14:42, beside hand-inserted rows from the same session that the database stamped 21:34 UTC. A "rows written during this run" window, such as the post-import copy check in the scraper-patterns skill, then misses a local run's aliases by the machine's UTC offset; Actions runs in UTC and is unaffected. Use `datetime.now(timezone.utc)` or let the column default apply.
+- **Noted**: 2026-11-19

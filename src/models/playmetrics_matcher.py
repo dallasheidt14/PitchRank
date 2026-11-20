@@ -59,6 +59,20 @@ STORED_CLUB_NAMES = {
     "Rush Wisconsin Southeast": "RUSH WI Southeast",
 }
 
+# Initials a club writes in its team names that its name as given does not spell, keyed by the
+# club's core name. They are listed rather than derived, because letters plus a club code can
+# spell a squad's own name ("RSL Arizona" with YS is "Rays").
+CLUB_INITIALS = {
+    "charlotte independence": "cisc",
+    "triangle united": "tusa",
+}
+
+# Places a club writes as initials in its team names, keyed by the club's core name. Other clubs
+# use the same letters for something else (NM Rapids is New Mexico, GC is Gulf Coast).
+CLUB_PLACE_INITIALS = {
+    "charlotte independence": {"nm": "North Meck", "gc": "Gaston County"},
+}
+
 # One spelling per colour, so a squad's colour reads the same however a name spells it.
 COLOR_SPELLINGS = {"gray": "grey"}
 SQUAD_MARK_WORDS = LOCATION_CODES | TEAM_COLORS | PROGRAM_WORDS
@@ -250,6 +264,14 @@ class PlayMetricsGameMatcher(GameHistoryMatcher):
         return s
 
     @staticmethod
+    def _with_places_spelled_out(name: str, club_name: Optional[str]) -> str:
+        """``name`` with the places its club writes as initials spelled out ("NM" -> "North Meck")."""
+        places = CLUB_PLACE_INITIALS.get(_core_and_codes(club_name or "")[0])
+        if not places or not name:
+            return name
+        return re.sub(r"[A-Za-z]+", lambda m: places.get(m.group(0).lower(), m.group(0)), name)
+
+    @staticmethod
     def _club_words(*club_names: Optional[str]) -> frozenset:
         """Words and acronyms that name the club rather than the squad."""
         words = set()
@@ -264,6 +286,8 @@ class PlayMetricsGameMatcher(GameHistoryMatcher):
             short = _club_acronym(core)
             if short and short not in SQUAD_MARK_WORDS:
                 words.add(short)
+            if core in CLUB_INITIALS:
+                words.add(CLUB_INITIALS[core])
         # A name's directions and colours are read canonically ("NE Surf" -> northeast,
         # "Gray" -> grey), so the club's must be too or they never cancel.
         words |= {DIRECTION_CANONICAL[w] for w in words if w in DIRECTION_CANONICAL}
@@ -347,7 +371,8 @@ class PlayMetricsGameMatcher(GameHistoryMatcher):
 
             unscoped = state_code is None
             scoring_team_name = self._normalize_pm_tournament_team_name(team_name) if unscoped else team_name
-            provider_distinctions = self._distinctions(scoring_team_name)
+            spelled_team_name = self._with_places_spelled_out(scoring_team_name, club_name)
+            provider_distinctions = self._distinctions(spelled_team_name)
             provider_team = {
                 "team_name": scoring_team_name,
                 "club_name": club_name,
@@ -369,9 +394,11 @@ class PlayMetricsGameMatcher(GameHistoryMatcher):
                 # Stage 2: distinction-based hard rejection (Red ≠ Blue, ECNL ≠ ECRL, etc.).
                 # Distinctions are memoized on the cached row so repeated matcher calls
                 # within one import don't re-run the regex-heavy extractor.
+                cand_name = team.get("team_name", "")
+                cand_spelled_name = self._with_places_spelled_out(cand_name, candidate_club)
                 cand_distinctions = team.get("_distinctions")
                 if cand_distinctions is None:
-                    cand_distinctions = self._distinctions(team.get("team_name", ""))
+                    cand_distinctions = self._distinctions(cand_spelled_name)
                     team["_distinctions"] = cand_distinctions
                 # Tier words are never ignored, even inside a club name ("GA Rush"):
                 # a tier mismatch refuses the match rather than merging across tiers.
@@ -380,9 +407,10 @@ class PlayMetricsGameMatcher(GameHistoryMatcher):
                 if provider_distinctions["team_number"] != cand_distinctions["team_number"]:
                     continue
                 club_words = self._club_words(club_name, candidate_club, self._written_club)
-                # The team's own state ("CO Rush") and a club's initials read as a
-                # state ("LA Surf") are expected in a name; any other state marks a
-                # branch ("CSA NH King G" is not "CSA Charlotte King G").
+                # The team's own state ("CO Rush"), a club's initials read as a state
+                # ("LA Surf") and a place the club writes as initials (spelled out above)
+                # are expected in a name; any other state marks a branch ("CSA NH King G"
+                # is not "CSA Charlotte King G").
                 own_states = {s.lower() for s in (state_code, team.get("state_code")) if s}
                 if any(
                     provider_distinctions[key] - ignored != cand_distinctions[key] - ignored
@@ -422,7 +450,6 @@ class PlayMetricsGameMatcher(GameHistoryMatcher):
                 if cand_u_age_is_current and self._years_outside_u_age(cand_u_age, birth_years(team_name)):
                     continue
 
-                cand_name = team.get("team_name", "")
                 cand_state = team.get("state_code")
                 # Copy the candidate's state_code so the location component
                 # (0.10 weight) doesn't penalize for PM's missing state.
@@ -437,12 +464,13 @@ class PlayMetricsGameMatcher(GameHistoryMatcher):
                 }
                 raw_score = self._calculate_match_score(provider_for_scoring, candidate)
                 stripped_score = self._calculate_match_score(
-                    {**provider_for_scoring, "team_name": self._without_club_words(scoring_team_name, club_words)},
-                    {**candidate, "team_name": self._without_club_words(cand_name, club_words)},
+                    {**provider_for_scoring, "team_name": self._without_club_words(spelled_team_name, club_words)},
+                    {**candidate, "team_name": self._without_club_words(cand_spelled_name, club_words)},
                 )
                 score = max(raw_score, stripped_score)
-                # Stripping can tie a club's duplicate rows ("Polonia U16 Girls Red"
-                # and "U16 Girls Red"); the name as written breaks the tie.
+                # Stripping club words or spelling out a place can tie a club's duplicate
+                # rows ("Polonia U16 Girls Red" and "U16 Girls Red"); the name as written
+                # breaks the tie.
                 rank = (score, raw_score)
 
                 if score >= self.fuzzy_threshold and rank > best_rank:
