@@ -103,6 +103,14 @@ Mirror the most recent guide's structure.
      the conference is chosen; ECNL's post-season structure PDFs can omit a club. MLS
      NEXT member pages can still carry last season's label; when no current list exists,
      attribute membership to the season the list names rather than presenting it as current.
+   - For a league with no member list above whose own schedule PitchRank imports (the Elite
+     Academy League, EA, provider `modular11_ea`), take its clubs from the teams holding that
+     provider's alias, folding squads into their club. Rows the import created can carry a
+     squad label as `teams.club_name` ("Atletico Rojo" for Atletico FC's three squads;
+     "Western WA Surf Academy Blue" and "White" for Western Washington Surf SC), so take the
+     club's name from its teams on other providers. Take the league's age span from the
+     league's own site: those rows cover only the ages the import has run (the scheduled
+     matrix in `ea-scraper.yml`).
    - Take State Cup qualification, seeding and advancement from the state
      association's current rules page. Some associations split the cup into fall and
      spring competitions by age group, and some by gender too; say which competition

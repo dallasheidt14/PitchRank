@@ -3405,3 +3405,11 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `tests/unit/test_browser_write_grants_migration.py` beside `SERVICE_WRITTEN_TABLES`; frontend `.from('<table>')` chains that call `.insert/.update/.upsert/.delete`
 - **Why**: The browser roles hold no write on the tables in `SERVICE_WRITTEN_TABLES` (verified live 2026-11-20: a public-key write gets 401/42501), so a route that writes one through `createServerSupabase()` or `requireAdmin`'s session client fails at runtime while every test stays green. The read side has `test_every_site_read_stays_inside_the_grant_or_runs_on_the_service_key`; a write-side twin with an allow-list of service-client writers would catch it before deploy. Raised by the 2026-11-20 coverage review and skipped there as an unasked guard, since the failure is loud.
 - **Noted**: 2026-11-20
+
+### List the Elite Academy League (EA) in the state guides whose states have EA teams
+
+- **Type**: direct
+- **Category**: docs
+- **Where**: the league list and the "What youth soccer leagues operate in <state>?" FAQ in `frontend/content/blog/<state>-youth-soccer-rankings-guide.mdx`, the matching answers in `BLOG_FAQS` (`frontend/lib/blog-faqs.ts`); the California and Texas guides are `BlogPost` objects in `frontend/content/blog-posts.tsx`
+- **Why**: A customer reported on 2026-11-20 that the Washington guide left out EA, which their team has played for two seasons; Washington was fixed with this entry and Nevada already lists EA. Live teams with a `modular11_ea` alias, by `teams.state_code` (2026-11-20): CA 504, CO 65, TX 60, IL 57, NY 55, OR 44, GA 35, FL 25, UT 20, IN 15, WI 15, NJ 10, AZ 10, and none of those 13 guides names the league (Utah's "7 Elite Academy" is a club; the Texas mention is in the Texas data report, not the guide). The seo skill's State Guide Posts step 4 covers naming EA clubs by club rather than squad label and not taking an age span from the import.
+- **Noted**: 2026-11-20
