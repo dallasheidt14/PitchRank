@@ -1,0 +1,97 @@
+name: Compare Winner Study
+on:
+  schedule:
+    - cron: '0 18 * * 1'
+  workflow_run:
+    workflows: [Compare Live Monitoring]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      mode:
+        type: choice
+        options: [capture, review]
+        default: capture
+      execute:
+        type: boolean
+        default: false
+      limit:
+        type: string
+        default: '20'
+concurrency:
+  group: compare-winner-study
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  capture:
+    # Only the scheduled, successful main monitor chains writes. A manual monitor preview cannot write here.
+    if: >-
+      vars.COMPARE_WINNER_STUDY_SIGNATURE != '' &&
+      (github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' ||
+      (github.event.workflow_run.event == 'schedule' && github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      STUDY_SIGNATURE: ${{ vars.COMPARE_WINNER_STUDY_SIGNATURE }}
+      EXECUTE: ${{ github.event_name == 'workflow_run' || github.event_name == 'schedule' || inputs.execute }}
+      MODE: ${{ inputs.mode || (github.event_name == 'schedule' && 'review' || 'capture') }}
+      CAPTURE_LIMIT: ${{ inputs.limit || '500' }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: pip install -r requirements.lock
+      - name: Resolve the immutable research revision
+        id: study
+        shell: bash
+        run: |
+          python - <<'PY'
+          import hashlib, json, os, re
+          from scripts.settle_prospective_match_predictions import _supabase_client
+          signature = os.environ['STUDY_SIGNATURE']
+          if not re.fullmatch(r'[a-f0-9]{64}', signature):
+              raise ValueError('Invalid study signature')
+          record = _supabase_client().table('compare_winner_studies').select('manifest').eq(
+              'signature', signature).single().execute().data
+          manifest = record['manifest']
+          raw = json.dumps(manifest, sort_keys=True, separators=(',', ':'), allow_nan=False).encode()
+          if hashlib.sha256(raw).hexdigest() != signature:
+              raise ValueError('Study manifest identity differs')
+          revision = manifest['code_revision']
+          if not re.fullmatch(r'[a-f0-9]{40}', revision):
+              raise ValueError('Invalid registered revision')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('revision=' + revision + '\n')
+          PY
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ steps.study.outputs.revision }}
+          persist-credentials: false
+      - run: pip install -r requirements.lock
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --ignore-scripts
+        working-directory: frontend
+      - name: Capture fixed winner candidate without reading target scores
+        if: env.MODE == 'capture'
+        shell: bash
+        run: |
+          MODE=()
+          if [ "$EXECUTE" = 'true' ]; then MODE+=(--execute); fi
+          python scripts/capture_compare_winner_study.py "$STUDY_SIGNATURE" --limit "$CAPTURE_LIMIT" "${MODE[@]}"
+      - name: Preserve coverage or released winner comparison privately
+        if: env.MODE == 'review'
+        shell: bash
+        run: |
+          MODE_ARGS=()
+          if [ "$EXECUTE" = 'true' ]; then MODE_ARGS+=(--execute); fi
+          python scripts/review_compare_winner_study.py "$STUDY_SIGNATURE" "${MODE_ARGS[@]}"
