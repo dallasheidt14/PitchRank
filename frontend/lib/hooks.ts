@@ -2,7 +2,14 @@ import { useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './api';
 import type { MatchPredictionResponse } from './matchPredictionService';
-import type { TeamTrajectory, GameWithTeams, GameExplainability, TeamWithRanking, RankHistoryPoint } from './types';
+import type {
+  TeamTrajectory,
+  GameWithTeams,
+  GameExplainability,
+  GameProviderIds,
+  TeamWithRanking,
+  RankHistoryPoint,
+} from './types';
 
 /**
  * React Query hooks for data fetching
@@ -109,6 +116,24 @@ export function useGameExplainability(teamId: string, gameIds: string[], enabled
     queryKey: ['game-explainability', teamId, uniqueGameIds],
     queryFn: () => api.getGameExplainability(teamId, uniqueGameIds),
     enabled: enabled && !!teamId && uniqueGameIds.length > 0,
+    staleTime: 2 * 60 * 1000,
+    gcTime: 15 * 60 * 1000,
+    retry: 1,
+    throwOnError: false,
+  });
+}
+
+/**
+ * Get the provider ids of the given games.
+ * This uses an admin-only server route rather than direct browser-side Supabase.
+ */
+export function useGameProviderIds(gameIds: string[], enabled: boolean) {
+  const uniqueGameIds = Array.from(new Set(gameIds.filter(Boolean)));
+
+  return useQuery<GameProviderIds[]>({
+    queryKey: ['game-provider-ids', uniqueGameIds],
+    queryFn: () => api.getGameProviderIds(uniqueGameIds),
+    enabled: enabled && uniqueGameIds.length > 0,
     staleTime: 2 * 60 * 1000,
     gcTime: 15 * 60 * 1000,
     retry: 1,

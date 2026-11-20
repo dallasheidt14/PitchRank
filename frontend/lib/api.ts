@@ -30,12 +30,20 @@ import type {
   TeamTrajectory,
   GameWithTeams,
   GameExplainability,
+  GameProviderIds,
   TeamWithRanking,
   RankHistoryPoint,
 } from './types';
 import type { RankingRow } from '@/types/RankingRow';
 import type { MatchPredictionResponse } from './matchPredictionService';
 import type { TeamPredictive } from '@/types/TeamPredictive';
+
+// The public key reads teams and games through column grants (20261121000100) that leave out the
+// provider-id columns: a `*` select fails, and every column named here must be in that grant.
+const TEAM_COLUMNS =
+  'id, team_id_master, team_name, club_name, league, distinction, state, state_code, age_group, birth_year, gender, created_at, updated_at, last_scraped_at, is_deprecated';
+const GAME_COLUMNS =
+  'id, home_team_master_id, away_team_master_id, home_score, away_score, result, game_date, competition, division_name, event_name, venue, provider_id, scraped_at, created_at, ml_overperformance, is_excluded';
 
 function isMissingNationalRankingsRpc(error: { code?: string | null } | null): boolean {
   return error?.code === 'PGRST202';
@@ -302,7 +310,7 @@ export const api = {
     // `count > 0` is used for `has_modular11_alias`.
     const [teamResult, rankingResult, stateRankResult, mergeResult, rankingsFullResult, mlsNextAliasResult] =
       await Promise.all([
-        supabase.from('teams').select('*').eq('team_id_master', id).maybeSingle(),
+        supabase.from('teams').select(TEAM_COLUMNS).eq('team_id_master', id).maybeSingle(),
         supabase.from('rankings_view').select('*').eq('team_id_master', id).maybeSingle(),
         supabase.from('state_rankings_view').select('*').eq('team_id_master', id).maybeSingle(),
         supabase.from('team_merge_map').select('deprecated_team_id').eq('canonical_team_id', id),
@@ -414,8 +422,6 @@ export const api = {
     const team: Team = {
       id: teamData.id,
       team_id_master: teamData.team_id_master,
-      provider_team_id: teamData.provider_team_id,
-      provider_id: teamData.provider_id,
       team_name: teamData.team_name,
       club_name: teamData.club_name,
       league: teamData.league ?? null,
@@ -594,7 +600,7 @@ export const api = {
     // with no results in it, which the chart draws as a goal differential of exactly zero.
     const { data: games, error: gamesError } = await supabase
       .from('games')
-      .select('*')
+      .select(GAME_COLUMNS)
       .or(orConditions)
       .eq('is_excluded', false)
       .not('home_score', 'is', null)
@@ -717,7 +723,7 @@ export const api = {
 
     const { data: games, error: gamesError } = await supabase
       .from('games')
-      .select('*')
+      .select(GAME_COLUMNS)
       .or(orConditions)
       .eq('is_excluded', false)
       .lte('game_date', today)
@@ -898,7 +904,7 @@ export const api = {
 
     const { data: games, error: gamesError } = await supabase
       .from('games')
-      .select('*')
+      .select(GAME_COLUMNS)
       .or(orConditions)
       .eq('is_excluded', false)
       .gt('game_date', today)
@@ -961,21 +967,7 @@ export const api = {
       };
     }) as GameWithTeams[];
 
-    // Dedup the same fixture scraped from both teams' schedules
-    // Dedup the same fixture scraped from both teams' schedules. game_uid is
-    // the canonical fixture identifier (UNIQUE in DB when set). Falling back
-    // to date+teams would collapse legitimate tournament doubleheaders, so
-    // rows without a game_uid are kept as-is — a possible duplicate display
-    // is better than hiding a real scheduled match.
-    const seenUids = new Set<string>();
-    const deduped = enriched.filter((g) => {
-      if (!g.game_uid) return true;
-      if (seenUids.has(g.game_uid)) return false;
-      seenUids.add(g.game_uid);
-      return true;
-    });
-
-    return { games: deduped };
+    return { games: enriched };
   },
 
   /**
@@ -1034,7 +1026,7 @@ export const api = {
     const [team1Result, team2Result] = await Promise.all([
       supabase
         .from('games')
-        .select('*')
+        .select(GAME_COLUMNS)
         .or(team1OrConditions)
         .eq('is_excluded', false)
         .not('home_score', 'is', null)
@@ -1042,7 +1034,7 @@ export const api = {
         .order('game_date', { ascending: false }),
       supabase
         .from('games')
-        .select('*')
+        .select(GAME_COLUMNS)
         .or(team2OrConditions)
         .eq('is_excluded', false)
         .not('home_score', 'is', null)
@@ -1263,6 +1255,40 @@ export const api = {
     }
 
     return Array.isArray(payload?.breakdowns) ? payload.breakdowns : [];
+  },
+
+  /**
+   * Get the provider ids of the given games.
+   * Admin-only server route; the public key cannot read these columns.
+   */
+  async getGameProviderIds(gameIds: string[]): Promise<GameProviderIds[]> {
+    const uniqueGameIds = Array.from(new Set(gameIds.filter(Boolean)));
+    if (uniqueGameIds.length === 0) {
+      return [];
+    }
+
+    const response = await fetch('/api/game-provider-ids', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ gameIds: uniqueGameIds }),
+    });
+
+    const payload = (await response.json().catch(() => null)) as {
+      error?: string;
+      games?: GameProviderIds[];
+    } | null;
+
+    if (!response.ok) {
+      const message =
+        payload && typeof payload === 'object' && 'error' in payload && payload.error
+          ? payload.error
+          : 'Failed to load game provider ids';
+      throw new AppError(message, 'game_provider_ids_failed', response.status);
+    }
+
+    return Array.isArray(payload?.games) ? payload.games : [];
   },
 
   /**

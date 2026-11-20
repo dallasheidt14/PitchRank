@@ -154,7 +154,7 @@ describe('POST /api/match-prediction', () => {
 
     expect(response.status).toBe(200);
     expect(mockBuildMatchPrediction).toHaveBeenCalledTimes(1);
-    expect(mockBuildMatchPrediction).toHaveBeenCalledWith(expect.anything(), TEAM_A_ID, TEAM_B_ID, { service: true });
+    expect(mockBuildMatchPrediction).toHaveBeenCalledWith({ service: true }, TEAM_A_ID, TEAM_B_ID, { service: true });
     expect(body.teamA.team_name).toBe('Alpha FC');
     expect(body.teamB.team_name).toBe('Beta FC');
     expect(body.prediction.predictedWinner).toBe('team_a');

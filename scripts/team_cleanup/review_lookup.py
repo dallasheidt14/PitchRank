@@ -4,16 +4,16 @@
 A reviewer may run this and no other program, so each lookup is a fixed read:
 
   team <team id>                       the row (a merged-away id is read as the row it went into), the
-                                       rows merged into it, and its games (merge-resolved), newest
-                                       first, each with the registration that played it
+                                       rows merged into it, and its games (merge-resolved), newest first
   club <text> <age group> <gender>     live rows of that cohort whose club name holds the text, any state
   name <text> <age group> <gender>     live rows of that cohort whose name or registered name holds it
   spellings <text> [<state>]           every club name of a live team holding the text, with its teams by
                                        state, the most used first
 
 A list longer than it shows says so. Each read is a SELECT, made with the public key alone, whatever else the
-checkout's .env holds. That key cannot read team_alias_map, so no lookup lists aliases, and the team lookup says
-so; a duplicate review's slice, built with the full key, lists each pair's.
+checkout's .env holds. That key cannot read team_alias_map or a team's or game's provider registration id, so
+no lookup lists aliases or registrations, and the team lookup says so; a duplicate review's slice, built with
+the full key, lists each pair's.
 
     python scripts/team_cleanup/review_lookup.py team 602b9dba-a36e-422d-94b7-0809049ef928
     python scripts/team_cleanup/review_lookup.py club "Kraze" u11 Male
@@ -44,6 +44,9 @@ GAME_COLS = (
     "id,game_date,home_team_master_id,away_team_master_id,home_score,away_score,home_provider_id,"
     "away_provider_id,event_name,competition,division_name,is_excluded"
 )
+# The slice reads the two lists above with the full key; the lookups read these with the public one.
+PUBLIC_TEAM_COLS = ",".join(c for c in TEAM_COLS.split(",") if c != "provider_team_id")
+PUBLIC_GAME_COLS = ",".join(c for c in GAME_COLS.split(",") if c not in ("home_provider_id", "away_provider_id"))
 UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 AGE = re.compile(r"^u[0-9]{1,2}$")
 GENDERS = ("Male", "Female")
@@ -68,7 +71,7 @@ def label(team: dict | None) -> str:
 def team_line(t: dict, providers: dict) -> str:
     return (
         f"{t['team_id_master']} | {t['team_name']} | registered: {t['team_name_original'] or '-'} | club: "
-        f"{t['club_name']} | {providers.get(t['provider_id'], '?')}:{t['provider_team_id']} | {t['age_group']} "
+        f"{t['club_name']} | {providers.get(t['provider_id'], '?')} | {t['age_group']} "
         f"{t['gender']} {t['state_code']} | last played {str(t['last_played_at'])[:10]}"
         + (" | DEPRECATED" if t["is_deprecated"] else "")
     )
@@ -80,25 +83,25 @@ def show_team(sb, asked: str, providers: dict) -> None:
     team_id = canonical(asked)
     if team_id != asked:
         print(f"{asked} was merged into {team_id}; showing that row")
-    rows = sb.table("teams").select(TEAM_COLS).eq("team_id_master", team_id).execute().data
+    rows = sb.table("teams").select(PUBLIC_TEAM_COLS).eq("team_id_master", team_id).execute().data
     if not rows:
         print("no such team")
         return
     print(team_line(rows[0], providers))
-    print(f"  aliases: {ALIASES_UNREAD}")
+    print(f"  aliases and registrations: {ALIASES_UNREAD}")
     absorbed = [d for d in merge_map if d != team_id and canonical(d) == team_id]
     for batch in batched(absorbed):
-        for t in sb.table("teams").select(TEAM_COLS).in_("team_id_master", batch).execute().data:
+        for t in sb.table("teams").select(PUBLIC_TEAM_COLS).in_("team_id_master", batch).execute().data:
             print(f"  merged into it: {team_line(t, providers)}")
     games = {}
     for side in ("home_team_master_id", "away_team_master_id"):
         for batch in batched([team_id, *absorbed]):
-            for g in page(lambda b=batch, s=side: sb.table("games").select(GAME_COLS).in_(s, b), "id"):
+            for g in page(lambda b=batch, s=side: sb.table("games").select(PUBLIC_GAME_COLS).in_(s, b), "id"):
                 games[g["id"]] = g
     opponents = {canonical(g[f"{s}_team_master_id"]) for g in games.values() for s in ("home", "away")}
     names = {}
     for batch in batched(sorted(opponents - {team_id, None})):
-        for t in sb.table("teams").select(TEAM_COLS).in_("team_id_master", batch).execute().data:
+        for t in sb.table("teams").select(PUBLIC_TEAM_COLS).in_("team_id_master", batch).execute().data:
             names[t["team_id_master"]] = label(t)
     newest = sorted(games.values(), key=lambda g: (g["game_date"], g["id"]), reverse=True)
     hidden = len(newest) - GAMES_SHOWN
@@ -107,9 +110,8 @@ def show_team(sb, asked: str, providers: dict) -> None:
         home = canonical(g["home_team_master_id"]) == team_id
         them = canonical(g["away_team_master_id" if home else "home_team_master_id"])
         mine, theirs = (g["home_score"], g["away_score"]) if home else (g["away_score"], g["home_score"])
-        registration = g["home_provider_id" if home else "away_provider_id"]
         excluded = " (excluded)" if g["is_excluded"] else ""
-        played = f"{g['game_date']} as {registration} vs {names.get(them, '?')} {mine}-{theirs}"
+        played = f"{g['game_date']} vs {names.get(them, '?')} {mine}-{theirs}"
         print(f"    {played} {event_of(g)}{excluded}")
 
 
@@ -118,7 +120,7 @@ def show_search(sb, column: str, text: str, age: str, gender: str, providers: di
     found, more = {}, False
     for col in columns:
         rows = (
-            sb.table("teams").select(TEAM_COLS).ilike(col, f"%{text}%").eq("age_group", age).eq("gender", gender)
+            sb.table("teams").select(PUBLIC_TEAM_COLS).ilike(col, f"%{text}%").eq("age_group", age).eq("gender", gender)
             .eq("is_deprecated", False).order("club_name").order("team_name").limit(ROWS_SHOWN + 1).execute().data
         )
         more = more or len(rows) > ROWS_SHOWN

@@ -57,6 +57,41 @@ describe('getMatchPrediction', () => {
   });
 });
 
+describe('getGameProviderIds', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('posts each game id once to the admin route and returns its games', async () => {
+    const games = [{ id: TEAM_ID, home_provider_id: '111', away_provider_id: '999' }];
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ games }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(api.getGameProviderIds([TEAM_ID, OPPONENT_ID, TEAM_ID, ''])).resolves.toEqual(games);
+    expect(fetchMock).toHaveBeenCalledWith('/api/game-provider-ids', expect.objectContaining({ method: 'POST' }));
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ gameIds: [TEAM_ID, OPPONENT_ID] });
+  });
+
+  it('asks nothing for an empty list', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(api.getGameProviderIds([])).resolves.toEqual([]);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("raises the route's refusal", async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: 'Admin access required' }), { status: 403 }))
+    );
+
+    await expect(api.getGameProviderIds([TEAM_ID])).rejects.toMatchObject({
+      message: 'Admin access required',
+      code: 'game_provider_ids_failed',
+      statusCode: 403,
+    });
+  });
+});
+
 const homeGame = (game_date: string, home_score: number | null, away_score: number | null) =>
   makeGame({ game_date, home_score, away_score, home_team_master_id: TEAM_ID, away_team_master_id: OPPONENT_ID });
 

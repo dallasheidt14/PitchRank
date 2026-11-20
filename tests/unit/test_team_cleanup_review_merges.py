@@ -17,6 +17,7 @@ from scripts.team_cleanup import review_lookup as lookup  # noqa: E402
 from scripts.team_cleanup import review_merges as rm  # noqa: E402
 from scripts.team_cleanup.run_store import MANIFEST_FILE, MERGE_REVIEW_KEYS, check_reviews, write_run  # noqa: E402
 from tests.unit import test_team_cleanup_pages as pt  # noqa: E402
+from tests.unit.test_public_column_grants_migration import browser_readable_columns  # noqa: E402
 
 CLAUDE = "claude"
 SEASON = int(rm.SEASON_START[:4])
@@ -913,9 +914,32 @@ KEEP_ID = "11111111-1111-1111-1111-111111111111"
 GONE_ID = "22222222-2222-2222-2222-222222222222"
 
 
+class _PublicKey:
+    """A _Db as the public key reads it: PostgREST refuses a select naming a column the key holds no grant on.
+
+    The grant is read from the migrations, so a column dropped from it reddens the lookups that read it.
+    """
+
+    def __init__(self, db):
+        self._db = db
+
+    def table(self, name):
+        inner = self._db.table(name)
+        granted = browser_readable_columns(name)["anon"]
+
+        class _T:
+            def select(self, columns):
+                named = {c.strip() for c in columns.split(",")}
+                ungranted = sorted(named - granted) if granted is not None else []
+                assert not ungranted, f"permission denied for {name} columns {ungranted}"
+                return inner.select(columns)
+
+        return _T()
+
+
 def _lookup(monkeypatch, capsys, db, *argv):
     monkeypatch.setattr(sys, "argv", ["review_lookup.py", *argv])
-    monkeypatch.setattr(lookup, "public_client", lambda: db)
+    monkeypatch.setattr(lookup, "public_client", lambda: _PublicKey(db))
     assert lookup.main() == 0
     return capsys.readouterr().out
 
@@ -937,18 +961,21 @@ def test_a_team_lookup_reads_a_merged_away_id_as_its_survivor_newest_game_first_
     lines = _lookup(monkeypatch, capsys, db, "team", GONE_ID).splitlines()
 
     assert lines[0] == f"{GONE_ID} was merged into {KEEP_ID}; showing that row"
-    # The public key reads no row of team_alias_map, so the lookup says it shows none rather than listing none.
-    assert lines[2] == "  aliases: not readable with the public key; a duplicate review's slice lists each pair's"
+    # The public key reads no row of team_alias_map and no provider registration id, so the lookup says it shows
+    # none rather than listing none.
+    assert lines[2] == (
+        "  aliases and registrations: not readable with the public key; a duplicate review's slice lists each pair's"
+    )
     assert "team_alias_map" not in read
     assert lines[3].startswith(f"  merged into it: {GONE_ID} | 16 Kraze Black")
     assert lines[4:] == [
         "  games: 2, newest first; the oldest 1 are not shown",
-        f"    {_day(10, 4)} as 1 vs Rivals 2016 [u11 M] 1-0 League",
+        f"    {_day(10, 4)} vs Rivals 2016 [u11 M] 1-0 League",
     ]
 
     monkeypatch.setattr(lookup, "GAMES_SHOWN", 5)
     away = _lookup(monkeypatch, capsys, db, "team", KEEP_ID)
-    assert f"    {_day(9, 6)} as x vs Rivals 2016 [u11 M] 1-3 League" in away
+    assert f"    {_day(9, 6)} vs Rivals 2016 [u11 M] 1-3 League" in away
 
 
 def test_a_club_lookup_says_when_it_shows_only_the_first_rows(monkeypatch, capsys):

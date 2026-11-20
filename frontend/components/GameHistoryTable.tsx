@@ -8,7 +8,7 @@ import { LastUpdated } from '@/components/ui/LastUpdated';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
-import { useGameExplainability, useTeamGames, useTeam } from '@/lib/hooks';
+import { useGameExplainability, useGameProviderIds, useTeamGames, useTeam } from '@/lib/hooks';
 import { formatGameDate, formatShortDate } from '@/lib/dateUtils';
 import { formatGameCompetition } from '@/lib/utils';
 import { explainGameBreakdown } from '@/lib/gameExplainer';
@@ -34,11 +34,13 @@ function UnlinkOpponentButton({
   game,
   currentTeamId,
   opponentName,
+  opponentProviderId,
   onUnlinked,
 }: {
   game: GameWithTeams;
   currentTeamId: string;
   opponentName: string | undefined;
+  opponentProviderId: string;
   onUnlinked: () => void;
 }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -48,7 +50,6 @@ function UnlinkOpponentButton({
 
   const isHome = game.home_team_master_id === currentTeamId;
   const opponentId = isHome ? game.away_team_master_id : game.home_team_master_id;
-  const opponentProviderId = isHome ? game.away_provider_id : game.home_provider_id;
 
   const handleUnlink = async () => {
     setIsUnlinking(true);
@@ -189,6 +190,15 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
     [explainabilityRows]
   );
 
+  const { data: providerIdRows } = useGameProviderIds(
+    (games ?? []).map((game) => game.id),
+    isAdmin
+  );
+  const providerIdsByGameId = useMemo(
+    () => new Map((providerIdRows ?? []).map((row) => [row.id, row])),
+    [providerIdRows]
+  );
+
   const scoreColor = useCallback((mlOverperformance: number | null): string => {
     if (mlOverperformance !== null && mlOverperformance !== undefined) {
       if (mlOverperformance >= 2) return `${OVERPERFORMED_COLORS} px-2 py-1 rounded font-bold`;
@@ -223,10 +233,14 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
     return isHome ? game.away_team_master_id : game.home_team_master_id;
   }, []);
 
-  const getOpponentProviderId = useCallback((game: GameWithTeams, currentTeamId: string) => {
-    const isHome = game.home_team_master_id === currentTeamId;
-    return isHome ? game.away_provider_id : game.home_provider_id;
-  }, []);
+  const getOpponentProviderId = useCallback(
+    (game: GameWithTeams, currentTeamId: string) => {
+      const providerIds = providerIdsByGameId.get(game.id);
+      const isHome = game.home_team_master_id === currentTeamId;
+      return isHome ? providerIds?.away_provider_id : providerIds?.home_provider_id;
+    },
+    [providerIdsByGameId]
+  );
 
   const getScore = useCallback((game: GameWithTeams, currentTeamId: string) => {
     const isHome = game.home_team_master_id === currentTeamId;
@@ -404,11 +418,12 @@ export function GameHistoryTable({ teamId, limit, teamName }: GameHistoryTablePr
                                   (Team linked)
                                 </Link>
                               )}
-                              {isAdmin && (
+                              {isAdmin && opponentProviderId && (
                                 <UnlinkOpponentButton
                                   game={game}
                                   currentTeamId={teamId}
                                   opponentName={opponent}
+                                  opponentProviderId={opponentProviderId}
                                   onUnlinked={() => refetch()}
                                 />
                               )}
