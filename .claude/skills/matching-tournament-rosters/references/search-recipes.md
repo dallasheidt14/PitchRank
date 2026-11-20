@@ -166,7 +166,7 @@ TGS on a separate morning. Confirm where today sits before concluding a name is 
 ```sql
 SELECT t.created_at::date AS d, to_char(t.created_at, 'Dy') AS dow,
        p.code AS provider, count(*) AS rows_created,
-       count(*) FILTER (WHERE t.team_name LIKE 'unknown\_%') AS placeholders
+       count(*) FILTER (WHERE t.team_name LIKE 'unknown\_%' OR t.team_name = 'Unknown team') AS placeholders
 FROM teams t LEFT JOIN providers p ON p.id = t.provider_id
 WHERE t.created_at >= :since
 GROUP BY 1, 2, 3
@@ -183,7 +183,7 @@ SELECT t.team_id_master, t.provider_team_id, t.state_code, t.age_group, t.gender
 FROM teams t
 JOIN games g ON g.home_team_master_id = t.team_id_master
              OR g.away_team_master_id = t.team_id_master
-WHERE t.team_name LIKE 'unknown\_%'
+WHERE (t.team_name LIKE 'unknown\_%' OR t.team_name = 'Unknown team')
   AND t.age_group = ANY(:cohorts) AND t.gender = :gender
   AND t.state_code = ANY(:states)
   AND g.game_date >= :season_start

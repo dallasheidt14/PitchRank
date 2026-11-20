@@ -49,6 +49,7 @@ from find_queue_matches import (
 
 from src.utils.age_group import normalize_age_group
 from src.utils.gotsport_team_details import TeamDetailsPacer
+from src.utils.placeholder_team_names import PLACEHOLDER_TEAM_NAME
 from src.utils.team_association_map import to_state_code
 from src.utils.team_name_utils import squad_labels_differ, u19_shared_year_ambiguous
 
@@ -187,7 +188,7 @@ def build_unknown_profile(row: Dict[str, str], resolver: Optional[GotSportResolv
         gender = gender or _to_gender_full(resolved.get("unknown_gender"))
 
     # Prefer full_name for fuzzy matching, then short_name
-    name = full_name or short_name or f"unknown_{unknown_provider_team_id}"
+    name = full_name or short_name or PLACEHOLDER_TEAM_NAME
 
     # Parse the team's own name before reaching for the team it played. A cohort
     # written in the name describes this team; the opponent's describes a

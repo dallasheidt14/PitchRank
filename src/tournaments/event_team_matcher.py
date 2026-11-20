@@ -23,6 +23,7 @@ from scripts.find_queue_matches import (
     normalize_team_name,
 )
 from src.tournaments.seeding_optimizer import normalize_age_group, normalize_gender_label
+from src.utils.placeholder_team_names import is_placeholder_team_name
 from src.utils.team_name_utils import u19_shared_year_ambiguous
 
 logger = logging.getLogger(__name__)
@@ -325,7 +326,7 @@ def rank_db_candidates(
         elif club_similarity >= 0.88:
             score = min(1.0, score + 0.01)
 
-        if candidate_name.lower().startswith("unknown_"):
+        if is_placeholder_team_name(candidate_name, candidate_provider_team_id):
             score = max(0.0, score - 0.10)
 
         matches.append(
@@ -355,7 +356,7 @@ def rank_db_candidates(
             item.score,
             item.normalized_name_exact,
             item.club_exact,
-            not item.team_name.lower().startswith("unknown_"),
+            not is_placeholder_team_name(item.team_name, item.provider_team_id),
             item.age_match_kind == "search_age_exact",
             item.age_match_kind == "event_age_exact",
         ),

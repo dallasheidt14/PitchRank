@@ -193,7 +193,8 @@ order:
 1. `adjacent_gotsport` in the triage. Clubs register squads in batches, so the old squad is often
    a neighbouring id: Bala FC's reused record was 614082 and its old squad 614084.
 2. PitchRank teams of the same club in our stored cohort whose names carry the old squad word.
-3. `unknown_<id>` placeholders with this season's games against the old cohort's opponents.
+3. Placeholder-named teams ("Unknown team", or the legacy `unknown_<id>`) with this season's
+   games against the old cohort's opponents.
 
 Confirm the record with GotSport's current name and age. A club that shifts every record down a
 year makes a chain: the old squad's new record still holds its own previous squad's season, so move

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Propose merges for GotSport registration-ID placeholder teams from game evidence alone.
 
-A placeholder row (team_name == 'unknown_<provider_team_id>', provider_team_id >= 3_000_000)
+A placeholder row ("Unknown team", or 'unknown_<provider_team_id>' when older; provider_team_id >= 3_000_000)
 is a per-event registration ID that GotSport's team_details API cannot resolve. Where the
 same real team also exists under its true 6-digit team ID, both rows carry the same matches:
 one imported from the org_event schedule page, one from the rankings game-history scrape.
@@ -53,6 +53,7 @@ load_dotenv(ROOT / ".env")
 load_dotenv(ROOT / ".env.local", override=True)
 
 from scripts.team_cleanup.vetted import stamp  # noqa: E402
+from src.utils.placeholder_team_names import PLACEHOLDER_TEAM_NAME_FILTER, is_placeholder_team_name  # noqa: E402
 from supabase import create_client  # noqa: E402
 
 REG_ID_FLOOR = 3_000_000
@@ -105,7 +106,7 @@ def load_placeholders(sb, gotsport):
     for r in page(
         lambda: sb.table("teams")
         .select("team_id_master,team_name,provider_team_id,club_name,age_group,gender,state_code")
-        .like("team_name", "unknown\\_%")
+        .or_(PLACEHOLDER_TEAM_NAME_FILTER)
         .eq("provider_id", gotsport)
         .eq("is_deprecated", False),
         "team_id_master",
@@ -113,7 +114,7 @@ def load_placeholders(sb, gotsport):
         pid = str(r.get("provider_team_id") or "")
         if not pid.isdigit() or int(pid) < REG_ID_FLOOR:
             continue
-        if r["team_name"].lower() != f"unknown_{pid.lower()}":
+        if not is_placeholder_team_name(r["team_name"], pid):
             continue
         placeholders[r["team_id_master"]] = r
     return placeholders

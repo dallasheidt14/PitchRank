@@ -50,6 +50,10 @@ def test_is_placeholder_team_case_insensitive():
     assert _is_placeholder_team("Unknown_12345", "12345") is True
 
 
+def test_is_placeholder_team_unknown_team_is_true():
+    assert _is_placeholder_team("Unknown team", "12345") is True
+
+
 def test_is_placeholder_team_mismatched_id_is_false():
     assert _is_placeholder_team("unknown_99999", "12345") is False
 

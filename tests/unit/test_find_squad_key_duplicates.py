@@ -287,6 +287,17 @@ def test_two_spellings_of_one_squad_pair():
     assert pair_ids(admitted) == {frozenset({"a", "b"})}
 
 
+def test_two_unknown_team_rows_of_one_club_never_pair():
+    """Their names give the squad key {unknown, team}, which every "Unknown team" row shares."""
+    teams = [team("a", "Unknown team"), team("b", "Unknown team", provider=TGS)]
+    assert fsk.build_pairs(teams, PROVIDERS) == ([], [])
+
+
+def test_a_placeholder_name_is_refused_for_every_caller_of_the_name_screen():
+    assert fsk.name_refusal(team("a", "Unknown team"), team("b", "EDGE 2015B Purple"))
+    assert fsk.name_refusal(team("a", "EDGE 2015B Purple"), team("b", "unknown_3912096"))
+
+
 def test_rows_with_no_squad_key_never_pair():
     teams = [team("a", "Colorado EDGE U12B"), team("b", f"EDGE {born(12)}B", provider=TGS)]
     assert fsk.build_pairs(teams, PROVIDERS) == ([], [])

@@ -120,6 +120,23 @@ def team(index, *, age_group="u16", gender="Male", state_code="OR", is_deprecate
     }
 
 
+def test_two_unknown_team_rows_never_score_as_a_pair():
+    unknown = {"team_name": "Unknown team", "club_name": ""}
+    assert ffdt.score_team_pair(unknown, dict(unknown)) is None
+
+
+@pytest.mark.parametrize("placeholder", ["Unknown team", "unknown_3912096"])
+def test_a_placeholder_never_scores_against_a_real_name(placeholder):
+    real = {"team_name": "Unknown team FC 2014", "club_name": "Rush"}
+    assert ffdt.score_team_pair({"team_name": placeholder, "club_name": "Rush"}, real) is None
+    assert ffdt.score_team_pair(real, {"team_name": placeholder, "club_name": "Rush"}) is None
+
+
+def test_two_real_names_still_score():
+    a = {"team_name": "Rush 2015B Red", "club_name": "Rush"}
+    assert ffdt.score_team_pair(a, dict(a)) == 1.0
+
+
 def test_fetch_teams_orders_before_paging():
     """Removing the .order() makes the double raise, exactly as unstable paging deserves."""
     sb = _Supabase([team(i) for i in range(5)])

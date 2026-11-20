@@ -76,6 +76,35 @@ def test_rank_db_candidates_skips_same_club_wrong_variant():
     assert matches[0].score_reason in {"normalized_name_exact", "weekly_score"}
 
 
+@pytest.mark.parametrize("name, penalised", [("Unknown team", True), ("unknown_3912096", True), ("unknown_elite", False)])
+def test_a_placeholder_linked_by_provider_id_is_scored_down(name, penalised):
+    """A provider-id match is the only way a placeholder reaches the candidate list: the name scorer refuses it."""
+    query = EventTeamSearchQuery(
+        event_team_name="Rush Soccer 2015B",
+        event_age_group="u12",
+        event_gender="Male",
+        event_club_name="Rush Soccer",
+        search_age_group="u12",
+        provider_team_id="3912096",
+    )
+
+    def score(team_name):
+        candidate = {
+            "team_id_master": "t1",
+            "team_name": team_name,
+            "club_name": "Rush Soccer",
+            "state_code": "CO",
+            "age_group": "u12",
+            "gender": "Male",
+            "provider_team_id": "3912096",
+            "is_deprecated": False,
+        }
+        [match] = rank_db_candidates(query, [candidate], limit=5)
+        return match.score
+
+    assert round(score("Rush Red") - score(name), 4) == (0.1 if penalised else 0.0)
+
+
 def _play_up_candidates():
     return [
         {

@@ -112,8 +112,8 @@ splits a pair that shared the blank bucket, and a correction into `u9` leaves th
 this scan covers.
 
 So these are invisible at any threshold: same club with rows stamped in different states; the
-same club spelled two ways; either row named `unknown_<digits>`; either name carrying an `AD`,
-`HD` or `EA` division token, or `MLS NEXT` (4,890 live rows). That last exclusion used to be a
+same club spelled two ways; either row named "Unknown team" or `unknown_<digits>`; either name
+carrying an `AD`, `HD` or `EA` division token, or `MLS NEXT` (4,890 live rows). That last exclusion used to be a
 substring test that also caught EAST, EAGLES and ADAMS, withholding 2,418 unrelated rows; it
 matches whole tokens as of IMP-135, so those names now reach the scan.
 
@@ -146,7 +146,7 @@ shared fixture is noise: measured over one season, 17,476 pairs share one, 1,709
 399 of those had met on the pitch.
 
 `scripts/find_regid_duplicate_merges.py` is the one committed implementation, and it covers only
-the placeholder case — it seeds from `unknown_<id>` rows, so it answers "which named team is this
+the placeholder case — it seeds from placeholder-named rows, so it answers "which named team is this
 placeholder" rather than "which two rows in this cohort are duplicates". Read
 `.turbo/specs/second-layer-duplicate-detection.md` for the design that generalises it, and the
 script's own docstring for the blind spots it ships with. For every other class, Doorway B is a

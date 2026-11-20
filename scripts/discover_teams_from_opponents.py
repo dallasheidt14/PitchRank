@@ -10,7 +10,8 @@ When an unknown opponent cannot be fuzzy-matched to any existing team
 2) Filters for "no_match" rows
 3) Resolves team metadata from the GotSport API, reusing the export's lookups
 4) Skips a team whose lookup failed (next week retries it)
-5) Validates sufficient metadata (name, age_group, gender required)
+5) Validates sufficient metadata (age_group and gender required; a team with no name is
+   stored as "Unknown team")
 6) Checks the team doesn't already exist (alias check)
 7) Creates new team in `teams` table + alias in `team_alias_map`; a team GotSport
    files as Coed is created excluded from rankings, and this script does not queue
@@ -53,12 +54,12 @@ from supabase import create_client
 # The workflow runs this as `python3 scripts/...`, which puts scripts/ on the
 # path and not the repo root, and installs only supabase, python-dotenv and
 # requests. Everything imported from src/ below depends only on requests and the
-# standard library, so it is safe to reach for here where the shared triage
-# predicate below is not.
+# standard library.
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from src.utils.age_group import normalize_age_group  # noqa: E402
 from src.utils.gotsport_team_details import TeamDetailsPacer  # noqa: E402
+from src.utils.placeholder_team_names import PLACEHOLDER_TEAM_NAME, is_placeholder_team_name  # noqa: E402
 from src.utils.team_association_map import to_state_code  # noqa: E402
 
 
@@ -180,21 +181,6 @@ class GotSportResolver:
         return True
 
 
-def _is_placeholder_name(team_name: Optional[str], provider_team_id: str) -> bool:
-    """Return True for auto_match_unknown_opponents' ``unknown_<pid>`` fallback.
-
-    Spelled out here rather than imported for the same reason
-    ``src.tournaments.triage`` keeps its own copy: this script runs in a
-    workflow that installs three packages, and importing the shared predicate
-    would drag ``src.tournaments.storage`` in behind it.
-    """
-    name = (team_name or "").strip()
-    pid = (provider_team_id or "").strip()
-    if not name or not pid:
-        return False
-    return name.lower() == f"unknown_{pid}".lower()
-
-
 def _build_team_metadata(
     row: Dict[str, str],
     resolver: Optional[GotSportResolver],
@@ -222,11 +208,10 @@ def _build_team_metadata(
     if resolver and provider_code == "gotsport" and unknown_pid:
         resolved = resolver.resolve(unknown_pid)
         if resolved:
-            # auto_match hands over unknown_<pid> when its own lookup came back
-            # empty. That is a fuzzy-matching scratch value, not a name, so a
-            # resolved name displaces it. A transport failure is skipped in main; a
-            # 404 keeps the report's values, placeholder included.
-            if not team_name or _is_placeholder_name(team_name, unknown_pid):
+            # auto_match hands over a placeholder name when its own lookup came
+            # back empty, so a resolved name displaces it. A transport failure is
+            # skipped in main; a 404 keeps the report's values, placeholder included.
+            if not team_name or is_placeholder_team_name(team_name, unknown_pid):
                 team_name = resolved.get("name", "") or team_name
             club_name = club_name or resolved.get("club_name", "")
             # The CSV column carries the previous stage's last-resort guess,
@@ -237,8 +222,12 @@ def _build_team_metadata(
             state_code = resolved.get("state", "")
             provider_gender = resolved.get("gender", "")
 
+    # The stored name is public, so a team nobody named never carries its provider id in it.
+    if not team_name or is_placeholder_team_name(team_name, unknown_pid):
+        team_name = PLACEHOLDER_TEAM_NAME
+
     return {
-        "team_name": team_name or None,
+        "team_name": team_name,
         "club_name": club_name or None,
         "age_group": age_group,
         "gender": gender,

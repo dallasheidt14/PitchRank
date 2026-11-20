@@ -20,7 +20,7 @@ A team's bucket is its state code; "(no state)" when blank, "(non-US)" for a Can
   open problems     the four problem counts above, plus every live team in (no state) or (malformed)
 
 and, nationally and by source, the week's new teams and how many have no state, no club (blank or
-placeholder), or an unknown_<id> name.
+placeholder), or a placeholder name (src/utils/placeholder_team_names).
 
 Only which teams count as the week's new teams follows --date; everything else, including those
 teams' state, club and name, is read as of the run, so a past --date files today's figures under
@@ -34,7 +34,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import re
 import sys
 from collections import Counter, defaultdict
 from datetime import date, datetime, time, timedelta, timezone
@@ -48,6 +47,7 @@ from scripts.team_cleanup.run_store import store_dir  # noqa: E402
 from src.tournaments.storage._io import read_csv, write_csv  # noqa: E402
 from src.utils.canadian_provinces import CANADIAN_PROVINCES  # noqa: E402
 from src.utils.placeholder_clubs import is_placeholder_club  # noqa: E402
+from src.utils.placeholder_team_names import is_placeholder_team_name  # noqa: E402
 from src.utils.us_states import STATE_CODE_TO_NAME  # noqa: E402
 
 HEALTH_DIR = "health"
@@ -60,7 +60,6 @@ GAMES_PAGE = 50000
 NO_STATE, NON_US, MALFORMED = "(no state)", "(non-US)", "(malformed)"
 # Always written, so a bucket the cleanup empties shows 0 rather than vanishing from the table.
 SPECIAL_BUCKETS = (NO_STATE, NON_US, MALFORMED)
-UNKNOWN_NAME = re.compile(r"unknown_\d+", re.IGNORECASE)
 
 STATE_METRICS = {
     "live_teams": "Live",
@@ -75,7 +74,7 @@ INFLOW_METRICS = {
     "new_teams": "Created",
     "new_no_state": "No state",
     "new_no_club": "No club",
-    "new_unknown_name": "unknown_ name",
+    "new_unknown_name": "Placeholder name",
 }
 OPEN_PROBLEMS = "open_problems"
 # Growth in live or new teams is not a warning; these are the counts whose rise is.
@@ -96,7 +95,7 @@ def is_blank_club(club: str | None) -> bool:
 
 
 def is_unknown_name(name: str | None) -> bool:
-    return bool(UNKNOWN_NAME.fullmatch((name or "").strip()))
+    return is_placeholder_team_name(name)
 
 
 def is_bucket(scope: str) -> bool:

@@ -44,6 +44,9 @@ from supabase import create_client
 _env_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 load_dotenv(os.path.join(_env_dir, ".env.local"))
 load_dotenv(os.path.join(_env_dir, ".env"))
+sys.path.insert(0, _env_dir)
+
+from src.utils.placeholder_team_names import is_placeholder_team_name  # noqa: E402
 
 # Deliberately excludes kansas, carolina, new york and the bare dakotas -- see
 # the module docstring. "west virginia" must be tested before "virginia", which
@@ -121,8 +124,6 @@ _AFFILIATE_CODE = re.compile(r"(?:-\s*|\(\s*)([A-Z]{2})(?![A-Za-z])")
 # "mexico"-adjacent fragments.
 _ORDERED_STATES: List[Tuple[str, str]] = sorted(STATE_NAMES.items(), key=lambda kv: -len(kv[0]))
 
-_PLACEHOLDER_NAME = re.compile(r"^unknown_[0-9]+$")
-
 PAGE_SIZE = 1000
 TEAMS_BATCH = 100  # URI length caps .in_() lists
 
@@ -163,7 +164,7 @@ def fetch_candidates(sb) -> List[Dict]:
                 team_id = row.get("team_id_master")
                 if not team_id or team_id in seen:
                     continue
-                if _PLACEHOLDER_NAME.match(row.get("team_name") or ""):
+                if is_placeholder_team_name(row.get("team_name")):
                     continue
                 seen.add(team_id)
                 teams.append(row)

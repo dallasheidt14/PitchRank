@@ -202,6 +202,57 @@ def test_a_resolved_name_displaces_the_unknown_placeholder():
     assert meta["team_name"] == "Seattle United B12 ECNL RL"
 
 
+def test_a_placeholder_gotsport_cannot_name_is_stored_as_unknown_team():
+    """team_name is public, so the unknown_<pid> scratch value must not reach the insert."""
+    meta = _build_team_metadata(
+        {
+            "provider_code": "gotsport",
+            "unknown_provider_team_id": "3912096",
+            "unknown_team_name_used": "unknown_3912096",
+            "unknown_age_group_used": "u12",
+            "unknown_gender_used": "Male",
+        },
+        _FakeResolver(),
+    )
+    assert meta["team_name"] == "Unknown team"
+
+
+def test_a_missing_name_is_stored_as_unknown_team():
+    meta = _build_team_metadata(
+        {
+            "provider_code": "gotsport",
+            "unknown_provider_team_id": "3912096",
+            "unknown_team_name_used": "",
+            "unknown_age_group_used": "u12",
+            "unknown_gender_used": "Male",
+        },
+        _FakeResolver(),
+    )
+    assert meta["team_name"] == "Unknown team"
+
+
+def test_a_resolved_name_displaces_the_unknown_team_placeholder():
+    meta = _build_team_metadata(
+        {
+            "provider_code": "gotsport",
+            "unknown_provider_team_id": "742007",
+            "unknown_team_name_used": "Unknown team",
+            "unknown_age_group_used": "u12",
+            "unknown_gender_used": "Male",
+        },
+        _FakeResolver(name="Seattle United B12 ECNL RL"),
+    )
+    assert meta["team_name"] == "Seattle United B12 ECNL RL"
+
+
+def test_the_match_profile_of_an_unnamed_team_never_carries_its_provider_id():
+    profile = build_unknown_profile(
+        {"provider_code": "gotsport", "unknown_provider_team_id": "3912096", "top_known_team_age_group": "u12"},
+        None,
+    )
+    assert profile.team_name == "Unknown team"
+
+
 def test_a_real_name_is_not_displaced_by_the_resolver():
     meta = _build_team_metadata(
         {

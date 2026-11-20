@@ -9,12 +9,14 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(__file__))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from collections import defaultdict
 
 from dotenv import load_dotenv
 from team_name_normalizer import ALIAS_DIVISION_SUFFIXES, parse_team_name
 
+from src.utils.placeholder_team_names import is_placeholder_team_name
 from supabase import create_client
 
 load_dotenv("/Users/pitchrankio-dev/Projects/PitchRank/.env")
@@ -118,9 +120,12 @@ def find_duplicates(state_code: str, gender: str, age_group: str, output_sql: bo
 
     print(f"Found {len(teams.data)} teams\n")
 
-    # Parse and group by FULL normalized form
+    # Parse and group by FULL normalized form. A placeholder name carries no identity, so it is no
+    # one's duplicate.
     groups = defaultdict(list)
     for t in teams.data:
+        if is_placeholder_team_name(t["team_name"]):
+            continue
         parsed = parse_team_name(t["team_name"], t["club_name"])
         stored_age = normalize_stored_age_group(t.get("age_group")) or "unknown_age"
         key = (parsed["normalized"] or "UNPARSED", stored_age)

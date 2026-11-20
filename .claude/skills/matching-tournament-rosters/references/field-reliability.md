@@ -10,7 +10,7 @@ How far each `teams` column can be trusted, and why none of them belongs in a WH
 - state_code and state
 - club_name
 - is_deprecated
-- unknown_ placeholders
+- Placeholder-named teams
 - What fresh rows are missing
 - Same-name rows
 
@@ -97,19 +97,20 @@ inferring it from activity. When every name-matched candidate is deprecated the 
 all but about twenty rows table-wide — so never report "not in the database" for that case, and
 where the map has no entry, say so rather than inventing a survivor.
 
-## unknown_ placeholders
+## Placeholder-named teams
 
-Rows named `unknown_<provider_team_id>` are real, numerous, and concentrated in recent ingests —
+Rows named "Unknown team" (or the legacy `unknown_<provider_team_id>`) are real, numerous, and
+concentrated in recent ingests —
 they can be the majority of a single day's new rows. Every one has at least one game, and many
 already have scored results. They carry a valid `team_id_master`, `state_code` and `age_group`, and
 are missing only the name.
 
-Around one current-season game in six has a side pointing at one of these. Treat `unknown_` as
+Around one current-season game in six has a side pointing at one of these. Treat a placeholder name as
 *unnamed but identified*. A roster row with no name match may already exist as one; creating a fresh
 row would duplicate a team that already holds results.
 
-They never surface in a name-similarity search, because they share no trigrams with a real club
-name. They have to be looked for deliberately, by cohort and state.
+A name search never finds the right one: the placeholder carries nothing of the club, and
+"Unknown team" matches any name containing "team". Look for them deliberately, by cohort and state.
 
 ## What fresh rows are missing
 

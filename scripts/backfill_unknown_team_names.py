@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-Backfill real team names for `unknown_<provider_team_id>` placeholder teams from GotSport.
+Backfill real team names for placeholder-named teams from GotSport.
 
 These rows are created by the weekly unknown-opponent hygiene pipeline
 (discover_teams_from_opponents.py) when its GotSport name lookup comes back empty.
+They are named "Unknown team"; older ones still carry `unknown_<provider_team_id>`.
 
 GotSport fronts this endpoint with a per-IP CloudFront burst limiter, so the
 lookup returns 403 rather than data whenever a caller goes too fast — which is
@@ -58,8 +59,8 @@ from src.scrapers.gotsport import (  # noqa: E402
     _is_cloudfront_waf_block,
     get_waf_breaker,
 )
-from src.tournaments.triage import _is_placeholder_team  # noqa: E402
 from src.utils.placeholder_clubs import is_placeholder_club  # noqa: E402
+from src.utils.placeholder_team_names import PLACEHOLDER_TEAM_NAME_FILTER, is_placeholder_team_name  # noqa: E402
 from supabase import create_client  # noqa: E402
 
 # Supabase caps a single select at 1000 rows
@@ -95,7 +96,7 @@ def _is_valid_name(name: Optional[str], provider_team_id: str) -> bool:
     s = name.strip()
     if len(s) < 2:
         return False
-    return s.lower() != f"unknown_{provider_team_id}".lower()
+    return not is_placeholder_team_name(s, provider_team_id)
 
 
 class GotSportResolver:
@@ -220,9 +221,9 @@ def fetch_placeholder_teams(
     placeholder whose numeric ID collides with a GotSport one would otherwise be
     overwritten with that unrelated team's identity.
 
-    The escaped LIKE is a coarse prefilter only — ``_`` is a LIKE wildcard, so
-    it is the exact-equality predicate that decides, keeping a real name like
-    ``unknown_elite`` out (tests/unit/test_scrape_games.py).
+    The name filter only narrows the read: its LIKE half also admits a real name
+    like ``unknown_elite``, so the placeholder predicate decides
+    (tests/unit/test_placeholder_team_names.py).
 
     Paged rather than one ``.limit()`` because both deciding predicates run here
     instead of in the query: PostgREST would compare the text provider_team_id
@@ -235,7 +236,7 @@ def fetch_placeholder_teams(
         query = (
             supabase.table("teams")
             .select("team_id_master,team_name,provider_team_id,club_name,gender,age_group,state_code")
-            .like("team_name", "unknown\\_%")
+            .or_(PLACEHOLDER_TEAM_NAME_FILTER)
             .eq("provider_id", gotsport_provider_id)
             .eq("is_deprecated", False)
             .not_.is_("provider_team_id", "null")
@@ -250,7 +251,7 @@ def fetch_placeholder_teams(
 
         for row in rows:
             provider_team_id = str(row.get("provider_team_id") or "")
-            if not _is_placeholder_team(row.get("team_name"), provider_team_id):
+            if not is_placeholder_team_name(row.get("team_name"), provider_team_id):
                 continue
             if not _is_rankings_space_id(provider_team_id, max_provider_id):
                 continue
@@ -266,7 +267,7 @@ def fetch_placeholder_teams(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Backfill real team names for unknown_ placeholders from GotSport")
+    parser = argparse.ArgumentParser(description="Backfill real team names for placeholder-named teams from GotSport")
     parser.add_argument(
         "--dry-run",
         action="store_true",
