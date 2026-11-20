@@ -120,6 +120,7 @@ def run_collector(stage, deadline):
 
 
 def catch_up(snapshot, collect, *, execute, deadline):
+    observed_day = datetime.now(timezone.utc).date()
     state = snapshot()
     blocked, failed = set(), set()
     while True:
@@ -138,7 +139,13 @@ def catch_up(snapshot, collect, *, execute, deadline):
                 blocked.add(stage)
                 failed.add(stage)
                 dispatched = False
+            next_day = datetime.now(timezone.utc).date()
             state = snapshot()
+            if next_day != observed_day:
+                # The rolling seven-day queue has a different denominator after UTC midnight.
+                observed_day = next_day
+                blocked = failed.copy()
+                continue
             remaining, completed = state.get(stage, (0, 0))
             if dispatched and remaining >= before[0] and completed <= before[1]:
                 print(f"{stage} made no progress; inspect the collector run.")

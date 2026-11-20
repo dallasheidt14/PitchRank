@@ -136,3 +136,13 @@ def test_child_failure_still_attempts_other_due_collectors():
     with pytest.raises(RuntimeError, match="Unresolved"):
         job.catch_up(lambda: state.copy(), collect, execute=True, deadline=float("inf"))
     assert list(state) == ["winner"]
+
+
+def test_utc_rollover_replans_instead_of_blocking_a_productive_collector(monkeypatch):
+    clock = Mock()
+    clock.now.side_effect = [job.datetime(2026, 11, d, tzinfo=job.timezone.utc) for d in (20, 21, 21)]
+    monkeypatch.setattr(job, "datetime", clock)
+    states = iter([{"intake": (10, 2000)}, {"intake": (100, 1500)}, {}])
+    collect = Mock(return_value=True)
+    job.catch_up(lambda: next(states), collect, execute=True, deadline=float("inf"))
+    assert collect.call_count == 2
