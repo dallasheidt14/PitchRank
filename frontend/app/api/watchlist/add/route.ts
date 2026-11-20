@@ -34,8 +34,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Invalid team ID format' }, { status: 400 });
     }
 
-    // Validate team exists
-    const { data: team, error: teamError } = await supabase
+    // Validate team exists, on the service client: the scrape enqueue needs provider_team_id, which the
+    // caller's role cannot read.
+    const { data: team, error: teamError } = await createServiceSupabase()
       .from('teams')
       .select('team_id_master, team_name, provider_id, provider_team_id')
       .eq('team_id_master', teamIdMaster)

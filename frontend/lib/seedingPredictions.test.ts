@@ -616,7 +616,7 @@ describe('canonical input safeguards', () => {
   });
 });
 
-it('uses the privileged client only for exclusion reads on authenticated Compare', async () => {
+it('reads only the exclusions through the second client when given two', async () => {
   const user = database(fixtures(), 'team_ranking_exclusions', new Error('permission denied'));
   const service = database({ team_ranking_exclusions: [] });
   await buildMatchPredictionWithShadowContext(user.client, A, B, service.client);

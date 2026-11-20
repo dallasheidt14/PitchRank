@@ -6,8 +6,6 @@
 export interface Team {
   id: string; // UUID from teams table
   team_id_master: string; // UUID - primary identifier
-  provider_team_id: string;
-  provider_id: string | null;
   team_name: string;
   club_name: string | null;
   league: string | null; // National league code (ECNL, ECNL_RL, MLS_NEXT_HD, ...)
@@ -26,8 +24,9 @@ export interface Game {
   id: string; // UUID
   home_team_master_id: string | null; // UUID reference to teams.team_id_master
   away_team_master_id: string | null;
-  home_provider_id: string;
-  away_provider_id: string;
+  // home/away_provider_id, game_uid and source_url carry provider ids: present only on service-role reads
+  home_provider_id?: string;
+  away_provider_id?: string;
   home_score: number | null;
   away_score: number | null;
   result: 'W' | 'L' | 'D' | 'U' | null; // W=Win, L=Loss, D=Draw, U=Unknown
@@ -37,12 +36,18 @@ export interface Game {
   event_name: string | null;
   venue: string | null;
   provider_id: string | null;
-  game_uid: string | null; // Canonical fixture identifier; UNIQUE in DB when set
-  source_url: string | null;
+  game_uid?: string | null; // Canonical fixture identifier; UNIQUE in DB when set
+  source_url?: string | null;
   scraped_at: string | null;
   created_at: string;
   ml_overperformance: number | null; // Layer 13 ML residual: actual - expected goal margin (home team perspective)
   is_excluded: boolean; // True for games excluded from rankings (e.g., futsal)
+}
+
+export interface GameProviderIds {
+  id: string;
+  home_provider_id: string | null;
+  away_provider_id: string | null;
 }
 
 /**

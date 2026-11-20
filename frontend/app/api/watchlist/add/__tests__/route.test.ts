@@ -48,9 +48,9 @@ function makeRequest(body: unknown): Request {
 let auth: ReturnType<typeof serviceClientMock>;
 let svc: ReturnType<typeof serviceClientMock>;
 
-/** Queue the two reads/writes a successful add makes on the caller's client. */
+/** Queue the team read a successful add makes on the service client, and its write on the caller's. */
 function queueSuccessfulAdd(team: Record<string, unknown> | null = TEAM_ROW) {
-  auth.queueFrom('teams', { data: team, error: team ? null : { message: 'not found' } });
+  svc.queueFrom('teams', { data: team, error: team ? null : { message: 'not found' } });
   auth.queueFrom('watchlist_items', { data: [{ id: 'item-1' }], error: null });
 }
 
@@ -99,6 +99,15 @@ describe('POST /api/watchlist/add', () => {
     expect(auth.rpc).not.toHaveBeenCalled();
   });
 
+  it("reads the team's provider_team_id through the service client, since authenticated cannot", async () => {
+    queueSuccessfulAdd();
+
+    await POST(makeRequest({ teamIdMaster: TEAM_ID }));
+
+    expect(svc.from).toHaveBeenCalledWith('teams');
+    expect(auth.from).not.toHaveBeenCalledWith('teams');
+  });
+
   it('skips the enqueue for a team with no provider, which the drainer cannot serve', async () => {
     queueSuccessfulAdd({ ...TEAM_ROW, provider_id: null });
 
@@ -109,7 +118,7 @@ describe('POST /api/watchlist/add', () => {
   });
 
   it('does not enqueue when the watchlist write itself failed', async () => {
-    auth.queueFrom('teams', { data: TEAM_ROW, error: null });
+    svc.queueFrom('teams', { data: TEAM_ROW, error: null });
     auth.queueFrom('watchlist_items', { data: null, error: { message: 'insert failed' } });
 
     const res = await POST(makeRequest({ teamIdMaster: TEAM_ID }));
@@ -165,7 +174,7 @@ describe('POST /api/watchlist/add', () => {
 
     // The lookup must be the one teams_with_pending_user_request makes: this
     // team's pending rows at priority 1, not merely any row for the team.
-    const lookup = svc.from.mock.results[0].value;
+    const lookup = svc.from.mock.results[svc.from.mock.calls.findIndex(([table]) => table === 'scrape_requests')].value;
     expect(lookup.eq).toHaveBeenCalledWith('team_id_master', TEAM_ID);
     expect(lookup.eq).toHaveBeenCalledWith('status', 'pending');
     expect(lookup.eq).toHaveBeenCalledWith('priority', 1);

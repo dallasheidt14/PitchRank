@@ -3372,3 +3372,11 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `GameHistoryMatcher._create_alias` (`src/models/game_matcher.py`), the `"created_at": datetime.now().isoformat()` key
 - **Why**: A naive local timestamp is stored as if it were UTC. On 2026-11-19 a PlayMetrics tournament import run locally in Arizona wrote aliases reading 14:42, beside hand-inserted rows from the same session that the database stamped 21:34 UTC. A "rows written during this run" window, such as the post-import copy check in the scraper-patterns skill, then misses a local run's aliases by the machine's UTC offset; Actions runs in UTC and is unaffected. Use `datetime.now(timezone.utc)` or let the column default apply.
 - **Noted**: 2026-11-19
+
+### Name unresolved GotSport teams without their provider id
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: every writer and reader of `unknown_<provider_team_id>`; grep `unknown_` across `scripts/`, `src/`, `frontend/lib/` and `supabase/migrations/` (the scrape-eligibility functions match it in SQL). The writer is the fallback name in `build_unknown_profile` (`scripts/auto_match_unknown_opponents.py`)
+- **Why**: A team GotSport has not named yet is stored as `unknown_<provider_team_id>` (3,559 live rows on 2026-11-20), and the public key reads `team_name`, so with the provider-id columns hidden (`20261121000100`) these names are the last place it can read a provider team id. Changing the placeholder means changing every reader of the pattern with it; IMP-126 (one definition for the predicate) is the natural first step.
+- **Noted**: 2026-11-20

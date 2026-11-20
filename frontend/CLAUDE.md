@@ -504,10 +504,14 @@ RESEND_API_KEY
     `last_sign_in_at` empty; the account under 30 minutes old; and no other account signed in on that
     browser. The session id alone cannot grant a session, because it sits in Stripe's hosted checkout URL. An
     account that existed before the checkout has no marker, so the route cannot reach it.
-21. **`lib/constants.ts` and `lib/utils.ts` are source-hash pinned** — `createFormulaRuntime` in
-    `lib/compareFormulaResearch.ts` hashes them (`PREDICTOR_INPUT_SOURCE_FILES`) against
-    `lib/compareFormulaPin.json` and throws on any change, which fails the Compare research tests. Put a new
-    shared value in its own module (as `lib/feedbackDwell.ts` does) rather than editing either file.
+21. **The predictor's source files are hash-pinned** — `createFormulaRuntime` in
+    `lib/compareFormulaResearch.ts` hashes every file in `PREDICTOR_SOURCE_FILES` and
+    `PREDICTOR_INPUT_SOURCE_FILES` (`lib/predictionSourceInventory.ts`: `matchPredictionService.ts`,
+    `matchPredictor.ts`, `constants.ts` and `utils.ts` among them) against `lib/compareFormulaPin.json`,
+    and throws "Collecting predictor source differs from pinned v8" on any change, failing the Compare
+    research tests. Put a new shared value in its own module (as `lib/feedbackDwell.ts` does), and change
+    what a pinned function is given from its caller (a route passing a different client) rather than
+    editing the file.
 22. **`useUser` is not a shared context** — every component that calls it runs its own `getSession`,
     profile fetch and auth listener. The header mounts `GlobalSearch` twice (phone and desktop), so a
     component that calls `useUser` inside it, such as a modal, should mount only while it is in use.

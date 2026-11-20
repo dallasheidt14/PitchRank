@@ -1,16 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import type { GameExplainability, GameWithTeams } from '@/lib/types';
+import type { GameExplainability, GameProviderIds, GameWithTeams } from '@/lib/types';
 
-const { mockUseGameExplainability, mockUseTeamGames, mockUseUser } = vi.hoisted(() => ({
+const { mockUseGameExplainability, mockUseGameProviderIds, mockUseTeamGames, mockUseUser } = vi.hoisted(() => ({
   mockUseGameExplainability: vi.fn(),
+  mockUseGameProviderIds: vi.fn(),
   mockUseTeamGames: vi.fn(),
   mockUseUser: vi.fn(),
 }));
 
 const TEAM_ID = '11111111-1111-1111-1111-111111111111';
 const OPPONENT_ID = '33333333-3333-3333-3333-333333333333';
+const HOST_ID = '44444444-4444-4444-4444-444444444444';
 const HIGHLIGHTED_GAME_ID = 'game-highlighted';
 
 const GAMES = [
@@ -45,14 +47,32 @@ const GAMES = [
     game_date: '2026-09-20',
     home_team_master_id: TEAM_ID,
     away_team_master_id: null,
-    away_provider_id: 'gotsport-999',
     home_score: 2,
     away_score: 1,
     ml_overperformance: null,
     home_team_name: 'Test FC 2013',
     competition: 'Fall League',
   },
+  {
+    id: 'game-away',
+    game_date: '2026-09-27',
+    home_team_master_id: HOST_ID,
+    away_team_master_id: TEAM_ID,
+    home_score: 0,
+    away_score: 3,
+    ml_overperformance: null,
+    home_team_name: 'Host FC 2013',
+    away_team_name: 'Test FC 2013',
+    competition: 'Fall League',
+  },
 ] as unknown as GameWithTeams[];
+
+// Every id distinct, so a lookup that reads the wrong side or the wrong game sends a value no test expects.
+const PROVIDER_IDS: GameProviderIds[] = GAMES.map((game) => ({
+  id: game.id,
+  home_provider_id: `home-of-${game.id}`,
+  away_provider_id: `away-of-${game.id}`,
+}));
 
 const BREAKDOWN: GameExplainability = {
   team_id: TEAM_ID,
@@ -89,10 +109,14 @@ vi.mock('@/lib/hooks', () => ({
   useTeam: () => ({ data: { team_name: 'Test FC 2013', age: 13, gender: 'M' } }),
   usePrefetchTeam: () => vi.fn(),
   useGameExplainability: mockUseGameExplainability,
+  useGameProviderIds: mockUseGameProviderIds,
 }));
 vi.mock('@tanstack/react-query', () => ({ useQueryClient: () => ({ invalidateQueries: vi.fn() }) }));
 vi.mock('@/components/MissingGamesForm', () => ({ MissingGamesForm: () => null }));
-vi.mock('@/components/UnknownOpponentLink', () => ({ UnknownOpponentLink: () => 'Link-opponent dialog' }));
+vi.mock('@/components/UnknownOpponentLink', () => ({
+  UnknownOpponentLink: ({ opponentProviderId }: { opponentProviderId: string }) =>
+    `Link-opponent dialog for ${opponentProviderId}`,
+}));
 vi.mock('@/hooks/useUser', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/hooks/useUser')>()),
   useUser: mockUseUser,
@@ -124,6 +148,10 @@ function highlightedScore(): HTMLElement {
 
 beforeEach(() => {
   mockUseTeamGames.mockReturnValue(LOADED_GAMES);
+  // Like useQuery: no data unless the component enables the fetch.
+  mockUseGameProviderIds.mockImplementation((_gameIds: string[], enabled: boolean) => ({
+    data: enabled ? PROVIDER_IDS : undefined,
+  }));
   mockUseUser.mockReturnValue({ profile: null, isLoading: false });
   vi.spyOn(window, 'matchMedia').mockImplementation(
     (query) =>
@@ -142,6 +170,7 @@ afterEach(async () => {
   root = null;
   container = null;
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe('GameHistoryTable highlighted scores', () => {
@@ -195,7 +224,52 @@ describe('GameHistoryTable opponent data controls', () => {
     await renderTable([]);
 
     expect(container!.querySelectorAll('[aria-label="Unlink Rival SC 2013"]')).toHaveLength(2);
-    expect(unknownOpponentCell().textContent).toBe('Link-opponent dialog');
+    // The team is at home, so the unknown opponent is the away registration.
+    expect(unknownOpponentCell().textContent).toBe('Link-opponent dialog for away-of-game-unknown-opponent');
+  });
+
+  it.each([
+    [
+      'home',
+      'Unlink Rival SC 2013',
+      { gameId: HIGHLIGHTED_GAME_ID, opponentProviderId: `away-of-${HIGHLIGHTED_GAME_ID}`, teamIdMaster: OPPONENT_ID },
+    ],
+    [
+      'away',
+      'Unlink Host FC 2013',
+      { gameId: 'game-away', opponentProviderId: 'home-of-game-away', teamIdMaster: HOST_ID },
+    ],
+  ])("unlinks with the opponent's registration when the team played %s", async (_side, label, expected) => {
+    mockUseUser.mockReturnValue({ profile: { plan: 'admin' }, isLoading: false });
+    const fetchMock = vi.fn(async () => ({ ok: false, json: async () => ({ error: 'stop here' }) }));
+    vi.stubGlobal('fetch', fetchMock);
+    await renderTable([]);
+
+    await act(async () => (container!.querySelector(`[aria-label="${label}"]`) as HTMLElement).click());
+    const confirm = Array.from(document.body.querySelectorAll('button')).find((b) => b.textContent === 'Unlink')!;
+    await act(async () => confirm.click());
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/unlink-opponent', expect.anything());
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, { body: string }];
+    expect(JSON.parse(init.body)).toMatchObject(expected);
+  });
+
+  it("asks for the games' provider ids only for an admin", async () => {
+    mockUseUser.mockReturnValue({ profile: { plan: 'premium' }, isLoading: false });
+    mockUseGameProviderIds.mockClear();
+    await renderTable([]);
+
+    expect(mockUseGameProviderIds).toHaveBeenCalled();
+    expect(mockUseGameProviderIds.mock.calls.every(([, enabled]) => enabled === false)).toBe(true);
+  });
+
+  it('shows no link or unlink control to an admin until the provider ids arrive', async () => {
+    mockUseUser.mockReturnValue({ profile: { plan: 'admin' }, isLoading: false });
+    mockUseGameProviderIds.mockReturnValue({ data: undefined });
+    await renderTable([]);
+
+    expect(unknownOpponentCell().textContent).toBe('Unknown');
+    expect(container!.querySelector('[aria-label^="Unlink"]')).toBeNull();
   });
 });
 

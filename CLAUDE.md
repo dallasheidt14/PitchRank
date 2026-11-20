@@ -1040,7 +1040,9 @@ the Frontend group above belongs there; the variables both sides read (`STRIPE_S
 documented entry points (`calculate_rankings.py`, `drain_queue.py`, `scrape_games.py`,
 `import_games_enhanced.py`) read `SUPABASE_SERVICE_ROLE_KEY`, and `--dry-run` does not
 remove the need — the client is built from it at startup; a few scripts build their client
-from the anon `SUPABASE_KEY`, which suffices for reads.
+from the anon `SUPABASE_KEY`, which reads what the public site reads and no more: no provider team
+ids, so a `*` select on `teams` or `games` fails (the `supabase-pitchrank` skill lists the hidden
+columns).
 
 From a session, read the database through `supabase-py` over PostgREST (scripts, through
 `config.settings`) or the read-only `mcp__supabase__*` tools from `.mcp.json`. The MCP

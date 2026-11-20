@@ -21,7 +21,12 @@ supabase = create_client(
 
 The service-role key bypasses RLS entirely. It is correct for server-side scripts that must
 write, but prefer `SUPABASE_KEY` (anon) for read-only lookups, and never let it reach a
-browser or a log line. Keys live in root `.env` (or its `.env.local` override), both gitignored.
+browser or a log line. The browser roles (`anon`, and `authenticated` for a signed-in user's
+client) read `teams` and `games` through column grants that leave out the provider-id columns
+(`teams.provider_team_id`; `games.home_provider_id`, `away_provider_id`, `source_url`, `game_uid`),
+so a read that names one, or selects `*`, needs the service key. A column added to either table
+stays unreadable to them until a migration grants it. Keys live in root `.env` (or its
+`.env.local` override), both gitignored.
 
 ## Core Tables
 
@@ -615,9 +620,9 @@ REVOKE ALL ON SEQUENCE public.<table>_id_seq FROM anon, authenticated;
 ```
 
 The sequence needs its own REVOKE — a table-level one does not reach it, and
-`pg_default_acl` grants `rwU` on new sequences here. `team_state_probe_log_id_seq` still
-carries `anon=rwU` in production because its migration revoked only the table. `REVOKE ALL`
-is also what removes TRUNCATE, which RLS does not govern.
+`pg_default_acl` grants `rwU` on new sequences here, so a migration that revokes only the table
+leaves its sequence usable by both roles. `REVOKE ALL` is also what removes TRUNCATE, which RLS
+does not govern.
 
 Check whether the table even has a sequence before copying that line: a `uuid` primary key
 with `gen_random_uuid()` has none, and `REVOKE ALL ON SEQUENCE` on a non-existent sequence
@@ -658,10 +663,21 @@ WHERE n.nspname = 'public' AND c.relname = '<table>';
 Read the flags as `a`=INSERT, `r`=SELECT, `w`=UPDATE, `d`=DELETE, `D`=TRUNCATE,
 `x`=REFERENCES, `t`=TRIGGER, `m`=MAINTAIN.
 
+A column grant lives in `pg_attribute.attacl`, not `relacl`, so `teams` and `games` show no
+`r` for `anon` there while it reads every granted column. Ask per column instead:
+`SELECT has_column_privilege('anon', 'public.teams', 'provider_team_id', 'SELECT');`
+
 **Do not use `information_schema.role_table_grants` for this.** Like
 `constraint_column_usage` above, it is privilege-filtered: it returns **zero rows** for
 `anon` and `authenticated` under the MCP server's role, which reads as "no grants exist" when
 the table in fact grants everything to both.
+
+A column grant does not limit a `SECURITY DEFINER` function or a view without
+`security_invoker`: both read as their owner. To keep a column from the browser roles, revoke
+`SELECT` on every such view that returns it, and `EXECUTE` on every such function that returns
+it `FROM PUBLIC, anon, authenticated` — a new function grants `EXECUTE` to `PUBLIC`, which both
+roles inherit. Confirm with `has_table_privilege('anon', 'public.<view>', 'SELECT')` and
+`has_function_privilege('anon', 'public.<fn>(<arg types>)', 'EXECUTE')`.
 
 ### A Realtime subscription is gated by publication membership before RLS
 

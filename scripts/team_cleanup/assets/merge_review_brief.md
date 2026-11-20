@@ -77,8 +77,8 @@ lookup's own folder, nothing more:
     python {lookup} name <text> <age group> <gender>
 
 `team` prints the row (an id merged away prints the row it went into), the rows merged
-into it, and its games newest first, at most 200, each with the registration that played it; it says how
-many older ones it left out. `club` and `name` list up to 60 live rows of a cohort (any state) whose club
+into it, and its games newest first, at most 200; it says how many older ones it left out. No lookup
+shows a provider team id or registration; only your slice carries them. `club` and `name` list up to 60 live rows of a cohort (any state) whose club
 name, or name or registered name, holds the text, by club and name, and say when more hold it: use them to find a competing
 partner the slice's list missed, such as one filed under another spelling of the club. Gender is Male or
 Female; an age group reads like u12.

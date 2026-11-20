@@ -55,13 +55,10 @@ export async function POST(request: NextRequest) {
       return auth.error;
     }
 
-    // Exclusions are service-only; ordinary team and game reads retain the user's client.
-    const result = await buildMatchPredictionWithShadowContext(
-      auth.supabase,
-      teamAId,
-      teamBId,
-      createServiceSupabase()
-    );
+    // Service client for every read: a session cannot read games.source_url, which tells two copies of
+    // one fixture apart, nor team_ranking_exclusions.
+    const service = createServiceSupabase();
+    const result = await buildMatchPredictionWithShadowContext(service, teamAId, teamBId, service);
     void maybeLogMatchPredictionShadow({
       userId: auth.user.id,
       requestIp: ip,

@@ -93,9 +93,9 @@ async function runOnce(params: Ga4MostWantedTeamsParams): Promise<TileResponse<G
   if (teamIds.length > 0) {
     try {
       const supabase = await createServerSupabase();
-      const { data } = await supabase.from('teams').select('id, name').in('id', teamIds);
+      const { data } = await supabase.from('teams').select('team_id_master, team_name').in('team_id_master', teamIds);
       for (const t of data ?? []) {
-        nameMap[String(t.id)] = t.name as string;
+        nameMap[String(t.team_id_master)] = t.team_name as string;
       }
     } catch {
       // name resolution is best-effort; continue without names
