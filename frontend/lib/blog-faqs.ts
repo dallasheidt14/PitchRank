@@ -116,7 +116,7 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
     {
       question: 'What youth soccer leagues operate in Connecticut?',
       answer:
-        'Connecticut teams compete in ECNL, MLS NEXT, Girls Academy (GA), ECNL Regional League Northeast, EDP, and the National 1 League — plus state competition through CJSA premier divisions and the Connecticut State Cup. Hartford Athletic Youth Academy is the home-state MLS NEXT pathway.',
+        'Connecticut teams compete in ECNL, MLS NEXT, the Elite Academy League (EA), Girls Academy (GA), ECNL Regional League Northeast, EDP, and the National 1 League — plus state competition through CJSA premier divisions and the Connecticut State Cup. Hartford Athletic Youth Academy is the home-state MLS NEXT pathway.',
     },
     {
       question: 'How does Fairfield County compare to the rest of Connecticut in rankings?',
@@ -172,7 +172,7 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
     {
       question: 'What youth soccer leagues operate in Georgia?',
       answer:
-        'Georgia teams compete in ECNL, MLS NEXT (anchored by the Atlanta United Academy pipeline), Girls Academy (GA), ECNL Regional League, and the National 1 League — plus state competition through Georgia Soccer (GSSA) premier divisions and the Georgia State Cup.',
+        'Georgia teams compete in ECNL, MLS NEXT (anchored by the Atlanta United Academy pipeline), the Elite Academy League (EA), Girls Academy (GA), ECNL Regional League, and the National 1 League — plus state competition through Georgia Soccer (GSSA) premier divisions and the Georgia State Cup.',
     },
     {
       question: 'How does the Atlanta metro compare to the rest of Georgia?',
@@ -243,7 +243,7 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
     {
       question: 'What youth soccer leagues operate in Illinois?',
       answer:
-        'Illinois teams compete in ECNL, MLS NEXT (anchored by the Chicago Fire pipeline), Girls Academy (GA), ECNL Regional League, Midwest Regional League (MRL), and the National 1 League — plus state competition through IYSA premier divisions and the IYSA State Cup.',
+        'Illinois teams compete in ECNL, MLS NEXT (anchored by the Chicago Fire pipeline), the Elite Academy League (EA), Girls Academy (GA), ECNL Regional League, Midwest Regional League (MRL), and the National 1 League — plus state competition through IYSA premier divisions and the IYSA State Cup.',
     },
     {
       question: 'How does Chicago Metro compare to downstate and Metro East?',
@@ -286,7 +286,7 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
     {
       question: 'What youth soccer leagues operate in Indiana?',
       answer:
-        "Indiana teams compete in ECNL, MLS NEXT, Girls Academy (GA), ECNL Regional League, Midwest Regional League (MRL), and the National 1 League — plus state competition through Indiana Soccer premier divisions and the Indiana State Cup. The Indy Eleven is the state's professional club and anchors the top of the boys pathway.",
+        "Indiana teams compete in ECNL, MLS NEXT, the Elite Academy League (EA), Girls Academy (GA), ECNL Regional League, Midwest Regional League (MRL), and the National 1 League — plus state competition through Indiana Soccer premier divisions and the Indiana State Cup. The Indy Eleven is the state's professional club and anchors the top of the boys pathway.",
     },
     {
       question: 'How does Indianapolis compare to the rest of Indiana in rankings?',
@@ -427,7 +427,7 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
     {
       question: 'What youth soccer leagues operate in Massachusetts?',
       answer:
-        'Massachusetts teams compete in ECNL, MLS NEXT, Girls Academy (GA), ECNL Regional League, EDP New England, and the National 1 League — plus state competition through MYSA premier divisions and the Massachusetts State Cup. The New England Revolution Academy is the top boys pathway in the region.',
+        'Massachusetts teams compete in ECNL, MLS NEXT, the Elite Academy League (EA), Girls Academy (GA), ECNL Regional League, EDP New England, and the National 1 League — plus state competition through MYSA premier divisions and the Massachusetts State Cup. The New England Revolution Academy is the top boys pathway in the region.',
     },
     {
       question: 'How does Greater Boston compare to Western Massachusetts in rankings?',
@@ -539,7 +539,7 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
     {
       question: 'What youth soccer leagues operate in Missouri?',
       answer:
-        'Missouri teams compete in ECNL, MLS NEXT (anchored by the St. Louis CITY SC academy), Girls Academy (GA), ECNL Regional League, Midwest Regional League (MRL), and the National 1 League — plus state competition through MYSA premier divisions and the Missouri State Cup.',
+        'Missouri teams compete in ECNL, MLS NEXT (anchored by the St. Louis CITY SC academy), the Elite Academy League (EA), Girls Academy (GA), ECNL Regional League, Midwest Regional League (MRL), and the National 1 League — plus state competition through MYSA premier divisions and the Missouri State Cup.',
     },
     {
       question: 'How does St. Louis compare to the rest of Missouri in rankings?',
@@ -793,7 +793,7 @@ export const BLOG_FAQS: Record<string, FAQ[]> = {
     {
       question: 'What youth soccer leagues operate in Oregon?',
       answer:
-        "ECNL girls teams come from Oregon Surf SC and Portland Thorns Academy. ECNL boys teams come from FC Portland Academy, Eugene Metro FC, Oregon Premier FC, United PDX and Capital FC, and most of those clubs also play ECNL Regional League. MLS NEXT teams come from Westside Metros, Oregon Surf SC, Hillsboro Rush, Saints Academy, Soccer Chance Academy and the Portland Timbers' academy. Girls Academy teams come from Westside Metros and Soccer Chance Academy. State play runs through the Oregon Youth Soccer Association.",
+        "ECNL girls teams come from Oregon Surf SC and Portland Thorns Academy. ECNL boys teams come from FC Portland Academy, Eugene Metro FC, Oregon Premier FC, United PDX and Capital FC, and most of those clubs also play ECNL Regional League. MLS NEXT teams come from Westside Metros, Oregon Surf SC, Hillsboro Rush, Saints Academy, Soccer Chance Academy and the Portland Timbers' academy. Elite Academy League (EA) boys teams come from clubs including Soccer Chance Academy, Oregon Surf SC, Westside Metros, Saints Academy and Bend FC. Girls Academy teams come from Westside Metros and Soccer Chance Academy. State play runs through the Oregon Youth Soccer Association.",
     },
     {
       question: 'Why do Portland teams play so many Washington teams?',
