@@ -1226,7 +1226,7 @@ export const blogPosts: BlogPost[] = [
       'Find where your California club ranks among 15,693 teams. LA Galaxy, San Diego Surf, Beach FC, Sacramento Republic and more — rated weekly by PowerScore. Free.',
     author: 'PitchRank Team',
     date: '2026-02-21',
-    modifiedDate: '2026-04-30T00:00:00Z',
+    modifiedDate: '2026-11-20T00:00:00Z',
     readingTime: '9 min read',
     tags: ['California', 'Youth Soccer', 'Rankings', 'Parent Guide'],
     content: (
@@ -1497,7 +1497,7 @@ export const blogPosts: BlogPost[] = [
             <div className="flex items-start gap-3 p-3 rounded-lg bg-primary/5 border border-primary/20">
               <Activity className="size-5 text-primary shrink-0 mt-0.5" />
               <p className="text-sm text-muted-foreground">
-                <strong>Every level of play</strong> — MLS Next, ECNL, GA, DPL, NPL, Coast Soccer League, Presidio
+                <strong>Every level of play</strong> — MLS Next, ECNL, EA, GA, DPL, NPL, Coast Soccer League, Presidio
                 League, NorCal Premier, SCDSL, and more
               </p>
             </div>
@@ -1919,7 +1919,7 @@ export const blogPosts: BlogPost[] = [
       'Find where your Texas club ranks among 9,457 teams. FC Dallas, Solar SC, and more — rated weekly by PowerScore from real game results. Free.',
     author: 'PitchRank Team',
     date: '2026-03-14',
-    modifiedDate: '2026-04-30T00:00:00Z',
+    modifiedDate: '2026-11-20T00:00:00Z',
     readingTime: '10 min read',
     tags: ['Texas', 'Youth Soccer', 'Rankings', 'Parent Guide'],
     content: (
@@ -2193,7 +2193,7 @@ export const blogPosts: BlogPost[] = [
             <div className="flex items-start gap-3 p-3 rounded-lg bg-primary/5 border border-primary/20">
               <Activity className="size-5 text-primary shrink-0 mt-0.5" />
               <p className="text-sm text-muted-foreground">
-                <strong>Every level of play</strong> — MLS Next, ECNL, GA, DPL, NPL, North Texas Premier, Houston
+                <strong>Every level of play</strong> — MLS Next, ECNL, EA, GA, DPL, NPL, North Texas Premier, Houston
                 Premier League, and more
               </p>
             </div>

@@ -3396,10 +3396,26 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: This repo is public, and its run logs and artifacts carry GotSport team ids beside our team ids, which the database hides from the public key. The owner chose one repo-wide fix over trimming single workflows.
 - **Noted**: 2026-11-20
 
-### List the Elite Academy League (EA) in the state guides whose states have EA teams
+### Name National 1 and EA in the cohort boards' "Which leagues are tracked" answer
 
 - **Type**: direct
 - **Category**: docs
-- **Where**: the league list and the "What youth soccer leagues operate in <state>?" FAQ in `frontend/content/blog/<state>-youth-soccer-rankings-guide.mdx`, the matching answers in `BLOG_FAQS` (`frontend/lib/blog-faqs.ts`); the California and Texas guides are `BlogPost` objects in `frontend/content/blog-posts.tsx`
-- **Why**: A customer reported on 2026-11-20 that the Washington guide left out EA, which their team has played for two seasons; Washington was fixed with this entry and Nevada already lists EA. Live teams with a `modular11_ea` alias, by `teams.state_code` (2026-11-20): CA 504, CO 65, TX 60, IL 57, NY 55, OR 44, GA 35, FL 25, UT 20, IN 15, WI 15, NJ 10, AZ 10, and none of those 13 guides names the league (Utah's "7 Elite Academy" is a club; the Texas mention is in the Texas data report, not the guide). The seo skill's State Guide Posts step 4 covers naming EA clubs by club rather than squad label and not taking an age span from the import.
+- **Where**: the "Which leagues are tracked for ..." answer in `buildCohortFAQ` (`frontend/lib/cohort-seo.ts`)
+- **Why**: Every cohort ranking board answers with "EDP, ECNL, MLS Next, NPL, US Youth Soccer state leagues, showcases, and friendlies". NPL became the National 1 League for 2026-27, which the state guides already say, and EA is not named although PitchRank imports EA every week (the state guides list it from 2026-11-20). The answer is a sample, not a complete list, so this is wording, not a missing league.
+- **Noted**: 2026-11-20
+
+### Stop describing the ranking engine as v53e in public blog posts
+
+- **Type**: plan
+- **Category**: docs
+- **Where**: the "The v53e Algorithm Explained (Simply)" heading in `frontend/content/blog/arizona-youth-soccer-rankings-guide.mdx`, the "13-layer algorithm (v53e + ML)" FAQ answer in `frontend/content/blog/florida-youth-soccer-rankings-guide.mdx`, and the `what-is-powerscore-youth-soccer` post in `frontend/content/blog-posts.tsx`
+- **Why**: Production runs the joint-snapshot profile through `--engine glicko`; v53e is the legacy engine (`--engine v53e` only, per CLAUDE.md). These posts tell readers the site ranks with a pipeline it no longer uses. Found by a docs review of the EA state-guide change on 2026-11-20; other posts were not swept. Rewrite from the `rankings-algorithm` skill, keeping methodology claims consistent site-wide (seo skill Hard Rule 4).
+- **Noted**: 2026-11-20
+
+### File Connecticut's Albion SC Fairfield teams under their club, not "Regal Sporting Group"
+
+- **Type**: investigate
+- **Category**: reliability
+- **Where**: `teams.club_name` for the Connecticut GotSport rows named "Albion SC Fairfield ..." (5 rows, 3 of them also holding an EA alias); the `normalizing-club-names` skill's hand-vetted path (`scripts/apply_vetted_club_names.py`)
+- **Why**: Seen 2026-11-20: each of these teams is named Albion SC Fairfield but stored with club "Regal Sporting Group", while the two EA-created rows carry "ALBION SC Fairfield", so one club splits across two club names and the duplicate scan cannot pair them. "Regal Sporting Group" looks like the GotSport registration entity; confirm with the owner before moving, since the weekly backfill may write it back from GotSport.
 - **Noted**: 2026-11-20

@@ -2010,3 +2010,13 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Noted**: 2026-11-20
 - **Update (2026-11-20)**: Discovery stores "Unknown team"; the readers recognise both names and the six scrape-eligibility functions skip both. One step remains after merge: run `scripts/rename_placeholder_team_names.py --execute` on the existing rows, under the preconditions its docstring lists.
 - **Refs**: branch `fix/placeholder-team-names`; `src/utils/placeholder_team_names.py`, `tests/unit/test_placeholder_team_names.py`
+
+### List the Elite Academy League (EA) in the state guides whose states have EA teams
+
+- **Status**: done
+- **Type**: direct
+- **Category**: docs
+- **Where**: the league list and the "What youth soccer leagues operate in <state>?" FAQ in `frontend/content/blog/<state>-youth-soccer-rankings-guide.mdx`, the matching answers in `BLOG_FAQS` (`frontend/lib/blog-faqs.ts`); the California and Texas guides are `BlogPost` objects in `frontend/content/blog-posts.tsx`
+- **Why**: A customer reported on 2026-11-20 that the Washington guide left out EA, which their team has played for two seasons; Washington was fixed with this entry and Nevada already lists EA. Live teams with a `modular11_ea` alias, by `teams.state_code` (2026-11-20): CA 504, CO 65, TX 60, IL 57, NY 55, OR 44, GA 35, FL 25, UT 20, IN 15, WI 15, NJ 10, AZ 10, and none of those 13 guides names the league (Utah's "7 Elite Academy" is a club; the Texas mention is in the Texas data report, not the guide). The seo skill's State Guide Posts step 4 covers naming EA clubs by club rather than squad label and not taking an age span from the import.
+- **Noted**: 2026-11-20
+- **Refs**: branch `content/state-guides-add-ea` (Washington in #1480); 18 more guides now list EA. Connecticut, Idaho, Massachusetts, Missouri and Tennessee (5 EA teams each) were added beyond the 13 listed above; Arizona and Colorado have no league list, so EA went into their league sentence; California and Texas into their tracked-leagues list

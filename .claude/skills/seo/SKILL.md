@@ -108,9 +108,15 @@ Mirror the most recent guide's structure.
      provider's alias, folding squads into their club. Rows the import created can carry a
      squad label as `teams.club_name` ("Atletico Rojo" for Atletico FC's three squads;
      "Western WA Surf Academy Blue" and "White" for Western Washington Surf SC), so take the
-     club's name from its teams on other providers. Take the league's age span from the
-     league's own site: those rows cover only the ages the import has run (the scheduled
-     matrix in `ea-scraper.yml`).
+     club's name from its teams on other providers. Their `club_name` can hold a
+     registration entity, so read their team names too and name the club as those do
+     (Connecticut's Albion SC Fairfield teams carry `club_name` "Regal Sporting Group").
+     Take the league's age span from the league's own site: those rows cover only the ages
+     the import has run (the scheduled matrix in `ea-scraper.yml`).
+   - When naming a league's clubs in a guide, keep the guide's own spelling of a club it
+     already names ("USAI" in Indiana), write "including" when the list names only some of
+     the state's clubs in that league, and add the league only to a sentence whose clubs
+     play it.
    - Take State Cup qualification, seeding and advancement from the state
      association's current rules page. Some associations split the cup into fall and
      spring competitions by age group, and some by gender too; say which competition
