@@ -5,6 +5,10 @@ on:
     - cron: '15 4 * * *'
   workflow_dispatch:
     inputs:
+      retry_errors:
+        description: Retry previously failed database forecasts
+        type: boolean
+        default: false
       execute:
         description: "Write forecasts (leave off for a read-only preview)"
         type: boolean
@@ -31,6 +35,7 @@ jobs:
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
       EXECUTE: ${{ github.event_name == 'schedule' || inputs.execute }}
       CAPTURE_LIMIT: ${{ inputs.limit || '500' }}
+      HEURISTIC_STATUS: ${{ inputs.retry_errors && 'error' || 'pending' }}
       PYTHONUNBUFFERED: "1"
     steps:
       - uses: actions/checkout@v5
@@ -50,12 +55,14 @@ jobs:
       - run: npm ci --ignore-scripts
         working-directory: frontend
       - name: Audit collection coverage without inspecting results
+        if: env.HEURISTIC_STATUS == 'pending'
         shell: bash
         run: |
           MODE=()
           if [ "$EXECUTE" = "true" ]; then MODE+=(--execute --output "$RUNNER_TEMP/prospective-coverage.json"); fi
           python scripts/audit_compare_collection.py --limit "$CAPTURE_LIMIT" "${MODE[@]}"
       - name: Prepare stored fixtures
+        if: env.HEURISTIC_STATUS == 'pending'
         shell: bash
         run: |
           MODE=()
@@ -64,12 +71,13 @@ jobs:
             --selection balanced --limit "$CAPTURE_LIMIT" "${MODE[@]}" \
             --summary-path "$RUNNER_TEMP/prospective-intake.json"
       - name: Freeze current Compare forecasts
+        id: freeze
         working-directory: frontend
         shell: bash
         run: |
           MODE=()
           if [ "$EXECUTE" = "true" ]; then MODE+=(--execute); fi
-          npm run process:prospective:heuristic -- --source database \
+          npm run process:prospective:heuristic -- --source database --status "$HEURISTIC_STATUS" \
             --selection balanced --limit "$CAPTURE_LIMIT" --concurrency 4 --budget-minutes 45 "${MODE[@]}" \
             --summary-path "$RUNNER_TEMP/prospective-capture.json"
       - name: Upload capture summaries
@@ -81,13 +89,17 @@ jobs:
           retention-days: 90
           if-no-files-found: error
       - name: Preserve frozen forecast inputs locally
-        if: env.EXECUTE == 'true' && vars.COMPARE_INPUT_ARCHIVE_ENABLED == 'true'
+        id: archive
+        if: >-
+          !cancelled() && (steps.freeze.outcome == 'success' || steps.freeze.outcome == 'failure') &&
+          env.EXECUTE == 'true' && vars.COMPARE_INPUT_ARCHIVE_ENABLED == 'true'
         shell: bash
         run: |
           ARCHIVE_PATH="$RUNNER_TEMP/frozen-forecast-inputs"
           python scripts/archive_compare_forecasts.py --execute --output-dir "$ARCHIVE_PATH"
       - name: Checkout archive publisher
-        if: env.EXECUTE == 'true' && vars.COMPARE_INPUT_ARCHIVE_ENABLED == 'true'
+        id: publisher
+        if: "!cancelled() && steps.archive.outcome == 'success'"
         uses: actions/checkout@v5
         with:
           # Publishing tools can be repaired without changing the locked collecting predictor or archived source.
@@ -95,11 +107,17 @@ jobs:
           path: .archive-publisher
           persist-credentials: false
       - name: Publish frozen forecast inputs privately
-        if: env.EXECUTE == 'true' && vars.COMPARE_INPUT_ARCHIVE_ENABLED == 'true'
+        id: publish
+        if: "!cancelled() && steps.archive.outcome == 'success' && steps.publisher.outcome == 'success'"
         shell: bash
         run: |
           python .archive-publisher/scripts/publish_ranking_input_archive.py \
-            "$RUNNER_TEMP/frozen-forecast-inputs" --execute
+            "$RUNNER_TEMP/frozen-forecast-inputs" --execute | tee "$RUNNER_TEMP/forecast-publication.json"
+      - name: Verify partial capture was archived
+        if: "!cancelled() && steps.freeze.outcome == 'failure' && steps.publish.outcome == 'success'"
+        working-directory: .archive-publisher
+        run: |
+          python -m scripts.verify_partial_compare_archive "$RUNNER_TEMP"
       - name: Summarize capture
         if: always()
         shell: bash

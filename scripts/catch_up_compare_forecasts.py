@@ -5,16 +5,23 @@ import os
 import subprocess
 import time
 from datetime import datetime, timedelta, timezone
+from typing import NamedTuple
 
 from scripts.settle_prospective_match_predictions import _supabase_client
 from src.predictions.prospective_fixtures import database_fixture_inventory, paged
 
 WORKFLOWS = {
     "intake": "weekly-prospective-refresh.yml",
+    "original_errors": "weekly-prospective-refresh.yml",
     "live": "compare-live-monitoring.yml",
     "winner": "compare-winner-study.yml",
     "score": "compare-score-study.yml",
 }
+
+
+class PendingArchive(NamedTuple):
+    stage: str
+    run_id: int
 
 
 def coverage(client):
@@ -79,7 +86,7 @@ def coverage(client):
         errors = sum(in_study(row["game_date"]) for row in originals
                      if row["source_system"] == "database_games" and row["heuristic_prediction_status"] == "error")
         if errors:
-            state["original_errors"] = (errors, 0)
+            state["original_errors"] = (errors, completed)
     return state
 
 
@@ -88,9 +95,17 @@ def github(path, payload=None):
                f"repos/{os.environ['GITHUB_REPOSITORY']}/actions/{path}"]
     if payload is not None:
         command += ["--method", "POST", "--input", "-"]
-    result = subprocess.run(command, input=json.dumps(payload) if payload else None, capture_output=True,
-                            text=True, check=True, timeout=60)
-    return json.loads(result.stdout)
+    # GitHub sometimes returns an error on the first status read for a newly dispatched run.
+    # POST is never retried: a lost response can still mean the collector started.
+    for attempt in range(3):
+        try:
+            result = subprocess.run(command, input=json.dumps(payload) if payload else None, capture_output=True,
+                                    text=True, check=True, timeout=60)
+            return json.loads(result.stdout)
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            if payload is not None or attempt == 2:
+                raise
+            time.sleep(5 * (attempt + 1))
 
 
 def run_collector(stage, deadline):
@@ -104,18 +119,38 @@ def run_collector(stage, deadline):
         deadline = min(deadline, time.monotonic() + 60)
     else:
         inputs = {"execute": "true", "limit": "500"}
-        if stage != "intake":
+        if stage == "original_errors":
+            inputs["retry_errors"] = "true"
+        elif stage != "intake":
             inputs["mode"] = "capture"
         run_id = github(f"workflows/{workflow}/dispatches", {"ref": "main", "inputs": inputs})["workflow_run_id"]
         print(f"Started {stage} run {run_id}")
+    if wait_for_collector(stage, run_id, deadline, observed=bool(busy)):
+        return not busy
+    print(f"Run {run_id} is still active; coverage will be checked again.")
+    if stage in ("intake", "original_errors"):
+        return PendingArchive(stage, run_id)
+    return False
+
+
+def wait_for_collector(stage, run_id, deadline, *, observed):
+    writes_archive = stage in ("intake", "original_errors")
     while time.monotonic() < deadline:
         run = github(f"runs/{run_id}")
         if run["status"] == "completed":
-            if run["conclusion"] != "success" and not busy:
+            if run["conclusion"] != "success" and (writes_archive or not observed or run["conclusion"] == "failure"):
+                if writes_archive and run["conclusion"] == "failure":
+                    jobs = github(f"runs/{run_id}/jobs")["jobs"]
+                    if len(jobs) == 1:
+                        steps = {s["name"]: s["conclusion"] for s in jobs[0]["steps"]}
+                        failures = [name for name, result in steps.items() if result == "failure"]
+                        if (failures == ["Freeze current Compare forecasts"]
+                                and steps.get("Verify partial capture was archived") == "success"):
+                            print(f"Run {run_id} archived a partial batch; checking remaining forecast work.")
+                            return True
                 raise RuntimeError(f"{stage} run {run_id}: {run['conclusion']}")
-            return not busy
+            return True
         time.sleep(30)
-    print(f"Run {run_id} is still active; coverage will be checked again.")
     return False
 
 
@@ -123,6 +158,7 @@ def catch_up(snapshot, collect, *, execute, deadline):
     observed_day = datetime.now(timezone.utc).date()
     state = snapshot()
     blocked, failed = set(), set()
+    pending_archives = {}
     while True:
         print("Remaining:", {stage: counts[0] for stage, counts in state.items()})
         due = [s for s in WORKFLOWS if state.get(s, (0, 0))[0] and s not in blocked]
@@ -134,6 +170,9 @@ def catch_up(snapshot, collect, *, execute, deadline):
             before = state[stage]
             try:
                 dispatched = collect(stage, deadline)
+                if isinstance(dispatched, PendingArchive):
+                    pending_archives[dispatched.run_id] = dispatched.stage
+                    dispatched = False
             except (RuntimeError, subprocess.SubprocessError) as error:
                 print(f"Collector failed: {error}")
                 blocked.add(stage)
@@ -150,7 +189,14 @@ def catch_up(snapshot, collect, *, execute, deadline):
             if dispatched and remaining >= before[0] and completed <= before[1]:
                 print(f"{stage} made no progress; inspect the collector run.")
                 blocked.add(stage)
+    # A writer can drain the last forecast before its private publication finishes.
+    for run_id, stage in pending_archives.items():
+        if not wait_for_collector(stage, run_id, deadline, observed=True):
+            raise RuntimeError(f"Archive publication still unverified for {stage} run {run_id}")
     unresolved = blocked | {"original_errors", "incompatible_monitor"}
+    if execute and failed and not any(due_count for due_count, _ in state.values()):
+        raise RuntimeError(f"Forecast queues are clear, but child workflows failed: {', '.join(sorted(failed))}. "
+                           "Check their logs and archive publication.")
     if execute and (failed or any(state.get(s, (0, 0))[0] for s in unresolved)):
         raise RuntimeError("Unresolved collector errors; see counts and run IDs above")
     if due and execute:

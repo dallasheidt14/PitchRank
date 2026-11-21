@@ -38,8 +38,16 @@ def test_archive_publisher_uses_workflow_source_only_after_locked_inputs_are_sav
     assert steps[tooling]["with"] == {
         "ref": "${{ github.sha }}", "path": ".archive-publisher", "persist-credentials": "false",
     }
-    for i in [archive, tooling, publish]:
-        assert steps[i]["if"] == "env.EXECUTE == 'true' && vars.COMPARE_INPUT_ARCHIVE_ENABLED == 'true'"
+    assert [steps[i]["id"] for i in (capture, archive, tooling)] == ["freeze", "archive", "publisher"]
+    assert steps[archive]["if"] == ("!cancelled() && (steps.freeze.outcome == 'success' || "
+                                    "steps.freeze.outcome == 'failure') && env.EXECUTE == 'true' && "
+                                    "vars.COMPARE_INPUT_ARCHIVE_ENABLED == 'true'")
+    assert steps[tooling]["if"] == "!cancelled() && steps.archive.outcome == 'success'"
+    assert steps[publish]["if"] == ("!cancelled() && steps.archive.outcome == 'success' && "
+                                    "steps.publisher.outcome == 'success'")
+    receipt = next(s for s in steps if s.get("name") == "Verify partial capture was archived")
+    assert steps[publish]["id"] == "publish"
+    assert receipt["if"] == "!cancelled() && steps.freeze.outcome == 'failure' && steps.publish.outcome == 'success'"
     assert "python scripts/archive_compare_forecasts.py" in steps[archive]["run"]
     assert "python .archive-publisher/scripts/publish_ranking_input_archive.py" in steps[publish]["run"]
     assert '"$RUNNER_TEMP/frozen-forecast-inputs" --execute' in steps[publish]["run"]
@@ -56,7 +64,8 @@ def test_archive_publisher_uses_workflow_source_only_after_locked_inputs_are_sav
 def test_challenger_trigger_never_turns_upstream_preview_into_writes(
     kind, upstream_event, conclusion, branch, signature, expected,
 ):
-    workflow = yaml.load((ROOT / ".github/workflows/capture-compare-challenger.yml").read_text(), Loader=yaml.BaseLoader)
+    path = ROOT / ".github/workflows/capture-compare-challenger.yml"
+    workflow = yaml.load(path.read_text(), Loader=yaml.BaseLoader)
     condition = workflow["jobs"]["capture"]["if"]
     values = {"vars.COMPARE_CHALLENGER_SIGNATURE": signature, "github.event_name": kind,
               "github.event.workflow_run.conclusion": conclusion, "github.event.workflow_run.event": upstream_event,
@@ -70,9 +79,16 @@ def test_challenger_trigger_never_turns_upstream_preview_into_writes(
 
 
 def test_both_collection_stages_use_the_same_balanced_policy():
-    workflow = yaml.load((ROOT / ".github/workflows/weekly-prospective-refresh.yml").read_text(), Loader=yaml.BaseLoader)
+    path = ROOT / ".github/workflows/weekly-prospective-refresh.yml"
+    workflow = yaml.load(path.read_text(), Loader=yaml.BaseLoader)
     steps = workflow["jobs"]["capture"]["steps"]
     intake = next(step["run"] for step in steps if step.get("name") == "Prepare stored fixtures")
     capture = next(step["run"] for step in steps if step.get("name") == "Freeze current Compare forecasts")
     assert "--selection balanced" in intake and "--selection balanced" in capture
     assert workflow["jobs"]["capture"]["env"]["CAPTURE_LIMIT"] == "${{ inputs.limit || '500' }}"
+    assert workflow["on"]["workflow_dispatch"]["inputs"]["retry_errors"]["default"] == "false"
+    env = workflow["jobs"]["capture"]["env"]
+    assert env["HEURISTIC_STATUS"] == "${{ inputs.retry_errors && 'error' || 'pending' }}"
+    assert '--source database --status "$HEURISTIC_STATUS"' in capture
+    for name in ("Prepare stored fixtures", "Audit collection coverage without inspecting results"):
+        assert next(s for s in steps if s.get("name") == name)["if"] == "env.HEURISTIC_STATUS == 'pending'"
