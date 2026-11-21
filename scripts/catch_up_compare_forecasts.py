@@ -11,6 +11,7 @@ from src.predictions.prospective_fixtures import database_fixture_inventory, pag
 
 WORKFLOWS = {
     "intake": "weekly-prospective-refresh.yml",
+    "original_errors": "weekly-prospective-refresh.yml",
     "live": "compare-live-monitoring.yml",
     "winner": "compare-winner-study.yml",
     "score": "compare-score-study.yml",
@@ -79,7 +80,7 @@ def coverage(client):
         errors = sum(in_study(row["game_date"]) for row in originals
                      if row["source_system"] == "database_games" and row["heuristic_prediction_status"] == "error")
         if errors:
-            state["original_errors"] = (errors, 0)
+            state["original_errors"] = (errors, completed)
     return state
 
 
@@ -88,9 +89,17 @@ def github(path, payload=None):
                f"repos/{os.environ['GITHUB_REPOSITORY']}/actions/{path}"]
     if payload is not None:
         command += ["--method", "POST", "--input", "-"]
-    result = subprocess.run(command, input=json.dumps(payload) if payload else None, capture_output=True,
-                            text=True, check=True, timeout=60)
-    return json.loads(result.stdout)
+    # GitHub sometimes returns an error on the first status read for a newly dispatched run.
+    # POST is never retried: a lost response can still mean the collector started.
+    for attempt in range(3):
+        try:
+            result = subprocess.run(command, input=json.dumps(payload) if payload else None, capture_output=True,
+                                    text=True, check=True, timeout=60)
+            return json.loads(result.stdout)
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            if payload is not None or attempt == 2:
+                raise
+            time.sleep(5 * (attempt + 1))
 
 
 def run_collector(stage, deadline):
@@ -104,7 +113,9 @@ def run_collector(stage, deadline):
         deadline = min(deadline, time.monotonic() + 60)
     else:
         inputs = {"execute": "true", "limit": "500"}
-        if stage != "intake":
+        if stage == "original_errors":
+            inputs["retry_errors"] = "true"
+        elif stage != "intake":
             inputs["mode"] = "capture"
         run_id = github(f"workflows/{workflow}/dispatches", {"ref": "main", "inputs": inputs})["workflow_run_id"]
         print(f"Started {stage} run {run_id}")
@@ -112,6 +123,15 @@ def run_collector(stage, deadline):
         run = github(f"runs/{run_id}")
         if run["status"] == "completed":
             if run["conclusion"] != "success" and not busy:
+                if stage in ("intake", "original_errors") and run["conclusion"] == "failure":
+                    jobs = github(f"runs/{run_id}/jobs")["jobs"]
+                    if len(jobs) == 1:
+                        steps = {s["name"]: s["conclusion"] for s in jobs[0]["steps"]}
+                        failures = [name for name, result in steps.items() if result == "failure"]
+                        if (failures == ["Freeze current Compare forecasts"]
+                                and steps.get("Verify partial capture was archived") == "success"):
+                            print(f"Run {run_id} archived a partial batch; checking remaining forecast work.")
+                            return True
                 raise RuntimeError(f"{stage} run {run_id}: {run['conclusion']}")
             return not busy
         time.sleep(30)
@@ -151,6 +171,9 @@ def catch_up(snapshot, collect, *, execute, deadline):
                 print(f"{stage} made no progress; inspect the collector run.")
                 blocked.add(stage)
     unresolved = blocked | {"original_errors", "incompatible_monitor"}
+    if execute and failed and not any(due_count for due_count, _ in state.values()):
+        raise RuntimeError(f"Forecast queues are clear, but child workflows failed: {', '.join(sorted(failed))}. "
+                           "Check their logs and archive publication.")
     if execute and (failed or any(state.get(s, (0, 0))[0] for s in unresolved)):
         raise RuntimeError("Unresolved collector errors; see counts and run IDs above")
     if due and execute:

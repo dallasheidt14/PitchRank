@@ -64,6 +64,10 @@ jobs:
         with:
           ref: ${{ steps.source.outputs.revision }}
           fetch-depth: 0
+      # Twenty registered fixtures used this pre-squash collector, outside main's ancestry.
+      # The pinned verifier authenticates its source bytes and every saved forecast as usual.
+      - name: Fetch the historical collector used by the weekend pilot
+        run: git fetch --no-tags --depth=1 origin d9938603a8d7b9b92ac5b19ffe6d3a2ea7bc3f37
       - run: pip install -r requirements.lock
       - uses: actions/setup-node@v5
         with:

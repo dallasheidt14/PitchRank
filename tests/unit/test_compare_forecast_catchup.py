@@ -64,6 +64,50 @@ def test_dispatch_protocol_and_existing_run(monkeypatch):
     assert api.call_args.args == ("runs/7",)
 
 
+def test_failed_originals_dispatch_pinned_error_queue_then_fill_children(monkeypatch):
+    api = Mock(side_effect=[{"workflow_runs": []}, {"workflow_run_id": 42},
+                            {"status": "completed", "conclusion": "success"}] * 4)
+    monkeypatch.setattr(job, "github", api)
+    states = iter([{"original_errors": (1, 200)}, {"live": (1, 150)},
+                   {"winner": (1, 100), "score": (1, 100)}, {"score": (1, 100)}, {}])
+    job.catch_up(lambda: next(states), job.run_collector, execute=True, deadline=float("inf"))
+    dispatches = [c.args for c in api.call_args_list if len(c.args) == 2]
+    assert dispatches[0] == ("workflows/weekly-prospective-refresh.yml/dispatches",
+                             {"ref": "main", "inputs": {"execute": "true", "retry_errors": "true", "limit": "500"}})
+    assert [path for path, _ in dispatches[1:]] == [
+        "workflows/compare-live-monitoring.yml/dispatches", "workflows/compare-winner-study.yml/dispatches",
+        "workflows/compare-score-study.yml/dispatches"]
+
+
+@pytest.mark.parametrize("payload", [None, {"ref": "main"}])
+def test_only_reads_retry_after_transport_failure(monkeypatch, payload):
+    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
+    run = Mock(side_effect=[job.subprocess.CalledProcessError(1, "gh"), Mock(stdout='{"status":"queued"}')])
+    monkeypatch.setattr(job.subprocess, "run", run)
+    monkeypatch.setattr(job.time, "sleep", Mock())
+    if payload is None:
+        assert job.github("runs/42") == {"status": "queued"}
+        assert run.call_count == 2
+    else:
+        with pytest.raises(job.subprocess.CalledProcessError):
+            job.github("workflows/example/dispatches", payload)
+        run.assert_called_once()
+
+
+@pytest.mark.parametrize("archive_receipt", ["success", "failure", "skipped"])
+def test_only_archived_partial_batches_are_rechecked_for_progress(monkeypatch, archive_receipt):
+    steps = [{"name": "Freeze current Compare forecasts", "conclusion": "failure"},
+             {"name": "Verify partial capture was archived", "conclusion": archive_receipt}]
+    api = Mock(side_effect=[{"workflow_runs": []}, {"workflow_run_id": 42},
+                            {"status": "completed", "conclusion": "failure"}, {"jobs": [{"steps": steps}]}])
+    monkeypatch.setattr(job, "github", api)
+    if archive_receipt == "success":
+        assert job.run_collector("original_errors", float("inf"))
+    else:
+        with pytest.raises(RuntimeError, match="run 42: failure"):
+            job.run_collector("original_errors", float("inf"))
+
+
 def test_worker_activation_and_writes():
     path = Path(__file__).resolve().parents[2] / ".github/workflows/compare-forecast-catchup.yml"
     doc = yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
@@ -115,10 +159,12 @@ def test_open_study_uses_registered_parents_and_database_origins(monkeypatch):
     saved.eq.return_value.in_.return_value.execute.return_value.count = 1
     saved.in_.return_value.execute.return_value.count = 700
     inventory = Mock(return_value=([("g", {"game_date": day})], {}, [
-        {"game_date": day, "source_system": source, "heuristic_prediction_status": "pending"}
-        for source in ("database_games", "event_jsonl")]))
+        {"game_date": match_day, "source_system": source, "heuristic_prediction_status": status}
+        for match_day, source, status in ((day, "database_games", "pending"), (day, "event_jsonl", "pending"),
+                                          (day, "database_games", "error"), (day, "event_jsonl", "error"),
+                                          (date.min.isoformat(), "database_games", "error"))]))
     monkeypatch.setattr(job, "database_fixture_inventory", inventory)
-    assert job.coverage(client) == {"winner": (2, 9), "live": (1, 700), "intake": (2, 2)}
+    assert job.coverage(client) == {"winner": (2, 9), "live": (1, 700), "intake": (2, 5), "original_errors": (1, 0)}
     originals.eq.assert_any_call("source_system", "database_games")
     originals.eq.assert_any_call("heuristic_prediction_status", "completed")
     saved.eq.assert_called_once_with("monitor_signature", "m")
