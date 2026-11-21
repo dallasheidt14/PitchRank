@@ -26,6 +26,7 @@ from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn
 
 from src.etl.bulk_ops import bulk_update_last_scraped_at, call_rpc_with_fallback
 from src.scrapers.gotsport import GotSportScraper, TeamNotFoundError, WAFBlockedError, get_waf_breaker
+from src.utils.placeholder_team_names import is_placeholder_team_name
 from src.utils.team_utils import scrape_excluded_birth_years
 from supabase import create_client
 
@@ -49,14 +50,8 @@ else:
 
 
 def _is_placeholder_unknown_team(team: Dict) -> bool:
-    """Return True for placeholder teams like unknown_3712624 that should not be scraped."""
-    team_name = str(team.get("team_name") or "").strip()
-    provider_team_id = str(team.get("provider_team_id") or "").strip()
-
-    if not team_name or not provider_team_id:
-        return False
-
-    return team_name.lower() == f"unknown_{provider_team_id}".lower()
+    """Return True for placeholder-named teams, which should not be scraped."""
+    return is_placeholder_team_name(team.get("team_name"), str(team.get("provider_team_id") or ""))
 
 
 def _bulk_log_team_scrapes(supabase, provider_id: str, scrape_logs: List[Dict[str, Any]]):

@@ -59,7 +59,7 @@ The roster arrives as a pasted tab-separated block with a header row, or as a pa
 row's position in it, and Step 5 reconciles against its length.
 
 A roster without a state column is normal. State is a ranking signal rather than a predicate, so
-matching is unaffected: leave `roster_state` empty. The one query that needs it is the `unknown_`
+matching is unaffected: leave `roster_state` empty. The one query that needs it is the
 placeholder sweep in Step 2 — run that across every state the club's other rows appear in, and rank
 on opponent overlap alone.
 
@@ -90,8 +90,8 @@ Use the recipes in [references/search-recipes.md](references/search-recipes.md).
 pg_trgm operator to use in which direction, why `SET pg_trgm.*` silently fails across calls, and how
 to probe for absence.
 
-Include deprecated rows and `unknown_<provider_team_id>` placeholders in the candidate pool. A
-placeholder is an identified team missing only its name, and it often already holds the fixtures the
+Include deprecated rows and placeholder-named teams ("Unknown team", or the legacy
+`unknown_<provider_team_id>`) in the candidate pool. A placeholder is an identified team missing only its name, and it often already holds the fixtures the
 roster row refers to.
 
 ## Step 3: Decide each candidate from fixtures

@@ -4,6 +4,7 @@ slug: '2026-07-07-best-u11-soccer-teams'
 excerpt: 'Best U11 soccer teams this week. Rankings for 86,310 teams updated every Monday.'
 author: 'PitchRank Team'
 date: '2026-07-07'
+modifiedDate: '2026-11-20T00:00:00Z'
 readingTime: '1 min read'
 tags: ['Rankings', 'U11', 'Age Group']
 target_keyword: 'best u11 soccer teams'
@@ -19,7 +20,7 @@ all age groups every Monday. Here's what moved at U11 this week.
 
 | Rank  | Team                                       | State | Change |
 | ----- | ------------------------------------------ | ----- | ------ |
-| #2180 | unknown_723095                             | NY    | +2431  |
+| #2180 | White Conshy '14/'15 (B) \*                | NY    | +2431  |
 | #599  | FW United 2015 Elite Arsenal               | IN    | +2409  |
 | #406  | KH PreElite CINCY G15-1                    | OH    | +2381  |
 | #2415 | Legacy Blaze FC - Legacy Blaze FC 2015 Red | IN    | +2298  |

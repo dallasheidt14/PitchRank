@@ -15,6 +15,7 @@ Candidate rule, all required:
   - same age_group, gender and state_code
   - club_name equal once punctuation and case are stripped
   - team_name identical once punctuation and case are stripped, and at least --min-name-len
+  - neither name is a placeholder (src/utils/placeholder_team_names)
 
 Screens, each decisive:
   - the two registered names state opposite genders, reading a B/G affix as well as the word
@@ -89,6 +90,7 @@ from scripts.team_cleanup.decisions import (  # noqa: E402
 )
 from scripts.team_cleanup.vetted import stamp  # noqa: E402
 from src.utils.club_normalizer import are_same_club  # noqa: E402
+from src.utils.placeholder_team_names import is_placeholder_team_name  # noqa: E402
 from src.utils.provider_ids import is_blank_provider_id  # noqa: E402
 from supabase import create_client  # noqa: E402
 
@@ -336,6 +338,8 @@ def build_pairs(teams, provider_code, *, secondary_codes, competing_similarity, 
     for t in teams:
         code = provider_code.get(t["provider_id"])
         if code != PRIMARY_PROVIDER and code not in SECONDARY_PROVIDERS:
+            continue
+        if is_placeholder_team_name(t["team_name"]):
             continue
         name, club = normalize(t["team_name"]), normalize(t["club_name"])
         if not club or len(name) < min_name_len or not t["age_group"] or not t["gender"]:

@@ -566,7 +566,7 @@ def _build_risk_flags(
                     severity="warning",
                     category="placeholder_match",
                     message=(
-                        f"{team_name}: matched to ``unknown_<provider_id>`` placeholder; resolve before publishing."
+                        f"{team_name}: matched to a placeholder-named team; resolve before publishing."
                     ),
                     affected_teams=(team_name,),
                 )

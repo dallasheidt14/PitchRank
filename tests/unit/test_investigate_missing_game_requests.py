@@ -330,6 +330,13 @@ def test_squad_words_do_not_match_across_a_division_or_league(mine, other):
     assert img.name_match(a, b) is None
 
 
+def test_two_unknown_team_rows_of_one_club_are_not_one_squad():
+    """Both read the squad key {unknown, team}, which every "Unknown team" row shares."""
+    a, b = team("a", "Unknown team", club="Colorado Edge"), team("b", "Unknown team", club="Colorado Edge")
+
+    assert img.name_match(a, b) is None
+
+
 def test_squad_words_match_only_under_the_same_club():
     a = team("a", "ESC- 2015 Purple", club="Colorado Edge")
     b = team("b", "EDGE Purple 15B", club="Edge United")

@@ -27,6 +27,7 @@ when:
   - their names do not state different leagues, Pre-ECNL moving up to ECNL excepted
   - neither name carries an AD, HD or EA division marker, or any MLS mention (MLS NEXT,
     MLS Academy, Pre-MLS)
+  - neither name is a placeholder (src/utils/placeholder_team_names)
 A live row that already resolves to another through team_merge_map is left out: it is merged
 in effect, and pairing it would propose merges into a row that is going away.
 
@@ -97,6 +98,7 @@ from scripts.team_cleanup.decisions import (  # noqa: E402
     kept_apart_reason,
 )
 from scripts.team_cleanup.vetted import stamp  # noqa: E402
+from src.utils.placeholder_team_names import is_placeholder_team_name  # noqa: E402
 from src.utils.team_name_utils import _FORMAT_TOKEN, _UAGE_TOKEN, NOISE_WORDS  # noqa: E402
 from src.utils.team_utils import CURRENT_YEAR  # noqa: E402
 
@@ -353,7 +355,10 @@ def build_pairs(teams, provider_code) -> tuple[list[dict], list[dict]]:
     teams = [
         t
         for t in teams
-        if provider_code.get(t["provider_id"]) not in OUT_OF_SCOPE_PROVIDERS and t["age_group"] and t["gender"]
+        if provider_code.get(t["provider_id"]) not in OUT_OF_SCOPE_PROVIDERS
+        and t["age_group"]
+        and t["gender"]
+        and not is_placeholder_team_name(t["team_name"])
     ]
     clubs = effective_clubs(teams)
     groups = defaultdict(list)
@@ -373,6 +378,8 @@ def build_pairs(teams, provider_code) -> tuple[list[dict], list[dict]]:
 
 
 def name_refusal(a, b) -> str | None:
+    if is_placeholder_team_name(a["team_name"]) or is_placeholder_team_name(b["team_name"]):
+        return "a placeholder name, which carries no identity"
     if is_protected_division(a["team_name"]) or is_protected_division(b["team_name"]):
         return "an AD, HD, EA or MLS division name"
     if not cohorts_compatible(a["team_name"], b["team_name"]):

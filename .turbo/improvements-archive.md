@@ -1987,6 +1987,30 @@ Nothing in this file is open. See `.turbo/improvements.md` for the schema.
 - **Noted**: 2026-11-19
 - **Refs**: branch `feat/a2e-somsports-matching`; `test_any_page_of_the_event_yields_its_host_and_event_id` in `tests/unit/test_import_athletes2events_event.py`
 
+### Give the unknown_ placeholder predicate one definition
+
+- **ID**: IMP-126
+- **Status**: done
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `scripts/drain_queue.py:70` and `scripts/scrape_games.py:51` (byte-identical `_is_placeholder_unknown_team`), `frontend/lib/utils.ts:201` (`UNRESOLVED_NAME`)
+- **Why**: One canonical shape, three definitions, and the frontend one already drifted. It shipped as `/^unknown_/i`, which classifies any name starting with `unknown_` as a placeholder; a real team with a club would then render its club label instead of its name, recreating the cohort collapse PR #1043 fixed. Caught in review and tightened to `/^unknown_\d+$/i`, but `tests/unit/test_scrape_games.py:98` had asserted `unknown_elite` is a real name the whole time and nothing stopped the frontend disagreeing. The two Python copies are identical and want one import. The frontend cannot do the backend's exact `team_name == f"unknown_{provider_team_id}"` comparison because the payload carries no `provider_team_id` — decide whether that column should reach the frontend or whether the regex stays the sanctioned approximation.
+- **Noted**: 2026-08-27
+- **Update (2026-09-08)**: Verified — the frontend half already shipped: `frontend/lib/utils.ts:201` is now `/^unknown_\d+$/i`, pinned by `tests/unit/test_scrape_games.py:98`. Still open: `scripts/drain_queue.py:70-78` and `scripts/scrape_games.py:51-59` remain byte-identical copies with no shared import.
+- **Update (2026-11-20)**: Every Python reader, both copies above included, now calls `is_placeholder_team_name` in `src/utils/placeholder_team_names.py`. The frontend regex stays the sanctioned approximation: `frontend/lib/utils.ts` is hash-pinned for the Compare research, and it needs no change for the new "Unknown team" name, which it shows as stored.
+- **Refs**: branch `fix/placeholder-team-names`; `src/utils/placeholder_team_names.py`, `tests/unit/test_placeholder_team_names.py`
+
+### Name unresolved GotSport teams without their provider id
+
+- **Status**: done
+- **Type**: plan
+- **Category**: reliability
+- **Where**: every writer and reader of `unknown_<provider_team_id>`; grep `unknown_` across `scripts/`, `src/`, `frontend/lib/` and `supabase/migrations/` (the scrape-eligibility functions match it in SQL). The writer is the fallback name in `build_unknown_profile` (`scripts/auto_match_unknown_opponents.py`)
+- **Why**: A team GotSport has not named yet is stored as `unknown_<provider_team_id>` (3,559 live rows on 2026-11-20), and the public key reads `team_name`, so with the provider-id columns hidden (`20261121000100`) these names are the last place it can read a provider team id. Changing the placeholder means changing every reader of the pattern with it; IMP-126 (one definition for the predicate) is the natural first step.
+- **Noted**: 2026-11-20
+- **Update (2026-11-20)**: Discovery stores "Unknown team"; the readers recognise both names and the six scrape-eligibility functions skip both. One step remains after merge: run `scripts/rename_placeholder_team_names.py --execute` on the existing rows, under the preconditions its docstring lists.
+- **Refs**: branch `fix/placeholder-team-names`; `src/utils/placeholder_team_names.py`, `tests/unit/test_placeholder_team_names.py`
+
 ### List the Elite Academy League (EA) in the state guides whose states have EA teams
 
 - **Status**: done

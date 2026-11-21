@@ -316,24 +316,13 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: The name div sets `lineHeight: 1.2` with no `whiteSpace: 'nowrap'` and no line clamp, while its sibling preview clamps at 2 lines and the canvas export truncates by measured width. Registered names are materially longer than the club labels they replaced (see IMP-030), so a long name wraps and grows the row in the preview while the exported PNG ellipsizes it — the operator approves one image and ships another. Split out of IMP-122 so it does not close with that entry's test work.
 - **Noted**: 2026-08-27
 
-### Give the unknown_ placeholder predicate one definition
-
-- **ID**: IMP-126
-- **Status**: open
-- **Type**: plan
-- **Category**: reliability
-- **Where**: `scripts/drain_queue.py:70` and `scripts/scrape_games.py:51` (byte-identical `_is_placeholder_unknown_team`), `frontend/lib/utils.ts:201` (`UNRESOLVED_NAME`)
-- **Why**: One canonical shape, three definitions, and the frontend one already drifted. It shipped as `/^unknown_/i`, which classifies any name starting with `unknown_` as a placeholder; a real team with a club would then render its club label instead of its name, recreating the cohort collapse PR #1043 fixed. Caught in review and tightened to `/^unknown_\d+$/i`, but `tests/unit/test_scrape_games.py:98` had asserted `unknown_elite` is a real name the whole time and nothing stopped the frontend disagreeing. The two Python copies are identical and want one import. The frontend cannot do the backend's exact `team_name == f"unknown_{provider_team_id}"` comparison because the payload carries no `provider_team_id` — decide whether that column should reach the frontend or whether the regex stays the sanctioned approximation.
-- **Noted**: 2026-08-27
-- **Update (2026-09-08)**: Verified — the frontend half already shipped: `frontend/lib/utils.ts:201` is now `/^unknown_\d+$/i`, pinned by `tests/unit/test_scrape_games.py:98`. Still open: `scripts/drain_queue.py:70-78` and `scripts/scrape_games.py:51-59` remain byte-identical copies with no shared import.
-
 ### Hoist the team_scrape_log bulk writer into src/etl/bulk_ops.py
 
 - **ID**: IMP-129
 - **Status**: open
 - **Type**: direct
 - **Category**: refactor
-- **Where**: `scripts/drain_queue.py:113-153` and `scripts/scrape_games.py:62-103` (byte-identical `_bulk_log_team_scrapes`), `scripts/process_missing_games.py` (`_flush_scrape_log`)
+- **Where**: `scripts/drain_queue.py:113-153` and `scripts/scrape_games.py:57-98` (byte-identical `_bulk_log_team_scrapes`), `scripts/process_missing_games.py` (`_flush_scrape_log`)
 - **Why**: Three copies of the same writer — same 500-row batching, same row shape, same `update_last_scraped_at` flag, same swallowed-insert warning, same `bulk_update_last_scraped_at` handoff. `src/etl/bulk_ops.py` already hosts that RPC helper and all three files import from it. The third copy is a method rather than a module function and does not share the name, so a grep for the other two misses it. Generalising needs only `provider_id` per entry instead of per call, which `_flush_scrape_log` already does.
 - **Noted**: 2026-08-27
 
@@ -2915,6 +2904,7 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `_build_team_metadata` and the create path of `main` in `scripts/discover_teams_from_opponents.py`
 - **Why**: A 404 is cached as an answer, so discovery creates the team from the match report as-is. When the export's lookup also 404'd, auto_match hands over the placeholder `unknown_<pid>` and the opponent's age group and gender, which is the shape of the 2026-11-10 incident on a smaller population; the backfill job then reports these as "gone from GotSport" and never names them.
 - **Noted**: 2026-11-10
+- **Update (2026-11-20)**: auto_match's fallback name is now "Unknown team", which discovery stores in place of `unknown_<pid>` (branch `fix/placeholder-team-names`); the 404 path is unchanged.
 
 ### Upload the export's detail CSV the workflow names
 
@@ -3390,20 +3380,20 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Why**: A naive local timestamp is stored as if it were UTC. On 2026-11-19 a PlayMetrics tournament import run locally in Arizona wrote aliases reading 14:42, beside hand-inserted rows from the same session that the database stamped 21:34 UTC. A "rows written during this run" window, such as the post-import copy check in the scraper-patterns skill, then misses a local run's aliases by the machine's UTC offset; Actions runs in UTC and is unaffected. Use `datetime.now(timezone.utc)` or let the column default apply.
 - **Noted**: 2026-11-19
 
-### Name unresolved GotSport teams without their provider id
-
-- **Type**: plan
-- **Category**: reliability
-- **Where**: every writer and reader of `unknown_<provider_team_id>`; grep `unknown_` across `scripts/`, `src/`, `frontend/lib/` and `supabase/migrations/` (the scrape-eligibility functions match it in SQL). The writer is the fallback name in `build_unknown_profile` (`scripts/auto_match_unknown_opponents.py`)
-- **Why**: A team GotSport has not named yet is stored as `unknown_<provider_team_id>` (3,559 live rows on 2026-11-20), and the public key reads `team_name`, so with the provider-id columns hidden (`20261121000100`) these names are the last place it can read a provider team id. Changing the placeholder means changing every reader of the pattern with it; IMP-126 (one definition for the predicate) is the natural first step.
-- **Noted**: 2026-11-20
-
 ### Fail a site write to a service-only table that skips the service client
 
 - **Type**: plan
 - **Category**: testing
 - **Where**: `tests/unit/test_browser_write_grants_migration.py` beside `SERVICE_WRITTEN_TABLES`; frontend `.from('<table>')` chains that call `.insert/.update/.upsert/.delete`
 - **Why**: The browser roles hold no write on the tables in `SERVICE_WRITTEN_TABLES` (verified live 2026-11-20: a public-key write gets 401/42501), so a route that writes one through `createServerSupabase()` or `requireAdmin`'s session client fails at runtime while every test stays green. The read side has `test_every_site_read_stays_inside_the_grant_or_runs_on_the_service_key`; a write-side twin with an allow-list of service-client writers would catch it before deploy. Raised by the 2026-11-20 coverage review and skipped there as an unasked guard, since the failure is loud.
+- **Noted**: 2026-11-20
+
+### Stop Actions run logs and artifacts publishing GotSport team ids
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: the log output and artifact uploads of the scraping and unknown-opponent workflows; the call sites are listed in `.turbo/private/actions-provider-id-exposure.md` in the main checkout
+- **Why**: This repo is public, and its run logs and artifacts carry GotSport team ids beside our team ids, which the database hides from the public key. The owner chose one repo-wide fix over trimming single workflows.
 - **Noted**: 2026-11-20
 
 ### Name National 1 and EA in the cohort boards' "Which leagues are tracked" answer

@@ -93,6 +93,7 @@ def test_a_blank_club_is_null_or_empty_after_trimming_and_is_never_also_a_placeh
     "name, unknown",
     [
         ("unknown_688297", True),
+        ("Unknown team", True),
         (" Unknown_12 ", True),
         ("UNKNOWN_3", True),
         ("unknown_FC Dallas 2014", False),
@@ -101,7 +102,7 @@ def test_a_blank_club_is_null_or_empty_after_trimming_and_is_never_also_a_placeh
         ("Phoenix Rising 2014B", False),
         (None, False),
     ],
-    ids=["plain", "padded-capital", "upper", "named", "id-then-name", "no-id", "real-name", "null"],
+    ids=["plain", "unknown-team", "padded-capital", "upper", "named", "id-then-name", "no-id", "real-name", "null"],
 )
 def test_an_unknown_name_is_unknown_and_a_provider_id_as_the_siblings_read_it(name, unknown):
     assert health.is_unknown_name(name) is unknown

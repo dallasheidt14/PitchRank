@@ -10,6 +10,7 @@ import pandas as pd
 import streamlit as st
 
 from config.settings import AGE_GROUPS, PROJECT_NAME, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_URL, VERSION
+from src.utils.placeholder_team_names import is_placeholder_team_name
 from src.utils.team_utils import scrape_excluded_birth_years
 from supabase import create_client
 
@@ -895,8 +896,8 @@ elif section == "📈 Database Import Stats":
         # Team Scraping Status
         st.subheader("Team Scraping Status")
         st.caption(
-            "Counts below include only **scrape-eligible** teams (U10-U19, excluding placeholder "
-            "`unknown_<id>` rows). Matches the exact filters applied by the scrape workflow, so the "
+            "Counts below include only **scrape-eligible** teams (U10-U19, excluding "
+            "placeholder-named rows). Matches the exact filters applied by the scrape workflow, so the "
             "\"needs scraping\" totals reflect what the workflow will actually pick up."
         )
 
@@ -1003,14 +1004,14 @@ elif section == "📈 Database Import Stats":
                     )
                     if selected_provider_id:
                         stale_query = stale_query.eq('provider_id', selected_provider_id)
-                    # Over-fetch a bit so we can drop placeholder
-                    # `unknown_<provider_team_id>` rows in Python (the
-                    # PostgREST client can't express that cross-column predicate).
+                    # Over-fetch a bit so we can drop placeholder-named
+                    # rows in Python (the PostgREST client can't express the
+                    # legacy form's cross-column predicate).
                     stale_teams = stale_query.order('last_scraped_at', desc=False, nullsfirst=True).limit(200).execute()
 
                     display_rows = [
                         t for t in (stale_teams.data or [])
-                        if t.get('team_name') != f"unknown_{t.get('provider_team_id')}"
+                        if not is_placeholder_team_name(t.get('team_name'), str(t.get('provider_team_id') or ''))
                     ][:100]
 
                     if display_rows:

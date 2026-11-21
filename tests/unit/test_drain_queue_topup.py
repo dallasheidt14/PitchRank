@@ -504,6 +504,9 @@ def test_is_scrapeable_team_rejects_placeholder():
     assert not _is_scrapeable_team(
         {"team_name": "unknown_123", "provider_team_id": "123", "age_group": "u12", "birth_year": 2014}
     )
+    assert not _is_scrapeable_team(
+        {"team_name": "Unknown team", "provider_team_id": "123", "age_group": "u12", "birth_year": 2014}
+    )
 
 
 def test_is_scrapeable_team_rejects_u8_and_u9_any_case():

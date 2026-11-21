@@ -51,6 +51,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from find_fuzzy_duplicate_teams import birth_years  # noqa: E402
 
+from src.utils.placeholder_team_names import is_placeholder_team_name  # noqa: E402
+
 RUN_START_DEFAULT = "2026-08-19T02:40:00"
 MERGED_BY = "pitchrank-bot"
 REVERT_REASON = "fuzzy auto-merge scored distinct teams as duplicates (unknown_ prefix / birth year)"
@@ -79,16 +81,12 @@ def get_supabase():
 
 
 def is_placeholder(team_name: Optional[str], provider_team_id: Optional[str]) -> bool:
-    """True when the name is the unknown_<provider_team_id> fallback and nothing more."""
-    name = (team_name or "").strip()
-    pid = str(provider_team_id or "").strip()
-    if not name or not pid:
-        return False
-    return name.lower() == f"unknown_{pid}".lower()
+    """True when the name is the placeholder for a team GotSport could not name."""
+    return is_placeholder_team_name(team_name, str(provider_team_id or ""))
 
 
 def keep_placeholder_pairs(supabase, rows: List[Dict]) -> List[Dict]:
-    """Keep only merges where both sides were unknown_<pid> placeholders.
+    """Keep only merges where both sides were placeholder-named.
 
     Two placeholders carry no identifying information, so a similarity score
     between them only ever reflects their shared prefix and adjacent provider
@@ -278,7 +276,7 @@ def main() -> None:
     parser.add_argument(
         "--placeholders-only",
         action="store_true",
-        help="Only revert merges where BOTH sides were unknown_<provider_team_id> placeholders",
+        help="Only revert merges where BOTH sides were placeholder-named",
     )
     parser.add_argument(
         "--birth-year-conflicts",

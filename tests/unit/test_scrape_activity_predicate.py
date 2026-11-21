@@ -61,15 +61,30 @@ def _executable(text: str) -> str:
     return re.sub(r"--[^\n]*", "", text)
 
 
+def _create_function(name_pattern: str) -> re.Pattern:
+    """A CREATE OR REPLACE FUNCTION header for a name matching `name_pattern`, captured as group 1."""
+    return re.compile(rf"(?is)create\s+or\s+replace\s+function\s+(?:public\.)?({name_pattern})\s*\(")
+
+
 def _function_bodies(sql: str, name: str) -> list[str]:
     """Every dollar-quoted body defined for `name` in this SQL text."""
     bodies = []
-    pattern = rf"(?is)create\s+or\s+replace\s+function\s+(?:public\.)?{re.escape(name)}\s*\("
-    for match in re.finditer(pattern, sql):
+    for match in _create_function(re.escape(name)).finditer(sql):
         start = sql.index("$$", match.end())
         end = sql.index("$$", start + 2)
         bodies.append(sql[start : end + 2])
     return bodies
+
+
+def _create_statement(sql: str, name: str) -> str:
+    """The last whole CREATE statement for `name` in this SQL text, header through closing `$$`.
+
+    A file can define several functions, so anything read from a function's header (its return
+    columns, say) must come from its own statement rather than the first match in the file.
+    """
+    start = list(_create_function(re.escape(name)).finditer(sql))[-1].start()
+    body_start = sql.index("$$", start)
+    return sql[start : sql.index("$$", body_start + 2) + 2]
 
 
 def _newest_definition(name: str) -> tuple[Path, str]:
@@ -241,6 +256,45 @@ def test_the_revival_producers_do_not_carry_the_predicate():
 
 
 # --------------------------------------------------------------------------- #
+# The placeholder-name clause
+# --------------------------------------------------------------------------- #
+
+# Every scrape-eligibility function skips a team with no real name, in both spellings that name
+# has had. SQL `=` is case-sensitive, so the literal must be the stored name exactly.
+PLACEHOLDER_FUNCTIONS = (
+    "get_teams_to_scrape_limited",
+    "get_scrape_eligibility_counts",
+    "find_recently_active_teams",
+    "find_stale_teams",
+    "find_topup_teams",
+    "find_discovery_teams",
+)
+PLACEHOLDER_CLAUSE = "NOT (t.team_name = 'Unknown team' OR t.team_name = 'unknown_' || t.provider_team_id)"
+LEGACY_NAME = "'unknown_' ||"
+
+
+def _defined_functions() -> set[str]:
+    pattern = _create_function(r"\w+")
+    return {m.group(1).lower() for p in MIGRATIONS.glob("*.sql") for m in pattern.finditer(_sql(p))}
+
+
+def test_every_scrape_function_skips_both_placeholder_names():
+    for name in PLACEHOLDER_FUNCTIONS:
+        path, body = _newest_definition(name)
+        assert _flat(_executable(body)).count(PLACEHOLDER_CLAUSE) == 1, (
+            f"{name}, newest definition in {path.name}, does not skip both placeholder names exactly once"
+        )
+
+
+def test_no_function_reads_the_old_placeholder_name_alone():
+    """A clause naming only unknown_<provider_team_id> lets every renamed team through."""
+    for name in _defined_functions():
+        path, body = _newest_definition(name)
+        rest = _flat(_executable(body)).replace(PLACEHOLDER_CLAUSE, "")
+        assert LEGACY_NAME not in rest, f"{name}, newest definition in {path.name}, reads the old placeholder name alone"
+
+
+# --------------------------------------------------------------------------- #
 # find_discovery_teams
 # --------------------------------------------------------------------------- #
 
@@ -278,7 +332,8 @@ def test_discovery_filters_and_sorts_candidates_before_the_predicate_reads_them(
         "AND (tm.age_group IS NULL OR UPPER(TRIM(tm.age_group)) NOT IN ('U8','U-8','U9','U-9')) "
         "AND (tm.birth_year IS NULL OR tm.birth_year NOT IN (c.yr - 21, c.yr - 20, c.yr - 8, c.yr - 7, c.yr - 6)) "
         "ORDER BY has_recent DESC, tm.last_scraped_at ASC NULLS FIRST ) t "
-        "WHERE NOT (t.team_name = 'unknown_' || t.provider_team_id) AND ( (t.last_fixture_at"
+        "WHERE NOT (t.team_name = 'Unknown team' OR t.team_name = 'unknown_' || t.provider_team_id) "
+        "AND ( (t.last_fixture_at"
     )
     assert body.startswith(expected_opening), f"find_discovery_teams' subquery shape changed:\n{body}"
     assert body.endswith(
@@ -351,7 +406,8 @@ def test_topup_returns_exactly_the_columns_the_scrape_path_reads():
     from scripts.drain_queue import _TEAM_KEYS
 
     path, _ = _newest_definition("find_topup_teams")
-    returns = re.search(r"RETURNS TABLE\((.*?)\)\s*LANGUAGE", _flat(_sql(path))).group(1)
+    statement = _create_statement(_sql(path), "find_topup_teams")
+    returns = re.search(r"RETURNS TABLE\((.*?)\)\s*LANGUAGE", _flat(statement)).group(1)
     columns = [part.strip().split()[0] for part in returns.split(",")]
     assert columns == list(_TEAM_KEYS)
 

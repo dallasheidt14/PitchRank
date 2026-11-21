@@ -38,6 +38,8 @@ from find_queue_matches import (  # noqa: E402
     normalize_team_name,
 )
 
+from src.utils.placeholder_team_names import is_placeholder_team_name  # noqa: E402
+
 # Shared with the import path (game_matcher) so both compare birth years the same
 # way. revert_fuzzy_auto_merges.py imports birth_years from this module, so the
 # re-export keeps that caller working.
@@ -54,18 +56,9 @@ from src.utils.team_name_utils import (  # noqa: E402,F401
 BIRTH_YEAR_RE = re.compile(r"(?<!\d)(20(?:0[5-9]|1[0-9]))(?!\d)")
 
 
-PLACEHOLDER_RE = re.compile(r"^unknown_\d+$", re.IGNORECASE)
-
-
 def is_placeholder_name(team_name: str | None) -> bool:
-    """True for the ``unknown_<provider_team_id>`` name the hygiene pipeline falls back to.
-
-    Matched on shape rather than against the row's own provider_team_id: the
-    cohort query does not select that column, so a predicate needing it silently
-    never fires. Nothing else in the table is named ``unknown_`` followed by only
-    digits, so the shape alone is a safe test.
-    """
-    return bool(PLACEHOLDER_RE.match((team_name or "").strip()))
+    """Shape-only: the cohort query does not select provider_team_id."""
+    return is_placeholder_team_name(team_name)
 
 
 def score_team_pair(team_a: dict, team_b: dict) -> float | None:
@@ -81,8 +74,8 @@ def score_team_pair(team_a: dict, team_b: dict) -> float | None:
         return None
 
     # A placeholder carries no identity, so similarity against it measures only the
-    # shared "unknown_" prefix and how close two provider IDs happen to be:
-    # unknown_781631 vs unknown_781653 scores 0.929, over the 0.90 auto-merge bar.
+    # placeholder itself: two "Unknown team" rows score 1.0, and unknown_781631 vs
+    # unknown_781653 scores 0.929, both over the 0.90 auto-merge bar.
     if is_placeholder_name(name_a) or is_placeholder_name(name_b):
         return None
 

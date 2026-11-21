@@ -37,6 +37,7 @@ from src.tournaments.storage import (
     read_registry,
     read_structure,
 )
+from src.utils.placeholder_team_names import is_placeholder_team_name
 
 # Sanity-gate format for ``actor`` emails. Not RFC 5322 — just enough to
 # refuse "x" / "asdf" / "   " from contaminating the audit ledger.
@@ -139,18 +140,7 @@ class ReadinessResult:
 
 
 def _is_placeholder_team(team_name: str | None, provider_team_id: str) -> bool:
-    """Return True if ``team_name`` is the canonical ``unknown_<pid>`` placeholder.
-
-    Authoritative predicate at ``scripts/scrape_games.py:50-58``. Inlined
-    here rather than imported to keep this module independent of the
-    scripts package (script-side ``sys.path`` setup is brittle for a
-    storage-tier import).
-    """
-    name = (team_name or "").strip()
-    pid = (provider_team_id or "").strip()
-    if not name or not pid:
-        return False
-    return name.lower() == f"unknown_{pid}".lower()
+    return is_placeholder_team_name(team_name, provider_team_id)
 
 
 def _is_play_up(resolved_age: str | None, cohort_age: str) -> bool:
@@ -184,13 +174,13 @@ def _classify_team_state(
     1. Override-projected ``external`` wins outright — the operator
        explicitly externalized the team.
     2. Override-projected ``resolved`` becomes ``placeholder`` only when
-       the resolved team's name matches ``unknown_<provider_team_id>``.
+       the resolved team carries a placeholder name.
        Otherwise it's a real ``resolved``.
     3. Fall through to the scraper's ``canonical.scraper_state``:
 
        - ``review_queued`` → ``candidates`` (operator must triage).
-       - ``alias_written`` → ``placeholder`` if the linked DB team is the
-         ``unknown_<pid>`` row, else ``resolved``.
+       - ``alias_written`` → ``placeholder`` if the linked DB team is
+         placeholder-named, else ``resolved``.
        - ``unresolved`` → ``external`` (no DB candidate; operator can edit
          or accept the externalization).
 

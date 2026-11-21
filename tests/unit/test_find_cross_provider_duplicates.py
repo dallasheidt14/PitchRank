@@ -162,6 +162,15 @@ class _Supabase:
         return _Table(name, self._tables[name], self._cap)
 
 
+@pytest.mark.parametrize("name", ["Unknown team", "unknown_3912096"])
+def test_two_placeholder_rows_of_one_club_never_pair(name):
+    teams = [
+        team("gs", name=name, club="Solar SC", provider=GS, provider_team_id="3912096"),
+        team("tgs", name=name, club="Solar SC", provider=TGS),
+    ]
+    assert pairs_for(teams) == []
+
+
 def test_page_continues_past_a_server_capped_page():
     """A cap below the requested size is not the end of the table.
 

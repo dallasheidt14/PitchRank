@@ -91,6 +91,7 @@ class WAFAbortScraper:
 def test_is_placeholder_unknown_team_matches_exact_unknown_pattern():
     assert _is_placeholder_unknown_team({"team_name": "unknown_3712624", "provider_team_id": "3712624"})
     assert _is_placeholder_unknown_team({"team_name": "UNKNOWN_3712624", "provider_team_id": "3712624"})
+    assert _is_placeholder_unknown_team({"team_name": "Unknown team", "provider_team_id": "3712624"})
 
 
 def test_is_placeholder_unknown_team_ignores_real_team_names():

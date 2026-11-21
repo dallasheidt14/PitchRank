@@ -77,11 +77,11 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 from scripts.fix_band_cohorts import age_num, cohort_years, name_u_ages, name_years  # noqa: E402
 from src.models.mlsnext_kitman_keys import kitman_key, season_start_year  # noqa: E402
 from src.models.mlsnext_kitman_matcher import PROVIDER_CODE as KITMAN_PROVIDER_CODE  # noqa: E402
-from src.tournaments.triage import _is_placeholder_team  # noqa: E402
 from src.utils.age_group import normalize_age_group  # noqa: E402
 from src.utils.gotsport_alias import fetch_gotsport_aliases  # noqa: E402
 from src.utils.gotsport_team_details import TeamDetailsResolver  # noqa: E402
 from src.utils.placeholder_clubs import is_placeholder_club  # noqa: E402
+from src.utils.placeholder_team_names import is_placeholder_team_name  # noqa: E402
 from src.utils.team_gender import gender_verdict, name_gender, row_genders, stored_gender  # noqa: E402
 
 # Columns filled only where ours is absent; a disagreement is reported instead.
@@ -372,7 +372,7 @@ def stored_value(team: Dict, name: str) -> str:
 
 def provider_values(resolved: Dict, provider_team_id: str) -> Dict[str, str]:
     name = str(resolved.get("name") or "").strip()
-    if len(name) < 2 or _is_placeholder_team(name, provider_team_id) or is_retired_registration(name):
+    if len(name) < 2 or is_placeholder_team_name(name, provider_team_id) or is_retired_registration(name):
         name = ""
     club = str(resolved.get("club_name") or "").strip()
     if is_placeholder_club(club):

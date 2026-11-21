@@ -23,7 +23,7 @@ the names do not reliably encode, so no amount of name-rule work terminates.
 ## Shapes found in the names
 
 **Placeholder names.** `unknown_781631` against `unknown_781653` scores 0.929 on the shared
-prefix and the closeness of two provider ids. Guarded.
+prefix and the closeness of two provider ids, and two "Unknown team" rows score 1.0. Guarded.
 
 **Two different birth years.** `EPIC SC 2008 Dash` against `EPIC SC 2009 Dash` scores 0.941
 plus a club-match bonus. U19 holds two birth years at once, which is why that cohort produced
@@ -166,8 +166,8 @@ real token or punctuating it against the tier it qualifies (`2012 EA/NPL`, `[MLS
 The token boundary is any non-alphanumeric for that reason, not whitespace alone, and `EA`
 carries its numeric suffix into the token because `EA2` is a separate league from `EA`.
 
-**Placeholder names.** `unknown_<digits>` on either side returns `None` before scoring. Correct
-as a name rule — the names carry no information — but it means the whole placeholder class can
+**Placeholder names.** "Unknown team" or `unknown_<digits>` on either side returns `None` before
+scoring. Correct as a name rule — the names carry no information — but it means the whole placeholder class can
 only be reached through Doorway B.
 
 **Rows the fetch never returned — closed.** `fetch_teams` paged 1,000 rows at a time with no
