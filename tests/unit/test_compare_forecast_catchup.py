@@ -119,6 +119,45 @@ def test_existing_writer_publication_failure_is_visible_even_after_queues_clear(
     assert api.call_count == 3
 
 
+@pytest.mark.parametrize("conclusion", ["success", "failure", "cancelled"])
+def test_recheck_slow_writer_after_independent_queue_clears(monkeypatch, conclusion):
+    now = 0
+
+    def advance(seconds):
+        nonlocal now
+        now += seconds
+
+    monkeypatch.setattr(job.time, "monotonic", lambda: now)
+    monkeypatch.setattr(job.time, "sleep", advance)
+    active = {"status": "in_progress", "id": 9}
+    success = {"status": "completed", "conclusion": "success"}
+    replies = [
+        {"workflow_runs": [active]}, active, active,
+        {"workflow_runs": []}, {"workflow_run_id": 10}, success,
+        {"status": "completed", "conclusion": conclusion},
+    ]
+    if conclusion == "failure":
+        failed_step = {"name": "Publish frozen forecast inputs privately", "conclusion": "failure"}
+        replies.append({"jobs": [{"steps": [failed_step]}]})
+    api = Mock(side_effect=replies)
+    monkeypatch.setattr(job, "github", api)
+    states = iter([{"intake": (1, 10)}, {"score": (1, 10)}, {}])
+    if conclusion == "success":
+        job.catch_up(lambda: next(states), job.run_collector, execute=True, deadline=120)
+    else:
+        with pytest.raises(RuntimeError, match=f"intake run 9: {conclusion}"):
+            job.catch_up(lambda: next(states), job.run_collector, execute=True, deadline=120)
+    assert [call.args[0] for call in api.call_args_list][5:7] == ["runs/10", "runs/9"]
+
+
+def test_unfinished_archive_at_deadline_fails_even_with_clear_queue(monkeypatch):
+    monkeypatch.setattr(job, "wait_for_collector", Mock(return_value=False))
+    states = iter([{"original_errors": (1, 10)}, {}])
+    with pytest.raises(RuntimeError, match="Archive publication still unverified for original_errors run 9"):
+        job.catch_up(lambda: next(states), lambda *_: job.PendingArchive("original_errors", 9),
+                     execute=True, deadline=float("inf"))
+
+
 def test_worker_activation_and_writes():
     path = Path(__file__).resolve().parents[2] / ".github/workflows/compare-forecast-catchup.yml"
     doc = yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
