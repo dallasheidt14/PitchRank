@@ -122,7 +122,7 @@ def run_collector(stage, deadline):
     while time.monotonic() < deadline:
         run = github(f"runs/{run_id}")
         if run["status"] == "completed":
-            if run["conclusion"] != "success" and not busy:
+            if run["conclusion"] != "success" and (not busy or run["conclusion"] == "failure"):
                 if stage in ("intake", "original_errors") and run["conclusion"] == "failure":
                     jobs = github(f"runs/{run_id}/jobs")["jobs"]
                     if len(jobs) == 1:
@@ -131,7 +131,7 @@ def run_collector(stage, deadline):
                         if (failures == ["Freeze current Compare forecasts"]
                                 and steps.get("Verify partial capture was archived") == "success"):
                             print(f"Run {run_id} archived a partial batch; checking remaining forecast work.")
-                            return True
+                            return not busy
                 raise RuntimeError(f"{stage} run {run_id}: {run['conclusion']}")
             return not busy
         time.sleep(30)

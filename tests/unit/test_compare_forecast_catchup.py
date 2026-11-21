@@ -108,6 +108,17 @@ def test_only_archived_partial_batches_are_rechecked_for_progress(monkeypatch, a
             job.run_collector("original_errors", float("inf"))
 
 
+def test_existing_writer_publication_failure_is_visible_even_after_queues_clear(monkeypatch):
+    steps = [{"name": "Publish frozen forecast inputs privately", "conclusion": "failure"}]
+    api = Mock(side_effect=[{"workflow_runs": [{"status": "in_progress", "id": 9}]},
+                            {"status": "completed", "conclusion": "failure"}, {"jobs": [{"steps": steps}]}])
+    monkeypatch.setattr(job, "github", api)
+    states = iter([{"intake": (1, 10)}, {}])
+    with pytest.raises(RuntimeError, match="queues are clear, but child workflows failed: intake"):
+        job.catch_up(lambda: next(states), job.run_collector, execute=True, deadline=float("inf"))
+    assert api.call_count == 3
+
+
 def test_worker_activation_and_writes():
     path = Path(__file__).resolve().parents[2] / ".github/workflows/compare-forecast-catchup.yml"
     doc = yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)

@@ -112,17 +112,12 @@ jobs:
         shell: bash
         run: |
           python .archive-publisher/scripts/publish_ranking_input_archive.py \
-            "$RUNNER_TEMP/frozen-forecast-inputs" --execute
+            "$RUNNER_TEMP/frozen-forecast-inputs" --execute | tee "$RUNNER_TEMP/forecast-publication.json"
       - name: Verify partial capture was archived
         if: "!cancelled() && steps.freeze.outcome == 'failure' && steps.publish.outcome == 'success'"
+        working-directory: .archive-publisher
         run: |
-          python - <<'PY'
-          import json, os
-          from pathlib import Path
-          report = json.loads((Path(os.environ["RUNNER_TEMP"]) / "prospective-capture.json").read_text())
-          if not (report["errored"] > 0 or report["deadlineReached"] is True):
-              raise ValueError("Missing partial capture receipt")
-          PY
+          python -m scripts.verify_partial_compare_archive "$RUNNER_TEMP"
       - name: Summarize capture
         if: always()
         shell: bash
