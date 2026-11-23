@@ -6,8 +6,9 @@ at once still dies when either guard is deleted.
 The Supabase double evaluates the filters it is given, refuses a filter or a select naming a
 column its rows lack (PostgREST answers 42703), projects rows to the selected columns, refuses
 a range() that no order() precedes, and serves at most `cap` rows per response. Like
-postgrest-py, which sends None as the text "None", its eq() and in_() never match NULL. It has
-no write methods, so any write the script attempted would raise.
+postgrest-py, which sends None as the text "None", its eq() and in_() never match NULL. Its only
+write is update(), which changes rows at execute() and records them there, as postgrest-py
+sends nothing until then; an update with no filter is refused.
 
 Dates the season rules read hang off the current season's start, because "this season" moves
 every Aug 1; dates that only test formatting are fixed.
@@ -92,14 +93,16 @@ def _comparable(value):
 
 
 class _Table:
-    def __init__(self, name, rows, cap):
+    def __init__(self, name, rows, cap, writes):
         self.name = name
         self._rows = rows
         self._cap = cap
+        self._writes = writes
         self._filters = []
         self._columns = None
         self._order = None
         self._page = None
+        self._update = None
 
     def _check(self, column):
         if self._rows and column not in self._rows[0]:
@@ -114,6 +117,12 @@ class _Table:
         self._columns = [c.strip() for c in columns.split(",")]
         for c in self._columns:
             self._check(c)
+        return self
+
+    def update(self, values):
+        for c in values:
+            self._check(c)
+        self._update = values
         return self
 
     def eq(self, column, value):
@@ -151,6 +160,14 @@ class _Table:
         return self
 
     def execute(self):
+        if self._update is not None:
+            if not self._filters:
+                raise AssertionError(f"{self.name}: update() with no filter rewrites every row")
+            rows = self._matching()
+            for r in rows:
+                r.update(self._update)
+            self._writes.append((self.name, self._update, sorted(r["id"] for r in rows)))
+            return _Result([dict(r) for r in rows])
         rows = self._page if self._page is not None else self._matching()[: self._cap]
         return _Result([{c: r[c] for c in self._columns} for r in rows])
 
@@ -159,11 +176,12 @@ class _Supabase:
     def __init__(self, tables, cap=10):
         self._tables = tables
         self._cap = cap
+        self.writes = []
 
     def table(self, name):
         if name not in self._tables:
             raise AssertionError(f"no rows seeded for table {name!r}")
-        return _Table(name, self._tables[name], self._cap)
+        return _Table(name, self._tables[name], self._cap, self.writes)
 
 
 # Fractional seconds trimmed as PostgREST returns them, not padded to 3 or 6 digits.
@@ -174,13 +192,14 @@ def queue_row(req_id, *, status="completed", ran=RAN, error=None):
     return {"id": req_id, "status": status, "processed_at": ran[0], "completed_at": ran[1], "error_message": error}
 
 
-def click(click_id, team_id, when_utc, *, game_date, request_id=None):
+def click(click_id, team_id, when_utc, *, game_date, request_id=None, reported=None):
     return {
         "id": click_id,
         "team_id_master": team_id,
         "game_date": game_date,
         "clicked_at": when_utc,
         "scrape_request_id": request_id,
+        "reported_at": reported,
     }
 
 
@@ -240,6 +259,26 @@ def test_fetch_clicks_reads_the_window_past_the_cap_and_attaches_each_queue_requ
     sb = _Supabase({"missing_game_clicks": clicks, "scrape_requests": [queue_row("q1"), queue_row("q9")]}, cap=2)
 
     fetched = img.fetch_clicks(sb, start, end)
+
+    assert [(c["id"], c["request"]) for c in fetched] == [
+        ("c1", queue_row("q1")),
+        ("c5", None),
+        ("c2", None),
+    ]
+
+
+def test_fetch_unreported_clicks_reads_every_unstamped_click_before_the_end_past_the_cap():
+    end = datetime(2026, 11, 16, 15, tzinfo=UTC)
+    clicks = [
+        click("c1", "t1", "2026-11-14T02:00:00+00:00", game_date="2026-11-13", request_id="q1"),
+        click("c2", "t2", "2026-11-16T14:59:59+00:00", game_date="2026-11-15"),
+        click("c3", "t3", "2026-11-15T09:00:00+00:00", game_date="2026-11-15", reported="2026-11-15T12:50:00+00:00"),
+        click("c4", "t4", "2026-11-16T15:00:00+00:00", game_date="2026-11-15"),
+        click("c5", "t5", "2026-11-16T03:30:00+00:00", game_date="2026-11-15", request_id="q9"),
+    ]
+    sb = _Supabase({"missing_game_clicks": clicks, "scrape_requests": [queue_row("q1")]}, cap=2)
+
+    fetched = img.fetch_unreported_clicks(sb, end)
 
     assert [(c["id"], c["request"]) for c in fetched] == [
         ("c1", queue_row("q1")),
@@ -744,6 +783,10 @@ def test_a_hidden_game_on_the_requested_date_is_flagged_only_when_nothing_visibl
 WINDOW = (datetime(2026, 11, 16, 12, tzinfo=UTC), datetime(2026, 11, 16, 15, tzinfo=UTC))
 
 
+def investigate_window(sb):
+    return img.investigate(sb, img.fetch_clicks(sb, *WINDOW))
+
+
 # Inside RAN, the run that drained q2.
 DURING = "2026-11-18T21:05:00+00:00"
 
@@ -808,7 +851,7 @@ def _world(**overrides):
 
 
 def test_a_window_is_investigated_end_to_end_through_the_database():
-    reports, caveats = img.investigate(_world(), *WINDOW)
+    reports, caveats = investigate_window(_world())
 
     assert caveats == []
     [report] = reports
@@ -838,7 +881,7 @@ def test_two_clicks_on_one_scrape_list_its_games_once():
         click("c3", "t", "2026-11-16T14:30:00+00:00", game_date=day(19), request_id="q2")
     )
 
-    [report] = img.investigate(world, *WINDOW)[0]
+    [report] = investigate_window(world)[0]
 
     assert report.outcomes == ["Scrape failed: no reason given", "Added 1 new game and 1 missing score"]
     assert (len(report.new_games), len(report.scored_games)) == (1, 1)
@@ -856,7 +899,7 @@ def test_two_scrapes_that_each_added_a_game_are_both_reported():
         game("g8", "t", "x", day(16), created="2026-11-18T22:02:00+00:00"),
     ]
 
-    [report] = img.investigate(world, *WINDOW)[0]
+    [report] = investigate_window(world)[0]
 
     assert report.outcomes == ["Added 1 new game", "Added 1 new game"]
     assert len(report.new_games) == 2
@@ -872,7 +915,7 @@ def test_a_game_new_in_one_scrape_and_scored_in_the_next_is_listed_once():
         game("g6", "y", "t", day(18), score=(3, 2), created="2026-11-18T21:05:00+00:00", scraped=LATER[0]),
     ]
 
-    [report] = img.investigate(world, *WINDOW)[0]
+    [report] = investigate_window(world)[0]
 
     assert report.outcomes == ["Scrape failed: no reason given", "Added 1 new game", "Added 1 missing score"]
     assert report.new_games == [f"{img.nice_date(day(18))} vs Opp U11: lost 2-3"]
@@ -883,7 +926,7 @@ def test_other_sources_drop_out_once_the_requested_game_lands():
     world = _world()
     world._tables["games"].append(game("g9", "t", "x", day(20)))
 
-    [report] = img.investigate(world, *WINDOW)[0]
+    [report] = investigate_window(world)[0]
 
     assert "Also gets games from sources this scrape doesn't read" not in [f.title for f in report.findings]
 
@@ -892,7 +935,7 @@ def test_a_hidden_requested_game_is_still_missing():
     world = _world()
     world._tables["games"].append(game("g9", "t", "x", day(20), excluded=True))
 
-    [report] = img.investigate(world, *WINDOW)[0]
+    [report] = investigate_window(world)[0]
 
     titles = [f.title for f in report.findings]
     assert "The game on that date is hidden" in titles
@@ -903,7 +946,7 @@ def test_a_clicked_row_that_plays_itself_says_so_and_suggests_no_duplicate():
     world = _world()
     world._tables["games"].append(game("g9", "t", "t-old", day(3)))
 
-    [report] = img.investigate(world, *WINDOW)[0]
+    [report] = investigate_window(world)[0]
 
     titles = [f.title for f in report.findings]
     assert "Has a game against itself" in titles
@@ -911,7 +954,7 @@ def test_a_clicked_row_that_plays_itself_says_so_and_suggests_no_duplicate():
 
 
 def test_unreadable_keep_separate_decisions_are_reported_rather_than_fatal():
-    reports, caveats = img.investigate(_world(team_cleanup_decisions=[{"id": 1}]), *WINDOW)
+    reports, caveats = investigate_window(_world(team_cleanup_decisions=[{"id": 1}]))
 
     assert caveats == ["Keep-separate decisions could not be read, so pairs already kept apart may be listed."]
     duplicates = reports[0].findings[0]
@@ -923,7 +966,7 @@ def test_a_request_for_a_missing_team_row_becomes_a_caveat():
     world = _world()
     world._tables["missing_game_clicks"].append(click("c3", "ghost", "2026-11-16T14:30:00+00:00", game_date=day(20)))
 
-    reports, caveats = img.investigate(world, *WINDOW)
+    reports, caveats = investigate_window(world)
 
     assert [r.team["team_id_master"] for r in reports] == ["t"]
     assert caveats == ["A clicked team could not be found (ghost)"]
@@ -934,14 +977,14 @@ def test_teams_with_more_to_look_at_come_first():
     world._tables["teams"].append(team("calm", "Aaa Calm U10"))
     world._tables["missing_game_clicks"].append(click("c3", "calm", "2026-11-16T14:30:00+00:00", game_date=day(20)))
 
-    reports, _ = img.investigate(world, *WINDOW)
+    reports, _ = investigate_window(world)
 
     assert [r.team["team_id_master"] for r in reports] == ["t", "calm"]
     assert reports[1].findings == []
 
 
 def test_a_window_with_no_clicks_has_no_reports():
-    assert img.investigate(_world(missing_game_clicks=[]), *WINDOW) == ([], [])
+    assert investigate_window(_world(missing_game_clicks=[])) == ([], [])
 
 
 # --- delivery --------------------------------------------------------------------------------
@@ -1049,21 +1092,42 @@ def test_ten_games_are_listed_without_a_more_line():
 
 
 @pytest.fixture
-def sent(monkeypatch):
+def world(monkeypatch):
+    sb = _world()
+    monkeypatch.setattr(img, "get_client", lambda: sb)
+    return sb
+
+
+@pytest.fixture
+def sent(world, monkeypatch):
+    """Every email main() sends, as (to, subject, html)."""
     calls = []
-    monkeypatch.setattr(img, "get_client", lambda: _world())
-    monkeypatch.setattr(img, "send_email", lambda to, subj, body: calls.append((to, subj)) or True)
+    monkeypatch.setattr(img, "send_email", lambda to, subj, body: calls.append((to, subj, body)) or True)
     return calls
+
+
+def freeze(monkeypatch, moment):
+    class _Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return moment
+
+    monkeypatch.setattr(img, "datetime", _Clock)
+
+
+def stamps(sb):
+    return {c["id"]: c["reported_at"] for c in sb._tables["missing_game_clicks"]}
 
 
 LABEL = "Mon Nov 16, 5 AM to 8 AM Arizona time"
 
 
-def test_a_dry_run_prints_the_report_and_sends_nothing(sent, monkeypatch, capsys):
+def test_a_dry_run_prints_the_report_and_sends_and_stamps_nothing(world, sent, monkeypatch, capsys):
     monkeypatch.setattr(sys, "argv", ["x", "--end", "2026-11-16T08:00", "--dry-run"])
 
     assert img.main() == 0
     assert sent == []
+    assert world.writes == []
     assert "Rush 2016 Blue" in capsys.readouterr().out
 
 
@@ -1073,7 +1137,7 @@ def test_a_live_run_emails_the_report_and_keeps_team_names_out_of_the_log(sent, 
     with caplog.at_level("INFO"):
         assert img.main() == 0
 
-    assert sent == [
+    assert [(to, subj) for to, subj, _ in sent] == [
         (
             "pitchrankio@gmail.com",
             f"PitchRank missing games: 1 team, 1 with new games or scores, 1 needs a look ({LABEL})",
@@ -1083,17 +1147,78 @@ def test_a_live_run_emails_the_report_and_keeps_team_names_out_of_the_log(sent, 
     assert "Rush" not in logged and "failed" not in logged
 
 
-def test_a_scheduled_run_reports_the_window_that_closed_before_it(sent, monkeypatch):
-    class _Clock(datetime):
-        @classmethod
-        def now(cls, tz=None):
-            return datetime(2026, 11, 16, 15, 50, tzinfo=UTC)
+def test_a_live_run_stamps_each_click_it_emailed(world, sent, monkeypatch):
+    freeze(monkeypatch, datetime(2026, 11, 16, 16, 5, tzinfo=UTC))
+    monkeypatch.setattr(sys, "argv", ["x", "--end", "2026-11-16T08:00"])
 
-    monkeypatch.setattr(img, "datetime", _Clock)
+    assert img.main() == 0
+    assert stamps(world) == {"c1": "2026-11-16T16:05:00+00:00", "c2": "2026-11-16T16:05:00+00:00"}
+
+
+def test_a_scheduled_run_reports_the_window_that_closed_before_it(world, sent, monkeypatch):
+    freeze(monkeypatch, datetime(2026, 11, 16, 15, 50, tzinfo=UTC))
     monkeypatch.setattr(sys, "argv", ["x"])
 
     assert img.main() == 0
     assert sent[0][1].endswith(f"({LABEL})")
+    assert stamps(world) == {"c1": "2026-11-16T15:50:00+00:00", "c2": "2026-11-16T15:50:00+00:00"}
+
+
+def test_a_scheduled_run_also_reports_the_windows_a_skipped_run_never_reported(world, sent, monkeypatch):
+    world._tables["missing_game_clicks"][1]["clicked_at"] = "2026-11-16T16:00:00+00:00"
+    freeze(monkeypatch, datetime(2026, 11, 16, 21, 50, tzinfo=UTC))
+    monkeypatch.setattr(sys, "argv", ["x"])
+
+    assert img.main() == 0
+    assert sent[0][1].endswith("(Mon Nov 16, 5 AM to 2 PM Arizona time)")
+    assert stamps(world) == {"c1": "2026-11-16T21:50:00+00:00", "c2": "2026-11-16T21:50:00+00:00"}
+
+
+def test_a_scheduled_run_leaves_out_clicks_an_earlier_email_reported(world, sent, monkeypatch):
+    world._tables["missing_game_clicks"][0]["reported_at"] = "2026-11-16T15:50:00+00:00"
+    freeze(monkeypatch, datetime(2026, 11, 16, 21, 50, tzinfo=UTC))
+    monkeypatch.setattr(sys, "argv", ["x"])
+
+    assert img.main() == 0
+    [(_, _, body)] = sent
+    assert "Scrape failed" not in body and "Added 1 new game and 1 missing score" in body
+    assert stamps(world) == {"c1": "2026-11-16T15:50:00+00:00", "c2": "2026-11-16T21:50:00+00:00"}
+
+
+def test_a_click_the_email_did_not_carry_stays_unstamped(world, monkeypatch):
+    """Stamping covers the clicks the email was built from, so one saved while it was sending
+    waits for the next email."""
+
+    def send(to, subj, body):
+        world._tables["missing_game_clicks"].append(click("c3", "t", "2026-11-16T14:30:00+00:00", game_date=day(20)))
+        return True
+
+    monkeypatch.setattr(img, "send_email", send)
+    freeze(monkeypatch, datetime(2026, 11, 16, 15, 50, tzinfo=UTC))
+    monkeypatch.setattr(sys, "argv", ["x"])
+
+    assert img.main() == 0
+    assert stamps(world) == {"c1": "2026-11-16T15:50:00+00:00", "c2": "2026-11-16T15:50:00+00:00", "c3": None}
+
+
+def test_a_click_the_queue_may_still_be_scraping_waits_for_the_next_run(world, sent, monkeypatch):
+    freeze(monkeypatch, datetime(2026, 11, 16, 15, 40, tzinfo=UTC))
+    monkeypatch.setattr(sys, "argv", ["x"])
+
+    assert img.main() == 0
+    assert sent == []
+    assert world.writes == []
+
+
+def test_a_re_sent_window_keeps_the_time_each_click_was_first_reported(world, sent, monkeypatch):
+    world._tables["missing_game_clicks"][0]["reported_at"] = "2026-11-16T15:50:00+00:00"
+    freeze(monkeypatch, datetime(2026, 11, 16, 22, 0, tzinfo=UTC))
+    monkeypatch.setattr(sys, "argv", ["x", "--end", "2026-11-16T08:00"])
+
+    assert img.main() == 0
+    [(_, _, body)] = sent
+    assert "Scrape failed" in body
+    assert stamps(world) == {"c1": "2026-11-16T15:50:00+00:00", "c2": "2026-11-16T22:00:00+00:00"}
 
 
 def test_an_end_with_an_offset_is_taken_as_given(sent, monkeypatch):
@@ -1103,12 +1228,12 @@ def test_an_end_with_an_offset_is_taken_as_given(sent, monkeypatch):
     assert sent[0][1].endswith(f"({LABEL})")
 
 
-def test_a_failed_send_fails_the_run(monkeypatch):
-    monkeypatch.setattr(img, "get_client", lambda: _world())
+def test_a_failed_send_fails_the_run_and_stamps_nothing(world, monkeypatch):
     monkeypatch.setattr(img, "send_email", lambda *a: False)
     monkeypatch.setattr(sys, "argv", ["x", "--end", "2026-11-16T08:00"])
 
     assert img.main() == 1
+    assert world.writes == []
 
 
 def test_a_quiet_window_sends_nothing(sent, monkeypatch):
@@ -1117,3 +1242,33 @@ def test_a_quiet_window_sends_nothing(sent, monkeypatch):
 
     assert img.main() == 0
     assert sent == []
+
+
+def test_a_click_on_a_team_that_cannot_be_found_is_still_emailed_and_stamped(world, sent, monkeypatch):
+    world._tables["missing_game_clicks"][:] = [click("c9", "ghost", "2026-11-16T13:00:00+00:00", game_date=day(20))]
+    freeze(monkeypatch, datetime(2026, 11, 16, 16, 0, tzinfo=UTC))
+    monkeypatch.setattr(sys, "argv", ["x", "--end", "2026-11-16T08:00"])
+
+    assert img.main() == 0
+    [(_, _, body)] = sent
+    assert "A clicked team could not be found (ghost)" in body
+    assert stamps(world) == {"c9": "2026-11-16T16:00:00+00:00"}
+
+
+def test_stamping_batches_the_clicks_under_the_uri_limit():
+    rows = [click(f"c{n:03d}", "t", "2026-11-16T13:00:00+00:00", game_date=day(20)) for n in range(150)]
+    sb = _Supabase({"missing_game_clicks": rows})
+
+    assert img.mark_reported(sb, rows) == 150
+    assert [len(ids) for _, _, ids in sb.writes] == [100, 50]
+    assert all(r["reported_at"] for r in rows)
+
+
+def test_stamping_counts_only_the_clicks_it_stamped():
+    rows = [
+        click("c1", "t", "2026-11-16T13:00:00+00:00", game_date=day(20), reported="2026-11-16T15:50:00+00:00"),
+        click("c2", "t", "2026-11-16T14:00:00+00:00", game_date=day(20)),
+    ]
+    sb = _Supabase({"missing_game_clicks": rows})
+
+    assert img.mark_reported(sb, rows) == 1

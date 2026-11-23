@@ -973,7 +973,8 @@ NOT_A_WRITER = {
     "enqueue-yesterday-games.yml": "writes scrape_requests",
     "enrich-instagram-handles.yml": "writes team_social_profiles",
     "evaluate-prospective-match-predictions.yml": "reads match predictions",
-    "investigate-missing-game-requests.yml": "reads missing-game clicks, teams and games, and emails a report",
+    "investigate-missing-game-requests.yml": "reads missing-game clicks, teams and games, emails a report, and "
+    "stamps the clicks it emailed",
     "marketing-pipeline.yml": "reads the rankings and commits a blog post",
     "prepare-prospective-match-predictions.yml": "writes match predictions",
     "process-match-prediction-shadow.yml": "writes the match prediction shadow log",

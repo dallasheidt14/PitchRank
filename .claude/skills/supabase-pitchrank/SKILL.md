@@ -966,7 +966,11 @@ against the hosted project:
 
 1. `initdb -D <scratch>\data -U smoke -A trust -E UTF8`, then
    `pg_ctl -D <scratch>\data -o "-p <port>" -l <scratch>\pg.log start` on a port of its own (the
-   installed servers run as Windows services, one on 5432).
+   installed servers run as Windows services, one on 5432). Pick that port outside Windows' reserved
+   TCP ranges, listing them each time with `netsh interface ipv4 show excludedportrange protocol=tcp`
+   since they can move after a reboot. Inside one the server does not start: `pg_ctl` says only
+   "could not start server", and pg.log shows the bind refused with "Permission denied" (55433 was,
+   on 2026-11-23).
 2. Stub what Supabase provides: roles `anon` and `authenticated` (NOLOGIN) and `service_role`
    (NOLOGIN BYPASSRLS); schema `auth` with `users (id uuid primary key)`, plus `auth.uid()` and
    `auth.role()` when a policy calls them; any function the migration's triggers call;

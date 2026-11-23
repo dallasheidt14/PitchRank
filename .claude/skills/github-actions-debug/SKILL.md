@@ -1,6 +1,6 @@
 ---
 name: github-actions-debug
-description: Debug GitHub Actions workflow failures for PitchRank. Use when investigating CI/CD errors, workflow timeouts, runner issues, or profiling where a slow multi-hour run spends its time.
+description: Debug GitHub Actions workflow failures for PitchRank. Use when investigating CI/CD errors, workflow timeouts, runner issues, scheduled runs that never started or ran late, runs a concurrency group cancelled, or profiling where a slow multi-hour run spends its time.
 ---
 
 # GitHub Actions Debug
@@ -41,6 +41,25 @@ gh run view <run-id> --repo dallasheidt14/PitchRank --log-failed
   calling the chain broken.
 - A filtered list now and then comes back empty or out of date: one call can come back empty and
   the next correct. Re-run a surprising answer before acting on it.
+
+## Runs GitHub Never Started
+
+- GitHub skips scheduled runs here, often most of them, and a skipped run leaves nothing in
+  `gh run list`; many that do fire start one to three hours after their slot.
+  `investigate-missing-game-requests.yml` (`50 */3 * * *`) ran 16 of about 42 scheduled runs from
+  2026-11-18 to 11-23, every one green. Before trusting a green "nothing to do" from a job that
+  covers only the window just before it, count its runs against the cron's slots over a stretch of
+  days rather than matching each run to a slot:
+  ```bash
+  gh run list --repo dallasheidt14/PitchRank --workflow <file> --event schedule \
+    --created <from>..<to> --limit 1000 --json createdAt -q '.[].createdAt'
+  ```
+  Such a job loses every skipped window, and the window of a run late enough to reach the next
+  boundary; have it work from a per-row marker (a `reported_at`-style column) rather than its start time.
+- A `concurrency:` group without `cancel-in-progress: true` holds one pending run, and each newly
+  queued run cancels the one waiting, so a burst of `gh workflow run` dispatches runs only the first
+  and the last; the rest end `cancelled`. Dispatch one at a time, or set `queue: max` on the group
+  (up to 100 pending, roughly first-in first-out; refused alongside `cancel-in-progress: true`).
 
 ## Common Failure Patterns
 
