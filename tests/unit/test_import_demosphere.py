@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 import pytest
 import requests
+import yaml
 from bs4 import BeautifulSoup
 
 from scripts import import_demosphere as dm
@@ -23,11 +24,32 @@ FALL_SEASON_KEY = "116702823"
 SPRING_SEASON_KEY = "115907747"
 DIVISION_URL = "https://elements.demosphere.com/80738/schedules/Fall2026/116702955.html"
 SCHEDULE_LINK = '<a href="/80738/schedules/Fall2026/116702955.html">NG13D4</a>'
+NPSL_DIVISION_URL = "https://elements.demosphere.com/74274/schedules/Fall2026/116590805.html"
+# An unfilled slot as the North Puget Sound League prints it.
+EMPTY_SLOT = (
+    '<tr class="RowGray2 sch-main-gm" data-gamekey="11707042" data-tgkey="116590825">'
+    '<td class="textsmall sch-main-gmcode" nowrap><span class="gamecode">79</span><span class="gmlabel"></span></td>'
+    '<td nowrap align="center">&nbsp;</td><td class="timtba">&nbsp;</td>'
+    '<td class="schedtm schedtm1" data-tmkey="" data-cbkey=""><span class="tm-name"></span></td>'
+    '<td align="center" class="sch-main-sc"> vs </td>'
+    '<td class="schedtm schedtm2" data-tmkey="" data-cbkey=""></td>'
+    '<td nowrap><span class="gm-fac">'
+    '<a href="/scripts/runisa.dll?M2:gp::74274+Elements/Display+E+18235+Display/+++116590709"></a>'
+    "</span></td></tr>"
+)
 PLACEHOLDERS = {"PERSON NAME", "COACH NAME", "MANAGER NAME", "ASST COACH NAME"}
 
 
 def _fixture(name):
     return (FIXTURES / name).read_text(encoding="utf-8")
+
+
+def _slot_page(row):
+    return (
+        '<table><tr><td class="hdr">BU12 Division 4</td></tr></table>'
+        '<table id="tblListGames2"><tr class="gm-hdr-5d1h"><td>Sun, September 13, 2026</td></tr>'
+        f"{row}</table>"
+    )
 
 
 @pytest.fixture(scope="module")
@@ -112,6 +134,195 @@ class TestParseDivisionPage:
         assert page.games == []
 
 
+@pytest.fixture(scope="module")
+def npsl_division():
+    return dm.parse_division_page(_fixture("division_116590805.html"), "116590805", NPSL_DIVISION_URL, team_codes=False)
+
+
+class TestParseNorthPugetSoundDivisionPage:
+    def test_reads_the_division_name_from_the_header_cell(self, npsl_division):
+        assert npsl_division.name == "BU16 Division 1"
+        assert {stub.division_name for stub in npsl_division.teams.values()} == {"BU16 Division 1"}
+
+    def test_reads_every_team_and_game(self, npsl_division):
+        assert (len(npsl_division.teams), len(npsl_division.games), npsl_division.problems) == (7, 42, [])
+        assert sum(1 for g in npsl_division.games if g.home_score is not None) == 33
+
+    def test_a_team_keeps_its_whole_name_and_has_no_code(self, npsl_division):
+        stub = npsl_division.teams["116874304"]
+        assert (stub.team_code, stub.team_name, stub.club_key) == ("", "Norpoint FC -Blanco BU16", "77067370")
+
+    @pytest.mark.parametrize(
+        ("team_key", "listed", "renamed", "code", "rest"),
+        [
+            (
+                "108651890",
+                "Seattle United NW B10 Blue",
+                "B10 Seattle United NW Blue",
+                "B10",
+                "Seattle United NW Blue",
+            ),
+            (
+                "115377029",
+                "Rainier Soccer Alliance Elite BU16",
+                "B16 Rainier Soccer Alliance Elite",
+                "B16",
+                "Rainier Soccer Alliance Elite",
+            ),
+        ],
+        ids=["first-listed-at-home", "first-listed-away"],
+    )
+    def test_a_name_opening_with_a_code_shaped_word_keeps_it_only_where_the_league_writes_no_codes(
+        self, team_key, listed, renamed, code, rest
+    ):
+        html = _fixture("division_116590805.html").replace(listed, renamed)
+        without_codes = dm.parse_division_page(html, "116590805", NPSL_DIVISION_URL, team_codes=False)
+        with_codes = dm.parse_division_page(html, "116590805", NPSL_DIVISION_URL)
+        stub, coded = without_codes.teams[team_key], with_codes.teams[team_key]
+        assert (stub.team_code, stub.team_name) == ("", renamed)
+        assert (coded.team_code, coded.team_name) == (code, rest)
+
+    def test_a_schedule_with_no_division_name_is_a_problem(self):
+        html = re.sub(r'<td class="hdr"[^>]*>.*?</td>', "", _fixture("division_116590805.html"), flags=re.DOTALL)
+        page = dm.parse_division_page(html, "116590805", NPSL_DIVISION_URL, team_codes=False)
+        assert page.problems == ["116590805: no division name in the page, so no division age or gender"]
+
+    def test_a_division_named_in_its_header_with_no_games_table_is_not_a_problem(self):
+        soup = BeautifulSoup(_fixture("division_116590805.html"), "lxml")
+        soup.select_one("table#tblListGames2").decompose()
+        page = dm.parse_division_page(str(soup), "116590805", NPSL_DIVISION_URL, team_codes=False)
+        assert (page.name, page.teams, page.games, page.problems) == ("BU16 Division 1", {}, [], [])
+
+    def test_an_empty_slot_with_no_teams_and_no_score_is_not_a_game_or_a_problem(self):
+        page = dm.parse_division_page(_slot_page(EMPTY_SLOT), "116590825", NPSL_DIVISION_URL, team_codes=False)
+        assert (page.name, page.teams, page.games, page.problems) == ("BU12 Division 4", {}, [], [])
+
+    @pytest.mark.parametrize(
+        ("old", "new"),
+        [
+            (" vs ", " 2-1 "),
+            ('<span class="tm-name"></span>', '<span class="tm-name">Some Team</span>'),
+            ('schedtm1" data-tmkey=""', 'schedtm1" data-tmkey="116874304"'),
+            ('schedtm2" data-tmkey="" data-cbkey=""></td>', 'schedtm2" data-tmkey="" data-cbkey="">Some Team</td>'),
+            ('schedtm2" data-tmkey=""', 'schedtm2" data-tmkey="116874304"'),
+            ('<td class="schedtm schedtm1" data-tmkey="" data-cbkey=""><span class="tm-name"></span></td>', ""),
+            ('<td class="schedtm schedtm2" data-tmkey="" data-cbkey=""></td>', ""),
+        ],
+        ids=["score", "home-name", "home-key", "away-name", "away-key", "no-home-cell", "no-away-cell"],
+    )
+    def test_a_slot_that_is_not_empty_on_both_sides_is_still_unreadable(self, old, new):
+        row = EMPTY_SLOT.replace(old, new, 1)
+        assert row != EMPTY_SLOT
+        page = dm.parse_division_page(_slot_page(row), "116590825", NPSL_DIVISION_URL, team_codes=False)
+        assert page.problems == ["116590825: unreadable game row '11707042'"]
+
+
+@pytest.fixture(scope="module")
+def job():
+    path = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "demosphere-scraper.yml"
+    return yaml.safe_load(path.read_text(encoding="utf-8"))["jobs"]["scrape-demosphere"]
+
+
+class TestWorkflow:
+    @staticmethod
+    def _step(job, prefix):
+        return next(step for step in job["steps"] if step["name"].startswith(prefix))
+
+    def test_each_league_runs_on_its_own_one_after_the_other(self, job):
+        assert job["strategy"] == {
+            "fail-fast": False,
+            "max-parallel": 1,
+            "matrix": {
+                "include": [
+                    {"site": "80738", "league": "NCSL"},
+                    {"site": "74274", "league": "North Puget Sound League"},
+                ]
+            },
+        }
+        assert {leg["site"]: leg["league"] for leg in job["strategy"]["matrix"]["include"]} == {
+            site: league.name for site, league in dm.LEAGUES.items()
+        }
+
+    def test_each_leg_scrapes_its_own_site_and_checks_its_own_log(self, job):
+        step = self._step(job, "Scrape ${{ matrix.league }}")
+        assert step["env"]["SITE"] == "${{ matrix.site }}"
+        assert 'ARGS=(--site-id "${SITE}" --output-dir data/raw/demosphere)' in step["run"]
+        assert step["run"].count("--site-id") == 1
+        assert step["run"].count("python ") == 1
+        invocation = 'python scripts/import_demosphere.py "${ARGS[@]}" | tee "data/raw/demosphere/run-${SITE}.log"'
+        assert invocation in step["run"]
+        assert step["run"].count('"data/raw/demosphere/run-${SITE}.log"') == 2
+
+    def test_each_leg_summarises_and_uploads_under_its_own_name(self, job):
+        summary = self._step(job, "Summarize")
+        assert (summary["env"]["SITE"], summary["env"]["LEAGUE"]) == ("${{ matrix.site }}", "${{ matrix.league }}")
+        assert summary["run"].count('"data/raw/demosphere/run-${SITE}.log"') == 2
+        assert 'echo "### ${LEAGUE} (Demosphere) import"' in summary["run"]
+        upload = self._step(job, "Upload CSVs")
+        assert upload["with"]["name"] == "demosphere-${{ matrix.site }}-${{ github.run_id }}"
+
+
+class TestNorthPugetSoundLeague:
+    def test_the_league_row(self):
+        league = dm.LEAGUES["74274"]
+        assert (league.name, league.state_code, league.seed_clubs, league.association_clubs) == (
+            "North Puget Sound League",
+            "WA",
+            ("77067129",),
+            (),
+        )
+        assert (league.states, league.team_codes) == (("WA",), False)
+        assert league.club_overrides is dm.NPSL_CLUBS
+        assert dm.LEAGUES["80738"].team_codes is True
+
+    def test_the_decided_clubs_are_exactly_these(self):
+        assert dm.NPSL_CLUBS == {
+            "Cascade Foothills Soccer Club": ("Cascade Foothills SC", None),
+            "Crossfire Select": ("Crossfire Select Soccer Club", None),
+            "Fife-Milton-Edgewood Soccer Club": ("Fife Milton Edgewood JSC", None),
+            "Jefferson County Soccer Club": ("Jefferson County SC", None),
+            "Norpoint FC": ("Norpoint SC", None),
+            "North Kitsap": ("North Kitsap Soccer Club", None),
+            "North Whidbey": ("North Whidbey SC", None),
+            "Sky River": ("Sky River SC", None),
+            "South Tacoma United": ("South Tacoma United Soccer Club", None),
+            "South Whidbey": ("South Whidbey Youth SC", None),
+            "University Place Soccer Club": ("University Place SC", None),
+            "Storm King FC": ("Storm King SC", None),
+            "Washington Rush Select": ("Washington Rush", None),
+            "PacNW": ("Pacific Northwest SC", None),
+            "Sequim FC": ("Sequim Junior Soccer Club", None),
+            "South Kitsap United": ("South Kitsap Soccer Club", None),
+            "Stanwood Spartan FC": ("Stanwood Camano Youth Soccer Club", None),
+            "Irish": ("Jr. Irish Soccer Club", None),
+            "Highline Soccer Club": ("Highline Soccer Association (HSA)", None),
+        }
+
+    def test_a_listed_club_is_filed_under_the_name_the_owner_set(self):
+        stub = dm.TeamStub("11", "9", "", "Norpoint FC -Blanco BU16", "BU16 Division 1")
+        (row,), _ = dm.build_roster(
+            {"11": stub}, {"9": "Norpoint FC"}, lambda names: {}, "74274", "Fall2026", "WA", 2026, (), dm.NPSL_CLUBS
+        )
+        assert (row.club_name, row.state_code, row.state_source) == ("Norpoint SC", "WA", "league state")
+
+    @pytest.mark.parametrize(
+        ("name", "division", "age_group"),
+        [
+            ("NSC B10A", "BU10 Division 2", "u10"),
+            ("Seattle United NW B10 Blue", "BU16 Division 1", "u16"),
+            ("Norpoint FC -Blanco BU16", "BU16 Division 1", "u16"),
+        ],
+    )
+    def test_a_teams_board_comes_from_its_name_bounded_by_the_division_and_its_gender_from_the_division(
+        self, name, division, age_group
+    ):
+        stub = dm.TeamStub("11", "1", "", name, division)
+        (row,), _ = dm.build_roster(
+            {"11": stub}, {"1": "Northshore Select Club"}, lambda names: {}, "74274", "Fall2026", "WA", 2026
+        )
+        assert (row.age_group, row.gender, row.state_code) == (age_group, "Male", "WA")
+
+
 class TestParseClubPage:
     def test_reads_the_club_name(self):
         name, _ = dm.parse_club_page(_fixture("club_15599479.html"))
@@ -194,6 +405,65 @@ class TestCollectLeague:
         with pytest.raises(dm.ScrapeFetchError, match="Spring2026"):
             dm.collect_league(self._fetch(requested), "80738", "Spring2026", ["15599479"])
         assert not any("/schedules/" in url for url in requested)
+
+    def _missing(self, address, error):
+        """The walk's pages, with ``error`` raised for every URL containing ``address``."""
+        fetch = self._fetch([])
+
+        def missing(url):
+            if address in url:
+                raise error
+            return fetch(url)
+
+        return missing
+
+    def test_a_division_with_no_schedule_page_is_noted_and_the_walk_goes_on(self):
+        _, links = dm.parse_club_page(_fixture("club_15599479.html"))
+        missing, *rest = sorted({d for s, _, d in links if s == FALL_SEASON_KEY})
+        not_found = dm.PageNotFoundError("HTTP 300 for x")
+        _, divisions, problems = dm.collect_league(
+            self._missing(f"/schedules/Fall2026/{missing}.html", not_found), "80738", "Fall2026", ["15599479"]
+        )
+        assert (divisions[missing].no_schedule_page, divisions[missing].teams, problems) == (True, {}, [])
+        assert set(divisions) == {missing, *rest}
+        assert not any(divisions[key].no_schedule_page for key in rest)
+
+    def test_a_walk_where_no_division_has_a_schedule_page_is_a_problem(self):
+        missing = self._missing("/schedules/Fall2026/", dm.PageNotFoundError("HTTP 404 for x"))
+        _, divisions, problems = dm.collect_league(missing, "80738", "Fall2026", ["15599479"])
+        assert len(divisions) > 1
+        assert problems == [f"none of the {len(divisions)} divisions the clubs list has a schedule page"]
+
+    def test_a_walk_that_finds_no_division_of_the_season_is_a_problem(self):
+        fetch = self._fetch([])
+        spring_only = _fixture("club_15599479.html").replace(FALL_SEASON_KEY, SPRING_SEASON_KEY)
+
+        def pages(url):
+            return spring_only if url.endswith("/teams/club/15599479.html") else fetch(url)
+
+        _, divisions, problems = dm.collect_league(pages, "80738", "Fall2026", ["15599479"])
+        assert (divisions, problems) == ({}, ["the clubs walked list no Fall2026 division"])
+
+    @pytest.mark.parametrize(
+        "missing_page",
+        ["/clubs/schedule/15599479.html", "/teams/club/15599479.html", "/teams/club/15599453.html"],
+        ids=["seed-schedule", "seed-club", "walked-club"],
+    )
+    def test_no_page_at_a_club_address_still_fails_the_run(self, missing_page):
+        missing = self._missing(missing_page, dm.PageNotFoundError(f"HTTP 300 for {missing_page}"))
+        with pytest.raises(dm.PageNotFoundError, match=re.escape(missing_page)):
+            dm.collect_league(missing, "80738", "Fall2026", ["15599479"])
+
+    def test_a_division_page_that_fails_any_other_way_still_fails_the_run(self):
+        _, links = dm.parse_club_page(_fixture("club_15599479.html"))
+        division = sorted({d for s, _, d in links if s == FALL_SEASON_KEY})[0]
+        with pytest.raises(dm.ScrapeFetchError, match="403"):
+            dm.collect_league(
+                self._missing(f"/schedules/Fall2026/{division}.html", dm.ScrapeFetchError("HTTP 403 for x")),
+                "80738",
+                "Fall2026",
+                ["15599479"],
+            )
 
 
 class TestClubFor:
@@ -1021,11 +1291,15 @@ class _Response(requests.Response):
 
 
 class _Session:
-    def __init__(self, response):
-        self.response, self.urls = response, []
+    """Follows a redirect to ``redirected_to`` unless told not to, as ``requests`` does by default."""
 
-    def get(self, url, timeout):
+    def __init__(self, response, redirected_to=None):
+        self.response, self.redirected_to, self.urls = response, redirected_to, []
+
+    def get(self, url, timeout, allow_redirects=True):
         self.urls.append(url)
+        if allow_redirects and self.response.is_redirect and self.redirected_to is not None:
+            return self.redirected_to
         return self.response
 
 
@@ -1034,18 +1308,63 @@ class TestGet:
         response = _Response(200, "Atlético".encode("utf-8"), "text/html")
         assert dm._get(_Session(response), "u").text == "Atlético"
 
+    def test_a_page_with_no_charset_and_a_windows_1252_byte_is_read_as_windows_1252(self):
+        response = _Response(200, b"CFSC GU11\xa0Torgison \x96 Atl\xe9tico", "text/html")
+        assert dm._get(_Session(response), "u").text == "CFSC GU11\xa0Torgison – Atlético"
+
+    def test_a_windows_1252_space_in_a_team_name_reads_as_a_space(self):
+        row = '<tr class="sch-main-gm"><td class="schedtm1" data-tmkey="1">CFSC GU11\xa0Torgison</td></tr>'
+        response = _Response(200, f"<table>{row}</table>".encode("cp1252"), "text/html")
+        cell = BeautifulSoup(dm._get(_Session(response), "u").text, "lxml").select_one("td.schedtm1")
+        assert dm._text(cell) == "CFSC GU11 Torgison"
+
     def test_a_declared_charset_is_left_alone(self):
         response = _Response(200, "Atlético".encode("latin-1"), "text/html; charset=iso-8859-1")
         assert dm._get(_Session(response), "u").text == "Atlético"
 
-    @pytest.mark.parametrize("status", [403, 404, 301, 500])
-    def test_any_status_but_200_fails_the_run(self, status):
-        with pytest.raises(dm.ScrapeFetchError, match=str(status)):
+    @pytest.mark.parametrize(
+        ("status", "not_found"),
+        [
+            (300, True),
+            (301, True),
+            (404, True),
+            (302, False),
+            (303, False),
+            (307, False),
+            (308, False),
+            (400, False),
+            (403, False),
+            (500, False),
+        ],
+    )
+    def test_any_status_but_200_fails_the_run_and_only_300_301_or_404_reads_as_no_page(self, status, not_found):
+        with pytest.raises(dm.ScrapeFetchError, match=str(status)) as raised:
             dm._get(_Session(_Response(status, b"", "text/html")), "u")
+        assert isinstance(raised.value, dm.PageNotFoundError) is not_found
+
+    @staticmethod
+    def _redirect(status):
+        redirect = _Response(status, b"", "text/html")
+        redirect.headers["location"] = "/74274/schedules/Fall2026/116590805.html"
+        neighbour = _Response(200, b"<td class='hdr'>BU16 Division 1</td>", "text/html")
+        return _Session(redirect, redirected_to=neighbour), f"{dm.BASE_URL}/74274/schedules/Fall2026/116590806.html"
+
+    def test_the_spelling_correctors_redirect_to_a_near_named_page_is_not_followed(self):
+        session, url = self._redirect(301)
+        with pytest.raises(dm.PageNotFoundError, match="301"):
+            dm._get(session, url)
+        assert session.urls == [url]
+
+    def test_any_other_redirect_is_not_followed_and_fails_the_run(self):
+        session, url = self._redirect(302)
+        with pytest.raises(dm.ScrapeFetchError, match="302") as raised:
+            dm._get(session, url)
+        assert not isinstance(raised.value, dm.PageNotFoundError)
+        assert session.urls == [url]
 
     def test_a_transport_failure_fails_the_run(self):
         class Down:
-            def get(self, url, timeout):
+            def get(self, url, timeout, allow_redirects=True):
                 raise requests.ConnectionError("down")
 
         with pytest.raises(dm.ScrapeFetchError):
@@ -1121,6 +1440,10 @@ class TestRunMain:
             club_pages={},
             fetched=[],
             site_season=None,
+            seed="15599479",
+            seed_club=_fixture("club_15599479.html"),
+            schedule_page=_schedule_page,
+            site="80738",
             division=_fixture("division_116702955.html"),
             today=self.FixedDate,
             season="Fall2026",
@@ -1147,10 +1470,12 @@ class TestRunMain:
 
         def pages(url):
             state.fetched.append(url)
-            if "/clubs/schedule/15599479" in url:
-                return _schedule_page(state.site_season or state.season)
-            if "/teams/club/15599479" in url:
-                return _fixture("club_15599479.html")
+            if not url.startswith(f"{dm.BASE_URL}/{state.site}/"):
+                raise AssertionError(f"fetch outside site {state.site}: {url}")
+            if f"/clubs/schedule/{state.seed}" in url:
+                return state.schedule_page(state.site_season or state.season)
+            if f"/teams/club/{state.seed}" in url:
+                return state.seed_club
             if "/teams/club/" in url:
                 name = state.club_pages.get(url.rsplit("/", 1)[-1][: -len(".html")], "Another Club")
                 return f'<h1 class="dii-hdr-cb">{name}</h1>'
@@ -1410,6 +1735,76 @@ class TestRunMain:
         assert run_main.run("--season", "winter2026") == 1
         assert run_main.matchers == []
         assert run_main.imports == []
+
+    @staticmethod
+    def _north_puget_sound(run_main):
+        club = (
+            '<h1 class="dii-hdr-cb">Northshore Select Club</h1>'
+            '<a href="/74274/teams/116590709/116874204-116590805/TEAM.html">NSC BU16B</a>'
+        )
+        run_main.site, run_main.seed, run_main.seed_club = "74274", "77067129", club
+        run_main.schedule_page = lambda label: club + f'<a href="/74274/schedules/{label}/116590805.html">BU16 D1</a>'
+        run_main.division = _fixture("division_116590805.html")
+        run_main.club_pages = {"77067370": "Norpoint FC"}
+
+    def test_the_north_puget_sound_league_is_filed_as_its_own_league_in_washington(self, run_main):
+        self._north_puget_sound(run_main)
+        assert run_main.run("--site-id", "74274") == 0
+        team = next(r for r in run_main.rows("teams") if r["team_name"] == "Norpoint FC -Blanco BU16")
+        assert (team["provider_team_id"], team["division"], team["age_group"], team["gender"]) == (
+            "74274-Fall2026-116874304",
+            "BU16 Division 1",
+            "u16",
+            "Male",
+        )
+        assert (team["club_name"], team["state_code"]) == ("Norpoint SC", "WA")
+        games = run_main.rows("games")
+        assert {r["competition"] for r in games} == {"North Puget Sound League"}
+        assert all(r["schedule_id"].startswith("demosphere-74274-") for r in games)
+        assert run_main.regions == [("WA",)]
+        assert next(run_main.out.glob("*_games.csv")).name.endswith("_74274_games.csv")
+        assert NPSL_DIVISION_URL in run_main.fetched
+
+    def _missing_schedules(self, run_main, monkeypatch, division_keys):
+        """A second division the seed club lists, and no schedule page for ``division_keys``."""
+        run_main.seed_club += '<a href="/74274/teams/116590709/116874205-116590781/TEAM.html">NSC BU16C</a>'
+        fetch = dm._get
+
+        missing = {f"{dm.BASE_URL}/{run_main.site}/schedules/Fall2026/{key}.html" for key in division_keys}
+
+        def get(session, url):
+            if url in missing:
+                raise dm.PageNotFoundError(f"HTTP 300 for {url}")
+            return fetch(session, url)
+
+        monkeypatch.setattr(dm, "_get", get)
+
+    def test_a_division_with_no_schedule_page_is_reported_and_does_not_fail_the_run(
+        self, run_main, monkeypatch, capsys
+    ):
+        self._north_puget_sound(run_main)
+        self._missing_schedules(run_main, monkeypatch, ["116590781"])
+        assert run_main.run("--site-id", "74274", "--max-divisions", "2") == 0
+        assert {r["division"] for r in run_main.rows("teams")} == {"BU16 Division 1"}
+        output = capsys.readouterr().out
+        assert re.search(r"divisions with no schedule page\s*│\s*1\b", output)
+        expected = "1 divisions a club lists have no schedule page, so their teams were not read: 116590781"
+        assert expected in " ".join(output.split())
+
+    def test_a_run_where_no_division_has_a_schedule_page_fails(self, run_main, monkeypatch, capsys):
+        self._north_puget_sound(run_main)
+        self._missing_schedules(run_main, monkeypatch, ["116590781", "116590805"])
+        assert run_main.run("--site-id", "74274", "--max-divisions", "2") == 1
+        assert "none of the 2 divisions the clubs list has a schedule page" in " ".join(capsys.readouterr().out.split())
+
+    def test_a_north_puget_sound_name_keeps_a_leading_code_shaped_word(self, run_main):
+        self._north_puget_sound(run_main)
+        run_main.division = run_main.division.replace(
+            "Seattle United NW B10 Blue", "B10 Seattle United NW Blue"
+        ).replace("Rainier Soccer Alliance Elite BU16", "B16 Rainier Soccer Alliance Elite")
+        run_main.run("--site-id", "74274")
+        names = {r["team_name"] for r in run_main.rows("teams")}
+        assert {"B10 Seattle United NW Blue", "B16 Rainier Soccer Alliance Elite"} <= names
 
 
 class TestClubForRules:

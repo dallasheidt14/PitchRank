@@ -699,18 +699,6 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Noted**: 2026-08-31
 - **Trigger**: An organizer supplies a current-season tournament id. `/api/tournaments` and `/api/organization` both 404 as of 2026-09-08, so there is nothing to point an ingester at. Confirmed 2026-09-08 to be a genuinely new source — the existing Affinity WA scrapers hit `wys.sportsaffinity.com` classic bracket pages, not the sctour JSON API.
 
-### Ingest North Puget Sound League once Demosphere publishes scores
-
-- **ID**: IMP-191
-- **Status**: deferred
-- **Type**: investigate
-- **Category**: feature
-- **Where**: `scripts/import_demosphere.py` (a `LEAGUES` row for `74274`)
-- **Why**: A WA league PitchRank does not ingest, on Demosphere (OttoSport) rather than Affinity. The public page `northpugetsoundleague.ottosport.ai/fall-2026-schedule` renders nothing server-side; the content is an embedded Demosphere element at the URL above, which is clean static HTML needing no JS — an index of ~50 divisions (BU9-BU19, GU9-GU19) each linking to a per-division schedule page. Division labels are U-age with no birth year (`BU13 Division 1`), and the season is unambiguous from the URL path, so cohorting is safe. **Blocked on scores**: the game tables carry only `GAME# | Time | Home | Away | Location` — no score column exists, so there is nothing to import yet. Season opens 2026-09-12; re-check a week or two after to see whether scores land in the same table or a separate results view, which decides the scope. Verified live 2026-08-31.
-- **Noted**: 2026-08-31
-- **Trigger**: Demosphere publishes played scores for North Puget Sound League. The season opens 2026-09-12 and the schedule endpoint returned HTTP 403 on 2026-09-08, so there is nothing to import yet. Confirmed 2026-09-08 that no Demosphere/OttoSport scraper exists anywhere in the repo, so this is not a duplicate.
-- **Update (2026-10-29)**: `scripts/import_demosphere.py` takes a site id and walks outward from a seed club, so it needs no division index; NCSL (`80738`) is its only `LEAGUES` entry, and this league needs a row with a seed club key. NCSL also answers 403 for a bare directory (`/80738/schedules/Fall2026`), so the 2026-09-08 403 here is likely the site's normal answer for that path rather than a block. Still blocked on scores: a game row with no score cell reads as unplayed, so a run against this site today would import nothing and exit 0.
-
 ### Settle whether subscription items are read as a list or as `data[0]`
 
 - **ID**: IMP-187
@@ -3419,3 +3407,22 @@ vocabulary; the `sweep-improvements` skill does the periodic pass.
 - **Where**: `teams.club_name` for the Connecticut GotSport rows named "Albion SC Fairfield ..." (5 rows, 3 of them also holding an EA alias); the `normalizing-club-names` skill's hand-vetted path (`scripts/apply_vetted_club_names.py`)
 - **Why**: Seen 2026-11-20: each of these teams is named Albion SC Fairfield but stored with club "Regal Sporting Group", while the two EA-created rows carry "ALBION SC Fairfield", so one club splits across two club names and the duplicate scan cannot pair them. "Regal Sporting Group" looks like the GotSport registration entity; confirm with the owner before moving, since the weekly backfill may write it back from GotSport.
 - **Noted**: 2026-11-20
+
+### Import the North Puget Sound League's Winter season (Demosphere site 74274)
+
+- **ID**: IMP-408
+- **Status**: deferred
+- **Type**: investigate
+- **Category**: feature
+- **Where**: `scripts/import_demosphere.py` season handling: `_SEASON_LABEL` / `season_start_year`, `current_season_label` / `season_candidates`, and `collect_league`'s single `season_key`
+- **Why**: The league runs a Winter 2026-2027 season, mostly older girls, under its own season key (`116592460`; a GU16 Division 2 team page reads "(Winter 2026-2027)", checked 2026-11-22), which the driver cannot read: the season label pattern accepts only `Fall<year>`/`Spring<year>`, the fallback rotates Fall and Spring only, and the walk follows the one season key the seed club's schedule page carries most. The owner decided on 2026-11-22 to ship Fall first and add Winter once it has scores.
+- **Noted**: 2026-11-22
+- **Trigger**: A Winter 2026-2027 division page shows played scores in `td.sch-main-sc`. None were played on 2026-11-22.
+
+### Decode a page with no declared charset the same way in every HTML driver
+
+- **Type**: plan
+- **Category**: reliability
+- **Where**: `_undeclared_encoding` in `scripts/import_demosphere.py`; `_encoding` in `scripts/import_tourneycentral_event.py` (Heartland reads pages through its `_fetch`); the `_get` that sets `response.encoding = "utf-8"` in `scripts/import_yssl.py`, `scripts/import_athletes2events_event.py` and `scripts/import_soccereventsgroup_event.py`
+- **Why**: Three rules coexist. Demosphere reads UTF-8 when the bytes are UTF-8, else windows-1252. Tourney Central reads the header charset, then a `<meta charset>`, else UTF-8. The other three force UTF-8. A page that declares no charset and carries a windows-1252 byte (the North Puget Sound League's pages put a `\xa0` inside team names, seen 2026-11-23) decodes to U+FFFD in the force-UTF-8 drivers and in Tourney Central's fallback, and the garbled name is stored on any team the run creates. Left out of the NPSL change as out of scope; no garbled name has been seen from the other drivers yet. One shared helper would keep a fix from landing in one driver only.
+- **Noted**: 2026-11-23

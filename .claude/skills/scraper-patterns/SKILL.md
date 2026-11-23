@@ -1373,24 +1373,42 @@ browser User-Agent, no proxy and no bot challenge. `scripts/import_heartland.py`
 ## Demosphere Pages
 
 Demosphere ("Elements", `elements.demosphere.com`) hosts league sites keyed by a numeric site id. NCSL
-(Northern Virginia, with some DC and Maryland clubs) is `80738`; Fall 2026 is the season the driver was built
-against. Pages are server-rendered HTML and answer `requests` sent with a browser User-Agent, no proxy and no bot
-challenge. `scripts/import_demosphere.py` is the driver and `demosphere-scraper.yml` runs it every Sunday night
-(Arizona); its `LEAGUES` map holds each site's league name, state and seed club. A run with no `--season` tries the
+(Northern Virginia, with some DC and Maryland clubs) is `80738` and the North Puget Sound League (Washington) is
+`74274`; Fall 2026 is the season the driver was built against. Pages are server-rendered HTML and answer `requests`
+sent with a browser User-Agent, no proxy and no bot challenge. `scripts/import_demosphere.py` is the driver and
+`demosphere-scraper.yml` runs it every Sunday night (Arizona), one league after the other; its `LEAGUES` map holds
+each site's league name, state, seed club and whether its team names open with a team code. A run with no `--season` tries the
 current season and then the one before it, because the site keeps showing the last season until the next is
 published. Teams held as conflicts are reported and do not turn the run red; a failed link or an unreadable row does. `robots.txt` disallows `/scripts/` and `/_sin/`, and venue links point into `/scripts/`: never follow one.
 
 ### Pages and ids
 
-- `/<site>/schedules/<Season>/<division key>.html` is the source. `td.hdr` and a `var tgname` carry the division
-  name (`GU13 Division 4`), a `tr.gm-hdr-5d1h` row dates each day ("Sat, September 12, 2026"), and each
+- `/<site>/schedules/<Season>/<division key>.html` is the source. `td.hdr` carries the division name
+  (`GU13 Division 4`), and NCSL also writes it in a `var tgname`; the North Puget Sound League writes no
+  `tgname`, so the driver falls back to `td.hdr` and reports a page with neither, since a blank division loses
+  every team's age bound and gender. A `tr.gm-hdr-5d1h` row dates each day ("Sat, September 12, 2026"), and each
   `tr.sch-main-gm` is a game with `data-gamekey`. Team cells are `td.schedtm1` (home) and `td.schedtm2` (away)
-  with `data-tmkey` (team key) and `data-cbkey` (club key); the text is the team code and the full name
-  (`NG14107 Villarreal VA Azul G2013/14`). The score cell reads `2-1`, `FFT` for a forfeit, or `vs` or nothing
-  for an unplayed game.
+  with `data-tmkey` (team key) and `data-cbkey` (club key); the text is the full name, which NCSL opens with a
+  team code (`NG14107 Villarreal VA Azul G2013/14`). The North Puget Sound League writes no code (`NSC BU16B`),
+  so its row sets `team_codes=False` and a name opening with `B10` or `U13` keeps that word. The score cell reads
+  `2-1`, `FFT` for a forfeit, or `vs` or nothing for an unplayed game. A row whose two team cells are both blank
+  (no `data-tmkey`, no name) and that has no score is an unfilled slot and is skipped; a row blank on one side
+  only, blank on both with a score, or missing a team cell is reported as unreadable.
+- A club page can list a team in a division that has no schedule page. The site's (Apache) spelling corrector
+  answers that address with `300 Multiple Choices` ("could not be found ... similar names") when several pages are
+  near, a `301` to the page when one is, and 404 when none is. `_get` follows no redirect and reads a 300, a 301 or
+  a 404 as no page; followed, the 301 would read the near-named division's games a second time. The driver notes
+  such a division in the run's summary and walks on, since it holds no games. Every other answer stops the run at
+  once, any other redirect included, and so does a club or seed page with no page at its address. A walk that
+  finds no division of the season, or in which no division has a schedule page, is a problem and turns the run
+  red. The
+  North Puget Sound League's Fall 2026 walk met three 300s on 2026-11-22, each listed for one team, and one 301
+  (division `116590779` to BU12 Division 4, `116590797`) on 2026-11-23.
 - `/<site>/teams/club/<club key>.html` names the club (`h1.dii-hdr-cb`, the first text node) and links every
-  team as `/teams/<season key>/<team key>-<division key>/TEAM.html`. It lists two seasons' teams; only the
-  links carrying the current season key, read from the seed club's schedule page, are walked.
+  team as `/teams/<season key>/<team key>-<division key>/TEAM.html`. It lists several seasons' teams; only the
+  links carrying the current season key, read from the seed club's schedule page, are walked. The North Puget
+  Sound League also runs a Winter season for older girls (Winter 2026-2027, season key `116592460`), which the
+  driver does not read: its season label is neither Fall nor Spring.
 - `/<site>/clubs/schedule/<seed club key>.html` is fetched once, for the seed club only. It supplies the season
   key and proves the site is showing the requested `--season`: the driver stops when it links no
   `/schedules/<Season>/` division.
@@ -1845,7 +1863,9 @@ against a unit fixture.
 - Link a team with an approved `team_alias_map` row: `match_method` "manual", or "direct_id"
   when the target team row already carries that provider team id (`teams.provider_team_id`).
   First check that no other team in the same event already links to the target.
-- Make a new team through the provider matcher's create helper plus a direct_id alias.
+- Make a new team through the provider matcher's create helper plus a direct_id alias. Log each
+  team and alias as it lands, and keep an undo (delete the alias, then the team) that is safe only
+  while the team has no games.
 - Read the alias back, then set the queue row's `status` ("approved" for a link, "rejected"
   for a new team), `reviewed_by` and `reviewed_at`. The base `_create_alias` logs a failed
   write and returns normally.
@@ -1853,6 +1873,17 @@ against a unit fixture.
   `match_method = 'manual_review'`, which the `valid_match_type` CHECK from migration
   `20240201000004` does not allow, and where the insert does land its `ON CONFLICT DO NOTHING`
   keeps any existing alias.
+- To apply an owner's ruling on the teams a roster pass holds (review, conflict) before its first import:
+  - First re-run the dry run under the write guard, with the provider's rows counted before and after,
+    and compare it with the run the ruling was made on. Stored teams change in between (2026-11-23: a
+    GotSport team was renamed to one squad's exact name, so a squad ruled new had an exact match); a
+    team whose outcome moved goes back to the owner.
+  - Scan the names about to be created for U+FFFD before writing: it catches a page read as UTF-8 that
+    is not.
+  - Re-run the dry run after the batch. A team created outside a run is a candidate for the next one,
+    and `_created_this_run` excludes only teams created in the same run, so a sibling squad can match it
+    and be held as a conflict (2 after 68 created on 2026-11-23). Decide each new conflict under the
+    same ruling, creating it through the helper and alias as above when the ruling says new.
 
 ### Repairing a half-matched game
 
